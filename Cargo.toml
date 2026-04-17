@@ -1,0 +1,72 @@
+[package]
+name    = "eth-examples"
+edition = "2021"
+version = "0.1.0"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+embassy-net       = { workspace = true, features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
+embassy-time      = { workspace = true }
+embassy-futures   = { workspace = true }
+embedded-tls      = { workspace = true }
+embedded-io-async = { workspace = true }
+embedded-hal      = { workspace = true }
+rand_core         = { workspace = true }
+portable-atomic   = { workspace = true }
+static_cell       = { workspace = true }
+defmt             = { workspace = true }
+
+[workspace]
+resolver = "2"
+members = []
+
+[workspace.dependencies]
+eth-examples      = { path = "." }
+embassy-executor  = { version = "0.10.0", default-features = false }
+embassy-time      = { version = "0.5.1", default-features = false }
+embassy-net       = { version = "0.9.0", default-features = false }
+embassy-net-wiznet = { version = "0.3.0", default-features = false }
+embassy-futures   = "0.1.2"
+defmt             = "1.0.1"
+defmt-rtt         = "1.0.0"
+panic-probe       = { version = "1.0.0", default-features = false }
+static_cell       = "2.1"
+portable-atomic   = { version = "1.13", features = ["critical-section"] }
+embedded-hal      = "1.0"
+embedded-hal-async = "1.0"
+embedded-hal-bus  = { version = "0.1", default-features = false }
+embedded-io-async = "0.7"
+embedded-tls      = { version = "0.18", default-features = false }
+rand_core         = { version = "0.6", default-features = false }
+
+[workspace.lints.clippy]
+pedantic     = { level = "warn", priority = -1 }
+unwrap_used  = "deny"
+
+[lints]
+workspace = true
+
+[profile.dev]
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1
+debug         = 2
+incremental   = false
+lto           = "fat"
+opt-level     = "s"
+
+# Vendored copy of embassy-net-wiznet 0.3.0 with the read_frame underflow
+# fix from upstream commit 14592448 applied on top. Single-crate patch
+# keeps every transitive embassy dep on crates.io. Patching embassy-time
+# to a git rev silently swaps crate content while keeping the 0.5.1
+# version string, which diverges from what embassy-rp 0.10.0 from
+# crates.io was built against and hangs RP2040 at startup. See
+# embassy-rs/embassy#1389 and #4500 for the class of failure.
+[patch.crates-io]
+embassy-net-wiznet = { path = "firmware/embassy-net-wiznet-patch" }
+
+[profile.rust-analyzer]
+inherits = "dev"
