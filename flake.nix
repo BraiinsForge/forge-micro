@@ -102,9 +102,7 @@
           in
           pkgs.lib.cleanSourceWith {
             src = ./.;
-            filter =
-              path: type:
-              (customFilter path type) || (craneLib.filterCargoSources path type);
+            filter = path: type: (customFilter path type) || (craneLib.filterCargoSources path type);
           };
       in
       {
