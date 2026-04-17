@@ -1,0 +1,12 @@
+[target.thumbv6m-none-eabi]
+runner = [
+  "probe-rs", "run",
+  "--chip", "RP2040",
+  "--log-format", "{t:>10} {f:<14} [{L}] {s}",
+]
+
+[env]
+DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
+
+[build]
+target = "thumbv6m-none-eabi"

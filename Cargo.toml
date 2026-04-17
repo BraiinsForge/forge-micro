@@ -20,7 +20,9 @@ defmt             = { workspace = true }
 
 [workspace]
 resolver = "2"
-members = []
+members = [
+    "firmware/rp2040",
+]
 
 [workspace.dependencies]
 eth-examples      = { path = "." }
