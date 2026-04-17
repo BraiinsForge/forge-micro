@@ -1,0 +1,23 @@
+[package]
+edition = "2021"
+name    = "esp32s3"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+eth-examples           = { workspace = true }
+embassy-executor       = { version = "0.9.1", features = ["defmt"] }
+embassy-time           = { workspace = true, features = ["defmt", "generic-queue-8"] }
+embassy-net            = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
+embassy-net-wiznet     = { workspace = true, features = ["defmt"] }
+defmt                  = { workspace = true }
+static_cell            = { workspace = true }
+embedded-hal-bus       = { workspace = true, features = ["async"] }
+esp-hal                = { version = "1.0.0", features = ["defmt", "esp32s3", "unstable"] }
+esp-rtos               = { version = "0.2.0", features = ["embassy", "esp32s3", "defmt"] }
+esp-backtrace          = { version = "0.18.1", features = ["defmt", "esp32s3", "panic-handler"] }
+rand_core              = { workspace = true }
+defmt-rtt              = "1.1.0"
+esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32s3"] }
