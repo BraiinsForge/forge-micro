@@ -27,8 +27,8 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 }
 
-// Duplicated in stm32f407/build.rs. Build scripts cannot share code
-// without a build-dependency crate, so the duplication is intentional.
+// Duplicated in rp2350/build.rs, stm32f407/build.rs, and stm32f439/build.rs. Build scripts cannot
+// share code without a build-dependency crate, so the duplication is intentional.
 fn linker_be_nice() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 2 {
