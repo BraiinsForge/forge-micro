@@ -22,6 +22,7 @@ defmt             = { workspace = true }
 resolver = "2"
 members = [
     "firmware/rp2040",
+    "firmware/rp2350",
     "firmware/stm32f407",
     "firmware/esp32s3",
 ]
