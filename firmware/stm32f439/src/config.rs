@@ -6,7 +6,7 @@
 //! ETH, PHY management pins, seven RMII pins, watchdog, and LED.
 
 use embassy_stm32::peripherals::{
-    ETH, ETH_SMA, IWDG, PA1, PA2, PA7, PB0, PB11, PB12, PB13, PC1, PC4, PC5, RNG,
+    ETH, ETH_SMA, IWDG, PA1, PA2, PA7, PB0, PB11, PB12, PB13, PC1, PC4, PC5, PD8, PD9, RNG, USART3,
 };
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peri;
@@ -57,6 +57,9 @@ pub struct Board {
     pub tx_en: Peri<'static, PB11>,
     pub mdio: Peri<'static, PA2>,
     pub mdc: Peri<'static, PC1>,
+    pub usart3: Peri<'static, USART3>,
+    pub usart3_tx: Peri<'static, PD8>,
+    pub usart3_rx: Peri<'static, PD9>,
 }
 
 impl Board {
@@ -80,6 +83,9 @@ impl Board {
             tx_en: peripherals.PB11,
             mdio: peripherals.PA2,
             mdc: peripherals.PC1,
+            usart3: peripherals.USART3,
+            usart3_tx: peripherals.PD8,
+            usart3_rx: peripherals.PD9,
         }
     }
 }

@@ -15,6 +15,7 @@ use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::peripherals::{ETH, ETH_SMA, IWDG};
 use embassy_stm32::rng::Rng;
+use embassy_stm32::usart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng};
 use static_cell::StaticCell;
@@ -29,6 +30,7 @@ defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
     RNG => rng::InterruptHandler<peripherals::RNG>;
+    USART3 => BufferedInterruptHandler<peripherals::USART3>;
 });
 
 type Device = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
@@ -71,6 +73,13 @@ async fn bitcoin_price_task(
 #[embassy_executor::task]
 async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
     net::run_ntp_sync(stack).await
+}
+
+#[embassy_executor::task]
+async fn uart_echo_test(mut uart: BufferedUart<'static>) -> ! {
+    let _ = eth_examples::uart_echo::run_test(&mut uart).await;
+    core::future::pending::<()>().await;
+    unreachable!()
 }
 
 #[embassy_executor::main]
@@ -127,6 +136,25 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
+
+    static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+    static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+    let uart = BufferedUart::new(
+        hw.usart3,
+        hw.usart3_rx,
+        hw.usart3_tx,
+        TX_BUF.init([0; 256]),
+        RX_BUF.init([0; 256]),
+        Irqs,
+        {
+            let mut config = UartConfig::default();
+            config.baudrate = eth_examples::uart_echo::BAUD_RATE;
+            config
+        },
+    )
+    // Valid USART peripheral and default-compatible baud rate; cannot fail.
+    .expect("BUG: USART3 configuration failed");
+    spawner.spawn(unwrap!(uart_echo_test(uart)));
 
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;

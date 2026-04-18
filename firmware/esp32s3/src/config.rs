@@ -4,7 +4,9 @@
 //! that main.rs needs. SPI frequency is pinned below the W5100S
 //! datasheet limit because higher rates corrupt frames on this wiring.
 
-use esp_hal::peripherals::{GPIO1, GPIO2, GPIO39, GPIO40, GPIO41, GPIO42, SPI2, TIMG0, TIMG1};
+use esp_hal::peripherals::{
+    GPIO1, GPIO2, GPIO39, GPIO40, GPIO41, GPIO42, GPIO43, GPIO44, SPI2, TIMG0, TIMG1, UART0,
+};
 use esp_hal::time::Rate;
 
 pub struct Spi;
@@ -31,6 +33,9 @@ pub struct Board<'d> {
     pub w5500_int: GPIO41<'d>,
     pub w5500_reset: GPIO40<'d>,
     pub dma: esp_hal::peripherals::DMA_CH0<'d>,
+    pub uart0: UART0<'d>,
+    pub uart_tx: GPIO43<'d>,
+    pub uart_rx: GPIO44<'d>,
 }
 
 impl Board<'static> {
@@ -50,6 +55,9 @@ impl Board<'static> {
             w5500_int: peripherals.GPIO41,
             w5500_reset: peripherals.GPIO40,
             dma: peripherals.DMA_CH0,
+            uart0: peripherals.UART0,
+            uart_tx: peripherals.GPIO43,
+            uart_rx: peripherals.GPIO44,
         }
     }
 }

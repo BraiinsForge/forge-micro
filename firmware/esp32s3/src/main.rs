@@ -23,6 +23,7 @@ use esp_hal::rng::Rng;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::spi::Mode;
 use esp_hal::timer::timg::{MwdtStage, TimerGroup, Wdt};
+use esp_hal::uart::{Config as UartConfig, Uart};
 use rand_core::{CryptoRng, RngCore};
 use static_cell::StaticCell;
 use {defmt_rtt as _, esp_backtrace as _};
@@ -117,6 +118,13 @@ async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
     net::run_ntp_sync(stack).await
 }
 
+#[embassy_executor::task]
+async fn uart_echo_test(mut uart: Uart<'static, esp_hal::Async>) -> ! {
+    let _ = eth_examples::uart_echo::run_test(&mut uart).await;
+    core::future::pending::<()>().await;
+    unreachable!()
+}
+
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
@@ -189,6 +197,15 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(bitcoin_price_task(stack, TlsRng(rng)));
     spawner.must_spawn(ntp_sync_task(stack));
     // No LED blink task: board wiring does not include an accessible LED.
+
+    let uart_config = UartConfig::default().with_baudrate(eth_examples::uart_echo::BAUD_RATE);
+    // Valid UART peripheral and default-compatible baud rate; cannot fail.
+    let uart = Uart::new(hw.uart0, uart_config)
+        .expect("BUG: UART0 configuration failed")
+        .with_tx(hw.uart_tx)
+        .with_rx(hw.uart_rx)
+        .into_async();
+    spawner.must_spawn(uart_echo_test(uart));
 
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;

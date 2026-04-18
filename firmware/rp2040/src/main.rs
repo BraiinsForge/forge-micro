@@ -15,8 +15,9 @@ use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, SPI0};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, SPI0, UART1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
+use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Delay;
@@ -32,6 +33,7 @@ defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
 
 bind_interrupts!(struct Irqs {
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
+    UART1_IRQ => BufferedInterruptHandler<UART1>;
 });
 
 type EthernetRunner = Runner<
@@ -84,6 +86,13 @@ async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
     net::run_ntp_sync(stack).await
 }
 
+#[embassy_executor::task]
+async fn uart_echo_test(mut uart: BufferedUart) -> ! {
+    let _ = eth_examples::uart_echo::run_test(&mut uart).await;
+    core::future::pending::<()>().await;
+    unreachable!()
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
@@ -134,6 +143,23 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
+
+    static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+    static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+    let uart = BufferedUart::new(
+        hw.uart,
+        hw.uart_tx,
+        hw.uart_rx,
+        Irqs,
+        TX_BUF.init([0; 256]),
+        RX_BUF.init([0; 256]),
+        {
+            let mut config = UartConfig::default();
+            config.baudrate = eth_examples::uart_echo::BAUD_RATE;
+            config
+        },
+    );
+    spawner.spawn(unwrap!(uart_echo_test(uart)));
 
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;

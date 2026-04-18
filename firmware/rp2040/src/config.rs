@@ -5,7 +5,8 @@
 //! through `main`.
 
 use embassy_rp::peripherals::{
-    DMA_CH0, DMA_CH1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_25, SPI0, WATCHDOG,
+    DMA_CH0, DMA_CH1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_25, PIN_4, PIN_5, SPI0,
+    UART1, WATCHDOG,
 };
 use embassy_rp::Peri;
 use embassy_time::Duration;
@@ -23,6 +24,9 @@ pub struct Board {
     pub w5500_reset: Peri<'static, PIN_20>,
     pub rx_dma: Peri<'static, DMA_CH0>,
     pub tx_dma: Peri<'static, DMA_CH1>,
+    pub uart: Peri<'static, UART1>,
+    pub uart_tx: Peri<'static, PIN_4>,
+    pub uart_rx: Peri<'static, PIN_5>,
 }
 
 impl Board {
@@ -43,6 +47,9 @@ impl Board {
             w5500_reset: peripherals.PIN_20,
             rx_dma: peripherals.DMA_CH0,
             tx_dma: peripherals.DMA_CH1,
+            uart: peripherals.UART1,
+            uart_tx: peripherals.PIN_4,
+            uart_rx: peripherals.PIN_5,
         }
     }
 }
