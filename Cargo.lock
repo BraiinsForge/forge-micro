@@ -606,6 +606,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "echoer"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.0.1",
+ "defmt-rtt",
+ "embassy-executor 0.9.1",
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+ "esp-backtrace",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-rtos",
+ "eth-examples",
+]
+
+[[package]]
 name = "ed25519"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
