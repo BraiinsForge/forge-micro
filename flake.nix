@@ -4,8 +4,9 @@
 # an Xtensa toolchain that is not in nixpkgs. This flake pins both so
 # a clean checkout compiles without manual rustup or espup setup.
 #
-# What: `default` provides thumbv6m and thumbv7em targets plus
-# probe-rs and debug tools for the Pico and DevEBox boards. `esp32`
+# What: `default` provides thumbv6m, thumbv7em, and thumbv8m.main targets
+# plus probe-rs and debug tools for the W5500-EVB-Pico, W6100-EVB-Pico-2,
+# DevEBox, and Nucleo-F439ZI boards. `esp32`
 # installs a pinned espup release, patches its binaries for NixOS,
 # and exposes espflash and probe-rs for the ESP32-S3.
 #
@@ -51,6 +52,7 @@
           targets = [
             "thumbv6m-none-eabi"
             "thumbv7em-none-eabihf"
+            "thumbv8m.main-none-eabihf"
           ];
         };
 
@@ -114,10 +116,24 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-rp2350 = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
           clippy-stm32f407 = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p stm32f407 --target thumbv7em-none-eabihf";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-stm32f439 = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p stm32f439 --target thumbv7em-none-eabihf";
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
@@ -145,7 +161,9 @@
               echo "eth-examples dev environment ready (ARM boards)"
               echo ""
               echo "  cd firmware/rp2040    && cargo build --release  RP2040 W5500"
+              echo "  cd firmware/rp2350    && cargo build --release  RP2350 W6100"
               echo "  cd firmware/stm32f407 && cargo build --release  STM32F407 LAN8720"
+              echo "  cd firmware/stm32f439 && cargo build --release  STM32F439 LAN8720"
               echo ""
               echo "For ESP32-S3 board: nix develop .#esp32"
             '';

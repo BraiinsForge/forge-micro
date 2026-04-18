@@ -1,6 +1,6 @@
 # Ethernet Examples
 
-Bare-metal Rust Ethernet across three boards. Each serves an HTTP metrics
+Bare-metal Rust Ethernet across five boards. Each serves an HTTP metrics
 page with uptime, request count, BTC price via Binance over TLS, and UTC
 time via NTP.
 
@@ -9,7 +9,9 @@ time via NTP.
 | Crate | MCU | Ethernet | Target |
 |-------|-----|----------|--------|
 | rp2040 | RP2040 | W5500 (onboard SPI) | thumbv6m-none-eabi |
+| rp2350 | RP2350A | W6100 (onboard SPI) | thumbv8m.main-none-eabihf |
 | stm32f407 | STM32F407VGT6 | LAN8720 (RMII, WT32-ETH01 cannibalized) | thumbv7em-none-eabihf |
+| stm32f439 | STM32F439ZIT6 | LAN8720 (RMII, Waveshare ETH Board) | thumbv7em-none-eabihf |
 | esp32s3 | ESP32-S3 | W5100S (SPI) | xtensa-esp32s3-none-elf |
 
 ## Prerequisites
@@ -81,10 +83,30 @@ the SWD I/O levels. The target must be powered separately via USB.
 | INT | 21 | GPIO (Pull-Up) |
 | LED | 25 | GPIO |
 
+### W6100-EVB-Pico-2 (rp2350)
+
+Same pinout as the W5500-EVB-Pico. The board uses a W6100 instead of W5500.
+
+| Function | GPIO | SPI0 |
+|----------|------|------|
+| MISO | 16 | SPI0 RX |
+| CS | 17 | GPIO |
+| CLK | 18 | SPI0 SCK |
+| MOSI | 19 | SPI0 TX |
+| RST | 20 | GPIO |
+| INT | 21 | GPIO (Pull-Up) |
+| LED | 25 | GPIO |
+
 ### DevEBox STM32F407 + LAN8720 (stm32f407)
 
 See [firmware/stm32f407/README.md](firmware/stm32f407/README.md)
 for the full RMII and management interface wiring.
+
+### Nucleo-F439ZI + LAN8720 (stm32f439)
+
+Same RMII pin mapping as the STM32F407. The Waveshare LAN8720 ETH Board
+has its own 50 MHz oscillator, so no oscillator enable pin is needed.
+LED is on PB0 (Nucleo LD1 green). Debug via onboard ST-LINK.
 
 ### ESP32-S3 + W5100S (esp32s3)
 
@@ -104,7 +126,9 @@ Repurposes the LCD header pins on an ESP32-S3 dev board.
 ```sh
 nix develop                                          # ARM dev shell
 cd firmware/rp2040      && cargo run --release   # W5500-EVB-Pico
+cd firmware/rp2350      && cargo run --release   # W6100-EVB-Pico-2
 cd firmware/stm32f407   && cargo run --release   # DevEBox STM32F407
+cd firmware/stm32f439   && cargo run --release   # Nucleo-F439ZI
 ```
 
 ```sh

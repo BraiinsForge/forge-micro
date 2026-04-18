@@ -11,7 +11,9 @@ covers ARM targets; the `esp32` shell covers the Xtensa target.
 
 ```sh
 nix develop -c bash -c 'cd firmware/rp2040      && cargo check'
+nix develop -c bash -c 'cd firmware/rp2350      && cargo check'
 nix develop -c bash -c 'cd firmware/stm32f407   && cargo check'
+nix develop -c bash -c 'cd firmware/stm32f439   && cargo check'
 nix develop .#esp32 -c bash -c 'cd firmware/esp32s3 && cargo check'
 ```
 
@@ -20,7 +22,9 @@ nix develop .#esp32 -c bash -c 'cd firmware/esp32s3 && cargo check'
 | Crate | Target | MCU |
 |-------|--------|-----|
 | rp2040 | thumbv6m-none-eabi | RP2040 (Cortex-M0+) |
+| rp2350 | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
 | stm32f407 | thumbv7em-none-eabihf | STM32F407VGT6 (Cortex-M4F) |
+| stm32f439 | thumbv7em-none-eabihf | STM32F439ZIT6 (Cortex-M4F) |
 | esp32s3 | xtensa-esp32s3-none-elf | ESP32-S3 (Xtensa LX7) |
 
 ## Conventions
