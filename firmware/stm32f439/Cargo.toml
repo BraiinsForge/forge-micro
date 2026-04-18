@@ -1,0 +1,20 @@
+[package]
+edition = "2021"
+name    = "stm32f439"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+eth-examples        = { workspace = true }
+embassy-executor    = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-time        = { workspace = true, features = ["defmt"] }
+embassy-net         = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
+embassy-stm32       = { version = "0.6.0", features = ["defmt", "stm32f439zi", "memory-x", "time-driver-tim2", "time"] }
+defmt               = { workspace = true }
+defmt-rtt           = { workspace = true }
+panic-probe         = { workspace = true, features = ["print-defmt"] }
+static_cell         = { workspace = true }
+cortex-m            = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt         = "0.7"
