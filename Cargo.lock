@@ -2482,6 +2482,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rp2350"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt 1.0.1",
+ "defmt-rtt",
+ "embassy-executor 0.10.0",
+ "embassy-net",
+ "embassy-net-wiznet",
+ "embassy-rp",
+ "embassy-time",
+ "embedded-hal-bus",
+ "eth-examples",
+ "panic-probe",
+ "static_cell",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2775,6 +2794,23 @@ dependencies = [
 
 [[package]]
 name = "stm32f407"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt 1.0.1",
+ "defmt-rtt",
+ "embassy-executor 0.10.0",
+ "embassy-net",
+ "embassy-stm32",
+ "embassy-time",
+ "eth-examples",
+ "panic-probe",
+ "static_cell",
+]
+
+[[package]]
+name = "stm32f439"
 version = "0.1.0"
 dependencies = [
  "cortex-m",
