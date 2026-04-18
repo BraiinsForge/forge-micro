@@ -1,0 +1,19 @@
+[package]
+edition = "2021"
+name    = "echoer"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+eth-examples           = { workspace = true }
+embassy-executor       = { version = "0.9.1", features = ["defmt"] }
+embassy-time           = { workspace = true, features = ["defmt", "generic-queue-8"] }
+embedded-io-async      = { workspace = true }
+esp-hal                = { version = "1.0.0", features = ["defmt", "esp32s3", "unstable"] }
+esp-backtrace          = { version = "0.18.1", features = ["defmt", "esp32s3", "panic-handler"] }
+esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32s3"] }
+esp-rtos               = { version = "0.2.0", features = ["embassy", "esp32s3", "defmt"] }
+defmt                  = { workspace = true }
+defmt-rtt              = "1.1.0"
