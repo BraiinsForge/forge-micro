@@ -20,6 +20,7 @@ pub mod http;
 pub mod led;
 pub mod net;
 pub mod ntp;
+pub mod uart_echo;
 pub mod watchdog;
 
 /// Seconds since Unix epoch if NTP has synced, or seconds since boot otherwise.
