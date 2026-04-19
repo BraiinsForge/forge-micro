@@ -66,6 +66,16 @@
             nixos-raspberrypi.lib.inject-overlays
             nixos-raspberrypi.nixosModules.nixpkgs-rpi
             { nixpkgs.hostPlatform = "aarch64-linux"; }
+            (
+              { pkgs, ... }:
+              {
+                nixpkgs.overlays = [
+                  (final: prev: {
+                    ckpool = final.callPackage ./redacted/pkgs/ckpool.nix { };
+                  })
+                ];
+              }
+            )
             ./redacted/nuc.nix
           ]
           ++ extraModules;
