@@ -32,7 +32,7 @@ pub struct Board {
 impl Board {
     pub const NAME: &str = "Pico2 W6100";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
-    pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x05];
+    pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x03];
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {
