@@ -17,6 +17,8 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config as UartConfig, Uart};
 use {defmt_rtt as _, esp_backtrace as _};
 
+defmt::timestamp!("{=u64}", embassy_time::Instant::now().as_secs());
+
 mod config;
 
 esp_bootloader_esp_idf::esp_app_desc!();
