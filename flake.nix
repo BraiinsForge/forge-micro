@@ -50,8 +50,29 @@
       flake-utils,
       rust-overlay,
       crane,
-    }:
-    flake-utils.lib.eachDefaultSystem (
+      nixos-raspberrypi,
+      deploy-rs,
+    }@inputs:
+    let
+      # Build a NUC nixosSystem with the shared RPi overlays and platform
+      # setting. Callers append image-specific modules (e.g. sd-image.nix).
+      mkNuc =
+        extraModules:
+        nixpkgs.lib.nixosSystem {
+          specialArgs = {
+            inherit inputs nixos-raspberrypi;
+          };
+          modules = [
+            nixos-raspberrypi.lib.inject-overlays
+            nixos-raspberrypi.nixosModules.nixpkgs-rpi
+            { nixpkgs.hostPlatform = "aarch64-linux"; }
+            ./redacted/nuc.nix
+          ]
+          ++ extraModules;
+        };
+      sdImage = (mkNuc [ ./redacted/sd-image.nix ]).config.system.build.sdImage;
+    in
+    (flake-utils.lib.eachDefaultSystem (
       system:
       let
         overlays = [ (import rust-overlay) ];
@@ -163,14 +184,17 @@
 
         devShells = {
           default = pkgs.mkShell {
-            buildInputs = with pkgs; [
-              rustToolchain
-              probe-rs-tools
-              pkg-config
-              libudev-zero
-              picocom
-              usbutils
-            ];
+            buildInputs =
+              with pkgs;
+              [
+                rustToolchain
+                probe-rs-tools
+                pkg-config
+                libudev-zero
+                picocom
+                usbutils
+              ]
+              ++ [ deploy-rs.packages.${system}.default ];
 
             RUST_ANALYZER_SERVER_PATH = "${rustToolchain}/bin/rust-analyzer";
 
@@ -183,6 +207,7 @@
               echo "  cd firmware/stm32f439 && cargo build --release  # STM32F439 LAN8720"
               echo ""
               echo "For ESP32-S3 board: nix develop .#esp32"
+              echo "Deploy to NUC:      deploy .#nuc"
             '';
           };
 
@@ -253,5 +278,18 @@
           };
         };
       }
-    );
+    ))
+    // {
+      # Raspberry Pi 4 support node that connects the target boards to the
+      # redacted mesh. See redacted/nuc.nix for the host definition.
+      nixosConfigurations.nuc = mkNuc [ ];
+
+      # Bootable SD-card image for the NUC. The image is always aarch64 but
+      # the build can run on any host via binfmt/QEMU. Build with:
+      #   redacted_SETUP_KEY=<key> \
+      #   WIFI_NETWORKS='[{"ssid":"home","psk":"secret"}]' \
+      #     nix build .#sd-image --impure
+      packages.x86_64-linux.sd-image = sdImage;
+      packages.aarch64-linux.sd-image = sdImage;
+    };
 }
