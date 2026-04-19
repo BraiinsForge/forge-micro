@@ -284,6 +284,17 @@
       # redacted mesh. See redacted/nuc.nix for the host definition.
       nixosConfigurations.nuc = mkNuc [ ];
 
+      # Remote deployment via deploy-rs. Pushes the NUC NixOS closure over
+      # SSH and activates it without requiring a full SD-card reflash.
+      deploy.nodes.nuc = {
+        hostname = "nuc.nb.redacted";
+        sshUser = "admin";
+        profiles.system = {
+          user = "root";
+          path = deploy-rs.lib.aarch64-linux.activate.nixos self.nixosConfigurations.nuc;
+        };
+      };
+
       # Bootable SD-card image for the NUC. The image is always aarch64 but
       # the build can run on any host via binfmt/QEMU. Build with:
       #   redacted_SETUP_KEY=<key> \
