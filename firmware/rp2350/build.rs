@@ -3,9 +3,10 @@ use std::path::PathBuf;
 
 /// Build script that configures linker scripts and error handling.
 ///
-/// For RP2350, we need memory.x copied to the linker search path plus link.x,
-/// link-rp.x, and defmt.x linker scripts. The `IMAGE_DEF` block is provided by
-/// the embassy-rp `imagedef-nonsecure-exe` feature instead of a BOOT2 section.
+/// For RP2350, we need memory.x copied to the linker search path plus link.x
+/// and defmt.x linker scripts. The `IMAGE_DEF` block is provided by
+/// embassy-rp's default secure-exe imagedef instead of a BOOT2 section,
+/// so link-rp.x (which defines the .boot2 section) is not needed here.
 fn main() {
     linker_be_nice();
 
@@ -20,7 +21,6 @@ fn main() {
     println!("cargo:rustc-link-search={}", out_dir.display());
 
     println!("cargo:rustc-link-arg=-Tlink.x");
-    println!("cargo:rustc-link-arg=-Tlink-rp.x");
     println!("cargo:rustc-link-arg=-Tdefmt.x");
 
     println!("cargo:rerun-if-changed=memory.x");

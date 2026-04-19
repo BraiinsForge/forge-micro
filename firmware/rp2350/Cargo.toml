@@ -12,7 +12,7 @@ embassy-executor    = { workspace = true, features = ["platform-cortex-m", "exec
 embassy-time        = { workspace = true, features = ["defmt"] }
 embassy-net         = { workspace = true, features = ["defmt", "tcp", "udp", "dhcpv4", "medium-ethernet", "dns"] }
 embassy-net-wiznet  = { workspace = true, features = ["defmt"] }
-embassy-rp          = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "imagedef-nonsecure-exe"] }
+embassy-rp          = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa"] }
 defmt               = { workspace = true }
 defmt-rtt           = { workspace = true }
 panic-probe         = { workspace = true, features = ["print-defmt"] }
