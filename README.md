@@ -143,3 +143,11 @@ configures the probe-rs runner for flash and monitor.
 
 All boards use DHCP. After flashing, check your router for the assigned IP
 address and open `http://<ip>/` in a browser.
+
+## Support Node (NUC)
+
+A Raspberry Pi 4 running NixOS that hosts the target boards, joins the
+redacted redacted mesh, and exposes node_exporter for remote monitoring.
+
+See [redacted/README.md](redacted/README.md) for build, flash, and enrollment
+instructions. Host definition is in `redacted/nuc.nix`.
