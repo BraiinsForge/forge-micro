@@ -72,6 +72,20 @@
                 nixpkgs.overlays = [
                   (final: prev: {
                     ckpool = final.callPackage ./redacted/pkgs/ckpool.nix { };
+                    probe-rs-tools-remote = prev.probe-rs-tools.overrideAttrs (old: {
+                      cargoBuildFeatures = (old.cargoBuildFeatures or [ ]) ++ [ "remote" ];
+                    });
+                    probe-rs-runner = prev.writeShellScriptBin "probe-rs-runner" ''
+                      args=()
+                      for arg in "$@"; do
+                        if [ "$arg" = "--local" ]; then
+                          unset PROBE_RS_REMOTE_HOST PROBE_RS_REMOTE_TOKEN
+                        else
+                          args+=("$arg")
+                        fi
+                      done
+                      exec probe-rs "''${args[@]}"
+                    '';
                   })
                 ];
               }
@@ -137,6 +151,10 @@
           fi
         '';
 
+        probe-rs-tools-remote = pkgs.probe-rs-tools.overrideAttrs (old: {
+          cargoBuildFeatures = (old.cargoBuildFeatures or [ ]) ++ [ "remote" ];
+        });
+
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
         src =
@@ -198,7 +216,7 @@
               with pkgs;
               [
                 rustToolchain
-                probe-rs-tools
+                probe-rs-tools-remote
                 pkg-config
                 libudev-zero
                 picocom
@@ -222,11 +240,13 @@
           };
 
           esp32 = pkgs.mkShell {
-            buildInputs = with pkgs; [
+            buildInputs = [
+              probe-rs-tools-remote
+            ]
+            ++ (with pkgs; [
               espRustToolchain
               espup
               espflash
-              probe-rs-tools
               patchelf
               patchEspBinaries
               pkg-config
@@ -238,7 +258,7 @@
               libxml2
               openssl
               libffi
-            ];
+            ]);
 
             NIX_LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
               pkgs.stdenv.cc.cc.lib
