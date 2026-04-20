@@ -53,6 +53,32 @@ nix shell nixpkgs#jdk nixpkgs#libusb1 -c bash -c \
    -jar <path>/STLinkUpgrade.jar'
 ```
 
+### Debug probe (Pico 2 as CMSIS-DAP)
+
+A Raspberry Pi Pico 2 running the debugprobe firmware provides SWD and
+UART passthrough for the EVB-Pico boards. Flash `debugprobe_on_pico2.uf2`
+from `assets/` via BOOTSEL mass storage (hold BOOTSEL, plug USB, copy
+the UF2 file). The original Pico variant is `debugprobe_on_pico.uf2`.
+
+| Probe GPIO | EVB-Pico GPIO | Function |
+|------------|---------------|----------|
+| GP2 | SWCLK | SWD clock |
+| GP3 | SWDIO | SWD data |
+| GP4 | GP0 | UART TX (probe → target) |
+| GP5 | GP1 | UART RX (target → probe) |
+| GND | GND | Ground |
+
+### UART echoer wiring
+
+The echoer (Seeed XIAO ESP32-S3) connects to the EVB-Pico UART used
+by the echo test task. TX and RX are crossed.
+
+| XIAO silk | XIAO GPIO | EVB-Pico GPIO | Direction |
+|-----------|-----------|---------------|-----------|
+| D9 | GPIO8 (TX) | GP5 (UART RX) | echoer → target |
+| D10 | GPIO9 (RX) | GP4 (UART TX) | target → echoer |
+| GND | GND | GND | ground |
+
 ### SWD wiring (ST-Link V3 to Pico/EVB-Pico)
 
 The ST-Link V3 uses a 14-pin STDC14 connector. The Pico debug header
@@ -139,10 +165,68 @@ cd firmware/esp32s3     && cargo run --release   # ESP32-S3 + W5100S
 `probe-rs list` shows connected probes. Each crate's `.cargo/config.toml`
 configures the probe-rs runner for flash and monitor.
 
+### Probe mapping
+
+When multiple boards are connected, select a specific probe with
+`--probe VID:PID:SERIAL`. The serial is the chip's MAC address for ESP
+JTAG probes, or the USB serial string for CMSIS-DAP probes.
+
+| Serial | Probe type | Board |
+|--------|------------|-------|
+| `2e8a:000c-0:E66118604B5EBE26` | CMSIS-DAP (Pico 2) | rp2040 debugprobe |
+| `303a:1001:E0:72:A1:F9:EF:E8` | ESP JTAG | rp2040 echoer |
+| `303a:1001:D8:3B:DA:49:F7:E0` | ESP JTAG | esp32s3 firmware |
+| `303a:1001:AC:A7:04:2B:6F:7C` | ESP JTAG | esp32s3 echoer |
+| `2e8a:000c-0:E6605481DB696536` | CMSIS-DAP (Pico) | stm32f407 debugprobe |
+| `303a:1001:1C:DB:D4:5A:9C:70` | ESP JTAG | stm32f407 echoer |
+
+Example:
+
+```sh
+ssh nuc probe-rs run --chip esp32s3 --probe 303a:1001:D8:3B:DA:49:F7:E0 /tmp/esp32s3
+```
+
+### Echoer (ESP32-S3 XIAO)
+
+The echoer uses esp-hal 1.0.0 which requires the ESP-IDF bootloader
+format. probe-rs cannot write the bootloader on its own, so the first
+flash must go through espflash:
+
+```sh
+nix-shell -p espflash --run \
+  "espflash flash --chip esp32s3 --port /dev/ttyACM<N> target/xtensa-esp32s3-none-elf/release/echoer"
+```
+
+Put the XIAO into download mode first (hold BOOT, press RST). After
+flashing, do a full power cycle — disconnect all power sources, not
+just USB, since the XIAO may be back-powered through the UART wiring.
+
+Once the bootloader and partition table are in flash, subsequent
+flashes work with probe-rs:
+
+```sh
+nix develop .#esp32
+cd echoer && cargo run --release
+```
+
+The espflash step only needs to be repeated if the flash is erased.
+
 ## Network
 
-All boards use DHCP. After flashing, check your router for the assigned IP
-address and open `http://<ip>/` in a browser.
+The NUC runs dnsmasq on end0 with fixed DHCP leases. Each board gets a
+stable IP derived from the last octet of its locally-administered MAC
+address.
+
+| Board | MAC | IP |
+|-------|-----|----|
+| rp2040 | `02:00:00:00:00:02` | `redacted102` |
+| rp2350 | `02:00:00:00:00:03` | `redacted103` |
+| stm32f407 | `02:00:00:00:00:04` | `redacted104` |
+| esp32s3 | `02:00:00:00:00:05` | `redacted105` |
+| stm32f439 | `02:00:00:00:00:06` | `redacted106` |
+
+The NUC provides DNS forwarding and NAT to the internet via WiFi, so
+boards can resolve hostnames for NTP sync and HTTPS requests.
 
 ## Support Node (NUC)
 
