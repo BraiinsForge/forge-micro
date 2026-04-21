@@ -2,7 +2,7 @@
 runner = [
   "probe-rs-runner", "run",
   "--chip", "RP235x",
-  "--probe", "2e8a:000c",
+  "--probe", "2e8a:000c:6EAA91A84C2043F5",
   "--log-format", "{t:>10} {f:<14} [{L}] {s}",
 ]
 

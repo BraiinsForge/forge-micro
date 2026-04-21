@@ -2,6 +2,7 @@
 runner = [
   "probe-rs-runner", "run",
   "--chip", "STM32F407VGTx",
+  "--probe", "2e8a:000c:E6605481DB696536",
   "--log-format", "{t:>10} {f:<14} [{L}] {s}",
 ]
 
