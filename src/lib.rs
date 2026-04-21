@@ -16,10 +16,12 @@
 
 pub mod btc;
 pub mod consts;
+pub mod display;
 pub mod http;
 pub mod led;
 pub mod net;
 pub mod ntp;
+pub mod sh1106;
 pub mod uart_echo;
 pub mod watchdog;
 

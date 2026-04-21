@@ -21,7 +21,7 @@ use static_cell::ConstStaticCell;
 use crate::consts::{Btc, Http, Net, Ntp, Tls};
 
 static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
-static BTC_PRICE_CENTS: AtomicU32 = AtomicU32::new(0);
+pub static BTC_PRICE_CENTS: AtomicU32 = AtomicU32::new(0);
 pub static NTP_EPOCH_OFFSET: AtomicU64 = AtomicU64::new(0);
 
 static TCP_RX: ConstStaticCell<[u8; Tls::TCP_BUFFER_SIZE]> =
