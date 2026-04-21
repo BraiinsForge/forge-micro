@@ -1,6 +1,6 @@
 [target.xtensa-esp32s3-none-elf]
 runner = [
-  "probe-rs", "run",
+  "probe-rs-runner", "run",
   "--chip", "esp32s3",
   "--log-format", "{t:>10} {f:<14} [{L}] {s}",
 ]

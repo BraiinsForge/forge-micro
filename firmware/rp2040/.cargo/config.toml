@@ -1,6 +1,6 @@
 [target.thumbv6m-none-eabi]
 runner = [
-  "probe-rs", "run",
+  "probe-rs-runner", "run",
   "--chip", "RP2040",
   "--log-format", "{t:>10} {f:<14} [{L}] {s}",
 ]

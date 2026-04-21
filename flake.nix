@@ -155,6 +155,18 @@
           cargoBuildFeatures = (old.cargoBuildFeatures or [ ]) ++ [ "remote" ];
         });
 
+        probe-rs-runner = pkgs.writeShellScriptBin "probe-rs-runner" ''
+          args=()
+          for arg in "$@"; do
+            if [ "$arg" = "--local" ]; then
+              unset PROBE_RS_REMOTE_HOST PROBE_RS_REMOTE_TOKEN
+            else
+              args+=("$arg")
+            fi
+          done
+          exec probe-rs "''${args[@]}"
+        '';
+
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
         src =
@@ -217,6 +229,7 @@
               [
                 rustToolchain
                 probe-rs-tools-remote
+                probe-rs-runner
                 pkg-config
                 libudev-zero
                 picocom
@@ -224,6 +237,8 @@
               ]
               ++ [ deploy-rs.packages.${system}.default ];
 
+            PROBE_RS_REMOTE_HOST = "ws://nuc.nb.redacted:8080";
+            PROBE_RS_REMOTE_TOKEN = "redacted";
             RUST_ANALYZER_SERVER_PATH = "${rustToolchain}/bin/rust-analyzer";
 
             shellHook = ''
@@ -242,6 +257,7 @@
           esp32 = pkgs.mkShell {
             buildInputs = [
               probe-rs-tools-remote
+              probe-rs-runner
             ]
             ++ (with pkgs; [
               espRustToolchain
@@ -270,6 +286,8 @@
             ];
             NIX_LD = "${pkgs.glibc}/lib/ld-linux-x86-64.so.2";
 
+            PROBE_RS_REMOTE_HOST = "ws://nuc.nb.redacted:8080";
+            PROBE_RS_REMOTE_TOKEN = "redacted";
             RUST_ANALYZER_SERVER_PATH = "${espRustToolchain}/bin/rust-analyzer";
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 

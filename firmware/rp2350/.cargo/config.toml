@@ -1,6 +1,6 @@
 [target.thumbv8m.main-none-eabihf]
 runner = [
-  "probe-rs", "run",
+  "probe-rs-runner", "run",
   "--chip", "RP235x",
   "--probe", "2e8a:000c",
   "--log-format", "{t:>10} {f:<14} [{L}] {s}",

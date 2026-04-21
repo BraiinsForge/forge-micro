@@ -1,6 +1,6 @@
 [target.thumbv7em-none-eabihf]
 runner = [
-  "probe-rs", "run",
+  "probe-rs-runner", "run",
   "--chip", "STM32F439ZITx",
   "--log-format", "{t:>10} {f:<14} [{L}] {s}",
 ]
