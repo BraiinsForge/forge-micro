@@ -150,7 +150,7 @@ Repurposes the LCD header pins on an ESP32-S3 dev board.
 ## Building and Flashing
 
 ```sh
-nix develop                                          # ARM dev shell
+nix develop .#arm                                    # ARM dev shell
 cd firmware/rp2040      && cargo run --release   # W5500-EVB-Pico
 cd firmware/rp2350      && cargo run --release   # W6100-EVB-Pico-2
 cd firmware/stm32f407   && cargo run --release   # DevEBox STM32F407
@@ -158,7 +158,7 @@ cd firmware/stm32f439   && cargo run --release   # Nucleo-F439ZI
 ```
 
 ```sh
-nix develop .#esp32                                  # ESP32 dev shell
+nix develop .#esp                                    # ESP32 dev shell
 cd firmware/esp32s3     && cargo run --release   # ESP32-S3 + W5100S
 ```
 

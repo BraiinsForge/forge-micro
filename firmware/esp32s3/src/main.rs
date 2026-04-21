@@ -3,7 +3,7 @@
 //! `embassy-net-wiznet`, starts the embassy-net stack with DHCP, and
 //! spawns the watchdog, ethernet runner, NTP, and BTC tasks before
 //! entering the HTTP server loop. Built with `cargo build` from this
-//! crate inside `nix develop .#esp32`.
+//! crate inside `nix develop .#esp`.
 
 #![no_std]
 #![no_main]

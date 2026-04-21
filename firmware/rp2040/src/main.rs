@@ -3,7 +3,7 @@
 //! embassy-net stack with DHCP, and spawns the watchdog, LED blink,
 //! ethernet runner, NTP sync, and BTC price tasks before entering
 //! the HTTP server loop. Built with `cargo build` from this crate
-//! inside `nix develop`.
+//! inside `nix develop .#arm`.
 
 #![no_std]
 #![no_main]

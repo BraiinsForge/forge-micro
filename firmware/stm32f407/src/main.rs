@@ -3,7 +3,7 @@
 //! starts the built-in MAC with an auto-probed LAN8720 PHY, runs the
 //! embassy-net stack with DHCP, and spawns the watchdog, LED blink,
 //! NTP, and BTC tasks before entering the HTTP server loop. Built
-//! with `cargo build` from this crate inside `nix develop`.
+//! with `cargo build` from this crate inside `nix develop .#arm`.
 
 #![no_std]
 #![no_main]

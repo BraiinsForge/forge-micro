@@ -4,15 +4,15 @@
 # an Xtensa toolchain that is not in nixpkgs. This flake pins both so
 # a clean checkout compiles without manual rustup or espup setup.
 #
-# What: `default` provides thumbv6m, thumbv7em, and thumbv8m.main targets
+# What: `arm` provides thumbv6m, thumbv7em, and thumbv8m.main targets
 # plus probe-rs and debug tools for the W5500-EVB-Pico, W6100-EVB-Pico-2,
-# DevEBox, and Nucleo-F439ZI boards. `esp32`
-# installs a pinned espup release, patches its binaries for NixOS,
-# and exposes espflash and probe-rs for the ESP32-S3.
+# DevEBox, and Nucleo-F439ZI boards. `esp` installs a pinned espup
+# release, patches its binaries for NixOS, and exposes espflash and
+# probe-rs for the ESP32-S3. `default` provides NUC operations tools
+# and lists available development shells.
 #
-# How: `nix develop` for the ARM boards, `nix develop .#esp32` for
-# the ESP32-S3. Both shells print the relevant build commands on
-# entry.
+# How: `nix develop .#arm` for the ARM boards, `nix develop .#esp` for
+# the ESP32-S3. Both shells print the relevant build commands on entry.
 {
   description = "Bare-metal Ethernet examples";
 
@@ -54,6 +54,23 @@
       deploy-rs,
     }@inputs:
     let
+      probeRsOverlay = final: prev: {
+        probe-rs-tools-remote = prev.probe-rs-tools.overrideAttrs (old: {
+          cargoBuildFeatures = (old.cargoBuildFeatures or [ ]) ++ [ "remote" ];
+        });
+        probe-rs-runner = prev.writeShellScriptBin "probe-rs-runner" ''
+          args=()
+          for arg in "$@"; do
+            if [ "$arg" = "--local" ]; then
+              unset PROBE_RS_REMOTE_HOST PROBE_RS_REMOTE_TOKEN
+            else
+              args+=("$arg")
+            fi
+          done
+          exec probe-rs "''${args[@]}"
+        '';
+      };
+
       # Build a NUC nixosSystem with the shared RPi overlays and platform
       # setting. Callers append image-specific modules (e.g. sd-image.nix).
       mkNuc =
@@ -70,22 +87,9 @@
               { pkgs, ... }:
               {
                 nixpkgs.overlays = [
+                  probeRsOverlay
                   (final: prev: {
                     ckpool = final.callPackage ./redacted/pkgs/ckpool.nix { };
-                    probe-rs-tools-remote = prev.probe-rs-tools.overrideAttrs (old: {
-                      cargoBuildFeatures = (old.cargoBuildFeatures or [ ]) ++ [ "remote" ];
-                    });
-                    probe-rs-runner = prev.writeShellScriptBin "probe-rs-runner" ''
-                      args=()
-                      for arg in "$@"; do
-                        if [ "$arg" = "--local" ]; then
-                          unset PROBE_RS_REMOTE_HOST PROBE_RS_REMOTE_TOKEN
-                        else
-                          args+=("$arg")
-                        fi
-                      done
-                      exec probe-rs "''${args[@]}"
-                    '';
                   })
                 ];
               }
@@ -99,7 +103,10 @@
     (flake-utils.lib.eachDefaultSystem (
       system:
       let
-        overlays = [ (import rust-overlay) ];
+        overlays = [
+          (import rust-overlay)
+          probeRsOverlay
+        ];
         pkgs = import nixpkgs {
           inherit system overlays;
         };
@@ -149,22 +156,6 @@
             done
             echo "Patching complete."
           fi
-        '';
-
-        probe-rs-tools-remote = pkgs.probe-rs-tools.overrideAttrs (old: {
-          cargoBuildFeatures = (old.cargoBuildFeatures or [ ]) ++ [ "remote" ];
-        });
-
-        probe-rs-runner = pkgs.writeShellScriptBin "probe-rs-runner" ''
-          args=()
-          for arg in "$@"; do
-            if [ "$arg" = "--local" ]; then
-              unset PROBE_RS_REMOTE_HOST PROBE_RS_REMOTE_TOKEN
-            else
-              args+=("$arg")
-            fi
-          done
-          exec probe-rs "''${args[@]}"
         '';
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
@@ -223,7 +214,7 @@
         };
 
         devShells = {
-          default = pkgs.mkShell {
+          arm = pkgs.mkShell {
             buildInputs =
               with pkgs;
               [
@@ -249,15 +240,15 @@
               echo "  cd firmware/stm32f407 && cargo build --release  # STM32F407 LAN8720"
               echo "  cd firmware/stm32f439 && cargo build --release  # STM32F439 LAN8720"
               echo ""
-              echo "For ESP32-S3 board: nix develop .#esp32"
+              echo "For ESP32-S3 board: nix develop .#esp"
               echo "Deploy to NUC:      deploy .#nuc"
             '';
           };
 
-          esp32 = pkgs.mkShell {
+          esp = pkgs.mkShell {
             buildInputs = [
-              probe-rs-tools-remote
-              probe-rs-runner
+              pkgs.probe-rs-tools-remote
+              pkgs.probe-rs-runner
             ]
             ++ (with pkgs; [
               espRustToolchain
@@ -322,6 +313,27 @@
               echo ""
               echo "  cd firmware/esp32s3 && cargo build --release  # ESP32-S3 W5100S"
               echo ""
+              echo "For ARM boards: nix develop .#arm"
+            '';
+          };
+
+          default = pkgs.mkShell {
+            buildInputs =
+              with pkgs;
+              [
+                picocom
+                usbutils
+              ]
+              ++ [ deploy-rs.packages.${system}.default ];
+
+            shellHook = ''
+              echo "eth-examples — available development shells:"
+              echo ""
+              echo "  nix develop .#arm  — ARM boards (RP2040, RP2350, STM32F407, STM32F439)"
+              echo "  nix develop .#esp  — ESP32-S3 board"
+              echo ""
+              echo "This default shell provides deploy-rs, picocom, and usbutils"
+              echo "for NUC operations."
             '';
           };
         };

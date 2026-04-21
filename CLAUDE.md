@@ -6,15 +6,15 @@ Each crate must be built from its own directory to pick up the
 per-crate `.cargo/config.toml` target. Building from the workspace
 root selects the wrong target and fails.
 
-All builds must go through `nix develop` shells. The default shell
-covers ARM targets; the `esp32` shell covers the Xtensa target.
+All builds must go through `nix develop` shells. The `arm` shell
+covers ARM targets; the `esp` shell covers the Xtensa target.
 
 ```sh
-nix develop -c bash -c 'cd firmware/rp2040      && cargo check'
-nix develop -c bash -c 'cd firmware/rp2350      && cargo check'
-nix develop -c bash -c 'cd firmware/stm32f407   && cargo check'
-nix develop -c bash -c 'cd firmware/stm32f439   && cargo check'
-nix develop .#esp32 -c bash -c 'cd firmware/esp32s3 && cargo check'
+nix develop .#arm -c bash -c 'cd firmware/rp2040      && cargo check'
+nix develop .#arm -c bash -c 'cd firmware/rp2350      && cargo check'
+nix develop .#arm -c bash -c 'cd firmware/stm32f407   && cargo check'
+nix develop .#arm -c bash -c 'cd firmware/stm32f439   && cargo check'
+nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo check'
 ```
 
 ## Targets
