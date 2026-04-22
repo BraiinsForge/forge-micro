@@ -8,6 +8,7 @@ path = "src/lib.rs"
 
 [dependencies]
 embassy-net       = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
+embassy-sync      = { workspace = true }
 embassy-time      = { workspace = true }
 embassy-futures   = { workspace = true }
 embedded-tls      = { workspace = true }
@@ -17,6 +18,7 @@ embedded-hal-async = { workspace = true }
 rand_core         = { workspace = true }
 portable-atomic   = { workspace = true }
 static_cell       = { workspace = true }
+heapless          = { workspace = true }
 defmt             = { workspace = true }
 embedded-graphics = { workspace = true }
 profont           = { workspace = true }
@@ -36,10 +38,12 @@ members = [
 [workspace.dependencies]
 eth-examples      = { path = "." }
 embassy-executor  = { version = "0.10.0", default-features = false }
+embassy-sync      = { version = "0.8", default-features = false }
 embassy-time      = { version = "0.5.1", default-features = false }
 embassy-net       = { version = "0.9.0", default-features = false }
 embassy-net-wiznet = { version = "0.3.0", default-features = false }
 embassy-futures   = "0.1.2"
+heapless          = "0.8"
 defmt             = "1.0.1"
 defmt-rtt         = "1.0.0"
 panic-probe       = { version = "1.0.0", default-features = false }
