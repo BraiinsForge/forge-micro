@@ -20,9 +20,11 @@ use static_cell::ConstStaticCell;
 
 use crate::consts::{Btc, Http, Net, Ntp, Tls};
 
-static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
+pub(crate) static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
 pub static BTC_PRICE_CENTS: AtomicU32 = AtomicU32::new(0);
 pub static NTP_EPOCH_OFFSET: AtomicU64 = AtomicU64::new(0);
+/// Uptime seconds of the last successful BTC price fetch, or zero if none.
+pub static LAST_BTC_FETCH_UPTIME_SECS: AtomicU64 = AtomicU64::new(0);
 
 static TCP_RX: ConstStaticCell<[u8; Tls::TCP_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::TCP_BUFFER_SIZE]);
@@ -160,6 +162,7 @@ pub async fn fetch_btc_price<R: CryptoRng + RngCore>(
         let remainder = cents % 100;
         info!("btc price updated: ${}.{:02}", dollars, remainder);
         BTC_PRICE_CENTS.store(cents, Ordering::Relaxed);
+        LAST_BTC_FETCH_UPTIME_SECS.store(Instant::now().as_secs(), Ordering::Relaxed);
     }
 
     // Ignore close errors since we already have the data.

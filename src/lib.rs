@@ -19,6 +19,7 @@ pub mod consts;
 pub mod display;
 pub mod http;
 pub mod led;
+pub mod metrics;
 pub mod net;
 pub mod ntp;
 pub mod sh1106;

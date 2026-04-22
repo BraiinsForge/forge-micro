@@ -1,8 +1,8 @@
 //! Shared configuration values grouped by subsystem. Unit structs
-//! (`Net`, `Http`, `Tls`, `Ntp`, `Btc`, `Watchdog`) act as namespaces
-//! for constants so call sites read `Ntp::PORT` instead of a flat
-//! `NTP_PORT`. Values are referenced from [`crate::net`] and
-//! [`crate::watchdog`].
+//! (`Net`, `Http`, `Tls`, `Ntp`, `Btc`, `Watchdog`, `Metrics`) act as
+//! namespaces for constants so call sites read `Ntp::PORT` instead of
+//! a flat `NTP_PORT`. Values are referenced from [`crate::net`],
+//! [`crate::metrics`], and [`crate::watchdog`].
 
 use embassy_time::Duration;
 
@@ -57,4 +57,17 @@ impl Btc {
 pub struct Watchdog;
 impl Watchdog {
     pub const FEED_PERIOD: Duration = Duration::from_millis(500);
+}
+
+/// Prometheus metrics exposition server settings.
+pub struct Metrics;
+impl Metrics {
+    pub const PORT: u16 = 8081;
+    pub const RX_BUFFER_SIZE: usize = 2048;
+    pub const TX_BUFFER_SIZE: usize = 2048;
+    pub const RESPONSE_BUFFER_SIZE: usize = 2048;
+    pub const REQUEST_BUFFER_SIZE: usize = 256;
+    pub const CHANNEL_DEPTH: usize = 32;
+    pub const MAX_METRICS: usize = 16;
+    pub const MAX_LABELS: usize = 4;
 }

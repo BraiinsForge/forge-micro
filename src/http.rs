@@ -6,13 +6,13 @@
 use core::fmt::{self, Write};
 
 /// Wrapper around a byte slice that tracks the write position.
-struct BufferWriter<'a> {
+pub(crate) struct BufferWriter<'a> {
     buffer: &'a mut [u8],
     position: usize,
 }
 
 impl<'a> BufferWriter<'a> {
-    fn new(buffer: &'a mut [u8]) -> Self {
+    pub(crate) fn new(buffer: &'a mut [u8]) -> Self {
         Self {
             buffer,
             position: 0,
@@ -20,7 +20,7 @@ impl<'a> BufferWriter<'a> {
     }
 
     #[must_use]
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.position
     }
 }
