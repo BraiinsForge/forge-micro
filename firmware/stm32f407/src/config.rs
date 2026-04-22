@@ -67,7 +67,7 @@ pub struct Board {
 impl Board {
     pub const NAME: &str = "DevEBox STM32F407 LAN8720";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
-    pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x04];
+    pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x03];
 
     pub fn take(peripherals: embassy_stm32::Peripherals) -> Self {
         Self {

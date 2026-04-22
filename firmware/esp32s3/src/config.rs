@@ -41,7 +41,7 @@ pub struct Board<'d> {
 impl Board<'static> {
     pub const NAME: &str = "ESP32-S3 W5100S";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
-    pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x05];
+    pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x02];
 
     pub fn take(peripherals: esp_hal::peripherals::Peripherals) -> Self {
         Self {
