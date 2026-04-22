@@ -87,6 +87,11 @@ async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
     net::run_ntp_sync(stack).await
 }
 
+#[embassy_executor::task]
+async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
+    eth_examples::metrics::run(stack).await
+}
+
 type OledDisplay = Sh1106<
     ExclusiveDevice<Spi<'static, SPI1, Async>, Output<'static>, embedded_hal_bus::spi::NoDelay>,
     Output<'static>,
@@ -143,7 +148,7 @@ async fn main(spawner: Spawner) {
 
     let seed = rng.next_u64();
 
-    static RESOURCES: StaticCell<StackResources<6>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<7>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
         embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default()),
@@ -154,6 +159,7 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
+    spawner.spawn(unwrap!(metrics_task(stack)));
 
     static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
     static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();

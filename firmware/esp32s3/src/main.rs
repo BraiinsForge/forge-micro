@@ -118,6 +118,11 @@ async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
     net::run_ntp_sync(stack).await
 }
 
+#[embassy_executor::task]
+async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
+    eth_examples::metrics::run(stack).await
+}
+
 type OledDisplay = Sh1106<
     ExclusiveDevice<
         esp_hal::spi::master::SpiDmaBus<'static, esp_hal::Async>,
@@ -142,7 +147,7 @@ async fn uart_echo_test(mut uart: Uart<'static, esp_hal::Async>) -> ! {
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
-    static RESOURCES: StaticCell<StackResources<6>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<7>> = StaticCell::new();
 
     let peripherals = esp_hal::init(esp_hal::Config::default());
     let hw = config::Board::take(peripherals);
@@ -210,6 +215,7 @@ async fn main(spawner: Spawner) {
 
     spawner.must_spawn(bitcoin_price_task(stack, TlsRng(rng)));
     spawner.must_spawn(ntp_sync_task(stack));
+    spawner.must_spawn(metrics_task(stack));
     // No LED blink task: board wiring does not include an accessible LED.
 
     let uart_config = UartConfig::default().with_baudrate(eth_examples::uart_echo::BAUD_RATE);
