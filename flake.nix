@@ -54,6 +54,10 @@
       deploy-rs,
     }@inputs:
     let
+      nucHost = "redacted50.69";
+      probeRsHost = "ws://${nucHost}:8080";
+      probeRsToken = "redacted";
+
       probeRsOverlay = final: prev: {
         probe-rs-tools-remote = prev.probe-rs-tools.overrideAttrs (old: {
           cargoBuildFeatures = (old.cargoBuildFeatures or [ ]) ++ [ "remote" ];
@@ -228,8 +232,8 @@
               ]
               ++ [ deploy-rs.packages.${system}.default ];
 
-            PROBE_RS_REMOTE_HOST = "ws://nuc.nb.redacted:8080";
-            PROBE_RS_REMOTE_TOKEN = "redacted";
+            PROBE_RS_REMOTE_HOST = probeRsHost;
+            PROBE_RS_REMOTE_TOKEN = probeRsToken;
             RUST_ANALYZER_SERVER_PATH = "${rustToolchain}/bin/rust-analyzer";
 
             shellHook = ''
@@ -277,8 +281,8 @@
             ];
             NIX_LD = "${pkgs.glibc}/lib/ld-linux-x86-64.so.2";
 
-            PROBE_RS_REMOTE_HOST = "ws://nuc.nb.redacted:8080";
-            PROBE_RS_REMOTE_TOKEN = "redacted";
+            PROBE_RS_REMOTE_HOST = probeRsHost;
+            PROBE_RS_REMOTE_TOKEN = probeRsToken;
             RUST_ANALYZER_SERVER_PATH = "${espRustToolchain}/bin/rust-analyzer";
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
@@ -347,7 +351,7 @@
       # Remote deployment via deploy-rs. Pushes the NUC NixOS closure over
       # SSH and activates it without requiring a full SD-card reflash.
       deploy.nodes.nuc = {
-        hostname = "nuc.nb.redacted";
+        hostname = nucHost;
         sshUser = "admin";
         profiles.system = {
           user = "root";
