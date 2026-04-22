@@ -296,6 +296,11 @@
                 # espup aborts with "File exists" on pre-created LLVM
                 # symlinks when the toolchain dir is present but incomplete.
                 rm -rf "$RUSTUP_HOME/toolchains/esp"
+                # espup also writes a global $HOME/.espup/esp-clang symlink
+                # pointing at the last-installed toolchain. A stale link
+                # left by another worktree makes espup abort with EEXIST
+                # even though no local state remains.
+                rm -f "$HOME/.espup/esp-clang"
                 echo "Installing ESP32-S3 Xtensa toolchain..."
                 # Version pinned for reproducibility. Bump manually when
                 # upgrading esp-hal or esp-rtos and retest the build.
