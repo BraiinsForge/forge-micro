@@ -1,0 +1,63 @@
+//! Newline-delimited framing buffer for stream reads.
+
+use crate::error::ParseError;
+
+#[cfg(test)]
+#[path = "tests/line_buffer.rs"]
+mod tests;
+
+pub struct LineBuffer<const N: usize> {
+    buf: [u8; N],
+    used: usize,
+}
+
+impl<const N: usize> LineBuffer<N> {
+    #[must_use]
+    pub const fn new() -> Self {
+        LineBuffer {
+            buf: [0u8; N],
+            used: 0,
+        }
+    }
+
+    // Returns the unused portion of the internal buffer for the transport to fill.
+    pub fn writable(&mut self) -> &mut [u8] {
+        &mut self.buf[self.used..]
+    }
+
+    // Marks n bytes written into the buffer by a previous writable() fill.
+    pub fn advance(&mut self, n: usize) {
+        debug_assert!(self.used + n <= N);
+        self.used += n;
+    }
+
+    // Returns the next complete line without its trailing '\n', compacting
+    // the buffer after the borrow is dropped.
+    pub fn next_line(&mut self) -> Result<Option<&[u8]>, ParseError<'static>> {
+        if let Some(position) = self.buf[..self.used].iter().position(|&byte| byte == b'\n') {
+            // Compaction happens on the next call because we cannot mutate
+            // while borrowing.
+            return Ok(Some(&self.buf[..position]));
+        }
+        if self.used == N {
+            return Err(ParseError::LineTooLong);
+        }
+        Ok(None)
+    }
+
+    // Consumes the most recently returned line and compacts the buffer.
+    // Call this after processing the slice returned by next_line().
+    pub fn consume(&mut self) {
+        if let Some(position) = self.buf[..self.used].iter().position(|&byte| byte == b'\n') {
+            let remaining = self.used - (position + 1);
+            self.buf.copy_within(position + 1..self.used, 0);
+            self.used = remaining;
+        }
+    }
+}
+
+impl<const N: usize> Default for LineBuffer<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
