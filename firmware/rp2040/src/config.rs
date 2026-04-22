@@ -5,8 +5,8 @@
 //! through `main`.
 
 use embassy_rp::peripherals::{
-    DMA_CH0, DMA_CH1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_25, PIN_4, PIN_5, SPI0,
-    UART1, WATCHDOG,
+    DMA_CH0, DMA_CH1, DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20,
+    PIN_21, PIN_25, PIN_4, PIN_5, PIN_8, PIN_9, SPI0, SPI1, UART1, WATCHDOG,
 };
 use embassy_rp::Peri;
 use embassy_time::Duration;
@@ -27,6 +27,13 @@ pub struct Board {
     pub uart: Peri<'static, UART1>,
     pub uart_tx: Peri<'static, PIN_4>,
     pub uart_rx: Peri<'static, PIN_5>,
+    pub display_spi: Peri<'static, SPI1>,
+    pub display_sck: Peri<'static, PIN_10>,
+    pub display_mosi: Peri<'static, PIN_11>,
+    pub display_cs: Peri<'static, PIN_12>,
+    pub display_dc: Peri<'static, PIN_8>,
+    pub display_rst: Peri<'static, PIN_9>,
+    pub display_tx_dma: Peri<'static, DMA_CH2>,
 }
 
 impl Board {
@@ -50,6 +57,13 @@ impl Board {
             uart: peripherals.UART1,
             uart_tx: peripherals.PIN_4,
             uart_rx: peripherals.PIN_5,
+            display_spi: peripherals.SPI1,
+            display_sck: peripherals.PIN_10,
+            display_mosi: peripherals.PIN_11,
+            display_cs: peripherals.PIN_12,
+            display_dc: peripherals.PIN_8,
+            display_rst: peripherals.PIN_9,
+            display_tx_dma: peripherals.DMA_CH2,
         }
     }
 }
@@ -57,6 +71,11 @@ impl Board {
 pub struct Spi;
 impl Spi {
     pub const FREQUENCY: u32 = 33_000_000;
+}
+
+pub struct DisplaySpi;
+impl DisplaySpi {
+    pub const FREQUENCY: u32 = 10_000_000;
 }
 
 pub struct Watchdog;

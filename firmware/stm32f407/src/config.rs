@@ -6,8 +6,8 @@
 //! seven RMII pins, watchdog, and LED.
 
 use embassy_stm32::peripherals::{
-    ETH, ETH_SMA, IWDG, PA1, PA2, PA6, PA7, PB11, PB12, PB13, PC1, PC4, PC5, PD8, PD9, PE14, RNG,
-    USART3,
+    DMA1_CH5, ETH, ETH_SMA, IWDG, PA1, PA2, PA6, PA7, PB11, PB12, PB13, PC1, PC10, PC12, PC4, PC5,
+    PD1, PD3, PD5, PD8, PD9, PE14, RNG, SPI3, USART3,
 };
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peri;
@@ -62,6 +62,18 @@ pub struct Board {
     pub usart3: Peri<'static, USART3>,
     pub usart3_tx: Peri<'static, PD8>,
     pub usart3_rx: Peri<'static, PD9>,
+    pub display_spi: Peri<'static, SPI3>,
+    pub display_sck: Peri<'static, PC10>,
+    pub display_mosi: Peri<'static, PC12>,
+    pub display_cs: Peri<'static, PD5>,
+    pub display_dc: Peri<'static, PD3>,
+    pub display_rst: Peri<'static, PD1>,
+    pub display_tx_dma: Peri<'static, DMA1_CH5>,
+}
+
+pub struct DisplaySpi;
+impl DisplaySpi {
+    pub const FREQUENCY: Hertz = Hertz(10_000_000);
 }
 
 impl Board {
@@ -89,6 +101,13 @@ impl Board {
             usart3: peripherals.USART3,
             usart3_tx: peripherals.PD8,
             usart3_rx: peripherals.PD9,
+            display_spi: peripherals.SPI3,
+            display_sck: peripherals.PC10,
+            display_mosi: peripherals.PC12,
+            display_cs: peripherals.PD5,
+            display_dc: peripherals.PD3,
+            display_rst: peripherals.PD1,
+            display_tx_dma: peripherals.DMA1_CH5,
         }
     }
 }

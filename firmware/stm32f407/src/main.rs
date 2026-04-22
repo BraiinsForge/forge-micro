@@ -13,11 +13,15 @@ use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::peripherals::{ETH, ETH_SMA, IWDG};
+use embassy_stm32::peripherals::{DMA1_CH5, ETH, ETH_SMA, IWDG};
 use embassy_stm32::rng::Rng;
+use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::usart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng};
+use embassy_time::{Duration, Timer};
+use embedded_hal_bus::spi::ExclusiveDevice;
+use eth_examples::sh1106::Sh1106;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -31,6 +35,7 @@ bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
     RNG => rng::InterruptHandler<peripherals::RNG>;
     USART3 => BufferedInterruptHandler<peripherals::USART3>;
+    DMA1_STREAM5 => embassy_stm32::dma::InterruptHandler<DMA1_CH5>;
 });
 
 type Device = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
@@ -73,6 +78,20 @@ async fn bitcoin_price_task(
 #[embassy_executor::task]
 async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
     net::run_ntp_sync(stack).await
+}
+
+type OledDisplay = Sh1106<
+    ExclusiveDevice<
+        Spi<'static, embassy_stm32::mode::Async, embassy_stm32::spi::mode::Master>,
+        Output<'static>,
+        embedded_hal_bus::spi::NoDelay,
+    >,
+    Output<'static>,
+>;
+
+#[embassy_executor::task]
+async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) -> ! {
+    eth_examples::display::run_async(&mut display, ip).await
 }
 
 #[embassy_executor::task]
@@ -156,9 +175,38 @@ async fn main(spawner: Spawner) {
     .expect("BUG: USART3 configuration failed");
     spawner.spawn(unwrap!(uart_echo_test(uart)));
 
+    // SH1106 OLED on SPI3: reset pulse, then async TX-only SPI with DMA.
+    // Binding must stay alive so the reset pin remains driven high.
+    let _rst = {
+        let mut pin = Output::new(hw.display_rst, Level::Low, Speed::Low);
+        Timer::after(Duration::from_millis(10)).await;
+        pin.set_high();
+        Timer::after(Duration::from_millis(10)).await;
+        pin
+    };
+    let mut spi_config = spi::Config::default();
+    spi_config.frequency = config::DisplaySpi::FREQUENCY;
+    let spi = Spi::new_txonly(
+        hw.display_spi,
+        hw.display_sck,
+        hw.display_mosi,
+        hw.display_tx_dma,
+        Irqs,
+        spi_config,
+    );
+    let cs = Output::new(hw.display_cs, Level::High, Speed::Low);
+    let dc = Output::new(hw.display_dc, Level::Low, Speed::Low);
+    let spi_device = ExclusiveDevice::new_no_delay(spi, cs);
+    let mut display = Sh1106::new(spi_device, dc);
+    // Display is reset and SPI is valid; init cannot fail.
+    display.init().expect("BUG: SH1106 init failed");
+
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;
-    info!("ip address: {:?}", config.address.address());
+    let ip = config.address.address();
+    info!("ip address: {:?}", ip);
+
+    spawner.spawn(unwrap!(display_task(display, ip)));
 
     net::run_http_server(stack, config::Board::NAME).await;
 }

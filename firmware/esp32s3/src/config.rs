@@ -5,7 +5,8 @@
 //! datasheet limit because higher rates corrupt frames on this wiring.
 
 use esp_hal::peripherals::{
-    GPIO1, GPIO2, GPIO39, GPIO40, GPIO41, GPIO42, GPIO43, GPIO44, SPI2, TIMG0, TIMG1, UART0,
+    GPIO1, GPIO15, GPIO16, GPIO17, GPIO2, GPIO39, GPIO40, GPIO41, GPIO42, GPIO43, GPIO44, GPIO6,
+    GPIO7, SPI2, SPI3, TIMG0, TIMG1, UART0,
 };
 use esp_hal::time::Rate;
 
@@ -14,6 +15,11 @@ impl Spi {
     /// W5100S datasheet allows up to 33.3 MHz, but on this board 25 MHz and above
     /// produces corrupted RX frame lengths. 20 MHz is the highest stable speed.
     pub const FREQUENCY: Rate = Rate::from_mhz(20);
+}
+
+pub struct DisplaySpi;
+impl DisplaySpi {
+    pub const FREQUENCY: Rate = Rate::from_mhz(10);
 }
 
 pub struct Watchdog;
@@ -36,6 +42,13 @@ pub struct Board<'d> {
     pub uart0: UART0<'d>,
     pub uart_tx: GPIO43<'d>,
     pub uart_rx: GPIO44<'d>,
+    pub display_spi: SPI3<'d>,
+    pub display_sck: GPIO6<'d>,
+    pub display_mosi: GPIO7<'d>,
+    pub display_cs: GPIO15<'d>,
+    pub display_dc: GPIO16<'d>,
+    pub display_rst: GPIO17<'d>,
+    pub display_dma: esp_hal::peripherals::DMA_CH1<'d>,
 }
 
 impl Board<'static> {
@@ -58,6 +71,13 @@ impl Board<'static> {
             uart0: peripherals.UART0,
             uart_tx: peripherals.GPIO43,
             uart_rx: peripherals.GPIO44,
+            display_spi: peripherals.SPI3,
+            display_sck: peripherals.GPIO6,
+            display_mosi: peripherals.GPIO7,
+            display_cs: peripherals.GPIO15,
+            display_dc: peripherals.GPIO16,
+            display_rst: peripherals.GPIO17,
+            display_dma: peripherals.DMA_CH1,
         }
     }
 }
