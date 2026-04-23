@@ -164,6 +164,63 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
+        # Xtensa-LX7 Rust toolchain for the ESP32-S3. Upstream rustc does
+        # not ship xtensa-esp32s3-none-elf; esp-rs publishes pre-built
+        # artifacts at github.com/esp-rs/rust-build. Running espup inside
+        # a Nix build is non-deterministic, so flake checks fetch the
+        # release tarballs directly with pinned hashes.
+        #
+        # When bumping espToolchainVersion:
+        #   nix-prefetch-url <rust tarball url>
+        #   nix-prefetch-url <rust-src tarball url>
+        #   nix hash convert --to sri --hash-algo sha256 <each base32>
+        # The --unpack flag is intentionally omitted; fetchurl verifies
+        # the compressed tarball directly.
+        # Update the hashes below and retest both flake checks and the
+        # esp devshell in the same commit.
+        espToolchainVersion = "1.94.0.2";
+
+        espToolchain = pkgs.stdenv.mkDerivation {
+          pname = "esp-rust-xtensa";
+          version = espToolchainVersion;
+
+          srcs = [
+            (pkgs.fetchurl {
+              url = "https://github.com/esp-rs/rust-build/releases/download/v${espToolchainVersion}/rust-${espToolchainVersion}-x86_64-unknown-linux-gnu.tar.xz";
+              hash = "sha256-bOG2jBJtHuDBfUWejEg7kXaAAfzpzCz4lfbGiMMmKxU=";
+            })
+            (pkgs.fetchurl {
+              url = "https://github.com/esp-rs/rust-build/releases/download/v${espToolchainVersion}/rust-src-${espToolchainVersion}.tar.xz";
+              hash = "sha256-A8J1ScXW8c39Tw/6KKYsC6+XnCgkGewSGnfxttKxz4c=";
+            })
+          ];
+
+          nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+          buildInputs = [
+            pkgs.stdenv.cc.cc
+            pkgs.zlib
+          ];
+
+          sourceRoot = ".";
+          dontStrip = true;
+
+          # Both tarballs unpack to directories named rust-nightly-*
+          # regardless of the release version, because esp-rs builds
+          # from the upstream rust master branch.
+          installPhase = ''
+            runHook preInstall
+            for dir in rust-nightly-x86_64-unknown-linux-gnu rust-src-nightly; do
+              patchShebangs "$dir/install.sh"
+              "$dir/install.sh" \
+                --destdir=$out --prefix="" --disable-ldconfig \
+                --without=rust-docs-json-preview,rust-docs
+            done
+            runHook postInstall
+          '';
+        };
+
+        espCraneLib = (crane.mkLib pkgs).overrideToolchain espToolchain;
+
         src =
           let
             # Crane's default filter keeps Cargo.toml, Cargo.lock, and .rs files.
@@ -179,6 +236,16 @@
             src = ./.;
             filter = path: type: (customFilter path type) || (craneLib.filterCargoSources path type);
           };
+
+        # build-std=core pulls sysroot crates like proc_macro and std
+        # that have their own Cargo.lock outside our tree. Vendor both
+        # so the Xtensa clippy checks resolve without network access.
+        espCargoVendorDir = espCraneLib.vendorMultipleCargoDeps {
+          cargoLockList = [
+            ./Cargo.lock
+            "${espToolchain}/lib/rustlib/src/rust/library/Cargo.lock"
+          ];
+        };
       in
       {
         checks = {
@@ -223,11 +290,25 @@
             cargoExtraArgs = "-p eth-examples";
           };
 
-          # firmware/esp32s3 and echoer target Xtensa LX7. The toolchain
-          # is installed via espup at devshell entry and is not packaged
-          # in nixpkgs, so they cannot be wrapped in a flake check
-          # derivation. Coverage relies on the developer running
-          # `nix develop .#esp` and `cargo build` before merge.
+          clippy-esp32s3 = espCraneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoVendorDir = espCargoVendorDir;
+            # Our firmware crate name collides with the esp32s3 PAC crate
+            # pulled in transitively; disambiguate by pinning to @0.1.0.
+            cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
+            cargoClippyExtraArgs = "-- -D warnings";
+            RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
+          };
+
+          clippy-echoer = espCraneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoVendorDir = espCargoVendorDir;
+            cargoExtraArgs = "-p echoer --target xtensa-esp32s3-none-elf -Z build-std=core";
+            cargoClippyExtraArgs = "-- -D warnings";
+            RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
+          };
         };
 
         devShells = {
@@ -315,11 +396,9 @@
                 # even though no local state remains.
                 rm -f "$HOME/.espup/esp-clang"
                 echo "Installing ESP32-S3 Xtensa toolchain..."
-                # Version pinned for reproducibility. Bump manually when
-                # upgrading esp-hal or esp-rtos and retest the build.
-                # Use the full X.Y.Z.W form so espup does not float to a
-                # newer patch release between developer machines.
-                espup install --targets esp32s3 --toolchain-version 1.94.0.2 || true
+                # Version pinned for reproducibility. The same pin feeds
+                # the Xtensa flake-check derivation at the top of the file.
+                espup install --targets esp32s3 --toolchain-version ${espToolchainVersion} || true
                 patch-esp-binaries
               fi
 
