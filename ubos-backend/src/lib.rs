@@ -52,8 +52,10 @@ const MAX_EXTRANONCE2_SIZE: usize = 16;
 const MAX_JOB_ID_CHARS: usize = 32;
 const MAX_EXTRANONCE1_HEX_CHARS: usize = 16;
 const MAX_PREV_HASH_CHARS: usize = 64;
-const MAX_COINB1_CHARS: usize = 256;
-const MAX_COINB2_CHARS: usize = 256;
+// Public pools (e.g. Braiins) ship coinbase parts longer than the regtest
+// pool does; 1024 fits their current sizes with headroom.
+const MAX_COINB1_CHARS: usize = 1024;
+const MAX_COINB2_CHARS: usize = 1024;
 // Standard max tree depth for current chain heights.
 const MAX_MERKLE_BRANCHES: usize = 16;
 const MAX_BITS_CHARS: usize = 8;
@@ -399,9 +401,9 @@ fn classify_line(line: &[u8]) -> LineAction {
                 prev_hash,
                 prev_hash_len,
                 coinbase_1,
-                coinbase_1_len: notify.coin_base_1.len(),
+                coinbase_1_len,
                 coinbase_2,
-                coinbase_2_len: notify.coin_base_2.len(),
+                coinbase_2_len,
                 merkle_branches,
                 bits,
                 bits_len,
