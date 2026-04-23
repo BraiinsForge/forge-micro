@@ -343,6 +343,8 @@
               with pkgs;
               [
                 rustToolchain
+                cargo-binutils
+                cargo-bloat
                 probe-rs-tools-remote
                 probe-rs-runner
                 pkg-config
@@ -364,6 +366,8 @@
               echo "  cd firmware/stm32f407 && cargo build --release  # STM32F407 LAN8720"
               echo "  cd firmware/stm32f439 && cargo build --release  # STM32F439 LAN8742A"
               echo ""
+              echo "Inspect binary size: cargo size --release -- -A"
+              echo ""
               echo "For ESP32-S3 board: nix develop .#esp"
               echo "Deploy to NUC:      deploy .#nuc"
             '';
@@ -376,6 +380,8 @@
             ]
             ++ (with pkgs; [
               espRustToolchain
+              cargo-binutils
+              cargo-bloat
               espup
               espflash
               patchelf
@@ -441,6 +447,8 @@
               echo "eth-examples dev environment ready (ESP32-S3)"
               echo ""
               echo "  cd firmware/esp32s3 && cargo build --release  # ESP32-S3 W5100S"
+              echo ""
+              echo "Inspect binary size: cargo size --release -- -A"
               echo ""
               echo "For ARM boards: nix develop .#arm"
             '';
