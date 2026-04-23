@@ -210,11 +210,24 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-eth-examples = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p eth-examples";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
           test = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p eth-examples";
           };
+
+          # firmware/esp32s3 and echoer target Xtensa LX7. The toolchain
+          # is installed via espup at devshell entry and is not packaged
+          # in nixpkgs, so they cannot be wrapped in a flake check
+          # derivation. Coverage relies on the developer running
+          # `nix develop .#esp` and `cargo build` before merge.
         };
 
         devShells = {
