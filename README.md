@@ -182,6 +182,7 @@ JTAG probes, or the USB serial string for CMSIS-DAP probes.
 | `303a:1001:AC:A7:04:2B:6F:7C` | ESP JTAG | esp32s3 echoer |
 | `2e8a:000c-0:E6605481DB696536` | CMSIS-DAP (Pico) | stm32f407 debugprobe |
 | `303a:1001:1C:DB:D4:5A:9C:70` | ESP JTAG | stm32f407 echoer |
+| `0483:374b:0671FF515776525067255149` | ST-LINK V2-1 | stm32f439 (onboard) |
 
 Example:
 
