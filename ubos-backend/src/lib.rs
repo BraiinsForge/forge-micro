@@ -1054,8 +1054,10 @@ fn calc_merkle_root(
     merkle_branches: &[[u8; 32]],
     root_out: &mut [u8; 32],
 ) {
-    // Max coinbase is well under 256 bytes in practice.
-    let mut coinbase = [0u8; 256];
+    // Serialized coinbase = coinbase_1 + extranonce1 + extranonce2 +
+    // coinbase_2. Public pool coinbases fit in ~300 bytes; 1200 matches
+    // the MAX_COINBx_CHARS / 2 hex decode ceiling with headroom.
+    let mut coinbase = [0u8; 1200];
     let mut offset = 0;
 
     for chunk in &[coinbase_1, extranonce1, extranonce2, coinbase_2] {
