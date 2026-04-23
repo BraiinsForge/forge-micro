@@ -35,7 +35,7 @@
 
 use core::fmt::Write as _;
 
-use defmt::warn;
+use ubos_logging::warn;
 use embassy_futures::select::{select, Either};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::Stack;

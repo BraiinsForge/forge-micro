@@ -1655,6 +1655,7 @@ dependencies = [
  "rand_core 0.6.4",
  "sha2",
  "static_cell",
+ "ubos-logging",
 ]
 
 [[package]]
@@ -3255,6 +3256,15 @@ dependencies = [
  "sha2",
  "static_cell",
  "stratum-v1-core",
+ "ubos-logging",
+]
+
+[[package]]
+name = "ubos-logging"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.0.1",
+ "log",
 ]
 
 [[package]]

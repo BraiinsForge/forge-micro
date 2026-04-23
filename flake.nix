@@ -394,6 +394,14 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-ubos-logging = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-logging";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+
           test = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;

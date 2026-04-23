@@ -5,7 +5,7 @@
 //! `run_http_server`, `run_ntp_sync`, and `run_bitcoin_price` tasks
 //! from this module.
 
-use defmt::{info, warn};
+use ubos_logging::{info, warn};
 use embassy_futures::yield_now;
 use embassy_net::dns::DnsQueryType;
 use embassy_net::tcp::TcpSocket;

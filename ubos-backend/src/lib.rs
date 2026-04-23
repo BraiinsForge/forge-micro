@@ -19,7 +19,6 @@ use core::fmt::Write as _;
 
 use asic_interface::WorkFrame;
 use cpu_miner::target_from_diff;
-use defmt::{info, warn};
 use embassy_futures::select::{select, Either};
 use embassy_net::tcp::TcpSocket;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -37,6 +36,7 @@ use stratum_v1_core::{
     parse_incoming, parse_subscribe_result, parse_version_rolling_mask, Authorize, Configure,
     LineBuffer, Notification, Rpc, Submit, Subscribe,
 };
+use ubos_logging::{info, warn, Debug2Format};
 
 const LINE_BUFFER_BYTES: usize = 4096;
 const TCP_BUFFER_SIZE: usize = 2048;
@@ -234,7 +234,8 @@ static SUBSCRIBE_STATE: Mutex<CriticalSectionRawMutex, SubscribeState> =
         extranonce2_size: 0,
     });
 
-#[derive(defmt::Format, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug)]
 enum SessionError {
     Connect,
     SocketRead,
@@ -263,7 +264,7 @@ pub async fn run_stratum(stack: embassy_net::Stack<'static>, config: &'static Po
 
     loop {
         if let Err(error) = run_session(stack, config, rx_buffer, tx_buffer).await {
-            warn!("stratum session error: {}", error);
+            warn!("stratum session error: {:?}", error);
         }
         Timer::after(config.reconnect_delay).await;
     }
@@ -415,10 +416,11 @@ fn classify_line(line: &[u8]) -> LineAction {
         Ok(rpc) => rpc,
         Err(error) => {
             let snippet = &line[..line.len().min(128)];
+            let snippet_str = core::str::from_utf8(snippet).unwrap_or("<non-utf8>");
             warn!(
-                "stratum: parse error {} on line ({=[u8]:a}) len={}",
-                defmt::Debug2Format(&error),
-                snippet,
+                "stratum: parse error {:?} on line ({}) len={}",
+                Debug2Format(&error),
+                snippet_str,
                 line.len()
             );
             return LineAction::ParseError;
@@ -541,9 +543,10 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
             bits,
             bits_len,
         } => {
+            let job_id_str = core::str::from_utf8(&job_id[..job_id_len]).unwrap_or("<non-utf8>");
             info!(
-                "stratum: notify job_id={=[u8]:a} clean={} cb1={} cb2={} merkle={}",
-                &job_id[..job_id_len],
+                "stratum: notify job_id={} clean={} cb1={} cb2={} merkle={}",
+                job_id_str,
                 clean_jobs,
                 coinbase_1_len,
                 coinbase_2_len,

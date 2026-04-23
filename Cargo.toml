@@ -6,9 +6,13 @@ version = "0.1.0"
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = ["defmt"]
+defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt"]
+
 [dependencies]
 asic-interface    = { workspace = true }
-embassy-net       = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "auto-icmp-echo-reply"] }
+embassy-net       = { workspace = true, features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "auto-icmp-echo-reply"] }
 embassy-sync      = { workspace = true }
 embassy-time      = { workspace = true }
 embassy-futures   = { workspace = true }
@@ -20,11 +24,12 @@ rand_core         = { workspace = true }
 portable-atomic   = { workspace = true }
 static_cell       = { workspace = true }
 heapless          = { workspace = true }
-defmt             = { workspace = true }
+defmt             = { workspace = true, optional = true }
 embedded-graphics = { workspace = true }
 profont           = { workspace = true }
 format_no_std     = { workspace = true }
 sha2              = { workspace = true }
+ubos-logging      = { workspace = true }
 
 # Cortex-M boards drive embassy's `raw::Executor` directly via
 # `cpu_load::run_cortex_m_executor`. Gated to ARM so the ESP32-S3
@@ -49,6 +54,7 @@ members = [
     "rp235x-sha256",
     "stratum-v1-core",
     "ubos-backend",
+    "ubos-logging",
 ]
 
 [workspace.dependencies]
@@ -80,6 +86,8 @@ esp32s3-tsens     = { path = "esp32s3-tsens" }
 asic-interface    = { path = "asic-interface" }
 cpu-miner         = { path = "cpu-miner" }
 stratum-v1-core   = { path = "stratum-v1-core" }
+ubos-backend      = { path = "ubos-backend" }
+ubos-logging      = { path = "ubos-logging", default-features = false }
 
 [workspace.lints.clippy]
 pedantic     = { level = "warn", priority = -1 }
