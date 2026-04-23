@@ -5,9 +5,9 @@
 //! in MACRAW mode so the chip acts as a raw MAC and smoltcp owns the
 //! stack. That gives one code path across W5500 and W5100S, full
 //! DHCP/DNS/TCP/UDP, and removes the 8-socket ceiling of the `WIZnet`
-//! hardware TCP/IP stack. The STM32 board uses its native RMII MAC
-//! with a LAN8720 PHY through `embassy-stm32::eth`, also feeding
-//! smoltcp.
+//! hardware TCP/IP stack. The STM32 boards use their native RMII MAC
+//! through `embassy-stm32::eth` with a LAN8720 PHY on the F407 and
+//! an onboard LAN8742A on the F439, also feeding smoltcp.
 //!
 //! The HTTP response is hand-rolled into a caller-owned buffer rather
 //! than routed through a framework like picoserve. A single metrics

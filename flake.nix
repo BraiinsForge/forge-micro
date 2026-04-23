@@ -336,7 +336,7 @@
               echo "  cd firmware/rp2040    && cargo build --release  # RP2040 W5500"
               echo "  cd firmware/rp2350    && cargo build --release  # RP2350 W6100"
               echo "  cd firmware/stm32f407 && cargo build --release  # STM32F407 LAN8720"
-              echo "  cd firmware/stm32f439 && cargo build --release  # STM32F439 LAN8720"
+              echo "  cd firmware/stm32f439 && cargo build --release  # STM32F439 LAN8742A"
               echo ""
               echo "For ESP32-S3 board: nix develop .#esp"
               echo "Deploy to NUC:      deploy .#nuc"

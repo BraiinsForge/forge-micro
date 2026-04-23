@@ -1,6 +1,6 @@
-//! Firmware entry point for the Nucleo-F439ZI board wired to a
-//! Waveshare LAN8720 ETH Board via RMII. Starts the built-in MAC
-//! with an auto-probed LAN8720 PHY, runs the embassy-net stack with
+//! Firmware entry point for the Nucleo-F439ZI board using its
+//! onboard LAN8742A PHY and RJ45 over RMII. Starts the built-in
+//! MAC with an auto-probed PHY, runs the embassy-net stack with
 //! DHCP, and spawns the watchdog, LED blink, NTP, and BTC tasks
 //! before entering the HTTP server loop. Built with `cargo build`
 //! from this crate inside `nix develop .#arm`.
@@ -126,7 +126,7 @@ async fn main(spawner: Spawner) {
         .expect("BUG: RNG fill failed");
     let seed = u64::from_le_bytes(seed_bytes);
 
-    // RMII pin mapping for Nucleo-F439ZI + Waveshare LAN8720 ETH Board.
+    // RMII pin mapping for Nucleo-F439ZI onboard LAN8742A PHY.
     static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
     let device = Ethernet::new(
         PACKETS.init(PacketQueue::<4, 4>::new()),

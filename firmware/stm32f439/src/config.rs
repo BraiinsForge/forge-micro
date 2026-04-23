@@ -4,10 +4,12 @@
 //! (ST-LINK MCO), which the ethernet MAC and RMII reference clock
 //! depend on. `Board::take` consumes the peripherals main.rs needs:
 //! ETH, PHY management pins, seven RMII pins, watchdog, and LED.
+//! RMII TX pins are PG11/PG13, matching the MB1137 default solder
+//! bridges SB183 and SB182 that wire them to the onboard LAN8742A.
 
 use embassy_stm32::peripherals::{
-    DMA2_CH3, ETH, ETH_SMA, IWDG, PA1, PA2, PA7, PB0, PB11, PB12, PB13, PB3, PB5, PC1, PC4, PC5,
-    PD8, PD9, PE7, PE8, PE9, RNG, SPI1, USART3,
+    DMA2_CH3, ETH, ETH_SMA, IWDG, PA1, PA2, PA7, PB0, PB13, PB3, PB5, PC1, PC4, PC5, PD8, PD9, PE7,
+    PE8, PE9, PG11, PG13, RNG, SPI1, USART3,
 };
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peri;
@@ -53,9 +55,9 @@ pub struct Board {
     pub crs_dv: Peri<'static, PA7>,
     pub rxd0: Peri<'static, PC4>,
     pub rxd1: Peri<'static, PC5>,
-    pub txd0: Peri<'static, PB12>,
+    pub txd0: Peri<'static, PG13>,
     pub txd1: Peri<'static, PB13>,
-    pub tx_en: Peri<'static, PB11>,
+    pub tx_en: Peri<'static, PG11>,
     pub mdio: Peri<'static, PA2>,
     pub mdc: Peri<'static, PC1>,
     pub usart3: Peri<'static, USART3>,
@@ -76,7 +78,7 @@ impl DisplaySpi {
 }
 
 impl Board {
-    pub const NAME: &str = "Nucleo-F439ZI LAN8720";
+    pub const NAME: &str = "Nucleo-F439ZI LAN8742A";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
     pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x05];
 
@@ -91,9 +93,9 @@ impl Board {
             crs_dv: peripherals.PA7,
             rxd0: peripherals.PC4,
             rxd1: peripherals.PC5,
-            txd0: peripherals.PB12,
+            txd0: peripherals.PG13,
             txd1: peripherals.PB13,
-            tx_en: peripherals.PB11,
+            tx_en: peripherals.PG11,
             mdio: peripherals.PA2,
             mdc: peripherals.PC1,
             usart3: peripherals.USART3,

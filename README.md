@@ -11,7 +11,7 @@ time via NTP.
 | rp2040 | RP2040 | W5500 (onboard SPI) | thumbv6m-none-eabi |
 | rp2350 | RP2350A | W6100 (onboard SPI) | thumbv8m.main-none-eabihf |
 | stm32f407 | STM32F407VGT6 | LAN8720 (RMII, WT32-ETH01 cannibalized) | thumbv7em-none-eabihf |
-| stm32f439 | STM32F439ZIT6 | LAN8720 (RMII, Waveshare ETH Board) | thumbv7em-none-eabihf |
+| stm32f439 | STM32F439ZIT6 | LAN8742A (RMII, onboard) | thumbv7em-none-eabihf |
 | esp32s3 | ESP32-S3 | W5100S (SPI) | xtensa-esp32s3-none-elf |
 
 ## Prerequisites
@@ -128,10 +128,13 @@ Same pinout as the W5500-EVB-Pico. The board uses a W6100 instead of W5500.
 See [firmware/stm32f407/README.md](firmware/stm32f407/README.md)
 for the full RMII and management interface wiring.
 
-### Nucleo-F439ZI + LAN8720 (stm32f439)
+### Nucleo-F439ZI + LAN8742A (stm32f439)
 
-Same RMII pin mapping as the STM32F407. The Waveshare LAN8720 ETH Board
-has its own 50 MHz oscillator, so no oscillator enable pin is needed.
+Same RMII pin mapping as the STM32F407 except TX_EN on PG11 and TXD0
+on PG13 — MB1137 routes these to the onboard LAN8742A via solder
+bridges SB183 and SB182 in their default state. The MB1137 carries an
+onboard LAN8742A with its own 25 MHz crystal and drives the 50 MHz RMII
+reference clock from the PHY, so no oscillator enable pin is needed.
 LED is on PB0 (Nucleo LD1 green). Debug via onboard ST-LINK.
 
 ### ESP32-S3 + W5100S (esp32s3)
