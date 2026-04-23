@@ -248,6 +248,12 @@
         };
       in
       {
+        # Each firmware crate is checked under its default feature set
+        # only. Cross-combinations of the display and uart-echo features
+        # are not gated here: fanning out would multiply CI time without
+        # catching bugs the default combos already cover for most boards.
+        # A future change that breaks a non-default combo will land
+        # unnoticed until a human builds that combo locally.
         checks = {
           clippy-rp2040 = craneLib.cargoClippy {
             inherit src;
