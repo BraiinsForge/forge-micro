@@ -137,7 +137,7 @@ pub struct Pool;
 impl Pool {
     pub const HOST_IP: [u8; 4] = RPI_POOL;
     pub const PORT: u16 = 3333;
-    pub const USER: &'static str = REGTEST_SOLO_USER;
+    pub const USER: &'static str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8.rp2350";
     pub const PASS: &'static str = "x";
     pub const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 }

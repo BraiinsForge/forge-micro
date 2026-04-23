@@ -101,7 +101,7 @@ pub struct Pool;
 impl Pool {
     pub const HOST_IP: [u8; 4] = [192, 168, 89, 100];
     pub const PORT: u16 = 3333;
-    pub const USER: &'static str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8";
+    pub const USER: &'static str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8.stm32f439";
     pub const PASS: &'static str = "x";
     pub const RECONNECT_DELAY: embassy_time::Duration = embassy_time::Duration::from_secs(5);
 }
