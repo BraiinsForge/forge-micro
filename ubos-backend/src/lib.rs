@@ -11,6 +11,10 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 
+#[cfg(test)]
+#[path = "tests/header.rs"]
+mod tests;
+
 use core::fmt::Write as _;
 
 use defmt::{info, warn};
@@ -871,11 +875,13 @@ pub async fn cpu_solver_task() -> ! {
 
 /// Build the 80-byte block header from stratum-format fields and a nonce.
 ///
-/// Stratum transmits version/ntime/nbits as big-endian hex and prev_hash
-/// as 32 bytes whose 4-byte words need reversing. The block header wants
-/// version/ntime/nbits in little-endian and prev_hash with each word's
-/// byte order reversed. merkle_root is already in internal byte order
-/// because we compute it locally via double-SHA256, so it goes in raw.
+/// Stratum transmits `version`/`ntime`/`nbits` as big-endian hex and
+/// `prev_hash` as 32 bytes whose 4-byte words need reversing. The block
+/// header wants `version`/`ntime`/`nbits` in little-endian and
+/// `prev_hash` with each word's byte order reversed. `merkle_root` is
+/// already in internal byte order because we compute it locally via
+/// double-SHA256, so it goes in raw.
+#[must_use]
 pub fn build_header(
     version: [u8; 4],
     prev_hash: [u8; 32],
@@ -964,6 +970,7 @@ pub fn hash_meets_target(hash: &[u8; 32], target: &[u8; 32]) -> bool {
 }
 
 /// Double-SHA256 of the 80-byte block header produced by `build_header`.
+#[must_use]
 pub fn header_hash(
     version: [u8; 4],
     prev_hash: [u8; 32],

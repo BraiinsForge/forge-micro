@@ -303,6 +303,12 @@
             cargoExtraArgs = "-p eth-examples";
           };
 
+          test-ubos-backend = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-backend";
+          };
+
           clippy-esp32s3 = espCraneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
