@@ -215,6 +215,46 @@ cd echoer && cargo run --release
 
 The espflash step only needs to be repeated if the flash is erased.
 
+## Size and stack analysis
+
+### Binary size
+
+`cargo size --release -- -A` (from `cargo-binutils`, pre-installed in
+the dev shells) prints per-section sizes from the ELF. It builds first,
+so it is a drop-in replacement for `cargo build --release` when you
+want size output. The default Berkeley output (`cargo size --release`)
+adds a `dec`/`hex` total; `-A` gives the per-section breakdown. Budgets:
+
+- Flash = `.vector_table + .text + .rodata + .data` (plus `.boot2`
+  on RP2040; plus `.start_block`, `.bi_entries`, `.end_block`, and
+  `.gnu.sgstubs` on RP2350)
+- Static RAM = `.data + .bss + .uninit`
+
+`cargo bloat --release` attributes flash usage to functions and crates,
+useful for tracking down why a build grew.
+
+### Stack
+
+The executor model determines what "stack per task" means:
+
+- **ARM boards (`embassy-executor`)**: a single shared stack is used by
+  whichever task is polling. Task state lives in a static arena sized at
+  compile time, not on the stack. Worst-case stack usage is the deepest
+  poll path plus ISR nesting.
+- **ESP32-S3 (`esp-rtos`)**: FreeRTOS threads with per-thread stacks,
+  sized at spawn. The embassy executor runs on one of them.
+
+Analysis options:
+
+- `cargo-call-stack` — whole-program static upper bound per entry point.
+  Cortex-M only, known limitations around async state machines and
+  function pointers.
+- `-Z emit-stack-sizes` (nightly rustc) — emits per-function sizes to a
+  linker section. No call graph, so pair with external analysis.
+- Runtime watermark — paint the stack with a known pattern at boot, read
+  high-water via probe-rs. On ESP32-S3, FreeRTOS exposes
+  `uxTaskGetStackHighWaterMark` directly.
+
 ## Network
 
 The NUC runs dnsmasq on end0 with fixed DHCP leases. Each board gets a
