@@ -5,8 +5,8 @@
 //! through `main`.
 
 use embassy_rp::peripherals::{
-    ADC, ADC_TEMP_SENSOR, CORE1, DMA_CH0, DMA_CH1, PIN_0, PIN_1, PIN_16, PIN_17, PIN_18, PIN_19,
-    PIN_20, PIN_21, PIN_25, SPI0, UART0, WATCHDOG,
+    ADC, ADC_TEMP_SENSOR, CORE1, DMA_CH0, DMA_CH1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21,
+    PIN_25, SPI0, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_8, PIN_9, SPI1};
@@ -16,6 +16,7 @@ use embassy_rp::Peri;
 use embassy_time::Duration;
 
 /// Every peripheral singleton the board consumes, extracted in one place.
+#[allow(dead_code)]
 pub struct Board {
     pub watchdog: Peri<'static, WATCHDOG>,
     pub led: Peri<'static, PIN_25>,
@@ -50,9 +51,6 @@ pub struct Board {
     pub display_rst: Peri<'static, PIN_9>,
     #[cfg(feature = "display")]
     pub display_tx_dma: Peri<'static, DMA_CH2>,
-    pub uart0: Peri<'static, UART0>,
-    pub uart0_tx: Peri<'static, PIN_0>,
-    pub uart0_rx: Peri<'static, PIN_1>,
     pub core1: Peri<'static, CORE1>,
 }
 
@@ -96,9 +94,6 @@ impl Board {
             display_rst: peripherals.PIN_9,
             #[cfg(feature = "display")]
             display_tx_dma: peripherals.DMA_CH2,
-            uart0: peripherals.UART0,
-            uart0_tx: peripherals.PIN_0,
-            uart0_rx: peripherals.PIN_1,
             core1: peripherals.CORE1,
         }
     }
@@ -121,15 +116,9 @@ impl Watchdog {
     pub const TIMEOUT: Duration = Duration::from_secs(2);
 }
 
-pub struct UartLoopback;
-impl UartLoopback {
-    pub const BAUD_RATE: u32 = 1_000_000;
-    pub const CHUNK_BYTES: usize = 16;
-    pub const READ_TIMEOUT: Duration = Duration::from_millis(100);
-    pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
-    pub const CORE1_STACK_BYTES: usize = 4096;
-    pub const RX_BUFFER_BYTES: usize = 64;
-    pub const TX_BUFFER_BYTES: usize = 64;
+pub struct Core1;
+impl Core1 {
+    pub const STACK_BYTES: usize = 4096;
 }
 
 // Pool presets kept so switching pool or user is a one-line edit on
