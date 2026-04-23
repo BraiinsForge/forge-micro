@@ -59,6 +59,20 @@ impl Watchdog {
     pub const FEED_PERIOD: Duration = Duration::from_millis(500);
 }
 
+/// Internal chip temperature sampling.
+pub struct Temperature;
+impl Temperature {
+    pub const PERIOD: Duration = Duration::from_secs(1);
+    /// Prometheus convention prefers base SI units, which would make
+    /// `_celsius` the canonical suffix. This crate targets the RP2040
+    /// (Cortex-M0+, no FPU) among others, so a float-valued celsius
+    /// gauge would pull software floating-point into the exposition
+    /// path. Integer millicelsius preserves sub-degree resolution
+    /// without soft-float, and the name reflects the unit carried on
+    /// the wire.
+    pub const METRIC_NAME: &str = "board_chip_temperature_millicelsius";
+}
+
 /// Prometheus metrics exposition server settings.
 pub struct Metrics;
 impl Metrics {

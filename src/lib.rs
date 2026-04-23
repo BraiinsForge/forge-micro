@@ -23,6 +23,7 @@ pub mod metrics;
 pub mod net;
 pub mod ntp;
 pub mod sh1106;
+pub mod temperature;
 pub mod uart_echo;
 pub mod watchdog;
 
