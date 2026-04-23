@@ -15,17 +15,25 @@ use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, DMA_CH2, SPI0, SPI1, UART1};
+#[cfg(feature = "uart-echo")]
+use embassy_rp::peripherals::UART1;
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, SPI0};
+#[cfg(feature = "display")]
+use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
+#[cfg(feature = "uart-echo")]
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{bind_interrupts, dma};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::Delay;
+#[cfg(feature = "display")]
+use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
+#[cfg(feature = "display")]
 use eth_examples::sh1106::Sh1106;
 
 mod config;
@@ -33,7 +41,12 @@ mod config;
 defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
 
 bind_interrupts!(struct Irqs {
-    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>, dma::InterruptHandler<DMA_CH2>;
+    DMA_IRQ_0 =>
+        dma::InterruptHandler<DMA_CH0>,
+        dma::InterruptHandler<DMA_CH1>,
+        #[cfg(feature = "display")]
+        dma::InterruptHandler<DMA_CH2>;
+    #[cfg(feature = "uart-echo")]
     UART1_IRQ => BufferedInterruptHandler<UART1>;
 });
 
@@ -92,16 +105,19 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
     eth_examples::metrics::run(stack).await
 }
 
+#[cfg(feature = "display")]
 type OledDisplay = Sh1106<
     ExclusiveDevice<Spi<'static, SPI1, Async>, Output<'static>, embedded_hal_bus::spi::NoDelay>,
     Output<'static>,
 >;
 
+#[cfg(feature = "display")]
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) -> ! {
     eth_examples::display::run_async(&mut display, ip).await
 }
 
+#[cfg(feature = "uart-echo")]
 #[embassy_executor::task]
 async fn uart_echo_test(mut uart: BufferedUart) -> ! {
     let _ = eth_examples::uart_echo::run_test(&mut uart).await;
@@ -161,54 +177,62 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_task(stack)));
 
-    static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
-    static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
-    let uart = BufferedUart::new(
-        hw.uart,
-        hw.uart_tx,
-        hw.uart_rx,
-        Irqs,
-        TX_BUF.init([0; 256]),
-        RX_BUF.init([0; 256]),
-        {
-            let mut config = UartConfig::default();
-            config.baudrate = eth_examples::uart_echo::BAUD_RATE;
-            config
-        },
-    );
-    spawner.spawn(unwrap!(uart_echo_test(uart)));
+    #[cfg(feature = "uart-echo")]
+    {
+        static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+        static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+        let uart = BufferedUart::new(
+            hw.uart,
+            hw.uart_tx,
+            hw.uart_rx,
+            Irqs,
+            TX_BUF.init([0; 256]),
+            RX_BUF.init([0; 256]),
+            {
+                let mut config = UartConfig::default();
+                config.baudrate = eth_examples::uart_echo::BAUD_RATE;
+                config
+            },
+        );
+        spawner.spawn(unwrap!(uart_echo_test(uart)));
+    }
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
     // Binding must stay alive so the reset pin remains driven high.
-    let _rst = {
-        let mut pin = Output::new(hw.display_rst, Level::Low);
-        Timer::after(Duration::from_millis(10)).await;
-        pin.set_high();
-        Timer::after(Duration::from_millis(10)).await;
-        pin
+    #[cfg(feature = "display")]
+    let (_rst, display) = {
+        let rst = {
+            let mut pin = Output::new(hw.display_rst, Level::Low);
+            Timer::after(Duration::from_millis(10)).await;
+            pin.set_high();
+            Timer::after(Duration::from_millis(10)).await;
+            pin
+        };
+        let mut display_spi_config = SpiConfig::default();
+        display_spi_config.frequency = config::DisplaySpi::FREQUENCY;
+        let display_spi = Spi::new_txonly(
+            hw.display_spi,
+            hw.display_sck,
+            hw.display_mosi,
+            hw.display_tx_dma,
+            Irqs,
+            display_spi_config,
+        );
+        let display_cs = Output::new(hw.display_cs, Level::High);
+        let display_dc = Output::new(hw.display_dc, Level::Low);
+        let spi_device = ExclusiveDevice::new_no_delay(display_spi, display_cs);
+        let mut display = Sh1106::new(spi_device, display_dc);
+        // Display is reset and SPI is valid; init cannot fail.
+        display.init().expect("BUG: SH1106 init failed");
+        (rst, display)
     };
-    let mut display_spi_config = SpiConfig::default();
-    display_spi_config.frequency = config::DisplaySpi::FREQUENCY;
-    let display_spi = Spi::new_txonly(
-        hw.display_spi,
-        hw.display_sck,
-        hw.display_mosi,
-        hw.display_tx_dma,
-        Irqs,
-        display_spi_config,
-    );
-    let display_cs = Output::new(hw.display_cs, Level::High);
-    let display_dc = Output::new(hw.display_dc, Level::Low);
-    let spi_device = ExclusiveDevice::new_no_delay(display_spi, display_cs);
-    let mut display = Sh1106::new(spi_device, display_dc);
-    // Display is reset and SPI is valid; init cannot fail.
-    display.init().expect("BUG: SH1106 init failed");
 
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;
     let ip = config.address.address();
     info!("ip address: {:?}", ip);
 
+    #[cfg(feature = "display")]
     spawner.spawn(unwrap!(display_task(display, ip)));
 
     net::run_http_server(stack, config::Board::NAME).await;
