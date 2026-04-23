@@ -1,0 +1,25 @@
+[package]
+edition = "2021"
+name    = "host-runner"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+embassy-executor   = { workspace = true, features = ["platform-std", "executor-thread", "log"] }
+embassy-net        = { workspace = true, features = ["log", "tcp", "udp", "dns", "medium-ethernet", "proto-ipv4", "auto-icmp-echo-reply"] }
+embassy-net-tuntap = "0.1"
+embassy-time       = { workspace = true, features = ["std", "log"] }
+critical-section   = { version = "1.2", features = ["std"] }
+env_logger         = "0.11"
+# embassy-net 0.9's StaticConfigV4 needs heapless 0.9, while eth-examples
+# still pins 0.8; both coexist here until the workspace bumps.
+heapless           = "0.9"
+heapless-v08       = { package = "heapless", version = "0.8" }
+log                = { version = "0.4", default-features = false }
+static_cell        = { workspace = true }
+eth-examples       = { workspace = true, default-features = false }
+rand               = "0.8"
+ubos-backend       = { workspace = true, default-features = false }
+ubos-logging       = { workspace = true }

@@ -55,6 +55,7 @@ members = [
     "stratum-v1-core",
     "ubos-backend",
     "ubos-logging",
+    "host-runner",
 ]
 
 [workspace.dependencies]

@@ -401,6 +401,13 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-host-runner = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p host-runner";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
 
           test = craneLib.cargoTest {
             inherit src;
