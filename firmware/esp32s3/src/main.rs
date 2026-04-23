@@ -13,7 +13,9 @@ use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5100S;
 use embassy_net_wiznet::{Device, Runner, State};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::Delay;
+#[cfg(feature = "display")]
+use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_hal::dma::{DmaRxBuf, DmaTxBuf};
 use esp_hal::dma_buffers;
@@ -23,8 +25,10 @@ use esp_hal::rng::Rng;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::spi::Mode;
 use esp_hal::timer::timg::{MwdtStage, TimerGroup, Wdt};
+#[cfg(feature = "uart-echo")]
 use esp_hal::uart::{Config as UartConfig, Uart};
 use eth_examples::net;
+#[cfg(feature = "display")]
 use eth_examples::sh1106::Sh1106;
 use rand_core::{CryptoRng, RngCore};
 use static_cell::StaticCell;
@@ -123,6 +127,7 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
     eth_examples::metrics::run(stack).await
 }
 
+#[cfg(feature = "display")]
 type OledDisplay = Sh1106<
     ExclusiveDevice<
         esp_hal::spi::master::SpiDmaBus<'static, esp_hal::Async>,
@@ -132,11 +137,13 @@ type OledDisplay = Sh1106<
     Output<'static>,
 >;
 
+#[cfg(feature = "display")]
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) -> ! {
     eth_examples::display::run_async(&mut display, ip).await
 }
 
+#[cfg(feature = "uart-echo")]
 #[embassy_executor::task]
 async fn uart_echo_test(mut uart: Uart<'static, esp_hal::Async>) -> ! {
     let _ = eth_examples::uart_echo::run_test(&mut uart).await;
@@ -218,56 +225,64 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(metrics_task(stack));
     // No LED blink task: board wiring does not include an accessible LED.
 
-    let uart_config = UartConfig::default().with_baudrate(eth_examples::uart_echo::BAUD_RATE);
-    // Valid UART peripheral and default-compatible baud rate; cannot fail.
-    let uart = Uart::new(hw.uart0, uart_config)
-        .expect("BUG: UART0 configuration failed")
-        .with_tx(hw.uart_tx)
-        .with_rx(hw.uart_rx)
-        .into_async();
-    spawner.must_spawn(uart_echo_test(uart));
+    #[cfg(feature = "uart-echo")]
+    {
+        let uart_config = UartConfig::default().with_baudrate(eth_examples::uart_echo::BAUD_RATE);
+        // Valid UART peripheral and default-compatible baud rate; cannot fail.
+        let uart = Uart::new(hw.uart0, uart_config)
+            .expect("BUG: UART0 configuration failed")
+            .with_tx(hw.uart_tx)
+            .with_rx(hw.uart_rx)
+            .into_async();
+        spawner.must_spawn(uart_echo_test(uart));
+    }
 
     // SH1106 OLED on SPI3: reset pulse, then async DMA SPI.
     // Binding must stay alive so the reset pin remains driven high.
-    let _rst = {
-        let mut pin = Output::new(hw.display_rst, Level::Low, OutputConfig::default());
-        Timer::after(Duration::from_millis(10)).await;
-        pin.set_high();
-        Timer::after(Duration::from_millis(10)).await;
-        pin
+    #[cfg(feature = "display")]
+    let (_rst, display) = {
+        let rst = {
+            let mut pin = Output::new(hw.display_rst, Level::Low, OutputConfig::default());
+            Timer::after(Duration::from_millis(10)).await;
+            pin.set_high();
+            Timer::after(Duration::from_millis(10)).await;
+            pin
+        };
+        let (disp_rx_buf, disp_rx_desc, disp_tx_buf, disp_tx_desc) = dma_buffers!(2048);
+        // dma_buffers! produces correctly-sized aligned descriptors and buffers,
+        // so DmaRxBuf::new and DmaTxBuf::new only fail on a programming error.
+        let disp_dma_rx =
+            DmaRxBuf::new(disp_rx_desc, disp_rx_buf).expect("BUG: display DMA RX buffer failed");
+        let disp_dma_tx =
+            DmaTxBuf::new(disp_tx_desc, disp_tx_buf).expect("BUG: display DMA TX buffer failed");
+        let display_spi = Spi::new(
+            hw.display_spi,
+            SpiConfig::default()
+                .with_frequency(config::DisplaySpi::FREQUENCY)
+                .with_mode(Mode::_0),
+        )
+        // SPI peripheral configuration uses only valid Mode and Rate values.
+        .expect("BUG: SPI3 configuration failed")
+        .with_sck(hw.display_sck)
+        .with_mosi(hw.display_mosi)
+        .with_dma(hw.display_dma)
+        .with_buffers(disp_dma_rx, disp_dma_tx)
+        .into_async();
+        let display_cs = Output::new(hw.display_cs, Level::High, OutputConfig::default());
+        let display_dc = Output::new(hw.display_dc, Level::Low, OutputConfig::default());
+        let spi_device = ExclusiveDevice::new_no_delay(display_spi, display_cs);
+        let mut display = Sh1106::new(spi_device, display_dc);
+        // Display is reset and SPI is valid; init cannot fail.
+        display.init_async().await.expect("BUG: SH1106 init failed");
+        (rst, display)
     };
-    let (disp_rx_buf, disp_rx_desc, disp_tx_buf, disp_tx_desc) = dma_buffers!(2048);
-    // dma_buffers! produces correctly-sized aligned descriptors and buffers,
-    // so DmaRxBuf::new and DmaTxBuf::new only fail on a programming error.
-    let disp_dma_rx =
-        DmaRxBuf::new(disp_rx_desc, disp_rx_buf).expect("BUG: display DMA RX buffer failed");
-    let disp_dma_tx =
-        DmaTxBuf::new(disp_tx_desc, disp_tx_buf).expect("BUG: display DMA TX buffer failed");
-    let display_spi = Spi::new(
-        hw.display_spi,
-        SpiConfig::default()
-            .with_frequency(config::DisplaySpi::FREQUENCY)
-            .with_mode(Mode::_0),
-    )
-    // SPI peripheral configuration uses only valid Mode and Rate values.
-    .expect("BUG: SPI3 configuration failed")
-    .with_sck(hw.display_sck)
-    .with_mosi(hw.display_mosi)
-    .with_dma(hw.display_dma)
-    .with_buffers(disp_dma_rx, disp_dma_tx)
-    .into_async();
-    let display_cs = Output::new(hw.display_cs, Level::High, OutputConfig::default());
-    let display_dc = Output::new(hw.display_dc, Level::Low, OutputConfig::default());
-    let spi_device = ExclusiveDevice::new_no_delay(display_spi, display_cs);
-    let mut display = Sh1106::new(spi_device, display_dc);
-    // Display is reset and SPI is valid; init cannot fail.
-    display.init_async().await.expect("BUG: SH1106 init failed");
 
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;
     let ip = config.address.address();
     info!("ip address: {:?}", ip);
 
+    #[cfg(feature = "display")]
     spawner.must_spawn(display_task(display, ip));
 
     net::run_http_server(stack, config::Board::NAME).await;

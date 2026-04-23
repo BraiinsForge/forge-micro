@@ -4,10 +4,11 @@
 //! that main.rs needs. SPI frequency is pinned below the W5100S
 //! datasheet limit because higher rates corrupt frames on this wiring.
 
-use esp_hal::peripherals::{
-    GPIO1, GPIO15, GPIO16, GPIO17, GPIO2, GPIO39, GPIO40, GPIO41, GPIO42, GPIO43, GPIO44, GPIO6,
-    GPIO7, SPI2, SPI3, TIMG0, TIMG1, UART0,
-};
+use esp_hal::peripherals::{GPIO1, GPIO2, GPIO39, GPIO40, GPIO41, GPIO42, SPI2, TIMG0, TIMG1};
+#[cfg(feature = "display")]
+use esp_hal::peripherals::{GPIO15, GPIO16, GPIO17, GPIO6, GPIO7, SPI3};
+#[cfg(feature = "uart-echo")]
+use esp_hal::peripherals::{GPIO43, GPIO44, UART0};
 use esp_hal::time::Rate;
 
 pub struct Spi;
@@ -17,7 +18,9 @@ impl Spi {
     pub const FREQUENCY: Rate = Rate::from_mhz(20);
 }
 
+#[cfg(feature = "display")]
 pub struct DisplaySpi;
+#[cfg(feature = "display")]
 impl DisplaySpi {
     pub const FREQUENCY: Rate = Rate::from_mhz(10);
 }
@@ -39,15 +42,25 @@ pub struct Board<'d> {
     pub w5500_int: GPIO41<'d>,
     pub w5500_reset: GPIO40<'d>,
     pub dma: esp_hal::peripherals::DMA_CH0<'d>,
+    #[cfg(feature = "uart-echo")]
     pub uart0: UART0<'d>,
+    #[cfg(feature = "uart-echo")]
     pub uart_tx: GPIO43<'d>,
+    #[cfg(feature = "uart-echo")]
     pub uart_rx: GPIO44<'d>,
+    #[cfg(feature = "display")]
     pub display_spi: SPI3<'d>,
+    #[cfg(feature = "display")]
     pub display_sck: GPIO6<'d>,
+    #[cfg(feature = "display")]
     pub display_mosi: GPIO7<'d>,
+    #[cfg(feature = "display")]
     pub display_cs: GPIO15<'d>,
+    #[cfg(feature = "display")]
     pub display_dc: GPIO16<'d>,
+    #[cfg(feature = "display")]
     pub display_rst: GPIO17<'d>,
+    #[cfg(feature = "display")]
     pub display_dma: esp_hal::peripherals::DMA_CH1<'d>,
 }
 
@@ -68,15 +81,25 @@ impl Board<'static> {
             w5500_int: peripherals.GPIO41,
             w5500_reset: peripherals.GPIO40,
             dma: peripherals.DMA_CH0,
+            #[cfg(feature = "uart-echo")]
             uart0: peripherals.UART0,
+            #[cfg(feature = "uart-echo")]
             uart_tx: peripherals.GPIO43,
+            #[cfg(feature = "uart-echo")]
             uart_rx: peripherals.GPIO44,
+            #[cfg(feature = "display")]
             display_spi: peripherals.SPI3,
+            #[cfg(feature = "display")]
             display_sck: peripherals.GPIO6,
+            #[cfg(feature = "display")]
             display_mosi: peripherals.GPIO7,
+            #[cfg(feature = "display")]
             display_cs: peripherals.GPIO15,
+            #[cfg(feature = "display")]
             display_dc: peripherals.GPIO16,
+            #[cfg(feature = "display")]
             display_rst: peripherals.GPIO17,
+            #[cfg(feature = "display")]
             display_dma: peripherals.DMA_CH1,
         }
     }
