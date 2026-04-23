@@ -6,6 +6,11 @@ version = "0.1.0"
 [lints]
 workspace = true
 
+[features]
+default = ["display", "uart-echo"]
+display = []
+uart-echo = []
+
 [dependencies]
 eth-examples        = { workspace = true }
 embassy-executor    = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
