@@ -317,7 +317,9 @@
                 echo "Installing ESP32-S3 Xtensa toolchain..."
                 # Version pinned for reproducibility. Bump manually when
                 # upgrading esp-hal or esp-rtos and retest the build.
-                espup install --targets esp32s3 --toolchain-version 1.94.0 || true
+                # Use the full X.Y.Z.W form so espup does not float to a
+                # newer patch release between developer machines.
+                espup install --targets esp32s3 --toolchain-version 1.94.0.2 || true
                 patch-esp-binaries
               fi
 
