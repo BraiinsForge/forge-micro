@@ -309,6 +309,13 @@
             cargoClippyExtraArgs = "-- -D warnings";
             RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
           };
+
+          # Building the load-test module's packages doubles as a lint
+          # gate: writeShellApplication runs shellcheck at build time.
+          load-test = pkgs.symlinkJoin {
+            name = "load-test-check";
+            paths = (import ./redacted/load-test.nix { inherit pkgs; }).environment.systemPackages;
+          };
         };
 
         devShells = {
