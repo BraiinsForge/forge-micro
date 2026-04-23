@@ -15,7 +15,7 @@ backend-uart = ["dep:ubos-backend"]
 backend-cpu = ["dep:ubos-backend", "dep:cpu-miner"]
 
 [dependencies]
-eth-examples        = { workspace = true }
+eth-examples        = { workspace = true, features = ["defmt"] }
 embassy-executor    = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time        = { workspace = true, features = ["defmt"] }
 embassy-net         = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }

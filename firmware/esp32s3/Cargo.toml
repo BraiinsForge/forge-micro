@@ -15,7 +15,7 @@ backend-uart = ["dep:ubos-backend"]
 backend-cpu = ["dep:ubos-backend", "dep:cpu-miner"]
 
 [dependencies]
-eth-examples           = { workspace = true }
+eth-examples           = { workspace = true, features = ["defmt"] }
 esp32s3-tsens          = { workspace = true }
 embassy-executor       = { version = "0.9.1", features = ["defmt"] }
 embassy-time           = { workspace = true, features = ["defmt", "generic-queue-8"] }

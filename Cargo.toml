@@ -58,7 +58,7 @@ members = [
 ]
 
 [workspace.dependencies]
-eth-examples      = { path = "." }
+eth-examples      = { path = ".", default-features = false }
 embassy-executor  = { version = "0.10.0", default-features = false }
 embassy-sync      = { version = "0.8", default-features = false }
 embassy-time      = { version = "0.5.1", default-features = false }
@@ -86,7 +86,7 @@ esp32s3-tsens     = { path = "esp32s3-tsens" }
 asic-interface    = { path = "asic-interface" }
 cpu-miner         = { path = "cpu-miner" }
 stratum-v1-core   = { path = "stratum-v1-core" }
-ubos-backend      = { path = "ubos-backend" }
+ubos-backend      = { path = "ubos-backend", default-features = false }
 ubos-logging      = { path = "ubos-logging", default-features = false }
 
 [workspace.lints.clippy]
