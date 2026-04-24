@@ -97,7 +97,9 @@ impl DisplaySpi {
 }
 
 /// Stratum pool connection parameters.
+#[cfg(feature = "cpu-mining")]
 pub struct Pool;
+#[cfg(feature = "cpu-mining")]
 impl Pool {
     pub const HOST_IP: [u8; 4] = [192, 168, 89, 100];
     pub const PORT: u16 = 3333;

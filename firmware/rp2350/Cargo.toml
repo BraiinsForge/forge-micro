@@ -7,9 +7,10 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["display", "uart-echo"]
+default = ["display", "uart-echo", "cpu-mining"]
 display = []
 uart-echo = []
+cpu-mining = ["dep:ubos-backend"]
 
 [dependencies]
 eth-examples        = { workspace = true }
@@ -27,7 +28,7 @@ embedded-hal-bus    = { workspace = true, features = ["async"] }
 portable-atomic     = { workspace = true }
 cortex-m            = { version = "0.7", features = ["inline-asm"] }
 cortex-m-rt         = "0.7"
-ubos-backend        = { path = "../../ubos-backend" }
+ubos-backend        = { path = "../../ubos-backend", optional = true }
 
 # cortex-m and cortex-m-rt are pulled in by `#[embassy_executor::main]` and
 # the linker scripts; no direct source references, so machete can't see them.

@@ -116,7 +116,9 @@ impl Watchdog {
     pub const TIMEOUT: Duration = Duration::from_secs(2);
 }
 
+#[cfg(feature = "cpu-mining")]
 pub struct Core1;
+#[cfg(feature = "cpu-mining")]
 impl Core1 {
     pub const STACK_BYTES: usize = 4096;
 }
@@ -124,16 +126,22 @@ impl Core1 {
 // Pool presets kept so switching pool or user is a one-line edit on
 // `Pool::HOST_IP`/`Pool::USER` below. The unused ones stay behind
 // `allow(dead_code)` because only one pair is active at a time.
+#[cfg(feature = "cpu-mining")]
 #[allow(dead_code)]
 const RPI_POOL: [u8; 4] = [192, 168, 89, 100];
+#[cfg(feature = "cpu-mining")]
 #[allow(dead_code)]
 const REGTEST_SOLO_USER: &str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8";
+#[cfg(feature = "cpu-mining")]
 #[allow(dead_code)]
 const BRAIINS_POOL: [u8; 4] = [172, 65, 65, 63];
+#[cfg(feature = "cpu-mining")]
 #[allow(dead_code)]
 const BRAIINS_USER: &str = "braiinstest";
 
+#[cfg(feature = "cpu-mining")]
 pub struct Pool;
+#[cfg(feature = "cpu-mining")]
 impl Pool {
     pub const HOST_IP: [u8; 4] = RPI_POOL;
     pub const PORT: u16 = 3333;

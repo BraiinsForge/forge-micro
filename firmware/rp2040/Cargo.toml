@@ -7,9 +7,10 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["display", "uart-echo"]
+default = ["display", "uart-echo", "cpu-mining"]
 display = []
 uart-echo = []
+cpu-mining = ["dep:ubos-backend"]
 
 [dependencies]
 eth-examples        = { workspace = true }
@@ -24,7 +25,7 @@ heapless            = { workspace = true }
 panic-probe         = { workspace = true, features = ["print-defmt"] }
 portable-atomic     = { workspace = true }
 static_cell         = { workspace = true }
-ubos-backend        = { path = "../../ubos-backend" }
+ubos-backend        = { path = "../../ubos-backend", optional = true }
 embedded-hal-bus    = { workspace = true, features = ["async"] }
 cortex-m            = { version = "0.7", features = ["inline-asm"] }
 cortex-m-rt         = "0.7"

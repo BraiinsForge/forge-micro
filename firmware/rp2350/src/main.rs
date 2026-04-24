@@ -9,7 +9,9 @@
 #![no_main]
 
 use defmt::{info, unwrap};
-use embassy_executor::{Executor, Spawner};
+#[cfg(feature = "cpu-mining")]
+use embassy_executor::Executor;
+use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W6100;
 use embassy_net_wiznet::{Device, Runner, State};
@@ -26,22 +28,30 @@ use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{adc, bind_interrupts, dma};
+#[cfg(feature = "cpu-mining")]
+use embassy_time::Ticker;
 #[cfg(feature = "display")]
 use embassy_time::Timer;
-use embassy_time::{Delay, Duration, Ticker};
+use embassy_time::{Delay, Duration};
 use embedded_hal_bus::spi::ExclusiveDevice;
+#[cfg(feature = "cpu-mining")]
 use eth_examples::metrics::{Metric, Value};
 #[cfg(feature = "display")]
 use eth_examples::sh1106::Sh1106;
+#[cfg(feature = "cpu-mining")]
 use portable_atomic::Ordering;
-use static_cell::{ConstStaticCell, StaticCell};
+#[cfg(feature = "cpu-mining")]
+use static_cell::ConstStaticCell;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
+#[cfg(feature = "cpu-mining")]
 use ubos_backend::PoolConfig;
 
 mod config;
 
+#[cfg(feature = "cpu-mining")]
 static POOL_CONFIG: PoolConfig = PoolConfig {
     host_ip: config::Pool::HOST_IP,
     port: config::Pool::PORT,
@@ -149,6 +159,7 @@ async fn temperature_task(sensor: BoardTempSensor) -> ! {
 /// Publish the current hashrate as a Prometheus metric. Reads the atomic
 /// populated by `ubos_backend::hashrate_task` and pushes it through the
 /// shared metrics channel on a fixed cadence.
+#[cfg(feature = "cpu-mining")]
 #[embassy_executor::task]
 async fn hashrate_metrics_task() -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(5));
@@ -171,10 +182,16 @@ type OledDisplay = Sh1106<
     Output<'static>,
 >;
 
-#[cfg(feature = "display")]
+#[cfg(all(feature = "display", feature = "cpu-mining"))]
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) -> ! {
     eth_examples::display::run_async_hashrate(&mut display, ip, &ubos_backend::HASHRATE_HZ).await
+}
+
+#[cfg(all(feature = "display", not(feature = "cpu-mining")))]
+#[embassy_executor::task]
+async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) -> ! {
+    eth_examples::display::run_async(&mut display, ip).await
 }
 
 #[cfg(feature = "uart-echo")]
@@ -194,16 +211,19 @@ async fn main(spawner: Spawner) {
     // The CPU solver hogs the scheduler. Pin it to core 1 so the
     // embassy-net stack on core 0 keeps getting CPU time and the W6100
     // SPI path stays responsive.
-    static CORE1_STACK: ConstStaticCell<
-        embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>,
-    > = ConstStaticCell::new(embassy_rp::multicore::Stack::new());
-    static CORE1_EXECUTOR: static_cell::StaticCell<Executor> = static_cell::StaticCell::new();
-    embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
-        let executor = CORE1_EXECUTOR.init(Executor::new());
-        executor.run(|core1_spawner: Spawner| {
-            core1_spawner.spawn(unwrap!(ubos_backend::cpu_solver_task()));
-        })
-    });
+    #[cfg(feature = "cpu-mining")]
+    {
+        static CORE1_STACK: ConstStaticCell<
+            embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>,
+        > = ConstStaticCell::new(embassy_rp::multicore::Stack::new());
+        static CORE1_EXECUTOR: static_cell::StaticCell<Executor> = static_cell::StaticCell::new();
+        embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
+            let executor = CORE1_EXECUTOR.init(Executor::new());
+            executor.run(|core1_spawner: Spawner| {
+                core1_spawner.spawn(unwrap!(ubos_backend::cpu_solver_task()));
+            })
+        });
+    }
 
     spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(Watchdog::new(
         hw.watchdog
@@ -315,11 +335,14 @@ async fn main(spawner: Spawner) {
 
     #[cfg(feature = "display")]
     spawner.spawn(unwrap!(display_task(display, ip)));
-    spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
-    spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
-    // cpu_solver_task runs on core 1 (see spawn_core1 above).
-    spawner.spawn(unwrap!(ubos_backend::hashrate_task()));
-    spawner.spawn(unwrap!(hashrate_metrics_task()));
+    #[cfg(feature = "cpu-mining")]
+    {
+        // cpu_solver_task runs on core 1 (see spawn_core1 above).
+        spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
+        spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
+        spawner.spawn(unwrap!(ubos_backend::hashrate_task()));
+        spawner.spawn(unwrap!(hashrate_metrics_task()));
+    }
 
     net::run_http_server(stack, config::Board::NAME).await;
 }

@@ -27,12 +27,16 @@ use embassy_stm32::triggers::TIM3_TRGO;
 use embassy_stm32::usart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{bind_interrupts, dma, eth, peripherals, rng};
+use embassy_time::Duration;
+#[cfg(feature = "cpu-mining")]
+use embassy_time::Ticker;
 #[cfg(feature = "display")]
 use embassy_time::Timer;
-use embassy_time::{Duration, Ticker};
 #[cfg(feature = "display")]
 use embedded_hal_bus::spi::ExclusiveDevice;
+#[cfg(feature = "cpu-mining")]
 use eth_examples::metrics::{Metric, Value};
+#[cfg(feature = "cpu-mining")]
 use portable_atomic::Ordering;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -40,10 +44,12 @@ use {defmt_rtt as _, panic_probe as _};
 use eth_examples::net;
 #[cfg(feature = "display")]
 use eth_examples::sh1106::Sh1106;
+#[cfg(feature = "cpu-mining")]
 use ubos_backend::PoolConfig;
 
 mod config;
 
+#[cfg(feature = "cpu-mining")]
 static POOL_CONFIG: PoolConfig = PoolConfig {
     host_ip: config::Pool::HOST_IP,
     port: config::Pool::PORT,
@@ -147,6 +153,7 @@ async fn temperature_task(sensor: BoardTempSensor) -> ! {
 /// Publish the current hashrate as a Prometheus metric. Reads the atomic
 /// populated by `ubos_backend::hashrate_task` and pushes it through the
 /// shared metrics channel on a fixed cadence.
+#[cfg(feature = "cpu-mining")]
 #[embassy_executor::task]
 async fn hashrate_metrics_task() -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(5));
@@ -173,10 +180,16 @@ type OledDisplay = Sh1106<
     Output<'static>,
 >;
 
-#[cfg(feature = "display")]
+#[cfg(all(feature = "display", feature = "cpu-mining"))]
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) -> ! {
     eth_examples::display::run_async_hashrate(&mut display, ip, &ubos_backend::HASHRATE_HZ).await
+}
+
+#[cfg(all(feature = "display", not(feature = "cpu-mining")))]
+#[embassy_executor::task]
+async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) -> ! {
+    eth_examples::display::run_async(&mut display, ip).await
 }
 
 #[cfg(feature = "uart-echo")]
@@ -320,11 +333,14 @@ async fn main(spawner: Spawner) {
     let ip = config.address.address();
     info!("ip address: {:?}", ip);
 
-    spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
-    spawner.spawn(unwrap!(ubos_backend::cpu_solver_task()));
-    spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
-    spawner.spawn(unwrap!(ubos_backend::hashrate_task()));
-    spawner.spawn(unwrap!(hashrate_metrics_task()));
+    #[cfg(feature = "cpu-mining")]
+    {
+        spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
+        spawner.spawn(unwrap!(ubos_backend::cpu_solver_task()));
+        spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
+        spawner.spawn(unwrap!(ubos_backend::hashrate_task()));
+        spawner.spawn(unwrap!(hashrate_metrics_task()));
+    }
 
     #[cfg(feature = "display")]
     spawner.spawn(unwrap!(display_task(display, ip)));
