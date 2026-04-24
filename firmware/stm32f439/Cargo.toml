@@ -24,3 +24,6 @@ static_cell         = { workspace = true }
 embedded-hal-bus    = { workspace = true, features = ["async"] }
 cortex-m            = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt         = "0.7"
+heapless            = { workspace = true }
+portable-atomic     = { workspace = true }
+ubos-backend        = { path = "../../ubos-backend" }
