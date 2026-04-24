@@ -316,6 +316,7 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "display")]
     spawner.spawn(unwrap!(display_task(display, ip)));
     spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
+    spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
     // cpu_solver_task runs on core 1 (see spawn_core1 above).
     spawner.spawn(unwrap!(ubos_backend::hashrate_task()));
     spawner.spawn(unwrap!(hashrate_metrics_task()));

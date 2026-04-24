@@ -326,6 +326,7 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
     spawner.spawn(unwrap!(ubos_backend::cpu_solver_task()));
+    spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
     spawner.spawn(unwrap!(ubos_backend::hashrate_task()));
     spawner.spawn(unwrap!(hashrate_metrics_task()));
 

@@ -30,7 +30,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::Write;
 use portable_atomic::Ordering;
 use sha2::{Digest, Sha256};
@@ -94,6 +94,18 @@ const FAKE_SOLVER_SHARE_DELAY: Duration = Duration::from_secs(1);
 // the display and noise from short hashing bursts.
 const HASHRATE_SAMPLE_INTERVAL: Duration = Duration::from_secs(5);
 
+// Bitcoin's consensus rule allows a block header `ntime` up to 2 hours ahead
+// of the median past time. Pools enforce a similar cap and reject submits
+// with a roll larger than this window. Bounding the roller here matches that
+// expectation and prevents a stuck stratum task from drifting `ntime` into
+// rejection territory.
+const NTIME_ROLL_MAX_SECS: u64 = 7_200;
+
+// `ntime` is rolled at 1 Hz. Sub-second rolling offers no extra search space
+// on the wire (pools only see whole-second granularity) and burns Mutex locks
+// for no gain. One bump per second matches what bosminer and redacted do.
+const NTIME_ROLL_INTERVAL: Duration = Duration::from_secs(1);
+
 /// Pool connection parameters. Declare a `static` of this in firmware and pass
 /// `&'static PoolConfig` to the task constructors.
 pub struct PoolConfig {
@@ -140,9 +152,26 @@ pub struct Solution {
     pub extranonce2: heapless::Vec<u8, MAX_EXTRANONCE2_SIZE>,
 }
 
-/// Latest work assignment from the pool. Solver tasks call `.receiver()`
-/// once at startup.
-pub static CURRENT_ASSIGNMENT: Watch<CriticalSectionRawMutex, WorkAssignment, 2> = Watch::new();
+/// Mutable state around the currently active assignment. Holding the base
+/// `ntime` plus the wall clock at which it was observed lets the roller cap
+/// the roll at `NTIME_ROLL_MAX_SECS` without wall-clock sync: we only need
+/// *elapsed* time relative to the notify. `None` means no job yet.
+struct JobState {
+    assignment: WorkAssignment,
+    ntime_base: u32,
+    wall_at_base: Instant,
+}
+
+/// Latest work assignment from the pool. Stratum task overwrites on notify
+/// and mutates `pool_target` on `set_difficulty`. Roller bumps `ntime` in
+/// place. Solvers snapshot under the lock and release before hashing so the
+/// hot path never contends.
+static CURRENT_ASSIGNMENT: Mutex<CriticalSectionRawMutex, Option<JobState>> = Mutex::new(None);
+
+/// Fired on every `mining.notify` so solvers can wake from their initial
+/// no-job state. After the first job any subsequent update is picked up by
+/// re-locking `CURRENT_ASSIGNMENT`, so this signal matters only at startup.
+pub static NEW_JOB: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Latest share target pushed by the pool via `mining.set_difficulty`.
 /// The solver compares every `sha256d` output against this target and
@@ -152,6 +181,13 @@ pub static SHARE_TARGET: Watch<CriticalSectionRawMutex, [u8; 32], 2> = Watch::ne
 
 /// Fired when a notify with `clean_jobs=true` arrives so the solver can abort.
 pub static CLEAN_JOBS: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Snapshot the current assignment for a solver. Returns `None` until the
+/// first notify installs one.
+async fn snapshot_assignment() -> Option<WorkAssignment> {
+    let guard = CURRENT_ASSIGNMENT.lock().await;
+    guard.as_ref().map(|state| state.assignment.clone())
+}
 
 /// Solutions found by solver tasks, consumed by the stratum task for submission.
 pub static SOLUTIONS: Channel<CriticalSectionRawMutex, Solution, 8> = Channel::new();
@@ -194,6 +230,11 @@ enum SessionError {
 
 /// Stratum V1 client task. Connects, performs the handshake, then drives the
 /// notify loop concurrently with share submission. Reconnects on any error.
+///
+/// The `LineAction::Notify` variant carries ~1.6 KiB of fixed-size decode
+/// buffers by design (no alloc); that is also the dominant contributor to
+/// the task future's size. MCU stacks are sized for it.
+#[allow(clippy::large_futures)]
 #[embassy_executor::task]
 pub async fn stratum_task(stack: embassy_net::Stack<'static>, config: &'static PoolConfig) -> ! {
     let rx_buffer = TCP_RX.take();
@@ -244,7 +285,7 @@ async fn run_session(
         // Prefer reading the socket whenever bytes are already pending.
         // `recv_queue()` is synchronous and returns the count of buffered
         // bytes without touching the async machinery. If we relied only
-        // on `select(fill_line_buffer, SHARES.receive())` the solver
+        // on `select(fill_line_buffer, SOLUTIONS.receive())` the solver
         // wins the select every time a share is queued, and pool acks
         // pile up in the TCP receive buffer until the pool drops us.
         if socket.recv_queue() > 0 {
@@ -553,9 +594,8 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
             let _ = job_id_str.push_str(ascii);
 
             // Snapshot whatever target the pool has most recently pushed.
-            // Mid-job `set_difficulty` updates are picked up by the CPU
-            // solver from `SHARE_TARGET` directly; this copy is what an
-            // ASIC driver consumes from the assignment.
+            // Mid-job `set_difficulty` updates mutate the field directly in
+            // `CURRENT_ASSIGNMENT`; this is the initial value for the job.
             let pool_target = SHARE_TARGET
                 .receiver()
                 .and_then(|mut receiver| receiver.try_get())
@@ -567,6 +607,7 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
                 let _ = extranonce2.push(0);
             }
 
+            let ntime_base = u32::from_be_bytes(time_bin);
             let assignment = WorkAssignment {
                 job_id: job_id_str,
                 prev_hash: prev_hash_bin,
@@ -574,12 +615,20 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
                 version: u32::from_be_bytes(version_bin),
                 version_mask: 0,
                 nbits: u32::from_be_bytes(bits_bin),
-                ntime: u32::from_be_bytes(time_bin),
+                ntime: ntime_base,
                 pool_target,
                 extranonce2,
             };
 
-            CURRENT_ASSIGNMENT.sender().send(assignment);
+            {
+                let mut guard = CURRENT_ASSIGNMENT.lock().await;
+                *guard = Some(JobState {
+                    assignment,
+                    ntime_base,
+                    wall_at_base: Instant::now(),
+                });
+            }
+            NEW_JOB.signal(());
 
             if clean_jobs {
                 CLEAN_JOBS.signal(());
@@ -589,6 +638,13 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
             info!("stratum: set_difficulty {}", difficulty);
             let target = target_from_diff(difficulty);
             SHARE_TARGET.sender().send(target);
+            // Apply the new target to the in-flight assignment too so an
+            // ASIC driver (which reads from the assignment alone) picks it
+            // up without a second wake signal.
+            let mut guard = CURRENT_ASSIGNMENT.lock().await;
+            if let Some(state) = guard.as_mut() {
+                state.assignment.pool_target = target;
+            }
         }
         LineAction::SetVersionMask(version_mask) => {
             info!("stratum: set_version_mask {:#010x}", version_mask);
@@ -823,17 +879,11 @@ async fn do_authorize(
 /// Useful for testing the submit path without burning CPU cycles.
 #[embassy_executor::task]
 pub async fn fake_solver_task() -> ! {
-    let mut receiver = CURRENT_ASSIGNMENT
-        .receiver()
-        .expect("BUG: Watch<_, _, 2> supports 2 receivers; tasks <= 2");
-
     loop {
-        let mut assignment = receiver.changed().await;
-
-        // Switch to a newer assignment if one arrived while we were waiting.
-        if let Some(newer) = receiver.try_changed() {
-            assignment = newer;
-        }
+        let Some(assignment) = snapshot_assignment().await else {
+            NEW_JOB.wait().await;
+            continue;
+        };
 
         info!("solver: new job {}", assignment.job_id.as_str());
 
@@ -860,29 +910,31 @@ pub async fn fake_solver_task() -> ! {
 /// shares; once the pool sends `set_difficulty`, `SHARE_TARGET` ratchets up.
 #[embassy_executor::task]
 pub async fn cpu_solver_task() -> ! {
-    let mut receiver = CURRENT_ASSIGNMENT
-        .receiver()
-        .expect("BUG: Watch<_, _, 2> supports 2 receivers; tasks <= 2");
     let mut target_receiver = SHARE_TARGET
         .receiver()
         .expect("BUG: Watch<_, _, 2> supports 2 receivers; tasks <= 2");
 
     loop {
-        let mut assignment = receiver.changed().await;
+        let Some(mut assignment) = snapshot_assignment().await else {
+            NEW_JOB.wait().await;
+            continue;
+        };
         let mut nonce_start: u32 = 0;
         let mut target = target_receiver.try_get().unwrap_or(DEFAULT_TARGET);
 
         info!("solver: new job {}", assignment.job_id.as_str());
 
         loop {
-            // Non-blocking: switch to a newer assignment if one arrived since we last checked.
-            if let Some(newer) = receiver.try_changed() {
-                info!(
-                    "solver: superseded by new job {}",
-                    newer.job_id.as_str()
-                );
-                assignment = newer;
-                nonce_start = 0;
+            // Refresh the snapshot before the next mine_share attempt.
+            // A mine_share in flight is not preempted; ntime rolls and
+            // non-clean notifies land in the Mutex and are observed on
+            // the next iteration.
+            if let Some(fresh) = snapshot_assignment().await {
+                if fresh.job_id != assignment.job_id {
+                    info!("solver: superseded by new job {}", fresh.job_id.as_str());
+                    nonce_start = 0;
+                }
+                assignment = fresh;
             }
             if let Some(updated) = target_receiver.try_changed() {
                 target = updated;
@@ -925,6 +977,30 @@ pub async fn cpu_solver_task() -> ! {
                 }
             }
         }
+    }
+}
+
+/// Rolls `ntime` on the in-flight assignment at 1 Hz. The assignment itself
+/// stays "in stasis" between notifies: only `ntime` drifts forward so pools
+/// keep accepting our shares instead of rejecting them as time-too-old.
+/// Rolling is capped at `NTIME_ROLL_MAX_SECS` past the pool-supplied base to
+/// stay inside the header-time window the consensus rules allow.
+#[embassy_executor::task]
+pub async fn ntime_roller_task() -> ! {
+    loop {
+        Timer::after(NTIME_ROLL_INTERVAL).await;
+
+        let mut guard = CURRENT_ASSIGNMENT.lock().await;
+        let Some(state) = guard.as_mut() else {
+            continue;
+        };
+
+        let elapsed = Instant::now()
+            .checked_duration_since(state.wall_at_base)
+            .map_or(0, |duration| duration.as_secs().min(NTIME_ROLL_MAX_SECS));
+        #[allow(clippy::cast_possible_truncation)]
+        let elapsed_u32 = elapsed as u32;
+        state.assignment.ntime = state.ntime_base.wrapping_add(elapsed_u32);
     }
 }
 
