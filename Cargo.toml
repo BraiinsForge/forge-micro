@@ -33,6 +33,7 @@ members = [
     "firmware/stm32f439",
     "firmware/esp32s3",
     "echoer",
+    "stratum-v1-core",
 ]
 
 [workspace.dependencies]
@@ -58,6 +59,7 @@ rand_core         = { version = "0.6", default-features = false }
 embedded-graphics = { version = "0.8", default-features = false }
 profont           = { version = "0.7.0", default-features = false }
 format_no_std     = "1.2.0"
+stratum-v1-core   = { path = "stratum-v1-core" }
 
 [workspace.lints.clippy]
 pedantic     = { level = "warn", priority = -1 }
