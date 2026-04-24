@@ -36,10 +36,18 @@ use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
+use ubos_backend::PoolConfig;
 
 mod config;
-mod mining;
 mod uart_loopback;
+
+static POOL_CONFIG: PoolConfig = PoolConfig {
+    host_ip: config::Pool::HOST_IP,
+    port: config::Pool::PORT,
+    user: config::Pool::USER,
+    password: config::Pool::PASS,
+    reconnect_delay: config::Pool::RECONNECT_DELAY,
+};
 
 defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
 
@@ -280,7 +288,8 @@ async fn main(spawner: Spawner) {
 
     #[cfg(feature = "display")]
     spawner.spawn(unwrap!(display_task(display, ip)));
-    spawner.spawn(unwrap!(mining::stratum_task(stack)));
+    spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
+    spawner.spawn(unwrap!(ubos_backend::cpu_solver_task()));
 
     net::run_http_server(stack, config::Board::NAME).await;
 }
