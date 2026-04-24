@@ -1,10 +1,15 @@
 //! Stratum V1 client backend with pluggable solver.
 //!
-//! There is a fake share generator that sends shares in a loop,
-//! CPU miner with low enough target than even our CPUs can find some shares.
+//! `CURRENT_ASSIGNMENT` wraps the in-flight `WorkAssignment` in a
+//! `Mutex` so the stratum task can roll `ntime` and `pool_target` in
+//! place. `NEW_JOB` signals the first assignment, `SHARE_TARGET` is
+//! a `Watch` for mid-job difficulty updates, `CLEAN_JOBS` is the
+//! drop-current-work flag, and `SOLUTIONS` is the solver-to-stratum
+//! channel.
 //!
-//! Watch<Job> keeps track of the newest Job, there's clean-jobs Signal,
-//! and a MPSC Channel to propagate solutions
+//! `fake_solver_task` emits one `Solution` per second for wire
+//! testing; `cpu_solver_task` scans nonces against the live pool
+//! target.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -99,31 +104,45 @@ pub struct PoolConfig {
     pub reconnect_delay: Duration,
 }
 
-/// Decoded job ready for the solver. The merkle root is precomputed by the
-/// stratum task so the solver only touches the 80-byte block header.
+/// Work handed to a solver. Header fields are in native `u32` form, decoded
+/// once by the stratum task from their big-endian wire hex. The merkle root
+/// is precomputed so the solver only touches the 80-byte block header.
+///
+/// Shape intentionally matches what an ASIC chain driver (BM1362/BM1370)
+/// needs to push work: base version, version rolling mask, precomputed
+/// pool target. `ntime` is mutable across the assignment's lifetime so
+/// the stratum task can roll it while the underlying job stays "in stasis"
+/// between notifies. `extranonce2` is always zeros today but typed so a
+/// future rolling implementation can populate it without reshaping callers.
 #[derive(Clone)]
-pub struct Job {
+pub struct WorkAssignment {
     pub job_id: heapless::String<MAX_JOB_ID_CHARS>,
-    pub version: [u8; 4],
     pub prev_hash: [u8; 32],
     pub merkle_root: [u8; 32],
-    pub time: [u8; 4],
-    pub bits: [u8; 4],
-    pub extranonce2_size: u8,
+    pub version: u32,
+    pub version_mask: u32,
+    pub nbits: u32,
+    pub ntime: u32,
+    pub pool_target: [u8; 32],
+    pub extranonce2: heapless::Vec<u8, MAX_EXTRANONCE2_SIZE>,
 }
 
-/// A found share, ready for the stratum task to encode and send.
+/// A hash meeting the pool target. Carries every field required to format
+/// a `mining.submit`, so the stratum task needs no side table of in-flight
+/// work. `version_bits` is the version-rolling delta the solver actually
+/// used (zero for the CPU solver, populated by an ASIC driver).
 #[derive(Clone)]
-pub struct Share {
+pub struct Solution {
     pub job_id: heapless::String<MAX_JOB_ID_CHARS>,
-    pub extranonce2: [u8; MAX_EXTRANONCE2_SIZE],
-    pub extranonce2_size: u8,
-    pub time: [u8; 4],
     pub nonce: u32,
+    pub ntime: u32,
+    pub version_bits: u32,
+    pub extranonce2: heapless::Vec<u8, MAX_EXTRANONCE2_SIZE>,
 }
 
-/// Latest job from the pool. Solver tasks call `.receiver()` once at startup.
-pub static CURRENT_JOB: Watch<CriticalSectionRawMutex, Job, 2> = Watch::new();
+/// Latest work assignment from the pool. Solver tasks call `.receiver()`
+/// once at startup.
+pub static CURRENT_ASSIGNMENT: Watch<CriticalSectionRawMutex, WorkAssignment, 2> = Watch::new();
 
 /// Latest share target pushed by the pool via `mining.set_difficulty`.
 /// The solver compares every `sha256d` output against this target and
@@ -134,8 +153,8 @@ pub static SHARE_TARGET: Watch<CriticalSectionRawMutex, [u8; 32], 2> = Watch::ne
 /// Fired when a notify with `clean_jobs=true` arrives so the solver can abort.
 pub static CLEAN_JOBS: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
-/// Shares found by solver tasks, consumed by the stratum task for submission.
-pub static SHARES: Channel<CriticalSectionRawMutex, Share, 8> = Channel::new();
+/// Solutions found by solver tasks, consumed by the stratum task for submission.
+pub static SOLUTIONS: Channel<CriticalSectionRawMutex, Solution, 8> = Channel::new();
 
 /// Running total of hashes computed across all solver iterations. Bumped in
 /// batches of `SOLVER_YIELD_INTERVAL` to keep the atomic cost negligible.
@@ -245,7 +264,7 @@ async fn run_session(
         // Nothing pending on the socket; block on whichever comes next.
         match select(
             fill_line_buffer(&mut socket, &mut line_buffer),
-            SHARES.receive(),
+            SOLUTIONS.receive(),
         )
         .await
         {
@@ -262,8 +281,15 @@ async fn run_session(
                     dispatch(action).await?;
                 }
             }
-            Either::Second(share) => {
-                send_share(config, &mut socket, &mut encode_buffer, &share, submit_id).await?;
+            Either::Second(solution) => {
+                send_share(
+                    config,
+                    &mut socket,
+                    &mut encode_buffer,
+                    &solution,
+                    submit_id,
+                )
+                .await?;
                 info!("stratum: submit sent id={}", submit_id);
                 submit_id = submit_id.wrapping_add(1).max(SUBMIT_ID_START);
             }
@@ -526,17 +552,34 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
             let ascii = core::str::from_utf8(&job_id[..job_id_len]).unwrap_or("");
             let _ = job_id_str.push_str(ascii);
 
-            let job = Job {
+            // Snapshot whatever target the pool has most recently pushed.
+            // Mid-job `set_difficulty` updates are picked up by the CPU
+            // solver from `SHARE_TARGET` directly; this copy is what an
+            // ASIC driver consumes from the assignment.
+            let pool_target = SHARE_TARGET
+                .receiver()
+                .and_then(|mut receiver| receiver.try_get())
+                .unwrap_or(DEFAULT_TARGET);
+
+            let mut extranonce2: heapless::Vec<u8, MAX_EXTRANONCE2_SIZE> = heapless::Vec::new();
+            // Resize by pushing zeros; the Vec's len encodes extranonce2_size.
+            for _ in 0..(extranonce2_size as usize).min(MAX_EXTRANONCE2_SIZE) {
+                let _ = extranonce2.push(0);
+            }
+
+            let assignment = WorkAssignment {
                 job_id: job_id_str,
-                version: version_bin,
                 prev_hash: prev_hash_bin,
                 merkle_root,
-                time: time_bin,
-                bits: bits_bin,
-                extranonce2_size,
+                version: u32::from_be_bytes(version_bin),
+                version_mask: 0,
+                nbits: u32::from_be_bytes(bits_bin),
+                ntime: u32::from_be_bytes(time_bin),
+                pool_target,
+                extranonce2,
             };
 
-            CURRENT_JOB.sender().send(job);
+            CURRENT_ASSIGNMENT.sender().send(assignment);
 
             if clean_jobs {
                 CLEAN_JOBS.signal(());
@@ -580,29 +623,33 @@ async fn send_share(
     config: &'static PoolConfig,
     socket: &mut TcpSocket<'_>,
     encode_buffer: &mut [u8; ENCODE_BUFFER_SIZE],
-    share: &Share,
+    solution: &Solution,
     submit_id: u32,
 ) -> Result<(), SessionError> {
-    let hex_len = usize::from(share.extranonce2_size) * 2;
-    // Extranonce2 is always zeros; represent as a run of ASCII '0' digits.
-    let extranonce2_buffer = [b'0'; MAX_EXTRANONCE2_SIZE * 2];
-    let extranonce2 = core::str::from_utf8(&extranonce2_buffer[..hex_len])
-        .expect("BUG: ASCII '0' is valid UTF-8");
+    let mut extranonce2_hex = heapless::String::<{ MAX_EXTRANONCE2_SIZE * 2 }>::new();
+    for byte in &solution.extranonce2 {
+        let _ = write!(extranonce2_hex, "{byte:02x}");
+    }
 
     let mut nonce_hex = heapless::String::<8>::new();
-    let _ = write!(nonce_hex, "{:08x}", share.nonce);
+    let _ = write!(nonce_hex, "{:08x}", solution.nonce);
 
     let mut time_hex = heapless::String::<8>::new();
-    let time_u32 = u32::from_be_bytes(share.time);
-    let _ = write!(time_hex, "{time_u32:08x}");
+    let _ = write!(time_hex, "{:08x}", solution.ntime);
+
+    // CPU solver emits `version_bits = 0`, so today this is always "00000000".
+    // An ASIC driver populates the rolled version delta and the pool XORs it
+    // with its own base version per the stratum v1 version-rolling extension.
+    let mut version_hex = heapless::String::<8>::new();
+    let _ = write!(version_hex, "{:08x}", solution.version_bits);
 
     let submit = Submit {
         user_name: config.user,
-        job_id: share.job_id.as_str(),
-        extra_nonce_2: extranonce2,
+        job_id: solution.job_id.as_str(),
+        extra_nonce_2: extranonce2_hex.as_str(),
         time: time_hex.as_str(),
         nonce: nonce_hex.as_str(),
-        version: "00000000",
+        version: version_hex.as_str(),
     };
 
     let written = encode_submit(&mut encode_buffer[..], submit_id, &submit)
@@ -772,34 +819,34 @@ async fn do_authorize(
     Ok(())
 }
 
-/// Fake solver: immediately sends a share with nonce=0 for every new job.
+/// Fake solver: immediately sends a solution with nonce=0 for every new job.
 /// Useful for testing the submit path without burning CPU cycles.
 #[embassy_executor::task]
 pub async fn fake_solver_task() -> ! {
-    let mut receiver = CURRENT_JOB
+    let mut receiver = CURRENT_ASSIGNMENT
         .receiver()
         .expect("BUG: Watch<_, _, 2> supports 2 receivers; tasks <= 2");
 
     loop {
-        let mut job = receiver.changed().await;
+        let mut assignment = receiver.changed().await;
 
-        // Switch to a newer job if one arrived while we were waiting.
+        // Switch to a newer assignment if one arrived while we were waiting.
         if let Some(newer) = receiver.try_changed() {
-            job = newer;
+            assignment = newer;
         }
 
-        info!("solver: new job {}", job.job_id.as_str());
+        info!("solver: new job {}", assignment.job_id.as_str());
 
-        let share = Share {
-            job_id: job.job_id,
-            extranonce2: [0u8; MAX_EXTRANONCE2_SIZE],
-            extranonce2_size: job.extranonce2_size,
-            time: job.time,
+        let solution = Solution {
+            job_id: assignment.job_id,
             nonce: 0,
+            ntime: assignment.ntime,
+            version_bits: 0,
+            extranonce2: assignment.extranonce2,
         };
 
         // Channel full means the stratum task is behind; discard rather than block.
-        let _ = SHARES.try_send(share);
+        let _ = SOLUTIONS.try_send(solution);
 
         Timer::after(FAKE_SOLVER_SHARE_DELAY).await;
     }
@@ -808,9 +855,12 @@ pub async fn fake_solver_task() -> ! {
 /// CPU solver: hashes the block header continuously until `clean_jobs` fires or
 /// a new job arrives. Streams shares for the current job without idling between
 /// finds. Switches jobs promptly via non-blocking watch poll each inner iteration.
+///
+/// Default target starts low enough that even a Cortex-M CPU finds some
+/// shares; once the pool sends `set_difficulty`, `SHARE_TARGET` ratchets up.
 #[embassy_executor::task]
 pub async fn cpu_solver_task() -> ! {
-    let mut receiver = CURRENT_JOB
+    let mut receiver = CURRENT_ASSIGNMENT
         .receiver()
         .expect("BUG: Watch<_, _, 2> supports 2 receivers; tasks <= 2");
     let mut target_receiver = SHARE_TARGET
@@ -818,17 +868,20 @@ pub async fn cpu_solver_task() -> ! {
         .expect("BUG: Watch<_, _, 2> supports 2 receivers; tasks <= 2");
 
     loop {
-        let mut job = receiver.changed().await;
+        let mut assignment = receiver.changed().await;
         let mut nonce_start: u32 = 0;
         let mut target = target_receiver.try_get().unwrap_or(DEFAULT_TARGET);
 
-        info!("solver: new job {}", job.job_id.as_str());
+        info!("solver: new job {}", assignment.job_id.as_str());
 
         loop {
-            // Non-blocking: switch to a newer job if one arrived since we last checked.
+            // Non-blocking: switch to a newer assignment if one arrived since we last checked.
             if let Some(newer) = receiver.try_changed() {
-                info!("solver: superseded by new job {}", newer.job_id.as_str());
-                job = newer;
+                info!(
+                    "solver: superseded by new job {}",
+                    newer.job_id.as_str()
+                );
+                assignment = newer;
                 nonce_start = 0;
             }
             if let Some(updated) = target_receiver.try_changed() {
@@ -836,11 +889,11 @@ pub async fn cpu_solver_task() -> ! {
             }
 
             let mine_future = mine_share(
-                job.version,
-                job.prev_hash,
-                job.merkle_root,
-                job.time,
-                job.bits,
+                assignment.version,
+                assignment.prev_hash,
+                assignment.merkle_root,
+                assignment.ntime,
+                assignment.nbits,
                 nonce_start,
                 target,
             );
@@ -850,19 +903,19 @@ pub async fn cpu_solver_task() -> ! {
                     info!(
                         "solver: share queued nonce={:08x} job={}",
                         found_nonce,
-                        job.job_id.as_str()
+                        assignment.job_id.as_str()
                     );
 
-                    let share = Share {
-                        job_id: job.job_id.clone(),
-                        extranonce2: [0u8; MAX_EXTRANONCE2_SIZE],
-                        extranonce2_size: job.extranonce2_size,
-                        time: job.time,
+                    let solution = Solution {
+                        job_id: assignment.job_id.clone(),
                         nonce: found_nonce,
+                        ntime: assignment.ntime,
+                        version_bits: 0,
+                        extranonce2: assignment.extranonce2.clone(),
                     };
 
                     // Channel full means the stratum task is behind; discard rather than block.
-                    let _ = SHARES.try_send(share);
+                    let _ = SOLUTIONS.try_send(solution);
 
                     nonce_start = found_nonce.wrapping_add(1);
                 }
@@ -875,28 +928,25 @@ pub async fn cpu_solver_task() -> ! {
     }
 }
 
-/// Build the 80-byte block header from stratum-format fields and a nonce.
+/// Build the 80-byte block header.
 ///
-/// Stratum transmits `version`/`ntime`/`nbits` as big-endian hex and
-/// `prev_hash` as 32 bytes whose 4-byte words need reversing. The block
-/// header wants `version`/`ntime`/`nbits` in little-endian and
-/// `prev_hash` with each word's byte order reversed. `merkle_root` is
-/// already in internal byte order because we compute it locally via
-/// double-SHA256, so it goes in raw.
+/// The block header wants `version`/`ntime`/`nbits` serialized little-endian
+/// and `prev_hash` with each 4-byte word's byte order reversed. `merkle_root`
+/// is already in internal byte order from our local double-SHA256 so it goes
+/// in raw. The caller converts stratum big-endian hex to `u32` once during
+/// notify parsing so the hot path only performs byte-layout work.
 #[must_use]
 pub fn build_header(
-    version: [u8; 4],
+    version: u32,
     prev_hash: [u8; 32],
     merkle_root: [u8; 32],
-    time: [u8; 4],
-    bits: [u8; 4],
+    ntime: u32,
+    nbits: u32,
     nonce: u32,
 ) -> [u8; 80] {
     let mut header = [0u8; 80];
 
-    let mut version_le = version;
-    version_le.reverse();
-    header[0..4].copy_from_slice(&version_le);
+    header[0..4].copy_from_slice(&version.to_le_bytes());
 
     // prev_hash: reverse bytes within each 4-byte word.
     for word_index in 0..8 {
@@ -909,15 +959,8 @@ pub fn build_header(
     }
 
     header[36..68].copy_from_slice(&merkle_root);
-
-    let mut time_le = time;
-    time_le.reverse();
-    header[68..72].copy_from_slice(&time_le);
-
-    let mut bits_le = bits;
-    bits_le.reverse();
-    header[72..76].copy_from_slice(&bits_le);
-
+    header[68..72].copy_from_slice(&ntime.to_le_bytes());
+    header[72..76].copy_from_slice(&nbits.to_le_bytes());
     header[76..80].copy_from_slice(&nonce.to_le_bytes());
     header
 }
@@ -974,29 +1017,29 @@ pub fn hash_meets_target(hash: &[u8; 32], target: &[u8; 32]) -> bool {
 /// Double-SHA256 of the 80-byte block header produced by `build_header`.
 #[must_use]
 pub fn header_hash(
-    version: [u8; 4],
+    version: u32,
     prev_hash: [u8; 32],
     merkle_root: [u8; 32],
-    time: [u8; 4],
-    bits: [u8; 4],
+    ntime: u32,
+    nbits: u32,
     nonce: u32,
 ) -> [u8; 32] {
-    let header = build_header(version, prev_hash, merkle_root, time, bits, nonce);
+    let header = build_header(version, prev_hash, merkle_root, ntime, nbits, nonce);
     let mut out = [0u8; 32];
     double_sha256(&header, &mut out);
     out
 }
 
 async fn mine_share(
-    version: [u8; 4],
+    version: u32,
     prev_hash: [u8; 32],
     merkle_root: [u8; 32],
-    time: [u8; 4],
-    bits: [u8; 4],
+    ntime: u32,
+    nbits: u32,
     start_nonce: u32,
     target: [u8; 32],
 ) -> u32 {
-    let mut header = build_header(version, prev_hash, merkle_root, time, bits, start_nonce);
+    let mut header = build_header(version, prev_hash, merkle_root, ntime, nbits, start_nonce);
 
     let mut result_hash = [0u8; 32];
     let mut nonce: u32 = start_nonce;

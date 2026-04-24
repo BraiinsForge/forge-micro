@@ -13,12 +13,6 @@ fn hex32(hex: &str) -> [u8; 32] {
     out
 }
 
-fn hex4(hex: &str) -> [u8; 4] {
-    let mut out = [0u8; 4];
-    decode(hex.as_bytes(), &mut out);
-    out
-}
-
 fn decode(hex: &[u8], out: &mut [u8]) {
     assert_eq!(hex.len(), out.len() * 2, "hex length mismatch");
     for (index, byte) in out.iter_mut().enumerate() {
@@ -53,16 +47,16 @@ const TRUE_DIFF_ONE: f64 =
 fn build_header_matches_redacted_vector() {
     // Inputs: reference-miner test "Test nonce diff checking".
     // prev_block_hash/merkle_root are the stratum-format hex strings.
-    let version = hex4("20000004");
+    let version: u32 = 0x2000_0004;
     let prev_hash = hex32("d02b10fc0d4711eae1a805af50a8a83312a2215e00017f2b0000000000000000");
     let merkle_root = hex32("6d0359c451434605c52a5a9ce074340be47c2c63840731f9edf1db3f26b1cdd9");
-    let time = hex4("646ff1a9");
-    let bits = hex4("1705ae3a");
+    let ntime: u32 = 0x646F_F1A9;
+    let nbits: u32 = 0x1705_AE3A;
     let nonce: u32 = 0x276E_8947;
 
-    let header = build_header(version, prev_hash, merkle_root, time, bits, nonce);
+    let header = build_header(version, prev_hash, merkle_root, ntime, nbits, nonce);
 
-    // Version: stratum hex "20000004" serialises to LE bytes.
+    // Version u32 serialises to little-endian bytes in the header.
     assert_eq!(&header[0..4], &[0x04, 0x00, 0x00, 0x20]);
 
     // prev_hash: each 32-bit word reversed in place.
@@ -100,14 +94,14 @@ fn reconstructs_bitcoin_block_1() {
     //
     // Known hash (displayed):
     //   00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048
-    let version = hex4("00000001");
+    let version: u32 = 0x0000_0001;
     let prev_hash = hex32("0a8ce26f72b3f1b646a2a6c14ff763ae65831e939c085ae10019d66800000000");
     let merkle_root = hex32("982051fd1e4ba744bbbe680e1fee14677ba1a3c3540bf7b1cdb606e857233e0e");
-    let time = hex4("4966bc61"); // 1231469665 = 0x4966BC61
-    let bits = hex4("1d00ffff");
-    let nonce: u32 = 0x9962_e301;
+    let ntime: u32 = 0x4966_BC61; // 1231469665
+    let nbits: u32 = 0x1D00_FFFF;
+    let nonce: u32 = 0x9962_E301;
 
-    let hash = header_hash(version, prev_hash, merkle_root, time, bits, nonce);
+    let hash = header_hash(version, prev_hash, merkle_root, ntime, nbits, nonce);
 
     // The hash emerges in internal little-endian order; displayed form
     // is a full byte-reverse.
@@ -151,14 +145,14 @@ fn target_from_diff_one_over_65536_shifts_up() {
 #[test]
 fn hash_meets_target_accepts_block_1_at_diff_one() {
     // Block 1 hash has share diff ~1.99, so it should satisfy diff 1.
-    let version = hex4("00000001");
+    let version: u32 = 0x0000_0001;
     let prev_hash = hex32("0a8ce26f72b3f1b646a2a6c14ff763ae65831e939c085ae10019d66800000000");
     let merkle_root = hex32("982051fd1e4ba744bbbe680e1fee14677ba1a3c3540bf7b1cdb606e857233e0e");
-    let time = hex4("4966bc61");
-    let bits = hex4("1d00ffff");
-    let nonce: u32 = 0x9962_e301;
+    let ntime: u32 = 0x4966_BC61;
+    let nbits: u32 = 0x1D00_FFFF;
+    let nonce: u32 = 0x9962_E301;
 
-    let hash = header_hash(version, prev_hash, merkle_root, time, bits, nonce);
+    let hash = header_hash(version, prev_hash, merkle_root, ntime, nbits, nonce);
     let target = target_from_diff(1.0);
     assert!(hash_meets_target(&hash, &target));
 
@@ -172,14 +166,14 @@ fn header_hash_reports_redacted_diff() {
     // The reference-miner test asserts the share's difficulty truncates to 18.
     // diff = TRUE_DIFF_ONE / le256(hash). A correct header therefore
     // produces a hash below the diff-18 threshold.
-    let version = hex4("20000004");
+    let version: u32 = 0x2000_0004;
     let prev_hash = hex32("d02b10fc0d4711eae1a805af50a8a83312a2215e00017f2b0000000000000000");
     let merkle_root = hex32("6d0359c451434605c52a5a9ce074340be47c2c63840731f9edf1db3f26b1cdd9");
-    let time = hex4("646ff1a9");
-    let bits = hex4("1705ae3a");
+    let ntime: u32 = 0x646F_F1A9;
+    let nbits: u32 = 0x1705_AE3A;
     let nonce: u32 = 0x276E_8947;
 
-    let hash = header_hash(version, prev_hash, merkle_root, time, bits, nonce);
+    let hash = header_hash(version, prev_hash, merkle_root, ntime, nbits, nonce);
     let diff = TRUE_DIFF_ONE / le256_to_f64(&hash);
 
     // reference-miner truncates diff to int and checks == 18. We allow a
