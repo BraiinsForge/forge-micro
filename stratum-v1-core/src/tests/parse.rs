@@ -3,7 +3,9 @@
 use super::*;
 
 use crate::messages::Notify;
-use crate::parse::{parse_boolean_result, parse_incoming, parse_subscribe_result};
+use crate::parse::{
+    parse_boolean_result, parse_incoming, parse_subscribe_result, parse_version_rolling_mask,
+};
 use crate::rpc::{Notification, Rpc};
 
 // Shared 12-branch merkle path
@@ -283,4 +285,24 @@ fn unknown_server_method_is_error() {
         Err(ParseError::UnknownMethod("mining.bogus")) => {}
         other => panic!("expected UnknownMethod, got {:?}", other),
     }
+}
+
+#[test]
+fn version_rolling_mask_extracted_from_configure_result() {
+    // Public pool wire shape: flat object with `version-rolling` + dotted
+    // `version-rolling.mask` keys.
+    let body = br#"{"version-rolling":true,"version-rolling.mask":"1fffe000"}"#;
+    assert_eq!(parse_version_rolling_mask(body), Some(0x1fff_e000));
+}
+
+#[test]
+fn version_rolling_mask_absent_when_feature_rejected() {
+    let body = br#"{"version-rolling":false}"#;
+    assert_eq!(parse_version_rolling_mask(body), None);
+}
+
+#[test]
+fn version_rolling_mask_rejects_non_hex() {
+    let body = br#"{"version-rolling.mask":"zzzzzzzz"}"#;
+    assert_eq!(parse_version_rolling_mask(body), None);
 }

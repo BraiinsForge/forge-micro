@@ -167,6 +167,43 @@ pub fn parse_configure_result(body: &[u8]) -> Result<ConfigureResult<'_>, ParseE
     Ok(ConfigureResult(body))
 }
 
+/// Extract the negotiated version-rolling mask from a `mining.configure`
+/// result body. Returns `None` when the pool did not advertise one — that
+/// indicates either `version-rolling` was rejected or the pool uses the
+/// older flat-object shape we don't support. Braiins and other public pools
+/// serialise the mask as a hex string under the flat key
+/// `"version-rolling.mask"`.
+#[must_use]
+pub fn parse_version_rolling_mask(body: &[u8]) -> Option<u32> {
+    let value = find_field(body, b"version-rolling.mask")?;
+    let hex = strip_json_string(value)?;
+    parse_u32_hex(hex)
+}
+
+fn strip_json_string(value: &[u8]) -> Option<&[u8]> {
+    if value.len() < 2 || value[0] != b'"' || value[value.len() - 1] != b'"' {
+        return None;
+    }
+    Some(&value[1..value.len() - 1])
+}
+
+fn parse_u32_hex(hex: &[u8]) -> Option<u32> {
+    if hex.is_empty() || hex.len() > 8 {
+        return None;
+    }
+    let mut value: u32 = 0;
+    for byte in hex {
+        let nibble = match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'a'..=b'f' => byte - b'a' + 10,
+            b'A'..=b'F' => byte - b'A' + 10,
+            _ => return None,
+        };
+        value = (value << 4) | u32::from(nibble);
+    }
+    Some(value)
+}
+
 pub fn parse_boolean_result(body: &[u8]) -> Result<bool, ParseError<'_>> {
     let (value, _): (bool, _) = serde_json_core::from_slice(body).map_err(ParseError::Json)?;
     Ok(value)

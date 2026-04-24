@@ -23,5 +23,6 @@ pub use messages::{
 };
 pub use parse::{
     parse_boolean_result, parse_configure_result, parse_incoming, parse_subscribe_result,
+    parse_version_rolling_mask,
 };
 pub use rpc::{Method, Notification, Response, Rpc, StratumError};

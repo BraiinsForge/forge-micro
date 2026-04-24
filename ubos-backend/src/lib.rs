@@ -37,7 +37,7 @@ use sha2::{Digest, Sha256};
 use static_cell::ConstStaticCell;
 use stratum_v1_core::{
     encode_authorize, encode_configure, encode_submit, encode_subscribe, parse_boolean_result,
-    parse_configure_result, parse_incoming, parse_subscribe_result, Authorize, Configure,
+    parse_incoming, parse_subscribe_result, parse_version_rolling_mask, Authorize, Configure,
     LineBuffer, Notification, Rpc, Submit, Subscribe,
 };
 
@@ -199,6 +199,13 @@ pub static TOTAL_HASHES: portable_atomic::AtomicU64 = portable_atomic::AtomicU64
 /// Hashrate averaged over the last sample interval, in hashes per second.
 /// Updated by `hashrate_task` every `HASHRATE_SAMPLE_INTERVAL`.
 pub static HASHRATE_HZ: portable_atomic::AtomicU64 = portable_atomic::AtomicU64::new(0);
+
+/// Version-rolling mask negotiated with the pool. Written once when the
+/// `mining.configure` result lands and refreshed whenever the pool sends a
+/// `mining.set_version_mask` notification. Stamped into every new
+/// `WorkAssignment` so an ASIC driver can program its per-job mask without
+/// threading an extra channel.
+static CURRENT_VERSION_MASK: portable_atomic::AtomicU32 = portable_atomic::AtomicU32::new(0);
 
 static TCP_RX: ConstStaticCell<[u8; TCP_BUFFER_SIZE]> = ConstStaticCell::new([0; TCP_BUFFER_SIZE]);
 static TCP_TX: ConstStaticCell<[u8; TCP_BUFFER_SIZE]> = ConstStaticCell::new([0; TCP_BUFFER_SIZE]);
@@ -613,7 +620,7 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
                 prev_hash: prev_hash_bin,
                 merkle_root,
                 version: u32::from_be_bytes(version_bin),
-                version_mask: 0,
+                version_mask: CURRENT_VERSION_MASK.load(Ordering::Relaxed),
                 nbits: u32::from_be_bytes(bits_bin),
                 ntime: ntime_base,
                 pool_target,
@@ -648,6 +655,11 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
         }
         LineAction::SetVersionMask(version_mask) => {
             info!("stratum: set_version_mask {:#010x}", version_mask);
+            CURRENT_VERSION_MASK.store(version_mask, Ordering::Relaxed);
+            let mut guard = CURRENT_ASSIGNMENT.lock().await;
+            if let Some(state) = guard.as_mut() {
+                state.assignment.version_mask = version_mask;
+            }
         }
         LineAction::OtherNotification => {
             info!("stratum: other notification");
@@ -799,11 +811,9 @@ async fn do_configure(
     // Configure failure is non-fatal; pool may not support it.
     let result_opt = read_response(socket, line_buffer, CONFIGURE_ID).await?;
     if let Some(result_buffer) = result_opt {
-        if let Ok(configure_result) = parse_configure_result(&result_buffer) {
-            info!(
-                "stratum: configure result received (len {})",
-                configure_result.0.len()
-            );
+        if let Some(mask) = parse_version_rolling_mask(&result_buffer) {
+            info!("stratum: configure version-rolling mask {:#010x}", mask);
+            CURRENT_VERSION_MASK.store(mask, Ordering::Relaxed);
         }
     }
 
