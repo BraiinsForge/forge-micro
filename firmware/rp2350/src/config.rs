@@ -5,8 +5,8 @@
 //! through `main`.
 
 use embassy_rp::peripherals::{
-    ADC, ADC_TEMP_SENSOR, DMA_CH0, DMA_CH1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_25,
-    SPI0, WATCHDOG,
+    ADC, ADC_TEMP_SENSOR, CORE1, DMA_CH0, DMA_CH1, PIN_0, PIN_1, PIN_16, PIN_17, PIN_18, PIN_19,
+    PIN_20, PIN_21, PIN_25, SPI0, UART0, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_8, PIN_9, SPI1};
@@ -50,6 +50,10 @@ pub struct Board {
     pub display_rst: Peri<'static, PIN_9>,
     #[cfg(feature = "display")]
     pub display_tx_dma: Peri<'static, DMA_CH2>,
+    pub uart0: Peri<'static, UART0>,
+    pub uart0_tx: Peri<'static, PIN_0>,
+    pub uart0_rx: Peri<'static, PIN_1>,
+    pub core1: Peri<'static, CORE1>,
 }
 
 impl Board {
@@ -92,6 +96,10 @@ impl Board {
             display_rst: peripherals.PIN_9,
             #[cfg(feature = "display")]
             display_tx_dma: peripherals.DMA_CH2,
+            uart0: peripherals.UART0,
+            uart0_tx: peripherals.PIN_0,
+            uart0_rx: peripherals.PIN_1,
+            core1: peripherals.CORE1,
         }
     }
 }
@@ -111,4 +119,36 @@ impl DisplaySpi {
 pub struct Watchdog;
 impl Watchdog {
     pub const TIMEOUT: Duration = Duration::from_secs(2);
+}
+
+pub struct UartLoopback;
+impl UartLoopback {
+    pub const BAUD_RATE: u32 = 1_000_000;
+    pub const CHUNK_BYTES: usize = 16;
+    pub const READ_TIMEOUT: Duration = Duration::from_millis(100);
+    pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+    pub const CORE1_STACK_BYTES: usize = 4096;
+    pub const RX_BUFFER_BYTES: usize = 64;
+    pub const TX_BUFFER_BYTES: usize = 64;
+}
+
+// Pool presets kept so switching pool or user is a one-line edit on
+// `Pool::HOST_IP`/`Pool::USER` below. The unused ones stay behind
+// `allow(dead_code)` because only one pair is active at a time.
+#[allow(dead_code)]
+const RPI_POOL: [u8; 4] = [192, 168, 89, 100];
+#[allow(dead_code)]
+const REGTEST_SOLO_USER: &str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8";
+#[allow(dead_code)]
+const BRAIINS_POOL: [u8; 4] = [172, 65, 65, 63];
+#[allow(dead_code)]
+const BRAIINS_USER: &str = "braiinstest";
+
+pub struct Pool;
+impl Pool {
+    pub const HOST_IP: [u8; 4] = RPI_POOL;
+    pub const PORT: u16 = 3333;
+    pub const USER: &'static str = REGTEST_SOLO_USER;
+    pub const PASS: &'static str = "x";
+    pub const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 }

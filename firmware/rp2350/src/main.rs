@@ -32,12 +32,14 @@ use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 #[cfg(feature = "display")]
 use eth_examples::sh1106::Sh1106;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
 
 mod config;
+mod mining;
+mod uart_loopback;
 
 defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
 
@@ -161,6 +163,13 @@ async fn main(spawner: Spawner) {
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
 
+    static CORE1_STACK: ConstStaticCell<
+        embassy_rp::multicore::Stack<{ config::UartLoopback::CORE1_STACK_BYTES }>,
+    > = ConstStaticCell::new(embassy_rp::multicore::Stack::new());
+    embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
+        uart_loopback::run(hw.uart0, hw.uart0_tx, hw.uart0_rx)
+    });
+
     spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(Watchdog::new(
         hw.watchdog
     )))));
@@ -271,6 +280,7 @@ async fn main(spawner: Spawner) {
 
     #[cfg(feature = "display")]
     spawner.spawn(unwrap!(display_task(display, ip)));
+    spawner.spawn(unwrap!(mining::stratum_task(stack)));
 
     net::run_http_server(stack, config::Board::NAME).await;
 }
