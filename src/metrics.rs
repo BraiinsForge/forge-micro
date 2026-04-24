@@ -408,7 +408,19 @@ fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue)
         }
         Value::Float(value) => render_float_value(writer, *value),
     }
-    let ts_ms = stored.timestamp_ms;
+    // Pushers that set ts_ms = 0 want the current wall-clock time at
+    // scrape time so that prometheus doesn't drop the sample as
+    // timestamp-less and still honours NTP sync for absolute time.
+    let ts_ms = if stored.timestamp_ms == 0 {
+        let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
+        if ntp_offset == 0 {
+            0
+        } else {
+            (Instant::now().as_secs() + ntp_offset) * 1000
+        }
+    } else {
+        stored.timestamp_ms
+    };
     if ts_ms != 0 {
         let _ = write!(writer, " {ts_ms}");
     }
