@@ -57,6 +57,7 @@ impl Board {
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
     pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x04];
 
+    /// Extracts every peripheral this board uses from the singleton.
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {
             watchdog: peripherals.WATCHDOG,
@@ -96,11 +97,13 @@ impl Board {
     }
 }
 
+/// SPI clock frequency for the W5500 Ethernet chip.
 pub struct Spi;
 impl Spi {
     pub const FREQUENCY: u32 = 33_000_000;
 }
 
+/// SPI clock frequency for the SH1106 OLED display.
 #[cfg(feature = "display")]
 pub struct DisplaySpi;
 #[cfg(feature = "display")]
@@ -108,7 +111,18 @@ impl DisplaySpi {
     pub const FREQUENCY: u32 = 10_000_000;
 }
 
+/// Hardware watchdog timeout.
 pub struct Watchdog;
 impl Watchdog {
     pub const TIMEOUT: Duration = Duration::from_secs(2);
+}
+
+/// Stratum pool connection parameters.
+pub struct Pool;
+impl Pool {
+    pub const HOST_IP: [u8; 4] = [192, 168, 89, 100];
+    pub const PORT: u16 = 3333;
+    pub const USER: &'static str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8";
+    pub const PASS: &'static str = "x";
+    pub const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 }
