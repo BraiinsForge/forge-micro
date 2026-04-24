@@ -28,17 +28,29 @@ use embassy_stm32::usart::{BufferedInterruptHandler, BufferedUart, Config as Uar
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{bind_interrupts, dma, eth, peripherals, rng};
 #[cfg(feature = "display")]
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
+use embassy_time::{Duration, Ticker};
 #[cfg(feature = "display")]
 use embedded_hal_bus::spi::ExclusiveDevice;
+use eth_examples::metrics::{Metric, Value};
+use portable_atomic::Ordering;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
 #[cfg(feature = "display")]
 use eth_examples::sh1106::Sh1106;
+use ubos_backend::PoolConfig;
 
 mod config;
+
+static POOL_CONFIG: PoolConfig = PoolConfig {
+    host_ip: config::Pool::HOST_IP,
+    port: config::Pool::PORT,
+    user: config::Pool::USER,
+    password: config::Pool::PASS,
+    reconnect_delay: config::Pool::RECONNECT_DELAY,
+};
 
 defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
 
@@ -132,6 +144,25 @@ async fn temperature_task(sensor: BoardTempSensor) -> ! {
     eth_examples::temperature::run_temperature(sensor).await
 }
 
+/// Publish the current hashrate as a Prometheus metric. Reads the atomic
+/// populated by `ubos_backend::hashrate_task` and pushes it through the
+/// shared metrics channel on a fixed cadence.
+#[embassy_executor::task]
+async fn hashrate_metrics_task() -> ! {
+    let mut ticker = Ticker::every(Duration::from_secs(5));
+    loop {
+        ticker.next().await;
+        let hashrate_hz = ubos_backend::HASHRATE_HZ.load(Ordering::Relaxed);
+        eth_examples::metrics::push(Metric {
+            name: "board_hashrate_hz",
+            labels: heapless::Vec::new(),
+            value: Value::Uint(hashrate_hz),
+            timestamp_ms: 0,
+        })
+        .await;
+    }
+}
+
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
     ExclusiveDevice<
@@ -145,7 +176,7 @@ type OledDisplay = Sh1106<
 #[cfg(feature = "display")]
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) -> ! {
-    eth_examples::display::run_async(&mut display, ip).await
+    eth_examples::display::run_async_hashrate(&mut display, ip, &ubos_backend::HASHRATE_HZ).await
 }
 
 #[cfg(feature = "uart-echo")]
@@ -288,6 +319,11 @@ async fn main(spawner: Spawner) {
     let config = net::wait_for_config(stack).await;
     let ip = config.address.address();
     info!("ip address: {:?}", ip);
+
+    spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
+    spawner.spawn(unwrap!(ubos_backend::cpu_solver_task()));
+    spawner.spawn(unwrap!(ubos_backend::hashrate_task()));
+    spawner.spawn(unwrap!(hashrate_metrics_task()));
 
     #[cfg(feature = "display")]
     spawner.spawn(unwrap!(display_task(display, ip)));
