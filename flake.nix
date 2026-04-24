@@ -77,8 +77,18 @@
 
       # Build a NUC nixosSystem with the shared RPi overlays and platform
       # setting. Callers append image-specific modules (e.g. sd-image.nix).
+      # buildSystem is the system doing the build. On aarch64-linux the
+      # load-test crate builds natively; on other systems it goes through
+      # pkgsCross.aarch64-multiplatform so rustc stays native.
       mkNuc =
-        extraModules:
+        buildSystem: extraModules:
+        let
+          loadTestPkgs =
+            if buildSystem == "aarch64-linux" then
+              import nixpkgs { system = "aarch64-linux"; }
+            else
+              (import nixpkgs { system = buildSystem; }).pkgsCross.aarch64-multiplatform;
+        in
         nixpkgs.lib.nixosSystem {
           specialArgs = {
             inherit inputs nixos-raspberrypi;
@@ -92,8 +102,9 @@
               {
                 nixpkgs.overlays = [
                   probeRsOverlay
-                  (final: prev: {
+                  (final: _prev: {
                     ckpool = final.callPackage ./redacted/pkgs/ckpool.nix { };
+                    load-test = loadTestPkgs.callPackage ./redacted/pkgs/load-test.nix { };
                   })
                 ];
               }
@@ -102,7 +113,8 @@
           ]
           ++ extraModules;
         };
-      sdImage = (mkNuc [ ./redacted/sd-image.nix ]).config.system.build.sdImage;
+      sdImageFor =
+        buildSystem: (mkNuc buildSystem [ ./redacted/sd-image.nix ]).config.system.build.sdImage;
     in
     (flake-utils.lib.eachDefaultSystem (
       system:
@@ -246,6 +258,15 @@
             "${espToolchain}/lib/rustlib/src/rust/library/Cargo.lock"
           ];
         };
+
+        # Host-target load-test crate lives outside the eth-examples
+        # workspace, so it gets its own src filter and dep cache rather
+        # than sharing the embedded workspace wiring above.
+        loadTestSrc = craneLib.cleanCargoSource ./redacted/pkgs/load-test;
+        loadTestArtifacts = craneLib.buildDepsOnly {
+          src = loadTestSrc;
+          strictDeps = true;
+        };
       in
       {
         # Each firmware crate is checked under its default feature set
@@ -329,11 +350,19 @@
             RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
           };
 
-          # Building the load-test module's packages doubles as a lint
-          # gate: writeShellApplication runs shellcheck at build time.
-          load-test = pkgs.symlinkJoin {
-            name = "load-test-check";
-            paths = (import ./redacted/load-test.nix { inherit pkgs; }).environment.systemPackages;
+          clippy-load-test = craneLib.cargoClippy {
+            src = loadTestSrc;
+            cargoArtifacts = loadTestArtifacts;
+            cargoClippyExtraArgs = "-- -D warnings";
+            strictDeps = true;
+          };
+
+          fmt-load-test = craneLib.cargoFmt { src = loadTestSrc; };
+
+          test-load-test = craneLib.cargoTest {
+            src = loadTestSrc;
+            cargoArtifacts = loadTestArtifacts;
+            strictDeps = true;
           };
         };
 
@@ -479,7 +508,8 @@
     // {
       # Raspberry Pi 4 support node that connects the target boards to the
       # redacted mesh. See redacted/nuc.nix for the host definition.
-      nixosConfigurations.nuc = mkNuc [ ];
+      # Deployment runs from the developer workstation, always x86_64.
+      nixosConfigurations.nuc = mkNuc "x86_64-linux" [ ];
 
       # Remote deployment via deploy-rs. Pushes the NUC NixOS closure over
       # SSH and activates it without requiring a full SD-card reflash.
@@ -497,7 +527,7 @@
       #   redacted_SETUP_KEY=<key> \
       #   WIFI_NETWORKS='[{"ssid":"home","psk":"secret"}]' \
       #     nix build .#sd-image --impure
-      packages.x86_64-linux.sd-image = sdImage;
-      packages.aarch64-linux.sd-image = sdImage;
+      packages.x86_64-linux.sd-image = sdImageFor "x86_64-linux";
+      packages.aarch64-linux.sd-image = sdImageFor "aarch64-linux";
     };
 }
