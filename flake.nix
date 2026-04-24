@@ -91,7 +91,7 @@
         in
         nixpkgs.lib.nixosSystem {
           specialArgs = {
-            inherit inputs nixos-raspberrypi;
+            inherit inputs nixos-raspberrypi nucHost;
           };
           modules = [
             nixos-raspberrypi.lib.inject-overlays
