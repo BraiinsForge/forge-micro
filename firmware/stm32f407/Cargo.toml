@@ -27,3 +27,8 @@ cortex-m-rt         = "0.7"
 heapless            = { workspace = true }
 portable-atomic     = { workspace = true }
 ubos-backend        = { path = "../../ubos-backend" }
+
+# cortex-m and cortex-m-rt are pulled in by `#[embassy_executor::main]` and
+# the linker scripts; no direct source references, so machete can't see them.
+[package.metadata.cargo-machete]
+ignored = ["cortex-m", "cortex-m-rt"]
