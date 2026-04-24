@@ -7,11 +7,12 @@
 //! RMII TX pins are PG11/PG13, matching the MB1137 default solder
 //! bridges SB183 and SB182 that wire them to the onboard LAN8742A.
 
+use embassy_stm32::peripherals::{
+    ADC1, DMA2_CH0, ETH, ETH_SMA, IWDG, PA1, PA2, PA7, PB0, PB13, PC1, PC4, PC5, PG11, PG13, RNG,
+    TIM3,
+};
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::{DMA2_CH3, PB3, PB5, PE7, PE8, PE9, SPI1};
-use embassy_stm32::peripherals::{
-    ETH, ETH_SMA, IWDG, PA1, PA2, PA7, PB0, PB13, PC1, PC4, PC5, PG11, PG13, RNG,
-};
 #[cfg(feature = "uart-echo")]
 use embassy_stm32::peripherals::{PD8, PD9, USART3};
 use embassy_stm32::time::Hertz;
@@ -53,6 +54,9 @@ pub struct Board {
     pub rng: Peri<'static, RNG>,
     pub eth: Peri<'static, ETH>,
     pub eth_sma: Peri<'static, ETH_SMA>,
+    pub adc: Peri<'static, ADC1>,
+    pub adc_dma: Peri<'static, DMA2_CH0>,
+    pub temp_trigger_timer: Peri<'static, TIM3>,
     pub led: Peri<'static, PB0>,
     pub ref_clk: Peri<'static, PA1>,
     pub crs_dv: Peri<'static, PA7>,
@@ -103,6 +107,9 @@ impl Board {
             rng: peripherals.RNG,
             eth: peripherals.ETH,
             eth_sma: peripherals.ETH_SMA,
+            adc: peripherals.ADC1,
+            adc_dma: peripherals.DMA2_CH0,
+            temp_trigger_timer: peripherals.TIM3,
             led: peripherals.PB0,
             ref_clk: peripherals.PA1,
             crs_dv: peripherals.PA7,
