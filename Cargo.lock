@@ -2550,8 +2550,11 @@ dependencies = [
  "embassy-time",
  "embedded-hal-bus",
  "eth-examples",
+ "heapless 0.8.0",
  "panic-probe",
+ "portable-atomic",
  "static_cell",
+ "ubos-backend",
 ]
 
 [[package]]
