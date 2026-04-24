@@ -5,11 +5,12 @@
 //! consumes the peripherals main.rs needs: ETH, PHY management pins,
 //! seven RMII pins, watchdog, and LED.
 
+use embassy_stm32::peripherals::{
+    ADC1, DMA2_CH0, ETH, ETH_SMA, IWDG, PA1, PA2, PA6, PA7, PB11, PB12, PB13, PC1, PC4, PC5, PE14,
+    RNG, TIM3,
+};
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::{DMA1_CH5, PC10, PC12, PD1, PD3, PD5, SPI3};
-use embassy_stm32::peripherals::{
-    ETH, ETH_SMA, IWDG, PA1, PA2, PA6, PA7, PB11, PB12, PB13, PC1, PC4, PC5, PE14, RNG,
-};
 #[cfg(feature = "uart-echo")]
 use embassy_stm32::peripherals::{PD8, PD9, USART3};
 use embassy_stm32::time::Hertz;
@@ -51,6 +52,9 @@ pub struct Board {
     pub rng: Peri<'static, RNG>,
     pub eth: Peri<'static, ETH>,
     pub eth_sma: Peri<'static, ETH_SMA>,
+    pub adc: Peri<'static, ADC1>,
+    pub adc_dma: Peri<'static, DMA2_CH0>,
+    pub temp_trigger_timer: Peri<'static, TIM3>,
     pub led: Peri<'static, PA6>,
     pub osc_enable: Peri<'static, PE14>,
     pub ref_clk: Peri<'static, PA1>,
@@ -102,6 +106,9 @@ impl Board {
             rng: peripherals.RNG,
             eth: peripherals.ETH,
             eth_sma: peripherals.ETH_SMA,
+            adc: peripherals.ADC1,
+            adc_dma: peripherals.DMA2_CH0,
+            temp_trigger_timer: peripherals.TIM3,
             led: peripherals.PA6,
             osc_enable: peripherals.PE14,
             ref_clk: peripherals.PA1,
