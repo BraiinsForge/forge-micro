@@ -3,11 +3,14 @@
 
 use embedded_io_async::Write;
 
+use core::fmt::Write as _;
+
 use defmt::{info, warn};
 use embassy_net::tcp::TcpSocket;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Timer;
+use sha2::{Digest, Sha256};
 use static_cell::ConstStaticCell;
 use stratum_v1_core::{
     encode_authorize, encode_configure, encode_submit, encode_subscribe, parse_configure_result,
@@ -43,6 +46,12 @@ const RESULT_COPY_SIZE: usize = 256;
 // Socket timeout covers both the connect and per-read waits. Generous because
 // a quiet pool with no fresh work may legitimately go 60s+ between notifies.
 const SOCKET_TIMEOUT_SECS: u64 = 120;
+
+const MAX_PREV_HASH_CHARS: usize = 64; // 32 bytes = 64 hex chars
+const MAX_COINB1_CHARS: usize = 256; // Usually < 100 bytes, 256 chars is safe
+const MAX_COINB2_CHARS: usize = 256;
+const MAX_MERKLE_BRANCHES: usize = 16; // Standard max depth for most pools
+const MAX_BITS_CHARS: usize = 8; // 4 bytes = 8 hex chars
 
 // Fields are written by the load-test and kept for future read-back via HTTP or UART.
 #[allow(dead_code)]
@@ -180,6 +189,8 @@ async fn fill_line_buffer(
     Ok(())
 }
 
+// I don't really care that it's long
+#[allow(clippy::too_many_lines)]
 async fn dispatch_action(
     action: LineAction,
     socket: &mut TcpSocket<'_>,
@@ -198,6 +209,13 @@ async fn dispatch_action(
             version_len,
             time,
             time_len,
+            prev_hash,
+            prev_hash_len,
+            coinbase_1,
+            coinbase_2,
+            merkle_branches,
+            bits,
+            bits_len,
         } => {
             info!(
                 "stratum: notify job_id={=[u8]:a} clean={} cb1={} cb2={} merkle={}",
@@ -207,33 +225,102 @@ async fn dispatch_action(
                 coinbase_2_len,
                 merkle_depth
             );
+
+            // Lengths are bounded above by MAX_COINB*_CHARS (256), so u16
+            // truncation is not reachable here.
+            #[allow(clippy::cast_possible_truncation)]
             let snapshot = make_snapshot(
                 job_id,
                 job_id_len,
                 clean_jobs,
-                coinbase_1_len,
-                coinbase_2_len,
+                coinbase_1_len as u16,
+                coinbase_2_len as u16,
                 merkle_depth,
             );
-            {
+
+            let (extranonce1, extranonce2_size) = {
                 let mut state = STATE.lock().await;
                 if state.snapshots.is_full() {
                     state.snapshots.pop_front();
                 }
-                // push_back cannot fail: we just ensured space above.
                 let _ = state.snapshots.push_back(snapshot);
+                (state.extranonce1_hex.clone(), state.extranonce2_size)
+            };
+
+            let extranonce1_bytes = extranonce1.as_bytes();
+
+            // Sized correctly to hold the decoded bytes
+            let mut version_bin = [0u8; 4];
+            let mut prev_hash_bin = [0u8; 32];
+            let mut time_bin = [0u8; 4];
+            let mut bits_bin = [0u8; 4];
+            let mut cb1_bin = [0u8; MAX_COINB1_CHARS / 2];
+            let mut cb2_bin = [0u8; MAX_COINB2_CHARS / 2];
+            let mut en1_bin = [0u8; MAX_EXTRANONCE1_HEX_CHARS / 2];
+            let en2_bin = [0u8; MAX_EXTRANONCE2_SIZE]; // Initialized to 0s for fake en2
+            let mut branches_bin = [[0u8; 32]; MAX_MERKLE_BRANCHES];
+
+            // Decode all the hex strings into real bytes
+            let valid_hex = decode_hex(&version[..version_len], &mut version_bin)
+                && decode_hex(&prev_hash[..prev_hash_len], &mut prev_hash_bin)
+                && decode_hex(&time[..time_len], &mut time_bin)
+                && decode_hex(&bits[..bits_len], &mut bits_bin)
+                && decode_hex(
+                    &coinbase_1[..coinbase_1_len],
+                    &mut cb1_bin[..coinbase_1_len / 2],
+                )
+                && decode_hex(
+                    &coinbase_2[..coinbase_2_len],
+                    &mut cb2_bin[..coinbase_2_len / 2],
+                )
+                && decode_hex(
+                    extranonce1_bytes,
+                    &mut en1_bin[..extranonce1_bytes.len() / 2],
+                );
+
+            if !valid_hex {
+                warn!("stratum: invalid hex in notify, skipping job");
+                return Ok(());
             }
-            send_fake_submit(
+
+            for i in 0..(merkle_depth as usize) {
+                if !decode_hex(&merkle_branches[i][..64], &mut branches_bin[i]) {
+                    warn!("stratum: invalid hex in merkle branch, skipping job");
+                    return Ok(());
+                }
+            }
+
+            // 1. Calculate Merkle Root
+            let mut merkle_root = [0u8; 32];
+            calc_merkle_root(
+                &cb1_bin[..coinbase_1_len / 2],
+                &en1_bin[..extranonce1_bytes.len() / 2],
+                &en2_bin[..extranonce2_size as usize],
+                &cb2_bin[..coinbase_2_len / 2],
+                &branches_bin[..(merkle_depth as usize)],
+                &mut merkle_root,
+            );
+
+            // 2. Hash the block header until we find the shiny rock (AWAITED!)
+            let winning_nonce =
+                mine_regtest_share(version_bin, prev_hash_bin, merkle_root, time_bin, bits_bin)
+                    .await;
+
+            let mut nonce_hex = heapless::String::<8>::new();
+            let _ = write!(nonce_hex, "{winning_nonce:08x}");
+
+            send_real_submit(
                 socket,
                 encode_buffer,
                 &job_id[..job_id_len],
-                &version[..version_len],
                 &time[..time_len],
+                &nonce_hex,
+                extranonce2_size,
                 *submit_id,
             )
             .await?;
+
             info!("stratum: submit sent id={}", *submit_id);
-            // Wrap submit_id so it never collides with handshake ids.
             *submit_id = submit_id.wrapping_add(1).max(SUBMIT_ID_START);
         }
         LineAction::SetDifficulty(difficulty) => {
@@ -247,9 +334,15 @@ async fn dispatch_action(
         LineAction::OtherNotification => {
             info!("stratum: other notification");
         }
-        LineAction::Response { is_error, stratum_error } => {
+        LineAction::Response {
+            is_error,
+            stratum_error,
+        } => {
             if is_error {
-                warn!("stratum: pool returned an error response: {}", stratum_error.as_str());
+                warn!(
+                    "stratum: pool returned an error response: {}",
+                    stratum_error.as_str()
+                );
             }
         }
         LineAction::ParseError => {
@@ -259,19 +352,37 @@ async fn dispatch_action(
     Ok(())
 }
 
-// Carries just enough copied data to act on a line after line_buffer.consume().
+// The Notify variant holds ~1.6 KiB of decoded fixed-size arrays; boxing is not
+// available in no_std/no_alloc, and the dispatch path always moves the variant
+// by register-passed pointer.
+// It's not ideal, but I can live with this for now.
+#[allow(clippy::large_enum_variant)]
 enum LineAction {
     Notify {
         job_id: [u8; MAX_JOB_ID_CHARS],
         job_id_len: usize,
         clean_jobs: bool,
-        coinbase_1_len: u16,
-        coinbase_2_len: u16,
-        merkle_depth: u8,
+
         version: [u8; 8],
         version_len: usize,
+
         time: [u8; 8],
         time_len: usize,
+
+        prev_hash: [u8; MAX_PREV_HASH_CHARS],
+        prev_hash_len: usize,
+
+        coinbase_1: [u8; MAX_COINB1_CHARS],
+        coinbase_1_len: usize,
+
+        coinbase_2: [u8; MAX_COINB2_CHARS],
+        coinbase_2_len: usize,
+
+        merkle_branches: [[u8; 64]; MAX_MERKLE_BRANCHES],
+        merkle_depth: u8,
+
+        bits: [u8; MAX_BITS_CHARS],
+        bits_len: usize,
     },
     SetDifficulty(f64),
     SetVersionMask(u32),
@@ -316,18 +427,55 @@ fn classify_line(line: &[u8]) -> LineAction {
             let mut time = [0u8; 8];
             time[..time_len].copy_from_slice(&time_src[..time_len]);
 
+            let prev_hash_src = notify.prev_hash.as_bytes();
+            let prev_hash_len = prev_hash_src.len().min(MAX_PREV_HASH_CHARS);
+            let mut prev_hash = [0u8; MAX_PREV_HASH_CHARS];
+            prev_hash[..prev_hash_len].copy_from_slice(&prev_hash_src[..prev_hash_len]);
+
+            let coinbase_1_src = notify.coin_base_1.as_bytes();
+            let coinbase_1_len = coinbase_1_src.len().min(MAX_COINB1_CHARS);
+            let mut coinbase_1 = [0u8; MAX_COINB1_CHARS];
+            coinbase_1[..coinbase_1_len].copy_from_slice(&coinbase_1_src[..coinbase_1_len]);
+
+            let coinbase_2_src = notify.coin_base_2.as_bytes();
+            let coinbase_2_len = coinbase_2_src.len().min(MAX_COINB2_CHARS);
+            let mut coinbase_2 = [0u8; MAX_COINB2_CHARS];
+            coinbase_2[..coinbase_2_len].copy_from_slice(&coinbase_2_src[..coinbase_2_len]);
+
+            let bits_src = notify.bits.as_bytes();
+            let bits_len = bits_src.len().min(MAX_BITS_CHARS);
+            let mut bits = [0u8; MAX_BITS_CHARS];
+            bits[..bits_len].copy_from_slice(&bits_src[..bits_len]);
+
+            let mut merkle_branches = [[0u8; 64]; MAX_MERKLE_BRANCHES];
+            for (slot, src) in merkle_branches
+                .iter_mut()
+                .zip(notify.merkle_branch.iter().take(MAX_MERKLE_BRANCHES))
+            {
+                let branch_src = src.as_bytes();
+                let branch_len = branch_src.len().min(64);
+                slot[..branch_len].copy_from_slice(&branch_src[..branch_len]);
+            }
+
             #[allow(clippy::cast_possible_truncation)]
             LineAction::Notify {
                 job_id,
                 job_id_len,
                 clean_jobs: notify.clean_jobs,
-                coinbase_1_len: notify.coin_base_1.len() as u16,
-                coinbase_2_len: notify.coin_base_2.len() as u16,
                 merkle_depth: notify.merkle_branch.len() as u8,
                 version,
                 version_len,
                 time,
                 time_len,
+                prev_hash,
+                prev_hash_len,
+                coinbase_1,
+                coinbase_1_len: notify.coin_base_1.len(),
+                coinbase_2,
+                coinbase_2_len: notify.coin_base_2.len(),
+                merkle_branches,
+                bits,
+                bits_len,
             }
         }
         Rpc::Notification(Notification::SetDifficulty(difficulty)) => {
@@ -340,8 +488,7 @@ fn classify_line(line: &[u8]) -> LineAction {
         Rpc::Response(response) => {
             let mut error_str = heapless::String::<128>::new();
             if let Some(err) = &response.stratum_error {
-                use core::fmt::Write;
-                let _ = write!(error_str, "{:#?}", err);
+                let _ = write!(error_str, "{err:#?}");
             }
 
             LineAction::Response {
@@ -373,6 +520,9 @@ fn make_snapshot(
     }
 }
 
+// Kept alongside send_real_submit for when we want pool-rejected dummy
+// traffic instead of real-mined shares.
+#[allow(dead_code)]
 async fn send_fake_submit(
     socket: &mut TcpSocket<'_>,
     encode_buffer: &mut [u8; ENCODE_BUFFER_SIZE],
@@ -576,4 +726,166 @@ async fn do_authorize(
     info!("stratum: authorize ok");
 
     Ok(())
+}
+
+fn double_sha256(data: &[u8], out: &mut [u8; 32]) {
+    let mut hasher1 = Sha256::new();
+    hasher1.update(data);
+    let hash1 = hasher1.finalize();
+
+    let mut hasher2 = Sha256::new();
+    hasher2.update(hash1);
+    out.copy_from_slice(&hasher2.finalize());
+}
+
+fn calc_merkle_root(
+    coinbase_1: &[u8],
+    extranonce1: &[u8],
+    extranonce2: &[u8],
+    coinbase_2: &[u8],
+    merkle_branches: &[[u8; 32]], // Array of 32-byte branch hashes
+    root_out: &mut [u8; 32],
+) {
+    // 1. Build the coinbase transaction
+    // Max size is usually < 200 bytes, stack array is fine
+    let mut coinbase = [0u8; 256];
+    let mut cb_len = 0;
+
+    // Copy them all back-to-back
+    for chunk in &[coinbase_1, extranonce1, extranonce2, coinbase_2] {
+        coinbase[cb_len..cb_len + chunk.len()].copy_from_slice(chunk);
+        cb_len += chunk.len();
+    }
+
+    // 2. Hash the coinbase
+    let mut current_hash = [0u8; 32];
+    double_sha256(&coinbase[..cb_len], &mut current_hash);
+
+    // 3. Hash up the tree
+    let mut branch_concat = [0u8; 64];
+    for branch in merkle_branches {
+        branch_concat[..32].copy_from_slice(&current_hash);
+        branch_concat[32..].copy_from_slice(branch);
+        double_sha256(&branch_concat, &mut current_hash);
+    }
+
+    root_out.copy_from_slice(&current_hash);
+}
+
+async fn mine_regtest_share(
+    version: [u8; 4],
+    prev_hash: [u8; 32],
+    merkle_root: [u8; 32],
+    time: [u8; 4],
+    bits: [u8; 4],
+) -> u32 {
+    let mut header = [0u8; 80];
+    header[0..4].copy_from_slice(&version);
+    header[4..36].copy_from_slice(&prev_hash);
+    header[36..68].copy_from_slice(&merkle_root);
+    header[68..72].copy_from_slice(&time);
+    header[72..76].copy_from_slice(&bits);
+
+    let mut result_hash = [0u8; 32];
+    let mut nonce: u32 = 0;
+
+    loop {
+        header[76..80].copy_from_slice(&nonce.to_le_bytes());
+        double_sha256(&header, &mut result_hash);
+
+        // Difficulty-1 share target: top 4 bytes of the BE hash must be zero.
+        // result_hash is stored little-endian, so indices [28..32] are the MSB.
+        if result_hash[31] == 0
+            && result_hash[30] == 0
+            && result_hash[29] == 0
+            && result_hash[28] == 0
+        {
+            return nonce;
+        }
+
+        nonce = nonce.wrapping_add(1);
+
+        // Yield often enough to not hog anything
+        // At every 10_000 iterations we should yield several times per second.
+        if nonce.is_multiple_of(10_000) {
+            embassy_futures::yield_now().await;
+        }
+    }
+}
+
+// no version_bytes now - we don't roll at the moment
+async fn send_real_submit(
+    socket: &mut TcpSocket<'_>,
+    encode_buffer: &mut [u8; ENCODE_BUFFER_SIZE],
+    job_id_bytes: &[u8],
+    time_bytes: &[u8],
+    nonce_hex: &str,
+    extranonce2_size: u8,
+    submit_id: u32,
+) -> Result<(), SessionError> {
+    let hex_len = usize::from(extranonce2_size) * 2;
+    if hex_len > MAX_EXTRANONCE2_SIZE * 2 {
+        return Err(SessionError::ExtranonceTooLong);
+    }
+
+    let extranonce2_buffer = [b'0'; MAX_EXTRANONCE2_SIZE * 2];
+    let extranonce2 = core::str::from_utf8(&extranonce2_buffer[..hex_len])
+        .expect("BUG: ASCII '0' is valid UTF-8");
+
+    let job_id = if let Ok(id) = core::str::from_utf8(job_id_bytes) {
+        id
+    } else {
+        warn!("stratum: non-UTF-8 job_id; pool will reject with 'Job not found'");
+        ""
+    };
+    let time = core::str::from_utf8(time_bytes).unwrap_or("00000000");
+
+    let submit = Submit {
+        user_name: crate::config::Pool::USER,
+        job_id,
+        extra_nonce_2: extranonce2,
+        time,
+        nonce: nonce_hex,
+        version: "00000000",
+    };
+
+    let written = encode_submit(&mut encode_buffer[..], submit_id, &submit)
+        .map_err(|_| SessionError::EncodeOverflow)?;
+
+    socket
+        .write_all(&encode_buffer[..written])
+        .await
+        .map_err(|_| SessionError::SocketWrite)?;
+
+    info!(
+        "stratum: submitted valid share for job {} with nonce {}",
+        job_id, nonce_hex
+    );
+
+    Ok(())
+}
+
+fn decode_hex(hex: &[u8], bytes: &mut [u8]) -> bool {
+    if hex.len() != bytes.len() * 2 {
+        return false;
+    }
+    for i in 0..bytes.len() {
+        let high = hex_val(hex[i * 2]);
+        let low = hex_val(hex[i * 2 + 1]);
+        if let (Some(h), Some(l)) = (high, low) {
+            bytes[i] = (h << 4) | l;
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+fn hex_val(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
 }
