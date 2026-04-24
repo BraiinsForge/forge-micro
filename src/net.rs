@@ -25,6 +25,11 @@ pub static BTC_PRICE_CENTS: AtomicU32 = AtomicU32::new(0);
 pub static NTP_EPOCH_OFFSET: AtomicU64 = AtomicU64::new(0);
 /// Uptime seconds of the last successful BTC price fetch, or zero if none.
 pub static LAST_BTC_FETCH_UPTIME_SECS: AtomicU64 = AtomicU64::new(0);
+/// DHCP-assigned IPv4 address encoded via `Ipv4Address::to_bits()`. Zero
+/// until the address is assigned; downstream readers treat zero as "no ip".
+/// `0.0.0.0` round-trips through this encoding, but `DHCPv4` unicast leases
+/// never assign it, so the sentinel does not collide in practice.
+pub static LOCAL_IPV4: AtomicU32 = AtomicU32::new(0);
 
 static TCP_RX: ConstStaticCell<[u8; Tls::TCP_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::TCP_BUFFER_SIZE]);
@@ -45,6 +50,7 @@ static HTTP_RESPONSE: ConstStaticCell<[u8; Http::RESPONSE_BUFFER_SIZE]> =
 pub async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
     loop {
         if let Some(config) = stack.config_v4() {
+            LOCAL_IPV4.store(config.address.address().to_bits(), Ordering::Relaxed);
             return config.clone();
         }
         yield_now().await;
