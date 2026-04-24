@@ -23,6 +23,7 @@ use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
+use portable_atomic::Ordering;
 use sha2::{Digest, Sha256};
 use static_cell::ConstStaticCell;
 use stratum_v1_core::{
@@ -78,6 +79,10 @@ const DEFAULT_TARGET: [u8; 32] = {
 // Fake solver pacing: one share per second avoids spamming the pool.
 const FAKE_SOLVER_SHARE_DELAY: Duration = Duration::from_secs(1);
 
+// 5-second sample window is a reasonable trade-off between reactivity on
+// the display and noise from short hashing bursts.
+const HASHRATE_SAMPLE_INTERVAL: Duration = Duration::from_secs(5);
+
 /// Pool connection parameters. Declare a `static` of this in firmware and pass
 /// `&'static PoolConfig` to the task constructors.
 pub struct PoolConfig {
@@ -125,6 +130,14 @@ pub static CLEAN_JOBS: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Shares found by solver tasks, consumed by the stratum task for submission.
 pub static SHARES: Channel<CriticalSectionRawMutex, Share, 8> = Channel::new();
+
+/// Running total of hashes computed across all solver iterations. Bumped in
+/// batches of `SOLVER_YIELD_INTERVAL` to keep the atomic cost negligible.
+pub static TOTAL_HASHES: portable_atomic::AtomicU64 = portable_atomic::AtomicU64::new(0);
+
+/// Hashrate averaged over the last sample interval, in hashes per second.
+/// Updated by `hashrate_task` every `HASHRATE_SAMPLE_INTERVAL`.
+pub static HASHRATE_HZ: portable_atomic::AtomicU64 = portable_atomic::AtomicU64::new(0);
 
 static TCP_RX: ConstStaticCell<[u8; TCP_BUFFER_SIZE]> = ConstStaticCell::new([0; TCP_BUFFER_SIZE]);
 static TCP_TX: ConstStaticCell<[u8; TCP_BUFFER_SIZE]> = ConstStaticCell::new([0; TCP_BUFFER_SIZE]);
@@ -991,7 +1004,26 @@ async fn mine_share(
 
         if nonce.is_multiple_of(SOLVER_YIELD_INTERVAL) {
             embassy_futures::yield_now().await;
+            TOTAL_HASHES.fetch_add(u64::from(SOLVER_YIELD_INTERVAL), Ordering::Relaxed);
         }
+    }
+}
+
+/// Periodically computes the current hashrate from `TOTAL_HASHES` and publishes
+/// it to `HASHRATE_HZ`. Also logs the rate via defmt.
+#[embassy_executor::task]
+pub async fn hashrate_task() -> ! {
+    let mut last_total: u64 = 0;
+    loop {
+        Timer::after(HASHRATE_SAMPLE_INTERVAL).await;
+        let now_total = TOTAL_HASHES.load(Ordering::Relaxed);
+        let delta = now_total.saturating_sub(last_total);
+        last_total = now_total;
+        // u64 so a future ASIC backend reporting multi-TH/s doesn't
+        // saturate the counter.
+        let rate = delta / HASHRATE_SAMPLE_INTERVAL.as_secs().max(1);
+        HASHRATE_HZ.store(rate, Ordering::Relaxed);
+        info!("solver: {} H/s", rate);
     }
 }
 
