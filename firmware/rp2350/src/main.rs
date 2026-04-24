@@ -13,6 +13,7 @@ use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W6100;
 use embassy_net_wiznet::{Device, Runner, State};
+use embassy_rp::adc::{Adc, Async as AdcAsync, Channel as AdcChannel, Config as AdcConfig};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 #[cfg(feature = "uart-echo")]
@@ -24,7 +25,7 @@ use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 #[cfg(feature = "uart-echo")]
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
-use embassy_rp::{bind_interrupts, dma};
+use embassy_rp::{adc, bind_interrupts, dma};
 use embassy_time::Delay;
 #[cfg(feature = "display")]
 use embassy_time::{Duration, Timer};
@@ -46,6 +47,7 @@ bind_interrupts!(struct Irqs {
         dma::InterruptHandler<DMA_CH1>,
         #[cfg(feature = "display")]
         dma::InterruptHandler<DMA_CH2>;
+    ADC_IRQ_FIFO => adc::InterruptHandler;
     #[cfg(feature = "uart-echo")]
     UART1_IRQ => BufferedInterruptHandler<UART1>;
 });
@@ -67,6 +69,29 @@ impl eth_examples::watchdog::Watchdog for BoardWatchdog {
 
     fn feed(&mut self) {
         self.0.feed(config::Watchdog::TIMEOUT);
+    }
+}
+
+struct BoardTempSensor {
+    adc: Adc<'static, AdcAsync>,
+    channel: AdcChannel<'static>,
+}
+
+impl eth_examples::temperature::TemperatureSensor for BoardTempSensor {
+    async fn read_millicelsius(&mut self) -> Option<i32> {
+        // RP2350 datasheet 12.4.6: same bipolar-diode sensor as RP2040 with
+        // the same documented 0.706 V / 1.721 mV per °C calibration, so the
+        // conversion math is identical.
+        const VREF_UV: i64 = 3_300_000;
+        const ADC_FULL_SCALE: i64 = 4095;
+        const VSENSE_AT_27C_UV: i64 = 706_000;
+        const UV_PER_C: i64 = 1_721;
+        const CALIBRATION_MC: i64 = 27_000;
+
+        let raw = self.adc.read(&mut self.channel).await.ok()?;
+        let vsense_uv = i64::from(raw) * VREF_UV / ADC_FULL_SCALE;
+        let millicelsius = CALIBRATION_MC - (vsense_uv - VSENSE_AT_27C_UV) * 1000 / UV_PER_C;
+        i32::try_from(millicelsius).ok()
     }
 }
 
@@ -103,6 +128,11 @@ async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
 #[embassy_executor::task]
 async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
     eth_examples::metrics::run(stack).await
+}
+
+#[embassy_executor::task]
+async fn temperature_task(sensor: BoardTempSensor) -> ! {
+    eth_examples::temperature::run_temperature(sensor).await
 }
 
 #[cfg(feature = "display")]
@@ -176,6 +206,13 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_task(stack)));
+
+    let adc = Adc::new(hw.adc, Irqs, AdcConfig::default());
+    let temp_channel = AdcChannel::new_temp_sensor(hw.adc_temp_sensor);
+    spawner.spawn(unwrap!(temperature_task(BoardTempSensor {
+        adc,
+        channel: temp_channel,
+    })));
 
     #[cfg(feature = "uart-echo")]
     {

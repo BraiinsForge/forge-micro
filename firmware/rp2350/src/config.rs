@@ -5,7 +5,8 @@
 //! through `main`.
 
 use embassy_rp::peripherals::{
-    DMA_CH0, DMA_CH1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_25, SPI0, WATCHDOG,
+    ADC, ADC_TEMP_SENSOR, DMA_CH0, DMA_CH1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_25,
+    SPI0, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_8, PIN_9, SPI1};
@@ -18,6 +19,8 @@ use embassy_time::Duration;
 pub struct Board {
     pub watchdog: Peri<'static, WATCHDOG>,
     pub led: Peri<'static, PIN_25>,
+    pub adc: Peri<'static, ADC>,
+    pub adc_temp_sensor: Peri<'static, ADC_TEMP_SENSOR>,
     pub spi: Peri<'static, SPI0>,
     pub sck: Peri<'static, PIN_18>,
     pub mosi: Peri<'static, PIN_19>,
@@ -58,6 +61,8 @@ impl Board {
         Self {
             watchdog: peripherals.WATCHDOG,
             led: peripherals.PIN_25,
+            adc: peripherals.ADC,
+            adc_temp_sensor: peripherals.ADC_TEMP_SENSOR,
             spi: peripherals.SPI0,
             sck: peripherals.PIN_18,
             mosi: peripherals.PIN_19,
