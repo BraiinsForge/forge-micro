@@ -95,6 +95,16 @@ impl DisplaySpi {
     pub const FREQUENCY: Hertz = Hertz(10_000_000);
 }
 
+/// Stratum pool connection parameters.
+pub struct Pool;
+impl Pool {
+    pub const HOST_IP: [u8; 4] = [192, 168, 89, 100];
+    pub const PORT: u16 = 3333;
+    pub const USER: &'static str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8";
+    pub const PASS: &'static str = "x";
+    pub const RECONNECT_DELAY: embassy_time::Duration = embassy_time::Duration::from_secs(5);
+}
+
 impl Board {
     pub const NAME: &str = "DevEBox STM32F407 LAN8720";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
