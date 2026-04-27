@@ -78,10 +78,31 @@ pub(crate) struct PidController {
     prev_derivative: f32,
 }
 
+/// Per-second decay factor `lambda` such that `lambda^decay_secs == 0.5`.
+/// Pre-computed at PID construction so the per-step path needs only
+/// `powf(lambda, dt)` instead of `expf` / `logf`.
+#[must_use]
+pub fn half_time_decay(decay_secs: f32) -> f32 {
+    libm::expf(libm::logf(0.5) / decay_secs)
+}
+
+/// One step of an exponentially-smoothed lowpass: blend `value` into
+/// `prev` over `decay_secs` half-life, advancing `dt` seconds. Used by
+/// tests against the BOS reference implementation; the production hot
+/// path inlines the same calculation in `PidController::update` with a
+/// cached lambda.
+#[cfg(test)]
+#[must_use]
+pub fn exponential_smoother(prev: f32, value: f32, decay_secs: f32, dt: f32) -> f32 {
+    let alpha = half_time_decay(decay_secs);
+    let pow_alpha = libm::powf(alpha, dt);
+    prev * pow_alpha + value * (1.0 - pow_alpha)
+}
+
 impl PidController {
     #[must_use]
     pub fn new(p_gain: f32, i_gain: f32, d_gain: f32, smoother_half_decay_secs: f32) -> Self {
-        let decay_lambda = libm::expf(libm::logf(0.5) / smoother_half_decay_secs);
+        let decay_lambda = half_time_decay(smoother_half_decay_secs);
         Self {
             p_gain,
             i_gain,

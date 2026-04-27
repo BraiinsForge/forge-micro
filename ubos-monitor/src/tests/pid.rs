@@ -74,7 +74,41 @@ fn pid_freeze_dampens_integral() {
     assert!(frozen > free, "frozen integral term has smaller magnitude");
 }
 
-use super::pid::TempControl;
+use super::pid::{exponential_smoother, half_time_decay, TempControl};
+
+/// Match BOS `pid_control::util::test::decay`: lambda for a 30 s
+/// half-decay is ~0.9772, and the smoother crosses 0.5 between
+/// `decay_time - 1` and `decay_time + 1`.
+#[test]
+fn smoother_half_decay_matches_bos() {
+    const EPS: f32 = 0.001;
+    let lambda = half_time_decay(30.0);
+    assert!((lambda - 0.9772).abs() < EPS);
+    assert!(exponential_smoother(1.0, 0.0, 30.0, 29.0) > 0.5);
+    assert!(exponential_smoother(1.0, 0.0, 30.0, 31.0) < 0.5);
+}
+
+/// Match BOS `pid_control::util::test::iterate`: stepping the smoother
+/// in small increments matches a single step over the same total
+/// duration. Proves the per-step path used by `PidController::update`
+/// is consistent with the algebraic one-shot form.
+#[test]
+fn smoother_iterative_matches_one_shot() {
+    const EPS: f32 = 0.005;
+    let decay = 30.0_f32;
+    let total = 32.0_f32;
+    let step = 0.1_f32;
+    let a = 1.0_f32;
+    let b = 2.0_f32;
+    let mut iterative = a;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let steps = libm::roundf(total / step) as usize;
+    for _ in 0..steps {
+        iterative = exponential_smoother(iterative, b, decay, step);
+    }
+    let one_shot = exponential_smoother(a, b, decay, total);
+    assert!((iterative - one_shot).abs() < EPS);
+}
 
 #[test]
 fn temp_control_clamps_min_pwm() {
