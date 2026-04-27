@@ -75,6 +75,12 @@ impl MonitorConfig {
 /// the current CPU solver does not poll it.
 pub static HALT_MINING: AtomicBool = AtomicBool::new(false);
 
+/// Fan PWM forced while halted. The PID is bypassed and 100% is
+/// written every tick until the temperature falls back below
+/// `cooldown_temp_c`, so a real ASIC chassis cools as fast as the
+/// fan curve allows even if the integral term has wound up.
+const HALTED_FAN_PWM: u8 = 100;
+
 const METRIC_FAN_PWM: &str = "board_fan_pwm_percent";
 
 /// Run the monitor loop forever. Spawn this from a board firmware
@@ -137,16 +143,7 @@ where
         })
         .await;
 
-        let pwm = control.update(temp_c, delta_t);
-        fan.set_pwm_percent(pwm);
-
-        push(Metric {
-            name: METRIC_FAN_PWM,
-            labels: heapless::Vec::new(),
-            value: Value::Uint(u64::from(pwm)),
-            timestamp_ms: 0,
-        })
-        .await;
+        let pid_pwm = control.update(temp_c, delta_t);
 
         let halted = HALT_MINING.load(Ordering::Relaxed);
         match evaluate(temp_c, halted, &limits) {
@@ -158,7 +155,7 @@ where
             }
             Action::Hot => {
                 if !was_hot {
-                    warn!("monitor: hot {=f32}°C pwm={=u8}", temp_c, pwm);
+                    warn!("monitor: hot {=f32}°C pwm={=u8}", temp_c, pid_pwm);
                     was_hot = true;
                 }
             }
@@ -176,5 +173,22 @@ where
                 was_hot = false;
             }
         }
+
+        // Apply the override after the threshold action so EnterHalt
+        // forces the fan immediately on the same tick that trips it.
+        let pwm = if HALT_MINING.load(Ordering::Relaxed) {
+            HALTED_FAN_PWM
+        } else {
+            pid_pwm
+        };
+        fan.set_pwm_percent(pwm);
+
+        push(Metric {
+            name: METRIC_FAN_PWM,
+            labels: heapless::Vec::new(),
+            value: Value::Uint(u64::from(pwm)),
+            timestamp_ms: 0,
+        })
+        .await;
     }
 }
