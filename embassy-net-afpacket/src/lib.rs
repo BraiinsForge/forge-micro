@@ -4,10 +4,12 @@
 //! talks to its on-chip MAC.
 //!
 //! The shape mirrors `embassy-net-tuntap`: open an fd, query MTU, wrap in
-//! `async_io::Async`, and implement `embassy_net_driver::Driver`. The two
-//! differences are that the link-layer is provided by the host kernel
-//! instead of a synthetic TAP and that the hardware address reported to
-//! smoltcp is read from the interface itself via `SIOCGIFHWADDR`.
+//! `async_io::Async`, and implement `embassy_net_driver::Driver`. The
+//! difference is that the link-layer is provided by the host kernel
+//! instead of a synthetic TAP. Two modes are exposed: `new` reports the
+//! interface's real MAC (read via `SIOCGIFHWADDR`); `with_synthetic_mac`
+//! takes a caller-supplied MAC and puts the NIC in promiscuous mode so
+//! frames addressed to that synthetic MAC actually reach the driver.
 //!
 //! Caveat: the kernel keeps processing ingress frames on the same
 //! interface in parallel with this driver. Point it at a NIC where the
@@ -93,14 +95,32 @@ impl AsRawFd for AfPacket {
 
 impl AfPacket {
     /// Open a non-blocking `AF_PACKET`/`SOCK_RAW` socket and bind it to the
-    /// named interface. Requires `CAP_NET_RAW` (run as root or set the
-    /// capability on the binary).
+    /// named interface, reporting the interface's real MAC. Requires
+    /// `CAP_NET_RAW` (run as root or set the capability on the binary).
     ///
     /// # Errors
     ///
     /// Returns the underlying `io::Error` if the socket cannot be opened,
     /// the interface is unknown, or any of the `SIOC*` ioctls fail.
     pub fn new(name: &str) -> io::Result<Self> {
+        Self::open(name, None)
+    }
+
+    /// Like [`Self::new`], but reports the supplied `hwaddr` to the embassy
+    /// stack instead of the kernel's interface MAC. The NIC is put in
+    /// promiscuous mode for the lifetime of the socket so frames addressed
+    /// to the synthetic MAC actually reach this driver.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying `io::Error` if the socket cannot be opened,
+    /// the interface is unknown, or any of the `SIOC*` / setsockopt calls
+    /// fail.
+    pub fn with_synthetic_mac(name: &str, hwaddr: [u8; 6]) -> io::Result<Self> {
+        Self::open(name, Some(hwaddr))
+    }
+
+    fn open(name: &str, override_hwaddr: Option<[u8; 6]>) -> io::Result<Self> {
         // ETH_P_ALL is in host byte order in the libc constant; the kernel
         // expects it big-endian on the wire-facing fields.
         let protocol = (libc::ETH_P_ALL as u16).to_be();
@@ -110,7 +130,7 @@ impl AfPacket {
             return Err(io::Error::last_os_error());
         }
 
-        let result = Self::configure(fd, name);
+        let result = Self::configure(fd, name, override_hwaddr);
         match result {
             Ok((mtu, hwaddr)) => Ok(Self { fd, mtu, hwaddr }),
             Err(error) => {
@@ -120,7 +140,11 @@ impl AfPacket {
         }
     }
 
-    fn configure(fd: libc::c_int, name: &str) -> io::Result<(usize, [u8; 6])> {
+    fn configure(
+        fd: libc::c_int,
+        name: &str,
+        override_hwaddr: Option<[u8; 6]>,
+    ) -> io::Result<(usize, [u8; 6])> {
         let mut index_request = Ifreq::new(name)?;
         ioctl(fd, libc::SIOCGIFINDEX, &mut index_request)?;
         // SAFETY: SIOCGIFINDEX writes an `int` into the first 4 bytes of
@@ -146,13 +170,18 @@ impl AfPacket {
         }
         let mtu = (ip_mtu as usize) + ETHERNET_HEADER_LEN;
 
-        let mut hw_request = Ifreq::new(name)?;
-        ioctl(fd, libc::SIOCGIFHWADDR, &mut hw_request)?;
-        // SIOCGIFHWADDR fills the union with `struct sockaddr`. Layout is
-        // `u16 sa_family` followed by 14 bytes of `sa_data`; the MAC sits
-        // in the first 6 bytes of `sa_data`.
-        let mut hwaddr = [0u8; 6];
-        hwaddr.copy_from_slice(&hw_request.data[2..8]);
+        let hwaddr = if let Some(addr) = override_hwaddr {
+            addr
+        } else {
+            let mut hw_request = Ifreq::new(name)?;
+            ioctl(fd, libc::SIOCGIFHWADDR, &mut hw_request)?;
+            // SIOCGIFHWADDR fills the union with `struct sockaddr`.
+            // Layout is `u16 sa_family` followed by 14 bytes of
+            // `sa_data`; the MAC sits in the first 6 bytes of `sa_data`.
+            let mut addr = [0u8; 6];
+            addr.copy_from_slice(&hw_request.data[2..8]);
+            addr
+        };
 
         let bind_addr = libc::sockaddr_ll {
             sll_family: libc::AF_PACKET as libc::c_ushort,
@@ -174,8 +203,38 @@ impl AfPacket {
             return Err(io::Error::last_os_error());
         }
 
+        // A synthetic MAC needs the NIC in promiscuous mode; otherwise
+        // hardware filtering drops frames addressed to it. The kernel
+        // reference-counts membership and restores the previous state when
+        // the socket is closed.
+        if override_hwaddr.is_some() {
+            enable_promisc(fd, ifindex)?;
+        }
+
         Ok((mtu, hwaddr))
     }
+}
+
+fn enable_promisc(fd: libc::c_int, ifindex: libc::c_int) -> io::Result<()> {
+    let request = libc::packet_mreq {
+        mr_ifindex: ifindex,
+        mr_type: libc::PACKET_MR_PROMISC as libc::c_ushort,
+        mr_alen: 0,
+        mr_address: [0; 8],
+    };
+    let result = unsafe {
+        libc::setsockopt(
+            fd,
+            libc::SOL_PACKET,
+            libc::PACKET_ADD_MEMBERSHIP,
+            std::ptr::addr_of!(request).cast::<libc::c_void>(),
+            mem::size_of::<libc::packet_mreq>() as libc::socklen_t,
+        )
+    };
+    if result == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 impl Drop for AfPacket {
@@ -228,7 +287,8 @@ pub struct AfPacketDevice {
 }
 
 impl AfPacketDevice {
-    /// Open the underlying raw socket and prepare it for async use.
+    /// Open the underlying raw socket and prepare it for async use. The
+    /// embassy stack will see the interface's real MAC.
     ///
     /// # Errors
     ///
@@ -237,6 +297,21 @@ impl AfPacketDevice {
     pub fn new(name: &str) -> io::Result<Self> {
         Ok(Self {
             device: Async::new(AfPacket::new(name)?)?,
+        })
+    }
+
+    /// Like [`Self::new`], but uses the supplied locally-administered MAC
+    /// instead of the kernel's interface MAC, and enables promiscuous mode
+    /// on the NIC so frames addressed to the synthetic MAC are delivered.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying `io::Error` if the socket cannot be opened,
+    /// the interface is unknown, or any of the `SIOC*` / setsockopt calls
+    /// fail.
+    pub fn with_synthetic_mac(name: &str, hwaddr: [u8; 6]) -> io::Result<Self> {
+        Ok(Self {
+            device: Async::new(AfPacket::with_synthetic_mac(name, hwaddr)?)?,
         })
     }
 }
