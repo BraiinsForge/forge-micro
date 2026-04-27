@@ -11,7 +11,12 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod pid;
+pub mod threshold;
 
 #[cfg(test)]
 #[path = "tests/pid.rs"]
 mod tests_pid;
+
+#[cfg(test)]
+#[path = "tests/threshold.rs"]
+mod tests_threshold;

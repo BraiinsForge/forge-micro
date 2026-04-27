@@ -1,7 +1,7 @@
 //! PID controller and thermal-target wrapper.
 //!
 //! Port of BOS `pid_control::PIDController` and
-//! `bosminer-hal::fan::pid::TempControl` to f32 on no_std. Only the
+//! `bosminer-hal::fan::pid::TempControl` to f32 on `no_std`. Only the
 //! `OnErrorWithSmoothing` derivative mode is kept: it is the only one
 //! used by the BOS hashboard profile this crate carries forward.
 
