@@ -209,7 +209,7 @@ Once the bootloader and partition table are in flash, subsequent
 flashes work with probe-rs:
 
 ```sh
-nix develop .#esp32
+nix develop .#esp
 cd dummy-asic && cargo run --release
 ```
 
