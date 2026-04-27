@@ -9,3 +9,9 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
+
+pub mod pid;
+
+#[cfg(test)]
+#[path = "tests/pid.rs"]
+mod tests_pid;
