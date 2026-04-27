@@ -12,7 +12,7 @@ use embedded_hal::digital::OutputPin;
 use portable_atomic::Ordering;
 use profont::PROFONT_12_POINT;
 
-use crate::net::BTC_PRICE_CENTS;
+use crate::net::{BTC_PRICE_CENTS, LOCAL_IPV4};
 use crate::ntp;
 use crate::sh1106::Sh1106;
 
@@ -27,22 +27,26 @@ use crate::sh1106::Sh1106;
 /// Returns the display's draw error if any drawing operation fails.
 pub fn render<D: DrawTarget<Color = BinaryColor>>(
     display: &mut D,
-    ip: embassy_net::Ipv4Address,
     time_buffer: &mut [u8; 16],
 ) -> Result<(), D::Error> {
     display.clear(BinaryColor::Off)?;
 
     let style = MonoTextStyle::new(&PROFONT_12_POINT, BinaryColor::On);
 
-    // Line 1: IP address from DHCP.
-    let octets = ip.octets();
-    // Worst case is "255.255.255.255" (15 bytes); 16 is sufficient.
-    let mut ip_buffer = [0u8; 16];
-    if let Ok(text) = format_no_std::show(
-        &mut ip_buffer,
-        format_args!("{}.{}.{}.{}", octets[0], octets[1], octets[2], octets[3]),
-    ) {
-        Text::new(text, Point::new(0, 13), style).draw(display)?;
+    // Line 1: IP address from DHCP, or "no ip" if not yet assigned.
+    let ip_bits = LOCAL_IPV4.load(Ordering::Relaxed);
+    if ip_bits == 0 {
+        Text::new("no ip", Point::new(0, 13), style).draw(display)?;
+    } else {
+        let octets = embassy_net::Ipv4Address::from_bits(ip_bits).octets();
+        // Worst case is "255.255.255.255" (15 bytes); 16 is sufficient.
+        let mut ip_buffer = [0u8; 16];
+        if let Ok(text) = format_no_std::show(
+            &mut ip_buffer,
+            format_args!("{}.{}.{}.{}", octets[0], octets[1], octets[2], octets[3]),
+        ) {
+            Text::new(text, Point::new(0, 13), style).draw(display)?;
+        }
     }
 
     // Line 2: UTC time from NTP, or "no sync" if NTP has not completed.
@@ -86,7 +90,6 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
 /// Returns the display's draw error if any drawing operation fails.
 pub fn render_with_hashrate<D: DrawTarget<Color = BinaryColor>>(
     display: &mut D,
-    ip: embassy_net::Ipv4Address,
     hashrate_hz: u64,
     time_buffer: &mut [u8; 16],
 ) -> Result<(), D::Error> {
@@ -94,14 +97,19 @@ pub fn render_with_hashrate<D: DrawTarget<Color = BinaryColor>>(
 
     let style = MonoTextStyle::new(&PROFONT_12_POINT, BinaryColor::On);
 
-    // Line 1: IP address from DHCP.
-    let octets = ip.octets();
-    let mut ip_buffer = [0u8; 16];
-    if let Ok(text) = format_no_std::show(
-        &mut ip_buffer,
-        format_args!("{}.{}.{}.{}", octets[0], octets[1], octets[2], octets[3]),
-    ) {
-        Text::new(text, Point::new(0, 13), style).draw(display)?;
+    // Line 1: IP address from DHCP, or "no ip" if not yet assigned.
+    let ip_bits = LOCAL_IPV4.load(Ordering::Relaxed);
+    if ip_bits == 0 {
+        Text::new("no ip", Point::new(0, 13), style).draw(display)?;
+    } else {
+        let octets = embassy_net::Ipv4Address::from_bits(ip_bits).octets();
+        let mut ip_buffer = [0u8; 16];
+        if let Ok(text) = format_no_std::show(
+            &mut ip_buffer,
+            format_args!("{}.{}.{}.{}", octets[0], octets[1], octets[2], octets[3]),
+        ) {
+            Text::new(text, Point::new(0, 13), style).draw(display)?;
+        }
     }
 
     // Line 2: UTC time from NTP, or "no sync" if NTP has not completed.
@@ -141,14 +149,14 @@ pub fn render_with_hashrate<D: DrawTarget<Color = BinaryColor>>(
 }
 
 /// Three-line loop: IP, time, BTC price. For boards without a solver.
-pub async fn run_async<SPI, DC>(display: &mut Sh1106<SPI, DC>, ip: embassy_net::Ipv4Address) -> !
+pub async fn run_async<SPI, DC>(display: &mut Sh1106<SPI, DC>) -> !
 where
     SPI: embedded_hal_async::spi::SpiDevice,
     DC: OutputPin,
 {
     let mut time_buffer = [0u8; 16];
     loop {
-        let _ = render(display, ip, &mut time_buffer);
+        let _ = render(display, &mut time_buffer);
         let _ = display.flush_async().await;
         Timer::after(Duration::from_secs(1)).await;
     }
@@ -157,7 +165,6 @@ where
 /// Four-line loop: IP, time, BTC price, and live hashrate from `hashrate`.
 pub async fn run_async_hashrate<SPI, DC>(
     display: &mut Sh1106<SPI, DC>,
-    ip: embassy_net::Ipv4Address,
     hashrate: &'static portable_atomic::AtomicU64,
 ) -> !
 where
@@ -167,7 +174,7 @@ where
     let mut time_buffer = [0u8; 16];
     loop {
         let hashrate_hz = hashrate.load(Ordering::Relaxed);
-        let _ = render_with_hashrate(display, ip, hashrate_hz, &mut time_buffer);
+        let _ = render_with_hashrate(display, hashrate_hz, &mut time_buffer);
         let _ = display.flush_async().await;
         Timer::after(Duration::from_secs(1)).await;
     }

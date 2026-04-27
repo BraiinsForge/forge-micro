@@ -139,8 +139,8 @@ type OledDisplay = Sh1106<
 
 #[cfg(feature = "display")]
 #[embassy_executor::task]
-async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) -> ! {
-    eth_examples::display::run_async(&mut display, ip).await
+async fn display_task(mut display: OledDisplay) -> ! {
+    eth_examples::display::run_async(&mut display).await
 }
 
 #[cfg(feature = "dummy-asic")]
@@ -281,13 +281,12 @@ async fn main(spawner: Spawner) {
         (rst, display)
     };
 
+    #[cfg(feature = "display")]
+    spawner.must_spawn(display_task(display));
+
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;
-    let ip = config.address.address();
-    info!("ip address: {:?}", ip);
-
-    #[cfg(feature = "display")]
-    spawner.must_spawn(display_task(display, ip));
+    info!("ip address: {:?}", config.address.address());
 
     net::run_http_server(stack, config::Board::NAME).await;
 }

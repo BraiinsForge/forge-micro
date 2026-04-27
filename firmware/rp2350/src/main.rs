@@ -184,14 +184,14 @@ type OledDisplay = Sh1106<
 
 #[cfg(all(feature = "display", feature = "cpu-mining"))]
 #[embassy_executor::task]
-async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) -> ! {
-    eth_examples::display::run_async_hashrate(&mut display, ip, &ubos_backend::HASHRATE_HZ).await
+async fn display_task(mut display: OledDisplay) -> ! {
+    eth_examples::display::run_async_hashrate(&mut display, &ubos_backend::HASHRATE_HZ).await
 }
 
 #[cfg(all(feature = "display", not(feature = "cpu-mining")))]
 #[embassy_executor::task]
-async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) -> ! {
-    eth_examples::display::run_async(&mut display, ip).await
+async fn display_task(mut display: OledDisplay) -> ! {
+    eth_examples::display::run_async(&mut display).await
 }
 
 #[cfg(feature = "dummy-asic")]
@@ -328,13 +328,13 @@ async fn main(spawner: Spawner) {
         (rst, display)
     };
 
+    #[cfg(feature = "display")]
+    spawner.spawn(unwrap!(display_task(display)));
+
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;
-    let ip = config.address.address();
-    info!("ip address: {:?}", ip);
+    info!("ip address: {:?}", config.address.address());
 
-    #[cfg(feature = "display")]
-    spawner.spawn(unwrap!(display_task(display, ip)));
     #[cfg(feature = "cpu-mining")]
     {
         // cpu_solver_task runs on core 1 (see spawn_core1 above).
