@@ -39,6 +39,13 @@ const DNS_SERVER: Ipv4Address = Ipv4Address::new(1, 1, 1, 1);
 const SOCKET_COUNT: usize = 8;
 const BOARD_NAME: &str = "host-runner";
 
+/// Locally-administered MAC reported to the embassy stack on the
+/// `AF_PACKET` path. Locally-administered (bit 1 of byte 0 set) and
+/// unicast (bit 0 clear); the rest spells "HR" + 0x000001 so the address
+/// is recognisable in tcpdump and DHCP-server logs. Fixed so DHCP leases
+/// persist across runs of the same host.
+const AFPACKET_MAC: [u8; 6] = [0x02, 0x48, 0x52, 0x00, 0x00, 0x01];
+
 /// Pool config. Defaults to public Braiins Pool so the host binary works
 /// out of the box without requiring reach to the NUC regtest pool. Edit
 /// in place to fire at the same regtest target the firmware uses.
@@ -214,10 +221,15 @@ async fn hashrate_metrics_task() -> ! {
 fn open_host_device() -> (HostDevice, Config) {
     match std::env::var("HOST_NET_AFPACKET").ok() {
         Some(name) if !name.is_empty() => {
-            log::info!("host-runner: HOST_NET_AFPACKET set, binding raw socket to {name}");
+            let [m0, m1, m2, m3, m4, m5] = AFPACKET_MAC;
+            log::info!(
+                "host-runner: HOST_NET_AFPACKET set, binding raw socket to {name} \
+                 with synthetic MAC {m0:02x}:{m1:02x}:{m2:02x}:{m3:02x}:{m4:02x}:{m5:02x}"
+            );
             // Failure here is unrecoverable: without a working link driver
             // there is nothing for the rest of the runner to do.
-            let device = AfPacketDevice::new(&name).expect("BUG: open AF_PACKET socket");
+            let device = AfPacketDevice::with_synthetic_mac(&name, AFPACKET_MAC)
+                .expect("BUG: open AF_PACKET socket");
             (
                 HostDevice::AfPacket(device),
                 Config::dhcpv4(DhcpConfig::default()),

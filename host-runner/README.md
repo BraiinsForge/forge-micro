@@ -62,13 +62,19 @@ sudo -E HOST_NET_AFPACKET=eth1 cargo run -p host-runner
 ```
 
 Requires `CAP_NET_RAW` (hence `sudo`, or `setcap cap_net_raw=ep` on the
-binary). The driver reads the interface MAC and MTU at startup and
-reports both to embassy-net.
+binary).
+
+The embassy stack uses a fixed synthetic MAC (`02:48:52:00:00:01`),
+independent of the kernel's view of the NIC. The driver enables
+promiscuous mode on the socket so frames addressed to that MAC reach the
+runner; the kernel reference-counts membership and restores the
+previous state when the socket closes.
 
 The AF_PACKET path runs DHCP, so the runner picks up its IP, gateway,
-and DNS from whatever DHCP server is on the LAN. Lease and DHCP
-transactions are bound to the interface's real MAC. The TAP path keeps
-its hardcoded `192.168.69.2/24`.
+and DNS from whatever DHCP server is on the LAN. The lease is bound to
+the synthetic MAC, so it persists across runs but distinguishes the
+runner from the host's own kernel-side DHCP. The TAP path keeps its
+hardcoded `192.168.69.2/24`.
 
 Caveat: the host kernel keeps processing ingress traffic on the same
 interface. To avoid ARP/IP collisions with embassy-net's stack, use a
