@@ -34,3 +34,42 @@ fn ring_buffer_overwrites_when_full() {
     assert!((min - 2.0).abs() < f32::EPSILON);
     assert!((max - 4.0).abs() < f32::EPSILON);
 }
+
+use super::pid::PidController;
+
+#[test]
+fn pid_proportional_only_clamped() {
+    let mut pid = PidController::new(-5.0, 0.0, 0.0, 10.0);
+    pid.set_limits(20.0, 100.0);
+    let output = pid.update(50.0, 1.0, false);
+    assert!((output - 20.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn pid_clamps_output_high() {
+    let mut pid = PidController::new(-5.0, 0.0, 0.0, 10.0);
+    pid.set_limits(20.0, 100.0);
+    let output = pid.update(-50.0, 1.0, false);
+    assert!((output - 100.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn pid_integral_accumulates() {
+    let mut pid = PidController::new(0.0, -1.0, 0.0, 10.0);
+    pid.set_limits(-1000.0, 1000.0);
+    let first = pid.update(2.0, 1.0, false);
+    let second = pid.update(2.0, 1.0, false);
+    assert!(second < first, "integral should grow more negative");
+}
+
+#[test]
+fn pid_freeze_dampens_integral() {
+    let mut pid_free = PidController::new(0.0, -1.0, 0.0, 10.0);
+    pid_free.set_limits(-1000.0, 1000.0);
+    let mut pid_frozen = PidController::new(0.0, -1.0, 0.0, 10.0);
+    pid_frozen.set_limits(-1000.0, 1000.0);
+
+    let free = pid_free.update(2.0, 1.0, false);
+    let frozen = pid_frozen.update(2.0, 1.0, true);
+    assert!(frozen > free, "frozen integral term has smaller magnitude");
+}
