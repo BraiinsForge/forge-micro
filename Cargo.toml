@@ -32,7 +32,7 @@ members = [
     "firmware/stm32f407",
     "firmware/stm32f439",
     "firmware/esp32s3",
-    "echoer",
+    "dummy-asic",
     "stratum-v1-core",
     "ubos-backend",
 ]

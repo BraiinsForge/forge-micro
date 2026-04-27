@@ -1,4 +1,4 @@
-//! Board constants and peripheral extraction for the XIAO ESP32-S3 echoer.
+//! Board constants and peripheral extraction for the XIAO ESP32-S3 dummy-asic.
 //! `Board::take` consumes the esp-hal `Peripherals` and returns the timer
 //! group and UART pins that main.rs needs.
 

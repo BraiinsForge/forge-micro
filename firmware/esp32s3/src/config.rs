@@ -7,7 +7,7 @@
 use esp_hal::peripherals::{GPIO1, GPIO2, GPIO39, GPIO40, GPIO41, GPIO42, SPI2, TIMG0, TIMG1};
 #[cfg(feature = "display")]
 use esp_hal::peripherals::{GPIO15, GPIO16, GPIO17, GPIO6, GPIO7, SPI3};
-#[cfg(feature = "uart-echo")]
+#[cfg(feature = "dummy-asic")]
 use esp_hal::peripherals::{GPIO43, GPIO44, UART0};
 use esp_hal::time::Rate;
 
@@ -42,11 +42,11 @@ pub struct Board<'d> {
     pub w5500_int: GPIO41<'d>,
     pub w5500_reset: GPIO40<'d>,
     pub dma: esp_hal::peripherals::DMA_CH0<'d>,
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     pub uart0: UART0<'d>,
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     pub uart_tx: GPIO43<'d>,
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     pub uart_rx: GPIO44<'d>,
     #[cfg(feature = "display")]
     pub display_spi: SPI3<'d>,
@@ -81,11 +81,11 @@ impl Board<'static> {
             w5500_int: peripherals.GPIO41,
             w5500_reset: peripherals.GPIO40,
             dma: peripherals.DMA_CH0,
-            #[cfg(feature = "uart-echo")]
+            #[cfg(feature = "dummy-asic")]
             uart0: peripherals.UART0,
-            #[cfg(feature = "uart-echo")]
+            #[cfg(feature = "dummy-asic")]
             uart_tx: peripherals.GPIO43,
-            #[cfg(feature = "uart-echo")]
+            #[cfg(feature = "dummy-asic")]
             uart_rx: peripherals.GPIO44,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI3,

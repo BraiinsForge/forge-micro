@@ -18,13 +18,13 @@ use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::adc::{Adc, Async as AdcAsync, Channel as AdcChannel, Config as AdcConfig};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-#[cfg(feature = "uart-echo")]
+#[cfg(feature = "dummy-asic")]
 use embassy_rp::peripherals::UART1;
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, SPI0};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
-#[cfg(feature = "uart-echo")]
+#[cfg(feature = "dummy-asic")]
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{adc, bind_interrupts, dma};
@@ -69,7 +69,7 @@ bind_interrupts!(struct Irqs {
         #[cfg(feature = "display")]
         dma::InterruptHandler<DMA_CH2>;
     ADC_IRQ_FIFO => adc::InterruptHandler;
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     UART1_IRQ => BufferedInterruptHandler<UART1>;
 });
 
@@ -194,10 +194,10 @@ async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) ->
     eth_examples::display::run_async(&mut display, ip).await
 }
 
-#[cfg(feature = "uart-echo")]
+#[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
-async fn uart_echo_test(mut uart: BufferedUart) -> ! {
-    let _ = eth_examples::uart_echo::run_test(&mut uart).await;
+async fn dummy_asic_test(mut uart: BufferedUart) -> ! {
+    let _ = eth_examples::dummy_asic::run_test(&mut uart).await;
     core::future::pending::<()>().await;
     unreachable!()
 }
@@ -278,7 +278,7 @@ async fn main(spawner: Spawner) {
         channel: temp_channel,
     })));
 
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     {
         static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
         static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
@@ -291,11 +291,11 @@ async fn main(spawner: Spawner) {
             RX_BUF.init([0; 256]),
             {
                 let mut config = UartConfig::default();
-                config.baudrate = eth_examples::uart_echo::BAUD_RATE;
+                config.baudrate = eth_examples::dummy_asic::BAUD_RATE;
                 config
             },
         );
-        spawner.spawn(unwrap!(uart_echo_test(uart)));
+        spawner.spawn(unwrap!(dummy_asic_test(uart)));
     }
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.

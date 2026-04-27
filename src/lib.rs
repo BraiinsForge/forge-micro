@@ -17,6 +17,7 @@
 pub mod btc;
 pub mod consts;
 pub mod display;
+pub mod dummy_asic;
 pub mod http;
 pub mod led;
 pub mod metrics;
@@ -24,7 +25,6 @@ pub mod net;
 pub mod ntp;
 pub mod sh1106;
 pub mod temperature;
-pub mod uart_echo;
 pub mod watchdog;
 
 /// Seconds since Unix epoch if NTP has synced, or seconds since boot otherwise.

@@ -1,8 +1,9 @@
-//! UART echo server for the Seeed XIAO ESP32-S3.
+//! Dummy ASIC peer for the Seeed XIAO ESP32-S3.
 //!
 //! Reads bytes at 115200 baud until a newline, then echoes the complete
 //! line back. Used as a hardware-in-the-loop test target for verifying
-//! UART connectivity on the eth-examples boards.
+//! UART connectivity on the eth-examples boards. Will be repurposed as
+//! a stratum mining target in a follow-up commit.
 //!
 //! Pin mapping for XIAO ESP32-S3 silk labels:
 //!   D9  = GPIO8 = TX
@@ -29,8 +30,8 @@ const MAX_LINE_LEN: usize = 256;
 #[embassy_executor::task]
 async fn echo_task(mut uart: Uart<'static, esp_hal::Async>) -> ! {
     defmt::info!(
-        "echoer: ready on UART1 at {} baud",
-        eth_examples::uart_echo::BAUD_RATE
+        "dummy-asic: ready on UART1 at {} baud",
+        eth_examples::dummy_asic::BAUD_RATE
     );
 
     let mut buffer = [0u8; MAX_LINE_LEN];
@@ -49,18 +50,18 @@ async fn echo_task(mut uart: Uart<'static, esp_hal::Async>) -> ! {
                     // Echo the complete line including the newline.
                     if let Err(error) = AsyncWrite::write_all(&mut uart, &buffer[..position]).await
                     {
-                        defmt::error!("echoer: write error: {}", defmt::Debug2Format(&error));
+                        defmt::error!("dummy-asic: write error: {}", defmt::Debug2Format(&error));
                     }
                     position = 0;
                 } else if position >= MAX_LINE_LEN {
                     // Buffer overflow without newline: discard and reset.
-                    defmt::warn!("echoer: line too long, discarding {} bytes", position);
+                    defmt::warn!("dummy-asic: line too long, discarding {} bytes", position);
                     position = 0;
                 }
             }
             Err(error) => {
                 defmt::error!(
-                    "echoer: read error: {}, resetting buffer",
+                    "dummy-asic: read error: {}, resetting buffer",
                     defmt::Debug2Format(&error)
                 );
                 position = 0;
@@ -77,7 +78,7 @@ async fn main(spawner: Spawner) {
     let timg0 = TimerGroup::new(hw.timg0);
     esp_rtos::start(timg0.timer0);
 
-    let uart_config = UartConfig::default().with_baudrate(eth_examples::uart_echo::BAUD_RATE);
+    let uart_config = UartConfig::default().with_baudrate(eth_examples::dummy_asic::BAUD_RATE);
     // Valid UART peripheral and default-compatible baud rate; cannot fail.
     let uart = Uart::new(hw.uart1, uart_config)
         .expect("BUG: UART configuration failed")

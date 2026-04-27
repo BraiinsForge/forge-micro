@@ -9,7 +9,7 @@ workspace = true
 [features]
 default = ["cpu-mining"]
 display = []
-uart-echo = []
+dummy-asic = []
 cpu-mining = ["dep:ubos-backend"]
 
 [dependencies]

@@ -10,7 +10,7 @@ use embassy_rp::peripherals::{
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_8, PIN_9, SPI1};
-#[cfg(feature = "uart-echo")]
+#[cfg(feature = "dummy-asic")]
 use embassy_rp::peripherals::{PIN_4, PIN_5, UART1};
 use embassy_rp::Peri;
 use embassy_time::Duration;
@@ -31,11 +31,11 @@ pub struct Board {
     pub w6100_reset: Peri<'static, PIN_20>,
     pub rx_dma: Peri<'static, DMA_CH0>,
     pub tx_dma: Peri<'static, DMA_CH1>,
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     pub uart: Peri<'static, UART1>,
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     pub uart_tx: Peri<'static, PIN_4>,
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     pub uart_rx: Peri<'static, PIN_5>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
@@ -74,11 +74,11 @@ impl Board {
             w6100_reset: peripherals.PIN_20,
             rx_dma: peripherals.DMA_CH0,
             tx_dma: peripherals.DMA_CH1,
-            #[cfg(feature = "uart-echo")]
+            #[cfg(feature = "dummy-asic")]
             uart: peripherals.UART1,
-            #[cfg(feature = "uart-echo")]
+            #[cfg(feature = "dummy-asic")]
             uart_tx: peripherals.PIN_4,
-            #[cfg(feature = "uart-echo")]
+            #[cfg(feature = "dummy-asic")]
             uart_rx: peripherals.PIN_5,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI1,

@@ -23,7 +23,7 @@ use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer as LowLevelTimer};
 use embassy_stm32::triggers::TIM3_TRGO;
-#[cfg(feature = "uart-echo")]
+#[cfg(feature = "dummy-asic")]
 use embassy_stm32::usart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{bind_interrupts, dma, eth, peripherals, rng};
@@ -64,7 +64,7 @@ bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
     DMA2_STREAM0 => dma::InterruptHandler<DMA2_CH0>;
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     USART3 => BufferedInterruptHandler<peripherals::USART3>;
     #[cfg(feature = "display")]
     DMA2_STREAM3 => dma::InterruptHandler<DMA2_CH3>;
@@ -192,10 +192,10 @@ async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) ->
     eth_examples::display::run_async(&mut display, ip).await
 }
 
-#[cfg(feature = "uart-echo")]
+#[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
-async fn uart_echo_test(mut uart: BufferedUart<'static>) -> ! {
-    let _ = eth_examples::uart_echo::run_test(&mut uart).await;
+async fn dummy_asic_test(mut uart: BufferedUart<'static>) -> ! {
+    let _ = eth_examples::dummy_asic::run_test(&mut uart).await;
     core::future::pending::<()>().await;
     unreachable!()
 }
@@ -276,7 +276,7 @@ async fn main(spawner: Spawner) {
         _timer: temp_timer,
     })));
 
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     {
         static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
         static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
@@ -289,13 +289,13 @@ async fn main(spawner: Spawner) {
             Irqs,
             {
                 let mut config = UartConfig::default();
-                config.baudrate = eth_examples::uart_echo::BAUD_RATE;
+                config.baudrate = eth_examples::dummy_asic::BAUD_RATE;
                 config
             },
         )
         // Valid USART peripheral and default-compatible baud rate; cannot fail.
         .expect("BUG: USART3 configuration failed");
-        spawner.spawn(unwrap!(uart_echo_test(uart)));
+        spawner.spawn(unwrap!(dummy_asic_test(uart)));
     }
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.

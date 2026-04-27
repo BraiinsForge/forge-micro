@@ -25,7 +25,7 @@ use esp_hal::rng::Rng;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::spi::Mode;
 use esp_hal::timer::timg::{MwdtStage, TimerGroup, Wdt};
-#[cfg(feature = "uart-echo")]
+#[cfg(feature = "dummy-asic")]
 use esp_hal::uart::{Config as UartConfig, Uart};
 use eth_examples::net;
 #[cfg(feature = "display")]
@@ -143,10 +143,10 @@ async fn display_task(mut display: OledDisplay, ip: embassy_net::Ipv4Address) ->
     eth_examples::display::run_async(&mut display, ip).await
 }
 
-#[cfg(feature = "uart-echo")]
+#[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
-async fn uart_echo_test(mut uart: Uart<'static, esp_hal::Async>) -> ! {
-    let _ = eth_examples::uart_echo::run_test(&mut uart).await;
+async fn dummy_asic_test(mut uart: Uart<'static, esp_hal::Async>) -> ! {
+    let _ = eth_examples::dummy_asic::run_test(&mut uart).await;
     core::future::pending::<()>().await;
     unreachable!()
 }
@@ -229,16 +229,16 @@ async fn main(spawner: Spawner) {
     // writes to the SAR ADC analog block, which is not worth replicating
     // here while the upstream driver is limited to ESP32-P4.
 
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     {
-        let uart_config = UartConfig::default().with_baudrate(eth_examples::uart_echo::BAUD_RATE);
+        let uart_config = UartConfig::default().with_baudrate(eth_examples::dummy_asic::BAUD_RATE);
         // Valid UART peripheral and default-compatible baud rate; cannot fail.
         let uart = Uart::new(hw.uart0, uart_config)
             .expect("BUG: UART0 configuration failed")
             .with_tx(hw.uart_tx)
             .with_rx(hw.uart_rx)
             .into_async();
-        spawner.must_spawn(uart_echo_test(uart));
+        spawner.must_spawn(dummy_asic_test(uart));
     }
 
     // SH1106 OLED on SPI3: reset pulse, then async DMA SPI.

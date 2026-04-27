@@ -7,9 +7,9 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["display", "uart-echo"]
+default = ["display", "dummy-asic"]
 display = []
-uart-echo = []
+dummy-asic = []
 
 [dependencies]
 eth-examples           = { workspace = true }

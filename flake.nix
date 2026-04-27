@@ -270,7 +270,7 @@
       in
       {
         # Each firmware crate is checked under its default feature set
-        # only. Cross-combinations of the display and uart-echo features
+        # only. Cross-combinations of the display and dummy-asic features
         # are not gated here: fanning out would multiply CI time without
         # catching bugs the default combos already cover for most boards.
         # A future change that breaks a non-default combo will land
@@ -341,11 +341,11 @@
             RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
           };
 
-          clippy-echoer = espCraneLib.cargoClippy {
+          clippy-dummy-asic = espCraneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
             cargoVendorDir = espCargoVendorDir;
-            cargoExtraArgs = "-p echoer --target xtensa-esp32s3-none-elf -Z build-std=core";
+            cargoExtraArgs = "-p dummy-asic --target xtensa-esp32s3-none-elf -Z build-std=core";
             cargoClippyExtraArgs = "-- -D warnings";
             RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
           };

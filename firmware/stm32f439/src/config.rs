@@ -13,7 +13,7 @@ use embassy_stm32::peripherals::{
 };
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::{DMA2_CH3, PB3, PB5, PE7, PE8, PE9, SPI1};
-#[cfg(feature = "uart-echo")]
+#[cfg(feature = "dummy-asic")]
 use embassy_stm32::peripherals::{PD8, PD9, USART3};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peri;
@@ -67,11 +67,11 @@ pub struct Board {
     pub tx_en: Peri<'static, PG11>,
     pub mdio: Peri<'static, PA2>,
     pub mdc: Peri<'static, PC1>,
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     pub usart3: Peri<'static, USART3>,
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     pub usart3_tx: Peri<'static, PD8>,
-    #[cfg(feature = "uart-echo")]
+    #[cfg(feature = "dummy-asic")]
     pub usart3_rx: Peri<'static, PD9>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
@@ -132,11 +132,11 @@ impl Board {
             tx_en: peripherals.PG11,
             mdio: peripherals.PA2,
             mdc: peripherals.PC1,
-            #[cfg(feature = "uart-echo")]
+            #[cfg(feature = "dummy-asic")]
             usart3: peripherals.USART3,
-            #[cfg(feature = "uart-echo")]
+            #[cfg(feature = "dummy-asic")]
             usart3_tx: peripherals.PD8,
-            #[cfg(feature = "uart-echo")]
+            #[cfg(feature = "dummy-asic")]
             usart3_rx: peripherals.PD9,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI1,

@@ -1,9 +1,9 @@
-//! UART echo test protocol shared by all board firmware.
+//! Dummy ASIC echo test protocol shared by all board firmware.
 //!
-//! Each board sends a test line to the echoer and verifies the reply.
-//! The echoer is a dedicated XIAO ESP32-S3 running an async echo
-//! loop at 115200 baud. This module provides the protocol constants
-//! and a generic async test function that works over any
+//! Each board sends a test line to the dummy-asic peer and verifies
+//! the reply. The peer is a dedicated XIAO ESP32-S3 running an async
+//! echo loop at 115200 baud. This module provides the protocol
+//! constants and a generic async test function that works over any
 //! `embedded_io_async::Read + Write` transport.
 
 use embassy_time::{with_timeout, Duration};
@@ -11,11 +11,11 @@ use embassy_time::{with_timeout, Duration};
 /// Per-read timeout. Generous for 115200 baud where 12 bytes take under 1 ms.
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Baud rate shared between echoer and all board UART configurations.
-/// The echoer crate imports this constant directly.
+/// Baud rate shared between peer and all board UART configurations.
+/// The dummy-asic crate imports this constant directly.
 pub const BAUD_RATE: u32 = 115_200;
 
-/// Test payload sent to the echoer and expected back verbatim.
+/// Test payload sent to the peer and expected back verbatim.
 const TEST_LINE: &[u8] = b"hello world\n";
 
 /// Maximum bytes to read back before giving up.
@@ -35,10 +35,10 @@ pub async fn run_test<T>(uart: &mut T) -> Result<(), ()>
 where
     T: embedded_io_async::Read + embedded_io_async::Write,
 {
-    defmt::info!("uart echo: sending test line");
+    defmt::info!("dummy-asic: sending test line");
 
     if let Err(error) = uart.write_all(TEST_LINE).await {
-        defmt::error!("uart echo: write failed: {}", defmt::Debug2Format(&error));
+        defmt::error!("dummy-asic: write failed: {}", defmt::Debug2Format(&error));
         return Err(());
     }
 
@@ -50,16 +50,16 @@ where
         {
             Ok(Ok(count)) => count,
             Ok(Err(error)) => {
-                defmt::error!("uart echo: read failed: {}", defmt::Debug2Format(&error));
+                defmt::error!("dummy-asic: read failed: {}", defmt::Debug2Format(&error));
                 return Err(());
             }
             Err(_) => {
-                defmt::error!("uart echo: read timed out");
+                defmt::error!("dummy-asic: read timed out");
                 return Err(());
             }
         };
         if bytes_read == 0 {
-            defmt::error!("uart echo: read returned zero bytes");
+            defmt::error!("dummy-asic: read returned zero bytes");
             return Err(());
         }
         position += bytes_read;
@@ -72,11 +72,11 @@ where
 
     let reply = &buffer[..position];
     if reply == TEST_LINE {
-        defmt::info!("uart echo: success");
+        defmt::info!("dummy-asic: success");
         Ok(())
     } else {
         defmt::error!(
-            "uart echo: mismatch, expected {} bytes, got {}",
+            "dummy-asic: mismatch, expected {} bytes, got {}",
             TEST_LINE.len(),
             position
         );

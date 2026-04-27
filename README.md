@@ -68,15 +68,15 @@ the UF2 file). The original Pico variant is `debugprobe_on_pico.uf2`.
 | GP5 | GP1 | UART RX (target → probe) |
 | GND | GND | Ground |
 
-### UART echoer wiring
+### UART dummy-asic wiring
 
-The echoer (Seeed XIAO ESP32-S3) connects to the EVB-Pico UART used
+The dummy-asic (Seeed XIAO ESP32-S3) connects to the EVB-Pico UART used
 by the echo test task. TX and RX are crossed.
 
 | XIAO silk | XIAO GPIO | EVB-Pico GPIO | Direction |
 |-----------|-----------|---------------|-----------|
-| D9 | GPIO8 (TX) | GP5 (UART RX) | echoer → target |
-| D10 | GPIO9 (RX) | GP4 (UART TX) | target → echoer |
+| D9 | GPIO8 (TX) | GP5 (UART RX) | dummy-asic → target |
+| D10 | GPIO9 (RX) | GP4 (UART TX) | target → dummy-asic |
 | GND | GND | GND | ground |
 
 ### SWD wiring (ST-Link V3 to Pico/EVB-Pico)
@@ -177,11 +177,11 @@ JTAG probes, or the USB serial string for CMSIS-DAP probes.
 | Serial | Probe type | Board |
 |--------|------------|-------|
 | `2e8a:000c-0:E66118604B5EBE26` | CMSIS-DAP (Pico 2) | rp2040 debugprobe |
-| `303a:1001:E0:72:A1:F9:EF:E8` | ESP JTAG | rp2040 echoer |
+| `303a:1001:E0:72:A1:F9:EF:E8` | ESP JTAG | rp2040 dummy-asic |
 | `303a:1001:D8:3B:DA:49:F7:E0` | ESP JTAG | esp32s3 firmware |
-| `303a:1001:AC:A7:04:2B:6F:7C` | ESP JTAG | esp32s3 echoer |
+| `303a:1001:AC:A7:04:2B:6F:7C` | ESP JTAG | esp32s3 dummy-asic |
 | `2e8a:000c-0:E6605481DB696536` | CMSIS-DAP (Pico) | stm32f407 debugprobe |
-| `303a:1001:1C:DB:D4:5A:9C:70` | ESP JTAG | stm32f407 echoer |
+| `303a:1001:1C:DB:D4:5A:9C:70` | ESP JTAG | stm32f407 dummy-asic |
 | `0483:374b:0671FF515776525067255149` | ST-LINK V2-1 | stm32f439 (onboard) |
 
 Example:
@@ -190,15 +190,15 @@ Example:
 ssh nuc probe-rs run --chip esp32s3 --probe 303a:1001:D8:3B:DA:49:F7:E0 /tmp/esp32s3
 ```
 
-### Echoer (ESP32-S3 XIAO)
+### Dummy-ASIC (ESP32-S3 XIAO)
 
-The echoer uses esp-hal 1.0.0 which requires the ESP-IDF bootloader
+The dummy-asic uses esp-hal 1.0.0 which requires the ESP-IDF bootloader
 format. probe-rs cannot write the bootloader on its own, so the first
 flash must go through espflash:
 
 ```sh
 nix-shell -p espflash --run \
-  "espflash flash --chip esp32s3 --port /dev/ttyACM<N> target/xtensa-esp32s3-none-elf/release/echoer"
+  "espflash flash --chip esp32s3 --port /dev/ttyACM<N> target/xtensa-esp32s3-none-elf/release/dummy-asic"
 ```
 
 Put the XIAO into download mode first (hold BOOT, press RST). After
@@ -210,7 +210,7 @@ flashes work with probe-rs:
 
 ```sh
 nix develop .#esp32
-cd echoer && cargo run --release
+cd dummy-asic && cargo run --release
 ```
 
 The espflash step only needs to be repeated if the flash is erased.
