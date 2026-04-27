@@ -12,4 +12,5 @@ embassy-sync     = { workspace = true, features = ["defmt"] }
 defmt            = { workspace = true }
 portable-atomic  = { workspace = true }
 eth-examples     = { workspace = true }
+heapless         = { workspace = true }
 libm             = "0.2"
