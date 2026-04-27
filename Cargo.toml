@@ -50,6 +50,7 @@ members = [
     "asic-interface",
     "cpu-miner",
     "dummy-asic",
+    "embassy-net-afpacket",
     "esp32s3-tsens",
     "rp235x-sha256",
     "stratum-v1-core",
