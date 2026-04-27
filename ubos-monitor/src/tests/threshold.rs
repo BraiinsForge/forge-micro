@@ -38,3 +38,21 @@ fn halted_resumes_under_cooldown() {
 fn halted_above_cooldown_stays_halted() {
     assert_eq!(evaluate(60.0, true, &LIMITS), Action::Ok);
 }
+
+#[test]
+fn boundary_at_hot_triggers_hot() {
+    // Inclusive: 80.0 must already trip the hot warning, not stay Ok.
+    assert_eq!(evaluate(80.0, false, &LIMITS), Action::Hot);
+}
+
+#[test]
+fn boundary_at_dangerous_triggers_halt() {
+    // Inclusive: 90.0 must already trip the halt, not stay Hot.
+    assert_eq!(evaluate(90.0, false, &LIMITS), Action::EnterHalt);
+}
+
+#[test]
+fn boundary_at_cooldown_resumes() {
+    // Inclusive: 45.0 must already clear the halt, not stay Ok.
+    assert_eq!(evaluate(45.0, true, &LIMITS), Action::Resume);
+}
