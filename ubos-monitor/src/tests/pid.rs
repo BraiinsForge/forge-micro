@@ -73,3 +73,25 @@ fn pid_freeze_dampens_integral() {
     let frozen = pid_frozen.update(2.0, 1.0, true);
     assert!(frozen > free, "frozen integral term has smaller magnitude");
 }
+
+use super::pid::TempControl;
+
+#[test]
+fn temp_control_clamps_min_pwm() {
+    // Cold sample (temp below target) drives the PID negative, clamped
+    // to the lower bound.
+    let mut control = TempControl::new(-50.0, 0.0, 0.0, 10.0, 20);
+    control.set_target(67.0);
+    let pwm = control.update(50.0, 1.0);
+    assert_eq!(pwm, 20);
+}
+
+#[test]
+fn temp_control_clamps_max_pwm() {
+    // Hot sample (temp above target) drives the PID positive, clamped
+    // to the upper bound.
+    let mut control = TempControl::new(-50.0, 0.0, 0.0, 10.0, 20);
+    control.set_target(67.0);
+    let pwm = control.update(72.0, 1.0);
+    assert_eq!(pwm, 100);
+}

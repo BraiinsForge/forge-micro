@@ -143,3 +143,75 @@ impl PidController {
         (p_term + d_term + i_term).clamp(self.out_min, self.out_max)
     }
 }
+
+/// Temperature-driven fan-PWM controller.
+///
+/// Wraps `PidController` with a target setpoint, a stability detector
+/// (the ring buffer), and integer-percent output clamping. Mirrors the
+/// BOS `bosminer-hal::fan::pid::TempControl` single-input case.
+pub struct TempControl {
+    pid: PidController,
+    history: RingBuffer<f32, { Self::HISTORY_SIZE }>,
+    target_temp_c: f32,
+    min_fan_pwm: u8,
+}
+
+impl TempControl {
+    /// Window of samples checked for stability. 60 samples at the
+    /// 1 Hz monitor cadence is one minute of history, the same length
+    /// the BOS controller uses.
+    const HISTORY_SIZE: usize = 60;
+    /// Maximum spread, in degrees Celsius, between the min and max of
+    /// the history window for the system to count as stable.
+    const STABLE_MAX_TEMP_DIFF_C: f32 = 1.6;
+    /// Only freeze the derivative once the absolute error is within
+    /// this many degrees of the target.
+    const CLOSE_TO_TARGET_C: f32 = 3.1;
+
+    #[must_use]
+    pub fn new(
+        p_gain: f32,
+        i_gain: f32,
+        d_gain: f32,
+        smoother_half_decay_secs: f32,
+        min_fan_pwm: u8,
+    ) -> Self {
+        // PWM is reported as a percent, so a min above 100 would
+        // invert the clamp range and panic in `update`.
+        debug_assert!(min_fan_pwm <= 100, "min_fan_pwm must be <= 100");
+        let mut pid = PidController::new(p_gain, i_gain, d_gain, smoother_half_decay_secs);
+        pid.set_limits(f32::from(min_fan_pwm), 100.0);
+        Self {
+            pid,
+            history: RingBuffer::new(),
+            target_temp_c: 0.0,
+            min_fan_pwm,
+        }
+    }
+
+    pub fn set_target(&mut self, target_temp_c: f32) {
+        self.target_temp_c = target_temp_c;
+    }
+
+    /// Compute the next fan PWM percent (`min_fan_pwm..=100`) from the
+    /// latest temperature sample and the elapsed seconds since the
+    /// previous update.
+    #[must_use]
+    pub fn update(&mut self, temp_c: f32, delta_t: f32) -> u8 {
+        let error = self.target_temp_c - temp_c;
+        self.history.add(error);
+
+        let freeze = self.history.min_max().is_some_and(|(min, max)| {
+            let stable = max - min < Self::STABLE_MAX_TEMP_DIFF_C;
+            let close = libm::fabsf(error) < Self::CLOSE_TO_TARGET_C;
+            self.history.full() && stable && close
+        });
+
+        let raw = self.pid.update(error, delta_t, freeze);
+        // PID output is already clamped to [min_fan_pwm, 100].
+        // u8 cast is safe because of the clamp.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let pwm = libm::roundf(raw) as u8;
+        pwm.clamp(self.min_fan_pwm, 100)
+    }
+}
