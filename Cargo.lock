@@ -973,6 +973,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "embassy-net-afpacket"
+version = "0.1.0"
+dependencies = [
+ "async-io",
+ "embassy-net-driver",
+ "libc",
+ "log",
+]
+
+[[package]]
 name = "embassy-net-driver"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2130,6 +2140,8 @@ dependencies = [
  "critical-section",
  "embassy-executor 0.10.0",
  "embassy-net",
+ "embassy-net-afpacket",
+ "embassy-net-driver",
  "embassy-net-tuntap",
  "embassy-time",
  "env_logger",
