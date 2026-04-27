@@ -408,6 +408,13 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-embassy-net-afpacket = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p embassy-net-afpacket";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
 
           test = craneLib.cargoTest {
             inherit src;
