@@ -18,3 +18,16 @@ target = "xtensa-esp32s3-none-elf"
 
 [unstable]
 build-std = ["core"]
+
+# `cargo run-<board>` flashes the dummy-asic peer attached to that
+# main board. Each main board has a separate ESP32-S3 dummy-asic;
+# the alias overrides the runner to select the right probe by
+# serial. The run-stm32f439 alias still carries the placeholder
+# TODO_STM32F439_DUMMY_ASIC_PROBE, so probe-rs fails it with a
+# clear "probe not found" error until the real serial is filled in.
+[alias]
+run-rp2040    = ["run", "--config", "target.xtensa-esp32s3-none-elf.runner=[\"probe-rs\",\"run\",\"--chip\",\"esp32s3\",\"--probe\",\"303a:1001:E0:72:A1:F9:EF:E8\",\"--log-format\",\"{t:>10} {f:<14} [{L}] {s}\"]"]
+run-rp2350    = ["run", "--config", "target.xtensa-esp32s3-none-elf.runner=[\"probe-rs\",\"run\",\"--chip\",\"esp32s3\",\"--probe\",\"303a:1001:AC:A7:04:2B:6F:AC\",\"--log-format\",\"{t:>10} {f:<14} [{L}] {s}\"]"]
+run-stm32f407 = ["run", "--config", "target.xtensa-esp32s3-none-elf.runner=[\"probe-rs\",\"run\",\"--chip\",\"esp32s3\",\"--probe\",\"303a:1001:1C:DB:D4:5A:9C:70\",\"--log-format\",\"{t:>10} {f:<14} [{L}] {s}\"]"]
+run-stm32f439 = ["run", "--config", "target.xtensa-esp32s3-none-elf.runner=[\"probe-rs\",\"run\",\"--chip\",\"esp32s3\",\"--probe\",\"TODO_STM32F439_DUMMY_ASIC_PROBE\",\"--log-format\",\"{t:>10} {f:<14} [{L}] {s}\"]"]
+run-esp32s3   = ["run", "--config", "target.xtensa-esp32s3-none-elf.runner=[\"probe-rs\",\"run\",\"--chip\",\"esp32s3\",\"--probe\",\"303a:1001:AC:A7:04:2B:6F:7C\",\"--log-format\",\"{t:>10} {f:<14} [{L}] {s}\"]"]

@@ -168,28 +168,6 @@ cd firmware/esp32s3     && cargo run --release   # ESP32-S3 + W5100S
 `probe-rs list` shows connected probes. Each crate's `.cargo/config.toml`
 configures the probe-rs runner for flash and monitor.
 
-### Probe mapping
-
-When multiple boards are connected, select a specific probe with
-`--probe VID:PID:SERIAL`. The serial is the chip's MAC address for ESP
-JTAG probes, or the USB serial string for CMSIS-DAP probes.
-
-| Serial | Probe type | Board |
-|--------|------------|-------|
-| `2e8a:000c-0:E66118604B5EBE26` | CMSIS-DAP (Pico 2) | rp2040 debugprobe |
-| `303a:1001:E0:72:A1:F9:EF:E8` | ESP JTAG | rp2040 dummy-asic |
-| `303a:1001:D8:3B:DA:49:F7:E0` | ESP JTAG | esp32s3 firmware |
-| `303a:1001:AC:A7:04:2B:6F:7C` | ESP JTAG | esp32s3 dummy-asic |
-| `2e8a:000c-0:E6605481DB696536` | CMSIS-DAP (Pico) | stm32f407 debugprobe |
-| `303a:1001:1C:DB:D4:5A:9C:70` | ESP JTAG | stm32f407 dummy-asic |
-| `0483:374b:0671FF515776525067255149` | ST-LINK V2-1 | stm32f439 (onboard) |
-
-Example:
-
-```sh
-ssh nuc probe-rs run --chip esp32s3 --probe 303a:1001:D8:3B:DA:49:F7:E0 /tmp/esp32s3
-```
-
 ### Dummy-ASIC (ESP32-S3 XIAO)
 
 The dummy-asic uses esp-hal 1.0.0 which requires the ESP-IDF bootloader
@@ -212,6 +190,20 @@ flashes work with probe-rs:
 nix develop .#esp
 cd dummy-asic && cargo run --release
 ```
+
+When multiple ESP-JTAG probes are connected, use the per-main-board
+aliases to select the right dummy-asic peer by probe serial:
+
+```sh
+cd dummy-asic && cargo run-rp2040 --release      # rp2040 peer
+cd dummy-asic && cargo run-rp2350 --release      # rp2350 peer
+cd dummy-asic && cargo run-stm32f407 --release   # stm32f407 peer
+cd dummy-asic && cargo run-stm32f439 --release   # stm32f439 peer
+cd dummy-asic && cargo run-esp32s3 --release     # esp32s3 peer
+```
+
+See `dummy-asic/.cargo/config.toml` for the full alias list and probe
+serials.
 
 The espflash step only needs to be repeated if the flash is erased.
 
