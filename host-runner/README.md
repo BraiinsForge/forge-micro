@@ -65,6 +65,11 @@ Requires `CAP_NET_RAW` (hence `sudo`, or `setcap cap_net_raw=ep` on the
 binary). The driver reads the interface MAC and MTU at startup and
 reports both to embassy-net.
 
+The AF_PACKET path runs DHCP, so the runner picks up its IP, gateway,
+and DNS from whatever DHCP server is on the LAN. Lease and DHCP
+transactions are bound to the interface's real MAC. The TAP path keeps
+its hardcoded `192.168.69.2/24`.
+
 Caveat: the host kernel keeps processing ingress traffic on the same
 interface. To avoid ARP/IP collisions with embassy-net's stack, use a
 NIC whose kernel-side IPv4 is unconfigured:

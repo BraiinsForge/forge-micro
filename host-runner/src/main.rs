@@ -18,7 +18,9 @@ use std::task::Context;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use embassy_executor::{Executor, Spawner};
-use embassy_net::{Config, Ipv4Address, Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4};
+use embassy_net::{
+    Config, DhcpConfig, Ipv4Address, Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4,
+};
 use embassy_net_afpacket::AfPacketDevice;
 use embassy_net_driver::{Capabilities, Driver, HardwareAddress, LinkState};
 use embassy_net_tuntap::TunTapDevice;
@@ -204,17 +206,34 @@ async fn hashrate_metrics_task() -> ! {
     }
 }
 
-fn open_host_device() -> HostDevice {
+/// Open the link driver and return the matching `embassy_net` config.
+///
+/// The TAP path keeps its setup-network.sh-aligned static IP. The
+/// `AF_PACKET` path runs DHCP because the real LAN it attaches to has
+/// its own server and the runner cannot know the subnet ahead of time.
+fn open_host_device() -> (HostDevice, Config) {
     match std::env::var("HOST_NET_AFPACKET").ok() {
         Some(name) if !name.is_empty() => {
             log::info!("host-runner: HOST_NET_AFPACKET set, binding raw socket to {name}");
             // Failure here is unrecoverable: without a working link driver
             // there is nothing for the rest of the runner to do.
-            HostDevice::AfPacket(AfPacketDevice::new(&name).expect("BUG: open AF_PACKET socket"))
+            let device = AfPacketDevice::new(&name).expect("BUG: open AF_PACKET socket");
+            (
+                HostDevice::AfPacket(device),
+                Config::dhcpv4(DhcpConfig::default()),
+            )
         }
         _ => {
             log::info!("host-runner: starting on tap device {TAP_NAME}");
-            HostDevice::Tap(TunTapDevice::new(TAP_NAME).expect("BUG: open TAP device"))
+            let device = TunTapDevice::new(TAP_NAME).expect("BUG: open TAP device");
+            let mut dns_servers: heapless::Vec<Ipv4Address, 3> = heapless::Vec::new();
+            let _ = dns_servers.push(DNS_SERVER);
+            let config = Config::ipv4_static(StaticConfigV4 {
+                address: Ipv4Cidr::new(HOST_IP, PREFIX_LEN),
+                gateway: Some(GATEWAY),
+                dns_servers,
+            });
+            (HostDevice::Tap(device), config)
         }
     }
 }
@@ -222,15 +241,8 @@ fn open_host_device() -> HostDevice {
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let device = open_host_device();
 
-    let mut dns_servers: heapless::Vec<Ipv4Address, 3> = heapless::Vec::new();
-    let _ = dns_servers.push(DNS_SERVER);
-    let config = Config::ipv4_static(StaticConfigV4 {
-        address: Ipv4Cidr::new(HOST_IP, PREFIX_LEN),
-        gateway: Some(GATEWAY),
-        dns_servers,
-    });
+    let (device, config) = open_host_device();
 
     // Seconds-since-epoch are enough entropy for TCP ISN randomness on a
     // development host; this is not the firmware's crypto RNG path.
