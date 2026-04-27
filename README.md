@@ -261,13 +261,19 @@ The NUC runs dnsmasq on end0 with fixed DHCP leases. Each board gets a
 stable IP derived from the last octet of its locally-administered MAC
 address.
 
+The IPs below are the source-of-truth assignments shared by
+firmware MAC consts, dnsmasq leases in `redacted/networking.nix`,
+and `redacted/boards.nix`. The Nix file is consumed by the
+Prometheus scrape config, nftables traffic counters, and the
+load-test wrapper.
+
 | Board | MAC | IP |
 |-------|-----|----|
-| rp2040 | `02:00:00:00:00:02` | `redacted102` |
-| rp2350 | `02:00:00:00:00:03` | `redacted103` |
-| stm32f407 | `02:00:00:00:00:04` | `redacted104` |
-| esp32s3 | `02:00:00:00:00:05` | `redacted105` |
-| stm32f439 | `02:00:00:00:00:06` | `redacted106` |
+| rp2350 | `02:00:00:00:00:01` | `redacted101` |
+| esp32s3 | `02:00:00:00:00:02` | `redacted102` |
+| stm32f407 | `02:00:00:00:00:03` | `redacted103` |
+| rp2040 | `02:00:00:00:00:04` | `redacted104` |
+| stm32f439 | `02:00:00:00:00:05` | `redacted105` |
 
 The NUC provides DNS forwarding and NAT to the internet via WiFi, so
 boards can resolve hostnames for NTP sync and HTTPS requests.
