@@ -4175,6 +4175,7 @@ dependencies = [
  "embassy-sync 0.8.0",
  "embassy-time",
  "eth-examples",
+ "heapless 0.8.0",
  "libm",
  "portable-atomic",
 ]

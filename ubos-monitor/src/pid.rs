@@ -151,7 +151,7 @@ impl PidController {
 /// BOS `bosminer-hal::fan::pid::TempControl` single-input case.
 pub struct TempControl {
     pid: PidController,
-    history: RingBuffer<f32, { Self::HISTORY_SIZE }>,
+    history: RingBuffer<{ Self::HISTORY_SIZE }>,
     target_temp_c: f32,
     min_fan_pwm: u8,
 }
