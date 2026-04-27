@@ -1,20 +1,26 @@
 //! Host-side runner for eth-examples tasks.
 //!
-//! Brings up an embassy-net Stack over a Linux TAP device so the same tasks
-//! that run on the RP2350 can be exercised on a host. This step wires the
-//! TAP driver, static IPv4 config, the `net_task` runner, plus the stratum
-//! client, CPU solver, and hashrate publisher from `ubos-backend`. Later
-//! steps add NTP, BTC price, metrics, and HTTP on top.
+//! Brings up an embassy-net Stack over a host network device so the same
+//! tasks that run on the RP2350 can be exercised on a host. By default the
+//! Linux TAP driver from `embassy-net-tuntap` is used; setting
+//! `HOST_NET_AFPACKET=<ifname>` switches to the `embassy-net-afpacket`
+//! raw-socket driver bound to that real NIC. Either way, the static IPv4
+//! config, the `net_task` runner, plus the stratum client, CPU solver,
+//! hashrate publisher, NTP, BTC price, metrics, and HTTP server are
+//! identical across the firmware and host paths.
 //!
 //! Host-side prerequisites (run once per boot): `./setup-network.sh up`
 //! creates the TAP device and installs the NAT + forward rules. See
-//! `README.md` for the manual equivalents.
+//! `README.md` for the manual equivalents and for `AF_PACKET` caveats.
 
 use std::sync::atomic::Ordering;
+use std::task::Context;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use embassy_executor::{Executor, Spawner};
 use embassy_net::{Config, Ipv4Address, Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4};
+use embassy_net_afpacket::AfPacketDevice;
+use embassy_net_driver::{Capabilities, Driver, HardwareAddress, LinkState};
 use embassy_net_tuntap::TunTapDevice;
 use embassy_time::{Duration, Ticker, Timer};
 use eth_examples::metrics::{Metric, Value};
@@ -45,8 +51,105 @@ static POOL_CONFIG: PoolConfig = PoolConfig {
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 static RESOURCES: StaticCell<StackResources<SOCKET_COUNT>> = StaticCell::new();
 
+/// Sum type over the two host-side link drivers. embassy-net's `Stack` is
+/// generic over a concrete driver, so we need a single named type that
+/// dispatches at runtime to whichever variant was selected at startup.
+enum HostDevice {
+    Tap(TunTapDevice),
+    AfPacket(AfPacketDevice),
+}
+
+/// Receive token paired with `HostDevice`. Matches `Driver::receive`'s
+/// constraint that the token type is the same regardless of which variant
+/// produced it.
+enum HostRxToken {
+    Tap(embassy_net_tuntap::RxToken),
+    AfPacket(embassy_net_afpacket::RxToken),
+}
+
+/// Transmit token paired with `HostDevice`. Borrows from the underlying
+/// device for the lifetime of the surrounding `receive`/`transmit` call.
+enum HostTxToken<'a> {
+    Tap(embassy_net_tuntap::TxToken<'a>),
+    AfPacket(embassy_net_afpacket::TxToken<'a>),
+}
+
+impl Driver for HostDevice {
+    type RxToken<'a>
+        = HostRxToken
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = HostTxToken<'a>
+    where
+        Self: 'a;
+
+    fn receive(&mut self, context: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        match self {
+            Self::Tap(device) => device
+                .receive(context)
+                .map(|(rx, tx)| (HostRxToken::Tap(rx), HostTxToken::Tap(tx))),
+            Self::AfPacket(device) => device
+                .receive(context)
+                .map(|(rx, tx)| (HostRxToken::AfPacket(rx), HostTxToken::AfPacket(tx))),
+        }
+    }
+
+    fn transmit(&mut self, context: &mut Context) -> Option<Self::TxToken<'_>> {
+        match self {
+            Self::Tap(device) => device.transmit(context).map(HostTxToken::Tap),
+            Self::AfPacket(device) => device.transmit(context).map(HostTxToken::AfPacket),
+        }
+    }
+
+    fn link_state(&mut self, context: &mut Context) -> LinkState {
+        match self {
+            Self::Tap(device) => device.link_state(context),
+            Self::AfPacket(device) => device.link_state(context),
+        }
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        match self {
+            Self::Tap(device) => device.capabilities(),
+            Self::AfPacket(device) => device.capabilities(),
+        }
+    }
+
+    fn hardware_address(&self) -> HardwareAddress {
+        match self {
+            Self::Tap(device) => device.hardware_address(),
+            Self::AfPacket(device) => device.hardware_address(),
+        }
+    }
+}
+
+impl embassy_net_driver::RxToken for HostRxToken {
+    fn consume<R, F>(self, callback: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        match self {
+            Self::Tap(token) => token.consume(callback),
+            Self::AfPacket(token) => token.consume(callback),
+        }
+    }
+}
+
+impl embassy_net_driver::TxToken for HostTxToken<'_> {
+    fn consume<R, F>(self, length: usize, callback: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        match self {
+            Self::Tap(token) => token.consume(length, callback),
+            Self::AfPacket(token) => token.consume(length, callback),
+        }
+    }
+}
+
 #[embassy_executor::task]
-async fn net_task(mut runner: Runner<'static, TunTapDevice>) -> ! {
+async fn net_task(mut runner: Runner<'static, HostDevice>) -> ! {
     runner.run().await
 }
 
@@ -101,11 +204,25 @@ async fn hashrate_metrics_task() -> ! {
     }
 }
 
+fn open_host_device() -> HostDevice {
+    match std::env::var("HOST_NET_AFPACKET").ok() {
+        Some(name) if !name.is_empty() => {
+            log::info!("host-runner: HOST_NET_AFPACKET set, binding raw socket to {name}");
+            // Failure here is unrecoverable: without a working link driver
+            // there is nothing for the rest of the runner to do.
+            HostDevice::AfPacket(AfPacketDevice::new(&name).expect("BUG: open AF_PACKET socket"))
+        }
+        _ => {
+            log::info!("host-runner: starting on tap device {TAP_NAME}");
+            HostDevice::Tap(TunTapDevice::new(TAP_NAME).expect("BUG: open TAP device"))
+        }
+    }
+}
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    log::info!("host-runner starting on tap device {TAP_NAME}");
 
-    let device = TunTapDevice::new(TAP_NAME).expect("BUG: open TAP device");
+    let device = open_host_device();
 
     let mut dns_servers: heapless::Vec<Ipv4Address, 3> = heapless::Vec::new();
     let _ = dns_servers.push(DNS_SERVER);

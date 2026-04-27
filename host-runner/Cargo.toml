@@ -7,10 +7,12 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-embassy-executor   = { workspace = true, features = ["platform-std", "executor-thread", "log"] }
-embassy-net        = { workspace = true, features = ["log", "tcp", "udp", "dns", "medium-ethernet", "proto-ipv4", "auto-icmp-echo-reply"] }
-embassy-net-tuntap = "0.1"
-embassy-time       = { workspace = true, features = ["std", "log"] }
+embassy-executor     = { workspace = true, features = ["platform-std", "executor-thread", "log"] }
+embassy-net          = { workspace = true, features = ["log", "tcp", "udp", "dns", "medium-ethernet", "proto-ipv4", "auto-icmp-echo-reply"] }
+embassy-net-afpacket = { path = "../embassy-net-afpacket" }
+embassy-net-driver   = "0.2"
+embassy-net-tuntap   = "0.1"
+embassy-time         = { workspace = true, features = ["std", "log"] }
 critical-section   = { version = "1.2", features = ["std"] }
 env_logger         = "0.11"
 # embassy-net 0.9's StaticConfigV4 needs heapless 0.9, while eth-examples

@@ -5,10 +5,13 @@ TAP device, so the same stratum client, CPU miner, NTP sync, BTC price
 fetcher, metrics exporter, and HTTP server that run on the RP2350 can be
 exercised on a laptop or dev box.
 
-Under the hood it reuses the embassy-net stack with `embassy-net-tuntap`
-as the link-layer driver. The firmware and host binary share
-`ubos-backend` and the `eth-examples` library; the only host-specific
-pieces are this crate and its network setup.
+Under the hood it reuses the embassy-net stack. By default the link-layer
+driver is `embassy-net-tuntap`; setting `HOST_NET_AFPACKET=<ifname>`
+switches to the in-tree `embassy-net-afpacket` raw-socket driver bound to
+a real NIC (see "Run on a real NIC" below). The firmware and host binary
+share `ubos-backend` and the `eth-examples` library; the only
+host-specific pieces are this crate, its driver crate, and the network
+setup.
 
 ## Setup
 
@@ -46,6 +49,33 @@ cargo run -p host-runner
 ```
 
 Default filter is `info`. Bump detail with e.g. `RUST_LOG=debug,smoltcp=info`.
+
+### Run on a real NIC (AF_PACKET)
+
+For exercising the runner against a real Ethernet segment (e.g. a
+hashboard plugged directly into a dedicated USB-Ethernet adapter), set
+`HOST_NET_AFPACKET` to the interface name. The TAP path and its
+`setup-network.sh` are skipped entirely.
+
+```sh
+sudo -E HOST_NET_AFPACKET=eth1 cargo run -p host-runner
+```
+
+Requires `CAP_NET_RAW` (hence `sudo`, or `setcap cap_net_raw=ep` on the
+binary). The driver reads the interface MAC and MTU at startup and
+reports both to embassy-net.
+
+Caveat: the host kernel keeps processing ingress traffic on the same
+interface. To avoid ARP/IP collisions with embassy-net's stack, use a
+NIC whose kernel-side IPv4 is unconfigured:
+
+```sh
+sudo ip addr flush dev eth1
+sudo ip link set eth1 up
+```
+
+A veth pair in another namespace works too if you cannot dedicate a
+physical NIC.
 
 ## Verify
 
