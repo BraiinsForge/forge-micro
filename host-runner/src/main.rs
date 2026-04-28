@@ -32,6 +32,7 @@ use rand::rngs::OsRng;
 use static_cell::StaticCell;
 use ubos_backend::{cpu_solver_task, hashrate_task, stratum_task, PoolConfig};
 
+mod mmm_serial;
 mod psu_exercise;
 mod uart_loopback;
 
@@ -370,6 +371,7 @@ fn main() {
         spawner.spawn(metrics_task(stack).expect("BUG: metrics_task token"));
         spawner.spawn(hashrate_metrics_task().expect("BUG: hashrate_metrics_task token"));
         spawner.spawn(http_server_task(stack).expect("BUG: http_server_task token"));
+        spawner.spawn(mmm_serial::mmm_serial_task().expect("BUG: mmm_serial_task token"));
         if let Some((rx, tx)) = uart_loopback {
             spawner.spawn(uart_loopback::loopback_task(rx, tx).expect("BUG: uart loopback token"));
             spawner.spawn(
