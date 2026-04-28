@@ -1,8 +1,8 @@
 # Ethernet Examples
 
 Bare-metal Rust Ethernet across five boards. Each serves an HTTP metrics
-page with uptime, request count, BTC price via Binance over TLS, and UTC
-time via NTP.
+page with uptime, request count, current hashrate from the dummy-asic
+peer, BTC price via Binance over TLS, and UTC time via NTP.
 
 ## Boards
 

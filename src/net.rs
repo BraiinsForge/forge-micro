@@ -236,25 +236,7 @@ pub async fn run_http_server(stack: Stack<'static>, board_name: &'static str) ->
 
         let count = REQUEST_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let uptime_secs = Instant::now().as_secs();
-        let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
-        // Offset is unix_secs - uptime_secs at sync time. A value of 0
-        // means NTP has not synced yet; a genuine zero would require the
-        // device to boot at the Unix epoch, which is not possible.
-        let utc_time = match ntp_offset {
-            0 => None,
-            offset => Some(uptime_secs + offset),
-        };
-        let len = crate::http::build_metrics_response(
-            response,
-            board_name,
-            uptime_secs,
-            count,
-            match BTC_PRICE_CENTS.load(Ordering::Relaxed) {
-                0 => None,
-                cents => Some(cents),
-            },
-            utc_time,
-        );
+        let len = crate::http::build_metrics_response(response, board_name, uptime_secs, count);
 
         if let Err(error) = socket.write_all(&response[..len]).await {
             warn!("tcp write error: {:?}", error);
