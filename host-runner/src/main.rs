@@ -32,10 +32,10 @@ use rand::rngs::OsRng;
 use static_cell::StaticCell;
 use ubos_backend::{cpu_solver_task, hashrate_task, stratum_task, PoolConfig};
 
-mod mmm_serial;
-mod psu_exercise;
 #[allow(dead_code)] // wired in once orchestration lands
-mod sysfs_gpio;
+mod gpiod;
+mod psu_exercise;
+mod mmm_serial;
 mod uart_loopback;
 
 const TAP_NAME: &str = "tap0";
