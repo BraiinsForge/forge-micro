@@ -70,13 +70,13 @@ the UF2 file). The original Pico variant is `debugprobe_on_pico.uf2`.
 
 ### UART dummy-asic wiring
 
-The dummy-asic (Seeed XIAO ESP32-S3) connects to the EVB-Pico UART used
-by the echo test task. TX and RX are crossed.
+The dummy-asic (Seeed XIAO ESP32-S3) connects to the EVB-Pico UART to
+receive Work frames and return Share frames. TX and RX are crossed.
 
 | XIAO silk | XIAO GPIO | EVB-Pico GPIO | Direction |
 |-----------|-----------|---------------|-----------|
-| D9 | GPIO8 (TX) | GP5 (UART RX) | dummy-asic → target |
-| D10 | GPIO9 (RX) | GP4 (UART TX) | target → dummy-asic |
+| D9 | GPIO8 (TX) | GP5 (UART RX) | dummy-asic → host |
+| D10 | GPIO9 (RX) | GP4 (UART TX) | host → dummy-asic |
 | GND | GND | GND | ground |
 
 ### SWD wiring (ST-Link V3 to Pico/EVB-Pico)
