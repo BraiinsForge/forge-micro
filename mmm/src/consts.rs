@@ -1,14 +1,10 @@
 //! Tunables for the BMM100 BM1362 mining backend.
-//!
-//! Drops the I2C / GPIO / PSU / device-path values from the upstream
-//! `mmm` crate; this port only owns the chip-side serial protocol and
-//! takes serial halves from the caller.
 
 /// Number of BM1362 chips on a BMM100 hashboard.
 pub const NUM_CHIPS: u8 = 4;
 
 /// Maximum chips the registry can address. Sized for the worst-case
-/// chain length the protocol allows; upstream `mmm` uses the same cap.
+/// chain length the protocol allows.
 pub const MAX_CHIPS: usize = 16;
 
 /// Hardware shares submitted at diff 1; the chip rolls below this and

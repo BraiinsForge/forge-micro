@@ -1,21 +1,10 @@
 //! Single-task actor for the BM1362 chip serial line.
 //!
-//! Layout mirrors the redacted `mmm`: one task owns the serial port
-//! and a registry of in-flight work; outside callers issue commands
-//! (reset, baud-rate change, start/stop work dispatch) and dump pre-built
-//! command frames through a queue. The actor `select`s among its work
-//! timer, incoming bytes from the chip, and the command channel.
-//!
-//! Key differences from the std parent:
-//! - `embassy_sync::Channel` replaces `tokio::sync::mpsc`; per-call replies
-//!   come back through a `Signal` slot guarded by a caller mutex (rather
-//!   than per-call `oneshot`s) so the cmd payloads stay `'static`-clean
-//!   and embedabble in a `Channel`.
-//! - work source / share sink wire directly to `ubos_backend::next_work`
-//!   and `ubos_backend::SHARES`; no separate stratum handle.
-//! - hashrate is reported by bumping `ubos_backend::TOTAL_HASHES` per
-//!   diff-1 chip share (`2^32` hashes each); the existing
-//!   `ubos_backend::hashrate_task` does the rate calculation.
+//! One task owns the serial halves and the in-flight work registry;
+//! outside callers go through [`Serial`]'s typed methods to reset the
+//! chip, retune the baud rate, gate work dispatch, or push a pre-built
+//! command frame. The actor pulls jobs from `ubos_backend::next_work`
+//! and pushes found shares into `ubos_backend::SHARES`.
 
 use core::fmt;
 use core::ops::ControlFlow;
@@ -47,8 +36,8 @@ const CMD_QUEUE_DEPTH: usize = 16;
 /// One diff-1 hardware share at 32-bit nonce search ≈ 2^32 hashes.
 const HASHES_PER_SHARE: u64 = 1u64 << 32;
 
-/// Drain time around a baud-rate change. Original redacted sleeps on
-/// either side of the configure call to let the chip's UART catch up.
+/// Settling window the chip's UART needs on either side of a baud-rate
+/// configure call so in-flight bytes don't get garbled.
 const BAUD_CHANGE_DRAIN: Duration = Duration::from_secs(1);
 
 /// Hex pretty-printer for trace logs. Wraps a byte slice and formats it

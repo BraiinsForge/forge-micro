@@ -1,8 +1,6 @@
 //! BMM100 BM1362 ASIC mining backend.
 //!
-//! Owns the chip-side serial protocol and the work-dispatch loop. Keeps the
-//! tokio-era `mmm` log strings unchanged where possible so the `no_std` and
-//! std implementations diff cleanly across both traces.
+//! Owns the chip-side serial protocol and the work-dispatch loop.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]

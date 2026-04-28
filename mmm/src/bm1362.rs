@@ -5,10 +5,6 @@
 //! ([`HwWork`]) the chip receives, and the parser that pulls register
 //! responses and hardware solutions out of a streaming byte buffer
 //! ([`ResponseParser`]).
-//!
-//! Wire-format references are the upstream `mmm` (tokio) crate the layouts
-//! were lifted from; the codepaths here are byte-identical so traces diff
-//! cleanly across the two implementations.
 
 use heapless::Vec as HVec;
 
@@ -70,9 +66,8 @@ const BIP320_VERSION_SHIFT: u32 = 13;
 pub struct HwSolution {
     pub nonce: u32,
     /// Byte 6 of the response frame. The chip's meaning for this byte is
-    /// undocumented; the upstream port has never used it, so it stays
-    /// underscore-prefixed to acknowledge the slot without tripping
-    /// dead-code lints.
+    /// undocumented and unused, so it stays underscore-prefixed to
+    /// acknowledge the slot without tripping dead-code lints.
     _extra_diff: u8,
     pub work_id: u8,
     pub version_idx: u16,
