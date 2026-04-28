@@ -13,6 +13,7 @@ dummy-asic = []
 
 [dependencies]
 eth-examples           = { workspace = true }
+esp32s3-tsens          = { workspace = true }
 embassy-executor       = { version = "0.9.1", features = ["defmt"] }
 embassy-time           = { workspace = true, features = ["defmt", "generic-queue-8"] }
 embassy-net            = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }

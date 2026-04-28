@@ -1556,6 +1556,7 @@ dependencies = [
  "esp-bootloader-esp-idf",
  "esp-hal",
  "esp-rtos",
+ "esp32s3-tsens",
  "eth-examples",
  "rand_core 0.6.4",
  "static_cell",
