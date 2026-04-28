@@ -11,7 +11,6 @@ pub mod bm1362;
 pub mod bmm100_trace;
 pub mod consts;
 pub mod miner;
-pub mod psu;
 pub mod replay;
 pub mod reset;
 pub mod serial;

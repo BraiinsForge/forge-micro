@@ -12,9 +12,9 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use ubos_logging::{Debug2Format, error, info};
+use ubos_psu::Psu;
 
 use crate::bmm100_trace::{DEINIT, INIT};
-use crate::psu::PSU;
 use crate::replay::replay;
 use crate::reset::ResetPin;
 use crate::serial::SERIAL;
@@ -36,18 +36,22 @@ const RETRY_DELAY: Duration = Duration::from_secs(5);
 /// outer loop returns.
 pub static STOP_MINING: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
-pub async fn run<R: ResetPin>(reset_pin: &mut R) {
+pub async fn run<P, R>(psu: &P, reset_pin: &mut R)
+where
+    P: Psu,
+    R: ResetPin,
+{
     loop {
         // -- bring-up --
         info!("miner: setting voltage to {} mV", VOLTAGE_MV);
-        let _ = PSU.set_voltage(VOLTAGE_MV).await;
+        let _ = psu.set_voltage(VOLTAGE_MV).await;
 
         info!("miner: entering reset");
         reset_pin.enter_reset();
         Timer::after(RESET_HOLD).await;
 
         info!("miner: enabling PSU");
-        let _ = PSU.enable().await;
+        let _ = psu.enable().await;
         Timer::after(RESET_HOLD).await;
 
         info!("miner: exiting reset");
@@ -63,7 +67,7 @@ pub async fn run<R: ResetPin>(reset_pin: &mut R) {
                 Debug2Format(&kind)
             );
             reset_pin.enter_reset();
-            let _ = PSU.disable().await;
+            let _ = psu.disable().await;
             // Cancellable sleep — STOP_MINING during recovery exits
             // immediately rather than burning one more bring-up cycle.
             match select(Timer::after(RETRY_DELAY), STOP_MINING.wait()).await {
@@ -86,7 +90,7 @@ pub async fn run<R: ResetPin>(reset_pin: &mut R) {
         let _ = SERIAL.stop_sending_work().await;
         let _ = SERIAL.reset().await;
         reset_pin.enter_reset();
-        let _ = PSU.disable().await;
+        let _ = psu.disable().await;
         info!("miner: stopped");
         return;
     }
