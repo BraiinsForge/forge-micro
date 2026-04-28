@@ -56,6 +56,7 @@ members = [
     "esp32s3-tsens",
     "mmm",
     "rp235x-sha256",
+    "serial-baudrate",
     "stratum-v1-core",
     "ubos-backend",
     "ubos-logging",
@@ -91,6 +92,7 @@ sha2              = { version = "0.10", default-features = false }
 esp32s3-tsens     = { path = "esp32s3-tsens" }
 asic-interface    = { path = "asic-interface" }
 cpu-miner         = { path = "cpu-miner" }
+serial-baudrate   = { path = "serial-baudrate" }
 stratum-v1-core   = { path = "stratum-v1-core" }
 ubos-backend      = { path = "ubos-backend", default-features = false }
 ubos-logging      = { path = "ubos-logging", default-features = false }

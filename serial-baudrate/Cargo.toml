@@ -1,0 +1,11 @@
+[package]
+name        = "serial-baudrate"
+edition     = "2024"
+version     = "0.1.0"
+description = "no_std trait for getting and setting the line rate of a serial port."
+
+[lints]
+workspace = true
+
+[dependencies]
+embedded-io = "0.7"
