@@ -19,6 +19,7 @@ embassy-time           = { workspace = true, features = ["defmt", "generic-queue
 embassy-net            = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
 embassy-net-wiznet     = { workspace = true, features = ["defmt"] }
 defmt                  = { workspace = true }
+portable-atomic        = { workspace = true }
 static_cell            = { workspace = true }
 embedded-hal-bus       = { workspace = true, features = ["async"] }
 esp-hal                = { version = "1.0.0", features = ["defmt", "esp32s3", "unstable"] }

@@ -24,6 +24,13 @@ embedded-graphics = { workspace = true }
 profont           = { workspace = true }
 format_no_std     = { workspace = true }
 
+# Cortex-M boards drive embassy's `raw::Executor` directly via
+# `cpu_load::run_cortex_m_executor`. Gated to ARM so the ESP32-S3
+# build does not pull in the cortex-m crate.
+[target.'cfg(target_arch = "arm")'.dependencies]
+cortex-m         = "0.7"
+embassy-executor = { workspace = true }
+
 [workspace]
 resolver = "2"
 members = [

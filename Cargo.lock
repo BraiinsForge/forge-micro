@@ -1581,6 +1581,7 @@ dependencies = [
  "esp-rtos",
  "esp32s3-tsens",
  "eth-examples",
+ "portable-atomic",
  "rand_core 0.6.4",
  "static_cell",
 ]
@@ -1609,7 +1610,9 @@ dependencies = [
 name = "eth-examples"
 version = "0.1.0"
 dependencies = [
+ "cortex-m",
  "defmt 1.0.1",
+ "embassy-executor 0.10.0",
  "embassy-futures",
  "embassy-net",
  "embassy-sync 0.8.0",
