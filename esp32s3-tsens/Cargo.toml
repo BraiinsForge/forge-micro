@@ -1,0 +1,12 @@
+[package]
+name    = "esp32s3-tsens"
+edition = "2021"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+esp-hal      = { version = "1.0.0", features = ["esp32s3", "unstable"] }
+embassy-time = { workspace = true }
+defmt        = { workspace = true }

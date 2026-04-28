@@ -341,6 +341,15 @@
             RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
           };
 
+          clippy-esp32s3-tsens = espCraneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoVendorDir = espCargoVendorDir;
+            cargoExtraArgs = "-p esp32s3-tsens --target xtensa-esp32s3-none-elf -Z build-std=core";
+            cargoClippyExtraArgs = "-- -D warnings";
+            RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
+          };
+
           clippy-dummy-asic = espCraneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
