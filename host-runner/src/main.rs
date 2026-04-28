@@ -28,6 +28,7 @@ use embassy_time::{Duration, Ticker, Timer};
 use embedded_serial_unix::Serial;
 use eth_examples::metrics::{Metric, Value};
 use eth_examples::net;
+use log::{error, info, warn};
 use rand::rngs::OsRng;
 use static_cell::StaticCell;
 use ubos_backend::{cpu_solver_task, hashrate_task, stratum_task, PoolConfig};
@@ -190,7 +191,7 @@ async fn heartbeat_task(stack: Stack<'static>) {
         Timer::after(Duration::from_secs(10)).await;
         let link_up = stack.config_v4().is_some();
         let hashrate = ubos_backend::HASHRATE_HZ.load(Ordering::Relaxed);
-        log::info!("host-runner: tick, link_up={link_up}, hashrate={hashrate} H/s");
+        info!("host-runner: tick, link_up={link_up}, hashrate={hashrate} H/s");
     }
 }
 
@@ -282,13 +283,13 @@ fn derive_synthetic_mac(seed: [u8; 6]) -> [u8; 6] {
 fn afpacket_mac(ifname: &str) -> [u8; 6] {
     if let Ok(text) = std::env::var(AFPACKET_MAC_ENV) {
         if let Some(mac) = parse_mac(text.trim()) {
-            log::info!("host-runner: {AFPACKET_MAC_ENV}=`{text}` accepted as override");
+            info!("host-runner: {AFPACKET_MAC_ENV}=`{text}` accepted as override");
             return mac;
         }
-        log::warn!("host-runner: {AFPACKET_MAC_ENV}=`{text}` is malformed, ignoring");
+        warn!("host-runner: {AFPACKET_MAC_ENV}=`{text}` is malformed, ignoring");
     }
     let Some(host_mac) = read_host_mac(ifname) else {
-        log::warn!("host-runner: failed to read MAC for {ifname} from sysfs, using fallback");
+        warn!("host-runner: failed to read MAC for {ifname} from sysfs, using fallback");
         return AFPACKET_FALLBACK_MAC;
     };
     derive_synthetic_mac(host_mac)
@@ -304,7 +305,7 @@ fn open_host_device() -> (HostDevice, Config) {
         Some(name) if !name.is_empty() => {
             let mac = afpacket_mac(&name);
             let [m0, m1, m2, m3, m4, m5] = mac;
-            log::info!(
+            info!(
                 "host-runner: HOST_NET_AFPACKET set, binding raw socket to {name} \
                  with synthetic MAC {m0:02x}:{m1:02x}:{m2:02x}:{m3:02x}:{m4:02x}:{m5:02x}"
             );
@@ -318,7 +319,7 @@ fn open_host_device() -> (HostDevice, Config) {
             )
         }
         _ => {
-            log::info!("host-runner: starting on tap device {TAP_NAME}");
+            info!("host-runner: starting on tap device {TAP_NAME}");
             let device = TunTapDevice::new(TAP_NAME).expect("BUG: open TAP device");
             let mut dns_servers: heapless::Vec<Ipv4Address, 3> = heapless::Vec::new();
             let _ = dns_servers.push(DNS_SERVER);
@@ -342,7 +343,7 @@ fn main() {
     let uart_loopback = match Serial::open(UART_LOOPBACK_PATH, UART_LOOPBACK_BAUD) {
         Ok(serial) => Some(serial.split()),
         Err(error) => {
-            log::error!(
+            error!(
                 "host-runner: failed to open {UART_LOOPBACK_PATH}: {error}; \
                  uart loopback disabled"
             );

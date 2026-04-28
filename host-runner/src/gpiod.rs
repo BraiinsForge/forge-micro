@@ -8,6 +8,7 @@ use std::io;
 
 use gpiocdev::line::Value;
 use gpiocdev::Request;
+use log::{error, info};
 
 use mmm::reset::ResetPin;
 
@@ -30,7 +31,7 @@ impl GpiodResetPin {
             .as_output(Value::Inactive)
             .request()
             .map_err(io::Error::other)?;
-        log::info!("gpiod: opened {name} as output");
+        info!("gpiod: opened {name} as output");
         Ok(Self { request })
     }
 }
@@ -38,12 +39,12 @@ impl GpiodResetPin {
 impl ResetPin for GpiodResetPin {
     fn enter_reset(&mut self) {
         if let Err(e) = self.request.set_lone_value(Value::Inactive) {
-            log::error!("gpiod enter_reset failed: {e}");
+            error!("gpiod enter_reset failed: {e}");
         }
     }
     fn exit_reset(&mut self) {
         if let Err(e) = self.request.set_lone_value(Value::Active) {
-            log::error!("gpiod exit_reset failed: {e}");
+            error!("gpiod exit_reset failed: {e}");
         }
     }
 }

@@ -8,6 +8,7 @@
 
 use embassy_time::{Duration, Timer};
 use embedded_serial_unix::Serial;
+use log::{error, info};
 use mmm::consts::INITIAL_BAUDRATE;
 use mmm::serial::SERIAL;
 
@@ -19,22 +20,21 @@ const MMM_SERIAL_PATH: &str = "/dev/ttySTM1";
 
 #[embassy_executor::task]
 pub async fn mmm_serial_task() -> ! {
+    info!("xxxx");
     let serial = match Serial::open(MMM_SERIAL_PATH, INITIAL_BAUDRATE) {
         Ok(serial) => serial,
         Err(error) => {
-            log::error!(
-                "host-runner: failed to open {MMM_SERIAL_PATH}: {error}; mmm serial disabled"
-            );
+            error!("host-runner: failed to open {MMM_SERIAL_PATH}: {error}; mmm serial disabled");
             loop {
                 Timer::after(Duration::from_secs(60)).await;
             }
         }
     };
     let (rx, tx) = serial.split();
-    log::info!("host-runner: mmm serial bringup on {MMM_SERIAL_PATH}");
+    info!("host-runner: mmm serial bringup on {MMM_SERIAL_PATH}");
     match SERIAL.run(rx, tx).await {
-        Ok(()) => log::info!("host-runner: mmm serial actor terminated cleanly"),
-        Err(kind) => log::error!("host-runner: mmm serial actor exited: {kind:?}"),
+        Ok(()) => info!("host-runner: mmm serial actor terminated cleanly"),
+        Err(kind) => error!("host-runner: mmm serial actor exited: {kind:?}"),
     }
     // Park: the serial line is gone (EOF, IO error) or the actor was
     // told to stop. Re-opening would need fresh peripheral state which

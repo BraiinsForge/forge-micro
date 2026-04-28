@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use embassy_time::{with_timeout, Duration, Timer};
 use embedded_io_async::{Read, Write};
 use embedded_serial_unix::{Rx, Tx};
+use log::{info, warn};
 
 const CHUNK_BYTES: usize = 16;
 const READ_TIMEOUT: Duration = Duration::from_secs(1);
@@ -43,7 +44,7 @@ pub async fn loopback_task(mut rx: Rx, mut tx: Tx) -> ! {
         }
 
         if let Err(error) = tx.write_all(&write_buffer).await {
-            log::warn!("uart loopback: write failed: {error}");
+            warn!("uart loopback: write failed: {error}");
             continue;
         }
 
@@ -54,7 +55,7 @@ pub async fn loopback_task(mut rx: Rx, mut tx: Tx) -> ! {
                     Ok(0) => break,
                     Ok(count) => filled += count,
                     Err(error) => {
-                        log::warn!("uart loopback: read failed: {error}");
+                        warn!("uart loopback: read failed: {error}");
                         break;
                     }
                 }
@@ -88,7 +89,7 @@ pub async fn loopback_task(mut rx: Rx, mut tx: Tx) -> ! {
 pub async fn heartbeat_task() -> ! {
     loop {
         Timer::after(HEARTBEAT_INTERVAL).await;
-        log::info!(
+        info!(
             "uart loopback: rounds={} bytes={} mismatches={} timeouts={}",
             ROUNDS.load(Ordering::Relaxed),
             BYTES.load(Ordering::Relaxed),
