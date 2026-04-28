@@ -36,5 +36,15 @@ pub async fn mmm_serial_task() -> ! {
     };
     let (rx, tx) = serial.split();
     log::info!("host-runner: mmm serial bringup on {MMM_SERIAL_PATH}");
-    MMM_SERIAL.run(rx, tx).await
+    match MMM_SERIAL.run(rx, tx).await {
+        Ok(()) => log::info!("host-runner: mmm serial actor terminated cleanly"),
+        Err(kind) => log::error!("host-runner: mmm serial actor exited: {kind:?}"),
+    }
+    // Park: the serial line is gone (EOF, IO error) or the actor was
+    // told to stop. Re-opening would need fresh peripheral state which
+    // the host doesn't have a clean trigger for here, so the rest of
+    // the runner keeps running while this task idles.
+    loop {
+        Timer::after(Duration::from_secs(60)).await;
+    }
 }

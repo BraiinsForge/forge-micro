@@ -18,6 +18,7 @@
 //!   `ubos_backend::hashrate_task` does the rate calculation.
 
 use core::fmt;
+use core::ops::ControlFlow;
 
 use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -192,7 +193,11 @@ impl Serial {
     /// produces shares into [`SHARES`] and bumps [`TOTAL_HASHES`] for
     /// every diff-1 chip share so the existing hashrate task picks them
     /// up.
-    pub async fn run<R, T>(&self, mut rx: R, mut tx: T) -> !
+    ///
+    /// Returns `Ok(())` when a [`SerialMessage::Terminate`] command was
+    /// honoured, and `Err(kind)` on serial EOF or a read error so the
+    /// caller can decide whether to log, restart, or park.
+    pub async fn run<R, T>(&self, mut rx: R, mut tx: T) -> Result<(), ErrorKind>
     where
         R: Read + BaudRate,
         T: Write + BaudRate,
@@ -222,30 +227,22 @@ impl Serial {
                         .await;
                 }
                 Either3::Second(read_result) => {
-                    if !Self::handle_read(
-                        read_result,
-                        &mut parser,
-                        &registry,
-                        &self.register_replies,
-                    ) {
-                        // EOF or read error — bail. The task macro requires `!`
-                        // so we just park forever; the user can reset by
-                        // restarting the executor.
-                        loop {
-                            Timer::after(Duration::from_secs(60)).await;
-                        }
-                    }
+                    Self::handle_read(read_result, &mut parser, &registry, &self.register_replies)?;
                 }
                 Either3::Third(msg) => {
-                    self.handle_command(
-                        msg,
-                        &mut tx,
-                        &mut parser,
-                        &mut work_ticker,
-                        &mut work_id,
-                        &mut registry,
-                    )
-                    .await;
+                    if let ControlFlow::Break(()) = self
+                        .handle_command(
+                            msg,
+                            &mut tx,
+                            &mut parser,
+                            &mut work_ticker,
+                            &mut work_id,
+                            &mut registry,
+                        )
+                        .await
+                    {
+                        return Ok(());
+                    }
                 }
             }
         }
@@ -295,18 +292,19 @@ impl Serial {
         }
     }
 
-    /// Returns false if the read failed in a way that should stop the
-    /// server (EOF, IO error). Logs the error before returning.
+    /// Returns `Err(kind)` for any read condition the server cannot
+    /// recover from (EOF or IO error); the caller propagates the error
+    /// up out of `run`. Logs the error before returning.
     fn handle_read<E: embedded_io::Error>(
         result: Result<usize, E>,
         parser: &mut ResponseParser,
         registry: &[Option<WorkSlot>; REGISTRY_SIZE],
         register_replies: &Channel<CriticalSectionRawMutex, Response, MAX_CHIPS>,
-    ) -> bool {
+    ) -> Result<(), ErrorKind> {
         match result {
             Ok(0) => {
                 error!("Serial port EOF");
-                false
+                Err(ErrorKind::BrokenPipe)
             }
             Ok(n) => {
                 trace!("RX ({} bytes): {}", n, HexBytes(&parser.free()[..n]));
@@ -314,11 +312,12 @@ impl Serial {
                 while let Some(resp) = parser.pop() {
                     Self::dispatch_response(&resp, registry, register_replies);
                 }
-                true
+                Ok(())
             }
             Err(e) => {
-                error!("Serial read error: {:?}", Debug2Format(&e.kind()));
-                false
+                let kind = e.kind();
+                error!("Serial read error: {:?}", Debug2Format(&kind));
+                Err(kind)
             }
         }
     }
@@ -402,7 +401,8 @@ impl Serial {
         work_ticker: &mut Option<Ticker>,
         work_id: &mut u8,
         registry: &mut [Option<WorkSlot>; REGISTRY_SIZE],
-    ) where
+    ) -> ControlFlow<()>
+    where
         T: Write + BaudRate,
     {
         match msg {
@@ -448,15 +448,10 @@ impl Serial {
             }
             SerialMessage::Terminate => {
                 self.reply.signal(Ok(()));
-                // Park forever; the actor task contract is `-> !`. The
-                // caller relies on terminate as a "drain and stop" signal
-                // rather than an actual task drop, which embassy doesn't
-                // support without a JoinHandle wrapper.
-                loop {
-                    Timer::after(Duration::from_secs(60)).await;
-                }
+                return ControlFlow::Break(());
             }
         }
+        ControlFlow::Continue(())
     }
 }
 
