@@ -13,3 +13,4 @@ embedded-io       = { version = "0.7", features = ["std"] }
 embedded-io-async = { workspace = true }
 libc              = "0.2"
 log               = { version = "0.4", default-features = false }
+serial-baudrate   = { workspace = true }

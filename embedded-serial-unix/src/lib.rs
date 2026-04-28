@@ -4,7 +4,7 @@
 //! at a caller-supplied baud rate, then exposes async I/O via the
 //! `embedded-io-async` traits. The duplex handle splits into
 //! independent [`Rx`]/[`Tx`] halves backed by the same shared file
-//! descriptor; [`BaudRate`] lets either half retune the line, with
+//! descriptor; [`serial_baudrate::BaudRate`] lets either half retune the line, with
 //! the change applying to both directions because the underlying tty
 //! is shared.
 //!
@@ -242,7 +242,7 @@ impl Serial {
     }
 
     /// Split into independent reader and writer halves. Both halves
-    /// share the same underlying fd, so [`BaudRate`] changes on
+    /// share the same underlying fd, so [`serial_baudrate::BaudRate`] changes on
     /// either side affect both.
     #[must_use]
     pub fn split(self) -> (Rx, Tx) {
@@ -264,52 +264,51 @@ pub struct Tx {
     inner: Arc<Async<Fd>>,
 }
 
-/// Get or set the line's baud rate. Implemented for [`Serial`],
-/// [`Rx`], and [`Tx`]; calling on any of them updates the shared tty.
-pub trait BaudRate {
-    /// Apply `baud` to the line. The change is immediate
-    /// (`TCSANOW`) and visible to both halves.
-    ///
-    /// # Errors
-    ///
-    /// Returns `InvalidInput` if `baud` is not in the supported
-    /// table, and the underlying `io::Error` for termios failures.
-    fn set_baudrate(&self, baud: u32) -> io::Result<()>;
-
-    /// Read back the line's current baud rate.
-    ///
-    /// # Errors
-    ///
-    /// Returns `InvalidData` if the kernel reports a rate outside
-    /// the standard table, and the underlying `io::Error` for
-    /// termios failures.
-    fn baudrate(&self) -> io::Result<u32>;
-}
-
-impl BaudRate for Serial {
-    fn set_baudrate(&self, baud: u32) -> io::Result<()> {
-        apply_baud(self.inner.get_ref().as_raw_fd(), baud)
-    }
-    fn baudrate(&self) -> io::Result<u32> {
-        current_baud(self.inner.get_ref().as_raw_fd())
+/// Map a tty `io::Error` to the public [`embedded_io::ErrorKind`] domain.
+/// Logs the real error so a `Other` return still surfaces enough detail
+/// for debugging, while callers route on the kind taxonomy.
+fn map_set_baud_err(error: &io::Error, baud: u32) -> embedded_io::ErrorKind {
+    log::error!("set_baudrate({baud}) failed: {error}");
+    if error.kind() == io::ErrorKind::InvalidInput {
+        embedded_io::ErrorKind::Unsupported
+    } else {
+        embedded_io::ErrorKind::Other
     }
 }
 
-impl BaudRate for Rx {
-    fn set_baudrate(&self, baud: u32) -> io::Result<()> {
-        apply_baud(self.inner.get_ref().as_raw_fd(), baud)
-    }
-    fn baudrate(&self) -> io::Result<u32> {
-        current_baud(self.inner.get_ref().as_raw_fd())
+fn map_get_baud_err(error: &io::Error) -> embedded_io::ErrorKind {
+    log::error!("baudrate() failed: {error}");
+    if error.kind() == io::ErrorKind::InvalidData {
+        embedded_io::ErrorKind::InvalidData
+    } else {
+        embedded_io::ErrorKind::Other
     }
 }
 
-impl BaudRate for Tx {
-    fn set_baudrate(&self, baud: u32) -> io::Result<()> {
-        apply_baud(self.inner.get_ref().as_raw_fd(), baud)
+impl serial_baudrate::BaudRate for Serial {
+    fn set_baudrate(&self, baud: u32) -> Result<(), embedded_io::ErrorKind> {
+        apply_baud(self.inner.get_ref().as_raw_fd(), baud).map_err(|e| map_set_baud_err(&e, baud))
     }
-    fn baudrate(&self) -> io::Result<u32> {
-        current_baud(self.inner.get_ref().as_raw_fd())
+    fn baudrate(&self) -> Result<u32, embedded_io::ErrorKind> {
+        current_baud(self.inner.get_ref().as_raw_fd()).map_err(|e| map_get_baud_err(&e))
+    }
+}
+
+impl serial_baudrate::BaudRate for Rx {
+    fn set_baudrate(&self, baud: u32) -> Result<(), embedded_io::ErrorKind> {
+        apply_baud(self.inner.get_ref().as_raw_fd(), baud).map_err(|e| map_set_baud_err(&e, baud))
+    }
+    fn baudrate(&self) -> Result<u32, embedded_io::ErrorKind> {
+        current_baud(self.inner.get_ref().as_raw_fd()).map_err(|e| map_get_baud_err(&e))
+    }
+}
+
+impl serial_baudrate::BaudRate for Tx {
+    fn set_baudrate(&self, baud: u32) -> Result<(), embedded_io::ErrorKind> {
+        apply_baud(self.inner.get_ref().as_raw_fd(), baud).map_err(|e| map_set_baud_err(&e, baud))
+    }
+    fn baudrate(&self) -> Result<u32, embedded_io::ErrorKind> {
+        current_baud(self.inner.get_ref().as_raw_fd()).map_err(|e| map_get_baud_err(&e))
     }
 }
 
