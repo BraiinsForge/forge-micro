@@ -1,30 +1,43 @@
-//! Board constants and peripheral extraction for the XIAO ESP32-S3 dummy-asic.
-//! `Board::take` consumes the esp-hal `Peripherals` and returns the timer
-//! group and UART pins that main.rs needs.
+//! Board constants and peripheral extraction for the XIAO ESP32-S3 dummy-asic
+//! (dummy ASIC). `Board::take` consumes the esp-hal `Peripherals` and returns
+//! the timer group, software interrupt control, CPU control, UART pins, and
+//! SHA peripheral that main.rs needs.
 
-use esp_hal::peripherals::{GPIO8, GPIO9, SENS, TIMG0, UART1};
+use esp_hal::peripherals::{CPU_CTRL, GPIO8, GPIO9, SHA, SW_INTERRUPT, TIMG0, UART1};
 
 /// Every peripheral singleton the board consumes, extracted in one place.
 ///
 /// XIAO ESP32-S3 silk-to-GPIO mapping (from Seeed Studio wiki):
-///   D9  = GPIO8 = UART TX  →  wired to PD9 (RX) on stm32f407/stm32f439
-///   D10 = GPIO9 = UART RX  ←  wired to PD8 (TX) on stm32f407/stm32f439
+///   D9  = GPIO8 = UART TX  →  host RX
+///   D10 = GPIO9 = UART RX  ←  host TX
 pub struct Board<'d> {
+    /// Timer group 0, used as the esp-rtos time base.
     pub timg0: TIMG0<'d>,
+    /// Software interrupt control, needed for dual-core SMP scheduler.
+    pub sw_interrupt: SW_INTERRUPT<'d>,
+    /// CPU control peripheral for starting the `APP_CPU`.
+    pub cpu_ctrl: CPU_CTRL<'d>,
+    /// UART1 peripheral.
     pub uart1: UART1<'d>,
+    /// GPIO8 — UART TX (XIAO silk D9).
     pub uart_tx: GPIO8<'d>,
+    /// GPIO9 — UART RX (XIAO silk D10).
     pub uart_rx: GPIO9<'d>,
-    pub sens: SENS<'d>,
+    /// SHA peripheral, used by the solver for hardware-accelerated SHA-256d.
+    pub sha: SHA<'d>,
 }
 
 impl Board<'static> {
+    /// Consume the HAL peripherals and return the board resources.
     pub fn take(peripherals: esp_hal::peripherals::Peripherals) -> Self {
         Self {
             timg0: peripherals.TIMG0,
+            sw_interrupt: peripherals.SW_INTERRUPT,
+            cpu_ctrl: peripherals.CPU_CTRL,
             uart1: peripherals.UART1,
             uart_tx: peripherals.GPIO8,
             uart_rx: peripherals.GPIO9,
-            sens: peripherals.SENS,
+            sha: peripherals.SHA,
         }
     }
 }

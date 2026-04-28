@@ -7,8 +7,6 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-eth-examples           = { workspace = true }
-esp32s3-tsens          = { workspace = true }
 embassy-executor       = { version = "0.9.1", features = ["defmt"] }
 embassy-sync           = { workspace = true, features = ["defmt"] }
 embassy-futures        = { workspace = true }
