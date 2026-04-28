@@ -375,6 +375,33 @@
             cargoArtifacts = loadTestArtifacts;
             strictDeps = true;
           };
+
+          drc-bmm-adapter =
+            pkgs.runCommand "drc-bmm-adapter"
+              {
+                nativeBuildInputs = [ pkgs.kicad-small ];
+              }
+              ''
+                export HOME=$(mktemp -d)
+                kicad-cli pcb drc \
+                  --format json \
+                  --output $out \
+                  ${./pcb/bmm-adapter/bmm-adapter.kicad_pcb}
+              '';
+
+          erc-bmm-adapter =
+            pkgs.runCommand "erc-bmm-adapter"
+              {
+                nativeBuildInputs = [ pkgs.kicad-small ];
+              }
+              ''
+                export HOME=$(mktemp -d)
+                kicad-cli sch erc \
+                  --severity-error \
+                  --format json \
+                  --output $out \
+                  ${./pcb/bmm-adapter/bmm-adapter.kicad_sch}
+              '';
         };
 
         devShells = {
@@ -492,6 +519,10 @@
               echo ""
               echo "For ARM boards: nix develop .#arm"
             '';
+          };
+
+          hardware = pkgs.mkShell {
+            packages = [ pkgs.kicad-small ];
           };
 
           default = pkgs.mkShell {
