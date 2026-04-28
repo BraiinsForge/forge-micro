@@ -1,0 +1,15 @@
+[package]
+name        = "embedded-serial-unix"
+edition     = "2021"
+version     = "0.1.0"
+description = "Async serial driver for Linux character devices, exposing embedded-io-async traits."
+
+[lints]
+workspace = true
+
+[dependencies]
+async-io          = "1.6"
+embedded-io       = { version = "0.7", features = ["std"] }
+embedded-io-async = { workspace = true }
+libc              = "0.2"
+log               = { version = "0.4", default-features = false }
