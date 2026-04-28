@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 eth-examples           = { workspace = true }
+esp32s3-tsens          = { workspace = true }
 embassy-executor       = { version = "0.9.1", features = ["defmt"] }
 embassy-time           = { workspace = true, features = ["defmt", "generic-queue-8"] }
 embedded-io-async      = { workspace = true }

@@ -611,6 +611,7 @@ dependencies = [
  "esp-bootloader-esp-idf",
  "esp-hal",
  "esp-rtos",
+ "esp32s3-tsens",
  "eth-examples",
 ]
 
