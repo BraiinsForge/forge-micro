@@ -5,8 +5,6 @@
 //! `cal_value = 5_120_000_000 / (current_lsb_microamps * shunt_microohm)`
 //! `power_mw = power_register * 25 * current_lsb_microamps / 1_000_000`
 
-#![allow(dead_code)]
-
 use embedded_hal_async::i2c::I2c;
 
 const REG_CONFIG: u8 = 0x00;

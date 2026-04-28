@@ -1,10 +1,5 @@
 //! `TPS6287x` DC/DC converter register layout and bus operations.
 
-// Encoders + bus ops are wired into `state` and `miniminer` in
-// follow-up commits; until then dead-code analysis flags them
-// because lib.rs has not pulled them in yet.
-#![allow(dead_code)]
-
 pub(crate) const REG_VSET: u8 = 0x00;
 pub(crate) const REG_CONTROL1: u8 = 0x01;
 pub(crate) const REG_CONTROL2: u8 = 0x02;

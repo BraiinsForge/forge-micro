@@ -1,7 +1,5 @@
 //! `SLG46826G` heartbeat-driven watchdog circuit.
 
-#![allow(dead_code)]
-
 use embassy_time::{Duration, Timer};
 use embedded_hal_async::i2c::I2c;
 

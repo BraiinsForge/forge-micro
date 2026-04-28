@@ -47,10 +47,14 @@ pub enum Error<E> {
 /// platform; consumers stay generic over `Psu`.
 pub mod config;
 pub mod ina230;
+pub mod miniminer;
+pub mod state;
 pub mod tps6287x;
 pub mod watchdog;
 
 pub use config::MiniminerPsuConfig;
+pub use miniminer::{MiniminerPsu, RawMutex, run_watchdog};
+pub use state::State;
 
 pub trait Psu {
     type BusError: embedded_hal_async::i2c::Error;
