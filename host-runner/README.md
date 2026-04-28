@@ -64,11 +64,17 @@ sudo -E HOST_NET_AFPACKET=eth1 cargo run -p host-runner
 Requires `CAP_NET_RAW` (hence `sudo`, or `setcap cap_net_raw=ep` on the
 binary).
 
-The embassy stack uses a fixed synthetic MAC (`02:48:52:00:00:01`),
-independent of the kernel's view of the NIC. The driver enables
-promiscuous mode on the socket so frames addressed to that MAC reach the
-runner; the kernel reference-counts membership and restores the
-previous state when the socket closes.
+The embassy stack uses a synthetic, locally-administered MAC,
+independent of the kernel's view of the NIC. By default the runner
+seeds the MAC with the kernel's real interface MAC and runs that
+through a hash, so the result is stable per host and per NIC but
+distinct across hosts sharing a LAN. Set `HOST_NET_AFPACKET_MAC` to
+override (e.g. `02:48:52:00:00:01`); malformed values are ignored. If
+sysfs cannot be read, the runner falls back to `02:48:52:00:00:01`.
+
+The driver enables promiscuous mode on the socket so frames addressed
+to the synthetic MAC reach the runner; the kernel reference-counts
+membership and restores the previous state when the socket closes.
 
 The AF_PACKET path runs DHCP, so the runner picks up its IP, gateway,
 and DNS from whatever DHCP server is on the LAN. The lease is bound to

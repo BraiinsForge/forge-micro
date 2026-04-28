@@ -39,12 +39,16 @@ const DNS_SERVER: Ipv4Address = Ipv4Address::new(1, 1, 1, 1);
 const SOCKET_COUNT: usize = 8;
 const BOARD_NAME: &str = "host-runner";
 
-/// Locally-administered MAC reported to the embassy stack on the
-/// `AF_PACKET` path. Locally-administered (bit 1 of byte 0 set) and
-/// unicast (bit 0 clear); the rest spells "HR" + 0x000001 so the address
-/// is recognisable in tcpdump and DHCP-server logs. Fixed so DHCP leases
-/// persist across runs of the same host.
-const AFPACKET_MAC: [u8; 6] = [0x02, 0x48, 0x52, 0x00, 0x00, 0x01];
+/// Last-resort MAC reported to the embassy stack on the `AF_PACKET`
+/// path when neither the override env var nor the sysfs read succeed.
+/// Locally-administered with bit 1 of byte 0 set and unicast with bit 0
+/// clear; the rest spells "HR" + 0x000001 so the address is recognisable
+/// in tcpdump and DHCP-server logs.
+const AFPACKET_FALLBACK_MAC: [u8; 6] = [0x02, 0x48, 0x52, 0x00, 0x00, 0x01];
+
+/// Env var that overrides MAC selection on the `AF_PACKET` path. Value
+/// must parse as `aa:bb:cc:dd:ee:ff`; malformed values are ignored.
+const AFPACKET_MAC_ENV: &str = "HOST_NET_AFPACKET_MAC";
 
 /// Pool config. Defaults to public Braiins Pool so the host binary works
 /// out of the box without requiring reach to the NUC regtest pool. Edit
@@ -213,6 +217,65 @@ async fn hashrate_metrics_task() -> ! {
     }
 }
 
+/// Parse `aa:bb:cc:dd:ee:ff` into raw bytes. Returns `None` on any
+/// malformed input so callers can log and fall back.
+fn parse_mac(text: &str) -> Option<[u8; 6]> {
+    let mut out = [0u8; 6];
+    let mut parts = text.split(':');
+    for slot in &mut out {
+        *slot = u8::from_str_radix(parts.next()?, 16).ok()?;
+    }
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(out)
+}
+
+/// Read the kernel's view of the interface MAC from sysfs. The file is
+/// the canonical Linux source and exists for every device the kernel
+/// knows about, so this avoids a second `SIOCGIFHWADDR` site in the
+/// runner.
+fn read_host_mac(ifname: &str) -> Option<[u8; 6]> {
+    let path = format!("/sys/class/net/{ifname}/address");
+    let raw = std::fs::read_to_string(&path).ok()?;
+    parse_mac(raw.trim())
+}
+
+/// Mix a 6-byte seed into a stable, locally-administered MAC. Same
+/// seed produces the same output, so DHCP leases keyed on the result
+/// persist across runs of the runner on the same host while still
+/// distinguishing different hosts on the same LAN.
+fn derive_synthetic_mac(seed: [u8; 6]) -> [u8; 6] {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    seed.hash(&mut hasher);
+    let mixed = hasher.finish().to_le_bytes();
+    let mut mac = [mixed[0], mixed[1], mixed[2], mixed[3], mixed[4], mixed[5]];
+    // Force locally-administered with bit 1 set and unicast with bit 0
+    // clear so the result cannot collide with a real OUI on the wire.
+    mac[0] = (mac[0] & 0xfc) | 0x02;
+    mac
+}
+
+/// Pick the synthetic MAC for the `AF_PACKET` path. Override env var
+/// wins, then a derivation seeded with the host NIC's real MAC, then a
+/// fixed fallback if sysfs is unreadable.
+fn afpacket_mac(ifname: &str) -> [u8; 6] {
+    if let Ok(text) = std::env::var(AFPACKET_MAC_ENV) {
+        if let Some(mac) = parse_mac(text.trim()) {
+            log::info!("host-runner: {AFPACKET_MAC_ENV}=`{text}` accepted as override");
+            return mac;
+        }
+        log::warn!("host-runner: {AFPACKET_MAC_ENV}=`{text}` is malformed, ignoring");
+    }
+    let Some(host_mac) = read_host_mac(ifname) else {
+        log::warn!("host-runner: failed to read MAC for {ifname} from sysfs, using fallback");
+        return AFPACKET_FALLBACK_MAC;
+    };
+    derive_synthetic_mac(host_mac)
+}
+
 /// Open the link driver and return the matching `embassy_net` config.
 ///
 /// The TAP path keeps its setup-network.sh-aligned static IP. The
@@ -221,15 +284,16 @@ async fn hashrate_metrics_task() -> ! {
 fn open_host_device() -> (HostDevice, Config) {
     match std::env::var("HOST_NET_AFPACKET").ok() {
         Some(name) if !name.is_empty() => {
-            let [m0, m1, m2, m3, m4, m5] = AFPACKET_MAC;
+            let mac = afpacket_mac(&name);
+            let [m0, m1, m2, m3, m4, m5] = mac;
             log::info!(
                 "host-runner: HOST_NET_AFPACKET set, binding raw socket to {name} \
                  with synthetic MAC {m0:02x}:{m1:02x}:{m2:02x}:{m3:02x}:{m4:02x}:{m5:02x}"
             );
             // Failure here is unrecoverable: without a working link driver
             // there is nothing for the rest of the runner to do.
-            let device = AfPacketDevice::with_synthetic_mac(&name, AFPACKET_MAC)
-                .expect("BUG: open AF_PACKET socket");
+            let device =
+                AfPacketDevice::with_synthetic_mac(&name, mac).expect("BUG: open AF_PACKET socket");
             (
                 HostDevice::AfPacket(device),
                 Config::dhcpv4(DhcpConfig::default()),
@@ -252,7 +316,6 @@ fn open_host_device() -> (HostDevice, Config) {
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-
 
     let (device, config) = open_host_device();
 
