@@ -36,15 +36,16 @@ pub async fn replay(serial: &Serial, steps: &[Step]) -> Result<(), ErrorKind> {
             }
             Step::SetBaudRate(rate) => {
                 serial.set_baud_rate(*rate).await?;
-                // Liveness check at the new line rate; matches what the
-                // redacted does and surfaces a dead chip before the
-                // boot sequence walks deeper into chip-side state.
+                // Liveness check at the new line rate; the chip going
+                // silent here means the rest of the init sequence is
+                // moot, so abort and let the caller recover.
                 let responses = serial.read_register(RawChipAddress::All, CHIP_ID_REG).await;
                 if responses.is_empty() {
                     warn!(
                         "replay[{}]: no chip responses after baud change to {}",
                         index, rate
                     );
+                    return Err(ErrorKind::TimedOut);
                 }
                 verify_chip_ids(&responses);
             }
