@@ -57,6 +57,7 @@ members = [
     "stratum-v1-core",
     "ubos-backend",
     "ubos-logging",
+    "ubos-psu",
     "host-runner",
 ]
 
@@ -91,6 +92,7 @@ cpu-miner         = { path = "cpu-miner" }
 stratum-v1-core   = { path = "stratum-v1-core" }
 ubos-backend      = { path = "ubos-backend", default-features = false }
 ubos-logging      = { path = "ubos-logging", default-features = false }
+ubos-psu          = { path = "ubos-psu", default-features = false }
 
 [workspace.lints.clippy]
 pedantic     = { level = "warn", priority = -1 }
