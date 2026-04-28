@@ -2472,6 +2472,7 @@ dependencies = [
  "serial-baudrate",
  "ubos-backend",
  "ubos-logging",
+ "ubos-psu",
 ]
 
 [[package]]
