@@ -4,7 +4,7 @@
 //! Linux (via `embedded-i2c-unix`) and on rp2040/rp2350 (via
 //! `embassy-rp::i2c`).
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 // Embassy executors do not require `Send`; adding the bound to
 // every trait method's future would force every I2C impl and all
 // internal state to be `Send`, which is not free on no_std.
@@ -45,7 +45,10 @@ pub enum Error<E> {
 
 /// Async PSU control surface. One implementation per hardware
 /// platform; consumers stay generic over `Psu`.
+pub mod config;
 pub mod tps6287x;
+
+pub use config::MiniminerPsuConfig;
 
 pub trait Psu {
     type BusError: embedded_hal_async::i2c::Error;
