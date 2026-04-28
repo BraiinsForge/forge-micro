@@ -2155,6 +2155,8 @@ dependencies = [
  "embassy-net-driver",
  "embassy-net-tuntap",
  "embassy-time",
+ "embedded-io-async 0.7.0",
+ "embedded-serial-unix",
  "env_logger",
  "eth-examples",
  "heapless 0.8.0",

@@ -13,6 +13,8 @@ embassy-net-afpacket = { path = "../embassy-net-afpacket" }
 embassy-net-driver   = "0.2"
 embassy-net-tuntap   = "0.1"
 embassy-time         = { workspace = true, features = ["std", "log"] }
+embedded-io-async    = { workspace = true }
+embedded-serial-unix = { path = "../embedded-serial-unix" }
 critical-section   = { version = "1.2", features = ["std"] }
 env_logger         = "0.11"
 # embassy-net 0.9's StaticConfigV4 needs heapless 0.9, while eth-examples
