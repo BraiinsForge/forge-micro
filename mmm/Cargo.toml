@@ -11,7 +11,14 @@ defmt   = ["dep:defmt", "ubos-backend/defmt", "ubos-logging/defmt"]
 workspace = true
 
 [dependencies]
-defmt        = { workspace = true, optional = true }
-heapless     = { workspace = true }
-ubos-backend = { workspace = true }
-ubos-logging = { workspace = true }
+defmt             = { workspace = true, optional = true }
+embassy-futures   = { workspace = true }
+embassy-sync      = { workspace = true }
+embassy-time      = { workspace = true }
+embedded-io       = "0.7"
+embedded-io-async = { workspace = true }
+heapless          = { workspace = true }
+portable-atomic   = { workspace = true }
+serial-baudrate   = { workspace = true }
+ubos-backend      = { workspace = true }
+ubos-logging      = { workspace = true }
