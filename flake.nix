@@ -455,6 +455,13 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-serial-baudrate = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p serial-baudrate";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
           test = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
@@ -478,6 +485,13 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p asic-interface";
           };
+
+          test-mmm = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p mmm";
+          };
+
 
           clippy-esp32s3 = espCraneLib.cargoClippy {
             inherit src;
