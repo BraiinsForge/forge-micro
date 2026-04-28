@@ -422,6 +422,19 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-ubos-psu = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-psu";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          test-ubos-psu = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-psu";
+          };
+
 
           test = craneLib.cargoTest {
             inherit src;
