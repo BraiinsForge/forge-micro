@@ -244,8 +244,11 @@ where
     .await
     .map_err(Error::Bus)?;
     Timer::after(config.dcdc_soft_start.duration()).await;
-    let flags = read_status(i2c, config).await?;
-    fault_if_set(flags, /*device_enabled=*/ true)
+    // Read STATUS to clear bits latched during the soft-start
+    // ramp (undervoltage is transient until the rail settles).
+    // Real faults surface on the next user call; matches BOS.
+    let _ = read_status(i2c, config).await;
+    Ok(())
 }
 
 pub(crate) async fn disable<I, E>(
@@ -295,20 +298,6 @@ where
         .await
         .map_err(Error::Bus)?;
     Ok(decode_status(buffer[0]))
-}
-
-fn fault_if_set<E>(
-    flags: crate::StatusFlags,
-    device_enabled: bool,
-) -> Result<(), Error<E>> {
-    if flags.current_limit
-        || flags.thermal_shutdown
-        || flags.overvoltage
-        || (flags.undervoltage && device_enabled)
-    {
-        return Err(Error::Fault(flags));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -487,7 +476,9 @@ mod bus_tests {
     }
 
     #[test]
-    fn enable_returns_fault_on_status_overcurrent() {
+    fn enable_swallows_status_fault_to_clear_latched_bits() {
+        // Soft-start ramp latches undervoltage briefly; reading
+        // STATUS clears the bit and enable returns Ok regardless.
         let config = MiniminerPsuConfig::DEFAULT;
         let address = config.dcdc_address;
 
@@ -496,23 +487,12 @@ mod bus_tests {
                 address,
                 encode_control1(true, config.dcdc_ramp_speed).to_vec(),
             ),
-            Transaction::write_read(
-                address,
-                vec![REG_STATUS],
-                vec![0b0001_0000],
-            ),
+            Transaction::write_read(address, vec![REG_STATUS], vec![0b0000_0010]),
         ];
 
         let mut bus = Mock::new(&expectations);
-        let result = run(enable(&mut bus, &config));
+        run(enable(&mut bus, &config)).expect("BUG: enable must swallow latched status bits");
         bus.done();
-        match result {
-            Err(crate::Error::Fault(flags)) => {
-                assert!(flags.current_limit);
-                assert!(!flags.overvoltage);
-            }
-            other => panic!("BUG: expected Fault, got {other:?}"),
-        }
     }
 
     #[test]

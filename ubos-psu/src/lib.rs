@@ -92,10 +92,9 @@ mod surface_tests {
         let err: Error<core::convert::Infallible> =
             Error::InitFailed(embedded_hal_async::i2c::ErrorKind::Bus);
         match err {
-            Error::InitFailed(kind) => assert!(matches!(
-                kind,
-                embedded_hal_async::i2c::ErrorKind::Bus
-            )),
+            Error::InitFailed(kind) => {
+                assert!(matches!(kind, embedded_hal_async::i2c::ErrorKind::Bus));
+            }
             _ => panic!("BUG: variant mismatch"),
         }
     }
