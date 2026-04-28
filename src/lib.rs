@@ -16,6 +16,7 @@
 
 pub mod btc;
 pub mod consts;
+pub mod cpu_load;
 pub mod display;
 pub mod dummy_asic;
 pub mod http;
