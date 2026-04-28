@@ -448,6 +448,13 @@
             cargoExtraArgs = "-p embedded-i2c-unix";
           };
 
+          clippy-mmm = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p mmm";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
           test = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
