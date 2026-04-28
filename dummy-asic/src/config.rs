@@ -2,7 +2,7 @@
 //! `Board::take` consumes the esp-hal `Peripherals` and returns the timer
 //! group and UART pins that main.rs needs.
 
-use esp_hal::peripherals::{GPIO8, GPIO9, TIMG0, UART1};
+use esp_hal::peripherals::{GPIO8, GPIO9, SENS, TIMG0, UART1};
 
 /// Every peripheral singleton the board consumes, extracted in one place.
 ///
@@ -14,6 +14,7 @@ pub struct Board<'d> {
     pub uart1: UART1<'d>,
     pub uart_tx: GPIO8<'d>,
     pub uart_rx: GPIO9<'d>,
+    pub sens: SENS<'d>,
 }
 
 impl Board<'static> {
@@ -23,6 +24,7 @@ impl Board<'static> {
             uart1: peripherals.UART1,
             uart_tx: peripherals.GPIO8,
             uart_rx: peripherals.GPIO9,
+            sens: peripherals.SENS,
         }
     }
 }

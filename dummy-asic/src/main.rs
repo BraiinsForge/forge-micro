@@ -13,6 +13,7 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_time::{Duration, Ticker};
 use embedded_io_async::{Read as AsyncRead, Write as AsyncWrite};
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config as UartConfig, Uart};
@@ -26,6 +27,23 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 /// Maximum line length before discarding and resetting the buffer.
 const MAX_LINE_LEN: usize = 256;
+
+/// Period between die temperature log messages.
+const TEMP_LOG_PERIOD: Duration = Duration::from_secs(30);
+
+// The eth-examples firmware crates feed readings into Prometheus via
+// `eth_examples::temperature::run_temperature`. dummy-asic has no
+// metrics channel, so it logs directly on a longer cadence.
+#[embassy_executor::task]
+async fn temperature_log_task(mut tsens: esp32s3_tsens::Tsens<'static>) -> ! {
+    let mut ticker = Ticker::every(TEMP_LOG_PERIOD);
+    loop {
+        if let Some(millicelsius) = tsens.read_millicelsius().await {
+            defmt::info!("dummy-asic: die temp {} m°C", millicelsius);
+        }
+        ticker.next().await;
+    }
+}
 
 #[embassy_executor::task]
 async fn echo_task(mut uart: Uart<'static, esp_hal::Async>) -> ! {
@@ -86,5 +104,7 @@ async fn main(spawner: Spawner) {
         .with_rx(hw.uart_rx)
         .into_async();
 
+    let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
+    spawner.must_spawn(temperature_log_task(tsens));
     spawner.must_spawn(echo_task(uart));
 }
