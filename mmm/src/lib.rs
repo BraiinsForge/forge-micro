@@ -9,4 +9,5 @@
 
 pub mod bm1362;
 pub mod consts;
+pub mod psu;
 pub mod serial;
