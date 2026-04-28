@@ -1313,6 +1313,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-i2c-unix"
+version = "0.1.0"
+dependencies = [
+ "async-io",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "libc",
+ "log",
+]
+
+[[package]]
 name = "embedded-io"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
