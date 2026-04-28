@@ -627,6 +627,8 @@ dependencies = [
  "defmt 1.0.1",
  "defmt-rtt",
  "embassy-executor 0.9.1",
+ "embassy-futures",
+ "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-io-async 0.7.0",
  "esp-backtrace",
@@ -635,6 +637,9 @@ dependencies = [
  "esp-rtos",
  "esp32s3-tsens",
  "eth-examples",
+ "portable-atomic",
+ "sha2",
+ "static_cell",
 ]
 
 [[package]]
@@ -1627,6 +1632,7 @@ dependencies = [
  "portable-atomic",
  "profont",
  "rand_core 0.6.4",
+ "sha2",
  "static_cell",
 ]
 
