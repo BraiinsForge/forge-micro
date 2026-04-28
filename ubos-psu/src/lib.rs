@@ -47,6 +47,7 @@ pub enum Error<E> {
 /// platform; consumers stay generic over `Psu`.
 pub mod config;
 pub mod tps6287x;
+pub mod watchdog;
 
 pub use config::MiniminerPsuConfig;
 
