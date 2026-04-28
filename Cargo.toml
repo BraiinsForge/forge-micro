@@ -54,6 +54,7 @@ members = [
     "embedded-i2c-unix",
     "embedded-serial-unix",
     "esp32s3-tsens",
+    "mmm",
     "rp235x-sha256",
     "stratum-v1-core",
     "ubos-backend",
