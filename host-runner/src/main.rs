@@ -32,6 +32,7 @@ use rand::rngs::OsRng;
 use static_cell::StaticCell;
 use ubos_backend::{cpu_solver_task, hashrate_task, stratum_task, PoolConfig};
 
+mod psu_exercise;
 mod uart_loopback;
 
 const TAP_NAME: &str = "tap0";
@@ -374,6 +375,10 @@ fn main() {
             spawner.spawn(
                 uart_loopback::heartbeat_task().expect("BUG: uart loopback heartbeat token"),
             );
+        }
+        if let Some((watchdog, exercise)) = psu_exercise::spawn_if_enabled(spawner) {
+            spawner.spawn(watchdog.expect("BUG: psu watchdog token"));
+            spawner.spawn(exercise.expect("BUG: psu exercise token"));
         }
     });
 }

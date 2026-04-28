@@ -116,3 +116,20 @@ curl http://192.168.69.2:8081/metrics
 
 The `board_ntp_synced`, `board_btc_price_usd`, `board_hashrate_hz`, and
 other gauges confirm each task is running end-to-end.
+
+## PSU exercise (miniminer hashboard)
+
+Set `HOST_PSU_I2C=/dev/i2c-N` to drive the BMM100 hashboard PSU. The
+runner opens the I2C bus, runs an enable / set-voltage / read-power /
+disable sequence against the TPS6287x DC/DC + INA230 monitors + SLG46826G
+watchdog, and logs values via `log::info!`. Without the env var the
+exercise is skipped; an open failure logs and continues so the rest of
+the runner stays up.
+
+Required hardware: a miniminer hashboard wired to the host's I2C bus
+N, with the BMM100 defaults — TPS6287x at 0x40, INA230s at 0x46/0x43,
+SLG46826G watchdog at 0x08.
+
+```sh
+HOST_PSU_I2C=/dev/i2c-0 cargo run -p host-runner
+```
