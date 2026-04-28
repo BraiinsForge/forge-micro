@@ -1,14 +1,17 @@
 //! BMM100 mining main loop.
 //!
-//! Brings the chip up (PSU, reset sequencing, init replay), waits on
-//! [`STOP_MINING`], and tears it down (deinit replay, work stop, PSU
-//! off). One linear function — error handling lives inside the
-//! actor / driver methods, not here.
+//! Each iteration brings the chip up (PSU, reset sequencing, init
+//! replay), waits on [`STOP_MINING`], and tears it down (deinit replay,
+//! work stop, PSU off). On a fatal init failure (chip goes silent at
+//! a new line rate, etc.) the iteration cuts the rail, sleeps, and
+//! starts over so a transient bring-up failure doesn't leave the chip
+//! powered without supervision.
 
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
-use ubos_logging::info;
+use ubos_logging::{Debug2Format, error, info};
 
 use crate::bmm100_trace::{DEINIT, INIT};
 use crate::psu::PSU;
@@ -23,43 +26,68 @@ const VOLTAGE_MV: u32 = 1400;
 /// the bring-up sequence.
 const RESET_HOLD: Duration = Duration::from_secs(5);
 
-/// Raise once to stop the miner. The run loop awaits this between
-/// init and deinit; signalling it triggers the teardown sequence.
+/// Pause between a failed bring-up and the next attempt. Long enough
+/// for the chip's rail to fully discharge and any transient cable /
+/// board glitch to clear.
+const RETRY_DELAY: Duration = Duration::from_secs(5);
+
+/// Raise once to stop the miner. The run loop awaits this between init
+/// and deinit; signalling it triggers the teardown sequence and the
+/// outer loop returns.
 pub static STOP_MINING: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 pub async fn run<R: ResetPin>(reset_pin: &mut R) {
-    // -- bring-up --
-    info!("miner: setting voltage to {} mV", VOLTAGE_MV);
-    let _ = PSU.set_voltage(VOLTAGE_MV).await;
+    loop {
+        // -- bring-up --
+        info!("miner: setting voltage to {} mV", VOLTAGE_MV);
+        let _ = PSU.set_voltage(VOLTAGE_MV).await;
 
-    info!("miner: entering reset");
-    reset_pin.enter_reset();
-    Timer::after(RESET_HOLD).await;
+        info!("miner: entering reset");
+        reset_pin.enter_reset();
+        Timer::after(RESET_HOLD).await;
 
-    info!("miner: enabling PSU");
-    let _ = PSU.enable().await;
-    Timer::after(RESET_HOLD).await;
+        info!("miner: enabling PSU");
+        let _ = PSU.enable().await;
+        Timer::after(RESET_HOLD).await;
 
-    info!("miner: exiting reset");
-    reset_pin.exit_reset();
-    Timer::after(RESET_HOLD).await;
+        info!("miner: exiting reset");
+        reset_pin.exit_reset();
+        Timer::after(RESET_HOLD).await;
 
-    let _ = SERIAL.reset().await;
+        let _ = SERIAL.reset().await;
 
-    info!("miner: replaying init ({} steps)", INIT.len());
-    let _ = replay(&SERIAL, INIT).await;
+        info!("miner: replaying init ({} steps)", INIT.len());
+        if let Err(kind) = replay(&SERIAL, INIT).await {
+            error!(
+                "miner: init replay failed ({:?}); cutting rail and retrying",
+                Debug2Format(&kind)
+            );
+            reset_pin.enter_reset();
+            let _ = PSU.disable().await;
+            // Cancellable sleep — STOP_MINING during recovery exits
+            // immediately rather than burning one more bring-up cycle.
+            match select(Timer::after(RETRY_DELAY), STOP_MINING.wait()).await {
+                Either::First(()) => continue,
+                Either::Second(()) => {
+                    info!("miner: stop signalled during recovery");
+                    return;
+                }
+            }
+        }
 
-    // -- mine --
-    info!("miner: mining; awaiting STOP_MINING");
-    STOP_MINING.wait().await;
+        // -- mine --
+        info!("miner: mining; awaiting STOP_MINING");
+        STOP_MINING.wait().await;
 
-    // -- teardown --
-    info!("miner: replaying deinit ({} steps)", DEINIT.len());
-    let _ = replay(&SERIAL, DEINIT).await;
+        // -- teardown --
+        info!("miner: replaying deinit ({} steps)", DEINIT.len());
+        let _ = replay(&SERIAL, DEINIT).await;
 
-    let _ = SERIAL.stop_sending_work().await;
-    let _ = SERIAL.reset().await;
-    reset_pin.enter_reset();
-    let _ = PSU.disable().await;
-    info!("miner: stopped");
+        let _ = SERIAL.stop_sending_work().await;
+        let _ = SERIAL.reset().await;
+        reset_pin.enter_reset();
+        let _ = PSU.disable().await;
+        info!("miner: stopped");
+        return;
+    }
 }
