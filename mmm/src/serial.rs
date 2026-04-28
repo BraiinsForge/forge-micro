@@ -14,9 +14,10 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Ticker, Timer};
+use embassy_time::{Duration, Ticker, Timer, with_timeout};
 use embedded_io::ErrorKind;
 use embedded_io_async::{Error as _, Read, Write};
+use heapless::Vec as HVec;
 use portable_atomic::Ordering;
 use serial_baudrate::BaudRate;
 use ubos_backend::SHARES;
@@ -25,10 +26,13 @@ use ubos_backend::TOTAL_HASHES;
 use ubos_backend::bitcoin::Target;
 use ubos_logging::{Debug2Format, error, info, trace, warn};
 
-use crate::bm1362::{Frame, HwWork, Response, ResponseParser};
+use crate::bm1362::{
+    Frame, HwWork, RawChipAddress, RegisterResponse, Response, ResponseParser, build_read_register,
+    build_write_register,
+};
 use crate::consts::{
-    DIFFICULTY, FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS, NUM_MIDSTATES,
-    REGISTRY_SIZE,
+    DIFFICULTY, FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS, NUM_CHIPS,
+    NUM_MIDSTATES, REGISTRY_SIZE,
 };
 
 const CMD_QUEUE_DEPTH: usize = 16;
@@ -39,6 +43,12 @@ const HASHES_PER_SHARE: u64 = 1u64 << 32;
 /// Settling window the chip's UART needs on either side of a baud-rate
 /// configure call so in-flight bytes don't get garbled.
 const BAUD_CHANGE_DRAIN: Duration = Duration::from_secs(1);
+
+/// Per-response wait inside `read_register`. The chip answers a
+/// register read within a few hundred microseconds at fast baud; 50 ms
+/// is generous enough to absorb startup-rate dribble while bounding
+/// the worst-case stall on a missing chip.
+const READ_REPLY_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Hex pretty-printer for trace logs. Wraps a byte slice and formats it
 /// as `"AA BB CC"` under both `core::fmt::Display` and `defmt::Format`,
@@ -110,16 +120,21 @@ pub struct Serial {
     /// that needs one. The caller mutex serialises issuers so two callers
     /// cannot race on this single signal.
     reply: Signal<CriticalSectionRawMutex, Result<(), ErrorKind>>,
-    /// Overflow queue for register-read responses so a follow-on read
-    /// after a write can drain prior replies before issuing its own.
-    /// Single-consumer in practice; capacity matches the broadcast read
-    /// fan-in (one reply per chip).
-    register_replies: Channel<CriticalSectionRawMutex, Response, MAX_CHIPS>,
+    /// Queue of register-read responses produced by the parser. Owned by
+    /// `read_register` for the duration of a session; the session mutex
+    /// keeps concurrent callers from stealing each other's replies.
+    /// Capacity matches the broadcast read fan-in (one reply per chip).
+    register_replies: Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
     /// Serialises caller-side `cmd.send + reply.wait` pairs so their
     /// reply slots never interleave. `CriticalSectionRawMutex` rather
     /// than `NoopRawMutex` so `Serial` is `Sync` and can live as a
     /// workspace `static`.
     caller: Mutex<CriticalSectionRawMutex, ()>,
+    /// Held for the full drain-send-receive cycle of `read_register` so
+    /// two concurrent reads cannot interleave on the shared reply
+    /// queue. Independent of `caller` because register reads and reply-
+    /// bearing commands take different actor paths.
+    register_session: Mutex<CriticalSectionRawMutex, ()>,
 }
 
 impl Serial {
@@ -130,6 +145,7 @@ impl Serial {
             reply: Signal::new(),
             register_replies: Channel::new(),
             caller: Mutex::new(()),
+            register_session: Mutex::new(()),
         }
     }
 
@@ -171,11 +187,46 @@ impl Serial {
         self.cmd.send(SerialMessage::SendFrame(frame)).await;
     }
 
-    /// Pop the next register-read reply, if any has landed. Returns
-    /// immediately; callers needing to wait should drive a `select` with
-    /// a timeout themselves.
-    pub fn try_register_response(&self) -> Option<Response> {
-        self.register_replies.try_receive().ok()
+    /// Build and dispatch a register-write frame. Fire-and-forget; the
+    /// chip does not acknowledge writes.
+    pub async fn write_register(&self, addr: RawChipAddress, reg: u8, value: u32) {
+        self.send_frame(build_write_register(addr, reg, value))
+            .await;
+    }
+
+    /// Build and dispatch a register-read, then collect up to one reply
+    /// per addressed chip. Holds [`Self::register_session`] across the
+    /// drain-send-receive cycle so concurrent callers can't steal each
+    /// other's replies. Stops early on the first per-reply timeout, so
+    /// a missing chip caps the total stall at one
+    /// [`READ_REPLY_TIMEOUT`] window rather than `expected ×` it.
+    pub async fn read_register(
+        &self,
+        addr: RawChipAddress,
+        reg: u8,
+    ) -> HVec<RegisterResponse, MAX_CHIPS> {
+        let _guard = self.register_session.lock().await;
+
+        // Drop any stale replies that landed before we owned the session.
+        while self.register_replies.try_receive().is_ok() {}
+
+        self.send_frame(build_read_register(addr, reg)).await;
+
+        let expected = match addr {
+            RawChipAddress::All => usize::from(NUM_CHIPS),
+            RawChipAddress::Chip(_) => 1,
+        };
+
+        let mut responses: HVec<RegisterResponse, MAX_CHIPS> = HVec::new();
+        for _ in 0..expected {
+            match with_timeout(READ_REPLY_TIMEOUT, self.register_replies.receive()).await {
+                Ok(resp) => {
+                    let _ = responses.push(resp);
+                }
+                Err(_) => break,
+            }
+        }
+        responses
     }
 
     /// Server entry point. Owns the byte stream and the work registry;
@@ -288,7 +339,7 @@ impl Serial {
         result: Result<usize, E>,
         parser: &mut ResponseParser,
         registry: &[Option<WorkSlot>; REGISTRY_SIZE],
-        register_replies: &Channel<CriticalSectionRawMutex, Response, MAX_CHIPS>,
+        register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
     ) -> Result<(), ErrorKind> {
         match result {
             Ok(0) => {
@@ -314,7 +365,7 @@ impl Serial {
     fn dispatch_response(
         resp: &Response,
         registry: &[Option<WorkSlot>; REGISTRY_SIZE],
-        register_replies: &Channel<CriticalSectionRawMutex, Response, MAX_CHIPS>,
+        register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
     ) {
         match resp {
             Response::HwSolution(wr) => {
@@ -375,7 +426,7 @@ impl Serial {
                     "RX register response: reg=0x{:02X} value=0x{:08X} chip=0x{:02X}",
                     r.reg, r.value, r.chip_addr
                 );
-                if register_replies.try_send(resp.clone()).is_err() {
+                if register_replies.try_send(r.clone()).is_err() {
                     warn!("register_replies full, dropping reply");
                 }
             }
