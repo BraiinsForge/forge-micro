@@ -9,6 +9,13 @@
 // every trait method's future would force every I2C impl and all
 // internal state to be `Send`, which is not free on no_std.
 #![allow(async_fn_in_trait)]
+// Hardware register getters are intentionally side-effect-free
+// returns; #[must_use] sprinkled across every accessor is noise.
+#![allow(clippy::must_use_candidate)]
+// Bounded casts inside hardware drivers (DAC byte, register
+// pointer) are safe by construction; the math above each cast
+// rejects out-of-range values explicitly.
+#![allow(clippy::cast_possible_truncation)]
 
 /// PSU status flags decoded from the `TPS6287x` STATUS register.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +45,8 @@ pub enum Error<E> {
 
 /// Async PSU control surface. One implementation per hardware
 /// platform; consumers stay generic over `Psu`.
+pub mod tps6287x;
+
 pub trait Psu {
     type BusError: embedded_hal_async::i2c::Error;
 
