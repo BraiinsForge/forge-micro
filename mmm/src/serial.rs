@@ -500,3 +500,8 @@ impl Default for Serial {
         Self::new()
     }
 }
+
+/// Single workspace serial actor. One BM1362 chain per process; matches
+/// `mmm::psu::PSU` in shape so consumers reach in directly rather than
+/// wiring a static through every task constructor.
+pub static SERIAL: Serial = Serial::new();

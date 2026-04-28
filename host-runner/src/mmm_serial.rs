@@ -9,17 +9,13 @@
 use embassy_time::{Duration, Timer};
 use embedded_serial_unix::Serial;
 use mmm::consts::INITIAL_BAUDRATE;
-use mmm::serial::Serial as MmmSerial;
+use mmm::serial::SERIAL;
 
 /// Path mmm opens for chip-side traffic. Hard-coded because the BMM100
 /// hashboard always presents the same device under our udev rules; if a
 /// future host needs a different path, an env-var override would slot in
 /// next to `HOST_NET_AFPACKET`.
 const MMM_SERIAL_PATH: &str = "/dev/ttySTM1";
-
-/// Static actor instance. Exposed so future orchestration tasks can call
-/// `start_sending_work`, `set_baud_rate`, etc. against the same handle.
-pub static MMM_SERIAL: MmmSerial = MmmSerial::new();
 
 #[embassy_executor::task]
 pub async fn mmm_serial_task() -> ! {
@@ -36,7 +32,7 @@ pub async fn mmm_serial_task() -> ! {
     };
     let (rx, tx) = serial.split();
     log::info!("host-runner: mmm serial bringup on {MMM_SERIAL_PATH}");
-    match MMM_SERIAL.run(rx, tx).await {
+    match SERIAL.run(rx, tx).await {
         Ok(()) => log::info!("host-runner: mmm serial actor terminated cleanly"),
         Err(kind) => log::error!("host-runner: mmm serial actor exited: {kind:?}"),
     }
