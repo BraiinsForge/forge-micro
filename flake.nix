@@ -415,6 +415,13 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-embedded-serial-unix = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p embedded-serial-unix";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
 
           test = craneLib.cargoTest {
             inherit src;
