@@ -32,9 +32,9 @@ use rand::rngs::OsRng;
 use static_cell::StaticCell;
 use ubos_backend::{cpu_solver_task, hashrate_task, stratum_task, PoolConfig};
 
-#[allow(dead_code)] // wired in once orchestration lands
 mod gpiod;
 mod psu_exercise;
+mod miner;
 mod mmm_serial;
 mod uart_loopback;
 
@@ -374,6 +374,7 @@ fn main() {
         spawner.spawn(hashrate_metrics_task().expect("BUG: hashrate_metrics_task token"));
         spawner.spawn(http_server_task(stack).expect("BUG: http_server_task token"));
         spawner.spawn(mmm_serial::mmm_serial_task().expect("BUG: mmm_serial_task token"));
+        spawner.spawn(miner::miner_task().expect("BUG: miner_task token"));
         if let Some((rx, tx)) = uart_loopback {
             spawner.spawn(uart_loopback::loopback_task(rx, tx).expect("BUG: uart loopback token"));
             spawner.spawn(
