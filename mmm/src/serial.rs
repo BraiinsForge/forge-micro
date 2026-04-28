@@ -20,7 +20,7 @@
 use core::fmt;
 
 use embassy_futures::select::{Either3, select3};
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
@@ -126,9 +126,10 @@ pub struct Serial {
     /// fan-in (one reply per chip).
     register_replies: Channel<CriticalSectionRawMutex, Response, MAX_CHIPS>,
     /// Serialises caller-side `cmd.send + reply.wait` pairs so their
-    /// reply slots never interleave. `NoopRawMutex` is correct because
-    /// all callers share the executor.
-    caller: Mutex<NoopRawMutex, ()>,
+    /// reply slots never interleave. `CriticalSectionRawMutex` rather
+    /// than `NoopRawMutex` so `Serial` is `Sync` and can live as a
+    /// workspace `static`.
+    caller: Mutex<CriticalSectionRawMutex, ()>,
 }
 
 impl Serial {
