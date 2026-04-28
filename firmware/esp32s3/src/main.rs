@@ -127,6 +127,20 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
     eth_examples::metrics::run(stack).await
 }
 
+/// Adapts `esp32s3_tsens::Tsens` to the eth-examples `TemperatureSensor` trait.
+struct BoardTempSensor(esp32s3_tsens::Tsens<'static>);
+
+impl eth_examples::temperature::TemperatureSensor for BoardTempSensor {
+    async fn read_millicelsius(&mut self) -> Option<i32> {
+        self.0.read_millicelsius().await
+    }
+}
+
+#[embassy_executor::task]
+async fn temperature_task(sensor: BoardTempSensor) -> ! {
+    eth_examples::temperature::run_temperature(sensor).await
+}
+
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
     ExclusiveDevice<
@@ -224,10 +238,8 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(ntp_sync_task(stack));
     spawner.must_spawn(metrics_task(stack));
     // No LED blink task: board wiring does not include an accessible LED.
-    // No temperature task: esp-hal 1.0.0 does not expose TSENS on ESP32-S3.
-    // The sensor exists in hardware but is reachable only via raw regi2c
-    // writes to the SAR ADC analog block, which is not worth replicating
-    // here while the upstream driver is limited to ESP32-P4.
+    let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
+    spawner.must_spawn(temperature_task(BoardTempSensor(tsens)));
 
     #[cfg(feature = "dummy-asic")]
     {

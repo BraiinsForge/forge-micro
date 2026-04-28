@@ -4,7 +4,9 @@
 //! that main.rs needs. SPI frequency is pinned below the W5100S
 //! datasheet limit because higher rates corrupt frames on this wiring.
 
-use esp_hal::peripherals::{GPIO1, GPIO2, GPIO39, GPIO40, GPIO41, GPIO42, SPI2, TIMG0, TIMG1};
+use esp_hal::peripherals::{
+    GPIO1, GPIO2, GPIO39, GPIO40, GPIO41, GPIO42, SENS, SPI2, TIMG0, TIMG1,
+};
 #[cfg(feature = "display")]
 use esp_hal::peripherals::{GPIO15, GPIO16, GPIO17, GPIO6, GPIO7, SPI3};
 #[cfg(feature = "dummy-asic")]
@@ -42,6 +44,7 @@ pub struct Board<'d> {
     pub w5500_int: GPIO41<'d>,
     pub w5500_reset: GPIO40<'d>,
     pub dma: esp_hal::peripherals::DMA_CH0<'d>,
+    pub sens: SENS<'d>,
     #[cfg(feature = "dummy-asic")]
     pub uart0: UART0<'d>,
     #[cfg(feature = "dummy-asic")]
@@ -81,6 +84,7 @@ impl Board<'static> {
             w5500_int: peripherals.GPIO41,
             w5500_reset: peripherals.GPIO40,
             dma: peripherals.DMA_CH0,
+            sens: peripherals.SENS,
             #[cfg(feature = "dummy-asic")]
             uart0: peripherals.UART0,
             #[cfg(feature = "dummy-asic")]
