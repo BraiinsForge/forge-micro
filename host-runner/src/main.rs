@@ -31,7 +31,7 @@ use eth_examples::net;
 use log::{error, info, warn};
 use rand::rngs::OsRng;
 use static_cell::StaticCell;
-use ubos_backend::{cpu_solver_task, hashrate_task, stratum_task, PoolConfig};
+use ubos_backend::{hashrate_task, stratum_task, PoolConfig};
 
 mod gpiod;
 mod psu_exercise;
@@ -367,7 +367,6 @@ fn main() {
         spawner.spawn(net_task(runner).expect("BUG: net_task token"));
         spawner.spawn(heartbeat_task(stack).expect("BUG: heartbeat_task token"));
         spawner.spawn(stratum_task(stack, &POOL_CONFIG).expect("BUG: stratum_task token"));
-        spawner.spawn(cpu_solver_task().expect("BUG: cpu_solver_task token"));
         spawner.spawn(hashrate_task().expect("BUG: hashrate_task token"));
         spawner.spawn(ntp_sync_task(stack).expect("BUG: ntp_sync_task token"));
         spawner.spawn(bitcoin_price_task(stack).expect("BUG: bitcoin_price_task token"));
