@@ -1,12 +1,14 @@
-//! Drives `mmm::miner::run` against the gpiocdev-backed reset pin.
+//! Drives `mmm::miner::run` against the gpiocdev-backed reset pin
+//! and the workspace-static `MiniminerPsu`.
 
 use embassy_time::{Duration, Timer};
 use log::{error, info};
 
 use crate::gpiod::{GpiodResetPin, RESET_LINE};
+use crate::psu::HostPsu;
 
 #[embassy_executor::task]
-pub async fn miner_task() -> ! {
+pub async fn miner_task(psu: &'static HostPsu) -> ! {
     let mut reset_pin = match GpiodResetPin::open(RESET_LINE) {
         Ok(pin) => pin,
         Err(error) => {
@@ -17,7 +19,7 @@ pub async fn miner_task() -> ! {
         }
     };
     info!("host-runner: miner bringup");
-    mmm::miner::run(&mut reset_pin).await;
+    mmm::miner::run(psu, &mut reset_pin).await;
     info!("host-runner: miner exited");
     loop {
         Timer::after(Duration::from_secs(60)).await;

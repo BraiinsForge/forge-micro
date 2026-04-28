@@ -34,9 +34,9 @@ use static_cell::StaticCell;
 use ubos_backend::{hashrate_task, stratum_task, PoolConfig};
 
 mod gpiod;
-mod psu_exercise;
 mod miner;
 mod mmm_serial;
+mod psu;
 mod uart_loopback;
 
 const TAP_NAME: &str = "tap0";
@@ -373,17 +373,23 @@ fn main() {
         spawner.spawn(metrics_task(stack).expect("BUG: metrics_task token"));
         spawner.spawn(hashrate_metrics_task().expect("BUG: hashrate_metrics_task token"));
         spawner.spawn(http_server_task(stack).expect("BUG: http_server_task token"));
-        spawner.spawn(mmm_serial::mmm_serial_task().expect("BUG: mmm_serial_task token"));
-        spawner.spawn(miner::miner_task().expect("BUG: miner_task token"));
+        match psu::open() {
+            Some((mmm_psu, state, terminated)) => {
+                spawner
+                    .spawn(psu::watchdog_task(state, terminated).expect("BUG: psu watchdog token"));
+                spawner.spawn(mmm_serial::mmm_serial_task().expect("BUG: mmm_serial_task token"));
+                spawner.spawn(miner::miner_task(mmm_psu).expect("BUG: miner_task token"));
+            }
+            None => warn!(
+                "host-runner: {} unset or i2c open failed; mmm miner not spawned",
+                psu::I2C_BUS_ENV
+            ),
+        }
         if let Some((rx, tx)) = uart_loopback {
             spawner.spawn(uart_loopback::loopback_task(rx, tx).expect("BUG: uart loopback token"));
             spawner.spawn(
                 uart_loopback::heartbeat_task().expect("BUG: uart loopback heartbeat token"),
             );
-        }
-        if let Some((watchdog, exercise)) = psu_exercise::spawn_if_enabled(spawner) {
-            spawner.spawn(watchdog.expect("BUG: psu watchdog token"));
-            spawner.spawn(exercise.expect("BUG: psu exercise token"));
         }
     });
 }
