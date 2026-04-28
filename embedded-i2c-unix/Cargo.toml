@@ -1,0 +1,15 @@
+[package]
+name        = "embedded-i2c-unix"
+edition     = "2021"
+version     = "0.1.0"
+description = "Async embedded-hal-async I2C adapter over Linux /dev/i2c-N."
+
+[lints]
+workspace = true
+
+[dependencies]
+async-io           = "1.6"
+embedded-hal       = { workspace = true }
+embedded-hal-async = { workspace = true }
+libc               = "0.2"
+log                = { version = "0.4", default-features = false }
