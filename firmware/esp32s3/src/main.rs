@@ -161,15 +161,14 @@ type OledDisplay = Sh1106<
 #[cfg(feature = "display")]
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay) -> ! {
-    eth_examples::display::run_async(&mut display).await
+    eth_examples::display::run(&mut display).await
 }
 
 #[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
 async fn dummy_asic_test(mut uart: Uart<'static, esp_hal::Async>) -> ! {
     let _ = eth_examples::dummy_asic::run_test(&mut uart).await;
-    core::future::pending::<()>().await;
-    unreachable!()
+    eth_examples::dummy_asic::run_continuous_mining(&mut uart).await
 }
 
 /// Brackets `flags.wait()` inside `esp_rtos::embassy::Executor::run_with_callbacks`.

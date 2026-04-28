@@ -8,6 +8,12 @@
 #![no_std]
 #![no_main]
 
+#[cfg(all(feature = "dummy-asic", feature = "cpu-mining"))]
+compile_error!(
+    "features `dummy-asic` and `cpu-mining` are mutually exclusive; \
+     enable cpu-mining with --no-default-features --features \"display,cpu-mining\""
+);
+
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
@@ -27,6 +33,7 @@ use embassy_stm32::triggers::TIM3_TRGO;
 use embassy_stm32::usart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{bind_interrupts, dma, eth, peripherals, rng};
+#[cfg(any(feature = "cpu-mining", feature = "display"))]
 use embassy_time::Duration;
 #[cfg(feature = "cpu-mining")]
 use embassy_time::Ticker;
@@ -155,9 +162,9 @@ async fn cpu_load_task() -> ! {
     eth_examples::cpu_load::run_cpu_load::<1>().await
 }
 
-/// Publish the current hashrate as a Prometheus metric. Reads the atomic
-/// populated by `ubos_backend::hashrate_task` and pushes it through the
-/// shared metrics channel on a fixed cadence.
+/// Publish the current hashrate as a Prometheus metric and mirror it
+/// into `eth_examples::hashrate` so the unified display and HTTP
+/// surfaces render the cpu-miner rate.
 #[cfg(feature = "cpu-mining")]
 #[embassy_executor::task]
 async fn hashrate_metrics_task() -> ! {
@@ -165,6 +172,10 @@ async fn hashrate_metrics_task() -> ! {
     loop {
         ticker.next().await;
         let hashrate_hz = ubos_backend::HASHRATE_HZ.load(Ordering::Relaxed);
+        // Saturating cast: a cpu miner saturating u32 H/s is out of scope.
+        eth_examples::hashrate::record_external_rate(
+            u32::try_from(hashrate_hz).unwrap_or(u32::MAX),
+        );
         eth_examples::metrics::push(Metric {
             name: "board_hashrate_hz",
             labels: heapless::Vec::new(),
@@ -185,24 +196,17 @@ type OledDisplay = Sh1106<
     Output<'static>,
 >;
 
-#[cfg(all(feature = "display", feature = "cpu-mining"))]
+#[cfg(feature = "display")]
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay) -> ! {
-    eth_examples::display::run_async_hashrate(&mut display, &ubos_backend::HASHRATE_HZ).await
-}
-
-#[cfg(all(feature = "display", not(feature = "cpu-mining")))]
-#[embassy_executor::task]
-async fn display_task(mut display: OledDisplay) -> ! {
-    eth_examples::display::run_async(&mut display).await
+    eth_examples::display::run(&mut display).await
 }
 
 #[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
 async fn dummy_asic_test(mut uart: BufferedUart<'static>) -> ! {
     let _ = eth_examples::dummy_asic::run_test(&mut uart).await;
-    core::future::pending::<()>().await;
-    unreachable!()
+    eth_examples::dummy_asic::run_continuous_mining(&mut uart).await
 }
 
 #[cortex_m_rt::entry]
