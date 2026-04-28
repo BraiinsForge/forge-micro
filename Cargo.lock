@@ -1359,6 +1359,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-serial-unix"
+version = "0.1.0"
+dependencies = [
+ "async-io",
+ "embedded-io 0.7.1",
+ "embedded-io-async 0.7.0",
+ "libc",
+ "log",
+]
+
+[[package]]
 name = "embedded-storage"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
