@@ -34,6 +34,8 @@ use ubos_backend::{cpu_solver_task, hashrate_task, stratum_task, PoolConfig};
 
 mod mmm_serial;
 mod psu_exercise;
+#[allow(dead_code)] // wired in once orchestration lands
+mod sysfs_gpio;
 mod uart_loopback;
 
 const TAP_NAME: &str = "tap0";
