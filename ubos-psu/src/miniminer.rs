@@ -162,7 +162,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use embedded_hal_mock::eh1::i2c::Mock;
+    use crate::state::test_support;
+    use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
 
     fn run<F: core::future::Future>(future: F) -> F::Output {
         embassy_futures::block_on(future)
@@ -172,16 +173,106 @@ mod tests {
         Box::leak(Box::new(value))
     }
 
+    fn make_handle(
+        bus: Mock,
+        config: crate::MiniminerPsuConfig,
+        terminated_value: bool,
+    ) -> (
+        MiniminerPsu<Mock, embedded_hal_async::i2c::ErrorKind>,
+        &'static Mutex<RawMutex, State<Mock>>,
+    ) {
+        let state: &'static _ = leak(Mutex::<RawMutex, _>::new(
+            State::new(bus, config),
+        ));
+        let terminated: &'static _ =
+            leak(AtomicBool::new(terminated_value));
+        (MiniminerPsu::new(state, terminated), state)
+    }
+
     #[test]
     fn terminated_short_circuits_methods() {
         let bus = Mock::new(&[]);
         let config = crate::MiniminerPsuConfig::DEFAULT;
-        let state: &'static _ = leak(Mutex::<RawMutex, _>::new(
-            State::new(bus, config),
-        ));
-        let terminated: &'static _ = leak(AtomicBool::new(true));
-        let psu = MiniminerPsu::new(state, terminated);
+        let (psu, _state) = make_handle(bus, config, true);
         let result = run(psu.set_voltage(700));
         assert!(matches!(result, Err(Error::Terminated)));
+    }
+
+    #[test]
+    fn dropped_set_voltage_future_does_not_corrupt_bus() {
+        let config = crate::MiniminerPsuConfig::DEFAULT;
+        let dac_700 = config
+            .dcdc_voltage_range
+            .voltage_to_dac(700)
+            .expect("BUG: 700 mv");
+        let dac_800 = config
+            .dcdc_voltage_range
+            .voltage_to_dac(800)
+            .expect("BUG: 800 mv");
+
+        let mut transactions = test_support::init_transactions(&config);
+        transactions.push(Transaction::write(
+            config.dcdc_address,
+            tps6287x::encode_vset(dac_700).to_vec(),
+        ));
+        transactions.push(Transaction::write(
+            config.dcdc_address,
+            tps6287x::encode_vset(dac_800).to_vec(),
+        ));
+
+        let bus = Mock::new(&transactions);
+        let (psu, state) = make_handle(bus, config, false);
+
+        // First call runs init then writes 700 mV.
+        run(psu.set_voltage(700)).expect("BUG: first call");
+
+        // Build a second future and let it fall out of scope
+        // without polling. With the Mock's synchronous I2C, a
+        // single poll would run the whole transaction; instead
+        // we drop pre-poll to verify that the no-poll path leaves
+        // the lock + state untouched for the next caller.
+        {
+            let _future = psu.set_voltage(800);
+        }
+
+        // Third call must complete cleanly with the bus advancing.
+        run(psu.set_voltage(800)).expect("BUG: third call");
+
+        let mut guard = run(state.lock());
+        guard.i2c.done();
+    }
+
+    #[test]
+    fn terminate_disables_dcdc_and_short_circuits_subsequent_calls() {
+        let config = crate::MiniminerPsuConfig::DEFAULT;
+        let dac_700 = config
+            .dcdc_voltage_range
+            .voltage_to_dac(700)
+            .expect("BUG: 700 mv");
+
+        let mut transactions = test_support::init_transactions(&config);
+        // set_voltage(700) forces init.
+        transactions.push(Transaction::write(
+            config.dcdc_address,
+            tps6287x::encode_vset(dac_700).to_vec(),
+        ));
+        // terminate disables the DC/DC.
+        transactions.push(Transaction::write(
+            config.dcdc_address,
+            tps6287x::encode_control1(false, config.dcdc_ramp_speed)
+                .to_vec(),
+        ));
+
+        let bus = Mock::new(&transactions);
+        let (psu, state) = make_handle(bus, config, false);
+
+        run(psu.set_voltage(700)).expect("BUG: set_voltage");
+        run(psu.terminate());
+
+        let post = run(psu.set_voltage(800));
+        assert!(matches!(post, Err(Error::Terminated)));
+
+        let mut guard = run(state.lock());
+        guard.i2c.done();
     }
 }
