@@ -46,6 +46,7 @@ pub enum Error<E> {
 /// Async PSU control surface. One implementation per hardware
 /// platform; consumers stay generic over `Psu`.
 pub mod config;
+pub mod ina230;
 pub mod tps6287x;
 pub mod watchdog;
 
