@@ -435,6 +435,18 @@
             cargoExtraArgs = "-p ubos-psu";
           };
 
+          clippy-embedded-i2c-unix = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p embedded-i2c-unix";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          test-embedded-i2c-unix = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p embedded-i2c-unix";
+          };
 
           test = craneLib.cargoTest {
             inherit src;
