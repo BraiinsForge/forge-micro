@@ -13,6 +13,7 @@ embassy-sync       = { workspace = true }
 embassy-time       = { workspace = true }
 portable-atomic    = { workspace = true }
 defmt              = { workspace = true, optional = true }
+ubos-logging       = { workspace = true }
 
 [dev-dependencies]
 embedded-hal-mock  = { version = "0.11", default-features = false, features = ["embedded-hal-async", "eh1"] }
