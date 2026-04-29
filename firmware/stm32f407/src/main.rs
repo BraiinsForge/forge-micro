@@ -300,14 +300,14 @@ async fn boot(spawner: Spawner) {
 
     #[cfg(feature = "dummy-asic")]
     {
-        static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
-        static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+        static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+        static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
         let uart = BufferedUart::new(
             hw.usart3,
             hw.usart3_rx,
             hw.usart3_tx,
-            TX_BUF.init([0; 256]),
-            RX_BUF.init([0; 256]),
+            TX_BUF.init([0; 1024]),
+            RX_BUF.init([0; 1024]),
             Irqs,
             {
                 let mut config = UartConfig::default();

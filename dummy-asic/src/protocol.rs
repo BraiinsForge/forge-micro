@@ -14,7 +14,7 @@ use esp_hal::uart::{UartRx, UartTx};
 // link desyncs at boot.
 
 /// UART baud rate for the dummy-ASIC protocol.
-pub(crate) const BAUD_RATE: u32 = 115_200;
+pub(crate) const BAUD_RATE: u32 = 921_600;
 
 /// Start byte for all frames.
 const FRAME_START: u8 = 0xA5;

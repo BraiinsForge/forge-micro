@@ -306,15 +306,15 @@ async fn boot(spawner: Spawner) {
 
     #[cfg(feature = "dummy-asic")]
     {
-        static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
-        static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+        static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+        static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
         let uart = BufferedUart::new(
             hw.uart,
             hw.uart_tx,
             hw.uart_rx,
             Irqs,
-            TX_BUF.init([0; 256]),
-            RX_BUF.init([0; 256]),
+            TX_BUF.init([0; 1024]),
+            RX_BUF.init([0; 1024]),
             {
                 let mut config = UartConfig::default();
                 config.baudrate = eth_examples::dummy_asic::BAUD_RATE;

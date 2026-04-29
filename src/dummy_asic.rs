@@ -22,7 +22,7 @@ use sha2::{Digest, Sha256};
 // file or the link desyncs at boot.
 
 /// Baud rate shared across all board UART configurations for this test.
-pub const BAUD_RATE: u32 = 115_200;
+pub const BAUD_RATE: u32 = 921_600;
 
 /// Timeout for reading a response frame.  Target=1 resolves in ~256 nonces
 /// on average, well under a second on any dummy-asic we ship.  Keep the budget
@@ -53,8 +53,10 @@ const TEST_HEADER: [u8; 80] = {
     header
 };
 
-/// Require a single trailing zero byte in the raw SHA-256d digest.
-/// Resolves in fewer than 256 trials on average.
+/// Require one trailing zero byte in the raw SHA-256d digest.  The
+/// dummy-asic solves faster than the UART can drain, so the effective
+/// share rate is bounded by UART bandwidth.  Many shares per window
+/// keeps the displayed hashrate visually smooth.
 pub const TEST_TARGET_LEADING_ZERO_BYTES: u8 = 1;
 
 // Guard the `32 - TEST_TARGET_LEADING_ZERO_BYTES` arithmetic below: a

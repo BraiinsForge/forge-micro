@@ -30,7 +30,7 @@
 //! thread-mode `esp_rtos::embassy::Executor` then runs on the second core,
 //! started from within the closure passed to `start_second_core`.
 //!
-//! # Binary protocol — UART1, 115200 baud, GPIO8 TX / GPIO9 RX
+//! # Binary protocol — UART1, 921 600 baud, GPIO8 TX / GPIO9 RX
 //!
 //! ## Work frame (host → dummy-asic, opcode 0x01) — 84 bytes total
 //!
