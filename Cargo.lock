@@ -637,6 +637,7 @@ dependencies = [
  "esp-rtos",
  "esp32s3-tsens",
  "eth-examples",
+ "nb 1.1.0",
  "portable-atomic",
  "sha2",
  "static_cell",

@@ -18,6 +18,7 @@ esp-hal                = { version = "1.0.0", features = ["defmt", "esp32s3", "u
 esp-backtrace          = { version = "0.18.1", features = ["defmt", "esp32s3", "panic-handler"] }
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32s3"] }
 esp-rtos               = { version = "0.2.0", features = ["embassy", "esp32s3", "defmt"] }
+nb                     = { workspace = true }
 portable-atomic        = { workspace = true }
 sha2                   = { workspace = true }
 static_cell            = { workspace = true }
