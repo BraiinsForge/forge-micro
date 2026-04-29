@@ -36,7 +36,10 @@ nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo check'
   `#[cortex_m_rt::entry]` and drives `embassy_executor::raw::Executor`
   via `eth_examples::cpu_load::run_cortex_m_executor` so the poll/wfe
   loop can bracket `wfe` with `Instant::now()` reads.
-- ESP32 crate uses `esp-rtos` with `#[esp_rtos::main]` for the embassy executor.
+- The esp32s3 firmware uses `#[esp_hal::main]` and constructs the
+  esp-rtos embassy executor manually so it can pass idle hooks to
+  `Executor::run_with_callbacks`. The dummy-asic crate, which has no
+  idle accounting, still uses the simpler `#[esp_rtos::main]`.
 - All boards share network tasks, constants, buffers, and response
   building via the root `eth-examples` library crate.
 - Embassy task constructors return `Result<SpawnToken, SpawnError>`;

@@ -13,7 +13,7 @@ use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5100S;
 use embassy_net_wiznet::{Device, Runner, State};
-use embassy_time::Delay;
+use embassy_time::{Delay, Instant};
 #[cfg(feature = "display")]
 use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -27,9 +27,11 @@ use esp_hal::spi::Mode;
 use esp_hal::timer::timg::{MwdtStage, TimerGroup, Wdt};
 #[cfg(feature = "dummy-asic")]
 use esp_hal::uart::{Config as UartConfig, Uart};
+use esp_rtos::embassy::Callbacks;
 use eth_examples::net;
 #[cfg(feature = "display")]
 use eth_examples::sh1106::Sh1106;
+use portable_atomic::Ordering;
 use rand_core::{CryptoRng, RngCore};
 use static_cell::StaticCell;
 use {defmt_rtt as _, esp_backtrace as _};
@@ -127,6 +129,11 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
     eth_examples::metrics::run(stack).await
 }
 
+#[embassy_executor::task]
+async fn cpu_load_task() -> ! {
+    eth_examples::cpu_load::run_cpu_load::<1>().await
+}
+
 /// Adapts `esp32s3_tsens::Tsens` to the eth-examples `TemperatureSensor` trait.
 struct BoardTempSensor(esp32s3_tsens::Tsens<'static>);
 
@@ -165,8 +172,57 @@ async fn dummy_asic_test(mut uart: Uart<'static, esp_hal::Async>) -> ! {
     unreachable!()
 }
 
-#[esp_rtos::main]
-async fn main(spawner: Spawner) {
+/// Brackets `flags.wait()` inside `esp_rtos::embassy::Executor::run_with_callbacks`.
+/// `on_idle` records the entry instant; `before_poll` accumulates the
+/// elapsed ticks on the next iteration into `IDLE_TICKS[CPU_INDEX]`.
+/// `run_with_callbacks` only fires `on_idle` when the wait will
+/// actually block, so spurious wakes do not skew the count.
+struct IdleAccounting<const CPU_INDEX: usize> {
+    idle_start: Option<Instant>,
+}
+
+impl<const CPU_INDEX: usize> IdleAccounting<CPU_INDEX> {
+    const fn new() -> Self {
+        const {
+            assert!(
+                CPU_INDEX < eth_examples::cpu_load::MAX_CPUS,
+                "CPU_INDEX exceeds MAX_CPUS"
+            );
+        }
+        Self { idle_start: None }
+    }
+}
+
+impl<const CPU_INDEX: usize> Callbacks for IdleAccounting<CPU_INDEX> {
+    fn before_poll(&mut self) {
+        if let Some(start) = self.idle_start.take() {
+            let elapsed = (Instant::now() - start).as_ticks();
+            eth_examples::cpu_load::IDLE_TICKS[CPU_INDEX].fetch_add(elapsed, Ordering::Relaxed);
+        }
+    }
+
+    fn on_idle(&mut self) {
+        self.idle_start = Some(Instant::now());
+    }
+}
+
+#[esp_hal::main]
+fn main() -> ! {
+    static EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
+    let executor = EXECUTOR.init(esp_rtos::embassy::Executor::new());
+    executor.run_with_callbacks(
+        |spawner| spawner.must_spawn(boot(spawner)),
+        IdleAccounting::<0>::new(),
+    )
+}
+
+#[embassy_executor::task]
+#[allow(
+    clippy::too_many_lines,
+    clippy::items_after_statements,
+    clippy::similar_names
+)]
+async fn boot(spawner: Spawner) {
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<7>> = StaticCell::new();
 
@@ -237,6 +293,7 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(bitcoin_price_task(stack, TlsRng(rng)));
     spawner.must_spawn(ntp_sync_task(stack));
     spawner.must_spawn(metrics_task(stack));
+    spawner.must_spawn(cpu_load_task());
     // No LED blink task: board wiring does not include an accessible LED.
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
     spawner.must_spawn(temperature_task(BoardTempSensor(tsens)));
