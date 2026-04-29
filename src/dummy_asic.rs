@@ -132,15 +132,10 @@ where
     Ok(())
 }
 
-async fn run_work_round<T>(uart: &mut T) -> Result<(), ()>
+async fn send_work<T>(uart: &mut T) -> Result<(), ()>
 where
-    T: embedded_io_async::Read + embedded_io_async::Write,
+    T: embedded_io_async::Write,
 {
-    defmt::info!(
-        "dummy-asic: sending work (target={} leading zero bytes)",
-        TEST_TARGET_LEADING_ZERO_BYTES
-    );
-
     let work = build_work_frame();
     if let Err(error) = uart.write_all(&work).await {
         defmt::error!(
@@ -149,11 +144,17 @@ where
         );
         return Err(());
     }
+    Ok(())
+}
 
+async fn read_share<T>(uart: &mut T) -> Result<(), ()>
+where
+    T: embedded_io_async::Read,
+{
     let mut share = [0u8; SHARE_FRAME_LEN];
     // Scan byte-by-byte for FRAME_START so a single dropped or duplicated
-    // byte on the wire resyncs within one round instead of corrupting
-    // every subsequent round.  Mirrors the resync the dummy-asic side
+    // byte on the wire resyncs within one share instead of corrupting
+    // every subsequent share.  Mirrors the resync the dummy-asic side
     // already runs on its read path.
     loop {
         read_response(uart, "share start", &mut share[..1]).await?;
@@ -205,13 +206,16 @@ where
         return Err(());
     }
 
-    defmt::info!(
-        "dummy-asic: share ok nonce={:08x} hash={=[u8]:02x}",
-        nonce,
-        computed_hash
-    );
     crate::hashrate::record_share();
     Ok(())
+}
+
+async fn run_work_round<T>(uart: &mut T) -> Result<(), ()>
+where
+    T: embedded_io_async::Read + embedded_io_async::Write,
+{
+    send_work(uart).await?;
+    read_share(uart).await
 }
 
 async fn run_temp_round<T>(uart: &mut T) -> Result<(), ()>
@@ -286,4 +290,22 @@ where
 {
     run_work_round(uart).await?;
     run_temp_round(uart).await
+}
+
+/// Stream Shares from the dummy-asic forever to drive the hashrate
+/// sampler.  One Work send kicks the peer's solver into continuous
+/// iteration; the host then drains Shares without re-requesting per
+/// round, removing the UART round-trip from the per-share critical
+/// path.  A failed share read re-kicks the solver with a fresh Work
+/// frame so transient UART faults do not wedge the loop.
+pub async fn run_continuous_mining<T>(uart: &mut T) -> !
+where
+    T: embedded_io_async::Read + embedded_io_async::Write,
+{
+    let _ = send_work(uart).await;
+    loop {
+        if read_share(uart).await.is_err() {
+            let _ = send_work(uart).await;
+        }
+    }
 }
