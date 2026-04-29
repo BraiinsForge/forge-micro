@@ -27,6 +27,7 @@ format_no_std     = { workspace = true }
 [workspace]
 resolver = "2"
 members = [
+    "firmware/bmm-pico",
     "firmware/rp2040",
     "firmware/rp2350",
     "firmware/stm32f407",

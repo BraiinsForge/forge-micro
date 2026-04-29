@@ -202,6 +202,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "bmm-pico"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt 1.0.1",
+ "defmt-rtt",
+ "embassy-executor 0.10.0",
+ "embassy-net",
+ "embassy-net-wiznet",
+ "embassy-rp",
+ "embassy-time",
+ "embedded-hal-bus",
+ "eth-examples",
+ "heapless 0.8.0",
+ "panic-probe",
+ "portable-atomic",
+ "static_cell",
+ "ubos-backend",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

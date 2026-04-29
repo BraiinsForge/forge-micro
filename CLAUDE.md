@@ -10,6 +10,7 @@ All builds must go through `nix develop` shells. The `arm` shell
 covers ARM targets; the `esp` shell covers the Xtensa target.
 
 ```sh
+nix develop .#arm -c bash -c 'cd firmware/bmm-pico    && cargo check'
 nix develop .#arm -c bash -c 'cd firmware/rp2040      && cargo check'
 nix develop .#arm -c bash -c 'cd firmware/rp2350      && cargo check'
 nix develop .#arm -c bash -c 'cd firmware/stm32f407   && cargo check'
@@ -21,6 +22,7 @@ nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo check'
 
 | Crate | Target | MCU |
 |-------|--------|-----|
+| bmm-pico | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
 | rp2040 | thumbv6m-none-eabi | RP2040 (Cortex-M0+) |
 | rp2350 | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
 | stm32f407 | thumbv7em-none-eabihf | STM32F407VGT6 (Cortex-M4F) |

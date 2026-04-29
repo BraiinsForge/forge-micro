@@ -1,0 +1,12 @@
+[target.thumbv8m.main-none-eabihf]
+runner = [
+  "probe-rs-runner", "run",
+  "--chip", "RP235x",
+  "--log-format", "{t:>10} {f:<14} [{L}] {s}",
+]
+
+[env]
+DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
+
+[build]
+target = "thumbv8m.main-none-eabihf"

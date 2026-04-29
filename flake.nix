@@ -276,6 +276,13 @@
         # A future change that breaks a non-default combo will land
         # unnoticed until a human builds that combo locally.
         checks = {
+          clippy-bmm-pico = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p bmm-pico --target thumbv8m.main-none-eabihf";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
           clippy-rp2040 = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
@@ -428,6 +435,7 @@
             shellHook = ''
               echo "eth-examples dev environment ready (ARM boards)"
               echo ""
+              echo "  cd firmware/bmm-pico  && cargo build --release  # BMM Adapter RP2350 W5500"
               echo "  cd firmware/rp2040    && cargo build --release  # RP2040 W5500"
               echo "  cd firmware/rp2350    && cargo build --release  # RP2350 W6100"
               echo "  cd firmware/stm32f407 && cargo build --release  # STM32F407 LAN8720"
