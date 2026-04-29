@@ -150,6 +150,11 @@ async fn temperature_task(sensor: BoardTempSensor) -> ! {
     eth_examples::temperature::run_temperature(sensor).await
 }
 
+#[embassy_executor::task]
+async fn cpu_load_task() -> ! {
+    eth_examples::cpu_load::run_cpu_load::<1>().await
+}
+
 /// Publish the current hashrate as a Prometheus metric. Reads the atomic
 /// populated by `ubos_backend::hashrate_task` and pushes it through the
 /// shared metrics channel on a fixed cadence.
@@ -200,8 +205,16 @@ async fn dummy_asic_test(mut uart: BufferedUart<'static>) -> ! {
     unreachable!()
 }
 
-#[embassy_executor::main]
-async fn main(spawner: Spawner) {
+#[cortex_m_rt::entry]
+fn main() -> ! {
+    eth_examples::cpu_load::run_cortex_m_executor::<0, _>(|spawner| {
+        spawner.spawn(unwrap!(boot(spawner)));
+    })
+}
+
+#[embassy_executor::task]
+#[allow(clippy::too_many_lines, clippy::items_after_statements)]
+async fn boot(spawner: Spawner) {
     let peripherals = embassy_stm32::init(config::stm32_config());
     let hw = config::Board::take(peripherals);
 
@@ -255,6 +268,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_task(stack)));
+    spawner.spawn(unwrap!(cpu_load_task()));
 
     // TIM3 emits TRGO once per second via master-mode UPDATE; the ADC runs
     // single-shot conversions on each rising edge, so the DMA ring buffer

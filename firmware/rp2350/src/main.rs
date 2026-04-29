@@ -156,6 +156,11 @@ async fn temperature_task(sensor: BoardTempSensor) -> ! {
     eth_examples::temperature::run_temperature(sensor).await
 }
 
+#[embassy_executor::task]
+async fn cpu_load_task() -> ! {
+    eth_examples::cpu_load::run_cpu_load::<1>().await
+}
+
 /// Publish the current hashrate as a Prometheus metric. Reads the atomic
 /// populated by `ubos_backend::hashrate_task` and pushes it through the
 /// shared metrics channel on a fixed cadence.
@@ -202,8 +207,16 @@ async fn dummy_asic_test(mut uart: BufferedUart) -> ! {
     unreachable!()
 }
 
-#[embassy_executor::main]
-async fn main(spawner: Spawner) {
+#[cortex_m_rt::entry]
+fn main() -> ! {
+    eth_examples::cpu_load::run_cortex_m_executor::<0, _>(|spawner| {
+        spawner.spawn(unwrap!(boot(spawner)));
+    })
+}
+
+#[embassy_executor::task]
+#[allow(clippy::too_many_lines, clippy::items_after_statements)]
+async fn boot(spawner: Spawner) {
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
@@ -211,6 +224,13 @@ async fn main(spawner: Spawner) {
     // The CPU solver hogs the scheduler. Pin it to core 1 so the
     // embassy-net stack on core 0 keeps getting CPU time and the W6100
     // SPI path stays responsive.
+    //
+    // Core 1 runs `embassy_executor::Executor::run`, whose internal
+    // `wfe` loop is not bracketed for idle accounting. The published
+    // `board_cpu_busy_ratio{cpu="0"}` therefore reflects only core 0;
+    // `cpu-mining` work on core 1 is not visible in the metric.
+    // Lifting `MAX_CPUS` to 2 in `eth_examples::cpu_load` and driving
+    // core 1 through `run_cortex_m_executor::<1, _>` would close this.
     #[cfg(feature = "cpu-mining")]
     {
         static CORE1_STACK: ConstStaticCell<
@@ -270,6 +290,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_task(stack)));
+    spawner.spawn(unwrap!(cpu_load_task()));
 
     let adc = Adc::new(hw.adc, Irqs, AdcConfig::default());
     let temp_channel = AdcChannel::new_temp_sensor(hw.adc_temp_sensor);

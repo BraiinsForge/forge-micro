@@ -32,6 +32,10 @@ nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo check'
 ## Conventions
 
 - All crates use `portable-atomic` for a uniform atomics API across targets.
+- The cortex-m firmware (rp2040, rp2350, stm32f407, stm32f439) uses
+  `#[cortex_m_rt::entry]` and drives `embassy_executor::raw::Executor`
+  via `eth_examples::cpu_load::run_cortex_m_executor` so the poll/wfe
+  loop can bracket `wfe` with `Instant::now()` reads.
 - ESP32 crate uses `esp-rtos` with `#[esp_rtos::main]` for the embassy executor.
 - All boards share network tasks, constants, buffers, and response
   building via the root `eth-examples` library crate.
