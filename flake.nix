@@ -366,6 +366,8 @@
             strictDeps = true;
           };
 
+          fmt-eth-examples = craneLib.cargoFmt { inherit src; };
+
           fmt-load-test = craneLib.cargoFmt { src = loadTestSrc; };
 
           test-load-test = craneLib.cargoTest {
