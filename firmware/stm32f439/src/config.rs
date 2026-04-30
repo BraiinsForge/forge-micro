@@ -14,7 +14,7 @@ use embassy_stm32::peripherals::{
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::{DMA2_CH3, PB3, PB5, PE7, PE8, PE9, SPI1};
 #[cfg(feature = "dummy-asic")]
-use embassy_stm32::peripherals::{PD8, PD9, USART3};
+use embassy_stm32::peripherals::{HASH, PD8, PD9, USART3};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peri;
 
@@ -73,6 +73,8 @@ pub struct Board {
     pub usart3_tx: Peri<'static, PD8>,
     #[cfg(feature = "dummy-asic")]
     pub usart3_rx: Peri<'static, PD9>,
+    #[cfg(feature = "dummy-asic")]
+    pub hash: Peri<'static, HASH>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
     #[cfg(feature = "display")]
@@ -138,6 +140,8 @@ impl Board {
             usart3_tx: peripherals.PD8,
             #[cfg(feature = "dummy-asic")]
             usart3_rx: peripherals.PD9,
+            #[cfg(feature = "dummy-asic")]
+            hash: peripherals.HASH,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI1,
             #[cfg(feature = "display")]

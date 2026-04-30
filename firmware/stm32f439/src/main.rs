@@ -20,6 +20,8 @@ use embassy_net::StackResources;
 use embassy_stm32::adc::{Adc, AdcChannel, Exten, RingBufferedAdc, SampleTime};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::gpio::{Level, Output, Speed};
+#[cfg(feature = "dummy-asic")]
+use embassy_stm32::hash;
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::DMA2_CH3;
 use embassy_stm32::peripherals::{ADC1, DMA2_CH0, ETH, ETH_SMA, IWDG};
@@ -32,6 +34,8 @@ use embassy_stm32::triggers::TIM3_TRGO;
 #[cfg(feature = "dummy-asic")]
 use embassy_stm32::usart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_stm32::wdg::IndependentWatchdog;
+#[cfg(feature = "dummy-asic")]
+use embassy_stm32::Peri;
 use embassy_stm32::{bind_interrupts, dma, eth, peripherals, rng};
 #[cfg(any(feature = "cpu-mining", feature = "display"))]
 use embassy_time::Duration;
@@ -69,7 +73,9 @@ defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
 
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
-    HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
+    HASH_RNG => rng::InterruptHandler<peripherals::RNG>,
+        #[cfg(feature = "dummy-asic")]
+        hash::InterruptHandler<peripherals::HASH>;
     DMA2_STREAM0 => dma::InterruptHandler<DMA2_CH0>;
     #[cfg(feature = "dummy-asic")]
     USART3 => BufferedInterruptHandler<peripherals::USART3>;
@@ -203,9 +209,35 @@ async fn display_task(mut display: OledDisplay) -> ! {
 }
 
 #[cfg(feature = "dummy-asic")]
+struct HardwareSha256d(hash::Hash<'static, peripherals::HASH, embassy_stm32::mode::Blocking>);
+
+#[cfg(feature = "dummy-asic")]
+impl eth_examples::dummy_asic::Sha256dHasher for HardwareSha256d {
+    fn double_sha256(&mut self, data: &[u8]) -> [u8; 32] {
+        let first = hw_sha256(&mut self.0, data);
+        hw_sha256(&mut self.0, &first)
+    }
+}
+
+#[cfg(feature = "dummy-asic")]
+fn hw_sha256(
+    hash: &mut hash::Hash<'static, peripherals::HASH, embassy_stm32::mode::Blocking>,
+    data: &[u8],
+) -> [u8; 32] {
+    let mut ctx = hash.start(hash::Algorithm::SHA256, hash::DataType::Width8, None);
+    hash.update_blocking(&mut ctx, data);
+    let mut digest = [0u8; 32];
+    let _written = hash.finish_blocking(ctx, &mut digest);
+    digest
+}
+
+#[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
-async fn dummy_asic_test(mut uart: BufferedUart<'static>) -> ! {
-    let mut hasher = eth_examples::dummy_asic::SoftwareSha256d;
+async fn dummy_asic_test(
+    mut uart: BufferedUart<'static>,
+    hash_peripheral: Peri<'static, peripherals::HASH>,
+) -> ! {
+    let mut hasher = HardwareSha256d(hash::Hash::new_blocking(hash_peripheral, Irqs));
     let _ = eth_examples::dummy_asic::run_test(&mut uart, &mut hasher).await;
     eth_examples::dummy_asic::run_continuous_mining(&mut uart, &mut hasher).await
 }
@@ -314,7 +346,7 @@ async fn boot(spawner: Spawner) {
         )
         // Valid USART peripheral and default-compatible baud rate; cannot fail.
         .expect("BUG: USART3 configuration failed");
-        spawner.spawn(unwrap!(dummy_asic_test(uart)));
+        spawner.spawn(unwrap!(dummy_asic_test(uart, hw.hash)));
     }
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
