@@ -8,8 +8,9 @@
 //! channel.
 //!
 //! `fake_solver_task` emits one `Solution` per second for wire
-//! testing; `cpu_solver_task` scans nonces against the live pool
-//! target.
+//! testing. `run_worker` drives any `asic_interface::AsicInterface`
+//! backend in the main mining loop; `cpu_worker_task` instantiates it
+//! with a `cpu_miner::ChannelAsic` for in-process CPU mining.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -18,7 +19,8 @@
 
 use core::fmt::Write as _;
 
-use cpu_miner::{mine_share, target_from_diff};
+use asic_interface::WorkFrame;
+use cpu_miner::target_from_diff;
 use defmt::{info, warn};
 use embassy_futures::select::{select, Either};
 use embassy_net::tcp::TcpSocket;
@@ -902,17 +904,23 @@ pub async fn fake_solver_task() -> ! {
     }
 }
 
-/// CPU solver: hashes the block header continuously until `clean_jobs` fires or
-/// a new job arrives. Streams shares for the current job without idling between
-/// finds. Switches jobs promptly via non-blocking watch poll each inner iteration.
+/// Generic mining loop driven by an `AsicInterface`. Mirrors the control
+/// flow of the previous in-process `cpu_solver_task`: snapshot the
+/// assignment, push it to the ASIC, await one share, react to
+/// `CLEAN_JOBS`. Header construction, nonce-start tracking, target
+/// updates, and `Solution` packaging all stay here so backends only deal
+/// in 80-byte headers and raw nonces.
 ///
-/// Default target starts low enough that even a Cortex-M CPU finds some
-/// shares; once the pool sends `set_difficulty`, `SHARE_TARGET` ratchets up.
-#[embassy_executor::task]
-pub async fn cpu_solver_task() -> ! {
+/// `work_id` is bumped on every job change and stamped into each
+/// `WorkFrame`; backends that buffer shares (channel or UART) tag those
+/// shares with the same `work_id` so the worker can drop a share that
+/// was already in flight when a fresh job landed and would otherwise be
+/// packaged with the wrong `job_id`/`extranonce2`/`ntime`.
+pub async fn run_worker<I: asic_interface::AsicInterface>(mut asic: I) -> ! {
     let mut target_receiver = SHARE_TARGET
         .receiver()
         .expect("BUG: Watch<_, _, 2> supports 2 receivers; tasks <= 2");
+    let mut work_id: u32 = 0;
 
     loop {
         let Some(mut assignment) = snapshot_assignment().await else {
@@ -921,18 +929,16 @@ pub async fn cpu_solver_task() -> ! {
         };
         let mut nonce_start: u32 = 0;
         let mut target = target_receiver.try_get().unwrap_or(DEFAULT_TARGET);
+        work_id = work_id.wrapping_add(1);
 
-        info!("solver: new job {}", assignment.job_id.as_str());
+        info!("worker: new job {}", assignment.job_id.as_str());
 
         loop {
-            // Refresh the snapshot before the next mine_share attempt.
-            // A mine_share in flight is not preempted; ntime rolls and
-            // non-clean notifies land in the Mutex and are observed on
-            // the next iteration.
             if let Some(fresh) = snapshot_assignment().await {
                 if fresh.job_id != assignment.job_id {
-                    info!("solver: superseded by new job {}", fresh.job_id.as_str());
+                    info!("worker: superseded by new job {}", fresh.job_id.as_str());
                     nonce_start = 0;
+                    work_id = work_id.wrapping_add(1);
                 }
                 assignment = fresh;
             }
@@ -940,45 +946,75 @@ pub async fn cpu_solver_task() -> ! {
                 target = updated;
             }
 
-            let mine_future = mine_share(
+            let header = cpu_miner::build_header(
                 assignment.version,
                 assignment.prev_hash,
                 assignment.merkle_root,
                 assignment.ntime,
                 assignment.nbits,
                 nonce_start,
-                target,
-                &TOTAL_HASHES,
             );
+            let frame = WorkFrame {
+                header,
+                target,
+                work_id,
+            };
 
-            match select(mine_future, CLEAN_JOBS.wait()).await {
-                Either::First(found_nonce) => {
-                    info!(
-                        "solver: share queued nonce={:08x} job={}",
-                        found_nonce,
-                        assignment.job_id.as_str()
-                    );
-
-                    let solution = Solution {
-                        job_id: assignment.job_id.clone(),
-                        nonce: found_nonce,
-                        ntime: assignment.ntime,
-                        version_bits: 0,
-                        extranonce2: assignment.extranonce2.clone(),
-                    };
-
-                    // Channel full means the stratum task is behind; discard rather than block.
-                    let _ = SOLUTIONS.try_send(solution);
-
-                    nonce_start = found_nonce.wrapping_add(1);
-                }
-                Either::Second(()) => {
-                    info!("solver: cancelled by clean_jobs");
-                    break;
-                }
+            // Backend sends are infallible for ChannelAsic; UartAsic will
+            // surface real I/O failures, hence the `if let Err`. A failed
+            // send aborts this round and restarts on the next outer loop
+            // iteration so transient UART glitches don't lock up mining.
+            if let Err(error) = asic.send_work(&frame).await {
+                warn!("worker: send_work failed: {}", error);
+                continue;
             }
+
+            let share = loop {
+                match select(asic.recv_share(), CLEAN_JOBS.wait()).await {
+                    Either::First(Ok(share)) => {
+                        if share.work_id == work_id {
+                            break Some(share);
+                        }
+                        info!(
+                            "worker: dropping stale share nonce={:08x} work_id={} (current {})",
+                            share.nonce, share.work_id, work_id,
+                        );
+                    }
+                    Either::First(Err(error)) => {
+                        warn!("worker: recv_share failed: {}", error);
+                        break None;
+                    }
+                    Either::Second(()) => {
+                        info!("worker: cancelled by clean_jobs");
+                        break None;
+                    }
+                }
+            };
+            let Some(share) = share else { break };
+
+            info!(
+                "worker: share queued nonce={:08x} job={}",
+                share.nonce,
+                assignment.job_id.as_str()
+            );
+            let solution = Solution {
+                job_id: assignment.job_id.clone(),
+                nonce: share.nonce,
+                ntime: assignment.ntime,
+                version_bits: 0,
+                extranonce2: assignment.extranonce2.clone(),
+            };
+            let _ = SOLUTIONS.try_send(solution);
+            nonce_start = share.nonce.wrapping_add(1);
         }
     }
+}
+
+/// CPU-mining flavour of `run_worker`: pairs with `cpu_miner::cpu_miner_task`.
+/// Spawn both on the same executor (or the same core).
+#[embassy_executor::task]
+pub async fn cpu_worker_task() -> ! {
+    run_worker(cpu_miner::ChannelAsic::new()).await
 }
 
 /// Rolls `ntime` on the in-flight assignment at 1 Hz. The assignment itself

@@ -12,7 +12,7 @@ display = []
 dummy-asic = []
 # cpu-mining is mutually exclusive with dummy-asic: enable with
 # `--no-default-features --features "display,cpu-mining"`.
-cpu-mining = ["dep:ubos-backend", "dep:heapless"]
+cpu-mining = ["dep:ubos-backend", "dep:cpu-miner", "dep:heapless"]
 
 [dependencies]
 eth-examples        = { workspace = true }
@@ -29,6 +29,7 @@ cortex-m            = { version = "0.7", features = ["inline-asm", "critical-sec
 cortex-m-rt         = "0.7"
 heapless            = { workspace = true, optional = true }
 portable-atomic     = { workspace = true }
+cpu-miner           = { workspace = true, optional = true }
 ubos-backend        = { path = "../../ubos-backend", optional = true }
 
 # cortex-m is pulled in for the `critical-section-single-core`

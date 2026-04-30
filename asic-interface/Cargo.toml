@@ -1,0 +1,10 @@
+[package]
+edition = "2021"
+name    = "asic-interface"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+defmt = { workspace = true }

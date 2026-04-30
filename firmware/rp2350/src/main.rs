@@ -250,7 +250,12 @@ async fn boot(spawner: Spawner) {
     embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), || {
         eth_examples::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner| {
             #[cfg(feature = "cpu-mining")]
-            core1_spawner.spawn(unwrap!(ubos_backend::cpu_solver_task()));
+            {
+                core1_spawner.spawn(unwrap!(ubos_backend::cpu_worker_task()));
+                core1_spawner.spawn(unwrap!(cpu_miner::cpu_miner_task(
+                    &ubos_backend::TOTAL_HASHES
+                )));
+            }
             #[cfg(not(feature = "cpu-mining"))]
             let _ = core1_spawner;
         });
@@ -369,7 +374,7 @@ async fn boot(spawner: Spawner) {
 
     #[cfg(feature = "cpu-mining")]
     {
-        // cpu_solver_task runs on core 1 (see spawn_core1 above).
+        // cpu_worker_task and cpu_miner_task run on core 1 (see spawn_core1 above).
         spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
         spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
         spawner.spawn(unwrap!(ubos_backend::hashrate_task()));

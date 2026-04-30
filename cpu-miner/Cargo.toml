@@ -7,6 +7,9 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-embassy-futures = { workspace = true }
-portable-atomic = { workspace = true }
-sha2            = { workspace = true }
+asic-interface   = { workspace = true }
+embassy-executor = { workspace = true }
+embassy-futures  = { workspace = true }
+embassy-sync     = { workspace = true, features = ["defmt"] }
+portable-atomic  = { workspace = true }
+sha2             = { workspace = true }

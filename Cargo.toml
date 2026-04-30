@@ -29,8 +29,8 @@ sha2              = { workspace = true }
 # `cpu_load::run_cortex_m_executor`. Gated to ARM so the ESP32-S3
 # build does not pull in the cortex-m crate.
 [target.'cfg(target_arch = "arm")'.dependencies]
-cortex-m         = "0.7"
-embassy-executor = { workspace = true }
+cortex-m          = "0.7"
+embassy-executor  = { workspace = true }
 
 [workspace]
 resolver = "2"
@@ -41,6 +41,7 @@ members = [
     "firmware/stm32f407",
     "firmware/stm32f439",
     "firmware/esp32s3",
+    "asic-interface",
     "cpu-miner",
     "dummy-asic",
     "esp32s3-tsens",
@@ -75,6 +76,7 @@ format_no_std     = "1.2.0"
 nb                = "1"
 sha2              = { version = "0.10", default-features = false }
 esp32s3-tsens     = { path = "esp32s3-tsens" }
+asic-interface    = { path = "asic-interface" }
 cpu-miner         = { path = "cpu-miner" }
 stratum-v1-core   = { path = "stratum-v1-core" }
 

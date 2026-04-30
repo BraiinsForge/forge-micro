@@ -7,6 +7,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+asic-interface    = { workspace = true }
 cpu-miner         = { workspace = true }
 embassy-executor  = { workspace = true }
 embassy-futures   = { workspace = true }

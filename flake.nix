@@ -386,6 +386,13 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-asic-interface = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p asic-interface";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
           test = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;

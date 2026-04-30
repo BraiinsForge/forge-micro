@@ -12,7 +12,7 @@ display = []
 dummy-asic = []
 # cpu-mining is mutually exclusive with dummy-asic: enable with
 # `--no-default-features --features "display,cpu-mining"`.
-cpu-mining = ["dep:ubos-backend", "dep:heapless"]
+cpu-mining = ["dep:ubos-backend", "dep:cpu-miner", "dep:heapless"]
 
 [dependencies]
 eth-examples        = { workspace = true }
@@ -30,6 +30,7 @@ embedded-hal-bus    = { workspace = true, features = ["async"] }
 portable-atomic     = { workspace = true }
 cortex-m            = { version = "0.7", features = ["inline-asm"] }
 cortex-m-rt         = "0.7"
+cpu-miner           = { workspace = true, optional = true }
 ubos-backend        = { path = "../../ubos-backend", optional = true }
 
 # cortex-m and cortex-m-rt are pulled in by `#[embassy_executor::main]` and

@@ -1,8 +1,10 @@
 //! Bitcoin header math and CPU mining loop.
 //!
 //! Provides block-header construction, target comparison, double-SHA256
-//! hashing, and an async nonce-scan loop. Contains no Stratum protocol
-//! knowledge; callers supply pre-decoded header fields and a pool target.
+//! hashing, an async nonce-scan loop, and the in-process implementation
+//! of `asic_interface::AsicInterface`. `ChannelAsic` and `cpu_miner_task`
+//! together pair with a generic worker so the same code path drives the
+//! CPU miner here or a real ASIC over UART elsewhere.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -13,6 +15,13 @@
 #[path = "tests/header.rs"]
 mod tests;
 
+use core::convert::Infallible;
+
+use asic_interface::{AsicInterface, RawShare, WorkFrame};
+use embassy_futures::select::{select, Either};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_sync::watch::Watch;
 use portable_atomic::Ordering;
 use sha2::{Digest, Sha256};
 
@@ -24,6 +33,53 @@ use sha2::{Digest, Sha256};
 // needs scheduling slots to consume produced shares. 100 iters yields
 // roughly every 10 ms on the slower cores, satisfying both cases.
 const SOLVER_YIELD_INTERVAL: u32 = 100;
+
+/// Worker to `cpu_miner_task`: latest work to mine. Watch semantics mean
+/// a fresh frame supersedes whatever the miner is currently working on.
+pub static WORK_WATCH: Watch<CriticalSectionRawMutex, WorkFrame, 1> = Watch::new();
+
+/// `cpu_miner_task` to worker: shares produced for the in-flight work.
+/// Capacity > 1 covers the brief window where the miner has produced a
+/// share before the worker has snapshotted the next frame.
+pub static SHARE_CHANNEL: Channel<CriticalSectionRawMutex, RawShare, 4> = Channel::new();
+
+/// `AsicInterface` backed by `WORK_WATCH` and `SHARE_CHANNEL`. Pairs with
+/// `cpu_miner_task`; together they preserve the previous in-process CPU
+/// mining behaviour while running on the same generic worker code path
+/// that a UART ASIC will use.
+pub struct ChannelAsic {
+    work_sender: embassy_sync::watch::Sender<'static, CriticalSectionRawMutex, WorkFrame, 1>,
+    share_receiver: embassy_sync::channel::Receiver<'static, CriticalSectionRawMutex, RawShare, 4>,
+}
+
+impl ChannelAsic {
+    /// Construct a `ChannelAsic` bound to the module-level statics.
+    pub fn new() -> Self {
+        Self {
+            work_sender: WORK_WATCH.sender(),
+            share_receiver: SHARE_CHANNEL.receiver(),
+        }
+    }
+}
+
+impl Default for ChannelAsic {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AsicInterface for ChannelAsic {
+    type Error = Infallible;
+
+    async fn send_work(&mut self, work: &WorkFrame) -> Result<(), Self::Error> {
+        self.work_sender.send(*work);
+        Ok(())
+    }
+
+    async fn recv_share(&mut self) -> Result<RawShare, Self::Error> {
+        Ok(self.share_receiver.receive().await)
+    }
+}
 
 /// Build the 80-byte block header.
 ///
@@ -127,39 +183,63 @@ pub fn header_hash(
     out
 }
 
-/// Scan nonces starting at `start_nonce` until a hash meeting `target` is
-/// found. Yields to the executor every `SOLVER_YIELD_INTERVAL` iterations
-/// and bumps `total_hashes` by the same amount so the caller can track
-/// throughput without paying an atomic per hash.
-#[allow(clippy::too_many_arguments)]
-pub async fn mine_share(
-    version: u32,
-    prev_hash: [u8; 32],
-    merkle_root: [u8; 32],
-    ntime: u32,
-    nbits: u32,
-    start_nonce: u32,
+/// Scan nonces starting at the value already encoded in `header[76..80]`,
+/// returning the first nonce whose double-SHA256 meets `target`. Yields
+/// every `SOLVER_YIELD_INTERVAL` iterations so the executor can serve
+/// other tasks; bumps `total_hashes` in the same batches.
+pub async fn mine_share_header(
+    mut header: [u8; 80],
     target: [u8; 32],
     total_hashes: &portable_atomic::AtomicU64,
 ) -> u32 {
-    let mut header = build_header(version, prev_hash, merkle_root, ntime, nbits, start_nonce);
-
+    let start_nonce = u32::from_le_bytes([header[76], header[77], header[78], header[79]]);
+    let mut nonce = start_nonce;
     let mut result_hash = [0u8; 32];
-    let mut nonce: u32 = start_nonce;
-
     loop {
         header[76..80].copy_from_slice(&nonce.to_le_bytes());
         double_sha256(&header, &mut result_hash);
-
         if hash_meets_target(&result_hash, &target) {
             return nonce;
         }
-
         nonce = nonce.wrapping_add(1);
-
         if nonce.is_multiple_of(SOLVER_YIELD_INTERVAL) {
             embassy_futures::yield_now().await;
             total_hashes.fetch_add(u64::from(SOLVER_YIELD_INTERVAL), Ordering::Relaxed);
+        }
+    }
+}
+
+/// CPU-side mining loop. Reads the latest `WorkFrame` from `WORK_WATCH`,
+/// runs `mine_share_header` on it, and pushes shares to `SHARE_CHANNEL`.
+/// A new frame in the watch aborts the in-flight search via `select`.
+#[embassy_executor::task]
+pub async fn cpu_miner_task(total_hashes: &'static portable_atomic::AtomicU64) -> ! {
+    // cpu-miner is the sole receiver of WORK_WATCH and the watch capacity
+    // is 1, so the receiver slot is always free.
+    let mut work_receiver = WORK_WATCH
+        .receiver()
+        .expect("BUG: WORK_WATCH receiver capacity exhausted");
+    let mut work = work_receiver.changed().await;
+    loop {
+        match select(
+            mine_share_header(work.header, work.target, total_hashes),
+            work_receiver.changed(),
+        )
+        .await
+        {
+            Either::First(nonce) => {
+                // Channel full means the worker is behind. Drop rather
+                // than block: worker resends fresh work next round.
+                let _ = SHARE_CHANNEL.try_send(RawShare {
+                    nonce,
+                    work_id: work.work_id,
+                });
+                let next_nonce = nonce.wrapping_add(1);
+                work.header[76..80].copy_from_slice(&next_nonce.to_le_bytes());
+            }
+            Either::Second(fresh) => {
+                work = fresh;
+            }
         }
     }
 }
