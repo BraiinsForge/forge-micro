@@ -92,6 +92,11 @@ incremental   = false
 lto           = "fat"
 opt-level     = "s"
 
+# The dummy-asic mining loop is a tight hot path where speed matters
+# more than image size. Override just this crate to opt-level 3.
+[profile.release.package.dummy-asic]
+opt-level = 3
+
 # Vendored copy of embassy-net-wiznet 0.3.0 with the read_frame underflow
 # fix from upstream commit 14592448 applied on top. Single-crate patch
 # keeps every transitive embassy dep on crates.io. Patching embassy-time
