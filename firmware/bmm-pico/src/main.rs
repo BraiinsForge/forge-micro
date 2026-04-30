@@ -8,6 +8,12 @@
 #![no_std]
 #![no_main]
 
+#[cfg(all(feature = "dummy-asic", feature = "cpu-mining"))]
+compile_error!(
+    "features `dummy-asic` and `cpu-mining` are mutually exclusive; \
+     enable cpu-mining with --no-default-features --features \"display,cpu-mining\""
+);
+
 use defmt::{info, unwrap};
 #[cfg(feature = "cpu-mining")]
 use embassy_executor::Executor;
@@ -158,9 +164,9 @@ async fn temperature_task(sensor: BoardTempSensor) -> ! {
     eth_examples::temperature::run_temperature(sensor).await
 }
 
-/// Publish the current hashrate as a Prometheus metric. Reads the atomic
-/// populated by `ubos_backend::hashrate_task` and pushes it through the
-/// shared metrics channel on a fixed cadence.
+/// Publish the current hashrate as a Prometheus metric and mirror it
+/// into `eth_examples::hashrate` so the unified display and HTTP
+/// surfaces render the cpu-miner rate.
 #[cfg(feature = "cpu-mining")]
 #[embassy_executor::task]
 async fn hashrate_metrics_task() -> ! {
@@ -168,6 +174,10 @@ async fn hashrate_metrics_task() -> ! {
     loop {
         ticker.next().await;
         let hashrate_hz = ubos_backend::HASHRATE_HZ.load(Ordering::Relaxed);
+        // Saturating cast: a cpu miner saturating u32 H/s is out of scope.
+        eth_examples::hashrate::record_external_rate(
+            u32::try_from(hashrate_hz).unwrap_or(u32::MAX),
+        );
         eth_examples::metrics::push(Metric {
             name: "board_hashrate_hz",
             labels: heapless::Vec::new(),
@@ -184,16 +194,10 @@ type OledDisplay = Sh1106<
     Output<'static>,
 >;
 
-#[cfg(all(feature = "display", feature = "cpu-mining"))]
+#[cfg(feature = "display")]
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay) -> ! {
-    eth_examples::display::run_async_hashrate(&mut display, &ubos_backend::HASHRATE_HZ).await
-}
-
-#[cfg(all(feature = "display", not(feature = "cpu-mining")))]
-#[embassy_executor::task]
-async fn display_task(mut display: OledDisplay) -> ! {
-    eth_examples::display::run_async(&mut display).await
+    eth_examples::display::run(&mut display).await
 }
 
 #[cfg(feature = "dummy-asic")]
@@ -282,15 +286,15 @@ async fn main(spawner: Spawner) {
 
     #[cfg(feature = "dummy-asic")]
     {
-        static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
-        static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+        static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+        static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
         let uart = BufferedUart::new(
             hw.uart,
             hw.uart_tx,
             hw.uart_rx,
             Irqs,
-            TX_BUF.init([0; 256]),
-            RX_BUF.init([0; 256]),
+            TX_BUF.init([0; 1024]),
+            RX_BUF.init([0; 1024]),
             {
                 let mut config = UartConfig::default();
                 config.baudrate = eth_examples::dummy_asic::BAUD_RATE;
