@@ -203,9 +203,9 @@ async fn display_task(mut display: OledDisplay) -> ! {
 #[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
 async fn dummy_asic_test(mut uart: BufferedUart) -> ! {
-    let _ = eth_examples::dummy_asic::run_test(&mut uart).await;
-    core::future::pending::<()>().await;
-    unreachable!()
+    let mut hasher = eth_examples::dummy_asic::SoftwareSha256d;
+    let _ = eth_examples::dummy_asic::run_test(&mut uart, &mut hasher).await;
+    eth_examples::dummy_asic::run_continuous_mining(&mut uart, &mut hasher).await
 }
 
 #[embassy_executor::main]

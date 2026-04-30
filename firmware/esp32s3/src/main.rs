@@ -167,8 +167,9 @@ async fn display_task(mut display: OledDisplay) -> ! {
 #[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
 async fn dummy_asic_test(mut uart: Uart<'static, esp_hal::Async>) -> ! {
-    let _ = eth_examples::dummy_asic::run_test(&mut uart).await;
-    eth_examples::dummy_asic::run_continuous_mining(&mut uart).await
+    let mut hasher = eth_examples::dummy_asic::SoftwareSha256d;
+    let _ = eth_examples::dummy_asic::run_test(&mut uart, &mut hasher).await;
+    eth_examples::dummy_asic::run_continuous_mining(&mut uart, &mut hasher).await
 }
 
 /// Brackets `flags.wait()` inside `esp_rtos::embassy::Executor::run_with_callbacks`.

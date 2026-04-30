@@ -16,6 +16,35 @@
 use embassy_time::{with_timeout, Duration};
 use sha2::{Digest, Sha256};
 
+/// Computes SHA-256d (double SHA-256) over the share's header so the
+/// host can independently confirm the peer's reported digest.  Boards
+/// with a SHA peripheral implement this in hardware; boards without one
+/// fall back to [`SoftwareSha256d`].
+pub trait Sha256dHasher {
+    /// Return SHA-256d of `data` as a 32-byte digest.
+    fn double_sha256(&mut self, data: &[u8]) -> [u8; 32];
+}
+
+/// Software SHA-256d implementation backed by the [`sha2`] crate.  Used
+/// by boards without a SHA peripheral; capable boards substitute their
+/// hardware accelerator.
+pub struct SoftwareSha256d;
+
+impl Sha256dHasher for SoftwareSha256d {
+    fn double_sha256(&mut self, data: &[u8]) -> [u8; 32] {
+        let first = sha256(data);
+        sha256(&first)
+    }
+}
+
+fn sha256(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let mut output = [0u8; 32];
+    output.copy_from_slice(&hasher.finalize());
+    output
+}
+
 // Wire format mirrored on the peer side in
 // boards/eth-examples/dummy-asic/src/protocol.rs; opcodes, frame lengths,
 // baud rate, and the temperature sentinel must move in lockstep with that
@@ -66,18 +95,6 @@ const _: () = assert!(TEST_TARGET_LEADING_ZERO_BYTES as usize <= 32);
 
 fn xor_checksum(data: &[u8]) -> u8 {
     data.iter().fold(0u8, |acc, &byte| acc ^ byte)
-}
-
-fn double_sha256(data: &[u8]) -> [u8; 32] {
-    let mut first_hasher = Sha256::new();
-    first_hasher.update(data);
-    let first = first_hasher.finalize();
-
-    let mut second_hasher = Sha256::new();
-    second_hasher.update(first);
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&second_hasher.finalize());
-    out
 }
 
 fn build_work_frame() -> [u8; WORK_FRAME_LEN] {
@@ -149,9 +166,10 @@ where
     Ok(())
 }
 
-async fn read_share<T>(uart: &mut T) -> Result<(), ()>
+async fn read_share<T, H>(uart: &mut T, hasher: &mut H) -> Result<(), ()>
 where
     T: embedded_io_async::Read,
+    H: Sha256dHasher,
 {
     let mut share = [0u8; SHARE_FRAME_LEN];
     // Scan byte-by-byte for FRAME_START so a single dropped or duplicated
@@ -192,7 +210,7 @@ where
 
     let mut verify_header = TEST_HEADER;
     verify_header[76..80].copy_from_slice(&nonce.to_le_bytes());
-    let computed_hash = double_sha256(&verify_header);
+    let computed_hash = hasher.double_sha256(&verify_header);
 
     if computed_hash != reported_hash {
         defmt::error!("dummy-asic: hash mismatch for nonce {:08x}", nonce);
@@ -212,12 +230,13 @@ where
     Ok(())
 }
 
-async fn run_work_round<T>(uart: &mut T) -> Result<(), ()>
+async fn run_work_round<T, H>(uart: &mut T, hasher: &mut H) -> Result<(), ()>
 where
     T: embedded_io_async::Read + embedded_io_async::Write,
+    H: Sha256dHasher,
 {
     send_work(uart).await?;
-    read_share(uart).await
+    read_share(uart, hasher).await
 }
 
 async fn run_temp_round<T>(uart: &mut T) -> Result<(), ()>
@@ -286,11 +305,12 @@ where
 /// rehash failure.  The specific failure mode is logged at error level.
 /// A `TempReport` carrying the "unavailable" sentinel is *not* an error
 /// — the protocol round-trip passed, the peer simply has no live sampler.
-pub async fn run_test<T>(uart: &mut T) -> Result<(), ()>
+pub async fn run_test<T, H>(uart: &mut T, hasher: &mut H) -> Result<(), ()>
 where
     T: embedded_io_async::Read + embedded_io_async::Write,
+    H: Sha256dHasher,
 {
-    run_work_round(uart).await?;
+    run_work_round(uart, hasher).await?;
     run_temp_round(uart).await
 }
 
@@ -300,13 +320,14 @@ where
 /// round, removing the UART round-trip from the per-share critical
 /// path.  A failed share read re-kicks the solver with a fresh Work
 /// frame so transient UART faults do not wedge the loop.
-pub async fn run_continuous_mining<T>(uart: &mut T) -> !
+pub async fn run_continuous_mining<T, H>(uart: &mut T, hasher: &mut H) -> !
 where
     T: embedded_io_async::Read + embedded_io_async::Write,
+    H: Sha256dHasher,
 {
     let _ = send_work(uart).await;
     loop {
-        if read_share(uart).await.is_err() {
+        if read_share(uart, hasher).await.is_err() {
             let _ = send_work(uart).await;
         }
     }
