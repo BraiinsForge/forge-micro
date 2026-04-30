@@ -20,10 +20,12 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_hal::dma::{DmaRxBuf, DmaTxBuf};
 use esp_hal::dma_buffers;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
+use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::peripherals::TIMG1;
 use esp_hal::rng::Rng;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::spi::Mode;
+use esp_hal::system::Stack;
 use esp_hal::timer::timg::{MwdtStage, TimerGroup, Wdt};
 #[cfg(feature = "dummy-asic")]
 use esp_hal::uart::{Config as UartConfig, Uart};
@@ -131,7 +133,7 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
-    eth_examples::cpu_load::run_cpu_load::<1>().await
+    eth_examples::cpu_load::run_cpu_load::<2>().await
 }
 
 /// Adapts `esp32s3_tsens::Tsens` to the eth-examples `TemperatureSensor` trait.
@@ -262,6 +264,24 @@ async fn boot(spawner: Spawner) {
 
     let timg0 = TimerGroup::new(hw.timg0);
     esp_rtos::start(timg0.timer0);
+
+    // Bring up APP_CPU with its own embassy executor so its idle wait
+    // populates `IDLE_TICKS[1]`. The board has no work pinned to core 1;
+    // the executor exists solely so the second core's busy ratio is
+    // observable in `board_cpu_busy_ratio{cpu="1"}`.
+    static APP_EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
+    static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
+    let software_interrupts = SoftwareInterruptControl::new(hw.sw_interrupt);
+    esp_rtos::start_second_core(
+        hw.cpu_ctrl,
+        software_interrupts.software_interrupt0,
+        software_interrupts.software_interrupt1,
+        APP_CORE_STACK.init(Stack::new()),
+        || {
+            let executor = APP_EXECUTOR.init(esp_rtos::embassy::Executor::new());
+            executor.run_with_callbacks(|_app_spawner| {}, IdleAccounting::<1>::new());
+        },
+    );
 
     let timg1 = TimerGroup::new(hw.timg1);
     spawner.must_spawn(watchdog_task(BoardWatchdog(timg1.wdt)));
