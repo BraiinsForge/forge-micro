@@ -30,6 +30,7 @@ embedded-hal-bus    = { workspace = true, features = ["async"] }
 portable-atomic     = { workspace = true }
 cortex-m            = { version = "0.7", features = ["inline-asm"] }
 cortex-m-rt         = "0.7"
+rp235x-sha256       = { path = "../../rp235x-sha256" }
 ubos-backend        = { path = "../../ubos-backend", optional = true }
 
 # cortex-m is pulled in for the `inline-asm` feature; no direct

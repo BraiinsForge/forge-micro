@@ -205,10 +205,31 @@ async fn display_task(mut display: OledDisplay) -> ! {
     eth_examples::display::run(&mut display).await
 }
 
+/// Local newtype that adapts `rp235x_sha256::HardwareSha256d` to the
+/// `Sha256dHasher` trait defined in the `eth-examples` library crate.
+/// The orphan rule requires the impl to live in a crate that owns either
+/// the trait or the implementing type; this wrapper satisfies that by
+/// making the implementing type local to this firmware crate.
+#[cfg(feature = "dummy-asic")]
+struct HardwareSha256d(rp235x_sha256::HardwareSha256d);
+
+#[cfg(feature = "dummy-asic")]
+impl eth_examples::dummy_asic::Sha256dHasher for HardwareSha256d {
+    fn double_sha256(&mut self, data: &[u8]) -> [u8; 32] {
+        let header: &[u8; 80] = data
+            .try_into()
+            // The dummy-asic protocol always sends exactly 80 bytes.
+            .expect("BUG: dummy-asic data slice is not 80 bytes");
+        self.0.double_sha256_block_header(header)
+    }
+}
+
 #[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
 async fn dummy_asic_test(mut uart: BufferedUart) -> ! {
-    let mut hasher = eth_examples::dummy_asic::SoftwareSha256d;
+    // First and only caller of take() in the build.
+    let driver = rp235x_sha256::HardwareSha256d::take().expect("BUG: SHA-256 driver already taken");
+    let mut hasher = HardwareSha256d(driver);
     let _ = eth_examples::dummy_asic::run_test(&mut uart, &mut hasher).await;
     eth_examples::dummy_asic::run_continuous_mining(&mut uart, &mut hasher).await
 }

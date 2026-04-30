@@ -2625,6 +2625,7 @@ dependencies = [
  "heapless 0.8.0",
  "panic-probe",
  "portable-atomic",
+ "rp235x-sha256",
  "static_cell",
  "ubos-backend",
 ]
