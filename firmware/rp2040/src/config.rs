@@ -5,8 +5,8 @@
 //! through `main`.
 
 use embassy_rp::peripherals::{
-    ADC, ADC_TEMP_SENSOR, DMA_CH0, DMA_CH1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_25,
-    SPI0, WATCHDOG,
+    ADC, ADC_TEMP_SENSOR, CORE1, DMA_CH0, DMA_CH1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21,
+    PIN_25, SPI0, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_8, PIN_9, SPI1};
@@ -30,6 +30,7 @@ pub struct Board {
     pub w5500_reset: Peri<'static, PIN_20>,
     pub rx_dma: Peri<'static, DMA_CH0>,
     pub tx_dma: Peri<'static, DMA_CH1>,
+    pub core1: Peri<'static, CORE1>,
     #[cfg(feature = "dummy-asic")]
     pub uart: Peri<'static, UART1>,
     #[cfg(feature = "dummy-asic")]
@@ -73,6 +74,7 @@ impl Board {
             w5500_reset: peripherals.PIN_20,
             rx_dma: peripherals.DMA_CH0,
             tx_dma: peripherals.DMA_CH1,
+            core1: peripherals.CORE1,
             #[cfg(feature = "dummy-asic")]
             uart: peripherals.UART1,
             #[cfg(feature = "dummy-asic")]
@@ -115,6 +117,12 @@ impl DisplaySpi {
 pub struct Watchdog;
 impl Watchdog {
     pub const TIMEOUT: Duration = Duration::from_secs(2);
+}
+
+/// Core 1 stack size for the idle-accounting executor.
+pub struct Core1;
+impl Core1 {
+    pub const STACK_BYTES: usize = 4096;
 }
 
 /// Stratum pool connection parameters.

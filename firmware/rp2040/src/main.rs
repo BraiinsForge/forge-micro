@@ -44,7 +44,7 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use eth_examples::metrics::{Metric, Value};
 #[cfg(feature = "cpu-mining")]
 use portable_atomic::Ordering;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 #[cfg(feature = "cpu-mining")]
 use ubos_backend::PoolConfig;
 use {defmt_rtt as _, panic_probe as _};
@@ -164,7 +164,7 @@ async fn temperature_task(sensor: BoardTempSensor) -> ! {
 
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
-    eth_examples::cpu_load::run_cpu_load::<1>().await
+    eth_examples::cpu_load::run_cpu_load::<2>().await
 }
 
 /// Publish the current hashrate as a Prometheus metric and mirror it
@@ -224,6 +224,16 @@ async fn boot(spawner: Spawner) {
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
+
+    // Run an empty embassy executor on core 1 so its wfe-bracketed idle
+    // wait feeds `IDLE_TICKS[1]`. The board has no work for core 1; the
+    // metric exists to confirm the second core is reachable and parked.
+    static CORE1_STACK: ConstStaticCell<
+        embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>,
+    > = ConstStaticCell::new(embassy_rp::multicore::Stack::new());
+    embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), || {
+        eth_examples::cpu_load::run_cortex_m_executor::<1, _>(|_spawner| {});
+    });
 
     spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(Watchdog::new(
         hw.watchdog
