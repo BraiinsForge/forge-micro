@@ -15,8 +15,6 @@ compile_error!(
 );
 
 use defmt::{info, unwrap};
-#[cfg(feature = "cpu-mining")]
-use embassy_executor::Executor;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W6100;
@@ -48,9 +46,7 @@ use eth_examples::metrics::{Metric, Value};
 use eth_examples::sh1106::Sh1106;
 #[cfg(feature = "cpu-mining")]
 use portable_atomic::Ordering;
-#[cfg(feature = "cpu-mining")]
-use static_cell::ConstStaticCell;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
@@ -166,7 +162,7 @@ async fn temperature_task(sensor: BoardTempSensor) -> ! {
 
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
-    eth_examples::cpu_load::run_cpu_load::<1>().await
+    eth_examples::cpu_load::run_cpu_load::<2>().await
 }
 
 /// Publish the current hashrate as a Prometheus metric and mirror it
@@ -246,27 +242,19 @@ async fn boot(spawner: Spawner) {
 
     // The CPU solver hogs the scheduler. Pin it to core 1 so the
     // embassy-net stack on core 0 keeps getting CPU time and the W6100
-    // SPI path stays responsive.
-    //
-    // Core 1 runs `embassy_executor::Executor::run`, whose internal
-    // `wfe` loop is not bracketed for idle accounting. The published
-    // `board_cpu_busy_ratio{cpu="0"}` therefore reflects only core 0;
-    // `cpu-mining` work on core 1 is not visible in the metric.
-    // Lifting `MAX_CPUS` to 2 in `eth_examples::cpu_load` and driving
-    // core 1 through `run_cortex_m_executor::<1, _>` would close this.
-    #[cfg(feature = "cpu-mining")]
-    {
-        static CORE1_STACK: ConstStaticCell<
-            embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>,
-        > = ConstStaticCell::new(embassy_rp::multicore::Stack::new());
-        static CORE1_EXECUTOR: static_cell::StaticCell<Executor> = static_cell::StaticCell::new();
-        embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
-            let executor = CORE1_EXECUTOR.init(Executor::new());
-            executor.run(|core1_spawner: Spawner| {
-                core1_spawner.spawn(unwrap!(ubos_backend::cpu_solver_task()));
-            })
+    // SPI path stays responsive. Core 1 runs the same wfe-bracketed
+    // executor as core 0 so its idle ticks land in `IDLE_TICKS[1]`.
+    static CORE1_STACK: ConstStaticCell<
+        embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>,
+    > = ConstStaticCell::new(embassy_rp::multicore::Stack::new());
+    embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), || {
+        eth_examples::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner| {
+            #[cfg(feature = "cpu-mining")]
+            core1_spawner.spawn(unwrap!(ubos_backend::cpu_solver_task()));
+            #[cfg(not(feature = "cpu-mining"))]
+            let _ = core1_spawner;
         });
-    }
+    });
 
     spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(Watchdog::new(
         hw.watchdog

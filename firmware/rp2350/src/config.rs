@@ -116,9 +116,8 @@ impl Watchdog {
     pub const TIMEOUT: Duration = Duration::from_secs(2);
 }
 
-#[cfg(feature = "cpu-mining")]
+/// Core 1 stack size for the idle-accounting executor.
 pub struct Core1;
-#[cfg(feature = "cpu-mining")]
 impl Core1 {
     pub const STACK_BYTES: usize = 4096;
 }
