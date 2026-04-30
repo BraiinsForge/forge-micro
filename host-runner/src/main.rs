@@ -25,10 +25,9 @@ use embassy_net_afpacket::AfPacketDevice;
 use embassy_net_driver::{Capabilities, Driver, HardwareAddress, LinkState};
 use embassy_net_tuntap::TunTapDevice;
 use embassy_time::{Duration, Ticker, Timer};
-use embedded_serial_unix::Serial;
 use eth_examples::metrics::{Metric, Value};
 use eth_examples::net;
-use log::{error, info, warn};
+use log::{info, warn};
 use rand::rngs::OsRng;
 use static_cell::StaticCell;
 use ubos_backend::{hashrate_task, stratum_task, PoolConfig};
@@ -37,7 +36,6 @@ mod gpiod;
 mod miner;
 mod mmm_serial;
 mod psu;
-mod uart_loopback;
 
 const TAP_NAME: &str = "tap0";
 const HOST_IP: Ipv4Address = Ipv4Address::new(192, 168, 69, 2);
@@ -46,17 +44,6 @@ const GATEWAY: Ipv4Address = Ipv4Address::new(192, 168, 69, 1);
 const DNS_SERVER: Ipv4Address = Ipv4Address::new(1, 1, 1, 1);
 const SOCKET_COUNT: usize = 8;
 const BOARD_NAME: &str = "host-runner";
-
-/// Serial device the loopback exercise opens. Hard-coded because every
-/// host that wires up an external USB-to-UART bridge for this runner
-/// uses the kernel's first ttyUSB; a missing device just disables the
-/// loopback task while the rest of the runner keeps going.
-const UART_LOOPBACK_PATH: &str = "/dev/ttyUSB0";
-
-/// Baud rate for the loopback device. Matches the rp2350 firmware's
-/// `UartLoopback::BAUD_RATE` so a host wired to the rp2350 exercises
-/// the same line settings end-to-end.
-const UART_LOOPBACK_BAUD: u32 = 115_200;
 
 /// Last-resort MAC reported to the embassy stack on the `AF_PACKET`
 /// path when neither the override env var nor the sysfs read succeed.
@@ -338,19 +325,6 @@ fn main() {
 
     let (device, config) = open_host_device();
 
-    // Open the loopback serial up-front. A failure here just disables
-    // the loopback task; the rest of the runner still comes up.
-    let uart_loopback = match Serial::open(UART_LOOPBACK_PATH, UART_LOOPBACK_BAUD) {
-        Ok(serial) => Some(serial.split()),
-        Err(error) => {
-            error!(
-                "host-runner: failed to open {UART_LOOPBACK_PATH}: {error}; \
-                 uart loopback disabled"
-            );
-            None
-        }
-    };
-
     // Seconds-since-epoch are enough entropy for TCP ISN randomness on a
     // development host; this is not the firmware's crypto RNG path.
     let seed = SystemTime::now()
@@ -385,12 +359,6 @@ fn main() {
                 "host-runner: {} unset or i2c open failed; mmm miner not spawned",
                 psu::I2C_BUS_ENV
             ),
-        }
-        if let Some((rx, tx)) = uart_loopback {
-            spawner.spawn(uart_loopback::loopback_task(rx, tx).expect("BUG: uart loopback token"));
-            spawner.spawn(
-                uart_loopback::heartbeat_task().expect("BUG: uart loopback heartbeat token"),
-            );
         }
     });
 }
