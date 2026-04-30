@@ -21,10 +21,7 @@ pub(crate) async fn reader_task(mut rx: UartRx<'static, esp_hal::Async>) -> ! {
     loop {
         match read_request_frame(&mut rx).await {
             Request::Work(work) => {
-                defmt::debug!(
-                    "dummy-asic: received work, target={} zero bytes",
-                    work.target_leading_zero_bytes
-                );
+                defmt::debug!("dummy-asic: received work");
                 CURRENT_WORK.sender().send(work);
             }
             Request::ReadTemp => {

@@ -32,15 +32,15 @@
 //!
 //! # Binary protocol — UART1, 921 600 baud, GPIO8 TX / GPIO9 RX
 //!
-//! ## Work frame (host → dummy-asic, opcode 0x01) — 84 bytes total
+//! ## Work frame (host → dummy-asic, opcode 0x01) — 115 bytes total
 //!
 //! | Offset | Size | Content |
 //! |--------|------|---------|
 //! | 0      | 1    | Start byte `0xA5` |
 //! | 1      | 1    | Opcode `0x01` |
 //! | 2      | 80   | 80-byte Bitcoin block header; the solver overwrites the nonce field |
-//! | 82     | 1    | `target_leading_zero_bytes` |
-//! | 83     | 1    | XOR-8 checksum over bytes 1–82 (opcode + payload) |
+//! | 82     | 32   | 256-bit target, little-endian; hash accepted when `digest <= target` |
+//! | 114    | 1    | XOR-8 checksum over bytes 1–114 (opcode + payload) |
 //!
 //! ## Share frame (dummy-asic → host, opcode 0x02) — 39 bytes total
 //!

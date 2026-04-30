@@ -32,7 +32,7 @@ const OPCODE_READ_TEMP: u8 = 0x03;
 const OPCODE_TEMP_REPORT: u8 = 0x04;
 
 /// Total size of a Work frame in bytes.
-const WORK_FRAME_LEN: usize = 84;
+const WORK_FRAME_LEN: usize = 115;
 
 /// Total size of a Share frame in bytes.
 const SHARE_FRAME_LEN: usize = 39;
@@ -56,10 +56,10 @@ pub(crate) const UNKNOWN_TEMP_MILLI_CELSIUS: i32 = i32::MIN;
 pub(crate) struct Work {
     /// 80-byte Bitcoin block header.
     pub(crate) header: [u8; 80],
-    /// Required leading zero bytes of the displayed hash.  Bitcoin reverses
-    /// the 32-byte SHA-256d digest for display, so this equals the trailing
-    /// zero bytes of the raw digest.
-    pub(crate) target_leading_zero_bytes: u8,
+    /// 256-bit mining target, little-endian.  A hash is accepted when the
+    /// raw SHA-256d digest, interpreted as a 256-bit little-endian integer,
+    /// is less than or equal to this value.
+    pub(crate) target: [u8; 32],
 }
 
 /// A solution produced by the solver task.
@@ -204,21 +204,11 @@ async fn read_work_tail(rx: &mut UartRx<'static, esp_hal::Async>) -> Option<Work
         return None;
     }
 
-    let target_leading_zero_bytes = frame[82];
-    if target_leading_zero_bytes == 0 || target_leading_zero_bytes as usize > 32 {
-        defmt::warn!(
-            "dummy-asic: invalid target {} (expected 1..=32), resyncing",
-            target_leading_zero_bytes
-        );
-        return None;
-    }
-
     let mut header = [0u8; 80];
     header.copy_from_slice(&frame[2..82]);
-    Some(Work {
-        header,
-        target_leading_zero_bytes,
-    })
+    let mut target = [0u8; 32];
+    target.copy_from_slice(&frame[82..114]);
+    Some(Work { header, target })
 }
 
 /// Parse the remainder of a `ReadTemp` frame after the start byte and

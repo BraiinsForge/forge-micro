@@ -63,7 +63,7 @@ const OPCODE_WORK: u8 = 0x01;
 const OPCODE_SHARE: u8 = 0x02;
 const OPCODE_READ_TEMP: u8 = 0x03;
 const OPCODE_TEMP_REPORT: u8 = 0x04;
-const WORK_FRAME_LEN: usize = 84;
+const WORK_FRAME_LEN: usize = 115;
 const SHARE_FRAME_LEN: usize = 39;
 const READ_TEMP_FRAME_LEN: usize = 3;
 const TEMP_REPORT_FRAME_LEN: usize = 7;
@@ -82,31 +82,13 @@ const TEST_HEADER: [u8; 80] = {
     header
 };
 
-/// Require one trailing zero byte in the raw SHA-256d digest.  The
-/// dummy-asic solves faster than the UART can drain, so the effective
-/// share rate is bounded by UART bandwidth.  Many shares per EWMA
-/// bucket keep the displayed hashrate visually smooth.
-pub const TEST_TARGET_LEADING_ZERO_BYTES: u8 = 1;
-
-// Guard the `32 - TEST_TARGET_LEADING_ZERO_BYTES` arithmetic below: a
-// SHA-256 digest is 32 bytes, so any target beyond that would underflow
-// the slice index. Compile-time failure is cheaper than the runtime trap.
-const _: () = assert!(TEST_TARGET_LEADING_ZERO_BYTES as usize <= 32);
-
-/// 256-bit little-endian target equivalent to the trailing-zero-byte
-/// test above, used to feed `asic_interface::record_share` with a
-/// difficulty input that matches what the dummy-asic actually scans
-/// to.  The MSB lives at index 31, so zeroing the top
-/// `TEST_TARGET_LEADING_ZERO_BYTES` bytes there gives the correct
-/// hashes-per-share count for the EWMA estimator.
-const TEST_WIRE_TARGET: [u8; 32] = {
-    let mut target = [0xffu8; 32];
-    let leading_zero_bytes = TEST_TARGET_LEADING_ZERO_BYTES as usize;
-    let mut index = 0;
-    while index < leading_zero_bytes {
-        target[31 - index] = 0;
-        index += 1;
-    }
+/// Test target: 256-bit little-endian value requiring the top byte of
+/// the raw SHA-256d digest to be zero (equivalent to one trailing-zero
+/// byte in display order). Picked so the dummy-asic produces many
+/// shares per UART window for a smooth hashrate display.
+pub const TEST_TARGET: [u8; 32] = {
+    let mut target = [0xFFu8; 32];
+    target[31] = 0x00;
     target
 };
 
@@ -114,12 +96,29 @@ fn xor_checksum(data: &[u8]) -> u8 {
     data.iter().fold(0u8, |acc, &byte| acc ^ byte)
 }
 
+/// Return `true` when `hash` (256-bit little-endian integer) is `<=`
+/// `target`. Mirrors `cpu_miner::hash_meets_target`; duplicated here
+/// because this file participates in xtensa builds of `eth-examples`
+/// where `cpu-miner` is unavailable: pulling it in would drag in an
+/// embassy-executor version that conflicts with esp-rtos's pin.
+fn hash_meets_target(hash: &[u8; 32], target: &[u8; 32]) -> bool {
+    for index in (0..32).rev() {
+        if hash[index] < target[index] {
+            return true;
+        }
+        if hash[index] > target[index] {
+            return false;
+        }
+    }
+    true
+}
+
 fn build_work_frame() -> [u8; WORK_FRAME_LEN] {
     let mut frame = [0u8; WORK_FRAME_LEN];
     frame[0] = FRAME_START;
     frame[1] = OPCODE_WORK;
     frame[2..82].copy_from_slice(&TEST_HEADER);
-    frame[82] = TEST_TARGET_LEADING_ZERO_BYTES;
+    frame[82..114].copy_from_slice(&TEST_TARGET);
     frame[WORK_FRAME_LEN - 1] = xor_checksum(&frame[1..WORK_FRAME_LEN - 1]);
     frame
 }
@@ -234,8 +233,7 @@ where
         return Err(());
     }
 
-    let tail_start = 32 - TEST_TARGET_LEADING_ZERO_BYTES as usize;
-    if !computed_hash[tail_start..].iter().all(|&byte| byte == 0) {
+    if !hash_meets_target(&computed_hash, &TEST_TARGET) {
         defmt::error!(
             "dummy-asic: reported hash does not meet target for nonce {:08x}",
             nonce
@@ -247,7 +245,7 @@ where
     // never travels through AsicInterface::next_share. Feed the
     // estimator here with the wire-target equivalent of the
     // trailing-zero-byte test the asic was scanning to.
-    asic_interface::record_share(&TEST_WIRE_TARGET);
+    asic_interface::record_share(&TEST_TARGET);
     Ok(())
 }
 

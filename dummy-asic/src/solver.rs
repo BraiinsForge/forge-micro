@@ -86,6 +86,23 @@ const FIRST_BLOCK_LEN_LO: u32 = 0x8002_0000;
 /// Word 8 carries `0x80`; word 15 is `[0, 0, 0x01, 0x00]` as LE u32.
 const SECOND_BLOCK_PAD: [u32; 8] = [0x0000_0080, 0, 0, 0, 0, 0, 0, 0x0001_0000];
 
+/// Return `true` when `hash` (256-bit little-endian integer) is `<=`
+/// `target`. Mirrors `cpu_miner::hash_meets_target`; duplicated here
+/// because the dummy-asic firmware is xtensa-only and `cpu-miner` is
+/// unavailable: pulling it in would drag in an embassy-executor
+/// version that conflicts with esp-rtos's pin.
+fn hash_meets_target(hash: &[u8; 32], target: &[u8; 32]) -> bool {
+    for index in (0..32).rev() {
+        if hash[index] < target[index] {
+            return true;
+        }
+        if hash[index] > target[index] {
+            return false;
+        }
+    }
+    true
+}
+
 /// Sweep nonces on the `APP_CPU`.  Yields to the embassy executor each
 /// time the nonce hits a `SOLVER_YIELD_MASK` boundary to keep other
 /// tasks responsive.  Restarts the sweep whenever a new Work item
@@ -113,10 +130,7 @@ pub(crate) async fn solver_task(sha_peripheral: SHA<'static>) -> ! {
         let result_words = raw_second_sha(&first_hash_words);
         let result_hash = words_to_bytes(&result_words);
 
-        // SHA-256d result is little-endian; trailing bytes are the BE
-        // leading zeros.  Check that the tail is all zero.
-        let tail = &result_hash[32 - work.target_leading_zero_bytes as usize..];
-        if tail.iter().all(|&byte| byte == 0) {
+        if hash_meets_target(&result_hash, &work.target) {
             // try_send drops the new solution on a full channel rather
             // than blocking the solver.  Continuous mining at a low
             // target produces shares faster than the UART can drain;
