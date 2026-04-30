@@ -27,6 +27,12 @@
 //! second `Instant::now()` and are accounted as idle. The metric is a
 //! coarse executor-level load indicator, not a true busy-cycle count.
 //!
+//! On multicore boards the cortex-m thread-mode pender issues `sev`,
+//! which sets the global event register on every core. A wake on one
+//! core therefore unblocks the other core's `wfe` even when that
+//! core's task list is empty, so a quiet core's idle counter is
+//! undercounted whenever a busy core makes progress.
+//!
 //! The final `clamp(0.0, 1.0)` defends against the accounting skew
 //! above and any residual `f32` rounding in the division; the metric
 //! is reported as a coarse ratio rather than a precise count.
@@ -48,18 +54,16 @@ use crate::metrics::{push, Label, LabelValue, Metric, Value};
 
 /// Maximum number of cores tracked by [`IDLE_TICKS`]. Each board
 /// declares how many of these slots it populates by passing `N_CPUS`
-/// to [`run_cpu_load`]. Bump together with the [`IDLE_TICKS`] and
-/// [`CPU_LABELS`] array literals when a board starts driving a second
-/// executor.
-pub const MAX_CPUS: usize = 1;
+/// to [`run_cpu_load`].
+pub const MAX_CPUS: usize = 2;
 
 /// Total `embassy_time` ticks spent halted in each core's idle wait.
 /// Boards add to slot `N` from the idle hook running on core `N`.
-pub static IDLE_TICKS: [AtomicU64; MAX_CPUS] = [AtomicU64::new(0)];
+pub static IDLE_TICKS: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
 
 /// Static `cpu` label values, indexed by core ID. Avoids per-window
 /// integer-to-string formatting on the publish path.
-const CPU_LABELS: [&str; MAX_CPUS] = ["0"];
+const CPU_LABELS: [&str; MAX_CPUS] = ["0", "1"];
 
 /// Window length over which the published ratio is averaged, paired
 /// with its `window` label string. Co-located so changing the cadence
@@ -162,14 +166,12 @@ mod cortex_m_executor {
         F: FnOnce(Spawner),
     {
         // Function-local statics are not duplicated per generic
-        // instantiation, so this single slot is shared across all
-        // `CPU_INDEX` values. Safe today because `MAX_CPUS = 1` keeps
-        // the function callable with `CPU_INDEX = 0` only. Bumping
-        // `MAX_CPUS` requires turning this into a `[StaticCell; N]`
-        // indexed by `CPU_INDEX`.
-        static EXECUTOR: StaticCell<embassy_executor::raw::Executor> = StaticCell::new();
+        // instantiation, so we keep a per-`CPU_INDEX` slot in an array
+        // and pick the right one at runtime.
+        static EXECUTORS: [StaticCell<embassy_executor::raw::Executor>; MAX_CPUS] =
+            [const { StaticCell::new() }; MAX_CPUS];
         const { assert!(CPU_INDEX < MAX_CPUS, "CPU_INDEX exceeds MAX_CPUS") };
-        let executor = EXECUTOR.init(embassy_executor::raw::Executor::new(
+        let executor = EXECUTORS[CPU_INDEX].init(embassy_executor::raw::Executor::new(
             THREAD_PENDER as *mut (),
         ));
         let spawner = executor.spawner();
