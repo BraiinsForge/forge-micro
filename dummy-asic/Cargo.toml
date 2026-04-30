@@ -18,7 +18,6 @@ esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32s3"] }
 esp-rtos               = { version = "0.2.0", features = ["embassy", "esp32s3", "defmt"] }
 nb                     = { workspace = true }
 portable-atomic        = { workspace = true }
-sha2                   = { workspace = true }
 static_cell            = { workspace = true }
 defmt                  = { workspace = true }
 defmt-rtt              = "1.1.0"
