@@ -76,6 +76,7 @@ use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::Watch;
+use esp_hal::clock::CpuClock;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::system::Stack;
 use esp_hal::timer::timg::TimerGroup;
@@ -126,7 +127,10 @@ static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
+    // Crank the CPU to its maximum so the SHA peripheral's APB-side
+    // dispatch and the Xtensa busy-poll between hardware blocks both
+    // run as fast as the chip allows.
+    let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
     let hw = config::Board::take(peripherals);
 
     let timg0 = TimerGroup::new(hw.timg0);
