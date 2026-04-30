@@ -215,11 +215,7 @@ struct HardwareSha256d(rp235x_sha256::HardwareSha256d);
 
 #[cfg(feature = "dummy-asic")]
 impl eth_examples::dummy_asic::Sha256dHasher for HardwareSha256d {
-    fn double_sha256(&mut self, data: &[u8]) -> [u8; 32] {
-        let header: &[u8; 80] = data
-            .try_into()
-            // The dummy-asic protocol always sends exactly 80 bytes.
-            .expect("BUG: dummy-asic data slice is not 80 bytes");
+    fn double_sha256(&mut self, header: &[u8; 80]) -> [u8; 32] {
         self.0.double_sha256_block_header(header)
     }
 }

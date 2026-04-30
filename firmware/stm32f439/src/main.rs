@@ -213,8 +213,8 @@ struct HardwareSha256d(hash::Hash<'static, peripherals::HASH, embassy_stm32::mod
 
 #[cfg(feature = "dummy-asic")]
 impl eth_examples::dummy_asic::Sha256dHasher for HardwareSha256d {
-    fn double_sha256(&mut self, data: &[u8]) -> [u8; 32] {
-        let first = hw_sha256(&mut self.0, data);
+    fn double_sha256(&mut self, header: &[u8; 80]) -> [u8; 32] {
+        let first = hw_sha256(&mut self.0, header);
         hw_sha256(&mut self.0, &first)
     }
 }

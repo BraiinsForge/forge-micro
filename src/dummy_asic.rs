@@ -16,13 +16,13 @@
 use embassy_time::{with_timeout, Duration};
 use sha2::{Digest, Sha256};
 
-/// Computes SHA-256d (double SHA-256) over the share's header so the
-/// host can independently confirm the peer's reported digest.  Boards
-/// with a SHA peripheral implement this in hardware; boards without one
-/// fall back to [`SoftwareSha256d`].
+/// Computes SHA-256d (double SHA-256) over the share's 80-byte block
+/// header so the host can independently confirm the peer's reported
+/// digest.  Boards with a SHA peripheral implement this in hardware;
+/// boards without one fall back to [`SoftwareSha256d`].
 pub trait Sha256dHasher {
-    /// Return SHA-256d of `data` as a 32-byte digest.
-    fn double_sha256(&mut self, data: &[u8]) -> [u8; 32];
+    /// Return SHA-256d of the 80-byte block header as a 32-byte digest.
+    fn double_sha256(&mut self, header: &[u8; 80]) -> [u8; 32];
 }
 
 /// Software SHA-256d implementation backed by the [`sha2`] crate.  Used
@@ -31,8 +31,8 @@ pub trait Sha256dHasher {
 pub struct SoftwareSha256d;
 
 impl Sha256dHasher for SoftwareSha256d {
-    fn double_sha256(&mut self, data: &[u8]) -> [u8; 32] {
-        let first = sha256(data);
+    fn double_sha256(&mut self, header: &[u8; 80]) -> [u8; 32] {
+        let first = sha256(header);
         sha256(&first)
     }
 }
