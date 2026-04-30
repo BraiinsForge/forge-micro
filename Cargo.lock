@@ -2630,6 +2630,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rp235x-sha256"
+version = "0.1.0"
+dependencies = [
+ "embassy-rp",
+ "portable-atomic",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

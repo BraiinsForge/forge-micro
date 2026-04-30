@@ -43,6 +43,7 @@ members = [
     "firmware/esp32s3",
     "dummy-asic",
     "esp32s3-tsens",
+    "rp235x-sha256",
     "stratum-v1-core",
     "ubos-backend",
 ]

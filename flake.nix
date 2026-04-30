@@ -297,6 +297,13 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-rp235x-sha256 = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p rp235x-sha256 --target thumbv8m.main-none-eabihf";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
           clippy-stm32f407 = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;

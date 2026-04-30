@@ -1,0 +1,11 @@
+[package]
+edition = "2021"
+name    = "rp235x-sha256"
+version = "0.1.0"
+
+[dependencies]
+embassy-rp      = { version = "0.10.0", features = ["unstable-pac", "rp235xa"] }
+portable-atomic = { workspace = true }
+
+[lints]
+workspace = true
