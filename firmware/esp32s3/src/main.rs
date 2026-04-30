@@ -165,9 +165,40 @@ async fn display_task(mut display: OledDisplay) -> ! {
 }
 
 #[cfg(feature = "dummy-asic")]
+struct HardwareSha256d(esp_hal::sha::Sha<'static>);
+
+#[cfg(feature = "dummy-asic")]
+impl eth_examples::dummy_asic::Sha256dHasher for HardwareSha256d {
+    fn double_sha256(&mut self, data: &[u8]) -> [u8; 32] {
+        let first = hw_sha256(&mut self.0, data);
+        hw_sha256(&mut self.0, &first)
+    }
+}
+
+#[cfg(feature = "dummy-asic")]
+fn hw_sha256(sha: &mut esp_hal::sha::Sha<'static>, data: &[u8]) -> [u8; 32] {
+    use esp_hal::sha::Sha256;
+    use nb::block;
+    let mut output = [0u8; 32];
+    let mut hasher = sha.start::<Sha256>();
+    let mut remaining = data;
+    while !remaining.is_empty() {
+        // The esp-hal SHA driver returns nb::Result<_, Infallible>, so
+        // block! only ever yields Ok once the peripheral is ready.
+        remaining = block!(hasher.update(remaining)).expect("BUG: SHA update is Infallible");
+    }
+    // Same Infallible invariant as the update loop above.
+    block!(hasher.finish(&mut output)).expect("BUG: SHA finish is Infallible");
+    output
+}
+
+#[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
-async fn dummy_asic_test(mut uart: Uart<'static, esp_hal::Async>) -> ! {
-    let mut hasher = eth_examples::dummy_asic::SoftwareSha256d;
+async fn dummy_asic_test(
+    mut uart: Uart<'static, esp_hal::Async>,
+    sha: esp_hal::peripherals::SHA<'static>,
+) -> ! {
+    let mut hasher = HardwareSha256d(esp_hal::sha::Sha::new(sha));
     let _ = eth_examples::dummy_asic::run_test(&mut uart, &mut hasher).await;
     eth_examples::dummy_asic::run_continuous_mining(&mut uart, &mut hasher).await
 }
@@ -307,7 +338,7 @@ async fn boot(spawner: Spawner) {
             .with_tx(hw.uart_tx)
             .with_rx(hw.uart_rx)
             .into_async();
-        spawner.must_spawn(dummy_asic_test(uart));
+        spawner.must_spawn(dummy_asic_test(uart, hw.sha));
     }
 
     // SH1106 OLED on SPI3: reset pulse, then async DMA SPI.

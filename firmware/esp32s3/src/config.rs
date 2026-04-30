@@ -10,7 +10,7 @@ use esp_hal::peripherals::{
 #[cfg(feature = "display")]
 use esp_hal::peripherals::{GPIO15, GPIO16, GPIO17, GPIO6, GPIO7, SPI3};
 #[cfg(feature = "dummy-asic")]
-use esp_hal::peripherals::{GPIO43, GPIO44, UART0};
+use esp_hal::peripherals::{GPIO43, GPIO44, SHA, UART0};
 use esp_hal::time::Rate;
 
 pub struct Spi;
@@ -51,6 +51,8 @@ pub struct Board<'d> {
     pub uart_tx: GPIO43<'d>,
     #[cfg(feature = "dummy-asic")]
     pub uart_rx: GPIO44<'d>,
+    #[cfg(feature = "dummy-asic")]
+    pub sha: SHA<'d>,
     #[cfg(feature = "display")]
     pub display_spi: SPI3<'d>,
     #[cfg(feature = "display")]
@@ -91,6 +93,8 @@ impl Board<'static> {
             uart_tx: peripherals.GPIO43,
             #[cfg(feature = "dummy-asic")]
             uart_rx: peripherals.GPIO44,
+            #[cfg(feature = "dummy-asic")]
+            sha: peripherals.SHA,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI3,
             #[cfg(feature = "display")]
