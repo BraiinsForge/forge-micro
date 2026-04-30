@@ -119,9 +119,10 @@ impl Watchdog {
     pub const TIMEOUT: Duration = Duration::from_secs(2);
 }
 
-/// Core 1 stack size for the idle-accounting executor.
+/// Core 1 stack size for the worker executor.
 pub struct Core1;
 impl Core1 {
+    /// Stack size in bytes for the Core 1 executor.
     pub const STACK_BYTES: usize = 4096;
 }
 

@@ -144,10 +144,11 @@ impl Watchdog {
     pub const TIMEOUT: Duration = Duration::from_secs(2);
 }
 
-#[cfg(feature = "cpu-mining")]
+#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
 pub struct Core1;
-#[cfg(feature = "cpu-mining")]
+#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
 impl Core1 {
+    /// Stack size in bytes for the Core 1 executor.
     pub const STACK_BYTES: usize = 4096;
 }
 

@@ -190,21 +190,51 @@ async fn boot(spawner: Spawner) {
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
 
-    // The CPU solver hogs the scheduler. Pin it to core 1 so the
-    // embassy-net stack on core 0 keeps getting CPU time and the W6100
-    // SPI path stays responsive. Core 1 runs the same wfe-bracketed
-    // executor as core 0 so its idle ticks land in `IDLE_TICKS[1]`.
+    // Pin the worker to core 1 so embassy-net on core 0 stays
+    // responsive (cpu_miner hashes; uart_worker blocks on recv_share).
+    // Core 1 runs the same wfe-bracketed executor as core 0 so its idle
+    // ticks land in `IDLE_TICKS[1]`.
     static CORE1_STACK: ConstStaticCell<
         embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>,
     > = ConstStaticCell::new(embassy_rp::multicore::Stack::new());
-    embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), || {
+    #[cfg(feature = "dummy-asic")]
+    let uart_parts = (hw.uart, hw.uart_tx, hw.uart_rx);
+    embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
+        // BufferedUart must be constructed on the core that polls it.
+        // `init_buffers` unmasks the UART IRQ on the calling core's NVIC,
+        // and the async write path manually pends the same IRQ to shovel
+        // the SW TX ringbuffer into the HW FIFO. RP2350's Cortex-M33 has
+        // a per-core NVIC, so an unmask on one core and a pend on the
+        // other land on different controllers and the FIFO is never
+        // written.
+        #[cfg(feature = "dummy-asic")]
+        let uart = {
+            static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+            static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+            let (peripheral, tx_pin, rx_pin) = uart_parts;
+            BufferedUart::new(
+                peripheral,
+                tx_pin,
+                rx_pin,
+                Irqs,
+                TX_BUF.init([0; 1024]),
+                RX_BUF.init([0; 1024]),
+                {
+                    let mut uart_config = UartConfig::default();
+                    uart_config.baudrate = eth_examples::dummy_asic::BAUD_RATE;
+                    uart_config
+                },
+            )
+        };
         eth_examples::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner| {
             #[cfg(feature = "cpu-mining")]
             {
                 core1_spawner.spawn(unwrap!(ubos_backend::cpu_worker_task()));
                 core1_spawner.spawn(unwrap!(cpu_miner::cpu_miner_task()));
             }
-            #[cfg(not(feature = "cpu-mining"))]
+            #[cfg(feature = "dummy-asic")]
+            core1_spawner.spawn(unwrap!(uart_worker_task(uart)));
+            #[cfg(not(any(feature = "cpu-mining", feature = "dummy-asic")))]
             let _ = core1_spawner;
         });
     });
@@ -262,26 +292,6 @@ async fn boot(spawner: Spawner) {
         adc,
         channel: temp_channel,
     })));
-
-    #[cfg(feature = "dummy-asic")]
-    {
-        static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
-        static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
-        let uart = BufferedUart::new(
-            hw.uart,
-            hw.uart_tx,
-            hw.uart_rx,
-            Irqs,
-            TX_BUF.init([0; 1024]),
-            RX_BUF.init([0; 1024]),
-            {
-                let mut config = UartConfig::default();
-                config.baudrate = eth_examples::dummy_asic::BAUD_RATE;
-                config
-            },
-        );
-        spawner.spawn(unwrap!(uart_worker_task(uart)));
-    }
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
     // Binding must stay alive so the reset pin remains driven high.

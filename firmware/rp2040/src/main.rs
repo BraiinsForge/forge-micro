@@ -192,14 +192,55 @@ async fn boot(spawner: Spawner) {
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
 
-    // Run an empty embassy executor on core 1 so its wfe-bracketed idle
-    // wait feeds `IDLE_TICKS[1]`. The board has no work for core 1; the
-    // metric exists to confirm the second core is reachable and parked.
+    // Pin the worker to core 1 so embassy-net on core 0 stays
+    // responsive (cpu_miner hashes; uart_worker blocks on recv_share).
+    // Core 1 runs the same wfe-bracketed executor as core 0 so its idle
+    // ticks land in `IDLE_TICKS[1]`.
     static CORE1_STACK: ConstStaticCell<
         embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>,
     > = ConstStaticCell::new(embassy_rp::multicore::Stack::new());
-    embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), || {
-        eth_examples::cpu_load::run_cortex_m_executor::<1, _>(|_spawner| {});
+    #[cfg(feature = "dummy-asic")]
+    let uart_parts = (hw.uart, hw.uart_tx, hw.uart_rx);
+    embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
+        // BufferedUart must be constructed on the core that polls it.
+        // `init_buffers` unmasks UART1_IRQ on the calling core's NVIC,
+        // and the async write path manually pends the same IRQ to
+        // shovel the SW TX ringbuffer into the HW FIFO. RP2040 has a
+        // per-core NVIC, so an unmask on one core and a pend on the
+        // other land on different controllers and the FIFO is never
+        // written.
+        #[cfg(feature = "dummy-asic")]
+        let uart = {
+            static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+            static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+            let (peripheral, tx_pin, rx_pin) = uart_parts;
+            BufferedUart::new(
+                peripheral,
+                tx_pin,
+                rx_pin,
+                Irqs,
+                TX_BUF.init([0; 1024]),
+                RX_BUF.init([0; 1024]),
+                {
+                    let mut uart_config = UartConfig::default();
+                    uart_config.baudrate = eth_examples::dummy_asic::BAUD_RATE;
+                    uart_config
+                },
+            )
+        };
+        eth_examples::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner| {
+            #[cfg(feature = "cpu-mining")]
+            {
+                core1_spawner.spawn(unwrap!(ubos_backend::cpu_worker_task()));
+                core1_spawner.spawn(unwrap!(cpu_miner::cpu_miner_task(
+                    &ubos_backend::TOTAL_HASHES
+                )));
+            }
+            #[cfg(feature = "dummy-asic")]
+            core1_spawner.spawn(unwrap!(uart_worker_task(uart)));
+            #[cfg(not(any(feature = "cpu-mining", feature = "dummy-asic")))]
+            let _ = core1_spawner;
+        });
     });
 
     spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(Watchdog::new(
@@ -256,26 +297,6 @@ async fn boot(spawner: Spawner) {
         channel: temp_channel,
     })));
 
-    #[cfg(feature = "dummy-asic")]
-    {
-        static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
-        static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
-        let uart = BufferedUart::new(
-            hw.uart,
-            hw.uart_tx,
-            hw.uart_rx,
-            Irqs,
-            TX_BUF.init([0; 1024]),
-            RX_BUF.init([0; 1024]),
-            {
-                let mut config = UartConfig::default();
-                config.baudrate = eth_examples::dummy_asic::BAUD_RATE;
-                config
-            },
-        );
-        spawner.spawn(unwrap!(uart_worker_task(uart)));
-    }
-
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
     // Binding must stay alive so the reset pin remains driven high.
     #[cfg(feature = "display")]
@@ -314,9 +335,8 @@ async fn boot(spawner: Spawner) {
     info!("ip address: {:?}", config.address.address());
     #[cfg(feature = "cpu-mining")]
     {
+        // cpu_worker_task and cpu_miner_task run on core 1 (see spawn_core1 above).
         spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
-        spawner.spawn(unwrap!(ubos_backend::cpu_worker_task()));
-        spawner.spawn(unwrap!(cpu_miner::cpu_miner_task()));
         spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
     }
     #[cfg(feature = "dummy-asic")]

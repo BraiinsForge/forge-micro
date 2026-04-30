@@ -8,14 +8,14 @@
 #![no_std]
 #![no_main]
 
-#[cfg(all(feature = "dummy-asic", feature = "cpu-mining"))]
+#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
 compile_error!(
-    "features `dummy-asic` and `cpu-mining` are mutually exclusive; \
-     enable cpu-mining with --no-default-features --features \"display,cpu-mining\""
+    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
+     enable backend-cpu with --no-default-features --features \"display,backend-cpu\""
 );
 
 use defmt::{info, unwrap};
-#[cfg(feature = "cpu-mining")]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 use embassy_executor::Executor;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
@@ -24,13 +24,13 @@ use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::adc::{Adc, Async as AdcAsync, Channel as AdcChannel, Config as AdcConfig};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 use embassy_rp::peripherals::UART1;
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, SPI0};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{adc, bind_interrupts, dma};
@@ -40,18 +40,25 @@ use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 #[cfg(feature = "display")]
 use eth_examples::sh1106::Sh1106;
-#[cfg(feature = "cpu-mining")]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 use static_cell::ConstStaticCell;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
-#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 use ubos_backend::PoolConfig;
 
 mod config;
 
-#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
+    ConstStaticCell::new(embassy_rp::multicore::Stack::new());
+
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+static CORE1_EXECUTOR: StaticCell<Executor> = StaticCell::new();
+
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 static POOL_CONFIG: PoolConfig = PoolConfig {
     host_ip: config::Pool::HOST_IP,
     port: config::Pool::PORT,
@@ -69,7 +76,7 @@ bind_interrupts!(struct Irqs {
         #[cfg(feature = "display")]
         dma::InterruptHandler<DMA_CH2>;
     ADC_IRQ_FIFO => adc::InterruptHandler;
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     UART1_IRQ => BufferedInterruptHandler<UART1>;
 });
 
@@ -168,11 +175,35 @@ async fn display_task(mut display: OledDisplay) -> ! {
     eth_examples::display::run(&mut display).await
 }
 
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 #[embassy_executor::task]
 async fn uart_worker_task(uart: BufferedUart) -> ! {
     let asic = eth_examples::uart_asic::UartAsic::new(uart);
     ubos_backend::run_worker(asic).await
+}
+
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+#[embassy_executor::task]
+async fn stratum_task(stack: embassy_net::Stack<'static>, config: &'static PoolConfig) -> ! {
+    ubos_backend::run_stratum(stack, config).await
+}
+
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+#[embassy_executor::task]
+async fn ntime_roller_task() -> ! {
+    ubos_backend::run_ntime_roller().await
+}
+
+#[cfg(feature = "backend-cpu")]
+#[embassy_executor::task]
+async fn cpu_worker_task() -> ! {
+    ubos_backend::run_cpu_worker().await
+}
+
+#[cfg(feature = "backend-cpu")]
+#[embassy_executor::task]
+async fn cpu_miner_task() -> ! {
+    cpu_miner::run_cpu_miner().await
 }
 
 #[embassy_executor::main]
@@ -181,20 +212,50 @@ async fn main(spawner: Spawner) {
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
 
-    // The CPU solver hogs the scheduler. Pin it to core 1 so the
-    // embassy-net stack on core 0 keeps getting CPU time and the W5500
-    // SPI path stays responsive.
-    #[cfg(feature = "cpu-mining")]
+    // Pin the worker to core 1 so embassy-net on core 0 stays responsive
+    // (cpu_miner hashes; uart_worker blocks on recv_share). bmm-pico's
+    // default features enable only the display, so this block is gated
+    // on the backend features and core 1 sits idle in the default build.
+    #[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
     {
-        static CORE1_STACK: ConstStaticCell<
-            embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>,
-        > = ConstStaticCell::new(embassy_rp::multicore::Stack::new());
-        static CORE1_EXECUTOR: static_cell::StaticCell<Executor> = static_cell::StaticCell::new();
+        #[cfg(feature = "backend-uart")]
+        let uart_parts = (hw.uart, hw.uart_tx, hw.uart_rx);
         embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
+            // BufferedUart must be constructed on the core that polls it.
+            // `init_buffers` unmasks the UART IRQ on the calling core's NVIC,
+            // and the async write path manually pends the same IRQ to shovel
+            // the SW TX ringbuffer into the HW FIFO. RP2350's Cortex-M33 has
+            // a per-core NVIC, so an unmask on one core and a pend on the
+            // other land on different controllers and the FIFO is never
+            // written.
+            #[cfg(feature = "backend-uart")]
+            let uart = {
+                static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+                static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+                let (peripheral, tx_pin, rx_pin) = uart_parts;
+                BufferedUart::new(
+                    peripheral,
+                    tx_pin,
+                    rx_pin,
+                    Irqs,
+                    TX_BUF.init([0; 1024]),
+                    RX_BUF.init([0; 1024]),
+                    {
+                        let mut config = UartConfig::default();
+                        config.baudrate = eth_examples::uart_asic::BAUD_RATE;
+                        config
+                    },
+                )
+            };
             let executor = CORE1_EXECUTOR.init(Executor::new());
             executor.run(|core1_spawner: Spawner| {
-                core1_spawner.spawn(unwrap!(ubos_backend::cpu_worker_task()));
-                core1_spawner.spawn(unwrap!(cpu_miner::cpu_miner_task()));
+                #[cfg(feature = "backend-cpu")]
+                {
+                    core1_spawner.spawn(unwrap!(cpu_worker_task()));
+                    core1_spawner.spawn(unwrap!(cpu_miner_task()));
+                }
+                #[cfg(feature = "backend-uart")]
+                core1_spawner.spawn(unwrap!(uart_worker_task(uart)));
             })
         });
     }
@@ -252,26 +313,6 @@ async fn main(spawner: Spawner) {
         channel: temp_channel,
     })));
 
-    #[cfg(feature = "dummy-asic")]
-    {
-        static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
-        static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
-        let uart = BufferedUart::new(
-            hw.uart,
-            hw.uart_tx,
-            hw.uart_rx,
-            Irqs,
-            TX_BUF.init([0; 1024]),
-            RX_BUF.init([0; 1024]),
-            {
-                let mut config = UartConfig::default();
-                config.baudrate = eth_examples::dummy_asic::BAUD_RATE;
-                config
-            },
-        );
-        spawner.spawn(unwrap!(uart_worker_task(uart)));
-    }
-
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
     // Binding must stay alive so the reset pin remains driven high.
     #[cfg(feature = "display")]
@@ -309,16 +350,12 @@ async fn main(spawner: Spawner) {
     let config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", config.address.address());
 
-    #[cfg(feature = "cpu-mining")]
+    #[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
     {
-        // cpu_worker_task and cpu_miner_task run on core 1 (see spawn_core1 above).
-        spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
-        spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
-    }
-    #[cfg(feature = "dummy-asic")]
-    {
-        spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
-        spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
+        // Core 1 hosts cpu_worker_task + cpu_miner_task (backend-cpu) or
+        // uart_worker_task (backend-uart); see spawn_core1 above.
+        spawner.spawn(unwrap!(stratum_task(stack, &POOL_CONFIG)));
+        spawner.spawn(unwrap!(ntime_roller_task()));
     }
 
     net::run_http_server(stack, config::Board::NAME).await;
