@@ -15,8 +15,11 @@ use nb::block;
 use crate::protocol::{Solution, Work};
 use crate::{CURRENT_WORK, SOLUTIONS};
 
-/// Number of nonce iterations between cooperative yields.
-const SOLVER_YIELD_INTERVAL: u32 = 1_000;
+/// Mask applied to the nonce to trigger a cooperative yield. Power of
+/// two so the test compiles to a single `and`. 4096 keeps worst-case
+/// new-Work latency well under a millisecond at the hardware's hash
+/// rate while amortising the yield/`try_changed` overhead.
+const SOLVER_YIELD_MASK: u32 = 4096 - 1;
 
 /// Compute SHA-256 of `data` using the SHA peripheral.
 fn sha256(sha: &mut Sha<'static>, data: &[u8]) -> [u8; 32] {
@@ -40,9 +43,10 @@ fn hw_double_sha256(sha: &mut Sha<'static>, data: &[u8]) -> [u8; 32] {
     sha256(sha, &first)
 }
 
-/// Sweep nonces on the `APP_CPU`.  Yields to the embassy executor every
-/// `SOLVER_YIELD_INTERVAL` iterations to keep other tasks responsive.
-/// Restarts the sweep whenever a new Work item arrives on `CURRENT_WORK`.
+/// Sweep nonces on the `APP_CPU`.  Yields to the embassy executor each
+/// time the nonce hits a `SOLVER_YIELD_MASK` boundary to keep other
+/// tasks responsive.  Restarts the sweep whenever a new Work item
+/// arrives on `CURRENT_WORK`.
 #[embassy_executor::task]
 pub(crate) async fn solver_task(sha_peripheral: SHA<'static>) -> ! {
     let mut sha = Sha::new(sha_peripheral);
@@ -83,7 +87,7 @@ pub(crate) async fn solver_task(sha_peripheral: SHA<'static>) -> ! {
         // host only sends satisfiable targets, so 2^32 is never reached.
         nonce = nonce.wrapping_add(1);
 
-        if nonce.is_multiple_of(SOLVER_YIELD_INTERVAL) {
+        if nonce & SOLVER_YIELD_MASK == 0 {
             // Check whether a new Work item arrived while we were mining.
             if let Some(new_work) = receiver.try_changed() {
                 work = new_work;
