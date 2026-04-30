@@ -6,6 +6,10 @@ version = "0.1.0"
 [lints]
 workspace = true
 
+[features]
+default = []
+tuntap = []
+
 [dependencies]
 embassy-executor     = { workspace = true, features = ["platform-std", "executor-thread", "log"] }
 embassy-net          = { workspace = true, features = ["log", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "proto-ipv4", "auto-icmp-echo-reply"] }
