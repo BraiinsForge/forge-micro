@@ -332,6 +332,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cpu-miner"
+version = "0.1.0"
+dependencies = [
+ "embassy-futures",
+ "portable-atomic",
+ "sha2",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3219,6 +3228,7 @@ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 name = "ubos-backend"
 version = "0.1.0"
 dependencies = [
+ "cpu-miner",
  "defmt 1.0.1",
  "embassy-executor 0.10.0",
  "embassy-futures",

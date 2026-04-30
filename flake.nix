@@ -379,6 +379,13 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-cpu-miner = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p cpu-miner";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
           test = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
@@ -389,6 +396,12 @@
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-backend";
+          };
+
+          test-cpu-miner = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p cpu-miner";
           };
 
           clippy-esp32s3 = espCraneLib.cargoClippy {
