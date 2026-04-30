@@ -42,12 +42,12 @@ use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
-#[cfg(feature = "cpu-mining")]
+#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
 use ubos_backend::PoolConfig;
 
 mod config;
 
-#[cfg(feature = "cpu-mining")]
+#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
 static POOL_CONFIG: PoolConfig = PoolConfig {
     host_ip: config::Pool::HOST_IP,
     port: config::Pool::PORT,
@@ -169,29 +169,11 @@ async fn display_task(mut display: OledDisplay) -> ! {
     eth_examples::display::run(&mut display).await
 }
 
-/// Local newtype that adapts `rp235x_sha256::HardwareSha256d` to the
-/// `Sha256dHasher` trait defined in the `eth-examples` library crate.
-/// The orphan rule requires the impl to live in a crate that owns either
-/// the trait or the implementing type; this wrapper satisfies that by
-/// making the implementing type local to this firmware crate.
-#[cfg(feature = "dummy-asic")]
-struct HardwareSha256d(rp235x_sha256::HardwareSha256d);
-
-#[cfg(feature = "dummy-asic")]
-impl eth_examples::dummy_asic::Sha256dHasher for HardwareSha256d {
-    fn double_sha256(&mut self, header: &[u8; 80]) -> [u8; 32] {
-        self.0.double_sha256_block_header(header)
-    }
-}
-
 #[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
-async fn dummy_asic_test(mut uart: BufferedUart) -> ! {
-    // First and only caller of take() in the build.
-    let driver = rp235x_sha256::HardwareSha256d::take().expect("BUG: SHA-256 driver already taken");
-    let mut hasher = HardwareSha256d(driver);
-    let _ = eth_examples::dummy_asic::run_test(&mut uart, &mut hasher).await;
-    eth_examples::dummy_asic::run_continuous_mining(&mut uart, &mut hasher).await
+async fn uart_worker_task(uart: BufferedUart) -> ! {
+    let asic = eth_examples::uart_asic::UartAsic::new(uart);
+    ubos_backend::run_worker(asic).await
 }
 
 #[cortex_m_rt::entry]
@@ -298,7 +280,7 @@ async fn boot(spawner: Spawner) {
                 config
             },
         );
-        spawner.spawn(unwrap!(dummy_asic_test(uart)));
+        spawner.spawn(unwrap!(uart_worker_task(uart)));
     }
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
@@ -341,6 +323,11 @@ async fn boot(spawner: Spawner) {
     #[cfg(feature = "cpu-mining")]
     {
         // cpu_worker_task and cpu_miner_task run on core 1 (see spawn_core1 above).
+        spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
+        spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
+    }
+    #[cfg(feature = "dummy-asic")]
+    {
         spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
         spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
     }

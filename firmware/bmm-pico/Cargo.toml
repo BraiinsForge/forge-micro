@@ -9,7 +9,7 @@ workspace = true
 [features]
 default = ["display"]
 display = []
-dummy-asic = []
+dummy-asic = ["dep:ubos-backend", "dep:cpu-miner", "dep:heapless"]
 # cpu-mining is mutually exclusive with dummy-asic: enable with
 # `--no-default-features --features "display,cpu-mining"`.
 cpu-mining = ["dep:ubos-backend", "dep:cpu-miner", "dep:heapless"]

@@ -46,12 +46,12 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
-#[cfg(feature = "cpu-mining")]
+#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
 use ubos_backend::PoolConfig;
 
 mod config;
 
-#[cfg(feature = "cpu-mining")]
+#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
 static POOL_CONFIG: PoolConfig = PoolConfig {
     host_ip: config::Pool::HOST_IP,
     port: config::Pool::PORT,
@@ -170,10 +170,9 @@ async fn display_task(mut display: OledDisplay) -> ! {
 
 #[cfg(feature = "dummy-asic")]
 #[embassy_executor::task]
-async fn dummy_asic_test(mut uart: BufferedUart) -> ! {
-    let mut hasher = eth_examples::dummy_asic::SoftwareSha256d;
-    let _ = eth_examples::dummy_asic::run_test(&mut uart, &mut hasher).await;
-    eth_examples::dummy_asic::run_continuous_mining(&mut uart, &mut hasher).await
+async fn uart_worker_task(uart: BufferedUart) -> ! {
+    let asic = eth_examples::uart_asic::UartAsic::new(uart);
+    ubos_backend::run_worker(asic).await
 }
 
 #[embassy_executor::main]
@@ -270,7 +269,7 @@ async fn main(spawner: Spawner) {
                 config
             },
         );
-        spawner.spawn(unwrap!(dummy_asic_test(uart)));
+        spawner.spawn(unwrap!(uart_worker_task(uart)));
     }
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
@@ -313,6 +312,11 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "cpu-mining")]
     {
         // cpu_worker_task and cpu_miner_task run on core 1 (see spawn_core1 above).
+        spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
+        spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
+    }
+    #[cfg(feature = "dummy-asic")]
+    {
         spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
         spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
     }

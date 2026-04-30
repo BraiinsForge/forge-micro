@@ -58,13 +58,13 @@ pub const BAUD_RATE: u32 = 921_600;
 /// generous so a momentarily busy peer does not fail the test.
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
-const FRAME_START: u8 = 0xA5;
-const OPCODE_WORK: u8 = 0x01;
-const OPCODE_SHARE: u8 = 0x02;
+pub(crate) const FRAME_START: u8 = 0xA5;
+pub(crate) const OPCODE_WORK: u8 = 0x01;
+pub(crate) const OPCODE_SHARE: u8 = 0x02;
 const OPCODE_READ_TEMP: u8 = 0x03;
 const OPCODE_TEMP_REPORT: u8 = 0x04;
-const WORK_FRAME_LEN: usize = 115;
-const SHARE_FRAME_LEN: usize = 39;
+pub(crate) const WORK_FRAME_LEN: usize = 115;
+pub(crate) const SHARE_FRAME_LEN: usize = 39;
 const READ_TEMP_FRAME_LEN: usize = 3;
 const TEMP_REPORT_FRAME_LEN: usize = 7;
 
@@ -92,7 +92,7 @@ pub const TEST_TARGET: [u8; 32] = {
     target
 };
 
-fn xor_checksum(data: &[u8]) -> u8 {
+pub(crate) fn xor_checksum(data: &[u8]) -> u8 {
     data.iter().fold(0u8, |acc, &byte| acc ^ byte)
 }
 

@@ -126,9 +126,9 @@ impl Core1 {
 }
 
 /// Stratum pool connection parameters.
-#[cfg(feature = "cpu-mining")]
+#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
 pub struct Pool;
-#[cfg(feature = "cpu-mining")]
+#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
 impl Pool {
     pub const HOST_IP: [u8; 4] = [192, 168, 89, 100];
     pub const PORT: u16 = 3333;

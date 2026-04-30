@@ -14,6 +14,9 @@ use esp_hal::uart::{UartRx, UartTx};
 // link desyncs at boot.
 
 /// UART baud rate for the dummy-ASIC protocol.
+// Keep in sync with `eth_examples::uart_asic::BAUD_RATE`; the two crates
+// cannot share a dependency without dragging ARM HAL crates into the ESP
+// build, so the value is duplicated here.
 pub(crate) const BAUD_RATE: u32 = 921_600;
 
 /// Start byte for all frames.

@@ -28,6 +28,9 @@ pub mod sh1106;
 pub mod temperature;
 pub mod watchdog;
 
+#[cfg(target_arch = "arm")]
+pub mod uart_asic;
+
 /// Seconds since Unix epoch if NTP has synced, or seconds since boot otherwise.
 #[inline]
 pub fn wall_clock_secs() -> u64 {
