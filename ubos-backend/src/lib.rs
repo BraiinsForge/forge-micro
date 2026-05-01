@@ -1,11 +1,10 @@
 //! Stratum V1 client backend with pluggable solver.
 //!
 //! `CURRENT_ASSIGNMENT` wraps the in-flight `WorkAssignment` in a
-//! `Mutex` so the stratum task can roll `ntime` and `pool_target` in
-//! place. `NEW_JOB` signals the first assignment, `SHARE_TARGET` is
-//! a `Watch` for mid-job difficulty updates, `CLEAN_JOBS` is the
-//! drop-current-work flag, and `SOLUTIONS` is the solver-to-stratum
-//! channel.
+//! `Mutex` so the stratum task can roll `ntime` in place. `NEW_JOB`
+//! signals the first assignment, `SHARE_TARGET` is a `Watch` for
+//! mid-job difficulty updates, `CLEAN_JOBS` is the drop-current-work
+//! flag, and `SOLUTIONS` is the solver-to-stratum channel.
 //!
 //! `fake_solver_task` emits one `Solution` per second for wire
 //! testing. `run_worker` drives any `asic_interface::AsicInterface`
@@ -124,11 +123,11 @@ pub struct PoolConfig {
 /// is precomputed so the solver only touches the 80-byte block header.
 ///
 /// Shape intentionally matches what an ASIC chain driver (BM1362/BM1370)
-/// needs to push work: base version, version rolling mask, precomputed
-/// pool target. `ntime` is mutable across the assignment's lifetime so
-/// the stratum task can roll it while the underlying job stays "in stasis"
-/// between notifies. `extranonce2` is always zeros today but typed so a
-/// future rolling implementation can populate it without reshaping callers.
+/// needs to push work: base version and version rolling mask. `ntime` is
+/// mutable across the assignment's lifetime so the stratum task can roll
+/// it while the underlying job stays "in stasis" between notifies.
+/// `extranonce2` is always zeros today but typed so a future rolling
+/// implementation can populate it without reshaping callers.
 #[derive(Clone)]
 pub struct WorkAssignment {
     pub job_id: heapless::String<MAX_JOB_ID_CHARS>,
@@ -138,7 +137,6 @@ pub struct WorkAssignment {
     pub version_mask: u32,
     pub nbits: u32,
     pub ntime: u32,
-    pub pool_target: [u8; 32],
     pub extranonce2: heapless::Vec<u8, MAX_EXTRANONCE2_SIZE>,
 }
 
@@ -165,10 +163,10 @@ struct JobState {
     wall_at_base: Instant,
 }
 
-/// Latest work assignment from the pool. Stratum task overwrites on notify
-/// and mutates `pool_target` on `set_difficulty`. Roller bumps `ntime` in
-/// place. Solvers snapshot under the lock and release before hashing so the
-/// hot path never contends.
+/// Latest work assignment from the pool. Stratum task overwrites on notify;
+/// `set_difficulty` updates push to `SHARE_TARGET` and the worker watches
+/// that channel. Roller bumps `ntime` in place. Solvers snapshot under the
+/// lock and release before hashing so the hot path never contends.
 static CURRENT_ASSIGNMENT: Mutex<CriticalSectionRawMutex, Option<JobState>> = Mutex::new(None);
 
 /// Fired on every `mining.notify` so solvers can wake from their initial
@@ -180,7 +178,7 @@ pub static NEW_JOB: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 /// The solver compares every `sha256d` output against this target and
 /// submits the nonce when the hash (interpreted as a 256-bit
 /// little-endian integer) is less than or equal to it.
-pub static SHARE_TARGET: Watch<CriticalSectionRawMutex, [u8; 32], 2> = Watch::new();
+pub static SHARE_TARGET: Watch<CriticalSectionRawMutex, [u8; 32], 1> = Watch::new();
 
 /// Fired when a notify with `clean_jobs=true` arrives so the solver can abort.
 pub static CLEAN_JOBS: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -615,14 +613,6 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
             let ascii = core::str::from_utf8(&job_id[..job_id_len]).unwrap_or("");
             let _ = job_id_str.push_str(ascii);
 
-            // Snapshot whatever target the pool has most recently pushed.
-            // Mid-job `set_difficulty` updates mutate the field directly in
-            // `CURRENT_ASSIGNMENT`; this is the initial value for the job.
-            let pool_target = SHARE_TARGET
-                .receiver()
-                .and_then(|mut receiver| receiver.try_get())
-                .unwrap_or(DEFAULT_TARGET);
-
             let mut extranonce2: heapless::Vec<u8, MAX_EXTRANONCE2_SIZE> = heapless::Vec::new();
             // Resize by pushing zeros; the Vec's len encodes extranonce2_size.
             for _ in 0..(extranonce2_size as usize).min(MAX_EXTRANONCE2_SIZE) {
@@ -638,7 +628,6 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
                 version_mask: CURRENT_VERSION_MASK.load(Ordering::Relaxed),
                 nbits: u32::from_be_bytes(bits_bin),
                 ntime: ntime_base,
-                pool_target,
                 extranonce2,
             };
 
@@ -660,13 +649,6 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
             info!("stratum: set_difficulty {}", difficulty);
             let target = target_from_diff(difficulty);
             SHARE_TARGET.sender().send(target);
-            // Apply the new target to the in-flight assignment too so an
-            // ASIC driver (which reads from the assignment alone) picks it
-            // up without a second wake signal.
-            let mut guard = CURRENT_ASSIGNMENT.lock().await;
-            if let Some(state) = guard.as_mut() {
-                state.assignment.pool_target = target;
-            }
         }
         LineAction::SetVersionMask(version_mask) => {
             info!("stratum: set_version_mask {:#010x}", version_mask);
@@ -942,7 +924,7 @@ pub async fn fake_solver_task() -> ! {
 pub async fn run_worker<I: asic_interface::AsicInterface>(mut asic: I) -> ! {
     let mut target_receiver = SHARE_TARGET
         .receiver()
-        .expect("BUG: Watch<_, _, 2> supports 2 receivers; tasks <= 2");
+        .expect("BUG: Watch<_, _, 1> supports 1 receiver");
     let mut work_id: u32 = 0;
 
     loop {
