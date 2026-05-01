@@ -10,7 +10,7 @@ use esp_hal::peripherals::{
 #[cfg(feature = "display")]
 use esp_hal::peripherals::{GPIO15, GPIO16, GPIO17, GPIO6, GPIO7, SPI3};
 #[cfg(feature = "backend-uart")]
-use esp_hal::peripherals::{GPIO43, GPIO44, SHA, UART0};
+use esp_hal::peripherals::{GPIO43, GPIO44, UART0};
 use esp_hal::time::Rate;
 
 pub struct Spi;
@@ -30,6 +30,18 @@ impl DisplaySpi {
 pub struct Watchdog;
 impl Watchdog {
     pub const TIMEOUT: esp_hal::time::Duration = esp_hal::time::Duration::from_millis(2000);
+}
+
+/// Stratum pool connection parameters.
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+pub struct Pool;
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+impl Pool {
+    pub const HOST_IP: [u8; 4] = [192, 168, 89, 100];
+    pub const PORT: u16 = 3333;
+    pub const USER: &'static str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8.esp32s3";
+    pub const PASS: &'static str = "x";
+    pub const RECONNECT_DELAY: embassy_time::Duration = embassy_time::Duration::from_secs(5);
 }
 
 /// Every peripheral singleton the board consumes, extracted in one place.
@@ -53,8 +65,6 @@ pub struct Board<'d> {
     pub uart_tx: GPIO43<'d>,
     #[cfg(feature = "backend-uart")]
     pub uart_rx: GPIO44<'d>,
-    #[cfg(feature = "backend-uart")]
-    pub sha: SHA<'d>,
     #[cfg(feature = "display")]
     pub display_spi: SPI3<'d>,
     #[cfg(feature = "display")]
@@ -97,8 +107,6 @@ impl Board<'static> {
             uart_tx: peripherals.GPIO43,
             #[cfg(feature = "backend-uart")]
             uart_rx: peripherals.GPIO44,
-            #[cfg(feature = "backend-uart")]
-            sha: peripherals.SHA,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI3,
             #[cfg(feature = "display")]

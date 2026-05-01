@@ -8,6 +8,12 @@
 #![no_std]
 #![no_main]
 
+#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
+compile_error!(
+    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
+     enable backend-cpu with --no-default-features --features \"display,backend-cpu\""
+);
+
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
@@ -36,7 +42,18 @@ use eth_examples::sh1106::Sh1106;
 use portable_atomic::Ordering;
 use rand_core::{CryptoRng, RngCore};
 use static_cell::StaticCell;
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+use ubos_backend::PoolConfig;
 use {defmt_rtt as _, esp_backtrace as _};
+
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+static POOL_CONFIG: PoolConfig = PoolConfig {
+    host_ip: config::Pool::HOST_IP,
+    port: config::Pool::PORT,
+    user: config::Pool::USER,
+    password: config::Pool::PASS,
+    reconnect_delay: config::Pool::RECONNECT_DELAY,
+};
 
 mod config;
 
@@ -166,43 +183,35 @@ async fn display_task(mut display: OledDisplay) -> ! {
     eth_examples::display::run(&mut display).await
 }
 
-#[cfg(feature = "backend-uart")]
-struct HardwareSha256d(esp_hal::sha::Sha<'static>);
-
-#[cfg(feature = "backend-uart")]
-impl eth_examples::dummy_asic::Sha256dHasher for HardwareSha256d {
-    fn double_sha256(&mut self, header: &[u8; 80]) -> [u8; 32] {
-        let first = hw_sha256(&mut self.0, header);
-        hw_sha256(&mut self.0, &first)
-    }
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+#[embassy_executor::task]
+async fn stratum_task(stack: embassy_net::Stack<'static>, config: &'static PoolConfig) -> ! {
+    ubos_backend::run_stratum(stack, config).await
 }
 
-#[cfg(feature = "backend-uart")]
-fn hw_sha256(sha: &mut esp_hal::sha::Sha<'static>, data: &[u8]) -> [u8; 32] {
-    use esp_hal::sha::Sha256;
-    use nb::block;
-    let mut output = [0u8; 32];
-    let mut hasher = sha.start::<Sha256>();
-    let mut remaining = data;
-    while !remaining.is_empty() {
-        // The esp-hal SHA driver returns nb::Result<_, Infallible>, so
-        // block! only ever yields Ok once the peripheral is ready.
-        remaining = block!(hasher.update(remaining)).expect("BUG: SHA update is Infallible");
-    }
-    // Same Infallible invariant as the update loop above.
-    block!(hasher.finish(&mut output)).expect("BUG: SHA finish is Infallible");
-    output
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+#[embassy_executor::task]
+async fn ntime_roller_task() -> ! {
+    ubos_backend::run_ntime_roller().await
+}
+
+#[cfg(feature = "backend-cpu")]
+#[embassy_executor::task]
+async fn cpu_worker_task() -> ! {
+    ubos_backend::run_cpu_worker().await
+}
+
+#[cfg(feature = "backend-cpu")]
+#[embassy_executor::task]
+async fn cpu_miner_task() -> ! {
+    cpu_miner::run_cpu_miner().await
 }
 
 #[cfg(feature = "backend-uart")]
 #[embassy_executor::task]
-async fn dummy_asic_test(
-    mut uart: Uart<'static, esp_hal::Async>,
-    sha: esp_hal::peripherals::SHA<'static>,
-) -> ! {
-    let mut hasher = HardwareSha256d(esp_hal::sha::Sha::new(sha));
-    let _ = eth_examples::dummy_asic::run_test(&mut uart, &mut hasher).await;
-    eth_examples::dummy_asic::run_continuous_mining(&mut uart, &mut hasher).await
+async fn uart_worker_task(uart: Uart<'static, esp_hal::Async>) -> ! {
+    let asic = eth_examples::uart_asic::UartAsic::new(uart);
+    ubos_backend::run_worker(asic).await
 }
 
 /// Brackets `flags.wait()` inside `esp_rtos::embassy::Executor::run_with_callbacks`.
@@ -265,21 +274,48 @@ async fn boot(spawner: Spawner) {
     let timg0 = TimerGroup::new(hw.timg0);
     esp_rtos::start(timg0.timer0);
 
-    // Bring up APP_CPU with its own embassy executor so its idle wait
-    // populates `IDLE_TICKS[1]`. The board has no work pinned to core 1;
-    // the executor exists solely so the second core's busy ratio is
-    // observable in `board_cpu_busy_ratio{cpu="1"}`.
+    // Bring up APP_CPU with its own embassy executor. Mining workers run
+    // here so a busy hash loop on core 1 cannot starve embassy-net on
+    // core 0. With no backend feature the executor still runs so its
+    // idle wait populates `IDLE_TICKS[1]` and the second core's busy
+    // ratio is observable in `board_cpu_busy_ratio{cpu="1"}`.
     static APP_EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
     static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
     let software_interrupts = SoftwareInterruptControl::new(hw.sw_interrupt);
+    #[cfg(feature = "backend-uart")]
+    let uart_parts = (hw.uart0, hw.uart_tx, hw.uart_rx);
     esp_rtos::start_second_core(
         hw.cpu_ctrl,
         software_interrupts.software_interrupt0,
         software_interrupts.software_interrupt1,
         APP_CORE_STACK.init(Stack::new()),
-        || {
+        move || {
             let executor = APP_EXECUTOR.init(esp_rtos::embassy::Executor::new());
-            executor.run_with_callbacks(|_app_spawner| {}, IdleAccounting::<1>::new());
+            executor.run_with_callbacks(
+                |app_spawner| {
+                    #[cfg(feature = "backend-cpu")]
+                    {
+                        app_spawner.must_spawn(cpu_worker_task());
+                        app_spawner.must_spawn(cpu_miner_task());
+                    }
+                    #[cfg(feature = "backend-uart")]
+                    {
+                        let (uart0, uart_tx, uart_rx) = uart_parts;
+                        let uart_config = UartConfig::default()
+                            .with_baudrate(eth_examples::dummy_asic::BAUD_RATE);
+                        // Valid peripheral and default-compatible baud rate; cannot fail.
+                        let uart = Uart::new(uart0, uart_config)
+                            .expect("BUG: UART0 configuration failed")
+                            .with_tx(uart_tx)
+                            .with_rx(uart_rx)
+                            .into_async();
+                        app_spawner.must_spawn(uart_worker_task(uart));
+                    }
+                    #[cfg(not(any(feature = "backend-cpu", feature = "backend-uart")))]
+                    let _ = app_spawner;
+                },
+                IdleAccounting::<1>::new(),
+            );
         },
     );
 
@@ -349,18 +385,6 @@ async fn boot(spawner: Spawner) {
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
     spawner.must_spawn(temperature_task(BoardTempSensor(tsens)));
 
-    #[cfg(feature = "backend-uart")]
-    {
-        let uart_config = UartConfig::default().with_baudrate(eth_examples::dummy_asic::BAUD_RATE);
-        // Valid UART peripheral and default-compatible baud rate; cannot fail.
-        let uart = Uart::new(hw.uart0, uart_config)
-            .expect("BUG: UART0 configuration failed")
-            .with_tx(hw.uart_tx)
-            .with_rx(hw.uart_rx)
-            .into_async();
-        spawner.must_spawn(dummy_asic_test(uart, hw.sha));
-    }
-
     // SH1106 OLED on SPI3: reset pulse, then async DMA SPI.
     // Binding must stay alive so the reset pin remains driven high.
     #[cfg(feature = "display")]
@@ -405,8 +429,14 @@ async fn boot(spawner: Spawner) {
     spawner.must_spawn(display_task(display));
 
     info!("waiting for dhcp");
-    let config = net::wait_for_config(stack).await;
-    info!("ip address: {:?}", config.address.address());
+    let dhcp_config = net::wait_for_config(stack).await;
+    info!("ip address: {:?}", dhcp_config.address.address());
+
+    #[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+    {
+        spawner.must_spawn(stratum_task(stack, &POOL_CONFIG));
+        spawner.must_spawn(ntime_roller_task());
+    }
 
     net::run_http_server(stack, config::Board::NAME).await;
 }

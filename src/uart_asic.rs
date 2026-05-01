@@ -1,8 +1,10 @@
 //! `asic_interface::AsicInterface` over the dummy-asic UART protocol.
-//! Used by ARM firmware to drive a real dummy-asic peer with stratum-
-//! supplied work; ESP32-S3 firmware keeps the existing boot-time self-
-//! test in `dummy_asic.rs` because its embassy-executor pin precludes
-//! pulling in the worker.
+//! Used by every board firmware to drive a real dummy-asic peer with
+//! stratum-supplied work. The esp32s3 firmware wraps it in a local
+//! `#[embassy_executor::task]` because its `embassy-executor` version
+//! pin (0.9.1) does not match the worker's (0.10.0); the underlying
+//! `run_worker` is a plain async fn so the version mismatch only
+//! matters at the task constructor boundary.
 
 use asic_interface::{AsicInterface, RawShare, WorkFrame};
 use embedded_io_async::{Read, Write};

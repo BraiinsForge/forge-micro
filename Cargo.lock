@@ -1591,6 +1591,7 @@ dependencies = [
 name = "esp32s3"
 version = "0.1.0"
 dependencies = [
+ "cpu-miner",
  "defmt 1.0.1",
  "defmt-rtt",
  "embassy-executor 0.9.1",
@@ -1604,10 +1605,10 @@ dependencies = [
  "esp-rtos",
  "esp32s3-tsens",
  "eth-examples",
- "nb 1.1.0",
  "portable-atomic",
  "rand_core 0.6.4",
  "static_cell",
+ "ubos-backend",
 ]
 
 [[package]]

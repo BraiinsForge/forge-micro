@@ -9,7 +9,10 @@ workspace = true
 [features]
 default = ["display", "backend-uart"]
 display = []
-backend-uart = []
+backend-uart = ["dep:ubos-backend"]
+# backend-cpu is mutually exclusive with backend-uart: enable with
+# `--no-default-features --features "display,backend-cpu"`.
+backend-cpu = ["dep:ubos-backend", "dep:cpu-miner"]
 
 [dependencies]
 eth-examples           = { workspace = true }
@@ -22,10 +25,11 @@ defmt                  = { workspace = true }
 portable-atomic        = { workspace = true }
 static_cell            = { workspace = true }
 embedded-hal-bus       = { workspace = true, features = ["async"] }
+cpu-miner              = { workspace = true, optional = true }
+ubos-backend           = { path = "../../ubos-backend", optional = true }
 esp-hal                = { version = "1.0.0", features = ["defmt", "esp32s3", "unstable"] }
 esp-rtos               = { version = "0.2.0", features = ["embassy", "esp32s3", "defmt"] }
 esp-backtrace          = { version = "0.18.1", features = ["defmt", "esp32s3", "panic-handler"] }
 rand_core              = { workspace = true }
 defmt-rtt              = "1.1.0"
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32s3"] }
-nb                     = { workspace = true }
