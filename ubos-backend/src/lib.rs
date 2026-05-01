@@ -79,6 +79,21 @@ const DEFAULT_TARGET: [u8; 32] = {
     target
 };
 
+// Target presented on the wire to the asic. Easier than the regtest
+// pool's floor of 16 leading zero bits, so the dummy-asic produces
+// many more shares than the pool target requires. The worker
+// re-validates each received share against the pool target and drops
+// the ones that don't meet it, giving denser samples for hashrate
+// accounting without flooding the pool. `wire_target_for(pool)` keeps
+// the pool target on the wire if the pool ever sends something easier
+// than this, so the asic never wastes hashes on a harder target than
+// necessary.
+const LOCAL_TARGET: [u8; 32] = {
+    let mut target = [0xFFu8; 32];
+    target[31] = 0x00;
+    target
+};
+
 // Fake solver pacing: one share per second avoids spamming the pool.
 const FAKE_SOLVER_SHARE_DELAY: Duration = Duration::from_secs(1);
 
@@ -173,6 +188,26 @@ pub static SHARE_TARGET: Watch<CriticalSectionRawMutex, [u8; 32], 2> = Watch::ne
 
 /// Fired when a notify with `clean_jobs=true` arrives so the solver can abort.
 pub static CLEAN_JOBS: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Pick the wire target to hand the asic. Returns the easier of `pool`
+/// and `LOCAL_TARGET` so the asic always sees something at least as easy
+/// as the pool would accept; the worker filters with `pool` afterwards.
+/// Targets are 256-bit little-endian; "easier" = larger numeric value =
+/// MSB-first byte comparison wins.
+const fn wire_target_for(pool: &[u8; 32]) -> [u8; 32] {
+    let mut index = 32;
+    while index > 0 {
+        index -= 1;
+        if pool[index] != LOCAL_TARGET[index] {
+            return if pool[index] > LOCAL_TARGET[index] {
+                *pool
+            } else {
+                LOCAL_TARGET
+            };
+        }
+    }
+    LOCAL_TARGET
+}
 
 /// Snapshot the current assignment for a solver. Returns `None` until the
 /// first notify installs one.
@@ -954,9 +989,10 @@ pub async fn run_worker<I: asic_interface::AsicInterface>(mut asic: I) -> ! {
                 assignment.nbits,
                 nonce_start,
             );
+            let wire_target = wire_target_for(&target);
             let frame = WorkFrame {
                 header,
-                target,
+                target: wire_target,
                 work_id,
             };
 
@@ -972,13 +1008,29 @@ pub async fn run_worker<I: asic_interface::AsicInterface>(mut asic: I) -> ! {
             let share = loop {
                 match select(asic.recv_share(), CLEAN_JOBS.wait()).await {
                     Either::First(Ok(share)) => {
-                        if share.work_id == work_id {
-                            break Some(share);
+                        if share.work_id != work_id {
+                            info!(
+                                "worker: dropping stale share nonce={:08x} work_id={} (current {})",
+                                share.nonce, share.work_id, work_id,
+                            );
+                            continue;
                         }
-                        info!(
-                            "worker: dropping stale share nonce={:08x} work_id={} (current {})",
-                            share.nonce, share.work_id, work_id,
+                        // Re-hash with the pool target and drop shares
+                        // that don't clear it. One SHA256d per local
+                        // share; negligible at our rates. This filter
+                        // gates pool submission only.
+                        let hash = cpu_miner::header_hash(
+                            assignment.version,
+                            assignment.prev_hash,
+                            assignment.merkle_root,
+                            assignment.ntime,
+                            assignment.nbits,
+                            share.nonce,
                         );
+                        if !cpu_miner::hash_meets_target(&hash, &target) {
+                            continue;
+                        }
+                        break Some(share);
                     }
                     Either::First(Err(error)) => {
                         warn!("worker: recv_share failed: {}", error);
@@ -1128,3 +1180,7 @@ fn hex_nibble(byte: u8) -> Option<u8> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "tests/wire_target.rs"]
+mod tests;
