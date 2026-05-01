@@ -3,6 +3,7 @@ runner = [
   "probe-rs-runner", "run",
   "--chip", "STM32F439ZITx",
   "--probe", "0483:374b:0671FF515776525067255149",
+  "--connect-under-reset",
   "--log-format", "{t:>10} {f:<14} [{L}] {s}",
 ]
 
