@@ -71,7 +71,35 @@
               args+=("$arg")
             fi
           done
-          exec probe-rs "''${args[@]}"
+          # Default RUST_LOG=info so probe-rs surfaces session errors
+          # to stderr instead of returning silently with exit 0 when a
+          # CMSIS-DAP probe is wedged (probe-rs/probe-rs#1849).
+          # Caller-set RUST_LOG wins.
+          export RUST_LOG="''${RUST_LOG:-info}"
+          start=$(date +%s)
+          probe-rs "''${args[@]}"
+          status=$?
+          elapsed=$(( $(date +%s) - start ))
+          # A real flash plus attach of any of our targets takes longer
+          # than this threshold. An exit-0 in under that with `run`
+          # requested means probe-rs short-circuited without ever
+          # talking to the chip - canonically the wedged CMSIS-DAP case
+          # where the remote server swallows the error. Surface a hint
+          # so the failure isn't silent.
+          min_flash_seconds=4
+          if [ "$status" -eq 0 ] && [ "$elapsed" -lt "$min_flash_seconds" ]; then
+            for arg in "''${args[@]}"; do
+              if [ "$arg" = "run" ] || [ "$arg" = "attach" ]; then
+                echo "probe-rs-runner: probe-rs exited 0 in ''${elapsed}s without flashing - probe likely wedged (probe-rs/probe-rs#1849 for CMSIS-DAP)." >&2
+                echo "  Physically replug the probe; check 'journalctl -u probe-rs-server' on the NUC for server-side errors." >&2
+                break
+              fi
+            done
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "probe-rs-runner: probe-rs exited $status" >&2
+          fi
+          exit $status
         '';
       };
 
