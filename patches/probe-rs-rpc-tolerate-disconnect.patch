@@ -1,0 +1,48 @@
+Tolerate client disconnect in RPC reply path
+
+Three RPC handlers (`monitor`, `list_tests`, `run_test`) finish by
+sending the response to the client and calling `.unwrap()` on the
+result. When the client's WebSocket has already closed (Ctrl-C,
+`cargo run` exiting after flash, network blip), the reply returns
+`Err(ConnectionClosed)`, the unwrap panics, and the tokio worker
+dies without releasing the held probe `Session`. systemd does not
+restart the service because the panic is contained inside one
+worker, so the probe is left in a stale "in use" state that
+manifests on the next client as a silent exit-0 with no flash.
+
+Discard the result instead of unwrapping; a closed client is the
+expected case at the end of every RPC and is not actionable here.
+
+Local fix only; no upstream issue or PR exists yet.
+
+--- a/probe-rs-tools/src/bin/probe-rs/rpc/functions/monitor.rs
++++ b/probe-rs-tools/src/bin/probe-rs/rpc/functions/monitor.rs
+@@ -101,7 +101,7 @@
+     sender
+         .reply::<MonitorEndpoint>(header.seq_no, &resp)
+         .await
+-        .unwrap();
++        .ok();
+ }
+
+ #[derive(Serialize, Deserialize, Schema)]
+--- a/probe-rs-tools/src/bin/probe-rs/rpc/functions/test.rs
++++ b/probe-rs-tools/src/bin/probe-rs/rpc/functions/test.rs
+@@ -126,7 +126,7 @@
+     sender
+         .reply::<ListTestsEndpoint>(header.seq_no, &resp)
+         .await
+-        .unwrap();
++        .ok();
+ }
+
+ fn list_tests_impl(
+@@ -213,7 +213,7 @@
+     sender
+         .reply::<RunTestEndpoint>(header.seq_no, &resp)
+         .await
+-        .unwrap();
++        .ok();
+ }
+
+ fn run_test_impl(

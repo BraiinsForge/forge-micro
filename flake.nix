@@ -61,6 +61,13 @@
       probeRsOverlay = final: prev: {
         probe-rs-tools-remote = prev.probe-rs-tools.overrideAttrs (old: {
           cargoBuildFeatures = (old.cargoBuildFeatures or [ ]) ++ [ "remote" ];
+          # `serve` panics on `ConnectionClosed` when the client disconnects
+          # mid-RPC, leaving the probe Session held but the worker dead.
+          # systemd does not restart because the panic is tokio-contained,
+          # so the next client gets a silent exit-0. No upstream fix yet.
+          patches = (old.patches or [ ]) ++ [
+            ./patches/probe-rs-rpc-tolerate-disconnect.patch
+          ];
         });
         probe-rs-runner = prev.writeShellScriptBin "probe-rs-runner" ''
           args=()
