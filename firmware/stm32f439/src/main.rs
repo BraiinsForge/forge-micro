@@ -25,6 +25,8 @@ use embassy_stm32::mode::Async;
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::DMA2_CH3;
 use embassy_stm32::peripherals::{ADC1, DMA2_CH0, ETH, ETH_SMA, IWDG};
+#[cfg(feature = "backend-uart")]
+use embassy_stm32::peripherals::{DMA1_CH1, DMA1_CH3};
 use embassy_stm32::rng::Rng;
 #[cfg(feature = "display")]
 use embassy_stm32::spi::{self, Spi};
@@ -32,7 +34,10 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer as LowLevelTimer};
 use embassy_stm32::triggers::TIM3_TRGO;
 #[cfg(feature = "backend-uart")]
-use embassy_stm32::usart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
+use embassy_stm32::usart::{
+    Config as UartConfig, InterruptHandler as UsartInterruptHandler, RingBufferedUartRx, Uart,
+    UartTx,
+};
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{bind_interrupts, dma, eth, peripherals, rng};
 #[cfg(feature = "display")]
@@ -66,7 +71,11 @@ bind_interrupts!(struct Irqs {
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
     DMA2_STREAM0 => dma::InterruptHandler<DMA2_CH0>;
     #[cfg(feature = "backend-uart")]
-    USART3 => BufferedInterruptHandler<peripherals::USART3>;
+    USART3 => UsartInterruptHandler<peripherals::USART3>;
+    #[cfg(feature = "backend-uart")]
+    DMA1_STREAM1 => dma::InterruptHandler<DMA1_CH1>;
+    #[cfg(feature = "backend-uart")]
+    DMA1_STREAM3 => dma::InterruptHandler<DMA1_CH3>;
     #[cfg(feature = "display")]
     DMA2_STREAM3 => dma::InterruptHandler<DMA2_CH3>;
 });
@@ -174,7 +183,9 @@ async fn display_task(mut display: OledDisplay) -> ! {
 
 #[cfg(feature = "backend-uart")]
 #[embassy_executor::task]
-async fn uart_worker_task(uart: BufferedUart<'static>) -> ! {
+async fn uart_worker_task(
+    uart: eth_examples::uart_asic::SplitUart<RingBufferedUartRx<'static>, UartTx<'static, Async>>,
+) -> ! {
     let asic = eth_examples::uart_asic::UartAsic::new(uart);
     ubos_backend::run_worker(asic).await
 }
@@ -290,24 +301,30 @@ async fn boot(spawner: Spawner) {
 
     #[cfg(feature = "backend-uart")]
     {
-        static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
-        static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
-        let uart = BufferedUart::new(
+        static DMA_RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+        let uart_config = {
+            let mut config = UartConfig::default();
+            config.baudrate = eth_examples::uart_asic::BAUD_RATE;
+            config
+        };
+        // Valid USART3 peripheral with type-checked DMA channels; cannot fail.
+        let uart = Uart::new(
             hw.usart3,
             hw.usart3_rx,
             hw.usart3_tx,
-            TX_BUF.init([0; 1024]),
-            RX_BUF.init([0; 1024]),
+            hw.usart3_tx_dma,
+            hw.usart3_rx_dma,
             Irqs,
-            {
-                let mut config = UartConfig::default();
-                config.baudrate = eth_examples::uart_asic::BAUD_RATE;
-                config
-            },
+            uart_config,
         )
-        // Valid USART peripheral and default-compatible baud rate; cannot fail.
         .expect("BUG: USART3 configuration failed");
-        spawner.spawn(unwrap!(uart_worker_task(uart)));
+        let (uart_tx, uart_rx) = uart.split();
+        let ring_rx = uart_rx.into_ring_buffered(DMA_RX_BUF.init([0; 1024]));
+        let split_uart = eth_examples::uart_asic::SplitUart {
+            rx: ring_rx,
+            tx: uart_tx,
+        };
+        spawner.spawn(unwrap!(uart_worker_task(split_uart)));
     }
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.

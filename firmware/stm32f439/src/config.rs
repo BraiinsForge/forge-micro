@@ -12,7 +12,9 @@ use embassy_stm32::peripherals::{
     TIM3,
 };
 #[cfg(feature = "backend-uart")]
-use embassy_stm32::peripherals::{PD8, PD9, USART3};
+use embassy_stm32::peripherals::{DMA1_CH1, DMA1_CH3, PD8, PD9, USART3};
+#[cfg(feature = "display")]
+use embassy_stm32::peripherals::{DMA2_CH3, PB3, PB5, PE7, PE8, PE9, SPI1};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peri;
 
@@ -71,6 +73,12 @@ pub struct Board {
     pub usart3_tx: Peri<'static, PD8>,
     #[cfg(feature = "backend-uart")]
     pub usart3_rx: Peri<'static, PD9>,
+    /// DMA1 Stream1 Channel4 — `USART3_RX` per RM0090 table 42.
+    #[cfg(feature = "backend-uart")]
+    pub usart3_rx_dma: Peri<'static, DMA1_CH1>,
+    /// DMA1 Stream3 Channel4 — `USART3_TX` per RM0090 table 42.
+    #[cfg(feature = "backend-uart")]
+    pub usart3_tx_dma: Peri<'static, DMA1_CH3>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
     #[cfg(feature = "display")]
@@ -136,6 +144,10 @@ impl Board {
             usart3_tx: peripherals.PD8,
             #[cfg(feature = "backend-uart")]
             usart3_rx: peripherals.PD9,
+            #[cfg(feature = "backend-uart")]
+            usart3_rx_dma: peripherals.DMA1_CH1,
+            #[cfg(feature = "backend-uart")]
+            usart3_tx_dma: peripherals.DMA1_CH3,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI1,
             #[cfg(feature = "display")]
