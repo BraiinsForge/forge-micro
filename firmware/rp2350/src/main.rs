@@ -252,9 +252,7 @@ async fn boot(spawner: Spawner) {
             #[cfg(feature = "cpu-mining")]
             {
                 core1_spawner.spawn(unwrap!(ubos_backend::cpu_worker_task()));
-                core1_spawner.spawn(unwrap!(cpu_miner::cpu_miner_task(
-                    &ubos_backend::TOTAL_HASHES
-                )));
+                core1_spawner.spawn(unwrap!(cpu_miner::cpu_miner_task()));
             }
             #[cfg(not(feature = "cpu-mining"))]
             let _ = core1_spawner;

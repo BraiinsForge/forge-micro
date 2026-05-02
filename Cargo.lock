@@ -349,7 +349,6 @@ dependencies = [
  "embassy-executor 0.10.0",
  "embassy-futures",
  "embassy-sync 0.8.0",
- "portable-atomic",
  "sha2",
 ]
 

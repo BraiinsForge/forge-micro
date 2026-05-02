@@ -11,5 +11,4 @@ asic-interface   = { workspace = true }
 embassy-executor = { workspace = true }
 embassy-futures  = { workspace = true }
 embassy-sync     = { workspace = true, features = ["defmt"] }
-portable-atomic  = { workspace = true }
 sha2             = { workspace = true }

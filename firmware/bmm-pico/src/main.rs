@@ -227,9 +227,7 @@ async fn main(spawner: Spawner) {
             let executor = CORE1_EXECUTOR.init(Executor::new());
             executor.run(|core1_spawner: Spawner| {
                 core1_spawner.spawn(unwrap!(ubos_backend::cpu_worker_task()));
-                core1_spawner.spawn(unwrap!(cpu_miner::cpu_miner_task(
-                    &ubos_backend::TOTAL_HASHES
-                )));
+                core1_spawner.spawn(unwrap!(cpu_miner::cpu_miner_task()));
             })
         });
     }

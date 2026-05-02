@@ -362,9 +362,7 @@ async fn boot(spawner: Spawner) {
     {
         spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
         spawner.spawn(unwrap!(ubos_backend::cpu_worker_task()));
-        spawner.spawn(unwrap!(cpu_miner::cpu_miner_task(
-            &ubos_backend::TOTAL_HASHES
-        )));
+        spawner.spawn(unwrap!(cpu_miner::cpu_miner_task()));
         spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
         spawner.spawn(unwrap!(ubos_backend::hashrate_task()));
         spawner.spawn(unwrap!(hashrate_metrics_task()));

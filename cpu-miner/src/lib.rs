@@ -22,7 +22,6 @@ use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::Watch;
-use portable_atomic::Ordering;
 use sha2::{Digest, Sha256};
 
 // Yield frequency matters: long stretches between yields starve other
@@ -186,12 +185,9 @@ pub fn header_hash(
 /// Scan nonces starting at the value already encoded in `header[76..80]`,
 /// returning the first nonce whose double-SHA256 meets `target`. Yields
 /// every `SOLVER_YIELD_INTERVAL` iterations so the executor can serve
-/// other tasks; bumps `total_hashes` in the same batches.
-pub async fn mine_share_header(
-    mut header: [u8; 80],
-    target: [u8; 32],
-    total_hashes: &portable_atomic::AtomicU64,
-) -> u32 {
+/// other tasks. Hashrate is recorded at the `AsicInterface::next_share`
+/// boundary, not here, so the inner loop carries no shared state.
+pub async fn mine_share_header(mut header: [u8; 80], target: [u8; 32]) -> u32 {
     let start_nonce = u32::from_le_bytes([header[76], header[77], header[78], header[79]]);
     let mut nonce = start_nonce;
     let mut result_hash = [0u8; 32];
@@ -204,7 +200,6 @@ pub async fn mine_share_header(
         nonce = nonce.wrapping_add(1);
         if nonce.is_multiple_of(SOLVER_YIELD_INTERVAL) {
             embassy_futures::yield_now().await;
-            total_hashes.fetch_add(u64::from(SOLVER_YIELD_INTERVAL), Ordering::Relaxed);
         }
     }
 }
@@ -213,7 +208,7 @@ pub async fn mine_share_header(
 /// runs `mine_share_header` on it, and pushes shares to `SHARE_CHANNEL`.
 /// A new frame in the watch aborts the in-flight search via `select`.
 #[embassy_executor::task]
-pub async fn cpu_miner_task(total_hashes: &'static portable_atomic::AtomicU64) -> ! {
+pub async fn cpu_miner_task() -> ! {
     // cpu-miner is the sole receiver of WORK_WATCH and the watch capacity
     // is 1, so the receiver slot is always free.
     let mut work_receiver = WORK_WATCH
@@ -222,7 +217,7 @@ pub async fn cpu_miner_task(total_hashes: &'static portable_atomic::AtomicU64) -
     let mut work = work_receiver.changed().await;
     loop {
         match select(
-            mine_share_header(work.header, work.target, total_hashes),
+            mine_share_header(work.header, work.target),
             work_receiver.changed(),
         )
         .await
