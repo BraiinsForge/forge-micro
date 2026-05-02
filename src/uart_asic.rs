@@ -5,13 +5,27 @@
 //! pin (0.9.1) does not match the worker's (0.10.0); the underlying
 //! `run_worker` is a plain async fn so the version mismatch only
 //! matters at the task constructor boundary.
+//!
+//! Wire format mirrored on the peer side in
+//! `boards/eth-examples/dummy-asic/src/protocol.rs`; opcodes, frame
+//! lengths, and baud rate must move in lockstep with that file or the
+//! link desyncs at boot.
 
 use asic_interface::{AsicInterface, RawShare, WorkFrame};
 use embedded_io_async::{Read, Write};
 
-use crate::dummy_asic::{
-    xor_checksum, FRAME_START, OPCODE_SHARE, OPCODE_WORK, SHARE_FRAME_LEN, WORK_FRAME_LEN,
-};
+/// Baud rate shared across all board UART configurations for this protocol.
+pub const BAUD_RATE: u32 = 921_600;
+
+const FRAME_START: u8 = 0xA5;
+const OPCODE_WORK: u8 = 0x01;
+const OPCODE_SHARE: u8 = 0x02;
+const WORK_FRAME_LEN: usize = 119;
+const SHARE_FRAME_LEN: usize = 43;
+
+fn xor_checksum(data: &[u8]) -> u8 {
+    data.iter().fold(0u8, |acc, &byte| acc ^ byte)
+}
 
 /// Discrete failure modes so the worker's log identifies which side of
 /// the wire misbehaved.
@@ -43,7 +57,7 @@ pub struct UartAsic<U> {
 
 impl<U> UartAsic<U> {
     /// Wrap an already-configured UART. The caller owns baud-rate setup;
-    /// the constant `crate::dummy_asic::BAUD_RATE` is the value to use.
+    /// the constant [`BAUD_RATE`] is the value to use.
     pub const fn new(uart: U) -> Self {
         Self { uart }
     }

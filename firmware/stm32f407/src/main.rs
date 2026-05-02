@@ -303,7 +303,7 @@ async fn boot(spawner: Spawner) {
             Irqs,
             {
                 let mut config = UartConfig::default();
-                config.baudrate = eth_examples::dummy_asic::BAUD_RATE;
+                config.baudrate = eth_examples::uart_asic::BAUD_RATE;
                 config
             },
         )

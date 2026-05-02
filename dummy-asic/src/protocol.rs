@@ -9,9 +9,8 @@ use embedded_io_async::{Read as AsyncRead, Write as AsyncWrite};
 use esp_hal::uart::{UartRx, UartTx};
 
 // Wire format mirrored on the host side in
-// boards/eth-examples/src/dummy_asic.rs; opcodes, frame lengths, baud rate,
-// and the temperature sentinel must move in lockstep with that file or the
-// link desyncs at boot.
+// boards/eth-examples/src/uart_asic.rs; opcodes, frame lengths, and baud
+// rate must move in lockstep with that file or the link desyncs at boot.
 
 /// UART baud rate for the dummy-ASIC protocol.
 // Keep in sync with `eth_examples::uart_asic::BAUD_RATE`; the two crates
@@ -28,31 +27,11 @@ const OPCODE_WORK: u8 = 0x01;
 /// Opcode for a Share frame (dummy-asic → host).
 const OPCODE_SHARE: u8 = 0x02;
 
-/// Opcode for a `ReadTemp` request (host → dummy-asic).
-const OPCODE_READ_TEMP: u8 = 0x03;
-
-/// Opcode for a `TempReport` response (dummy-asic → host).
-const OPCODE_TEMP_REPORT: u8 = 0x04;
-
 /// Total size of a Work frame in bytes.
 const WORK_FRAME_LEN: usize = 119;
 
 /// Total size of a Share frame in bytes.
 const SHARE_FRAME_LEN: usize = 43;
-
-/// Total size of a `ReadTemp` request frame in bytes.
-const READ_TEMP_FRAME_LEN: usize = 3;
-
-/// Total size of a `TempReport` response frame in bytes.
-const TEMP_REPORT_FRAME_LEN: usize = 7;
-
-/// Sentinel in `LATEST_TEMP_MILLI_CELSIUS` meaning no sampler is running.
-/// `-40..=125 °C` is the sensor's rated range, so `i32::MIN` cannot collide
-/// with a real reading.  On this board the sampler is deliberately absent;
-/// see the "Temperature sampling" section in the crate root.  Future boards
-/// with working `esp_hal::tsens` support swap in a real task and the
-/// protocol plumbing picks up the readings with no other changes.
-pub(crate) const UNKNOWN_TEMP_MILLI_CELSIUS: i32 = i32::MIN;
 
 /// A mining work item received from the host.
 #[derive(Clone)]
@@ -78,14 +57,6 @@ pub(crate) struct Solution {
     pub(crate) work_id: u32,
     /// The SHA-256d hash of the header with `nonce` installed.
     pub(crate) hash: [u8; 32],
-}
-
-/// A parsed request from the host.
-pub(crate) enum Request {
-    /// A new Work item to mine.
-    Work(Work),
-    /// A `ReadTemp` poll — the writer should emit the cached sample.
-    ReadTemp,
 }
 
 /// Outcome of a failed `read_exact`.  Distinguishes a UART error from a
@@ -120,7 +91,7 @@ fn xor_checksum(data: &[u8]) -> u8 {
     data.iter().fold(0u8, |acc, &byte| acc ^ byte)
 }
 
-/// Read and parse one request frame (Work or `ReadTemp`) from `rx`.
+/// Read and parse one Work frame from `rx`.
 ///
 /// The function re-syncs on a bad start byte, unknown opcode, or bad
 /// checksum by logging a warning and trying again from the next byte.
@@ -130,7 +101,7 @@ fn xor_checksum(data: &[u8]) -> u8 {
 /// spurious `0xA5` inside a corrupted stream can therefore swallow a real
 /// frame that begins within that window.  Acceptable for a test harness;
 /// revisit if this is ever reused on a lossy link.
-pub(crate) async fn read_request_frame(rx: &mut UartRx<'static, esp_hal::Async>) -> Request {
+pub(crate) async fn read_work_frame(rx: &mut UartRx<'static, esp_hal::Async>) -> Work {
     loop {
         // Spin until a byte looks like a start byte.
         let mut start = [0u8; 1];
@@ -166,12 +137,7 @@ pub(crate) async fn read_request_frame(rx: &mut UartRx<'static, esp_hal::Async>)
         match opcode[0] {
             OPCODE_WORK => {
                 if let Some(work) = read_work_tail(rx).await {
-                    return Request::Work(work);
-                }
-            }
-            OPCODE_READ_TEMP => {
-                if read_temp_tail(rx).await {
-                    return Request::ReadTemp;
+                    return work;
                 }
             }
             other => {
@@ -226,32 +192,6 @@ async fn read_work_tail(rx: &mut UartRx<'static, esp_hal::Async>) -> Option<Work
     })
 }
 
-/// Parse the remainder of a `ReadTemp` frame after the start byte and
-/// opcode have been consumed.  Returns `true` on success, `false` if the
-/// checksum is wrong or the read fails.
-async fn read_temp_tail(rx: &mut UartRx<'static, esp_hal::Async>) -> bool {
-    let mut frame = [0u8; READ_TEMP_FRAME_LEN];
-    frame[0] = FRAME_START;
-    frame[1] = OPCODE_READ_TEMP;
-
-    if read_exact(rx, &mut frame[2..]).await.is_err() {
-        defmt::warn!("dummy-asic: read error on read-temp checksum, resyncing");
-        return false;
-    }
-
-    let expected = xor_checksum(&frame[1..READ_TEMP_FRAME_LEN - 1]);
-    if frame[READ_TEMP_FRAME_LEN - 1] != expected {
-        defmt::warn!(
-            "dummy-asic: bad read-temp checksum {:#04x} (expected {:#04x}), resyncing",
-            frame[READ_TEMP_FRAME_LEN - 1],
-            expected
-        );
-        return false;
-    }
-
-    true
-}
-
 /// Encode and send one Share frame over `tx`.
 pub(crate) async fn write_share_frame(
     tx: &mut UartTx<'static, esp_hal::Async>,
@@ -269,23 +209,6 @@ pub(crate) async fn write_share_frame(
     if let Err(error) = AsyncWrite::write_all(tx, &frame).await {
         defmt::error!(
             "dummy-asic: share write error: {}",
-            defmt::Debug2Format(&error)
-        );
-    }
-}
-
-/// Encode and send one `TempReport` frame over `tx`.
-pub(crate) async fn write_temp_frame(tx: &mut UartTx<'static, esp_hal::Async>, milli_celsius: i32) {
-    let mut frame = [0u8; TEMP_REPORT_FRAME_LEN];
-    frame[0] = FRAME_START;
-    frame[1] = OPCODE_TEMP_REPORT;
-    frame[2..6].copy_from_slice(&milli_celsius.to_be_bytes());
-    // Checksum covers opcode + payload (bytes 1..6).
-    frame[TEMP_REPORT_FRAME_LEN - 1] = xor_checksum(&frame[1..TEMP_REPORT_FRAME_LEN - 1]);
-
-    if let Err(error) = AsyncWrite::write_all(tx, &frame).await {
-        defmt::error!(
-            "dummy-asic: temp write error: {}",
             defmt::Debug2Format(&error)
         );
     }

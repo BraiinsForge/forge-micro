@@ -301,8 +301,8 @@ async fn boot(spawner: Spawner) {
                     #[cfg(feature = "backend-uart")]
                     {
                         let (uart0, uart_tx, uart_rx) = uart_parts;
-                        let uart_config = UartConfig::default()
-                            .with_baudrate(eth_examples::dummy_asic::BAUD_RATE);
+                        let uart_config =
+                            UartConfig::default().with_baudrate(eth_examples::uart_asic::BAUD_RATE);
                         // Valid peripheral and default-compatible baud rate; cannot fail.
                         let uart = Uart::new(uart0, uart_config)
                             .expect("BUG: UART0 configuration failed")

@@ -246,9 +246,9 @@ async fn boot(spawner: Spawner) {
                 TX_BUF.init([0; 1024]),
                 RX_BUF.init([0; 1024]),
                 {
-                    let mut uart_config = UartConfig::default();
-                    uart_config.baudrate = eth_examples::dummy_asic::BAUD_RATE;
-                    uart_config
+                    let mut config = UartConfig::default();
+                    config.baudrate = eth_examples::uart_asic::BAUD_RATE;
+                    config
                 },
             )
         };
