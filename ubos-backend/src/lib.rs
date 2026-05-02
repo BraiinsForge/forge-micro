@@ -97,10 +97,6 @@ const LOCAL_TARGET: [u8; 32] = {
 // Fake solver pacing: one share per second avoids spamming the pool.
 const FAKE_SOLVER_SHARE_DELAY: Duration = Duration::from_secs(1);
 
-// 5-second sample window is a reasonable trade-off between reactivity on
-// the display and noise from short hashing bursts.
-const HASHRATE_SAMPLE_INTERVAL: Duration = Duration::from_secs(5);
-
 // Bitcoin's consensus rule allows a block header `ntime` up to 2 hours ahead
 // of the median past time. Pools enforce a similar cap and reject submits
 // with a roll larger than this window. Bounding the roller here matches that
@@ -218,14 +214,6 @@ async fn snapshot_assignment() -> Option<WorkAssignment> {
 
 /// Solutions found by solver tasks, consumed by the stratum task for submission.
 pub static SOLUTIONS: Channel<CriticalSectionRawMutex, Solution, 8> = Channel::new();
-
-/// Running total of hashes computed across all solver iterations. Bumped in
-/// batches of `SOLVER_YIELD_INTERVAL` to keep the atomic cost negligible.
-pub static TOTAL_HASHES: portable_atomic::AtomicU64 = portable_atomic::AtomicU64::new(0);
-
-/// Hashrate averaged over the last sample interval, in hashes per second.
-/// Updated by `hashrate_task` every `HASHRATE_SAMPLE_INTERVAL`.
-pub static HASHRATE_HZ: portable_atomic::AtomicU64 = portable_atomic::AtomicU64::new(0);
 
 /// Version-rolling mask negotiated with the pool. Written once when the
 /// `mining.configure` result lands and refreshed whenever the pool sends a
@@ -1090,24 +1078,6 @@ pub async fn ntime_roller_task() -> ! {
         #[allow(clippy::cast_possible_truncation)]
         let elapsed_u32 = elapsed as u32;
         state.assignment.ntime = state.ntime_base.wrapping_add(elapsed_u32);
-    }
-}
-
-/// Periodically computes the current hashrate from `TOTAL_HASHES` and publishes
-/// it to `HASHRATE_HZ`. Also logs the rate via defmt.
-#[embassy_executor::task]
-pub async fn hashrate_task() -> ! {
-    let mut last_total: u64 = 0;
-    loop {
-        Timer::after(HASHRATE_SAMPLE_INTERVAL).await;
-        let now_total = TOTAL_HASHES.load(Ordering::Relaxed);
-        let delta = now_total.saturating_sub(last_total);
-        last_total = now_total;
-        // u64 so a future ASIC backend reporting multi-TH/s doesn't
-        // saturate the counter.
-        let rate = delta / HASHRATE_SAMPLE_INTERVAL.as_secs().max(1);
-        HASHRATE_HZ.store(rate, Ordering::Relaxed);
-        info!("solver: {} H/s", rate);
     }
 }
 

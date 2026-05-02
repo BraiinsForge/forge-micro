@@ -33,19 +33,11 @@ use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartCon
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{adc, bind_interrupts, dma};
 use embassy_time::Delay;
-#[cfg(any(feature = "cpu-mining", feature = "display"))]
-use embassy_time::Duration;
-#[cfg(feature = "cpu-mining")]
-use embassy_time::Ticker;
 #[cfg(feature = "display")]
-use embassy_time::Timer;
+use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
-#[cfg(feature = "cpu-mining")]
-use eth_examples::metrics::{Metric, Value};
 #[cfg(feature = "display")]
 use eth_examples::sh1106::Sh1106;
-#[cfg(feature = "cpu-mining")]
-use portable_atomic::Ordering;
 use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -163,30 +155,6 @@ async fn temperature_task(sensor: BoardTempSensor) -> ! {
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
     eth_examples::cpu_load::run_cpu_load::<2>().await
-}
-
-/// Publish the current hashrate as a Prometheus metric and mirror it
-/// into `eth_examples::hashrate` so the unified display and HTTP
-/// surfaces render the cpu-miner rate.
-#[cfg(feature = "cpu-mining")]
-#[embassy_executor::task]
-async fn hashrate_metrics_task() -> ! {
-    let mut ticker = Ticker::every(Duration::from_secs(5));
-    loop {
-        ticker.next().await;
-        let hashrate_hz = ubos_backend::HASHRATE_HZ.load(Ordering::Relaxed);
-        // Saturating cast: a cpu miner saturating u32 H/s is out of scope.
-        eth_examples::hashrate::record_external_rate(
-            u32::try_from(hashrate_hz).unwrap_or(u32::MAX),
-        );
-        eth_examples::metrics::push(Metric {
-            name: "board_hashrate_hz",
-            labels: heapless::Vec::new(),
-            value: Value::Uint(hashrate_hz),
-            timestamp_ms: 0,
-        })
-        .await;
-    }
 }
 
 #[cfg(feature = "display")]
@@ -375,8 +343,6 @@ async fn boot(spawner: Spawner) {
         // cpu_worker_task and cpu_miner_task run on core 1 (see spawn_core1 above).
         spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
         spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
-        spawner.spawn(unwrap!(ubos_backend::hashrate_task()));
-        spawner.spawn(unwrap!(hashrate_metrics_task()));
     }
 
     net::run_http_server(stack, config::Board::NAME).await;
