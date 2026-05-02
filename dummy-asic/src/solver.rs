@@ -103,6 +103,14 @@ fn hash_meets_target(hash: &[u8; 32], target: &[u8; 32]) -> bool {
     true
 }
 
+/// Read the host-supplied starting nonce from header bytes 76..80. The
+/// host advances this after each accepted share so the next sweep
+/// continues past the last match instead of re-finding the same low
+/// nonces and spamming the pool with duplicates.
+fn nonce_start_from_header(header: &[u8; 80]) -> u32 {
+    u32::from_le_bytes([header[76], header[77], header[78], header[79]])
+}
+
 /// Sweep nonces on the `APP_CPU`.  Yields to the embassy executor each
 /// time the nonce hits a `SOLVER_YIELD_MASK` boundary to keep other
 /// tasks responsive.  Restarts the sweep whenever a new Work item
@@ -118,7 +126,7 @@ pub(crate) async fn solver_task(sha_peripheral: SHA<'static>) -> ! {
     let mut work: Work = receiver.changed().await;
     let mut midstate = capture_midstate(&mut sha, &work.header);
     let mut block1 = build_first_message_block(&work.header);
-    let mut nonce: u32 = 0;
+    let mut nonce = nonce_start_from_header(&work.header);
 
     loop {
         // Header bytes 76..80 carry the nonce in little-endian, so the
@@ -132,11 +140,10 @@ pub(crate) async fn solver_task(sha_peripheral: SHA<'static>) -> ! {
 
         if hash_meets_target(&result_hash, &work.target) {
             // try_send drops the new solution on a full channel rather
-            // than blocking the solver.  Continuous mining at a low
-            // target produces shares faster than the UART can drain;
-            // dropping is the right shape for a test harness, the
-            // host's hashrate estimate is naturally biased toward
-            // delivered shares.
+            // than blocking the solver. At the host's wire-level target
+            // the solver produces ~780 shares/s while the writer task
+            // drains UART at ~2k frames/s, so the channel stays empty in
+            // steady state.
             let _ = SOLUTIONS.try_send(Solution {
                 nonce,
                 work_id: work.work_id,
@@ -153,7 +160,7 @@ pub(crate) async fn solver_task(sha_peripheral: SHA<'static>) -> ! {
                 work = new_work;
                 midstate = capture_midstate(&mut sha, &work.header);
                 block1 = build_first_message_block(&work.header);
-                nonce = 0;
+                nonce = nonce_start_from_header(&work.header);
             }
             embassy_futures::yield_now().await;
         }
