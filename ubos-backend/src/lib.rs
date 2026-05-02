@@ -974,17 +974,34 @@ pub async fn run_worker<I: asic_interface::AsicInterface>(mut asic: I) -> ! {
         .receiver()
         .expect("BUG: Watch<_, _, 1> supports 1 receiver");
     let mut work_id: u32 = 0;
+    let mut nonce_start: u32 = 0;
+    let mut last_job_id: Option<heapless::String<MAX_JOB_ID_CHARS>> = None;
 
     loop {
         let Some(mut assignment) = snapshot_assignment().await else {
             NEW_JOB.wait().await;
             continue;
         };
-        let mut nonce_start: u32 = 0;
         let mut target = target_receiver.try_get().unwrap_or(DEFAULT_TARGET);
-        work_id = work_id.wrapping_add(1);
 
-        info!("worker: new job {}", assignment.job_id.as_str());
+        // Only treat this as a fresh job when the pool's job_id actually
+        // changed. A recv_share error that re-enters this outer loop must
+        // not reset nonce_start to 0; the dummy-asic resumes the sweep
+        // from the host-supplied start (header bytes 76..80) and would
+        // otherwise re-find the same low nonces and resubmit them as
+        // duplicates after every transient UART glitch.
+        if last_job_id.as_deref() == Some(assignment.job_id.as_str()) {
+            info!(
+                "worker: resuming job {} at nonce {:08x}",
+                assignment.job_id.as_str(),
+                nonce_start
+            );
+        } else {
+            nonce_start = 0;
+            work_id = work_id.wrapping_add(1);
+            last_job_id = Some(assignment.job_id.clone());
+            info!("worker: new job {}", assignment.job_id.as_str());
+        }
 
         loop {
             if let Some(fresh) = snapshot_assignment().await {
@@ -992,6 +1009,7 @@ pub async fn run_worker<I: asic_interface::AsicInterface>(mut asic: I) -> ! {
                     info!("worker: superseded by new job {}", fresh.job_id.as_str());
                     nonce_start = 0;
                     work_id = work_id.wrapping_add(1);
+                    last_job_id = Some(fresh.job_id.clone());
                 }
                 assignment = fresh;
             }
@@ -1016,7 +1034,7 @@ pub async fn run_worker<I: asic_interface::AsicInterface>(mut asic: I) -> ! {
 
             // Backend sends are infallible for ChannelAsic; UartAsic will
             // surface real I/O failures, hence the `if let Err`. A failed
-            // send aborts this round and restarts on the next outer loop
+            // send aborts this round and retries on the next work loop
             // iteration so transient UART glitches don't lock up mining.
             if let Err(error) = asic.send_work(&frame).await {
                 warn!("worker: send_work failed: {}", error);
