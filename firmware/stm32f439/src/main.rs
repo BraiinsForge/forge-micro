@@ -179,6 +179,30 @@ async fn uart_worker_task(uart: BufferedUart<'static>) -> ! {
     ubos_backend::run_worker(asic).await
 }
 
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+#[embassy_executor::task]
+async fn stratum_task(stack: embassy_net::Stack<'static>, config: &'static PoolConfig) -> ! {
+    ubos_backend::run_stratum(stack, config).await
+}
+
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+#[embassy_executor::task]
+async fn ntime_roller_task() -> ! {
+    ubos_backend::run_ntime_roller().await
+}
+
+#[cfg(feature = "backend-cpu")]
+#[embassy_executor::task]
+async fn cpu_worker_task() -> ! {
+    ubos_backend::run_cpu_worker().await
+}
+
+#[cfg(feature = "backend-cpu")]
+#[embassy_executor::task]
+async fn cpu_miner_task() -> ! {
+    cpu_miner::run_cpu_miner().await
+}
+
 #[cortex_m_rt::entry]
 fn main() -> ! {
     eth_examples::cpu_load::run_cortex_m_executor::<0, _>(|spawner| {
@@ -323,17 +347,15 @@ async fn boot(spawner: Spawner) {
     let config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", config.address.address());
 
+    #[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+    {
+        spawner.spawn(unwrap!(stratum_task(stack, &POOL_CONFIG)));
+        spawner.spawn(unwrap!(ntime_roller_task()));
+    }
     #[cfg(feature = "backend-cpu")]
     {
-        spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
-        spawner.spawn(unwrap!(ubos_backend::cpu_worker_task()));
-        spawner.spawn(unwrap!(cpu_miner::cpu_miner_task()));
-        spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
-    }
-    #[cfg(feature = "backend-uart")]
-    {
-        spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
-        spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
+        spawner.spawn(unwrap!(cpu_worker_task()));
+        spawner.spawn(unwrap!(cpu_miner_task()));
     }
 
     net::run_http_server(stack, config::Board::NAME).await;

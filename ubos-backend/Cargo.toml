@@ -9,7 +9,6 @@ workspace = true
 [dependencies]
 asic-interface    = { workspace = true }
 cpu-miner         = { workspace = true }
-embassy-executor  = { workspace = true }
 embassy-futures   = { workspace = true }
 embassy-net       = { workspace = true, features = ["defmt", "tcp", "medium-ethernet", "proto-ipv4"] }
 embassy-sync      = { workspace = true, features = ["defmt"] }

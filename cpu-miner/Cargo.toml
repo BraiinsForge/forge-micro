@@ -8,7 +8,6 @@ workspace = true
 
 [dependencies]
 asic-interface   = { workspace = true }
-embassy-executor = { workspace = true }
 embassy-futures  = { workspace = true }
 embassy-sync     = { workspace = true, features = ["defmt"] }
 sha2             = { workspace = true }

@@ -178,6 +178,30 @@ async fn uart_worker_task(uart: BufferedUart) -> ! {
     ubos_backend::run_worker(asic).await
 }
 
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+#[embassy_executor::task]
+async fn stratum_task(stack: embassy_net::Stack<'static>, config: &'static PoolConfig) -> ! {
+    ubos_backend::run_stratum(stack, config).await
+}
+
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+#[embassy_executor::task]
+async fn ntime_roller_task() -> ! {
+    ubos_backend::run_ntime_roller().await
+}
+
+#[cfg(feature = "backend-cpu")]
+#[embassy_executor::task]
+async fn cpu_worker_task() -> ! {
+    ubos_backend::run_cpu_worker().await
+}
+
+#[cfg(feature = "backend-cpu")]
+#[embassy_executor::task]
+async fn cpu_miner_task() -> ! {
+    cpu_miner::run_cpu_miner().await
+}
+
 #[cortex_m_rt::entry]
 fn main() -> ! {
     eth_examples::cpu_load::run_cortex_m_executor::<0, _>(|spawner| {
@@ -231,10 +255,8 @@ async fn boot(spawner: Spawner) {
         eth_examples::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner| {
             #[cfg(feature = "backend-cpu")]
             {
-                core1_spawner.spawn(unwrap!(ubos_backend::cpu_worker_task()));
-                core1_spawner.spawn(unwrap!(cpu_miner::cpu_miner_task(
-                    &ubos_backend::TOTAL_HASHES
-                )));
+                core1_spawner.spawn(unwrap!(cpu_worker_task()));
+                core1_spawner.spawn(unwrap!(cpu_miner_task()));
             }
             #[cfg(feature = "backend-uart")]
             core1_spawner.spawn(unwrap!(uart_worker_task(uart)));
@@ -333,16 +355,12 @@ async fn boot(spawner: Spawner) {
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", config.address.address());
-    #[cfg(feature = "backend-cpu")]
+    #[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
     {
-        // cpu_worker_task and cpu_miner_task run on core 1 (see spawn_core1 above).
-        spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
-        spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
-    }
-    #[cfg(feature = "backend-uart")]
-    {
-        spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
-        spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
+        // Core 1 hosts cpu_worker_task + cpu_miner_task (backend-cpu) or
+        // uart_worker_task (backend-uart); see spawn_core1 above.
+        spawner.spawn(unwrap!(stratum_task(stack, &POOL_CONFIG)));
+        spawner.spawn(unwrap!(ntime_roller_task()));
     }
 
     net::run_http_server(stack, config::Board::NAME).await;

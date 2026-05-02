@@ -6,9 +6,9 @@
 //! mid-job difficulty updates, `CLEAN_JOBS` is the drop-current-work
 //! flag, and `SOLUTIONS` is the solver-to-stratum channel.
 //!
-//! `fake_solver_task` emits one `Solution` per second for wire
+//! `run_fake_solver` emits one `Solution` per second for wire
 //! testing. `run_worker` drives any `asic_interface::AsicInterface`
-//! backend in the main mining loop; `cpu_worker_task` instantiates it
+//! backend in the main mining loop; `run_cpu_worker` instantiates it
 //! with a `cpu_miner::ChannelAsic` for in-process CPU mining.
 
 #![no_std]
@@ -225,7 +225,7 @@ static TCP_TX: ConstStaticCell<[u8; TCP_BUFFER_SIZE]> = ConstStaticCell::new([0;
 
 // Extranonce1 and extranonce2_size from the subscribe response. Written once
 // per session during the handshake, read during every subsequent notify.
-// CriticalSectionRawMutex because stratum_task is the only async user but the
+// CriticalSectionRawMutex because run_stratum is the only async user but the
 // Mutex API requires a RawMutex that is Send; NoopRawMutex is not Send.
 struct SubscribeState {
     extranonce1_hex: heapless::String<MAX_EXTRANONCE1_HEX_CHARS>,
@@ -248,15 +248,20 @@ enum SessionError {
     HandshakeMissing,
 }
 
-/// Stratum V1 client task. Connects, performs the handshake, then drives the
+/// Stratum V1 client loop. Connects, performs the handshake, then drives the
 /// notify loop concurrently with share submission. Reconnects on any error.
 ///
 /// The `LineAction::Notify` variant carries ~1.6 KiB of fixed-size decode
 /// buffers by design (no alloc); that is also the dominant contributor to
-/// the task future's size. MCU stacks are sized for it.
+/// the future's size. MCU stacks are sized for it.
+///
+/// Plain async fn so firmware crates can wrap it in a local
+/// `#[embassy_executor::task]`. Keeping the wrapper out of this crate
+/// avoids depending on `embassy-executor`, which conflicts at link time
+/// on esp32s3: the firmware pins version 0.9.1 to match `esp-rtos 0.2.0`
+/// while this workspace ships 0.10.0.
 #[allow(clippy::large_futures)]
-#[embassy_executor::task]
-pub async fn stratum_task(stack: embassy_net::Stack<'static>, config: &'static PoolConfig) -> ! {
+pub async fn run_stratum(stack: embassy_net::Stack<'static>, config: &'static PoolConfig) -> ! {
     let rx_buffer = TCP_RX.take();
     let tx_buffer = TCP_TX.take();
 
@@ -265,6 +270,19 @@ pub async fn stratum_task(stack: embassy_net::Stack<'static>, config: &'static P
             warn!("stratum session error: {}", error);
         }
         Timer::after(config.reconnect_delay).await;
+    }
+}
+
+/// Dispatch every complete line currently buffered in `line_buffer`.
+async fn drain_lines(line_buffer: &mut LineBuffer<LINE_BUFFER_BYTES>) -> Result<(), SessionError> {
+    loop {
+        let next = line_buffer
+            .next_line()
+            .map_err(|_| SessionError::LineTooLong)?;
+        let Some(line) = next else { break Ok(()) };
+        let action = classify_line(line);
+        line_buffer.consume();
+        dispatch(action).await?;
     }
 }
 
@@ -310,15 +328,7 @@ async fn run_session(
         // pile up in the TCP receive buffer until the pool drops us.
         if socket.recv_queue() > 0 {
             fill_line_buffer(&mut socket, &mut line_buffer).await?;
-            loop {
-                let next = line_buffer
-                    .next_line()
-                    .map_err(|_| SessionError::LineTooLong)?;
-                let Some(line) = next else { break };
-                let action = classify_line(line);
-                line_buffer.consume();
-                dispatch(action).await?;
-            }
+            drain_lines(&mut line_buffer).await?;
             continue;
         }
 
@@ -331,16 +341,7 @@ async fn run_session(
         {
             Either::First(read_result) => {
                 read_result?;
-
-                loop {
-                    let next = line_buffer
-                        .next_line()
-                        .map_err(|_| SessionError::LineTooLong)?;
-                    let Some(line) = next else { break };
-                    let action = classify_line(line);
-                    line_buffer.consume();
-                    dispatch(action).await?;
-                }
+                drain_lines(&mut line_buffer).await?;
             }
             Either::Second(solution) => {
                 send_share(
@@ -883,9 +884,9 @@ async fn do_authorize(
 }
 
 /// Fake solver: immediately sends a solution with nonce=0 for every new job.
-/// Useful for testing the submit path without burning CPU cycles.
-#[embassy_executor::task]
-pub async fn fake_solver_task() -> ! {
+/// Useful for testing the submit path without burning CPU cycles. Plain
+/// async fn; firmware wraps it in a local `#[embassy_executor::task]`.
+pub async fn run_fake_solver() -> ! {
     loop {
         let Some(assignment) = snapshot_assignment().await else {
             NEW_JOB.wait().await;
@@ -909,8 +910,55 @@ pub async fn fake_solver_task() -> ! {
     }
 }
 
-/// Generic mining loop driven by an `AsicInterface`. Mirrors the control
-/// flow of the previous in-process `cpu_solver_task`: snapshot the
+/// Polls `asic` until a share clears both the work ID and pool target
+/// checks. Returns `None` on ASIC error or a `clean_jobs` signal.
+///
+/// Re-hashing with the pool target filters shares that the ASIC accepted
+/// at its easier wire target but that the pool would reject. One `SHA256d`
+/// per share; negligible at our hashrates.
+async fn recv_valid_share<I: asic_interface::AsicInterface>(
+    asic: &mut I,
+    wire_target: &[u8; 32],
+    target: &[u8; 32],
+    work_id: u32,
+    assignment: &WorkAssignment,
+) -> Option<asic_interface::RawShare> {
+    loop {
+        match select(asic.next_share(wire_target), CLEAN_JOBS.wait()).await {
+            Either::First(Ok(share)) => {
+                if share.work_id != work_id {
+                    info!(
+                        "worker: dropping stale share nonce={:08x} work_id={} (current {})",
+                        share.nonce, share.work_id, work_id,
+                    );
+                    continue;
+                }
+                let hash = cpu_miner::header_hash(
+                    assignment.version,
+                    assignment.prev_hash,
+                    assignment.merkle_root,
+                    assignment.ntime,
+                    assignment.nbits,
+                    share.nonce,
+                );
+                if !cpu_miner::hash_meets_target(&hash, target) {
+                    continue;
+                }
+                return Some(share);
+            }
+            Either::First(Err(error)) => {
+                warn!("worker: recv_share failed: {}", error);
+                return None;
+            }
+            Either::Second(()) => {
+                info!("worker: cancelled by clean_jobs");
+                return None;
+            }
+        }
+    }
+}
+
+/// Generic mining loop driven by an `AsicInterface`: snapshot the
 /// assignment, push it to the ASIC, await one share, react to
 /// `CLEAN_JOBS`. Header construction, nonce-start tracking, target
 /// updates, and `Solution` packaging all stay here so backends only deal
@@ -975,44 +1023,11 @@ pub async fn run_worker<I: asic_interface::AsicInterface>(mut asic: I) -> ! {
                 continue;
             }
 
-            let share = loop {
-                match select(asic.next_share(&wire_target), CLEAN_JOBS.wait()).await {
-                    Either::First(Ok(share)) => {
-                        if share.work_id != work_id {
-                            info!(
-                                "worker: dropping stale share nonce={:08x} work_id={} (current {})",
-                                share.nonce, share.work_id, work_id,
-                            );
-                            continue;
-                        }
-                        // Re-hash with the pool target and drop shares
-                        // that don't clear it. One SHA256d per local
-                        // share; negligible at our rates. This filter
-                        // gates pool submission only.
-                        let hash = cpu_miner::header_hash(
-                            assignment.version,
-                            assignment.prev_hash,
-                            assignment.merkle_root,
-                            assignment.ntime,
-                            assignment.nbits,
-                            share.nonce,
-                        );
-                        if !cpu_miner::hash_meets_target(&hash, &target) {
-                            continue;
-                        }
-                        break Some(share);
-                    }
-                    Either::First(Err(error)) => {
-                        warn!("worker: recv_share failed: {}", error);
-                        break None;
-                    }
-                    Either::Second(()) => {
-                        info!("worker: cancelled by clean_jobs");
-                        break None;
-                    }
-                }
+            let Some(share) =
+                recv_valid_share(&mut asic, &wire_target, &target, work_id, &assignment).await
+            else {
+                break;
             };
-            let Some(share) = share else { break };
 
             info!(
                 "worker: share queued nonce={:08x} job={}",
@@ -1032,10 +1047,10 @@ pub async fn run_worker<I: asic_interface::AsicInterface>(mut asic: I) -> ! {
     }
 }
 
-/// CPU-mining flavour of `run_worker`: pairs with `cpu_miner::cpu_miner_task`.
-/// Spawn both on the same executor (or the same core).
-#[embassy_executor::task]
-pub async fn cpu_worker_task() -> ! {
+/// CPU-mining flavour of `run_worker`: pairs with `cpu_miner::run_cpu_miner`.
+/// Spawn both on the same executor (or the same core). Plain async fn;
+/// firmware wraps it in a local `#[embassy_executor::task]`.
+pub async fn run_cpu_worker() -> ! {
     run_worker(cpu_miner::ChannelAsic::new()).await
 }
 
@@ -1043,9 +1058,9 @@ pub async fn cpu_worker_task() -> ! {
 /// stays "in stasis" between notifies: only `ntime` drifts forward so pools
 /// keep accepting our shares instead of rejecting them as time-too-old.
 /// Rolling is capped at `NTIME_ROLL_MAX_SECS` past the pool-supplied base to
-/// stay inside the header-time window the consensus rules allow.
-#[embassy_executor::task]
-pub async fn ntime_roller_task() -> ! {
+/// stay inside the header-time window the consensus rules allow. Plain
+/// async fn; firmware wraps it in a local `#[embassy_executor::task]`.
+pub async fn run_ntime_roller() -> ! {
     loop {
         Timer::after(NTIME_ROLL_INTERVAL).await;
 

@@ -346,7 +346,6 @@ name = "cpu-miner"
 version = "0.1.0"
 dependencies = [
  "asic-interface",
- "embassy-executor 0.10.0",
  "embassy-futures",
  "embassy-sync 0.8.0",
  "sha2",
@@ -3245,7 +3244,6 @@ dependencies = [
  "asic-interface",
  "cpu-miner",
  "defmt 1.0.1",
- "embassy-executor 0.10.0",
  "embassy-futures",
  "embassy-net",
  "embassy-sync 0.8.0",

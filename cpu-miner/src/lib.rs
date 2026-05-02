@@ -2,7 +2,7 @@
 //!
 //! Provides block-header construction, target comparison, double-SHA256
 //! hashing, an async nonce-scan loop, and the in-process implementation
-//! of `asic_interface::AsicInterface`. `ChannelAsic` and `cpu_miner_task`
+//! of `asic_interface::AsicInterface`. `ChannelAsic` and `run_cpu_miner`
 //! together pair with a generic worker so the same code path drives the
 //! CPU miner here or a real ASIC over UART elsewhere.
 
@@ -33,17 +33,17 @@ use sha2::{Digest, Sha256};
 // roughly every 10 ms on the slower cores, satisfying both cases.
 const SOLVER_YIELD_INTERVAL: u32 = 100;
 
-/// Worker to `cpu_miner_task`: latest work to mine. Watch semantics mean
+/// Worker to `run_cpu_miner`: latest work to mine. Watch semantics mean
 /// a fresh frame supersedes whatever the miner is currently working on.
 pub static WORK_WATCH: Watch<CriticalSectionRawMutex, WorkFrame, 1> = Watch::new();
 
-/// `cpu_miner_task` to worker: shares produced for the in-flight work.
+/// `run_cpu_miner` to worker: shares produced for the in-flight work.
 /// Capacity > 1 covers the brief window where the miner has produced a
 /// share before the worker has snapshotted the next frame.
 pub static SHARE_CHANNEL: Channel<CriticalSectionRawMutex, RawShare, 4> = Channel::new();
 
 /// `AsicInterface` backed by `WORK_WATCH` and `SHARE_CHANNEL`. Pairs with
-/// `cpu_miner_task`; together they preserve the previous in-process CPU
+/// `run_cpu_miner`; together they preserve the previous in-process CPU
 /// mining behaviour while running on the same generic worker code path
 /// that a UART ASIC will use.
 pub struct ChannelAsic {
@@ -207,8 +207,13 @@ pub async fn mine_share_header(mut header: [u8; 80], target: [u8; 32]) -> u32 {
 /// CPU-side mining loop. Reads the latest `WorkFrame` from `WORK_WATCH`,
 /// runs `mine_share_header` on it, and pushes shares to `SHARE_CHANNEL`.
 /// A new frame in the watch aborts the in-flight search via `select`.
-#[embassy_executor::task]
-pub async fn cpu_miner_task() -> ! {
+///
+/// Plain async fn; firmware wraps it in a local
+/// `#[embassy_executor::task]`. Keeping the wrapper out of this crate
+/// avoids depending on `embassy-executor`, which conflicts at link time
+/// on esp32s3: the firmware pins version 0.9.1 to match `esp-rtos 0.2.0`
+/// while this workspace ships 0.10.0.
+pub async fn run_cpu_miner() -> ! {
     // cpu-miner is the sole receiver of WORK_WATCH and the watch capacity
     // is 1, so the receiver slot is always free.
     let mut work_receiver = WORK_WATCH
