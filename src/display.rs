@@ -2,11 +2,10 @@
 //! time, BTC price, and hashrate onto the SH1106. Board crates call
 //! [`run`] from a one-line `#[embassy_executor::task]` wrapper.
 //!
-//! Three values come from shared atomics (`LOCAL_IPV4`,
-//! `NTP_EPOCH_OFFSET`, `BTC_PRICE_CENTS`); the hashrate is computed
-//! on demand from the [`hashrate::hashrate`] sliding window.  The task
-//! signature carries only the display handle; any producer can publish
-//! without rewiring the display's spawn path.
+//! Values come from shared atomics: `LOCAL_IPV4`, `NTP_EPOCH_OFFSET`,
+//! `BTC_PRICE_CENTS`, and the EWMA inside `asic_interface::hashrate`.
+//! The task signature carries only the display handle; any producer
+//! can publish without rewiring the display's spawn path.
 
 use embassy_net::Ipv4Address;
 use embassy_time::{Duration, Timer};
@@ -18,13 +17,6 @@ use embedded_hal::digital::OutputPin;
 use portable_atomic::Ordering;
 use profont::PROFONT_12_POINT;
 
-// `hashrate::hashrate` needs the difficulty target to convert the share
-// delta into Hz; the dummy_asic test is the only share-producing path
-// here, so its target constant is the correct argument. The cpu-mining
-// path bypasses this conversion via `record_external_rate`, which is
-// why the import is unconditional rather than feature-gated.
-use crate::dummy_asic::TEST_TARGET_LEADING_ZERO_BYTES;
-use crate::hashrate;
 use crate::net::{BTC_PRICE_CENTS, LOCAL_IPV4};
 use crate::ntp;
 use crate::sh1106::Sh1106;
@@ -95,11 +87,10 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
         }
     }
 
-    // Line 4: current hashrate in H/s.  Difficulty target is hard-coded to
-    // TEST_TARGET_LEADING_ZERO_BYTES because dummy_asic::build_work_frame
-    // always issues Work at that target; if a future caller pushes a
-    // different target the displayed rate will silently misreport.
-    let hashrate = hashrate::hashrate(TEST_TARGET_LEADING_ZERO_BYTES);
+    // Line 4: current hashrate in H/s. Read from the AsicInterface
+    // EWMA so the displayed rate reflects whatever backend is wired
+    // (cpu-miner, UART dummy-asic, future ASIC).
+    let hashrate = asic_interface::hashrate();
     let mut hashrate_buffer = [0u8; 14];
     if let Ok(text) = format_no_std::show(&mut hashrate_buffer, format_args!("{hashrate} H/s")) {
         Text::new(text, Point::new(0, 61), style).draw(display)?;

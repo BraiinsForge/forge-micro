@@ -84,14 +84,31 @@ const TEST_HEADER: [u8; 80] = {
 
 /// Require one trailing zero byte in the raw SHA-256d digest.  The
 /// dummy-asic solves faster than the UART can drain, so the effective
-/// share rate is bounded by UART bandwidth.  Many shares per window
-/// keeps the displayed hashrate visually smooth.
+/// share rate is bounded by UART bandwidth.  Many shares per EWMA
+/// bucket keep the displayed hashrate visually smooth.
 pub const TEST_TARGET_LEADING_ZERO_BYTES: u8 = 1;
 
 // Guard the `32 - TEST_TARGET_LEADING_ZERO_BYTES` arithmetic below: a
 // SHA-256 digest is 32 bytes, so any target beyond that would underflow
 // the slice index. Compile-time failure is cheaper than the runtime trap.
 const _: () = assert!(TEST_TARGET_LEADING_ZERO_BYTES as usize <= 32);
+
+/// 256-bit little-endian target equivalent to the trailing-zero-byte
+/// test above, used to feed `asic_interface::record_share` with a
+/// difficulty input that matches what the dummy-asic actually scans
+/// to.  The MSB lives at index 31, so zeroing the top
+/// `TEST_TARGET_LEADING_ZERO_BYTES` bytes there gives the correct
+/// hashes-per-share count for the EWMA estimator.
+const TEST_WIRE_TARGET: [u8; 32] = {
+    let mut target = [0xffu8; 32];
+    let leading_zero_bytes = TEST_TARGET_LEADING_ZERO_BYTES as usize;
+    let mut index = 0;
+    while index < leading_zero_bytes {
+        target[31 - index] = 0;
+        index += 1;
+    }
+    target
+};
 
 fn xor_checksum(data: &[u8]) -> u8 {
     data.iter().fold(0u8, |acc, &byte| acc ^ byte)
@@ -226,7 +243,11 @@ where
         return Err(());
     }
 
-    crate::hashrate::record_share();
+    // run_continuous_mining drives this loop directly, so the share
+    // never travels through AsicInterface::next_share. Feed the
+    // estimator here with the wire-target equivalent of the
+    // trailing-zero-byte test the asic was scanning to.
+    asic_interface::record_share(&TEST_WIRE_TARGET);
     Ok(())
 }
 

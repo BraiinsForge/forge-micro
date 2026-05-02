@@ -9,13 +9,8 @@ use core::fmt::{self, Write};
 use embassy_net::Ipv4Address;
 use portable_atomic::Ordering;
 
-// `hashrate::hashrate` needs the difficulty target to convert the share
-// delta into Hz; the dummy_asic test is the only share-producing path
-// here, so its target constant is the correct argument. The cpu-mining
-// path bypasses this conversion via `record_external_rate`, which is
-// why the import is unconditional rather than feature-gated.
-use crate::dummy_asic::TEST_TARGET_LEADING_ZERO_BYTES;
-use crate::hashrate::{self, SHARE_COUNT};
+use asic_interface::SHARE_COUNT;
+
 use crate::net::{BTC_PRICE_CENTS, LOCAL_IPV4, NTP_EPOCH_OFFSET};
 
 /// Wrapper around a byte slice that tracks the write position.
@@ -98,11 +93,7 @@ pub fn build_metrics_response(
         "<p>Requests: <span class=\"v\">{request_count}</span></p>"
     );
 
-    // Difficulty target is hard-coded to TEST_TARGET_LEADING_ZERO_BYTES
-    // because dummy_asic::build_work_frame always issues Work at that
-    // target; if a future caller pushes a different target the exposed
-    // rate will silently misreport.
-    let hashrate = hashrate::hashrate(TEST_TARGET_LEADING_ZERO_BYTES);
+    let hashrate = asic_interface::hashrate();
     let shares = SHARE_COUNT.load(Ordering::Relaxed);
     let _ = write!(
         writer,
