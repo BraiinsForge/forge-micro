@@ -411,6 +411,12 @@
             cargoExtraArgs = "-p cpu-miner";
           };
 
+          test-asic-interface = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p asic-interface";
+          };
+
           clippy-esp32s3 = espCraneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
