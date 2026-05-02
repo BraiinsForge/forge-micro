@@ -63,8 +63,8 @@ pub(crate) const OPCODE_WORK: u8 = 0x01;
 pub(crate) const OPCODE_SHARE: u8 = 0x02;
 const OPCODE_READ_TEMP: u8 = 0x03;
 const OPCODE_TEMP_REPORT: u8 = 0x04;
-pub(crate) const WORK_FRAME_LEN: usize = 115;
-pub(crate) const SHARE_FRAME_LEN: usize = 39;
+pub(crate) const WORK_FRAME_LEN: usize = 119;
+pub(crate) const SHARE_FRAME_LEN: usize = 43;
 const READ_TEMP_FRAME_LEN: usize = 3;
 const TEMP_REPORT_FRAME_LEN: usize = 7;
 
@@ -119,6 +119,10 @@ fn build_work_frame() -> [u8; WORK_FRAME_LEN] {
     frame[1] = OPCODE_WORK;
     frame[2..82].copy_from_slice(&TEST_HEADER);
     frame[82..114].copy_from_slice(&TEST_TARGET);
+    // Self-test only sends one Work, so the work_id is fixed at 0; the
+    // peer echoes it back in shares but the rehash path here does not
+    // care.
+    frame[114..118].copy_from_slice(&0u32.to_be_bytes());
     frame[WORK_FRAME_LEN - 1] = xor_checksum(&frame[1..WORK_FRAME_LEN - 1]);
     frame
 }
@@ -221,8 +225,9 @@ where
     // Nonce is big-endian on the wire; the solver installed it little-endian
     // into the header before hashing, so undo that for the rehash.
     let nonce = u32::from_be_bytes([share[2], share[3], share[4], share[5]]);
+    // Bytes 6..10 hold the echoed work_id; the self-test ignores it.
     let mut reported_hash = [0u8; 32];
-    reported_hash.copy_from_slice(&share[6..38]);
+    reported_hash.copy_from_slice(&share[10..42]);
 
     let mut verify_header = TEST_HEADER;
     verify_header[76..80].copy_from_slice(&nonce.to_le_bytes());

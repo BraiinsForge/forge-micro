@@ -31,24 +31,19 @@ pub enum UartAsicError {
 ///
 /// One round = one Work frame out, one Share frame back. Resyncs on a
 /// stray byte by scanning until the next `FRAME_START`, mirroring the
-/// dummy-asic firmware's own resync. The wire format carries no work
-/// identifier, so `recv_share` stamps shares with the `work_id` of the
-/// last `send_work`; the dummy-asic firmware abandons the previous Work
-/// the moment a new one arrives, leaving only a narrow on-wire window
-/// where a stale share can still be packaged as current.
+/// dummy-asic firmware's own resync. Each Work carries the host-assigned
+/// `work_id` on the wire; the peer echoes it in every share, so
+/// `run_worker` can drop shares from a superseded job by comparing
+/// `share.work_id` against its current job.
 pub struct UartAsic<U> {
     uart: U,
-    last_work_id: u32,
 }
 
 impl<U> UartAsic<U> {
     /// Wrap an already-configured UART. The caller owns baud-rate setup;
     /// the constant `crate::dummy_asic::BAUD_RATE` is the value to use.
     pub const fn new(uart: U) -> Self {
-        Self {
-            uart,
-            last_work_id: 0,
-        }
+        Self { uart }
     }
 }
 
@@ -64,13 +59,13 @@ where
         frame[1] = OPCODE_WORK;
         frame[2..82].copy_from_slice(&work.header);
         frame[82..114].copy_from_slice(&work.target);
+        frame[114..118].copy_from_slice(&work.work_id.to_be_bytes());
         frame[WORK_FRAME_LEN - 1] = xor_checksum(&frame[1..WORK_FRAME_LEN - 1]);
         self.uart
             .write_all(&frame)
             .await
             .map_err(|_| UartAsicError::Write)?;
         self.uart.flush().await.map_err(|_| UartAsicError::Write)?;
-        self.last_work_id = work.work_id;
         Ok(())
     }
 
@@ -93,10 +88,8 @@ where
         }
 
         let nonce = u32::from_be_bytes([frame[2], frame[3], frame[4], frame[5]]);
-        Ok(RawShare {
-            nonce,
-            work_id: self.last_work_id,
-        })
+        let work_id = u32::from_be_bytes([frame[6], frame[7], frame[8], frame[9]]);
+        Ok(RawShare { nonce, work_id })
     }
 }
 

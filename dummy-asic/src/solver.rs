@@ -139,6 +139,7 @@ pub(crate) async fn solver_task(sha_peripheral: SHA<'static>) -> ! {
             // delivered shares.
             let _ = SOLUTIONS.try_send(Solution {
                 nonce,
+                work_id: work.work_id,
                 hash: result_hash,
             });
         }

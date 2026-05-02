@@ -32,7 +32,7 @@
 //!
 //! # Binary protocol — UART1, 921 600 baud, GPIO8 TX / GPIO9 RX
 //!
-//! ## Work frame (host → dummy-asic, opcode 0x01) — 115 bytes total
+//! ## Work frame (host → dummy-asic, opcode 0x01) — 119 bytes total
 //!
 //! | Offset | Size | Content |
 //! |--------|------|---------|
@@ -40,17 +40,19 @@
 //! | 1      | 1    | Opcode `0x01` |
 //! | 2      | 80   | 80-byte Bitcoin block header; the solver overwrites the nonce field |
 //! | 82     | 32   | 256-bit target, little-endian; hash accepted when `digest <= target` |
-//! | 114    | 1    | XOR-8 checksum over bytes 1–114 (opcode + payload) |
+//! | 114    | 4    | Host-assigned `work_id`, big-endian; echoed in every share derived from this Work |
+//! | 118    | 1    | XOR-8 checksum over bytes 1–117 (opcode + payload) |
 //!
-//! ## Share frame (dummy-asic → host, opcode 0x02) — 39 bytes total
+//! ## Share frame (dummy-asic → host, opcode 0x02) — 43 bytes total
 //!
 //! | Offset | Size | Content |
 //! |--------|------|---------|
 //! | 0      | 1    | Start byte `0xA5` |
 //! | 1      | 1    | Opcode `0x02` |
 //! | 2      | 4    | Found nonce, big-endian |
-//! | 6      | 32   | SHA-256d hash |
-//! | 38     | 1    | XOR-8 checksum over bytes 1–37 (opcode + payload) |
+//! | 6      | 4    | `work_id` of the Work that produced this share, big-endian |
+//! | 10     | 32   | SHA-256d hash |
+//! | 42     | 1    | XOR-8 checksum over bytes 1–41 (opcode + payload) |
 //!
 //! ## `ReadTemp` frame (host → dummy-asic, opcode 0x03) — 3 bytes total
 //!

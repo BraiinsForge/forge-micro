@@ -35,10 +35,10 @@ const OPCODE_READ_TEMP: u8 = 0x03;
 const OPCODE_TEMP_REPORT: u8 = 0x04;
 
 /// Total size of a Work frame in bytes.
-const WORK_FRAME_LEN: usize = 115;
+const WORK_FRAME_LEN: usize = 119;
 
 /// Total size of a Share frame in bytes.
-const SHARE_FRAME_LEN: usize = 39;
+const SHARE_FRAME_LEN: usize = 43;
 
 /// Total size of a `ReadTemp` request frame in bytes.
 const READ_TEMP_FRAME_LEN: usize = 3;
@@ -56,6 +56,7 @@ pub(crate) const UNKNOWN_TEMP_MILLI_CELSIUS: i32 = i32::MIN;
 
 /// A mining work item received from the host.
 #[derive(Clone)]
+#[allow(clippy::struct_field_names)]
 pub(crate) struct Work {
     /// 80-byte Bitcoin block header.
     pub(crate) header: [u8; 80],
@@ -63,12 +64,18 @@ pub(crate) struct Work {
     /// raw SHA-256d digest, interpreted as a 256-bit little-endian integer,
     /// is less than or equal to this value.
     pub(crate) target: [u8; 32],
+    /// Host-assigned identifier echoed back in every share derived from
+    /// this Work. Closes the new-job race: the host drops shares whose
+    /// `work_id` does not match the in-flight job.
+    pub(crate) work_id: u32,
 }
 
 /// A solution produced by the solver task.
 pub(crate) struct Solution {
     /// The nonce that satisfied the target.
     pub(crate) nonce: u32,
+    /// `work_id` of the Work that produced this solution.
+    pub(crate) work_id: u32,
     /// The SHA-256d hash of the header with `nonce` installed.
     pub(crate) hash: [u8; 32],
 }
@@ -211,7 +218,12 @@ async fn read_work_tail(rx: &mut UartRx<'static, esp_hal::Async>) -> Option<Work
     header.copy_from_slice(&frame[2..82]);
     let mut target = [0u8; 32];
     target.copy_from_slice(&frame[82..114]);
-    Some(Work { header, target })
+    let work_id = u32::from_be_bytes([frame[114], frame[115], frame[116], frame[117]]);
+    Some(Work {
+        header,
+        target,
+        work_id,
+    })
 }
 
 /// Parse the remainder of a `ReadTemp` frame after the start byte and
@@ -249,8 +261,9 @@ pub(crate) async fn write_share_frame(
     frame[0] = FRAME_START;
     frame[1] = OPCODE_SHARE;
     frame[2..6].copy_from_slice(&solution.nonce.to_be_bytes());
-    frame[6..38].copy_from_slice(&solution.hash);
-    // Checksum covers opcode + payload (bytes 1..38).
+    frame[6..10].copy_from_slice(&solution.work_id.to_be_bytes());
+    frame[10..42].copy_from_slice(&solution.hash);
+    // Checksum covers opcode + payload (bytes 1..42).
     frame[SHARE_FRAME_LEN - 1] = xor_checksum(&frame[1..SHARE_FRAME_LEN - 1]);
 
     if let Err(error) = AsyncWrite::write_all(tx, &frame).await {
