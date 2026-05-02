@@ -127,3 +127,19 @@ disconnected from the pool entirely.
   `spawner.spawn()` returns `()`. The `unwrap!` wraps the constructor.
 - ESP32 crate pins `embassy-executor = "0.9.1"` to match `esp-rtos 0.2.0`
   internal dependency (workspace `0.10.0` is incompatible).
+- UART for the dummy-asic link uses DMA on cortex-m targets:
+  `embassy-stm32` `RingBufferedUartRx` for stm32f407/stm32f439, and
+  `embassy-rp` `BufferedUart` (interrupt-driven, 1 KiB software ring
+  buffer each direction) for rp2040/rp2350/bmm-pico. The RP hardware
+  FIFO is 32 bytes; one-shot DMA would overflow it between `read()`
+  calls at 921600 baud, and embassy-rp 0.10.0 ships no ring-buffered
+  DMA RX. `BufferedUart` already implements `embedded_io_async::Read`
+  and `Write` directly, so no newtype adapter is needed. The esp32s3
+  host firmware and the dummy-asic peer stay
+  on the interrupt+FIFO `Uart::into_async()` path because esp-hal
+  1.0.0 ships no UART DMA driver. The closed-after-1.0.0 issues
+  esp-rs/esp-hal#2642 (UART DMA support) and #4720 (circular UHCI RX)
+  track this gap; revisit when the next esp-hal release reaches this
+  workspace. The S3's 128-byte hardware FIFO plus its dual-core split
+  absorb the ETH-ISR-class jitter that overran the 1-byte USART
+  holding register on stm32f407.

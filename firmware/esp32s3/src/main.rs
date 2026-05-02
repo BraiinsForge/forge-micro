@@ -303,6 +303,17 @@ async fn boot(spawner: Spawner) {
                         let (uart0, uart_tx, uart_rx) = uart_parts;
                         let uart_config =
                             UartConfig::default().with_baudrate(eth_examples::uart_asic::BAUD_RATE);
+                        // esp-hal 1.0.0 ships no UART DMA driver; the
+                        // interrupt+FIFO `into_async()` path here is the
+                        // full async story in this release. Issues
+                        // esp-rs/esp-hal#2642 (UART DMA) and #4720
+                        // (circular UHCI RX) closed after 1.0.0 and would
+                        // unlock a streaming-DMA backend; revisit when
+                        // the next esp-hal release reaches this workspace.
+                        // The S3's 128-byte hardware FIFO plus running the
+                        // worker on a separate core absorbs ETH-ISR-class
+                        // jitter without the per-byte deadline that
+                        // overruns the stm32f407 USART.
                         // Valid peripheral and default-compatible baud rate; cannot fail.
                         let uart = Uart::new(uart0, uart_config)
                             .expect("BUG: UART0 configuration failed")

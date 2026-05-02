@@ -112,6 +112,13 @@ async fn main(spawner: Spawner) {
     );
 
     let uart_config = UartConfig::default().with_baudrate(BAUD_RATE);
+    // esp-hal 1.0.0 ships no UART DMA driver; the interrupt+FIFO
+    // `into_async()` path here is the full async story in this release.
+    // Issues esp-rs/esp-hal#2642 (UART DMA) and #4720 (circular UHCI RX)
+    // closed after 1.0.0 and would unlock a streaming-DMA backend;
+    // revisit when the next esp-hal release reaches this workspace.
+    // The S3's 128-byte hardware FIFO plus the reader running on
+    // PRO_CPU absorbs the 921 600-baud stream comfortably.
     // Valid UART peripheral and fixed baud rate; this cannot fail.
     let uart = Uart::new(hw.uart1, uart_config)
         .expect("BUG: UART configuration failed")
