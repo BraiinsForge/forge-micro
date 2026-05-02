@@ -19,7 +19,6 @@ pub mod consts;
 pub mod cpu_load;
 pub mod display;
 pub mod dummy_asic;
-pub mod hashrate;
 pub mod http;
 pub mod led;
 pub mod metrics;
