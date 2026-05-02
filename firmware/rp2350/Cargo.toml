@@ -21,6 +21,7 @@ embassy-net         = { workspace = true, features = ["defmt", "tcp", "udp", "dh
 embassy-net-wiznet  = { workspace = true, features = ["defmt"] }
 embassy-rp          = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa"] }
 embassy-time        = { workspace = true, features = ["defmt"] }
+embedded-io-async   = { workspace = true }
 defmt               = { workspace = true }
 defmt-rtt           = { workspace = true }
 heapless            = { workspace = true, optional = true }
