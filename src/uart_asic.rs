@@ -12,7 +12,47 @@
 //! link desyncs at boot.
 
 use asic_interface::{AsicInterface, RawShare, WorkFrame};
-use embedded_io_async::{Read, Write};
+use embedded_io_async::{Error as IoError, Read, Write};
+
+/// Combines a separate RX half and TX half into a single value that
+/// implements both `Read` and `Write`.
+///
+/// Used by STM32 boards where `RingBufferedUartRx` and `UartTx` are
+/// distinct types. `UartAsic<U>` requires a single `U: Read + Write`,
+/// so this wrapper merges the halves without touching `UartAsic` or
+/// `run_worker`.
+pub struct SplitUart<R, W> {
+    /// The receive half.
+    pub rx: R,
+    /// The transmit half.
+    pub tx: W,
+}
+
+impl<R: Read, W: Write> embedded_io_async::ErrorType for SplitUart<R, W> {
+    type Error = embedded_io_async::ErrorKind;
+}
+
+impl<R: Read, W: Write> Read for SplitUart<R, W> {
+    async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
+        self.rx
+            .read(buffer)
+            .await
+            .map_err(|error| IoError::kind(&error))
+    }
+}
+
+impl<R: Read, W: Write> Write for SplitUart<R, W> {
+    async fn write(&mut self, buffer: &[u8]) -> Result<usize, Self::Error> {
+        self.tx
+            .write(buffer)
+            .await
+            .map_err(|error| IoError::kind(&error))
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.tx.flush().await.map_err(|error| IoError::kind(&error))
+    }
+}
 
 /// Baud rate shared across all board UART configurations for this protocol.
 pub const BAUD_RATE: u32 = 921_600;
