@@ -1006,7 +1006,7 @@ pub async fn run_worker<I: asic_interface::AsicInterface>(mut asic: I) -> ! {
             }
 
             let share = loop {
-                match select(asic.recv_share(), CLEAN_JOBS.wait()).await {
+                match select(asic.next_share(&wire_target), CLEAN_JOBS.wait()).await {
                     Either::First(Ok(share)) => {
                         if share.work_id != work_id {
                             info!(
