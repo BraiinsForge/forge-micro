@@ -10,7 +10,7 @@ use embassy_rp::peripherals::{
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_8, PIN_9, SPI1};
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 use embassy_rp::peripherals::{PIN_4, PIN_5, UART1};
 use embassy_rp::Peri;
 use embassy_time::Duration;
@@ -31,11 +31,11 @@ pub struct Board {
     pub rx_dma: Peri<'static, DMA_CH0>,
     pub tx_dma: Peri<'static, DMA_CH1>,
     pub core1: Peri<'static, CORE1>,
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     pub uart: Peri<'static, UART1>,
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     pub uart_tx: Peri<'static, PIN_4>,
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     pub uart_rx: Peri<'static, PIN_5>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
@@ -75,11 +75,11 @@ impl Board {
             rx_dma: peripherals.DMA_CH0,
             tx_dma: peripherals.DMA_CH1,
             core1: peripherals.CORE1,
-            #[cfg(feature = "dummy-asic")]
+            #[cfg(feature = "backend-uart")]
             uart: peripherals.UART1,
-            #[cfg(feature = "dummy-asic")]
+            #[cfg(feature = "backend-uart")]
             uart_tx: peripherals.PIN_4,
-            #[cfg(feature = "dummy-asic")]
+            #[cfg(feature = "backend-uart")]
             uart_rx: peripherals.PIN_5,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI1,
@@ -127,9 +127,9 @@ impl Core1 {
 }
 
 /// Stratum pool connection parameters.
-#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 pub struct Pool;
-#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 impl Pool {
     pub const HOST_IP: [u8; 4] = [192, 168, 89, 100];
     pub const PORT: u16 = 3333;

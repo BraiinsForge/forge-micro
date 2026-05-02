@@ -7,12 +7,12 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["display", "dummy-asic"]
+default = ["display", "backend-uart"]
 display = []
-dummy-asic = ["dep:ubos-backend", "dep:cpu-miner", "dep:heapless"]
-# cpu-mining is mutually exclusive with dummy-asic: enable with
-# `--no-default-features --features "display,cpu-mining"`.
-cpu-mining = ["dep:ubos-backend", "dep:cpu-miner", "dep:heapless"]
+backend-uart = ["dep:ubos-backend"]
+# backend-cpu is mutually exclusive with backend-uart: enable with
+# `--no-default-features --features "display,backend-cpu"`.
+backend-cpu = ["dep:ubos-backend", "dep:cpu-miner"]
 
 [dependencies]
 eth-examples        = { workspace = true }
@@ -24,7 +24,6 @@ embassy-time        = { workspace = true, features = ["defmt"] }
 embedded-io-async   = { workspace = true }
 defmt               = { workspace = true }
 defmt-rtt           = { workspace = true }
-heapless            = { workspace = true, optional = true }
 panic-probe         = { workspace = true, features = ["print-defmt"] }
 static_cell         = { workspace = true }
 embedded-hal-bus    = { workspace = true, features = ["async"] }

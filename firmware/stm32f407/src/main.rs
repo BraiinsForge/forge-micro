@@ -8,10 +8,10 @@
 #![no_std]
 #![no_main]
 
-#[cfg(all(feature = "dummy-asic", feature = "cpu-mining"))]
+#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
 compile_error!(
-    "features `dummy-asic` and `cpu-mining` are mutually exclusive; \
-     enable cpu-mining with --no-default-features --features \"display,cpu-mining\""
+    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
+     enable backend-cpu with --no-default-features --features \"display,backend-cpu\""
 );
 
 use defmt::{info, unwrap};
@@ -29,7 +29,7 @@ use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer as LowLevelTimer};
 use embassy_stm32::triggers::TIM3_TRGO;
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 use embassy_stm32::usart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{bind_interrupts, dma, eth, peripherals, rng};
@@ -43,12 +43,12 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
-#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 use ubos_backend::PoolConfig;
 
 mod config;
 
-#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 static POOL_CONFIG: PoolConfig = PoolConfig {
     host_ip: config::Pool::HOST_IP,
     port: config::Pool::PORT,
@@ -63,7 +63,7 @@ bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
     RNG => rng::InterruptHandler<peripherals::RNG>;
     DMA2_STREAM0 => dma::InterruptHandler<DMA2_CH0>;
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     USART3 => BufferedInterruptHandler<peripherals::USART3>;
     #[cfg(feature = "display")]
     DMA1_STREAM5 => dma::InterruptHandler<DMA1_CH5>;
@@ -170,7 +170,7 @@ async fn display_task(mut display: OledDisplay) -> ! {
     eth_examples::display::run(&mut display).await
 }
 
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 #[embassy_executor::task]
 async fn uart_worker_task(uart: BufferedUart<'static>) -> ! {
     let asic = eth_examples::uart_asic::UartAsic::new(uart);
@@ -266,7 +266,7 @@ async fn boot(spawner: Spawner) {
         _timer: temp_timer,
     })));
 
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     {
         static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
         static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
@@ -325,14 +325,14 @@ async fn boot(spawner: Spawner) {
     let config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", config.address.address());
 
-    #[cfg(feature = "cpu-mining")]
+    #[cfg(feature = "backend-cpu")]
     {
         spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
         spawner.spawn(unwrap!(ubos_backend::cpu_worker_task()));
         spawner.spawn(unwrap!(cpu_miner::cpu_miner_task()));
         spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));
     }
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     {
         spawner.spawn(unwrap!(ubos_backend::stratum_task(stack, &POOL_CONFIG)));
         spawner.spawn(unwrap!(ubos_backend::ntime_roller_task()));

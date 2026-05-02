@@ -7,12 +7,12 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["display", "dummy-asic"]
+default = ["display", "backend-uart"]
 display = []
-dummy-asic = ["dep:ubos-backend", "dep:cpu-miner", "dep:heapless"]
-# cpu-mining is mutually exclusive with dummy-asic: enable with
-# `--no-default-features --features "display,cpu-mining"`.
-cpu-mining = ["dep:ubos-backend", "dep:cpu-miner", "dep:heapless"]
+backend-uart = ["dep:ubos-backend"]
+# backend-cpu is mutually exclusive with backend-uart: enable with
+# `--no-default-features --features "display,backend-cpu"`.
+backend-cpu = ["dep:ubos-backend", "dep:cpu-miner"]
 
 [dependencies]
 eth-examples        = { workspace = true }
@@ -27,7 +27,6 @@ static_cell         = { workspace = true }
 embedded-hal-bus    = { workspace = true, features = ["async"] }
 cortex-m            = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt         = "0.7"
-heapless            = { workspace = true, optional = true }
 portable-atomic     = { workspace = true }
 cpu-miner           = { workspace = true, optional = true }
 ubos-backend        = { path = "../../ubos-backend", optional = true }

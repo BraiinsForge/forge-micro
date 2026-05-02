@@ -9,7 +9,7 @@ use esp_hal::peripherals::{
 };
 #[cfg(feature = "display")]
 use esp_hal::peripherals::{GPIO15, GPIO16, GPIO17, GPIO6, GPIO7, SPI3};
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 use esp_hal::peripherals::{GPIO43, GPIO44, SHA, UART0};
 use esp_hal::time::Rate;
 
@@ -47,13 +47,13 @@ pub struct Board<'d> {
     pub sens: SENS<'d>,
     pub sw_interrupt: SW_INTERRUPT<'d>,
     pub cpu_ctrl: CPU_CTRL<'d>,
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     pub uart0: UART0<'d>,
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     pub uart_tx: GPIO43<'d>,
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     pub uart_rx: GPIO44<'d>,
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     pub sha: SHA<'d>,
     #[cfg(feature = "display")]
     pub display_spi: SPI3<'d>,
@@ -91,13 +91,13 @@ impl Board<'static> {
             sens: peripherals.SENS,
             sw_interrupt: peripherals.SW_INTERRUPT,
             cpu_ctrl: peripherals.CPU_CTRL,
-            #[cfg(feature = "dummy-asic")]
+            #[cfg(feature = "backend-uart")]
             uart0: peripherals.UART0,
-            #[cfg(feature = "dummy-asic")]
+            #[cfg(feature = "backend-uart")]
             uart_tx: peripherals.GPIO43,
-            #[cfg(feature = "dummy-asic")]
+            #[cfg(feature = "backend-uart")]
             uart_rx: peripherals.GPIO44,
-            #[cfg(feature = "dummy-asic")]
+            #[cfg(feature = "backend-uart")]
             sha: peripherals.SHA,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI3,

@@ -27,7 +27,7 @@ use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::spi::Mode;
 use esp_hal::system::Stack;
 use esp_hal::timer::timg::{MwdtStage, TimerGroup, Wdt};
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 use esp_hal::uart::{Config as UartConfig, Uart};
 use esp_rtos::embassy::Callbacks;
 use eth_examples::net;
@@ -166,10 +166,10 @@ async fn display_task(mut display: OledDisplay) -> ! {
     eth_examples::display::run(&mut display).await
 }
 
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 struct HardwareSha256d(esp_hal::sha::Sha<'static>);
 
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 impl eth_examples::dummy_asic::Sha256dHasher for HardwareSha256d {
     fn double_sha256(&mut self, header: &[u8; 80]) -> [u8; 32] {
         let first = hw_sha256(&mut self.0, header);
@@ -177,7 +177,7 @@ impl eth_examples::dummy_asic::Sha256dHasher for HardwareSha256d {
     }
 }
 
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 fn hw_sha256(sha: &mut esp_hal::sha::Sha<'static>, data: &[u8]) -> [u8; 32] {
     use esp_hal::sha::Sha256;
     use nb::block;
@@ -194,7 +194,7 @@ fn hw_sha256(sha: &mut esp_hal::sha::Sha<'static>, data: &[u8]) -> [u8; 32] {
     output
 }
 
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 #[embassy_executor::task]
 async fn dummy_asic_test(
     mut uart: Uart<'static, esp_hal::Async>,
@@ -349,7 +349,7 @@ async fn boot(spawner: Spawner) {
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
     spawner.must_spawn(temperature_task(BoardTempSensor(tsens)));
 
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     {
         let uart_config = UartConfig::default().with_baudrate(eth_examples::dummy_asic::BAUD_RATE);
         // Valid UART peripheral and default-compatible baud rate; cannot fail.

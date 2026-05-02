@@ -9,9 +9,7 @@ use embassy_stm32::peripherals::{
     ADC1, DMA2_CH0, ETH, ETH_SMA, IWDG, PA1, PA2, PA6, PA7, PB11, PB12, PB13, PC1, PC4, PC5, PE14,
     RNG, TIM3,
 };
-#[cfg(feature = "display")]
-use embassy_stm32::peripherals::{DMA1_CH5, PC10, PC12, PD1, PD3, PD5, SPI3};
-#[cfg(feature = "dummy-asic")]
+#[cfg(feature = "backend-uart")]
 use embassy_stm32::peripherals::{PD8, PD9, USART3};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peri;
@@ -66,11 +64,11 @@ pub struct Board {
     pub tx_en: Peri<'static, PB11>,
     pub mdio: Peri<'static, PA2>,
     pub mdc: Peri<'static, PC1>,
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     pub usart3: Peri<'static, USART3>,
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     pub usart3_tx: Peri<'static, PD8>,
-    #[cfg(feature = "dummy-asic")]
+    #[cfg(feature = "backend-uart")]
     pub usart3_rx: Peri<'static, PD9>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI3>,
@@ -96,9 +94,9 @@ impl DisplaySpi {
 }
 
 /// Stratum pool connection parameters.
-#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 pub struct Pool;
-#[cfg(any(feature = "cpu-mining", feature = "dummy-asic"))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 impl Pool {
     pub const HOST_IP: [u8; 4] = [192, 168, 89, 100];
     pub const PORT: u16 = 3333;
@@ -132,11 +130,11 @@ impl Board {
             tx_en: peripherals.PB11,
             mdio: peripherals.PA2,
             mdc: peripherals.PC1,
-            #[cfg(feature = "dummy-asic")]
+            #[cfg(feature = "backend-uart")]
             usart3: peripherals.USART3,
-            #[cfg(feature = "dummy-asic")]
+            #[cfg(feature = "backend-uart")]
             usart3_tx: peripherals.PD8,
-            #[cfg(feature = "dummy-asic")]
+            #[cfg(feature = "backend-uart")]
             usart3_rx: peripherals.PD9,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI3,

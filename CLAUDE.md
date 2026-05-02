@@ -33,14 +33,13 @@ nix develop .#arm -c bash -c 'cd firmware/stm32f439 && cargo run --release'
 nix develop .#esp -c bash -c 'cd firmware/esp32s3   && cargo run --release'
 ```
 
-Default features vary by board: `rp2040`, `rp2350`, and `stm32f407`
-enable `["display", "dummy-asic"]`; `bmm-pico` enables `["display"]`;
-`stm32f439` ships with no defaults so the dummy-asic peer can be
-attached separately. Switch to CPU mining with
-`--no-default-features --features "display,cpu-mining"` on the boards
-with displays, or `--features cpu-mining` on stm32f439. The
-`cpu-mining` and `dummy-asic` features are mutually exclusive.
-esp32s3 has no `cpu-mining` feature.
+Default features vary by board: `rp2040`, `rp2350`, `stm32f407`,
+and `esp32s3` enable `["display", "backend-uart"]`; `bmm-pico`
+enables `["display"]`; `stm32f439` ships with no defaults so the
+dummy-asic peer can be attached separately. Switch to CPU mining
+with `--no-default-features --features "display,backend-cpu"` on
+the boards with displays, or `--features backend-cpu` on stm32f439.
+The `backend-cpu` and `backend-uart` features are mutually exclusive.
 
 The dummy-asic crate has multiple peers attached, so it uses
 per-host run aliases that override the runner with the right probe
