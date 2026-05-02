@@ -58,17 +58,21 @@
       probeRsHost = "ws://${nucHost}:8080";
       probeRsToken = "redacted";
 
-      probeRsOverlay = final: prev: {
-        probe-rs-tools-remote = prev.probe-rs-tools.overrideAttrs (old: {
+      # `serve` panics on `ConnectionClosed` when the client disconnects
+      # mid-RPC, leaving the probe Session held but the worker dead.
+      # systemd does not restart because the panic is tokio-contained,
+      # so the next client gets a silent exit-0. No upstream fix yet.
+      mkRemoteProbeRsTools =
+        base:
+        base.overrideAttrs (old: {
           cargoBuildFeatures = (old.cargoBuildFeatures or [ ]) ++ [ "remote" ];
-          # `serve` panics on `ConnectionClosed` when the client disconnects
-          # mid-RPC, leaving the probe Session held but the worker dead.
-          # systemd does not restart because the panic is tokio-contained,
-          # so the next client gets a silent exit-0. No upstream fix yet.
           patches = (old.patches or [ ]) ++ [
             ./patches/probe-rs-rpc-tolerate-disconnect.patch
           ];
         });
+
+      probeRsOverlay = final: prev: {
+        probe-rs-tools-remote = mkRemoteProbeRsTools prev.probe-rs-tools;
         probe-rs-runner = prev.writeShellScriptBin "probe-rs-runner" ''
           args=()
           for arg in "$@"; do
@@ -113,12 +117,13 @@
       # Build a NUC nixosSystem with the shared RPi overlays and platform
       # setting. Callers append image-specific modules (e.g. sd-image.nix).
       # buildSystem is the system doing the build. On aarch64-linux the
-      # load-test crate builds natively; on other systems it goes through
-      # pkgsCross.aarch64-multiplatform so rustc stays native.
+      # aarch64 packages build natively; on other systems they go through
+      # pkgsCross.aarch64-multiplatform so rustc stays native rather than
+      # running under binfmt/QEMU.
       mkNuc =
         buildSystem: extraModules:
         let
-          loadTestPkgs =
+          aarch64Pkgs =
             if buildSystem == "aarch64-linux" then
               import nixpkgs { system = "aarch64-linux"; }
             else
@@ -137,9 +142,16 @@
               {
                 nixpkgs.overlays = [
                   probeRsOverlay
+                  # Override probe-rs-tools-remote with a cross-compiled
+                  # build so rustc runs natively on the build host instead
+                  # of under QEMU. The probe-rs-runner shell wrapper from
+                  # probeRsOverlay above still applies unchanged.
+                  (final: _prev: {
+                    probe-rs-tools-remote = mkRemoteProbeRsTools aarch64Pkgs.probe-rs-tools;
+                  })
                   (final: _prev: {
                     ckpool = final.callPackage ./redacted/pkgs/ckpool.nix { };
-                    load-test = loadTestPkgs.callPackage ./redacted/pkgs/load-test.nix { };
+                    load-test = aarch64Pkgs.callPackage ./redacted/pkgs/load-test.nix { };
                   })
                 ];
               }
