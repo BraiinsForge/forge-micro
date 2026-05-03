@@ -6,10 +6,9 @@
 //! mid-job difficulty updates, `CLEAN_JOBS` is the drop-current-work
 //! flag, and `SOLUTIONS` is the solver-to-stratum channel.
 //!
-//! `run_fake_solver` emits one `Solution` per second for wire
-//! testing. `run_worker` drives any `asic_interface::AsicInterface`
-//! backend in the main mining loop; `run_cpu_worker` instantiates it
-//! with a `cpu_miner::ChannelAsic` for in-process CPU mining.
+//! `run_worker` drives any `asic_interface::AsicInterface` backend in
+//! the main mining loop; `run_cpu_worker` instantiates it with a
+//! `cpu_miner::ChannelAsic` for in-process CPU mining.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -92,9 +91,6 @@ const LOCAL_TARGET: [u8; 32] = {
     target[31] = 0x00;
     target
 };
-
-// Fake solver pacing: one share per second avoids spamming the pool.
-const FAKE_SOLVER_SHARE_DELAY: Duration = Duration::from_secs(1);
 
 // Bitcoin's consensus rule allows a block header `ntime` up to 2 hours ahead
 // of the median past time. Pools enforce a similar cap and reject submits
@@ -881,33 +877,6 @@ async fn do_authorize(
     info!("stratum: authorize ok");
 
     Ok(())
-}
-
-/// Fake solver: immediately sends a solution with nonce=0 for every new job.
-/// Useful for testing the submit path without burning CPU cycles. Plain
-/// async fn; firmware wraps it in a local `#[embassy_executor::task]`.
-pub async fn run_fake_solver() -> ! {
-    loop {
-        let Some(assignment) = snapshot_assignment().await else {
-            NEW_JOB.wait().await;
-            continue;
-        };
-
-        info!("solver: new job {}", assignment.job_id.as_str());
-
-        let solution = Solution {
-            job_id: assignment.job_id,
-            nonce: 0,
-            ntime: assignment.ntime,
-            version_bits: 0,
-            extranonce2: assignment.extranonce2,
-        };
-
-        // Channel full means the stratum task is behind; discard rather than block.
-        let _ = SOLUTIONS.try_send(solution);
-
-        Timer::after(FAKE_SOLVER_SHARE_DELAY).await;
-    }
 }
 
 /// Polls `asic` until a share clears both the work ID and pool target
