@@ -54,7 +54,11 @@ nix develop .#esp -c bash -c 'cd dummy-asic && cargo run-esp32s3   --release'
 ```
 
 `probe-rs run` flashes then streams defmt logs. To flash and detach,
-kill the process after the boot banner; the firmware keeps running.
+send SIGINT (Ctrl+C, or `kill -INT <pid>`) to the runner — `cargo` or
+`probe-rs-runner` — after the boot banner; the firmware keeps running.
+Do not SIGTERM `probe-rs` itself: it is the client of the remote
+`probe-rs-server` on the NUC (`PROBE_RS_REMOTE_HOST`), and a hard kill
+can leave the remote session in a bad state.
 
 If `cargo run` returns silently (no defmt output, board uptime keeps
 growing in prometheus), the CMSIS-DAP probe is wedged per
