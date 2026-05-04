@@ -1,0 +1,6 @@
+[workspace]
+resolver = "3"
+members = ["framing","messages", "types"]
+
+[workspace.dependencies]
+serde = { version = "1", default-features = false, features = ["derive"] }
