@@ -142,10 +142,13 @@ fn main() {
                 spawner.spawn(mmm_serial::mmm_serial_task().expect("BUG: mmm_serial_task token"));
                 spawner.spawn(miner::miner_task(mmm_psu).expect("BUG: miner_task token"));
             }
-            None => warn!(
-                "host-runner: {} unset or i2c open failed; mmm miner not spawned",
-                psu::I2C_BUS_ENV
-            ),
+            None => {
+                warn!(
+                    "host-runner: {} unset or i2c open failed; mmm miner not spawned",
+                    psu::I2C_BUS_ENV
+                );
+                spawner.spawn(ubos_backend::cpu_solver_task().expect("BUG: cpu_solver_task"));
+            }
         }
     });
 }
