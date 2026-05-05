@@ -1,5 +1,45 @@
 //! Alloc-free error types.
 
+/// Top-level error returned by the async handshake driver. Generic over
+/// the underlying `embedded_io_async` error so callers can keep their
+/// concrete IO error in the chain without `Box<dyn Error>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitializationError<E> {
+    Io(E),
+    /// Peer closed the connection mid-handshake.
+    UnexpectedEof,
+    Authentication(AuthenticationError),
+    Handshake(ii_sv2_crypto::NXError),
+    InvalidKey(KeyParseError),
+}
+
+impl<E> From<AuthenticationError> for InitializationError<E> {
+    fn from(e: AuthenticationError) -> Self {
+        Self::Authentication(e)
+    }
+}
+
+impl<E> From<ii_sv2_crypto::NXError> for InitializationError<E> {
+    fn from(e: ii_sv2_crypto::NXError) -> Self {
+        Self::Handshake(e)
+    }
+}
+
+impl<E> From<KeyParseError> for InitializationError<E> {
+    fn from(e: KeyParseError) -> Self {
+        Self::InvalidKey(e)
+    }
+}
+
+impl<E> From<embedded_io_async::ReadExactError<E>> for InitializationError<E> {
+    fn from(e: embedded_io_async::ReadExactError<E>) -> Self {
+        match e {
+            embedded_io_async::ReadExactError::UnexpectedEof => Self::UnexpectedEof,
+            embedded_io_async::ReadExactError::Other(e) => Self::Io(e),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthenticationError {
     /// Certificate's `valid_from` is later than `not_valid_after`.

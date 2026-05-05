@@ -9,6 +9,7 @@
 pub mod authenticator;
 pub mod certificate;
 pub mod error;
+pub mod handshake;
 pub mod keys;
 
 pub use authenticator::{
@@ -18,5 +19,6 @@ pub use certificate::{
     Certificate, CertificateHeader, CertificateSigningRequest, CertificateWithPrivateKey,
     NOISE_SIG_MSG_SIZE, NOISE_SIG_SIZE,
 };
-pub use error::{AuthenticationError, KeyParseError};
+pub use error::{AuthenticationError, InitializationError, KeyParseError};
+pub use handshake::{EstablishedSession, accept, initiate};
 pub use keys::{PublicKey, SecretKey, SessionId, Signature};

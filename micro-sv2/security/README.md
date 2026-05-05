@@ -8,15 +8,17 @@ User-friendly Stratum V2 security types built on
 
 ## Scope
 
-* SV2-spec key encodings (this phase): `SecretKey`, `PublicKey`,
-  `Signature`, `SessionId` with base58check `Display` / `FromStr`.
-* Certificate types and authenticators (next phase): `Certificate`,
-  `CertificateSigningRequest`, `CertificateWithPrivateKey`,
-  `Authenticator` trait + `ValidateNothing`/`ValidateSignature`/
-  `ValidateTime`/`ValidateFull`.
-* Async, runtime-agnostic handshake driver (next phase): generic over
-  `embedded_io_async::{Read, Write}`, no `embassy-*` or `tokio` in this
-  crate's dependency tree.
+* SV2-spec key encodings: `SecretKey`, `PublicKey`, `Signature`,
+  `SessionId` with base58check `Display` / `FromStr`.
+* Certificate types: `Certificate`, `CertificateSigningRequest`,
+  `CertificateWithPrivateKey`.
+* Authenticators: `Authenticator` trait + `ValidateNothing`,
+  `ValidateSignature`, `ValidateTime`, `ValidateFull`. Time-aware
+  validators take a user-supplied `Clock` trait — there's no
+  `std::time` in `no_std`.
+* Async, runtime-agnostic handshake driver: `initiate` and `accept`
+  generic over `embedded_io_async::{Read, Write}`. No `embassy-*` or
+  `tokio` in this crate's runtime dependencies.
 
 Out of scope: the deprecated noise certificate formats from
 `deprecated-noise`, the tokio `Framed` codec, and JSON certificate
@@ -31,7 +33,7 @@ serialization.
 | `Signature` | none | plain base58 (64 bytes) |
 | `SessionId` | none | plain base58 (32 bytes — the noise handshake hash) |
 
-## Quick example
+## Quick example — keys
 
 ```rust
 use core::str::FromStr;
@@ -51,6 +53,37 @@ assert_eq!(sk, sk2);
 // Derive the matching public key (no global secp256k1 context — pass yours).
 let pk = PublicKey::from_secret_key(&sk, &ctx).unwrap();
 ```
+
+## Quick example — async handshake
+
+```rust
+use ii_sv2_security::{accept, initiate, ValidateNothing, EstablishedSession};
+
+// Caller supplies a KeyGen impl (RNG + secp256k1 context). On embedded:
+// wrap the platform RNG and a `Secp256k1::preallocated_*` context.
+struct MyKeyGen { /* ... */ }
+impl ii_sv2_crypto::KeyGen for MyKeyGen { /* ... */ }
+
+// Initiator side: takes any embedded-io-async Read+Write.
+async fn client(io: &mut impl embedded_io_async::Read + embedded_io_async::Write) {
+    let session = initiate(io, MyKeyGen::new(), ValidateNothing).await.unwrap();
+    // Use session.transport for application traffic.
+}
+
+// Responder side: needs the certificate bundle (cert + private static key).
+async fn server(
+    io: &mut impl embedded_io_async::Read + embedded_io_async::Write,
+    cert: &ii_sv2_security::CertificateWithPrivateKey,
+) {
+    let session = accept(io, MyKeyGen::new(), cert).await.unwrap();
+    // ...
+}
+```
+
+The handshake driver does no `spawn`, no timers, and no async
+synchronisation primitives — it is just a `Future`. Whoever polls it
+(embassy executor on a device, tokio in tests, smol, custom) can run
+it.
 
 ## no_std story
 

@@ -53,13 +53,28 @@ pub struct Certificate {
 }
 
 impl Certificate {
+    /// Serialize the public part of this certificate into its noise
+    /// signature message form (74 bytes: version, validity window, and
+    /// signature; the static public key is conveyed via the noise
+    /// handshake itself).
+    ///
+    /// Panics if `output.len() < NOISE_SIG_SIZE`.
+    pub(crate) fn serialize_noise_signature_msg(&self, output: &mut [u8]) {
+        assert!(
+            output.len() >= NOISE_SIG_SIZE,
+            "BUG: output buffer too small for noise signature message"
+        );
+        output[..2].copy_from_slice(&self.header.version.to_le_bytes());
+        output[2..6].copy_from_slice(&self.header.valid_from.to_le_bytes());
+        output[6..10].copy_from_slice(&self.header.not_valid_after.to_le_bytes());
+        output[10..NOISE_SIG_SIZE].copy_from_slice(self.signature.as_ref());
+    }
+
     /// Parse the noise signature message bytes the responder sent over the
     /// wire. The remote static public key is supplied separately because it
     /// arrives via the noise handshake itself, not in the signature payload.
     ///
     /// Panics if `data.len() < NOISE_SIG_SIZE` — callers must check.
-    // Used by the Phase 3 handshake driver.
-    #[allow(dead_code)]
     pub(crate) fn parse_noise_signature_msg(
         remote_static_public_key: [u8; 32],
         data: &[u8],
@@ -117,27 +132,6 @@ pub struct CertificateWithPrivateKey {
     pub authority_public_key: PublicKey,
     pub server_static_private_key: SecretKey,
     pub signature: Signature,
-}
-
-impl CertificateWithPrivateKey {
-    /// Serialize the public part of this certificate into its noise
-    /// signature message form. The output buffer must be at least
-    /// `NOISE_SIG_SIZE` bytes; only the first `NOISE_SIG_SIZE` bytes are
-    /// written.
-    ///
-    /// Panics if the output buffer is too small.
-    // Used by the Phase 3 handshake driver.
-    #[allow(dead_code)]
-    pub(crate) fn serialize_noise_signature_msg(&self, output: &mut [u8]) {
-        assert!(
-            output.len() >= NOISE_SIG_SIZE,
-            "BUG: output buffer too small for noise signature message"
-        );
-        output[..2].copy_from_slice(&self.header.version.to_le_bytes());
-        output[2..6].copy_from_slice(&self.header.valid_from.to_le_bytes());
-        output[6..10].copy_from_slice(&self.header.not_valid_after.to_le_bytes());
-        output[10..NOISE_SIG_SIZE].copy_from_slice(self.signature.as_ref());
-    }
 }
 
 impl From<CertificateWithPrivateKey> for Certificate {

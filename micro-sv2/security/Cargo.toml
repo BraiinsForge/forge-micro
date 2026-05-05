@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ii-sv2-crypto = { path = "../crypto" }
-secp256k1     = { workspace = true }
-bs58          = { workspace = true }
-sha2          = { workspace = true }
+ii-sv2-crypto     = { path = "../crypto" }
+secp256k1         = { workspace = true }
+bs58              = { workspace = true }
+sha2              = { workspace = true }
+embedded-io-async = { workspace = true }
 
 [dev-dependencies]
-secp256k1 = { workspace = true, features = ["alloc"] }
-rand      = "0.9"
+secp256k1            = { workspace = true, features = ["alloc"] }
+rand                 = "0.9"
+tokio                = { version = "1", features = ["rt", "macros", "io-util"] }
+embedded-io-adapters = { version = "0.6", features = ["tokio-1"] }
