@@ -1,16 +1,33 @@
 //! SHA-256 and HKDF helpers used by the noise handshake.
 
+use hkdf::Hkdf;
+use sha2::{Digest, Sha256};
+
 /// Noise `MixHash(h, data) = SHA256(h || data)`.
-pub(crate) fn mix_hash(_h: &[u8; 32], _data: &[u8]) -> [u8; 32] {
-    todo!()
+pub(crate) fn mix_hash(h: &[u8; 32], data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(h);
+    hasher.update(data);
+    hasher.finalize().into()
 }
 
-/// Noise `HKDF(chaining_key, ikm) -> (ck', k)` with SHA-256, 64 bytes of OKM.
+/// Noise `HKDF(chaining_key, ikm) -> (ck', k)` with SHA-256: extract using
+/// `chaining_key` as the salt, then expand with empty info to 64 bytes and
+/// split into two 32-byte halves.
 pub(crate) fn hkdf(
-    _chaining_key: &[u8; 32],
-    _input_key_material: &[u8],
+    chaining_key: &[u8; 32],
+    input_key_material: &[u8],
 ) -> ([u8; 32], [u8; 32]) {
-    todo!()
+    let extractor = Hkdf::<Sha256>::new(Some(chaining_key), input_key_material);
+    let mut okm = [0_u8; 64];
+    extractor
+        .expand(&[], &mut okm)
+        .expect("BUG: HKDF-SHA256 expansion to 64 bytes is always valid");
+    let mut k1 = [0_u8; 32];
+    let mut k2 = [0_u8; 32];
+    k1.copy_from_slice(&okm[..32]);
+    k2.copy_from_slice(&okm[32..]);
+    (k1, k2)
 }
 
 #[cfg(test)]
