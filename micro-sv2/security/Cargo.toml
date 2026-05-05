@@ -1,0 +1,13 @@
+[package]
+name = "ii-sv2-security"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ii-sv2-crypto = { path = "../crypto" }
+secp256k1     = { workspace = true }
+bs58          = { workspace = true }
+
+[dev-dependencies]
+secp256k1 = { workspace = true, features = ["alloc"] }
+rand      = "0.9"
