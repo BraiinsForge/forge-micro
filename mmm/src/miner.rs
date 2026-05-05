@@ -11,6 +11,7 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
+use ubos_backend::MINER_IS_RUNNING;
 use ubos_logging::{Debug2Format, error, info};
 use ubos_psu::Psu;
 
@@ -41,6 +42,10 @@ where
     P: Psu,
     R: ResetPin,
 {
+    // Publish the initial state so a fan task that started before us
+    // sees `false` instead of waiting forever for the first edge.
+    MINER_IS_RUNNING.signal(false);
+
     loop {
         // -- bring-up --
         info!("miner: setting voltage to {} mV", VOLTAGE_MV);
@@ -52,6 +57,10 @@ where
 
         info!("miner: enabling PSU");
         let _ = psu.enable().await;
+        // Fans follow the rail, not the init-replay completion: the
+        // chip is dissipating power as soon as the PSU is on, and
+        // init replay can take long enough for thermals to climb.
+        MINER_IS_RUNNING.signal(true);
         Timer::after(RESET_HOLD).await;
 
         info!("miner: exiting reset");
@@ -68,6 +77,7 @@ where
             );
             reset_pin.enter_reset();
             let _ = psu.disable().await;
+            MINER_IS_RUNNING.signal(false);
             // Cancellable sleep — STOP_MINING during recovery exits
             // immediately rather than burning one more bring-up cycle.
             match select(Timer::after(RETRY_DELAY), STOP_MINING.wait()).await {
@@ -91,6 +101,9 @@ where
         let _ = SERIAL.reset().await;
         reset_pin.enter_reset();
         let _ = psu.disable().await;
+        // Mirror of the bring-up: keep fans on until the rail is
+        // actually down, since deinit replay also runs hot.
+        MINER_IS_RUNNING.signal(false);
         info!("miner: stopped");
         return;
     }
