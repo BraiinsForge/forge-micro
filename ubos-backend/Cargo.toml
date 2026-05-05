@@ -10,6 +10,7 @@ workspace = true
 default = ["defmt"]
 defmt   = [
     "dep:defmt",
+    "cpu-miner/defmt",
     "embassy-net/defmt",
     "embassy-sync/defmt",
     "embassy-time/defmt",

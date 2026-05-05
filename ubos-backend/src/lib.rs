@@ -214,6 +214,14 @@ async fn snapshot_assignment() -> Option<WorkAssignment> {
     guard.as_ref().map(|state| state.assignment.clone())
 }
 
+/// Public accessor mirroring [`snapshot_assignment`] for solvers that
+/// drive their own send-work / recv-share loop instead of plugging into
+/// [`run_worker`]. The chip-side mmm backend uses this to pull jobs and
+/// push [`Solution`]s to [`SOLUTIONS`] directly.
+pub async fn current_assignment() -> Option<WorkAssignment> {
+    snapshot_assignment().await
+}
+
 /// Solutions found by solver tasks, consumed by the stratum task for submission.
 pub static SOLUTIONS: Channel<CriticalSectionRawMutex, Solution, 8> = Channel::new();
 
@@ -554,11 +562,7 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
             let job_id_str = core::str::from_utf8(&job_id[..job_id_len]).unwrap_or("<non-utf8>");
             info!(
                 "stratum: notify job_id={} clean={} cb1={} cb2={} merkle={}",
-                job_id_str,
-                clean_jobs,
-                coinbase_1_len,
-                coinbase_2_len,
-                merkle_depth
+                job_id_str, clean_jobs, coinbase_1_len, coinbase_2_len, merkle_depth
             );
 
             let mut version_bin = [0u8; 4];
@@ -927,7 +931,7 @@ async fn recv_valid_share<I: asic_interface::AsicInterface>(
                 return Some(share);
             }
             Either::First(Err(error)) => {
-                warn!("worker: recv_share failed: {}", error);
+                warn!("worker: recv_share failed: {:?}", Debug2Format(&error));
                 return None;
             }
             Either::Second(()) => {
@@ -1017,7 +1021,7 @@ pub async fn run_worker<I: asic_interface::AsicInterface>(mut asic: I) -> ! {
             // send aborts this round and retries on the next work loop
             // iteration so transient UART glitches don't lock up mining.
             if let Err(error) = asic.send_work(&frame).await {
-                warn!("worker: send_work failed: {}", error);
+                warn!("worker: send_work failed: {:?}", Debug2Format(&error));
                 continue;
             }
 
