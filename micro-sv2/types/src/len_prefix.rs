@@ -22,7 +22,7 @@ pub(crate) const fn prefix_len(max: usize) -> usize {
 pub(crate) fn write_prefix_le(value: usize, width: usize, out: &mut [u8])
     -> Result<usize, Error>
 {
-    debug_assert!(width >= 1 && width <= 3, "prefix width must be 1, 2, or 3");
+    debug_assert!((1..=3).contains(&width), "prefix width must be 1, 2, or 3");
     if out.len() < width {
         return Err(Error::BufferTooSmall);
     }
@@ -36,7 +36,7 @@ pub(crate) fn write_prefix_le(value: usize, width: usize, out: &mut [u8])
 pub(crate) fn read_prefix_le(input: &mut &[u8], width: usize)
     -> Result<usize, Error>
 {
-    debug_assert!(width >= 1 && width <= 3, "prefix width must be 1, 2, or 3");
+    debug_assert!((1..=3).contains(&width), "prefix width must be 1, 2, or 3");
     let bytes = input.get(..width).ok_or(Error::Eof)?;
     let mut buf = [0u8; 4];
     buf[..width].copy_from_slice(bytes);
