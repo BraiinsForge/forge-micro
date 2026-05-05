@@ -87,13 +87,27 @@ curl http://192.168.69.2:8081/metrics
 nix develop .#host -c env AFPACKET_IF=eth4 cargo run -p host-runner
 ```
 
-For miniminer, cross-build with the `bmm` shell and copy the resulting
-binary to the device:
+For miniminer, cross-build and run with the `bmm` shell. The shell wires
+`scripts/runner.py` as the cargo target runner, which scps the binary to
+the target, kills any running bosminer, and executes it under a PTY so
+Ctrl-C reaches the remote process.
 
-```sh
-nix develop .#bmm -c cargo build -p host-runner
-# binary at target/arm-unknown-linux-musleabi/debug/host-runner
+Configure the target in `host-runner/Test.toml`:
+
+```toml
+[remote]
+hostname = "10.x.x.x"
+user     = "root"
 ```
 
-A cargo runner that ships and executes the binary on the device will be
-added separately.
+Then:
+
+```sh
+nix develop .#bmm -c cargo run -p host-runner
+nix develop .#bmm -c env RUST_LOG=debug cargo run -p host-runner
+```
+
+`RUST_LOG`, `RUST_BACKTRACE`, and any `INJECT_*` env vars are propagated
+to the remote process. The runner script is vendored from bos-main with
+beaglebone, bosminer test prep, tmux gateway, and similar branches
+trimmed; see `host-runner/scripts/runner.py`.

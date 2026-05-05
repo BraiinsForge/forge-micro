@@ -757,16 +757,28 @@
             buildInputs = [
               bmmRustToolchain
               bmmCc
+              pkgs.python3
+              pkgs.openssh
+              pkgs.sshpass
             ];
 
             CARGO_BUILD_TARGET = "arm-unknown-linux-musleabi";
             CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/arm-unknown-linux-musleabi-gcc";
             RUST_ANALYZER_SERVER_PATH = "${bmmRustToolchain}/bin/rust-analyzer";
 
+            # Resolved at shell-entry time relative to the user's cwd, which
+            # by convention is boards/eth-examples (matches the existing
+            # arm/esp shells using $PWD for state directories).
             shellHook = ''
+              export CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_RUNNER="$PWD/host-runner/scripts/runner.py"
               echo "eth-examples dev environment ready (host-runner, BMM/miniminer cross)"
               echo ""
               echo "  cargo build -p host-runner"
+              echo "  cargo run   -p host-runner          # ships and runs on miniminer"
+              echo ""
+              echo "Set the target host in host-runner/Test.toml:"
+              echo "  [remote]"
+              echo "  hostname = \"10.x.x.x\""
               echo ""
               echo "For native host-runner: nix develop .#host"
             '';
