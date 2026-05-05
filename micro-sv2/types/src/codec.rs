@@ -4,7 +4,7 @@ use crate::error::Error;
 
 /// Serialize a value into an SV2 byte stream.
 pub trait Encode {
-    /// Number of bytes [`encode_to`] will write for this value.
+    /// Number of bytes [`Self::encode_to`] will write for this value.
     fn encoded_len(&self) -> usize;
 
     /// Write the SV2 wire encoding into `out`.
