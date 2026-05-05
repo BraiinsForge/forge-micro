@@ -45,3 +45,66 @@ pub(crate) fn expand_nonce(nonce: u64) -> [u8; 12] {
     out[4..].copy_from_slice(&nonce.to_le_bytes());
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MAC_SIZE;
+
+    /// Reference vector lifted verbatim from noise-core.
+    /// Encrypts `DATA` after 42 dummy zero-length encryptions (so the cipher
+    /// nonce counter reaches 42), expects exactly `CIPHER`.
+    const KEY: [u8; 32] = [
+        18, 152, 182, 250, 129, 59, 65, 116, 111, 248, 192, 63, 130, 111, 40, 37, 120, 109, 155,
+        65, 66, 241, 231, 128, 39, 87, 58, 121, 34, 203, 110, 221,
+    ];
+    const NONCE: u64 = 42;
+    const DATA: &[u8] = b"FOR START UP AND ATC CLEARANCE CONTACT RUZYNE DELIVERY 120.060";
+    const CIPHER: &[u8] = &[
+        70, 253, 104, 99, 161, 146, 35, 218, 69, 75, 114, 231, 221, 209, 79, 211, 254, 172, 162,
+        83, 15, 166, 138, 162, 220, 194, 57, 232, 158, 214, 107, 100, 74, 77, 228, 249, 73, 151,
+        93, 26, 232, 56, 232, 155, 34, 236, 58, 154, 164, 33, 245, 115, 51, 185, 3, 77, 1, 216,
+        189, 133, 149, 150, 44, 48, 19, 201, 102, 193, 127, 225, 135, 235, 153, 151, 48, 219, 227,
+        79,
+    ];
+
+    #[test]
+    fn expand_nonce_layout() {
+        let n = expand_nonce(0x0102_0304_0506_0708);
+        assert_eq!(n[..4], [0, 0, 0, 0]);
+        assert_eq!(&n[4..], &0x0102_0304_0506_0708u64.to_le_bytes());
+    }
+
+    #[test]
+    fn symmetric_encryption() {
+        let mut cipher = SealingCipherState::initialize(KEY).unwrap();
+        let mut buf = [0_u8; 78];
+        for _ in 0..NONCE {
+            // Pump 42 dummy encryptions so the cipher nonce reaches 42.
+            cipher.encrypt_with_ad(b"", &mut buf, 0).unwrap();
+        }
+        buf[..62].copy_from_slice(DATA);
+        cipher
+            .encrypt_with_ad(b"", &mut buf, DATA.len())
+            .expect("BUG: encryption failure");
+        assert_eq!(&buf[..], CIPHER);
+    }
+
+    #[test]
+    fn symmetric_decryption() {
+        let mut sealing = SealingCipherState::initialize(KEY).unwrap();
+        let mut opening = OpeningCipherState::initialize(KEY).unwrap();
+        // Pump 42 dummy roundtrips so the opening nonce reaches 42.
+        let mut tag = [0_u8; MAC_SIZE];
+        for _ in 0..NONCE {
+            sealing.encrypt_with_ad(b"", &mut tag, 0).unwrap();
+            opening.decrypt_with_ad(b"", &mut tag).unwrap();
+        }
+        let mut full = [0_u8; 78];
+        full.copy_from_slice(CIPHER);
+        opening
+            .decrypt_with_ad(b"", &mut full)
+            .expect("BUG: decryption failure");
+        assert_eq!(&full[..DATA.len()], DATA);
+    }
+}

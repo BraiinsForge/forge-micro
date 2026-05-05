@@ -8,3 +8,8 @@ secp256k1        = { workspace = true }
 sha2             = { workspace = true }
 hkdf             = { workspace = true }
 chacha20poly1305 = { workspace = true }
+
+[dev-dependencies]
+# Tests run on the host with std; pull in the alloc context constructor.
+secp256k1 = { workspace = true, features = ["alloc"] }
+rand      = "0.9"
