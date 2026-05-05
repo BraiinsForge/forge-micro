@@ -7,8 +7,7 @@
 //! ([`ResponseParser`]).
 
 use heapless::Vec as HVec;
-
-use ubos_backend::bitcoin::Hash;
+use sha2::{Digest, Sha256};
 
 // ---------------------------------------------------------------------------
 // CRC
@@ -106,12 +105,15 @@ impl HwWork {
         header
     }
 
-    /// Compute double-SHA256 hash for a work response.
+    /// Compute double-SHA256 hash for a work response. Returns the 32-byte
+    /// digest in native (little-endian) byte order.
     #[must_use]
-    pub fn compute_hash(&self, resp: &HwSolution) -> Hash {
+    pub fn compute_hash(&self, resp: &HwSolution) -> [u8; 32] {
         let version = resp.rolled_version(self.version);
         let header = self.block_header(resp.nonce, version);
-        Hash::double_sha256(&header)
+        let first = Sha256::digest(header);
+        let second = Sha256::digest(first);
+        second.into()
     }
 
     /// Serialize into the 88-byte on-wire frame.

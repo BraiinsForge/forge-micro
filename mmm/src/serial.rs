@@ -3,12 +3,14 @@
 //! One task owns the serial halves and the in-flight work registry;
 //! outside callers go through [`Serial`]'s typed methods to reset the
 //! chip, retune the baud rate, gate work dispatch, or push a pre-built
-//! command frame. The actor pulls jobs from `ubos_backend::next_work`
-//! and pushes found shares into `ubos_backend::SHARES`.
+//! command frame. The actor pulls jobs via
+//! `ubos_backend::current_assignment` and pushes found solutions into
+//! `ubos_backend::SOLUTIONS`.
 
 use core::fmt;
 use core::ops::ControlFlow;
 
+use cpu_miner::hash_meets_target;
 use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -18,27 +20,32 @@ use embassy_time::{Duration, Ticker, Timer, with_timeout};
 use embedded_io::ErrorKind;
 use embedded_io_async::{Error as _, Read, Write};
 use heapless::Vec as HVec;
-use portable_atomic::Ordering;
 use serial_baudrate::BaudRate;
-use ubos_backend::SHARES;
-use ubos_backend::Share;
-use ubos_backend::TOTAL_HASHES;
-use ubos_backend::bitcoin::Target;
+use ubos_backend::{
+    NEW_JOB, SHARE_TARGET, SOLUTIONS, Solution, WorkAssignment, current_assignment,
+};
 use ubos_logging::{Debug2Format, error, info, trace, warn};
+
+/// Difficulty-1 target in 256-bit little-endian byte order: `0xFFFF * 2^208`.
+/// Matches Bitcoin's `bnPowLimit` for mainnet/regtest. Used to reject
+/// chip-emitted nonces that don't even meet the easiest possible target.
+const DIFF_1_TARGET: [u8; 32] = {
+    let mut bytes = [0u8; 32];
+    bytes[26] = 0xFF;
+    bytes[27] = 0xFF;
+    bytes
+};
 
 use crate::bm1362::{
     Frame, HwWork, RawChipAddress, RegisterResponse, Response, ResponseParser, build_read_register,
     build_write_register,
 };
 use crate::consts::{
-    DIFFICULTY, FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS, NUM_CHIPS,
-    NUM_MIDSTATES, REGISTRY_SIZE,
+    FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS, NUM_CHIPS, NUM_MIDSTATES,
+    REGISTRY_SIZE,
 };
 
 const CMD_QUEUE_DEPTH: usize = 16;
-
-/// One diff-1 hardware share at 32-bit nonce search ≈ 2^32 hashes.
-const HASHES_PER_SHARE: u64 = 1u64 << 32;
 
 /// Settling window the chip's UART needs on either side of a baud-rate
 /// configure call so in-flight bytes don't get garbled.
@@ -101,12 +108,16 @@ pub enum SerialMessage {
 }
 
 /// In-flight work for a given `work_id` slot. Kept around so an incoming
-/// `HwSolution` can be matched back to the originating job when building
-/// the [`Share`] to push into [`SHARES`].
+/// `HwSolution` can be matched back to the originating assignment when
+/// building the [`Solution`] to push into [`SOLUTIONS`]. The pool target
+/// is captured at dispatch time because [`SHARE_TARGET`] can be updated
+/// mid-job by `mining.set_difficulty`; we credit shares against the
+/// target the chip was actually scanning to.
 #[derive(Clone)]
 struct WorkSlot {
     hw_work: HwWork,
-    job: ubos_backend::Job,
+    assignment: WorkAssignment,
+    pool_target: [u8; 32],
 }
 
 /// The chip-side serial actor.
@@ -296,19 +307,29 @@ impl Serial {
     ) where
         T: Write + BaudRate,
     {
-        let job = ubos_backend::next_work().await;
+        // Block until the stratum task has a job ready. NEW_JOB.wait()
+        // covers the cold-start case before the first notify lands;
+        // afterwards `current_assignment` always returns Some until
+        // explicit teardown.
+        let assignment = loop {
+            if let Some(assignment) = current_assignment().await {
+                break assignment;
+            }
+            NEW_JOB.wait().await;
+        };
+        let pool_target = SHARE_TARGET
+            .receiver()
+            .and_then(|mut receiver| receiver.try_get())
+            .unwrap_or([0xFF; 32]);
 
-        // Job stores time as BE bytes (matches mining.notify hex order);
-        // HwWork wants u32s that, when emitted via to_le_bytes(), produce
-        // LE wire bytes for the chip.
         let hw_work = HwWork {
             work_id: *work_id,
             nonce_start: 0,
-            nbits: u32::from_be_bytes(job.bits),
-            ntime: u32::from_be_bytes(job.time),
-            merkle_root: job.merkle_root,
-            prev_hash: job.prev_hash,
-            version: u32::from_be_bytes(job.version),
+            nbits: assignment.nbits,
+            ntime: assignment.ntime,
+            merkle_root: assignment.merkle_root,
+            prev_hash: assignment.prev_hash,
+            version: assignment.version,
         };
         let frame = hw_work.serialize();
         trace!(
@@ -320,7 +341,8 @@ impl Serial {
         let slot_idx = usize::from(*work_id) / NUM_MIDSTATES;
         registry[slot_idx] = Some(WorkSlot {
             hw_work,
-            job: job.clone(),
+            assignment,
+            pool_target,
         });
         // `NUM_MIDSTATES` is 8; the cast is exact and fits well within u8.
         #[allow(clippy::cast_possible_truncation)]
@@ -381,44 +403,48 @@ impl Serial {
                 };
                 let hash = slot.hw_work.compute_hash(wr);
 
-                if !Target::DIFF_1.meets(&hash) {
+                if !hash_meets_target(&hash, &DIFF_1_TARGET) {
                     warn!(
-                        "nonce=0x{:08X} work_id={} ver_idx={} below diff 1 (hash={})",
-                        wr.nonce, wr.work_id, wr.version_idx, hash
+                        "nonce=0x{:08X} work_id={} ver_idx={} below diff 1 (hash={:?})",
+                        wr.nonce,
+                        wr.work_id,
+                        wr.version_idx,
+                        Debug2Format(&hash)
                     );
                     return;
                 }
 
-                // Each diff-1 hardware share is ~2^32 hashes; bump the
-                // global counter so ubos_backend::hashrate_task picks
-                // up the rate. DIFFICULTY is the per-share weight kept
-                // around so a future config change to a diff>1 line is
-                // a one-line edit.
-                TOTAL_HASHES.fetch_add(HASHES_PER_SHARE * u64::from(DIFFICULTY), Ordering::Relaxed);
+                // Credit one share against the target the chip was
+                // scanning to so `asic_interface::hashrate()` reflects
+                // the actual chip work rather than only pool-passing
+                // shares. The hashrate EWMA already weights by target.
+                asic_interface::record_share(&slot.pool_target);
 
-                if !slot.job.pool_target.meets(&hash) {
+                if !hash_meets_target(&hash, &slot.pool_target) {
                     trace!(
-                        "nonce=0x{:08X} work_id={} ver_idx={} below pool diff {} (hash={})",
-                        wr.nonce, wr.work_id, wr.version_idx, slot.job.pool_difficulty, hash
+                        "nonce=0x{:08X} work_id={} ver_idx={} below pool target (hash={:?})",
+                        wr.nonce,
+                        wr.work_id,
+                        wr.version_idx,
+                        Debug2Format(&hash)
                     );
                     return;
                 }
 
                 info!(
-                    "Submitting share: nonce=0x{:08X} work_id={} ver_idx={} hash={} pool_diff={}",
-                    wr.nonce, wr.work_id, wr.version_idx, hash, slot.job.pool_difficulty
+                    "Submitting share: nonce=0x{:08X} work_id={} ver_idx={}",
+                    wr.nonce, wr.work_id, wr.version_idx
                 );
 
-                let share = Share {
-                    job_id: slot.job.job_id.clone(),
-                    extranonce2: [0u8; 16],
-                    extranonce2_size: slot.job.extranonce2_size,
-                    time: slot.job.time,
+                let solution = Solution {
+                    job_id: slot.assignment.job_id.clone(),
                     nonce: wr.nonce,
+                    ntime: slot.assignment.ntime,
                     version_bits,
+                    extranonce2: slot.assignment.extranonce2.clone(),
                 };
-                if SHARES.try_send(share).is_err() {
-                    warn!("SHARES full, dropping submission");
+                if SOLUTIONS.try_send(solution).is_err() {
+                    warn!("SOLUTIONS full, dropping submission");
                 }
             }
             Response::RegisterResponse(r) => {
