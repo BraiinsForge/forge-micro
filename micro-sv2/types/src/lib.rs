@@ -16,3 +16,4 @@ mod var_bytes;
 mod var_str;
 
 pub use crate::error::Error;
+pub use crate::codec::{Decode, Encode};
