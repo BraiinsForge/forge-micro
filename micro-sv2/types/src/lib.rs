@@ -21,3 +21,4 @@ pub use crate::var_str::{Str0_32, Str0_255, Str0_64k, Str1_32, Str1_255, VarStr}
 pub use crate::var_bytes::{
     Bytes0_16m, Bytes0_255, Bytes0_32, Bytes0_64k, Bytes1_255, Bytes1_32, Bytes1_64k, VarBytes,
 };
+pub use crate::uint256::Uint256;
