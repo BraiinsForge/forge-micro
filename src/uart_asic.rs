@@ -69,7 +69,8 @@ fn xor_checksum(data: &[u8]) -> u8 {
 
 /// Discrete failure modes so the worker's log identifies which side of
 /// the wire misbehaved.
-#[derive(defmt::Format, Debug)]
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UartAsicError {
     /// Underlying UART returned an error during a read.
     Read,

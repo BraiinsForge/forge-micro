@@ -6,8 +6,11 @@ version = "0.1.0"
 [lints]
 workspace = true
 
+[features]
+defmt   = ["embassy-sync/defmt"]
+
 [dependencies]
 asic-interface   = { workspace = true }
 embassy-futures  = { workspace = true }
-embassy-sync     = { workspace = true, features = ["defmt"] }
+embassy-sync     = { workspace = true }
 sha2             = { workspace = true }

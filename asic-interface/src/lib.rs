@@ -58,8 +58,10 @@ pub struct RawShare {
 // in no_std.
 #[allow(async_fn_in_trait)]
 pub trait AsicInterface {
-    /// Error type surfaced by send/receive operations.
-    type Error: defmt::Format;
+    /// Error type surfaced by send/receive operations. `Debug` is the
+    /// portable bound; firmware paths wrap with `Debug2Format` for
+    /// defmt printing, host paths print via `{:?}` directly.
+    type Error: core::fmt::Debug;
 
     /// Push a new work frame to the backend. The call returns once the
     /// frame has been accepted; it does not wait for a share.
