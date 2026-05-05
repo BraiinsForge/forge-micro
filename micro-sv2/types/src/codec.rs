@@ -116,6 +116,41 @@ impl<'de> Decode<'de> for bool {
     }
 }
 
+impl<T: Encode> Encode for Option<T> {
+    fn encoded_len(&self) -> usize {
+        match self {
+            None => 1,
+            Some(v) => 1 + v.encoded_len(),
+        }
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
+        match self {
+            None => {
+                if out.is_empty() { return Err(Error::BufferTooSmall); }
+                out[0] = 0;
+                Ok(1)
+            }
+            Some(v) => {
+                if out.is_empty() { return Err(Error::BufferTooSmall); }
+                out[0] = 1;
+                let n = v.encode_to(&mut out[1..])?;
+                Ok(1 + n)
+            }
+        }
+    }
+}
+
+impl<'de, T: Decode<'de>> Decode<'de> for Option<T> {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, Error> {
+        match u8::decode(input)? {
+            0 => Ok(None),
+            1 => Ok(Some(T::decode(input)?)),
+            _ => Err(Error::BadOptionTag),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,5 +269,22 @@ mod tests {
     fn bool_decode_eof() {
         let mut cursor: &[u8] = &[];
         assert_eq!(bool::decode(&mut cursor), Err(Error::Eof));
+    }
+
+    #[test]
+    fn option_none_roundtrip() {
+        roundtrip::<Option<u32>>(None, &[0x00]);
+    }
+
+    #[test]
+    fn option_some_roundtrip() {
+        roundtrip::<Option<u32>>(Some(0xcafe_babe),
+            &[0x01, 0xbe, 0xba, 0xfe, 0xca]);
+    }
+
+    #[test]
+    fn option_decode_bad_tag() {
+        let mut cursor: &[u8] = &[0x02];
+        assert_eq!(<Option<u32>>::decode(&mut cursor), Err(Error::BadOptionTag));
     }
 }
