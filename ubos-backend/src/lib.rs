@@ -179,6 +179,14 @@ pub static SHARE_TARGET: Watch<CriticalSectionRawMutex, [u8; 32], 1> = Watch::ne
 /// Fired when a notify with `clean_jobs=true` arrives so the solver can abort.
 pub static CLEAN_JOBS: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
+/// Mirror of the miner's run state. `true` while the chip is between a
+/// successful init replay and the start of teardown, `false` otherwise.
+/// `Signal<bool>` (rather than an event + atomic pair) keeps the latest
+/// value cached so a slow consumer that only wakes up occasionally — the
+/// host-runner fan task is the canonical one — always lands on the
+/// freshest state instead of an edge it missed.
+pub static MINER_IS_RUNNING: Signal<CriticalSectionRawMutex, bool> = Signal::new();
+
 /// Pick the wire target to hand the asic. Returns the easier of `pool`
 /// and `LOCAL_TARGET` so the asic always sees something at least as easy
 /// as the pool would accept; the worker filters with `pool` afterwards.

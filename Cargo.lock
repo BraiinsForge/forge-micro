@@ -148,6 +148,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "asic-interface"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.0.1",
+ "embassy-time",
+ "portable-atomic",
+]
+
+[[package]]
 name = "async-io"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -290,6 +299,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "bmm-pico"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "cpu-miner",
+ "defmt 1.0.1",
+ "defmt-rtt",
+ "embassy-executor 0.10.0",
+ "embassy-net",
+ "embassy-net-wiznet",
+ "embassy-rp",
+ "embassy-time",
+ "embedded-hal-bus",
+ "embedded-io-async 0.7.0",
+ "eth-examples",
+ "panic-probe",
+ "portable-atomic",
+ "static_cell",
+ "ubos-backend",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -416,6 +448,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "cpu-miner"
+version = "0.1.0"
+dependencies = [
+ "asic-interface",
+ "embassy-futures",
+ "embassy-sync 0.8.0",
+ "sha2",
 ]
 
 [[package]]
@@ -737,6 +779,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dummy-asic"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.0.1",
+ "defmt-rtt",
+ "embassy-executor 0.9.1",
+ "embassy-futures",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+ "esp-backtrace",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-rtos",
+ "nb 1.1.0",
+ "portable-atomic",
+ "static_cell",
+]
+
+[[package]]
 name = "ecdsa"
 version = "0.16.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -747,22 +809,6 @@ dependencies = [
  "elliptic-curve",
  "rfc6979",
  "signature",
-]
-
-[[package]]
-name = "echoer"
-version = "0.1.0"
-dependencies = [
- "defmt 1.0.1",
- "defmt-rtt",
- "embassy-executor 0.9.1",
- "embassy-time",
- "embedded-io-async 0.7.0",
- "esp-backtrace",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-rtos",
- "eth-examples",
 ]
 
 [[package]]
@@ -1775,27 +1821,23 @@ dependencies = [
 name = "esp32s3"
 version = "0.1.0"
 dependencies = [
+ "cpu-miner",
  "defmt 1.0.1",
  "defmt-rtt",
  "embassy-executor 0.9.1",
- "embassy-futures",
  "embassy-net",
  "embassy-net-wiznet",
- "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-hal-bus",
- "embedded-io-async 0.7.0",
  "esp-backtrace",
  "esp-bootloader-esp-idf",
  "esp-hal",
  "esp-rtos",
+ "esp32s3-tsens",
  "eth-examples",
- "heapless 0.8.0",
  "portable-atomic",
  "rand_core 0.6.4",
- "sha2",
  "static_cell",
- "stratum-v1-core",
  "ubos-backend",
 ]
 
@@ -1811,10 +1853,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "eth-examples"
+name = "esp32s3-tsens"
 version = "0.1.0"
 dependencies = [
  "defmt 1.0.1",
+ "embassy-time",
+ "esp-hal",
+]
+
+[[package]]
+name = "eth-examples"
+version = "0.1.0"
+dependencies = [
+ "asic-interface",
+ "cortex-m",
+ "defmt 1.0.1",
+ "embassy-executor 0.10.0",
  "embassy-futures",
  "embassy-net",
  "embassy-sync 0.8.0",
@@ -1829,6 +1883,7 @@ dependencies = [
  "portable-atomic",
  "profont",
  "rand_core 0.6.4",
+ "sha2",
  "static_cell",
  "ubos-logging",
 ]
@@ -3030,18 +3085,17 @@ version = "0.1.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
+ "cpu-miner",
  "defmt 1.0.1",
  "defmt-rtt",
  "embassy-executor 0.10.0",
  "embassy-net",
  "embassy-net-wiznet",
  "embassy-rp",
- "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-hal-bus",
  "embedded-io-async 0.7.0",
  "eth-examples",
- "heapless 0.8.0",
  "panic-probe",
  "portable-atomic",
  "static_cell",
@@ -3063,24 +3117,29 @@ version = "0.1.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
+ "cpu-miner",
  "defmt 1.0.1",
  "defmt-rtt",
  "embassy-executor 0.10.0",
- "embassy-futures",
  "embassy-net",
  "embassy-net-wiznet",
  "embassy-rp",
- "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-hal-bus",
  "embedded-io-async 0.7.0",
  "eth-examples",
- "heapless 0.8.0",
  "panic-probe",
  "portable-atomic",
  "static_cell",
- "stratum-v1-core",
  "ubos-backend",
+]
+
+[[package]]
+name = "rp235x-sha256"
+version = "0.1.0"
+dependencies = [
+ "embassy-rp",
+ "portable-atomic",
 ]
 
 [[package]]
@@ -3429,17 +3488,15 @@ version = "0.1.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
+ "cpu-miner",
  "defmt 1.0.1",
  "defmt-rtt",
  "embassy-executor 0.10.0",
  "embassy-net",
  "embassy-stm32",
- "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-hal-bus",
- "embedded-io-async 0.7.0",
  "eth-examples",
- "heapless 0.8.0",
  "panic-probe",
  "portable-atomic",
  "static_cell",
@@ -3452,17 +3509,15 @@ version = "0.1.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
+ "cpu-miner",
  "defmt 1.0.1",
  "defmt-rtt",
  "embassy-executor 0.10.0",
  "embassy-net",
  "embassy-stm32",
- "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-hal-bus",
- "embedded-io-async 0.7.0",
  "eth-examples",
- "heapless 0.8.0",
  "panic-probe",
  "portable-atomic",
  "static_cell",
@@ -3705,8 +3760,9 @@ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 name = "ubos-backend"
 version = "0.1.0"
 dependencies = [
+ "asic-interface",
+ "cpu-miner",
  "defmt 1.0.1",
- "embassy-executor 0.10.0",
  "embassy-futures",
  "embassy-net",
  "embassy-sync 0.8.0",
