@@ -48,6 +48,24 @@ impl From<Secp256k1Elligator> for PublicSecp256k1Key {
 }
 
 impl Secp256k1KeyPair {
+    /// Reconstruct a keypair from an existing secret key. Mixes in fresh
+    /// entropy from the supplied [`KeyGen`] for the elligator encoding.
+    pub fn from_secret_key<K: crate::keygen::KeyGen>(
+        secret: &SecretSecp256k1Key,
+        rng: &mut K,
+    ) -> Self {
+        let entropy = rng.new_256_bit_entropy();
+        let ctx = rng.ctx();
+        let (pk, _) = secret.0.x_only_public_key(ctx);
+        let elligator =
+            secp256k1::ellswift::ElligatorSwift::from_seckey(ctx, secret.0, Some(entropy));
+        Self {
+            sk: secret.0,
+            pk,
+            elligator,
+        }
+    }
+
     pub fn ellswift_bytes(&self) -> [u8; SECP256_ELLSWIFT_PUBLIC_KEY_LENGTH] {
         self.elligator.to_array()
     }
