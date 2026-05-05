@@ -26,6 +26,7 @@ use rand::rngs::OsRng;
 use static_cell::StaticCell;
 use ubos_backend::{hashrate_task, stratum_task, PoolConfig};
 
+mod fan;
 mod gpiod;
 mod hosted_network;
 mod miner;
@@ -145,6 +146,14 @@ fn main() {
         spawner.spawn(metrics_task(stack).expect("BUG: metrics_task token"));
         spawner.spawn(hashrate_metrics_task().expect("BUG: hashrate_metrics_task token"));
         spawner.spawn(http_server_task(stack).expect("BUG: http_server_task token"));
+        match fan::FanHwmonController::open() {
+            Some(controller) => {
+                spawner.spawn(fan::fan_task(controller).expect("BUG: fan_task token"));
+            }
+            None => {
+                info!("host-runner: no pwmfan device found; fan control disabled");
+            }
+        }
         match psu::open() {
             Some((mmm_psu, state, terminated)) => {
                 spawner
