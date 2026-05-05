@@ -15,6 +15,7 @@ embedded-io-async    = { workspace = true }
 embedded-i2c-unix    = { path = "../embedded-i2c-unix" }
 embedded-serial-unix = { path = "../embedded-serial-unix" }
 critical-section   = { version = "1.2", features = ["std"] }
+ctrlc              = "3"
 env_logger         = "0.11"
 gpiocdev           = "0.8"
 # embassy-net 0.9's StaticConfigV4 needs heapless 0.9, while eth-examples

@@ -111,6 +111,16 @@ async fn hashrate_metrics_task() -> ! {
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // SIGINT triggers a clean miner teardown rather than killing the
+    // process outright; miner_task drives the actual exit once run()
+    // returns. set_handler only fails if a handler is already
+    // installed, which cannot happen at startup.
+    ctrlc::set_handler(|| {
+        info!("host-runner: SIGINT received, signalling miner stop");
+        mmm::miner::STOP_MINING.signal(());
+    })
+    .expect("BUG: ctrlc handler already installed");
+
     let (device, config) = hosted_network::open_host_device();
 
     // Seconds-since-epoch are enough entropy for TCP ISN randomness on a
