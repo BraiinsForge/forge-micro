@@ -86,7 +86,7 @@ mod imp {
     pub fn open_host_device() -> (HostDevice, Config) {
         let env_ifname = std::env::var("AFPACKET_IF");
         let ifname = env_ifname.as_deref().unwrap_or(AFPACKET_DEFAULT_IF);
-        let mac = afpacket_mac(&ifname);
+        let mac = afpacket_mac(ifname);
         let [m0, m1, m2, m3, m4, m5] = mac;
         info!(
             "host-runner: binding raw socket to {ifname} \
@@ -95,7 +95,7 @@ mod imp {
         // Failure here is unrecoverable: without a working link driver
         // there is nothing for the rest of the runner to do.
         let device =
-            AfPacketDevice::with_synthetic_mac(&ifname, mac).expect("BUG: open AF_PACKET socket");
+            AfPacketDevice::with_synthetic_mac(ifname, mac).expect("BUG: open AF_PACKET socket");
         (device, Config::dhcpv4(DhcpConfig::default()))
     }
 }
