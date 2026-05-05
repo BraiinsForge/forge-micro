@@ -13,7 +13,6 @@
 //! creates the TAP device and installs the NAT + forward rules. See
 //! `README.md` for the manual equivalents and for `AF_PACKET` caveats.
 
-use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use embassy_executor::{Executor, Spawner};
@@ -24,7 +23,7 @@ use eth_examples::net;
 use log::{info, warn};
 use rand::rngs::OsRng;
 use static_cell::StaticCell;
-use ubos_backend::{hashrate_task, stratum_task, PoolConfig};
+use ubos_backend::PoolConfig;
 
 mod fan;
 mod gpiod;
@@ -62,9 +61,29 @@ async fn heartbeat_task(stack: Stack<'static>) {
     loop {
         Timer::after(Duration::from_secs(10)).await;
         let link_up = stack.config_v4().is_some();
-        let hashrate = ubos_backend::HASHRATE_HZ.load(Ordering::Relaxed);
+        let hashrate = asic_interface::hashrate();
         info!("host-runner: tick, link_up={link_up}, hashrate={hashrate} H/s");
     }
+}
+
+#[embassy_executor::task]
+async fn stratum_task(stack: Stack<'static>, config: &'static PoolConfig) -> ! {
+    ubos_backend::run_stratum(stack, config).await
+}
+
+#[embassy_executor::task]
+async fn ntime_roller_task() -> ! {
+    ubos_backend::run_ntime_roller().await
+}
+
+#[embassy_executor::task]
+async fn cpu_worker_task() -> ! {
+    ubos_backend::run_cpu_worker().await
+}
+
+#[embassy_executor::task]
+async fn cpu_miner_task() -> ! {
+    cpu_miner::run_cpu_miner().await
 }
 
 #[embassy_executor::task]
@@ -87,14 +106,15 @@ async fn http_server_task(stack: Stack<'static>) -> ! {
     net::run_http_server(stack, BOARD_NAME).await
 }
 
-/// Mirror of `rp2350/main.rs` `hashrate_metrics_task`: republishes
-/// `HASHRATE_HZ` as a Prometheus metric on a fixed cadence.
+/// Republishes `asic_interface::hashrate()` as a Prometheus metric on a
+/// fixed cadence. The EWMA hashrate is bumped automatically every time a
+/// share is recorded via `asic_interface::record_share`.
 #[embassy_executor::task]
 async fn hashrate_metrics_task() -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(5));
     loop {
         ticker.next().await;
-        let hashrate_hz = ubos_backend::HASHRATE_HZ.load(Ordering::Relaxed);
+        let hashrate_hz = asic_interface::hashrate();
         eth_examples::metrics::push(Metric {
             name: "board_hashrate_hz",
             // eth-examples still uses heapless 0.8 while host-runner needs
@@ -140,7 +160,7 @@ fn main() {
         spawner.spawn(net_task(runner).expect("BUG: net_task token"));
         spawner.spawn(heartbeat_task(stack).expect("BUG: heartbeat_task token"));
         spawner.spawn(stratum_task(stack, &POOL_CONFIG).expect("BUG: stratum_task token"));
-        spawner.spawn(hashrate_task().expect("BUG: hashrate_task token"));
+        spawner.spawn(ntime_roller_task().expect("BUG: ntime_roller_task token"));
         spawner.spawn(ntp_sync_task(stack).expect("BUG: ntp_sync_task token"));
         spawner.spawn(bitcoin_price_task(stack).expect("BUG: bitcoin_price_task token"));
         spawner.spawn(metrics_task(stack).expect("BUG: metrics_task token"));
@@ -164,10 +184,11 @@ fn main() {
             }
             None => {
                 warn!(
-                    "host-runner: {} unset or i2c open failed; mmm miner not spawned",
+                    "host-runner: {} unset or i2c open failed; mmm miner not spawned, falling back to in-process CPU mining",
                     psu::I2C_BUS_ENV
                 );
-                spawner.spawn(ubos_backend::cpu_solver_task().expect("BUG: cpu_solver_task"));
+                spawner.spawn(cpu_worker_task().expect("BUG: cpu_worker_task token"));
+                spawner.spawn(cpu_miner_task().expect("BUG: cpu_miner_task token"));
             }
         }
     });

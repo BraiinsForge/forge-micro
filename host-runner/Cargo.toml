@@ -27,6 +27,8 @@ mmm                = { path = "../mmm", default-features = false }
 static_cell        = { workspace = true }
 eth-examples       = { workspace = true, default-features = false }
 rand               = "0.8"
+asic-interface     = { workspace = true }
+cpu-miner          = { workspace = true }
 ubos-backend       = { workspace = true, default-features = false }
 ubos-logging       = { workspace = true }
 ubos-psu           = { workspace = true }
