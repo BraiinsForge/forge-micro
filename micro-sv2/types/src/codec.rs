@@ -24,3 +24,86 @@ pub trait Decode<'de>: Sized {
     /// through the same `*input` slice.
     fn decode(input: &mut &'de [u8]) -> Result<Self, Error>;
 }
+
+macro_rules! impl_uint {
+    ($t:ty, $size:expr) => {
+        impl Encode for $t {
+            #[inline]
+            fn encoded_len(&self) -> usize { $size }
+
+            #[inline]
+            fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
+                if out.len() < $size {
+                    return Err(Error::BufferTooSmall);
+                }
+                out[..$size].copy_from_slice(&self.to_le_bytes());
+                Ok($size)
+            }
+        }
+
+        impl<'de> Decode<'de> for $t {
+            #[inline]
+            fn decode(input: &mut &'de [u8]) -> Result<Self, Error> {
+                let bytes = input.get(..$size).ok_or(Error::Eof)?;
+                let arr: [u8; $size] = bytes.try_into().expect("size matches slice");
+                *input = &input[$size..];
+                Ok(<$t>::from_le_bytes(arr))
+            }
+        }
+    };
+}
+
+impl_uint!(u8, 1);
+impl_uint!(u16, 2);
+impl_uint!(u32, 4);
+impl_uint!(u64, 8);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn roundtrip<T>(value: T, expected: &[u8])
+    where
+        T: Encode + for<'de> Decode<'de> + core::fmt::Debug + PartialEq,
+    {
+        let mut buf = [0u8; 16];
+        let n = value.encode_to(&mut buf).expect("encode_to should succeed");
+        assert_eq!(n, value.encoded_len());
+        assert_eq!(&buf[..n], expected);
+
+        let mut cursor: &[u8] = &buf[..n];
+        let decoded = T::decode(&mut cursor).expect("decode should succeed");
+        assert_eq!(decoded, value);
+        assert!(cursor.is_empty(), "cursor should be fully consumed");
+    }
+
+    #[test]
+    fn u8_roundtrip() {
+        roundtrip::<u8>(0x00, &[0x00]);
+        roundtrip::<u8>(0xa5, &[0xa5]);
+        roundtrip::<u8>(0xff, &[0xff]);
+    }
+
+    #[test]
+    fn u16_roundtrip() {
+        roundtrip::<u16>(0x0000, &[0x00, 0x00]);
+        roundtrip::<u16>(0xbeef, &[0xef, 0xbe]);
+    }
+
+    #[test]
+    fn u32_roundtrip() {
+        roundtrip::<u32>(0xdead_beef, &[0xef, 0xbe, 0xad, 0xde]);
+    }
+
+    #[test]
+    fn u64_roundtrip() {
+        roundtrip::<u64>(0x0123_4567_89ab_cdef,
+            &[0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01]);
+    }
+
+    #[test]
+    fn u32_decode_eof() {
+        let mut cursor: &[u8] = &[0x01, 0x02];   // only 2 bytes, need 4
+        assert_eq!(u32::decode(&mut cursor), Err(Error::Eof));
+    }
+}
