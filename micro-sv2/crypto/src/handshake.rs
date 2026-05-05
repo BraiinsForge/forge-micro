@@ -9,7 +9,9 @@
 
 use crate::{
     MAC_SIZE,
+    aead::{OpeningCipherState, SealingCipherState},
     error::NXError,
+    hash::{hkdf, mix_hash},
     keygen::KeyGen,
     keys::{Secp256k1Elligator, Secp256k1KeyPair},
     transport::TransportState,
@@ -107,19 +109,47 @@ impl<R: KeyGen> HandShake<R> {
     /// Walk one step of the state machine, writing a handshake message.
     pub fn write_message(
         &mut self,
-        _message: &[u8],
-        _payload: &mut [u8],
+        message: &[u8],
+        payload: &mut [u8],
     ) -> Result<usize, NXError> {
-        todo!()
+        let current = core::mem::replace(&mut self.state, NXState::Failed);
+        let mut bytes_written = 0_usize;
+        let new_state = match current {
+            NXState::InitiatorStep0(s) => {
+                let s = self.initiator_step0(s, message, payload, &mut bytes_written)?;
+                NXState::InitiatorStep1(s)
+            }
+            NXState::ResponderStep1(s) => {
+                let t = self.responder_step1(s, message, payload, &mut bytes_written)?;
+                NXState::Finished(t)
+            }
+            _ => return Err(NXError::InvalidState),
+        };
+        self.state = new_state;
+        Ok(bytes_written)
     }
 
     /// Walk one step of the state machine, reading a handshake message.
     pub fn read_message(
         &mut self,
-        _payload: &[u8],
-        _message: &mut [u8],
+        payload: &[u8],
+        message: &mut [u8],
     ) -> Result<usize, NXError> {
-        todo!()
+        let current = core::mem::replace(&mut self.state, NXState::Failed);
+        let mut bytes_written = 0_usize;
+        let new_state = match current {
+            NXState::ResponderStep0(s) => {
+                let s = self.responder_step0(s, payload, message, &mut bytes_written)?;
+                NXState::ResponderStep1(s)
+            }
+            NXState::InitiatorStep1(s) => {
+                let t = self.initiator_step1(s, payload, message, &mut bytes_written)?;
+                NXState::Finished(t)
+            }
+            _ => return Err(NXError::InvalidState),
+        };
+        self.state = new_state;
+        Ok(bytes_written)
     }
 
     /// Consume `self`, returning the post-handshake transport state.
@@ -130,6 +160,174 @@ impl<R: KeyGen> HandShake<R> {
             _ => Err(NXError::UnfinishedHandshake),
         }
     }
+
+    fn initiator_step0(
+        &mut self,
+        state: InitiatorState0,
+        message: &[u8],
+        payload: &mut [u8],
+        bytes_written: &mut usize,
+    ) -> Result<InitiatorState1, NXError> {
+        let InitiatorState0 { h, ck } = state;
+        if payload.len() < EPHEMERAL_KEY_MSG_SIZE + message.len() {
+            return Err(NXError::TooSmallBuffer);
+        }
+        let e = self.rng.new_keypair();
+        let raw_e = e.ellswift_bytes();
+        let h = mix_hash(&h, &raw_e);
+        let h = mix_hash(&h, message);
+        payload[..EPHEMERAL_KEY_MSG_SIZE].copy_from_slice(&raw_e);
+        payload[EPHEMERAL_KEY_MSG_SIZE..EPHEMERAL_KEY_MSG_SIZE + message.len()]
+            .copy_from_slice(message);
+        *bytes_written += EPHEMERAL_KEY_MSG_SIZE + message.len();
+        Ok(InitiatorState1 { h, ck, e })
+    }
+
+    fn initiator_step1(
+        &mut self,
+        state: InitiatorState1,
+        payload: &[u8],
+        message: &mut [u8],
+        bytes_written: &mut usize,
+    ) -> Result<TransportState, NXError> {
+        if payload.len() < EPHEMERAL_KEY_MSG_SIZE + STATIC_KEY_MSG_SIZE {
+            return Err(NXError::NotEnoughBytes);
+        }
+        let encrypted_data_len = payload.len() - EPHEMERAL_KEY_MSG_SIZE - STATIC_KEY_MSG_SIZE;
+        if encrypted_data_len < MAC_SIZE {
+            return Err(NXError::NotEnoughBytes);
+        }
+        if message.len() < encrypted_data_len {
+            return Err(NXError::TooSmallBuffer);
+        }
+        let InitiatorState1 { h, ck, e } = state;
+        let (raw_ek, rest) = payload.split_at(EPHEMERAL_KEY_MSG_SIZE);
+        let (raw_sk, raw_sig_noise_msg) = rest.split_at(STATIC_KEY_MSG_SIZE);
+
+        let re_pk = expect_elligator(raw_ek);
+
+        // ee
+        let h = mix_hash(&h, raw_ek);
+        let ee = e.dh(re_pk, true);
+        let (ck, k) = hkdf(&ck, &ee);
+        let mut cipher = OpeningCipherState::initialize(k)?;
+
+        // es
+        let mut static_pk = [0_u8; STATIC_KEY_MSG_SIZE];
+        static_pk.copy_from_slice(raw_sk);
+        cipher.decrypt_with_ad(&h, &mut static_pk)?;
+        let h = mix_hash(&h, raw_sk);
+        let rs_pk = expect_elligator(&static_pk[..STATIC_KEY_SIZE]);
+        let es = e.dh(rs_pk, true);
+        let (ck, k) = hkdf(&ck, &es);
+        let mut cipher = OpeningCipherState::initialize(k)?;
+
+        // authenticated payload (cert)
+        let buf = &mut message[..encrypted_data_len];
+        buf.copy_from_slice(raw_sig_noise_msg);
+        let handshake_hash = mix_hash(&h, buf);
+        cipher.decrypt_with_ad(&h, buf)?;
+        *bytes_written += encrypted_data_len - MAC_SIZE;
+
+        // Split: initiator's sealing direction is initiator -> responder.
+        let (k_i_to_r, k_r_to_i) = hkdf(&ck, &[]);
+        let sealing_state = SealingCipherState::initialize(k_i_to_r)?;
+        let opening_state = OpeningCipherState::initialize(k_r_to_i)?;
+
+        Ok(TransportState::new(
+            Some(rs_pk.into()),
+            handshake_hash,
+            sealing_state,
+            opening_state,
+        ))
+    }
+
+    fn responder_step0(
+        &mut self,
+        state: ResponderState0,
+        payload: &[u8],
+        message: &mut [u8],
+        bytes_written: &mut usize,
+    ) -> Result<ResponderState1, NXError> {
+        if payload.len() < EPHEMERAL_KEY_MSG_SIZE {
+            return Err(NXError::NotEnoughBytes);
+        }
+        let ResponderState0 { h, ck, s } = state;
+        let raw_e = &payload[..EPHEMERAL_KEY_MSG_SIZE];
+        let re_pk = expect_elligator(raw_e);
+        let h = mix_hash(&h, raw_e);
+        let plaintext = &payload[EPHEMERAL_KEY_MSG_SIZE..];
+        if message.len() < plaintext.len() {
+            return Err(NXError::TooSmallBuffer);
+        }
+        let h = mix_hash(&h, plaintext);
+        message[..plaintext.len()].copy_from_slice(plaintext);
+        *bytes_written += plaintext.len();
+        Ok(ResponderState1 { h, ck, s, re_pk })
+    }
+
+    fn responder_step1(
+        &mut self,
+        state: ResponderState1,
+        message: &[u8],
+        payload: &mut [u8],
+        bytes_written: &mut usize,
+    ) -> Result<TransportState, NXError> {
+        let ResponderState1 { h, ck, s, re_pk } = state;
+        let total = EPHEMERAL_KEY_MSG_SIZE + STATIC_KEY_MSG_SIZE + message.len() + MAC_SIZE;
+        if payload.len() < total {
+            return Err(NXError::TooSmallBuffer);
+        }
+        let mut bytes_processed = 0_usize;
+
+        let e = self.rng.new_keypair();
+        let raw_e = e.ellswift_bytes();
+        payload[..EPHEMERAL_KEY_MSG_SIZE].copy_from_slice(&raw_e);
+        bytes_processed += EPHEMERAL_KEY_MSG_SIZE;
+
+        // ee
+        let h = mix_hash(&h, &raw_e);
+        let ee = e.dh(re_pk, false);
+        let (ck, k) = hkdf(&ck, &ee);
+        let mut cipher = SealingCipherState::initialize(k)?;
+
+        // encrypt static pubkey under nonce 0
+        let mut static_pk = [0_u8; STATIC_KEY_MSG_SIZE];
+        static_pk[..STATIC_KEY_SIZE].copy_from_slice(&s.ellswift_bytes());
+        cipher.encrypt_with_ad(&h, &mut static_pk, STATIC_KEY_SIZE)?;
+        let h = mix_hash(&h, &static_pk);
+        payload[bytes_processed..bytes_processed + STATIC_KEY_MSG_SIZE]
+            .copy_from_slice(&static_pk);
+        bytes_processed += STATIC_KEY_MSG_SIZE;
+
+        // es
+        let es = s.dh(re_pk, false);
+        let (ck, k) = hkdf(&ck, &es);
+        let mut cipher = SealingCipherState::initialize(k)?;
+        let msg_size = message.len() + MAC_SIZE;
+        let outbuf = &mut payload[bytes_processed..bytes_processed + msg_size];
+        outbuf[..message.len()].copy_from_slice(message);
+        cipher.encrypt_with_ad(&h, outbuf, message.len())?;
+        let h = mix_hash(&h, outbuf);
+        bytes_processed += msg_size;
+        *bytes_written += bytes_processed;
+
+        // Split: responder's sealing direction is responder -> initiator.
+        let (k_i_to_r, k_r_to_i) = hkdf(&ck, &[]);
+        let sealing_state = SealingCipherState::initialize(k_r_to_i)?;
+        let opening_state = OpeningCipherState::initialize(k_i_to_r)?;
+
+        Ok(TransportState::new(None, h, sealing_state, opening_state))
+    }
+}
+
+/// Panics if `raw` is not exactly `EPHEMERAL_KEY_SIZE` bytes — callers
+/// must validate length before invoking.
+fn expect_elligator(raw: &[u8]) -> Secp256k1Elligator {
+    Secp256k1Elligator::from_array(
+        raw.try_into()
+            .expect("BUG: caller should have checked length"),
+    )
 }
 
 #[cfg(test)]

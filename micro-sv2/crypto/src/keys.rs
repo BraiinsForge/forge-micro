@@ -22,49 +22,52 @@ pub struct Secp256k1KeyPair {
 
 impl SecretSecp256k1Key {
     pub fn serialize(&self) -> [u8; SECP256_SECRET_KEY_LENGTH] {
-        todo!()
+        self.0.secret_bytes()
     }
 }
 
 impl PublicSecp256k1Key {
     pub fn serialize(&self) -> [u8; SECP256_XONLY_PUBLIC_KEY_LENGTH] {
-        todo!()
+        self.0.serialize()
     }
 
     /// Derive the x-only public key from a secret key.
     pub fn from_secret_key<C: secp256k1::Signing>(
-        _secret: &SecretSecp256k1Key,
-        _ctx: &secp256k1::Secp256k1<C>,
+        secret: &SecretSecp256k1Key,
+        ctx: &secp256k1::Secp256k1<C>,
     ) -> Self {
-        todo!()
+        let (pk, _) = secret.0.x_only_public_key(ctx);
+        Self(pk)
     }
 }
 
 impl From<Secp256k1Elligator> for PublicSecp256k1Key {
-    fn from(_value: Secp256k1Elligator) -> Self {
-        todo!()
+    fn from(value: Secp256k1Elligator) -> Self {
+        Self(secp256k1::PublicKey::from_ellswift(value).x_only_public_key().0)
     }
 }
 
 impl Secp256k1KeyPair {
     pub fn ellswift_bytes(&self) -> [u8; SECP256_ELLSWIFT_PUBLIC_KEY_LENGTH] {
-        todo!()
+        self.elligator.to_array()
     }
 
     pub fn secret_key_bytes(&self) -> [u8; SECP256_SECRET_KEY_LENGTH] {
-        todo!()
+        self.sk.secret_bytes()
     }
 
     pub fn xonly_public_key_bytes(&self) -> [u8; SECP256_XONLY_PUBLIC_KEY_LENGTH] {
-        todo!()
+        self.pk.serialize()
     }
 
     pub fn sign_raw_digest<C: secp256k1::Signing>(
         &self,
-        _ctx: &secp256k1::Secp256k1<C>,
-        _msg_hash: [u8; 32],
+        ctx: &secp256k1::Secp256k1<C>,
+        msg_hash: [u8; 32],
     ) -> secp256k1::schnorr::Signature {
-        todo!()
+        let keypair = secp256k1::Keypair::from_secret_key(ctx, &self.sk);
+        let msg = secp256k1::Message::from_digest(msg_hash);
+        ctx.sign_schnorr_no_aux_rand(msg.as_ref(), &keypair)
     }
 
     /// BIP-324 v2 ECDH between this party's elligator and the remote's,
@@ -74,24 +77,35 @@ impl Secp256k1KeyPair {
     /// See https://github.com/bitcoin/bips/blob/master/bip-0324.mediawiki#shared-secret-computation
     pub(crate) fn dh(
         &self,
-        _remote_elligator: Secp256k1Elligator,
-        _initiator: bool,
+        remote_elligator: Secp256k1Elligator,
+        initiator: bool,
     ) -> [u8; ECDH_LENGTH] {
-        todo!()
+        use secp256k1::ellswift;
+        let (init_ell, resp_ell, party) = if initiator {
+            (self.elligator, remote_elligator, ellswift::Party::Initiator)
+        } else {
+            (remote_elligator, self.elligator, ellswift::Party::Responder)
+        };
+        let secret = ellswift::ElligatorSwift::shared_secret(init_ell, resp_ell, self.sk, party, None);
+        secret.to_secret_bytes()
     }
 }
 
 impl TryFrom<[u8; SECP256_SECRET_KEY_LENGTH]> for SecretSecp256k1Key {
     type Error = Secp256k1KeyError;
-    fn try_from(_value: [u8; SECP256_SECRET_KEY_LENGTH]) -> Result<Self, Self::Error> {
-        todo!()
+    fn try_from(value: [u8; SECP256_SECRET_KEY_LENGTH]) -> Result<Self, Self::Error> {
+        secp256k1::SecretKey::from_byte_array(value)
+            .map(Self)
+            .map_err(|_| Secp256k1KeyError::InvalidSecretKey)
     }
 }
 
 impl TryFrom<[u8; SECP256_XONLY_PUBLIC_KEY_LENGTH]> for PublicSecp256k1Key {
     type Error = Secp256k1KeyError;
-    fn try_from(_value: [u8; SECP256_XONLY_PUBLIC_KEY_LENGTH]) -> Result<Self, Self::Error> {
-        todo!()
+    fn try_from(value: [u8; SECP256_XONLY_PUBLIC_KEY_LENGTH]) -> Result<Self, Self::Error> {
+        secp256k1::XOnlyPublicKey::from_byte_array(value)
+            .map(Self)
+            .map_err(|_| Secp256k1KeyError::InvalidPublicKey)
     }
 }
 
