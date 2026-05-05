@@ -57,6 +57,10 @@ impl_uint!(u8, 1);
 impl_uint!(u16, 2);
 impl_uint!(u32, 4);
 impl_uint!(u64, 8);
+impl_uint!(i8, 1);
+impl_uint!(i16, 2);
+impl_uint!(i32, 4);
+impl_uint!(i64, 8);
 
 #[cfg(test)]
 mod tests {
@@ -105,5 +109,29 @@ mod tests {
     fn u32_decode_eof() {
         let mut cursor: &[u8] = &[0x01, 0x02];   // only 2 bytes, need 4
         assert_eq!(u32::decode(&mut cursor), Err(Error::Eof));
+    }
+
+    #[test]
+    fn i8_roundtrip() {
+        roundtrip::<i8>(0, &[0x00]);
+        roundtrip::<i8>(-1, &[0xff]);
+        roundtrip::<i8>(i8::MIN, &[0x80]);
+    }
+
+    #[test]
+    fn i16_roundtrip() {
+        roundtrip::<i16>(-2, &[0xfe, 0xff]);
+        roundtrip::<i16>(i16::MIN, &[0x00, 0x80]);
+    }
+
+    #[test]
+    fn i32_roundtrip() {
+        roundtrip::<i32>(-3, &[0xfd, 0xff, 0xff, 0xff]);
+    }
+
+    #[test]
+    fn i64_roundtrip() {
+        roundtrip::<i64>(-4,
+            &[0xfc, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
     }
 }
