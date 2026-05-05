@@ -35,7 +35,6 @@
 
 use core::fmt::Write as _;
 
-use ubos_logging::warn;
 use embassy_futures::select::{select, Either};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::Stack;
@@ -45,6 +44,7 @@ use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::Write;
 use portable_atomic::Ordering;
 use static_cell::ConstStaticCell;
+use ubos_logging::warn;
 
 use crate::consts::Metrics;
 use crate::http::BufferWriter;

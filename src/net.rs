@@ -5,7 +5,6 @@
 //! `run_http_server`, `run_ntp_sync`, and `run_bitcoin_price` tasks
 //! from this module.
 
-use ubos_logging::{info, warn};
 use embassy_futures::yield_now;
 use embassy_net::dns::DnsQueryType;
 use embassy_net::tcp::TcpSocket;
@@ -17,6 +16,7 @@ use embedded_tls::{Aes128GcmSha256, TlsConfig, TlsConnection, TlsContext, Unsecu
 use portable_atomic::{AtomicU32, AtomicU64, Ordering};
 use rand_core::{CryptoRng, RngCore};
 use static_cell::ConstStaticCell;
+use ubos_logging::{info, warn};
 
 use crate::consts::{Btc, Http, Net, Ntp, Tls};
 

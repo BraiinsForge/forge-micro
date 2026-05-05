@@ -6,8 +6,8 @@ use embassy_time::Ticker;
 use embedded_hal_async::i2c::I2c;
 use portable_atomic::{AtomicBool, Ordering};
 
-use crate::state::{InitStatus, State, ensure_initialized};
-use crate::{Error, Psu, ina230, tps6287x, watchdog};
+use crate::state::{ensure_initialized, InitStatus, State};
+use crate::{ina230, tps6287x, watchdog, Error, Psu};
 
 /// `RawMutex` choice exposed for callers that need to declare the
 /// `'static` mutex storage cell.
@@ -33,10 +33,7 @@ where
     /// Construct a handle. Spawn `run_watchdog` separately on the
     /// same `state` + `terminated` references to drive the
     /// SLG46826G heartbeat.
-    pub fn new(
-        state: &'static Mutex<RawMutex, State<I>>,
-        terminated: &'static AtomicBool,
-    ) -> Self {
+    pub fn new(state: &'static Mutex<RawMutex, State<I>>, terminated: &'static AtomicBool) -> Self {
         Self { state, terminated }
     }
 }
@@ -101,10 +98,7 @@ where
         tps6287x::disable(i2c, config).await
     }
 
-    async fn set_voltage(
-        &self,
-        millivolts: u32,
-    ) -> Result<(), Error<E>> {
+    async fn set_voltage(&self, millivolts: u32) -> Result<(), Error<E>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -180,11 +174,8 @@ mod tests {
         MiniminerPsu<Mock, embedded_hal_async::i2c::ErrorKind>,
         &'static Mutex<RawMutex, State<Mock>>,
     ) {
-        let state: &'static _ = leak(Mutex::<RawMutex, _>::new(
-            State::new(bus, config),
-        ));
-        let terminated: &'static _ =
-            leak(AtomicBool::new(terminated_value));
+        let state: &'static _ = leak(Mutex::<RawMutex, _>::new(State::new(bus, config)));
+        let terminated: &'static _ = leak(AtomicBool::new(terminated_value));
         (MiniminerPsu::new(state, terminated), state)
     }
 
@@ -258,8 +249,7 @@ mod tests {
         // terminate disables the DC/DC.
         transactions.push(Transaction::write(
             config.dcdc_address,
-            tps6287x::encode_control1(false, config.dcdc_ramp_speed)
-                .to_vec(),
+            tps6287x::encode_control1(false, config.dcdc_ramp_speed).to_vec(),
         ));
 
         let bus = Mock::new(&transactions);

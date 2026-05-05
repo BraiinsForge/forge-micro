@@ -19,15 +19,11 @@ pub(crate) const fn current_lsb_microamps(max_current_a: u32) -> u32 {
     max_current_a * 1_000_000 / 32_768
 }
 
-pub(crate) const fn calibration_value(
-    current_lsb_microamps: u32,
-    shunt_microohm: u32,
-) -> u16 {
+pub(crate) const fn calibration_value(current_lsb_microamps: u32, shunt_microohm: u32) -> u16 {
     // 5.12e-3 / (lsb_µA * 1e-6 * shunt_µΩ * 1e-6)
     //   = 5.12e9 / (lsb_µA * shunt_µΩ)
     let numerator: u64 = 5_120_000_000;
-    let denominator: u64 =
-        current_lsb_microamps as u64 * shunt_microohm as u64;
+    let denominator: u64 = current_lsb_microamps as u64 * shunt_microohm as u64;
     let cal = numerator / denominator;
     if cal > u16::MAX as u64 {
         u16::MAX
@@ -36,14 +32,10 @@ pub(crate) const fn calibration_value(
     }
 }
 
-pub(crate) const fn power_to_mw(
-    power_register: u16,
-    current_lsb_microamps: u32,
-) -> u32 {
+pub(crate) const fn power_to_mw(power_register: u16, current_lsb_microamps: u32) -> u32 {
     // power_lsb_microwatts = 25 * current_lsb_microamps (datasheet)
     // power_milliwatts = power_register * power_lsb_microwatts / 1_000
-    let microwatts =
-        power_register as u64 * 25 * current_lsb_microamps as u64;
+    let microwatts = power_register as u64 * 25 * current_lsb_microamps as u64;
     (microwatts / 1_000) as u32
 }
 
@@ -61,10 +53,7 @@ where
     config_buffer[1..].copy_from_slice(&CONFIG_VALUE.to_be_bytes());
     i2c.write(address, &config_buffer).await?;
 
-    let cal = calibration_value(
-        current_lsb_microamps(max_current_a),
-        shunt_microohm,
-    );
+    let cal = calibration_value(current_lsb_microamps(max_current_a), shunt_microohm);
     let mut cal_buffer = [0u8; 3];
     cal_buffer[0] = REG_CALIBRATION;
     cal_buffer[1..].copy_from_slice(&cal.to_be_bytes());
@@ -133,15 +122,8 @@ mod bus_tests {
         embassy_futures::block_on(future)
     }
 
-    fn init_expectations(
-        address: u8,
-        max_current_a: u32,
-        shunt_microohm: u32,
-    ) -> [Transaction; 2] {
-        let cal = calibration_value(
-            current_lsb_microamps(max_current_a),
-            shunt_microohm,
-        );
+    fn init_expectations(address: u8, max_current_a: u32, shunt_microohm: u32) -> [Transaction; 2] {
+        let cal = calibration_value(current_lsb_microamps(max_current_a), shunt_microohm);
         let mut config_buffer = vec![REG_CONFIG];
         config_buffer.extend_from_slice(&CONFIG_VALUE.to_be_bytes());
         let mut cal_buffer = vec![REG_CALIBRATION];
@@ -182,13 +164,10 @@ mod bus_tests {
             vec![0x03, 0xe8],
         )];
         let mut bus = Mock::new(&expectations);
-        let mw = run(read_power_mw(&mut bus, address, max_current))
-            .expect("BUG: read_power_mw failed");
+        let mw =
+            run(read_power_mw(&mut bus, address, max_current)).expect("BUG: read_power_mw failed");
         bus.done();
         // Allow ±1 mW tolerance for integer rounding.
-        assert!(
-            (4_574..=4_576).contains(&mw),
-            "unexpected mw: {mw}"
-        );
+        assert!((4_574..=4_576).contains(&mw), "unexpected mw: {mw}");
     }
 }

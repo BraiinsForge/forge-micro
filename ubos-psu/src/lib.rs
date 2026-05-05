@@ -53,7 +53,7 @@ pub mod tps6287x;
 pub mod watchdog;
 
 pub use config::MiniminerPsuConfig;
-pub use miniminer::{MiniminerPsu, RawMutex, run_watchdog};
+pub use miniminer::{run_watchdog, MiniminerPsu, RawMutex};
 pub use state::State;
 
 pub trait Psu {
@@ -61,16 +61,9 @@ pub trait Psu {
 
     async fn enable(&self) -> Result<(), Error<Self::BusError>>;
     async fn disable(&self) -> Result<(), Error<Self::BusError>>;
-    async fn set_voltage(
-        &self,
-        millivolts: u32,
-    ) -> Result<(), Error<Self::BusError>>;
-    async fn read_input_power_mw(
-        &self,
-    ) -> Result<u32, Error<Self::BusError>>;
-    async fn read_output_power_mw(
-        &self,
-    ) -> Result<u32, Error<Self::BusError>>;
+    async fn set_voltage(&self, millivolts: u32) -> Result<(), Error<Self::BusError>>;
+    async fn read_input_power_mw(&self) -> Result<u32, Error<Self::BusError>>;
+    async fn read_output_power_mw(&self) -> Result<u32, Error<Self::BusError>>;
     async fn terminate(&self);
 }
 

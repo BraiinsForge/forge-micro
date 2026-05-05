@@ -46,18 +46,10 @@ impl SoftStartRampTime {
 
     pub(crate) const fn duration(self) -> embassy_time::Duration {
         match self {
-            SoftStartRampTime::SSTime0_5 => {
-                embassy_time::Duration::from_micros(500)
-            }
-            SoftStartRampTime::SSTime1 => {
-                embassy_time::Duration::from_millis(1)
-            }
-            SoftStartRampTime::SSTime2 => {
-                embassy_time::Duration::from_millis(2)
-            }
-            SoftStartRampTime::SSTime4 => {
-                embassy_time::Duration::from_millis(4)
-            }
+            SoftStartRampTime::SSTime0_5 => embassy_time::Duration::from_micros(500),
+            SoftStartRampTime::SSTime1 => embassy_time::Duration::from_millis(1),
+            SoftStartRampTime::SSTime2 => embassy_time::Duration::from_millis(2),
+            SoftStartRampTime::SSTime4 => embassy_time::Duration::from_millis(4),
         }
     }
 }
@@ -78,9 +70,7 @@ pub enum VoltageRange {
 impl VoltageRange {
     pub const fn start_mv(self) -> u32 {
         match self {
-            VoltageRange::VRange0
-            | VoltageRange::VRange1
-            | VoltageRange::VRange2 => 400,
+            VoltageRange::VRange0 | VoltageRange::VRange1 | VoltageRange::VRange2 => 400,
             VoltageRange::VRange3 => 800,
         }
     }
@@ -138,10 +128,7 @@ pub(crate) fn encode_vset(dac: u8) -> [u8; 2] {
 
 /// CONTROL1 with `dischen=1` (output discharge enabled to match
 /// BOS default), optional `swen`, and the configured ramp speed.
-pub(crate) fn encode_control1(
-    swen: bool,
-    vramp: VoltageRampSpeed,
-) -> [u8; 2] {
+pub(crate) fn encode_control1(swen: bool, vramp: VoltageRampSpeed) -> [u8; 2] {
     let mut value = 0u8;
     if swen {
         value |= 1 << 5;
@@ -157,10 +144,7 @@ pub(crate) fn encode_control1_reset() -> [u8; 2] {
     [REG_CONTROL1, 1 << 7]
 }
 
-pub(crate) fn encode_control2(
-    vrange: VoltageRange,
-    sstime: SoftStartRampTime,
-) -> [u8; 2] {
+pub(crate) fn encode_control2(vrange: VoltageRange, sstime: SoftStartRampTime) -> [u8; 2] {
     let value = (vrange.bits() << 2) | sstime.bits();
     [REG_CONTROL2, value]
 }
@@ -182,10 +166,7 @@ use crate::{Error, MiniminerPsuConfig};
 /// `t_d(EN)2` = 100 µs after the reset pulse before further writes.
 const SW_ENABLE_DELAY: Duration = Duration::from_micros(100);
 
-pub(crate) async fn init<I, E>(
-    i2c: &mut I,
-    config: &MiniminerPsuConfig,
-) -> Result<(), Error<E>>
+pub(crate) async fn init<I, E>(i2c: &mut I, config: &MiniminerPsuConfig) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -193,10 +174,7 @@ where
     reset(i2c, config).await?;
     i2c.write(
         config.dcdc_address,
-        &encode_control2(
-            config.dcdc_voltage_range,
-            config.dcdc_soft_start,
-        ),
+        &encode_control2(config.dcdc_voltage_range, config.dcdc_soft_start),
     )
     .await
     .map_err(Error::Bus)?;
@@ -209,10 +187,7 @@ where
         .map_err(Error::Bus)
 }
 
-async fn reset<I, E>(
-    i2c: &mut I,
-    config: &MiniminerPsuConfig,
-) -> Result<(), Error<E>>
+async fn reset<I, E>(i2c: &mut I, config: &MiniminerPsuConfig) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -229,10 +204,7 @@ where
     .map_err(Error::Bus)
 }
 
-pub(crate) async fn enable<I, E>(
-    i2c: &mut I,
-    config: &MiniminerPsuConfig,
-) -> Result<(), Error<E>>
+pub(crate) async fn enable<I, E>(i2c: &mut I, config: &MiniminerPsuConfig) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -251,10 +223,7 @@ where
     Ok(())
 }
 
-pub(crate) async fn disable<I, E>(
-    i2c: &mut I,
-    config: &MiniminerPsuConfig,
-) -> Result<(), Error<E>>
+pub(crate) async fn disable<I, E>(i2c: &mut I, config: &MiniminerPsuConfig) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -389,10 +358,7 @@ mod register_tests {
 
     #[test]
     fn control2_encode_vrange2_sstime1() {
-        let bytes = encode_control2(
-            VoltageRange::VRange2,
-            SoftStartRampTime::SSTime1,
-        );
+        let bytes = encode_control2(VoltageRange::VRange2, SoftStartRampTime::SSTime1);
         // vrange=10 (bits 3:2), sstime=01 (bits 1:0).
         assert_eq!(bytes, [REG_CONTROL2, 0b0000_1001]);
     }
@@ -443,11 +409,7 @@ mod bus_tests {
             ),
             Transaction::write(
                 address,
-                encode_control2(
-                    config.dcdc_voltage_range,
-                    config.dcdc_soft_start,
-                )
-                .to_vec(),
+                encode_control2(config.dcdc_voltage_range, config.dcdc_soft_start).to_vec(),
             ),
             Transaction::write(address, encode_vset(dac).to_vec()),
         ];
@@ -513,12 +475,10 @@ mod bus_tests {
             .voltage_to_dac(700)
             .expect("BUG: 700 mv must be in vrange2");
 
-        let expectations =
-            [Transaction::write(address, encode_vset(dac).to_vec())];
+        let expectations = [Transaction::write(address, encode_vset(dac).to_vec())];
 
         let mut bus = Mock::new(&expectations);
-        run(set_voltage(&mut bus, &config, 700))
-            .expect("BUG: set_voltage failed");
+        run(set_voltage(&mut bus, &config, 700)).expect("BUG: set_voltage failed");
         bus.done();
     }
 

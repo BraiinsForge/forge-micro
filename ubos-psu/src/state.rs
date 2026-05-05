@@ -2,7 +2,7 @@
 
 use embedded_hal_async::i2c::{ErrorKind, I2c};
 
-use crate::{Error, MiniminerPsuConfig, ina230, tps6287x, watchdog};
+use crate::{ina230, tps6287x, watchdog, Error, MiniminerPsuConfig};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InitStatus {
@@ -28,9 +28,7 @@ impl<I> State<I> {
     }
 }
 
-pub(crate) async fn ensure_initialized<I, E>(
-    state: &mut State<I>,
-) -> Result<(), Error<E>>
+pub(crate) async fn ensure_initialized<I, E>(state: &mut State<I>) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -98,23 +96,17 @@ pub(crate) mod test_support {
     /// implementation.
     const INA_CONFIG: u16 = 0b0100_0001_0010_0111;
 
-    pub fn init_transactions(
-        config: &MiniminerPsuConfig,
-    ) -> Vec<Transaction> {
+    pub fn init_transactions(config: &MiniminerPsuConfig) -> Vec<Transaction> {
         let dac = config
             .dcdc_voltage_range
             .voltage_to_dac(config.dcdc_initial_mv)
             .expect("BUG: initial mv must be in vrange");
         let cal_in = ina230::calibration_value(
-            ina230::current_lsb_microamps(
-                config.ina_input_max_current_a,
-            ),
+            ina230::current_lsb_microamps(config.ina_input_max_current_a),
             config.ina_input_shunt_microohm,
         );
         let cal_out = ina230::calibration_value(
-            ina230::current_lsb_microamps(
-                config.ina_output_max_current_a,
-            ),
+            ina230::current_lsb_microamps(config.ina_output_max_current_a),
             config.ina_output_shunt_microohm,
         );
 
@@ -128,52 +120,27 @@ pub(crate) mod test_support {
         buffer_out_cal.extend_from_slice(&cal_out.to_be_bytes());
 
         vec![
-            Transaction::write(
-                config.watchdog_address,
-                vec![0x7a, 0x00],
-            ),
+            Transaction::write(config.watchdog_address, vec![0x7a, 0x00]),
             Transaction::write(config.ina_input_address, buffer_in_config),
             Transaction::write(config.ina_input_address, buffer_in_cal),
-            Transaction::write(
-                config.ina_output_address,
-                buffer_out_config,
-            ),
-            Transaction::write(
-                config.ina_output_address,
-                buffer_out_cal,
-            ),
+            Transaction::write(config.ina_output_address, buffer_out_config),
+            Transaction::write(config.ina_output_address, buffer_out_cal),
             Transaction::write(
                 config.dcdc_address,
                 tps6287x::encode_control1_reset().to_vec(),
             ),
             Transaction::write(
                 config.dcdc_address,
-                tps6287x::encode_control1(
-                    false,
-                    config.dcdc_ramp_speed,
-                )
-                .to_vec(),
+                tps6287x::encode_control1(false, config.dcdc_ramp_speed).to_vec(),
             ),
             Transaction::write(
                 config.dcdc_address,
-                tps6287x::encode_control2(
-                    config.dcdc_voltage_range,
-                    config.dcdc_soft_start,
-                )
-                .to_vec(),
+                tps6287x::encode_control2(config.dcdc_voltage_range, config.dcdc_soft_start)
+                    .to_vec(),
             ),
-            Transaction::write(
-                config.dcdc_address,
-                tps6287x::encode_vset(dac).to_vec(),
-            ),
-            Transaction::write(
-                config.watchdog_address,
-                vec![0x7a, 0x01],
-            ),
-            Transaction::write(
-                config.watchdog_address,
-                vec![0x7a, 0x00],
-            ),
+            Transaction::write(config.dcdc_address, tps6287x::encode_vset(dac).to_vec()),
+            Transaction::write(config.watchdog_address, vec![0x7a, 0x01]),
+            Transaction::write(config.watchdog_address, vec![0x7a, 0x00]),
         ]
     }
 }
@@ -192,8 +159,7 @@ mod tests {
         let config = MiniminerPsuConfig::DEFAULT;
         let bus = Mock::new(&test_support::init_transactions(&config));
         let mut state = State::new(bus, config);
-        run(ensure_initialized(&mut state))
-            .expect("BUG: init failed");
+        run(ensure_initialized(&mut state)).expect("BUG: init failed");
         assert_eq!(state.init, InitStatus::Initialized);
         state.i2c.done();
     }
@@ -203,11 +169,9 @@ mod tests {
         let config = MiniminerPsuConfig::DEFAULT;
         let bus = Mock::new(&test_support::init_transactions(&config));
         let mut state = State::new(bus, config);
-        run(ensure_initialized(&mut state))
-            .expect("BUG: first init failed");
+        run(ensure_initialized(&mut state)).expect("BUG: first init failed");
         // Second call must not touch the bus.
-        run(ensure_initialized(&mut state))
-            .expect("BUG: cached init returned error");
+        run(ensure_initialized(&mut state)).expect("BUG: cached init returned error");
         state.i2c.done();
     }
 
@@ -215,13 +179,13 @@ mod tests {
     fn ensure_initialized_caches_failure_kind() {
         let config = MiniminerPsuConfig::DEFAULT;
         // First transaction errors out: NACK on the watchdog write.
-        let expectations = [Transaction::write(
-            config.watchdog_address,
-            vec![0x7a, 0x00],
-        )
-        .with_error(embedded_hal_async::i2c::ErrorKind::NoAcknowledge(
-            embedded_hal_async::i2c::NoAcknowledgeSource::Address,
-        ))];
+        let expectations = [
+            Transaction::write(config.watchdog_address, vec![0x7a, 0x00]).with_error(
+                embedded_hal_async::i2c::ErrorKind::NoAcknowledge(
+                    embedded_hal_async::i2c::NoAcknowledgeSource::Address,
+                ),
+            ),
+        ];
         let bus = Mock::new(&expectations);
         let mut state = State::new(bus, config);
         let first = run(ensure_initialized(&mut state));
