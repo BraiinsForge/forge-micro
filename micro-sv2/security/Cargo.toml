@@ -7,6 +7,7 @@ edition = "2024"
 ii-sv2-crypto = { path = "../crypto" }
 secp256k1     = { workspace = true }
 bs58          = { workspace = true }
+sha2          = { workspace = true }
 
 [dev-dependencies]
 secp256k1 = { workspace = true, features = ["alloc"] }

@@ -187,6 +187,7 @@ dependencies = [
  "ii-sv2-crypto",
  "rand",
  "secp256k1",
+ "sha2",
 ]
 
 [[package]]

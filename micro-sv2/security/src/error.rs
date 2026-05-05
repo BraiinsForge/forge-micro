@@ -1,6 +1,22 @@
 //! Alloc-free error types.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthenticationError {
+    /// Certificate's `valid_from` is later than `not_valid_after`.
+    BrokenCertificate,
+    /// `Clock::now_unix_secs` failed or returned an implausible value.
+    SystemTimeInvalid,
+    /// Now is earlier than `valid_from`.
+    CertificateNotYetValid,
+    /// Now is later than `not_valid_after`.
+    CertificateNoMoreValid,
+    /// Signature does not verify against the certificate header.
+    SignatureInvalid,
+    /// Authority public key is not a valid x-only point.
+    BadPublicKey,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyParseError {
     /// Encoded form has the wrong length or layout.
     BadFormat,
