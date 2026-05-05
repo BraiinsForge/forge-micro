@@ -27,7 +27,9 @@ impl<'a> TryFrom<&'a [u8]> for Uint256<'a> {
     type Error = Error;
 
     fn try_from(s: &'a [u8]) -> Result<Self, Error> {
-        let arr: &'a [u8; 32] = s.try_into().map_err(|_| Error::Eof)?;
+        let arr: &'a [u8; 32] = s
+            .try_into()
+            .map_err(|_| Error::OutOfBounds { length: s.len(), min: 32, max: 32 })?;
         Ok(Self(arr))
     }
 }
@@ -78,10 +80,17 @@ mod tests {
     }
 
     #[test]
-    fn try_from_slice_wrong_len() {
+    fn try_from_slice_too_short() {
         let arr = [0u8; 31];
         let err = Uint256::try_from(&arr[..]).unwrap_err();
-        assert_eq!(err, Error::Eof);
+        assert_eq!(err, Error::OutOfBounds { length: 31, min: 32, max: 32 });
+    }
+
+    #[test]
+    fn try_from_slice_too_long() {
+        let arr = [0u8; 33];
+        let err = Uint256::try_from(&arr[..]).unwrap_err();
+        assert_eq!(err, Error::OutOfBounds { length: 33, min: 32, max: 32 });
     }
 
     #[test]
