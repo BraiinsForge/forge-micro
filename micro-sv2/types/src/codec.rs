@@ -125,14 +125,16 @@ impl<T: Encode> Encode for Option<T> {
     }
 
     fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
+        let total = self.encoded_len();
+        if out.len() < total {
+            return Err(Error::BufferTooSmall);
+        }
         match self {
             None => {
-                if out.is_empty() { return Err(Error::BufferTooSmall); }
                 out[0] = 0;
                 Ok(1)
             }
             Some(v) => {
-                if out.is_empty() { return Err(Error::BufferTooSmall); }
                 out[0] = 1;
                 let n = v.encode_to(&mut out[1..])?;
                 Ok(1 + n)
@@ -323,6 +325,16 @@ mod tests {
     fn option_decode_bad_tag() {
         let mut cursor: &[u8] = &[0x02];
         assert_eq!(<Option<u32>>::decode(&mut cursor), Err(Error::BadOptionTag));
+    }
+
+    #[test]
+    fn option_some_buffer_too_small_does_not_partial_write() {
+        let mut buf = [0xaau8; 4]; // sentinel: any change is a partial write
+        let v: Option<u32> = Some(0xcafe_babe);
+        // Need 5 bytes (1 tag + 4 u32); buffer has 4. Must error before
+        // writing the tag byte.
+        assert_eq!(v.encode_to(&mut buf), Err(Error::BufferTooSmall));
+        assert_eq!(buf, [0xaa, 0xaa, 0xaa, 0xaa]);
     }
 
     #[test]
