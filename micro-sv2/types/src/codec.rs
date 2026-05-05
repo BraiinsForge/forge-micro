@@ -151,6 +151,26 @@ impl<'de, T: Decode<'de>> Decode<'de> for Option<T> {
     }
 }
 
+impl<const N: usize> Encode for [u8; N] {
+    #[inline]
+    fn encoded_len(&self) -> usize { N }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
+        if out.len() < N { return Err(Error::BufferTooSmall); }
+        out[..N].copy_from_slice(self);
+        Ok(N)
+    }
+}
+
+impl<'de, const N: usize> Decode<'de> for [u8; N] {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, Error> {
+        let bytes = input.get(..N).ok_or(Error::Eof)?;
+        let arr: [u8; N] = bytes.try_into().expect("size matches slice");
+        *input = &input[N..];
+        Ok(arr)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,5 +306,25 @@ mod tests {
     fn option_decode_bad_tag() {
         let mut cursor: &[u8] = &[0x02];
         assert_eq!(<Option<u32>>::decode(&mut cursor), Err(Error::BadOptionTag));
+    }
+
+    #[test]
+    fn fixed_array_roundtrip() {
+        let arr: [u8; 4] = [0x11, 0x22, 0x33, 0x44];
+        let mut buf = [0u8; 4];
+        let n = arr.encode_to(&mut buf).unwrap();
+        assert_eq!(n, 4);
+        assert_eq!(buf, arr);
+
+        let mut cursor: &[u8] = &buf;
+        let decoded = <[u8; 4]>::decode(&mut cursor).unwrap();
+        assert_eq!(decoded, arr);
+        assert!(cursor.is_empty());
+    }
+
+    #[test]
+    fn fixed_array_decode_eof() {
+        let mut cursor: &[u8] = &[0xaa, 0xbb];
+        assert_eq!(<[u8; 4]>::decode(&mut cursor), Err(Error::Eof));
     }
 }
