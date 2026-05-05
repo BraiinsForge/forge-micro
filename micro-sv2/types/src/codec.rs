@@ -62,6 +62,38 @@ impl_uint!(i16, 2);
 impl_uint!(i32, 4);
 impl_uint!(i64, 8);
 
+impl Encode for f32 {
+    #[inline]
+    fn encoded_len(&self) -> usize { 4 }
+    #[inline]
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
+        self.to_bits().encode_to(out)
+    }
+}
+
+impl<'de> Decode<'de> for f32 {
+    #[inline]
+    fn decode(input: &mut &'de [u8]) -> Result<Self, Error> {
+        Ok(f32::from_bits(u32::decode(input)?))
+    }
+}
+
+impl Encode for f64 {
+    #[inline]
+    fn encoded_len(&self) -> usize { 8 }
+    #[inline]
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
+        self.to_bits().encode_to(out)
+    }
+}
+
+impl<'de> Decode<'de> for f64 {
+    #[inline]
+    fn decode(input: &mut &'de [u8]) -> Result<Self, Error> {
+        Ok(f64::from_bits(u64::decode(input)?))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,5 +165,34 @@ mod tests {
     fn i64_roundtrip() {
         roundtrip::<i64>(-4,
             &[0xfc, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+    }
+
+    #[test]
+    fn f32_roundtrip() {
+        let mut buf = [0u8; 4];
+        let n = 1.0f32.encode_to(&mut buf).unwrap();
+        assert_eq!(&buf[..n], &[0x00, 0x00, 0x80, 0x3f]);
+
+        let mut cursor: &[u8] = &buf[..n];
+        let decoded = f32::decode(&mut cursor).unwrap();
+        assert_eq!(decoded, 1.0f32);
+    }
+
+    #[test]
+    fn f32_nan_roundtrip() {
+        let mut buf = [0u8; 4];
+        let n = f32::NAN.encode_to(&mut buf).unwrap();
+        let mut cursor: &[u8] = &buf[..n];
+        let decoded = f32::decode(&mut cursor).unwrap();
+        assert!(decoded.is_nan());
+    }
+
+    #[test]
+    fn f64_roundtrip() {
+        let mut buf = [0u8; 8];
+        let n = (-1.5f64).encode_to(&mut buf).unwrap();
+        let mut cursor: &[u8] = &buf[..n];
+        let decoded = f64::decode(&mut cursor).unwrap();
+        assert_eq!(decoded, -1.5f64);
     }
 }
