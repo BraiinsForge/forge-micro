@@ -151,7 +151,6 @@ dependencies = [
 name = "asic-interface"
 version = "0.1.0"
 dependencies = [
- "defmt 1.0.1",
  "embassy-time",
  "portable-atomic",
 ]
@@ -2231,6 +2230,8 @@ dependencies = [
 name = "host-runner"
 version = "0.1.0"
 dependencies = [
+ "asic-interface",
+ "cpu-miner",
  "critical-section",
  "ctrlc",
  "embassy-executor 0.10.0",
@@ -2500,6 +2501,8 @@ checksum = "c3c8dda44ff03a2f238717214da50f65d5a53b45cd213a7370424ffdb6fae815"
 name = "mmm"
 version = "0.1.0"
 dependencies = [
+ "asic-interface",
+ "cpu-miner",
  "defmt 1.0.1",
  "embassy-futures",
  "embassy-sync 0.8.0",
@@ -2509,6 +2512,7 @@ dependencies = [
  "heapless 0.8.0",
  "portable-atomic",
  "serial-baudrate",
+ "sha2",
  "ubos-backend",
  "ubos-logging",
  "ubos-psu",
