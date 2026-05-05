@@ -215,14 +215,18 @@
         };
 
         # Cross gcc for the miniminer (BMM) target. Rust emits the code,
-        # gcc only links, so a generic arm-unknown-linux-musleabi toolchain
-        # works for the Cortex-A9 device despite being soft-float ARMv5 by
-        # default. Off-Nix workflows that use the OpenWrt SDK directly are
-        # unaffected; that path is user-local.
+        # gcc only links, so a generic ARM-musleabi toolchain works for
+        # the Cortex-A9 device. The crossSystem is pinned to armv5tel
+        # because that is the baseline soft-float ARMv5 musl variant that
+        # matches Rust's `arm-unknown-linux-musleabi` ABI; nixpkgs rejects
+        # the unversioned `arm-linux` system because musl's meta.platforms
+        # lists only versioned variants. ARMv5 binaries run unchanged on
+        # the Cortex-A9 (ARMv7l). Off-Nix workflows that use the OpenWrt
+        # SDK directly are unaffected; that path is user-local.
         pkgsBmm = import nixpkgs {
           inherit system;
           crossSystem = {
-            config = "arm-unknown-linux-musleabi";
+            config = "armv5tel-unknown-linux-musleabi";
           };
         };
         bmmCc = pkgsBmm.stdenv.cc;
@@ -447,7 +451,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p host-runner --target arm-unknown-linux-musleabi";
             cargoClippyExtraArgs = "-- -D warnings";
-            CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/arm-unknown-linux-musleabi-gcc";
+            CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
           };
 
           clippy-embassy-net-afpacket = craneLib.cargoClippy {
@@ -755,7 +759,7 @@
             ];
 
             CARGO_BUILD_TARGET = "arm-unknown-linux-musleabi";
-            CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/arm-unknown-linux-musleabi-gcc";
+            CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
             RUST_ANALYZER_SERVER_PATH = "${bmmRustToolchain}/bin/rust-analyzer";
 
             # Resolved at shell-entry time relative to the user's cwd, which
