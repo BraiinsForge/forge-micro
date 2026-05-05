@@ -195,6 +195,38 @@
           ];
         };
 
+        hostRustToolchain = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [
+            "rust-src"
+            "rust-analyzer"
+            "rustfmt"
+            "llvm-tools"
+          ];
+        };
+
+        bmmRustToolchain = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [
+            "rust-src"
+            "rust-analyzer"
+            "rustfmt"
+            "llvm-tools"
+          ];
+          targets = [ "arm-unknown-linux-musleabi" ];
+        };
+
+        # Cross gcc for the miniminer (BMM) target. Rust emits the code,
+        # gcc only links, so a generic arm-unknown-linux-musleabi toolchain
+        # works for the Cortex-A9 device despite being soft-float ARMv5 by
+        # default. Off-Nix workflows that use the OpenWrt SDK directly are
+        # unaffected; that path is user-local.
+        pkgsBmm = import nixpkgs {
+          inherit system;
+          crossSystem = {
+            config = "arm-unknown-linux-musleabi";
+          };
+        };
+        bmmCc = pkgsBmm.buildPackages.stdenv.cc;
+
         patchEspBinaries = pkgs.writeShellScriptBin "patch-esp-binaries" ''
           if [ -f /etc/NIXOS ] || [ ! -f /lib64/ld-linux-x86-64.so.2 ]; then
             echo "Patching ESP toolchain binaries for NixOS..."
@@ -222,6 +254,8 @@
         '';
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+
+        bmmCraneLib = (crane.mkLib pkgs).overrideToolchain bmmRustToolchain;
 
         # Xtensa-LX7 Rust toolchain for the ESP32-S3. Upstream rustc does
         # not ship xtensa-esp32s3-none-elf; esp-rs publishes pre-built
@@ -401,11 +435,26 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
-          clippy-host-runner = craneLib.cargoClippy {
+          clippy-host-runner-host = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p host-runner";
             cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-host-runner-host-tuntap = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p host-runner --features tuntap";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-host-runner-bmm = bmmCraneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p host-runner --target arm-unknown-linux-musleabi";
+            cargoClippyExtraArgs = "-- -D warnings";
+            CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/arm-unknown-linux-musleabi-gcc";
           };
 
           clippy-embassy-net-afpacket = craneLib.cargoClippy {
@@ -689,6 +738,41 @@
             packages = [ pkgs.kicad-small ];
           };
 
+          host = pkgs.mkShell {
+            buildInputs = [ hostRustToolchain ];
+
+            RUST_ANALYZER_SERVER_PATH = "${hostRustToolchain}/bin/rust-analyzer";
+
+            shellHook = ''
+              echo "eth-examples dev environment ready (host-runner, native)"
+              echo ""
+              echo "  cargo run -p host-runner"
+              echo "  cargo run -p host-runner --features tuntap"
+              echo ""
+              echo "For miniminer cross-build: nix develop .#bmm"
+            '';
+          };
+
+          bmm = pkgs.mkShell {
+            buildInputs = [
+              bmmRustToolchain
+              bmmCc
+            ];
+
+            CARGO_BUILD_TARGET = "arm-unknown-linux-musleabi";
+            CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/arm-unknown-linux-musleabi-gcc";
+            RUST_ANALYZER_SERVER_PATH = "${bmmRustToolchain}/bin/rust-analyzer";
+
+            shellHook = ''
+              echo "eth-examples dev environment ready (host-runner, BMM/miniminer cross)"
+              echo ""
+              echo "  cargo build -p host-runner"
+              echo ""
+              echo "For native host-runner: nix develop .#host"
+            '';
+          };
+
+
           default = pkgs.mkShell {
             buildInputs =
               with pkgs;
@@ -701,8 +785,10 @@
             shellHook = ''
               echo "eth-examples — available development shells:"
               echo ""
-              echo "  nix develop .#arm  — ARM boards (RP2040, RP2350, STM32F407, STM32F439)"
-              echo "  nix develop .#esp  — ESP32-S3 board"
+              echo "  nix develop .#arm   — ARM boards (RP2040, RP2350, STM32F407, STM32F439)"
+              echo "  nix develop .#esp   — ESP32-S3 board"
+              echo "  nix develop .#host  — host-runner, native"
+              echo "  nix develop .#bmm   — host-runner, BMM/miniminer cross"
               echo ""
               echo "This default shell provides deploy-rs, picocom, and usbutils"
               echo "for NUC operations."
