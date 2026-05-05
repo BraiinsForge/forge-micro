@@ -173,9 +173,6 @@ dependencies = [
 [[package]]
 name = "ii-sv2-types"
 version = "0.1.0"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "inout"
