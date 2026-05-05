@@ -1,4 +1,4 @@
-#[cfg(not(feature = "tuntap"))]
+#[cfg(target_arch = "arm")]
 mod imp {
     use embassy_net::{Config, DhcpConfig};
     use embassy_net_afpacket::AfPacketDevice;
@@ -100,7 +100,7 @@ mod imp {
     }
 }
 
-#[cfg(feature = "tuntap")]
+#[cfg(not(target_arch = "arm"))]
 mod imp {
     use embassy_net::{Config, Ipv4Address, Ipv4Cidr, StaticConfigV4};
     use embassy_net_tuntap::TunTapDevice;

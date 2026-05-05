@@ -442,13 +442,6 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
-          clippy-host-runner-host-tuntap = craneLib.cargoClippy {
-            inherit src;
-            cargoArtifacts = null;
-            cargoExtraArgs = "-p host-runner --features tuntap";
-            cargoClippyExtraArgs = "-- -D warnings";
-          };
-
           clippy-host-runner-bmm = bmmCraneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
@@ -744,10 +737,9 @@
             RUST_ANALYZER_SERVER_PATH = "${hostRustToolchain}/bin/rust-analyzer";
 
             shellHook = ''
-              echo "eth-examples dev environment ready (host-runner, native)"
+              echo "eth-examples dev environment ready (host-runner, native, TAP)"
               echo ""
               echo "  cargo run -p host-runner"
-              echo "  cargo run -p host-runner --features tuntap"
               echo ""
               echo "For miniminer cross-build: nix develop .#bmm"
             '';

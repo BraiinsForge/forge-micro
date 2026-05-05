@@ -1,40 +1,32 @@
 # host-runner
 
-eth-examples are using embassy net stack.
-To run them in Linux userspace you need a way to put raw packets onto network.
+eth-examples are using embassy net stack. To run them in Linux userspace
+you need a way to put raw packets onto the network. The transport is
+selected by target architecture:
 
-Two methods are available:
-
-* TAP device - create a `tap0` network interface and setup NAT. This is recommended for you desktop and doesn't require root to run (only to setup).
-* bridged networking - raw packets written into your networking interface. This requires root and is useful for miniminer which doesn't have TAP device in kernel.
+* `x86_64` (dev host) — TAP device, set up via `setup-network.sh`. No
+  root at runtime, default IP `192.168.69.2`.
+* `arm` (miniminer) — bridged networking via `AF_PACKET`. Requires
+  `CAP_NET_RAW` (run via the `runner.py` cargo runner, which `ssh`s as
+  root). Gets its IP from the LAN DHCP server.
 
 
 ## Dev shells
 
-* `nix develop .#host` — native toolchain for desktop development. `cargo`
-  defaults to the host triple; `--features tuntap` is available.
+* `nix develop .#host` — native toolchain. Plain `cargo run -p host-runner`
+  builds and runs the TAP variant on x86_64.
 * `nix develop .#bmm` — cross-toolchain for the miniminer (BMM). Sets
-  `CARGO_BUILD_TARGET=arm-unknown-linux-musleabi` and the matching linker,
-  so plain `cargo build -p host-runner` produces an ARM musl binary. The
-  `tuntap` feature does not build for this target.
-
-Any local `host-runner/.cargo/config` from older workflows is now obsolete
-and can be deleted; the `bmm` shell sets the linker via env var.
+  `CARGO_BUILD_TARGET=arm-unknown-linux-musleabi`, the matching linker,
+  and `CARGO_TARGET_..._RUNNER` pointing at `scripts/runner.py`. Plain
+  `cargo run -p host-runner` cross-builds, ships, and runs on the target.
 
 
-## TAP device
+## Host (TAP)
 
-- compile with tap feature: `nix develop .#host -c cargo build --release --features tuntap`
-- requires TAP device driver in kernel (all major distros do)
-- there's a script to setup the `tap0` device: `setup_network.sh`
-- the default IP is 192.168.69.2
-
-### Setup
-
-Run once per boot. The script creates `tap0`, assigns the host-side IP,
-and installs the NAT + forward rules needed for outbound traffic from the
-embedded stack to reach the internet. Re-execs itself with `sudo` as
-needed.
+`setup-network.sh` runs once per boot. It creates `tap0`, assigns the
+host-side IP, and installs the NAT + forward rules needed for outbound
+traffic from the embedded stack to reach the internet. Re-execs itself
+with `sudo` as needed.
 
 ```sh
 ./setup-network.sh up     # create tap0 for your $USER, enable forward + NAT
@@ -44,53 +36,21 @@ needed.
 Env overrides: `TAP_NAME`, `HOST_PREFIX`, `HOST_SUBNET`.
 
 ```sh
-nix develop .#host -c cargo run -p host-runner --features tuntap
+nix develop .#host -c cargo run -p host-runner
 ```
 
-Default filter is `info`. Bump detail with e.g. `RUST_LOG=debug,smoltcp=info`.
+Default log filter is `info`. Bump with e.g. `RUST_LOG=debug,smoltcp=info`.
 
 ### Verify
 
-Ping the embedded stack directly:
-
 ```sh
 ping 192.168.69.2
-```
-
-HTML status page:
-
-```sh
 curl http://192.168.69.2/
-```
-
-Prometheus metrics:
-
-```sh
 curl http://192.168.69.2:8081/metrics
 ```
 
 
-## Bridged networking
-
-- default
-- injects/captures packet right off the network interface
-- useful when running on miniminer
-- requires `CAP_NET_RAW` (hence `sudo`, or `setcap cap_net_raw=ep` on the binary)
-- it will get IP address from DHCP on your network
-
-### Setup
-
-- `AFPACKET_IF=eth4` will change the network interface; default is `eth0`
-- `AFPACKET_MAC=12:34:56:78:9a` sets the MAC address; default is random one based on your current MAC address (so that it doesn't change from run to run and always ends up with the same IP address assigned by the DHCP server)
-
-```sh
-nix develop .#host -c env AFPACKET_IF=eth4 cargo run -p host-runner
-```
-
-For miniminer, cross-build and run with the `bmm` shell. The shell wires
-`scripts/runner.py` as the cargo target runner, which scps the binary to
-the target, kills any running bosminer, and executes it under a PTY so
-Ctrl-C reaches the remote process.
+## BMM (miniminer, AF_PACKET)
 
 Configure the target in `host-runner/Test.toml`:
 
@@ -110,4 +70,11 @@ nix develop .#bmm -c env RUST_LOG=debug cargo run -p host-runner
 `RUST_LOG`, `RUST_BACKTRACE`, and any `INJECT_*` env vars are propagated
 to the remote process. The runner script is vendored from bos-main with
 beaglebone, bosminer test prep, tmux gateway, and similar branches
-trimmed; see `host-runner/scripts/runner.py`.
+trimmed; see `scripts/runner.py`.
+
+`AFPACKET_IF` (default `eth0`) selects the interface; `AFPACKET_MAC` sets
+a fixed MAC. Without `AFPACKET_MAC`, a stable synthetic MAC is derived
+from the host NIC's real MAC so DHCP leases persist across runs.
+
+Any local `host-runner/.cargo/config` from older workflows is now
+obsolete and can be deleted; the `bmm` shell sets the linker via env var.
