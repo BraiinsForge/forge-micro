@@ -94,6 +94,28 @@ impl<'de> Decode<'de> for f64 {
     }
 }
 
+impl Encode for bool {
+    #[inline]
+    fn encoded_len(&self) -> usize { 1 }
+    #[inline]
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
+        if out.is_empty() { return Err(Error::BufferTooSmall); }
+        out[0] = if *self { 1 } else { 0 };
+        Ok(1)
+    }
+}
+
+impl<'de> Decode<'de> for bool {
+    #[inline]
+    fn decode(input: &mut &'de [u8]) -> Result<Self, Error> {
+        match u8::decode(input)? {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(Error::BadBool),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +216,23 @@ mod tests {
         let mut cursor: &[u8] = &buf[..n];
         let decoded = f64::decode(&mut cursor).unwrap();
         assert_eq!(decoded, -1.5f64);
+    }
+
+    #[test]
+    fn bool_roundtrip() {
+        roundtrip::<bool>(false, &[0x00]);
+        roundtrip::<bool>(true,  &[0x01]);
+    }
+
+    #[test]
+    fn bool_decode_bad_value() {
+        let mut cursor: &[u8] = &[0x02];
+        assert_eq!(bool::decode(&mut cursor), Err(Error::BadBool));
+    }
+
+    #[test]
+    fn bool_decode_eof() {
+        let mut cursor: &[u8] = &[];
+        assert_eq!(bool::decode(&mut cursor), Err(Error::Eof));
     }
 }
