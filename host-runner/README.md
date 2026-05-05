@@ -52,19 +52,19 @@ curl http://192.168.69.2:8081/metrics
 
 ## BMM (miniminer, AF_PACKET)
 
-Configure the target in `host-runner/Test.toml`:
+Set the target host (and optionally user/password) via env or via
+`scripts/runner.py` flags. The rest of the runner's knobs are flag-only;
+see `scripts/runner.py --help`.
 
-```toml
-[remote]
-hostname = "10.x.x.x"
-user     = "root"
-```
-
-Then:
+| Env var        | Flag         | Default |
+|----------------|--------------|---------|
+| `BMM_HOST`     | `--hostname` | required |
+| `BMM_USER`     | `--user`     | `root` |
+| `BMM_PASSWORD` | `--password` | (key auth) |
 
 ```sh
-nix develop .#bmm -c cargo run -p host-runner
-nix develop .#bmm -c env RUST_LOG=debug cargo run -p host-runner
+BMM_HOST=10.x.x.x nix develop .#bmm -c cargo run -p host-runner
+BMM_HOST=10.x.x.x nix develop .#bmm -c env RUST_LOG=debug cargo run -p host-runner
 ```
 
 `RUST_LOG`, `RUST_BACKTRACE`, and any `INJECT_*` env vars are propagated

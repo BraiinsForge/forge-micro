@@ -32,60 +32,60 @@ serializes concurrent runner invocations.
 
 Vendored and trimmed from bos-main's bosminer/scripts/runner.py.
 
-Configuration: pass --hostname (and optionally --user/--port/--path) on the
-command line, or place a Test.toml beside (or one level above) the cwd:
-
-    [remote]
-    user     = "root"
-    hostname = "10.0.0.1"
-    port     = 22
+Configuration: pass --hostname/--user/--password on the command line, or
+via $BMM_HOST/$BMM_USER/$BMM_PASSWORD. The remaining options
+(--port/--path/--keep/--no-lock/--verbose/--log) are command-line only.
 """
 
-import sys
+import os
 import os.path
+import sys
 import argparse
-import tomllib
 import subprocess
 import shlex
 from time import sleep
 from datetime import datetime
 
-CONFIG_FILE = 'Test.toml'
 DEFAULT_USER = 'root'
-CONFIG_PATHS = ['.', '..']
+DEFAULT_PATH = '/tmp'
 PROPAGATE_ENV_VARS = ['RUST_BACKTRACE', 'RUST_LOG']
 
 
 def main():
-    parser = argparse.ArgumentParser(__doc__)
+    parser = argparse.ArgumentParser(description=__doc__)
 
     parser.add_argument('test', help='Path to executable.')
-    arg_hostname = parser.add_argument(
+    parser.add_argument(
         '--hostname',
-        help='IP address or hostname of remote target with sshd.',
+        default=os.environ.get('BMM_HOST'),
+        help='IP address or hostname of remote target with sshd. Default: $BMM_HOST.',
     )
     parser.add_argument(
         '--port', help='Port if ssh is not running on port 22.'
     )
-    parser.add_argument('--keep', action='store_true', help='Keep remote file.')
+    parser.add_argument(
+        '--user',
+        default=os.environ.get('BMM_USER', DEFAULT_USER),
+        help='Remote login user. Default: $BMM_USER or "root".',
+    )
     parser.add_argument(
         '--path',
         dest='host_path',
-        default='/tmp',
+        default=DEFAULT_PATH,
         metavar='PATH',
-        help='Target path on remote host.',
+        help='Target path on remote host. Default: "/tmp".',
     )
-    parser.add_argument('--user', help='Remote login user.')
+    parser.add_argument(
+        '--password',
+        default=os.environ.get('BMM_PASSWORD'),
+        help='Password for the host. Default: $BMM_PASSWORD.',
+    )
+    parser.add_argument('--keep', action='store_true', help='Keep remote file.')
     parser.add_argument('--no-lock', action='store_true', help='Do not lock target.')
     parser.add_argument(
         '--verbose', action='store_true', help='Log commands to stdout.'
     )
     parser.add_argument('--log', action='store_true', help='Create session logs.')
-    parser.add_argument(
-        '--password',
-        type=str,
-        help='Password for the host. Not used when empty.',
-    )
 
     # parse command line arguments
     (args, extra_args) = parser.parse_known_args()
@@ -96,35 +96,12 @@ def main():
     do_keep = args.keep
     do_log = args.log
 
-    cfg_user = None
-    cfg_hostname = None
-    cfg_port = None
+    if not args.hostname:
+        parser.error("Missing remote hostname; pass --hostname or set BMM_HOST")
 
-    # construct all config file locations
-    cfg_locations = [os.path.join(dir, CONFIG_FILE) for dir in CONFIG_PATHS]
-    cfg_path = next((path for path in cfg_locations if os.path.isfile(path)), None)
-
-    if cfg_path is not None:
-        # try to get default configuration from configuration file
-        with open(cfg_path, 'rb') as f:
-            config = tomllib.load(f)
-        remote = config.get('remote')
-        if remote:
-            cfg_user = remote.get('user')
-            cfg_hostname = remote.get('hostname')
-            cfg_port = remote.get('port')
-
-    # get remote settings
-    user = args.user or cfg_user or DEFAULT_USER
-    hostname = args.hostname or cfg_hostname
-    port = args.port or cfg_port
-
-    if not hostname:
-        parser.error(
-            "Missing remote hostname which can be specified by '{}' argument or in '{}'".format(
-                arg_hostname.option_strings[0], CONFIG_FILE
-            )
-        )
+    user = args.user
+    hostname = args.hostname
+    port = args.port
 
     test_path = args.test
     test_name = os.path.basename(args.test)
