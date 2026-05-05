@@ -31,7 +31,8 @@ static PSU: StaticCell<HostPsu> = StaticCell::new();
 /// tasks need. Returns `None` if the env var is unset/empty or the
 /// bus cannot be opened.
 pub fn open() -> Option<(&'static HostPsu, &'static HostState, &'static AtomicBool)> {
-    let path = std::env::var(I2C_BUS_ENV).ok()?;
+    let env_path = std::env::var(I2C_BUS_ENV);
+    let path = env_path.as_deref().unwrap_or("/dev/i2c-0");
     if path.is_empty() {
         return None;
     }
