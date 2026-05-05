@@ -225,7 +225,7 @@
             config = "arm-unknown-linux-musleabi";
           };
         };
-        bmmCc = pkgsBmm.buildPackages.stdenv.cc;
+        bmmCc = pkgsBmm.stdenv.cc;
 
         patchEspBinaries = pkgs.writeShellScriptBin "patch-esp-binaries" ''
           if [ -f /etc/NIXOS ] || [ ! -f /lib64/ld-linux-x86-64.so.2 ]; then
