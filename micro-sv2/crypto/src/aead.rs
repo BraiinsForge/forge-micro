@@ -1,40 +1,78 @@
 //! ChaCha20-Poly1305 AEAD wrappers used by the noise transport layer.
 
-use crate::error::AeadError;
+use chacha20poly1305::{
+    ChaCha20Poly1305, KeyInit, Nonce, Tag,
+    aead::AeadInPlace,
+};
+
+use crate::{MAC_SIZE, error::AeadError};
 
 pub(crate) struct SealingCipherState {
-    // TODO: chacha20poly1305::ChaCha20Poly1305 cipher + u64 nonce counter.
+    cipher: ChaCha20Poly1305,
+    nonce: u64,
 }
 
 impl SealingCipherState {
-    pub fn initialize(_key: [u8; 32]) -> Result<Self, AeadError> {
-        todo!()
+    pub fn initialize(key: [u8; 32]) -> Result<Self, AeadError> {
+        let cipher = ChaCha20Poly1305::new_from_slice(&key).map_err(|_| AeadError("broken key"))?;
+        Ok(Self { cipher, nonce: 0 })
     }
 
     /// Encrypts `data[..data_len]` in place and appends the 16-byte tag at
     /// `data[data_len..data_len + MAC_SIZE]`.
     pub fn encrypt_with_ad(
         &mut self,
-        _ad: &[u8],
-        _data: &mut [u8],
-        _data_len: usize,
+        ad: &[u8],
+        data: &mut [u8],
+        data_len: usize,
     ) -> Result<(), AeadError> {
-        todo!()
+        if data.len() < data_len + MAC_SIZE {
+            return Err(AeadError("not enough space for MAC in buffer"));
+        }
+        let nonce_bytes = expand_nonce(self.nonce);
+        self.nonce = self
+            .nonce
+            .checked_add(1)
+            .ok_or(AeadError("nonce overflow"))?;
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let tag = self
+            .cipher
+            .encrypt_in_place_detached(nonce, ad, &mut data[..data_len])
+            .map_err(|_| AeadError("encryption failed"))?;
+        data[data_len..data_len + MAC_SIZE].copy_from_slice(tag.as_slice());
+        Ok(())
     }
 }
 
 pub(crate) struct OpeningCipherState {
-    // TODO: chacha20poly1305::ChaCha20Poly1305 cipher + u64 nonce counter.
+    cipher: ChaCha20Poly1305,
+    nonce: u64,
 }
 
 impl OpeningCipherState {
-    pub fn initialize(_key: [u8; 32]) -> Result<Self, AeadError> {
-        todo!()
+    pub fn initialize(key: [u8; 32]) -> Result<Self, AeadError> {
+        let cipher = ChaCha20Poly1305::new_from_slice(&key).map_err(|_| AeadError("broken key"))?;
+        Ok(Self { cipher, nonce: 0 })
     }
 
     /// Decrypts `data` in place; the trailing 16 bytes are consumed as the tag.
-    pub fn decrypt_with_ad(&mut self, _ad: &[u8], _data: &mut [u8]) -> Result<(), AeadError> {
-        todo!()
+    pub fn decrypt_with_ad(&mut self, ad: &[u8], data: &mut [u8]) -> Result<(), AeadError> {
+        if data.len() < MAC_SIZE {
+            return Err(AeadError("not enough space for MAC in buffer"));
+        }
+        let nonce_bytes = expand_nonce(self.nonce);
+        self.nonce = self
+            .nonce
+            .checked_add(1)
+            .ok_or(AeadError("nonce overflow"))?;
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let split = data.len() - MAC_SIZE;
+        let (ciphertext, tag_bytes) = data.split_at_mut(split);
+        let tag = Tag::from_slice(tag_bytes);
+        self.cipher
+            .decrypt_in_place_detached(nonce, ad, ciphertext, tag)
+            .map_err(|_| AeadError("decryption failed"))?;
+        Ok(())
     }
 }
 
