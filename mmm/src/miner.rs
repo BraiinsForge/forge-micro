@@ -70,22 +70,36 @@ where
         let _ = SERIAL.reset().await;
 
         info!("miner: replaying init ({} steps)", INIT.len());
-        if let Err(kind) = replay(&SERIAL, INIT).await {
-            error!(
-                "miner: init replay failed ({:?}); cutting rail and retrying",
-                Debug2Format(&kind)
-            );
-            reset_pin.enter_reset();
-            let _ = psu.disable().await;
-            MINER_IS_RUNNING.signal(false);
-            // Cancellable sleep — STOP_MINING during recovery exits
-            // immediately rather than burning one more bring-up cycle.
-            match select(Timer::after(RETRY_DELAY), STOP_MINING.wait()).await {
-                Either::First(()) => continue,
-                Either::Second(()) => {
-                    info!("miner: stop signalled during recovery");
-                    return;
+        // Init replay is the longest single step in bring-up. A
+        // STOP_MINING raised mid-replay must abort it and cut the
+        // rail rather than letting the chip sit at voltage until the
+        // replay finishes.
+        match select(replay(&SERIAL, INIT), STOP_MINING.wait()).await {
+            Either::First(Ok(())) => {}
+            Either::First(Err(kind)) => {
+                error!(
+                    "miner: init replay failed ({:?}); cutting rail and retrying",
+                    Debug2Format(&kind)
+                );
+                reset_pin.enter_reset();
+                let _ = psu.disable().await;
+                MINER_IS_RUNNING.signal(false);
+                // Cancellable sleep — STOP_MINING during recovery exits
+                // immediately rather than burning one more bring-up cycle.
+                match select(Timer::after(RETRY_DELAY), STOP_MINING.wait()).await {
+                    Either::First(()) => continue,
+                    Either::Second(()) => {
+                        info!("miner: stop signalled during recovery");
+                        return;
+                    }
                 }
+            }
+            Either::Second(()) => {
+                info!("miner: stop signalled during init replay; cutting rail");
+                reset_pin.enter_reset();
+                let _ = psu.disable().await;
+                MINER_IS_RUNNING.signal(false);
+                return;
             }
         }
 
