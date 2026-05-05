@@ -171,6 +171,23 @@ impl<'de, const N: usize> Decode<'de> for [u8; N] {
     }
 }
 
+/// Decode a single value of `T` from `input` and require the buffer to be
+/// fully consumed. Returns [`Error::TrailingBytes`] if anything is left.
+pub fn from_slice<'de, T: Decode<'de>>(input: &'de [u8]) -> Result<T, Error> {
+    let mut cursor = input;
+    let value = T::decode(&mut cursor)?;
+    if cursor.is_empty() {
+        Ok(value)
+    } else {
+        Err(Error::TrailingBytes)
+    }
+}
+
+/// Encode `value` into `out`, returning the number of bytes written.
+pub fn encode_to_slice<T: Encode>(value: &T, out: &mut [u8]) -> Result<usize, Error> {
+    value.encode_to(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,5 +343,34 @@ mod tests {
     fn fixed_array_decode_eof() {
         let mut cursor: &[u8] = &[0xaa, 0xbb];
         assert_eq!(<[u8; 4]>::decode(&mut cursor), Err(Error::Eof));
+    }
+
+    #[test]
+    fn from_slice_consumes_all() {
+        let bytes: [u8; 4] = [0xef, 0xbe, 0xad, 0xde];
+        let v: u32 = from_slice(&bytes).unwrap();
+        assert_eq!(v, 0xdead_beef);
+    }
+
+    #[test]
+    fn from_slice_rejects_trailing_bytes() {
+        let bytes: [u8; 5] = [0xef, 0xbe, 0xad, 0xde, 0x00];
+        let err = from_slice::<u32>(&bytes).unwrap_err();
+        assert_eq!(err, Error::TrailingBytes);
+    }
+
+    #[test]
+    fn encode_to_slice_returns_written_len() {
+        let mut buf = [0u8; 8];
+        let n = encode_to_slice(&0xdead_beef_u32, &mut buf).unwrap();
+        assert_eq!(n, 4);
+        assert_eq!(&buf[..n], &[0xef, 0xbe, 0xad, 0xde]);
+    }
+
+    #[test]
+    fn encode_to_slice_buffer_too_small() {
+        let mut buf = [0u8; 2];
+        let err = encode_to_slice(&0xdead_beef_u32, &mut buf).unwrap_err();
+        assert_eq!(err, Error::BufferTooSmall);
     }
 }
