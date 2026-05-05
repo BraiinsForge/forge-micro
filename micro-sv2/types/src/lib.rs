@@ -1,14 +1,18 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Borrowed-first Stratum V2 type vocabulary for `no_std` environments.
+//!
+//! See `docs/superpowers/specs/2026-05-05-types-borrowed-design.md`.
+
+#![no_std]
+#![forbid(unsafe_code)]
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+extern crate std;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+mod codec;
+mod error;
+mod len_prefix;
+mod uint256;
+mod var_bytes;
+mod var_str;
+
+pub use crate::error::Error;
