@@ -38,7 +38,7 @@ const DIFF_1_TARGET: [u8; 32] = {
 
 use crate::bm1362::{
     Frame, HwWork, RawChipAddress, RegisterResponse, Response, ResponseParser, build_read_register,
-    build_write_register,
+    build_write_register, word_swap_prev_hash,
 };
 use crate::consts::{
     FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS, NUM_CHIPS, NUM_MIDSTATES,
@@ -328,7 +328,7 @@ impl Serial {
             nbits: assignment.nbits,
             ntime: assignment.ntime,
             merkle_root: assignment.merkle_root,
-            prev_hash: assignment.prev_hash,
+            prev_hash: word_swap_prev_hash(&assignment.prev_hash),
             version: assignment.version,
         };
         let frame = hw_work.serialize();

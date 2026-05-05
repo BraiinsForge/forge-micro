@@ -80,7 +80,32 @@ impl HwSolution {
     }
 }
 
+/// Reverse the bytes within each 4-byte word of a 256-bit value.
+///
+/// Stratum's `mining.notify` emits `prev_hash` as eight big-endian 32-bit
+/// words, but Bitcoin's block header wants them in native (little-endian)
+/// byte order inside each word. The `cpu-miner` worker applies this swap
+/// inline in `build_header`; mmm stores `HwWork.prev_hash` in canonical
+/// post-swap form so both the local hash check and the chip wire frame
+/// see the same bytes.
+#[must_use]
+pub fn word_swap_prev_hash(input: &[u8; 32]) -> [u8; 32] {
+    let mut output = [0u8; 32];
+    for word_index in 0..8 {
+        let offset = word_index * 4;
+        output[offset] = input[offset + 3];
+        output[offset + 1] = input[offset + 2];
+        output[offset + 2] = input[offset + 1];
+        output[offset + 3] = input[offset];
+    }
+    output
+}
+
 /// A work assignment to send to the chip.
+///
+/// `prev_hash` is in canonical Bitcoin internal byte order (post the
+/// stratum 4-byte word swap); callers reading from a `WorkAssignment`
+/// must run the value through [`word_swap_prev_hash`] first.
 #[derive(Debug, Clone)]
 pub struct HwWork {
     pub work_id: u8,
@@ -499,5 +524,49 @@ mod tests {
         let resp = parser.pop().expect("should parse despite junk");
         assert!(matches!(resp, Response::RegisterResponse(_)));
         assert_eq!(parser.dropped_byte, 2);
+    }
+
+    /// Locks mmm's local share-verification hash to `cpu-miner`'s reference
+    /// `header_hash`. They must agree because both sides reconstruct the
+    /// same canonical block header from the same `WorkAssignment` fields,
+    /// and the pool will reject any submit whose chip-side hash diverges
+    /// from what it recomputes for the same `(prev_hash, ntime, nonce, …)`.
+    #[test]
+    fn compute_hash_matches_cpu_miner_for_canonical_prev_hash() {
+        let mut stratum_prev = [0u8; 32];
+        for (index, byte) in stratum_prev.iter_mut().enumerate() {
+            *byte = index as u8;
+        }
+        let mut merkle = [0u8; 32];
+        for (index, byte) in merkle.iter_mut().enumerate() {
+            *byte = (32 - index) as u8;
+        }
+        let version: u32 = 0x2000_0000;
+        let ntime: u32 = 0x6700_0000;
+        let nbits: u32 = 0x1d00_ffff;
+        let nonce: u32 = 0xdead_beef;
+
+        let hw_work = HwWork {
+            work_id: 0,
+            nonce_start: 0,
+            nbits,
+            ntime,
+            merkle_root: merkle,
+            // mmm stores `prev_hash` already word-swapped from stratum
+            // wire form so the local hash check produces the same bytes
+            // the chip and pool both compute against.
+            prev_hash: word_swap_prev_hash(&stratum_prev),
+            version,
+        };
+        let resp = HwSolution {
+            nonce,
+            _extra_diff: 0,
+            work_id: 0,
+            version_idx: 0,
+        };
+
+        let mmm_hash = hw_work.compute_hash(&resp);
+        let cpu_hash = cpu_miner::header_hash(version, stratum_prev, merkle, ntime, nbits, nonce);
+        assert_eq!(mmm_hash, cpu_hash);
     }
 }
