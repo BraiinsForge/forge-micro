@@ -17,4 +17,4 @@ mod var_str;
 
 pub use crate::error::Error;
 pub use crate::codec::{Decode, Encode, encode_to_slice, from_slice};
-pub use crate::var_str::VarStr;
+pub use crate::var_str::{Str0_32, Str0_255, Str0_64k, Str1_32, Str1_255, VarStr};
