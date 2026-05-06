@@ -13,3 +13,5 @@ mod error;
 mod frame;
 mod header;
 mod message;
+
+pub use crate::header::{ExtType, Header, MessageDescriptor, MsgType};
