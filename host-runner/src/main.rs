@@ -61,8 +61,8 @@ async fn heartbeat_task(stack: Stack<'static>) {
     loop {
         Timer::after(Duration::from_secs(10)).await;
         let link_up = stack.config_v4().is_some();
-        let hashrate = asic_interface::hashrate();
-        info!("host-runner: tick, link_up={link_up}, hashrate={hashrate} H/s");
+        let hashrate = asic_interface::HashrateDisplay(asic_interface::hashrate());
+        info!("host-runner: tick, link_up={link_up}, hashrate={hashrate}");
     }
 }
 

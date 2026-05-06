@@ -87,12 +87,13 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
         }
     }
 
-    // Line 4: current hashrate in H/s. Read from the AsicInterface
-    // EWMA so the displayed rate reflects whatever backend is wired
-    // (cpu-miner, UART dummy-asic, future ASIC).
-    let hashrate = asic_interface::hashrate();
-    let mut hashrate_buffer = [0u8; 14];
-    if let Ok(text) = format_no_std::show(&mut hashrate_buffer, format_args!("{hashrate} H/s")) {
+    // Line 4: current hashrate. Read from the AsicInterface EWMA so
+    // the displayed rate reflects whatever backend is wired (cpu-miner,
+    // UART dummy-asic, future ASIC). HashrateDisplay switches to GH/s
+    // at 1 GH/s, so 24 bytes covers both representations.
+    let hashrate = asic_interface::HashrateDisplay(asic_interface::hashrate());
+    let mut hashrate_buffer = [0u8; 24];
+    if let Ok(text) = format_no_std::show(&mut hashrate_buffer, format_args!("{hashrate}")) {
         Text::new(text, Point::new(0, 61), style).draw(display)?;
     }
 

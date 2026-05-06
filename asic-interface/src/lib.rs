@@ -182,6 +182,27 @@ pub fn hashrate() -> u64 {
     EWMA_HASHRATE.load(Ordering::Relaxed)
 }
 
+/// `Display` adapter for a hashrate in H/s. Renders rates below 1 GH/s
+/// as `"<n> H/s"` and rates at or above 1 GH/s as `"<n>.<dd> GH/s"`
+/// with two fractional digits. The threshold is the same magnitude the
+/// pool dashboard prefers, so a board crossing into GH/s territory
+/// stops printing 10-digit integers on the OLED and HTTP page.
+pub struct HashrateDisplay(pub u64);
+
+impl core::fmt::Display for HashrateDisplay {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        const ONE_GH: u64 = 1_000_000_000;
+        const HUNDREDTH_GH: u64 = ONE_GH / 100;
+        if self.0 >= ONE_GH {
+            let whole = self.0 / ONE_GH;
+            let hundredths = (self.0 % ONE_GH) / HUNDREDTH_GH;
+            write!(formatter, "{whole}.{hundredths:02} GH/s")
+        } else {
+            write!(formatter, "{} H/s", self.0)
+        }
+    }
+}
+
 /// Approximate hashes per share via leading-zero bits of the 256-bit
 /// little-endian target. Coarse but bounded: within a factor of two
 /// of the exact `2^256 / (target+1)` value, which is good enough for

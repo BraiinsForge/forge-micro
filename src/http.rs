@@ -9,7 +9,7 @@ use core::fmt::{self, Write};
 use embassy_net::Ipv4Address;
 use portable_atomic::Ordering;
 
-use asic_interface::SHARE_COUNT;
+use asic_interface::{HashrateDisplay, SHARE_COUNT};
 
 use crate::net::{BTC_PRICE_CENTS, LOCAL_IPV4, NTP_EPOCH_OFFSET};
 
@@ -93,11 +93,11 @@ pub fn build_metrics_response(
         "<p>Requests: <span class=\"v\">{request_count}</span></p>"
     );
 
-    let hashrate = asic_interface::hashrate();
+    let hashrate = HashrateDisplay(asic_interface::hashrate());
     let shares = SHARE_COUNT.load(Ordering::Relaxed);
     let _ = write!(
         writer,
-        "<p>Hashrate: <span class=\"v\">{hashrate}</span> H/s ({shares} shares)</p>"
+        "<p>Hashrate: <span class=\"v\">{hashrate}</span> ({shares} shares)</p>"
     );
 
     let cents = BTC_PRICE_CENTS.load(Ordering::Relaxed);
