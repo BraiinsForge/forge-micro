@@ -166,3 +166,83 @@ impl FrameCodec for EncryptedCodec {
             .map_err(SessionError::Framing)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use super::*;
+    use crate::authenticator::ValidateNothing;
+    use crate::certificate::{
+        CertificateHeader, CertificateSigningRequest, CertificateWithPrivateKey,
+    };
+    use crate::handshake::{accept, initiate};
+    use crate::keys::{PublicKey, SecretKey};
+    use embedded_io_adapters::tokio_1::FromTokio;
+    use ii_sv2_crypto::KeyGen;
+
+    /// Same `Dev` shape as in `handshake.rs` — local entropy + secp256k1 ctx.
+    struct Dev {
+        ctx: secp256k1::Secp256k1<secp256k1::All>,
+    }
+    impl Dev {
+        fn new() -> Self {
+            Self {
+                ctx: secp256k1::Secp256k1::new(),
+            }
+        }
+    }
+    impl KeyGen for Dev {
+        type Ctx = secp256k1::All;
+        fn new_256_bit_entropy(&mut self) -> [u8; 32] {
+            rand::random::<[u8; 32]>()
+        }
+        fn ctx(&self) -> &secp256k1::Secp256k1<Self::Ctx> {
+            &self.ctx
+        }
+    }
+
+    /// Run a loopback handshake over an in-memory tokio duplex pipe and
+    /// return paired (initiator, responder) `EncryptedCodec`s.
+    async fn paired_codecs() -> (EncryptedCodec, EncryptedCodec) {
+        let (a, b) = tokio::io::duplex(8192);
+        let mut a = FromTokio::new(a);
+        let mut b = FromTokio::new(b);
+
+        let mut bootstrap = Dev::new();
+        let server_kp = bootstrap.new_keypair();
+        let authority_kp = bootstrap.new_keypair();
+        let header = CertificateHeader {
+            version: 0,
+            valid_from: 0,
+            not_valid_after: u32::MAX,
+            remote_static_public_key: PublicKey::from(&server_kp),
+        };
+        let cert = CertificateSigningRequest { header }
+            .sign(&authority_kp, bootstrap.ctx());
+        let bundle = CertificateWithPrivateKey {
+            header: cert.header,
+            authority_public_key: cert.authority_public_key,
+            server_static_private_key: SecretKey::from(&server_kp),
+            signature: cert.signature,
+        };
+
+        let (init_result, accept_result) = tokio::join!(
+            initiate(&mut a, Dev::new(), ValidateNothing),
+            accept(&mut b, Dev::new(), &bundle),
+        );
+
+        let i_session = init_result.expect("initiator handshake");
+        let r_session = accept_result.expect("responder handshake");
+
+        let (i_codec, _i_id) = EncryptedCodec::from_handshake(i_session);
+        let (r_codec, _r_id) = EncryptedCodec::from_handshake(r_session);
+        (i_codec, r_codec)
+    }
+
+    /// Smoke test: the fixture builds two paired codecs without panicking.
+    #[tokio::test]
+    async fn paired_codecs_fixture_builds() {
+        let (_i, _r) = paired_codecs().await;
+    }
+}
