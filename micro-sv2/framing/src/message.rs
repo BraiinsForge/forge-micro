@@ -30,3 +30,146 @@ pub trait MessageGroup<'de>: Sized {
     /// equal `Self::EXTENSION_TYPE` with `FramingError::WrongExtension`.
     fn dispatch(frame: FrameView<'de>) -> Result<Self, FramingError>;
 }
+
+use crate::header::Header;
+
+/// Anything the codec can encode as a frame: descriptor + body length
+/// + body bytes.
+///
+/// Users rarely implement this directly: every `Message` gets a
+/// blanket impl, and `FrameView<'a>` has a direct impl for forwarders
+/// / relays. Implement it on a custom type only if you have a frame
+/// source that fits neither pattern.
+pub trait IntoFrame {
+    fn descriptor(&self) -> MessageDescriptor;
+    fn body_len(&self) -> usize;
+    fn write_body(&self, out: &mut [u8]) -> Result<(), FramingError>;
+
+    /// Convenience: build the wire header from `descriptor` + `body_len`.
+    fn header(&self) -> Header {
+        Header::for_descriptor(self.descriptor(), self.body_len() as u32)
+    }
+}
+
+impl<M: Message> IntoFrame for M {
+    fn descriptor(&self) -> MessageDescriptor {
+        M::DESCRIPTOR
+    }
+
+    fn body_len(&self) -> usize {
+        self.encoded_len()
+    }
+
+    fn write_body(&self, out: &mut [u8]) -> Result<(), FramingError> {
+        self.encode_to(out).map(drop).map_err(FramingError::from)
+    }
+}
+
+impl<'a> IntoFrame for FrameView<'a> {
+    fn descriptor(&self) -> MessageDescriptor {
+        self.header.descriptor()
+    }
+
+    fn body_len(&self) -> usize {
+        self.payload.len()
+    }
+
+    fn write_body(&self, out: &mut [u8]) -> Result<(), FramingError> {
+        if out.len() < self.payload.len() {
+            return Err(FramingError::BufferTooSmall);
+        }
+        out[..self.payload.len()].copy_from_slice(self.payload);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::header::Header;
+    use ii_sv2_types::{Decode, Encode, Error as TypeError};
+
+    /// Tiny in-test message: u32 body. ext_type=0xff, msg_type=0x10.
+    #[derive(Debug, PartialEq)]
+    struct TestMsg {
+        x: u32,
+    }
+
+    impl Encode for TestMsg {
+        fn encoded_len(&self) -> usize {
+            self.x.encoded_len()
+        }
+        fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+            self.x.encode_to(out)
+        }
+    }
+
+    impl<'de> Decode<'de> for TestMsg {
+        fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+            Ok(Self {
+                x: u32::decode(input)?,
+            })
+        }
+    }
+
+    impl Message for TestMsg {
+        const DESCRIPTOR: MessageDescriptor =
+            MessageDescriptor::new(0xff, 0x10, false);
+    }
+
+    #[test]
+    fn intoframe_for_message_uses_descriptor() {
+        let msg = TestMsg { x: 0xdead_beef };
+        let descriptor = IntoFrame::descriptor(&msg);
+        assert_eq!(descriptor, TestMsg::DESCRIPTOR);
+        assert_eq!(IntoFrame::body_len(&msg), 4);
+    }
+
+    #[test]
+    fn intoframe_for_message_writes_body() {
+        let msg = TestMsg { x: 0xdead_beef };
+        let mut out = [0u8; 8];
+        IntoFrame::write_body(&msg, &mut out[..4]).unwrap();
+        assert_eq!(&out[..4], &[0xef, 0xbe, 0xad, 0xde]);
+    }
+
+    #[test]
+    fn intoframe_for_message_header_uses_descriptor_plus_body_len() {
+        let msg = TestMsg { x: 0 };
+        let h = IntoFrame::header(&msg);
+        assert_eq!(h.descriptor(), TestMsg::DESCRIPTOR);
+        assert_eq!(h.msg_length, 4);
+    }
+
+    #[test]
+    fn intoframe_for_message_write_body_buffer_too_small() {
+        let msg = TestMsg { x: 0 };
+        let mut out = [0u8; 2];
+        let err = IntoFrame::write_body(&msg, &mut out).unwrap_err();
+        assert_eq!(err, FramingError::BufferTooSmall);
+    }
+
+    #[test]
+    fn intoframe_for_frameview_round_trips() {
+        let payload = [1u8, 2, 3];
+        let header = Header::for_descriptor(TestMsg::DESCRIPTOR, 3);
+        let frame = FrameView::try_new(header, &payload).unwrap();
+
+        assert_eq!(IntoFrame::descriptor(&frame), TestMsg::DESCRIPTOR);
+        assert_eq!(IntoFrame::body_len(&frame), 3);
+
+        let mut out = [0u8; 4];
+        IntoFrame::write_body(&frame, &mut out[..3]).unwrap();
+        assert_eq!(&out[..3], &[1, 2, 3]);
+    }
+
+    #[test]
+    fn intoframe_for_frameview_buffer_too_small() {
+        let payload = [1u8, 2, 3];
+        let header = Header::for_descriptor(TestMsg::DESCRIPTOR, 3);
+        let frame = FrameView::try_new(header, &payload).unwrap();
+        let mut out = [0u8; 2];
+        let err = IntoFrame::write_body(&frame, &mut out).unwrap_err();
+        assert_eq!(err, FramingError::BufferTooSmall);
+    }
+}
