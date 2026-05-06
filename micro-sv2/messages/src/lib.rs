@@ -191,10 +191,90 @@ impl<'a> Message for SetupConnectionError<'a> {
         MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x02, false);
 }
 
+use ii_sv2_types::Uint256;
+
+/// Client requests a standard mining channel from the upstream node.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OpenStandardMiningChannel<'a> {
+    pub request_id: u32,
+    /// Worker / pool identity (e.g. "user.worker1").
+    pub user: Str0_255<'a>,
+    /// Expected hashrate in h/s. Proxies with no devices yet send 0.0.
+    pub nominal_hashrate: f32,
+    pub max_target: Uint256<'a>,
+}
+
+impl<'a> Encode for OpenStandardMiningChannel<'a> {
+    fn encoded_len(&self) -> usize {
+        self.request_id.encoded_len()
+            + self.user.encoded_len()
+            + self.nominal_hashrate.encoded_len()
+            + self.max_target.encoded_len()
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        let mut n = 0;
+        n += self.request_id.encode_to(&mut out[n..])?;
+        n += self.user.encode_to(&mut out[n..])?;
+        n += self.nominal_hashrate.encode_to(&mut out[n..])?;
+        n += self.max_target.encode_to(&mut out[n..])?;
+        Ok(n)
+    }
+}
+
+impl<'de> Decode<'de> for OpenStandardMiningChannel<'de> {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        Ok(Self {
+            request_id: u32::decode(input)?,
+            user: Str0_255::decode(input)?,
+            nominal_hashrate: f32::decode(input)?,
+            max_target: Uint256::decode(input)?,
+        })
+    }
+}
+
+impl<'a> Message for OpenStandardMiningChannel<'a> {
+    const DESCRIPTOR: MessageDescriptor =
+        MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x10, false);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ii_sv2_types::{Decode, Encode, Str0_255};
+    use ii_sv2_types::Uint256;
+
+    const TARGET_PATTERN: [u8; 32] = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+    ];
+
+    #[test]
+    fn open_standard_mining_channel_roundtrip() {
+        let original = OpenStandardMiningChannel {
+            request_id: 1,
+            user: Str0_255::try_from("user.worker1").unwrap(),
+            nominal_hashrate: 1.0e12,
+            max_target: Uint256::from_le_bytes(&TARGET_PATTERN),
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 128];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 128];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: OpenStandardMiningChannel<'_> = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
+    }
 
     #[test]
     fn device_info_roundtrip() {
