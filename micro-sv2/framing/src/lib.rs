@@ -15,4 +15,5 @@ mod header;
 mod message;
 
 pub use crate::error::FramingError;
+pub use crate::frame::FrameView;
 pub use crate::header::{ExtType, Header, MessageDescriptor, MsgType};
