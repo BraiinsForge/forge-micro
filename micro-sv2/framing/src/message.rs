@@ -108,6 +108,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codec::{FrameCodec, PlaintextCodec};
     use crate::header::Header;
     use ii_sv2_types::{Decode, Encode, Error as TypeError};
 
@@ -240,5 +241,123 @@ mod tests {
         let frame = FrameView::try_new(header, &body).unwrap();
         let err = frame_to_message::<TestMsg>(frame).unwrap_err();
         assert_eq!(err, FramingError::Eof);
+    }
+
+    /// Second test message with msg_type = 0x11 (instead of 0x10).
+    #[derive(Debug, PartialEq)]
+    struct TestMsgB {
+        y: u32,
+    }
+    impl Encode for TestMsgB {
+        fn encoded_len(&self) -> usize {
+            self.y.encoded_len()
+        }
+        fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+            self.y.encode_to(out)
+        }
+    }
+    impl<'de> Decode<'de> for TestMsgB {
+        fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+            Ok(Self {
+                y: u32::decode(input)?,
+            })
+        }
+    }
+    impl Message for TestMsgB {
+        const DESCRIPTOR: MessageDescriptor =
+            MessageDescriptor::new(0xff, 0x11, false);
+    }
+
+    /// Two-variant extension over ext_type 0xff.
+    #[derive(Debug, PartialEq)]
+    enum TestExt {
+        A(TestMsg),
+        B(TestMsgB),
+    }
+
+    impl<'de> MessageGroup<'de> for TestExt {
+        const EXTENSION_TYPE: ExtType = 0xff;
+
+        fn dispatch(frame: FrameView<'de>) -> Result<Self, FramingError> {
+            if frame.header.extension_type != Self::EXTENSION_TYPE {
+                return Err(FramingError::WrongExtension {
+                    expected: Self::EXTENSION_TYPE,
+                    found: frame.header.extension_type,
+                });
+            }
+            match (frame.header.msg_type, frame.header.is_channel_message) {
+                (0x10, false) => Ok(TestExt::A(frame_to_message(frame)?)),
+                (0x11, false) => Ok(TestExt::B(frame_to_message(frame)?)),
+                _ => Err(FramingError::UnknownMessage(frame.header.descriptor())),
+            }
+        }
+    }
+
+    #[test]
+    fn dispatch_routes_to_variant_a() {
+        let mut codec = PlaintextCodec;
+        let outbound = TestMsg { x: 1 };
+        let mut wire = [0u8; 32];
+        let _n = codec.encode(&outbound, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 32];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+
+        let received = TestExt::dispatch(frame).unwrap();
+        assert_eq!(received, TestExt::A(TestMsg { x: 1 }));
+    }
+
+    #[test]
+    fn dispatch_routes_to_variant_b() {
+        let mut codec = PlaintextCodec;
+        let outbound = TestMsgB { y: 2 };
+        let mut wire = [0u8; 32];
+        let _n = codec.encode(&outbound, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 32];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+
+        let received = TestExt::dispatch(frame).unwrap();
+        assert_eq!(received, TestExt::B(TestMsgB { y: 2 }));
+    }
+
+    #[test]
+    fn dispatch_rejects_wrong_extension() {
+        let body = [0u8, 0, 0, 0];
+        let other = MessageDescriptor::new(0xfe, 0x10, false);
+        let header = Header::for_descriptor(other, 4);
+        let frame = FrameView::try_new(header, &body).unwrap();
+        let err = TestExt::dispatch(frame).unwrap_err();
+        assert_eq!(
+            err,
+            FramingError::WrongExtension {
+                expected: 0xff,
+                found: 0xfe,
+            }
+        );
+    }
+
+    #[test]
+    fn dispatch_rejects_unknown_message() {
+        let body = [0u8, 0, 0, 0];
+        let unknown = MessageDescriptor::new(0xff, 0x99, false);
+        let header = Header::for_descriptor(unknown, 4);
+        let frame = FrameView::try_new(header, &body).unwrap();
+        let err = TestExt::dispatch(frame).unwrap_err();
+        assert_eq!(err, FramingError::UnknownMessage(unknown));
     }
 }
