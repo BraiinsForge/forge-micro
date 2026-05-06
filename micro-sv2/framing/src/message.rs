@@ -46,8 +46,22 @@ pub trait IntoFrame {
     fn write_body(&self, out: &mut [u8]) -> Result<(), FramingError>;
 
     /// Convenience: build the wire header from `descriptor` + `body_len`.
+    ///
+    /// Callers MUST ensure `body_len() <= Header::MAX_LEN as usize` before
+    /// invoking this — the conversion is unchecked and would silently
+    /// truncate on a 64-bit `usize` greater than `u32::MAX`. Codec impls
+    /// already pre-check this and return [`FramingError::PayloadTooLarge`]
+    /// before calling `header()`; the `debug_assert!` here catches misuse
+    /// during development.
     fn header(&self) -> Header {
-        Header::for_descriptor(self.descriptor(), self.body_len() as u32)
+        let body_len = self.body_len();
+        debug_assert!(
+            body_len <= Header::MAX_LEN as usize,
+            "IntoFrame::header(): body_len {} exceeds Header::MAX_LEN {}",
+            body_len,
+            Header::MAX_LEN,
+        );
+        Header::for_descriptor(self.descriptor(), body_len as u32)
     }
 }
 
