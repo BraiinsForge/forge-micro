@@ -123,6 +123,40 @@ impl<'a> Message for SetupConnection<'a> {
         MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x00, false);
 }
 
+/// Server's positive acknowledgement of a `SetupConnection`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SetupConnectionSuccess {
+    pub used_version: u16,
+    pub flags: u32,
+}
+
+impl Encode for SetupConnectionSuccess {
+    fn encoded_len(&self) -> usize {
+        self.used_version.encoded_len() + self.flags.encoded_len()
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        let mut n = 0;
+        n += self.used_version.encode_to(&mut out[n..])?;
+        n += self.flags.encode_to(&mut out[n..])?;
+        Ok(n)
+    }
+}
+
+impl<'de> Decode<'de> for SetupConnectionSuccess {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        Ok(Self {
+            used_version: u16::decode(input)?,
+            flags: u32::decode(input)?,
+        })
+    }
+}
+
+impl Message for SetupConnectionSuccess {
+    const DESCRIPTOR: MessageDescriptor =
+        MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x01, false);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +212,49 @@ mod tests {
         let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
         let decoded: SetupConnection<'_> = frame_to_message(frame).unwrap();
         assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn setup_connection_success_roundtrip() {
+        let original = SetupConnectionSuccess {
+            used_version: 2,
+            flags: 0,
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 32];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 32];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: SetupConnectionSuccess = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn setup_connection_success_byte_exact() {
+        let original = SetupConnectionSuccess {
+            used_version: 0x0002,
+            flags: 0x0000_0001,
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 32];
+        let n = codec.encode(&original, &mut wire).unwrap();
+        // Header: ext=0, msg=1, channel=false, msg_length=6
+        //   bytes: [0x00, 0x00, 0x01, 0x06, 0x00, 0x00]
+        // Body: u16 used_version=2 LE → [0x02, 0x00], u32 flags=1 LE → [0x01, 0x00, 0x00, 0x00]
+        assert_eq!(
+            &wire[..n],
+            &[
+                0x00, 0x00, 0x01, 0x06, 0x00, 0x00,                   // header
+                0x02, 0x00, 0x01, 0x00, 0x00, 0x00,                   // body
+            ]
+        );
     }
 }
