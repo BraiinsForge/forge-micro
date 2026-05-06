@@ -12,7 +12,7 @@ use embassy_time::{Duration, Timer};
 use embedded_i2c_unix::I2c as HostI2c;
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
-use ubos_psu::{MiniminerPsu, MiniminerPsuConfig, Psu, State, run_watchdog};
+use ubos_psu::{run_watchdog, MiniminerPsu, MiniminerPsuConfig, Psu, State};
 
 type StateMutex = Mutex<CriticalSectionRawMutex, State<HostI2c>>;
 
@@ -20,17 +20,12 @@ static STATE: StaticCell<StateMutex> = StaticCell::new();
 static TERMINATED: StaticCell<AtomicBool> = StaticCell::new();
 
 #[embassy_executor::task]
-async fn watchdog_task(
-    state: &'static StateMutex,
-    terminated: &'static AtomicBool,
-) {
+async fn watchdog_task(state: &'static StateMutex, terminated: &'static AtomicBool) {
     run_watchdog(state, terminated).await;
 }
 
 #[embassy_executor::task]
-async fn exercise_task(
-    psu: MiniminerPsu<HostI2c, embedded_i2c_unix::Error>,
-) {
+async fn exercise_task(psu: MiniminerPsu<HostI2c, embedded_i2c_unix::Error>) {
     log::info!("psu: enabling");
     if let Err(error) = psu.enable().await {
         log::error!("psu enable: {error:?}");
@@ -97,15 +92,10 @@ pub fn spawn_if_enabled(
     };
 
     let config = MiniminerPsuConfig::DEFAULT;
-    let state: &'static _ =
-        STATE.init(Mutex::new(State::new(i2c, config)));
-    let terminated: &'static _ =
-        TERMINATED.init(AtomicBool::new(false));
+    let state: &'static _ = STATE.init(Mutex::new(State::new(i2c, config)));
+    let terminated: &'static _ = TERMINATED.init(AtomicBool::new(false));
     let psu = MiniminerPsu::new(state, terminated);
 
     let _ = spawner;
-    Some((
-        watchdog_task(state, terminated),
-        exercise_task(psu),
-    ))
+    Some((watchdog_task(state, terminated), exercise_task(psu)))
 }

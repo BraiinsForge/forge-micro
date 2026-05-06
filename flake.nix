@@ -538,7 +538,6 @@
             cargoExtraArgs = "-p mmm";
           };
 
-
           clippy-esp32s3 = espCraneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
@@ -777,7 +776,6 @@
               echo "For native host-runner: nix develop .#host"
             '';
           };
-
 
           default = pkgs.mkShell {
             buildInputs =

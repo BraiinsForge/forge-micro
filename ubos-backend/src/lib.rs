@@ -678,7 +678,9 @@ async fn dispatch(action: LineAction) -> Result<(), SessionError> {
             accepted,
             is_error,
             stratum_error,
-        } => {
+        } =>
+        {
+            #[allow(clippy::if_same_then_else)]
             if is_error {
                 warn!(
                     "stratum: response id={} rejected: {}",

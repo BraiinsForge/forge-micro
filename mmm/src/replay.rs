@@ -8,7 +8,7 @@ use embassy_time::Timer;
 use embedded_io::ErrorKind;
 use ubos_logging::{info, warn};
 
-use crate::bm1362::{RawChipAddress, RegisterResponse, build_raw_command};
+use crate::bm1362::{build_raw_command, RawChipAddress, RegisterResponse};
 use crate::bmm100_trace::Step;
 use crate::serial::Serial;
 

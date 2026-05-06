@@ -7,12 +7,12 @@
 //! starts over so a transient bring-up failure doesn't leave the chip
 //! powered without supervision.
 
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use ubos_backend::MINER_IS_RUNNING;
-use ubos_logging::{Debug2Format, error, info};
+use ubos_logging::{error, info, Debug2Format};
 use ubos_psu::Psu;
 
 use crate::bmm100_trace::{DEINIT, INIT};

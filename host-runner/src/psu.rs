@@ -36,7 +36,7 @@ pub fn open() -> Option<(&'static HostPsu, &'static HostState, &'static AtomicBo
     if path.is_empty() {
         return None;
     }
-    let i2c = match HostI2c::open(&path) {
+    let i2c = match HostI2c::open(path) {
         Ok(i2c) => i2c,
         Err(error) => {
             error!("psu: cannot open {path}: {error}");
