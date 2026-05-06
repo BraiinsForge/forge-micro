@@ -462,6 +462,61 @@ impl<'a> Message for SetTarget<'a> {
         MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x21, true);
 }
 
+use ii_sv2_framing::{FrameView, FramingError, MessageGroup, frame_to_message};
+
+/// Dispatcher enum covering every elementary mining message recognized by
+/// this crate.
+///
+/// Note: no `Eq`/`Hash` because `OpenStandardMiningChannel` carries an
+/// `f32` field.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MiningMessages<'a> {
+    SetupConnection(SetupConnection<'a>),
+    SetupConnectionSuccess(SetupConnectionSuccess),
+    SetupConnectionError(SetupConnectionError<'a>),
+    OpenStandardMiningChannel(OpenStandardMiningChannel<'a>),
+    OpenStandardMiningChannelSuccess(OpenStandardMiningChannelSuccess<'a>),
+    OpenMiningChannelError(OpenMiningChannelError<'a>),
+    NewMiningJob(NewMiningJob<'a>),
+    SetNewPrevHash(SetNewPrevHash<'a>),
+    SetTarget(SetTarget<'a>),
+}
+
+impl<'de> MessageGroup<'de> for MiningMessages<'de> {
+    const EXTENSION_TYPE: ExtType = MINING_EXTENSION_TYPE;
+
+    fn dispatch(frame: FrameView<'de>) -> Result<Self, FramingError> {
+        if frame.header.extension_type != Self::EXTENSION_TYPE {
+            return Err(FramingError::WrongExtension {
+                expected: Self::EXTENSION_TYPE,
+                found: frame.header.extension_type,
+            });
+        }
+        match (frame.header.msg_type, frame.header.is_channel_message) {
+            (0x00, false) => Ok(MiningMessages::SetupConnection(frame_to_message(frame)?)),
+            (0x01, false) => Ok(MiningMessages::SetupConnectionSuccess(
+                frame_to_message(frame)?,
+            )),
+            (0x02, false) => Ok(MiningMessages::SetupConnectionError(
+                frame_to_message(frame)?,
+            )),
+            (0x10, false) => Ok(MiningMessages::OpenStandardMiningChannel(
+                frame_to_message(frame)?,
+            )),
+            (0x11, false) => Ok(MiningMessages::OpenStandardMiningChannelSuccess(
+                frame_to_message(frame)?,
+            )),
+            (0x12, false) => Ok(MiningMessages::OpenMiningChannelError(
+                frame_to_message(frame)?,
+            )),
+            (0x15, true) => Ok(MiningMessages::NewMiningJob(frame_to_message(frame)?)),
+            (0x20, true) => Ok(MiningMessages::SetNewPrevHash(frame_to_message(frame)?)),
+            (0x21, true) => Ok(MiningMessages::SetTarget(frame_to_message(frame)?)),
+            _ => Err(FramingError::UnknownMessage(frame.header.descriptor())),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -775,5 +830,101 @@ mod tests {
         let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
         let decoded: SetNewPrevHash<'_> = frame_to_message(frame).unwrap();
         assert_eq!(decoded, original);
+    }
+
+    use ii_sv2_framing::MessageGroup;
+
+    #[test]
+    fn dispatch_setup_connection() {
+        let outbound = SetupConnection {
+            protocol: 0,
+            min_version: 2,
+            max_version: 2,
+            flags: 0,
+            endpoint_host: Str0_255::try_from("p").unwrap(),
+            endpoint_port: 1,
+            device: DeviceInfo {
+                vendor: Str0_255::try_from("v").unwrap(),
+                hw_rev: Str0_255::try_from("h").unwrap(),
+                fw_ver: Str0_255::try_from("f").unwrap(),
+                dev_id: Str0_255::try_from("d").unwrap(),
+            },
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 128];
+        let _n = codec.encode(&outbound, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 128];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+
+        match MiningMessages::dispatch(frame).unwrap() {
+            MiningMessages::SetupConnection(m) => assert_eq!(m, outbound),
+            other => panic!("expected SetupConnection, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn dispatch_open_standard_mining_channel() {
+        let outbound = OpenStandardMiningChannel {
+            request_id: 1,
+            user: Str0_255::try_from("u").unwrap(),
+            nominal_hashrate: 1.0,
+            max_target: Uint256::from_le_bytes(&TARGET_PATTERN),
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 128];
+        let _n = codec.encode(&outbound, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 128];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+
+        match MiningMessages::dispatch(frame).unwrap() {
+            MiningMessages::OpenStandardMiningChannel(m) => assert_eq!(m, outbound),
+            other => panic!("expected OpenStandardMiningChannel, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn dispatch_new_mining_job() {
+        let outbound = NewMiningJob {
+            channel_id: 100,
+            job_id: 7,
+            min_ntime: Some(1),
+            version: 0,
+            merkle_root: Uint256::from_le_bytes(&TARGET_PATTERN),
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 128];
+        let _n = codec.encode(&outbound, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        assert!(header.is_channel_message);
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 128];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+
+        match MiningMessages::dispatch(frame).unwrap() {
+            MiningMessages::NewMiningJob(m) => assert_eq!(m, outbound),
+            other => panic!("expected NewMiningJob, got {:?}", other),
+        }
     }
 }
