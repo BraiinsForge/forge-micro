@@ -157,6 +157,40 @@ impl Message for SetupConnectionSuccess {
         MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x01, false);
 }
 
+/// Server's negative acknowledgement of a `SetupConnection`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SetupConnectionError<'a> {
+    pub flags: u32,
+    pub code: Str0_255<'a>,
+}
+
+impl<'a> Encode for SetupConnectionError<'a> {
+    fn encoded_len(&self) -> usize {
+        self.flags.encoded_len() + self.code.encoded_len()
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        let mut n = 0;
+        n += self.flags.encode_to(&mut out[n..])?;
+        n += self.code.encode_to(&mut out[n..])?;
+        Ok(n)
+    }
+}
+
+impl<'de> Decode<'de> for SetupConnectionError<'de> {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        Ok(Self {
+            flags: u32::decode(input)?,
+            code: Str0_255::decode(input)?,
+        })
+    }
+}
+
+impl<'a> Message for SetupConnectionError<'a> {
+    const DESCRIPTOR: MessageDescriptor =
+        MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x02, false);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +290,28 @@ mod tests {
                 0x02, 0x00, 0x01, 0x00, 0x00, 0x00,                   // body
             ]
         );
+    }
+
+    #[test]
+    fn setup_connection_error_roundtrip() {
+        let original = SetupConnectionError {
+            flags: 0x42,
+            code: Str0_255::try_from("invalid-flags").unwrap(),
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 64];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 64];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: SetupConnectionError<'_> = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
     }
 }
