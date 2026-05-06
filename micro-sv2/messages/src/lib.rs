@@ -329,6 +329,56 @@ impl<'a> Message for OpenMiningChannelError<'a> {
         MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x12, false);
 }
 
+/// Server provides a new mining job to the client through a standard channel.
+///
+/// `min_ntime`: `Some(t)` activates immediately at `min_ntime = t`; `None`
+/// indicates a future job awaiting a matching `SetNewPrevHash`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NewMiningJob<'a> {
+    pub channel_id: u32,
+    pub job_id: u32,
+    pub min_ntime: Option<u32>,
+    pub version: u32,
+    pub merkle_root: Uint256<'a>,
+}
+
+impl<'a> Encode for NewMiningJob<'a> {
+    fn encoded_len(&self) -> usize {
+        self.channel_id.encoded_len()
+            + self.job_id.encoded_len()
+            + self.min_ntime.encoded_len()
+            + self.version.encoded_len()
+            + self.merkle_root.encoded_len()
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        let mut n = 0;
+        n += self.channel_id.encode_to(&mut out[n..])?;
+        n += self.job_id.encode_to(&mut out[n..])?;
+        n += self.min_ntime.encode_to(&mut out[n..])?;
+        n += self.version.encode_to(&mut out[n..])?;
+        n += self.merkle_root.encode_to(&mut out[n..])?;
+        Ok(n)
+    }
+}
+
+impl<'de> Decode<'de> for NewMiningJob<'de> {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        Ok(Self {
+            channel_id: u32::decode(input)?,
+            job_id: u32::decode(input)?,
+            min_ntime: <Option<u32>>::decode(input)?,
+            version: u32::decode(input)?,
+            merkle_root: Uint256::decode(input)?,
+        })
+    }
+}
+
+impl<'a> Message for NewMiningJob<'a> {
+    const DESCRIPTOR: MessageDescriptor =
+        MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x15, true);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -509,6 +559,61 @@ mod tests {
         let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
         let decoded: OpenMiningChannelError<'_> = frame_to_message(frame).unwrap();
         assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn new_mining_job_roundtrip_with_min_ntime() {
+        let original = NewMiningJob {
+            channel_id: 100,
+            job_id: 7,
+            min_ntime: Some(1_700_000_000),
+            version: 0x2000_0000,
+            merkle_root: Uint256::from_le_bytes(&TARGET_PATTERN),
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 128];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        assert!(header.is_channel_message);
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 128];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: NewMiningJob<'_> = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn new_mining_job_roundtrip_future_job() {
+        // min_ntime: None signals a future job activated by SetNewPrevHash.
+        let original = NewMiningJob {
+            channel_id: 100,
+            job_id: 7,
+            min_ntime: None,
+            version: 0x2000_0000,
+            merkle_root: Uint256::from_le_bytes(&TARGET_PATTERN),
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 128];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 128];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: NewMiningJob<'_> = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
+        assert!(decoded.min_ntime.is_none());
     }
 
     #[test]
