@@ -20,7 +20,6 @@ const MMM_SERIAL_PATH: &str = "/dev/ttySTM1";
 
 #[embassy_executor::task]
 pub async fn mmm_serial_task() -> ! {
-    info!("xxxx");
     let serial = match Serial::open(MMM_SERIAL_PATH, INITIAL_BAUDRATE) {
         Ok(serial) => serial,
         Err(error) => {
