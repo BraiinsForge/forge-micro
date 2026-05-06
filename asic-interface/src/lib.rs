@@ -18,7 +18,7 @@
 
 use core::sync::atomic::Ordering;
 use embassy_time::Instant;
-use portable_atomic::{AtomicBool, AtomicU32, AtomicU64};
+use portable_atomic::{AtomicBool, AtomicU64};
 
 #[cfg(test)]
 #[path = "tests/hashrate.rs"]
@@ -91,7 +91,7 @@ pub trait AsicInterface {
 
 /// Total shares observed by [`record_share`] since boot. Monotonic;
 /// rendered as inline text on the firmware HTTP status page.
-pub static SHARE_COUNT: AtomicU32 = AtomicU32::new(0);
+pub static SHARE_COUNT: AtomicU64 = AtomicU64::new(0);
 
 /// EWMA smoothing factor exponent: shift right by this many bits to
 /// scale the per-bucket delta. 3 → α = 1/8 → roughly an 8-bucket
@@ -107,7 +107,7 @@ const BUCKET_MS: u64 = 1_000;
 
 /// Smoothed hashrate in H/s. Updated when a bucket's worth of hashes
 /// has accumulated; read by [`hashrate`].
-static EWMA_HASHRATE: AtomicU32 = AtomicU32::new(0);
+static EWMA_HASHRATE: AtomicU64 = AtomicU64::new(0);
 
 /// Hashes credited to the in-progress bucket. Drained when the bucket
 /// elapses, see [`record_share`].
@@ -165,20 +165,20 @@ pub fn record_share(target: &[u8; 32]) {
 
 /// Fold a finalized bucket into the EWMA. Pure: takes the bucket's
 /// total hashes, the elapsed window in ms, and the previous EWMA, and
-/// returns the new EWMA. Saturates at `u32::MAX` when the bucket rate
-/// or the smoothed value would not fit in a `u32`.
-fn next_ewma(bucket_total: u64, elapsed_ms: u64, previous: u32) -> u32 {
-    let bucket_rate =
-        u32::try_from(bucket_total.saturating_mul(1000) / elapsed_ms).unwrap_or(u32::MAX);
-    let delta = i64::from(bucket_rate) - i64::from(previous);
-    let next = i64::from(previous) + (delta >> EWMA_ALPHA_SHIFT);
-    u32::try_from(next.max(0)).unwrap_or(u32::MAX)
+/// returns the new EWMA. The bucket rate saturates at `u64::MAX`
+/// through `saturating_mul`; the i128 delta arithmetic carries the
+/// signed difference between two u64 values without overflow.
+fn next_ewma(bucket_total: u64, elapsed_ms: u64, previous: u64) -> u64 {
+    let bucket_rate = bucket_total.saturating_mul(1000) / elapsed_ms;
+    let delta = i128::from(bucket_rate) - i128::from(previous);
+    let next = i128::from(previous) + (delta >> EWMA_ALPHA_SHIFT);
+    u64::try_from(next.max(0)).unwrap_or(u64::MAX)
 }
 
 /// Smoothed hashrate in hashes per second. Zero until the first
 /// bucket finalizes, `BUCKET_MS` after the first share.
 #[must_use]
-pub fn hashrate() -> u32 {
+pub fn hashrate() -> u64 {
     EWMA_HASHRATE.load(Ordering::Relaxed)
 }
 

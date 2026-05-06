@@ -54,7 +54,7 @@ fn next_ewma_from_zero_takes_one_alpha_step() {
     // bucket_rate >> EWMA_ALPHA_SHIFT.
     let bucket_total: u64 = 8_000;
     let elapsed_ms: u64 = 1_000;
-    let bucket_rate: u32 = 8_000;
+    let bucket_rate: u64 = 8_000;
     assert_eq!(
         next_ewma(bucket_total, elapsed_ms, 0),
         bucket_rate >> EWMA_ALPHA_SHIFT
@@ -78,6 +78,7 @@ fn next_ewma_decays_toward_lower_rate() {
 #[test]
 fn next_ewma_saturates_on_huge_bucket() {
     // Bucket total large enough that bucket_total * 1000 overflows
-    // u64; saturating_mul caps it and the cast to u32 saturates too.
-    assert_eq!(next_ewma(u64::MAX, 1, 0), u32::MAX >> EWMA_ALPHA_SHIFT);
+    // u64; saturating_mul caps the rate at u64::MAX and the alpha
+    // shift folds it into the EWMA without further overflow.
+    assert_eq!(next_ewma(u64::MAX, 1, 0), u64::MAX >> EWMA_ALPHA_SHIFT);
 }

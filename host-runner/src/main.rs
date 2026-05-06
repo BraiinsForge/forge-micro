@@ -121,7 +121,7 @@ async fn hashrate_metrics_task() -> ! {
             // 0.9 for embassy-net 0.9's StaticConfigV4; renamed dep keeps
             // both in the build.
             labels: heapless_v08::Vec::new(),
-            value: Value::Uint(u64::from(hashrate_hz)),
+            value: Value::Uint(hashrate_hz),
             timestamp_ms: 0,
         })
         .await;
