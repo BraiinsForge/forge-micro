@@ -83,6 +83,28 @@ impl<'a> IntoFrame for FrameView<'a> {
     }
 }
 
+use ii_sv2_types::Decode;
+
+/// Caller-knows-the-type decode: turn a frame's body into a concrete
+/// `Message`, validating the descriptor and consuming the entire payload.
+pub fn frame_to_message<'de, M>(frame: FrameView<'de>) -> Result<M, FramingError>
+where
+    M: Message + Decode<'de>,
+{
+    if frame.header.descriptor() != M::DESCRIPTOR {
+        return Err(FramingError::WrongMessage {
+            expected: M::DESCRIPTOR,
+            found: frame.header.descriptor(),
+        });
+    }
+    let mut cursor: &'de [u8] = frame.payload;
+    let msg = M::decode(&mut cursor).map_err(FramingError::from)?;
+    if !cursor.is_empty() {
+        return Err(FramingError::TrailingBytes);
+    }
+    Ok(msg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +193,52 @@ mod tests {
         let mut out = [0u8; 2];
         let err = IntoFrame::write_body(&frame, &mut out).unwrap_err();
         assert_eq!(err, FramingError::BufferTooSmall);
+    }
+
+    #[test]
+    fn frame_to_message_happy_path() {
+        // Build a frame with the right descriptor and a u32 body.
+        let body = 0xdead_beef_u32.to_le_bytes();
+        let header = Header::for_descriptor(TestMsg::DESCRIPTOR, 4);
+        let frame = FrameView::try_new(header, &body).unwrap();
+        let msg: TestMsg = frame_to_message(frame).unwrap();
+        assert_eq!(msg, TestMsg { x: 0xdead_beef });
+    }
+
+    #[test]
+    fn frame_to_message_wrong_descriptor() {
+        // ext_type matches but msg_type doesn't.
+        let body = 0u32.to_le_bytes();
+        let other = MessageDescriptor::new(0xff, 0x11, false);
+        let header = Header::for_descriptor(other, 4);
+        let frame = FrameView::try_new(header, &body).unwrap();
+        let err = frame_to_message::<TestMsg>(frame).unwrap_err();
+        assert_eq!(
+            err,
+            FramingError::WrongMessage {
+                expected: TestMsg::DESCRIPTOR,
+                found: other,
+            }
+        );
+    }
+
+    #[test]
+    fn frame_to_message_trailing_bytes() {
+        // Body has 5 bytes but TestMsg only consumes 4.
+        let body = [0u8, 0, 0, 0, 0xff];
+        let header = Header::for_descriptor(TestMsg::DESCRIPTOR, 5);
+        let frame = FrameView::try_new(header, &body).unwrap();
+        let err = frame_to_message::<TestMsg>(frame).unwrap_err();
+        assert_eq!(err, FramingError::TrailingBytes);
+    }
+
+    #[test]
+    fn frame_to_message_body_decode_eof() {
+        // Body has only 2 bytes; TestMsg's u32 needs 4.
+        let body = [0u8, 0];
+        let header = Header::for_descriptor(TestMsg::DESCRIPTOR, 2);
+        let frame = FrameView::try_new(header, &body).unwrap();
+        let err = frame_to_message::<TestMsg>(frame).unwrap_err();
+        assert_eq!(err, FramingError::Eof);
     }
 }
