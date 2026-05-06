@@ -418,7 +418,7 @@ impl Serial {
                 // scanning to so `asic_interface::hashrate()` reflects
                 // the actual chip work rather than only pool-passing
                 // shares. The hashrate EWMA already weights by target.
-                asic_interface::record_share(&slot.pool_target);
+                asic_interface::record_share(&DIFF_1_TARGET);
 
                 if !hash_meets_target(&hash, &slot.pool_target) {
                     trace!(
