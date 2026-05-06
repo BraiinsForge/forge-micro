@@ -73,6 +73,54 @@ impl MessageDescriptor {
     }
 }
 
+use ii_sv2_types::{Decode, Encode, Error as TypeError};
+
+impl Encode for Header {
+    fn encoded_len(&self) -> usize {
+        Self::SIZE
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        if out.len() < Self::SIZE {
+            return Err(TypeError::BufferTooSmall);
+        }
+        if self.msg_length > Self::MAX_LEN {
+            return Err(TypeError::OutOfBounds {
+                length: self.msg_length as usize,
+                min: 0,
+                max: Self::MAX_LEN as usize,
+            });
+        }
+        let extension_field =
+            self.extension_type | ((self.is_channel_message as u16) << 15);
+        out[0..2].copy_from_slice(&extension_field.to_le_bytes());
+        out[2] = self.msg_type;
+        let len_bytes = self.msg_length.to_le_bytes();
+        out[3..6].copy_from_slice(&len_bytes[..3]);
+        Ok(Self::SIZE)
+    }
+}
+
+impl<'de> Decode<'de> for Header {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        let bytes = input.get(..Self::SIZE).ok_or(TypeError::Eof)?;
+        let extension_field = u16::from_le_bytes([bytes[0], bytes[1]]);
+        let is_channel_message = (extension_field & (1 << 15)) != 0;
+        let extension_type = extension_field & 0x7fff;
+        let msg_type = bytes[2];
+        let mut len_bytes = [0u8; 4];
+        len_bytes[..3].copy_from_slice(&bytes[3..6]);
+        let msg_length = u32::from_le_bytes(len_bytes);
+        *input = &input[Self::SIZE..];
+        Ok(Self {
+            is_channel_message,
+            extension_type,
+            msg_type,
+            msg_length,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,5 +138,119 @@ mod tests {
     fn header_constants() {
         assert_eq!(Header::SIZE, 6);
         assert_eq!(Header::MAX_LEN, 0x00ff_ffff);
+    }
+
+    use ii_sv2_types::{Decode, Encode, Error as TypeError};
+
+    #[test]
+    fn encode_known_bytes() {
+        // ext_type=0x00, msg_type=0x10, msg_length=0x010000, channel=false
+        // extension_field = 0x0000 LE => [0x00, 0x00]
+        // msg_type        = 0x10
+        // msg_length u24  = 0x010000 LE => [0x00, 0x00, 0x01]
+        let h = Header {
+            is_channel_message: false,
+            extension_type: 0x00,
+            msg_type: 0x10,
+            msg_length: 0x0001_0000,
+        };
+        let mut out = [0u8; 6];
+        let n = h.encode_to(&mut out).unwrap();
+        assert_eq!(n, 6);
+        assert_eq!(out, [0x00, 0x00, 0x10, 0x00, 0x00, 0x01]);
+    }
+
+    #[test]
+    fn encode_channel_flag_sets_top_bit() {
+        let h = Header {
+            is_channel_message: true,
+            extension_type: 0x00,
+            msg_type: 0x00,
+            msg_length: 0,
+        };
+        let mut out = [0u8; 6];
+        h.encode_to(&mut out).unwrap();
+        // extension_field = 0x8000 LE => [0x00, 0x80]
+        assert_eq!(out, [0x00, 0x80, 0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn encode_extension_type_low_byte() {
+        // Verify ext_type fills the low 15 bits, including byte 0 fully.
+        let h = Header {
+            is_channel_message: false,
+            extension_type: 0x12_34,
+            msg_type: 0x00,
+            msg_length: 0,
+        };
+        let mut out = [0u8; 6];
+        h.encode_to(&mut out).unwrap();
+        assert_eq!(&out[..2], &[0x34, 0x12]);
+    }
+
+    #[test]
+    fn encode_max_msg_length() {
+        let h = Header {
+            is_channel_message: false,
+            extension_type: 0,
+            msg_type: 0,
+            msg_length: Header::MAX_LEN,
+        };
+        let mut out = [0u8; 6];
+        h.encode_to(&mut out).unwrap();
+        assert_eq!(&out[3..6], &[0xff, 0xff, 0xff]);
+    }
+
+    #[test]
+    fn encode_rejects_oversized_length() {
+        let h = Header {
+            is_channel_message: false,
+            extension_type: 0,
+            msg_type: 0,
+            msg_length: Header::MAX_LEN + 1,
+        };
+        let mut out = [0u8; 6];
+        assert_eq!(
+            h.encode_to(&mut out),
+            Err(TypeError::OutOfBounds {
+                length: (Header::MAX_LEN + 1) as usize,
+                min: 0,
+                max: Header::MAX_LEN as usize,
+            })
+        );
+    }
+
+    #[test]
+    fn encode_rejects_short_buffer() {
+        let h = Header {
+            is_channel_message: false,
+            extension_type: 0,
+            msg_type: 0,
+            msg_length: 0,
+        };
+        let mut out = [0u8; 5];
+        assert_eq!(h.encode_to(&mut out), Err(TypeError::BufferTooSmall));
+    }
+
+    #[test]
+    fn roundtrip_via_encode_decode() {
+        let original = Header {
+            is_channel_message: true,
+            extension_type: 0x7fff,
+            msg_type: 0xab,
+            msg_length: 0xcd_ef12,
+        };
+        let mut buf = [0u8; 6];
+        original.encode_to(&mut buf).unwrap();
+        let mut cursor: &[u8] = &buf;
+        let decoded = Header::decode(&mut cursor).unwrap();
+        assert_eq!(decoded, original);
+        assert!(cursor.is_empty());
+    }
+
+    #[test]
+    fn decode_eof_on_short_input() {
+        let mut cursor: &[u8] = &[0u8; 5];
+        assert_eq!(Header::decode(&mut cursor), Err(TypeError::Eof));
     }
 }
