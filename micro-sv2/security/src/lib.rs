@@ -11,6 +11,7 @@ pub mod certificate;
 pub mod error;
 pub mod handshake;
 pub mod keys;
+pub mod session;
 
 pub use authenticator::{
     Authenticator, Clock, ValidateFull, ValidateNothing, ValidateSignature, ValidateTime,
@@ -22,3 +23,4 @@ pub use certificate::{
 pub use error::{AuthenticationError, InitializationError, KeyParseError};
 pub use handshake::{EstablishedSession, accept, initiate};
 pub use keys::{PublicKey, SecretKey, SessionId, Signature};
+pub use session::{EncryptedCodec, SessionError};
