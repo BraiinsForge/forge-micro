@@ -292,10 +292,28 @@ mod tests {
         assert_eq!(received, outbound);
     }
 
+    use ii_sv2_framing::{FramingError, IntoFrame, MessageDescriptor};
+    use ii_sv2_messages::MINING_EXTENSION_TYPE;
     use ii_sv2_messages::{
         NewMiningJob, OpenStandardMiningChannel, SetupConnectionSuccess,
     };
     use ii_sv2_types::Uint256;
+
+    /// Synthetic frame whose `body_len()` returns a value larger than
+    /// `MAX_PLAINTEXT_LENGTH`. `write_body` is `unreachable!()` because
+    /// the encode guard must fire first.
+    struct OversizedFrame;
+    impl IntoFrame for OversizedFrame {
+        fn descriptor(&self) -> MessageDescriptor {
+            MessageDescriptor::new(MINING_EXTENSION_TYPE, 0xff, false)
+        }
+        fn body_len(&self) -> usize {
+            MAX_PLAINTEXT_LENGTH + 1
+        }
+        fn write_body(&self, _out: &mut [u8]) -> Result<(), FramingError> {
+            unreachable!("encode rejects before write_body for oversized frames")
+        }
+    }
 
     const TARGET_PATTERN: [u8; 32] = [
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -381,6 +399,21 @@ mod tests {
             let fv = r_codec.decode_frame(header, &mut pbuf[..pn]).expect("decode_frame");
             let received: NewMiningJob<'_> = frame_to_message(fv).expect("frame_to_message");
             assert_eq!(received, job);
+        }
+    }
+
+    #[tokio::test]
+    async fn encode_rejects_oversized_payload() {
+        let (mut i_codec, _r_codec) = paired_codecs().await;
+        // Buffer is generously sized so we can be sure the rejection comes
+        // from the chunking guard, not the buffer-size check.
+        let mut wire = [0u8; 256];
+        let err = i_codec.encode(&OversizedFrame, &mut wire).unwrap_err();
+        match err {
+            SessionError::ChunkingNotImplemented { length } => {
+                assert_eq!(length, MAX_PLAINTEXT_LENGTH + 1);
+            }
+            other => panic!("expected ChunkingNotImplemented, got {:?}", other),
         }
     }
 }
