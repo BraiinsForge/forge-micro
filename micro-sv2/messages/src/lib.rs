@@ -288,6 +288,47 @@ impl<'a> Message for OpenStandardMiningChannelSuccess<'a> {
         MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x11, false);
 }
 
+/// Server's negative response to `OpenStandardMiningChannel`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OpenMiningChannelError<'a> {
+    pub request_id: u32,
+    pub code: Str0_255<'a>,
+}
+
+impl<'a> OpenMiningChannelError<'a> {
+    pub const UNKNOWN_USER:          &'static str = "unknown-user";
+    pub const TOO_MANY_CHANNELS:     &'static str = "too-many-channels";
+    pub const DUPLICATED_REQUEST_ID: &'static str = "duplicate-request_id";
+    pub const TOO_LARGE_EXTRANONCE:  &'static str = "too-large-extranonce-requested";
+}
+
+impl<'a> Encode for OpenMiningChannelError<'a> {
+    fn encoded_len(&self) -> usize {
+        self.request_id.encoded_len() + self.code.encoded_len()
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        let mut n = 0;
+        n += self.request_id.encode_to(&mut out[n..])?;
+        n += self.code.encode_to(&mut out[n..])?;
+        Ok(n)
+    }
+}
+
+impl<'de> Decode<'de> for OpenMiningChannelError<'de> {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        Ok(Self {
+            request_id: u32::decode(input)?,
+            code: Str0_255::decode(input)?,
+        })
+    }
+}
+
+impl<'a> Message for OpenMiningChannelError<'a> {
+    const DESCRIPTOR: MessageDescriptor =
+        MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x12, false);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,6 +487,29 @@ mod tests {
     }
 
     use ii_sv2_types::Bytes0_32;
+
+    #[test]
+    fn open_mining_channel_error_roundtrip() {
+        let original = OpenMiningChannelError {
+            request_id: 42,
+            code: Str0_255::try_from(OpenMiningChannelError::UNKNOWN_USER).unwrap(),
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 64];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 64];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: OpenMiningChannelError<'_> = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
+    }
 
     #[test]
     fn open_standard_mining_channel_success_roundtrip() {
