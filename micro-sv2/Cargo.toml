@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crypto", "framing", "messages", "security", "types"]
+members = ["crypto", "framing", "messages", "security", "types", "ii-sv2"]
 # Excluded from the workspace — pulls a proprietary registry dep that
 # we don't want in the default cargo motion. Run on demand with
 # `cargo test --manifest-path interop-test/Cargo.toml`.
