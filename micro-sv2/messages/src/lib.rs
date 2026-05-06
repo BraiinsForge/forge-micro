@@ -238,6 +238,56 @@ impl<'a> Message for OpenStandardMiningChannel<'a> {
         MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x10, false);
 }
 
+use ii_sv2_types::Bytes0_32;
+
+/// Server's positive response to `OpenStandardMiningChannel`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OpenStandardMiningChannelSuccess<'a> {
+    pub request_id: u32,
+    pub channel_id: u32,
+    pub target: Uint256<'a>,
+    pub extranonce_prefix: Bytes0_32<'a>,
+    /// Group channel into which the new channel belongs.
+    pub group_channel_id: u32,
+}
+
+impl<'a> Encode for OpenStandardMiningChannelSuccess<'a> {
+    fn encoded_len(&self) -> usize {
+        self.request_id.encoded_len()
+            + self.channel_id.encoded_len()
+            + self.target.encoded_len()
+            + self.extranonce_prefix.encoded_len()
+            + self.group_channel_id.encoded_len()
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        let mut n = 0;
+        n += self.request_id.encode_to(&mut out[n..])?;
+        n += self.channel_id.encode_to(&mut out[n..])?;
+        n += self.target.encode_to(&mut out[n..])?;
+        n += self.extranonce_prefix.encode_to(&mut out[n..])?;
+        n += self.group_channel_id.encode_to(&mut out[n..])?;
+        Ok(n)
+    }
+}
+
+impl<'de> Decode<'de> for OpenStandardMiningChannelSuccess<'de> {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        Ok(Self {
+            request_id: u32::decode(input)?,
+            channel_id: u32::decode(input)?,
+            target: Uint256::decode(input)?,
+            extranonce_prefix: Bytes0_32::decode(input)?,
+            group_channel_id: u32::decode(input)?,
+        })
+    }
+}
+
+impl<'a> Message for OpenStandardMiningChannelSuccess<'a> {
+    const DESCRIPTOR: MessageDescriptor =
+        MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x11, false);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -392,6 +442,35 @@ mod tests {
         );
         let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
         let decoded: SetupConnectionError<'_> = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
+    }
+
+    use ii_sv2_types::Bytes0_32;
+
+    #[test]
+    fn open_standard_mining_channel_success_roundtrip() {
+        let extranonce_bytes = [0xaa_u8, 0xbb, 0xcc, 0xdd];
+        let original = OpenStandardMiningChannelSuccess {
+            request_id: 1,
+            channel_id: 100,
+            target: Uint256::from_le_bytes(&TARGET_PATTERN),
+            extranonce_prefix: Bytes0_32::try_from(&extranonce_bytes[..]).unwrap(),
+            group_channel_id: 7,
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 128];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 128];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: OpenStandardMiningChannelSuccess<'_> = frame_to_message(frame).unwrap();
         assert_eq!(decoded, original);
     }
 }
