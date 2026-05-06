@@ -144,9 +144,7 @@ mod tests {
         assert!(cursor.is_empty());
     }
 
-    use ii_sv2_framing::{
-        FrameCodec, Header, Message, MessageDescriptor, PlaintextCodec, frame_to_message,
-    };
+    use ii_sv2_framing::{FrameCodec, PlaintextCodec, frame_to_message};
 
     #[test]
     fn setup_connection_roundtrip() {
