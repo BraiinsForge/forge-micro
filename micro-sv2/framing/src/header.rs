@@ -81,15 +81,15 @@ impl Encode for Header {
     }
 
     fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
-        if out.len() < Self::SIZE {
-            return Err(TypeError::BufferTooSmall);
-        }
         if self.msg_length > Self::MAX_LEN {
             return Err(TypeError::OutOfBounds {
                 length: self.msg_length as usize,
                 min: 0,
                 max: Self::MAX_LEN as usize,
             });
+        }
+        if out.len() < Self::SIZE {
+            return Err(TypeError::BufferTooSmall);
         }
         let extension_field =
             self.extension_type | ((self.is_channel_message as u16) << 15);
