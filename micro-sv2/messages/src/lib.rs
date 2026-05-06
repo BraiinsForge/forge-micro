@@ -379,6 +379,55 @@ impl<'a> Message for NewMiningJob<'a> {
         MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x15, true);
 }
 
+/// Distributed when a new block is detected upstream. Clients MUST
+/// immediately mine on the provided prevhash + referenced job id;
+/// queued jobs become invalid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SetNewPrevHash<'a> {
+    pub channel_id: u32,
+    pub job_id: u32,
+    pub prev_hash: Uint256<'a>,
+    pub min_ntime: u32,
+    pub nbits: u32,
+}
+
+impl<'a> Encode for SetNewPrevHash<'a> {
+    fn encoded_len(&self) -> usize {
+        self.channel_id.encoded_len()
+            + self.job_id.encoded_len()
+            + self.prev_hash.encoded_len()
+            + self.min_ntime.encoded_len()
+            + self.nbits.encoded_len()
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        let mut n = 0;
+        n += self.channel_id.encode_to(&mut out[n..])?;
+        n += self.job_id.encode_to(&mut out[n..])?;
+        n += self.prev_hash.encode_to(&mut out[n..])?;
+        n += self.min_ntime.encode_to(&mut out[n..])?;
+        n += self.nbits.encode_to(&mut out[n..])?;
+        Ok(n)
+    }
+}
+
+impl<'de> Decode<'de> for SetNewPrevHash<'de> {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        Ok(Self {
+            channel_id: u32::decode(input)?,
+            job_id: u32::decode(input)?,
+            prev_hash: Uint256::decode(input)?,
+            min_ntime: u32::decode(input)?,
+            nbits: u32::decode(input)?,
+        })
+    }
+}
+
+impl<'a> Message for SetNewPrevHash<'a> {
+    const DESCRIPTOR: MessageDescriptor =
+        MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x20, true);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -640,6 +689,33 @@ mod tests {
         );
         let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
         let decoded: OpenStandardMiningChannelSuccess<'_> = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn set_new_prev_hash_roundtrip() {
+        let original = SetNewPrevHash {
+            channel_id: 100,
+            job_id: 7,
+            prev_hash: Uint256::from_le_bytes(&TARGET_PATTERN),
+            min_ntime: 1_700_000_000,
+            nbits: 0x1700_e9bd,
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 128];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        assert!(header.is_channel_message);
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 128];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: SetNewPrevHash<'_> = frame_to_message(frame).unwrap();
         assert_eq!(decoded, original);
     }
 }
