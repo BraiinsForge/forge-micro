@@ -291,4 +291,96 @@ mod tests {
 
         assert_eq!(received, outbound);
     }
+
+    use ii_sv2_messages::{
+        NewMiningJob, OpenStandardMiningChannel, SetupConnectionSuccess,
+    };
+    use ii_sv2_types::Uint256;
+
+    const TARGET_PATTERN: [u8; 32] = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+    ];
+
+    /// Helper: encode `frame` from `tx`, decrypt the header+payload into
+    /// `wire`/`pbuf` via `rx`, and return `(payload_len, header)`.
+    /// The decrypted plaintext payload lives in `pbuf[..payload_len]`.
+    /// Callers call `rx.decode_frame` + `frame_to_message` themselves so
+    /// that borrow-checker lifetimes are controlled by the call site.
+    async fn send_recv_raw<F: ii_sv2_framing::IntoFrame>(
+        tx: &mut EncryptedCodec,
+        rx: &mut EncryptedCodec,
+        frame: &F,
+        wire: &mut [u8],
+        pbuf: &mut [u8],
+    ) -> (usize, ii_sv2_framing::Header) {
+        let n = tx.encode(frame, wire).expect("encode");
+
+        let mut hbuf = [0u8; EncryptedCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..EncryptedCodec::HEADER_WIRE_SIZE]);
+        let header = rx.decode_header(&mut hbuf).expect("decode_header");
+
+        let pn = EncryptedCodec::payload_wire_size(header.msg_length as usize);
+        assert_eq!(EncryptedCodec::HEADER_WIRE_SIZE + pn, n);
+
+        pbuf[..pn].copy_from_slice(
+            &wire[EncryptedCodec::HEADER_WIRE_SIZE..EncryptedCodec::HEADER_WIRE_SIZE + pn],
+        );
+        (pn, header)
+    }
+
+    #[tokio::test]
+    async fn sequential_frames_advance_state() {
+        let (mut i_codec, mut r_codec) = paired_codecs().await;
+
+        let mut wire = [0u8; 1024];
+        let mut pbuf = [0u8; 1024];
+
+        // Frame 1: SetupConnectionSuccess (no lifetime, fixed-size).
+        let success = SetupConnectionSuccess {
+            used_version: 2,
+            flags: 0,
+        };
+        {
+            let (pn, header) =
+                send_recv_raw(&mut i_codec, &mut r_codec, &success, &mut wire, &mut pbuf).await;
+            let fv = r_codec.decode_frame(header, &mut pbuf[..pn]).expect("decode_frame");
+            let received: SetupConnectionSuccess = frame_to_message(fv).expect("frame_to_message");
+            assert_eq!(received, success);
+        }
+
+        // Frame 2: OpenStandardMiningChannel.
+        let open = OpenStandardMiningChannel {
+            request_id: 1,
+            user: Str0_255::try_from("user.worker1").unwrap(),
+            nominal_hashrate: 1.0e12,
+            max_target: Uint256::from_le_bytes(&TARGET_PATTERN),
+        };
+        {
+            let (pn, header) =
+                send_recv_raw(&mut i_codec, &mut r_codec, &open, &mut wire, &mut pbuf).await;
+            let fv = r_codec.decode_frame(header, &mut pbuf[..pn]).expect("decode_frame");
+            let received: OpenStandardMiningChannel<'_> =
+                frame_to_message(fv).expect("frame_to_message");
+            assert_eq!(received, open);
+        }
+
+        // Frame 3: NewMiningJob (channel-message bit set).
+        let job = NewMiningJob {
+            channel_id: 100,
+            job_id: 7,
+            min_ntime: Some(1_700_000_000),
+            version: 0x2000_0000,
+            merkle_root: Uint256::from_le_bytes(&TARGET_PATTERN),
+        };
+        {
+            let (pn, header) =
+                send_recv_raw(&mut i_codec, &mut r_codec, &job, &mut wire, &mut pbuf).await;
+            let fv = r_codec.decode_frame(header, &mut pbuf[..pn]).expect("decode_frame");
+            let received: NewMiningJob<'_> = frame_to_message(fv).expect("frame_to_message");
+            assert_eq!(received, job);
+        }
+    }
 }
