@@ -416,4 +416,42 @@ mod tests {
             other => panic!("expected ChunkingNotImplemented, got {:?}", other),
         }
     }
+
+    use ii_sv2_framing::MessageGroup;
+    use ii_sv2_messages::MiningMessages;
+
+    #[tokio::test]
+    async fn dispatch_via_mining_messages() {
+        let (mut i_codec, mut r_codec) = paired_codecs().await;
+
+        let outbound = NewMiningJob {
+            channel_id: 100,
+            job_id: 7,
+            min_ntime: Some(1),
+            version: 0,
+            merkle_root: Uint256::from_le_bytes(&TARGET_PATTERN),
+        };
+
+        let mut wire = [0u8; 256];
+        let n = i_codec.encode(&outbound, &mut wire).expect("encode");
+
+        let mut hbuf = [0u8; EncryptedCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..EncryptedCodec::HEADER_WIRE_SIZE]);
+        let header = r_codec.decode_header(&mut hbuf).expect("decode_header");
+        assert!(header.is_channel_message);
+
+        let pn = EncryptedCodec::payload_wire_size(header.msg_length as usize);
+        assert_eq!(EncryptedCodec::HEADER_WIRE_SIZE + pn, n);
+
+        let mut pbuf = [0u8; 256];
+        pbuf[..pn].copy_from_slice(
+            &wire[EncryptedCodec::HEADER_WIRE_SIZE..EncryptedCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = r_codec.decode_frame(header, &mut pbuf[..pn]).expect("decode_frame");
+
+        match MiningMessages::dispatch(frame).expect("dispatch") {
+            MiningMessages::NewMiningJob(m) => assert_eq!(m, outbound),
+            other => panic!("expected NewMiningJob, got {:?}", other),
+        }
+    }
 }
