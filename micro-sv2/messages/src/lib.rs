@@ -428,6 +428,40 @@ impl<'a> Message for SetNewPrevHash<'a> {
         MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x20, true);
 }
 
+/// Server adjusts the difficulty target on a channel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SetTarget<'a> {
+    pub channel_id: u32,
+    pub max_target: Uint256<'a>,
+}
+
+impl<'a> Encode for SetTarget<'a> {
+    fn encoded_len(&self) -> usize {
+        self.channel_id.encoded_len() + self.max_target.encoded_len()
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        let mut n = 0;
+        n += self.channel_id.encode_to(&mut out[n..])?;
+        n += self.max_target.encode_to(&mut out[n..])?;
+        Ok(n)
+    }
+}
+
+impl<'de> Decode<'de> for SetTarget<'de> {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        Ok(Self {
+            channel_id: u32::decode(input)?,
+            max_target: Uint256::decode(input)?,
+        })
+    }
+}
+
+impl<'a> Message for SetTarget<'a> {
+    const DESCRIPTOR: MessageDescriptor =
+        MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x21, true);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -689,6 +723,30 @@ mod tests {
         );
         let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
         let decoded: OpenStandardMiningChannelSuccess<'_> = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn set_target_roundtrip() {
+        let original = SetTarget {
+            channel_id: 100,
+            max_target: Uint256::from_le_bytes(&TARGET_PATTERN),
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 64];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        assert!(header.is_channel_message);
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 64];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: SetTarget<'_> = frame_to_message(frame).unwrap();
         assert_eq!(decoded, original);
     }
 
