@@ -180,6 +180,9 @@ mod tests {
     use crate::keys::{PublicKey, SecretKey};
     use embedded_io_adapters::tokio_1::FromTokio;
     use ii_sv2_crypto::KeyGen;
+    use ii_sv2_framing::{FrameCodec, frame_to_message};
+    use ii_sv2_messages::{DeviceInfo, SetupConnection};
+    use ii_sv2_types::Str0_255;
 
     /// Same `Dev` shape as in `handshake.rs` — local entropy + secp256k1 ctx.
     struct Dev {
@@ -244,5 +247,48 @@ mod tests {
     #[tokio::test]
     async fn paired_codecs_fixture_builds() {
         let (_i, _r) = paired_codecs().await;
+    }
+
+    #[tokio::test]
+    async fn roundtrip_single_message() {
+        let (mut i_codec, mut r_codec) = paired_codecs().await;
+
+        let outbound = SetupConnection {
+            protocol: 0,
+            min_version: 2,
+            max_version: 2,
+            flags: 0,
+            endpoint_host: Str0_255::try_from("pool.example.com").unwrap(),
+            endpoint_port: 3333,
+            device: DeviceInfo {
+                vendor: Str0_255::try_from("Bitmain").unwrap(),
+                hw_rev: Str0_255::try_from("S9i").unwrap(),
+                fw_ver: Str0_255::try_from("bos-2018").unwrap(),
+                dev_id: Str0_255::try_from("d1").unwrap(),
+            },
+        };
+
+        // Initiator side: encode the message into a wire buffer.
+        let mut wire = [0u8; 1024];
+        let n = i_codec.encode(&outbound, &mut wire).expect("encode");
+
+        // Responder side: receive HEADER_WIRE_SIZE bytes, decode header,
+        // receive payload bytes, decode frame.
+        let mut hbuf = [0u8; EncryptedCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..EncryptedCodec::HEADER_WIRE_SIZE]);
+        let header = r_codec.decode_header(&mut hbuf).expect("decode_header");
+
+        let pn = EncryptedCodec::payload_wire_size(header.msg_length as usize);
+        assert_eq!(EncryptedCodec::HEADER_WIRE_SIZE + pn, n);
+
+        let mut pbuf = [0u8; 1024];
+        pbuf[..pn].copy_from_slice(
+            &wire[EncryptedCodec::HEADER_WIRE_SIZE..EncryptedCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = r_codec.decode_frame(header, &mut pbuf[..pn]).expect("decode_frame");
+        let received: SetupConnection<'_> =
+            frame_to_message(frame).expect("frame_to_message");
+
+        assert_eq!(received, outbound);
     }
 }
