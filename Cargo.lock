@@ -151,6 +151,9 @@ dependencies = [
 name = "asic-cpu-mock"
 version = "0.1.0"
 dependencies = [
+ "embassy-futures",
+ "embassy-time",
+ "sha2",
  "stratum-client",
 ]
 

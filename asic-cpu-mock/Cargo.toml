@@ -7,4 +7,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-stratum-client = { workspace = true }
+embassy-futures = { workspace = true }
+embassy-time    = { workspace = true }
+sha2            = { workspace = true }
+stratum-client  = { workspace = true }

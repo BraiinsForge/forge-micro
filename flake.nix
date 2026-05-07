@@ -598,6 +598,12 @@
             cargoExtraArgs = "-p stratum-client";
           };
 
+          test-asic-cpu-mock = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p asic-cpu-mock";
+          };
+
           clippy-esp32s3 = espCraneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
