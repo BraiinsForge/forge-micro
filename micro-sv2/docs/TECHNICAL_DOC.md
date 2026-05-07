@@ -105,20 +105,17 @@ members = ["crypto", "framing", "messages", "security", "types", "ii-sv2"]
 exclude = ["interop-test"]
 
 [workspace.dependencies]
-serde            = { version = "1",   default-features = false, features = ["derive"] }
 secp256k1        = { version = "0.31", default-features = false }
-sha2             = { version = "0.10", default-features = false }
-hkdf             = { version = "0.12", default-features = false }
+sha2             = { version = "0.11", default-features = false }
+hkdf             = { version = "0.13", default-features = false }
 chacha20poly1305 = { version = "0.10", default-features = false }
 bs58             = { version = "0.5",  default-features = false, features = ["check"] }
-embedded-io-async = { version = "0.6", default-features = false }
+embedded-io-async = { version = "0.7", default-features = false }
 ```
 
-`serde` is in `[workspace.dependencies]` for historical reasons but
-**no production crate currently depends on it** — `types`/`framing`/
-`messages`/`security` were intentionally migrated to a hand-rolled
-codec pair. The workspace entry can be retired once we confirm no
-crate (including future ones) needs it.
+The crate previously listed `serde` here for historical reasons; it
+has been retired since `types`/`framing`/`messages`/`security` use a
+hand-rolled codec pair instead.
 
 ## 3. Testing Strategy
 

@@ -7,7 +7,6 @@ members = ["crypto", "framing", "messages", "security", "types", "ii-sv2"]
 exclude = ["interop-test"]
 
 [workspace.dependencies]
-serde            = { version = "1",      default-features = false, features = ["derive"] }
 secp256k1        = { version = "0.31",   default-features = false }
 sha2             = { version = "0.11",   default-features = false }
 hkdf             = { version = "0.13",   default-features = false }
