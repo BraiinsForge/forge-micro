@@ -12,22 +12,25 @@
 //! ```sh
 //! POOL=pool.example:34254 \
 //! USER=worker.name \
-//! POOL_PUBKEY=<64 hex chars of the pool's authority public key> \
+//! POOL_PUBKEY=<base58check pool authority public key> \
 //!   cargo run --example client_probe -p stratum-v2
 //! ```
 //!
-//! `POOL_PUBKEY` is optional — if unset, the probe falls back to
-//! `ValidateNothing`, which accepts any responder certificate
-//! (suitable only for test pools you control).
+//! `POOL_PUBKEY` is the SV2-spec base58check encoding (the same
+//! string the pool publishes). It is optional — if unset, the
+//! probe falls back to `ValidateNothing`, which accepts any
+//! responder certificate (suitable only for test pools you
+//! control).
 
 use std::env;
 use std::fmt::Write as _;
+use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use embedded_io_adapters::tokio_1::FromTokio;
-use ii_sv2::security::{secp256k1, CryptoCtx, Rng as Sv2Rng};
+use ii_sv2::security::{secp256k1, CryptoCtx, PublicKey, Rng as Sv2Rng};
 use mining_protocol::{MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -136,29 +139,11 @@ fn hex_msb(bytes: &[u8; 32]) -> String {
     out
 }
 
-fn parse_pubkey(hex: &str) -> Result<[u8; 32]> {
-    if hex.len() != 64 {
-        return Err(anyhow!(
-            "POOL_PUBKEY must be 64 hex chars (got {})",
-            hex.len()
-        ));
-    }
-    let mut out = [0u8; 32];
-    for (index, chunk) in hex.as_bytes().chunks_exact(2).enumerate() {
-        let hi = decode_hex_nibble(chunk[0])?;
-        let lo = decode_hex_nibble(chunk[1])?;
-        out[index] = (hi << 4) | lo;
-    }
-    Ok(out)
-}
-
-fn decode_hex_nibble(byte: u8) -> Result<u8> {
-    match byte {
-        b'0'..=b'9' => Ok(byte - b'0'),
-        b'a'..=b'f' => Ok(byte - b'a' + 10),
-        b'A'..=b'F' => Ok(byte - b'A' + 10),
-        _ => Err(anyhow!("invalid hex character: {:?}", byte as char)),
-    }
+/// Parse the SV2-spec base58check public key into the raw 32-byte
+/// xonly form `Sv2Config::pool_pubkey` expects.
+fn parse_pubkey(encoded: &str) -> Result<[u8; 32]> {
+    let key = PublicKey::from_str(encoded).map_err(|err| anyhow!("{err:?}"))?;
+    Ok(key.into())
 }
 
 #[tokio::main(flavor = "current_thread")]
