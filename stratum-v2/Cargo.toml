@@ -16,6 +16,10 @@ mining-protocol   = { workspace = true }
 [dev-dependencies]
 anyhow               = "1"
 embedded-io-adapters = { version = "0.7", features = ["tokio-1"] }
+# The host probe constructs `CryptoCtx::new()` which needs alloc;
+# the lib itself stays no_std + no-alloc, and firmware consumers
+# inherit the workspace default of `default-features = false`.
+ii-sv2               = { workspace = true, features = ["alloc"] }
 rand                 = "0.8"
 tokio                = { version = "1", features = ["rt", "macros", "io-util", "net"] }
 

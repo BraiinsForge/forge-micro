@@ -692,12 +692,23 @@
                 libudev-zero
                 picocom
                 usbutils
+                # Cross C compiler for crates with C sources
+                # (e.g. secp256k1-sys via stratum-v2's V2 feature).
+                # Each rustc target needs a `CC_<target>` env var
+                # below; cc-rs' fallback to host `gcc` does not
+                # work for thumb targets.
+                gcc-arm-embedded
               ]
               ++ [ deploy-rs.packages.${system}.default ];
 
             PROBE_RS_REMOTE_HOST = probeRsHost;
             PROBE_RS_REMOTE_TOKEN = probeRsToken;
             RUST_ANALYZER_SERVER_PATH = "${rustToolchain}/bin/rust-analyzer";
+
+            CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            CC_thumbv7em_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
 
             shellHook = ''
               echo "eth-examples dev environment ready (ARM boards)"
