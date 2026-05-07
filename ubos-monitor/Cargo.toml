@@ -6,11 +6,19 @@ version = "0.1.0"
 [lints]
 workspace = true
 
+[features]
+default = ["defmt"]
+defmt   = [
+    "dep:defmt",
+    "embassy-time/defmt",
+    "ubos-logging/defmt",
+]
+
 [dependencies]
 embassy-time     = { workspace = true }
-embassy-sync     = { workspace = true, features = ["defmt"] }
-defmt            = { workspace = true }
+defmt            = { workspace = true, optional = true }
 portable-atomic  = { workspace = true }
-eth-examples     = { workspace = true }
+eth-examples     = { workspace = true, default-features = false }
 heapless         = { workspace = true }
 libm             = "0.2"
+ubos-logging     = { workspace = true }

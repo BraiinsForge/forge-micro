@@ -23,12 +23,12 @@ mod tests_threshold;
 
 use core::sync::atomic::Ordering;
 
-use defmt::{error, info, warn};
 use embassy_time::{Duration, Instant, Ticker};
 use eth_examples::consts::Temperature;
 use eth_examples::metrics::{push, Metric, Value};
 use eth_examples::temperature::TemperatureSensor;
 use portable_atomic::AtomicBool;
+use ubos_logging::{error, info, warn};
 
 use crate::pid::TempControl;
 use crate::threshold::{evaluate, Action, Limits};
@@ -118,7 +118,7 @@ where
     // PID.
     let late_threshold = config.sample_interval * 2;
 
-    info!("monitor: started (target={=f32}°C)", config.target_temp_c);
+    info!("monitor: started (target={}°C)", config.target_temp_c);
 
     loop {
         ticker.next().await;
@@ -149,27 +149,27 @@ where
         match evaluate(temp_c, halted, &limits) {
             Action::Ok => {
                 if was_hot {
-                    info!("monitor: cooled to {=f32}°C", temp_c);
+                    info!("monitor: cooled to {}°C", temp_c);
                     was_hot = false;
                 }
             }
             Action::Hot => {
                 if !was_hot {
-                    warn!("monitor: hot {=f32}°C pwm={=u8}", temp_c, pid_pwm);
+                    warn!("monitor: hot {}°C pwm={}", temp_c, pid_pwm);
                     was_hot = true;
                 }
             }
             Action::EnterHalt => {
                 HALT_MINING.store(true, Ordering::Relaxed);
                 error!(
-                    "monitor: dangerous temperature {=f32}°C, halting mining",
+                    "monitor: dangerous temperature {}°C, halting mining",
                     temp_c
                 );
                 was_hot = false;
             }
             Action::Resume => {
                 HALT_MINING.store(false, Ordering::Relaxed);
-                warn!("monitor: cooled to {=f32}°C, resuming mining", temp_c);
+                warn!("monitor: cooled to {}°C, resuming mining", temp_c);
                 was_hot = false;
             }
         }
