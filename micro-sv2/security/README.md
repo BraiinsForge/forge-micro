@@ -37,48 +37,54 @@ serialization.
 
 ```rust
 use core::str::FromStr;
-use ii_sv2_security::{PublicKey, SecretKey};
+use ii_sv2_security::{CryptoCtx, PublicKey, SecretKey};
 
-let ctx = secp256k1::Secp256k1::new(); // or a preallocated context on embedded
+let ctx = CryptoCtx::new();
 let sk = SecretKey::new([0x42; 32]);
 
-// Display gives the base58check string.
 let encoded = format!("{}", sk);
 assert!(encoded.starts_with("priv"));
 
-// Parse back.
 let sk2: SecretKey = encoded.parse().unwrap();
 assert_eq!(sk, sk2);
 
 // Derive the matching public key (no global secp256k1 context — pass yours).
-let pk = PublicKey::from_secret_key(&sk, &ctx).unwrap();
+let pk = PublicKey::from_secret_key(&sk, ctx.as_secp256k1()).unwrap();
 ```
 
 ## Quick example — async handshake
 
 ```rust
-use ii_sv2_security::{accept, initiate, ValidateNothing, EstablishedSession};
+use ii_sv2_security::{CryptoCtx, Rng, accept, initiate, ValidateNothing};
 
-// Caller supplies a KeyGen impl (RNG + secp256k1 context). On embedded:
-// wrap the platform RNG and a `Secp256k1::preallocated_*` context.
-struct MyKeyGen { /* ... */ }
-impl ii_sv2_crypto::KeyGen for MyKeyGen { /* ... */ }
+// Caller supplies an `Rng` impl. One method.
+struct MyRng;
+impl Rng for MyRng {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        // Plug in the platform CSPRNG.
+    }
+}
 
-// Initiator side: takes any embedded-io-async Read+Write.
-async fn client(io: &mut impl embedded_io_async::Read + embedded_io_async::Write) {
-    let session = initiate(io, MyKeyGen::new(), ValidateNothing).await.unwrap();
+// Build the secp256k1 context once and reuse.
+async fn client(io: &mut (impl embedded_io_async::Read + embedded_io_async::Write)) {
+    let ctx = CryptoCtx::new();
+    let session = initiate(io, MyRng, &ctx, ValidateNothing).await.unwrap();
     // Use session.transport for application traffic.
 }
 
-// Responder side: needs the certificate bundle (cert + private static key).
 async fn server(
-    io: &mut impl embedded_io_async::Read + embedded_io_async::Write,
+    io: &mut (impl embedded_io_async::Read + embedded_io_async::Write),
     cert: &ii_sv2_security::CertificateWithPrivateKey,
 ) {
-    let session = accept(io, MyKeyGen::new(), cert).await.unwrap();
+    let ctx = CryptoCtx::new();
+    let session = accept(io, MyRng, &ctx, cert).await.unwrap();
     // ...
 }
 ```
+
+For an embedded `no_std` target, replace `CryptoCtx::new()` with
+`CryptoCtx::preallocated(&mut buf)` over a static buffer. See the
+umbrella crate's rustdoc for a worked example.
 
 The handshake driver does no `spawn`, no timers, and no async
 synchronisation primitives — it is just a `Future`. Whoever polls it
@@ -92,8 +98,9 @@ it.
   and `Display` impls then `f.write_str` the result — no `String`, no `Vec`.
 * No `std::time` — `ValidateTime` (next phase) takes a user-supplied
   `Clock` trait.
-* `secp256k1` with `default-features = false`. Callers supply their own
-  preallocated context.
+* `secp256k1` with `default-features = false`. The default `alloc`
+  feature on this crate enables `CryptoCtx::new()`; for embedded
+  targets use `CryptoCtx::preallocated` over a static buffer.
 
 ## References
 

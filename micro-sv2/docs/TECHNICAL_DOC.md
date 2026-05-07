@@ -39,7 +39,9 @@ Engineer/contributor handbook. For *how to use it* see
     dispatch enum. Depends on `types` + `framing`.
   - **`crypto/`** — internal crypto primitives wrapping `secp256k1`,
     `sha2`, `hkdf`, `chacha20poly1305`. Provides `HandShake`,
-    `TransportState`, `KeyGen`. **Not** exposed via the umbrella crate.
+    `TransportState`, `Rng`, `CryptoCtx`. The latter two are also
+    re-exported by `security/` (and thus by the umbrella) so user
+    code never needs to import `ii-sv2-crypto` directly.
   - **`security/`** — bridge crate combining noise + framing into the
     user-facing handshake driver and `EncryptedCodec`. Depends on
     `crypto`, `framing`, `types`.

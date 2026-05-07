@@ -10,13 +10,17 @@ RustCrypto primitives in place of ring.
 
 ## Workflow
 
-1. **Implement [`KeyGen`].** Plug in the platform's CSPRNG and a long-lived
-   `secp256k1::Secp256k1` context.
-2. **Generate the responder's static keypair** with
-   `KeyGen::new_keypair()`. This is what authenticates the responder.
-3. **Drive the handshake.** Alternate `write_message` / `read_message`,
+1. **Implement [`Rng`].** Plug in the platform's CSPRNG. The trait
+   has one method, `fill_bytes`.
+2. **Build a [`CryptoCtx`] once at startup.** This holds the
+   secp256k1 precomputation tables. Reuse it for every operation —
+   it has no secret state.
+3. **Generate the responder's static keypair** with
+   `keys::new_keypair(&mut rng, &ctx)`. This is what authenticates
+   the responder.
+4. **Drive the handshake.** Alternate `write_message` / `read_message`,
    carrying bytes over the wire, until both sides report `finish()`.
-4. **Use the [`TransportState`]** for application data: `write_message` /
+5. **Use the [`TransportState`]** for application data: `write_message` /
    `write_message_inplace` to seal, `read_message` / `read_message_inplace`
    to open.
 
@@ -25,17 +29,18 @@ The initiator does not have a static key in NX — only the responder does.
 ## Quick example
 
 ```rust
-use ii_sv2_crypto::{HandShake, KeyGen};
+use ii_sv2_crypto::{CryptoCtx, HandShake, Rng, keys::new_keypair};
 
-struct MyKeyGen { /* ... your RNG + secp256k1 ctx ... */ }
-impl KeyGen for MyKeyGen { /* ... */ }
+struct MyRng;
+impl Rng for MyRng {
+    fn fill_bytes(&mut self, dest: &mut [u8]) { /* ... your CSPRNG ... */ }
+}
 
-// Responder generates a long-term static keypair.
-let static_kp = MyKeyGen::new().new_keypair();
+let ctx = CryptoCtx::new();                     // once at startup
+let static_kp = new_keypair(&mut MyRng, &ctx);  // responder identity
 
-// Both sides set up.
-let mut initiator = HandShake::new_initiator(MyKeyGen::new());
-let mut responder = HandShake::new_responder(MyKeyGen::new(), static_kp);
+let mut initiator = HandShake::new_initiator(MyRng, &ctx);
+let mut responder = HandShake::new_responder(MyRng, &ctx, static_kp);
 
 let mut wire = [0u8; 256];
 let mut scratch = [0u8; 256];
@@ -80,9 +85,11 @@ not just the plaintext — size accordingly.
 
 ## no_std story
 
-- `secp256k1` with `default-features = false`. The `Secp256k1::new()`
-  constructor requires `alloc`; embedded users build a context with
-  `Secp256k1::preallocated_*` over a `static` buffer instead.
+- The default `alloc` feature enables `CryptoCtx::new()` (heap-allocated
+  context). For `no_std`/no-alloc targets, build with
+  `default-features = false` and construct the context with
+  `CryptoCtx::preallocated(&mut buf)` over a static buffer instead —
+  see the umbrella crate's rustdoc for a worked example.
 - `sha2`, `hkdf`, `chacha20poly1305` — RustCrypto, all `default-features = false`.
 - No `String`, no `Vec`, no `Box` anywhere in the public or internal API.
 

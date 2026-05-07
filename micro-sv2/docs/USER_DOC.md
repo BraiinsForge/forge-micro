@@ -75,6 +75,59 @@ assert_eq!(received, original);
 - **Embedded target:** verified `no_std` build — every production
   module compiles without `alloc`. Async I/O via `embedded-io-async`.
 
+### Reusable crypto context
+
+Every encrypted handshake needs a `CryptoCtx` — a wrapper around
+`secp256k1`'s precomputation tables. It holds **no secret state**
+(it's pure math), so build it once at startup and share `&ctx`
+everywhere. The state-of-the-world for the two main targets:
+
+**std (or any target with an allocator):**
+
+```rust,ignore
+use std::sync::OnceLock;
+use ii_sv2::security::{secp256k1, CryptoCtx, Rng};
+
+static CTX: OnceLock<CryptoCtx<secp256k1::All>> = OnceLock::new();
+fn ctx() -> &'static CryptoCtx<secp256k1::All> { CTX.get_or_init(CryptoCtx::new) }
+
+struct MyRng;
+impl Rng for MyRng {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        // e.g. `rand::rng().fill_bytes(dest)` or `getrandom::getrandom(dest)`.
+    }
+}
+
+// Then anywhere in the application:
+//     ii_sv2::security::initiate(&mut io, MyRng, ctx(), authenticator).await?;
+```
+
+**no_std embedded (no allocator, static buffer):**
+
+```rust,ignore
+use ii_sv2::security::{secp256k1, AlignedType, CryptoCtx};
+
+// AllPreallocated covers signing + verification (the same shape as All,
+// but with no heap allocation). Pick a buffer size large enough to
+// satisfy `CryptoCtx::preallocated_size()` at runtime; for SV2 noise
+// the typical bound is small.
+const SIZE: usize = 1024 * 64; // adjust to fit your target
+static mut CTX_BUF: [AlignedType; SIZE] = [AlignedType::ZERO; SIZE];
+
+fn main() {
+    // Build once. Hold `ctx` for the lifetime of the application.
+    let ctx = unsafe {
+        CryptoCtx::preallocated(&mut CTX_BUF).expect("preallocated context init")
+    };
+
+    // ... pass `&ctx` to every initiate/accept call ...
+}
+```
+
+`Rng` is the only trait the user implements. `CryptoCtx` is built via
+the constructor that matches the target — no `secp256k1::*` imports
+needed in user code.
+
 ## 3. Feature Overview & Journeys
 
 | Feature | Story IDs | Description | Entry Points |
@@ -89,7 +142,7 @@ assert_eq!(received, original);
 
 1. Open a TCP socket to the pool's hostname/port.
 2. Wrap it in an `embedded-io-async` adapter.
-3. Run `security::initiate(&mut socket, rng, authenticator).await` →
+3. Run `security::initiate(&mut socket, rng, &ctx, authenticator).await` →
    yields an `EstablishedSession`.
 4. Wrap the session: `let (mut codec, session_id) = EncryptedCodec::from_handshake(established);`.
 5. Encode a `SetupConnection`; push bytes to the socket; pull bytes
@@ -101,7 +154,7 @@ assert_eq!(received, original);
 
 1. Accept a TCP connection.
 2. Wrap it in `embedded-io-async`.
-3. Run `security::accept(&mut socket, rng, &cert_with_priv).await` →
+3. Run `security::accept(&mut socket, rng, &ctx, &cert_with_priv).await` →
    yields an `EstablishedSession` (no `remote_identity` for NX
    responder).
 4. Same `EncryptedCodec::from_handshake` and dispatch loop.
