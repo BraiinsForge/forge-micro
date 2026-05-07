@@ -7,6 +7,7 @@
 
 #![no_std]
 
+mod client;
 mod error;
 mod job;
 mod job_id;
@@ -14,6 +15,7 @@ mod lazy_merkle;
 mod session;
 mod share;
 
+pub use crate::client::{MiningClient, MiningClientVisitor};
 pub use crate::error::Error;
 pub use crate::job::MiningJob;
 pub use crate::job_id::JobId;
