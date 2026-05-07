@@ -1,23 +1,31 @@
 //! `StratumV2Client` — Stratum V2 adapter wrapping `ii-sv2`.
 //!
-//! This commit lands `connect`: noise NX handshake via
-//! `ii_sv2::security::initiate`, then synchronous `SetupConnection`
-//! and `OpenStandardMiningChannel` over the `EncryptedCodec` that
-//! results. `drive` and `accept` arrive in the next commits;
-//! `submit` lands once `SubmitSharesStandard` is in `ii-sv2`.
+//! `connect` performs the noise NX handshake via
+//! `ii_sv2::security::initiate`, then sends `SetupConnection` and
+//! `OpenStandardMiningChannel` over the `EncryptedCodec` it
+//! produces. `drive` reads one encrypted frame and decrypts it in
+//! place; `accept` dispatches the most recently buffered frame to
+//! the visitor. `submit` lands once `SubmitSharesStandard` is in
+//! `ii-sv2`.
 
 use embedded_io_async::{Read, Write};
-use ii_sv2::framing::{FrameCodec, Header};
-use ii_sv2::messages::{DeviceInfo, OpenStandardMiningChannel, SetupConnection};
+use ii_sv2::framing::{FrameCodec, FrameView, Header, MessageGroup};
+use ii_sv2::messages::{
+    DeviceInfo, MiningMessages, NewMiningJob, OpenStandardMiningChannel,
+    OpenStandardMiningChannelSuccess, SetNewPrevHash, SetTarget, SetupConnection,
+};
 use ii_sv2::security::{
     initiate, secp256k1, CryptoCtx, EncryptedCodec, EstablishedSession, PublicKey, Rng,
     ValidateNothing, ValidateSignature,
 };
 use ii_sv2::types::{Str0_255, Uint256};
-use mining_protocol::{Error, MiningClient, MiningClientVisitor, Share};
+use mining_protocol::{
+    Error, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share,
+};
 
 use crate::auth::AuthChoice;
 use crate::config::Sv2Config;
+use crate::state::{PendingFutureJob, V2SessionState, MAX_EXTRANONCE_PREFIX};
 
 /// Encrypted SV2 header on the wire: 6-byte header + 16-byte MAC.
 /// `EncryptedCodec::HEADER_WIRE_SIZE` matches; reserved here as a
@@ -57,17 +65,19 @@ const DEVICE_ID: &str = "";
 const OPEN_CHANNEL_REQUEST_ID: u32 = 1;
 
 /// Adapter state — `PreHandshake` until `connect` finishes the
-/// noise dance, `Connected { codec }` afterwards.
+/// noise dance, `Connected { codec, session }` afterwards.
+//
+// `Connected` is the dominant variant once the handshake
+// completes; the enum lives in one static slot on
+// `StratumV2Client`, so the size delta from `PreHandshake` is
+// allocated unconditionally either way. No alloc is available on
+// embedded targets, so `Box`ing is not an option.
+#[allow(clippy::large_enum_variant)]
 enum V2State {
     PreHandshake,
     Connected {
         codec: EncryptedCodec,
-        /// `channel_id` from `OpenStandardMiningChannelSuccess`,
-        /// populated by `accept` once the response arrives. Until
-        /// then, `submit` errors with `UnknownJobId`. Read in the
-        /// `accept` dispatch (next commit).
-        #[allow(dead_code)]
-        channel_id: Option<u32>,
+        session: V2SessionState,
     },
 }
 
@@ -238,7 +248,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
 
         self.state = V2State::Connected {
             codec,
-            channel_id: None,
+            session: V2SessionState::new(),
         };
         Ok(())
     }
@@ -330,16 +340,196 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
     }
 
     /// Dispatch the most recently decrypted frame to `visitor`.
-    /// `MiningMessages` dispatch + translation to `MiningJob` /
-    /// `SessionUpdate` / `SubmitResult` lands in the next commit.
-    /// For now `accept` only resets the receive state machine so
-    /// the next `drive` can read another frame; visitor stays
-    /// silent.
-    fn accept<V: MiningClientVisitor>(&mut self, _visitor: &mut V) {
-        if matches!(self.frame_state, FrameState::PayloadReady { .. }) {
-            self.frame_state = FrameState::Idle;
+    ///
+    /// Builds a `FrameView` over the plaintext that `drive` left in
+    /// `wire_buffer`, translates the `MiningMessages` variant into
+    /// the visitor's canonical `MiningJob` / `SessionUpdate` shape,
+    /// and resets the receive state machine so the next `drive` can
+    /// read another frame. Unknown or malformed frames are dropped
+    /// silently — defmt logging lands in a later commit.
+    fn accept<V: MiningClientVisitor>(&mut self, visitor: &mut V) {
+        let FrameState::PayloadReady { header } = self.frame_state else {
+            return;
+        };
+        // Reset before dispatch: even on parse failure the next
+        // drive must be free to read.
+        self.frame_state = FrameState::Idle;
+
+        let payload_len = header.msg_length as usize;
+        if payload_len > self.wire_buffer.len() {
+            return;
+        }
+        let Ok(frame) = FrameView::try_new(header, &self.wire_buffer[..payload_len]) else {
+            return;
+        };
+        let Ok(message) = MiningMessages::dispatch(frame) else {
+            return;
+        };
+
+        let V2State::Connected { session, .. } = &mut self.state else {
+            return;
+        };
+
+        match message {
+            MiningMessages::OpenStandardMiningChannelSuccess(success) => {
+                handle_channel_open_success(session, &success, visitor);
+            }
+            MiningMessages::SetTarget(set_target) => {
+                handle_set_target(session, &set_target, visitor);
+            }
+            MiningMessages::SetNewPrevHash(snph) => {
+                handle_set_new_prev_hash(session, &snph, visitor);
+            }
+            MiningMessages::NewMiningJob(job) => {
+                handle_new_mining_job(session, &job, visitor);
+            }
+            // Server-initiated `SetupConnection` / `OpenStandardMiningChannel`
+            // never arrives at a client, and `SetupConnectionSuccess`
+            // carries no fields the trait surface exposes today
+            // (the firmware requests `flags = 0`, so version
+            // rolling is not negotiated). Errors are dropped here;
+            // defmt logging lands in a later commit.
+            MiningMessages::SetupConnection(_)
+            | MiningMessages::SetupConnectionSuccess(_)
+            | MiningMessages::SetupConnectionError(_)
+            | MiningMessages::OpenStandardMiningChannel(_)
+            | MiningMessages::OpenMiningChannelError(_) => {}
         }
     }
+}
+
+/// `OpenStandardMiningChannelSuccess` carries the operating
+/// `channel_id`, the initial `target`, and the `extranonce_prefix`
+/// the standard channel will use. All three are persisted on
+/// `session`; the visitor then sees `SetTarget` and `SetExtranonce`
+/// updates so the integration layer can stamp them into the next
+/// `MiningJob`.
+fn handle_channel_open_success<V: MiningClientVisitor>(
+    session: &mut V2SessionState,
+    success: &OpenStandardMiningChannelSuccess<'_>,
+    visitor: &mut V,
+) {
+    session.channel_id = Some(success.channel_id);
+    session.target.copy_from_slice(success.target.to_le_bytes());
+    let prefix = success.extranonce_prefix.as_slice();
+    let prefix_len = prefix.len().min(MAX_EXTRANONCE_PREFIX);
+    session.extranonce_prefix_len = prefix_len;
+    session.extranonce_prefix[..prefix_len].copy_from_slice(&prefix[..prefix_len]);
+    visitor.visit_session_update(SessionUpdate::SetTarget(&session.target));
+    visitor.visit_session_update(SessionUpdate::SetExtranonce {
+        prefix: &session.extranonce_prefix[..session.extranonce_prefix_len],
+        en2_size: 0,
+    });
+}
+
+/// Mid-session `SetTarget` overwrites the channel target.
+fn handle_set_target<V: MiningClientVisitor>(
+    session: &mut V2SessionState,
+    set_target: &SetTarget<'_>,
+    visitor: &mut V,
+) {
+    session
+        .target
+        .copy_from_slice(set_target.max_target.to_le_bytes());
+    visitor.visit_session_update(SessionUpdate::SetTarget(&session.target));
+}
+
+/// `SetNewPrevHash` advances the chain tip. It records the new
+/// `prev_hash`, `nbits`, and `min_ntime` base, then activates any
+/// pending future job whose wire `job_id` matches.
+fn handle_set_new_prev_hash<V: MiningClientVisitor>(
+    session: &mut V2SessionState,
+    snph: &SetNewPrevHash<'_>,
+    visitor: &mut V,
+) {
+    session
+        .prev_hash
+        .copy_from_slice(snph.prev_hash.to_le_bytes());
+    session.have_prev_hash = true;
+    session.nbits = snph.nbits;
+    session.ntime_base = snph.min_ntime;
+
+    let Some(pending) = session.pending_future_job.take() else {
+        return;
+    };
+    if pending.wire_job_id != snph.job_id {
+        // Future job was for a different job_id — drop it; the
+        // pool will resend if it still applies.
+        return;
+    }
+    emit_mining_job(
+        session,
+        pending.version,
+        &pending.merkle_root,
+        snph.min_ntime,
+        true,
+        visitor,
+    );
+}
+
+/// `NewMiningJob` either activates immediately (when `min_ntime` is
+/// `Some`, meaning the job applies to the current `prev_hash`) or
+/// is queued as a pending future job (when `min_ntime` is `None`,
+/// meaning it activates with a later `SetNewPrevHash`).
+fn handle_new_mining_job<V: MiningClientVisitor>(
+    session: &mut V2SessionState,
+    job: &NewMiningJob<'_>,
+    visitor: &mut V,
+) {
+    if let Some(ntime) = job.min_ntime {
+        if !session.have_prev_hash {
+            // Pool sent an active job before any prev hash — drop;
+            // the next `SetNewPrevHash` will reset state.
+            return;
+        }
+        emit_mining_job(
+            session,
+            job.version,
+            job.merkle_root.to_le_bytes(),
+            ntime,
+            false,
+            visitor,
+        );
+        return;
+    }
+
+    let mut merkle_root = [0u8; 32];
+    merkle_root.copy_from_slice(job.merkle_root.to_le_bytes());
+    session.pending_future_job = Some(PendingFutureJob {
+        wire_job_id: job.job_id,
+        version: job.version,
+        merkle_root,
+    });
+}
+
+/// Allocate a `JobId`, build the canonical `MiningJob`, and hand it
+/// to `visitor`. The `merkle_root` borrow can come from either the
+/// wire buffer (immediate `NewMiningJob`) or the pending-future
+/// slot — either is valid for the duration of the visitor call.
+fn emit_mining_job<V: MiningClientVisitor>(
+    session: &mut V2SessionState,
+    version: u32,
+    merkle_root: &[u8; 32],
+    ntime: u32,
+    clean_jobs: bool,
+    visitor: &mut V,
+) {
+    let job_id = session.allocate_job_id();
+    let mining_job = MiningJob {
+        id: job_id,
+        prev_hash: &session.prev_hash,
+        target: &session.target,
+        version,
+        version_rolling_mask: session.version_rolling_mask,
+        nbits: session.nbits,
+        ntime,
+        clean_jobs,
+        // V2 standard channels do not carry `extranonce_2` —
+        // every share rolls only the nonce/ntime/version bits.
+        extranonce_2_size: 0,
+        merkle: LazyMerkle::Final(merkle_root),
+    };
+    visitor.visit_new_job(mining_job);
 }
 
 /// Coarse mapping from the rich `InitializationError` to our trait's

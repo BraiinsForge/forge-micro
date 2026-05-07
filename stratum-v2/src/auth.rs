@@ -6,8 +6,8 @@
 //! one enum that itself implements `Authenticator`.
 
 use ii_sv2::security::{
-    secp256k1, AuthenticationError, Authenticator, CertificateHeader, Signature,
-    ValidateNothing, ValidateSignature,
+    secp256k1, AuthenticationError, Authenticator, CertificateHeader, Signature, ValidateNothing,
+    ValidateSignature,
 };
 
 /// Either no validation (test pools) or signature validation against
@@ -18,11 +18,7 @@ pub enum AuthChoice<'a, C: secp256k1::Verification> {
 }
 
 impl<C: secp256k1::Verification> Authenticator for AuthChoice<'_, C> {
-    fn check(
-        &self,
-        hdr: CertificateHeader,
-        sig: Signature,
-    ) -> Result<(), AuthenticationError> {
+    fn check(&self, hdr: CertificateHeader, sig: Signature) -> Result<(), AuthenticationError> {
         match self {
             Self::Nothing(v) => v.check(hdr, sig),
             Self::Signature(v) => v.check(hdr, sig),
