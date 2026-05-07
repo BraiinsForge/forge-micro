@@ -6,6 +6,11 @@ edition = "2024"
 [features]
 default = ["alloc"]
 alloc = ["secp256k1/alloc"]
+# Enables the libsecp256k1 lowmemory build flags
+# (ECMULT_WINDOW_SIZE=4, ECMULT_GEN_PREC_BITS=2). The verify
+# precomputation table drops from ~1 MB to ~16 KB, at a small
+# verification-speed cost. Needed for embedded targets.
+lowmemory = ["secp256k1/lowmemory"]
 
 [dependencies]
 secp256k1        = { workspace = true }

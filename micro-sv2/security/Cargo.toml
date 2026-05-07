@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 default = ["alloc"]
 alloc = ["ii-sv2-crypto/alloc"]
+lowmemory = ["ii-sv2-crypto/lowmemory"]
 
 [dependencies]
 ii-sv2-crypto     = { path = "../crypto", default-features = false }
