@@ -6,6 +6,7 @@
 
 #![no_std]
 
+mod auth;
 mod client;
 mod config;
 
