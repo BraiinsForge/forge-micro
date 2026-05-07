@@ -1,0 +1,10 @@
+[package]
+edition = "2021"
+name    = "asic-cpu-mock"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+stratum-client = { workspace = true }

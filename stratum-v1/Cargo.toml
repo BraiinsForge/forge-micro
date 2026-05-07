@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name    = "stratum-v1-core"
+name    = "stratum-v1"
 version = "0.1.0"
 
 [dependencies]

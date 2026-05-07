@@ -31,7 +31,7 @@ use embedded_io_async::Write;
 use portable_atomic::Ordering;
 use sha2::{Digest, Sha256};
 use static_cell::ConstStaticCell;
-use stratum_v1_core::{
+use stratum_v1::{
     encode_authorize, encode_configure, encode_submit, encode_subscribe, parse_boolean_result,
     parse_incoming, parse_subscribe_result, parse_version_rolling_mask, Authorize, Configure,
     LineBuffer, Notification, Rpc, Submit, Subscribe,

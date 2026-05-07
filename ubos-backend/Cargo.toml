@@ -30,5 +30,5 @@ heapless          = { workspace = true }
 portable-atomic   = { workspace = true }
 sha2              = { workspace = true }
 static_cell       = { workspace = true }
-stratum-v1-core   = { workspace = true }
+stratum-v1        = { workspace = true }
 ubos-logging      = { workspace = true }

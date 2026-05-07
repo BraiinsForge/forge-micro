@@ -1,0 +1,10 @@
+[package]
+edition = "2021"
+name    = "stratum-v2"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+mining-protocol = { workspace = true }

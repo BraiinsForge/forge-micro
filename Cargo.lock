@@ -148,6 +148,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "asic-cpu-mock"
+version = "0.1.0"
+dependencies = [
+ "stratum-client",
+]
+
+[[package]]
 name = "asic-interface"
 version = "0.1.0"
 dependencies = [
@@ -1888,6 +1895,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "eth-examples-host"
+version = "0.1.0"
+dependencies = [
+ "stratum-client",
+]
+
+[[package]]
 name = "event-listener"
 version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2496,6 +2510,10 @@ name = "micromath"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3c8dda44ff03a2f238717214da50f65d5a53b45cd213a7370424ffdb6fae815"
+
+[[package]]
+name = "mining-protocol"
+version = "0.1.0"
 
 [[package]]
 name = "mmm"
@@ -3529,13 +3547,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "stratum-v1-core"
+name = "stratum-client"
+version = "0.1.0"
+dependencies = [
+ "mining-protocol",
+]
+
+[[package]]
+name = "stratum-v1"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "heapless 0.8.0",
  "serde",
  "serde-json-core",
+]
+
+[[package]]
+name = "stratum-v2"
+version = "0.1.0"
+dependencies = [
+ "mining-protocol",
 ]
 
 [[package]]
@@ -3776,7 +3808,7 @@ dependencies = [
  "portable-atomic",
  "sha2",
  "static_cell",
- "stratum-v1-core",
+ "stratum-v1",
  "ubos-logging",
 ]
 

@@ -47,6 +47,7 @@ members = [
     "firmware/stm32f407",
     "firmware/stm32f439",
     "firmware/esp32s3",
+    "asic-cpu-mock",
     "asic-interface",
     "cpu-miner",
     "dummy-asic",
@@ -54,10 +55,14 @@ members = [
     "embedded-i2c-unix",
     "embedded-serial-unix",
     "esp32s3-tsens",
+    "eth-examples-host",
+    "mining-protocol",
     "mmm",
     "rp235x-sha256",
     "serial-baudrate",
-    "stratum-v1-core",
+    "stratum-client",
+    "stratum-v1",
+    "stratum-v2",
     "ubos-backend",
     "ubos-logging",
     "ubos-psu",
@@ -90,10 +95,14 @@ format_no_std     = "1.2.0"
 nb                = "1"
 sha2              = { version = "0.10", default-features = false }
 esp32s3-tsens     = { path = "esp32s3-tsens" }
+asic-cpu-mock     = { path = "asic-cpu-mock" }
 asic-interface    = { path = "asic-interface" }
 cpu-miner         = { path = "cpu-miner" }
+mining-protocol   = { path = "mining-protocol" }
 serial-baudrate   = { path = "serial-baudrate" }
-stratum-v1-core   = { path = "stratum-v1-core" }
+stratum-client    = { path = "stratum-client" }
+stratum-v1        = { path = "stratum-v1" }
+stratum-v2        = { path = "stratum-v2" }
 ubos-backend      = { path = "ubos-backend", default-features = false }
 ubos-logging      = { path = "ubos-logging", default-features = false }
 ubos-psu          = { path = "ubos-psu", default-features = false }

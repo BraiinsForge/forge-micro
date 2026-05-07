@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 
 use anyhow::{anyhow, Result};
-use stratum_v1_core::{
+use stratum_v1::{
     encode_authorize, encode_submit, encode_subscribe, parse_incoming, parse_subscribe_result,
     Authorize, LineBuffer, Notification, Notify, Response, Rpc, Submit, Subscribe,
 };
@@ -136,7 +136,7 @@ fn handle_response(
 
 fn send_subscribe(stream: &mut TcpStream, out: &mut [u8]) -> Result<()> {
     let message = Subscribe {
-        agent_signature: Some("stratum-v1-core-probe/0.1"),
+        agent_signature: Some("stratum-v1-probe/0.1"),
         extra_nonce_1: None,
     };
     let written = encode_subscribe(out, SUBSCRIBE_ID, &message)

@@ -508,6 +508,48 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-mining-protocol = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p mining-protocol";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-stratum-v1 = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p stratum-v1";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-stratum-v2 = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p stratum-v2";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-stratum-client = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p stratum-client";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-asic-cpu-mock = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p asic-cpu-mock";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-eth-examples-host = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p eth-examples-host";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
           test = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
@@ -536,6 +578,12 @@
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p mmm";
+          };
+
+          test-stratum-v1 = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p stratum-v1";
           };
 
           clippy-esp32s3 = espCraneLib.cargoClippy {
