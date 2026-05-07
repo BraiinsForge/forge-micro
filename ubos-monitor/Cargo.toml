@@ -1,0 +1,15 @@
+[package]
+edition = "2021"
+name    = "ubos-monitor"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+embassy-time     = { workspace = true }
+embassy-sync     = { workspace = true, features = ["defmt"] }
+defmt            = { workspace = true }
+portable-atomic  = { workspace = true }
+eth-examples     = { workspace = true }
+libm             = "0.2"
