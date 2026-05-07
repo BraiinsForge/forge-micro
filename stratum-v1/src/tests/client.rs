@@ -10,7 +10,7 @@ use super::*;
 use crate::Sv1Config;
 use embedded_io_adapters::tokio_1::FromTokio;
 use mining_protocol::{
-    Error, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult,
+    Error, JobId, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share, SubmitResult,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -189,6 +189,64 @@ async fn accept_dispatches_notify_as_new_job() {
     assert_eq!(visitor.last_clean_jobs, Some(true));
     assert_eq!(visitor.last_job_version, Some(0x2000_0004));
     assert_eq!(visitor.last_extranonce_2_size, Some(4));
+}
+
+#[tokio::test]
+async fn submit_rejects_unknown_job_id() {
+    let mut client = StratumV1Client::new(&TEST_CONFIG);
+    let share = Share {
+        id: JobId(999),
+        nonce: 0,
+        ntime: 0,
+        version_bits: 0,
+        extranonce_2: &[],
+    };
+    assert!(matches!(
+        client.submit(&share),
+        Err(Error::UnknownJobId),
+    ));
+}
+
+#[tokio::test]
+async fn submit_encodes_mining_submit_with_wire_job_id() {
+    let mut client = StratumV1Client::new(&TEST_CONFIG);
+
+    // Prime extranonce_1 / extranonce_2_size and a JobId mapping by
+    // pumping a subscribe response and a notify.
+    let _ = pump_one(
+        &mut client,
+        br#"{"id":2,"result":[[["mining.notify","abc"]],"deadbeef",4],"error":null}"#,
+    )
+    .await;
+    let visitor = pump_one(&mut client, build_notify_line(false).as_bytes()).await;
+    assert_eq!(visitor.new_jobs, 1);
+
+    // The first job allocated by the adapter is JobId(0).
+    let share = Share {
+        id: JobId(0),
+        nonce: 0xdead_beef,
+        ntime: 0x6044_9522,
+        version_bits: 0,
+        extranonce_2: &[0xaa, 0xbb, 0xcc, 0xdd],
+    };
+    client.submit(&share).expect("submit must accept the known JobId");
+
+    // Drain the queued submit by driving once. drive() flushes the
+    // outbound slot before its read loop, so we pre-stage a single
+    // newline on the pool side that satisfies the read immediately.
+    let (a, mut b) = tokio::io::duplex(4096);
+    let mut a_io = FromTokio::new(a);
+    b.write_all(b"\n").await.expect("pre-stage newline");
+    let _ = client.drive(&mut a_io).await;
+
+    let mut received = [0u8; 4096];
+    let n = b.read(&mut received).await.expect("read");
+    let bytes = core::str::from_utf8(&received[..n]).expect("utf-8");
+
+    assert!(bytes.contains("\"method\":\"mining.submit\""), "{bytes}");
+    assert!(bytes.contains("\"1d2e0c4d3d\""), "wire job_id must round-trip: {bytes}");
+    assert!(bytes.contains("\"aabbccdd\""), "extranonce_2 hex: {bytes}");
+    assert!(bytes.contains("\"deadbeef\""), "nonce hex: {bytes}");
 }
 
 /// Real-pool notify shape with a 12-branch merkle path. Borrowed

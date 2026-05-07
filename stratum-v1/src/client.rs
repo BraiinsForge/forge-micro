@@ -24,7 +24,8 @@ use crate::state::{
 use crate::target::target_from_diff;
 use crate::wire::line_buffer::LineBuffer;
 use crate::wire::messages::{
-    encode_authorize, encode_configure, encode_subscribe, Authorize, Configure, Notify, Subscribe,
+    encode_authorize, encode_configure, encode_submit, encode_subscribe, Authorize, Configure,
+    Notify, Submit, Subscribe,
 };
 use crate::wire::parse::{
     parse_boolean_result, parse_incoming, parse_subscribe_result, parse_version_rolling_mask,
@@ -182,9 +183,51 @@ impl MiningClient for StratumV1Client {
         Ok(())
     }
 
-    fn submit(&mut self, _share: &Share<'_>) -> Result<(), Error> {
-        // Lands in the next commit alongside the wire format.
-        Err(Error::NotImplemented)
+    /// Encode a `mining.submit` request into the outbound slot.
+    /// Returns `Err(Error::UnknownJobId)` if `share.id` no longer
+    /// has a wire-form mapping (the `JobId` ring rotated past it),
+    /// `Err(Error::BufferTooSmall)` if the outbound slot is busy.
+    /// The next `drive()` flushes the encoded bytes.
+    fn submit(&mut self, share: &Share<'_>) -> Result<(), Error> {
+        if self.outbound_len > 0 {
+            return Err(Error::BufferTooSmall);
+        }
+
+        // Copy the wire-form job_id out of the ring so the immutable
+        // borrow ends before we mutate session for the submit id.
+        let mut wire_job_id = String::<MAX_JOB_ID_CHARS>::new();
+        let wire_borrow =
+            lookup_wire_job_id(&self.session, share.id).ok_or(Error::UnknownJobId)?;
+        wire_job_id
+            .push_str(wire_borrow)
+            .map_err(|()| Error::Adapter)?;
+
+        let submit_id = self.session.allocate_submit_id();
+
+        let mut extranonce_2_hex = String::<{ crate::scratch::MAX_EXTRANONCE_1 * 2 }>::new();
+        for byte in share.extranonce_2 {
+            let _ = write!(&mut extranonce_2_hex, "{byte:02x}");
+        }
+        let mut ntime_hex = String::<8>::new();
+        let _ = write!(&mut ntime_hex, "{:08x}", share.ntime);
+        let mut nonce_hex = String::<8>::new();
+        let _ = write!(&mut nonce_hex, "{:08x}", share.nonce);
+        let mut version_hex = String::<8>::new();
+        let _ = write!(&mut version_hex, "{:08x}", share.version_bits);
+
+        let message = Submit {
+            user_name: self.config.user,
+            job_id: wire_job_id.as_str(),
+            extra_nonce_2: extranonce_2_hex.as_str(),
+            time: ntime_hex.as_str(),
+            nonce: nonce_hex.as_str(),
+            version: version_hex.as_str(),
+        };
+        let length = encode_submit(&mut self.encode_buffer, submit_id, &message)
+            .map_err(|_| Error::BufferTooSmall)?;
+        self.outbound_len = length;
+        self.outbound_offset = 0;
+        Ok(())
     }
 
     /// One drive call: flush any queued outbound bytes, then read
@@ -432,6 +475,18 @@ fn decode_hex_u32_be(text: &str) -> Option<u32> {
         return None;
     }
     Some(u32::from_be_bytes(buf))
+}
+
+/// Translate a generic `JobId` back to the V1 wire-form string.
+/// Returns `None` if the `JobId` has been evicted from the depth-2
+/// ring.
+fn lookup_wire_job_id(session: &SessionState, generic: JobId) -> Option<&str> {
+    session
+        .job_id_ring
+        .iter()
+        .filter_map(|slot| slot.as_ref())
+        .find(|slot| slot.generic == generic)
+        .map(|slot| slot.wire.as_str())
 }
 
 /// Push the (`JobId`, wire `job_id`) pair onto the depth-2 ring.
