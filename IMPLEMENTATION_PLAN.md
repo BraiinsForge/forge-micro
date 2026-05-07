@@ -60,9 +60,8 @@ module boundary inside the crate, not a crate boundary.
 src/
   wire/                  V1 wire types and codecs
     messages.rs            existing: typed messages
-    encode.rs              new: Encode trait + per-message impls (V2-aligned)
     parse.rs               existing: parser
-    dispatch.rs            new: V1Message<'a> flat enum (replaces Rpc<'a>)
+    rpc.rs                 existing: Rpc envelope and Method enum
     line_buffer.rs         existing
   client.rs              new: MiningClient impl, state machine
   state.rs               new: session state — extranonce, mask, JobId map
@@ -607,15 +606,14 @@ Each phase is independently `cargo check`-clean, `cargo clippy
    yet. Tests for `LazyMerkle::compute` against known V1 vectors.
 3. **`mining-protocol` traits.** Define `MiningClient`,
    `MiningClientVisitor`. No impls.
-4. **`stratum-v1` internal restructure + V2 alignment.** Move
-   existing `messages.rs`, `parse.rs`, `line_buffer.rs` under
-   `src/wire/`. Move `decode_hex` from `ubos-backend` into
-   `src/hex.rs`. Add `wire/encode.rs` with the new `Encode` trait
-   and per-message impls (replacing the standalone
-   `encode_*` functions). Replace nested `Rpc<'a>` with the flat
-   `V1Message<'a>` enum in `wire/dispatch.rs`. Wire format on the
-   network is unchanged; only the internal Rust API surface
-   changes. `cargo check` and existing tests stay green.
+4. **`stratum-v1` internal restructure.** Move existing
+   `messages.rs`, `parse.rs`, `line_buffer.rs` under `src/wire/`.
+   Move `decode_hex` from `ubos-backend` into `src/hex.rs`. No new
+   public API. `cargo check` and existing tests stay green. The V2
+   alignment work (Encode trait, V1Message flat enum) is deferred
+   to a post-adapter cleanup pass — landing it now would force
+   mechanical edits across `ubos-backend` for a crate that is
+   slated for deletion in phase 9.
 5. **`stratum-v1` MiningClient impl.** Add `client.rs`,
    `state.rs`, `scratch.rs`. Implement `MiningClient` for
    `StratumV1Client`. Two-buffer scheme, JobId translation map.
