@@ -75,8 +75,8 @@ pub struct SetupConnection<'a> {
 }
 
 impl<'a> SetupConnection<'a> {
-    pub const REQUIRES_STANDARD_JOBS:   u32 = 1;
-    pub const REQUIRES_WORK_SELECTION:  u32 = 1 << 1;
+    pub const REQUIRES_STANDARD_JOBS: u32 = 1;
+    pub const REQUIRES_WORK_SELECTION: u32 = 1 << 1;
     pub const REQUIRES_VERSION_ROLLING: u32 = 1 << 2;
 }
 
@@ -296,10 +296,10 @@ pub struct OpenMiningChannelError<'a> {
 }
 
 impl<'a> OpenMiningChannelError<'a> {
-    pub const UNKNOWN_USER:          &'static str = "unknown-user";
-    pub const TOO_MANY_CHANNELS:     &'static str = "too-many-channels";
+    pub const UNKNOWN_USER: &'static str = "unknown-user";
+    pub const TOO_MANY_CHANNELS: &'static str = "too-many-channels";
     pub const DUPLICATED_REQUEST_ID: &'static str = "duplicate-request_id";
-    pub const TOO_LARGE_EXTRANONCE:  &'static str = "too-large-extranonce-requested";
+    pub const TOO_LARGE_EXTRANONCE: &'static str = "too-large-extranonce-requested";
 }
 
 impl<'a> Encode for OpenMiningChannelError<'a> {
@@ -375,8 +375,7 @@ impl<'de> Decode<'de> for NewMiningJob<'de> {
 }
 
 impl<'a> Message for NewMiningJob<'a> {
-    const DESCRIPTOR: MessageDescriptor =
-        MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x15, true);
+    const DESCRIPTOR: MessageDescriptor = MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x15, true);
 }
 
 /// Distributed when a new block is detected upstream. Clients MUST
@@ -424,8 +423,7 @@ impl<'de> Decode<'de> for SetNewPrevHash<'de> {
 }
 
 impl<'a> Message for SetNewPrevHash<'a> {
-    const DESCRIPTOR: MessageDescriptor =
-        MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x20, true);
+    const DESCRIPTOR: MessageDescriptor = MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x20, true);
 }
 
 /// Server adjusts the difficulty target on a channel.
@@ -458,8 +456,152 @@ impl<'de> Decode<'de> for SetTarget<'de> {
 }
 
 impl<'a> Message for SetTarget<'a> {
-    const DESCRIPTOR: MessageDescriptor =
-        MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x21, true);
+    const DESCRIPTOR: MessageDescriptor = MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x21, true);
+}
+
+/// Client submits a found share on a standard channel. Wire form is
+/// 24 fixed bytes (six u32 LE fields) — the smallest mining message
+/// in the protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SubmitSharesStandard {
+    pub channel_id: u32,
+    /// Per-channel monotonic counter; the server echoes the highest
+    /// observed value back in `SubmitSharesSuccess.last_sequence_number`.
+    pub sequence_number: u32,
+    pub job_id: u32,
+    pub nonce: u32,
+    pub ntime: u32,
+    pub version: u32,
+}
+
+impl Encode for SubmitSharesStandard {
+    fn encoded_len(&self) -> usize {
+        self.channel_id.encoded_len()
+            + self.sequence_number.encoded_len()
+            + self.job_id.encoded_len()
+            + self.nonce.encoded_len()
+            + self.ntime.encoded_len()
+            + self.version.encoded_len()
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        let mut n = 0;
+        n += self.channel_id.encode_to(&mut out[n..])?;
+        n += self.sequence_number.encode_to(&mut out[n..])?;
+        n += self.job_id.encode_to(&mut out[n..])?;
+        n += self.nonce.encode_to(&mut out[n..])?;
+        n += self.ntime.encode_to(&mut out[n..])?;
+        n += self.version.encode_to(&mut out[n..])?;
+        Ok(n)
+    }
+}
+
+impl<'de> Decode<'de> for SubmitSharesStandard {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        Ok(Self {
+            channel_id: u32::decode(input)?,
+            sequence_number: u32::decode(input)?,
+            job_id: u32::decode(input)?,
+            nonce: u32::decode(input)?,
+            ntime: u32::decode(input)?,
+            version: u32::decode(input)?,
+        })
+    }
+}
+
+impl Message for SubmitSharesStandard {
+    const DESCRIPTOR: MessageDescriptor = MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x1a, true);
+}
+
+/// Server's positive ack covering one or more `SubmitSharesStandard`
+/// frames. `new_shares_sum` is the cumulative diff-share count
+/// added since the last success/error pair on this channel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SubmitSharesSuccess {
+    pub channel_id: u32,
+    pub last_sequence_number: u32,
+    pub new_submits_accepted_count: u32,
+    pub new_shares_sum: u64,
+}
+
+impl Encode for SubmitSharesSuccess {
+    fn encoded_len(&self) -> usize {
+        self.channel_id.encoded_len()
+            + self.last_sequence_number.encoded_len()
+            + self.new_submits_accepted_count.encoded_len()
+            + self.new_shares_sum.encoded_len()
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        let mut n = 0;
+        n += self.channel_id.encode_to(&mut out[n..])?;
+        n += self.last_sequence_number.encode_to(&mut out[n..])?;
+        n += self.new_submits_accepted_count.encode_to(&mut out[n..])?;
+        n += self.new_shares_sum.encode_to(&mut out[n..])?;
+        Ok(n)
+    }
+}
+
+impl<'de> Decode<'de> for SubmitSharesSuccess {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        Ok(Self {
+            channel_id: u32::decode(input)?,
+            last_sequence_number: u32::decode(input)?,
+            new_submits_accepted_count: u32::decode(input)?,
+            new_shares_sum: u64::decode(input)?,
+        })
+    }
+}
+
+impl Message for SubmitSharesSuccess {
+    const DESCRIPTOR: MessageDescriptor = MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x1c, true);
+}
+
+/// Server's negative ack for a previously submitted share.
+/// `error_code` is one of the named constants below per SV2 spec;
+/// unknown codes propagate as-is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SubmitSharesError<'a> {
+    pub channel_id: u32,
+    pub sequence_number: u32,
+    pub error_code: Str0_255<'a>,
+}
+
+impl<'a> SubmitSharesError<'a> {
+    pub const INVALID_CHANNEL_ID: &'static str = "invalid-channel-id";
+    pub const STALE_SHARE: &'static str = "stale-share";
+    pub const DIFFICULTY_TOO_LOW: &'static str = "difficulty-too-low";
+    pub const INVALID_JOB_ID: &'static str = "invalid-job-id";
+}
+
+impl<'a> Encode for SubmitSharesError<'a> {
+    fn encoded_len(&self) -> usize {
+        self.channel_id.encoded_len()
+            + self.sequence_number.encoded_len()
+            + self.error_code.encoded_len()
+    }
+
+    fn encode_to(&self, out: &mut [u8]) -> Result<usize, TypeError> {
+        let mut n = 0;
+        n += self.channel_id.encode_to(&mut out[n..])?;
+        n += self.sequence_number.encode_to(&mut out[n..])?;
+        n += self.error_code.encode_to(&mut out[n..])?;
+        Ok(n)
+    }
+}
+
+impl<'de> Decode<'de> for SubmitSharesError<'de> {
+    fn decode(input: &mut &'de [u8]) -> Result<Self, TypeError> {
+        Ok(Self {
+            channel_id: u32::decode(input)?,
+            sequence_number: u32::decode(input)?,
+            error_code: Str0_255::decode(input)?,
+        })
+    }
+}
+
+impl<'a> Message for SubmitSharesError<'a> {
+    const DESCRIPTOR: MessageDescriptor = MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x1d, true);
 }
 
 use ii_sv2_framing::{FrameView, FramingError, MessageGroup, frame_to_message};
@@ -480,6 +622,9 @@ pub enum MiningMessages<'a> {
     NewMiningJob(NewMiningJob<'a>),
     SetNewPrevHash(SetNewPrevHash<'a>),
     SetTarget(SetTarget<'a>),
+    SubmitSharesStandard(SubmitSharesStandard),
+    SubmitSharesSuccess(SubmitSharesSuccess),
+    SubmitSharesError(SubmitSharesError<'a>),
 }
 
 impl<'de> MessageGroup<'de> for MiningMessages<'de> {
@@ -494,22 +639,29 @@ impl<'de> MessageGroup<'de> for MiningMessages<'de> {
         }
         match (frame.header.msg_type, frame.header.is_channel_message) {
             (0x00, false) => Ok(MiningMessages::SetupConnection(frame_to_message(frame)?)),
-            (0x01, false) => Ok(MiningMessages::SetupConnectionSuccess(
-                frame_to_message(frame)?,
-            )),
-            (0x02, false) => Ok(MiningMessages::SetupConnectionError(
-                frame_to_message(frame)?,
-            )),
-            (0x10, false) => Ok(MiningMessages::OpenStandardMiningChannel(
-                frame_to_message(frame)?,
-            )),
+            (0x01, false) => Ok(MiningMessages::SetupConnectionSuccess(frame_to_message(
+                frame,
+            )?)),
+            (0x02, false) => Ok(MiningMessages::SetupConnectionError(frame_to_message(
+                frame,
+            )?)),
+            (0x10, false) => Ok(MiningMessages::OpenStandardMiningChannel(frame_to_message(
+                frame,
+            )?)),
             (0x11, false) => Ok(MiningMessages::OpenStandardMiningChannelSuccess(
                 frame_to_message(frame)?,
             )),
-            (0x12, false) => Ok(MiningMessages::OpenMiningChannelError(
-                frame_to_message(frame)?,
-            )),
+            (0x12, false) => Ok(MiningMessages::OpenMiningChannelError(frame_to_message(
+                frame,
+            )?)),
             (0x15, true) => Ok(MiningMessages::NewMiningJob(frame_to_message(frame)?)),
+            (0x1a, true) => Ok(MiningMessages::SubmitSharesStandard(frame_to_message(
+                frame,
+            )?)),
+            (0x1c, true) => Ok(MiningMessages::SubmitSharesSuccess(frame_to_message(
+                frame,
+            )?)),
+            (0x1d, true) => Ok(MiningMessages::SubmitSharesError(frame_to_message(frame)?)),
             (0x20, true) => Ok(MiningMessages::SetNewPrevHash(frame_to_message(frame)?)),
             (0x21, true) => Ok(MiningMessages::SetTarget(frame_to_message(frame)?)),
             _ => Err(FramingError::UnknownMessage(frame.header.descriptor())),
@@ -520,14 +672,13 @@ impl<'de> MessageGroup<'de> for MiningMessages<'de> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ii_sv2_types::{Decode, Encode, Str0_255};
     use ii_sv2_types::Uint256;
+    use ii_sv2_types::{Decode, Encode, Str0_255};
 
     const TARGET_PATTERN: [u8; 32] = [
-        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+        0x1e, 0x1f,
     ];
 
     #[test]
@@ -645,8 +796,8 @@ mod tests {
         assert_eq!(
             &wire[..n],
             &[
-                0x00, 0x00, 0x01, 0x06, 0x00, 0x00,                   // header
-                0x02, 0x00, 0x01, 0x00, 0x00, 0x00,                   // body
+                0x00, 0x00, 0x01, 0x06, 0x00, 0x00, // header
+                0x02, 0x00, 0x01, 0x00, 0x00, 0x00, // body
             ]
         );
     }
@@ -925,6 +1076,100 @@ mod tests {
         match MiningMessages::dispatch(frame).unwrap() {
             MiningMessages::NewMiningJob(m) => assert_eq!(m, outbound),
             other => panic!("expected NewMiningJob, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn submit_shares_standard_roundtrip() {
+        let original = SubmitSharesStandard {
+            channel_id: 100,
+            sequence_number: 1,
+            job_id: 7,
+            nonce: 0xdead_beef,
+            ntime: 0x6044_9522,
+            version: 0x2000_0010,
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 64];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        assert!(header.is_channel_message);
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 64];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: SubmitSharesStandard = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
+
+        match MiningMessages::dispatch(frame).unwrap() {
+            MiningMessages::SubmitSharesStandard(m) => assert_eq!(m, original),
+            other => panic!("expected SubmitSharesStandard, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn submit_shares_success_roundtrip() {
+        let original = SubmitSharesSuccess {
+            channel_id: 100,
+            last_sequence_number: 42,
+            new_submits_accepted_count: 7,
+            new_shares_sum: 0x0123_4567_89ab_cdef,
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 64];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        assert!(header.is_channel_message);
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 64];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: SubmitSharesSuccess = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
+
+        match MiningMessages::dispatch(frame).unwrap() {
+            MiningMessages::SubmitSharesSuccess(m) => assert_eq!(m, original),
+            other => panic!("expected SubmitSharesSuccess, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn submit_shares_error_roundtrip() {
+        let original = SubmitSharesError {
+            channel_id: 100,
+            sequence_number: 5,
+            error_code: Str0_255::try_from(SubmitSharesError::STALE_SHARE).unwrap(),
+        };
+        let mut codec = PlaintextCodec;
+        let mut wire = [0u8; 128];
+        let _n = codec.encode(&original, &mut wire).unwrap();
+
+        let mut hbuf = [0u8; PlaintextCodec::HEADER_WIRE_SIZE];
+        hbuf.copy_from_slice(&wire[..PlaintextCodec::HEADER_WIRE_SIZE]);
+        let header = codec.decode_header(&mut hbuf).unwrap();
+        assert!(header.is_channel_message);
+        let pn = PlaintextCodec::payload_wire_size(header.msg_length as usize);
+        let mut pbuf = [0u8; 128];
+        pbuf[..pn].copy_from_slice(
+            &wire[PlaintextCodec::HEADER_WIRE_SIZE..PlaintextCodec::HEADER_WIRE_SIZE + pn],
+        );
+        let frame = codec.decode_frame(header, &mut pbuf[..pn]).unwrap();
+        let decoded: SubmitSharesError<'_> = frame_to_message(frame).unwrap();
+        assert_eq!(decoded, original);
+
+        match MiningMessages::dispatch(frame).unwrap() {
+            MiningMessages::SubmitSharesError(m) => assert_eq!(m, original),
+            other => panic!("expected SubmitSharesError, got {:?}", other),
         }
     }
 }
