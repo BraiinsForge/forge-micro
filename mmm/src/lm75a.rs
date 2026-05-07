@@ -1,0 +1,108 @@
+//! LM75A / LM75B I2C temperature sensor driver.
+//!
+//! Reads the 11-bit two's-complement temperature register at 0x00 and
+//! converts to millicelsius. Resolution is 0.125°C on the LM75B and
+//! 0.5°C on the LM75A. Both produce the same register layout, so the
+//! driver handles either.
+
+use embedded_hal_async::i2c::I2c;
+
+const REG_TEMPERATURE: u8 = 0x00;
+
+/// Datasheet supported range, exclusive of garbage readings on bus
+/// errors that produce e.g. `0xff80`, which decodes to a plausible
+/// −1°C, or `0x7fff`. The chip itself only reports −55..=125°C.
+const MIN_MILLICELSIUS: i32 = -55_000;
+const MAX_MILLICELSIUS: i32 = 125_000;
+
+/// One LM75A on the I2C bus. Address only — bus is passed in on each
+/// read so multiple sensors can share a `&mut I` without owning it.
+pub struct Lm75a {
+    address: u8,
+}
+
+impl Lm75a {
+    #[must_use]
+    pub const fn new(address: u8) -> Self {
+        Self { address }
+    }
+
+    /// Read the temperature register and convert to millicelsius.
+    /// Returns `Err` on bus error or out-of-range reading.
+    pub async fn read_millicelsius<I, E>(&self, i2c: &mut I) -> Result<i32, Error<E>>
+    where
+        I: I2c<Error = E>,
+    {
+        let mut buffer = [0u8; 2];
+        i2c.write_read(self.address, &[REG_TEMPERATURE], &mut buffer)
+            .await
+            .map_err(Error::I2c)?;
+        let millicelsius = raw_to_millicelsius(buffer);
+        if !(MIN_MILLICELSIUS..=MAX_MILLICELSIUS).contains(&millicelsius) {
+            return Err(Error::OutOfRange(millicelsius));
+        }
+        Ok(millicelsius)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Error<E> {
+    I2c(E),
+    OutOfRange(i32),
+}
+
+/// Decode the 16-bit big-endian register: high byte is signed integer
+/// degrees C, low byte's top 3 bits are fractional in 0.125°C steps.
+/// Convert directly to millicelsius without floats.
+///
+/// The low byte's bottom 5 bits are reserved on the LM75A/B; some
+/// clones leave noise there instead of zeros. Mask them explicitly
+/// before the shift so a misbehaving part cannot leak garbage into
+/// the result even if the sign-extension semantics of `>>` were to
+/// surprise us on a future toolchain.
+fn raw_to_millicelsius(buffer: [u8; 2]) -> i32 {
+    let masked = [buffer[0], buffer[1] & 0xE0];
+    let raw = i16::from_be_bytes(masked) >> 5;
+    i32::from(raw) * 125
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Encode a temperature in 0.125°C steps as the LM75A two-byte
+    /// register value.
+    fn encode(eighths_of_degree: i16) -> [u8; 2] {
+        (eighths_of_degree << 5).to_be_bytes()
+    }
+
+    #[test]
+    fn zero() {
+        assert_eq!(raw_to_millicelsius(encode(0)), 0);
+    }
+
+    #[test]
+    fn positive_integer_degree() {
+        assert_eq!(raw_to_millicelsius(encode(25 * 8)), 25_000);
+    }
+
+    #[test]
+    fn positive_half_degree() {
+        assert_eq!(raw_to_millicelsius(encode(25 * 8 + 4)), 25_500);
+    }
+
+    #[test]
+    fn positive_eighth_degree() {
+        assert_eq!(raw_to_millicelsius(encode(25 * 8 + 1)), 25_125);
+    }
+
+    #[test]
+    fn negative_integer_degree() {
+        assert_eq!(raw_to_millicelsius(encode(-25 * 8)), -25_000);
+    }
+
+    #[test]
+    fn negative_half_degree() {
+        assert_eq!(raw_to_millicelsius(encode(-25 * 8 - 4)), -25_500);
+    }
+}

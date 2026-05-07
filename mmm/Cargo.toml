@@ -11,21 +11,22 @@ defmt   = ["dep:defmt", "ubos-logging/defmt", "ubos-psu/defmt"]
 workspace = true
 
 [dependencies]
-defmt             = { workspace = true, optional = true }
-embassy-futures   = { workspace = true }
-embassy-sync      = { workspace = true }
-embassy-time      = { workspace = true }
-embedded-io       = "0.7"
-embedded-io-async = { workspace = true }
-heapless          = { workspace = true }
-portable-atomic   = { workspace = true }
-serial-baudrate   = { workspace = true }
-sha2              = { workspace = true }
+defmt              = { workspace = true, optional = true }
+embassy-futures    = { workspace = true }
+embassy-sync       = { workspace = true }
+embassy-time       = { workspace = true }
+embedded-hal-async = { workspace = true }
+embedded-io        = "0.7"
+embedded-io-async  = { workspace = true }
+heapless           = { workspace = true }
+portable-atomic    = { workspace = true }
+serial-baudrate    = { workspace = true }
+sha2               = { workspace = true }
 # Pulled in for the hashrate metric only; the `default-features =
 # false` flavor keeps eth-examples no-defmt for mmm consumers
 # that don't already enable defmt themselves.
-eth-examples      = { workspace = true, default-features = false }
-mining-protocol   = { workspace = true }
-stratum-client    = { workspace = true }
-ubos-logging      = { workspace = true }
-ubos-psu          = { workspace = true }
+eth-examples       = { workspace = true, default-features = false }
+mining-protocol    = { workspace = true }
+stratum-client     = { workspace = true }
+ubos-logging       = { workspace = true }
+ubos-psu           = { workspace = true }

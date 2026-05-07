@@ -10,6 +10,7 @@
 pub mod bm1362;
 pub mod bmm100_trace;
 pub mod consts;
+pub mod lm75a;
 pub mod miner;
 pub mod replay;
 pub mod reset;
