@@ -31,6 +31,7 @@ use embedded_io_async::Write;
 use portable_atomic::Ordering;
 use sha2::{Digest, Sha256};
 use static_cell::ConstStaticCell;
+use stratum_v1::hex::decode_hex;
 use stratum_v1::{
     encode_authorize, encode_configure, encode_submit, encode_subscribe, parse_boolean_result,
     parse_incoming, parse_subscribe_result, parse_version_rolling_mask, Authorize, Configure,
@@ -1126,30 +1127,6 @@ fn calc_merkle_root(
     }
 
     root_out.copy_from_slice(&current_hash);
-}
-
-fn decode_hex(hex: &[u8], bytes: &mut [u8]) -> bool {
-    if hex.len() != bytes.len() * 2 {
-        return false;
-    }
-    for index in 0..bytes.len() {
-        let high = hex_nibble(hex[index * 2]);
-        let low = hex_nibble(hex[index * 2 + 1]);
-        match (high, low) {
-            (Some(high_val), Some(low_val)) => bytes[index] = (high_val << 4) | low_val,
-            _ => return false,
-        }
-    }
-    true
-}
-
-fn hex_nibble(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

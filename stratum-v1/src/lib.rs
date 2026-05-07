@@ -18,6 +18,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod error;
+pub mod hex;
 pub mod wire;
 
 pub use error::{EncodeError, ParseError};
