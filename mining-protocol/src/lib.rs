@@ -6,3 +6,17 @@
 //! `boards/eth-examples/ARCHITECTURE.md` for the design.
 
 #![no_std]
+
+mod error;
+mod job;
+mod job_id;
+mod lazy_merkle;
+mod session;
+mod share;
+
+pub use crate::error::Error;
+pub use crate::job::MiningJob;
+pub use crate::job_id::JobId;
+pub use crate::lazy_merkle::LazyMerkle;
+pub use crate::session::{SessionUpdate, SubmitResult};
+pub use crate::share::Share;
