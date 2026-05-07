@@ -592,6 +592,12 @@
             cargoExtraArgs = "-p mining-protocol";
           };
 
+          test-stratum-client = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p stratum-client";
+          };
+
           clippy-esp32s3 = espCraneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;

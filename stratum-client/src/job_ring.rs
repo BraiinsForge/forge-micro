@@ -5,7 +5,6 @@
 //! invalidates the previous slot so stale shares get filtered
 //! before submit hits the wire.
 
-use embassy_time::Instant;
 use mining_protocol::JobId;
 
 /// Default ring depth. Two slots covers the "current job + the
@@ -25,11 +24,13 @@ pub struct JobSlot {
     pub version: u32,
     pub version_rolling_mask: u32,
     pub nbits: u32,
-    /// Pool-supplied `ntime` base; `ntime_set_at` is the host wall
-    /// clock when it was observed, so the work generator can roll
-    /// forward without an external clock.
+    /// Pool-supplied `ntime` base. The published `WorkAssignment`
+    /// carries `ntime_base + ntime_offset`, with the offset
+    /// incremented by the work generator every roll cycle.
     pub ntime_base: u32,
-    pub ntime_set_at: Instant,
+    /// Seconds rolled forward from `ntime_base`. Reset to 0 when
+    /// the slot is freshly populated.
+    pub ntime_offset: u32,
     pub extranonce_2_size: u8,
     pub clean_jobs: bool,
 }
@@ -47,7 +48,7 @@ impl JobSlot {
             version_rolling_mask: 0,
             nbits: 0,
             ntime_base: 0,
-            ntime_set_at: Instant::from_ticks(0),
+            ntime_offset: 0,
             extranonce_2_size: 0,
             clean_jobs: false,
         }
@@ -103,6 +104,20 @@ impl<const N: usize> JobRing<N> {
     pub fn current(&self) -> Option<&JobSlot> {
         let latest = (self.write_index + N - 1) % N;
         let slot = &self.slots[latest];
+        if slot.valid {
+            Some(slot)
+        } else {
+            None
+        }
+    }
+
+    /// Mutable view of the most recently written valid slot.
+    /// Used by mid-session `SetTarget` / `SetVersionMask` updates
+    /// so the in-flight job inherits the new value without
+    /// waiting for the next notify.
+    pub fn current_mut(&mut self) -> Option<&mut JobSlot> {
+        let latest = (self.write_index + N - 1) % N;
+        let slot = &mut self.slots[latest];
         if slot.valid {
             Some(slot)
         } else {
