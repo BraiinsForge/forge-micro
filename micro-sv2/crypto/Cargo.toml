@@ -3,6 +3,10 @@ name = "ii-sv2-crypto"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["alloc"]
+alloc = ["secp256k1/alloc"]
+
 [dependencies]
 secp256k1        = { workspace = true }
 sha2             = { workspace = true }

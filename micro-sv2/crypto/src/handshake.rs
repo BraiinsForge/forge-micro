@@ -12,7 +12,6 @@ use crate::{
     aead::{OpeningCipherState, SealingCipherState},
     error::NXError,
     hash::{hkdf, mix_hash},
-    keygen::KeyGen,
     keys::{Secp256k1Elligator, Secp256k1KeyPair},
     transport::TransportState,
 };
@@ -79,23 +78,29 @@ pub(crate) enum NXState {
     Failed,
 }
 
-pub struct HandShake<R: KeyGen> {
+pub struct HandShake<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> {
     pub(crate) state: NXState,
     pub(crate) rng: R,
+    pub(crate) ctx: &'ctx crate::CryptoCtx<C>,
 }
 
-impl<R: KeyGen> HandShake<R> {
-    pub fn new_initiator(rng: R) -> Self {
+impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandShake<'ctx, R, C> {
+    pub fn new_initiator(rng: R, ctx: &'ctx crate::CryptoCtx<C>) -> Self {
         Self {
             state: NXState::InitiatorStep0(InitiatorState0 {
                 ck: PROTOCOL_NAME_HASH,
                 h: PROTOCOL_NAME_HASH_HASH,
             }),
             rng,
+            ctx,
         }
     }
 
-    pub fn new_responder(rng: R, static_keypair: Secp256k1KeyPair) -> Self {
+    pub fn new_responder(
+        rng: R,
+        ctx: &'ctx crate::CryptoCtx<C>,
+        static_keypair: Secp256k1KeyPair,
+    ) -> Self {
         Self {
             state: NXState::ResponderStep0(ResponderState0 {
                 ck: PROTOCOL_NAME_HASH,
@@ -103,15 +108,12 @@ impl<R: KeyGen> HandShake<R> {
                 s: static_keypair,
             }),
             rng,
+            ctx,
         }
     }
 
     /// Walk one step of the state machine, writing a handshake message.
-    pub fn write_message(
-        &mut self,
-        message: &[u8],
-        payload: &mut [u8],
-    ) -> Result<usize, NXError> {
+    pub fn write_message(&mut self, message: &[u8], payload: &mut [u8]) -> Result<usize, NXError> {
         let current = core::mem::replace(&mut self.state, NXState::Failed);
         let mut bytes_written = 0_usize;
         let new_state = match current {
@@ -130,11 +132,7 @@ impl<R: KeyGen> HandShake<R> {
     }
 
     /// Walk one step of the state machine, reading a handshake message.
-    pub fn read_message(
-        &mut self,
-        payload: &[u8],
-        message: &mut [u8],
-    ) -> Result<usize, NXError> {
+    pub fn read_message(&mut self, payload: &[u8], message: &mut [u8]) -> Result<usize, NXError> {
         let current = core::mem::replace(&mut self.state, NXState::Failed);
         let mut bytes_written = 0_usize;
         let new_state = match current {
@@ -172,7 +170,7 @@ impl<R: KeyGen> HandShake<R> {
         if payload.len() < EPHEMERAL_KEY_MSG_SIZE + message.len() {
             return Err(NXError::TooSmallBuffer);
         }
-        let e = self.rng.new_keypair();
+        let e = crate::keys::new_keypair(&mut self.rng, self.ctx);
         let raw_e = e.ellswift_bytes();
         let h = mix_hash(&h, &raw_e);
         let h = mix_hash(&h, message);
@@ -280,7 +278,7 @@ impl<R: KeyGen> HandShake<R> {
         }
         let mut bytes_processed = 0_usize;
 
-        let e = self.rng.new_keypair();
+        let e = crate::keys::new_keypair(&mut self.rng, self.ctx);
         let raw_e = e.ellswift_bytes();
         payload[..EPHEMERAL_KEY_MSG_SIZE].copy_from_slice(&raw_e);
         bytes_processed += EPHEMERAL_KEY_MSG_SIZE;
@@ -296,8 +294,7 @@ impl<R: KeyGen> HandShake<R> {
         static_pk[..STATIC_KEY_SIZE].copy_from_slice(&s.ellswift_bytes());
         cipher.encrypt_with_ad(&h, &mut static_pk, STATIC_KEY_SIZE)?;
         let h = mix_hash(&h, &static_pk);
-        payload[bytes_processed..bytes_processed + STATIC_KEY_MSG_SIZE]
-            .copy_from_slice(&static_pk);
+        payload[bytes_processed..bytes_processed + STATIC_KEY_MSG_SIZE].copy_from_slice(&static_pk);
         bytes_processed += STATIC_KEY_MSG_SIZE;
 
         // es
@@ -333,31 +330,17 @@ fn expect_elligator(raw: &[u8]) -> Secp256k1Elligator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keys::PublicSecp256k1Key;
-    use rand::{Rng, RngCore};
+    use crate::{
+        CryptoCtx, Rng,
+        keys::{PublicSecp256k1Key, new_keypair},
+    };
+    use rand::{Rng as _, RngCore};
     use sha2::{Digest, Sha256};
 
-    struct SimpleKeyGen {
-        ctx: secp256k1::Secp256k1<secp256k1::All>,
-    }
-
-    impl SimpleKeyGen {
-        fn new() -> Self {
-            Self {
-                ctx: secp256k1::Secp256k1::new(),
-            }
-        }
-    }
-
-    impl KeyGen for SimpleKeyGen {
-        type Ctx = secp256k1::All;
-
-        fn new_256_bit_entropy(&mut self) -> [u8; 32] {
-            rand::random::<[u8; 32]>()
-        }
-
-        fn ctx(&self) -> &secp256k1::Secp256k1<Self::Ctx> {
-            &self.ctx
+    struct MyRng;
+    impl Rng for MyRng {
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            rand::rng().fill_bytes(dest);
         }
     }
 
@@ -371,17 +354,16 @@ mod tests {
 
     #[test]
     fn handshake_state_init() {
-        let initiator: HandShake<SimpleKeyGen> = HandShake::new_initiator(SimpleKeyGen::new());
+        let ctx = CryptoCtx::new();
+        let initiator = HandShake::new_initiator(MyRng, &ctx);
         let NXState::InitiatorStep0(s) = &initiator.state else {
             panic!("BUG: initiator must start in InitiatorStep0");
         };
         assert_eq!(s.h, PROTOCOL_NAME_HASH_HASH);
         assert_eq!(s.ck, PROTOCOL_NAME_HASH);
 
-        let mut bootstrap = SimpleKeyGen::new();
-        let static_kp = bootstrap.new_keypair();
-        let responder: HandShake<SimpleKeyGen> =
-            HandShake::new_responder(SimpleKeyGen::new(), static_kp);
+        let static_kp = new_keypair(&mut MyRng, &ctx);
+        let responder = HandShake::new_responder(MyRng, &ctx, static_kp);
         let NXState::ResponderStep0(s) = &responder.state else {
             panic!("BUG: responder must start in ResponderStep0");
         };
@@ -392,11 +374,10 @@ mod tests {
     #[test]
     fn handshake_roundtrip() {
         const DUMMY_CERT_LEN: usize = 77;
-
-        let mut bootstrap = SimpleKeyGen::new();
-        let static_private = bootstrap.new_keypair();
-        let mut initiator = HandShake::new_initiator(SimpleKeyGen::new());
-        let mut responder = HandShake::new_responder(SimpleKeyGen::new(), static_private);
+        let ctx = CryptoCtx::new();
+        let static_private = new_keypair(&mut MyRng, &ctx);
+        let mut initiator = HandShake::new_initiator(MyRng, &ctx);
+        let mut responder = HandShake::new_responder(MyRng, &ctx, static_private);
 
         let mut buf = [0_u8; 256];
         let mut buf2 = [0_u8; 256];

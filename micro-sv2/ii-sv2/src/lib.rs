@@ -38,6 +38,49 @@
 //! assert_eq!(received, original);
 //! # let _ = n;
 //! ```
+//!
+//! ## Reusable crypto context (std)
+//!
+//! Build the secp256k1 precomputation tables **once** at startup and
+//! reuse the same `CryptoCtx` for every handshake.
+//!
+//! ```rust,ignore
+//! use std::sync::OnceLock;
+//! use ii_sv2::security::{secp256k1, CryptoCtx, Rng};
+//!
+//! static CTX: OnceLock<CryptoCtx<secp256k1::All>> = OnceLock::new();
+//! fn ctx() -> &'static CryptoCtx<secp256k1::All> { CTX.get_or_init(CryptoCtx::new) }
+//!
+//! struct MyRng;
+//! impl Rng for MyRng {
+//!     fn fill_bytes(&mut self, dest: &mut [u8]) {
+//!         // Plug in your platform CSPRNG (e.g. `rand::rng().fill_bytes(dest)`).
+//!         # let _ = dest;
+//!     }
+//! }
+//!
+//! // Use it: `ii_sv2::security::initiate(&mut io, MyRng, ctx(), authenticator).await`
+//! ```
+//!
+//! ## Reusable crypto context (no_std embedded)
+//!
+//! On embedded targets without an allocator, supply a static buffer
+//! sized via [`security::CryptoCtx::preallocated_size`].
+//!
+//! ```rust,ignore
+//! use ii_sv2::security::{secp256k1, AlignedType, CryptoCtx};
+//!
+//! // Compile-time-known size. AllPreallocated covers signing + verification
+//! // (the same shape as All, but with no heap allocation).
+//! const SIZE: usize = CryptoCtx::<secp256k1::AllPreallocated<'static>>::preallocated_size();
+//! static mut CTX_BUF: [AlignedType; SIZE] = [AlignedType::ZERO; SIZE];
+//!
+//! // At startup, before any handshake:
+//! let ctx = unsafe {
+//!     CryptoCtx::preallocated(&mut CTX_BUF).expect("preallocated context init")
+//! };
+//! // Pass `&ctx` to every `initiate` / `accept` call.
+//! ```
 
 #![no_std]
 #![forbid(unsafe_code)]

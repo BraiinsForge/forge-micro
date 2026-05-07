@@ -3,7 +3,7 @@
 //!
 //! Reads as documentation. The lifecycle is:
 //!
-//!   1. Implement [`KeyGen`] and a [`Clock`].
+//!   1. Implement [`Rng`] and a [`Clock`]; build a [`CryptoCtx`].
 //!   2. Generate the authority (CA) keypair.
 //!   3. Generate the server's static keypair and issue a certificate.
 //!   4. Run [`initiate`] and [`accept`] concurrently over an
@@ -12,37 +12,20 @@
 //!      application-level traffic.
 
 use embedded_io_adapters::tokio_1::FromTokio;
-use ii_sv2_crypto::KeyGen;
+use ii_sv2_crypto::{CryptoCtx, Rng, new_keypair};
 use ii_sv2_security::{
     AuthenticationError, CertificateHeader, CertificateSigningRequest, CertificateWithPrivateKey,
     Clock, PublicKey, SecretKey, ValidateFull, accept, initiate,
 };
 
-/// Step 1a: a `KeyGen` impl. On hardware this would wrap the
-/// platform's secure RNG and a long-lived `Secp256k1::preallocated_*`
-/// context; here we use `rand` and `Secp256k1::new()` because tests
-/// have alloc.
-struct TestKeyGen {
-    ctx: secp256k1::Secp256k1<secp256k1::All>,
-}
+/// Step 1a: an `Rng` impl. On hardware this would wrap the platform's
+/// secure RNG; here we use `rand` because tests run on the host.
+struct TestRng;
 
-impl TestKeyGen {
-    fn new() -> Self {
-        Self {
-            ctx: secp256k1::Secp256k1::new(),
-        }
-    }
-}
-
-impl KeyGen for TestKeyGen {
-    type Ctx = secp256k1::All;
-
-    fn new_256_bit_entropy(&mut self) -> [u8; 32] {
-        rand::random::<[u8; 32]>()
-    }
-
-    fn ctx(&self) -> &secp256k1::Secp256k1<Self::Ctx> {
-        &self.ctx
+impl Rng for TestRng {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        use rand::RngCore;
+        rand::rng().fill_bytes(dest);
     }
 }
 
@@ -65,13 +48,13 @@ async fn full_handshake_with_validated_certificate() {
     // Step 2: generate the authority (CA) keypair. The CA's public key
     // is what the client trusts ahead of time and uses to validate
     // the server's certificate signature.
-    let mut bootstrap = TestKeyGen::new();
-    let authority_kp = bootstrap.new_keypair();
+    let ctx = CryptoCtx::new();
+    let authority_kp = new_keypair(&mut TestRng, &ctx);
     let authority_pk = PublicKey::from(&authority_kp);
 
     // Step 3a: generate the server's static keypair. This is the
     // long-term identity bound into the certificate.
-    let server_kp = bootstrap.new_keypair();
+    let server_kp = new_keypair(&mut TestRng, &ctx);
 
     // Step 3b: assemble the certificate header (validity window plus
     // the server's pubkey) and have the authority sign it.
@@ -81,7 +64,7 @@ async fn full_handshake_with_validated_certificate() {
         not_valid_after: NOW + 24 * 60 * 60,        // expires in 24h
         remote_static_public_key: PublicKey::from(&server_kp),
     };
-    let signed = CertificateSigningRequest { header }.sign(&authority_kp, bootstrap.ctx());
+    let signed = CertificateSigningRequest { header }.sign(&authority_kp, ctx.as_secp256k1());
 
     // Step 3c: bundle the signed certificate with the server's secret
     // key. This is what the responder needs to accept connections.
@@ -104,15 +87,15 @@ async fn full_handshake_with_validated_certificate() {
     // validity window against the supplied clock.
     let authenticator = ValidateFull {
         authority: authority_pk,
-        ctx: bootstrap.ctx(),
+        ctx: ctx.as_secp256k1(),
         clock: FakeClock(NOW),
     };
 
     // Step 5b: drive both sides concurrently. In production the client
     // and server are separate processes; here they share a runtime.
     let (client_result, server_result) = tokio::join!(
-        initiate(&mut client_io, TestKeyGen::new(), authenticator),
-        accept(&mut server_io, TestKeyGen::new(), &server_bundle),
+        initiate(&mut client_io, TestRng, &ctx, authenticator),
+        accept(&mut server_io, TestRng, &ctx, &server_bundle),
     );
 
     let mut client = client_result.expect("client handshake");
@@ -166,9 +149,9 @@ async fn full_handshake_with_validated_certificate() {
 async fn expired_certificate_is_rejected() {
     const NOW: u32 = 1_700_000_000;
 
-    let mut bootstrap = TestKeyGen::new();
-    let authority_kp = bootstrap.new_keypair();
-    let server_kp = bootstrap.new_keypair();
+    let ctx = CryptoCtx::new();
+    let authority_kp = new_keypair(&mut TestRng, &ctx);
+    let server_kp = new_keypair(&mut TestRng, &ctx);
 
     // Cert that expired one hour before NOW.
     let header = CertificateHeader {
@@ -177,7 +160,7 @@ async fn expired_certificate_is_rejected() {
         not_valid_after: NOW - 60 * 60,
         remote_static_public_key: PublicKey::from(&server_kp),
     };
-    let signed = CertificateSigningRequest { header }.sign(&authority_kp, bootstrap.ctx());
+    let signed = CertificateSigningRequest { header }.sign(&authority_kp, ctx.as_secp256k1());
     let server_bundle = CertificateWithPrivateKey {
         header: signed.header,
         authority_public_key: signed.authority_public_key,
@@ -191,13 +174,13 @@ async fn expired_certificate_is_rejected() {
 
     let authenticator = ValidateFull {
         authority: PublicKey::from(&authority_kp),
-        ctx: bootstrap.ctx(),
+        ctx: ctx.as_secp256k1(),
         clock: FakeClock(NOW),
     };
 
     let (client_result, _) = tokio::join!(
-        initiate(&mut client_io, TestKeyGen::new(), authenticator),
-        accept(&mut server_io, TestKeyGen::new(), &server_bundle),
+        initiate(&mut client_io, TestRng, &ctx, authenticator),
+        accept(&mut server_io, TestRng, &ctx, &server_bundle),
     );
 
     use ii_sv2_security::{AuthenticationError as AE, InitializationError};

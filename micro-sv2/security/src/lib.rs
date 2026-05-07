@@ -24,3 +24,15 @@ pub use error::{AuthenticationError, InitializationError, KeyParseError};
 pub use handshake::{EstablishedSession, accept, initiate};
 pub use keys::{PublicKey, SecretKey, SessionId, Signature};
 pub use session::{EncryptedCodec, SessionError};
+
+pub use ii_sv2_crypto::{CryptoCtx, Rng, new_keypair, new_private_key};
+
+// Re-export secp256k1 itself so downstream callers naming
+// `CryptoCtx<secp256k1::AllPreallocated<'_>>` resolve to the same
+// version we compiled against, eliminating any version-skew hazard.
+pub use secp256k1;
+
+// Convenience: `AlignedType` is the buffer cell type for
+// `CryptoCtx::preallocated`. Lives at `secp256k1::ffi::types::AlignedType`
+// upstream (the bare `secp256k1::AlignedType` re-export is alloc-gated).
+pub use secp256k1::ffi::types::AlignedType;

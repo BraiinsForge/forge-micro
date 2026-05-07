@@ -146,7 +146,7 @@ mod tests {
     use super::*;
     use crate::certificate::{CertificateSigningRequest, CertificateWithPrivateKey};
     use crate::keys::SecretKey;
-    use ii_sv2_crypto::KeyGen;
+    use ii_sv2_crypto::{CryptoCtx, Rng, new_keypair};
 
     /// Test fixture: returns a fixed unix timestamp (no real clock needed).
     struct FakeClock(u32);
@@ -156,23 +156,11 @@ mod tests {
         }
     }
 
-    struct Dev {
-        ctx: secp256k1::Secp256k1<secp256k1::All>,
-    }
-    impl Dev {
-        fn new() -> Self {
-            Self {
-                ctx: secp256k1::Secp256k1::new(),
-            }
-        }
-    }
-    impl KeyGen for Dev {
-        type Ctx = secp256k1::All;
-        fn new_256_bit_entropy(&mut self) -> [u8; 32] {
-            rand::random::<[u8; 32]>()
-        }
-        fn ctx(&self) -> &secp256k1::Secp256k1<Self::Ctx> {
-            &self.ctx
+    struct MyRng;
+    impl Rng for MyRng {
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            use rand::RngCore;
+            rand::rng().fill_bytes(dest);
         }
     }
 
@@ -206,9 +194,9 @@ mod tests {
     #[test]
     fn certificate_validators() {
         const NOW: u32 = 1_700_000_000;
-        let mut rng = Dev::new();
-        let ca_keypair = rng.new_keypair();
-        let static_kp = rng.new_keypair();
+        let ctx = CryptoCtx::new();
+        let ca_keypair = new_keypair(&mut MyRng, &ctx);
+        let static_kp = new_keypair(&mut MyRng, &ctx);
         let rspk = PublicKey::from(&static_kp);
         let ca_pub = PublicKey::from(&ca_keypair);
 
@@ -216,15 +204,15 @@ mod tests {
         let cert = CertificateSigningRequest {
             header: cert_hdr(NOW, -1000, 1000, rspk),
         }
-        .sign(&ca_keypair, rng.ctx());
+        .sign(&ca_keypair, ctx.as_secp256k1());
 
-        ValidateSignature { authority: ca_pub, ctx: rng.ctx() }
+        ValidateSignature { authority: ca_pub, ctx: ctx.as_secp256k1() }
             .check(cert.header, cert.signature)
             .expect("valid sig");
         ValidateTime { clock: FakeClock(NOW) }
             .check(cert.header, cert.signature)
             .expect("within validity window");
-        ValidateFull { authority: ca_pub, ctx: rng.ctx(), clock: FakeClock(NOW) }
+        ValidateFull { authority: ca_pub, ctx: ctx.as_secp256k1(), clock: FakeClock(NOW) }
             .check(cert.header, cert.signature)
             .expect("valid + in-window");
 
@@ -232,16 +220,16 @@ mod tests {
         let cert = CertificateSigningRequest {
             header: cert_hdr(NOW, 100, 1000, rspk),
         }
-        .sign(&ca_keypair, rng.ctx());
+        .sign(&ca_keypair, ctx.as_secp256k1());
 
-        ValidateSignature { authority: ca_pub, ctx: rng.ctx() }
+        ValidateSignature { authority: ca_pub, ctx: ctx.as_secp256k1() }
             .check(cert.header, cert.signature)
             .expect("sig still valid");
         let err = ValidateTime { clock: FakeClock(NOW) }
             .check(cert.header, cert.signature)
             .unwrap_err();
         assert_eq!(err, AuthenticationError::CertificateNotYetValid);
-        let err = ValidateFull { authority: ca_pub, ctx: rng.ctx(), clock: FakeClock(NOW) }
+        let err = ValidateFull { authority: ca_pub, ctx: ctx.as_secp256k1(), clock: FakeClock(NOW) }
             .check(cert.header, cert.signature)
             .unwrap_err();
         assert_eq!(err, AuthenticationError::CertificateNotYetValid);
@@ -250,16 +238,16 @@ mod tests {
         let cert = CertificateSigningRequest {
             header: cert_hdr(NOW, -1000, -100, rspk),
         }
-        .sign(&ca_keypair, rng.ctx());
+        .sign(&ca_keypair, ctx.as_secp256k1());
 
-        ValidateSignature { authority: ca_pub, ctx: rng.ctx() }
+        ValidateSignature { authority: ca_pub, ctx: ctx.as_secp256k1() }
             .check(cert.header, cert.signature)
             .expect("sig still valid");
         let err = ValidateTime { clock: FakeClock(NOW) }
             .check(cert.header, cert.signature)
             .unwrap_err();
         assert_eq!(err, AuthenticationError::CertificateNoMoreValid);
-        let err = ValidateFull { authority: ca_pub, ctx: rng.ctx(), clock: FakeClock(NOW) }
+        let err = ValidateFull { authority: ca_pub, ctx: ctx.as_secp256k1(), clock: FakeClock(NOW) }
             .check(cert.header, cert.signature)
             .unwrap_err();
         assert_eq!(err, AuthenticationError::CertificateNoMoreValid);
@@ -268,9 +256,9 @@ mod tests {
         let mut cert = CertificateSigningRequest {
             header: cert_hdr(NOW, -1000, 1000, rspk),
         }
-        .sign(&ca_keypair, rng.ctx());
+        .sign(&ca_keypair, ctx.as_secp256k1());
         cert.header.not_valid_after = 3_155_759_999; // far future
-        let err = ValidateSignature { authority: ca_pub, ctx: rng.ctx() }
+        let err = ValidateSignature { authority: ca_pub, ctx: ctx.as_secp256k1() }
             .check(cert.header, cert.signature)
             .unwrap_err();
         assert_eq!(err, AuthenticationError::SignatureInvalid);
@@ -279,20 +267,20 @@ mod tests {
             .check(cert.header, cert.signature)
             .expect("time alone passes");
         // Full fails on the signature.
-        let err = ValidateFull { authority: ca_pub, ctx: rng.ctx(), clock: FakeClock(NOW) }
+        let err = ValidateFull { authority: ca_pub, ctx: ctx.as_secp256k1(), clock: FakeClock(NOW) }
             .check(cert.header, cert.signature)
             .unwrap_err();
         assert_eq!(err, AuthenticationError::SignatureInvalid);
 
         // ---- Forged authority: signature fails against the wrong pubkey ----
-        let forged_authority = rng.new_keypair();
+        let forged_authority = new_keypair(&mut MyRng, &ctx);
         let cert = CertificateSigningRequest {
             header: cert_hdr(NOW, -1000, 1000, rspk),
         }
-        .sign(&ca_keypair, rng.ctx());
+        .sign(&ca_keypair, ctx.as_secp256k1());
         let err = ValidateSignature {
             authority: PublicKey::from(&forged_authority),
-            ctx: rng.ctx(),
+            ctx: ctx.as_secp256k1(),
         }
         .check(cert.header, cert.signature)
         .unwrap_err();
@@ -301,16 +289,16 @@ mod tests {
 
     #[test]
     fn cert_with_private_key_to_certificate() {
-        let mut rng = Dev::new();
-        let ca = rng.new_keypair();
-        let server_kp = rng.new_keypair();
+        let ctx = CryptoCtx::new();
+        let ca = new_keypair(&mut MyRng, &ctx);
+        let server_kp = new_keypair(&mut MyRng, &ctx);
         let header = CertificateHeader {
             version: 0,
             valid_from: 1,
             not_valid_after: 2,
             remote_static_public_key: PublicKey::from(&server_kp),
         };
-        let cert = CertificateSigningRequest { header }.sign(&ca, rng.ctx());
+        let cert = CertificateSigningRequest { header }.sign(&ca, ctx.as_secp256k1());
         let bundle = CertificateWithPrivateKey {
             header: cert.header,
             authority_public_key: cert.authority_public_key,

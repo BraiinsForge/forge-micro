@@ -43,22 +43,27 @@ impl PublicSecp256k1Key {
 
 impl From<Secp256k1Elligator> for PublicSecp256k1Key {
     fn from(value: Secp256k1Elligator) -> Self {
-        Self(secp256k1::PublicKey::from_ellswift(value).x_only_public_key().0)
+        Self(
+            secp256k1::PublicKey::from_ellswift(value)
+                .x_only_public_key()
+                .0,
+        )
     }
 }
 
 impl Secp256k1KeyPair {
     /// Reconstruct a keypair from an existing secret key. Mixes in fresh
-    /// entropy from the supplied [`KeyGen`] for the elligator encoding.
-    pub fn from_secret_key<K: crate::keygen::KeyGen>(
+    /// entropy from `rng` for the elligator encoding.
+    pub fn from_secret_key<R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification>(
         secret: &SecretSecp256k1Key,
-        rng: &mut K,
+        rng: &mut R,
+        ctx: &crate::CryptoCtx<C>,
     ) -> Self {
-        let entropy = rng.new_256_bit_entropy();
-        let ctx = rng.ctx();
-        let (pk, _) = secret.0.x_only_public_key(ctx);
+        let entropy = rng.next_256_bits();
+        let secp = ctx.as_secp256k1();
+        let (pk, _) = secret.0.x_only_public_key(secp);
         let elligator =
-            secp256k1::ellswift::ElligatorSwift::from_seckey(ctx, secret.0, Some(entropy));
+            secp256k1::ellswift::ElligatorSwift::from_seckey(secp, secret.0, Some(entropy));
         Self {
             sk: secret.0,
             pk,
@@ -104,7 +109,8 @@ impl Secp256k1KeyPair {
         } else {
             (remote_elligator, self.elligator, ellswift::Party::Responder)
         };
-        let secret = ellswift::ElligatorSwift::shared_secret(init_ell, resp_ell, self.sk, party, None);
+        let secret =
+            ellswift::ElligatorSwift::shared_secret(init_ell, resp_ell, self.sk, party, None);
         secret.to_secret_bytes()
     }
 }
@@ -127,45 +133,60 @@ impl TryFrom<[u8; SECP256_XONLY_PUBLIC_KEY_LENGTH]> for PublicSecp256k1Key {
     }
 }
 
+/// Sample a fresh secp256k1 private key. Tries up to 10 times; panics
+/// on persistent failure (cryptographically negligible — would mean the
+/// `Rng` is broken).
+pub fn new_private_key<R: crate::Rng>(rng: &mut R) -> SecretSecp256k1Key {
+    for _ in 0..10 {
+        let bytes = rng.next_256_bits();
+        if let Ok(sk) = secp256k1::SecretKey::from_byte_array(bytes) {
+            return SecretSecp256k1Key(sk);
+        }
+    }
+    panic!("BUG: failed to generate secp256k1 private key after 10 tries");
+}
+
+/// Sample a fresh keypair (secret + x-only public + ellswift encoding).
+pub fn new_keypair<R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification>(
+    rng: &mut R,
+    ctx: &crate::CryptoCtx<C>,
+) -> Secp256k1KeyPair {
+    let sk = new_private_key(rng);
+    let entropy = rng.next_256_bits();
+    let secp = ctx.as_secp256k1();
+    let (pk, _) = sk.0.x_only_public_key(secp);
+    let elligator = secp256k1::ellswift::ElligatorSwift::from_seckey(secp, sk.0, Some(entropy));
+    Secp256k1KeyPair {
+        sk: sk.0,
+        pk,
+        elligator,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keygen::KeyGen;
+    use crate::{CryptoCtx, Rng};
 
-    struct SimpleKeyGen {
-        ctx: secp256k1::Secp256k1<secp256k1::All>,
-    }
-
-    impl SimpleKeyGen {
-        fn new() -> Self {
-            Self {
-                ctx: secp256k1::Secp256k1::new(),
-            }
-        }
-    }
-
-    impl KeyGen for SimpleKeyGen {
-        type Ctx = secp256k1::All;
-
-        fn new_256_bit_entropy(&mut self) -> [u8; 32] {
-            rand::random::<[u8; 32]>()
-        }
-
-        fn ctx(&self) -> &secp256k1::Secp256k1<Self::Ctx> {
-            &self.ctx
+    struct MyRng;
+    impl Rng for MyRng {
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            use rand::RngCore;
+            rand::rng().fill_bytes(dest);
         }
     }
 
     #[test]
     fn keys_and_conversions() {
-        let mut rng = SimpleKeyGen::new();
+        let mut rng = MyRng;
+        let ctx = CryptoCtx::new();
         for _ in 0..100 {
-            let secret1 = rng.new_private_key();
-            let public1 = PublicSecp256k1Key::from_secret_key(&secret1, rng.ctx());
+            let secret1 = new_private_key(&mut rng);
+            let public1 = PublicSecp256k1Key::from_secret_key(&secret1, ctx.as_secp256k1());
 
-            let secret2 = SecretSecp256k1Key::try_from(secret1.serialize())
-                .expect("BUG: round-trip failure");
-            let public2 = PublicSecp256k1Key::from_secret_key(&secret2, rng.ctx());
+            let secret2 =
+                SecretSecp256k1Key::try_from(secret1.serialize()).expect("BUG: round-trip failure");
+            let public2 = PublicSecp256k1Key::from_secret_key(&secret2, ctx.as_secp256k1());
 
             assert_eq!(secret1.0, secret2.0);
             assert_eq!(secret1.serialize(), secret2.serialize());
@@ -175,9 +196,10 @@ mod tests {
 
     #[test]
     fn ecdh_commutativity() {
-        let mut rng = SimpleKeyGen::new();
-        let alice = rng.new_keypair();
-        let bob = rng.new_keypair();
+        let mut rng = MyRng;
+        let ctx = CryptoCtx::new();
+        let alice = new_keypair(&mut rng, &ctx);
+        let bob = new_keypair(&mut rng, &ctx);
 
         let alice_ecdh = alice.dh(bob.elligator, true);
         let bob_ecdh = bob.dh(alice.elligator, false);

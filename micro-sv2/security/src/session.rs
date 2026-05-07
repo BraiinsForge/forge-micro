@@ -179,29 +179,17 @@ mod tests {
     use crate::handshake::{accept, initiate};
     use crate::keys::{PublicKey, SecretKey};
     use embedded_io_adapters::tokio_1::FromTokio;
-    use ii_sv2_crypto::KeyGen;
+    use ii_sv2_crypto::{CryptoCtx, Rng, new_keypair};
     use ii_sv2_framing::{FrameCodec, frame_to_message};
     use ii_sv2_messages::{DeviceInfo, SetupConnection};
     use ii_sv2_types::Str0_255;
 
-    /// Same `Dev` shape as in `handshake.rs` — local entropy + secp256k1 ctx.
-    struct Dev {
-        ctx: secp256k1::Secp256k1<secp256k1::All>,
-    }
-    impl Dev {
-        fn new() -> Self {
-            Self {
-                ctx: secp256k1::Secp256k1::new(),
-            }
-        }
-    }
-    impl KeyGen for Dev {
-        type Ctx = secp256k1::All;
-        fn new_256_bit_entropy(&mut self) -> [u8; 32] {
-            rand::random::<[u8; 32]>()
-        }
-        fn ctx(&self) -> &secp256k1::Secp256k1<Self::Ctx> {
-            &self.ctx
+    /// Same `MyRng` shape as in `handshake.rs` — host-OS entropy.
+    struct MyRng;
+    impl Rng for MyRng {
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            use rand::RngCore;
+            rand::rng().fill_bytes(dest);
         }
     }
 
@@ -212,9 +200,9 @@ mod tests {
         let mut a = FromTokio::new(a);
         let mut b = FromTokio::new(b);
 
-        let mut bootstrap = Dev::new();
-        let server_kp = bootstrap.new_keypair();
-        let authority_kp = bootstrap.new_keypair();
+        let ctx = CryptoCtx::new();
+        let server_kp = new_keypair(&mut MyRng, &ctx);
+        let authority_kp = new_keypair(&mut MyRng, &ctx);
         let header = CertificateHeader {
             version: 0,
             valid_from: 0,
@@ -222,7 +210,7 @@ mod tests {
             remote_static_public_key: PublicKey::from(&server_kp),
         };
         let cert = CertificateSigningRequest { header }
-            .sign(&authority_kp, bootstrap.ctx());
+            .sign(&authority_kp, ctx.as_secp256k1());
         let bundle = CertificateWithPrivateKey {
             header: cert.header,
             authority_public_key: cert.authority_public_key,
@@ -231,8 +219,8 @@ mod tests {
         };
 
         let (init_result, accept_result) = tokio::join!(
-            initiate(&mut a, Dev::new(), ValidateNothing),
-            accept(&mut b, Dev::new(), &bundle),
+            initiate(&mut a, MyRng, &ctx, ValidateNothing),
+            accept(&mut b, MyRng, &ctx, &bundle),
         );
 
         let i_session = init_result.expect("initiator handshake");

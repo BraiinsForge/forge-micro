@@ -5,15 +5,16 @@
 //! `embedded-io-adapters` — tokio. No runtime is a dependency of this
 //! crate; the caller's executor polls our `Future`.
 //!
-//! Both [`initiate`] and [`accept`] take a [`KeyGen`] for fresh entropy
-//! and the secp256k1 context. After the handshake completes, the
+//! Both [`initiate`] and [`accept`] take an [`Rng`] for fresh entropy
+//! and a borrowed [`CryptoCtx`] for the long-lived secp256k1
+//! precomputation context. After the handshake completes, the
 //! [`EstablishedSession`] holds the noise [`TransportState`] you'll use
 //! for application traffic.
 
 use embedded_io_async::{Read, Write};
 use ii_sv2_crypto::{
-    EPHEMERAL_KEY_MSG_SIZE, HandShake, KeyGen, NXError, STATIC_KEY_MSG_SIZE, Secp256k1KeyPair,
-    SecretSecp256k1Key, TransportState,
+    CryptoCtx, EPHEMERAL_KEY_MSG_SIZE, HandShake, NXError, Rng, STATIC_KEY_MSG_SIZE,
+    Secp256k1KeyPair, SecretSecp256k1Key, TransportState,
 };
 
 use crate::authenticator::Authenticator;
@@ -44,17 +45,19 @@ const HANDSHAKE_BUF_LEN: usize =
 /// 2. Reads `<- e, ee, s, es, [signed_cert_msg]`.
 /// 3. Parses the responder's certificate from the encrypted payload and
 ///    runs `authenticator.check(...)`.
-pub async fn initiate<T, R, A>(
+pub async fn initiate<T, R, A, C>(
     io: &mut T,
     rng: R,
+    ctx: &CryptoCtx<C>,
     authenticator: A,
 ) -> Result<EstablishedSession, InitializationError<T::Error>>
 where
     T: Read + Write,
-    R: KeyGen,
+    R: Rng,
     A: Authenticator,
+    C: secp256k1::Signing + secp256k1::Verification,
 {
-    let mut handshake = HandShake::new_initiator(rng);
+    let mut handshake = HandShake::new_initiator(rng, ctx);
     let mut buf = [0u8; HANDSHAKE_BUF_LEN];
 
     // -> e
@@ -95,21 +98,23 @@ where
 ///    mixing fresh entropy from `rng` for the elligator encoding.
 /// 3. Sends `<- e, ee, s, es` together with the noise signature message
 ///    derived from the (public) certificate.
-pub async fn accept<T, R>(
+pub async fn accept<T, R, C>(
     io: &mut T,
     mut rng: R,
+    ctx: &CryptoCtx<C>,
     cert: &CertificateWithPrivateKey,
 ) -> Result<EstablishedSession, InitializationError<T::Error>>
 where
     T: Read + Write,
-    R: KeyGen,
+    R: Rng,
+    C: secp256k1::Signing + secp256k1::Verification,
 {
     let secret_bytes: [u8; 32] = cert.server_static_private_key.into();
     let secp_secret = SecretSecp256k1Key::try_from(secret_bytes)
         .map_err(|_| InitializationError::InvalidKey(KeyParseError::InvalidKey))?;
-    let server_kp = Secp256k1KeyPair::from_secret_key(&secp_secret, &mut rng);
+    let server_kp = Secp256k1KeyPair::from_secret_key(&secp_secret, &mut rng, ctx);
 
-    let mut handshake = HandShake::new_responder(rng, server_kp);
+    let mut handshake = HandShake::new_responder(rng, ctx, server_kp);
     let mut buf = [0u8; HANDSHAKE_BUF_LEN];
 
     // -> e
@@ -144,24 +149,13 @@ mod tests {
     use crate::certificate::{CertificateHeader, CertificateSigningRequest};
     use crate::keys::SecretKey;
     use embedded_io_adapters::tokio_1::FromTokio;
+    use ii_sv2_crypto::{CryptoCtx, Rng, new_keypair};
 
-    struct Dev {
-        ctx: secp256k1::Secp256k1<secp256k1::All>,
-    }
-    impl Dev {
-        fn new() -> Self {
-            Self {
-                ctx: secp256k1::Secp256k1::new(),
-            }
-        }
-    }
-    impl KeyGen for Dev {
-        type Ctx = secp256k1::All;
-        fn new_256_bit_entropy(&mut self) -> [u8; 32] {
-            rand::random::<[u8; 32]>()
-        }
-        fn ctx(&self) -> &secp256k1::Secp256k1<Self::Ctx> {
-            &self.ctx
+    struct MyRng;
+    impl Rng for MyRng {
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            use rand::RngCore;
+            rand::rng().fill_bytes(dest);
         }
     }
 
@@ -176,16 +170,16 @@ mod tests {
         let mut b = FromTokio::new(b);
 
         // Issue a self-signed certificate for the responder.
-        let mut bootstrap = Dev::new();
-        let server_kp = bootstrap.new_keypair();
-        let authority_kp = bootstrap.new_keypair();
+        let ctx = CryptoCtx::new();
+        let server_kp = new_keypair(&mut MyRng, &ctx);
+        let authority_kp = new_keypair(&mut MyRng, &ctx);
         let header = CertificateHeader {
             version: 0,
             valid_from: 0,
             not_valid_after: u32::MAX,
             remote_static_public_key: PublicKey::from(&server_kp),
         };
-        let cert = CertificateSigningRequest { header }.sign(&authority_kp, bootstrap.ctx());
+        let cert = CertificateSigningRequest { header }.sign(&authority_kp, ctx.as_secp256k1());
         let bundle = CertificateWithPrivateKey {
             header: cert.header,
             authority_public_key: cert.authority_public_key,
@@ -194,8 +188,8 @@ mod tests {
         };
 
         let (init_result, accept_result) = tokio::join!(
-            initiate(&mut a, Dev::new(), ValidateNothing),
-            accept(&mut b, Dev::new(), &bundle),
+            initiate(&mut a, MyRng, &ctx, ValidateNothing),
+            accept(&mut b, MyRng, &ctx, &bundle),
         );
 
         let mut i_session = init_result.expect("initiator handshake");

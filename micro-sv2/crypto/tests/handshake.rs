@@ -3,7 +3,8 @@
 //! This file doubles as the canonical "how do I use this crate" example.
 //! It walks through the four-step lifecycle:
 //!
-//!   1. Implement [`KeyGen`] — RNG plus a secp256k1 context.
+//!   1. Implement [`Rng`] and build a [`CryptoCtx`] (the long-lived
+//!      secp256k1 precomputation context).
 //!   2. Generate the responder's static keypair (this authenticates the
 //!      responder).
 //!   3. Drive the handshake by alternating `write_message` / `read_message`
@@ -12,33 +13,20 @@
 //!      messages.
 
 use ii_sv2_crypto::{
-    EPHEMERAL_KEY_MSG_SIZE, HandShake, KeyGen, MAC_SIZE, STATIC_KEY_MSG_SIZE,
+    CryptoCtx, EPHEMERAL_KEY_MSG_SIZE, HandShake, MAC_SIZE, Rng, STATIC_KEY_MSG_SIZE,
+    keys::new_keypair,
 };
 
-/// Step 1: a minimal `KeyGen` for tests. On real hardware this would wrap
-/// the platform's secure RNG and a long-lived secp256k1 context (e.g.
+/// Step 1: a minimal `Rng` for tests. On real hardware this would wrap
+/// the platform's secure RNG; the secp256k1 context is supplied
+/// separately as a [`CryptoCtx`] (e.g. backed by
 /// `secp256k1::AllPreallocated<'static>` over a `static mut [u8; N]`).
-struct SimpleKeyGen {
-    ctx: secp256k1::Secp256k1<secp256k1::All>,
-}
+struct MyRng;
 
-impl SimpleKeyGen {
-    fn new() -> Self {
-        Self {
-            ctx: secp256k1::Secp256k1::new(),
-        }
-    }
-}
-
-impl KeyGen for SimpleKeyGen {
-    type Ctx = secp256k1::All;
-
-    fn new_256_bit_entropy(&mut self) -> [u8; 32] {
-        rand::random::<[u8; 32]>()
-    }
-
-    fn ctx(&self) -> &secp256k1::Secp256k1<Self::Ctx> {
-        &self.ctx
+impl Rng for MyRng {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        use rand::RngCore;
+        rand::rng().fill_bytes(dest);
     }
 }
 
@@ -52,13 +40,14 @@ fn nx_handshake_end_to_end() {
 
     // Step 2: generate the responder's long-term static keypair. Its public
     // half is what the initiator will recover from the handshake.
-    let static_kp = SimpleKeyGen::new().new_keypair();
+    let ctx = CryptoCtx::new();
+    let static_kp = new_keypair(&mut MyRng, &ctx);
     let expected_remote_pk = static_kp.xonly_public_key_bytes();
 
     // Step 3: set up both sides. The initiator does not have a static key
     // in NX — only the responder does.
-    let mut initiator = HandShake::new_initiator(SimpleKeyGen::new());
-    let mut responder = HandShake::new_responder(SimpleKeyGen::new(), static_kp);
+    let mut initiator = HandShake::new_initiator(MyRng, &ctx);
+    let mut responder = HandShake::new_responder(MyRng, &ctx, static_kp);
 
     // Wire buffer; in production these bytes travel over a TCP stream.
     let mut wire = [0u8; HANDSHAKE_BUF_LEN];
@@ -101,10 +90,7 @@ fn nx_handshake_end_to_end() {
     assert_eq!(i_transport.handshake_hash(), r_transport.handshake_hash());
 
     // The initiator now knows the responder's static public key.
-    assert_eq!(
-        i_transport.remote_static_pubkey(),
-        Some(expected_remote_pk)
-    );
+    assert_eq!(i_transport.remote_static_pubkey(), Some(expected_remote_pk));
     // The responder does not learn an initiator static key in NX.
     assert_eq!(r_transport.remote_static_pubkey(), None);
 

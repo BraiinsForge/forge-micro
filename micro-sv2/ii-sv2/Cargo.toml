@@ -3,8 +3,12 @@ name = "ii-sv2"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["alloc"]
+alloc = ["ii-sv2-security/alloc"]
+
 [dependencies]
 ii-sv2-types    = { path = "../types" }
 ii-sv2-framing  = { path = "../framing" }
 ii-sv2-messages = { path = "../messages" }
-ii-sv2-security = { path = "../security" }
+ii-sv2-security = { path = "../security", default-features = false }
