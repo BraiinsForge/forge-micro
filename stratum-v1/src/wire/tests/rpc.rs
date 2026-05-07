@@ -1,4 +1,4 @@
-//! Tests for rpc.
+//! Tests for `rpc`.
 
 use super::*;
 use crate::wire::parse::parse_incoming;

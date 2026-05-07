@@ -1,4 +1,4 @@
-//! Tests for messages.
+//! Tests for `messages`.
 
 use super::*;
 

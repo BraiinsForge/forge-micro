@@ -1,4 +1,4 @@
-//! Tests for line_buffer.
+//! Tests for `line_buffer`.
 
 use super::*;
 

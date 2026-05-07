@@ -1,4 +1,4 @@
-//! Tests for parse.
+//! Tests for `parse`.
 
 use super::*;
 

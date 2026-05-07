@@ -12,6 +12,13 @@ use mining_protocol::JobId;
 
 use crate::scratch::MAX_EXTRANONCE_1;
 
+/// Reserved JSON-RPC `id` values for handshake requests. Submit
+/// `id`s start at `SUBMIT_ID_START` and increment from there.
+pub const CONFIGURE_ID: u32 = 1;
+pub const SUBSCRIBE_ID: u32 = 2;
+pub const AUTHORIZE_ID: u32 = 3;
+pub const SUBMIT_ID_START: u32 = 4;
+
 /// Maximum ASCII length of a V1 wire `job_id`. Public pools we have
 /// observed stay well under this; ckpool emits 4–8 char hex.
 pub const MAX_JOB_ID_CHARS: usize = 32;
@@ -42,9 +49,9 @@ pub struct SessionState {
     /// Latest target advertised by the pool. Initial value is the
     /// most-permissive target; `mining.set_difficulty` overwrites.
     pub target: [u8; 32],
-    /// Monotonic counter for outbound JSON-RPC `id` field. Starts at
-    /// 1; `0` is reserved for "no id assigned yet".
-    pub next_request_id: u32,
+    /// Monotonic counter for outbound submit `id` field. Starts at
+    /// `SUBMIT_ID_START` so it never collides with handshake ids.
+    pub next_submit_id: u32,
     /// `JobId` counter; assigned in `visit_new_job` translation.
     pub next_job_id: u32,
     /// Depth-`JOBID_MAP_DEPTH` ring mapping `JobId` to V1 wire
@@ -63,17 +70,17 @@ impl SessionState {
             extranonce_2_size: 0,
             version_rolling_mask: 0,
             target: PERMISSIVE_TARGET,
-            next_request_id: 1,
+            next_submit_id: SUBMIT_ID_START,
             next_job_id: 0,
             job_id_ring: [const { None }; JOBID_MAP_DEPTH],
             job_id_write_index: 0,
         }
     }
 
-    /// Reserve and return the next outbound JSON-RPC `id`.
-    pub fn allocate_request_id(&mut self) -> u32 {
-        let id = self.next_request_id;
-        self.next_request_id = self.next_request_id.wrapping_add(1).max(1);
+    /// Reserve and return the next submit `id`.
+    pub fn allocate_submit_id(&mut self) -> u32 {
+        let id = self.next_submit_id;
+        self.next_submit_id = self.next_submit_id.wrapping_add(1).max(SUBMIT_ID_START);
         id
     }
 }
