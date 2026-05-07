@@ -7,3 +7,13 @@
 //! Replaces `ubos-backend`.
 
 #![no_std]
+
+pub mod asic_session;
+pub mod job_ring;
+pub mod work;
+pub mod work_ring;
+
+pub use asic_session::{AsicSession, SOLUTION_QUEUE_DEPTH};
+pub use job_ring::{JobRing, JobSlot, JOB_RING_DEPTH};
+pub use work::{OutstandingWork, Solution, WorkAssignment, MAX_EXTRANONCE_2};
+pub use work_ring::{WorkRing, WORK_RING_DEPTH};

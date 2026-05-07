@@ -3571,6 +3571,9 @@ dependencies = [
 name = "stratum-client"
 version = "0.1.0"
 dependencies = [
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "heapless 0.8.0",
  "mining-protocol",
 ]
 
