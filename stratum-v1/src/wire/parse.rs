@@ -2,12 +2,12 @@
 
 use serde::Deserialize;
 
-use crate::error::ParseError;
 use super::messages::{
     ClientReconnect, ConfigureResult, Notify, SetDifficulty, SetExtranonce, SetVersionMask,
     SubscribeResult,
 };
 use super::rpc::{Notification, Response, Rpc, StratumError};
+use crate::error::ParseError;
 
 #[cfg(test)]
 #[path = "tests/parse.rs"]

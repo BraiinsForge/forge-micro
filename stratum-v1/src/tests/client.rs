@@ -100,7 +100,10 @@ async fn connect_pipelines_handshake_messages() {
     );
 
     let configure = core::str::from_utf8(request_lines[0]).expect("utf-8");
-    assert!(configure.contains("\"method\":\"mining.configure\""), "{configure}");
+    assert!(
+        configure.contains("\"method\":\"mining.configure\""),
+        "{configure}"
+    );
     assert!(configure.contains("\"id\":1"), "{configure}");
     assert!(
         configure.contains("\"version-rolling\""),
@@ -108,11 +111,17 @@ async fn connect_pipelines_handshake_messages() {
     );
 
     let subscribe = core::str::from_utf8(request_lines[1]).expect("utf-8");
-    assert!(subscribe.contains("\"method\":\"mining.subscribe\""), "{subscribe}");
+    assert!(
+        subscribe.contains("\"method\":\"mining.subscribe\""),
+        "{subscribe}"
+    );
     assert!(subscribe.contains("\"id\":2"), "{subscribe}");
 
     let authorize = core::str::from_utf8(request_lines[2]).expect("utf-8");
-    assert!(authorize.contains("\"method\":\"mining.authorize\""), "{authorize}");
+    assert!(
+        authorize.contains("\"method\":\"mining.authorize\""),
+        "{authorize}"
+    );
     assert!(authorize.contains("\"id\":3"), "{authorize}");
     assert!(
         authorize.contains("alice.worker1"),
@@ -127,7 +136,10 @@ async fn drive_propagates_transport_close_as_error() {
     drop(b);
 
     let mut client = StratumV1Client::new(&TEST_CONFIG);
-    let err = client.drive(&mut a_io).await.expect_err("closed pipe must error");
+    let err = client
+        .drive(&mut a_io)
+        .await
+        .expect_err("closed pipe must error");
     assert!(matches!(err, Error::Transport));
 }
 
@@ -201,10 +213,7 @@ async fn submit_rejects_unknown_job_id() {
         version_bits: 0,
         extranonce_2: &[],
     };
-    assert!(matches!(
-        client.submit(&share),
-        Err(Error::UnknownJobId),
-    ));
+    assert!(matches!(client.submit(&share), Err(Error::UnknownJobId),));
 }
 
 #[tokio::test]
@@ -229,7 +238,9 @@ async fn submit_encodes_mining_submit_with_wire_job_id() {
         version_bits: 0,
         extranonce_2: &[0xaa, 0xbb, 0xcc, 0xdd],
     };
-    client.submit(&share).expect("submit must accept the known JobId");
+    client
+        .submit(&share)
+        .expect("submit must accept the known JobId");
 
     // Drain the queued submit by driving once. drive() flushes the
     // outbound slot before its read loop, so we pre-stage a single
@@ -244,7 +255,10 @@ async fn submit_encodes_mining_submit_with_wire_job_id() {
     let bytes = core::str::from_utf8(&received[..n]).expect("utf-8");
 
     assert!(bytes.contains("\"method\":\"mining.submit\""), "{bytes}");
-    assert!(bytes.contains("\"1d2e0c4d3d\""), "wire job_id must round-trip: {bytes}");
+    assert!(
+        bytes.contains("\"1d2e0c4d3d\""),
+        "wire job_id must round-trip: {bytes}"
+    );
     assert!(bytes.contains("\"aabbccdd\""), "extranonce_2 hex: {bytes}");
     assert!(bytes.contains("\"deadbeef\""), "nonce hex: {bytes}");
 }

@@ -21,10 +21,7 @@ pub enum SessionUpdate<'a> {
     /// response and on `mining.set_extranonce`; V2 emits it during
     /// the channel-open success and (for extended channels) on
     /// `SetExtranoncePrefix`.
-    SetExtranonce {
-        prefix: &'a [u8],
-        en2_size: u8,
-    },
+    SetExtranonce { prefix: &'a [u8], en2_size: u8 },
     /// New version-rolling mask. V1-only post-handshake; V2 derives
     /// it once from `SetupConnection.flags`.
     SetVersionMask(u32),
@@ -50,4 +47,3 @@ pub struct SubmitResult<'a> {
     pub error_code: Option<u32>,
     pub error_message: Option<&'a str>,
 }
-

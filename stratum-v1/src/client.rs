@@ -196,8 +196,7 @@ impl MiningClient for StratumV1Client {
         // Copy the wire-form job_id out of the ring so the immutable
         // borrow ends before we mutate session for the submit id.
         let mut wire_job_id = String::<MAX_JOB_ID_CHARS>::new();
-        let wire_borrow =
-            lookup_wire_job_id(&self.session, share.id).ok_or(Error::UnknownJobId)?;
+        let wire_borrow = lookup_wire_job_id(&self.session, share.id).ok_or(Error::UnknownJobId)?;
         wire_job_id
             .push_str(wire_borrow)
             .map_err(|()| Error::Adapter)?;
@@ -257,7 +256,10 @@ impl MiningClient for StratumV1Client {
             if writable.is_empty() {
                 return Err(Error::Decode);
             }
-            let read_count = transport.read(writable).await.map_err(|_| Error::Transport)?;
+            let read_count = transport
+                .read(writable)
+                .await
+                .map_err(|_| Error::Transport)?;
             if read_count == 0 {
                 return Err(Error::Transport);
             }
@@ -300,8 +302,7 @@ impl MiningClient for StratumV1Client {
                 }
                 Rpc::Notification(Notification::SetDifficulty(set_diff)) => {
                     self.session.target = target_from_diff(set_diff.0);
-                    visitor
-                        .visit_session_update(SessionUpdate::SetTarget(&self.session.target));
+                    visitor.visit_session_update(SessionUpdate::SetTarget(&self.session.target));
                 }
                 Rpc::Notification(Notification::SetVersionMask(set_mask)) => {
                     self.session.version_rolling_mask = set_mask.mask;
@@ -314,8 +315,7 @@ impl MiningClient for StratumV1Client {
                     {
                         self.session.extranonce_2_size = set_extranonce.extra_nonce_2_size;
                         visitor.visit_session_update(SessionUpdate::SetExtranonce {
-                            prefix: &self.session.extranonce_1
-                                [..self.session.extranonce_1_len],
+                            prefix: &self.session.extranonce_1[..self.session.extranonce_1_len],
                             en2_size: self.session.extranonce_2_size,
                         });
                     }
