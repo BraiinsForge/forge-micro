@@ -7,7 +7,7 @@
 //! `submit` lands once `SubmitSharesStandard` is in `ii-sv2`.
 
 use embedded_io_async::{Read, Write};
-use ii_sv2::framing::FrameCodec;
+use ii_sv2::framing::{FrameCodec, Header};
 use ii_sv2::messages::{DeviceInfo, OpenStandardMiningChannel, SetupConnection};
 use ii_sv2::security::{
     initiate, secp256k1, CryptoCtx, EncryptedCodec, EstablishedSession, PublicKey, Rng,
@@ -18,6 +18,14 @@ use mining_protocol::{Error, MiningClient, MiningClientVisitor, Share};
 
 use crate::auth::AuthChoice;
 use crate::config::Sv2Config;
+
+/// Encrypted SV2 header on the wire: 6-byte header + 16-byte MAC.
+/// `EncryptedCodec::HEADER_WIRE_SIZE` matches; reserved here as a
+/// const so the receive-side header buffer can be sized.
+const ENCRYPTED_HEADER_BYTES: usize = 22;
+
+/// AEAD MAC bytes appended to each encrypted chunk.
+const MAC_BYTES: usize = 16;
 
 /// Wire buffer sized for the largest standard-channel mining message
 /// plus the SV2 noise framing overhead. Tuned alongside the codec
@@ -49,19 +57,48 @@ const DEVICE_ID: &str = "";
 const OPEN_CHANNEL_REQUEST_ID: u32 = 1;
 
 /// Adapter state — `PreHandshake` until `connect` finishes the
-/// noise dance, `Connected { codec }` afterwards. The `codec` and
-/// `channel_id` fields are stashed during `connect` and read by
-/// `drive` / `accept` / `submit` (next commits); the dead-code lint
-/// gates on the read paths and lifts as those land.
-#[allow(dead_code)]
+/// noise dance, `Connected { codec }` afterwards.
 enum V2State {
     PreHandshake,
     Connected {
         codec: EncryptedCodec,
         /// `channel_id` from `OpenStandardMiningChannelSuccess`,
         /// populated by `accept` once the response arrives. Until
-        /// then, `submit` errors with `UnknownJobId`.
+        /// then, `submit` errors with `UnknownJobId`. Read in the
+        /// `accept` dispatch (next commit).
+        #[allow(dead_code)]
         channel_id: Option<u32>,
+    },
+}
+
+/// Receive-side state machine. Each state describes precisely how
+/// many bytes have been read off the wire and how far the AEAD
+/// chain has advanced — invariant the cancellation safety relies
+/// on.
+///
+/// `Idle` — no bytes read; AEAD at frame boundary. `ReadingHeader` —
+/// `received` bytes of the encrypted 22-byte header are in the
+/// header buffer; AEAD has NOT advanced. `ReadingPayload` — header
+/// has been decrypted (AEAD advanced by one chunk); `received`
+/// bytes of `header.msg_length + MAC_BYTES` are in the wire
+/// buffer. `PayloadReady` — payload decrypted (AEAD advanced by a
+/// second chunk); plaintext sits in the wire buffer waiting for
+/// `accept` to dispatch.
+#[derive(Clone, Copy)]
+enum FrameState {
+    Idle,
+    ReadingHeader {
+        received: usize,
+    },
+    ReadingPayload {
+        header: Header,
+        received: usize,
+    },
+    /// `header` is read by the next commit's `accept` dispatch when
+    /// it builds a `FrameView` from the decrypted payload.
+    PayloadReady {
+        #[allow(dead_code)]
+        header: Header,
     },
 }
 
@@ -74,8 +111,16 @@ pub struct StratumV2Client<R: Rng, C: secp256k1::Signing + secp256k1::Verificati
     ctx: &'static CryptoCtx<C>,
     rng: Option<R>,
     state: V2State,
-    #[allow(dead_code)]
+    /// Receive buffer for the encrypted payload — sized for the
+    /// largest standard-channel frame plus the trailing MAC.
     wire_buffer: [u8; WIRE_BUFFER_BYTES],
+    /// Receive buffer for the encrypted header (separate so the
+    /// header decrypt can complete while leaving the wire buffer
+    /// free to accumulate the payload).
+    header_buffer: [u8; ENCRYPTED_HEADER_BYTES],
+    /// Receive-side state machine; see `FrameState` for the
+    /// invariant.
+    frame_state: FrameState,
     encode_buffer: [u8; ENCODE_BUFFER_BYTES],
 }
 
@@ -88,6 +133,8 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> StratumV
             rng: Some(rng),
             state: V2State::PreHandshake,
             wire_buffer: [0; WIRE_BUFFER_BYTES],
+            header_buffer: [0; ENCRYPTED_HEADER_BYTES],
+            frame_state: FrameState::Idle,
             encode_buffer: [0; ENCODE_BUFFER_BYTES],
         }
     }
@@ -202,17 +249,96 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
         Err(Error::NotImplemented)
     }
 
-    async fn drive<T>(&mut self, _transport: &mut T) -> Result<(), Error>
+    /// Read one encrypted SV2 frame off the transport and decrypt
+    /// it in place. State machine drives in stages; each stage's
+    /// only side-effect on AEAD state happens after the matching
+    /// reads are complete, so a `drive` future cancelled mid-read
+    /// can be resumed from the same state on the next call.
+    async fn drive<T>(&mut self, transport: &mut T) -> Result<(), Error>
     where
         T: Read + Write,
     {
-        // Lands in the next commit alongside the encrypted-frame
-        // read loop and MiningMessages dispatch.
-        Err(Error::NotImplemented)
+        let V2State::Connected { codec, .. } = &mut self.state else {
+            // connect() hasn't completed yet; nothing to drive.
+            return Err(Error::Adapter);
+        };
+
+        loop {
+            match self.frame_state {
+                FrameState::Idle => {
+                    self.frame_state = FrameState::ReadingHeader { received: 0 };
+                }
+                FrameState::ReadingHeader { mut received } => {
+                    while received < ENCRYPTED_HEADER_BYTES {
+                        let read_count = transport
+                            .read(&mut self.header_buffer[received..ENCRYPTED_HEADER_BYTES])
+                            .await
+                            .map_err(|_| Error::Transport)?;
+                        if read_count == 0 {
+                            return Err(Error::Transport);
+                        }
+                        received += read_count;
+                        // Persist progress so a cancellation here
+                        // doesn't lose the bytes already buffered.
+                        self.frame_state = FrameState::ReadingHeader { received };
+                    }
+                    // Whole encrypted header is in `header_buffer`.
+                    // Decrypt — first AEAD advance for this frame.
+                    let header = codec
+                        .decode_header(&mut self.header_buffer)
+                        .map_err(|_| Error::Decode)?;
+                    self.frame_state = FrameState::ReadingPayload {
+                        header,
+                        received: 0,
+                    };
+                }
+                FrameState::ReadingPayload {
+                    header,
+                    mut received,
+                } => {
+                    let payload_total = header.msg_length as usize + MAC_BYTES;
+                    if payload_total > self.wire_buffer.len() {
+                        return Err(Error::Decode);
+                    }
+                    while received < payload_total {
+                        let read_count = transport
+                            .read(&mut self.wire_buffer[received..payload_total])
+                            .await
+                            .map_err(|_| Error::Transport)?;
+                        if read_count == 0 {
+                            return Err(Error::Transport);
+                        }
+                        received += read_count;
+                        self.frame_state = FrameState::ReadingPayload { header, received };
+                    }
+                    // Whole encrypted payload buffered. Decrypt
+                    // in place — second AEAD advance.
+                    codec
+                        .decode_frame(header, &mut self.wire_buffer[..payload_total])
+                        .map_err(|_| Error::Decode)?;
+                    self.frame_state = FrameState::PayloadReady { header };
+                    return Ok(());
+                }
+                FrameState::PayloadReady { .. } => {
+                    // Caller hasn't drained the previous frame
+                    // through `accept` yet — pairing is required
+                    // for AEAD alignment with the peer.
+                    return Err(Error::Adapter);
+                }
+            }
+        }
     }
 
+    /// Dispatch the most recently decrypted frame to `visitor`.
+    /// `MiningMessages` dispatch + translation to `MiningJob` /
+    /// `SessionUpdate` / `SubmitResult` lands in the next commit.
+    /// For now `accept` only resets the receive state machine so
+    /// the next `drive` can read another frame; visitor stays
+    /// silent.
     fn accept<V: MiningClientVisitor>(&mut self, _visitor: &mut V) {
-        // Lands alongside `drive`.
+        if matches!(self.frame_state, FrameState::PayloadReady { .. }) {
+            self.frame_state = FrameState::Idle;
+        }
     }
 }
 
