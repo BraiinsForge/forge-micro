@@ -2,7 +2,7 @@
 
 use chacha20poly1305::{
     ChaCha20Poly1305, KeyInit, Nonce, Tag,
-    aead::AeadInPlace,
+    aead::{AeadInOut, inout::InOutBuf},
 };
 
 use crate::{MAC_SIZE, error::AeadError};
@@ -34,10 +34,10 @@ impl SealingCipherState {
             .nonce
             .checked_add(1)
             .ok_or(AeadError("nonce overflow"))?;
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Nonce::from(nonce_bytes);
         let tag = self
             .cipher
-            .encrypt_in_place_detached(nonce, ad, &mut data[..data_len])
+            .encrypt_inout_detached(&nonce, ad, InOutBuf::from(&mut data[..data_len]))
             .map_err(|_| AeadError("encryption failed"))?;
         data[data_len..data_len + MAC_SIZE].copy_from_slice(tag.as_slice());
         Ok(())
@@ -65,12 +65,12 @@ impl OpeningCipherState {
             .nonce
             .checked_add(1)
             .ok_or(AeadError("nonce overflow"))?;
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Nonce::from(nonce_bytes);
         let split = data.len() - MAC_SIZE;
         let (ciphertext, tag_bytes) = data.split_at_mut(split);
-        let tag = Tag::from_slice(tag_bytes);
+        let tag = Tag::try_from(&*tag_bytes).map_err(|_| AeadError("malformed tag"))?;
         self.cipher
-            .decrypt_in_place_detached(nonce, ad, ciphertext, tag)
+            .decrypt_inout_detached(&nonce, ad, InOutBuf::from(ciphertext), &tag)
             .map_err(|_| AeadError("decryption failed"))?;
         Ok(())
     }

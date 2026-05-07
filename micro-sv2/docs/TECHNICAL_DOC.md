@@ -108,7 +108,7 @@ exclude = ["interop-test"]
 secp256k1        = { version = "0.31", default-features = false }
 sha2             = { version = "0.11", default-features = false }
 hkdf             = { version = "0.13", default-features = false }
-chacha20poly1305 = { version = "0.10", default-features = false }
+chacha20poly1305 = { version = "=0.11.0-rc.3", default-features = false }
 bs58             = { version = "0.5",  default-features = false, features = ["check"] }
 embedded-io-async = { version = "0.7", default-features = false }
 ```
