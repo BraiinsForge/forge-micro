@@ -3562,7 +3562,9 @@ name = "stratum-v1"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "embedded-io-async 0.7.0",
  "heapless 0.8.0",
+ "mining-protocol",
  "serde",
  "serde-json-core",
 ]

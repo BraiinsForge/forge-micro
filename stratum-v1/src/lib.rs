@@ -17,9 +17,16 @@
 // by design; renaming would diverge from the Stratum V1 terminology.
 #![allow(clippy::module_name_repetitions)]
 
+pub mod client;
+pub mod config;
 pub mod error;
 pub mod hex;
+pub mod scratch;
+pub mod state;
 pub mod wire;
+
+pub use client::StratumV1Client;
+pub use config::Sv1Config;
 
 pub use error::{EncodeError, ParseError};
 pub use wire::line_buffer::LineBuffer;
