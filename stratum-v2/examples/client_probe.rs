@@ -31,7 +31,9 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use embedded_io_adapters::tokio_1::FromTokio;
 use ii_sv2::security::{secp256k1, CryptoCtx, PublicKey, Rng as Sv2Rng};
-use mining_protocol::{MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
+use mining_protocol::{
+    JobId, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share, SubmitResult,
+};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use stratum_v2::{StratumV2Client, Sv2Config};
@@ -58,7 +60,10 @@ impl Sv2Rng for ProbeRng {
 
 #[derive(Default)]
 struct PrintVisitor {
-    saw_first_job: bool,
+    /// Most recent `JobId` seen, so the probe can submit a share
+    /// against a known-valid job. `None` until the first
+    /// `visit_new_job`.
+    latest_job: Option<JobId>,
 }
 
 impl MiningClientVisitor for PrintVisitor {
@@ -76,7 +81,7 @@ impl MiningClientVisitor for PrintVisitor {
             hex_msb(job.prev_hash),
             merkle_marker(&job),
         );
-        self.saw_first_job = true;
+        self.latest_job = Some(job.id);
     }
 
     fn visit_submit_result(&mut self, result: SubmitResult<'_>) {
@@ -176,6 +181,7 @@ async fn main() -> Result<()> {
     println!("[connected] noise + setup-connection + open-channel sent");
 
     let mut visitor = PrintVisitor::default();
+    let mut submitted = false;
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     while std::time::Instant::now() < deadline {
         client
@@ -183,9 +189,30 @@ async fn main() -> Result<()> {
             .await
             .map_err(|e| anyhow!("drive: {e:?}"))?;
         client.accept(&mut visitor);
+
+        if !submitted {
+            if let Some(job_id) = visitor.latest_job {
+                // Deliberately bad share against a real `JobId`:
+                // pool will return `SubmitSharesError`. The point
+                // is to exercise the encode + flush path, not to
+                // mine.
+                let share = Share {
+                    id: job_id,
+                    nonce: 0,
+                    ntime: 0x6044_9522,
+                    version_bits: 0,
+                    extranonce_2: &[],
+                };
+                match client.submit(&share) {
+                    Ok(()) => println!("[submit] queued"),
+                    Err(e) => println!("[submit] error {e:?}"),
+                }
+                submitted = true;
+            }
+        }
     }
 
-    if !visitor.saw_first_job {
+    if visitor.latest_job.is_none() {
         eprintln!("[warn] timed out without seeing a NewMiningJob");
     }
     println!("done");
