@@ -15,6 +15,10 @@ use mining_protocol::JobId;
 /// caps the value at 32 bytes.
 pub const MAX_EXTRANONCE_PREFIX: usize = 32;
 
+/// Depth of the `JobId`-to-wire-id ring. Matches `stratum-client`'s
+/// `JobRing` depth so the two rotate in lockstep.
+pub const JOBID_MAP_DEPTH: usize = 2;
+
 /// Future-job slot for `NewMiningJob` with `min_ntime: None`. The
 /// pool sends future jobs ahead of the matching `SetNewPrevHash`;
 /// activation copies these fields into a `MiningJob` once a
@@ -26,12 +30,18 @@ pub struct PendingFutureJob {
     pub merkle_root: [u8; 32],
 }
 
+/// One row of the `JobId`-to-wire-id translation ring.
+#[derive(Clone, Copy)]
+pub struct JobIdSlot {
+    pub generic: JobId,
+    pub wire: u32,
+}
+
 /// Adapter session state for a V2 standard channel.
 pub struct V2SessionState {
     /// `channel_id` from `OpenStandardMiningChannelSuccess`. `None`
-    /// until the channel-open response arrives. The V2 submit path
-    /// (lands in a later commit) reads this when it is `Some`.
-    #[allow(dead_code)]
+    /// until the channel-open response arrives. `submit` errors
+    /// with `Adapter` while this is `None`.
     pub channel_id: Option<u32>,
     /// Previous-block hash from the most recent `SetNewPrevHash`,
     /// in block-header byte order.
@@ -62,6 +72,16 @@ pub struct V2SessionState {
     pub version_rolling_mask: u32,
     /// `JobId` counter; increments on each `visit_new_job`.
     pub next_job_id: u32,
+    /// Per-channel `sequence_number` for outbound
+    /// `SubmitSharesStandard`. The pool echoes the highest seen
+    /// value back in `SubmitSharesSuccess.last_sequence_number`.
+    pub next_sequence_number: u32,
+    /// Depth-`JOBID_MAP_DEPTH` ring mapping `JobId` to the V2
+    /// wire u32 `job_id`. Rotates in lockstep with
+    /// `stratum-client`'s `JobRing`. Submit looks up the wire id
+    /// to populate `SubmitSharesStandard.job_id`.
+    pub job_id_ring: [Option<JobIdSlot>; JOBID_MAP_DEPTH],
+    pub job_id_write_index: usize,
     /// Pending future `NewMiningJob` (received with
     /// `min_ntime: None`) waiting for a matching `SetNewPrevHash`
     /// to activate it.
@@ -82,17 +102,44 @@ impl V2SessionState {
             ntime_base: 0,
             version_rolling_mask: 0,
             next_job_id: 0,
+            next_sequence_number: 0,
+            job_id_ring: [const { None }; JOBID_MAP_DEPTH],
+            job_id_write_index: 0,
             pending_future_job: None,
         }
     }
 
-    /// Allocate the next `JobId`. The V2 submit path will need a
-    /// `JobId`-to-wire-id ring (mirroring V1) — that lands in a
-    /// later commit.
-    pub fn allocate_job_id(&mut self) -> JobId {
+    /// Allocate the next `JobId` and stash the `(JobId, wire_id)`
+    /// pair into the ring at the current write index.
+    pub fn allocate_job_id(&mut self, wire_id: u32) -> JobId {
         let generic = JobId(self.next_job_id);
         self.next_job_id = self.next_job_id.wrapping_add(1);
+        let index = self.job_id_write_index;
+        self.job_id_ring[index] = Some(JobIdSlot {
+            generic,
+            wire: wire_id,
+        });
+        self.job_id_write_index = (index + 1) % JOBID_MAP_DEPTH;
         generic
+    }
+
+    /// Look up the V2 wire `job_id` for a previously emitted
+    /// `JobId`. Returns `None` if the slot has rotated out of the
+    /// depth-`JOBID_MAP_DEPTH` ring.
+    #[must_use]
+    pub fn lookup_wire_job_id(&self, generic: JobId) -> Option<u32> {
+        self.job_id_ring
+            .iter()
+            .filter_map(Option::as_ref)
+            .find(|slot| slot.generic == generic)
+            .map(|slot| slot.wire)
+    }
+
+    /// Reserve and return the next per-channel `sequence_number`.
+    pub fn allocate_sequence_number(&mut self) -> u32 {
+        let value = self.next_sequence_number;
+        self.next_sequence_number = self.next_sequence_number.wrapping_add(1);
+        value
     }
 }
 

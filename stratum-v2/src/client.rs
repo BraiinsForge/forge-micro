@@ -3,16 +3,18 @@
 //! `connect` performs the noise NX handshake via
 //! `ii_sv2::security::initiate`, then sends `SetupConnection` and
 //! `OpenStandardMiningChannel` over the `EncryptedCodec` it
-//! produces. `drive` reads one encrypted frame and decrypts it in
-//! place; `accept` dispatches the most recently buffered frame to
-//! the visitor. `submit` lands once `SubmitSharesStandard` is in
-//! `ii-sv2`.
+//! produces. `drive` flushes any queued outbound frame and reads
+//! one encrypted frame back, decrypting it in place. `accept`
+//! dispatches the most recently buffered frame to the visitor.
+//! `submit` encodes `SubmitSharesStandard` into the outbound slot
+//! for the next `drive` to flush.
 
 use embedded_io_async::{Read, Write};
 use ii_sv2::framing::{FrameCodec, FrameView, Header, MessageGroup};
 use ii_sv2::messages::{
     DeviceInfo, MiningMessages, NewMiningJob, OpenStandardMiningChannel,
     OpenStandardMiningChannelSuccess, SetNewPrevHash, SetTarget, SetupConnection,
+    SubmitSharesError, SubmitSharesStandard, SubmitSharesSuccess,
 };
 use ii_sv2::security::{
     initiate, secp256k1, CryptoCtx, EncryptedCodec, EstablishedSession, PublicKey, Rng,
@@ -20,7 +22,8 @@ use ii_sv2::security::{
 };
 use ii_sv2::types::{Str0_255, Uint256};
 use mining_protocol::{
-    Error, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share,
+    Error, JobId, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share,
+    SubmitResult,
 };
 
 use crate::auth::AuthChoice;
@@ -104,10 +107,9 @@ enum FrameState {
         header: Header,
         received: usize,
     },
-    /// `header` is read by the next commit's `accept` dispatch when
-    /// it builds a `FrameView` from the decrypted payload.
+    /// `header` is consumed by the next `accept` call to build the
+    /// `FrameView` over the decrypted payload.
     PayloadReady {
-        #[allow(dead_code)]
         header: Header,
     },
 }
@@ -132,6 +134,14 @@ pub struct StratumV2Client<R: Rng, C: secp256k1::Signing + secp256k1::Verificati
     /// invariant.
     frame_state: FrameState,
     encode_buffer: [u8; ENCODE_BUFFER_BYTES],
+    /// Bytes pending flush in `encode_buffer`. `0` when nothing
+    /// is queued. `submit` only encodes a fresh frame when this is
+    /// `0`; otherwise it returns `BufferTooSmall` and waits for the
+    /// next `drive` to flush the previous one.
+    outbound_len: usize,
+    /// Cursor into `encode_buffer[..outbound_len]` for resuming a
+    /// partial flush across cancellation.
+    outbound_offset: usize,
 }
 
 impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> StratumV2Client<R, C> {
@@ -146,6 +156,8 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> StratumV
             header_buffer: [0; ENCRYPTED_HEADER_BYTES],
             frame_state: FrameState::Idle,
             encode_buffer: [0; ENCODE_BUFFER_BYTES],
+            outbound_len: 0,
+            outbound_offset: 0,
         }
     }
 
@@ -253,21 +265,72 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
         Ok(())
     }
 
-    fn submit(&mut self, _share: &Share<'_>) -> Result<(), Error> {
-        // Lands once SubmitSharesStandard is in ii-sv2 (micro-sv2
-        // user story MINE004).
-        Err(Error::NotImplemented)
+    /// Encode `SubmitSharesStandard` for `share` and queue it into
+    /// `encode_buffer`. The next `drive` call flushes the bytes;
+    /// the pool's `SubmitSharesSuccess` / `SubmitSharesError`
+    /// response surfaces through `accept` → `visit_submit_result`.
+    fn submit(&mut self, share: &Share<'_>) -> Result<(), Error> {
+        if self.outbound_len > 0 {
+            // Previous submit hasn't flushed yet; the encrypted
+            // codec is single-chunk, so we don't pipeline.
+            return Err(Error::BufferTooSmall);
+        }
+        let V2State::Connected { codec, session } = &mut self.state else {
+            return Err(Error::Adapter);
+        };
+        let channel_id = session.channel_id.ok_or(Error::Adapter)?;
+        let wire_job_id = session
+            .lookup_wire_job_id(share.id)
+            .ok_or(Error::UnknownJobId)?;
+        let sequence_number = session.allocate_sequence_number();
+
+        let message = SubmitSharesStandard {
+            channel_id,
+            sequence_number,
+            job_id: wire_job_id,
+            nonce: share.nonce,
+            ntime: share.ntime,
+            version: share.version_bits,
+        };
+        let length = codec
+            .encode(&message, self.encode_buffer.as_mut_slice())
+            .map_err(|_| Error::BufferTooSmall)?;
+        self.outbound_len = length;
+        self.outbound_offset = 0;
+        Ok(())
     }
 
-    /// Read one encrypted SV2 frame off the transport and decrypt
-    /// it in place. State machine drives in stages; each stage's
+    /// Flush any queued outbound bytes, then read one encrypted
+    /// SV2 frame off the transport and decrypt it in place. The
+    /// receive-side state machine drives in stages; each stage's
     /// only side-effect on AEAD state happens after the matching
     /// reads are complete, so a `drive` future cancelled mid-read
     /// can be resumed from the same state on the next call.
+    /// Outbound flushing is similarly resumable via
+    /// `outbound_offset`.
     async fn drive<T>(&mut self, transport: &mut T) -> Result<(), Error>
     where
         T: Read + Write,
     {
+        // Flush queued outbound bytes (e.g. a `SubmitSharesStandard`
+        // produced by a recent `submit`) before reading. The bytes
+        // are already AEAD-sealed, so a partial write is safe to
+        // resume.
+        while self.outbound_offset < self.outbound_len {
+            let written = transport
+                .write(&self.encode_buffer[self.outbound_offset..self.outbound_len])
+                .await
+                .map_err(|_| Error::Transport)?;
+            if written == 0 {
+                return Err(Error::Transport);
+            }
+            self.outbound_offset += written;
+        }
+        if self.outbound_len > 0 {
+            self.outbound_len = 0;
+            self.outbound_offset = 0;
+        }
+
         let V2State::Connected { codec, .. } = &mut self.state else {
             // connect() hasn't completed yet; nothing to drive.
             return Err(Error::Adapter);
@@ -383,22 +446,26 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
             MiningMessages::NewMiningJob(job) => {
                 handle_new_mining_job(session, &job, visitor);
             }
-            // Server-initiated `SetupConnection` / `OpenStandardMiningChannel`
-            // never arrives at a client, and `SetupConnectionSuccess`
-            // carries no fields the trait surface exposes today
-            // (the firmware requests `flags = 0`, so version
-            // rolling is not negotiated). Errors are dropped here;
-            // defmt logging lands in a later commit. The submit
-            // arms are handled by the V2 submit path (lands once
-            // `SubmitSharesStandard` is wired through `submit`).
+            MiningMessages::SubmitSharesSuccess(success) => {
+                handle_submit_success(&success, visitor);
+            }
+            MiningMessages::SubmitSharesError(error) => {
+                handle_submit_error(&error, visitor);
+            }
+            // Server-initiated `SetupConnection`,
+            // `OpenStandardMiningChannel`, and client-side
+            // `SubmitSharesStandard` never arrive at a client.
+            // `SetupConnectionSuccess` carries no fields the trait
+            // surface exposes today (the firmware requests
+            // `flags = 0`, so version rolling is not negotiated).
+            // Errors are dropped here; defmt logging lands in a
+            // later commit.
             MiningMessages::SetupConnection(_)
             | MiningMessages::SetupConnectionSuccess(_)
             | MiningMessages::SetupConnectionError(_)
             | MiningMessages::OpenStandardMiningChannel(_)
             | MiningMessages::OpenMiningChannelError(_)
-            | MiningMessages::SubmitSharesStandard(_)
-            | MiningMessages::SubmitSharesSuccess(_)
-            | MiningMessages::SubmitSharesError(_) => {}
+            | MiningMessages::SubmitSharesStandard(_) => {}
         }
     }
 }
@@ -464,6 +531,7 @@ fn handle_set_new_prev_hash<V: MiningClientVisitor>(
     }
     emit_mining_job(
         session,
+        pending.wire_job_id,
         pending.version,
         &pending.merkle_root,
         snph.min_ntime,
@@ -489,6 +557,7 @@ fn handle_new_mining_job<V: MiningClientVisitor>(
         }
         emit_mining_job(
             session,
+            job.job_id,
             job.version,
             job.merkle_root.to_le_bytes(),
             ntime,
@@ -513,13 +582,14 @@ fn handle_new_mining_job<V: MiningClientVisitor>(
 /// slot — either is valid for the duration of the visitor call.
 fn emit_mining_job<V: MiningClientVisitor>(
     session: &mut V2SessionState,
+    wire_job_id: u32,
     version: u32,
     merkle_root: &[u8; 32],
     ntime: u32,
     clean_jobs: bool,
     visitor: &mut V,
 ) {
-    let job_id = session.allocate_job_id();
+    let job_id = session.allocate_job_id(wire_job_id);
     let mining_job = MiningJob {
         id: job_id,
         prev_hash: &session.prev_hash,
@@ -535,6 +605,37 @@ fn emit_mining_job<V: MiningClientVisitor>(
         merkle: LazyMerkle::Final(merkle_root),
     };
     visitor.visit_new_job(mining_job);
+}
+
+/// `SubmitSharesSuccess` covers one or more accepted shares; the
+/// trait surface only carries one outcome per call, so we fire one
+/// `SubmitResult { accepted: true }` and let the visitor's
+/// share-tracking logic correlate via the work ring. `JobId(0)` is
+/// a placeholder — V2 success/error frames refer to a per-channel
+/// `sequence_number`, not a job id, so a seq→`JobId` map would be
+/// the right next step (matches V1's posture today).
+fn handle_submit_success<V: MiningClientVisitor>(_success: &SubmitSharesSuccess, visitor: &mut V) {
+    visitor.visit_submit_result(SubmitResult {
+        id: JobId(0),
+        accepted: true,
+        error_code: None,
+        error_message: None,
+    });
+}
+
+/// `SubmitSharesError` carries a string code per SV2 spec
+/// (`stale-share`, `invalid-job-id`, etc.). Surface it as
+/// `error_message`; `error_code` stays `None` because the trait
+/// uses a numeric V1 code we don't have a V2 counterpart for.
+fn handle_submit_error<V: MiningClientVisitor>(error: &SubmitSharesError<'_>, visitor: &mut V) {
+    let code_bytes = error.error_code.as_bytes();
+    let error_message = core::str::from_utf8(code_bytes).ok();
+    visitor.visit_submit_result(SubmitResult {
+        id: JobId(0),
+        accepted: false,
+        error_code: None,
+        error_message,
+    });
 }
 
 /// Coarse mapping from the rich `InitializationError` to our trait's
