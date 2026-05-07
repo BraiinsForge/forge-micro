@@ -40,10 +40,20 @@ pub async fn run_asic_cpu(asic: &'static AsicSession) -> ! {
 
     // Block until the host publishes the first WorkAssignment.
     let mut current = receiver.changed().await;
+    #[cfg(feature = "defmt")]
+    defmt::info!(
+        "asic-cpu-mock: first work received, work_id={=u32}",
+        current.work_id,
+    );
     let mut nonce: u32 = 0;
 
     loop {
         if let Some(fresh) = receiver.try_changed() {
+            #[cfg(feature = "defmt")]
+            defmt::trace!(
+                "asic-cpu-mock: work refreshed work_id={=u32}",
+                fresh.work_id,
+            );
             current = fresh;
             nonce = 0;
         }
@@ -60,7 +70,19 @@ pub async fn run_asic_cpu(asic: &'static AsicSession) -> ! {
                     ntime: current.ntime,
                     version_bits: 0,
                 };
-                let _ = asic.submit_solution(solution);
+                #[cfg(feature = "defmt")]
+                defmt::info!(
+                    "asic-cpu-mock: solution found work_id={=u32} nonce={=u32:#010x}",
+                    solution.work_id,
+                    solution.nonce,
+                );
+                let queued = asic.submit_solution(solution);
+                #[cfg(feature = "defmt")]
+                if !queued {
+                    defmt::warn!("asic-cpu-mock: solutions channel full, dropped");
+                }
+                #[cfg(not(feature = "defmt"))]
+                let _ = queued;
             }
             nonce = nonce.wrapping_add(1);
             if nonce == 0 {

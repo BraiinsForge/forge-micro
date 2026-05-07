@@ -90,12 +90,30 @@ fn handle_solution<C: MiningClient>(
     let outstanding = state.work_ring.lookup(solution.work_id);
     let Some(outstanding) = outstanding else {
         // Ring rotated past this work_id — pool would reject anyway.
+        #[cfg(feature = "defmt")]
+        defmt::warn!(
+            "stratum-client: solution drop, work_id={=u32} not in ring",
+            solution.work_id,
+        );
         return Ok(());
     };
     if !state.job_ring.is_valid(outstanding.job_id) {
         // clean_jobs invalidated the originating slot.
+        #[cfg(feature = "defmt")]
+        defmt::warn!(
+            "stratum-client: solution drop, job {=u32} invalidated by clean_jobs",
+            outstanding.job_id.0,
+        );
         return Ok(());
     }
+
+    #[cfg(feature = "defmt")]
+    defmt::info!(
+        "stratum-client: submit job={=u32} nonce={=u32:#010x} ntime={=u32:#010x}",
+        outstanding.job_id.0,
+        solution.nonce,
+        solution.ntime,
+    );
 
     let share = Share {
         id: outstanding.job_id,
@@ -155,5 +173,12 @@ fn publish_work(state: &mut StratumState, asic: &AsicSession) {
         nbits: slot.nbits,
         ntime: slot.ntime_base.wrapping_add(slot.ntime_offset),
     };
+    #[cfg(feature = "defmt")]
+    defmt::trace!(
+        "stratum-client: publish work_id={=u32} job={=u32} ntime={=u32:#010x}",
+        assignment.work_id,
+        slot.job_id.0,
+        assignment.ntime,
+    );
     asic.publish_work(assignment);
 }

@@ -80,6 +80,16 @@ impl Default for StratumState {
 
 impl MiningClientVisitor for StratumState {
     fn visit_new_job(&mut self, job: MiningJob<'_>) {
+        #[cfg(feature = "defmt")]
+        defmt::info!(
+            "stratum-client: new job id={=u32} clean={=bool} ntime={=u32:#010x} \
+             nbits={=u32:#010x} en2_size={=u8}",
+            job.id.0,
+            job.clean_jobs,
+            job.ntime,
+            job.nbits,
+            job.extranonce_2_size,
+        );
         let slot = self.job_ring.next_slot();
         slot.job_id = job.id;
         slot.prev_hash = *job.prev_hash;
@@ -114,31 +124,69 @@ impl MiningClientVisitor for StratumState {
         }
     }
 
-    fn visit_submit_result(&mut self, _result: SubmitResult<'_>) {
-        // Today the integration layer only logs submit outcomes;
-        // structured handling (accepted-share counters, error
-        // surfaces to the firmware metrics page) lands with the
-        // firmware migration in phase 8.
+    fn visit_submit_result(&mut self, result: SubmitResult<'_>) {
+        #[cfg(feature = "defmt")]
+        if result.accepted {
+            defmt::info!(
+                "stratum-client: share accepted id={=u32}",
+                result.id.0,
+            );
+        } else {
+            defmt::warn!(
+                "stratum-client: share rejected id={=u32} code={=?} message={=?}",
+                result.id.0,
+                result.error_code,
+                result.error_message,
+            );
+        }
+        #[cfg(not(feature = "defmt"))]
+        let _ = result;
     }
 
     fn visit_session_update(&mut self, update: SessionUpdate<'_>) {
         match update {
             SessionUpdate::SetTarget(target) => {
+                #[cfg(feature = "defmt")]
+                defmt::info!(
+                    "stratum-client: set target msb={=[u8]:x}",
+                    &target[24..32],
+                );
                 self.target = *target;
                 if let Some(latest) = self.job_ring.current_mut() {
                     latest.target = *target;
                 }
             }
             SessionUpdate::SetExtranonce { prefix, en2_size } => {
+                #[cfg(feature = "defmt")]
+                defmt::info!(
+                    "stratum-client: set extranonce prefix={=[u8]:x} en2_size={=u8}",
+                    prefix,
+                    en2_size,
+                );
                 self.store_extranonce_prefix(prefix, en2_size);
             }
             SessionUpdate::SetVersionMask(mask) => {
+                #[cfg(feature = "defmt")]
+                defmt::info!("stratum-client: set version mask {=u32:#010x}", mask);
                 self.version_mask = mask;
                 if let Some(latest) = self.job_ring.current_mut() {
                     latest.version_rolling_mask = mask;
                 }
             }
-            SessionUpdate::Reconnect { .. } => {
+            SessionUpdate::Reconnect {
+                host,
+                port,
+                wait_seconds,
+            } => {
+                #[cfg(feature = "defmt")]
+                defmt::info!(
+                    "stratum-client: pool reconnect request host={=str} port={=u16} wait={=u16}",
+                    host,
+                    port,
+                    wait_seconds,
+                );
+                #[cfg(not(feature = "defmt"))]
+                let _ = (host, port, wait_seconds);
                 // Surfacing a reconnect to the firmware loop comes
                 // with the migration in phase 8; for now the TCP
                 // layer's normal close-and-retry cycle covers it.
