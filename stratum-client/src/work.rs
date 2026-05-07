@@ -38,14 +38,14 @@ pub struct Solution {
 }
 
 /// Per-share context the host needs to construct a `Share` for the
-/// pool, recovered from the `WorkRing` on solution lookup.
+/// pool, recovered from the `WorkRing` on solution lookup. `ntime`
+/// and `version_bits` aren't kept here — the ASIC echoes whichever
+/// values it actually used directly in the `Solution`.
 #[derive(Clone)]
 pub struct OutstandingWork {
     pub work_id: u32,
     pub job_id: JobId,
     pub extranonce_2: heapless::Vec<u8, MAX_EXTRANONCE_2>,
-    pub ntime: u32,
-    pub version_bits: u32,
 }
 
 /// Maximum bytes for `extranonce_2`. V1 pools negotiate this; V2

@@ -7,7 +7,9 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+embassy-futures = { workspace = true }
 embassy-sync    = { workspace = true }
 embassy-time    = { workspace = true }
+embedded-io-async = { workspace = true }
 heapless        = { workspace = true }
 mining-protocol = { workspace = true }
