@@ -8,10 +8,15 @@
 #![no_std]
 #![no_main]
 
-#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
+#[cfg(any(
+    all(feature = "backend-uart", feature = "backend-cpu"),
+    all(feature = "backend-uart", feature = "backend-stratum-client"),
+    all(feature = "backend-cpu", feature = "backend-stratum-client"),
+))]
 compile_error!(
-    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
-     enable backend-cpu with --no-default-features --features \"display,backend-cpu\""
+    "features `backend-uart`, `backend-cpu`, and `backend-stratum-client` \
+     are mutually exclusive; pick exactly one with \
+     --no-default-features --features \"display,<backend>\""
 );
 
 use defmt::info;
@@ -54,6 +59,15 @@ static POOL_CONFIG: PoolConfig = PoolConfig {
     password: config::Pool::PASS,
     reconnect_delay: config::Pool::RECONNECT_DELAY,
 };
+
+#[cfg(feature = "backend-stratum-client")]
+static SV1_CONFIG: stratum_v1::Sv1Config = stratum_v1::Sv1Config {
+    user: config::Pool::USER,
+    password: config::Pool::PASS,
+};
+
+#[cfg(feature = "backend-stratum-client")]
+static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
 mod config;
 
@@ -214,6 +228,66 @@ async fn uart_worker_task(uart: Uart<'static, esp_hal::Async>) -> ! {
     ubos_backend::run_worker(asic).await
 }
 
+#[cfg(feature = "backend-stratum-client")]
+#[embassy_executor::task]
+async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
+    use defmt::warn;
+    use embassy_net::{tcp::TcpSocket, IpAddress};
+    use embassy_time::Timer;
+    use static_cell::ConstStaticCell;
+
+    const TCP_BUFFER_SIZE: usize = 2048;
+    static TCP_RX: ConstStaticCell<[u8; TCP_BUFFER_SIZE]> =
+        ConstStaticCell::new([0; TCP_BUFFER_SIZE]);
+    static TCP_TX: ConstStaticCell<[u8; TCP_BUFFER_SIZE]> =
+        ConstStaticCell::new([0; TCP_BUFFER_SIZE]);
+    let rx_buffer = TCP_RX.take();
+    let tx_buffer = TCP_TX.take();
+
+    let [a, b, c, d] = config::Pool::HOST_IP;
+    let address = IpAddress::v4(a, b, c, d);
+
+    loop {
+        let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
+        socket.set_timeout(Some(embassy_time::Duration::from_secs(120)));
+        if let Err(error) = socket.connect((address, config::Pool::PORT)).await {
+            warn!(
+                "stratum-client: connect failed {}",
+                defmt::Debug2Format(&error)
+            );
+            Timer::after(config::Pool::RECONNECT_DELAY).await;
+            continue;
+        }
+        info!(
+            "stratum-client: connected to {}.{}.{}.{}:{}",
+            a, b, c, d, config::Pool::PORT
+        );
+        let mut client = stratum_v1::StratumV1Client::new(&SV1_CONFIG);
+        let mut state = stratum_client::StratumState::new();
+        match stratum_client::run_stratum_client(
+            &mut client,
+            &mut socket,
+            &ASIC_SESSION,
+            &mut state,
+        )
+        .await
+        {
+            Ok(()) => {}
+            Err(error) => warn!(
+                "stratum-client: session error {}",
+                defmt::Debug2Format(&error)
+            ),
+        }
+        Timer::after(config::Pool::RECONNECT_DELAY).await;
+    }
+}
+
+#[cfg(feature = "backend-stratum-client")]
+#[embassy_executor::task]
+async fn asic_cpu_task() -> ! {
+    asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
+}
+
 /// Brackets `flags.wait()` inside `esp_rtos::embassy::Executor::run_with_callbacks`.
 /// `on_idle` records the entry instant; `before_poll` accumulates the
 /// elapsed ticks on the next iteration into `IDLE_TICKS[CPU_INDEX]`.
@@ -322,7 +396,13 @@ async fn boot(spawner: Spawner) {
                             .into_async();
                         app_spawner.must_spawn(uart_worker_task(uart));
                     }
-                    #[cfg(not(any(feature = "backend-cpu", feature = "backend-uart")))]
+                    #[cfg(feature = "backend-stratum-client")]
+                    app_spawner.must_spawn(asic_cpu_task());
+                    #[cfg(not(any(
+                        feature = "backend-cpu",
+                        feature = "backend-uart",
+                        feature = "backend-stratum-client",
+                    )))]
                     let _ = app_spawner;
                 },
                 IdleAccounting::<1>::new(),
@@ -447,6 +527,11 @@ async fn boot(spawner: Spawner) {
     {
         spawner.must_spawn(stratum_task(stack, &POOL_CONFIG));
         spawner.must_spawn(ntime_roller_task());
+    }
+    #[cfg(feature = "backend-stratum-client")]
+    {
+        // APP_CPU hosts asic_cpu_task; see start_second_core above.
+        spawner.must_spawn(stratum_client_task(stack));
     }
 
     net::run_http_server(stack, config::Board::NAME).await;
