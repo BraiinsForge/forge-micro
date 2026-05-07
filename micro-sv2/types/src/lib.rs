@@ -15,10 +15,10 @@ mod uint256;
 mod var_bytes;
 mod var_str;
 
-pub use crate::error::Error;
 pub use crate::codec::{Decode, Encode, encode_to_slice, from_slice};
-pub use crate::var_str::{Str0_32, Str0_255, Str0_64k, Str1_32, Str1_255, VarStr};
-pub use crate::var_bytes::{
-    Bytes0_16m, Bytes0_255, Bytes0_32, Bytes0_64k, Bytes1_255, Bytes1_32, Bytes1_64k, VarBytes,
-};
+pub use crate::error::Error;
 pub use crate::uint256::Uint256;
+pub use crate::var_bytes::{
+    Bytes0_16m, Bytes0_32, Bytes0_64k, Bytes0_255, Bytes1_32, Bytes1_64k, Bytes1_255, VarBytes,
+};
+pub use crate::var_str::{Str0_32, Str0_64k, Str0_255, Str1_32, Str1_255, VarStr};

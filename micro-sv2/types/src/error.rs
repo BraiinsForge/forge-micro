@@ -9,7 +9,11 @@ pub enum Error {
     /// Encoder ran out of room in the destination buffer.
     BufferTooSmall,
     /// A `VarStr` / `VarBytes` length was outside the declared `MIN..=MAX`.
-    OutOfBounds { length: usize, min: usize, max: usize },
+    OutOfBounds {
+        length: usize,
+        min: usize,
+        max: usize,
+    },
     /// Bytes claimed to be UTF-8 were not valid.
     Utf8,
     /// A boolean byte was neither 0 nor 1.

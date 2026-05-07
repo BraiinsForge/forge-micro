@@ -15,11 +15,7 @@ pub trait FrameCodec {
     /// `body_len`. Pure function of `body_len`: no `&self`.
     fn payload_wire_size(body_len: usize) -> usize;
 
-    fn encode<F: IntoFrame>(
-        &mut self,
-        frame: &F,
-        out: &mut [u8],
-    ) -> Result<usize, Self::Error>;
+    fn encode<F: IntoFrame>(&mut self, frame: &F, out: &mut [u8]) -> Result<usize, Self::Error>;
 
     fn decode_header(&mut self, buf: &mut [u8]) -> Result<Header, Self::Error>;
 
@@ -42,11 +38,7 @@ impl FrameCodec for PlaintextCodec {
         body_len
     }
 
-    fn encode<F: IntoFrame>(
-        &mut self,
-        frame: &F,
-        out: &mut [u8],
-    ) -> Result<usize, Self::Error> {
+    fn encode<F: IntoFrame>(&mut self, frame: &F, out: &mut [u8]) -> Result<usize, Self::Error> {
         let body_len = frame.body_len();
         if body_len > Header::MAX_LEN as usize {
             return Err(FramingError::PayloadTooLarge { length: body_len });
@@ -113,8 +105,7 @@ mod tests {
         }
     }
     impl Message for TestMsg {
-        const DESCRIPTOR: MessageDescriptor =
-            MessageDescriptor::new(0xff, 0x10, false);
+        const DESCRIPTOR: MessageDescriptor = MessageDescriptor::new(0xff, 0x10, false);
     }
 
     #[test]
@@ -139,7 +130,10 @@ mod tests {
         let mut codec = PlaintextCodec;
         let msg = TestMsg { x: 0 };
         let mut out = [0u8; 9];
-        assert_eq!(codec.encode(&msg, &mut out), Err(FramingError::BufferTooSmall));
+        assert_eq!(
+            codec.encode(&msg, &mut out),
+            Err(FramingError::BufferTooSmall)
+        );
     }
 
     #[test]

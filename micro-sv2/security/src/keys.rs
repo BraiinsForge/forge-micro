@@ -334,4 +334,3 @@ mod tests {
         assert_eq!(pk_via_method, pk_direct);
     }
 }
-

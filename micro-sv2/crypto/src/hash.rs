@@ -14,10 +14,7 @@ pub(crate) fn mix_hash(h: &[u8; 32], data: &[u8]) -> [u8; 32] {
 /// Noise `HKDF(chaining_key, ikm) -> (ck', k)` with SHA-256: extract using
 /// `chaining_key` as the salt, then expand with empty info to 64 bytes and
 /// split into two 32-byte halves.
-pub(crate) fn hkdf(
-    chaining_key: &[u8; 32],
-    input_key_material: &[u8],
-) -> ([u8; 32], [u8; 32]) {
+pub(crate) fn hkdf(chaining_key: &[u8; 32], input_key_material: &[u8]) -> ([u8; 32], [u8; 32]) {
     let extractor = Hkdf::<Sha256>::new(Some(chaining_key), input_key_material);
     let mut okm = [0_u8; 64];
     extractor

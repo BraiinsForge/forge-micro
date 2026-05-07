@@ -40,11 +40,7 @@ pub struct ValidateTime<C: Clock> {
 }
 
 impl<C: Clock> Authenticator for ValidateTime<C> {
-    fn check(
-        &self,
-        hdr: CertificateHeader,
-        _: Signature,
-    ) -> Result<(), AuthenticationError> {
+    fn check(&self, hdr: CertificateHeader, _: Signature) -> Result<(), AuthenticationError> {
         check_time(&self.clock, &hdr)
     }
 }
@@ -57,11 +53,7 @@ pub struct ValidateSignature<'a, C: secp256k1::Verification> {
 }
 
 impl<'a, C: secp256k1::Verification> Authenticator for ValidateSignature<'a, C> {
-    fn check(
-        &self,
-        hdr: CertificateHeader,
-        sig: Signature,
-    ) -> Result<(), AuthenticationError> {
+    fn check(&self, hdr: CertificateHeader, sig: Signature) -> Result<(), AuthenticationError> {
         verify_signature(&self.authority, self.ctx, &hdr, &sig)
     }
 }
@@ -75,20 +67,13 @@ pub struct ValidateFull<'a, K: Clock, C: secp256k1::Verification> {
 }
 
 impl<'a, K: Clock, C: secp256k1::Verification> Authenticator for ValidateFull<'a, K, C> {
-    fn check(
-        &self,
-        hdr: CertificateHeader,
-        sig: Signature,
-    ) -> Result<(), AuthenticationError> {
+    fn check(&self, hdr: CertificateHeader, sig: Signature) -> Result<(), AuthenticationError> {
         check_time(&self.clock, &hdr)?;
         verify_signature(&self.authority, self.ctx, &hdr, &sig)
     }
 }
 
-fn check_time<C: Clock>(
-    clock: &C,
-    hdr: &CertificateHeader,
-) -> Result<(), AuthenticationError> {
+fn check_time<C: Clock>(clock: &C, hdr: &CertificateHeader) -> Result<(), AuthenticationError> {
     let now = clock.now_unix_secs()?;
     if hdr.valid_from > hdr.not_valid_after {
         return Err(AuthenticationError::BrokenCertificate);
@@ -206,15 +191,24 @@ mod tests {
         }
         .sign(&ca_keypair, ctx.as_secp256k1());
 
-        ValidateSignature { authority: ca_pub, ctx: ctx.as_secp256k1() }
-            .check(cert.header, cert.signature)
-            .expect("valid sig");
-        ValidateTime { clock: FakeClock(NOW) }
-            .check(cert.header, cert.signature)
-            .expect("within validity window");
-        ValidateFull { authority: ca_pub, ctx: ctx.as_secp256k1(), clock: FakeClock(NOW) }
-            .check(cert.header, cert.signature)
-            .expect("valid + in-window");
+        ValidateSignature {
+            authority: ca_pub,
+            ctx: ctx.as_secp256k1(),
+        }
+        .check(cert.header, cert.signature)
+        .expect("valid sig");
+        ValidateTime {
+            clock: FakeClock(NOW),
+        }
+        .check(cert.header, cert.signature)
+        .expect("within validity window");
+        ValidateFull {
+            authority: ca_pub,
+            ctx: ctx.as_secp256k1(),
+            clock: FakeClock(NOW),
+        }
+        .check(cert.header, cert.signature)
+        .expect("valid + in-window");
 
         // ---- Not yet valid (now+100 .. now+1000) ----
         let cert = CertificateSigningRequest {
@@ -222,16 +216,25 @@ mod tests {
         }
         .sign(&ca_keypair, ctx.as_secp256k1());
 
-        ValidateSignature { authority: ca_pub, ctx: ctx.as_secp256k1() }
-            .check(cert.header, cert.signature)
-            .expect("sig still valid");
-        let err = ValidateTime { clock: FakeClock(NOW) }
-            .check(cert.header, cert.signature)
-            .unwrap_err();
+        ValidateSignature {
+            authority: ca_pub,
+            ctx: ctx.as_secp256k1(),
+        }
+        .check(cert.header, cert.signature)
+        .expect("sig still valid");
+        let err = ValidateTime {
+            clock: FakeClock(NOW),
+        }
+        .check(cert.header, cert.signature)
+        .unwrap_err();
         assert_eq!(err, AuthenticationError::CertificateNotYetValid);
-        let err = ValidateFull { authority: ca_pub, ctx: ctx.as_secp256k1(), clock: FakeClock(NOW) }
-            .check(cert.header, cert.signature)
-            .unwrap_err();
+        let err = ValidateFull {
+            authority: ca_pub,
+            ctx: ctx.as_secp256k1(),
+            clock: FakeClock(NOW),
+        }
+        .check(cert.header, cert.signature)
+        .unwrap_err();
         assert_eq!(err, AuthenticationError::CertificateNotYetValid);
 
         // ---- Expired (now-1000 .. now-100) ----
@@ -240,16 +243,25 @@ mod tests {
         }
         .sign(&ca_keypair, ctx.as_secp256k1());
 
-        ValidateSignature { authority: ca_pub, ctx: ctx.as_secp256k1() }
-            .check(cert.header, cert.signature)
-            .expect("sig still valid");
-        let err = ValidateTime { clock: FakeClock(NOW) }
-            .check(cert.header, cert.signature)
-            .unwrap_err();
+        ValidateSignature {
+            authority: ca_pub,
+            ctx: ctx.as_secp256k1(),
+        }
+        .check(cert.header, cert.signature)
+        .expect("sig still valid");
+        let err = ValidateTime {
+            clock: FakeClock(NOW),
+        }
+        .check(cert.header, cert.signature)
+        .unwrap_err();
         assert_eq!(err, AuthenticationError::CertificateNoMoreValid);
-        let err = ValidateFull { authority: ca_pub, ctx: ctx.as_secp256k1(), clock: FakeClock(NOW) }
-            .check(cert.header, cert.signature)
-            .unwrap_err();
+        let err = ValidateFull {
+            authority: ca_pub,
+            ctx: ctx.as_secp256k1(),
+            clock: FakeClock(NOW),
+        }
+        .check(cert.header, cert.signature)
+        .unwrap_err();
         assert_eq!(err, AuthenticationError::CertificateNoMoreValid);
 
         // ---- Forged expiry date: signature breaks ----
@@ -258,18 +270,27 @@ mod tests {
         }
         .sign(&ca_keypair, ctx.as_secp256k1());
         cert.header.not_valid_after = 3_155_759_999; // far future
-        let err = ValidateSignature { authority: ca_pub, ctx: ctx.as_secp256k1() }
-            .check(cert.header, cert.signature)
-            .unwrap_err();
+        let err = ValidateSignature {
+            authority: ca_pub,
+            ctx: ctx.as_secp256k1(),
+        }
+        .check(cert.header, cert.signature)
+        .unwrap_err();
         assert_eq!(err, AuthenticationError::SignatureInvalid);
         // Time alone now passes (cert's own "to" is far future, so still in window):
-        ValidateTime { clock: FakeClock(NOW) }
-            .check(cert.header, cert.signature)
-            .expect("time alone passes");
+        ValidateTime {
+            clock: FakeClock(NOW),
+        }
+        .check(cert.header, cert.signature)
+        .expect("time alone passes");
         // Full fails on the signature.
-        let err = ValidateFull { authority: ca_pub, ctx: ctx.as_secp256k1(), clock: FakeClock(NOW) }
-            .check(cert.header, cert.signature)
-            .unwrap_err();
+        let err = ValidateFull {
+            authority: ca_pub,
+            ctx: ctx.as_secp256k1(),
+            clock: FakeClock(NOW),
+        }
+        .check(cert.header, cert.signature)
+        .unwrap_err();
         assert_eq!(err, AuthenticationError::SignatureInvalid);
 
         // ---- Forged authority: signature fails against the wrong pubkey ----

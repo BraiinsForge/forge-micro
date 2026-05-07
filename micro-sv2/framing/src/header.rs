@@ -56,11 +56,7 @@ pub struct MessageDescriptor {
 }
 
 impl MessageDescriptor {
-    pub const fn new(
-        extension_type: ExtType,
-        msg_type: MsgType,
-        is_channel_message: bool,
-    ) -> Self {
+    pub const fn new(extension_type: ExtType, msg_type: MsgType, is_channel_message: bool) -> Self {
         Self {
             extension_type,
             msg_type,
@@ -91,8 +87,7 @@ impl Encode for Header {
         if out.len() < Self::SIZE {
             return Err(TypeError::BufferTooSmall);
         }
-        let extension_field =
-            self.extension_type | ((self.is_channel_message as u16) << 15);
+        let extension_field = self.extension_type | ((self.is_channel_message as u16) << 15);
         out[0..2].copy_from_slice(&extension_field.to_le_bytes());
         out[2] = self.msg_type;
         let len_bytes = self.msg_length.to_le_bytes();

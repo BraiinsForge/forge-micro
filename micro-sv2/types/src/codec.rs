@@ -29,7 +29,9 @@ macro_rules! impl_uint {
     ($t:ty, $size:expr) => {
         impl Encode for $t {
             #[inline]
-            fn encoded_len(&self) -> usize { $size }
+            fn encoded_len(&self) -> usize {
+                $size
+            }
 
             #[inline]
             fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
@@ -64,7 +66,9 @@ impl_uint!(i64, 8);
 
 impl Encode for f32 {
     #[inline]
-    fn encoded_len(&self) -> usize { 4 }
+    fn encoded_len(&self) -> usize {
+        4
+    }
     #[inline]
     fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
         self.to_bits().encode_to(out)
@@ -80,7 +84,9 @@ impl<'de> Decode<'de> for f32 {
 
 impl Encode for f64 {
     #[inline]
-    fn encoded_len(&self) -> usize { 8 }
+    fn encoded_len(&self) -> usize {
+        8
+    }
     #[inline]
     fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
         self.to_bits().encode_to(out)
@@ -96,10 +102,14 @@ impl<'de> Decode<'de> for f64 {
 
 impl Encode for bool {
     #[inline]
-    fn encoded_len(&self) -> usize { 1 }
+    fn encoded_len(&self) -> usize {
+        1
+    }
     #[inline]
     fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
-        if out.is_empty() { return Err(Error::BufferTooSmall); }
+        if out.is_empty() {
+            return Err(Error::BufferTooSmall);
+        }
         out[0] = if *self { 1 } else { 0 };
         Ok(1)
     }
@@ -155,10 +165,14 @@ impl<'de, T: Decode<'de>> Decode<'de> for Option<T> {
 
 impl<const N: usize> Encode for [u8; N] {
     #[inline]
-    fn encoded_len(&self) -> usize { N }
+    fn encoded_len(&self) -> usize {
+        N
+    }
 
     fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
-        if out.len() < N { return Err(Error::BufferTooSmall); }
+        if out.len() < N {
+            return Err(Error::BufferTooSmall);
+        }
         out[..N].copy_from_slice(self);
         Ok(N)
     }
@@ -229,13 +243,15 @@ mod tests {
 
     #[test]
     fn u64_roundtrip() {
-        roundtrip::<u64>(0x0123_4567_89ab_cdef,
-            &[0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01]);
+        roundtrip::<u64>(
+            0x0123_4567_89ab_cdef,
+            &[0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01],
+        );
     }
 
     #[test]
     fn u32_decode_eof() {
-        let mut cursor: &[u8] = &[0x01, 0x02];   // only 2 bytes, need 4
+        let mut cursor: &[u8] = &[0x01, 0x02]; // only 2 bytes, need 4
         assert_eq!(u32::decode(&mut cursor), Err(Error::Eof));
     }
 
@@ -259,8 +275,7 @@ mod tests {
 
     #[test]
     fn i64_roundtrip() {
-        roundtrip::<i64>(-4,
-            &[0xfc, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+        roundtrip::<i64>(-4, &[0xfc, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
     }
 
     #[test]
@@ -295,7 +310,7 @@ mod tests {
     #[test]
     fn bool_roundtrip() {
         roundtrip::<bool>(false, &[0x00]);
-        roundtrip::<bool>(true,  &[0x01]);
+        roundtrip::<bool>(true, &[0x01]);
     }
 
     #[test]
@@ -317,8 +332,7 @@ mod tests {
 
     #[test]
     fn option_some_roundtrip() {
-        roundtrip::<Option<u32>>(Some(0xcafe_babe),
-            &[0x01, 0xbe, 0xba, 0xfe, 0xca]);
+        roundtrip::<Option<u32>>(Some(0xcafe_babe), &[0x01, 0xbe, 0xba, 0xfe, 0xca]);
     }
 
     #[test]

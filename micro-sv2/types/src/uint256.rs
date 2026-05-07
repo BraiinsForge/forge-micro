@@ -27,16 +27,20 @@ impl<'a> TryFrom<&'a [u8]> for Uint256<'a> {
     type Error = Error;
 
     fn try_from(s: &'a [u8]) -> Result<Self, Error> {
-        let arr: &'a [u8; 32] = s
-            .try_into()
-            .map_err(|_| Error::OutOfBounds { length: s.len(), min: 32, max: 32 })?;
+        let arr: &'a [u8; 32] = s.try_into().map_err(|_| Error::OutOfBounds {
+            length: s.len(),
+            min: 32,
+            max: 32,
+        })?;
         Ok(Self(arr))
     }
 }
 
 impl<'a> Encode for Uint256<'a> {
     #[inline]
-    fn encoded_len(&self) -> usize { 32 }
+    fn encoded_len(&self) -> usize {
+        32
+    }
 
     fn encode_to(&self, out: &mut [u8]) -> Result<usize, Error> {
         if out.len() < 32 {
@@ -61,10 +65,9 @@ mod tests {
     use super::*;
 
     const PATTERN: [u8; 32] = [
-        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+        0x1e, 0x1f,
     ];
 
     #[test]
@@ -83,14 +86,28 @@ mod tests {
     fn try_from_slice_too_short() {
         let arr = [0u8; 31];
         let err = Uint256::try_from(&arr[..]).unwrap_err();
-        assert_eq!(err, Error::OutOfBounds { length: 31, min: 32, max: 32 });
+        assert_eq!(
+            err,
+            Error::OutOfBounds {
+                length: 31,
+                min: 32,
+                max: 32
+            }
+        );
     }
 
     #[test]
     fn try_from_slice_too_long() {
         let arr = [0u8; 33];
         let err = Uint256::try_from(&arr[..]).unwrap_err();
-        assert_eq!(err, Error::OutOfBounds { length: 33, min: 32, max: 32 });
+        assert_eq!(
+            err,
+            Error::OutOfBounds {
+                length: 33,
+                min: 32,
+                max: 32
+            }
+        );
     }
 
     #[test]

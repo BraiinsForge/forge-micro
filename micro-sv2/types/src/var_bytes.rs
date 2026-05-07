@@ -1,8 +1,8 @@
 //! Borrowed, length-bounded SV2 byte sequences.
 
+use crate::codec::{Decode, Encode};
 use crate::error::Error;
 use crate::len_prefix::{prefix_len, read_prefix_le, write_prefix_le};
-use crate::codec::{Decode, Encode};
 
 /// SV2 length-bounded byte sequence borrowing from a payload buffer.
 ///
@@ -10,8 +10,8 @@ use crate::codec::{Decode, Encode};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VarBytes<'a, const MIN: usize, const MAX: usize>(&'a [u8]);
 
-pub type Bytes0_32<'a>  = VarBytes<'a, 0, 32>;
-pub type Bytes1_32<'a>  = VarBytes<'a, 1, 32>;
+pub type Bytes0_32<'a> = VarBytes<'a, 0, 32>;
+pub type Bytes1_32<'a> = VarBytes<'a, 1, 32>;
 pub type Bytes0_255<'a> = VarBytes<'a, 0, 255>;
 pub type Bytes1_255<'a> = VarBytes<'a, 1, 255>;
 pub type Bytes0_64k<'a> = VarBytes<'a, 0, 0xffff>;
@@ -22,7 +22,9 @@ impl<'a, const MIN: usize, const MAX: usize> VarBytes<'a, MIN, MAX> {
     pub(crate) const PREFIX_W: usize = prefix_len(MAX);
 
     #[inline]
-    pub fn as_slice(&self) -> &'a [u8] { self.0 }
+    pub fn as_slice(&self) -> &'a [u8] {
+        self.0
+    }
 }
 
 impl<'a, const MIN: usize, const MAX: usize> TryFrom<&'a [u8]> for VarBytes<'a, MIN, MAX> {
@@ -32,7 +34,11 @@ impl<'a, const MIN: usize, const MAX: usize> TryFrom<&'a [u8]> for VarBytes<'a, 
         if (MIN..=MAX).contains(&b.len()) {
             Ok(Self(b))
         } else {
-            Err(Error::OutOfBounds { length: b.len(), min: MIN, max: MAX })
+            Err(Error::OutOfBounds {
+                length: b.len(),
+                min: MIN,
+                max: MAX,
+            })
         }
     }
 }
@@ -40,12 +46,16 @@ impl<'a, const MIN: usize, const MAX: usize> TryFrom<&'a [u8]> for VarBytes<'a, 
 impl<'a, const MIN: usize, const MAX: usize> core::ops::Deref for VarBytes<'a, MIN, MAX> {
     type Target = [u8];
     #[inline]
-    fn deref(&self) -> &[u8] { self.0 }
+    fn deref(&self) -> &[u8] {
+        self.0
+    }
 }
 
 impl<'a, const MIN: usize, const MAX: usize> AsRef<[u8]> for VarBytes<'a, MIN, MAX> {
     #[inline]
-    fn as_ref(&self) -> &[u8] { self.0 }
+    fn as_ref(&self) -> &[u8] {
+        self.0
+    }
 }
 
 impl<'a, const MIN: usize, const MAX: usize> Encode for VarBytes<'a, MIN, MAX> {
@@ -70,7 +80,11 @@ impl<'de, const MIN: usize, const MAX: usize> Decode<'de> for VarBytes<'de, MIN,
         let pw = Self::PREFIX_W;
         let len = read_prefix_le(input, pw)?;
         if !(MIN..=MAX).contains(&len) {
-            return Err(Error::OutOfBounds { length: len, min: MIN, max: MAX });
+            return Err(Error::OutOfBounds {
+                length: len,
+                min: MIN,
+                max: MAX,
+            });
         }
         let bytes = input.get(..len).ok_or(Error::Eof)?;
         *input = &input[len..];
@@ -101,14 +115,28 @@ mod tests {
     #[test]
     fn try_from_rejects_below_min() {
         let err = B1_32::try_from(&b""[..]).unwrap_err();
-        assert_eq!(err, Error::OutOfBounds { length: 0, min: 1, max: 32 });
+        assert_eq!(
+            err,
+            Error::OutOfBounds {
+                length: 0,
+                min: 1,
+                max: 32
+            }
+        );
     }
 
     #[test]
     fn try_from_rejects_above_max() {
         let arr = [0u8; 33];
         let err = VarBytes::<0, 32>::try_from(&arr[..]).unwrap_err();
-        assert_eq!(err, Error::OutOfBounds { length: 33, min: 0, max: 32 });
+        assert_eq!(
+            err,
+            Error::OutOfBounds {
+                length: 33,
+                min: 0,
+                max: 32
+            }
+        );
     }
 
     #[test]
@@ -130,7 +158,11 @@ mod tests {
         let mut cursor: &[u8] = &bytes;
         assert_eq!(
             VarBytes::<0, 32>::decode(&mut cursor),
-            Err(Error::OutOfBounds { length: 33, min: 0, max: 32 }),
+            Err(Error::OutOfBounds {
+                length: 33,
+                min: 0,
+                max: 32
+            }),
         );
     }
 

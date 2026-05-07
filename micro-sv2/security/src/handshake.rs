@@ -36,8 +36,7 @@ pub struct EstablishedSession {
     pub session_id: SessionId,
 }
 
-const HANDSHAKE_BUF_LEN: usize =
-    EPHEMERAL_KEY_MSG_SIZE + STATIC_KEY_MSG_SIZE + NOISE_SIG_MSG_SIZE;
+const HANDSHAKE_BUF_LEN: usize = EPHEMERAL_KEY_MSG_SIZE + STATIC_KEY_MSG_SIZE + NOISE_SIG_MSG_SIZE;
 
 /// Drive the initiator side of the SV2 noise handshake over `io`.
 ///
@@ -127,9 +126,7 @@ where
     public_cert.serialize_noise_signature_msg(&mut sig_msg_buf);
     let m_len = handshake.write_message(&sig_msg_buf, &mut buf)?;
     debug_assert_eq!(m_len, HANDSHAKE_BUF_LEN);
-    io.write_all(&buf)
-        .await
-        .map_err(InitializationError::Io)?;
+    io.write_all(&buf).await.map_err(InitializationError::Io)?;
 
     let transport = handshake.finish()?;
     let session_id = SessionId(transport.handshake_hash());
@@ -196,10 +193,7 @@ mod tests {
         let mut r_session = accept_result.expect("responder handshake");
 
         assert_eq!(i_session.session_id, r_session.session_id);
-        assert_eq!(
-            i_session.remote_identity,
-            Some(PublicKey::from(&server_kp))
-        );
+        assert_eq!(i_session.remote_identity, Some(PublicKey::from(&server_kp)));
         assert_eq!(r_session.remote_identity, None);
 
         // The transport states should encrypt/decrypt symmetrically.

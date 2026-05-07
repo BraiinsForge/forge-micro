@@ -1,8 +1,8 @@
 //! Borrowed, length-bounded SV2 strings.
 
+use crate::codec::{Decode, Encode};
 use crate::error::Error;
 use crate::len_prefix::{prefix_len, read_prefix_le, write_prefix_le};
-use crate::codec::{Decode, Encode};
 
 /// SV2 length-bounded UTF-8 string borrowing from a payload buffer.
 ///
@@ -11,8 +11,8 @@ use crate::codec::{Decode, Encode};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VarStr<'a, const MIN: usize, const MAX: usize>(&'a str);
 
-pub type Str0_32<'a>  = VarStr<'a, 0, 32>;
-pub type Str1_32<'a>  = VarStr<'a, 1, 32>;
+pub type Str0_32<'a> = VarStr<'a, 0, 32>;
+pub type Str1_32<'a> = VarStr<'a, 1, 32>;
 pub type Str0_255<'a> = VarStr<'a, 0, 255>;
 pub type Str1_255<'a> = VarStr<'a, 1, 255>;
 pub type Str0_64k<'a> = VarStr<'a, 0, 0xffff>;
@@ -24,7 +24,9 @@ impl<'a, const MIN: usize, const MAX: usize> VarStr<'a, MIN, MAX> {
     pub(crate) const PREFIX_W: usize = prefix_len(MAX);
 
     #[inline]
-    pub fn as_str(&self) -> &'a str { self.0 }
+    pub fn as_str(&self) -> &'a str {
+        self.0
+    }
 }
 
 impl<'a, const MIN: usize, const MAX: usize> TryFrom<&'a str> for VarStr<'a, MIN, MAX> {
@@ -34,7 +36,11 @@ impl<'a, const MIN: usize, const MAX: usize> TryFrom<&'a str> for VarStr<'a, MIN
         if (MIN..=MAX).contains(&s.len()) {
             Ok(Self(s))
         } else {
-            Err(Error::OutOfBounds { length: s.len(), min: MIN, max: MAX })
+            Err(Error::OutOfBounds {
+                length: s.len(),
+                min: MIN,
+                max: MAX,
+            })
         }
     }
 }
@@ -42,12 +48,16 @@ impl<'a, const MIN: usize, const MAX: usize> TryFrom<&'a str> for VarStr<'a, MIN
 impl<'a, const MIN: usize, const MAX: usize> core::ops::Deref for VarStr<'a, MIN, MAX> {
     type Target = str;
     #[inline]
-    fn deref(&self) -> &str { self.0 }
+    fn deref(&self) -> &str {
+        self.0
+    }
 }
 
 impl<'a, const MIN: usize, const MAX: usize> AsRef<str> for VarStr<'a, MIN, MAX> {
     #[inline]
-    fn as_ref(&self) -> &str { self.0 }
+    fn as_ref(&self) -> &str {
+        self.0
+    }
 }
 
 impl<'a, const MIN: usize, const MAX: usize> Encode for VarStr<'a, MIN, MAX> {
@@ -72,7 +82,11 @@ impl<'de, const MIN: usize, const MAX: usize> Decode<'de> for VarStr<'de, MIN, M
         let pw = Self::PREFIX_W;
         let len = read_prefix_le(input, pw)?;
         if !(MIN..=MAX).contains(&len) {
-            return Err(Error::OutOfBounds { length: len, min: MIN, max: MAX });
+            return Err(Error::OutOfBounds {
+                length: len,
+                min: MIN,
+                max: MAX,
+            });
         }
         let bytes = input.get(..len).ok_or(Error::Eof)?;
         let s = core::str::from_utf8(bytes).map_err(|_| Error::Utf8)?;
@@ -103,14 +117,28 @@ mod tests {
     #[test]
     fn try_from_rejects_below_min() {
         let err = S1_32::try_from("").unwrap_err();
-        assert_eq!(err, Error::OutOfBounds { length: 0, min: 1, max: 32 });
+        assert_eq!(
+            err,
+            Error::OutOfBounds {
+                length: 0,
+                min: 1,
+                max: 32
+            }
+        );
     }
 
     #[test]
     fn try_from_rejects_above_max() {
         let s: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567"; // 33 chars
         let err = S0_32::try_from(s).unwrap_err();
-        assert_eq!(err, Error::OutOfBounds { length: 33, min: 0, max: 32 });
+        assert_eq!(
+            err,
+            Error::OutOfBounds {
+                length: 33,
+                min: 0,
+                max: 32
+            }
+        );
     }
 
     #[test]
@@ -167,7 +195,11 @@ mod tests {
         let mut cursor: &[u8] = &bytes;
         assert_eq!(
             VarStr::<1, 32>::decode(&mut cursor),
-            Err(Error::OutOfBounds { length: 0, min: 1, max: 32 }),
+            Err(Error::OutOfBounds {
+                length: 0,
+                min: 1,
+                max: 32
+            }),
         );
     }
 
@@ -177,7 +209,11 @@ mod tests {
         let mut cursor: &[u8] = &bytes;
         assert_eq!(
             VarStr::<0, 32>::decode(&mut cursor),
-            Err(Error::OutOfBounds { length: 33, min: 0, max: 32 }),
+            Err(Error::OutOfBounds {
+                length: 33,
+                min: 0,
+                max: 32
+            }),
         );
     }
 

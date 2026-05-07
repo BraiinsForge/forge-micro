@@ -103,11 +103,7 @@ impl FrameCodec for EncryptedCodec {
         }
     }
 
-    fn encode<F: IntoFrame>(
-        &mut self,
-        frame: &F,
-        out: &mut [u8],
-    ) -> Result<usize, Self::Error> {
+    fn encode<F: IntoFrame>(&mut self, frame: &F, out: &mut [u8]) -> Result<usize, Self::Error> {
         let body_len = frame.body_len();
         if body_len > MAX_PLAINTEXT_LENGTH {
             return Err(SessionError::ChunkingNotImplemented { length: body_len });
@@ -209,8 +205,7 @@ mod tests {
             not_valid_after: u32::MAX,
             remote_static_public_key: PublicKey::from(&server_kp),
         };
-        let cert = CertificateSigningRequest { header }
-            .sign(&authority_kp, ctx.as_secp256k1());
+        let cert = CertificateSigningRequest { header }.sign(&authority_kp, ctx.as_secp256k1());
         let bundle = CertificateWithPrivateKey {
             header: cert.header,
             authority_public_key: cert.authority_public_key,
@@ -273,18 +268,17 @@ mod tests {
         pbuf[..pn].copy_from_slice(
             &wire[EncryptedCodec::HEADER_WIRE_SIZE..EncryptedCodec::HEADER_WIRE_SIZE + pn],
         );
-        let frame = r_codec.decode_frame(header, &mut pbuf[..pn]).expect("decode_frame");
-        let received: SetupConnection<'_> =
-            frame_to_message(frame).expect("frame_to_message");
+        let frame = r_codec
+            .decode_frame(header, &mut pbuf[..pn])
+            .expect("decode_frame");
+        let received: SetupConnection<'_> = frame_to_message(frame).expect("frame_to_message");
 
         assert_eq!(received, outbound);
     }
 
     use ii_sv2_framing::{FramingError, IntoFrame, MessageDescriptor};
     use ii_sv2_messages::MINING_EXTENSION_TYPE;
-    use ii_sv2_messages::{
-        NewMiningJob, OpenStandardMiningChannel, SetupConnectionSuccess,
-    };
+    use ii_sv2_messages::{NewMiningJob, OpenStandardMiningChannel, SetupConnectionSuccess};
     use ii_sv2_types::Uint256;
 
     /// Synthetic frame whose `body_len()` returns a value larger than
@@ -304,10 +298,9 @@ mod tests {
     }
 
     const TARGET_PATTERN: [u8; 32] = [
-        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+        0x1e, 0x1f,
     ];
 
     /// Helper: encode `frame` from `tx`, decrypt the header+payload into
@@ -352,7 +345,9 @@ mod tests {
         {
             let (pn, header) =
                 send_recv_raw(&mut i_codec, &mut r_codec, &success, &mut wire, &mut pbuf).await;
-            let fv = r_codec.decode_frame(header, &mut pbuf[..pn]).expect("decode_frame");
+            let fv = r_codec
+                .decode_frame(header, &mut pbuf[..pn])
+                .expect("decode_frame");
             let received: SetupConnectionSuccess = frame_to_message(fv).expect("frame_to_message");
             assert_eq!(received, success);
         }
@@ -367,7 +362,9 @@ mod tests {
         {
             let (pn, header) =
                 send_recv_raw(&mut i_codec, &mut r_codec, &open, &mut wire, &mut pbuf).await;
-            let fv = r_codec.decode_frame(header, &mut pbuf[..pn]).expect("decode_frame");
+            let fv = r_codec
+                .decode_frame(header, &mut pbuf[..pn])
+                .expect("decode_frame");
             let received: OpenStandardMiningChannel<'_> =
                 frame_to_message(fv).expect("frame_to_message");
             assert_eq!(received, open);
@@ -384,7 +381,9 @@ mod tests {
         {
             let (pn, header) =
                 send_recv_raw(&mut i_codec, &mut r_codec, &job, &mut wire, &mut pbuf).await;
-            let fv = r_codec.decode_frame(header, &mut pbuf[..pn]).expect("decode_frame");
+            let fv = r_codec
+                .decode_frame(header, &mut pbuf[..pn])
+                .expect("decode_frame");
             let received: NewMiningJob<'_> = frame_to_message(fv).expect("frame_to_message");
             assert_eq!(received, job);
         }
@@ -435,7 +434,9 @@ mod tests {
         pbuf[..pn].copy_from_slice(
             &wire[EncryptedCodec::HEADER_WIRE_SIZE..EncryptedCodec::HEADER_WIRE_SIZE + pn],
         );
-        let frame = r_codec.decode_frame(header, &mut pbuf[..pn]).expect("decode_frame");
+        let frame = r_codec
+            .decode_frame(header, &mut pbuf[..pn])
+            .expect("decode_frame");
 
         match MiningMessages::dispatch(frame).expect("dispatch") {
             MiningMessages::NewMiningJob(m) => assert_eq!(m, outbound),

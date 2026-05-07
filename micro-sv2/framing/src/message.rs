@@ -150,8 +150,7 @@ mod tests {
     }
 
     impl Message for TestMsg {
-        const DESCRIPTOR: MessageDescriptor =
-            MessageDescriptor::new(0xff, 0x10, false);
+        const DESCRIPTOR: MessageDescriptor = MessageDescriptor::new(0xff, 0x10, false);
     }
 
     #[test]
@@ -278,8 +277,7 @@ mod tests {
         }
     }
     impl Message for TestMsgB {
-        const DESCRIPTOR: MessageDescriptor =
-            MessageDescriptor::new(0xff, 0x11, false);
+        const DESCRIPTOR: MessageDescriptor = MessageDescriptor::new(0xff, 0x11, false);
     }
 
     /// Two-variant extension over ext_type 0xff.

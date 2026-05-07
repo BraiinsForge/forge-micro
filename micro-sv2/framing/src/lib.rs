@@ -14,8 +14,8 @@ mod frame;
 mod header;
 mod message;
 
+pub use crate::codec::{FrameCodec, PlaintextCodec};
 pub use crate::error::FramingError;
 pub use crate::frame::FrameView;
 pub use crate::header::{ExtType, Header, MessageDescriptor, MsgType};
 pub use crate::message::{IntoFrame, Message, MessageGroup, frame_to_message};
-pub use crate::codec::{FrameCodec, PlaintextCodec};

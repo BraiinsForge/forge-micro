@@ -60,8 +60,8 @@ async fn full_handshake_with_validated_certificate() {
     // the server's pubkey) and have the authority sign it.
     let header = CertificateHeader {
         version: 0,
-        valid_from: NOW - 60 * 60,                  // valid since 1h ago
-        not_valid_after: NOW + 24 * 60 * 60,        // expires in 24h
+        valid_from: NOW - 60 * 60,           // valid since 1h ago
+        not_valid_after: NOW + 24 * 60 * 60, // expires in 24h
         remote_static_public_key: PublicKey::from(&server_kp),
     };
     let signed = CertificateSigningRequest { header }.sign(&authority_kp, ctx.as_secp256k1());
@@ -190,4 +190,3 @@ async fn expired_certificate_is_rejected() {
         Ok(_) => panic!("expected handshake failure, got success"),
     }
 }
-

@@ -19,9 +19,7 @@ pub(crate) const fn prefix_len(max: usize) -> usize {
 }
 
 /// Write a length prefix of `width` bytes (1, 2, or 3) little-endian.
-pub(crate) fn write_prefix_le(value: usize, width: usize, out: &mut [u8])
-    -> Result<usize, Error>
-{
+pub(crate) fn write_prefix_le(value: usize, width: usize, out: &mut [u8]) -> Result<usize, Error> {
     debug_assert!((1..=3).contains(&width), "prefix width must be 1, 2, or 3");
     if out.len() < width {
         return Err(Error::BufferTooSmall);
@@ -33,9 +31,7 @@ pub(crate) fn write_prefix_le(value: usize, width: usize, out: &mut [u8])
 
 /// Read a length prefix of `width` bytes (1, 2, or 3) little-endian and
 /// advance the cursor.
-pub(crate) fn read_prefix_le(input: &mut &[u8], width: usize)
-    -> Result<usize, Error>
-{
+pub(crate) fn read_prefix_le(input: &mut &[u8], width: usize) -> Result<usize, Error> {
     debug_assert!((1..=3).contains(&width), "prefix width must be 1, 2, or 3");
     let bytes = input.get(..width).ok_or(Error::Eof)?;
     let mut buf = [0u8; 4];
@@ -98,7 +94,10 @@ mod tests {
     #[test]
     fn write_prefix_buffer_too_small() {
         let mut buf = [0u8; 1];
-        assert_eq!(write_prefix_le(0xbeef, 2, &mut buf), Err(Error::BufferTooSmall));
+        assert_eq!(
+            write_prefix_le(0xbeef, 2, &mut buf),
+            Err(Error::BufferTooSmall)
+        );
     }
 
     #[test]

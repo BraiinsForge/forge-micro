@@ -73,11 +73,7 @@ impl TransportState {
     }
 
     /// Decrypt `payload` (MAC at the tail) into `message`, return plaintext length.
-    pub fn read_message(
-        &mut self,
-        payload: &[u8],
-        message: &mut [u8],
-    ) -> Result<usize, AeadError> {
+    pub fn read_message(&mut self, payload: &[u8], message: &mut [u8]) -> Result<usize, AeadError> {
         if payload.len() < MAC_SIZE {
             return Err(AeadError("not enough space for MAC in buffer"));
         }

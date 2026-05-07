@@ -85,11 +85,8 @@ impl Certificate {
         );
         let version = u16::from_le_bytes(data[..2].try_into().expect("checked length"));
         let valid_from = u32::from_le_bytes(data[2..6].try_into().expect("checked length"));
-        let not_valid_after =
-            u32::from_le_bytes(data[6..10].try_into().expect("checked length"));
-        let raw_sig: [u8; 64] = data[10..NOISE_SIG_SIZE]
-            .try_into()
-            .expect("checked length");
+        let not_valid_after = u32::from_le_bytes(data[6..10].try_into().expect("checked length"));
+        let raw_sig: [u8; 64] = data[10..NOISE_SIG_SIZE].try_into().expect("checked length");
         let header = CertificateHeader {
             version,
             valid_from,
