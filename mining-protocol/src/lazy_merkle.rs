@@ -9,6 +9,8 @@
 //! both adapters yield a `LazyMerkle<'_>` to the visitor; consumers
 //! call `compute(en2, &mut root)` regardless of protocol.
 
+use sha2::{Digest, Sha256};
+
 #[cfg(test)]
 #[path = "tests/lazy_merkle.rs"]
 mod tests;
@@ -48,10 +50,65 @@ impl LazyMerkle<'_> {
     ///
     /// `Final` ignores `extranonce_2` (the wire form already absorbed
     /// it pool-side) and copies the precomputed root.
-    pub fn compute(&self, _extranonce_2: &[u8], _out: &mut [u8; 32]) {
-        // TODO(BOM-1619): implement once the host harness or unit
-        // tests can provide V1 vectors. Phase 2 lands the type; the
-        // hashing body is filled in alongside the V1 adapter (phase 5).
-        unimplemented!("LazyMerkle::compute lands with the V1 adapter")
+    pub fn compute(&self, extranonce_2: &[u8], out: &mut [u8; 32]) {
+        match self {
+            LazyMerkle::Final(root) => {
+                *out = **root;
+            }
+            LazyMerkle::Prepared {
+                extranonce_prefix,
+                coinbase_prefix,
+                coinbase_suffix,
+                branches,
+            } => {
+                let mut node = [0u8; 32];
+                hash_coinbase_streamed(
+                    coinbase_prefix,
+                    extranonce_prefix,
+                    extranonce_2,
+                    coinbase_suffix,
+                    &mut node,
+                );
+                let mut concat = [0u8; 64];
+                for branch in *branches {
+                    concat[..32].copy_from_slice(&node);
+                    concat[32..].copy_from_slice(branch);
+                    sha256d(&concat, &mut node);
+                }
+                *out = node;
+            }
+        }
     }
+}
+
+/// `sha256d(coinbase_prefix || extranonce_prefix || extranonce_2 ||
+/// coinbase_suffix)` without materialising the concatenation in a
+/// single buffer. This avoids a worst-case ~2 KiB scratch for V1's
+/// coinbase parts — the inner SHA-256 absorbs the four pieces
+/// streamed into the same hasher state.
+fn hash_coinbase_streamed(
+    coinbase_prefix: &[u8],
+    extranonce_prefix: &[u8],
+    extranonce_2: &[u8],
+    coinbase_suffix: &[u8],
+    out: &mut [u8; 32],
+) {
+    let mut hasher = Sha256::new();
+    hasher.update(coinbase_prefix);
+    hasher.update(extranonce_prefix);
+    hasher.update(extranonce_2);
+    hasher.update(coinbase_suffix);
+    let first = hasher.finalize();
+    let mut hasher2 = Sha256::new();
+    hasher2.update(first);
+    out.copy_from_slice(&hasher2.finalize());
+}
+
+fn sha256d(data: &[u8], out: &mut [u8; 32]) {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let first = hasher.finalize();
+    let mut hasher2 = Sha256::new();
+    hasher2.update(first);
+    out.copy_from_slice(&hasher2.finalize());
 }
