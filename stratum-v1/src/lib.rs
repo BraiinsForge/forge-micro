@@ -23,6 +23,7 @@ pub mod error;
 pub mod hex;
 pub mod scratch;
 pub mod state;
+pub mod target;
 pub mod wire;
 
 pub use client::StratumV1Client;

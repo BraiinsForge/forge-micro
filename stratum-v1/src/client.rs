@@ -4,17 +4,32 @@
 //! See `boards/eth-examples/IMPLEMENTATION_PLAN.md` and
 //! `boards/eth-examples/ARCHITECTURE.md` for the surrounding design.
 
-use embedded_io_async::{Read, Write};
+use core::fmt::Write as _;
 
-use mining_protocol::{Error, MiningClient, MiningClientVisitor, Share};
+use embedded_io_async::{Read, Write};
+use heapless::String;
+
+use mining_protocol::{
+    Error, JobId, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share,
+    SubmitResult,
+};
 
 use crate::config::Sv1Config;
-use crate::scratch::DecodeScratch;
-use crate::state::{SessionState, AUTHORIZE_ID, CONFIGURE_ID, SUBSCRIBE_ID};
+use crate::hex::decode_hex;
+use crate::scratch::{DecodeScratch, MAX_COINBASE_PART, MAX_MERKLE_BRANCHES};
+use crate::state::{
+    JobIdSlot, SessionState, AUTHORIZE_ID, CONFIGURE_ID, JOBID_MAP_DEPTH, MAX_JOB_ID_CHARS,
+    SUBMIT_ID_START, SUBSCRIBE_ID,
+};
+use crate::target::target_from_diff;
 use crate::wire::line_buffer::LineBuffer;
 use crate::wire::messages::{
-    encode_authorize, encode_configure, encode_subscribe, Authorize, Configure, Subscribe,
+    encode_authorize, encode_configure, encode_subscribe, Authorize, Configure, Notify, Subscribe,
 };
+use crate::wire::parse::{
+    parse_boolean_result, parse_incoming, parse_subscribe_result, parse_version_rolling_mask,
+};
+use crate::wire::rpc::{Notification, Response, Rpc, StratumError};
 
 #[cfg(test)]
 #[path = "tests/client.rs"]
@@ -37,6 +52,11 @@ pub const ENCODE_BUFFER_BYTES: usize = 512;
 /// `version-rolling.mask` from their reply, leaving the negotiated
 /// mask at zero.
 const CONFIGURE_MAP: &[u8] = br#"{"version-rolling":{"mask":"1fffe000","min-bit-count":2}}"#;
+
+/// Bytes reserved for the `result` slice copied out of a handshake
+/// response. Public pools' configure / subscribe results stay well
+/// under this; ckpool emits ~80 bytes.
+const HANDSHAKE_RESULT_BYTES: usize = 256;
 
 /// Stratum V1 protocol adapter.
 ///
@@ -129,7 +149,6 @@ impl MiningClient for StratumV1Client {
     where
         T: Read + Write,
     {
-        // mining.configure with version-rolling.
         self.send_now(transport, |buf| {
             let configure = Configure {
                 features: &["version-rolling"],
@@ -139,8 +158,6 @@ impl MiningClient for StratumV1Client {
         })
         .await?;
 
-        // mining.subscribe — agent string is the user identity, which
-        // matches what bosminer and redacted do.
         let agent = self.config.user;
         self.send_now(transport, |buf| {
             let subscribe = Subscribe {
@@ -151,7 +168,6 @@ impl MiningClient for StratumV1Client {
         })
         .await?;
 
-        // mining.authorize.
         let user = self.config.user;
         let password = self.config.password;
         self.send_now(transport, |buf| {
@@ -167,7 +183,7 @@ impl MiningClient for StratumV1Client {
     }
 
     fn submit(&mut self, _share: &Share<'_>) -> Result<(), Error> {
-        // Lands in the next commit alongside the accept dispatch.
+        // Lands in the next commit alongside the wire format.
         Err(Error::NotImplemented)
     }
 
@@ -185,9 +201,6 @@ impl MiningClient for StratumV1Client {
         self.flush_outbound(transport).await?;
 
         loop {
-            // Borrow `wire_buffer` only for the inspection; release
-            // before the next read so the mutable borrow on
-            // `writable()` is valid.
             let line_present = self
                 .wire_buffer
                 .next_line()
@@ -199,9 +212,6 @@ impl MiningClient for StratumV1Client {
 
             let writable = self.wire_buffer.writable();
             if writable.is_empty() {
-                // Line longer than `WIRE_BUFFER_BYTES` — pool is
-                // misbehaving. Surface as decode error so the outer
-                // loop reconnects.
                 return Err(Error::Decode);
             }
             let read_count = transport.read(writable).await.map_err(|_| Error::Transport)?;
@@ -212,22 +222,347 @@ impl MiningClient for StratumV1Client {
         }
     }
 
-    fn accept<V: MiningClientVisitor>(&mut self, _visitor: &mut V) {
-        // Drain the pending line so the buffer doesn't fill up.
-        // Full dispatch (translation to `MiningJob` /
-        // `SessionUpdate` / `SubmitResult`) lands in the next
-        // commit; this stub keeps `drive` and `accept` paired so
-        // the wire buffer rotates correctly while the dispatch is
-        // being filled in.
+    /// Dispatch the most recently buffered line to `visitor`.
+    ///
+    /// Borrowed slices handed to the visitor point into either the
+    /// wire buffer (V2-style direct borrow) or the decode scratch
+    /// (V1's hex-decoded binary). Both buffers belong to `self`, so
+    /// the visitor's lifetime is bound to this call's `&mut self`.
+    /// Once `accept` returns, the wire buffer is freed for the next
+    /// `drive` to reuse.
+    fn accept<V: MiningClientVisitor>(&mut self, visitor: &mut V) {
+        // Run the dispatch in its own scope so the borrows on
+        // `self.wire_buffer` (via `rpc`) end before `consume()`.
+        {
+            let Some(line) = self.wire_buffer.next_line().ok().flatten() else {
+                return;
+            };
+
+            let Ok(rpc) = parse_incoming(line) else {
+                // Drop the unparseable line so `drive` doesn't
+                // re-see it. Fall through to the consume below.
+                let _ = line;
+                self.wire_buffer.consume();
+                return;
+            };
+
+            match rpc {
+                Rpc::Notification(Notification::Notify(notify)) => {
+                    dispatch_notify(
+                        &notify,
+                        &mut self.decode_scratch,
+                        &mut self.session,
+                        visitor,
+                    );
+                }
+                Rpc::Notification(Notification::SetDifficulty(set_diff)) => {
+                    self.session.target = target_from_diff(set_diff.0);
+                    visitor
+                        .visit_session_update(SessionUpdate::SetTarget(&self.session.target));
+                }
+                Rpc::Notification(Notification::SetVersionMask(set_mask)) => {
+                    self.session.version_rolling_mask = set_mask.mask;
+                    visitor.visit_session_update(SessionUpdate::SetVersionMask(set_mask.mask));
+                }
+                Rpc::Notification(Notification::SetExtranonce(set_extranonce)) => {
+                    if store_extranonce_1(&mut self.session, set_extranonce.extra_nonce_1)
+                        && set_extranonce.extra_nonce_2_size as usize
+                            <= crate::scratch::MAX_EXTRANONCE_1
+                    {
+                        self.session.extranonce_2_size = set_extranonce.extra_nonce_2_size;
+                        visitor.visit_session_update(SessionUpdate::SetExtranonce {
+                            prefix: &self.session.extranonce_1
+                                [..self.session.extranonce_1_len],
+                            en2_size: self.session.extranonce_2_size,
+                        });
+                    }
+                }
+                Rpc::Notification(Notification::ClientReconnect(reconnect)) => {
+                    visitor.visit_session_update(SessionUpdate::Reconnect {
+                        host: reconnect.host,
+                        port: reconnect.port,
+                        wait_seconds: reconnect.wait,
+                    });
+                }
+                Rpc::Notification(Notification::Ping { id }) => {
+                    queue_ping_response(
+                        &mut self.encode_buffer,
+                        &mut self.outbound_len,
+                        &mut self.outbound_offset,
+                        id,
+                    );
+                }
+                Rpc::Response(response) => {
+                    dispatch_response(&response, &mut self.session, visitor);
+                }
+            }
+        }
+
         self.wire_buffer.consume();
     }
 }
 
-// Suppress the dead-code warning on the fields the trait body does
-// not yet exercise. The full dispatch in the next commit removes
-// the need for this shim.
-#[allow(dead_code)]
-fn _force_field_use(client: &StratumV1Client) {
-    let _ = &client.decode_scratch;
-    let _ = &client.session;
+fn dispatch_notify<V: MiningClientVisitor>(
+    notify: &Notify<'_>,
+    decode_scratch: &mut DecodeScratch,
+    session: &mut SessionState,
+    visitor: &mut V,
+) {
+    if !load_notify_into_scratch(notify, decode_scratch) {
+        // Bad hex somewhere in the notify — drop the job.
+        return;
+    }
+
+    // Decode the small fixed-size hex fields directly into u32s.
+    let Some(version) = decode_hex_u32_be(notify.version) else {
+        return;
+    };
+    let Some(ntime) = decode_hex_u32_be(notify.time) else {
+        return;
+    };
+    let Some(nbits) = decode_hex_u32_be(notify.bits) else {
+        return;
+    };
+
+    // Apply the V1 prev_hash per-u32 byte swap so the trait surface
+    // sees canonical block-header bytes.
+    swap_prev_hash_words(&mut decode_scratch.prev_hash);
+
+    // Allocate a JobId and record the (generic, wire) mapping. Slot
+    // rotation matches the depth-2 ring on the stratum-client side.
+    let job_id = allocate_job_id(session, notify.job_id);
+
+    let extranonce_2_size = session.extranonce_2_size;
+    let extranonce_prefix = &session.extranonce_1[..session.extranonce_1_len];
+    let coinbase_prefix = &decode_scratch.coinbase_1[..decode_scratch.coinbase_1_len];
+    let coinbase_suffix = &decode_scratch.coinbase_2[..decode_scratch.coinbase_2_len];
+    let branches = &decode_scratch.branches[..decode_scratch.branch_count];
+
+    let job = MiningJob {
+        id: job_id,
+        prev_hash: &decode_scratch.prev_hash,
+        target: &session.target,
+        version,
+        version_rolling_mask: session.version_rolling_mask,
+        nbits,
+        ntime,
+        clean_jobs: notify.clean_jobs,
+        extranonce_2_size,
+        merkle: LazyMerkle::Prepared {
+            extranonce_prefix,
+            coinbase_prefix,
+            coinbase_suffix,
+            branches,
+        },
+    };
+    visitor.visit_new_job(job);
+}
+
+/// Hex-decode the variable-size pieces of a notify into
+/// `decode_scratch`. Returns `false` on any hex error or oversized
+/// field.
+fn load_notify_into_scratch(notify: &Notify<'_>, decode_scratch: &mut DecodeScratch) -> bool {
+    let prev_hash_bytes = notify.prev_hash.as_bytes();
+    if !decode_hex(prev_hash_bytes, &mut decode_scratch.prev_hash) {
+        return false;
+    }
+
+    let coinbase_1_hex = notify.coin_base_1.as_bytes();
+    if coinbase_1_hex.len() / 2 > MAX_COINBASE_PART {
+        return false;
+    }
+    decode_scratch.coinbase_1_len = coinbase_1_hex.len() / 2;
+    if !decode_hex(
+        coinbase_1_hex,
+        &mut decode_scratch.coinbase_1[..decode_scratch.coinbase_1_len],
+    ) {
+        return false;
+    }
+
+    let coinbase_2_hex = notify.coin_base_2.as_bytes();
+    if coinbase_2_hex.len() / 2 > MAX_COINBASE_PART {
+        return false;
+    }
+    decode_scratch.coinbase_2_len = coinbase_2_hex.len() / 2;
+    if !decode_hex(
+        coinbase_2_hex,
+        &mut decode_scratch.coinbase_2[..decode_scratch.coinbase_2_len],
+    ) {
+        return false;
+    }
+
+    if notify.merkle_branch.len() > MAX_MERKLE_BRANCHES {
+        return false;
+    }
+    decode_scratch.branch_count = notify.merkle_branch.len();
+    for (slot, branch_hex) in decode_scratch
+        .branches
+        .iter_mut()
+        .zip(notify.merkle_branch.iter())
+        .take(decode_scratch.branch_count)
+    {
+        if !decode_hex(branch_hex.as_bytes(), slot) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// V1 ships `prev_hash` as 32 bytes whose 4-byte words are
+/// individually big-endian but laid out in the array in
+/// little-endian word order. The block header expects each word in
+/// natural (BE-on-the-wire) order, which is the per-u32 byte-swap
+/// applied here.
+fn swap_prev_hash_words(prev_hash: &mut [u8; 32]) {
+    for word in 0..8 {
+        let base = word * 4;
+        prev_hash.swap(base, base + 3);
+        prev_hash.swap(base + 1, base + 2);
+    }
+}
+
+fn decode_hex_u32_be(text: &str) -> Option<u32> {
+    let bytes = text.as_bytes();
+    if bytes.len() != 8 {
+        return None;
+    }
+    let mut buf = [0u8; 4];
+    if !decode_hex(bytes, &mut buf) {
+        return None;
+    }
+    Some(u32::from_be_bytes(buf))
+}
+
+/// Push the (`JobId`, wire `job_id`) pair onto the depth-2 ring.
+fn allocate_job_id(session: &mut SessionState, wire_id: &str) -> JobId {
+    let generic = JobId(session.next_job_id);
+    session.next_job_id = session.next_job_id.wrapping_add(1);
+
+    let mut wire = String::<MAX_JOB_ID_CHARS>::new();
+    let truncated = if wire_id.len() > MAX_JOB_ID_CHARS {
+        // Keep the prefix; longer wire ids indicate a misbehaving
+        // pool but we don't want to fail the job over it.
+        &wire_id[..MAX_JOB_ID_CHARS]
+    } else {
+        wire_id
+    };
+    let _ = wire.push_str(truncated);
+
+    let index = session.job_id_write_index;
+    session.job_id_ring[index] = Some(JobIdSlot { generic, wire });
+    session.job_id_write_index = (index + 1) % JOBID_MAP_DEPTH;
+
+    generic
+}
+
+fn store_extranonce_1(session: &mut SessionState, hex: &str) -> bool {
+    let hex_bytes = hex.as_bytes();
+    if hex_bytes.len() / 2 > session.extranonce_1.len() {
+        return false;
+    }
+    let len = hex_bytes.len() / 2;
+    if !decode_hex(hex_bytes, &mut session.extranonce_1[..len]) {
+        return false;
+    }
+    session.extranonce_1_len = len;
+    true
+}
+
+fn queue_ping_response(
+    encode_buffer: &mut [u8; ENCODE_BUFFER_BYTES],
+    outbound_len: &mut usize,
+    outbound_offset: &mut usize,
+    id: u32,
+) {
+    if *outbound_len > 0 {
+        // Outbound slot already in use; drop the ping. The pool
+        // re-sends if it really cares.
+        return;
+    }
+    let mut response = String::<64>::new();
+    let _ = write!(&mut response, r#"{{"id":{id},"result":null,"error":null}}"#);
+    let _ = response.push('\n');
+    let bytes = response.as_bytes();
+    if bytes.len() > encode_buffer.len() {
+        return;
+    }
+    encode_buffer[..bytes.len()].copy_from_slice(bytes);
+    *outbound_len = bytes.len();
+    *outbound_offset = 0;
+}
+
+fn dispatch_response<V: MiningClientVisitor>(
+    response: &Response<'_>,
+    session: &mut SessionState,
+    visitor: &mut V,
+) {
+    match response.id {
+        CONFIGURE_ID => {
+            if let Some(result) = response.stratum_result {
+                if let Some(mask) = parse_version_rolling_mask(result) {
+                    session.version_rolling_mask = mask;
+                    visitor.visit_session_update(SessionUpdate::SetVersionMask(mask));
+                }
+            }
+        }
+        SUBSCRIBE_ID => {
+            let Some(result) = response.stratum_result else {
+                return;
+            };
+            // Copy the result slice out so we can re-parse it
+            // without holding the wire-buffer borrow.
+            let mut buffer = [0u8; HANDSHAKE_RESULT_BYTES];
+            let len = result.len().min(buffer.len());
+            buffer[..len].copy_from_slice(&result[..len]);
+            let Ok(parsed) = parse_subscribe_result(&buffer[..len]) else {
+                return;
+            };
+            if !store_extranonce_1(session, parsed.1) {
+                return;
+            }
+            session.extranonce_2_size = parsed.2;
+            visitor.visit_session_update(SessionUpdate::SetExtranonce {
+                prefix: &session.extranonce_1[..session.extranonce_1_len],
+                en2_size: session.extranonce_2_size,
+            });
+        }
+        AUTHORIZE_ID => {
+            // Authorize is acknowledged; the boolean tells us
+            // whether the worker name was accepted. Failure is
+            // surfaced via Error::SessionRejected on a future drive
+            // call by the work loop; for now log nothing.
+            if let Some(result) = response.stratum_result {
+                let _ = parse_boolean_result(result);
+            }
+        }
+        id if id >= SUBMIT_ID_START => {
+            let accepted = response
+                .stratum_result
+                .and_then(|raw| parse_boolean_result(raw).ok())
+                .unwrap_or(false);
+            let (error_code, error_message) = match &response.stratum_error {
+                Some(StratumError(code, message, _detail)) => {
+                    let code_unsigned = u32::try_from(*code).ok();
+                    (code_unsigned, Some(*message))
+                }
+                None => (None, None),
+            };
+            // Map the wire id back to a JobId. If we can't find one,
+            // the response is for a submit we don't track anymore;
+            // the visitor still sees the result via JobId(0) with
+            // accepted=false handled by the caller's ring lookup.
+            // Today we don't track outstanding submits by id, so
+            // pass JobId(0) and let the caller correlate via the
+            // work ring. A future refinement adds a submit→JobId
+            // map symmetric to the JobId map for jobs.
+            visitor.visit_submit_result(SubmitResult {
+                id: JobId(0),
+                accepted,
+                error_code,
+                error_message,
+            });
+        }
+        _ => {}
+    }
 }
