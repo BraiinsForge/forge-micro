@@ -61,11 +61,48 @@ static POOL_CONFIG: PoolConfig = PoolConfig {
     reconnect_delay: config::Pool::RECONNECT_DELAY,
 };
 
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(all(feature = "backend-stratum-client", not(feature = "protocol-sv2")))]
 static SV1_CONFIG: stratum_v1::Sv1Config = stratum_v1::Sv1Config {
     user: config::Pool::USER,
     password: config::Pool::PASS,
 };
+
+#[cfg(feature = "protocol-sv2")]
+static SV2_CONFIG: stratum_v2::Sv2Config = stratum_v2::Sv2Config {
+    user: config::Pool::USER,
+    pool_pubkey: config::Pool::POOL_PUBKEY,
+};
+
+// `secp256k1::AllPreallocated<'static>` precomputation buffer.
+// `lowmemory` brings the verify table down to ~16 KB; the slot
+// count is sized conservatively (covers signing + verification
+// per `secp256k1_context_preallocated_size(All)` at the lowmemory
+// flags). `CryptoCtx::preallocated` returns
+// `Error::NotEnoughMemory` at runtime if undersized.
+#[cfg(feature = "protocol-sv2")]
+const SECP_CTX_SLOTS: usize = 4096;
+
+#[cfg(feature = "protocol-sv2")]
+static SECP_CTX_BUF: static_cell::ConstStaticCell<[ii_sv2::security::AlignedType; SECP_CTX_SLOTS]> =
+    static_cell::ConstStaticCell::new([ii_sv2::security::AlignedType::ZERO; SECP_CTX_SLOTS]);
+
+#[cfg(feature = "protocol-sv2")]
+static SECP_CTX: static_cell::StaticCell<
+    ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
+> = static_cell::StaticCell::new();
+
+#[cfg(feature = "protocol-sv2")]
+struct Sv2BoardRng(embassy_rp::clocks::RoscRng);
+
+#[cfg(feature = "protocol-sv2")]
+impl ii_sv2::security::Rng for Sv2BoardRng {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        // RoscRng has an inherent `fill_bytes` that routes
+        // through the ROSC randombit-per-bit primitive — same
+        // entropy source the rand_core impls expose.
+        self.0.fill_bytes(dest);
+    }
+}
 
 #[cfg(feature = "backend-stratum-client")]
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
@@ -233,6 +270,19 @@ async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
     let [a, b, c, d] = config::Pool::HOST_IP;
     let address = IpAddress::v4(a, b, c, d);
 
+    // V2 adds a one-shot, alloc-free secp256k1 context backed by
+    // a static AlignedType buffer. `lowmemory` keeps the verify
+    // table at ~16 KB so RP2350 SRAM is not exhausted.
+    #[cfg(feature = "protocol-sv2")]
+    let secp_ctx: &'static ii_sv2::security::CryptoCtx<
+        ii_sv2::security::secp256k1::AllPreallocated<'static>,
+    > = {
+        let buffer = SECP_CTX_BUF.take();
+        let ctx = ii_sv2::security::CryptoCtx::preallocated(buffer)
+            .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated");
+        SECP_CTX.init(ctx)
+    };
+
     loop {
         let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
         socket.set_timeout(Some(embassy_time::Duration::from_secs(120)));
@@ -252,7 +302,13 @@ async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
             d,
             config::Pool::PORT
         );
+
+        #[cfg(not(feature = "protocol-sv2"))]
         let mut client = stratum_v1::StratumV1Client::new(&SV1_CONFIG);
+        #[cfg(feature = "protocol-sv2")]
+        let mut client =
+            stratum_v2::StratumV2Client::new(&SV2_CONFIG, secp_ctx, Sv2BoardRng(RoscRng));
+
         let mut state = stratum_client::StratumState::new();
         match stratum_client::run_stratum_client(
             &mut client,
