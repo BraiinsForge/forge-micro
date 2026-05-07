@@ -13,6 +13,15 @@ backend-uart = ["dep:ubos-backend"]
 # backend-cpu is mutually exclusive with backend-uart: enable with
 # `--no-default-features --features "display,backend-cpu"`.
 backend-cpu = ["dep:ubos-backend", "dep:cpu-miner"]
+# New stack: stratum-client + asic-cpu-mock, behind the
+# mining-protocol trait. Mutually exclusive with backend-cpu and
+# backend-uart; enable with
+# `--no-default-features --features "display,backend-stratum-client"`.
+backend-stratum-client = [
+    "dep:asic-cpu-mock",
+    "dep:stratum-client",
+    "dep:stratum-v1",
+]
 
 [dependencies]
 eth-examples        = { workspace = true, features = ["defmt"] }
@@ -26,7 +35,10 @@ defmt-rtt           = { workspace = true }
 panic-probe         = { workspace = true, features = ["print-defmt"] }
 portable-atomic     = { workspace = true }
 static_cell         = { workspace = true }
+asic-cpu-mock       = { workspace = true, optional = true }
 cpu-miner           = { workspace = true, optional = true }
+stratum-client      = { workspace = true, optional = true }
+stratum-v1          = { workspace = true, optional = true }
 ubos-backend        = { path = "../../ubos-backend", optional = true }
 embedded-hal-bus    = { workspace = true, features = ["async"] }
 embedded-io-async   = { workspace = true }

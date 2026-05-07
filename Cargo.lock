@@ -3129,6 +3129,7 @@ dependencies = [
 name = "rp2040"
 version = "0.1.0"
 dependencies = [
+ "asic-cpu-mock",
  "cortex-m",
  "cortex-m-rt",
  "cpu-miner",
@@ -3145,6 +3146,8 @@ dependencies = [
  "panic-probe",
  "portable-atomic",
  "static_cell",
+ "stratum-client",
+ "stratum-v1",
  "ubos-backend",
 ]
 
