@@ -2,11 +2,11 @@
 
 use super::*;
 
-use crate::messages::Notify;
-use crate::parse::{
+use crate::wire::messages::Notify;
+use crate::wire::parse::{
     parse_boolean_result, parse_incoming, parse_subscribe_result, parse_version_rolling_mask,
 };
-use crate::rpc::{Notification, Rpc};
+use crate::wire::rpc::{Notification, Rpc};
 
 // Shared 12-branch merkle path
 const MERKLE_BRANCH: &str = concat!(

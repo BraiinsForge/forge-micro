@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::messages::{ClientReconnect, Notify, SetDifficulty, SetExtranonce, SetVersionMask};
+use super::messages::{ClientReconnect, Notify, SetDifficulty, SetExtranonce, SetVersionMask};
 
 #[cfg(test)]
 #[path = "tests/rpc.rs"]

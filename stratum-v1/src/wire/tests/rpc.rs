@@ -1,7 +1,7 @@
 //! Tests for rpc.
 
 use super::*;
-use crate::parse::parse_incoming;
+use crate::wire::parse::parse_incoming;
 
 #[test]
 fn response_ok() {
