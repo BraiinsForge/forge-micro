@@ -7,4 +7,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-mining-protocol = { workspace = true }
+embedded-io-async = { workspace = true }
+heapless          = { workspace = true }
+ii-sv2            = { workspace = true }
+mining-protocol   = { workspace = true }
