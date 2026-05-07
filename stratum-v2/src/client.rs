@@ -388,12 +388,17 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
             // carries no fields the trait surface exposes today
             // (the firmware requests `flags = 0`, so version
             // rolling is not negotiated). Errors are dropped here;
-            // defmt logging lands in a later commit.
+            // defmt logging lands in a later commit. The submit
+            // arms are handled by the V2 submit path (lands once
+            // `SubmitSharesStandard` is wired through `submit`).
             MiningMessages::SetupConnection(_)
             | MiningMessages::SetupConnectionSuccess(_)
             | MiningMessages::SetupConnectionError(_)
             | MiningMessages::OpenStandardMiningChannel(_)
-            | MiningMessages::OpenMiningChannelError(_) => {}
+            | MiningMessages::OpenMiningChannelError(_)
+            | MiningMessages::SubmitSharesStandard(_)
+            | MiningMessages::SubmitSharesSuccess(_)
+            | MiningMessages::SubmitSharesError(_) => {}
         }
     }
 }
