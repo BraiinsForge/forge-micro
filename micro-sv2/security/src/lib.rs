@@ -25,7 +25,9 @@ pub use handshake::{EstablishedSession, accept, initiate};
 pub use keys::{PublicKey, SecretKey, SessionId, Signature};
 pub use session::{EncryptedCodec, SessionError};
 
-pub use ii_sv2_crypto::{CryptoCtx, Rng, new_keypair, new_private_key};
+pub use ii_sv2_crypto::{
+    CryptoCtx, Rng, Secp256k1KeyPair, SecretSecp256k1Key, new_keypair, new_private_key,
+};
 
 // Re-export secp256k1 itself so downstream callers naming
 // `CryptoCtx<secp256k1::AllPreallocated<'_>>` resolve to the same
