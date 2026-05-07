@@ -6,9 +6,7 @@
 //! lands directly here. The same struct is also the work
 //! generator's source of truth for the latest job.
 
-use mining_protocol::{
-    MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult,
-};
+use mining_protocol::{MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
 
 use crate::job_ring::{JobRing, JOB_RING_DEPTH};
 use crate::work::MAX_EXTRANONCE_2;
@@ -127,10 +125,7 @@ impl MiningClientVisitor for StratumState {
     fn visit_submit_result(&mut self, result: SubmitResult<'_>) {
         #[cfg(feature = "defmt")]
         if result.accepted {
-            defmt::info!(
-                "stratum-client: share accepted id={=u32}",
-                result.id.0,
-            );
+            defmt::info!("stratum-client: share accepted id={=u32}", result.id.0,);
         } else {
             defmt::warn!(
                 "stratum-client: share rejected id={=u32} code={=?} message={=?}",
@@ -147,10 +142,7 @@ impl MiningClientVisitor for StratumState {
         match update {
             SessionUpdate::SetTarget(target) => {
                 #[cfg(feature = "defmt")]
-                defmt::info!(
-                    "stratum-client: set target msb={=[u8]:x}",
-                    &target[24..32],
-                );
+                defmt::info!("stratum-client: set target msb={=[u8]:x}", &target[24..32],);
                 self.target = *target;
                 if let Some(latest) = self.job_ring.current_mut() {
                     latest.target = *target;

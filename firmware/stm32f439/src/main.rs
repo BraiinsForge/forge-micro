@@ -260,7 +260,11 @@ async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
         }
         info!(
             "stratum-client: connected to {}.{}.{}.{}:{}",
-            a, b, c, d, config::Pool::PORT
+            a,
+            b,
+            c,
+            d,
+            config::Pool::PORT
         );
         let mut client = stratum_v1::StratumV1Client::new(&SV1_CONFIG);
         let mut state = stratum_client::StratumState::new();
