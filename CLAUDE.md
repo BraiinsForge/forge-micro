@@ -53,6 +53,15 @@ nix develop .#esp -c bash -c 'cd dummy-asic && cargo run-esp32s3   --release'
 # stm32f439 alias still has a TODO probe serial.
 ```
 
+The bmm-pico crate also has multiple boards attached (six). Aliases
+`cargo run-1` through `cargo run-6` pin the probe serial of each.
+The bare `cargo run --release` auto-picks when only one board is
+plugged in. Run from `firmware/bmm-pico/` under `.#arm`:
+
+```sh
+nix develop .#arm -c bash -c 'cd firmware/bmm-pico && cargo run-3 --release'
+```
+
 `probe-rs run` flashes then streams defmt logs. To flash and detach,
 send SIGINT (Ctrl+C, or `kill -INT <pid>`) to the runner — `cargo` or
 `probe-rs-runner` — after the boot banner; the firmware keeps running.
