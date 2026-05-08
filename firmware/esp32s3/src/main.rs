@@ -38,7 +38,7 @@ use esp_hal::uart::{Config as UartConfig, Uart};
 use esp_rtos::embassy::Callbacks;
 use eth_examples::net;
 #[cfg(feature = "display")]
-use eth_examples::sh1106::Sh1106;
+use eth_examples::sh1106::{Rotation, Sh1106};
 use portable_atomic::Ordering;
 use rand_core::{CryptoRng, RngCore};
 use static_cell::StaticCell;
@@ -430,7 +430,7 @@ async fn boot(spawner: Spawner) {
         let display_cs = Output::new(hw.display_cs, Level::High, OutputConfig::default());
         let display_dc = Output::new(hw.display_dc, Level::Low, OutputConfig::default());
         let spi_device = ExclusiveDevice::new_no_delay(display_spi, display_cs);
-        let mut display = Sh1106::new(spi_device, display_dc);
+        let mut display = Sh1106::new(spi_device, display_dc, Rotation::Normal);
         // Display is reset and SPI is valid; init cannot fail.
         display.init_async().await.expect("BUG: SH1106 init failed");
         (rst, display)

@@ -45,7 +45,7 @@ use embassy_time::{Duration, Timer};
 #[cfg(feature = "display")]
 use embedded_hal_bus::spi::ExclusiveDevice;
 #[cfg(feature = "display")]
-use eth_examples::sh1106::Sh1106;
+use eth_examples::sh1106::{Rotation, Sh1106};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -355,7 +355,7 @@ async fn boot(spawner: Spawner) {
         let cs = Output::new(hw.display_cs, Level::High, Speed::Low);
         let dc = Output::new(hw.display_dc, Level::Low, Speed::Low);
         let spi_device = ExclusiveDevice::new_no_delay(spi, cs);
-        let mut display = Sh1106::new(spi_device, dc);
+        let mut display = Sh1106::new(spi_device, dc, Rotation::Normal);
         // Display is reset and SPI is valid; init cannot fail.
         display.init().expect("BUG: SH1106 init failed");
         (rst, display)

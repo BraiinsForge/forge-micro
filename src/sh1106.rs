@@ -28,39 +28,61 @@ const COLUMN_OFFSET: u8 = 2;
 /// Framebuffer size: one byte per column per page.
 const BUFFER_SIZE: usize = WIDTH_USIZE * PAGES as usize;
 
-/// SH1106 initialization command sequence.
-const INIT_COMMANDS: &[u8] = &[
-    0xAE, // Display off.
-    0xD5, 0x80, // Clock divide ratio / oscillator frequency.
-    0xA8, 0x3F, // Multiplex ratio: 64 lines.
-    0xD3, 0x00, // Display offset: none.
-    0x40, // Display start line: 0.
-    0xA0, // Segment remap: column 0 mapped to SEG0.
-    0xC0, // COM output scan direction: normal.
-    0xDA, 0x12, // COM pins hardware configuration: alternative.
-    0x81, 0x7F, // Contrast: mid-range.
-    0xA4, // Entire display ON follows RAM content.
-    0xA6, // Normal display (not inverted).
-    0xD9, 0xF1, // Pre-charge period.
-    0xDB, 0x20, // VCOMH deselect level.
-    0xAD, 0x8B, // DC-DC converter: enable.
-    0xAF, // Display on.
-];
+/// Display rotation. The SH1106 supports the identity orientation
+/// and a 180° flip via segment-remap and COM-scan-dir bits in the
+/// init sequence. 90° rotations would require software transposition
+/// of the page-mapped framebuffer and are not supported.
+#[derive(Clone, Copy)]
+pub enum Rotation {
+    /// Normal orientation.
+    Normal,
+    /// 180° rotation via segment-remap and COM-scan-dir flip.
+    Rotate180,
+}
+
+/// Build the SH1106 init sequence with the rotation-dependent bytes
+/// patched in. Two bytes change between orientations: segment remap
+/// (0xA0/0xA1) and COM scan direction (0xC0/0xC8).
+fn init_commands(rotation: Rotation) -> [u8; 23] {
+    let (seg_remap, com_scan) = match rotation {
+        Rotation::Normal => (0xA0, 0xC0),
+        Rotation::Rotate180 => (0xA1, 0xC8),
+    };
+    [
+        0xAE, // Display off.
+        0xD5, 0x80, // Clock divide ratio / oscillator frequency.
+        0xA8, 0x3F, // Multiplex ratio: 64 lines.
+        0xD3, 0x00,      // Display offset: none.
+        0x40,      // Display start line: 0.
+        seg_remap, // Segment remap: 0xA0 normal, 0xA1 reversed (180°).
+        com_scan,  // COM output scan direction: 0xC0 normal, 0xC8 reversed (180°).
+        0xDA, 0x12, // COM pins hardware configuration: alternative.
+        0x81, 0x7F, // Contrast: mid-range.
+        0xA4, // Entire display ON follows RAM content.
+        0xA6, // Normal display (not inverted).
+        0xD9, 0xF1, // Pre-charge period.
+        0xDB, 0x20, // VCOMH deselect level.
+        0xAD, 0x8B, // DC-DC converter: enable.
+        0xAF, // Display on.
+    ]
+}
 
 /// SH1106 driver with an internal framebuffer.
 pub struct Sh1106<SPI, DC> {
     spi: SPI,
     dc: DC,
+    rotation: Rotation,
     buffer: [u8; BUFFER_SIZE],
 }
 
 impl<SPI, DC: OutputPin> Sh1106<SPI, DC> {
     /// Create a new driver. Call [`init`](Self::init) or
     /// [`init_async`](Self::init_async) before use.
-    pub fn new(spi: SPI, dc: DC) -> Self {
+    pub fn new(spi: SPI, dc: DC, rotation: Rotation) -> Self {
         Self {
             spi,
             dc,
+            rotation,
             buffer: [0; BUFFER_SIZE],
         }
     }
@@ -93,7 +115,8 @@ impl<SPI: embedded_hal::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
     ///
     /// Returns the SPI error if any command transfer fails.
     pub fn init(&mut self) -> Result<(), SPI::Error> {
-        self.send_commands(INIT_COMMANDS)
+        let commands = init_commands(self.rotation);
+        self.send_commands(&commands)
     }
 
     /// Write the framebuffer to the display, one page at a time.
@@ -126,7 +149,8 @@ impl<SPI: embedded_hal_async::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
     ///
     /// Returns the SPI error if any command transfer fails.
     pub async fn init_async(&mut self) -> Result<(), SPI::Error> {
-        self.send_commands_async(INIT_COMMANDS).await
+        let commands = init_commands(self.rotation);
+        self.send_commands_async(&commands).await
     }
 
     /// Write the framebuffer to the display asynchronously, one page
