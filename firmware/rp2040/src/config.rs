@@ -9,7 +9,7 @@ use embassy_rp::peripherals::{
     PIN_25, SPI0, WATCHDOG,
 };
 #[cfg(feature = "display")]
-use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_8, PIN_9, SPI1};
+use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, SPI1};
 #[cfg(feature = "backend-uart")]
 use embassy_rp::peripherals::{PIN_4, PIN_5, UART1};
 use embassy_rp::Peri;
@@ -44,11 +44,11 @@ pub struct Board {
     #[cfg(feature = "display")]
     pub display_mosi: Peri<'static, PIN_11>,
     #[cfg(feature = "display")]
-    pub display_cs: Peri<'static, PIN_12>,
+    pub display_cs: Peri<'static, PIN_14>,
     #[cfg(feature = "display")]
-    pub display_dc: Peri<'static, PIN_8>,
+    pub display_dc: Peri<'static, PIN_13>,
     #[cfg(feature = "display")]
-    pub display_rst: Peri<'static, PIN_9>,
+    pub display_rst: Peri<'static, PIN_12>,
     #[cfg(feature = "display")]
     pub display_tx_dma: Peri<'static, DMA_CH2>,
 }
@@ -88,11 +88,11 @@ impl Board {
             #[cfg(feature = "display")]
             display_mosi: peripherals.PIN_11,
             #[cfg(feature = "display")]
-            display_cs: peripherals.PIN_12,
+            display_cs: peripherals.PIN_14,
             #[cfg(feature = "display")]
-            display_dc: peripherals.PIN_8,
+            display_dc: peripherals.PIN_13,
             #[cfg(feature = "display")]
-            display_rst: peripherals.PIN_9,
+            display_rst: peripherals.PIN_12,
             #[cfg(feature = "display")]
             display_tx_dma: peripherals.DMA_CH2,
         }
