@@ -2771,7 +2771,6 @@ dependencies = [
  "embassy-futures",
  "embassy-sync 0.8.0",
  "embassy-time",
- "embedded-hal-async",
  "embedded-io 0.7.1",
  "embedded-io-async 0.7.0",
  "eth-examples",
@@ -4213,6 +4212,7 @@ version = "0.1.0"
 dependencies = [
  "defmt 1.0.1",
  "embassy-time",
+ "embedded-hal-async",
  "eth-examples",
  "heapless 0.8.0",
 ]

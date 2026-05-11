@@ -8,7 +8,7 @@
 
 use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
-use mmm::lm75a::{Error as Lm75aError, Lm75a};
+use ubos_temperature::lm75a::{Error as Lm75aError, Lm75a};
 use ubos_temperature::TemperatureSensor;
 
 use crate::psu::I2C_BUS_ENV;

@@ -7,6 +7,8 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 
+pub mod lm75a;
+
 use embassy_time::{Duration, Ticker};
 use eth_examples::metrics::{push, Metric, Value};
 
