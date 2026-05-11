@@ -48,6 +48,7 @@ use {defmt_rtt as _, panic_probe as _};
 use eth_examples::net;
 
 mod config;
+mod fan;
 
 #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
@@ -159,6 +160,11 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
 #[embassy_executor::task]
 async fn temperature_task(sensor: BoardTempSensor) -> ! {
     ubos_temperature::run_temperature(sensor).await
+}
+
+#[embassy_executor::task]
+async fn fan_task(hardware: fan::FanHardware) -> ! {
+    fan::run(hardware).await
 }
 
 #[cfg(feature = "display")]
@@ -344,6 +350,13 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(temperature_task(BoardTempSensor {
         adc,
         channel: temp_channel,
+    })));
+
+    spawner.spawn(unwrap!(fan_task(fan::FanHardware {
+        pwm_slice: hw.fan_pwm_slice,
+        pwm_pin: hw.fan_pwm,
+        tach_slice: hw.fan_rpm_slice,
+        tach_pin: hw.fan_rpm,
     })));
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
