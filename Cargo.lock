@@ -3403,9 +3403,9 @@ name = "rp2350"
 version = "0.1.0"
 dependencies = [
  "asic-cpu-mock",
+ "asic-uart-peer",
  "cortex-m",
  "cortex-m-rt",
- "cpu-miner",
  "defmt 1.0.1",
  "defmt-rtt",
  "embassy-executor 0.10.0",
@@ -3424,7 +3424,6 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
- "ubos-backend",
 ]
 
 [[package]]

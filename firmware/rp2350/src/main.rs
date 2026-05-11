@@ -8,15 +8,10 @@
 #![no_std]
 #![no_main]
 
-#[cfg(any(
-    all(feature = "backend-uart", feature = "backend-cpu"),
-    all(feature = "backend-uart", feature = "backend-stratum-client"),
-    all(feature = "backend-cpu", feature = "backend-stratum-client"),
-))]
+#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
 compile_error!(
-    "features `backend-uart`, `backend-cpu`, and `backend-stratum-client` \
-     are mutually exclusive; pick exactly one with \
-     --no-default-features --features \"display,<backend>\""
+    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
+     pick exactly one with --no-default-features --features \"display,<backend>\""
 );
 
 use defmt::{info, unwrap};
@@ -47,31 +42,20 @@ use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-use ubos_backend::PoolConfig;
 
 mod config;
-
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-static POOL_CONFIG: PoolConfig = PoolConfig {
-    host_ip: config::Pool::HOST_IP,
-    port: config::Pool::PORT,
-    user: config::Pool::USER,
-    password: config::Pool::PASS,
-    reconnect_delay: config::Pool::RECONNECT_DELAY,
-};
 
 // `eth_examples::pool_config::parse` runs at boot to copy six
 // compile-time env-var strings into typed fields. The result lives
 // for the lifetime of the firmware; held in a `StaticCell` so the
 // stratum task can take a `&'static PoolConfig`.
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static POOL_CONFIG_CELL: StaticCell<eth_examples::pool_config::PoolConfig> = StaticCell::new();
 
 // `Sv1Config` references &'static str borrowed from the parsed
 // `PoolConfig`; allocated at boot once the protocol is known to be
 // `Sv1`. Empty when the parsed protocol is `Sv2`.
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static SV1_CONFIG_CELL: StaticCell<stratum_v1::Sv1Config> = StaticCell::new();
 
 // `Sv2Config::new` copies the worker identity into the owned
@@ -113,7 +97,7 @@ impl ii_sv2::security::Rng for Sv2BoardRng {
     }
 }
 
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
 defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
@@ -231,40 +215,21 @@ async fn display_task(mut display: OledDisplay) -> ! {
 
 #[cfg(feature = "backend-uart")]
 #[embassy_executor::task]
-async fn uart_worker_task(uart: BufferedUart) -> ! {
-    let asic = eth_examples::uart_asic::UartAsic::new(uart);
-    ubos_backend::run_worker(asic).await
-}
-
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-#[embassy_executor::task]
-async fn stratum_task(stack: embassy_net::Stack<'static>, config: &'static PoolConfig) -> ! {
-    ubos_backend::run_stratum(stack, config).await
-}
-
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-#[embassy_executor::task]
-async fn ntime_roller_task() -> ! {
-    ubos_backend::run_ntime_roller().await
+async fn asic_uart_task(uart: BufferedUart) -> ! {
+    asic_uart_peer::run_asic_uart(&ASIC_SESSION, uart).await
 }
 
 #[cfg(feature = "backend-cpu")]
 #[embassy_executor::task]
-async fn cpu_worker_task() -> ! {
-    ubos_backend::run_cpu_worker().await
-}
-
-#[cfg(feature = "backend-cpu")]
-#[embassy_executor::task]
-async fn cpu_miner_task() -> ! {
-    cpu_miner::run_cpu_miner().await
+async fn asic_cpu_task() -> ! {
+    asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
 }
 
 /// Read the six `POOL_*` env vars at compile time (each falling
 /// through to its default if unset) and produce a typed
 /// `PoolConfig`. The result is stored in `POOL_CONFIG_CELL` and
 /// borrowed `'static` by the stratum task.
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 fn pool_config_from_env() -> eth_examples::pool_config::PoolConfig {
     use eth_examples::pool_config;
     pool_config::parse(
@@ -280,7 +245,7 @@ fn pool_config_from_env() -> eth_examples::pool_config::PoolConfig {
 
 /// Parse `host` as an IPv4 dotted-quad. DNS resolution is a
 /// follow-up; today the firmware accepts only literal addresses.
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 fn parse_ipv4_quad(host: &str) -> Option<[u8; 4]> {
     let mut parts = host.split('.');
     let a = parts.next()?.parse::<u8>().ok()?;
@@ -293,7 +258,7 @@ fn parse_ipv4_quad(host: &str) -> Option<[u8; 4]> {
     Some([a, b, c, d])
 }
 
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 #[embassy_executor::task]
 #[allow(clippy::too_many_lines, clippy::items_after_statements)]
 async fn stratum_client_task(
@@ -427,12 +392,6 @@ async fn stratum_client_task(
     }
 }
 
-#[cfg(feature = "backend-stratum-client")]
-#[embassy_executor::task]
-async fn asic_cpu_task() -> ! {
-    asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
-}
-
 #[cortex_m_rt::entry]
 fn main() -> ! {
     eth_examples::cpu_load::run_cortex_m_executor::<0, _>(|spawner| {
@@ -478,26 +437,17 @@ async fn boot(spawner: Spawner) {
                 RX_BUF.init([0; 1024]),
                 {
                     let mut config = UartConfig::default();
-                    config.baudrate = eth_examples::uart_asic::BAUD_RATE;
+                    config.baudrate = asic_uart_peer::BAUD_RATE;
                     config
                 },
             )
         };
         eth_examples::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner| {
             #[cfg(feature = "backend-cpu")]
-            {
-                core1_spawner.spawn(unwrap!(cpu_worker_task()));
-                core1_spawner.spawn(unwrap!(cpu_miner_task()));
-            }
-            #[cfg(feature = "backend-uart")]
-            core1_spawner.spawn(unwrap!(uart_worker_task(uart)));
-            #[cfg(feature = "backend-stratum-client")]
             core1_spawner.spawn(unwrap!(asic_cpu_task()));
-            #[cfg(not(any(
-                feature = "backend-cpu",
-                feature = "backend-uart",
-                feature = "backend-stratum-client",
-            )))]
+            #[cfg(feature = "backend-uart")]
+            core1_spawner.spawn(unwrap!(asic_uart_task(uart)));
+            #[cfg(not(any(feature = "backend-cpu", feature = "backend-uart")))]
             let _ = core1_spawner;
         });
     });
@@ -593,16 +543,10 @@ async fn boot(spawner: Spawner) {
     let config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", config.address.address());
 
-    #[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+    #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
     {
-        // Core 1 hosts cpu_worker_task + cpu_miner_task (backend-cpu) or
-        // uart_worker_task (backend-uart); see spawn_core1 above.
-        spawner.spawn(unwrap!(stratum_task(stack, &POOL_CONFIG)));
-        spawner.spawn(unwrap!(ntime_roller_task()));
-    }
-    #[cfg(feature = "backend-stratum-client")]
-    {
-        // Core 1 hosts asic_cpu_task; see spawn_core1 above.
+        // Core 1 hosts asic_uart_task (backend-uart) or asic_cpu_task
+        // (backend-cpu); see spawn_core1 above.
         let pool_config = POOL_CONFIG_CELL.init(pool_config_from_env());
         info!(
             "stratum-client: POOL_HOST={=str} POOL_PORT={=u16} POOL_PROTOCOL={=str} POOL_USER={=str}",

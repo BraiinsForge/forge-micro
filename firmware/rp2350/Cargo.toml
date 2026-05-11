@@ -9,18 +9,21 @@ workspace = true
 [features]
 default = ["display", "backend-uart"]
 display = []
-backend-uart = ["dep:ubos-backend"]
-# backend-cpu is mutually exclusive with backend-uart: enable with
+# UART peer backend: drives an external dummy-asic board over UART.
+# Always links Stratum V1; layer `stratum2` on top to also link the
+# V2 adapter. Mutually exclusive with `backend-cpu`.
+backend-uart = [
+    "dep:asic-uart-peer",
+    "dep:stratum-client",
+    "dep:stratum-v1",
+    "asic-uart-peer/defmt",
+    "stratum-client/defmt",
+    "stratum-v1/defmt",
+]
+# CPU mock backend: hashes on-MCU instead of driving a peer.
+# Mutually exclusive with `backend-uart`; enable with
 # `--no-default-features --features "display,backend-cpu"`.
-backend-cpu = ["dep:ubos-backend", "dep:cpu-miner"]
-# New stack: stratum-client + asic-cpu-mock, behind the
-# mining-protocol trait. Mutually exclusive with backend-cpu and
-# backend-uart; enable with
-# `--no-default-features --features "display,backend-stratum-client"`.
-# Always links Stratum V1. Layer `stratum2` on top to also link
-# the V2 adapter; protocol selection then happens at runtime
-# based on `POOL_PROTOCOL` (defaults to `sv1`).
-backend-stratum-client = [
+backend-cpu = [
     "dep:asic-cpu-mock",
     "dep:stratum-client",
     "dep:stratum-v1",
@@ -28,13 +31,12 @@ backend-stratum-client = [
     "stratum-client/defmt",
     "stratum-v1/defmt",
 ]
-# Adds the StratumV2 adapter to the build. Mutually additive with
-# `backend-stratum-client` (does not stand alone). Pulls in
-# `secp256k1/lowmemory` via the ii-sv2 chain so the verification
-# context fits in RP2350 SRAM. When enabled and `POOL_PROTOCOL=sv2`,
-# the stratum task constructs `StratumV2Client`; when disabled,
-# any `POOL_PROTOCOL=sv2` setting falls back to V1 with a defmt
-# warning.
+# Adds the StratumV2 adapter to the build. Layers on top of either
+# backend (does not stand alone). Pulls in `secp256k1/lowmemory`
+# via the ii-sv2 chain so the verification context fits in RP2350
+# SRAM. When enabled and `POOL_PROTOCOL=sv2`, the stratum task
+# constructs `StratumV2Client`; when disabled, any
+# `POOL_PROTOCOL=sv2` setting falls back to V1 with a defmt warning.
 stratum2 = [
     "dep:stratum-v2",
     "dep:ii-sv2",
@@ -60,7 +62,7 @@ portable-atomic     = { workspace = true }
 cortex-m            = { version = "0.7", features = ["inline-asm"] }
 cortex-m-rt         = "0.7"
 asic-cpu-mock       = { workspace = true, optional = true }
-cpu-miner           = { workspace = true, optional = true }
+asic-uart-peer      = { workspace = true, optional = true }
 stratum-client      = { workspace = true, optional = true }
 stratum-v1          = { workspace = true, optional = true }
 stratum-v2          = { workspace = true, optional = true }
@@ -71,7 +73,6 @@ ii-sv2              = { workspace = true, optional = true }
 # adapter; RoscRng's inherent `next_u64` covers the existing seed
 # path. Pulled via the workspace dep so versions stay aligned.
 rand_core           = { workspace = true, optional = true }
-ubos-backend        = { path = "../../ubos-backend", optional = true }
 
 # cortex-m is pulled in for the `inline-asm` feature; no direct
 # source references, so machete cannot see it.
