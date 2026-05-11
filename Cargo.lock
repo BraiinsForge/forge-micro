@@ -355,6 +355,7 @@ dependencies = [
  "static_cell",
  "stratum-client",
  "stratum-v1",
+ "ubos-monitor",
  "ubos-temperature",
 ]
 

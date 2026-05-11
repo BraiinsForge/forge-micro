@@ -32,7 +32,7 @@ backend-cpu = [
 ]
 
 [dependencies]
-eth-examples        = { workspace = true }
+eth-examples        = { workspace = true, features = ["defmt"] }
 embassy-executor    = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-net         = { workspace = true, features = ["defmt", "tcp", "udp", "dhcpv4", "medium-ethernet", "dns"] }
 embassy-net-wiznet  = { workspace = true, features = ["defmt"] }
@@ -52,6 +52,7 @@ asic-cpu-mock       = { workspace = true, optional = true }
 asic-uart-peer      = { workspace = true, optional = true }
 stratum-client      = { workspace = true, optional = true }
 stratum-v1          = { workspace = true, optional = true }
+ubos-monitor        = { workspace = true, features = ["defmt"] }
 ubos-temperature    = { workspace = true, features = ["defmt"] }
 
 # cortex-m and cortex-m-rt are pulled in by `#[embassy_executor::main]` and
