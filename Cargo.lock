@@ -349,6 +349,7 @@ dependencies = [
  "embedded-hal-bus",
  "embedded-io-async 0.7.0",
  "eth-examples",
+ "heapless 0.8.0",
  "panic-probe",
  "portable-atomic",
  "static_cell",
