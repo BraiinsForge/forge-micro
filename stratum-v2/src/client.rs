@@ -117,10 +117,13 @@ enum FrameState {
 /// Stratum V2 protocol adapter. Generic over the platform RNG and
 /// the secp256k1 context flavor (`secp256k1::All` on alloc-enabled
 /// hosts; `secp256k1::AllPreallocated<'static>` on `no_std`
-/// embedded targets).
-pub struct StratumV2Client<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> {
-    config: &'static Sv2Config,
-    ctx: &'static CryptoCtx<C>,
+/// embedded targets). `'a` ties the held references to the
+/// caller-owned config and crypto context — `&'static` works
+/// (firmware statics) but is no longer required (tests can use
+/// shorter-lived buffers).
+pub struct StratumV2Client<'a, R: Rng, C: secp256k1::Signing + secp256k1::Verification> {
+    config: &'a Sv2Config,
+    ctx: &'a CryptoCtx<C>,
     rng: Option<R>,
     state: V2State,
     /// Receive buffer for the encrypted payload — sized for the
@@ -144,9 +147,9 @@ pub struct StratumV2Client<R: Rng, C: secp256k1::Signing + secp256k1::Verificati
     outbound_offset: usize,
 }
 
-impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> StratumV2Client<R, C> {
+impl<'a, R: Rng, C: secp256k1::Signing + secp256k1::Verification> StratumV2Client<'a, R, C> {
     /// Construct an adapter ready for `connect`.
-    pub const fn new(config: &'static Sv2Config, ctx: &'static CryptoCtx<C>, rng: R) -> Self {
+    pub const fn new(config: &'a Sv2Config, ctx: &'a CryptoCtx<C>, rng: R) -> Self {
         Self {
             config,
             ctx,
@@ -164,8 +167,11 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> StratumV
     /// Build the authenticator the noise handshake will run against.
     /// `pool_pubkey = None` accepts any responder certificate (test
     /// pools); `Some(key)` validates the certificate's signature
-    /// against `key`.
-    fn build_authenticator(&self) -> AuthChoice<'static, C> {
+    /// against `key`. The returned `AuthChoice` borrows from
+    /// `self.ctx`; the noise handshake consumes it before the
+    /// adapter's first `.await` returns control to the caller, so
+    /// the borrow never escapes.
+    fn build_authenticator(&self) -> AuthChoice<'a, C> {
         match self.config.pool_pubkey {
             None => AuthChoice::Nothing(ValidateNothing),
             Some(key) => AuthChoice::Signature(ValidateSignature {
@@ -208,8 +214,8 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> StratumV
     }
 }
 
-impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningClient
-    for StratumV2Client<R, C>
+impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
+    for StratumV2Client<'_, R, C>
 {
     /// Drive the noise handshake to completion, then send the two
     /// post-handshake messages every standard-channel session needs:
@@ -269,7 +275,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
         // back in the success response so we can correlate.
         let open = OpenStandardMiningChannel {
             request_id: OPEN_CHANNEL_REQUEST_ID,
-            user: Str0_255::try_from(self.config.user).map_err(|_| Error::Adapter)?,
+            user: Str0_255::try_from(self.config.user.as_str()).map_err(|_| Error::Adapter)?,
             nominal_hashrate: 0.0,
             max_target: Uint256::from_le_bytes(&PERMISSIVE_MAX_TARGET),
         };

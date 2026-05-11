@@ -168,12 +168,9 @@ async fn main() -> Result<()> {
         .with_context(|| format!("connect {pool}"))?;
     let mut transport = FromTokio::new(stream);
 
-    let config: &'static Sv2Config = Box::leak(Box::new(Sv2Config {
-        user: Box::leak(user.into_boxed_str()),
-        pool_pubkey,
-    }));
-
-    let mut client = StratumV2Client::new(config, crypto_ctx(), ProbeRng);
+    let config = Sv2Config::new(&user, pool_pubkey)
+        .map_err(|err| anyhow!("user identity too long: {err:?}"))?;
+    let mut client = StratumV2Client::new(&config, crypto_ctx(), ProbeRng);
     client
         .connect(&mut transport)
         .await
