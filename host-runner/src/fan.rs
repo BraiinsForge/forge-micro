@@ -1,5 +1,6 @@
-//! hwmon-based fan controller. Watches `MINER_IS_RUNNING` and drives
-//! the fans at 80% while the chip is mining, 0% otherwise.
+//! hwmon-based fan controller. Either drives PID-modulated PWM via
+//! `ubos_monitor::run_monitor`, or falls back to a binary on/off task
+//! tied to `MINER_IS_RUNNING` when no temperature sensor is attached.
 //!
 //! Ported from `bosminer-fan::hwmon::HwmonFanPwm` and
 //! `bosminer-hal::sysfs::hwmon_fan::FanHwmonController`. The kernel
@@ -8,13 +9,16 @@
 //! `pwm1` attribute and the controller just walks
 //! `/sys/devices/platform/` for entries whose `name` file contains
 //! `pwmfan`. RPM feedback (`fan{1..9}_input`) from the upstream is
-//! omitted — host-runner only needs binary on/off control.
+//! omitted.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use log::{error, info, warn};
 use mmm::miner::MINER_IS_RUNNING;
+use ubos_monitor::{FanOutput, MonitorConfig};
+
+use crate::temperature::HashboardTemperature;
 
 /// Root of the platform-device tree the kernel exposes for hwmon
 /// drivers. Hardcoded — same as the upstream constant.
@@ -138,10 +142,28 @@ fn find_pwmfan_devices(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Long-lived task: park fans at 0%, then mirror `MINER_IS_RUNNING`
-/// onto the duty cycle for the rest of the process lifetime.
+impl FanOutput for FanHwmonController {
+    fn set_pwm_percent(&mut self, percent: u8) {
+        self.set_speed(percent);
+    }
+}
+
+/// PID-driven fan loop: spawn this when an LM75A temperature source is
+/// available so the duty cycle tracks board temperature.
 #[embassy_executor::task]
-pub async fn fan_task(controller: FanHwmonController) -> ! {
+pub async fn pid_fan_task(
+    controller: FanHwmonController,
+    sensor: HashboardTemperature,
+    config: &'static MonitorConfig,
+) -> ! {
+    ubos_monitor::run_monitor(sensor, controller, config).await
+}
+
+/// Fallback task when no temperature sensor is wired: park fans at 0%,
+/// then mirror `MINER_IS_RUNNING` onto the duty cycle for the rest of
+/// the process lifetime.
+#[embassy_executor::task]
+pub async fn binary_fan_task(controller: FanHwmonController) -> ! {
     info!("fan: parking fans at {STOP_PERCENT}%");
     controller.set_speed(STOP_PERCENT);
     loop {

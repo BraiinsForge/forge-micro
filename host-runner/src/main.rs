@@ -32,6 +32,7 @@ use log::{error, info, warn};
 use rand::rngs::OsRng;
 use static_cell::StaticCell;
 use stratum_client::AsicSession;
+use ubos_monitor::MonitorConfig;
 
 mod fan;
 mod gpiod;
@@ -39,6 +40,7 @@ mod hosted_network;
 mod miner;
 mod mmm_serial;
 mod psu;
+mod temperature;
 
 use hosted_network::HostDevice;
 
@@ -52,6 +54,11 @@ const DEFAULT_POOL_USER: &str = "braiinstest.dumb_worker";
 /// Defaults to the public Braiins Pool so the binary works out of
 /// the box without requiring reach to the NUC regtest pool.
 const DEFAULT_POOL_HOST: &str = "172.65.65.63";
+
+/// Tunable monitor parameters. Mirrors the BMM model defaults from
+/// bos-main; the PID gains and threshold temperatures live in
+/// `MonitorConfig::DEFAULT`.
+static MONITOR_CONFIG: MonitorConfig = MonitorConfig::DEFAULT;
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 static RESOURCES: StaticCell<StackResources<SOCKET_COUNT>> = StaticCell::new();
@@ -286,9 +293,19 @@ fn main() {
         spawner.spawn(hashrate_metrics_task().expect("BUG: hashrate_metrics_task token"));
         spawner.spawn(http_server_task(stack).expect("BUG: http_server_task token"));
         match fan::FanHwmonController::open() {
-            Some(controller) => {
-                spawner.spawn(fan::fan_task(controller).expect("BUG: fan_task token"));
-            }
+            Some(controller) => match temperature::HashboardTemperature::open() {
+                Some(sensor) => {
+                    spawner.spawn(
+                        fan::pid_fan_task(controller, sensor, &MONITOR_CONFIG)
+                            .expect("BUG: pid_fan_task token"),
+                    );
+                }
+                None => {
+                    info!("host-runner: no LM75A bus; using binary on/off fan control");
+                    spawner
+                        .spawn(fan::binary_fan_task(controller).expect("BUG: binary_fan_task token"));
+                }
+            },
             None => {
                 info!("host-runner: no pwmfan device found; fan control disabled");
             }

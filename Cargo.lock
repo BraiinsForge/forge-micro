@@ -2415,6 +2415,7 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "ubos-logging",
+ "ubos-monitor",
  "ubos-psu",
 ]
 

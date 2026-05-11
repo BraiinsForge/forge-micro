@@ -32,6 +32,7 @@ mining-protocol    = { workspace = true }
 stratum-client     = { workspace = true }
 stratum-v1         = { workspace = true }
 ubos-logging       = { workspace = true }
+ubos-monitor       = { workspace = true }
 ubos-psu           = { workspace = true }
 embassy-sync       = { workspace = true }
 portable-atomic    = { workspace = true }
