@@ -30,6 +30,15 @@ profont           = { workspace = true }
 format_no_std     = { workspace = true }
 sha2              = { workspace = true }
 ubos-logging      = { workspace = true }
+# Base58check decode for `POOL_SV2_PUBKEY`. `no_std` build via
+# `default-features = false`, matches micro-sv2's posture.
+bs58              = { version = "0.5", default-features = false, features = ["check"] }
+
+[dev-dependencies]
+# Host tests assemble base58check strings via `.into_string()`,
+# which needs the `alloc` feature on top of `check`. The lib
+# build never sees the extra feature.
+bs58              = { version = "0.5", default-features = false, features = ["check", "alloc"] }
 
 # Cortex-M boards drive embassy's `raw::Executor` directly via
 # `cpu_load::run_cortex_m_executor`. Gated to ARM so the ESP32-S3
