@@ -58,6 +58,7 @@ members = [
     "firmware/esp32s3",
     "asic-cpu-mock",
     "asic-interface",
+    "asic-uart-peer",
     "cpu-miner",
     "dummy-asic",
     "embassy-net-afpacket",
@@ -106,6 +107,7 @@ sha2              = { version = "0.10", default-features = false }
 esp32s3-tsens     = { path = "esp32s3-tsens" }
 asic-cpu-mock     = { path = "asic-cpu-mock" }
 asic-interface    = { path = "asic-interface" }
+asic-uart-peer    = { path = "asic-uart-peer" }
 cpu-miner         = { path = "cpu-miner" }
 mining-protocol   = { path = "mining-protocol" }
 serial-baudrate   = { path = "serial-baudrate" }

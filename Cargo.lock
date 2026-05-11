@@ -177,6 +177,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "asic-uart-peer"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.0.1",
+ "embassy-futures",
+ "embedded-io-async 0.7.0",
+ "eth-examples",
+ "stratum-client",
+]
+
+[[package]]
 name = "async-io"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
