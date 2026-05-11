@@ -67,11 +67,12 @@ static SV1_CONFIG: stratum_v1::Sv1Config = stratum_v1::Sv1Config {
     password: config::Pool::PASS,
 };
 
+// `Sv2Config::new` runs at boot to copy the worker identity into
+// the owned `heapless::String<128>`, so the static slot is empty
+// until then. Held in a `StaticCell` to give `StratumV2Client::new`
+// a `&'static Sv2Config` once initialised.
 #[cfg(feature = "protocol-sv2")]
-static SV2_CONFIG: stratum_v2::Sv2Config = stratum_v2::Sv2Config {
-    user: config::Pool::USER,
-    pool_pubkey: config::Pool::POOL_PUBKEY,
-};
+static SV2_CONFIG: static_cell::StaticCell<stratum_v2::Sv2Config> = static_cell::StaticCell::new();
 
 // `secp256k1::AllPreallocated<'static>` precomputation buffer.
 // `lowmemory` brings the verify table down to ~16 KB; the slot
@@ -283,6 +284,16 @@ async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
         SECP_CTX.init(ctx)
     };
 
+    // Build the V2 session config once and hand the runtime loop a
+    // `&'static Sv2Config`. `Sv2Config::new` rejects a user string
+    // longer than `MAX_USER_LEN` (128 bytes); the worker identity
+    // pinned in `config::Pool::USER` is well under that.
+    #[cfg(feature = "protocol-sv2")]
+    let sv2_config: &'static stratum_v2::Sv2Config = SV2_CONFIG.init(
+        stratum_v2::Sv2Config::new(config::Pool::USER, config::Pool::POOL_PUBKEY)
+            .expect("BUG: Pool::USER exceeds MAX_USER_LEN"),
+    );
+
     loop {
         let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
         socket.set_timeout(Some(embassy_time::Duration::from_secs(120)));
@@ -307,7 +318,7 @@ async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
         let mut client = stratum_v1::StratumV1Client::new(&SV1_CONFIG);
         #[cfg(feature = "protocol-sv2")]
         let mut client =
-            stratum_v2::StratumV2Client::new(&SV2_CONFIG, secp_ctx, Sv2BoardRng(RoscRng));
+            stratum_v2::StratumV2Client::new(sv2_config, secp_ctx, Sv2BoardRng(RoscRng));
 
         let mut state = stratum_client::StratumState::new();
         match stratum_client::run_stratum_client(
