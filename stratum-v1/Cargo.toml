@@ -3,7 +3,12 @@ edition = "2021"
 name    = "stratum-v1"
 version = "0.1.0"
 
+[features]
+default = []
+defmt   = ["dep:defmt"]
+
 [dependencies]
+defmt             = { workspace = true, optional = true }
 embedded-io-async = { workspace = true }
 heapless          = { workspace = true }
 mining-protocol   = { workspace = true }

@@ -226,6 +226,16 @@ impl MiningClient for StratumV1Client {
             .map_err(|_| Error::BufferTooSmall)?;
         self.outbound_len = length;
         self.outbound_offset = 0;
+        #[cfg(feature = "defmt")]
+        defmt::info!(
+            "stratum-v1: submit queued id={=u32} job_id={=str} \
+             nonce={=u32:#010x} ntime={=u32:#010x} version_bits={=u32:#010x}",
+            submit_id,
+            wire_job_id.as_str(),
+            share.nonce,
+            share.ntime,
+            share.version_bits,
+        );
         Ok(())
     }
 
@@ -302,10 +312,22 @@ impl MiningClient for StratumV1Client {
                 }
                 Rpc::Notification(Notification::SetDifficulty(set_diff)) => {
                     self.session.target = target_from_diff(set_diff.0);
+                    #[cfg(feature = "defmt")]
+                    {
+                        let target_hex =
+                            mining_protocol::hex::encode_block_hash_lower(&self.session.target);
+                        defmt::info!(
+                            "stratum-v1: set-difficulty diff={=f64} target={=str}",
+                            set_diff.0,
+                            core::str::from_utf8(&target_hex).expect("hex encoder emits ASCII"),
+                        );
+                    }
                     visitor.visit_session_update(SessionUpdate::SetTarget(&self.session.target));
                 }
                 Rpc::Notification(Notification::SetVersionMask(set_mask)) => {
                     self.session.version_rolling_mask = set_mask.mask;
+                    #[cfg(feature = "defmt")]
+                    defmt::info!("stratum-v1: set-version-mask {=u32:#010x}", set_mask.mask,);
                     visitor.visit_session_update(SessionUpdate::SetVersionMask(set_mask.mask));
                 }
                 Rpc::Notification(Notification::SetExtranonce(set_extranonce)) => {
@@ -314,6 +336,12 @@ impl MiningClient for StratumV1Client {
                             <= crate::scratch::MAX_EXTRANONCE_1
                     {
                         self.session.extranonce_2_size = set_extranonce.extra_nonce_2_size;
+                        #[cfg(feature = "defmt")]
+                        defmt::info!(
+                            "stratum-v1: set-extranonce prefix={=[u8]:x} en2_size={=u8}",
+                            &self.session.extranonce_1[..self.session.extranonce_1_len],
+                            self.session.extranonce_2_size,
+                        );
                         visitor.visit_session_update(SessionUpdate::SetExtranonce {
                             prefix: &self.session.extranonce_1[..self.session.extranonce_1_len],
                             en2_size: self.session.extranonce_2_size,
@@ -321,6 +349,13 @@ impl MiningClient for StratumV1Client {
                     }
                 }
                 Rpc::Notification(Notification::ClientReconnect(reconnect)) => {
+                    #[cfg(feature = "defmt")]
+                    defmt::info!(
+                        "stratum-v1: client-reconnect host={=str} port={=u16} wait={=u16}",
+                        reconnect.host,
+                        reconnect.port,
+                        reconnect.wait,
+                    );
                     visitor.visit_session_update(SessionUpdate::Reconnect {
                         host: reconnect.host,
                         port: reconnect.port,
@@ -370,6 +405,21 @@ fn dispatch_notify<V: MiningClientVisitor>(
     // Apply the V1 prev_hash per-u32 byte swap so the trait surface
     // sees canonical block-header bytes.
     swap_prev_hash_words(&mut decode_scratch.prev_hash);
+
+    #[cfg(feature = "defmt")]
+    {
+        let prev_hex = mining_protocol::hex::encode_block_hash_lower(&decode_scratch.prev_hash);
+        defmt::info!(
+            "stratum-v1: notify job_id={=str} version={=u32:#010x} nbits={=u32:#010x} \
+             ntime={=u32:#010x} clean_jobs={=bool} prev_hash={=str}",
+            notify.job_id,
+            version,
+            nbits,
+            ntime,
+            notify.clean_jobs,
+            core::str::from_utf8(&prev_hex).expect("hex encoder emits ASCII"),
+        );
+    }
 
     // Allocate a JobId and record the (generic, wire) mapping. Slot
     // rotation matches the depth-2 ring on the stratum-client side.
@@ -577,6 +627,12 @@ fn dispatch_response<V: MiningClientVisitor>(
                 return;
             }
             session.extranonce_2_size = parsed.2;
+            #[cfg(feature = "defmt")]
+            defmt::info!(
+                "stratum-v1: subscribe-success prefix={=[u8]:x} en2_size={=u8}",
+                &session.extranonce_1[..session.extranonce_1_len],
+                session.extranonce_2_size,
+            );
             visitor.visit_session_update(SessionUpdate::SetExtranonce {
                 prefix: &session.extranonce_1[..session.extranonce_1_len],
                 en2_size: session.extranonce_2_size,
@@ -611,6 +667,17 @@ fn dispatch_response<V: MiningClientVisitor>(
             // pass JobId(0) and let the caller correlate via the
             // work ring. A future refinement adds a submit→JobId
             // map symmetric to the JobId map for jobs.
+            #[cfg(feature = "defmt")]
+            if accepted {
+                defmt::info!("stratum-v1: submit-accepted id={=u32}", id);
+            } else {
+                defmt::warn!(
+                    "stratum-v1: submit-rejected id={=u32} code={=?} message={=?}",
+                    id,
+                    error_code,
+                    error_message,
+                );
+            }
             visitor.visit_submit_result(SubmitResult {
                 id: JobId(0),
                 accepted,
