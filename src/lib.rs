@@ -23,6 +23,7 @@ pub mod led;
 pub mod metrics;
 pub mod net;
 pub mod ntp;
+pub mod pool_config;
 pub mod sh1106;
 pub mod temperature;
 pub mod uart_asic;
