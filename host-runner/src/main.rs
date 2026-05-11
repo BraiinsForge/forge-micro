@@ -139,6 +139,7 @@ async fn stratum_client_task(
     loop {
         let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
         socket.set_timeout(Some(embassy_time::Duration::from_secs(120)));
+        info!("stratum-client: connecting to {a}.{b}.{c}.{d}:{port}");
         if let Err(error) = socket.connect((address, port)).await {
             warn!("stratum-client: connect failed {error:?}");
             Timer::after(pool_config::RECONNECT_DELAY).await;
@@ -218,13 +219,17 @@ async fn hashrate_metrics_task() -> ! {
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    // SIGINT triggers a clean miner teardown rather than killing the
-    // process outright; miner_task drives the actual exit once run()
-    // returns. set_handler only fails if a handler is already
-    // installed, which cannot happen at startup.
+    // SIGINT signals `STOP_MINING` so the BM1362 driver tears the
+    // chip down cleanly (when the mmm path is active), then exits
+    // the process unconditionally. Without the explicit `exit`,
+    // the embassy executor would keep running the network /
+    // stratum / CPU-mock tasks indefinitely — none of them watch
+    // `STOP_MINING`. The teardown vs. exit is racy on purpose;
+    // this is a developer tool, not a production controller.
     ctrlc::set_handler(|| {
         info!("host-runner: SIGINT received, signalling miner stop");
         mmm::miner::STOP_MINING.signal(());
+        std::process::exit(130);
     })
     .expect("BUG: ctrlc handler already installed");
 

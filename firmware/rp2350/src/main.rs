@@ -375,6 +375,10 @@ async fn stratum_client_task(
     loop {
         let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
         socket.set_timeout(Some(embassy_time::Duration::from_secs(120)));
+        info!(
+            "stratum-client: connecting to {}.{}.{}.{}:{}",
+            a, b, c, d, port
+        );
         if let Err(error) = socket.connect((address, port)).await {
             warn!(
                 "stratum-client: connect failed {}",
