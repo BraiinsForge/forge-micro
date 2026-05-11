@@ -17,8 +17,9 @@ backend-cpu = ["dep:ubos-backend", "dep:cpu-miner"]
 # mining-protocol trait. Mutually exclusive with backend-cpu and
 # backend-uart; enable with
 # `--no-default-features --features "display,backend-stratum-client"`.
-# Defaults to V1; layer `protocol-sv2` on top to swap in the V2
-# adapter.
+# Always links Stratum V1. Layer `stratum2` on top to also link
+# the V2 adapter; protocol selection then happens at runtime
+# based on `POOL_PROTOCOL` (defaults to `sv1`).
 backend-stratum-client = [
     "dep:asic-cpu-mock",
     "dep:stratum-client",
@@ -26,11 +27,14 @@ backend-stratum-client = [
     "asic-cpu-mock/defmt",
     "stratum-client/defmt",
 ]
-# Switch the stratum_client_task to StratumV2Client. Mutually
-# additive with `backend-stratum-client` (does not stand alone).
-# Pulls in `secp256k1/lowmemory` via the ii-sv2 chain so the
-# verification context fits in RP2350 SRAM.
-protocol-sv2 = [
+# Adds the StratumV2 adapter to the build. Mutually additive with
+# `backend-stratum-client` (does not stand alone). Pulls in
+# `secp256k1/lowmemory` via the ii-sv2 chain so the verification
+# context fits in RP2350 SRAM. When enabled and `POOL_PROTOCOL=sv2`,
+# the stratum task constructs `StratumV2Client`; when disabled,
+# any `POOL_PROTOCOL=sv2` setting falls back to V1 with a defmt
+# warning.
+stratum2 = [
     "dep:stratum-v2",
     "dep:ii-sv2",
     "dep:rand_core",
@@ -62,7 +66,7 @@ stratum-v2          = { workspace = true, optional = true }
 # Workspace dep is declared with default-features = false so the
 # firmware does not pull `alloc` via secp256k1's alloc feature.
 ii-sv2              = { workspace = true, optional = true }
-# rand_core 0.6 is only needed when protocol-sv2 brings in the V2
+# rand_core 0.6 is only needed when stratum2 brings in the V2
 # adapter; RoscRng's inherent `next_u64` covers the existing seed
 # path. Pulled via the workspace dep so versions stay aligned.
 rand_core           = { workspace = true, optional = true }

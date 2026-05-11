@@ -123,67 +123,44 @@ impl Core1 {
     pub const STACK_BYTES: usize = 4096;
 }
 
-// Pool presets kept so switching pool or user is a one-line edit on
-// `Pool::HOST_IP`/`Pool::USER` below. The unused ones stay behind
-// `allow(dead_code)` because only one pair is active at a time.
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-stratum-client",
-))]
+// Pool presets kept so switching pool or user is a one-line edit
+// in this file. The legacy `Pool` block (`backend-uart` /
+// `backend-cpu`) reads them directly. The newer
+// `backend-stratum-client` path goes through env vars
+// (`POOL_HOST`, `POOL_PORT`, etc.) and only touches
+// `DEFAULT_POOL_USER` as the per-board fall-through.
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 #[allow(dead_code)]
 const RPI_POOL: [u8; 4] = [192, 168, 89, 100];
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-stratum-client",
-))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 #[allow(dead_code)]
 const REGTEST_SOLO_USER: &str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8";
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-stratum-client",
-))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 #[allow(dead_code)]
 const BRAIINS_POOL: [u8; 4] = [172, 65, 65, 63];
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-stratum-client",
-))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 #[allow(dead_code)]
 const BRAIINS_USER: &str = "braiinstest";
 
+/// Per-board fall-through for `POOL_USER` (worker identity with
+/// the `.rp2350` suffix). Referenced by `Pool::USER` for the
+/// legacy backends and by `pool_config_from_env()` in
+/// `main.rs` for the new stack.
 #[cfg(any(
     feature = "backend-cpu",
     feature = "backend-uart",
     feature = "backend-stratum-client",
 ))]
+pub const DEFAULT_POOL_USER: &str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8.rp2350";
+
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 pub struct Pool;
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-stratum-client",
-))]
+
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
 impl Pool {
     pub const HOST_IP: [u8; 4] = RPI_POOL;
     pub const PORT: u16 = 3333;
-    pub const USER: &'static str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8.rp2350";
-    /// V1-only worker password. Unused under `protocol-sv2` (V2's
-    /// authentication uses noise + the optional pool pubkey).
-    #[cfg_attr(feature = "protocol-sv2", allow(dead_code))]
+    pub const USER: &'static str = DEFAULT_POOL_USER;
     pub const PASS: &'static str = "x";
     pub const RECONNECT_DELAY: Duration = Duration::from_secs(5);
-
-    /// Pool authority public key for the V2 noise NX handshake,
-    /// in the SV2-spec base58check encoding decoded down to the
-    /// raw 32-byte xonly form. `None` falls back to
-    /// `ValidateNothing` (test pools only).
-    ///
-    /// `protocol-sv2` ships with `None` by default; change the
-    /// constant when pointing at an authenticated V2 pool. For
-    /// braiins use the published authority key.
-    #[cfg(feature = "protocol-sv2")]
-    pub const POOL_PUBKEY: Option<[u8; 32]> = None;
 }
