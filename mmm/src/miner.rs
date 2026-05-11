@@ -7,13 +7,18 @@
 //! starts over so a transient bring-up failure doesn't leave the chip
 //! powered without supervision.
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
-use ubos_backend::MINER_IS_RUNNING;
-use ubos_logging::{error, info, Debug2Format};
+use ubos_logging::{Debug2Format, error, info};
 use ubos_psu::Psu;
+
+/// Mirrors the chip rail state for downstream consumers (host
+/// fan controller etc.). `true` between PSU enable and PSU disable
+/// in `run`; `false` at startup and after teardown. Replaces the
+/// legacy `ubos_backend::MINER_IS_RUNNING`.
+pub static MINER_IS_RUNNING: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
 use crate::bmm100_trace::{DEINIT, INIT};
 use crate::replay::replay;

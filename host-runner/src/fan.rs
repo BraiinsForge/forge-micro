@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use log::{error, info, warn};
-use ubos_backend::MINER_IS_RUNNING;
+use mmm::miner::MINER_IS_RUNNING;
 
 /// Root of the platform-device tree the kernel exposes for hwmon
 /// drivers. Hardcoded — same as the upstream constant.

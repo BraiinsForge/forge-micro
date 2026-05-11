@@ -3,9 +3,8 @@
 //! One task owns the serial halves and the in-flight work registry;
 //! outside callers go through [`Serial`]'s typed methods to reset the
 //! chip, retune the baud rate, gate work dispatch, or push a pre-built
-//! command frame. The actor pulls jobs via
-//! `ubos_backend::current_assignment` and pushes found solutions into
-//! `ubos_backend::SOLUTIONS`.
+//! command frame. The actor reads work from a `&'static AsicSession`'s
+//! `Watch` and submits found shares back via `AsicSession::submit_solution`.
 
 use core::fmt;
 use core::ops::ControlFlow;
@@ -16,14 +15,13 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
+use embassy_sync::watch::DynReceiver;
 use embassy_time::{Duration, Ticker, Timer, with_timeout};
 use embedded_io::ErrorKind;
 use embedded_io_async::{Error as _, Read, Write};
 use heapless::Vec as HVec;
 use serial_baudrate::BaudRate;
-use ubos_backend::{
-    NEW_JOB, SHARE_TARGET, SOLUTIONS, Solution, WorkAssignment, current_assignment,
-};
+use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_logging::{Debug2Format, error, info, trace, warn};
 
 /// Difficulty-1 target in 256-bit little-endian byte order: `0xFFFF * 2^208`.
@@ -109,15 +107,14 @@ pub enum SerialMessage {
 
 /// In-flight work for a given `work_id` slot. Kept around so an incoming
 /// `HwSolution` can be matched back to the originating assignment when
-/// building the [`Solution`] to push into [`SOLUTIONS`]. The pool target
-/// is captured at dispatch time because [`SHARE_TARGET`] can be updated
-/// mid-job by `mining.set_difficulty`; we credit shares against the
-/// target the chip was actually scanning to.
+/// building the [`Solution`] to push through `AsicSession::submit_solution`.
+/// The target is captured at dispatch time because the session's
+/// `Watch` publishes fresh assignments mid-job; we credit shares
+/// against the target the chip was actually scanning to.
 #[derive(Clone)]
 struct WorkSlot {
     hw_work: HwWork,
     assignment: WorkAssignment,
-    pool_target: [u8; 32],
 }
 
 /// The chip-side serial actor.
@@ -241,18 +238,27 @@ impl Serial {
     }
 
     /// Server entry point. Owns the byte stream and the work registry;
-    /// produces shares into [`SHARES`] and bumps [`TOTAL_HASHES`] for
-    /// every diff-1 chip share so the existing hashrate task picks them
-    /// up.
+    /// reads assignments from `session.work_receiver()` and submits
+    /// found shares back through `session.submit_solution`. Bumps
+    /// `eth_examples::hashrate::record_share` for every diff-1 chip
+    /// share so the existing hashrate task picks them up.
     ///
     /// Returns `Ok(())` when a [`SerialMessage::Terminate`] command was
     /// honoured, and `Err(kind)` on serial EOF or a read error so the
     /// caller can decide whether to log, restart, or park.
-    pub async fn run<R, T>(&self, mut rx: R, mut tx: T) -> Result<(), ErrorKind>
+    pub async fn run<R, T>(
+        &self,
+        mut rx: R,
+        mut tx: T,
+        session: &'static AsicSession,
+    ) -> Result<(), ErrorKind>
     where
         R: Read + BaudRate,
         T: Write + BaudRate,
     {
+        let mut work_receiver = session
+            .work_receiver()
+            .expect("BUG: AsicSession Watch must have a free receiver slot");
         let mut parser = ResponseParser::new();
         let mut work_ticker: Option<Ticker> = None;
         let mut work_id: u8 = 0;
@@ -274,11 +280,17 @@ impl Serial {
 
             match select3(tick_arm, read_arm, cmd_arm).await {
                 Either3::First(()) => {
-                    self.dispatch_work(&mut tx, &mut work_id, &mut registry)
+                    self.dispatch_work(&mut tx, &mut work_id, &mut registry, &mut work_receiver)
                         .await;
                 }
                 Either3::Second(read_result) => {
-                    Self::handle_read(read_result, &mut parser, &registry, &self.register_replies)?;
+                    Self::handle_read(
+                        read_result,
+                        &mut parser,
+                        &registry,
+                        &self.register_replies,
+                        session,
+                    )?;
                 }
                 Either3::Third(msg) => {
                     if let ControlFlow::Break(()) = self
@@ -304,23 +316,15 @@ impl Serial {
         tx: &mut T,
         work_id: &mut u8,
         registry: &mut [Option<WorkSlot>; REGISTRY_SIZE],
+        work_receiver: &mut DynReceiver<'_, WorkAssignment>,
     ) where
         T: Write + BaudRate,
     {
-        // Block until the stratum task has a job ready. NEW_JOB.wait()
-        // covers the cold-start case before the first notify lands;
-        // afterwards `current_assignment` always returns Some until
-        // explicit teardown.
-        let assignment = loop {
-            if let Some(assignment) = current_assignment().await {
-                break assignment;
-            }
-            NEW_JOB.wait().await;
-        };
-        let pool_target = SHARE_TARGET
-            .receiver()
-            .and_then(|mut receiver| receiver.try_get())
-            .unwrap_or([0xFF; 32]);
+        // Block until the stratum task publishes the first assignment;
+        // afterwards `get` returns the latest immediately so subsequent
+        // ticks pick up mid-job target / merkle-root changes without
+        // blocking.
+        let assignment = work_receiver.get().await;
 
         let hw_work = HwWork {
             work_id: *work_id,
@@ -342,7 +346,6 @@ impl Serial {
         registry[slot_idx] = Some(WorkSlot {
             hw_work,
             assignment,
-            pool_target,
         });
         // `NUM_MIDSTATES` is 8; the cast is exact and fits well within u8.
         #[allow(clippy::cast_possible_truncation)]
@@ -362,6 +365,7 @@ impl Serial {
         parser: &mut ResponseParser,
         registry: &[Option<WorkSlot>; REGISTRY_SIZE],
         register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
+        session: &'static AsicSession,
     ) -> Result<(), ErrorKind> {
         match result {
             Ok(0) => {
@@ -372,7 +376,7 @@ impl Serial {
                 trace!("RX ({} bytes): {}", n, HexBytes(&parser.free()[..n]));
                 parser.commit(n);
                 while let Some(resp) = parser.pop() {
-                    Self::dispatch_response(&resp, registry, register_replies);
+                    Self::dispatch_response(&resp, registry, register_replies, session);
                 }
                 Ok(())
             }
@@ -388,6 +392,7 @@ impl Serial {
         resp: &Response,
         registry: &[Option<WorkSlot>; REGISTRY_SIZE],
         register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
+        session: &'static AsicSession,
     ) {
         match resp {
             Response::HwSolution(wr) => {
@@ -420,7 +425,7 @@ impl Serial {
                 // shares. The estimator already weights by target.
                 eth_examples::hashrate::record_share(&DIFF_1_TARGET);
 
-                if !hash_meets_target(&hash, &slot.pool_target) {
+                if !hash_meets_target(&hash, &slot.assignment.target) {
                     trace!(
                         "nonce=0x{:08X} work_id={} ver_idx={} below pool target (hash={:?})",
                         wr.nonce,
@@ -437,14 +442,13 @@ impl Serial {
                 );
 
                 let solution = Solution {
-                    job_id: slot.assignment.job_id.clone(),
+                    work_id: slot.assignment.work_id,
                     nonce: wr.nonce,
                     ntime: slot.assignment.ntime,
                     version_bits,
-                    extranonce2: slot.assignment.extranonce2.clone(),
                 };
-                if SOLUTIONS.try_send(solution).is_err() {
-                    warn!("SOLUTIONS full, dropping submission");
+                if !session.submit_solution(solution) {
+                    warn!("AsicSession solutions full, dropping submission");
                 }
             }
             Response::RegisterResponse(r) => {

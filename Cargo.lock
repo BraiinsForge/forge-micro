@@ -2433,6 +2433,7 @@ dependencies = [
  "portable-atomic",
  "rand",
  "static_cell",
+ "stratum-client",
  "ubos-backend",
  "ubos-logging",
  "ubos-psu",
@@ -2770,7 +2771,6 @@ dependencies = [
 name = "mmm"
 version = "0.1.0"
 dependencies = [
- "asic-interface",
  "cpu-miner",
  "defmt 1.0.1",
  "embassy-futures",
@@ -2783,7 +2783,7 @@ dependencies = [
  "portable-atomic",
  "serial-baudrate",
  "sha2 0.10.9",
- "ubos-backend",
+ "stratum-client",
  "ubos-logging",
  "ubos-psu",
 ]
