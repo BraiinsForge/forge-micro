@@ -11,14 +11,8 @@ use embedded_serial_unix::Serial;
 use log::{error, info};
 use mmm::consts::INITIAL_BAUDRATE;
 use mmm::serial::SERIAL;
-use stratum_client::AsicSession;
 
-/// The shared work/solution rendezvous between the stratum-client
-/// task and the BM1362 actor. Placeholder for the host-runner →
-/// stratum-client wiring that lands in the next commit; for now
-/// the actor reads from it but nobody publishes, so it idles
-/// indefinitely waiting for the first assignment.
-pub static ASIC_SESSION: AsicSession = AsicSession::new();
+use crate::ASIC_SESSION;
 
 /// Path mmm opens for chip-side traffic. Hard-coded because the BMM100
 /// hashboard always presents the same device under our udev rules; if a

@@ -2409,8 +2409,7 @@ dependencies = [
 name = "host-runner"
 version = "0.1.0"
 dependencies = [
- "asic-interface",
- "cpu-miner",
+ "asic-cpu-mock",
  "critical-section",
  "ctrlc",
  "embassy-executor 0.10.0",
@@ -2429,12 +2428,13 @@ dependencies = [
  "heapless 0.8.0",
  "heapless 0.9.2",
  "log",
+ "mining-protocol",
  "mmm",
  "portable-atomic",
  "rand",
  "static_cell",
  "stratum-client",
- "ubos-backend",
+ "stratum-v1",
  "ubos-logging",
  "ubos-psu",
 ]

@@ -9,6 +9,13 @@
 //! hashrate publisher, NTP, BTC price, metrics, and HTTP server are
 //! identical across the firmware and host paths.
 //!
+//! Pool wiring matches the firmware: `POOL_HOST`, `POOL_PORT`,
+//! `POOL_PROTOCOL`, `POOL_USER`, and `POOL_SV1_PASS` env vars (read at
+//! compile time) drive `eth_examples::pool_config::parse`; defaults
+//! point at the public Braiins Pool so the binary works out of the
+//! box. V2 host support is not wired yet — `POOL_PROTOCOL=sv2` is
+//! rejected at boot.
+//!
 //! Host-side prerequisites (run once per boot): `./setup-network.sh up`
 //! creates the TAP device and installs the NAT + forward rules. See
 //! `README.md` for the manual equivalents and for `AF_PACKET` caveats.
@@ -20,10 +27,11 @@ use embassy_net::{Runner, Stack, StackResources};
 use embassy_time::{Duration, Ticker, Timer};
 use eth_examples::metrics::{Metric, Value};
 use eth_examples::net;
-use log::{info, warn};
+use eth_examples::pool_config::{self, PoolConfig, ProtocolConfig};
+use log::{error, info, warn};
 use rand::rngs::OsRng;
 use static_cell::StaticCell;
-use ubos_backend::PoolConfig;
+use stratum_client::AsicSession;
 
 mod fan;
 mod gpiod;
@@ -37,19 +45,30 @@ use hosted_network::HostDevice;
 const SOCKET_COUNT: usize = 8;
 const BOARD_NAME: &str = "host-runner";
 
-/// Pool config. Defaults to public Braiins Pool so the host binary works
-/// out of the box without requiring reach to the NUC regtest pool. Edit
-/// in place to fire at the same regtest target the firmware uses.
-static POOL_CONFIG: PoolConfig = PoolConfig {
-    host_ip: [172, 65, 65, 63],
-    port: 3333,
-    user: "braiinstest.dumb_worker",
-    password: "x",
-    reconnect_delay: Duration::from_secs(5),
-};
+/// Per-board fall-through for the worker identity. Used when
+/// `POOL_USER` is not set in the environment.
+const DEFAULT_POOL_USER: &str = "braiinstest.dumb_worker";
+
+/// Defaults to the public Braiins Pool so the binary works out of
+/// the box without requiring reach to the NUC regtest pool.
+const DEFAULT_POOL_HOST: &str = "172.65.65.63";
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 static RESOURCES: StaticCell<StackResources<SOCKET_COUNT>> = StaticCell::new();
+
+/// Parsed pool config; populated once at boot from compile-time
+/// env vars and held for the lifetime of the process.
+static POOL_CONFIG_CELL: StaticCell<PoolConfig> = StaticCell::new();
+
+/// V1 session config; only initialised when the parsed protocol is
+/// `Sv1`. Held in a `StaticCell` so `StratumV1Client::new` gets the
+/// `&'static Sv1Config` it expects.
+static SV1_CONFIG_CELL: StaticCell<stratum_v1::Sv1Config> = StaticCell::new();
+
+/// Shared work / solution rendezvous between the stratum-client
+/// task and whichever ASIC driver is active (mmm BM1362 actor or
+/// in-process CPU mock).
+pub static ASIC_SESSION: AsicSession = AsicSession::new();
 
 #[embassy_executor::task]
 async fn net_task(mut runner: Runner<'static, HostDevice>) -> ! {
@@ -64,26 +83,6 @@ async fn heartbeat_task(stack: Stack<'static>) {
         let hashrate = eth_examples::hashrate::HashrateDisplay(eth_examples::hashrate::hashrate());
         info!("host-runner: tick, link_up={link_up}, hashrate={hashrate}");
     }
-}
-
-#[embassy_executor::task]
-async fn stratum_task(stack: Stack<'static>, config: &'static PoolConfig) -> ! {
-    ubos_backend::run_stratum(stack, config).await
-}
-
-#[embassy_executor::task]
-async fn ntime_roller_task() -> ! {
-    ubos_backend::run_ntime_roller().await
-}
-
-#[embassy_executor::task]
-async fn cpu_worker_task() -> ! {
-    ubos_backend::run_cpu_worker().await
-}
-
-#[embassy_executor::task]
-async fn cpu_miner_task() -> ! {
-    cpu_miner::run_cpu_miner().await
 }
 
 #[embassy_executor::task]
@@ -104,6 +103,92 @@ async fn metrics_task(stack: Stack<'static>) -> ! {
 #[embassy_executor::task]
 async fn http_server_task(stack: Stack<'static>) -> ! {
     net::run_http_server(stack, BOARD_NAME).await
+}
+
+/// CPU-side ASIC mock; spawned when no BM1362 hashboard is wired.
+/// Consumes work from `ASIC_SESSION` and pushes solutions back.
+#[embassy_executor::task]
+async fn asic_cpu_task() -> ! {
+    asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
+}
+
+/// V1 stratum client task. Connects to `pool_config.host:port`,
+/// runs the trait-based mining loop against `ASIC_SESSION`, and
+/// reconnects with `RECONNECT_DELAY` between attempts.
+#[embassy_executor::task]
+async fn stratum_client_task(
+    stack: Stack<'static>,
+    pool_config: &'static PoolConfig,
+    sv1_config: &'static stratum_v1::Sv1Config,
+) -> ! {
+    use embassy_net::tcp::TcpSocket;
+    use embassy_net::IpAddress;
+
+    const TCP_BUFFER_SIZE: usize = 2048;
+    static TCP_RX: StaticCell<[u8; TCP_BUFFER_SIZE]> = StaticCell::new();
+    static TCP_TX: StaticCell<[u8; TCP_BUFFER_SIZE]> = StaticCell::new();
+    let rx_buffer = TCP_RX.init([0; TCP_BUFFER_SIZE]);
+    let tx_buffer = TCP_TX.init([0; TCP_BUFFER_SIZE]);
+
+    let host_quad = parse_ipv4_quad(pool_config.host.as_str())
+        .expect("BUG: POOL_HOST is not a valid IPv4 literal (DNS not yet supported on host)");
+    let [a, b, c, d] = host_quad;
+    let address = IpAddress::v4(a, b, c, d);
+    let port = pool_config.port;
+
+    loop {
+        let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
+        socket.set_timeout(Some(embassy_time::Duration::from_secs(120)));
+        if let Err(error) = socket.connect((address, port)).await {
+            warn!("stratum-client: connect failed {error:?}");
+            Timer::after(pool_config::RECONNECT_DELAY).await;
+            continue;
+        }
+        info!("stratum-client: connected to {a}.{b}.{c}.{d}:{port}");
+
+        let mut client = stratum_v1::StratumV1Client::new(sv1_config);
+        let mut state = stratum_client::StratumState::new();
+        match stratum_client::run_stratum_client(
+            &mut client,
+            &mut socket,
+            &ASIC_SESSION,
+            &mut state,
+        )
+        .await
+        {
+            Ok(()) => {}
+            Err(error) => warn!("stratum-client: session error {error:?}"),
+        }
+        Timer::after(pool_config::RECONNECT_DELAY).await;
+    }
+}
+
+/// Parse `host` as an IPv4 dotted-quad. DNS resolution is deferred;
+/// today the runner accepts only literal addresses.
+fn parse_ipv4_quad(host: &str) -> Option<[u8; 4]> {
+    let mut parts = host.split('.');
+    let a = parts.next()?.parse::<u8>().ok()?;
+    let b = parts.next()?.parse::<u8>().ok()?;
+    let c = parts.next()?.parse::<u8>().ok()?;
+    let d = parts.next()?.parse::<u8>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some([a, b, c, d])
+}
+
+/// Read the six `POOL_*` env vars at compile time (each falling
+/// through to the host's defaults) and produce a typed `PoolConfig`.
+fn pool_config_from_env() -> PoolConfig {
+    pool_config::parse(
+        option_env!("POOL_HOST").unwrap_or(DEFAULT_POOL_HOST),
+        option_env!("POOL_PORT").unwrap_or(pool_config::DEFAULT_POOL_PORT_STR),
+        option_env!("POOL_PROTOCOL").unwrap_or(pool_config::DEFAULT_POOL_PROTOCOL),
+        option_env!("POOL_USER").unwrap_or(DEFAULT_POOL_USER),
+        option_env!("POOL_SV1_PASS"),
+        option_env!("POOL_SV2_PUBKEY"),
+    )
+    .expect("BUG: POOL_* env vars failed to parse")
 }
 
 /// Republishes `eth_examples::hashrate::hashrate()` as a Prometheus
@@ -143,6 +228,32 @@ fn main() {
     })
     .expect("BUG: ctrlc handler already installed");
 
+    let pool_config = POOL_CONFIG_CELL.init(pool_config_from_env());
+    info!(
+        "host-runner: POOL_HOST={} POOL_PORT={} POOL_PROTOCOL={} POOL_USER={}",
+        pool_config.host.as_str(),
+        pool_config.port,
+        match &pool_config.protocol {
+            ProtocolConfig::Sv1 { .. } => "sv1",
+            ProtocolConfig::Sv2 { .. } => "sv2",
+        },
+        pool_config.user.as_str(),
+    );
+
+    let sv1_config = match &pool_config.protocol {
+        ProtocolConfig::Sv1 { password } => SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
+            user: pool_config.user.as_str(),
+            password: password.as_deref().unwrap_or(""),
+        }),
+        ProtocolConfig::Sv2 { .. } => {
+            error!(
+                "host-runner: POOL_PROTOCOL=sv2 is not yet supported on the host; \
+                 set POOL_PROTOCOL=sv1 or leave it unset"
+            );
+            std::process::exit(1);
+        }
+    };
+
     let (device, config) = hosted_network::open_host_device();
 
     // Seconds-since-epoch are enough entropy for TCP ISN randomness on a
@@ -160,8 +271,10 @@ fn main() {
         // invocation mints a fresh one, so a first-time spawn cannot fail.
         spawner.spawn(net_task(runner).expect("BUG: net_task token"));
         spawner.spawn(heartbeat_task(stack).expect("BUG: heartbeat_task token"));
-        spawner.spawn(stratum_task(stack, &POOL_CONFIG).expect("BUG: stratum_task token"));
-        spawner.spawn(ntime_roller_task().expect("BUG: ntime_roller_task token"));
+        spawner.spawn(
+            stratum_client_task(stack, pool_config, sv1_config)
+                .expect("BUG: stratum_client_task token"),
+        );
         spawner.spawn(ntp_sync_task(stack).expect("BUG: ntp_sync_task token"));
         spawner.spawn(bitcoin_price_task(stack).expect("BUG: bitcoin_price_task token"));
         spawner.spawn(metrics_task(stack).expect("BUG: metrics_task token"));
@@ -188,8 +301,7 @@ fn main() {
                     "host-runner: {} unset or i2c open failed; mmm miner not spawned, falling back to in-process CPU mining",
                     psu::I2C_BUS_ENV
                 );
-                spawner.spawn(cpu_worker_task().expect("BUG: cpu_worker_task token"));
-                spawner.spawn(cpu_miner_task().expect("BUG: cpu_miner_task token"));
+                spawner.spawn(asic_cpu_task().expect("BUG: asic_cpu_task token"));
             }
         }
     });

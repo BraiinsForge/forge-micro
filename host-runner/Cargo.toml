@@ -27,10 +27,10 @@ mmm                = { path = "../mmm", default-features = false }
 static_cell        = { workspace = true }
 eth-examples       = { workspace = true, default-features = false }
 rand               = "0.8"
-asic-interface     = { workspace = true }
-cpu-miner          = { workspace = true }
+asic-cpu-mock      = { workspace = true }
+mining-protocol    = { workspace = true }
 stratum-client     = { workspace = true }
-ubos-backend       = { workspace = true, default-features = false }
+stratum-v1         = { workspace = true }
 ubos-logging       = { workspace = true }
 ubos-psu           = { workspace = true }
 embassy-sync       = { workspace = true }
