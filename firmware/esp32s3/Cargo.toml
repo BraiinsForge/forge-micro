@@ -9,15 +9,20 @@ workspace = true
 [features]
 default = ["display", "backend-uart"]
 display = []
-backend-uart = ["dep:ubos-backend"]
-# backend-cpu is mutually exclusive with backend-uart: enable with
+# UART peer backend: drives an external dummy-asic board over UART.
+# Mutually exclusive with `backend-cpu`.
+backend-uart = [
+    "dep:asic-uart-peer",
+    "dep:stratum-client",
+    "dep:stratum-v1",
+    "asic-uart-peer/defmt",
+    "stratum-client/defmt",
+    "stratum-v1/defmt",
+]
+# CPU mock backend: hashes on-MCU instead of driving a peer.
+# Mutually exclusive with `backend-uart`; enable with
 # `--no-default-features --features "display,backend-cpu"`.
-backend-cpu = ["dep:ubos-backend", "dep:cpu-miner"]
-# New stack: stratum-client + asic-cpu-mock, behind the
-# mining-protocol trait. Mutually exclusive with backend-cpu and
-# backend-uart; enable with
-# `--no-default-features --features "display,backend-stratum-client"`.
-backend-stratum-client = [
+backend-cpu = [
     "dep:asic-cpu-mock",
     "dep:stratum-client",
     "dep:stratum-v1",
@@ -38,10 +43,9 @@ portable-atomic        = { workspace = true }
 static_cell            = { workspace = true }
 embedded-hal-bus       = { workspace = true, features = ["async"] }
 asic-cpu-mock          = { workspace = true, optional = true }
-cpu-miner              = { workspace = true, optional = true }
+asic-uart-peer         = { workspace = true, optional = true }
 stratum-client         = { workspace = true, optional = true }
 stratum-v1             = { workspace = true, optional = true }
-ubos-backend           = { path = "../../ubos-backend", optional = true }
 esp-hal                = { version = "1.0.0", features = ["defmt", "esp32s3", "unstable"] }
 esp-rtos               = { version = "0.2.0", features = ["embassy", "esp32s3", "defmt"] }
 esp-backtrace          = { version = "0.18.1", features = ["defmt", "esp32s3", "panic-handler"] }

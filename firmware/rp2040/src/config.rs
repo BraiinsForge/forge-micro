@@ -127,17 +127,9 @@ impl Core1 {
 }
 
 /// Stratum pool connection parameters.
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-stratum-client",
-))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
 pub struct Pool;
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-stratum-client",
-))]
+#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
 impl Pool {
     pub const HOST_IP: [u8; 4] = [192, 168, 89, 100];
     pub const PORT: u16 = 3333;

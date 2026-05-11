@@ -8,15 +8,10 @@
 #![no_std]
 #![no_main]
 
-#[cfg(any(
-    all(feature = "backend-uart", feature = "backend-cpu"),
-    all(feature = "backend-uart", feature = "backend-stratum-client"),
-    all(feature = "backend-cpu", feature = "backend-stratum-client"),
-))]
+#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
 compile_error!(
-    "features `backend-uart`, `backend-cpu`, and `backend-stratum-client` \
-     are mutually exclusive; pick exactly one with \
-     --no-default-features --features \"display,<backend>\""
+    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
+     pick exactly one with --no-default-features --features \"display,<backend>\""
 );
 
 use defmt::{info, unwrap};
@@ -55,27 +50,16 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-use ubos_backend::PoolConfig;
 
 mod config;
 
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-static POOL_CONFIG: PoolConfig = PoolConfig {
-    host_ip: config::Pool::HOST_IP,
-    port: config::Pool::PORT,
-    user: config::Pool::USER,
-    password: config::Pool::PASS,
-    reconnect_delay: config::Pool::RECONNECT_DELAY,
-};
-
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static SV1_CONFIG: stratum_v1::Sv1Config = stratum_v1::Sv1Config {
     user: config::Pool::USER,
     password: config::Pool::PASS,
 };
 
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
 defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
@@ -197,38 +181,13 @@ async fn display_task(mut display: OledDisplay) -> ! {
 
 #[cfg(feature = "backend-uart")]
 #[embassy_executor::task]
-async fn uart_worker_task(
-    uart: eth_examples::uart_asic::SplitUart<RingBufferedUartRx<'static>, UartTx<'static, Async>>,
+async fn asic_uart_task(
+    uart: asic_uart_peer::SplitUart<RingBufferedUartRx<'static>, UartTx<'static, Async>>,
 ) -> ! {
-    let asic = eth_examples::uart_asic::UartAsic::new(uart);
-    ubos_backend::run_worker(asic).await
+    asic_uart_peer::run_asic_uart(&ASIC_SESSION, uart).await
 }
 
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-#[embassy_executor::task]
-async fn stratum_task(stack: embassy_net::Stack<'static>, config: &'static PoolConfig) -> ! {
-    ubos_backend::run_stratum(stack, config).await
-}
-
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-#[embassy_executor::task]
-async fn ntime_roller_task() -> ! {
-    ubos_backend::run_ntime_roller().await
-}
-
-#[cfg(feature = "backend-cpu")]
-#[embassy_executor::task]
-async fn cpu_worker_task() -> ! {
-    ubos_backend::run_cpu_worker().await
-}
-
-#[cfg(feature = "backend-cpu")]
-#[embassy_executor::task]
-async fn cpu_miner_task() -> ! {
-    cpu_miner::run_cpu_miner().await
-}
-
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 #[embassy_executor::task]
 async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
     use defmt::warn;
@@ -286,7 +245,7 @@ async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
     }
 }
 
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(feature = "backend-cpu")]
 #[embassy_executor::task]
 async fn asic_cpu_task() -> ! {
     asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
@@ -386,7 +345,7 @@ async fn boot(spawner: Spawner) {
         static DMA_RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
         let uart_config = {
             let mut config = UartConfig::default();
-            config.baudrate = eth_examples::uart_asic::BAUD_RATE;
+            config.baudrate = asic_uart_peer::BAUD_RATE;
             config
         };
         // Valid USART3 peripheral with type-checked DMA channels; cannot fail.
@@ -402,11 +361,11 @@ async fn boot(spawner: Spawner) {
         .expect("BUG: USART3 configuration failed");
         let (uart_tx, uart_rx) = uart.split();
         let ring_rx = uart_rx.into_ring_buffered(DMA_RX_BUF.init([0; 1024]));
-        let split_uart = eth_examples::uart_asic::SplitUart {
+        let split_uart = asic_uart_peer::SplitUart {
             rx: ring_rx,
             tx: uart_tx,
         };
-        spawner.spawn(unwrap!(uart_worker_task(split_uart)));
+        spawner.spawn(unwrap!(asic_uart_task(split_uart)));
     }
 
     // SH1106 OLED on SPI3: reset pulse, then async TX-only SPI with DMA.
@@ -446,21 +405,10 @@ async fn boot(spawner: Spawner) {
     let config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", config.address.address());
 
-    #[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-    {
-        spawner.spawn(unwrap!(stratum_task(stack, &POOL_CONFIG)));
-        spawner.spawn(unwrap!(ntime_roller_task()));
-    }
+    #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
+    spawner.spawn(unwrap!(stratum_client_task(stack)));
     #[cfg(feature = "backend-cpu")]
-    {
-        spawner.spawn(unwrap!(cpu_worker_task()));
-        spawner.spawn(unwrap!(cpu_miner_task()));
-    }
-    #[cfg(feature = "backend-stratum-client")]
-    {
-        spawner.spawn(unwrap!(stratum_client_task(stack)));
-        spawner.spawn(unwrap!(asic_cpu_task()));
-    }
+    spawner.spawn(unwrap!(asic_cpu_task()));
 
     net::run_http_server(stack, config::Board::NAME).await;
 }

@@ -8,15 +8,10 @@
 #![no_std]
 #![no_main]
 
-#[cfg(any(
-    all(feature = "backend-uart", feature = "backend-cpu"),
-    all(feature = "backend-uart", feature = "backend-stratum-client"),
-    all(feature = "backend-cpu", feature = "backend-stratum-client"),
-))]
+#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
 compile_error!(
-    "features `backend-uart`, `backend-cpu`, and `backend-stratum-client` \
-     are mutually exclusive; pick exactly one with \
-     --no-default-features --features \"display,<backend>\""
+    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
+     pick exactly one with --no-default-features --features \"display,<backend>\""
 );
 
 use defmt::info;
@@ -47,26 +42,15 @@ use eth_examples::sh1106::{Rotation, Sh1106};
 use portable_atomic::Ordering;
 use rand_core::{CryptoRng, RngCore};
 use static_cell::StaticCell;
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-use ubos_backend::PoolConfig;
 use {defmt_rtt as _, esp_backtrace as _};
 
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-static POOL_CONFIG: PoolConfig = PoolConfig {
-    host_ip: config::Pool::HOST_IP,
-    port: config::Pool::PORT,
-    user: config::Pool::USER,
-    password: config::Pool::PASS,
-    reconnect_delay: config::Pool::RECONNECT_DELAY,
-};
-
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static SV1_CONFIG: stratum_v1::Sv1Config = stratum_v1::Sv1Config {
     user: config::Pool::USER,
     password: config::Pool::PASS,
 };
 
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
 mod config;
@@ -197,38 +181,13 @@ async fn display_task(mut display: OledDisplay) -> ! {
     eth_examples::display::run(&mut display).await
 }
 
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-#[embassy_executor::task]
-async fn stratum_task(stack: embassy_net::Stack<'static>, config: &'static PoolConfig) -> ! {
-    ubos_backend::run_stratum(stack, config).await
-}
-
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-#[embassy_executor::task]
-async fn ntime_roller_task() -> ! {
-    ubos_backend::run_ntime_roller().await
-}
-
-#[cfg(feature = "backend-cpu")]
-#[embassy_executor::task]
-async fn cpu_worker_task() -> ! {
-    ubos_backend::run_cpu_worker().await
-}
-
-#[cfg(feature = "backend-cpu")]
-#[embassy_executor::task]
-async fn cpu_miner_task() -> ! {
-    cpu_miner::run_cpu_miner().await
-}
-
 #[cfg(feature = "backend-uart")]
 #[embassy_executor::task]
-async fn uart_worker_task(uart: Uart<'static, esp_hal::Async>) -> ! {
-    let asic = eth_examples::uart_asic::UartAsic::new(uart);
-    ubos_backend::run_worker(asic).await
+async fn asic_uart_task(uart: Uart<'static, esp_hal::Async>) -> ! {
+    asic_uart_peer::run_asic_uart(&ASIC_SESSION, uart).await
 }
 
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 #[embassy_executor::task]
 async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
     use defmt::warn;
@@ -286,7 +245,7 @@ async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
     }
 }
 
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(feature = "backend-cpu")]
 #[embassy_executor::task]
 async fn asic_cpu_task() -> ! {
     asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
@@ -372,15 +331,12 @@ async fn boot(spawner: Spawner) {
             executor.run_with_callbacks(
                 |app_spawner| {
                     #[cfg(feature = "backend-cpu")]
-                    {
-                        app_spawner.must_spawn(cpu_worker_task());
-                        app_spawner.must_spawn(cpu_miner_task());
-                    }
+                    app_spawner.must_spawn(asic_cpu_task());
                     #[cfg(feature = "backend-uart")]
                     {
                         let (uart0, uart_tx, uart_rx) = uart_parts;
                         let uart_config =
-                            UartConfig::default().with_baudrate(eth_examples::uart_asic::BAUD_RATE);
+                            UartConfig::default().with_baudrate(asic_uart_peer::BAUD_RATE);
                         // esp-hal 1.0.0 ships no UART DMA driver; the
                         // interrupt+FIFO `into_async()` path here is the
                         // full async story in this release. Issues
@@ -398,15 +354,9 @@ async fn boot(spawner: Spawner) {
                             .with_tx(uart_tx)
                             .with_rx(uart_rx)
                             .into_async();
-                        app_spawner.must_spawn(uart_worker_task(uart));
+                        app_spawner.must_spawn(asic_uart_task(uart));
                     }
-                    #[cfg(feature = "backend-stratum-client")]
-                    app_spawner.must_spawn(asic_cpu_task());
-                    #[cfg(not(any(
-                        feature = "backend-cpu",
-                        feature = "backend-uart",
-                        feature = "backend-stratum-client",
-                    )))]
+                    #[cfg(not(any(feature = "backend-cpu", feature = "backend-uart")))]
                     let _ = app_spawner;
                 },
                 IdleAccounting::<1>::new(),
@@ -527,14 +477,10 @@ async fn boot(spawner: Spawner) {
     let dhcp_config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", dhcp_config.address.address());
 
-    #[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+    #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
     {
-        spawner.must_spawn(stratum_task(stack, &POOL_CONFIG));
-        spawner.must_spawn(ntime_roller_task());
-    }
-    #[cfg(feature = "backend-stratum-client")]
-    {
-        // APP_CPU hosts asic_cpu_task; see start_second_core above.
+        // APP_CPU hosts asic_uart_task (backend-uart) or asic_cpu_task
+        // (backend-cpu); see start_second_core above.
         spawner.must_spawn(stratum_client_task(stack));
     }
 

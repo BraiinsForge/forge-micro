@@ -8,23 +8,14 @@
 #![no_std]
 #![no_main]
 
-#[cfg(any(
-    all(feature = "backend-uart", feature = "backend-cpu"),
-    all(feature = "backend-uart", feature = "backend-stratum-client"),
-    all(feature = "backend-cpu", feature = "backend-stratum-client"),
-))]
+#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
 compile_error!(
-    "features `backend-uart`, `backend-cpu`, and `backend-stratum-client` \
-     are mutually exclusive; pick exactly one with \
-     --no-default-features --features \"display,<backend>\""
+    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
+     pick exactly one with --no-default-features --features \"display,<backend>\""
 );
 
 use defmt::{info, unwrap};
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-stratum-client",
-))]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 use embassy_executor::Executor;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
@@ -49,52 +40,29 @@ use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 #[cfg(feature = "display")]
 use eth_examples::sh1106::{Rotation, Sh1106};
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-stratum-client",
-))]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 use static_cell::ConstStaticCell;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-use ubos_backend::PoolConfig;
 
 mod config;
 
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-stratum-client",
-))]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
     ConstStaticCell::new(embassy_rp::multicore::Stack::new());
 
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-stratum-client",
-))]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static CORE1_EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-static POOL_CONFIG: PoolConfig = PoolConfig {
-    host_ip: config::Pool::HOST_IP,
-    port: config::Pool::PORT,
-    user: config::Pool::USER,
-    password: config::Pool::PASS,
-    reconnect_delay: config::Pool::RECONNECT_DELAY,
-};
-
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static SV1_CONFIG: stratum_v1::Sv1Config = stratum_v1::Sv1Config {
     user: config::Pool::USER,
     password: config::Pool::PASS,
 };
 
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
 defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
@@ -207,36 +175,11 @@ async fn display_task(mut display: OledDisplay) -> ! {
 
 #[cfg(feature = "backend-uart")]
 #[embassy_executor::task]
-async fn uart_worker_task(uart: BufferedUart) -> ! {
-    let asic = eth_examples::uart_asic::UartAsic::new(uart);
-    ubos_backend::run_worker(asic).await
+async fn asic_uart_task(uart: BufferedUart) -> ! {
+    asic_uart_peer::run_asic_uart(&ASIC_SESSION, uart).await
 }
 
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-#[embassy_executor::task]
-async fn stratum_task(stack: embassy_net::Stack<'static>, config: &'static PoolConfig) -> ! {
-    ubos_backend::run_stratum(stack, config).await
-}
-
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
-#[embassy_executor::task]
-async fn ntime_roller_task() -> ! {
-    ubos_backend::run_ntime_roller().await
-}
-
-#[cfg(feature = "backend-cpu")]
-#[embassy_executor::task]
-async fn cpu_worker_task() -> ! {
-    ubos_backend::run_cpu_worker().await
-}
-
-#[cfg(feature = "backend-cpu")]
-#[embassy_executor::task]
-async fn cpu_miner_task() -> ! {
-    cpu_miner::run_cpu_miner().await
-}
-
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 #[embassy_executor::task]
 async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
     use defmt::warn;
@@ -293,7 +236,7 @@ async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
     }
 }
 
-#[cfg(feature = "backend-stratum-client")]
+#[cfg(feature = "backend-cpu")]
 #[embassy_executor::task]
 async fn asic_cpu_task() -> ! {
     asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
@@ -305,16 +248,11 @@ async fn main(spawner: Spawner) {
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
 
-    // Pin the worker to core 1 so embassy-net on core 0 stays responsive
-    // (cpu_miner hashes; uart_worker blocks on recv_share; asic_cpu_task
-    // hashes). bmm-pico's default features enable only the display, so
-    // this block is gated on the backend features and core 1 sits idle
-    // in the default build.
-    #[cfg(any(
-        feature = "backend-cpu",
-        feature = "backend-uart",
-        feature = "backend-stratum-client",
-    ))]
+    // Pin the worker to core 1 so embassy-net on core 0 stays
+    // responsive. bmm-pico's default features enable only the display,
+    // so this block is gated on the backend features and core 1 sits
+    // idle in the default build.
+    #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
     {
         #[cfg(feature = "backend-uart")]
         let uart_parts = (hw.uart, hw.uart_tx, hw.uart_rx);
@@ -340,7 +278,7 @@ async fn main(spawner: Spawner) {
                     RX_BUF.init([0; 1024]),
                     {
                         let mut config = UartConfig::default();
-                        config.baudrate = eth_examples::uart_asic::BAUD_RATE;
+                        config.baudrate = asic_uart_peer::BAUD_RATE;
                         config
                     },
                 )
@@ -348,14 +286,9 @@ async fn main(spawner: Spawner) {
             let executor = CORE1_EXECUTOR.init(Executor::new());
             executor.run(|core1_spawner: Spawner| {
                 #[cfg(feature = "backend-cpu")]
-                {
-                    core1_spawner.spawn(unwrap!(cpu_worker_task()));
-                    core1_spawner.spawn(unwrap!(cpu_miner_task()));
-                }
-                #[cfg(feature = "backend-uart")]
-                core1_spawner.spawn(unwrap!(uart_worker_task(uart)));
-                #[cfg(feature = "backend-stratum-client")]
                 core1_spawner.spawn(unwrap!(asic_cpu_task()));
+                #[cfg(feature = "backend-uart")]
+                core1_spawner.spawn(unwrap!(asic_uart_task(uart)));
             })
         });
     }
@@ -450,16 +383,10 @@ async fn main(spawner: Spawner) {
     let config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", config.address.address());
 
-    #[cfg(any(feature = "backend-cpu", feature = "backend-uart"))]
+    #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
     {
-        // Core 1 hosts cpu_worker_task + cpu_miner_task (backend-cpu) or
-        // uart_worker_task (backend-uart); see spawn_core1 above.
-        spawner.spawn(unwrap!(stratum_task(stack, &POOL_CONFIG)));
-        spawner.spawn(unwrap!(ntime_roller_task()));
-    }
-    #[cfg(feature = "backend-stratum-client")]
-    {
-        // Core 1 hosts asic_cpu_task; see spawn_core1 above.
+        // Core 1 hosts asic_uart_task (backend-uart) or asic_cpu_task
+        // (backend-cpu); see spawn_core1 above.
         spawner.spawn(unwrap!(stratum_client_task(stack)));
     }
 

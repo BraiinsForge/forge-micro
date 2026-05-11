@@ -9,15 +9,20 @@ workspace = true
 [features]
 default = []
 display = []
-backend-uart = ["dep:ubos-backend"]
-# backend-cpu is mutually exclusive with backend-uart: enable with
-# `--no-default-features --features "display,backend-cpu"`.
-backend-cpu = ["dep:ubos-backend", "dep:cpu-miner"]
-# New stack: stratum-client + asic-cpu-mock, behind the
-# mining-protocol trait. Mutually exclusive with backend-cpu and
-# backend-uart; enable with
-# `--no-default-features --features "backend-stratum-client"`.
-backend-stratum-client = [
+# UART peer backend: drives an external dummy-asic board over UART.
+# Mutually exclusive with `backend-cpu`.
+backend-uart = [
+    "dep:asic-uart-peer",
+    "dep:stratum-client",
+    "dep:stratum-v1",
+    "asic-uart-peer/defmt",
+    "stratum-client/defmt",
+    "stratum-v1/defmt",
+]
+# CPU mock backend: hashes on-MCU instead of driving a peer.
+# Mutually exclusive with `backend-uart`; enable with
+# `--no-default-features --features "backend-cpu"`.
+backend-cpu = [
     "dep:asic-cpu-mock",
     "dep:stratum-client",
     "dep:stratum-v1",
@@ -41,10 +46,9 @@ cortex-m            = { version = "0.7", features = ["inline-asm", "critical-sec
 cortex-m-rt         = "0.7"
 portable-atomic     = { workspace = true }
 asic-cpu-mock       = { workspace = true, optional = true }
-cpu-miner           = { workspace = true, optional = true }
+asic-uart-peer      = { workspace = true, optional = true }
 stratum-client      = { workspace = true, optional = true }
 stratum-v1          = { workspace = true, optional = true }
-ubos-backend        = { path = "../../ubos-backend", optional = true }
 
 # cortex-m is pulled in for the `critical-section-single-core`
 # feature; no direct source references, so machete cannot see it.
