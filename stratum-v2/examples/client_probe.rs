@@ -23,7 +23,6 @@
 //! control).
 
 use std::env;
-use std::fmt::Write as _;
 use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -127,21 +126,17 @@ fn merkle_marker(job: &MiningJob<'_>) -> &'static str {
 }
 
 fn hex_lsb(bytes: &[u8]) -> String {
-    let mut out = String::new();
-    for byte in bytes {
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
+    let mut out = vec![0u8; bytes.len() * 2];
+    let ok = mining_protocol::hex::encode_lower_to_slice(bytes, &mut out);
+    assert!(ok, "hex_lsb buffer sized for input");
+    String::from_utf8(out).expect("hex encoder emits ASCII")
 }
 
 /// Print a 256-bit value as MSB-first hex (the way prev hashes and
 /// targets are conventionally displayed).
 fn hex_msb(bytes: &[u8; 32]) -> String {
-    let mut out = String::new();
-    for byte in bytes.iter().rev() {
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
+    let encoded = mining_protocol::hex::encode_block_hash_lower(bytes);
+    String::from_utf8(encoded.to_vec()).expect("hex encoder emits ASCII")
 }
 
 /// Parse the SV2-spec base58check public key into the raw 32-byte

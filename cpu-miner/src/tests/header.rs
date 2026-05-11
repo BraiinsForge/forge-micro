@@ -5,30 +5,14 @@
 //! real-world stratum data. Matching their output proves the
 //! byte-order handling of `version`/`prev_hash`/`ntime`/`nbits` is correct.
 
+use mining_protocol::hex::decode_to_slice;
+
 use super::{build_header, hash_meets_target, header_hash, target_from_diff};
 
 fn hex32(hex: &str) -> [u8; 32] {
     let mut out = [0u8; 32];
-    decode(hex.as_bytes(), &mut out);
+    assert!(decode_to_slice(hex.as_bytes(), &mut out), "bad hex literal");
     out
-}
-
-fn decode(hex: &[u8], out: &mut [u8]) {
-    assert_eq!(hex.len(), out.len() * 2, "hex length mismatch");
-    for (index, byte) in out.iter_mut().enumerate() {
-        let high = nibble(hex[index * 2]);
-        let low = nibble(hex[index * 2 + 1]);
-        *byte = (high << 4) | low;
-    }
-}
-
-fn nibble(byte: u8) -> u8 {
-    match byte {
-        b'0'..=b'9' => byte - b'0',
-        b'a'..=b'f' => byte - b'a' + 10,
-        b'A'..=b'F' => byte - b'A' + 10,
-        _ => panic!("bad hex nibble"),
-    }
 }
 
 fn le256_to_f64(hash: &[u8; 32]) -> f64 {

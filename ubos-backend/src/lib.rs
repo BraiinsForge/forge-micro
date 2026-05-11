@@ -28,10 +28,10 @@ use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::Write;
+use mining_protocol::hex::decode_to_slice as decode_hex;
 use portable_atomic::Ordering;
 use sha2::{Digest, Sha256};
 use static_cell::ConstStaticCell;
-use stratum_v1::hex::decode_hex;
 use stratum_v1::{
     encode_authorize, encode_configure, encode_submit, encode_subscribe, parse_boolean_result,
     parse_incoming, parse_subscribe_result, parse_version_rolling_mask, Authorize, Configure,

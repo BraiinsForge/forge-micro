@@ -14,3 +14,8 @@ asic-interface   = { workspace = true }
 embassy-futures  = { workspace = true }
 embassy-sync     = { workspace = true }
 sha2             = { workspace = true }
+
+[dev-dependencies]
+# Test vectors use `mining_protocol::hex::decode_to_slice` to turn
+# hex literals into byte arrays; only the test build needs it.
+mining-protocol  = { workspace = true }

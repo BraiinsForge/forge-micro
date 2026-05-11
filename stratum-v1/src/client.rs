@@ -15,7 +15,6 @@ use mining_protocol::{
 };
 
 use crate::config::Sv1Config;
-use crate::hex::decode_hex;
 use crate::scratch::{DecodeScratch, MAX_COINBASE_PART, MAX_MERKLE_BRANCHES};
 use crate::state::{
     JobIdSlot, SessionState, AUTHORIZE_ID, CONFIGURE_ID, JOBID_MAP_DEPTH, MAX_JOB_ID_CHARS,
@@ -31,6 +30,7 @@ use crate::wire::parse::{
     parse_boolean_result, parse_incoming, parse_subscribe_result, parse_version_rolling_mask,
 };
 use crate::wire::rpc::{Notification, Response, Rpc, StratumError};
+use mining_protocol::hex::decode_to_slice as decode_hex;
 
 #[cfg(test)]
 #[path = "tests/client.rs"]

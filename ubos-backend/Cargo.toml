@@ -27,6 +27,7 @@ embassy-time      = { workspace = true }
 defmt             = { workspace = true, optional = true }
 embedded-io-async = { workspace = true }
 heapless          = { workspace = true }
+mining-protocol   = { workspace = true }
 portable-atomic   = { workspace = true }
 sha2              = { workspace = true }
 static_cell       = { workspace = true }
