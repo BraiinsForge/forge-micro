@@ -61,7 +61,7 @@ async fn heartbeat_task(stack: Stack<'static>) {
     loop {
         Timer::after(Duration::from_secs(10)).await;
         let link_up = stack.config_v4().is_some();
-        let hashrate = asic_interface::HashrateDisplay(asic_interface::hashrate());
+        let hashrate = eth_examples::hashrate::HashrateDisplay(eth_examples::hashrate::hashrate());
         info!("host-runner: tick, link_up={link_up}, hashrate={hashrate}");
     }
 }
@@ -106,15 +106,16 @@ async fn http_server_task(stack: Stack<'static>) -> ! {
     net::run_http_server(stack, BOARD_NAME).await
 }
 
-/// Republishes `asic_interface::hashrate()` as a Prometheus metric on a
-/// fixed cadence. The EWMA hashrate is bumped automatically every time a
-/// share is recorded via `asic_interface::record_share`.
+/// Republishes `eth_examples::hashrate::hashrate()` as a Prometheus
+/// metric on a fixed cadence. The EWMA hashrate is bumped
+/// automatically every time a share is recorded via
+/// `eth_examples::hashrate::record_share`.
 #[embassy_executor::task]
 async fn hashrate_metrics_task() -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(5));
     loop {
         ticker.next().await;
-        let hashrate_hz = asic_interface::hashrate();
+        let hashrate_hz = eth_examples::hashrate::hashrate();
         eth_examples::metrics::push(Metric {
             name: "board_hashrate_hz",
             // eth-examples still uses heapless 0.8 while host-runner needs

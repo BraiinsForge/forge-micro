@@ -3,7 +3,7 @@
 //! [`run`] from a one-line `#[embassy_executor::task]` wrapper.
 //!
 //! Values come from shared atomics: `LOCAL_IPV4`, `NTP_EPOCH_OFFSET`,
-//! `BTC_PRICE_CENTS`, and the EWMA inside `asic_interface::hashrate`.
+//! `BTC_PRICE_CENTS`, and the EWMA inside `crate::hashrate`.
 //! The task signature carries only the display handle; any producer
 //! can publish without rewiring the display's spawn path.
 
@@ -87,11 +87,11 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
         }
     }
 
-    // Line 4: current hashrate. Read from the AsicInterface EWMA so
-    // the displayed rate reflects whatever backend is wired (cpu-miner,
+    // Line 4: current hashrate. Read from the shared EWMA so the
+    // displayed rate reflects whatever backend is wired (cpu mock,
     // UART dummy-asic, future ASIC). HashrateDisplay switches to GH/s
     // at 1 GH/s, so 24 bytes covers both representations.
-    let hashrate = asic_interface::HashrateDisplay(asic_interface::hashrate());
+    let hashrate = crate::hashrate::HashrateDisplay(crate::hashrate::hashrate());
     let mut hashrate_buffer = [0u8; 24];
     if let Ok(text) = format_no_std::show(&mut hashrate_buffer, format_args!("{hashrate}")) {
         Text::new(text, Point::new(0, 61), style).draw(display)?;

@@ -11,20 +11,20 @@ use core::fmt;
 use core::ops::ControlFlow;
 
 use cpu_miner::hash_meets_target;
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
-use embassy_time::{with_timeout, Duration, Ticker, Timer};
+use embassy_time::{Duration, Ticker, Timer, with_timeout};
 use embedded_io::ErrorKind;
 use embedded_io_async::{Error as _, Read, Write};
 use heapless::Vec as HVec;
 use serial_baudrate::BaudRate;
 use ubos_backend::{
-    current_assignment, Solution, WorkAssignment, NEW_JOB, SHARE_TARGET, SOLUTIONS,
+    NEW_JOB, SHARE_TARGET, SOLUTIONS, Solution, WorkAssignment, current_assignment,
 };
-use ubos_logging::{error, info, trace, warn, Debug2Format};
+use ubos_logging::{Debug2Format, error, info, trace, warn};
 
 /// Difficulty-1 target in 256-bit little-endian byte order: `0xFFFF * 2^208`.
 /// Matches Bitcoin's `bnPowLimit` for mainnet/regtest. Used to reject
@@ -37,8 +37,8 @@ const DIFF_1_TARGET: [u8; 32] = {
 };
 
 use crate::bm1362::{
-    build_read_register, build_write_register, word_swap_prev_hash, Frame, HwWork, RawChipAddress,
-    RegisterResponse, Response, ResponseParser,
+    Frame, HwWork, RawChipAddress, RegisterResponse, Response, ResponseParser, build_read_register,
+    build_write_register, word_swap_prev_hash,
 };
 use crate::consts::{
     FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS, NUM_CHIPS, NUM_MIDSTATES,
@@ -415,10 +415,10 @@ impl Serial {
                 }
 
                 // Credit one share against the target the chip was
-                // scanning to so `asic_interface::hashrate()` reflects
+                // scanning to so the shared hashrate EWMA reflects
                 // the actual chip work rather than only pool-passing
-                // shares. The hashrate EWMA already weights by target.
-                asic_interface::record_share(&DIFF_1_TARGET);
+                // shares. The estimator already weights by target.
+                eth_examples::hashrate::record_share(&DIFF_1_TARGET);
 
                 if !hash_meets_target(&hash, &slot.pool_target) {
                     trace!(
