@@ -582,12 +582,15 @@ fn handle_channel_open_success<V: MiningClientVisitor>(
     session.extranonce_prefix_len = prefix_len;
     session.extranonce_prefix[..prefix_len].copy_from_slice(&prefix[..prefix_len]);
     #[cfg(feature = "defmt")]
-    defmt::info!(
-        "stratum-v2: channel-open-success channel={=u32} prefix={=[u8]:x} target_msb={=[u8]:x}",
-        success.channel_id,
-        &session.extranonce_prefix[..session.extranonce_prefix_len],
-        &session.target[24..32],
-    );
+    {
+        let target_hex = mining_protocol::hex::encode_block_hash_lower(&session.target);
+        defmt::info!(
+            "stratum-v2: channel-open-success channel={=u32} prefix={=[u8]:x} target={=str}",
+            success.channel_id,
+            &session.extranonce_prefix[..session.extranonce_prefix_len],
+            core::str::from_utf8(&target_hex).expect("hex encoder emits ASCII"),
+        );
+    }
     visitor.visit_session_update(SessionUpdate::SetTarget(&session.target));
     visitor.visit_session_update(SessionUpdate::SetExtranonce {
         prefix: &session.extranonce_prefix[..session.extranonce_prefix_len],
@@ -605,11 +608,14 @@ fn handle_set_target<V: MiningClientVisitor>(
         .target
         .copy_from_slice(set_target.max_target.to_le_bytes());
     #[cfg(feature = "defmt")]
-    defmt::info!(
-        "stratum-v2: set-target channel={=u32} target_msb={=[u8]:x}",
-        set_target.channel_id,
-        &session.target[24..32],
-    );
+    {
+        let target_hex = mining_protocol::hex::encode_block_hash_lower(&session.target);
+        defmt::info!(
+            "stratum-v2: set-target channel={=u32} target={=str}",
+            set_target.channel_id,
+            core::str::from_utf8(&target_hex).expect("hex encoder emits ASCII"),
+        );
+    }
     visitor.visit_session_update(SessionUpdate::SetTarget(&session.target));
 }
 
@@ -628,15 +634,18 @@ fn handle_set_new_prev_hash<V: MiningClientVisitor>(
     session.nbits = snph.nbits;
     session.ntime_base = snph.min_ntime;
     #[cfg(feature = "defmt")]
-    defmt::info!(
-        "stratum-v2: set-new-prev-hash channel={=u32} job={=u32} \
-         nbits={=u32:#010x} ntime={=u32:#010x} prev_msb={=[u8]:x}",
-        snph.channel_id,
-        snph.job_id,
-        snph.nbits,
-        snph.min_ntime,
-        &session.prev_hash[24..32],
-    );
+    {
+        let prev_hex = mining_protocol::hex::encode_block_hash_lower(&session.prev_hash);
+        defmt::info!(
+            "stratum-v2: set-new-prev-hash channel={=u32} job={=u32} \
+             nbits={=u32:#010x} ntime={=u32:#010x} prev_hash={=str}",
+            snph.channel_id,
+            snph.job_id,
+            snph.nbits,
+            snph.min_ntime,
+            core::str::from_utf8(&prev_hex).expect("hex encoder emits ASCII"),
+        );
+    }
 
     let Some(pending) = session.pending_future_job.take() else {
         return;
