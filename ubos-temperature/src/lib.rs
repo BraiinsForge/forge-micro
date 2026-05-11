@@ -37,19 +37,26 @@ pub trait TemperatureSensor {
     async fn read_millicelsius(&mut self) -> Option<i32>;
 }
 
+/// Push a temperature reading as the canonical board-temperature gauge.
+/// Callers that already have a value in hand (e.g. the PID loop in
+/// `ubos-monitor`) use this instead of running a second sampler.
+pub async fn publish_board_temperature(millicelsius: i32) {
+    push(Metric {
+        name: Temperature::METRIC_NAME,
+        labels: heapless::Vec::new(),
+        value: Value::Int(i64::from(millicelsius)),
+        timestamp_ms: 0,
+    })
+    .await;
+}
+
 /// Sample `sensor` at the shared period and push each reading as a
 /// gauge metric. Runs forever.
 pub async fn run_temperature<S: TemperatureSensor>(mut sensor: S) -> ! {
     let mut ticker = Ticker::every(Temperature::PERIOD);
     loop {
         if let Some(millicelsius) = sensor.read_millicelsius().await {
-            push(Metric {
-                name: Temperature::METRIC_NAME,
-                labels: heapless::Vec::new(),
-                value: Value::Int(i64::from(millicelsius)),
-                timestamp_ms: 0,
-            })
-            .await;
+            publish_board_temperature(millicelsius).await;
         }
         ticker.next().await;
     }

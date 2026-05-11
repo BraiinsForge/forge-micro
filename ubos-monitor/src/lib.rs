@@ -26,7 +26,7 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Ticker};
 use eth_examples::metrics::{push, Metric, Value};
 use ubos_logging::{error, info, warn};
-use ubos_temperature::{Temperature, TemperatureSensor};
+use ubos_temperature::{publish_board_temperature, TemperatureSensor};
 
 /// Emergency-stop carrying the current halt state. `true` is raised
 /// when the board temperature crosses `dangerous_temp_c`; `false` is
@@ -121,13 +121,7 @@ where
         #[allow(clippy::cast_precision_loss)]
         let temp_c = millicelsius as f32 / 1000.0;
 
-        push(Metric {
-            name: Temperature::METRIC_NAME,
-            labels: heapless::Vec::new(),
-            value: Value::Int(i64::from(millicelsius)),
-            timestamp_ms: 0,
-        })
-        .await;
+        publish_board_temperature(millicelsius).await;
 
         let pid_pwm = control.update(temp_c, delta_t);
 
