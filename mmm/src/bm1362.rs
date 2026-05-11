@@ -562,8 +562,14 @@ mod tests {
         };
 
         let mmm_hash = hw_work.compute_hash(&resp);
-        let reference =
-            mining_protocol::hashing::header_hash(version, stratum_prev, merkle, ntime, nbits, nonce);
+        let reference = mining_protocol::hashing::header_hash(
+            version,
+            stratum_prev,
+            merkle,
+            ntime,
+            nbits,
+            nonce,
+        );
         assert_eq!(mmm_hash, reference);
     }
 }
