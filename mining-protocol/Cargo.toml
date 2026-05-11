@@ -8,4 +8,5 @@ workspace = true
 
 [dependencies]
 embedded-io-async = { workspace = true }
+heapless          = { workspace = true }
 sha2              = { workspace = true }

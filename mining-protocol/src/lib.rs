@@ -8,6 +8,7 @@
 #![no_std]
 
 mod client;
+pub mod difficulty;
 mod error;
 pub mod hex;
 mod job;
