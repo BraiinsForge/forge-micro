@@ -35,6 +35,7 @@ protocol-sv2 = [
     "dep:ii-sv2",
     "dep:rand_core",
     "ii-sv2/lowmemory",
+    "stratum-v2/defmt",
 ]
 
 [dependencies]
