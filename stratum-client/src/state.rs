@@ -142,7 +142,13 @@ impl MiningClientVisitor for StratumState {
         match update {
             SessionUpdate::SetTarget(target) => {
                 #[cfg(feature = "defmt")]
-                defmt::info!("stratum-client: set target msb={=[u8]:x}", &target[24..32],);
+                {
+                    let target_hex = mining_protocol::hex::encode_block_hash_lower(target);
+                    defmt::info!(
+                        "stratum-client: set target {=str}...",
+                        core::str::from_utf8(&target_hex[..32]).expect("hex encoder emits ASCII"),
+                    );
+                }
                 self.target = *target;
                 if let Some(latest) = self.job_ring.current_mut() {
                     latest.target = *target;

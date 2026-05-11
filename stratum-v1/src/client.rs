@@ -317,9 +317,10 @@ impl MiningClient for StratumV1Client {
                         let target_hex =
                             mining_protocol::hex::encode_block_hash_lower(&self.session.target);
                         defmt::info!(
-                            "stratum-v1: set-difficulty diff={=f64} target={=str}",
+                            "stratum-v1: set-difficulty diff={=f64} target={=str}...",
                             set_diff.0,
-                            core::str::from_utf8(&target_hex).expect("hex encoder emits ASCII"),
+                            core::str::from_utf8(&target_hex[..32])
+                                .expect("hex encoder emits ASCII"),
                         );
                     }
                     visitor.visit_session_update(SessionUpdate::SetTarget(&self.session.target));
