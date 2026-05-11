@@ -21,14 +21,20 @@ mod tests_pid;
 #[path = "tests/threshold.rs"]
 mod tests_threshold;
 
-use core::sync::atomic::Ordering;
-
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Ticker};
 use eth_examples::consts::Temperature;
 use eth_examples::metrics::{push, Metric, Value};
 use eth_examples::temperature::TemperatureSensor;
-use portable_atomic::AtomicBool;
 use ubos_logging::{error, info, warn};
+
+/// Emergency-stop carrying the current halt state. `true` is raised
+/// when the board temperature crosses `dangerous_temp_c`; `false` is
+/// raised once it falls back below `cooldown_temp_c`. Mining backends
+/// consume edges via `wait()` to cut the rail on halt and resume
+/// bring-up on clear.
+pub static HALT_MINING: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
 use crate::pid::TempControl;
 use crate::threshold::{evaluate, Action, Limits};
@@ -69,12 +75,6 @@ impl MonitorConfig {
     };
 }
 
-/// Set when the latest sample crossed `dangerous_temp_c`. Cleared once
-/// the temperature falls back below `cooldown_temp_c`. A real ASIC
-/// backend reads this to decide whether to keep clocking the chips;
-/// the current CPU solver does not poll it.
-pub static HALT_MINING: AtomicBool = AtomicBool::new(false);
-
 /// Fan PWM forced while halted. The PID is bypassed and 100% is
 /// written every tick until the temperature falls back below
 /// `cooldown_temp_c`, so a real ASIC chassis cools as fast as the
@@ -111,6 +111,7 @@ where
     let delta_t = config.sample_interval.as_micros() as f32 / 1_000_000.0;
 
     let mut was_hot = false;
+    let mut halted = false;
     let mut prev_tick = Instant::now();
     // Matches BOS `monitor::main_loop`: warn when the tick fires more
     // than two periods late so a slow sensor read or a busy executor is
@@ -145,7 +146,6 @@ where
 
         let pid_pwm = control.update(temp_c, delta_t);
 
-        let halted = HALT_MINING.load(Ordering::Relaxed);
         match evaluate(temp_c, halted, &limits) {
             Action::Ok => {
                 if was_hot {
@@ -160,7 +160,8 @@ where
                 }
             }
             Action::EnterHalt => {
-                HALT_MINING.store(true, Ordering::Relaxed);
+                halted = true;
+                HALT_MINING.signal(true);
                 error!(
                     "monitor: dangerous temperature {}°C, halting mining",
                     temp_c
@@ -168,7 +169,8 @@ where
                 was_hot = false;
             }
             Action::Resume => {
-                HALT_MINING.store(false, Ordering::Relaxed);
+                halted = false;
+                HALT_MINING.signal(false);
                 warn!("monitor: cooled to {}°C, resuming mining", temp_c);
                 was_hot = false;
             }
@@ -176,11 +178,7 @@ where
 
         // Apply the override after the threshold action so EnterHalt
         // forces the fan immediately on the same tick that trips it.
-        let pwm = if HALT_MINING.load(Ordering::Relaxed) {
-            HALTED_FAN_PWM
-        } else {
-            pid_pwm
-        };
+        let pwm = if halted { HALTED_FAN_PWM } else { pid_pwm };
         fan.set_pwm_percent(pwm);
 
         push(Metric {
@@ -190,7 +188,5 @@ where
             timestamp_ms: 0,
         })
         .await;
-
-        info!("monitor: temp={}°C pwm={}", temp_c, pwm);
     }
 }

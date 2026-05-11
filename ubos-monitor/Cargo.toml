@@ -15,9 +15,9 @@ defmt   = [
 ]
 
 [dependencies]
+embassy-sync     = { workspace = true }
 embassy-time     = { workspace = true }
 defmt            = { workspace = true, optional = true }
-portable-atomic  = { workspace = true }
 eth-examples     = { workspace = true, default-features = false }
 heapless         = { workspace = true }
 libm             = "0.2"

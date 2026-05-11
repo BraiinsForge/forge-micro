@@ -4174,11 +4174,11 @@ name = "ubos-monitor"
 version = "0.1.0"
 dependencies = [
  "defmt 1.0.1",
+ "embassy-sync 0.8.0",
  "embassy-time",
  "eth-examples",
  "heapless 0.8.0",
  "libm",
- "portable-atomic",
  "ubos-logging",
 ]
 
