@@ -77,7 +77,14 @@ where
 
         info!("miner: entering reset");
         reset_pin.enter_reset();
-        Timer::after(RESET_HOLD).await;
+        match settle_or_abort(RESET_HOLD, psu, reset_pin).await {
+            Settled::Continue => {}
+            Settled::Stop => return,
+            Settled::Halt(value) => {
+                halted = value;
+                continue;
+            }
+        }
 
         info!("miner: enabling PSU");
         let _ = psu.enable().await;
@@ -85,52 +92,34 @@ where
         // chip is dissipating power as soon as the PSU is on, and
         // init replay can take long enough for thermals to climb.
         MINER_IS_RUNNING.signal(true);
-        Timer::after(RESET_HOLD).await;
-
-        info!("miner: exiting reset");
-        reset_pin.exit_reset();
-        Timer::after(RESET_HOLD).await;
-
-        let _ = SERIAL.reset().await;
-
-        info!("miner: replaying init ({} steps)", INIT.len());
-        // Init replay is the longest single step in bring-up. STOP or
-        // HALT raised mid-replay must abort it and cut the rail rather
-        // than letting the chip sit at voltage until the replay
-        // finishes.
-        match select3(replay(&SERIAL, INIT), STOP_MINING.wait(), HALT_MINING.wait()).await {
-            Either3::First(Ok(())) => {}
-            Either3::First(Err(kind)) => {
-                error!(
-                    "miner: init replay failed ({:?}); cutting rail and retrying",
-                    Debug2Format(&kind)
-                );
-                cut_rail(psu, reset_pin).await;
-                // Cancellable sleep — STOP or HALT during recovery
-                // exits or pivots rather than burning a bring-up cycle.
-                match select3(Timer::after(RETRY_DELAY), STOP_MINING.wait(), HALT_MINING.wait()).await {
-                    Either3::First(()) => continue,
-                    Either3::Second(()) => {
-                        info!("miner: stop signalled during recovery");
-                        return;
-                    }
-                    Either3::Third(value) => {
-                        halted = value;
-                        continue;
-                    }
-                }
-            }
-            Either3::Second(()) => {
-                info!("miner: stop signalled during init replay; cutting rail");
-                cut_rail(psu, reset_pin).await;
-                return;
-            }
-            Either3::Third(value) => {
-                warn!("miner: halt asserted during init replay; cutting rail");
-                cut_rail(psu, reset_pin).await;
+        match settle_or_abort(RESET_HOLD, psu, reset_pin).await {
+            Settled::Continue => {}
+            Settled::Stop => return,
+            Settled::Halt(value) => {
                 halted = value;
                 continue;
             }
+        }
+
+        info!("miner: exiting reset");
+        reset_pin.exit_reset();
+        match settle_or_abort(RESET_HOLD, psu, reset_pin).await {
+            Settled::Continue => {}
+            Settled::Stop => return,
+            Settled::Halt(value) => {
+                halted = value;
+                continue;
+            }
+        }
+
+        match init_replay_phase(psu, reset_pin).await {
+            InitPhase::Done => {}
+            InitPhase::Stop => return,
+            InitPhase::Halt(value) => {
+                halted = value;
+                continue;
+            }
+            InitPhase::Retry => continue,
         }
 
         // -- mine --
@@ -178,6 +167,114 @@ async fn wait_halt_clear_or_stop() -> Resumed {
             Either::First(false) => return Resumed::Cleared,
             Either::First(true) => {}
             Either::Second(()) => return Resumed::Stopped,
+        }
+    }
+}
+
+/// Outcome of the init-replay phase. Mirrors the three actions the
+/// run loop must take afterwards plus a `Retry` for a transient
+/// replay failure that has already cut the rail.
+enum InitPhase {
+    Done,
+    Stop,
+    Halt(bool),
+    Retry,
+}
+
+/// Drive `INIT` over the serial link with STOP and HALT cancellation.
+/// On replay failure the rail is cut and a `RETRY_DELAY` settle is
+/// applied (also cancellable) before reporting `Retry`. STOP and HALT
+/// cut the rail before returning so the caller only dispatches on the
+/// variant.
+async fn init_replay_phase<P, R>(psu: &P, reset_pin: &mut R) -> InitPhase
+where
+    P: Psu,
+    R: ResetPin,
+{
+    let _ = SERIAL.reset().await;
+
+    info!("miner: replaying init ({} steps)", INIT.len());
+    match select3(
+        replay(&SERIAL, INIT),
+        STOP_MINING.wait(),
+        HALT_MINING.wait(),
+    )
+    .await
+    {
+        Either3::First(Ok(())) => InitPhase::Done,
+        Either3::First(Err(kind)) => {
+            error!(
+                "miner: init replay failed ({:?}); cutting rail and retrying",
+                Debug2Format(&kind)
+            );
+            cut_rail(psu, reset_pin).await;
+            match select3(
+                Timer::after(RETRY_DELAY),
+                STOP_MINING.wait(),
+                HALT_MINING.wait(),
+            )
+            .await
+            {
+                Either3::First(()) => InitPhase::Retry,
+                Either3::Second(()) => {
+                    info!("miner: stop signalled during recovery");
+                    InitPhase::Stop
+                }
+                Either3::Third(value) => InitPhase::Halt(value),
+            }
+        }
+        Either3::Second(()) => {
+            info!("miner: stop signalled during init replay; cutting rail");
+            cut_rail(psu, reset_pin).await;
+            InitPhase::Stop
+        }
+        Either3::Third(value) => {
+            warn!("miner: halt asserted during init replay; cutting rail");
+            cut_rail(psu, reset_pin).await;
+            InitPhase::Halt(value)
+        }
+    }
+}
+
+/// Outcome of a cancellable settling sleep in the bring-up sequence.
+enum Settled {
+    /// The timer elapsed without interruption; the caller proceeds
+    /// to the next bring-up step.
+    Continue,
+    /// `STOP_MINING` fired during the sleep; the rail has been cut
+    /// and the run loop must return.
+    Stop,
+    /// `HALT_MINING` fired during the sleep; the rail has been cut
+    /// and the carried value is the new `halted` state for the run
+    /// loop to resume from.
+    Halt(bool),
+}
+
+/// Cancellable settling sleep used between bring-up steps. STOP or
+/// HALT raised during a 5-second hold must short-circuit so the rail
+/// does not keep climbing toward `enable_PSU` after a thermal trip.
+/// `Stop` and `Halt` outcomes drop the rail before returning so the
+/// caller only needs to dispatch on the variant.
+async fn settle_or_abort<P, R>(duration: Duration, psu: &P, reset_pin: &mut R) -> Settled
+where
+    P: Psu,
+    R: ResetPin,
+{
+    match select3(
+        Timer::after(duration),
+        STOP_MINING.wait(),
+        HALT_MINING.wait(),
+    )
+    .await
+    {
+        Either3::First(()) => Settled::Continue,
+        Either3::Second(()) => {
+            cut_rail(psu, reset_pin).await;
+            Settled::Stop
+        }
+        Either3::Third(value) => {
+            cut_rail(psu, reset_pin).await;
+            Settled::Halt(value)
         }
     }
 }
