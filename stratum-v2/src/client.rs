@@ -584,11 +584,14 @@ fn handle_channel_open_success<V: MiningClientVisitor>(
     #[cfg(feature = "defmt")]
     {
         let target_hex = mining_protocol::hex::encode_block_hash_lower(&session.target);
+        let diff = mining_protocol::difficulty::approx_string(&session.target);
         defmt::info!(
-            "stratum-v2: channel-open-success channel={=u32} prefix={=[u8]:x} target={=str}...",
+            "stratum-v2: channel-open-success channel={=u32} prefix={=[u8]:x} \
+             target={=str}... diff={=str}",
             success.channel_id,
             &session.extranonce_prefix[..session.extranonce_prefix_len],
             core::str::from_utf8(&target_hex[..32]).expect("hex encoder emits ASCII"),
+            diff.as_str(),
         );
     }
     visitor.visit_session_update(SessionUpdate::SetTarget(&session.target));
@@ -610,10 +613,12 @@ fn handle_set_target<V: MiningClientVisitor>(
     #[cfg(feature = "defmt")]
     {
         let target_hex = mining_protocol::hex::encode_block_hash_lower(&session.target);
+        let diff = mining_protocol::difficulty::approx_string(&session.target);
         defmt::info!(
-            "stratum-v2: set-target channel={=u32} target={=str}...",
+            "stratum-v2: set-target channel={=u32} target={=str}... diff={=str}",
             set_target.channel_id,
             core::str::from_utf8(&target_hex[..32]).expect("hex encoder emits ASCII"),
+            diff.as_str(),
         );
     }
     visitor.visit_session_update(SessionUpdate::SetTarget(&session.target));
