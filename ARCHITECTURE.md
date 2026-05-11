@@ -126,8 +126,8 @@ This file is the picture; the plan is the rationale.
                          │   / try_changed()                      │
                          ▼                                        │
    ┌─────────────────────────────────────────────────────────────────────┐
-   │                asic-cpu-mock   (or uart-asic adapter)               │
-   │      [crate: asic-cpu-mock — replaces today's cpu-miner]            │
+   │                asic-cpu-mock   (or asic-uart-peer adapter)          │
+   │      [crate: asic-cpu-mock — CPU-mock backend]                      │
    │                                                                     │
    │   Loop:                                                             │
    │     if work_receiver.try_changed() {                                │

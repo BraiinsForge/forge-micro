@@ -10,6 +10,7 @@
 mod client;
 pub mod difficulty;
 mod error;
+pub mod hashing;
 pub mod hex;
 mod job;
 mod job_id;

@@ -9,7 +9,6 @@
 use core::fmt;
 use core::ops::ControlFlow;
 
-use cpu_miner::hash_meets_target;
 use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -20,6 +19,7 @@ use embassy_time::{Duration, Ticker, Timer, with_timeout};
 use embedded_io::ErrorKind;
 use embedded_io_async::{Error as _, Read, Write};
 use heapless::Vec as HVec;
+use mining_protocol::hashing::hash_meets_target;
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_logging::{Debug2Format, error, info, trace, warn};

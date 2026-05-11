@@ -21,11 +21,11 @@ heapless          = { workspace = true }
 portable-atomic   = { workspace = true }
 serial-baudrate   = { workspace = true }
 sha2              = { workspace = true }
-cpu-miner         = { workspace = true }
 # Pulled in for the hashrate metric only; the `default-features =
 # false` flavor keeps eth-examples no-defmt for mmm consumers
 # that don't already enable defmt themselves.
 eth-examples      = { workspace = true, default-features = false }
+mining-protocol   = { workspace = true }
 stratum-client    = { workspace = true }
 ubos-logging      = { workspace = true }
 ubos-psu          = { workspace = true }

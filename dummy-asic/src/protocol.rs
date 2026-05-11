@@ -9,12 +9,13 @@ use embedded_io_async::{Read as AsyncRead, Write as AsyncWrite};
 use esp_hal::uart::{UartRx, UartTx};
 
 // Wire format mirrored on the host side in
-// boards/eth-examples/src/uart_asic.rs; opcodes, frame lengths, and baud
-// rate must move in lockstep with that file or the link desyncs at boot.
+// boards/eth-examples/asic-uart-peer/src/wire.rs; opcodes, frame lengths,
+// and baud rate must move in lockstep with that file or the link
+// desyncs at boot.
 
 /// UART baud rate for the dummy-ASIC protocol.
-// Keep in sync with `eth_examples::uart_asic::BAUD_RATE`; the two crates
-// cannot share a dependency without dragging ARM HAL crates into the ESP
+// Keep in sync with `asic_uart_peer::BAUD_RATE`; the two crates cannot
+// share a dependency without dragging ARM HAL crates into the ESP
 // build, so the value is duplicated here.
 pub(crate) const BAUD_RATE: u32 = 921_600;
 

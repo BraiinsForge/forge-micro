@@ -411,27 +411,6 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
-          clippy-ubos-backend = craneLib.cargoClippy {
-            inherit src;
-            cargoArtifacts = null;
-            cargoExtraArgs = "-p ubos-backend";
-            cargoClippyExtraArgs = "-- -D warnings";
-          };
-
-          clippy-cpu-miner = craneLib.cargoClippy {
-            inherit src;
-            cargoArtifacts = null;
-            cargoExtraArgs = "-p cpu-miner";
-            cargoClippyExtraArgs = "-- -D warnings";
-          };
-
-          clippy-asic-interface = craneLib.cargoClippy {
-            inherit src;
-            cargoArtifacts = null;
-            cargoExtraArgs = "-p asic-interface";
-            cargoClippyExtraArgs = "-- -D warnings";
-          };
-
           clippy-ubos-logging = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
@@ -554,24 +533,6 @@
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p eth-examples";
-          };
-
-          test-ubos-backend = craneLib.cargoTest {
-            inherit src;
-            cargoArtifacts = null;
-            cargoExtraArgs = "-p ubos-backend";
-          };
-
-          test-cpu-miner = craneLib.cargoTest {
-            inherit src;
-            cargoArtifacts = null;
-            cargoExtraArgs = "-p cpu-miner";
-          };
-
-          test-asic-interface = craneLib.cargoTest {
-            inherit src;
-            cargoArtifacts = null;
-            cargoExtraArgs = "-p asic-interface";
           };
 
           test-mmm = craneLib.cargoTest {

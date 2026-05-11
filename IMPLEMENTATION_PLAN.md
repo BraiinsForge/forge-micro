@@ -29,9 +29,10 @@ eth-examples/
   stratum-v2/         NEW — V2 adapter, MiningClient impl, depends on micro-sv2
   stratum-client/     NEW — replaces ubos-backend; generic over MiningClient
   asic-cpu-mock/      NEW — ASIC-side of AsicSession for the CPU mock
+  asic-uart-peer/     NEW — ASIC-side of AsicSession over UART to a peer
   eth-examples-host/  NEW — embassy-net + tuntap integration harness
-  ubos-backend/       deprecated; stays in tree until all firmwares migrate
-  cpu-miner/          deprecated; superseded by asic-cpu-mock
+  # ubos-backend, cpu-miner, asic-interface deleted: all firmwares
+  # have migrated and the legacy stack is no longer used.
 ```
 
 External:

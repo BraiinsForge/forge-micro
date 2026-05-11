@@ -84,8 +84,8 @@ impl HwSolution {
 ///
 /// Stratum's `mining.notify` emits `prev_hash` as eight big-endian 32-bit
 /// words, but Bitcoin's block header wants them in native (little-endian)
-/// byte order inside each word. The `cpu-miner` worker applies this swap
-/// inline in `build_header`; mmm stores `HwWork.prev_hash` in canonical
+/// byte order inside each word. `mining_protocol::hashing::build_header`
+/// applies this swap inline; mmm stores `HwWork.prev_hash` in canonical
 /// post-swap form so both the local hash check and the chip wire frame
 /// see the same bytes.
 #[must_use]
@@ -522,13 +522,13 @@ mod tests {
         assert_eq!(parser.dropped_byte, 2);
     }
 
-    /// Locks mmm's local share-verification hash to `cpu-miner`'s reference
-    /// `header_hash`. They must agree because both sides reconstruct the
+    /// Locks mmm's local share-verification hash to
+    /// `mining_protocol::hashing::header_hash`. Both sides reconstruct the
     /// same canonical block header from the same `WorkAssignment` fields,
     /// and the pool will reject any submit whose chip-side hash diverges
-    /// from what it recomputes for the same `(prev_hash, ntime, nonce, …)`.
+    /// from what it recomputes for the same `(prev_hash, ntime, nonce, ...)`.
     #[test]
-    fn compute_hash_matches_cpu_miner_for_canonical_prev_hash() {
+    fn compute_hash_matches_mining_protocol_reference() {
         let mut stratum_prev = [0u8; 32];
         for (index, byte) in stratum_prev.iter_mut().enumerate() {
             *byte = index as u8;
@@ -562,7 +562,8 @@ mod tests {
         };
 
         let mmm_hash = hw_work.compute_hash(&resp);
-        let cpu_hash = cpu_miner::header_hash(version, stratum_prev, merkle, ntime, nbits, nonce);
-        assert_eq!(mmm_hash, cpu_hash);
+        let reference =
+            mining_protocol::hashing::header_hash(version, stratum_prev, merkle, ntime, nbits, nonce);
+        assert_eq!(mmm_hash, reference);
     }
 }
