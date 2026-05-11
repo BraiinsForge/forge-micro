@@ -354,6 +354,7 @@ dependencies = [
  "static_cell",
  "stratum-client",
  "stratum-v1",
+ "ubos-temperature",
 ]
 
 [[package]]
@@ -1971,6 +1972,7 @@ dependencies = [
  "static_cell",
  "stratum-client",
  "stratum-v1",
+ "ubos-temperature",
 ]
 
 [[package]]
@@ -2417,6 +2419,7 @@ dependencies = [
  "ubos-logging",
  "ubos-monitor",
  "ubos-psu",
+ "ubos-temperature",
 ]
 
 [[package]]
@@ -2779,6 +2782,7 @@ dependencies = [
  "sha2 0.10.9",
  "stratum-client",
  "ubos-logging",
+ "ubos-monitor",
  "ubos-psu",
 ]
 
@@ -3380,6 +3384,7 @@ dependencies = [
  "static_cell",
  "stratum-client",
  "stratum-v1",
+ "ubos-temperature",
 ]
 
 [[package]]
@@ -3417,6 +3422,7 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-temperature",
 ]
 
 [[package]]
@@ -3827,6 +3833,7 @@ dependencies = [
  "static_cell",
  "stratum-client",
  "stratum-v1",
+ "ubos-temperature",
 ]
 
 [[package]]
@@ -3850,6 +3857,7 @@ dependencies = [
  "static_cell",
  "stratum-client",
  "stratum-v1",
+ "ubos-temperature",
 ]
 
 [[package]]
@@ -4180,6 +4188,7 @@ dependencies = [
  "heapless 0.8.0",
  "libm",
  "ubos-logging",
+ "ubos-temperature",
 ]
 
 [[package]]
@@ -4196,6 +4205,16 @@ dependencies = [
  "portable-atomic",
  "static_cell",
  "ubos-logging",
+]
+
+[[package]]
+name = "ubos-temperature"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.0.1",
+ "embassy-time",
+ "eth-examples",
+ "heapless 0.8.0",
 ]
 
 [[package]]

@@ -597,6 +597,19 @@
             cargoExtraArgs = "-p ubos-monitor";
           };
 
+          clippy-ubos-temperature = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-temperature";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          test-ubos-temperature = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-temperature";
+          };
+
           clippy-esp32s3 = espCraneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;

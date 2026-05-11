@@ -103,7 +103,7 @@ struct BoardTempSensor {
     channel: AdcChannel<'static>,
 }
 
-impl eth_examples::temperature::TemperatureSensor for BoardTempSensor {
+impl ubos_temperature::TemperatureSensor for BoardTempSensor {
     async fn read_millicelsius(&mut self) -> Option<i32> {
         // RP2350 datasheet 12.4.6: same bipolar-diode sensor as RP2040 with
         // the same documented 0.706 V / 1.721 mV per °C calibration, so the
@@ -158,7 +158,7 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn temperature_task(sensor: BoardTempSensor) -> ! {
-    eth_examples::temperature::run_temperature(sensor).await
+    ubos_temperature::run_temperature(sensor).await
 }
 
 #[cfg(feature = "display")]

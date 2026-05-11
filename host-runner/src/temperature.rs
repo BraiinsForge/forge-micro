@@ -7,9 +7,9 @@
 //! `BRAIINS_MINI_BMM101_BM1362_4X1` descriptor in bos-main.
 
 use embedded_i2c_unix::I2c as HostI2c;
-use eth_examples::temperature::TemperatureSensor;
 use log::{error, info};
 use mmm::lm75a::{Error as Lm75aError, Lm75a};
+use ubos_temperature::TemperatureSensor;
 
 use crate::psu::I2C_BUS_ENV;
 

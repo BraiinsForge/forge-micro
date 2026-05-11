@@ -151,10 +151,10 @@ async fn cpu_load_task() -> ! {
     eth_examples::cpu_load::run_cpu_load::<2>().await
 }
 
-/// Adapts `esp32s3_tsens::Tsens` to the eth-examples `TemperatureSensor` trait.
+/// Adapts `esp32s3_tsens::Tsens` to the `TemperatureSensor` trait.
 struct BoardTempSensor(esp32s3_tsens::Tsens<'static>);
 
-impl eth_examples::temperature::TemperatureSensor for BoardTempSensor {
+impl ubos_temperature::TemperatureSensor for BoardTempSensor {
     async fn read_millicelsius(&mut self) -> Option<i32> {
         self.0.read_millicelsius().await
     }
@@ -162,7 +162,7 @@ impl eth_examples::temperature::TemperatureSensor for BoardTempSensor {
 
 #[embassy_executor::task]
 async fn temperature_task(sensor: BoardTempSensor) -> ! {
-    eth_examples::temperature::run_temperature(sensor).await
+    ubos_temperature::run_temperature(sensor).await
 }
 
 #[cfg(feature = "display")]

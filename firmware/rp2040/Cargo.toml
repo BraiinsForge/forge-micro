@@ -47,6 +47,7 @@ asic-cpu-mock       = { workspace = true, optional = true }
 asic-uart-peer      = { workspace = true, optional = true }
 stratum-client      = { workspace = true, optional = true }
 stratum-v1          = { workspace = true, optional = true }
+ubos-temperature    = { workspace = true, features = ["defmt"] }
 embedded-hal-bus    = { workspace = true, features = ["async"] }
 embedded-io-async   = { workspace = true }
 cortex-m            = { version = "0.7", features = ["inline-asm"] }

@@ -34,6 +34,7 @@ stratum-v1         = { workspace = true }
 ubos-logging       = { workspace = true }
 ubos-monitor       = { workspace = true }
 ubos-psu           = { workspace = true }
+ubos-temperature   = { workspace = true, default-features = false }
 embassy-sync       = { workspace = true }
 portable-atomic    = { workspace = true }
 

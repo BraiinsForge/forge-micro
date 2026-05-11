@@ -46,6 +46,7 @@ asic-cpu-mock          = { workspace = true, optional = true }
 asic-uart-peer         = { workspace = true, optional = true }
 stratum-client         = { workspace = true, optional = true }
 stratum-v1             = { workspace = true, optional = true }
+ubos-temperature       = { workspace = true, features = ["defmt"] }
 esp-hal                = { version = "1.0.0", features = ["defmt", "esp32s3", "unstable"] }
 esp-rtos               = { version = "0.2.0", features = ["embassy", "esp32s3", "defmt"] }
 esp-backtrace          = { version = "0.18.1", features = ["defmt", "esp32s3", "panic-handler"] }

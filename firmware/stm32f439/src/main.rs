@@ -100,7 +100,7 @@ struct BoardTempSensor {
     _timer: LowLevelTimer<'static, embassy_stm32::peripherals::TIM3>,
 }
 
-impl eth_examples::temperature::TemperatureSensor for BoardTempSensor {
+impl ubos_temperature::TemperatureSensor for BoardTempSensor {
     async fn read_millicelsius(&mut self) -> Option<i32> {
         // STM32F439 datasheet, F43x electrical characteristics: V_sense ≈ 0.76 V
         // at 25 °C with an average slope of 2.5 mV/°C, 12-bit ADC across
@@ -155,7 +155,7 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn temperature_task(sensor: BoardTempSensor) -> ! {
-    eth_examples::temperature::run_temperature(sensor).await
+    ubos_temperature::run_temperature(sensor).await
 }
 
 #[embassy_executor::task]

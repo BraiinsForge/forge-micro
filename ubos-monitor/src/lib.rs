@@ -24,10 +24,9 @@ mod tests_threshold;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Ticker};
-use eth_examples::consts::Temperature;
 use eth_examples::metrics::{push, Metric, Value};
-use eth_examples::temperature::TemperatureSensor;
 use ubos_logging::{error, info, warn};
+use ubos_temperature::{Temperature, TemperatureSensor};
 
 /// Emergency-stop carrying the current halt state. `true` is raised
 /// when the board temperature crosses `dangerous_temp_c`; `false` is

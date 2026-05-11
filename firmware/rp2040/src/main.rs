@@ -92,7 +92,7 @@ struct BoardTempSensor {
     channel: AdcChannel<'static>,
 }
 
-impl eth_examples::temperature::TemperatureSensor for BoardTempSensor {
+impl ubos_temperature::TemperatureSensor for BoardTempSensor {
     async fn read_millicelsius(&mut self) -> Option<i32> {
         // RP2040 datasheet 4.9.5: Vsense_uV = raw * VREF_uV / full_scale,
         // T_mC = CALIBRATION_mC - (Vsense_uV - VSENSE27_uV) * 1000 / uV_PER_C.
@@ -149,7 +149,7 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn temperature_task(sensor: BoardTempSensor) -> ! {
-    eth_examples::temperature::run_temperature(sensor).await
+    ubos_temperature::run_temperature(sensor).await
 }
 
 #[embassy_executor::task]

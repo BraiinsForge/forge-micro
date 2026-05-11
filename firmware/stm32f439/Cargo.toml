@@ -49,6 +49,7 @@ asic-cpu-mock       = { workspace = true, optional = true }
 asic-uart-peer      = { workspace = true, optional = true }
 stratum-client      = { workspace = true, optional = true }
 stratum-v1          = { workspace = true, optional = true }
+ubos-temperature    = { workspace = true, features = ["defmt"] }
 
 # cortex-m is pulled in for the `critical-section-single-core`
 # feature; no direct source references, so machete cannot see it.

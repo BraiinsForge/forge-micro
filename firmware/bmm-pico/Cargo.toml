@@ -51,6 +51,7 @@ asic-cpu-mock       = { workspace = true, optional = true }
 asic-uart-peer      = { workspace = true, optional = true }
 stratum-client      = { workspace = true, optional = true }
 stratum-v1          = { workspace = true, optional = true }
+ubos-temperature    = { workspace = true, features = ["defmt"] }
 
 # cortex-m and cortex-m-rt are pulled in by `#[embassy_executor::main]` and
 # the linker scripts; no direct source references, so machete can't see them.

@@ -74,6 +74,7 @@ ii-sv2              = { workspace = true, optional = true }
 # adapter; RoscRng's inherent `next_u64` covers the existing seed
 # path. Pulled via the workspace dep so versions stay aligned.
 rand_core           = { workspace = true, optional = true }
+ubos-temperature    = { workspace = true, features = ["defmt"] }
 
 # cortex-m is pulled in for the `inline-asm` feature; no direct
 # source references, so machete cannot see it.

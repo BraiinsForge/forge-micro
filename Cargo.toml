@@ -73,6 +73,7 @@ members = [
     "ubos-logging",
     "ubos-monitor",
     "ubos-psu",
+    "ubos-temperature",
     "host-runner",
 ]
 
@@ -113,6 +114,7 @@ ii-sv2            = { git = "ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.
 ubos-logging      = { path = "ubos-logging", default-features = false }
 ubos-monitor      = { path = "ubos-monitor", default-features = false }
 ubos-psu          = { path = "ubos-psu", default-features = false }
+ubos-temperature  = { path = "ubos-temperature", default-features = false }
 
 [workspace.lints.clippy]
 pedantic     = { level = "warn", priority = -1 }
