@@ -1,17 +1,24 @@
 //! BMM100 mining main loop.
 //!
 //! Each iteration brings the chip up (PSU, reset sequencing, init
-//! replay), waits on [`STOP_MINING`], and tears it down (deinit replay,
-//! work stop, PSU off). On a fatal init failure (chip goes silent at
-//! a new line rate, etc.) the iteration cuts the rail, sleeps, and
-//! starts over so a transient bring-up failure doesn't leave the chip
-//! powered without supervision.
+//! replay), waits on [`STOP_MINING`] or [`HALT_MINING`], and tears it
+//! down (deinit replay, work stop, PSU off). On a fatal init failure
+//! (chip goes silent at a new line rate, etc.) the iteration cuts the
+//! rail, sleeps, and starts over so a transient bring-up failure does
+//! not leave the chip powered without supervision.
+//!
+//! `HALT_MINING` is the thermal-emergency path: when asserted the loop
+//! drops the rail immediately (no deinit replay, the board is already
+//! over `dangerous_temp_c`) and waits for the monitor to clear the
+//! halt before attempting bring-up again. `STOP_MINING` remains the
+//! orderly-shutdown path that runs the deinit replay.
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{select, select3, Either, Either3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
-use ubos_logging::{error, info, Debug2Format};
+use ubos_logging::{error, info, warn, Debug2Format};
+use ubos_monitor::HALT_MINING;
 use ubos_psu::Psu;
 
 /// Mirrors the chip rail state for downstream consumers (host
@@ -50,8 +57,20 @@ where
     // Publish the initial state so a fan task that started before us
     // sees `false` instead of waiting forever for the first edge.
     MINER_IS_RUNNING.signal(false);
+    let mut halted = false;
 
     loop {
+        if halted {
+            info!("miner: halt active; awaiting clear");
+            match wait_halt_clear_or_stop().await {
+                Resumed::Cleared => {
+                    info!("miner: halt cleared; restarting bring-up");
+                    halted = false;
+                }
+                Resumed::Stopped => return,
+            }
+        }
+
         // -- bring-up --
         info!("miner: setting voltage to {} mV", VOLTAGE_MV);
         let _ = psu.set_voltage(VOLTAGE_MV).await;
@@ -75,55 +94,90 @@ where
         let _ = SERIAL.reset().await;
 
         info!("miner: replaying init ({} steps)", INIT.len());
-        // Init replay is the longest single step in bring-up. A
-        // STOP_MINING raised mid-replay must abort it and cut the
-        // rail rather than letting the chip sit at voltage until the
-        // replay finishes.
-        match select(replay(&SERIAL, INIT), STOP_MINING.wait()).await {
-            Either::First(Ok(())) => {}
-            Either::First(Err(kind)) => {
+        // Init replay is the longest single step in bring-up. STOP or
+        // HALT raised mid-replay must abort it and cut the rail rather
+        // than letting the chip sit at voltage until the replay
+        // finishes.
+        match select3(replay(&SERIAL, INIT), STOP_MINING.wait(), HALT_MINING.wait()).await {
+            Either3::First(Ok(())) => {}
+            Either3::First(Err(kind)) => {
                 error!(
                     "miner: init replay failed ({:?}); cutting rail and retrying",
                     Debug2Format(&kind)
                 );
-                reset_pin.enter_reset();
-                let _ = psu.disable().await;
-                MINER_IS_RUNNING.signal(false);
-                // Cancellable sleep — STOP_MINING during recovery exits
-                // immediately rather than burning one more bring-up cycle.
-                match select(Timer::after(RETRY_DELAY), STOP_MINING.wait()).await {
-                    Either::First(()) => continue,
-                    Either::Second(()) => {
+                cut_rail(psu, reset_pin).await;
+                // Cancellable sleep — STOP or HALT during recovery
+                // exits or pivots rather than burning a bring-up cycle.
+                match select3(Timer::after(RETRY_DELAY), STOP_MINING.wait(), HALT_MINING.wait()).await {
+                    Either3::First(()) => continue,
+                    Either3::Second(()) => {
                         info!("miner: stop signalled during recovery");
                         return;
                     }
+                    Either3::Third(value) => {
+                        halted = value;
+                        continue;
+                    }
                 }
             }
-            Either::Second(()) => {
+            Either3::Second(()) => {
                 info!("miner: stop signalled during init replay; cutting rail");
-                reset_pin.enter_reset();
-                let _ = psu.disable().await;
-                MINER_IS_RUNNING.signal(false);
+                cut_rail(psu, reset_pin).await;
                 return;
+            }
+            Either3::Third(value) => {
+                warn!("miner: halt asserted during init replay; cutting rail");
+                cut_rail(psu, reset_pin).await;
+                halted = value;
+                continue;
             }
         }
 
         // -- mine --
-        info!("miner: mining; awaiting STOP_MINING");
-        STOP_MINING.wait().await;
+        info!("miner: mining; awaiting STOP_MINING or HALT_MINING");
+        match select(STOP_MINING.wait(), HALT_MINING.wait()).await {
+            Either::First(()) => {
+                // -- teardown (orderly stop) --
+                info!("miner: replaying deinit ({} steps)", DEINIT.len());
+                let _ = replay(&SERIAL, DEINIT).await;
+                let _ = SERIAL.stop_sending_work().await;
+                let _ = SERIAL.reset().await;
+                cut_rail(psu, reset_pin).await;
+                info!("miner: stopped");
+                return;
+            }
+            Either::Second(value) => {
+                warn!("miner: halt asserted while mining; cutting rail");
+                cut_rail(psu, reset_pin).await;
+                halted = value;
+            }
+        }
+    }
+}
 
-        // -- teardown --
-        info!("miner: replaying deinit ({} steps)", DEINIT.len());
-        let _ = replay(&SERIAL, DEINIT).await;
+async fn cut_rail<P, R>(psu: &P, reset_pin: &mut R)
+where
+    P: Psu,
+    R: ResetPin,
+{
+    reset_pin.enter_reset();
+    let _ = psu.disable().await;
+    MINER_IS_RUNNING.signal(false);
+}
 
-        let _ = SERIAL.stop_sending_work().await;
-        let _ = SERIAL.reset().await;
-        reset_pin.enter_reset();
-        let _ = psu.disable().await;
-        // Mirror of the bring-up: keep fans on until the rail is
-        // actually down, since deinit replay also runs hot.
-        MINER_IS_RUNNING.signal(false);
-        info!("miner: stopped");
-        return;
+enum Resumed {
+    Cleared,
+    Stopped,
+}
+
+/// Block while halted. Returns `Cleared` once the monitor publishes a
+/// `false` halt state; returns `Stopped` if `STOP_MINING` fires first.
+async fn wait_halt_clear_or_stop() -> Resumed {
+    loop {
+        match select(HALT_MINING.wait(), STOP_MINING.wait()).await {
+            Either::First(false) => return Resumed::Cleared,
+            Either::First(true) => {}
+            Either::Second(()) => return Resumed::Stopped,
+        }
     }
 }
