@@ -44,8 +44,9 @@ pub trait FanOutput {
     fn set_pwm_percent(&mut self, percent: u8);
 }
 
-/// Tunable monitor parameters. `MonitorConfig::DEFAULT` carries the
-/// gains and thresholds from the BOS hashboard profile.
+/// Tunable monitor parameters. Each board crate supplies its own
+/// `MonitorConfig` with gains and thresholds calibrated for its
+/// thermal mass and fan curve.
 pub struct MonitorConfig {
     pub target_temp_c: f32,
     pub hot_temp_c: f32,
@@ -57,21 +58,6 @@ pub struct MonitorConfig {
     pub d_gain: f32,
     pub smoother_half_decay_secs: f32,
     pub sample_interval: Duration,
-}
-
-impl MonitorConfig {
-    pub const DEFAULT: Self = Self {
-        target_temp_c: 67.0,
-        hot_temp_c: 80.0,
-        dangerous_temp_c: 90.0,
-        cooldown_temp_c: 45.0,
-        min_fan_pwm: 20,
-        p_gain: -5.0,
-        i_gain: -0.15,
-        d_gain: -100.0,
-        smoother_half_decay_secs: 10.0,
-        sample_interval: Duration::from_secs(1),
-    };
 }
 
 /// Fan PWM forced while halted. The PID is bypassed and 100% is

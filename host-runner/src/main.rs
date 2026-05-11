@@ -29,6 +29,7 @@ use eth_examples::metrics::{Metric, Value};
 use eth_examples::net;
 use eth_examples::pool_config::{self, PoolConfig, ProtocolConfig};
 use log::{error, info, warn};
+use mmm::consts::MONITOR_CONFIG_BMM101;
 use rand::rngs::OsRng;
 use static_cell::StaticCell;
 use stratum_client::AsicSession;
@@ -55,10 +56,9 @@ const DEFAULT_POOL_USER: &str = "braiinstest.dumb_worker";
 /// the box without requiring reach to the NUC regtest pool.
 const DEFAULT_POOL_HOST: &str = "172.65.65.63";
 
-/// Tunable monitor parameters. Mirrors the BMM model defaults from
-/// bos-main; the PID gains and threshold temperatures live in
-/// `MonitorConfig::DEFAULT`.
-static MONITOR_CONFIG: MonitorConfig = MonitorConfig::DEFAULT;
+/// Tunable monitor parameters. The PID gains and threshold
+/// temperatures live in `mmm::consts::MONITOR_CONFIG_BMM101`.
+static MONITOR_CONFIG: MonitorConfig = MONITOR_CONFIG_BMM101;
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 static RESOURCES: StaticCell<StackResources<SOCKET_COUNT>> = StaticCell::new();
