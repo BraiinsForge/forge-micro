@@ -1,6 +1,5 @@
-//! hwmon-based fan controller. Either drives PID-modulated PWM via
-//! `ubos_monitor::run_monitor`, or falls back to a binary on/off task
-//! tied to `MINER_IS_RUNNING` when no temperature sensor is attached.
+//! hwmon-based fan controller. Drives PID-modulated PWM via
+//! `ubos_monitor::run_monitor` fed by the BMM101 LM75A array.
 //!
 //! Ported from `bosminer-fan::hwmon::HwmonFanPwm` and
 //! `bosminer-hal::sysfs::hwmon_fan::FanHwmonController`. The kernel
@@ -15,7 +14,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use log::{error, info, warn};
-use mmm::miner::MINER_IS_RUNNING;
 use ubos_monitor::{FanOutput, MonitorConfig};
 
 use crate::temperature::HashboardTemperature;
@@ -46,9 +44,6 @@ const MAX_PWM_VALUE: u8 = 255;
 /// than "stopped". Keeping a small base PWM sidesteps both. Lifted
 /// straight from the upstream comment.
 const MIN_PWM_VALUE: u8 = 15;
-
-const RUN_PERCENT: u8 = 80;
-const STOP_PERCENT: u8 = 0;
 
 /// Owns one writable `pwm1` path per detected fan.
 pub struct FanHwmonController {
@@ -89,6 +84,13 @@ impl FanHwmonController {
 
         info!("fan: opened {} pwmfan device(s)", pwm_paths.len());
         Some(Self { pwm_paths })
+    }
+
+    /// Write 100% to every detected fan. Called as a safe-high
+    /// fallback when no temperature source is available, so the
+    /// chassis cools rather than coasts on the kernel default.
+    pub fn park_at_full_speed(&self) {
+        self.set_speed(100);
     }
 
     fn set_speed(&self, percent: u8) {
@@ -148,8 +150,8 @@ impl FanOutput for FanHwmonController {
     }
 }
 
-/// PID-driven fan loop: spawn this when an LM75A temperature source is
-/// available so the duty cycle tracks board temperature.
+/// PID-driven fan loop. Spawned by main once both the fan controller
+/// and the LM75A sensor array have opened.
 #[embassy_executor::task]
 pub async fn pid_fan_task(
     controller: FanHwmonController,
@@ -157,19 +159,4 @@ pub async fn pid_fan_task(
     config: &'static MonitorConfig,
 ) -> ! {
     ubos_monitor::run_monitor(sensor, controller, config).await
-}
-
-/// Fallback task when no temperature sensor is wired: park fans at 0%,
-/// then mirror `MINER_IS_RUNNING` onto the duty cycle for the rest of
-/// the process lifetime.
-#[embassy_executor::task]
-pub async fn binary_fan_task(controller: FanHwmonController) -> ! {
-    info!("fan: parking fans at {STOP_PERCENT}%");
-    controller.set_speed(STOP_PERCENT);
-    loop {
-        let running = MINER_IS_RUNNING.wait().await;
-        let percent = if running { RUN_PERCENT } else { STOP_PERCENT };
-        info!("fan: miner_running={running}, setting speed to {percent}%");
-        controller.set_speed(percent);
-    }
 }

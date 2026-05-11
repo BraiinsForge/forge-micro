@@ -301,9 +301,8 @@ fn main() {
                     );
                 }
                 None => {
-                    info!("host-runner: no LM75A bus; using binary on/off fan control");
-                    spawner
-                        .spawn(fan::binary_fan_task(controller).expect("BUG: binary_fan_task token"));
+                    warn!("host-runner: no LM75A bus; parking fans at 100%");
+                    controller.park_at_full_speed();
                 }
             },
             None => {
