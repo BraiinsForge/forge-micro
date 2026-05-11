@@ -23,6 +23,7 @@ backend-stratum-client = [
     "dep:stratum-v1",
     "asic-cpu-mock/defmt",
     "stratum-client/defmt",
+    "stratum-v1/defmt",
 ]
 
 [dependencies]

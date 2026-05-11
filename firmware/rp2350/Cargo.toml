@@ -26,6 +26,7 @@ backend-stratum-client = [
     "dep:stratum-v1",
     "asic-cpu-mock/defmt",
     "stratum-client/defmt",
+    "stratum-v1/defmt",
 ]
 # Adds the StratumV2 adapter to the build. Mutually additive with
 # `backend-stratum-client` (does not stand alone). Pulls in
