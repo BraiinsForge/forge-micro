@@ -2435,6 +2435,7 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 [[package]]
 name = "ii-sv2"
 version = "0.1.0"
+source = "git+ssh://git@gitlab.ii.zone/jakub.trnka/micro-sv2.git?branch=jtr%2Funstable#b69d26dbe4570f86b5eda9f6ef5d40a92d5fd642"
 dependencies = [
  "ii-sv2-framing",
  "ii-sv2-messages",
@@ -2445,6 +2446,7 @@ dependencies = [
 [[package]]
 name = "ii-sv2-crypto"
 version = "0.1.0"
+source = "git+ssh://git@gitlab.ii.zone/jakub.trnka/micro-sv2.git?branch=jtr%2Funstable#b69d26dbe4570f86b5eda9f6ef5d40a92d5fd642"
 dependencies = [
  "chacha20poly1305",
  "hkdf 0.13.0",
@@ -2455,6 +2457,7 @@ dependencies = [
 [[package]]
 name = "ii-sv2-framing"
 version = "0.1.0"
+source = "git+ssh://git@gitlab.ii.zone/jakub.trnka/micro-sv2.git?branch=jtr%2Funstable#b69d26dbe4570f86b5eda9f6ef5d40a92d5fd642"
 dependencies = [
  "ii-sv2-types",
 ]
@@ -2462,6 +2465,7 @@ dependencies = [
 [[package]]
 name = "ii-sv2-messages"
 version = "0.1.0"
+source = "git+ssh://git@gitlab.ii.zone/jakub.trnka/micro-sv2.git?branch=jtr%2Funstable#b69d26dbe4570f86b5eda9f6ef5d40a92d5fd642"
 dependencies = [
  "ii-sv2-framing",
  "ii-sv2-types",
@@ -2470,6 +2474,7 @@ dependencies = [
 [[package]]
 name = "ii-sv2-security"
 version = "0.1.0"
+source = "git+ssh://git@gitlab.ii.zone/jakub.trnka/micro-sv2.git?branch=jtr%2Funstable#b69d26dbe4570f86b5eda9f6ef5d40a92d5fd642"
 dependencies = [
  "bs58",
  "embedded-io-async 0.7.0",
@@ -2483,6 +2488,7 @@ dependencies = [
 [[package]]
 name = "ii-sv2-types"
 version = "0.1.0"
+source = "git+ssh://git@gitlab.ii.zone/jakub.trnka/micro-sv2.git?branch=jtr%2Funstable#b69d26dbe4570f86b5eda9f6ef5d40a92d5fd642"
 
 [[package]]
 name = "indexmap"
