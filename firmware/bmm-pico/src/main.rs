@@ -21,19 +21,19 @@ use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
-use embassy_rp::adc::{Adc, Async as AdcAsync, Channel as AdcChannel, Config as AdcConfig};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::i2c::{Config as I2cConfig, I2c};
 #[cfg(feature = "backend-uart")]
 use embassy_rp::peripherals::UART1;
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, SPI0};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 #[cfg(feature = "backend-uart")]
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
-use embassy_rp::{adc, bind_interrupts, dma};
+use embassy_rp::{bind_interrupts, dma, i2c};
 use embassy_time::Delay;
 #[cfg(feature = "display")]
 use embassy_time::{Duration, Timer};
@@ -43,12 +43,14 @@ use eth_examples::sh1106::{Rotation, Sh1106};
 #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 use static_cell::ConstStaticCell;
 use static_cell::StaticCell;
+use ubos_monitor::MonitorConfig;
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
 
 mod config;
 mod fan;
+mod temperature;
 
 #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
@@ -66,6 +68,21 @@ static SV1_CONFIG: stratum_v1::Sv1Config = stratum_v1::Sv1Config {
 #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
+// Mirrors `mmm::MONITOR_CONFIG_BMM101`. Inlined so the firmware does
+// not pull in the rest of the mmm crate just for one const.
+static MONITOR_CONFIG: MonitorConfig = MonitorConfig {
+    target_temp_c: 67.0,
+    hot_temp_c: 80.0,
+    dangerous_temp_c: 90.0,
+    cooldown_temp_c: 45.0,
+    min_fan_pwm: 20,
+    p_gain: -5.0,
+    i_gain: -0.15,
+    d_gain: -100.0,
+    smoother_half_decay_secs: 10.0,
+    sample_interval: embassy_time::Duration::from_secs(1),
+};
+
 defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
 
 bind_interrupts!(struct Irqs {
@@ -74,7 +91,7 @@ bind_interrupts!(struct Irqs {
         dma::InterruptHandler<DMA_CH1>,
         #[cfg(feature = "display")]
         dma::InterruptHandler<DMA_CH2>;
-    ADC_IRQ_FIFO => adc::InterruptHandler;
+    I2C1_IRQ => i2c::InterruptHandler<I2C1>;
     #[cfg(feature = "backend-uart")]
     UART1_IRQ => BufferedInterruptHandler<UART1>;
 });
@@ -96,29 +113,6 @@ impl eth_examples::watchdog::Watchdog for BoardWatchdog {
 
     fn feed(&mut self) {
         self.0.feed(config::Watchdog::TIMEOUT);
-    }
-}
-
-struct BoardTempSensor {
-    adc: Adc<'static, AdcAsync>,
-    channel: AdcChannel<'static>,
-}
-
-impl ubos_temperature::TemperatureSensor for BoardTempSensor {
-    async fn read_millicelsius(&mut self) -> Option<i32> {
-        // RP2350 datasheet 12.4.6: same bipolar-diode sensor as RP2040 with
-        // the same documented 0.706 V / 1.721 mV per °C calibration, so the
-        // conversion math is identical.
-        const VREF_UV: i64 = 3_300_000;
-        const ADC_FULL_SCALE: i64 = 4095;
-        const VSENSE_AT_27C_UV: i64 = 706_000;
-        const UV_PER_C: i64 = 1_721;
-        const CALIBRATION_MC: i64 = 27_000;
-
-        let raw = self.adc.read(&mut self.channel).await.ok()?;
-        let vsense_uv = i64::from(raw) * VREF_UV / ADC_FULL_SCALE;
-        let millicelsius = CALIBRATION_MC - (vsense_uv - VSENSE_AT_27C_UV) * 1000 / UV_PER_C;
-        i32::try_from(millicelsius).ok()
     }
 }
 
@@ -158,13 +152,13 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn temperature_task(sensor: BoardTempSensor) -> ! {
-    ubos_temperature::run_temperature(sensor).await
+async fn monitor_task(sensor: temperature::HashboardTemperature, fan: fan::BoardFan) -> ! {
+    ubos_monitor::run_monitor(sensor, fan, &MONITOR_CONFIG).await
 }
 
 #[embassy_executor::task]
-async fn fan_task(hardware: fan::FanHardware) -> ! {
-    fan::run(hardware).await
+async fn tach_task(hardware: fan::TachHardware) -> ! {
+    fan::run_tach(hardware).await
 }
 
 #[cfg(feature = "display")]
@@ -345,18 +339,14 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_task(stack)));
 
-    let adc = Adc::new(hw.adc, Irqs, AdcConfig::default());
-    let temp_channel = AdcChannel::new_temp_sensor(hw.adc_temp_sensor);
-    spawner.spawn(unwrap!(temperature_task(BoardTempSensor {
-        adc,
-        channel: temp_channel,
-    })));
+    let i2c = I2c::new_async(hw.i2c, hw.i2c_scl, hw.i2c_sda, Irqs, I2cConfig::default());
+    let hashboard_temp = temperature::HashboardTemperature::new(i2c);
+    let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm);
+    spawner.spawn(unwrap!(monitor_task(hashboard_temp, board_fan)));
 
-    spawner.spawn(unwrap!(fan_task(fan::FanHardware {
-        pwm_slice: hw.fan_pwm_slice,
-        pwm_pin: hw.fan_pwm,
-        tach_slice: hw.fan_rpm_slice,
-        tach_pin: hw.fan_rpm,
+    spawner.spawn(unwrap!(tach_task(fan::TachHardware {
+        slice: hw.fan_rpm_slice,
+        pin: hw.fan_rpm,
     })));
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.

@@ -1,9 +1,9 @@
 //! Fan PWM drive and tachometer readback.
 //!
 //! Slice 4 channel A on `PIN_8` drives the fan's PWM input at 25 kHz,
-//! the rate specified by the Intel 4-wire fan spec. Duty cycle is
-//! fixed here; the temperature-driven curve is intentionally absent
-//! so the task stays self-contained.
+//! the rate specified by the Intel 4-wire fan spec. `BoardFan` exposes
+//! the PWM output behind the `ubos_monitor::FanOutput` trait so the
+//! monitor task can drive duty cycle from a PID loop.
 //!
 //! Slice 7 channel B on `PIN_15` runs in `RisingEdge` divmode and
 //! counts tach pulses. Standard 4-wire fans emit two pulses per
@@ -18,40 +18,65 @@ use embassy_rp::pwm::{Config as PwmConfig, InputMode, Pwm};
 use embassy_rp::Peri;
 use embassy_time::Ticker;
 use eth_examples::metrics::{push, Metric, Value};
+use ubos_monitor::FanOutput;
 
 use crate::config::Fan;
 
-/// PWM and tach peripherals consumed by [`run`].
-pub struct FanHardware {
-    pub pwm_slice: Peri<'static, PWM_SLICE4>,
-    pub pwm_pin: Peri<'static, PIN_8>,
-    pub tach_slice: Peri<'static, PWM_SLICE7>,
-    pub tach_pin: Peri<'static, PIN_15>,
+/// PWM output driving the fan input. Construct once and pass into the
+/// monitor task; the monitor sets duty via `FanOutput::set_pwm_percent`.
+pub struct BoardFan {
+    pwm: Pwm<'static>,
+    top: u16,
 }
 
-/// Drive the fan at a fixed duty cycle and publish tach-derived RPM
-/// as a gauge. Runs forever.
-pub async fn run(hardware: FanHardware) -> ! {
-    let mut pwm_config = PwmConfig::default();
-    pwm_config.top = Fan::PWM_TOP;
-    pwm_config.compare_a = Fan::PWM_COMPARE;
-    // `_pwm` is held for the lifetime of this task. Dropping it would
-    // disable the slice and re-park the pin as a pull-down GPIO.
-    let _pwm = Pwm::new_output_a(hardware.pwm_slice, hardware.pwm_pin, pwm_config);
+impl BoardFan {
+    #[must_use]
+    pub fn new(slice: Peri<'static, PWM_SLICE4>, pin: Peri<'static, PIN_8>) -> Self {
+        let mut pwm_config = PwmConfig::default();
+        pwm_config.top = Fan::PWM_TOP;
+        let pwm = Pwm::new_output_a(slice, pin, pwm_config);
+        Self {
+            pwm,
+            top: Fan::PWM_TOP,
+        }
+    }
+}
 
+impl FanOutput for BoardFan {
+    fn set_pwm_percent(&mut self, percent: u8) {
+        let percent = percent.min(100);
+        let compare = u32::from(self.top) * u32::from(percent) / 100;
+        let mut config = PwmConfig::default();
+        config.top = self.top;
+        // u16 cast safe: compare <= self.top, which fits in u16.
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            config.compare_a = compare as u16;
+        }
+        self.pwm.set_config(&config);
+    }
+}
+
+/// Tach input peripherals consumed by [`run_tach`].
+pub struct TachHardware {
+    pub slice: Peri<'static, PWM_SLICE7>,
+    pub pin: Peri<'static, PIN_15>,
+}
+
+/// Sample tach pulses and publish RPM as a gauge. Runs forever.
+pub async fn run_tach(hardware: TachHardware) -> ! {
     let tach = Pwm::new_input(
-        hardware.tach_slice,
-        hardware.tach_pin,
+        hardware.slice,
+        hardware.pin,
         Pull::Up,
         InputMode::RisingEdge,
         PwmConfig::default(),
     );
 
     info!(
-        "fan: 25 kHz PWM, duty {}/{} ({}%)",
-        Fan::PWM_COMPARE,
-        Fan::PWM_TOP + 1,
-        Fan::DUTY_PERCENT,
+        "fan tach: {} pulses/rev, window {} s",
+        Fan::TACH_PULSES_PER_REV,
+        Fan::TACH_WINDOW.as_secs(),
     );
 
     let mut ticker = Ticker::every(Fan::TACH_WINDOW);

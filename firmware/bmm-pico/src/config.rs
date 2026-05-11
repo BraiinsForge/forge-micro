@@ -147,13 +147,9 @@ impl Watchdog {
 /// Fan PWM and tachometer parameters. Default `clk_sys` on the RP2350 is
 /// 150 MHz, so `(PWM_TOP + 1) × divider = 6000` cycles per period puts
 /// the PWM frequency at exactly 25 kHz (the Intel 4-wire fan spec).
-/// `PWM_COMPARE` is precomputed against `PWM_TOP + 1` so the const
-/// math stays in `u16` without truncation lints.
 pub struct Fan;
 impl Fan {
     pub const PWM_TOP: u16 = 5999;
-    pub const DUTY_PERCENT: u16 = 50;
-    pub const PWM_COMPARE: u16 = 3000;
     pub const TACH_WINDOW: Duration = Duration::from_secs(1);
     pub const TACH_PULSES_PER_REV: u64 = 2;
 }
