@@ -222,11 +222,26 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
     {
         let rng = self.rng.take().ok_or(Error::Adapter)?;
         let authenticator = self.build_authenticator();
+        #[cfg(feature = "defmt")]
+        defmt::info!(
+            "stratum-v2: noise handshake start, authenticator={=str}",
+            if self.config.pool_pubkey.is_some() {
+                "validate-signature"
+            } else {
+                "validate-nothing"
+            },
+        );
 
         let session: EstablishedSession = initiate(transport, rng, self.ctx, authenticator)
             .await
-            .map_err(|err| map_init_error(&err))?;
+            .map_err(|err| {
+            #[cfg(feature = "defmt")]
+            log_init_error(&err);
+            map_init_error(&err)
+        })?;
         let (mut codec, _session_id) = EncryptedCodec::from_handshake(session);
+        #[cfg(feature = "defmt")]
+        defmt::info!("stratum-v2: noise handshake complete");
 
         // SetupConnection — protocol = 0 (mining), version 2/2,
         // flags = 0 (no extensions requested initially), endpoint
@@ -246,6 +261,8 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
             },
         };
         Self::encode_and_send(&mut self.encode_buffer, &mut codec, &setup, transport).await?;
+        #[cfg(feature = "defmt")]
+        defmt::info!("stratum-v2: setup-connection sent (protocol=mining, version=2)");
 
         // OpenStandardMiningChannel — request_id is fixed for the
         // single channel this session opens; the pool echoes it
@@ -257,6 +274,11 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
             max_target: Uint256::from_le_bytes(&PERMISSIVE_MAX_TARGET),
         };
         Self::encode_and_send(&mut self.encode_buffer, &mut codec, &open, transport).await?;
+        #[cfg(feature = "defmt")]
+        defmt::info!(
+            "stratum-v2: open-standard-mining-channel sent, request_id={=u32}",
+            OPEN_CHANNEL_REQUEST_ID,
+        );
 
         self.state = V2State::Connected {
             codec,
@@ -273,15 +295,31 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
         if self.outbound_len > 0 {
             // Previous submit hasn't flushed yet; the encrypted
             // codec is single-chunk, so we don't pipeline.
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "stratum-v2: submit dropped, outbound buffer in use ({=usize}B pending)",
+                self.outbound_len - self.outbound_offset,
+            );
             return Err(Error::BufferTooSmall);
         }
         let V2State::Connected { codec, session } = &mut self.state else {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("stratum-v2: submit dropped, session not connected");
             return Err(Error::Adapter);
         };
-        let channel_id = session.channel_id.ok_or(Error::Adapter)?;
-        let wire_job_id = session
-            .lookup_wire_job_id(share.id)
-            .ok_or(Error::UnknownJobId)?;
+        let Some(channel_id) = session.channel_id else {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("stratum-v2: submit dropped, channel not yet opened");
+            return Err(Error::Adapter);
+        };
+        let Some(wire_job_id) = session.lookup_wire_job_id(share.id) else {
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "stratum-v2: submit dropped, JobId({=u32}) not in ring",
+                share.id.0,
+            );
+            return Err(Error::UnknownJobId);
+        };
         let sequence_number = session.allocate_sequence_number();
 
         let message = SubmitSharesStandard {
@@ -297,6 +335,17 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
             .map_err(|_| Error::BufferTooSmall)?;
         self.outbound_len = length;
         self.outbound_offset = 0;
+        #[cfg(feature = "defmt")]
+        defmt::info!(
+            "stratum-v2: submit queued channel={=u32} seq={=u32} job={=u32} \
+             nonce={=u32:#010x} ntime={=u32:#010x} version={=u32:#010x}",
+            channel_id,
+            sequence_number,
+            wire_job_id,
+            share.nonce,
+            share.ntime,
+            share.version_bits,
+        );
         Ok(())
     }
 
@@ -408,8 +457,8 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
     /// `wire_buffer`, translates the `MiningMessages` variant into
     /// the visitor's canonical `MiningJob` / `SessionUpdate` shape,
     /// and resets the receive state machine so the next `drive` can
-    /// read another frame. Unknown or malformed frames are dropped
-    /// silently — defmt logging lands in a later commit.
+    /// read another frame. Parse or dispatch failures emit a defmt
+    /// warning and otherwise drop the frame.
     fn accept<V: MiningClientVisitor>(&mut self, visitor: &mut V) {
         let FrameState::PayloadReady { header } = self.frame_state else {
             return;
@@ -420,12 +469,30 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
 
         let payload_len = header.msg_length as usize;
         if payload_len > self.wire_buffer.len() {
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "stratum-v2: frame dropped, payload_len {=usize} > wire buffer {=usize}",
+                payload_len,
+                self.wire_buffer.len(),
+            );
             return;
         }
         let Ok(frame) = FrameView::try_new(header, &self.wire_buffer[..payload_len]) else {
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "stratum-v2: FrameView::try_new failed (msg_length={=u32})",
+                header.msg_length,
+            );
             return;
         };
         let Ok(message) = MiningMessages::dispatch(frame) else {
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "stratum-v2: unknown message ext={=u16:#x} type={=u8:#x} channel={=bool}",
+                header.extension_type,
+                header.msg_type,
+                header.is_channel_message,
+            );
             return;
         };
 
@@ -434,6 +501,36 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
         };
 
         match message {
+            MiningMessages::SetupConnectionSuccess(success) => {
+                #[cfg(feature = "defmt")]
+                defmt::info!(
+                    "stratum-v2: setup-connection-success used_version={=u16} flags={=u32:#010x}",
+                    success.used_version,
+                    success.flags,
+                );
+                #[cfg(not(feature = "defmt"))]
+                let _ = success;
+            }
+            MiningMessages::SetupConnectionError(error) => {
+                #[cfg(feature = "defmt")]
+                defmt::warn!(
+                    "stratum-v2: setup-connection-error flags={=u32:#010x} code={=[u8]:a}",
+                    error.flags,
+                    error.code.as_bytes(),
+                );
+                #[cfg(not(feature = "defmt"))]
+                let _ = error;
+            }
+            MiningMessages::OpenMiningChannelError(error) => {
+                #[cfg(feature = "defmt")]
+                defmt::warn!(
+                    "stratum-v2: open-mining-channel-error req={=u32} code={=[u8]:a}",
+                    error.request_id,
+                    error.code.as_bytes(),
+                );
+                #[cfg(not(feature = "defmt"))]
+                let _ = error;
+            }
             MiningMessages::OpenStandardMiningChannelSuccess(success) => {
                 handle_channel_open_success(session, &success, visitor);
             }
@@ -452,19 +549,10 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification + 'static> MiningCl
             MiningMessages::SubmitSharesError(error) => {
                 handle_submit_error(&error, visitor);
             }
-            // Server-initiated `SetupConnection`,
-            // `OpenStandardMiningChannel`, and client-side
-            // `SubmitSharesStandard` never arrive at a client.
-            // `SetupConnectionSuccess` carries no fields the trait
-            // surface exposes today (the firmware requests
-            // `flags = 0`, so version rolling is not negotiated).
-            // Errors are dropped here; defmt logging lands in a
-            // later commit.
+            // Client-side echoes; the pool never sends these to
+            // a miner. Silently drop.
             MiningMessages::SetupConnection(_)
-            | MiningMessages::SetupConnectionSuccess(_)
-            | MiningMessages::SetupConnectionError(_)
             | MiningMessages::OpenStandardMiningChannel(_)
-            | MiningMessages::OpenMiningChannelError(_)
             | MiningMessages::SubmitSharesStandard(_) => {}
         }
     }
@@ -487,6 +575,13 @@ fn handle_channel_open_success<V: MiningClientVisitor>(
     let prefix_len = prefix.len().min(MAX_EXTRANONCE_PREFIX);
     session.extranonce_prefix_len = prefix_len;
     session.extranonce_prefix[..prefix_len].copy_from_slice(&prefix[..prefix_len]);
+    #[cfg(feature = "defmt")]
+    defmt::info!(
+        "stratum-v2: channel-open-success channel={=u32} prefix={=[u8]:x} target_msb={=[u8]:x}",
+        success.channel_id,
+        &session.extranonce_prefix[..session.extranonce_prefix_len],
+        &session.target[24..32],
+    );
     visitor.visit_session_update(SessionUpdate::SetTarget(&session.target));
     visitor.visit_session_update(SessionUpdate::SetExtranonce {
         prefix: &session.extranonce_prefix[..session.extranonce_prefix_len],
@@ -503,6 +598,12 @@ fn handle_set_target<V: MiningClientVisitor>(
     session
         .target
         .copy_from_slice(set_target.max_target.to_le_bytes());
+    #[cfg(feature = "defmt")]
+    defmt::info!(
+        "stratum-v2: set-target channel={=u32} target_msb={=[u8]:x}",
+        set_target.channel_id,
+        &session.target[24..32],
+    );
     visitor.visit_session_update(SessionUpdate::SetTarget(&session.target));
 }
 
@@ -520,6 +621,16 @@ fn handle_set_new_prev_hash<V: MiningClientVisitor>(
     session.have_prev_hash = true;
     session.nbits = snph.nbits;
     session.ntime_base = snph.min_ntime;
+    #[cfg(feature = "defmt")]
+    defmt::info!(
+        "stratum-v2: set-new-prev-hash channel={=u32} job={=u32} \
+         nbits={=u32:#010x} ntime={=u32:#010x} prev_msb={=[u8]:x}",
+        snph.channel_id,
+        snph.job_id,
+        snph.nbits,
+        snph.min_ntime,
+        &session.prev_hash[24..32],
+    );
 
     let Some(pending) = session.pending_future_job.take() else {
         return;
@@ -527,6 +638,13 @@ fn handle_set_new_prev_hash<V: MiningClientVisitor>(
     if pending.wire_job_id != snph.job_id {
         // Future job was for a different job_id — drop it; the
         // pool will resend if it still applies.
+        #[cfg(feature = "defmt")]
+        defmt::warn!(
+            "stratum-v2: pending future job dropped, job_id mismatch \
+             (pending={=u32}, snph={=u32})",
+            pending.wire_job_id,
+            snph.job_id,
+        );
         return;
     }
     emit_mining_job(
@@ -553,8 +671,22 @@ fn handle_new_mining_job<V: MiningClientVisitor>(
         if !session.have_prev_hash {
             // Pool sent an active job before any prev hash — drop;
             // the next `SetNewPrevHash` will reset state.
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "stratum-v2: new-mining-job dropped, no prev_hash yet (job={=u32})",
+                job.job_id,
+            );
             return;
         }
+        #[cfg(feature = "defmt")]
+        defmt::info!(
+            "stratum-v2: new-mining-job channel={=u32} job={=u32} \
+             version={=u32:#010x} ntime={=u32:#010x}",
+            job.channel_id,
+            job.job_id,
+            job.version,
+            ntime,
+        );
         emit_mining_job(
             session,
             job.job_id,
@@ -569,6 +701,13 @@ fn handle_new_mining_job<V: MiningClientVisitor>(
 
     let mut merkle_root = [0u8; 32];
     merkle_root.copy_from_slice(job.merkle_root.to_le_bytes());
+    #[cfg(feature = "defmt")]
+    defmt::info!(
+        "stratum-v2: new-mining-job pending channel={=u32} job={=u32} version={=u32:#010x}",
+        job.channel_id,
+        job.job_id,
+        job.version,
+    );
     session.pending_future_job = Some(PendingFutureJob {
         wire_job_id: job.job_id,
         version: job.version,
@@ -614,7 +753,18 @@ fn emit_mining_job<V: MiningClientVisitor>(
 /// a placeholder — V2 success/error frames refer to a per-channel
 /// `sequence_number`, not a job id, so a seq→`JobId` map would be
 /// the right next step (matches V1's posture today).
-fn handle_submit_success<V: MiningClientVisitor>(_success: &SubmitSharesSuccess, visitor: &mut V) {
+fn handle_submit_success<V: MiningClientVisitor>(success: &SubmitSharesSuccess, visitor: &mut V) {
+    #[cfg(feature = "defmt")]
+    defmt::info!(
+        "stratum-v2: submit-shares-success channel={=u32} last_seq={=u32} \
+         accepted_count={=u32} shares_sum={=u64}",
+        success.channel_id,
+        success.last_sequence_number,
+        success.new_submits_accepted_count,
+        success.new_shares_sum,
+    );
+    #[cfg(not(feature = "defmt"))]
+    let _ = success;
     visitor.visit_submit_result(SubmitResult {
         id: JobId(0),
         accepted: true,
@@ -629,6 +779,13 @@ fn handle_submit_success<V: MiningClientVisitor>(_success: &SubmitSharesSuccess,
 /// uses a numeric V1 code we don't have a V2 counterpart for.
 fn handle_submit_error<V: MiningClientVisitor>(error: &SubmitSharesError<'_>, visitor: &mut V) {
     let code_bytes = error.error_code.as_bytes();
+    #[cfg(feature = "defmt")]
+    defmt::warn!(
+        "stratum-v2: submit-shares-error channel={=u32} seq={=u32} code={=[u8]:a}",
+        error.channel_id,
+        error.sequence_number,
+        code_bytes,
+    );
     let error_message = core::str::from_utf8(code_bytes).ok();
     visitor.visit_submit_result(SubmitResult {
         id: JobId(0),
@@ -649,4 +806,19 @@ fn map_init_error<E>(err: &ii_sv2::security::InitializationError<E>) -> Error {
         ii_sv2::security::InitializationError::Handshake(_)
         | ii_sv2::security::InitializationError::InvalidKey(_) => Error::SessionRejected,
     }
+}
+
+/// Log the failing handshake variant before `map_init_error` flattens
+/// it. `InitializationError` does not implement `defmt::Format`, so
+/// we discriminate the variants and log a short label only.
+#[cfg(feature = "defmt")]
+fn log_init_error<E>(err: &ii_sv2::security::InitializationError<E>) {
+    let label: &str = match err {
+        ii_sv2::security::InitializationError::Authentication(_) => "authentication",
+        ii_sv2::security::InitializationError::Io(_) => "io",
+        ii_sv2::security::InitializationError::UnexpectedEof => "unexpected-eof",
+        ii_sv2::security::InitializationError::Handshake(_) => "handshake",
+        ii_sv2::security::InitializationError::InvalidKey(_) => "invalid-key",
+    };
+    defmt::warn!("stratum-v2: noise handshake failed, kind={=str}", label);
 }
