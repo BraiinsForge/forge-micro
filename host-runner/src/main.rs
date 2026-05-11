@@ -86,9 +86,9 @@ async fn net_task(mut runner: Runner<'static, HostDevice>) -> ! {
 async fn heartbeat_task(stack: Stack<'static>) {
     loop {
         Timer::after(Duration::from_secs(10)).await;
-        let link_up = stack.config_v4().is_some();
+        let address = stack.config_v4().map(|config| config.address);
         let hashrate = eth_examples::hashrate::HashrateDisplay(eth_examples::hashrate::hashrate());
-        info!("host-runner: tick, link_up={link_up}, hashrate={hashrate}");
+        info!("host-runner: tick, address={address:?}, hashrate={hashrate}");
     }
 }
 

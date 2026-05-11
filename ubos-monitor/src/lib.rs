@@ -190,5 +190,7 @@ where
             timestamp_ms: 0,
         })
         .await;
+
+        info!("monitor: temp={}°C pwm={}", temp_c, pwm);
     }
 }
