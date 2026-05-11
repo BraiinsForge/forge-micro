@@ -9,6 +9,7 @@
 
 mod client;
 mod error;
+pub mod hex;
 mod job;
 mod job_id;
 mod lazy_merkle;
