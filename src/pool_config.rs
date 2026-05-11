@@ -20,6 +20,7 @@
 
 use core::str::FromStr;
 
+use embassy_time::Duration;
 use heapless::String;
 
 /// Default V1 ckpool on the lab NUC. Matches today's hardcoded
@@ -31,6 +32,12 @@ pub const DEFAULT_POOL_HOST: &str = "redacted100";
 pub const DEFAULT_POOL_PORT_STR: &str = "3333";
 
 pub const DEFAULT_POOL_PROTOCOL: &str = "sv1";
+
+/// Delay between reconnect attempts when the TCP session drops or
+/// the stratum loop returns. Same shape as the other defaults but
+/// deliberately not env-configurable — adjust the constant if a
+/// board needs a different cadence.
+pub const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 
 /// Maximum byte length of `POOL_HOST` (DNS name or IPv4 literal)
 /// and `POOL_USER`. Mining pool hostnames are short in practice;
