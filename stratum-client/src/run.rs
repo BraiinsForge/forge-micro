@@ -70,7 +70,12 @@ where
                 client.accept(state);
             }
             Either3::Second(solution) => {
-                let _ = handle_solution(client, state, solution);
+                if let Err(error) = handle_solution(client, state, solution) {
+                    #[cfg(feature = "defmt")]
+                    defmt::warn!("stratum-client: submit dropped error={=?}", error);
+                    #[cfg(not(feature = "defmt"))]
+                    let _ = error;
+                }
             }
             Either3::Third(()) => {
                 publish_work(state, asic);
