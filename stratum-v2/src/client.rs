@@ -426,6 +426,10 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                     }
                     // Whole encrypted header is in `header_buffer`.
                     // Decrypt — first AEAD advance for this frame.
+                    // Reset state before the fallible call so a decode
+                    // failure does not leave the machine wedged on the
+                    // same ciphertext for the next `drive` call.
+                    self.frame_state = FrameState::Idle;
                     let header = codec
                         .decode_header(&mut self.header_buffer)
                         .map_err(|_| Error::Decode)?;
@@ -454,7 +458,10 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                         self.frame_state = FrameState::ReadingPayload { header, received };
                     }
                     // Whole encrypted payload buffered. Decrypt
-                    // in place — second AEAD advance.
+                    // in place — second AEAD advance. Reset state
+                    // first so a decode failure doesn't leave the
+                    // machine wedged on the same ciphertext.
+                    self.frame_state = FrameState::Idle;
                     codec
                         .decode_frame(header, &mut self.wire_buffer[..payload_total])
                         .map_err(|_| Error::Decode)?;
