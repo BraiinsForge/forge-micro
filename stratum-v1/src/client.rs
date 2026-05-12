@@ -76,6 +76,32 @@ pub struct StratumV1Client {
     /// Cursor into `encode_buffer[..outbound_len]` for resuming a
     /// partially-written flush after a `drive()` cancellation.
     outbound_offset: usize,
+    /// Lifecycle phase. `Active` for the full session; `Rejected`
+    /// after the pool refuses subscribe or authorize. The next
+    /// `drive` / `submit` then returns `Error::SessionRejected`
+    /// so the work loop tears the connection down and reconnects.
+    state: V1State,
+}
+
+#[derive(Clone, Copy)]
+enum V1State {
+    Active,
+    Rejected(V1Rejection),
+}
+
+/// Reason the V1 session moved to `V1State::Rejected`.
+#[derive(Clone, Copy)]
+enum V1Rejection {
+    Subscribe,
+    Authorize,
+}
+
+#[cfg(feature = "defmt")]
+fn rejection_label(rejection: V1Rejection) -> &'static str {
+    match rejection {
+        V1Rejection::Subscribe => "subscribe-rejected",
+        V1Rejection::Authorize => "authorize-rejected",
+    }
 }
 
 impl StratumV1Client {
@@ -90,6 +116,7 @@ impl StratumV1Client {
             encode_buffer: [0; ENCODE_BUFFER_BYTES],
             outbound_len: 0,
             outbound_offset: 0,
+            state: V1State::Active,
         }
     }
 
@@ -189,6 +216,16 @@ impl MiningClient for StratumV1Client {
     /// `Err(Error::BufferTooSmall)` if the outbound slot is busy.
     /// The next `drive()` flushes the encoded bytes.
     fn submit(&mut self, share: &Share<'_>) -> Result<(), Error> {
+        if let V1State::Rejected(rejection) = self.state {
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "stratum-v1: submit dropped, session rejected ({=str})",
+                rejection_label(rejection),
+            );
+            #[cfg(not(feature = "defmt"))]
+            let _ = rejection;
+            return Err(Error::SessionRejected);
+        }
         if self.outbound_len > 0 {
             return Err(Error::BufferTooSmall);
         }
@@ -250,6 +287,16 @@ impl MiningClient for StratumV1Client {
     where
         T: Read + Write,
     {
+        if let V1State::Rejected(rejection) = self.state {
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "stratum-v1: drive aborted, session rejected ({=str})",
+                rejection_label(rejection),
+            );
+            #[cfg(not(feature = "defmt"))]
+            let _ = rejection;
+            return Err(Error::SessionRejected);
+        }
         self.flush_outbound(transport).await?;
 
         loop {
@@ -372,7 +419,11 @@ impl MiningClient for StratumV1Client {
                     );
                 }
                 Rpc::Response(response) => {
-                    dispatch_response(&response, &mut self.session, visitor);
+                    if let Some(rejection) =
+                        dispatch_response(&response, &mut self.session, visitor)
+                    {
+                        self.state = V1State::Rejected(rejection);
+                    }
                 }
             }
         }
@@ -602,7 +653,7 @@ fn dispatch_response<V: MiningClientVisitor>(
     response: &Response<'_>,
     session: &mut SessionState,
     visitor: &mut V,
-) {
+) -> Option<V1Rejection> {
     match response.id {
         CONFIGURE_ID => {
             if let Some(result) = response.stratum_result {
@@ -611,10 +662,16 @@ fn dispatch_response<V: MiningClientVisitor>(
                     visitor.visit_session_update(SessionUpdate::SetVersionMask(mask));
                 }
             }
+            None
         }
         SUBSCRIBE_ID => {
-            let Some(result) = response.stratum_result else {
-                return;
+            let result = match response.stratum_result {
+                Some(result) if response.stratum_error.is_none() => result,
+                _ => {
+                    #[cfg(feature = "defmt")]
+                    defmt::warn!("stratum-v1: subscribe rejected by pool, ending session");
+                    return Some(V1Rejection::Subscribe);
+                }
             };
             // Copy the result slice out so we can re-parse it
             // without holding the wire-buffer borrow.
@@ -622,10 +679,10 @@ fn dispatch_response<V: MiningClientVisitor>(
             let len = result.len().min(buffer.len());
             buffer[..len].copy_from_slice(&result[..len]);
             let Ok(parsed) = parse_subscribe_result(&buffer[..len]) else {
-                return;
+                return None;
             };
             if !store_extranonce_1(session, parsed.1) {
-                return;
+                return None;
             }
             session.extranonce_2_size = parsed.2;
             #[cfg(feature = "defmt")]
@@ -638,15 +695,24 @@ fn dispatch_response<V: MiningClientVisitor>(
                 prefix: &session.extranonce_1[..session.extranonce_1_len],
                 en2_size: session.extranonce_2_size,
             });
+            None
         }
         AUTHORIZE_ID => {
-            // Authorize is acknowledged; the boolean tells us
-            // whether the worker name was accepted. Failure is
-            // surfaced via Error::SessionRejected on a future drive
-            // call by the work loop; for now log nothing.
-            if let Some(result) = response.stratum_result {
-                let _ = parse_boolean_result(result);
+            // Authorize is acknowledged; either an error object or
+            // a boolean `false` means the pool refused the worker
+            // name and no shares from this session will ever be
+            // accepted. End the session in either case.
+            let accepted = response.stratum_error.is_none()
+                && response
+                    .stratum_result
+                    .and_then(|raw| parse_boolean_result(raw).ok())
+                    .unwrap_or(false);
+            if !accepted {
+                #[cfg(feature = "defmt")]
+                defmt::warn!("stratum-v1: authorize rejected by pool, ending session");
+                return Some(V1Rejection::Authorize);
             }
+            None
         }
         id if id >= SUBMIT_ID_START => {
             let accepted = response
@@ -685,7 +751,8 @@ fn dispatch_response<V: MiningClientVisitor>(
                 error_code,
                 error_message,
             });
+            None
         }
-        _ => {}
+        _ => None,
     }
 }

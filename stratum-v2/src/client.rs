@@ -82,6 +82,27 @@ enum V2State {
         codec: EncryptedCodec,
         session: V2SessionState,
     },
+    /// Terminal: the pool sent a fatal error response (either
+    /// `SetupConnectionError` or `OpenMiningChannelError`). All
+    /// further `drive` / `submit` calls return
+    /// `Error::SessionRejected` so the work loop tears the session
+    /// down and reconnects. Cause is retained for diagnostics.
+    Rejected(V2Rejection),
+}
+
+/// Reason the V2 session moved to `V2State::Rejected`.
+#[derive(Clone, Copy)]
+enum V2Rejection {
+    SetupConnection,
+    OpenMiningChannel,
+}
+
+#[cfg(feature = "defmt")]
+fn rejection_label(rejection: V2Rejection) -> &'static str {
+    match rejection {
+        V2Rejection::SetupConnection => "setup-connection-error",
+        V2Rejection::OpenMiningChannel => "open-mining-channel-error",
+    }
 }
 
 /// Receive-side state machine. Each state describes precisely how
@@ -298,6 +319,16 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
     /// the pool's `SubmitSharesSuccess` / `SubmitSharesError`
     /// response surfaces through `accept` → `visit_submit_result`.
     fn submit(&mut self, share: &Share<'_>) -> Result<(), Error> {
+        if let V2State::Rejected(rejection) = self.state {
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "stratum-v2: submit dropped, session rejected ({=str})",
+                rejection_label(rejection),
+            );
+            #[cfg(not(feature = "defmt"))]
+            let _ = rejection;
+            return Err(Error::SessionRejected);
+        }
         if self.outbound_len > 0 {
             // Previous submit hasn't flushed yet; the encrypted
             // codec is single-chunk, so we don't pipeline.
@@ -367,6 +398,16 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
     where
         T: Read + Write,
     {
+        if let V2State::Rejected(rejection) = self.state {
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "stratum-v2: drive aborted, session rejected ({=str})",
+                rejection_label(rejection),
+            );
+            #[cfg(not(feature = "defmt"))]
+            let _ = rejection;
+            return Err(Error::SessionRejected);
+        }
         // Flush queued outbound bytes (e.g. a `SubmitSharesStandard`
         // produced by a recent `submit`) before reading. The bytes
         // are already AEAD-sealed, so a partial write is safe to
@@ -526,6 +567,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 );
                 #[cfg(not(feature = "defmt"))]
                 let _ = error;
+                self.state = V2State::Rejected(V2Rejection::SetupConnection);
             }
             MiningMessages::OpenMiningChannelError(error) => {
                 #[cfg(feature = "defmt")]
@@ -536,6 +578,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 );
                 #[cfg(not(feature = "defmt"))]
                 let _ = error;
+                self.state = V2State::Rejected(V2Rejection::OpenMiningChannel);
             }
             MiningMessages::OpenStandardMiningChannelSuccess(success) => {
                 handle_channel_open_success(session, &success, visitor);
