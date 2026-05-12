@@ -67,6 +67,12 @@ const DEVICE_ID: &str = "";
 /// suffices.
 const OPEN_CHANNEL_REQUEST_ID: u32 = 1;
 
+/// BIP320 version-rolling mask. The 16 bits between bit 13 and bit 28
+/// that miners may flip without invalidating consensus rules. SV2
+/// standard channels grant this mask when the upstream advertises
+/// `REQUIRES_VERSION_ROLLING` in `SetupConnectionSuccess.flags`.
+const BIP320_VERSION_MASK: u32 = 0x1FFF_E000;
+
 /// Adapter state — `PreHandshake` until `connect` finishes the
 /// noise dance, `Connected { codec, session }` afterwards.
 //
@@ -536,8 +542,13 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                     success.used_version,
                     success.flags,
                 );
-                #[cfg(not(feature = "defmt"))]
-                let _ = success;
+                let mask = if success.flags & SetupConnection::REQUIRES_VERSION_ROLLING != 0 {
+                    BIP320_VERSION_MASK
+                } else {
+                    0
+                };
+                session.version_rolling_mask = mask;
+                visitor.visit_session_update(SessionUpdate::SetVersionMask(mask));
             }
             MiningMessages::SetupConnectionError(error) => {
                 #[cfg(feature = "defmt")]
