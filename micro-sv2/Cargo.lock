@@ -378,7 +378,7 @@ dependencies = [
 
 [[package]]
 name = "ii-sv2"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -396,7 +396,7 @@ dependencies = [
 
 [[package]]
 name = "ii-sv2-crypto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chacha20poly1305",
  "hkdf",
@@ -407,14 +407,14 @@ dependencies = [
 
 [[package]]
 name = "ii-sv2-framing"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ii-sv2-types",
 ]
 
 [[package]]
 name = "ii-sv2-messages"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ii-sv2-framing",
  "ii-sv2-types",
@@ -422,7 +422,7 @@ dependencies = [
 
 [[package]]
 name = "ii-sv2-security"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "embedded-io-adapters",
@@ -439,7 +439,7 @@ dependencies = [
 
 [[package]]
 name = "ii-sv2-types"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "inout"
