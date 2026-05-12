@@ -108,7 +108,7 @@ serial-baudrate   = { path = "serial-baudrate" }
 stratum-client    = { path = "stratum-client" }
 stratum-v1        = { path = "stratum-v1" }
 stratum-v2        = { path = "stratum-v2" }
-ii-sv2            = { git = "ssh://git@gitlab.ii.zone/jakub.trnka/micro-sv2.git", branch = "jtr/unstable", default-features = false }
+ii-sv2            = { git = "ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git", tag = "v0.2.0", default-features = false }
 ubos-logging      = { path = "ubos-logging", default-features = false }
 ubos-psu          = { path = "ubos-psu", default-features = false }
 
