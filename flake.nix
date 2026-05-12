@@ -522,6 +522,13 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          clippy-asic-uart-peer = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p asic-uart-peer";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
           clippy-eth-examples-host = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
@@ -563,6 +570,12 @@
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p asic-cpu-mock";
+          };
+
+          test-asic-uart-peer = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p asic-uart-peer";
           };
 
           clippy-esp32s3 = espCraneLib.cargoClippy {
