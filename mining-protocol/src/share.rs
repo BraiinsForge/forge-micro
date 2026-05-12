@@ -3,6 +3,19 @@
 
 use crate::job_id::JobId;
 
+/// Maximum `extranonce_2` size we are willing to track per session.
+/// Sets the static capacity of every `extranonce_2` buffer in the
+/// stack (in particular `stratum_client::OutstandingWork`), so the
+/// adapter MUST reject any session whose pool-advertised
+/// `extranonce_2_size` exceeds this — otherwise we would silently
+/// produce undersized shares and waste all the chip's work.
+///
+/// 16 bytes covers every V1 public pool we have observed (ckpool /
+/// btc.com / antpool / braiins use 4–8) with comfortable margin.
+/// V2 standard channels don't roll `extranonce_2`, so the size
+/// lands at zero.
+pub const MAX_EXTRANONCE_2: usize = 16;
+
 /// One found share, headed for the pool via `MiningClient::submit`.
 ///
 /// `id` references the stratum job the share belongs to (looked up

@@ -24,4 +24,4 @@ pub use crate::job::MiningJob;
 pub use crate::job_id::JobId;
 pub use crate::lazy_merkle::LazyMerkle;
 pub use crate::session::{SessionUpdate, SubmitResult};
-pub use crate::share::Share;
+pub use crate::share::{Share, MAX_EXTRANONCE_2};

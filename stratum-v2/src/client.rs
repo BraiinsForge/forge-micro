@@ -479,6 +479,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
     /// and resets the receive state machine so the next `drive` can
     /// read another frame. Parse or dispatch failures emit a defmt
     /// warning and otherwise drop the frame.
+    #[allow(clippy::too_many_lines)]
     fn accept<V: MiningClientVisitor>(&mut self, visitor: &mut V) {
         let FrameState::PayloadReady { header } = self.frame_state else {
             return;
@@ -554,7 +555,18 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 self.state = V2State::Rejected(SessionRejection::OpenMiningChannelError);
             }
             MiningMessages::OpenStandardMiningChannelSuccess(success) => {
-                handle_channel_open_success(session, &success, visitor);
+                let prefix_len = success.extranonce_prefix.as_slice().len();
+                if prefix_len > MAX_EXTRANONCE_PREFIX {
+                    #[cfg(feature = "defmt")]
+                    defmt::warn!(
+                        "stratum-v2: open-channel-success extranonce_prefix={=usize}B > MAX={=usize}B; ending session",
+                        prefix_len,
+                        MAX_EXTRANONCE_PREFIX,
+                    );
+                    self.state = V2State::Rejected(SessionRejection::ExtranonceTooLarge);
+                } else {
+                    handle_channel_open_success(session, &success, visitor);
+                }
             }
             MiningMessages::SetTarget(set_target) => {
                 handle_set_target(session, &set_target, visitor);
@@ -594,9 +606,12 @@ fn handle_channel_open_success<V: MiningClientVisitor>(
     session.channel_id = Some(success.channel_id);
     session.target.copy_from_slice(success.target.to_le_bytes());
     let prefix = success.extranonce_prefix.as_slice();
-    let prefix_len = prefix.len().min(MAX_EXTRANONCE_PREFIX);
+    // The accept-side validation rejects the session if
+    // `prefix.len() > MAX_EXTRANONCE_PREFIX`, so this fits exactly.
+    let prefix_len = prefix.len();
+    debug_assert!(prefix_len <= MAX_EXTRANONCE_PREFIX);
     session.extranonce_prefix_len = prefix_len;
-    session.extranonce_prefix[..prefix_len].copy_from_slice(&prefix[..prefix_len]);
+    session.extranonce_prefix[..prefix_len].copy_from_slice(prefix);
     #[cfg(feature = "defmt")]
     {
         let target_hex = mining_protocol::hex::encode_block_hash_lower(&session.target);

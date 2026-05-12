@@ -6,6 +6,7 @@
 //! reconstruct the full submit context from its `WorkRing`.
 
 use mining_protocol::JobId;
+pub use mining_protocol::MAX_EXTRANONCE_2;
 
 /// Work pushed from the host to the ASIC for one round of hashing.
 ///
@@ -47,7 +48,3 @@ pub struct OutstandingWork {
     pub job_id: JobId,
     pub extranonce_2: heapless::Vec<u8, MAX_EXTRANONCE_2>,
 }
-
-/// Maximum bytes for `extranonce_2`. V1 pools negotiate this; V2
-/// standard channels don't roll en2, so the size lands at zero.
-pub const MAX_EXTRANONCE_2: usize = 16;

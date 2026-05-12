@@ -46,4 +46,11 @@ pub enum SessionRejection {
     SetupConnectionError,
     /// V2 `OpenMiningChannel.Error` received.
     OpenMiningChannelError,
+    /// Pool advertised an `extranonce_2_size` (V1) or
+    /// `extranonce_prefix` length (V2) that exceeds our static
+    /// per-share buffer ([`MAX_EXTRANONCE_2`](crate::MAX_EXTRANONCE_2)).
+    /// Continuing the session would silently truncate `extranonce_2`
+    /// into a too-small buffer and waste every share, so the adapter
+    /// refuses the session instead.
+    ExtranonceTooLarge,
 }

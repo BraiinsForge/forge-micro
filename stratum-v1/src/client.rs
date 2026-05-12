@@ -11,7 +11,7 @@ use heapless::String;
 
 use mining_protocol::{
     Error, JobId, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionRejection,
-    SessionUpdate, Share, SubmitResult,
+    SessionUpdate, Share, SubmitResult, MAX_EXTRANONCE_2,
 };
 
 use crate::config::Sv1Config;
@@ -364,7 +364,15 @@ impl MiningClient for StratumV1Client {
                     visitor.visit_session_update(SessionUpdate::SetVersionMask(set_mask.mask));
                 }
                 Rpc::Notification(Notification::SetExtranonce(set_extranonce)) => {
-                    if store_extranonce_1(&mut self.session, set_extranonce.extra_nonce_1)
+                    if usize::from(set_extranonce.extra_nonce_2_size) > MAX_EXTRANONCE_2 {
+                        #[cfg(feature = "defmt")]
+                        defmt::warn!(
+                            "stratum-v1: set-extranonce en2_size={=u8} > MAX_EXTRANONCE_2={=usize}; ending session",
+                            set_extranonce.extra_nonce_2_size,
+                            MAX_EXTRANONCE_2,
+                        );
+                        self.state = V1State::Rejected(SessionRejection::ExtranonceTooLarge);
+                    } else if store_extranonce_1(&mut self.session, set_extranonce.extra_nonce_1)
                         && set_extranonce.extra_nonce_2_size as usize
                             <= crate::scratch::MAX_EXTRANONCE_1
                     {
@@ -634,6 +642,7 @@ fn queue_ping_response(
     *outbound_offset = 0;
 }
 
+#[allow(clippy::too_many_lines)]
 fn dispatch_response<V: MiningClientVisitor>(
     response: &Response<'_>,
     session: &mut SessionState,
@@ -679,6 +688,15 @@ fn dispatch_response<V: MiningClientVisitor>(
             let Ok(parsed) = parse_subscribe_result(&buffer[..len]) else {
                 return None;
             };
+            if usize::from(parsed.2) > MAX_EXTRANONCE_2 {
+                #[cfg(feature = "defmt")]
+                defmt::warn!(
+                    "stratum-v1: subscribe en2_size={=u8} > MAX_EXTRANONCE_2={=usize}; ending session",
+                    parsed.2,
+                    MAX_EXTRANONCE_2,
+                );
+                return Some(SessionRejection::ExtranonceTooLarge);
+            }
             if !store_extranonce_1(session, parsed.1) {
                 return None;
             }

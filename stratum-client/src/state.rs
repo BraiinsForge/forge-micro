@@ -100,9 +100,14 @@ impl MiningClientVisitor for StratumState {
         // CPU mock and current ASIC drivers don't roll en2; when
         // they do, the per-share recompute happens in the work
         // generator with the materials still in scope (a future
-        // refinement extends OwnedJob to keep them).
+        // refinement extends OwnedJob to keep them). Slice is
+        // exact-sized: the adapter rejects sessions whose
+        // `extranonce_2_size` exceeds `MAX_EXTRANONCE_2`, so the
+        // index here is always in range.
         let mut zeros = [0u8; MAX_EXTRANONCE_2];
-        let en2 = &zeros[..job.extranonce_2_size as usize];
+        let en2_size = usize::from(job.extranonce_2_size);
+        debug_assert!(en2_size <= MAX_EXTRANONCE_2);
+        let en2 = &zeros[..en2_size];
         job.merkle.compute(en2, &mut slot.merkle_root);
         // Suppress unused-mut on the array; `compute` touches the
         // `out` buffer so `zeros` itself stays unread.

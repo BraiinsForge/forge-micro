@@ -144,10 +144,14 @@ fn publish_work(state: &mut StratumState, asic: &AsicSession) {
     let work_id = state.next_work_id;
     state.next_work_id = state.next_work_id.wrapping_add(1);
 
+    // Adapters reject the session with
+    // `SessionRejection::ExtranonceTooLarge` when the pool advertises
+    // an `extranonce_2_size` above the static `MAX_EXTRANONCE_2`,
+    // so this expect() can only fire on a violated invariant.
     let mut extranonce_2: Vec<u8, MAX_EXTRANONCE_2> = Vec::new();
-    for _ in 0..usize::from(extranonce_2_size).min(MAX_EXTRANONCE_2) {
-        let _ = extranonce_2.push(0);
-    }
+    extranonce_2
+        .resize_default(usize::from(extranonce_2_size))
+        .expect("BUG: SetExtranonce validation should have rejected en2_size > MAX_EXTRANONCE_2");
 
     state.work_ring.put(OutstandingWork {
         work_id,
