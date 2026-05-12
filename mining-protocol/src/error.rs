@@ -6,6 +6,7 @@
 /// protocol-specific errors behind `Adapter` rather than leaking them
 /// across the trait boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Underlying transport (TCP, TLS, Noise) failed.
     Transport,
@@ -13,8 +14,10 @@ pub enum Error {
     BufferTooSmall,
     /// Wire data could not be parsed into a known message.
     Decode,
-    /// Pool-side handshake or session setup was rejected.
-    SessionRejected,
+    /// Pool refused this session at the protocol layer. The cause
+    /// identifies which wire-level message ended the session so the
+    /// caller can decide on backoff or human-readable reporting.
+    SessionRejected(SessionRejection),
     /// Authenticator declined the pool's certificate (V2).
     AuthFailed,
     /// `submit` referenced a `JobId` the adapter no longer tracks.
@@ -23,4 +26,24 @@ pub enum Error {
     NotImplemented,
     /// Catch-all for adapter-internal protocol violations.
     Adapter,
+}
+
+/// Wire-level cause of a pool-side session rejection.
+///
+/// Carried inside [`Error::SessionRejected`]. Each variant names the
+/// exact V1 or V2 wire message that ended the session; the adapter
+/// transitions to a terminal rejected state when one of these
+/// arrives, so the next `drive` / `submit` surfaces the cause
+/// through this enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SessionRejection {
+    /// V1 `mining.subscribe` returned an error or no result.
+    SubscribeRefused,
+    /// V1 `mining.authorize` returned an error or boolean `false`.
+    AuthorizeRefused,
+    /// V2 `SetupConnection.Error` received.
+    SetupConnectionError,
+    /// V2 `OpenMiningChannel.Error` received.
+    OpenMiningChannelError,
 }

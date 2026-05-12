@@ -10,8 +10,8 @@ use embedded_io_async::{Read, Write};
 use heapless::String;
 
 use mining_protocol::{
-    Error, JobId, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share,
-    SubmitResult,
+    Error, JobId, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionRejection,
+    SessionUpdate, Share, SubmitResult,
 };
 
 use crate::config::Sv1Config;
@@ -78,30 +78,16 @@ pub struct StratumV1Client {
     outbound_offset: usize,
     /// Lifecycle phase. `Active` for the full session; `Rejected`
     /// after the pool refuses subscribe or authorize. The next
-    /// `drive` / `submit` then returns `Error::SessionRejected`
-    /// so the work loop tears the connection down and reconnects.
+    /// `drive` / `submit` then returns
+    /// `Error::SessionRejected(cause)` so the work loop tears the
+    /// connection down and reconnects.
     state: V1State,
 }
 
 #[derive(Clone, Copy)]
 enum V1State {
     Active,
-    Rejected(V1Rejection),
-}
-
-/// Reason the V1 session moved to `V1State::Rejected`.
-#[derive(Clone, Copy)]
-enum V1Rejection {
-    Subscribe,
-    Authorize,
-}
-
-#[cfg(feature = "defmt")]
-fn rejection_label(rejection: V1Rejection) -> &'static str {
-    match rejection {
-        V1Rejection::Subscribe => "subscribe-rejected",
-        V1Rejection::Authorize => "authorize-rejected",
-    }
+    Rejected(SessionRejection),
 }
 
 impl StratumV1Client {
@@ -216,15 +202,8 @@ impl MiningClient for StratumV1Client {
     /// `Err(Error::BufferTooSmall)` if the outbound slot is busy.
     /// The next `drive()` flushes the encoded bytes.
     fn submit(&mut self, share: &Share<'_>) -> Result<(), Error> {
-        if let V1State::Rejected(rejection) = self.state {
-            #[cfg(feature = "defmt")]
-            defmt::warn!(
-                "stratum-v1: submit dropped, session rejected ({=str})",
-                rejection_label(rejection),
-            );
-            #[cfg(not(feature = "defmt"))]
-            let _ = rejection;
-            return Err(Error::SessionRejected);
+        if let V1State::Rejected(cause) = self.state {
+            return Err(Error::SessionRejected(cause));
         }
         if self.outbound_len > 0 {
             return Err(Error::BufferTooSmall);
@@ -287,15 +266,8 @@ impl MiningClient for StratumV1Client {
     where
         T: Read + Write,
     {
-        if let V1State::Rejected(rejection) = self.state {
-            #[cfg(feature = "defmt")]
-            defmt::warn!(
-                "stratum-v1: drive aborted, session rejected ({=str})",
-                rejection_label(rejection),
-            );
-            #[cfg(not(feature = "defmt"))]
-            let _ = rejection;
-            return Err(Error::SessionRejected);
+        if let V1State::Rejected(cause) = self.state {
+            return Err(Error::SessionRejected(cause));
         }
         self.flush_outbound(transport).await?;
 
@@ -653,7 +625,7 @@ fn dispatch_response<V: MiningClientVisitor>(
     response: &Response<'_>,
     session: &mut SessionState,
     visitor: &mut V,
-) -> Option<V1Rejection> {
+) -> Option<SessionRejection> {
     match response.id {
         CONFIGURE_ID => {
             if let Some(result) = response.stratum_result {
@@ -670,7 +642,7 @@ fn dispatch_response<V: MiningClientVisitor>(
                 _ => {
                     #[cfg(feature = "defmt")]
                     defmt::warn!("stratum-v1: subscribe rejected by pool, ending session");
-                    return Some(V1Rejection::Subscribe);
+                    return Some(SessionRejection::SubscribeRefused);
                 }
             };
             // Copy the result slice out so we can re-parse it
@@ -710,7 +682,7 @@ fn dispatch_response<V: MiningClientVisitor>(
             if !accepted {
                 #[cfg(feature = "defmt")]
                 defmt::warn!("stratum-v1: authorize rejected by pool, ending session");
-                return Some(V1Rejection::Authorize);
+                return Some(SessionRejection::AuthorizeRefused);
             }
             None
         }

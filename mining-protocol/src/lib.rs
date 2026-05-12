@@ -19,7 +19,7 @@ mod session;
 mod share;
 
 pub use crate::client::{MiningClient, MiningClientVisitor};
-pub use crate::error::Error;
+pub use crate::error::{Error, SessionRejection};
 pub use crate::job::MiningJob;
 pub use crate::job_id::JobId;
 pub use crate::lazy_merkle::LazyMerkle;

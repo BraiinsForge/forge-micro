@@ -79,8 +79,9 @@ pub trait MiningClient {
     ///
     /// Returns `Err(Error::Transport)` on socket error,
     /// `Err(Error::Decode)` if a buffered frame fails to parse, or
-    /// `Err(Error::SessionRejected)` if the pool tears the session
-    /// down with a fatal handshake error.
+    /// `Err(Error::SessionRejected(cause))` if the pool tore the
+    /// session down with a fatal protocol-layer error. The `cause`
+    /// identifies which wire-level message ended the session.
     async fn drive<T>(&mut self, transport: &mut T) -> Result<(), Error>
     where
         T: Read + Write;

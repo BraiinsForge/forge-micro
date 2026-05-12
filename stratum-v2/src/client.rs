@@ -22,8 +22,8 @@ use ii_sv2::security::{
 };
 use ii_sv2::types::{Str0_255, Uint256};
 use mining_protocol::{
-    Error, JobId, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share,
-    SubmitResult,
+    Error, JobId, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionRejection,
+    SessionUpdate, Share, SubmitResult,
 };
 
 use crate::auth::AuthChoice;
@@ -85,24 +85,11 @@ enum V2State {
     /// Terminal: the pool sent a fatal error response (either
     /// `SetupConnectionError` or `OpenMiningChannelError`). All
     /// further `drive` / `submit` calls return
-    /// `Error::SessionRejected` so the work loop tears the session
-    /// down and reconnects. Cause is retained for diagnostics.
-    Rejected(V2Rejection),
-}
-
-/// Reason the V2 session moved to `V2State::Rejected`.
-#[derive(Clone, Copy)]
-enum V2Rejection {
-    SetupConnection,
-    OpenMiningChannel,
-}
-
-#[cfg(feature = "defmt")]
-fn rejection_label(rejection: V2Rejection) -> &'static str {
-    match rejection {
-        V2Rejection::SetupConnection => "setup-connection-error",
-        V2Rejection::OpenMiningChannel => "open-mining-channel-error",
-    }
+    /// `Error::SessionRejected(cause)` so the work loop tears the
+    /// session down and reconnects. Cause is retained verbatim so
+    /// the caller can log / decide based on which wire message
+    /// ended the session.
+    Rejected(SessionRejection),
 }
 
 /// Receive-side state machine. Each state describes precisely how
@@ -319,15 +306,8 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
     /// the pool's `SubmitSharesSuccess` / `SubmitSharesError`
     /// response surfaces through `accept` → `visit_submit_result`.
     fn submit(&mut self, share: &Share<'_>) -> Result<(), Error> {
-        if let V2State::Rejected(rejection) = self.state {
-            #[cfg(feature = "defmt")]
-            defmt::warn!(
-                "stratum-v2: submit dropped, session rejected ({=str})",
-                rejection_label(rejection),
-            );
-            #[cfg(not(feature = "defmt"))]
-            let _ = rejection;
-            return Err(Error::SessionRejected);
+        if let V2State::Rejected(cause) = self.state {
+            return Err(Error::SessionRejected(cause));
         }
         if self.outbound_len > 0 {
             // Previous submit hasn't flushed yet; the encrypted
@@ -398,15 +378,8 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
     where
         T: Read + Write,
     {
-        if let V2State::Rejected(rejection) = self.state {
-            #[cfg(feature = "defmt")]
-            defmt::warn!(
-                "stratum-v2: drive aborted, session rejected ({=str})",
-                rejection_label(rejection),
-            );
-            #[cfg(not(feature = "defmt"))]
-            let _ = rejection;
-            return Err(Error::SessionRejected);
+        if let V2State::Rejected(cause) = self.state {
+            return Err(Error::SessionRejected(cause));
         }
         // Flush queued outbound bytes (e.g. a `SubmitSharesStandard`
         // produced by a recent `submit`) before reading. The bytes
@@ -567,7 +540,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 );
                 #[cfg(not(feature = "defmt"))]
                 let _ = error;
-                self.state = V2State::Rejected(V2Rejection::SetupConnection);
+                self.state = V2State::Rejected(SessionRejection::SetupConnectionError);
             }
             MiningMessages::OpenMiningChannelError(error) => {
                 #[cfg(feature = "defmt")]
@@ -578,7 +551,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 );
                 #[cfg(not(feature = "defmt"))]
                 let _ = error;
-                self.state = V2State::Rejected(V2Rejection::OpenMiningChannel);
+                self.state = V2State::Rejected(SessionRejection::OpenMiningChannelError);
             }
             MiningMessages::OpenStandardMiningChannelSuccess(success) => {
                 handle_channel_open_success(session, &success, visitor);
@@ -861,13 +834,19 @@ fn handle_submit_error<V: MiningClientVisitor>(error: &SubmitSharesError<'_>, vi
 /// Coarse mapping from the rich `InitializationError` to our trait's
 /// `Error` set. The adapter logs the underlying detail via defmt
 /// before this conversion happens; the trait surface stays narrow.
+///
+/// `Handshake` covers Noise framing / message-order failures that
+/// happen before any V2 message has been exchanged, so it lands in
+/// `Transport`. `InvalidKey` means our configured pool pubkey itself
+/// failed to parse — a local config error rather than a pool-side
+/// rejection — so it lands in `Adapter`.
 fn map_init_error<E>(err: &ii_sv2::security::InitializationError<E>) -> Error {
     match err {
         ii_sv2::security::InitializationError::Authentication(_) => Error::AuthFailed,
         ii_sv2::security::InitializationError::Io(_)
-        | ii_sv2::security::InitializationError::UnexpectedEof => Error::Transport,
-        ii_sv2::security::InitializationError::Handshake(_)
-        | ii_sv2::security::InitializationError::InvalidKey(_) => Error::SessionRejected,
+        | ii_sv2::security::InitializationError::UnexpectedEof
+        | ii_sv2::security::InitializationError::Handshake(_) => Error::Transport,
+        ii_sv2::security::InitializationError::InvalidKey(_) => Error::Adapter,
     }
 }
 
