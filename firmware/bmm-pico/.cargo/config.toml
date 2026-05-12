@@ -1,9 +1,5 @@
 [target.thumbv8m.main-none-eabihf]
-runner = [
-  "probe-rs-runner", "run",
-  "--chip", "RP235x",
-  "--log-format", "{t:>10} {f:<14} [{L}] {s}",
-]
+runner = "./scripts/run.sh"
 
 [env]
 DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
@@ -11,15 +7,17 @@ DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
 [build]
 target = "thumbv8m.main-none-eabihf"
 
-# `cargo run-<N>` flashes one of the six bmm-pico boards. Each alias
-# overrides the runner with the corresponding probe serial so the
-# right board is selected when several debugprobes are attached. The
-# bare `cargo run` keeps no `--probe` flag, so probe-rs auto-picks
-# the only attached probe in single-board setups.
+# `cargo run-N` flashes one of the six bmm-pico boards. Each alias
+# sets $PROBE_SERIAL via cargo's [env] table so scripts/run.sh picks
+# the matching `--probe`. The bare `cargo run` leaves the variable
+# unset, so probe-rs auto-selects when only one probe is attached.
+# The env table is used instead of overriding the runner from the
+# alias because cargo's --config merges arrays rather than replacing
+# them, so a runner override would have concatenated arg lists.
 [alias]
-run-1 = ["run", "--config", "target.thumbv8m.main-none-eabihf.runner=[\"probe-rs-runner\",\"run\",\"--chip\",\"RP235x\",\"--probe\",\"2e8a:000c:FA67CE4A27C3E7EF\",\"--log-format\",\"{t:>10} {f:<14} [{L}] {s}\"]"]
-run-2 = ["run", "--config", "target.thumbv8m.main-none-eabihf.runner=[\"probe-rs-runner\",\"run\",\"--chip\",\"RP235x\",\"--probe\",\"2e8a:000c:88BB90F0F41E72CA\",\"--log-format\",\"{t:>10} {f:<14} [{L}] {s}\"]"]
-run-3 = ["run", "--config", "target.thumbv8m.main-none-eabihf.runner=[\"probe-rs-runner\",\"run\",\"--chip\",\"RP235x\",\"--probe\",\"2e8a:000c:D6116FA12FA4716C\",\"--log-format\",\"{t:>10} {f:<14} [{L}] {s}\"]"]
-run-4 = ["run", "--config", "target.thumbv8m.main-none-eabihf.runner=[\"probe-rs-runner\",\"run\",\"--chip\",\"RP235x\",\"--probe\",\"2e8a:000c:330584C1CAFB25E0\",\"--log-format\",\"{t:>10} {f:<14} [{L}] {s}\"]"]
-run-5 = ["run", "--config", "target.thumbv8m.main-none-eabihf.runner=[\"probe-rs-runner\",\"run\",\"--chip\",\"RP235x\",\"--probe\",\"2e8a:000c:B6E765A6D8F55506\",\"--log-format\",\"{t:>10} {f:<14} [{L}] {s}\"]"]
-run-6 = ["run", "--config", "target.thumbv8m.main-none-eabihf.runner=[\"probe-rs-runner\",\"run\",\"--chip\",\"RP235x\",\"--probe\",\"2e8a:000c:E4A10693F025DCA6\",\"--log-format\",\"{t:>10} {f:<14} [{L}] {s}\"]"]
+run-1 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:FA67CE4A27C3E7EF\""]
+run-2 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:88BB90F0F41E72CA\""]
+run-3 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:D6116FA12FA4716C\""]
+run-4 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:330584C1CAFB25E0\""]
+run-5 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:B6E765A6D8F55506\""]
+run-6 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E4A10693F025DCA6\""]
