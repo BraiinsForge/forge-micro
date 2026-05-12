@@ -1,11 +1,16 @@
 //! Shared OLED display rendering and task loop. Draws IP address, UTC
-//! time, BTC price, and hashrate onto the SH1106. Board crates call
-//! [`run`] from a one-line `#[embassy_executor::task]` wrapper.
+//! time, BTC price or fan PWM/RPM, and hashrate onto the SH1106. Board
+//! crates call [`run`] from a one-line `#[embassy_executor::task]` wrapper.
 //!
 //! Values come from shared atomics: `LOCAL_IPV4`, `NTP_EPOCH_OFFSET`,
-//! `BTC_PRICE_CENTS`, and the EWMA inside `crate::hashrate`.
-//! The task signature carries only the display handle; any producer
-//! can publish without rewiring the display's spawn path.
+//! `BTC_PRICE_CENTS`, [`FAN_PWM_PERCENT`], [`FAN_RPM`], and the EWMA
+//! inside `crate::hashrate`. The task signature carries only the
+//! display handle; any producer can publish without rewiring the
+//! display's spawn path.
+//!
+//! Line 3 shows fan PWM and RPM on boards that have cleared the
+//! [`FAN_PWM_PERCENT`] sentinel; on boards without a fan the same line
+//! falls back to the BTC price.
 
 use embassy_net::Ipv4Address;
 use embassy_time::{Duration, Timer};
@@ -14,21 +19,32 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::Text;
 use embedded_hal::digital::OutputPin;
-use portable_atomic::Ordering;
+use portable_atomic::{AtomicU32, AtomicU8, Ordering};
 use profont::PROFONT_12_POINT;
 
 use crate::net::{BTC_PRICE_CENTS, LOCAL_IPV4};
 use crate::ntp;
 use crate::sh1106::Sh1106;
 
-/// Render IP, UTC time, BTC price, and hashrate onto the display.
+/// Last measured fan tach in RPM. Zero on boards without a fan, or
+/// before the first tach sample completes on boards with one.
+pub static FAN_RPM: AtomicU32 = AtomicU32::new(0);
+
+/// Current fan PWM duty as an integer percent in the range 0 to 100
+/// inclusive. `u8::MAX` is the sentinel for "this board has no fan";
+/// the display uses it to decide whether to show fan info or fall back
+/// to the BTC price.
+pub static FAN_PWM_PERCENT: AtomicU8 = AtomicU8::new(u8::MAX);
+
+/// Render IP, UTC time, BTC price or fan PWM/RPM, and hashrate onto
+/// the display.
 ///
 /// The caller must call `display.flush()` afterwards to push the
 /// framebuffer to the hardware. `time_buffer` is scratch space for
-/// formatting the UTC time string.  All four values are read from
-/// shared atomics; the first three render a short placeholder when the
+/// formatting the UTC time string. All values are read from shared
+/// atomics; the first three render a short placeholder when the
 /// underlying atomic is still at its zero sentinel (`no ip`, `no sync`,
-/// `BTC ---`).  Hashrate has no sentinel — zero is rendered as `0 H/s`.
+/// `BTC ---`). Hashrate has no sentinel — zero is rendered as `0 H/s`.
 ///
 /// The 16-pixel line pitch fits four baselines in the SH1106's
 /// 64-pixel height; any larger pitch clips the last line.
@@ -74,15 +90,29 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
         }
     }
 
-    // Line 3: BTC price in whole dollars, or "BTC ---" if not yet fetched.
-    let cents = BTC_PRICE_CENTS.load(Ordering::Relaxed);
-    if cents == 0 {
-        Text::new("BTC ---", Point::new(0, 45), style).draw(display)?;
+    // Line 3: fan PWM and RPM when the board publishes them, BTC
+    // price otherwise. `FAN_PWM_PERCENT == u8::MAX` is the "no fan"
+    // sentinel; any board with a fan task clears it on startup.
+    let pwm_percent = FAN_PWM_PERCENT.load(Ordering::Relaxed);
+    if pwm_percent == u8::MAX {
+        let cents = BTC_PRICE_CENTS.load(Ordering::Relaxed);
+        if cents == 0 {
+            Text::new("BTC ---", Point::new(0, 45), style).draw(display)?;
+        } else {
+            let dollars = cents / 100;
+            // "BTC $" prefix plus up to 8 digits; 18 bytes covers u32 cents.
+            let mut price_buffer = [0u8; 18];
+            if let Ok(text) = format_no_std::show(&mut price_buffer, format_args!("BTC ${dollars}"))
+            {
+                Text::new(text, Point::new(0, 45), style).draw(display)?;
+            }
+        }
     } else {
-        let dollars = cents / 100;
-        // "BTC $" prefix plus up to 8 digits; 18 bytes covers u32 cents.
-        let mut price_buffer = [0u8; 18];
-        if let Ok(text) = format_no_std::show(&mut price_buffer, format_args!("BTC ${dollars}")) {
+        let rpm = FAN_RPM.load(Ordering::Relaxed);
+        let mut fan_buffer = [0u8; 24];
+        if let Ok(text) =
+            format_no_std::show(&mut fan_buffer, format_args!("{pwm_percent}% {rpm} RPM"))
+        {
             Text::new(text, Point::new(0, 45), style).draw(display)?;
         }
     }
