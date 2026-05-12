@@ -592,6 +592,7 @@ pool and exercises the full path without `embassy-net`.
 | Ring depth `N > 2` | `N = 2` is enough for non-ASIC throughput. Promote to `const` parameter when an ASIC driver demonstrates it matters. |
 | Owned per-slot rolling materials (~2KB extra per slot) | Land with the ASIC driver. |
 | `JobId.0 == V2 wire id` short-circuit | Cleaner to keep both adapters on the same translation-map shape. Revisit if memory pressure shows up. |
+| Stratum prometheus metrics (submits_sent / accepted / rejected / accepted_difficulty_sum) | Designed but unimplemented. Counters live in `stratum-client::metrics`, with a per-`StratumState` pending-difficulty FIFO populated in `handle_solution` and drained in `visit_submit_result`. Difficulty unit = `mining_protocol::difficulty::approx_u32`. Exposition: `eth-examples::metrics` reads the four atomics directly (gains a regular dep on `stratum-client`). Deferred until the V1 `SubmitResult.id == JobId(0)` issue is fixed — the metrics design then drops the FIFO and looks up the job directly. |
 
 ## Implementation phases
 

@@ -12,12 +12,9 @@ use mining_protocol::JobId;
 
 use crate::scratch::MAX_EXTRANONCE_1;
 
-/// Reserved JSON-RPC `id` values for handshake requests. Submit
-/// `id`s start at `SUBMIT_ID_START` and increment from there.
-pub const CONFIGURE_ID: u32 = 1;
-pub const SUBSCRIBE_ID: u32 = 2;
-pub const AUTHORIZE_ID: u32 = 3;
-pub const SUBMIT_ID_START: u32 = 4;
+#[cfg(test)]
+#[path = "tests/state.rs"]
+mod tests;
 
 /// Maximum ASCII length of a V1 wire `job_id`. Public pools we have
 /// observed stay well under this; ckpool emits 4–8 char hex.
@@ -27,6 +24,97 @@ pub const MAX_JOB_ID_CHARS: usize = 32;
 /// `JobRing` depth; the two rotate in lockstep.
 pub const JOBID_MAP_DEPTH: usize = 2;
 
+/// Default depth of [`PendingRequests`]: how many JSON-RPC requests
+/// can be in flight before the slot for the oldest one gets
+/// overwritten. Sized to comfortably cover the three-message
+/// handshake (configure / subscribe / authorize) plus a few
+/// concurrent submits at typical share rates.
+pub const PENDING_DEPTH: usize = 8;
+
+/// Kind + metadata of an outstanding JSON-RPC request.
+#[derive(Debug, Clone, Copy)]
+pub enum PendingRequestKind {
+    Configure,
+    Subscribe,
+    Authorize,
+    /// The submitted share's generic `JobId`, surfaced back to the
+    /// visitor when the pool's response lands so it can correlate
+    /// the result with the originating job.
+    Submit {
+        job_id: JobId,
+    },
+}
+
+#[derive(Clone, Copy)]
+struct PendingRequest {
+    id: u32,
+    kind: PendingRequestKind,
+}
+
+/// Fixed-depth map from JSON-RPC `id` to the request kind that
+/// produced it. Each slot lives at `id % N`; on collision the older
+/// entry is silently overwritten and its eventual response then
+/// fails the id check in [`take`](Self::take) and is dropped by
+/// the dispatcher.
+///
+/// `register` is O(1) and infallible; the assumption is that
+/// `N` is comfortably larger than the steady-state in-flight count
+/// for any well-behaved pool. If a response for an evicted request
+/// arrives, the dispatcher logs and drops it — we can't reconstruct
+/// the visitor call without the kind/metadata anyway.
+pub struct PendingRequests<const N: usize> {
+    slots: [Option<PendingRequest>; N],
+    next_id: u32,
+}
+
+impl<const N: usize> PendingRequests<N> {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            slots: [const { None }; N],
+            // Start at 1 so id=0 (commonly used for notifications by
+            // some libraries) never collides with a registered
+            // request, and the first allocated id reads as "1" in
+            // logs / wire dumps.
+            next_id: 1,
+        }
+    }
+
+    /// Reserve a fresh `id` and store `kind` in the slot at
+    /// `id % N`. Any previous occupant is dropped silently; its
+    /// future response will not match the id check in `take`.
+    pub fn register(&mut self, kind: PendingRequestKind) -> u32 {
+        let id = self.next_id;
+        // `wrapping_add` so a 2^32 - request session keeps allocating;
+        // at one request/sec that's ~136 years.
+        self.next_id = self.next_id.wrapping_add(1);
+        let index = (id as usize) % N;
+        self.slots[index] = Some(PendingRequest { id, kind });
+        id
+    }
+
+    /// Look up the entry at `id % N`, verify it still belongs to
+    /// `id`, and remove it. Returns `None` if the slot is empty or
+    /// holds a different (younger) request whose registration
+    /// evicted the original.
+    pub fn take(&mut self, id: u32) -> Option<PendingRequestKind> {
+        let index = (id as usize) % N;
+        let entry = self.slots[index].as_ref()?;
+        if entry.id != id {
+            return None;
+        }
+        let kind = entry.kind;
+        self.slots[index] = None;
+        Some(kind)
+    }
+}
+
+impl<const N: usize> Default for PendingRequests<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// One row of the JobId-to-wire-id translation ring.
 pub struct JobIdSlot {
     pub generic: JobId,
@@ -34,7 +122,7 @@ pub struct JobIdSlot {
 }
 
 /// Adapter session state: extranonce, version mask, `JobId` map,
-/// and the JSON-RPC sequence-id counter for outgoing requests.
+/// and the in-flight request map.
 pub struct SessionState {
     /// Binary-decoded `extranonce_1` from the subscribe response.
     /// Length valid up to `extranonce_1_len`.
@@ -49,9 +137,10 @@ pub struct SessionState {
     /// Latest target advertised by the pool. Initial value is the
     /// most-permissive target; `mining.set_difficulty` overwrites.
     pub target: [u8; 32],
-    /// Monotonic counter for outbound submit `id` field. Starts at
-    /// `SUBMIT_ID_START` so it never collides with handshake ids.
-    pub next_submit_id: u32,
+    /// In-flight JSON-RPC requests keyed by wire `id`. Owns id
+    /// allocation as well; replaces the earlier hardwired
+    /// configure/subscribe/authorize/submit id constants.
+    pub pending: PendingRequests<PENDING_DEPTH>,
     /// `JobId` counter; assigned in `visit_new_job` translation.
     pub next_job_id: u32,
     /// Depth-`JOBID_MAP_DEPTH` ring mapping `JobId` to V1 wire
@@ -70,18 +159,11 @@ impl SessionState {
             extranonce_2_size: 0,
             version_rolling_mask: 0,
             target: PERMISSIVE_TARGET,
-            next_submit_id: SUBMIT_ID_START,
+            pending: PendingRequests::new(),
             next_job_id: 0,
             job_id_ring: [const { None }; JOBID_MAP_DEPTH],
             job_id_write_index: 0,
         }
-    }
-
-    /// Reserve and return the next submit `id`.
-    pub fn allocate_submit_id(&mut self) -> u32 {
-        let id = self.next_submit_id;
-        self.next_submit_id = self.next_submit_id.wrapping_add(1).max(SUBMIT_ID_START);
-        id
     }
 }
 

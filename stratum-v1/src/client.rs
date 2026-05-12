@@ -17,8 +17,7 @@ use mining_protocol::{
 use crate::config::Sv1Config;
 use crate::scratch::{DecodeScratch, MAX_COINBASE_PART, MAX_MERKLE_BRANCHES};
 use crate::state::{
-    JobIdSlot, SessionState, AUTHORIZE_ID, CONFIGURE_ID, JOBID_MAP_DEPTH, MAX_JOB_ID_CHARS,
-    SUBMIT_ID_START, SUBSCRIBE_ID,
+    JobIdSlot, PendingRequestKind, SessionState, JOBID_MAP_DEPTH, MAX_JOB_ID_CHARS,
 };
 use crate::target::target_from_diff;
 use crate::wire::line_buffer::LineBuffer;
@@ -150,6 +149,14 @@ impl StratumV1Client {
         }
         Ok(())
     }
+
+    /// Test-only access to the pending-request map so unit tests can
+    /// stage a response without driving the full `connect` handshake
+    /// against an in-memory transport.
+    #[cfg(test)]
+    pub(crate) fn register_pending(&mut self, kind: PendingRequestKind) -> u32 {
+        self.session.pending.register(kind)
+    }
 }
 
 impl MiningClient for StratumV1Client {
@@ -163,25 +170,28 @@ impl MiningClient for StratumV1Client {
     where
         T: Read + Write,
     {
+        let configure_id = self.session.pending.register(PendingRequestKind::Configure);
         self.send_now(transport, |buf| {
             let configure = Configure {
                 features: &["version-rolling"],
                 configure_map: CONFIGURE_MAP,
             };
-            encode_configure(buf, CONFIGURE_ID, &configure)
+            encode_configure(buf, configure_id, &configure)
         })
         .await?;
 
+        let subscribe_id = self.session.pending.register(PendingRequestKind::Subscribe);
         let agent = self.config.user;
         self.send_now(transport, |buf| {
             let subscribe = Subscribe {
                 agent_signature: Some(agent),
                 extra_nonce_1: None,
             };
-            encode_subscribe(buf, SUBSCRIBE_ID, &subscribe)
+            encode_subscribe(buf, subscribe_id, &subscribe)
         })
         .await?;
 
+        let authorize_id = self.session.pending.register(PendingRequestKind::Authorize);
         let user = self.config.user;
         let password = self.config.password;
         self.send_now(transport, |buf| {
@@ -189,7 +199,7 @@ impl MiningClient for StratumV1Client {
                 name: user,
                 password,
             };
-            encode_authorize(buf, AUTHORIZE_ID, &authorize)
+            encode_authorize(buf, authorize_id, &authorize)
         })
         .await?;
 
@@ -217,7 +227,10 @@ impl MiningClient for StratumV1Client {
             .push_str(wire_borrow)
             .map_err(|()| Error::Adapter)?;
 
-        let submit_id = self.session.allocate_submit_id();
+        let submit_id = self
+            .session
+            .pending
+            .register(PendingRequestKind::Submit { job_id: share.id });
 
         let mut extranonce_2_hex = String::<{ crate::scratch::MAX_EXTRANONCE_1 * 2 }>::new();
         for byte in share.extranonce_2 {
@@ -626,8 +639,21 @@ fn dispatch_response<V: MiningClientVisitor>(
     session: &mut SessionState,
     visitor: &mut V,
 ) -> Option<SessionRejection> {
-    match response.id {
-        CONFIGURE_ID => {
+    let Some(kind) = session.pending.take(response.id) else {
+        // No pending request for this wire id. Either the pool
+        // sent a response we never asked for, or the slot at
+        // `id % N` had been evicted by a younger registration
+        // (in-flight load exceeded `PENDING_DEPTH`). Drop after
+        // a single warn — the session itself is still healthy.
+        #[cfg(feature = "defmt")]
+        defmt::warn!(
+            "stratum-v1: response for unknown id {=u32}, dropping",
+            response.id,
+        );
+        return None;
+    };
+    match kind {
+        PendingRequestKind::Configure => {
             if let Some(result) = response.stratum_result {
                 if let Some(mask) = parse_version_rolling_mask(result) {
                     session.version_rolling_mask = mask;
@@ -636,7 +662,7 @@ fn dispatch_response<V: MiningClientVisitor>(
             }
             None
         }
-        SUBSCRIBE_ID => {
+        PendingRequestKind::Subscribe => {
             let result = match response.stratum_result {
                 Some(result) if response.stratum_error.is_none() => result,
                 _ => {
@@ -669,7 +695,7 @@ fn dispatch_response<V: MiningClientVisitor>(
             });
             None
         }
-        AUTHORIZE_ID => {
+        PendingRequestKind::Authorize => {
             // Authorize is acknowledged; either an error object or
             // a boolean `false` means the pool refused the worker
             // name and no shares from this session will ever be
@@ -686,7 +712,7 @@ fn dispatch_response<V: MiningClientVisitor>(
             }
             None
         }
-        id if id >= SUBMIT_ID_START => {
+        PendingRequestKind::Submit { job_id } => {
             let accepted = response
                 .stratum_result
                 .and_then(|raw| parse_boolean_result(raw).ok())
@@ -698,33 +724,24 @@ fn dispatch_response<V: MiningClientVisitor>(
                 }
                 None => (None, None),
             };
-            // Map the wire id back to a JobId. If we can't find one,
-            // the response is for a submit we don't track anymore;
-            // the visitor still sees the result via JobId(0) with
-            // accepted=false handled by the caller's ring lookup.
-            // Today we don't track outstanding submits by id, so
-            // pass JobId(0) and let the caller correlate via the
-            // work ring. A future refinement adds a submit→JobId
-            // map symmetric to the JobId map for jobs.
             #[cfg(feature = "defmt")]
             if accepted {
-                defmt::info!("stratum-v1: submit-accepted id={=u32}", id);
+                defmt::info!("stratum-v1: submit-accepted job_id={=u32}", job_id.0);
             } else {
                 defmt::warn!(
-                    "stratum-v1: submit-rejected id={=u32} code={=?} message={=?}",
-                    id,
+                    "stratum-v1: submit-rejected job_id={=u32} code={=?} message={=?}",
+                    job_id.0,
                     error_code,
                     error_message,
                 );
             }
             visitor.visit_submit_result(SubmitResult {
-                id: JobId(0),
+                id: job_id,
                 accepted,
                 error_code,
                 error_message,
             });
             None
         }
-        _ => None,
     }
 }

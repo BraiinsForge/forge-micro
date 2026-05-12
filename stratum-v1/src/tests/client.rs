@@ -7,6 +7,7 @@ use std::vec::Vec;
 
 use super::*;
 
+use crate::state::PendingRequestKind;
 use crate::Sv1Config;
 use embedded_io_adapters::tokio_1::FromTokio;
 use mining_protocol::{
@@ -174,11 +175,11 @@ async fn accept_dispatches_set_version_mask() {
 #[tokio::test]
 async fn accept_dispatches_subscribe_response_as_set_extranonce() {
     let mut client = StratumV1Client::new(&TEST_CONFIG);
-    let visitor = pump_one(
-        &mut client,
-        br#"{"id":2,"result":[[["mining.notify","abc"]],"deadbeef",4],"error":null}"#,
-    )
-    .await;
+    let subscribe_id = client.register_pending(PendingRequestKind::Subscribe);
+    let payload = std::format!(
+        r#"{{"id":{subscribe_id},"result":[[["mining.notify","abc"]],"deadbeef",4],"error":null}}"#,
+    );
+    let visitor = pump_one(&mut client, payload.as_bytes()).await;
     assert_eq!(visitor.session_updates, 1);
     assert_eq!(visitor.last_extranonce_2_size, Some(4));
 }
@@ -189,11 +190,11 @@ async fn accept_dispatches_notify_as_new_job() {
 
     // Prime extranonce_1 / extranonce_2_size so the notify can build
     // a complete MiningJob.
-    let _ = pump_one(
-        &mut client,
-        br#"{"id":2,"result":[[["mining.notify","abc"]],"deadbeef",4],"error":null}"#,
-    )
-    .await;
+    let subscribe_id = client.register_pending(PendingRequestKind::Subscribe);
+    let subscribe_payload = std::format!(
+        r#"{{"id":{subscribe_id},"result":[[["mining.notify","abc"]],"deadbeef",4],"error":null}}"#,
+    );
+    let _ = pump_one(&mut client, subscribe_payload.as_bytes()).await;
 
     let notify = build_notify_line(true);
     let visitor = pump_one(&mut client, notify.as_bytes()).await;
@@ -222,11 +223,11 @@ async fn submit_encodes_mining_submit_with_wire_job_id() {
 
     // Prime extranonce_1 / extranonce_2_size and a JobId mapping by
     // pumping a subscribe response and a notify.
-    let _ = pump_one(
-        &mut client,
-        br#"{"id":2,"result":[[["mining.notify","abc"]],"deadbeef",4],"error":null}"#,
-    )
-    .await;
+    let subscribe_id = client.register_pending(PendingRequestKind::Subscribe);
+    let subscribe_payload = std::format!(
+        r#"{{"id":{subscribe_id},"result":[[["mining.notify","abc"]],"deadbeef",4],"error":null}}"#,
+    );
+    let _ = pump_one(&mut client, subscribe_payload.as_bytes()).await;
     let visitor = pump_one(&mut client, build_notify_line(false).as_bytes()).await;
     assert_eq!(visitor.new_jobs, 1);
 
