@@ -178,7 +178,14 @@ IPv4 dotted quad only (DNS resolution is a follow-up). The other
 five firmwares still ship with hard-coded pool consts in their
 `src/config.rs` for now.
 
-Stratum V1 against Braiins pool:
+`backend-uart` is the default (UART peer via the dummy-asic board);
+`backend-cpu` swaps in on-MCU CPU mining. The two are mutually
+exclusive. `stratum2` is an additive cargo feature that pulls in the
+V2 adapter on top of either backend; it is on by default so
+`POOL_PROTOCOL=sv2` works without an extra flag. V1 is always built;
+protocol selection is purely runtime via `POOL_PROTOCOL=sv1|sv2`.
+
+Stratum V1, UART peer backend (default):
 
 ```sh
 nix develop .#arm -c bash -c '
@@ -192,8 +199,21 @@ nix develop .#arm -c bash -c '
 '
 ```
 
-Stratum V2 against Braiins pool (requires the `stratum2` cargo
-feature on top of the default `backend-uart`):
+Stratum V1, on-MCU CPU backend:
+
+```sh
+nix develop .#arm -c bash -c '
+  cd firmware/rp2350 && \
+  POOL_HOST=172.65.65.63 \
+  POOL_PORT=3333 \
+  POOL_PROTOCOL=sv1 \
+  POOL_USER=<braiins-account>.<worker> \
+  POOL_SV1_PASS=x \
+  cargo run --release --no-default-features --features "display,backend-cpu"
+'
+```
+
+Stratum V2, UART peer backend:
 
 ```sh
 nix develop .#arm -c bash -c '
@@ -203,14 +223,23 @@ nix develop .#arm -c bash -c '
   POOL_PROTOCOL=sv2 \
   POOL_USER=<braiins-account>.<worker> \
   POOL_SV2_PUBKEY=<braiins-sv2-pubkey-base58check> \
-  cargo run --release --features stratum2
+  cargo run --release
 '
 ```
 
-Swap the default UART peer backend for on-MCU CPU mining by appending
-`--no-default-features --features "display,backend-cpu"` (V1) or
-`--no-default-features --features "display,backend-cpu,stratum2"`
-(V2) to the `cargo run` line.
+Stratum V2, on-MCU CPU backend:
+
+```sh
+nix develop .#arm -c bash -c '
+  cd firmware/rp2350 && \
+  POOL_HOST=<braiins-sv2-ipv4> \
+  POOL_PORT=<braiins-sv2-port> \
+  POOL_PROTOCOL=sv2 \
+  POOL_USER=<braiins-account>.<worker> \
+  POOL_SV2_PUBKEY=<braiins-sv2-pubkey-base58check> \
+  cargo run --release --no-default-features --features "display,backend-cpu,stratum2"
+'
+```
 
 ### Dummy-ASIC (ESP32-S3 XIAO)
 

@@ -7,7 +7,7 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["display", "backend-uart"]
+default = ["display", "backend-uart", "stratum2"]
 display = []
 # UART peer backend: drives an external dummy-asic board over UART.
 # Always links Stratum V1; layer `stratum2` on top to also link the
@@ -34,9 +34,10 @@ backend-cpu = [
 # Adds the StratumV2 adapter to the build. Layers on top of either
 # backend (does not stand alone). Pulls in `secp256k1/lowmemory`
 # via the ii-sv2 chain so the verification context fits in RP2350
-# SRAM. When enabled and `POOL_PROTOCOL=sv2`, the stratum task
-# constructs `StratumV2Client`; when disabled, any
-# `POOL_PROTOCOL=sv2` setting falls back to V1 with a defmt warning.
+# SRAM. On by default so `POOL_PROTOCOL=sv2` works without an extra
+# feature flag; drop via `--no-default-features` if size or build
+# time matters. When disabled, any `POOL_PROTOCOL=sv2` setting
+# falls back to V1 with a defmt warning.
 stratum2 = [
     "dep:stratum-v2",
     "dep:ii-sv2",
