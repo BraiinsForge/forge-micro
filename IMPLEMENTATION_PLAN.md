@@ -592,7 +592,125 @@ pool and exercises the full path without `embassy-net`.
 | Ring depth `N > 2` | `N = 2` is enough for non-ASIC throughput. Promote to `const` parameter when an ASIC driver demonstrates it matters. |
 | Owned per-slot rolling materials (~2KB extra per slot) | Land with the ASIC driver. |
 | `JobId.0 == V2 wire id` short-circuit | Cleaner to keep both adapters on the same translation-map shape. Revisit if memory pressure shows up. |
-| Stratum prometheus metrics (submits_sent / accepted / rejected / accepted_difficulty_sum) | Designed but unimplemented. Counters live in `stratum-client::metrics`, with a per-`StratumState` pending-difficulty FIFO populated in `handle_solution` and drained in `visit_submit_result`. Difficulty unit = `mining_protocol::difficulty::approx_u32`. Exposition: `eth-examples::metrics` reads the four atomics directly (gains a regular dep on `stratum-client`). Deferred until the V1 `SubmitResult.id == JobId(0)` issue is fixed — the metrics design then drops the FIFO and looks up the job directly. |
+| Stratum prometheus metrics | See [Pending: stratum prometheus metrics](#pending-stratum-prometheus-metrics) below. |
+
+## Pending: stratum prometheus metrics
+
+### Goal
+
+Surface lifetime stratum-session counters on the existing prometheus
+exposition so we can answer "is the board actually submitting and
+getting paid?" without poking at defmt logs.
+
+### Counters
+
+| Metric (prometheus name) | Source | Bumped at |
+|---|---|---|
+| `stratum_submits_sent_total` | atomic u64 in `stratum-client::metrics` | after `client.submit(&share)` returns `Ok` (i.e. queued for the next `drive` flush) |
+| `stratum_submits_accepted_total` | atomic u64 | `visit_submit_result(result)` with `result.accepted == true` |
+| `stratum_submits_rejected_total` | atomic u64 | `visit_submit_result(result)` with `result.accepted == false` |
+| `stratum_accepted_difficulty_sum` | atomic u64 | accepted path: `+ approx_u32(JobSlot.target)` looked up via `state.job_ring.lookup(result.id)` |
+
+Pending count derives in prometheus as `sent - accepted - rejected`.
+
+`approx_u32` is a new pure helper in
+`mining_protocol::difficulty` (numeric counterpart of the existing
+`approx_string`).
+
+### Design refinements (post-investigation)
+
+- **No per-state FIFO is required.** Since V1's `SubmitResult.id`
+  now carries the real `JobId` (after the pending-id-map work in
+  `c0331b1`), `visit_submit_result` can look up the originating
+  `JobSlot` and read its `target` directly. The earlier sketch
+  needed a FIFO only because `JobSlot.target` was being rewritten
+  mid-job by `SetTarget` updates (see prerequisite below) — that's
+  a real bug in current code, not the protocol's intended
+  behaviour.
+- **`JobRing::lookup(JobId) -> Option<&JobSlot>`** — small API
+  addition next to the existing `is_valid`. Cheap; depth is 2.
+- **Exposition:** `eth-examples` gains a regular workspace dep on
+  `stratum-client`. `eth-examples::metrics::render_exposition`
+  reads the four atomics and emits prometheus counter lines next
+  to the existing `board_uptime_seconds` block.
+
+### Prerequisite: drop mid-job retarget in `StratumState`
+
+`stratum-client::state.rs`'s visitor currently overwrites the
+**current** `JobSlot.target` (and `version_rolling_mask`) when
+`SetTarget` / `SetVersionMask` arrives mid-job:
+
+```rust
+SessionUpdate::SetTarget(target) => {
+    self.target = *target;
+    if let Some(latest) = self.job_ring.current_mut() {
+        latest.target = *target;     // <-- BUG: retroactive retarget
+    }
+}
+```
+
+Per the stratum spec, `set_difficulty` / `SetTarget` configures the
+difficulty for the **next** job, not the in-flight one. The current
+slot's target must stay frozen at whatever was set when
+`visit_new_job` captured `state.target` into the slot. Same rule
+for `version_rolling_mask`.
+
+The mid-job rewrite is the only thing that made the FIFO sketch
+necessary; fix it first and the metrics design simplifies.
+
+### Checklist
+
+- [ ] **Prerequisite:** remove the `current_mut()` retarget for
+      `SessionUpdate::SetTarget` and `SessionUpdate::SetVersionMask`
+      in `stratum-client::state.rs`. Just update `self.target` /
+      `self.version_mask`; let `visit_new_job` pick them up for the
+      next slot.
+- [ ] Audit V1's `SetExtranonce` notification handler in
+      `stratum-v1::client.rs` for the same kind of mid-stream
+      rewrite; document or fix to match the agreed semantics.
+- [ ] Add `mining_protocol::difficulty::approx_u32(target_le) ->
+      Option<u32>` and refactor `approx_string` to call it.
+- [ ] Add `JobRing::lookup(JobId) -> Option<&JobSlot>`.
+- [ ] Add `stratum-client::metrics` submodule: four `AtomicU64`
+      statics + `submits_sent()` / `submits_accepted()` /
+      `submits_rejected()` / `accepted_difficulty_sum()` getters +
+      crate-private `record_*` helpers.
+- [ ] Wire bookkeeping: `run::handle_solution` bumps
+      `SUBMITS_SENT` after `client.submit(&share)?` returns Ok.
+      `StratumState::visit_submit_result` bumps accept/reject and,
+      on accept, adds `approx_u32(JobSlot.target)` looked up via
+      `state.job_ring.lookup(result.id)` (defaults to 0 contribution
+      when the slot was rotated out by `clean_jobs` between submit
+      and response — accept count still goes up).
+- [ ] Add `stratum-client = { workspace = true }` to
+      `eth-examples/Cargo.toml`.
+- [ ] Render the four counters in
+      `eth-examples::metrics::render_exposition` (next to
+      `board_uptime_seconds`). Names: `stratum_submits_sent_total`,
+      `stratum_submits_accepted_total`,
+      `stratum_submits_rejected_total`,
+      `stratum_accepted_difficulty_sum`.
+- [ ] Verify on rp2350 against a real pool: submit a handful of
+      shares, scrape `/metrics`, confirm sent/accepted/rejected
+      add up and difficulty_sum is non-zero.
+
+### Open questions (revisit before implementing)
+
+- **Slot-rotated-out fallback.** When a share's response arrives
+  after `clean_jobs` invalidated the originating slot, we can't
+  recover its target. Options: credit 0 (accept rate stays
+  correct, difficulty_sum slightly under-counts), credit
+  `state.target` (less accurate but non-zero), or skip the share
+  entirely (also skip the accept counter — wrong). Default to
+  "credit 0" unless we measure that rotation-during-flight is
+  common.
+- **Per-session vs lifetime counters.** Currently sketched as
+  process-lifetime atomics. If we want per-session counts that
+  reset on reconnect, the rendering layer can compute them from
+  snapshots; no new bookkeeping needed.
+- **Rate-style metrics (1-min hashrate-from-pool, rolling
+  acceptance ratio).** Out of scope for the first pass; prometheus
+  can derive them from the counters.
 
 ## Implementation phases
 
