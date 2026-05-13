@@ -1,0 +1,60 @@
+stages:
+  - lint
+  - check
+
+default:
+  image: nixpkgs/nix-flakes:nixos-25.11-x86_64-linux
+  tags:
+    - ci08
+
+# Repo-wide formatting (rustfmt edition 2024 + nixfmt) wrapped by treefmt.
+formatting:
+  stage: lint
+  script:
+    - nix build .#checks.x86_64-linux.formatting --print-build-logs
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - flake.nix
+        - flake.lock
+        - "**/*.rs"
+        - "**/*.nix"
+        - "**/*.toml"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - when: manual
+      allow_failure: true
+
+clippy:
+  stage: check
+  script:
+    - nix build .#checks.x86_64-linux.clippy --print-build-logs
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - flake.nix
+        - flake.lock
+        - "**/*.rs"
+        - "**/Cargo.toml"
+        - Cargo.lock
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - when: manual
+      allow_failure: true
+
+test:
+  stage: check
+  script:
+    - nix build .#checks.x86_64-linux.test --print-build-logs
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - flake.nix
+        - flake.lock
+        - "**/*.rs"
+        - "**/Cargo.toml"
+        - Cargo.lock
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - when: manual
+      allow_failure: true
