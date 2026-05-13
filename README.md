@@ -168,6 +168,50 @@ cd firmware/esp32s3     && cargo run --release   # ESP32-S3 + W5100S
 `probe-rs list` shows connected probes. Each crate's `.cargo/config.toml`
 configures the probe-rs runner for flash and monitor.
 
+### Pool configuration (rp2350)
+
+The rp2350 firmware reads pool config from compile-time env vars
+(`POOL_HOST`, `POOL_PORT`, `POOL_PROTOCOL`, `POOL_USER`,
+`POOL_SV1_PASS`, `POOL_SV2_PUBKEY`). Unset variables fall through to
+the defaults in `eth_examples::pool_config`. `POOL_HOST` accepts an
+IPv4 dotted quad only (DNS resolution is a follow-up). The other
+five firmwares still ship with hard-coded pool consts in their
+`src/config.rs` for now.
+
+Stratum V1 against Braiins pool:
+
+```sh
+nix develop .#arm -c bash -c '
+  cd firmware/rp2350 && \
+  POOL_HOST=172.65.65.63 \
+  POOL_PORT=3333 \
+  POOL_PROTOCOL=sv1 \
+  POOL_USER=<braiins-account>.<worker> \
+  POOL_SV1_PASS=x \
+  cargo run --release
+'
+```
+
+Stratum V2 against Braiins pool (requires the `stratum2` cargo
+feature on top of the default `backend-uart`):
+
+```sh
+nix develop .#arm -c bash -c '
+  cd firmware/rp2350 && \
+  POOL_HOST=<braiins-sv2-ipv4> \
+  POOL_PORT=<braiins-sv2-port> \
+  POOL_PROTOCOL=sv2 \
+  POOL_USER=<braiins-account>.<worker> \
+  POOL_SV2_PUBKEY=<braiins-sv2-pubkey-base58check> \
+  cargo run --release --features stratum2
+'
+```
+
+Swap the default UART peer backend for on-MCU CPU mining by appending
+`--no-default-features --features "display,backend-cpu"` (V1) or
+`--no-default-features --features "display,backend-cpu,stratum2"`
+(V2) to the `cargo run` line.
+
 ### Dummy-ASIC (ESP32-S3 XIAO)
 
 The dummy-asic uses esp-hal 1.0.0 which requires the ESP-IDF bootloader

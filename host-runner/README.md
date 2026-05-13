@@ -41,6 +41,25 @@ nix develop .#host -c cargo run -p host-runner
 
 Default log filter is `info`. Bump with e.g. `RUST_LOG=debug,smoltcp=info`.
 
+### Pool configuration
+
+Same env-var contract as the rp2350 firmware (`eth_examples::pool_config`):
+`POOL_HOST` (IPv4 literal), `POOL_PORT`, `POOL_PROTOCOL=sv1|sv2`,
+`POOL_USER`, `POOL_SV1_PASS` (V1 only), `POOL_SV2_PUBKEY`
+(base58check, V2 only — V2 host support is currently stub-only and
+exits at boot).
+
+Stratum V1 against Braiins pool:
+
+```sh
+POOL_HOST=172.65.65.63 \
+POOL_PORT=3333 \
+POOL_PROTOCOL=sv1 \
+POOL_USER=<braiins-account>.<worker> \
+POOL_SV1_PASS=x \
+nix develop .#host -c cargo run -p host-runner
+```
+
 ### Verify
 
 ```sh
