@@ -381,6 +381,12 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf";
             cargoClippyExtraArgs = "-- -D warnings";
+            # `stratum2` is in rp2350's default features, which pulls
+            # in `secp256k1-sys` and its C build script. `cc-rs`
+            # otherwise falls back to host `gcc` and fails on the
+            # thumb-specific flags; point it at arm-none-eabi-gcc.
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
           clippy-rp235x-sha256 = craneLib.cargoClippy {
