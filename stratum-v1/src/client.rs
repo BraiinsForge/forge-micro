@@ -13,6 +13,7 @@ use mining_protocol::{
     Error, JobId, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionRejection,
     SessionUpdate, Share, SubmitResult, MAX_EXTRANONCE_2,
 };
+use ubos_logging::{info, warn};
 
 use crate::config::Sv1Config;
 use crate::scratch::{DecodeScratch, MAX_COINBASE_PART, MAX_MERKLE_BRANCHES};
@@ -255,10 +256,9 @@ impl MiningClient for StratumV1Client {
             .map_err(|_| Error::BufferTooSmall)?;
         self.outbound_len = length;
         self.outbound_offset = 0;
-        #[cfg(feature = "defmt")]
-        defmt::info!(
-            "stratum-v1: submit queued id={=u32} job_id={=str} \
-             nonce={=u32:#010x} ntime={=u32:#010x} version_bits={=u32:#010x}",
+        info!(
+            "stratum-v1: submit queued id={} job_id={} \
+             nonce={:#010x} ntime={:#010x} version_bits={:#010x}",
             submit_id,
             wire_job_id.as_str(),
             share.nonce,
@@ -317,6 +317,7 @@ impl MiningClient for StratumV1Client {
     /// the visitor's lifetime is bound to this call's `&mut self`.
     /// Once `accept` returns, the wire buffer is freed for the next
     /// `drive` to reuse.
+    #[allow(clippy::too_many_lines)]
     fn accept<V: MiningClientVisitor>(&mut self, visitor: &mut V) {
         // Run the dispatch in its own scope so the borrows on
         // `self.wire_buffer` (via `rpc`) end before `consume()`.
@@ -344,12 +345,11 @@ impl MiningClient for StratumV1Client {
                 }
                 Rpc::Notification(Notification::SetDifficulty(set_diff)) => {
                     self.session.target = target_from_diff(set_diff.0);
-                    #[cfg(feature = "defmt")]
                     {
                         let target_hex =
                             mining_protocol::hex::encode_block_hash_lower(&self.session.target);
-                        defmt::info!(
-                            "stratum-v1: set-difficulty diff={=f64} target={=str}...",
+                        info!(
+                            "stratum-v1: set-difficulty diff={} target={}...",
                             set_diff.0,
                             core::str::from_utf8(&target_hex[..32])
                                 .expect("hex encoder emits ASCII"),
@@ -359,15 +359,13 @@ impl MiningClient for StratumV1Client {
                 }
                 Rpc::Notification(Notification::SetVersionMask(set_mask)) => {
                     self.session.version_rolling_mask = set_mask.mask;
-                    #[cfg(feature = "defmt")]
-                    defmt::info!("stratum-v1: set-version-mask {=u32:#010x}", set_mask.mask,);
+                    info!("stratum-v1: set-version-mask {:#010x}", set_mask.mask,);
                     visitor.visit_session_update(SessionUpdate::SetVersionMask(set_mask.mask));
                 }
                 Rpc::Notification(Notification::SetExtranonce(set_extranonce)) => {
                     if usize::from(set_extranonce.extra_nonce_2_size) > MAX_EXTRANONCE_2 {
-                        #[cfg(feature = "defmt")]
-                        defmt::warn!(
-                            "stratum-v1: set-extranonce en2_size={=u8} > MAX_EXTRANONCE_2={=usize}; ending session",
+                        warn!(
+                            "stratum-v1: set-extranonce en2_size={} > MAX_EXTRANONCE_2={}; ending session",
                             set_extranonce.extra_nonce_2_size,
                             MAX_EXTRANONCE_2,
                         );
@@ -377,22 +375,29 @@ impl MiningClient for StratumV1Client {
                             <= crate::scratch::MAX_EXTRANONCE_1
                     {
                         self.session.extranonce_2_size = set_extranonce.extra_nonce_2_size;
-                        #[cfg(feature = "defmt")]
-                        defmt::info!(
-                            "stratum-v1: set-extranonce prefix={=[u8]:x} en2_size={=u8}",
-                            &self.session.extranonce_1[..self.session.extranonce_1_len],
+                        let prefix = &self.session.extranonce_1[..self.session.extranonce_1_len];
+                        let mut prefix_hex = [0u8; crate::scratch::MAX_EXTRANONCE_1 * 2];
+                        let prefix_hex_len = prefix.len() * 2;
+                        let prefix_hex_ok = mining_protocol::hex::encode_lower_to_slice(
+                            prefix,
+                            &mut prefix_hex[..prefix_hex_len],
+                        );
+                        debug_assert!(prefix_hex_ok);
+                        info!(
+                            "stratum-v1: set-extranonce prefix={} en2_size={}",
+                            core::str::from_utf8(&prefix_hex[..prefix_hex_len])
+                                .expect("hex encoder emits ASCII"),
                             self.session.extranonce_2_size,
                         );
                         visitor.visit_session_update(SessionUpdate::SetExtranonce {
-                            prefix: &self.session.extranonce_1[..self.session.extranonce_1_len],
+                            prefix,
                             en2_size: self.session.extranonce_2_size,
                         });
                     }
                 }
                 Rpc::Notification(Notification::ClientReconnect(reconnect)) => {
-                    #[cfg(feature = "defmt")]
-                    defmt::info!(
-                        "stratum-v1: client-reconnect host={=str} port={=u16} wait={=u16}",
+                    info!(
+                        "stratum-v1: client-reconnect host={} port={} wait={}",
                         reconnect.host,
                         reconnect.port,
                         reconnect.wait,
@@ -451,12 +456,11 @@ fn dispatch_notify<V: MiningClientVisitor>(
     // sees canonical block-header bytes.
     swap_prev_hash_words(&mut decode_scratch.prev_hash);
 
-    #[cfg(feature = "defmt")]
     {
         let prev_hex = mining_protocol::hex::encode_block_hash_lower(&decode_scratch.prev_hash);
-        defmt::info!(
-            "stratum-v1: notify job_id={=str} version={=u32:#010x} nbits={=u32:#010x} \
-             ntime={=u32:#010x} clean_jobs={=bool} prev_hash={=str}",
+        info!(
+            "stratum-v1: notify job_id={} version={:#010x} nbits={:#010x} \
+             ntime={:#010x} clean_jobs={} prev_hash={}",
             notify.job_id,
             version,
             nbits,
@@ -654,9 +658,8 @@ fn dispatch_response<V: MiningClientVisitor>(
         // `id % N` had been evicted by a younger registration
         // (in-flight load exceeded `PENDING_DEPTH`). Drop after
         // a single warn — the session itself is still healthy.
-        #[cfg(feature = "defmt")]
-        defmt::warn!(
-            "stratum-v1: response for unknown id {=u32}, dropping",
+        warn!(
+            "stratum-v1: response for unknown id {}, dropping",
             response.id,
         );
         return None;
@@ -675,8 +678,7 @@ fn dispatch_response<V: MiningClientVisitor>(
             let result = match response.stratum_result {
                 Some(result) if response.stratum_error.is_none() => result,
                 _ => {
-                    #[cfg(feature = "defmt")]
-                    defmt::warn!("stratum-v1: subscribe rejected by pool, ending session");
+                    warn!("stratum-v1: subscribe rejected by pool, ending session");
                     return Some(SessionRejection::SubscribeRefused);
                 }
             };
@@ -689,9 +691,8 @@ fn dispatch_response<V: MiningClientVisitor>(
                 return None;
             };
             if usize::from(parsed.2) > MAX_EXTRANONCE_2 {
-                #[cfg(feature = "defmt")]
-                defmt::warn!(
-                    "stratum-v1: subscribe en2_size={=u8} > MAX_EXTRANONCE_2={=usize}; ending session",
+                warn!(
+                    "stratum-v1: subscribe en2_size={} > MAX_EXTRANONCE_2={}; ending session",
                     parsed.2,
                     MAX_EXTRANONCE_2,
                 );
@@ -701,14 +702,22 @@ fn dispatch_response<V: MiningClientVisitor>(
                 return None;
             }
             session.extranonce_2_size = parsed.2;
-            #[cfg(feature = "defmt")]
-            defmt::info!(
-                "stratum-v1: subscribe-success prefix={=[u8]:x} en2_size={=u8}",
-                &session.extranonce_1[..session.extranonce_1_len],
+            let prefix = &session.extranonce_1[..session.extranonce_1_len];
+            let mut prefix_hex = [0u8; crate::scratch::MAX_EXTRANONCE_1 * 2];
+            let prefix_hex_len = prefix.len() * 2;
+            let prefix_hex_ok = mining_protocol::hex::encode_lower_to_slice(
+                prefix,
+                &mut prefix_hex[..prefix_hex_len],
+            );
+            debug_assert!(prefix_hex_ok);
+            info!(
+                "stratum-v1: subscribe-success prefix={} en2_size={}",
+                core::str::from_utf8(&prefix_hex[..prefix_hex_len])
+                    .expect("hex encoder emits ASCII"),
                 session.extranonce_2_size,
             );
             visitor.visit_session_update(SessionUpdate::SetExtranonce {
-                prefix: &session.extranonce_1[..session.extranonce_1_len],
+                prefix,
                 en2_size: session.extranonce_2_size,
             });
             None
@@ -724,8 +733,7 @@ fn dispatch_response<V: MiningClientVisitor>(
                     .and_then(|raw| parse_boolean_result(raw).ok())
                     .unwrap_or(false);
             if !accepted {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("stratum-v1: authorize rejected by pool, ending session");
+                warn!("stratum-v1: authorize rejected by pool, ending session");
                 return Some(SessionRejection::AuthorizeRefused);
             }
             None
@@ -742,12 +750,11 @@ fn dispatch_response<V: MiningClientVisitor>(
                 }
                 None => (None, None),
             };
-            #[cfg(feature = "defmt")]
             if accepted {
-                defmt::info!("stratum-v1: submit-accepted job_id={=u32}", job_id.0);
+                info!("stratum-v1: submit-accepted job_id={}", job_id.0);
             } else {
-                defmt::warn!(
-                    "stratum-v1: submit-rejected job_id={=u32} code={=?} message={=?}",
+                warn!(
+                    "stratum-v1: submit-rejected job_id={} code={:?} message={:?}",
                     job_id.0,
                     error_code,
                     error_message,
