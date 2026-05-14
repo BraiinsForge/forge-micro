@@ -21,12 +21,6 @@ mod tests;
 pub struct StratumState {
     pub job_ring: JobRing<JOB_RING_DEPTH>,
     pub work_ring: WorkRing<WORK_RING_DEPTH>,
-    /// Latest target the pool advertised. Stamped into every new
-    /// `JobSlot` by `visit_new_job`; mid-session `SetTarget`
-    /// updates this and the current slot in place.
-    pub target: [u8; 32],
-    /// Latest version-rolling mask. Same flow as `target`.
-    pub version_mask: u32,
     /// Counter for `WorkAssignment::work_id` allocation in the work
     /// generator.
     pub next_work_id: u32,
@@ -38,8 +32,6 @@ impl StratumState {
         Self {
             job_ring: JobRing::new(),
             work_ring: WorkRing::new(),
-            target: PERMISSIVE_TARGET,
-            version_mask: 0,
             next_work_id: 0,
         }
     }
@@ -73,11 +65,7 @@ impl MiningClientVisitor for StratumState {
         let slot = self.job_ring.next_slot();
         slot.job_id = job.id;
         slot.prev_hash = *job.prev_hash;
-        // Snapshot the session-level target rather than the borrowed
-        // job.target. `mining.set_difficulty` arrives independently
-        // of notifies; the visitor's own target field is the
-        // authoritative latest value for the next job.
-        slot.target = self.target;
+        slot.target = *job.target;
         // Build the merkle root once with extranonce_2 = zeros. The
         // CPU mock and current ASIC drivers don't roll en2; when
         // they do, the per-share recompute happens in the work
@@ -87,7 +75,7 @@ impl MiningClientVisitor for StratumState {
         let en2 = &zeros[..en2_size];
         job.merkle.compute(en2, &mut slot.merkle_root);
         slot.version = job.version;
-        slot.version_rolling_mask = self.version_mask | job.version_rolling_mask;
+        slot.version_rolling_mask = job.version_rolling_mask;
         slot.nbits = job.nbits;
         slot.ntime_base = job.ntime;
         slot.ntime_offset = 0;
@@ -123,17 +111,14 @@ impl MiningClientVisitor for StratumState {
     fn visit_session_update(&mut self, update: SessionUpdate<'_>) {
         match update {
             SessionUpdate::SetTarget(target) => {
-                {
-                    let target_hex = mining_protocol::hex::encode_block_hash_lower(target);
-                    info!(
-                        "stratum-client: set target {}...",
-                        core::str::from_utf8(&target_hex[..32]).expect("hex encoder emits ASCII"),
-                    );
-                }
-                self.target = *target;
-                if let Some(latest) = self.job_ring.current_mut() {
-                    latest.target = *target;
-                }
+                // No state mutation: the next `MiningJob` will carry
+                // the updated target stamped by the adapter. This arm
+                // is operator visibility on the wire event only.
+                let target_hex = mining_protocol::hex::encode_block_hash_lower(target);
+                info!(
+                    "stratum-client: set target {}...",
+                    core::str::from_utf8(&target_hex[..32]).expect("hex encoder emits ASCII"),
+                );
             }
             SessionUpdate::SetExtranonce { prefix, en2_size } => {
                 // No state mutation: each `MiningJob` already carries its
@@ -162,11 +147,8 @@ impl MiningClientVisitor for StratumState {
                 );
             }
             SessionUpdate::SetVersionMask(mask) => {
+                // No state mutation: same reasoning as `SetTarget`.
                 info!("stratum-client: set version mask {:#010x}", mask);
-                self.version_mask = mask;
-                if let Some(latest) = self.job_ring.current_mut() {
-                    latest.version_rolling_mask = mask;
-                }
             }
             SessionUpdate::Reconnect {
                 host,
@@ -184,14 +166,3 @@ impl MiningClientVisitor for StratumState {
         }
     }
 }
-
-/// Initial share target before the pool sends its first
-/// `mining.set_difficulty` (V1) or `OpenStandardMiningChannel.Success`
-/// (V2). Two leading zero bytes corresponds to pool diff 1/256² —
-/// the same default `ubos-backend` used.
-const PERMISSIVE_TARGET: [u8; 32] = {
-    let mut target = [0xFFu8; 32];
-    target[31] = 0x00;
-    target[30] = 0x00;
-    target
-};

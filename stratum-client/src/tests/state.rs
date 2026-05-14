@@ -59,25 +59,38 @@ fn clean_jobs_invalidates_previous_slot() {
 }
 
 #[test]
-fn set_target_updates_state_and_current_slot() {
+fn slot_target_and_mask_come_from_job() {
+    let mut state = StratumState::new();
+    let mut job = sample_job(1, false);
+    job.version_rolling_mask = 0x1fff_e000;
+    state.visit_new_job(job);
+
+    let current = state.job_ring.current().expect("slot present");
+    assert_eq!(current.target, SAMPLE_TARGET);
+    assert_eq!(current.version_rolling_mask, 0x1fff_e000);
+}
+
+#[test]
+fn set_target_does_not_patch_current_slot() {
     let mut state = StratumState::new();
     state.visit_new_job(sample_job(1, false));
 
     let new_target: [u8; 32] = [0xAA; 32];
     state.visit_session_update(SessionUpdate::SetTarget(&new_target));
 
-    assert_eq!(state.target, new_target);
     let current = state.job_ring.current().expect("slot present");
-    assert_eq!(current.target, new_target);
+    assert_eq!(current.target, SAMPLE_TARGET);
 }
 
 #[test]
-fn set_version_mask_updates_state_and_current_slot() {
+fn set_version_mask_does_not_patch_current_slot() {
     let mut state = StratumState::new();
-    state.visit_new_job(sample_job(1, false));
+    let mut job = sample_job(1, false);
+    job.version_rolling_mask = 0x0000_4000;
+    state.visit_new_job(job);
+
     state.visit_session_update(SessionUpdate::SetVersionMask(0x1fff_e000));
 
-    assert_eq!(state.version_mask, 0x1fff_e000);
     let current = state.job_ring.current().expect("slot present");
-    assert_eq!(current.version_rolling_mask, 0x1fff_e000);
+    assert_eq!(current.version_rolling_mask, 0x0000_4000);
 }
