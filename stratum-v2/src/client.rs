@@ -31,11 +31,6 @@ use crate::auth::AuthChoice;
 use crate::config::Sv2Config;
 use crate::state::{PendingFutureJob, V2SessionState, MAX_EXTRANONCE_PREFIX};
 
-/// Encrypted SV2 header on the wire: 6-byte header + 16-byte MAC.
-/// `EncryptedCodec::HEADER_WIRE_SIZE` matches; reserved here as a
-/// const so the receive-side header buffer can be sized.
-const ENCRYPTED_HEADER_BYTES: usize = 22;
-
 /// AEAD MAC bytes appended to each encrypted chunk.
 const MAC_BYTES: usize = 16;
 
@@ -147,7 +142,7 @@ pub struct StratumV2Client<'a, R: Rng, C: secp256k1::Signing + secp256k1::Verifi
     /// Receive buffer for the encrypted header (separate so the
     /// header decrypt can complete while leaving the wire buffer
     /// free to accumulate the payload).
-    header_buffer: [u8; ENCRYPTED_HEADER_BYTES],
+    header_buffer: [u8; EncryptedCodec::HEADER_WIRE_SIZE],
     /// Receive-side state machine; see `FrameState` for the
     /// invariant.
     frame_state: FrameState,
@@ -171,7 +166,7 @@ impl<'a, R: Rng, C: secp256k1::Signing + secp256k1::Verification> StratumV2Clien
             rng: Some(rng),
             state: V2State::PreHandshake,
             wire_buffer: [0; WIRE_BUFFER_BYTES],
-            header_buffer: [0; ENCRYPTED_HEADER_BYTES],
+            header_buffer: [0; EncryptedCodec::HEADER_WIRE_SIZE],
             frame_state: FrameState::Idle,
             encode_buffer: [0; ENCODE_BUFFER_BYTES],
             outbound_len: 0,
@@ -408,9 +403,9 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                     self.frame_state = FrameState::ReadingHeader { received: 0 };
                 }
                 FrameState::ReadingHeader { mut received } => {
-                    while received < ENCRYPTED_HEADER_BYTES {
+                    while received < EncryptedCodec::HEADER_WIRE_SIZE {
                         let read_count = transport
-                            .read(&mut self.header_buffer[received..ENCRYPTED_HEADER_BYTES])
+                            .read(&mut self.header_buffer[received..EncryptedCodec::HEADER_WIRE_SIZE])
                             .await
                             .map_err(|_| Error::Transport)?;
                         if read_count == 0 {
