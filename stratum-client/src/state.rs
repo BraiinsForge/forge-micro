@@ -80,6 +80,18 @@ impl MiningClientVisitor for StratumState {
              nbits={:#010x} en2_size={}",
             job.id.0, job.clean_jobs, job.ntime, job.nbits, job.extranonce_2_size,
         );
+        let en2_size = usize::from(job.extranonce_2_size);
+        // The two adapters reject oversized extranonce upstream, but
+        // the trait surface still admits a u8 (0..=255). Drop here so
+        // a misbehaving adapter cannot panic the work loop with an
+        // out-of-bounds slice in release.
+        if en2_size > MAX_EXTRANONCE_2 {
+            warn!(
+                "stratum-client: new job dropped, en2_size={} > MAX_EXTRANONCE_2={}",
+                en2_size, MAX_EXTRANONCE_2,
+            );
+            return;
+        }
         let slot = self.job_ring.next_slot();
         slot.job_id = job.id;
         slot.prev_hash = *job.prev_hash;
@@ -92,18 +104,10 @@ impl MiningClientVisitor for StratumState {
         // CPU mock and current ASIC drivers don't roll en2; when
         // they do, the per-share recompute happens in the work
         // generator with the materials still in scope (a future
-        // refinement extends OwnedJob to keep them). Slice is
-        // exact-sized: the adapter rejects sessions whose
-        // `extranonce_2_size` exceeds `MAX_EXTRANONCE_2`, so the
-        // index here is always in range.
-        let mut zeros = [0u8; MAX_EXTRANONCE_2];
-        let en2_size = usize::from(job.extranonce_2_size);
-        debug_assert!(en2_size <= MAX_EXTRANONCE_2);
+        // refinement extends OwnedJob to keep them).
+        let zeros = [0u8; MAX_EXTRANONCE_2];
         let en2 = &zeros[..en2_size];
         job.merkle.compute(en2, &mut slot.merkle_root);
-        // Suppress unused-mut on the array; `compute` touches the
-        // `out` buffer so `zeros` itself stays unread.
-        let _ = &mut zeros;
         slot.version = job.version;
         slot.version_rolling_mask = self.version_mask | job.version_rolling_mask;
         slot.nbits = job.nbits;

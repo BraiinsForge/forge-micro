@@ -40,6 +40,15 @@ fn visit_new_job_populates_slot() {
 }
 
 #[test]
+fn visit_new_job_drops_when_en2_size_exceeds_max() {
+    let mut state = StratumState::new();
+    let mut job = sample_job(1, false);
+    job.extranonce_2_size = u8::try_from(MAX_EXTRANONCE_2 + 1).expect("MAX_EXTRANONCE_2 fits u8");
+    state.visit_new_job(job);
+    assert!(state.job_ring.current().is_none(), "no slot allocated");
+}
+
+#[test]
 fn clean_jobs_invalidates_previous_slot() {
     let mut state = StratumState::new();
     state.visit_new_job(sample_job(1, false));
