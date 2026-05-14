@@ -17,11 +17,6 @@ use crate::work_ring::{WorkRing, WORK_RING_DEPTH};
 #[path = "tests/state.rs"]
 mod tests;
 
-/// Maximum bytes for the pool-side `extranonce_prefix` (V1
-/// `extranonce_1`, V2 `extranonce_prefix`). Enough for any pool
-/// today; sized like V1's `MAX_EXTRANONCE_1`.
-pub const MAX_EXTRANONCE_PREFIX: usize = 8;
-
 /// Visitor + persistent integration state.
 pub struct StratumState {
     pub job_ring: JobRing<JOB_RING_DEPTH>,
@@ -32,13 +27,6 @@ pub struct StratumState {
     pub target: [u8; 32],
     /// Latest version-rolling mask. Same flow as `target`.
     pub version_mask: u32,
-    /// Latest extranonce-prefix bytes the pool assigned. The host
-    /// keeps this for the work generator's `OutstandingWork`
-    /// records, even though `WorkAssignment` itself doesn't carry
-    /// them (en2 is folded into `merkle_root` pool-side).
-    pub extranonce_prefix_len: usize,
-    pub extranonce_prefix: [u8; MAX_EXTRANONCE_PREFIX],
-    pub extranonce_2_size: u8,
     /// Counter for `WorkAssignment::work_id` allocation in the work
     /// generator.
     pub next_work_id: u32,
@@ -52,18 +40,8 @@ impl StratumState {
             work_ring: WorkRing::new(),
             target: PERMISSIVE_TARGET,
             version_mask: 0,
-            extranonce_prefix_len: 0,
-            extranonce_prefix: [0; MAX_EXTRANONCE_PREFIX],
-            extranonce_2_size: 0,
             next_work_id: 0,
         }
-    }
-
-    fn store_extranonce_prefix(&mut self, prefix: &[u8], en2_size: u8) {
-        let copy_len = prefix.len().min(self.extranonce_prefix.len());
-        self.extranonce_prefix[..copy_len].copy_from_slice(&prefix[..copy_len]);
-        self.extranonce_prefix_len = copy_len;
-        self.extranonce_2_size = en2_size;
     }
 }
 
@@ -158,8 +136,18 @@ impl MiningClientVisitor for StratumState {
                 }
             }
             SessionUpdate::SetExtranonce { prefix, en2_size } => {
-                let mut prefix_hex = [0u8; MAX_EXTRANONCE_PREFIX * 2];
-                let copy_len = prefix.len().min(MAX_EXTRANONCE_PREFIX);
+                // No state mutation: each `MiningJob` already carries its
+                // own `extranonce_2_size` and its `merkle_root` is built
+                // from the en1 that was in force at the time the job
+                // arrived, so the visitor doesn't need a session-wide
+                // copy. This arm is operator visibility on the wire
+                // event only.
+                //
+                // Hex buffer sized for SV2's `Bytes0_32` max; V1 en1
+                // (adapter-capped at 8 bytes) fits trivially.
+                const MAX_PREFIX_LOG_BYTES: usize = 32;
+                let mut prefix_hex = [0u8; MAX_PREFIX_LOG_BYTES * 2];
+                let copy_len = prefix.len().min(MAX_PREFIX_LOG_BYTES);
                 let prefix_hex_len = copy_len * 2;
                 let prefix_hex_ok = mining_protocol::hex::encode_lower_to_slice(
                     &prefix[..copy_len],
@@ -172,7 +160,6 @@ impl MiningClientVisitor for StratumState {
                         .expect("hex encoder emits ASCII"),
                     en2_size,
                 );
-                self.store_extranonce_prefix(prefix, en2_size);
             }
             SessionUpdate::SetVersionMask(mask) => {
                 info!("stratum-client: set version mask {:#010x}", mask);

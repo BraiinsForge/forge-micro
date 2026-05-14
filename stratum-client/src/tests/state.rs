@@ -81,17 +81,3 @@ fn set_version_mask_updates_state_and_current_slot() {
     let current = state.job_ring.current().expect("slot present");
     assert_eq!(current.version_rolling_mask, 0x1fff_e000);
 }
-
-#[test]
-fn set_extranonce_records_prefix_and_size() {
-    let mut state = StratumState::new();
-    let prefix = [0xde, 0xad, 0xbe, 0xef];
-    state.visit_session_update(SessionUpdate::SetExtranonce {
-        prefix: &prefix,
-        en2_size: 4,
-    });
-
-    assert_eq!(state.extranonce_prefix_len, 4);
-    assert_eq!(&state.extranonce_prefix[..4], &prefix);
-    assert_eq!(state.extranonce_2_size, 4);
-}

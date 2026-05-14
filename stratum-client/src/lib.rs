@@ -18,6 +18,6 @@ pub mod work_ring;
 pub use asic_session::{AsicSession, SOLUTION_QUEUE_DEPTH};
 pub use job_ring::{JobRing, JobSlot, JOB_RING_DEPTH};
 pub use run::{run_stratum_client, NTIME_ROLL_MAX_SECS, WORK_GENERATOR_PERIOD};
-pub use state::{StratumState, MAX_EXTRANONCE_PREFIX};
+pub use state::StratumState;
 pub use work::{OutstandingWork, Solution, WorkAssignment, MAX_EXTRANONCE_2};
 pub use work_ring::{WorkRing, WORK_RING_DEPTH};
