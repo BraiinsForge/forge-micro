@@ -2,9 +2,9 @@
 //! 32-byte block-hash display helper.
 //!
 //! Lives here because every adapter (`stratum-v1` wire decode, the
-//! V1 and V2 defmt logs) and a couple of integration crates need
-//! the same thing. Centralising means one set of tests and no
-//! drift between hand-rolled copies.
+//! V1 and V2 `ubos_logging` call sites) and a couple of integration
+//! crates need the same thing. Centralising means one set of tests
+//! and no drift between hand-rolled copies.
 
 /// Decode hex `input` into `output`, byte-for-byte. Accepts both
 /// upper- and lower-case digits.
@@ -49,8 +49,8 @@ pub fn encode_lower_to_slice(input: &[u8], output: &mut [u8]) -> bool {
 
 /// Reverse a 32-byte little-endian hash or target into the
 /// MSB-first byte order block explorers and bitcoin RPC use, then
-/// encode as 64 lowercase hex digits. Suitable for `defmt::info!`
-/// via `{=str}` after `core::str::from_utf8(&...).expect(...)`.
+/// encode as 64 lowercase hex digits. Suitable for `ubos_logging::info!`
+/// via `{}` after `core::str::from_utf8(&...).expect(...)`.
 #[must_use]
 pub fn encode_block_hash_lower(input: &[u8; 32]) -> [u8; 64] {
     let mut output = [0u8; 64];
