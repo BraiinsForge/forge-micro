@@ -82,11 +82,7 @@ impl MiningClientVisitor for StratumState {
         info!(
             "stratum-client: new job id={} clean={} ntime={:#010x} \
              nbits={:#010x} en2_size={}",
-            job.id.0,
-            job.clean_jobs,
-            job.ntime,
-            job.nbits,
-            job.extranonce_2_size,
+            job.id.0, job.clean_jobs, job.ntime, job.nbits, job.extranonce_2_size,
         );
         let slot = self.job_ring.next_slot();
         slot.job_id = job.id;
@@ -193,9 +189,7 @@ impl MiningClientVisitor for StratumState {
             } => {
                 info!(
                     "stratum-client: pool reconnect request host={} port={} wait={}",
-                    host,
-                    port,
-                    wait_seconds,
+                    host, port, wait_seconds,
                 );
                 // Surfacing a reconnect to the firmware loop comes
                 // with the migration in phase 8; for now the TCP

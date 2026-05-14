@@ -75,8 +75,7 @@ pub async fn run_asic_uart<U: Read + Write>(asic: &'static AsicSession, mut uart
                 };
                 info!(
                     "asic-uart-peer: solution received work_id={} nonce={:#010x}",
-                    solution.work_id,
-                    solution.nonce,
+                    solution.work_id, solution.nonce,
                 );
                 eth_examples::hashrate::record_share(&current.target);
                 let queued = asic.submit_solution(solution);
@@ -100,10 +99,7 @@ pub async fn run_asic_uart<U: Read + Write>(asic: &'static AsicSession, mut uart
                 current = receiver.changed().await;
             }
             Either::Second(fresh) => {
-                trace!(
-                    "asic-uart-peer: work refreshed work_id={}",
-                    fresh.work_id,
-                );
+                trace!("asic-uart-peer: work refreshed work_id={}", fresh.work_id,);
                 current = fresh;
             }
         }

@@ -110,9 +110,7 @@ fn handle_solution<C: MiningClient>(
 
     info!(
         "stratum-client: submit job={} nonce={:#010x} ntime={:#010x}",
-        outstanding.job_id.0,
-        solution.nonce,
-        solution.ntime,
+        outstanding.job_id.0, solution.nonce, solution.ntime,
     );
 
     let share = Share {

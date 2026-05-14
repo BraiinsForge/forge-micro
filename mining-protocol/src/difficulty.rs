@@ -73,9 +73,7 @@ fn approx_difficulty(target_le: &[u8; 32]) -> ApproxDifficulty {
 #[must_use]
 pub fn approx_string(target_le: &[u8; 32]) -> String<APPROX_STRING_CAP> {
     match approx_difficulty(target_le) {
-        ApproxDifficulty::BelowOne => {
-            String::try_from("<1").expect("fits in APPROX_STRING_CAP")
-        }
+        ApproxDifficulty::BelowOne => String::try_from("<1").expect("fits in APPROX_STRING_CAP"),
         ApproxDifficulty::OverflowMax => {
             String::try_from(">MAX").expect("fits in APPROX_STRING_CAP")
         }

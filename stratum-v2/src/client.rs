@@ -250,9 +250,9 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         let session: EstablishedSession = initiate(transport, rng, self.ctx, authenticator)
             .await
             .map_err(|err| {
-                log_init_error(&err);
-                map_init_error(&err)
-            })?;
+            log_init_error(&err);
+            map_init_error(&err)
+        })?;
         let (mut codec, _session_id) = EncryptedCodec::from_handshake(session);
         info!("stratum-v2: noise handshake complete");
 
@@ -348,12 +348,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         info!(
             "stratum-v2: submit queued channel={} seq={} job={} \
              nonce={:#010x} ntime={:#010x} version={:#010x}",
-            channel_id,
-            sequence_number,
-            wire_job_id,
-            share.nonce,
-            share.ntime,
-            share.version_bits,
+            channel_id, sequence_number, wire_job_id, share.nonce, share.ntime, share.version_bits,
         );
         Ok(())
     }
@@ -405,7 +400,9 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 FrameState::ReadingHeader { mut received } => {
                     while received < EncryptedCodec::HEADER_WIRE_SIZE {
                         let read_count = transport
-                            .read(&mut self.header_buffer[received..EncryptedCodec::HEADER_WIRE_SIZE])
+                            .read(
+                                &mut self.header_buffer[received..EncryptedCodec::HEADER_WIRE_SIZE],
+                            )
                             .await
                             .map_err(|_| Error::Transport)?;
                         if read_count == 0 {
@@ -506,9 +503,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         let Ok(message) = MiningMessages::dispatch(frame) else {
             warn!(
                 "stratum-v2: unknown message ext={:#x} type={:#x} channel={}",
-                header.extension_type,
-                header.msg_type,
-                header.is_channel_message,
+                header.extension_type, header.msg_type, header.is_channel_message,
             );
             return;
         };
@@ -521,8 +516,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
             MiningMessages::SetupConnectionSuccess(success) => {
                 info!(
                     "stratum-v2: setup-connection-success used_version={} flags={:#010x}",
-                    success.used_version,
-                    success.flags,
+                    success.used_version, success.flags,
                 );
                 let mask = if success.flags & SetupConnection::REQUIRES_VERSION_ROLLING != 0 {
                     BIP320_VERSION_MASK
@@ -689,8 +683,7 @@ fn handle_set_new_prev_hash<V: MiningClientVisitor>(
         warn!(
             "stratum-v2: pending future job dropped, job_id mismatch \
              (pending={}, snph={})",
-            pending.wire_job_id,
-            snph.job_id,
+            pending.wire_job_id, snph.job_id,
         );
         return;
     }
@@ -727,10 +720,7 @@ fn handle_new_mining_job<V: MiningClientVisitor>(
         info!(
             "stratum-v2: new-mining-job channel={} job={} \
              version={:#010x} ntime={:#010x}",
-            job.channel_id,
-            job.job_id,
-            job.version,
-            ntime,
+            job.channel_id, job.job_id, job.version, ntime,
         );
         emit_mining_job(
             session,
@@ -748,9 +738,7 @@ fn handle_new_mining_job<V: MiningClientVisitor>(
     merkle_root.copy_from_slice(job.merkle_root.to_le_bytes());
     info!(
         "stratum-v2: new-mining-job pending channel={} job={} version={:#010x}",
-        job.channel_id,
-        job.job_id,
-        job.version,
+        job.channel_id, job.job_id, job.version,
     );
     session.pending_future_job = Some(PendingFutureJob {
         wire_job_id: job.job_id,

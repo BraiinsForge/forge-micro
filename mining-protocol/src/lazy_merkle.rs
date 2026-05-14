@@ -105,4 +105,3 @@ fn hash_coinbase_streamed(
     hasher2.update(first);
     out.copy_from_slice(&hasher2.finalize());
 }
-

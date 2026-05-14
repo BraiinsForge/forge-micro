@@ -399,9 +399,7 @@ impl MiningClient for StratumV1Client {
                 Rpc::Notification(Notification::ClientReconnect(reconnect)) => {
                     info!(
                         "stratum-v1: client-reconnect host={} port={} wait={}",
-                        reconnect.host,
-                        reconnect.port,
-                        reconnect.wait,
+                        reconnect.host, reconnect.port, reconnect.wait,
                     );
                     visitor.visit_session_update(SessionUpdate::Reconnect {
                         host: reconnect.host,
@@ -694,8 +692,7 @@ fn dispatch_response<V: MiningClientVisitor>(
             if usize::from(parsed.2) > MAX_EXTRANONCE_2 {
                 warn!(
                     "stratum-v1: subscribe en2_size={} > MAX_EXTRANONCE_2={}; ending session",
-                    parsed.2,
-                    MAX_EXTRANONCE_2,
+                    parsed.2, MAX_EXTRANONCE_2,
                 );
                 return Some(SessionRejection::ExtranonceTooLarge);
             }
