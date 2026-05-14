@@ -99,17 +99,21 @@ enum V2State {
 /// chain has advanced — invariant the cancellation safety relies
 /// on.
 ///
-/// `Idle` — no bytes read; AEAD at frame boundary. `ReadingHeader` —
-/// `received` bytes of the encrypted 22-byte header are in the
-/// header buffer; AEAD has NOT advanced. `ReadingPayload` — header
-/// has been decrypted (AEAD advanced by one chunk); `received`
-/// bytes of `header.msg_length + MAC_BYTES` are in the wire
-/// buffer. `PayloadReady` — payload decrypted (AEAD advanced by a
-/// second chunk); plaintext sits in the wire buffer waiting for
-/// `accept` to dispatch.
+/// `ReadingHeader` — `received` bytes of the encrypted 22-byte
+/// header are in the header buffer; AEAD has NOT advanced. The
+/// initial state (`received: 0`) is also "ready for the next
+/// frame" after `accept`. `ReadingPayload` — header has been
+/// decrypted (AEAD advanced by one chunk); `received` bytes of
+/// `header.msg_length + MAC_BYTES` are in the wire buffer.
+/// `PayloadReady` — payload decrypted (AEAD advanced by a second
+/// chunk); plaintext sits in the wire buffer waiting for `accept`
+/// to dispatch. `Broken` — terminal sink for any error path
+/// (transport failure, decrypt failure, oversized payload); the
+/// next `drive` returns `Error::Decode` immediately without
+/// touching the wire, so a poisoned AEAD chain or dead transport
+/// can't be retried by accident.
 #[derive(Clone, Copy)]
 enum FrameState {
-    Idle,
     ReadingHeader {
         received: usize,
     },
@@ -122,6 +126,7 @@ enum FrameState {
     PayloadReady {
         header: Header,
     },
+    Broken,
 }
 
 /// Stratum V2 protocol adapter. Generic over the platform RNG and
@@ -167,7 +172,7 @@ impl<'a, R: Rng, C: secp256k1::Signing + secp256k1::Verification> StratumV2Clien
             state: V2State::PreHandshake,
             wire_buffer: [0; WIRE_BUFFER_BYTES],
             header_buffer: [0; EncryptedCodec::HEADER_WIRE_SIZE],
-            frame_state: FrameState::Idle,
+            frame_state: FrameState::ReadingHeader { received: 0 },
             encode_buffer: [0; ENCODE_BUFFER_BYTES],
             outbound_len: 0,
             outbound_offset: 0,
@@ -361,23 +366,35 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
     /// can be resumed from the same state on the next call.
     /// Outbound flushing is similarly resumable via
     /// `outbound_offset`.
+    #[allow(clippy::too_many_lines)]
     async fn drive<T>(&mut self, transport: &mut T) -> Result<(), Error>
     where
         T: Read + Write,
     {
+        if matches!(self.frame_state, FrameState::Broken) {
+            // Earlier `drive` left the codec / transport in an
+            // unrecoverable state. Don't touch the wire — let the
+            // caller tear the session down on the second Err.
+            return Err(Error::Decode);
+        }
         if let V2State::Rejected(cause) = self.state {
             return Err(Error::SessionRejected(cause));
         }
         // Flush queued outbound bytes (e.g. a `SubmitSharesStandard`
         // produced by a recent `submit`) before reading. The bytes
         // are already AEAD-sealed, so a partial write is safe to
-        // resume.
+        // resume across cancellation; any transport error poisons
+        // the state machine to match the read-side semantics.
         while self.outbound_offset < self.outbound_len {
-            let written = transport
+            let Ok(written) = transport
                 .write(&self.encode_buffer[self.outbound_offset..self.outbound_len])
                 .await
-                .map_err(|_| Error::Transport)?;
+            else {
+                self.frame_state = FrameState::Broken;
+                return Err(Error::Transport);
+            };
             if written == 0 {
+                self.frame_state = FrameState::Broken;
                 return Err(Error::Transport);
             }
             self.outbound_offset += written;
@@ -394,31 +411,29 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
 
         loop {
             match self.frame_state {
-                FrameState::Idle => {
-                    self.frame_state = FrameState::ReadingHeader { received: 0 };
-                }
-                FrameState::ReadingHeader { mut received } => {
-                    while received < EncryptedCodec::HEADER_WIRE_SIZE {
-                        let read_count = transport
+                FrameState::ReadingHeader { ref mut received } => {
+                    while *received < EncryptedCodec::HEADER_WIRE_SIZE {
+                        let Ok(read_count) = transport
                             .read(
-                                &mut self.header_buffer[received..EncryptedCodec::HEADER_WIRE_SIZE],
+                                &mut self.header_buffer
+                                    [*received..EncryptedCodec::HEADER_WIRE_SIZE],
                             )
                             .await
-                            .map_err(|_| Error::Transport)?;
+                        else {
+                            self.frame_state = FrameState::Broken;
+                            return Err(Error::Transport);
+                        };
                         if read_count == 0 {
+                            self.frame_state = FrameState::Broken;
                             return Err(Error::Transport);
                         }
-                        received += read_count;
-                        // Persist progress so a cancellation here
-                        // doesn't lose the bytes already buffered.
-                        self.frame_state = FrameState::ReadingHeader { received };
+                        *received += read_count;
                     }
                     // Whole encrypted header is in `header_buffer`.
-                    // Decrypt — first AEAD advance for this frame.
-                    // Reset state before the fallible call so a decode
-                    // failure does not leave the machine wedged on the
-                    // same ciphertext for the next `drive` call.
-                    self.frame_state = FrameState::Idle;
+                    // Park state in `Broken` before the fallible
+                    // decrypt: on `?` the machine stays Broken; on
+                    // success we transition to `ReadingPayload`.
+                    self.frame_state = FrameState::Broken;
                     let header = codec
                         .decode_header(&mut self.header_buffer)
                         .map_err(|_| Error::Decode)?;
@@ -429,28 +444,29 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 }
                 FrameState::ReadingPayload {
                     header,
-                    mut received,
+                    ref mut received,
                 } => {
                     let payload_total = header.msg_length as usize + MAC_BYTES;
                     if payload_total > self.wire_buffer.len() {
+                        self.frame_state = FrameState::Broken;
                         return Err(Error::Decode);
                     }
-                    while received < payload_total {
-                        let read_count = transport
-                            .read(&mut self.wire_buffer[received..payload_total])
+                    while *received < payload_total {
+                        let Ok(read_count) = transport
+                            .read(&mut self.wire_buffer[*received..payload_total])
                             .await
-                            .map_err(|_| Error::Transport)?;
+                        else {
+                            self.frame_state = FrameState::Broken;
+                            return Err(Error::Transport);
+                        };
                         if read_count == 0 {
+                            self.frame_state = FrameState::Broken;
                             return Err(Error::Transport);
                         }
-                        received += read_count;
-                        self.frame_state = FrameState::ReadingPayload { header, received };
+                        *received += read_count;
                     }
-                    // Whole encrypted payload buffered. Decrypt
-                    // in place — second AEAD advance. Reset state
-                    // first so a decode failure doesn't leave the
-                    // machine wedged on the same ciphertext.
-                    self.frame_state = FrameState::Idle;
+                    // Same Broken-park pattern as for the header.
+                    self.frame_state = FrameState::Broken;
                     codec
                         .decode_frame(header, &mut self.wire_buffer[..payload_total])
                         .map_err(|_| Error::Decode)?;
@@ -462,6 +478,11 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                     // through `accept` yet — pairing is required
                     // for AEAD alignment with the peer.
                     return Err(Error::Adapter);
+                }
+                FrameState::Broken => {
+                    // Guarded at the top; unreachable in steady
+                    // state but keeps the match exhaustive.
+                    return Err(Error::Decode);
                 }
             }
         }
@@ -480,9 +501,9 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         let FrameState::PayloadReady { header } = self.frame_state else {
             return;
         };
-        // Reset before dispatch: even on parse failure the next
-        // drive must be free to read.
-        self.frame_state = FrameState::Idle;
+        // Arm the state machine for the next frame: even on parse
+        // failure the next drive must be free to read.
+        self.frame_state = FrameState::ReadingHeader { received: 0 };
 
         let payload_len = header.msg_length as usize;
         if payload_len > self.wire_buffer.len() {
