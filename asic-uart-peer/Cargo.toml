@@ -8,7 +8,7 @@ workspace = true
 
 [features]
 default = []
-defmt   = ["dep:defmt"]
+defmt   = ["dep:defmt", "ubos-logging/defmt"]
 
 [dependencies]
 defmt             = { workspace = true, optional = true }
@@ -16,3 +16,4 @@ embassy-futures   = { workspace = true }
 embedded-io-async = { workspace = true }
 eth-examples      = { workspace = true, default-features = false }
 stratum-client    = { workspace = true }
+ubos-logging      = { workspace = true }

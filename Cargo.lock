@@ -177,6 +177,7 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "eth-examples",
  "stratum-client",
+ "ubos-logging",
 ]
 
 [[package]]
@@ -3854,6 +3855,7 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "heapless 0.8.0",
  "mining-protocol",
+ "ubos-logging",
 ]
 
 [[package]]
@@ -3869,6 +3871,7 @@ dependencies = [
  "serde",
  "serde-json-core",
  "tokio",
+ "ubos-logging",
 ]
 
 [[package]]
@@ -3884,6 +3887,7 @@ dependencies = [
  "mining-protocol",
  "rand",
  "tokio",
+ "ubos-logging",
 ]
 
 [[package]]
