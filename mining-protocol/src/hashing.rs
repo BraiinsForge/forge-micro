@@ -79,7 +79,7 @@ pub fn hash_meets_target(hash: &[u8; 32], target: &[u8; 32]) -> bool {
     true
 }
 
-fn double_sha256(data: &[u8], out: &mut [u8; 32]) {
+pub(crate) fn double_sha256(data: &[u8], out: &mut [u8; 32]) {
     let mut hasher = Sha256::new();
     hasher.update(data);
     let first = hasher.finalize();

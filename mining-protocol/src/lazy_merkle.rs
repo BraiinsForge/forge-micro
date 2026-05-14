@@ -11,6 +11,8 @@
 
 use sha2::{Digest, Sha256};
 
+use crate::hashing::double_sha256;
+
 #[cfg(test)]
 #[path = "tests/lazy_merkle.rs"]
 mod tests;
@@ -43,10 +45,10 @@ impl LazyMerkle<'_> {
     /// Compute the merkle root for a given `extranonce_2` value.
     ///
     /// `Prepared` builds `coinbase_prefix || extranonce_prefix ||
-    /// extranonce_2 || coinbase_suffix`, takes its `sha256d`, then
-    /// folds in each branch via `sha256d(node || branch)`. Result
-    /// goes into `out` in canonical block-header byte order — direct
-    /// memcpy into `header[36..68]`.
+    /// extranonce_2 || coinbase_suffix`, takes its double SHA-256,
+    /// then folds in each branch via `double_sha256(node || branch)`.
+    /// Result goes into `out` in canonical block-header byte order —
+    /// direct memcpy into `header[36..68]`.
     ///
     /// `Final` ignores `extranonce_2` (the wire form already absorbed
     /// it pool-side) and copies the precomputed root.
@@ -73,7 +75,7 @@ impl LazyMerkle<'_> {
                 for branch in *branches {
                     concat[..32].copy_from_slice(&node);
                     concat[32..].copy_from_slice(branch);
-                    sha256d(&concat, &mut node);
+                    double_sha256(&concat, &mut node);
                 }
                 *out = node;
             }
@@ -104,11 +106,3 @@ fn hash_coinbase_streamed(
     out.copy_from_slice(&hasher2.finalize());
 }
 
-fn sha256d(data: &[u8], out: &mut [u8; 32]) {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    let first = hasher.finalize();
-    let mut hasher2 = Sha256::new();
-    hasher2.update(first);
-    out.copy_from_slice(&hasher2.finalize());
-}
