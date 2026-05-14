@@ -1,5 +1,13 @@
 //! Fan PWM drive and tachometer readback.
 //!
+//! The BMM Adapter has `FAN_PWM` on J13 pin 3 and `FAN_RPM` on
+//! J13 pin 4, but the Intel 4-wire fan spec has TACH
+//! on pin 3 and PWM on pin 4. Here we work with it
+//! according to the spec, so the cable between the connector and
+//! the fan must swap pins 3 and 4 relative to the schematic net
+//! names.
+//! TODO: Drop this when a future revision renames it
+//!
 //! Slice 4 channel A on `PIN_8` drives the fan's PWM input at 25 kHz,
 //! the rate specified by the Intel 4-wire fan spec. `BoardFan` exposes
 //! the PWM output behind the `ubos_monitor::FanOutput` trait so the
