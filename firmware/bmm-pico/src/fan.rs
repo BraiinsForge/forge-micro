@@ -25,7 +25,9 @@ use embassy_rp::peripherals::{PIN_15, PIN_8, PWM_SLICE4, PWM_SLICE7};
 use embassy_rp::pwm::{Config as PwmConfig, InputMode, Pwm};
 use embassy_rp::Peri;
 use embassy_time::Ticker;
+use eth_examples::display::{FAN_PWM_PERCENT, FAN_RPM};
 use eth_examples::metrics::{push, Metric, Value};
+use portable_atomic::Ordering;
 use ubos_monitor::FanOutput;
 
 use crate::config::Fan;
@@ -43,6 +45,8 @@ impl BoardFan {
         let mut pwm_config = PwmConfig::default();
         pwm_config.top = Fan::PWM_TOP;
         let pwm = Pwm::new_output_a(slice, pin, pwm_config);
+        // Clear the display's no-fan sentinel so line 3 switches to PWM/RPM.
+        FAN_PWM_PERCENT.store(0, Ordering::Relaxed);
         Self {
             pwm,
             top: Fan::PWM_TOP,
@@ -62,6 +66,7 @@ impl FanOutput for BoardFan {
             config.compare_a = compare as u16;
         }
         self.pwm.set_config(&config);
+        FAN_PWM_PERCENT.store(percent, Ordering::Relaxed);
     }
 }
 
@@ -93,6 +98,7 @@ pub async fn run_tach(hardware: TachHardware) -> ! {
         ticker.next().await;
         let counts = u64::from(tach.counter());
         let rpm = counts * 60 / Fan::TACH_PULSES_PER_REV / Fan::TACH_WINDOW.as_secs();
+        FAN_RPM.store(u32::try_from(rpm).unwrap_or(u32::MAX), Ordering::Relaxed);
         push(Metric {
             name: "board_fan_rpm",
             labels: heapless::Vec::new(),
