@@ -7,7 +7,7 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["display"]
+default = ["display", "backend-mmm"]
 display = []
 # UART peer backend: drives an external dummy-asic board over UART.
 # Mutually exclusive with `backend-cpu`.

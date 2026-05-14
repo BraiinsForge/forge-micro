@@ -10,7 +10,7 @@ use embassy_rp::peripherals::{
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, SPI1};
-#[cfg(feature = "backend-uart")]
+#[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
 use embassy_rp::peripherals::{PIN_4, PIN_5, UART1};
 use embassy_rp::Peri;
 use embassy_time::Duration;
@@ -43,11 +43,11 @@ pub struct Board {
     pub fan_pwm: Peri<'static, PIN_8>,
     pub fan_rpm_slice: Peri<'static, PWM_SLICE7>,
     pub fan_rpm: Peri<'static, PIN_15>,
-    #[cfg(feature = "backend-uart")]
+    #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
     pub uart: Peri<'static, UART1>,
-    #[cfg(feature = "backend-uart")]
+    #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
     pub uart_tx: Peri<'static, PIN_4>,
-    #[cfg(feature = "backend-uart")]
+    #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
     pub uart_rx: Peri<'static, PIN_5>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
@@ -102,11 +102,11 @@ impl Board {
             fan_pwm: peripherals.PIN_8,
             fan_rpm_slice: peripherals.PWM_SLICE7,
             fan_rpm: peripherals.PIN_15,
-            #[cfg(feature = "backend-uart")]
+            #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
             uart: peripherals.UART1,
-            #[cfg(feature = "backend-uart")]
+            #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
             uart_tx: peripherals.PIN_4,
-            #[cfg(feature = "backend-uart")]
+            #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
             uart_rx: peripherals.PIN_5,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI1,
@@ -154,33 +154,67 @@ impl Fan {
     pub const TACH_PULSES_PER_REV: u64 = 2;
 }
 
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
+#[cfg(any(
+    feature = "backend-cpu",
+    feature = "backend-uart",
+    feature = "backend-mmm"
+))]
 pub struct Core1;
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
+#[cfg(any(
+    feature = "backend-cpu",
+    feature = "backend-uart",
+    feature = "backend-mmm"
+))]
 impl Core1 {
-    /// Stack size in bytes for the Core 1 executor.
-    pub const STACK_BYTES: usize = 4096;
+    /// Stack size for the Core 1 executor. Sized for the mmm backend,
+    /// which needs the most stack of the three; backend-uart and
+    /// backend-cpu share this budget to keep the value unconditional.
+    pub const STACK_BYTES: usize = 32_768;
 }
 
 // Pool presets kept so switching pool or user is a one-line edit on
 // `Pool::HOST_IP`/`Pool::USER` below. The unused ones stay behind
 // `allow(dead_code)` because only one pair is active at a time.
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
+#[cfg(any(
+    feature = "backend-cpu",
+    feature = "backend-uart",
+    feature = "backend-mmm"
+))]
 #[allow(dead_code)]
 const RPI_POOL: [u8; 4] = [192, 168, 89, 100];
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
+#[cfg(any(
+    feature = "backend-cpu",
+    feature = "backend-uart",
+    feature = "backend-mmm"
+))]
 #[allow(dead_code)]
 const REGTEST_SOLO_USER: &str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8";
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
+#[cfg(any(
+    feature = "backend-cpu",
+    feature = "backend-uart",
+    feature = "backend-mmm"
+))]
 #[allow(dead_code)]
 const BRAIINS_POOL: [u8; 4] = [172, 65, 65, 63];
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
+#[cfg(any(
+    feature = "backend-cpu",
+    feature = "backend-uart",
+    feature = "backend-mmm"
+))]
 #[allow(dead_code)]
 const BRAIINS_USER: &str = "braiinstest";
 
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
+#[cfg(any(
+    feature = "backend-cpu",
+    feature = "backend-uart",
+    feature = "backend-mmm"
+))]
 pub struct Pool;
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
+#[cfg(any(
+    feature = "backend-cpu",
+    feature = "backend-uart",
+    feature = "backend-mmm"
+))]
 impl Pool {
     pub const HOST_IP: [u8; 4] = RPI_POOL;
     pub const PORT: u16 = 3333;

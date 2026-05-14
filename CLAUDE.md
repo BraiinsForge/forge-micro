@@ -35,7 +35,7 @@ nix develop .#esp -c bash -c 'cd firmware/esp32s3   && cargo run --release'
 
 Default features vary by board: `rp2040`, `rp2350`, `stm32f407`,
 and `esp32s3` enable `["display", "backend-uart"]`; `bmm-pico`
-enables `["display"]`; `stm32f439` ships with no defaults so the
+enables `["display", "backend-mmm"]`; `stm32f439` ships with no defaults so the
 dummy-asic peer can be attached separately. Switch to CPU mining
 with `--no-default-features --features "display,backend-cpu"` on
 the boards with displays, or `--features backend-cpu` on stm32f439.
