@@ -7,6 +7,7 @@
 //! generator's source of truth for the latest job.
 
 use mining_protocol::{MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
+use ubos_logging::{info, warn};
 
 use crate::job_ring::{JobRing, JOB_RING_DEPTH};
 use crate::work::MAX_EXTRANONCE_2;
@@ -78,10 +79,9 @@ impl Default for StratumState {
 
 impl MiningClientVisitor for StratumState {
     fn visit_new_job(&mut self, job: MiningJob<'_>) {
-        #[cfg(feature = "defmt")]
-        defmt::info!(
-            "stratum-client: new job id={=u32} clean={=bool} ntime={=u32:#010x} \
-             nbits={=u32:#010x} en2_size={=u8}",
+        info!(
+            "stratum-client: new job id={} clean={} ntime={:#010x} \
+             nbits={:#010x} en2_size={}",
             job.id.0,
             job.clean_jobs,
             job.ntime,
@@ -128,29 +128,25 @@ impl MiningClientVisitor for StratumState {
     }
 
     fn visit_submit_result(&mut self, result: SubmitResult<'_>) {
-        #[cfg(feature = "defmt")]
         if result.accepted {
-            defmt::info!("stratum-client: share accepted id={=u32}", result.id.0,);
+            info!("stratum-client: share accepted id={}", result.id.0,);
         } else {
-            defmt::warn!(
-                "stratum-client: share rejected id={=u32} code={=?} message={=?}",
+            warn!(
+                "stratum-client: share rejected id={} code={:?} message={:?}",
                 result.id.0,
                 result.error_code,
                 result.error_message,
             );
         }
-        #[cfg(not(feature = "defmt"))]
-        let _ = result;
     }
 
     fn visit_session_update(&mut self, update: SessionUpdate<'_>) {
         match update {
             SessionUpdate::SetTarget(target) => {
-                #[cfg(feature = "defmt")]
                 {
                     let target_hex = mining_protocol::hex::encode_block_hash_lower(target);
-                    defmt::info!(
-                        "stratum-client: set target {=str}...",
+                    info!(
+                        "stratum-client: set target {}...",
                         core::str::from_utf8(&target_hex[..32]).expect("hex encoder emits ASCII"),
                     );
                 }
@@ -160,17 +156,24 @@ impl MiningClientVisitor for StratumState {
                 }
             }
             SessionUpdate::SetExtranonce { prefix, en2_size } => {
-                #[cfg(feature = "defmt")]
-                defmt::info!(
-                    "stratum-client: set extranonce prefix={=[u8]:x} en2_size={=u8}",
-                    prefix,
+                let mut prefix_hex = [0u8; MAX_EXTRANONCE_PREFIX * 2];
+                let copy_len = prefix.len().min(MAX_EXTRANONCE_PREFIX);
+                let prefix_hex_len = copy_len * 2;
+                let prefix_hex_ok = mining_protocol::hex::encode_lower_to_slice(
+                    &prefix[..copy_len],
+                    &mut prefix_hex[..prefix_hex_len],
+                );
+                debug_assert!(prefix_hex_ok);
+                info!(
+                    "stratum-client: set extranonce prefix={} en2_size={}",
+                    core::str::from_utf8(&prefix_hex[..prefix_hex_len])
+                        .expect("hex encoder emits ASCII"),
                     en2_size,
                 );
                 self.store_extranonce_prefix(prefix, en2_size);
             }
             SessionUpdate::SetVersionMask(mask) => {
-                #[cfg(feature = "defmt")]
-                defmt::info!("stratum-client: set version mask {=u32:#010x}", mask);
+                info!("stratum-client: set version mask {:#010x}", mask);
                 self.version_mask = mask;
                 if let Some(latest) = self.job_ring.current_mut() {
                     latest.version_rolling_mask = mask;
@@ -181,15 +184,12 @@ impl MiningClientVisitor for StratumState {
                 port,
                 wait_seconds,
             } => {
-                #[cfg(feature = "defmt")]
-                defmt::info!(
-                    "stratum-client: pool reconnect request host={=str} port={=u16} wait={=u16}",
+                info!(
+                    "stratum-client: pool reconnect request host={} port={} wait={}",
                     host,
                     port,
                     wait_seconds,
                 );
-                #[cfg(not(feature = "defmt"))]
-                let _ = (host, port, wait_seconds);
                 // Surfacing a reconnect to the firmware loop comes
                 // with the migration in phase 8; for now the TCP
                 // layer's normal close-and-retry cycle covers it.
