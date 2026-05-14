@@ -21,6 +21,7 @@
 use embassy_futures::select::{select, Either};
 use embedded_io_async::{Read, Write};
 use stratum_client::{AsicSession, Solution};
+use ubos_logging::{info, trace, warn};
 
 use crate::wire::{
     decode_share, encode_work, frame_start, DecodeError, SHARE_FRAME_LEN, WORK_FRAME_LEN,
@@ -44,9 +45,8 @@ pub async fn run_asic_uart<U: Read + Write>(asic: &'static AsicSession, mut uart
 
     // Block until the host publishes the first WorkAssignment.
     let mut current = receiver.changed().await;
-    #[cfg(feature = "defmt")]
-    defmt::info!(
-        "asic-uart-peer: first work received, work_id={=u32}",
+    info!(
+        "asic-uart-peer: first work received, work_id={}",
         current.work_id,
     );
 
@@ -55,8 +55,7 @@ pub async fn run_asic_uart<U: Read + Write>(asic: &'static AsicSession, mut uart
         let mut frame = [0u8; WORK_FRAME_LEN];
         encode_work(&current, &mut frame);
         if write_all(&mut uart, &frame).await.is_err() {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("asic-uart-peer: send_work failed");
+            warn!("asic-uart-peer: send_work failed");
             current = receiver.changed().await;
             continue;
         }
@@ -74,20 +73,16 @@ pub async fn run_asic_uart<U: Read + Write>(asic: &'static AsicSession, mut uart
                     ntime: current.ntime,
                     version_bits: 0,
                 };
-                #[cfg(feature = "defmt")]
-                defmt::info!(
-                    "asic-uart-peer: solution received work_id={=u32} nonce={=u32:#010x}",
+                info!(
+                    "asic-uart-peer: solution received work_id={} nonce={:#010x}",
                     solution.work_id,
                     solution.nonce,
                 );
                 eth_examples::hashrate::record_share(&current.target);
                 let queued = asic.submit_solution(solution);
-                #[cfg(feature = "defmt")]
                 if !queued {
-                    defmt::warn!("asic-uart-peer: solutions channel full, dropped");
+                    warn!("asic-uart-peer: solutions channel full, dropped");
                 }
-                #[cfg(not(feature = "defmt"))]
-                let _ = queued;
 
                 // Check the watch in case fresh work landed while
                 // we were processing this share; otherwise stay
@@ -98,19 +93,15 @@ pub async fn run_asic_uart<U: Read + Write>(asic: &'static AsicSession, mut uart
                 }
             }
             Either::First(Err(error)) => {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("asic-uart-peer: recv_share failed: {=?}", error);
-                #[cfg(not(feature = "defmt"))]
-                let _ = error;
+                warn!("asic-uart-peer: recv_share failed: {:?}", error);
                 // Wait for a fresh assignment to retry; a torn UART
                 // mid-frame is best paired with a fresh work send
                 // anyway.
                 current = receiver.changed().await;
             }
             Either::Second(fresh) => {
-                #[cfg(feature = "defmt")]
-                defmt::trace!(
-                    "asic-uart-peer: work refreshed work_id={=u32}",
+                trace!(
+                    "asic-uart-peer: work refreshed work_id={}",
                     fresh.work_id,
                 );
                 current = fresh;
