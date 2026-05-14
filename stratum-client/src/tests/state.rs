@@ -47,7 +47,6 @@ fn clean_jobs_invalidates_previous_slot() {
 
     assert!(state.job_ring.is_valid(JobId(2)));
     assert!(!state.job_ring.is_valid(JobId(1)));
-    assert!(state.clean_jobs_pending);
 }
 
 #[test]

@@ -42,9 +42,6 @@ pub struct StratumState {
     /// Counter for `WorkAssignment::work_id` allocation in the work
     /// generator.
     pub next_work_id: u32,
-    /// Set whenever a `clean_jobs=true` notify lands so the ASIC
-    /// driver / work generator can react to a chain switch.
-    pub clean_jobs_pending: bool,
 }
 
 impl StratumState {
@@ -59,7 +56,6 @@ impl StratumState {
             extranonce_prefix: [0; MAX_EXTRANONCE_PREFIX],
             extranonce_2_size: 0,
             next_work_id: 0,
-            clean_jobs_pending: false,
         }
     }
 
@@ -119,7 +115,6 @@ impl MiningClientVisitor for StratumState {
 
         if job.clean_jobs {
             self.job_ring.invalidate_previous();
-            self.clean_jobs_pending = true;
         }
     }
 
