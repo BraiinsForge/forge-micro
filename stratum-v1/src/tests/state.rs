@@ -1,7 +1,5 @@
 //! `PendingRequests` ring-buffer unit tests.
 
-use mining_protocol::JobId;
-
 use crate::state::{PendingRequestKind, PendingRequests};
 
 #[test]
@@ -30,12 +28,16 @@ fn take_unknown_id_returns_none() {
 }
 
 #[test]
-fn submit_kind_carries_job_id_to_take() {
+fn submit_kind_carries_pool_difficulty_to_take() {
     let mut pending: PendingRequests<4> = PendingRequests::new();
-    let id = pending.register(PendingRequestKind::Submit { job_id: JobId(42) });
+    let id = pending.register(PendingRequestKind::Submit {
+        pool_difficulty: 1024,
+    });
     match pending.take(id) {
-        Some(PendingRequestKind::Submit { job_id }) => assert_eq!(job_id, JobId(42)),
-        other => panic!("expected Submit with JobId(42), got {other:?}"),
+        Some(PendingRequestKind::Submit { pool_difficulty }) => {
+            assert_eq!(pool_difficulty, 1024);
+        }
+        other => panic!("expected Submit with pool_difficulty=1024, got {other:?}"),
     }
 }
 

@@ -21,6 +21,36 @@ use heapless::String;
 /// `"4294901760"` (10 chars) plus the longest sentinel `">MAX"`.
 pub const APPROX_STRING_CAP: usize = 12;
 
+/// Result of the approximate-difficulty calculation. `BelowOne` and
+/// `OverflowMax` are the two sentinel cases the u32 approximation
+/// cannot represent numerically; [`approx_string`] turns them into
+/// readable strings, [`approx_value`] into `0` / `u64::MAX`.
+enum ApproxDifficulty {
+    BelowOne,
+    OverflowMax,
+    Value(u32),
+}
+
+fn approx_difficulty(target_le: &[u8; 32]) -> ApproxDifficulty {
+    let top4 = u32::from_le_bytes(
+        target_le[28..32]
+            .try_into()
+            .expect("BUG: 4-byte slice from a 32-byte array"),
+    );
+    if top4 != 0 {
+        return ApproxDifficulty::BelowOne;
+    }
+    let next4 = u32::from_le_bytes(
+        target_le[24..28]
+            .try_into()
+            .expect("BUG: 4-byte slice from a 32-byte array"),
+    );
+    if next4 == 0 {
+        return ApproxDifficulty::OverflowMax;
+    }
+    ApproxDifficulty::Value(0xffff_0000_u32 / next4)
+}
+
 /// Format the approximate difficulty of `target_le` as a defmt-
 /// friendly string. `target_le` is the canonical 256-bit
 /// little-endian share target (`target_le[0]` is the LSB).
@@ -42,26 +72,37 @@ pub const APPROX_STRING_CAP: usize = 12;
 /// document the invariants for the reader.
 #[must_use]
 pub fn approx_string(target_le: &[u8; 32]) -> String<APPROX_STRING_CAP> {
-    let top4 = u32::from_le_bytes(
-        target_le[28..32]
-            .try_into()
-            .expect("BUG: 4-byte slice from a 32-byte array"),
-    );
-    if top4 != 0 {
-        return String::try_from("<1").expect("fits in APPROX_STRING_CAP");
+    match approx_difficulty(target_le) {
+        ApproxDifficulty::BelowOne => {
+            String::try_from("<1").expect("fits in APPROX_STRING_CAP")
+        }
+        ApproxDifficulty::OverflowMax => {
+            String::try_from(">MAX").expect("fits in APPROX_STRING_CAP")
+        }
+        ApproxDifficulty::Value(diff) => {
+            let mut out: String<APPROX_STRING_CAP> = String::new();
+            let _ = write!(out, "{diff}");
+            out
+        }
     }
-    let next4 = u32::from_le_bytes(
-        target_le[24..28]
-            .try_into()
-            .expect("BUG: 4-byte slice from a 32-byte array"),
-    );
-    if next4 == 0 {
-        return String::try_from(">MAX").expect("fits in APPROX_STRING_CAP");
+}
+
+/// Numeric counterpart of [`approx_string`] for code paths that
+/// account for accepted work (e.g. V1 submit acceptance, where the
+/// trait surface reports diff-1-share units to match SV2's
+/// `SubmitSharesSuccess.new_shares_sum`).
+///
+/// Sentinel handling:
+///
+/// - `0` when the difficulty would be below 1.
+/// - `u64::MAX` when the u32 approximation overflows.
+#[must_use]
+pub fn approx_value(target_le: &[u8; 32]) -> u64 {
+    match approx_difficulty(target_le) {
+        ApproxDifficulty::BelowOne => 0,
+        ApproxDifficulty::OverflowMax => u64::MAX,
+        ApproxDifficulty::Value(diff) => u64::from(diff),
     }
-    let diff = 0xffff_0000_u32 / next4;
-    let mut out: String<APPROX_STRING_CAP> = String::new();
-    let _ = write!(out, "{diff}");
-    out
 }
 
 #[cfg(test)]

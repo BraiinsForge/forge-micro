@@ -228,10 +228,11 @@ impl MiningClient for StratumV1Client {
             .push_str(wire_borrow)
             .map_err(|()| Error::Adapter)?;
 
+        let pool_difficulty = mining_protocol::difficulty::approx_value(&self.session.target);
         let submit_id = self
             .session
             .pending
-            .register(PendingRequestKind::Submit { job_id: share.id });
+            .register(PendingRequestKind::Submit { pool_difficulty });
 
         let mut extranonce_2_hex = String::<{ crate::scratch::MAX_EXTRANONCE_1 * 2 }>::new();
         for byte in share.extranonce_2 {
@@ -738,34 +739,35 @@ fn dispatch_response<V: MiningClientVisitor>(
             }
             None
         }
-        PendingRequestKind::Submit { job_id } => {
+        PendingRequestKind::Submit { pool_difficulty } => {
             let accepted = response
                 .stratum_result
                 .and_then(|raw| parse_boolean_result(raw).ok())
                 .unwrap_or(false);
-            let (error_code, error_message) = match &response.stratum_error {
-                Some(StratumError(code, message, _detail)) => {
-                    let code_unsigned = u32::try_from(*code).ok();
-                    (code_unsigned, Some(*message))
+            let result = if accepted {
+                info!("stratum-v1: submit-accepted work={}", pool_difficulty);
+                SubmitResult::Accepted {
+                    count: 1,
+                    work: pool_difficulty,
                 }
-                None => (None, None),
-            };
-            if accepted {
-                info!("stratum-v1: submit-accepted job_id={}", job_id.0);
             } else {
+                let (error_code, error_message) = match &response.stratum_error {
+                    Some(StratumError(code, message, _detail)) => {
+                        let code_unsigned = u32::try_from(*code).ok();
+                        (code_unsigned, Some(*message))
+                    }
+                    None => (None, None),
+                };
                 warn!(
-                    "stratum-v1: submit-rejected job_id={} code={:?} message={:?}",
-                    job_id.0,
+                    "stratum-v1: submit-rejected code={:?} message={:?}",
+                    error_code, error_message,
+                );
+                SubmitResult::Rejected {
                     error_code,
                     error_message,
-                );
-            }
-            visitor.visit_submit_result(SubmitResult {
-                id: job_id,
-                accepted,
-                error_code,
-                error_message,
-            });
+                }
+            };
+            visitor.visit_submit_result(result);
             None
         }
     }

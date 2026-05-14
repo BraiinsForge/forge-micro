@@ -37,11 +37,14 @@ pub enum PendingRequestKind {
     Configure,
     Subscribe,
     Authorize,
-    /// The submitted share's generic `JobId`, surfaced back to the
-    /// visitor when the pool's response lands so it can correlate
-    /// the result with the originating job.
+    /// The pool difficulty (in diff-1-share units) at the time the
+    /// share was queued. Snapshotted from `session.target` because the
+    /// pool may issue `mining.set_difficulty` between submit and
+    /// response; the work the share is worth is the difficulty in
+    /// force when it was found, not the current one. Surfaced as the
+    /// `work` value in `SubmitResult::Accepted`.
     Submit {
-        job_id: JobId,
+        pool_difficulty: u64,
     },
 }
 

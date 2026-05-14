@@ -22,7 +22,7 @@ use ii_sv2::security::{
 };
 use ii_sv2::types::{Str0_255, Uint256};
 use mining_protocol::{
-    Error, JobId, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionRejection,
+    Error, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionRejection,
     SessionUpdate, Share, SubmitResult,
 };
 use ubos_logging::{info, warn};
@@ -791,12 +791,11 @@ fn emit_mining_job<V: MiningClientVisitor>(
 }
 
 /// `SubmitSharesSuccess` covers one or more accepted shares; the
-/// trait surface only carries one outcome per call, so we fire one
-/// `SubmitResult { accepted: true }` and let the visitor's
-/// share-tracking logic correlate via the work ring. `JobId(0)` is
-/// a placeholder — V2 success/error frames refer to a per-channel
-/// `sequence_number`, not a job id, so a seq→`JobId` map would be
-/// the right next step (matches V1's posture today).
+/// frame carries both how many submits the pool accepted in the
+/// batch (`new_submits_accepted_count`) and the total share weight
+/// it credited (`new_shares_sum`). The visitor sees both verbatim
+/// via `SubmitResult::Accepted`, so V2 share accounting needs no
+/// seq→`JobId` map.
 fn handle_submit_success<V: MiningClientVisitor>(success: &SubmitSharesSuccess, visitor: &mut V) {
     info!(
         "stratum-v2: submit-shares-success channel={} last_seq={} \
@@ -806,11 +805,9 @@ fn handle_submit_success<V: MiningClientVisitor>(success: &SubmitSharesSuccess, 
         success.new_submits_accepted_count,
         success.new_shares_sum,
     );
-    visitor.visit_submit_result(SubmitResult {
-        id: JobId(0),
-        accepted: true,
-        error_code: None,
-        error_message: None,
+    visitor.visit_submit_result(SubmitResult::Accepted {
+        count: success.new_submits_accepted_count,
+        work: success.new_shares_sum,
     });
 }
 
@@ -827,9 +824,7 @@ fn handle_submit_error<V: MiningClientVisitor>(error: &SubmitSharesError<'_>, vi
         core::str::from_utf8(code_bytes).unwrap_or("<invalid utf-8>"),
     );
     let error_message = core::str::from_utf8(code_bytes).ok();
-    visitor.visit_submit_result(SubmitResult {
-        id: JobId(0),
-        accepted: false,
+    visitor.visit_submit_result(SubmitResult::Rejected {
         error_code: None,
         error_message,
     });

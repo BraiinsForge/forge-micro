@@ -59,10 +59,19 @@ impl MiningClientVisitor for PrintVisitor {
     }
 
     fn visit_submit_result(&mut self, result: SubmitResult<'_>) {
-        println!(
-            "[submit-result] id={:?} accepted={} error={:?}",
-            result.id, result.accepted, result.error_message,
-        );
+        match result {
+            SubmitResult::Accepted { count, work } => {
+                println!("[submit-result] accepted count={count} work={work}");
+            }
+            SubmitResult::Rejected {
+                error_code,
+                error_message,
+            } => {
+                println!(
+                    "[submit-result] rejected code={error_code:?} message={error_message:?}",
+                );
+            }
+        }
     }
 
     fn visit_session_update(&mut self, update: SessionUpdate<'_>) {

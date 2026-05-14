@@ -6,8 +6,6 @@
 //! initial session setup (the visitor sees a sequence of
 //! `SessionUpdate` events before the first `visit_new_job`).
 
-use crate::job_id::JobId;
-
 /// Pool-driven session reconfiguration.
 ///
 /// Borrowed slices are valid only for the duration of the `accept()`
@@ -36,14 +34,23 @@ pub enum SessionUpdate<'a> {
 /// Result of a previously submitted `Share`, surfaced to the visitor
 /// via `visit_submit_result`.
 ///
-/// Wire-form error details (V1 stratum error array, V2 error code)
-/// are normalized into a single `error_code: Option<u32>`. Adapters
-/// that want to log richer detail can do so before invoking the
-/// visitor — only the structured outcome crosses the trait boundary.
+/// The two protocols report acceptance differently: V1 answers each
+/// submit individually with a boolean result, while V2's
+/// `SubmitSharesSuccess` covers a range of sequence numbers and
+/// reports both a count and a pool-credited share-weight sum. This
+/// enum carries that asymmetry directly — `count` is `1` per V1
+/// response and whatever the V2 pool acknowledged. `work` is in
+/// diff-1-share units (SV2 `new_shares_sum`); V1 fills it with the
+/// pool difficulty at the time of the share, snapshotted from
+/// `session.target` when the submit was queued.
 #[derive(Debug, Clone, Copy)]
-pub struct SubmitResult<'a> {
-    pub id: JobId,
-    pub accepted: bool,
-    pub error_code: Option<u32>,
-    pub error_message: Option<&'a str>,
+pub enum SubmitResult<'a> {
+    Accepted {
+        count: u32,
+        work: u64,
+    },
+    Rejected {
+        error_code: Option<u32>,
+        error_message: Option<&'a str>,
+    },
 }

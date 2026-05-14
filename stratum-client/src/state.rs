@@ -128,15 +128,22 @@ impl MiningClientVisitor for StratumState {
     }
 
     fn visit_submit_result(&mut self, result: SubmitResult<'_>) {
-        if result.accepted {
-            info!("stratum-client: share accepted id={}", result.id.0,);
-        } else {
-            warn!(
-                "stratum-client: share rejected id={} code={:?} message={:?}",
-                result.id.0,
-                result.error_code,
-                result.error_message,
-            );
+        match result {
+            SubmitResult::Accepted { count, work } => {
+                info!(
+                    "stratum-client: {} share(s) accepted, +{} work",
+                    count, work,
+                );
+            }
+            SubmitResult::Rejected {
+                error_code,
+                error_message,
+            } => {
+                warn!(
+                    "stratum-client: share rejected code={:?} message={:?}",
+                    error_code, error_message,
+                );
+            }
         }
     }
 
