@@ -49,7 +49,6 @@ pub trait FanOutput {
 /// thermal mass and fan curve.
 pub struct MonitorConfig {
     pub target_temp_c: f32,
-    pub hot_temp_c: f32,
     pub dangerous_temp_c: f32,
     pub cooldown_temp_c: f32,
     pub min_fan_pwm: u8,
@@ -146,7 +145,6 @@ where
     control.set_target(config.target_temp_c);
 
     let limits = Limits {
-        hot_temp_c: config.hot_temp_c,
         dangerous_temp_c: config.dangerous_temp_c,
         cooldown_temp_c: config.cooldown_temp_c,
     };
@@ -154,7 +152,6 @@ where
     #[allow(clippy::cast_precision_loss)]
     let delta_t = config.sample_interval.as_micros() as f32 / 1_000_000.0;
 
-    let mut was_hot = false;
     let mut halted = false;
     let mut sensor_misses: u32 = 0;
     let mut prev_tick = Instant::now();
@@ -188,18 +185,7 @@ where
         let pid_pwm = control.update(temp_c, delta_t);
 
         match evaluate(temp_c, halted, &limits) {
-            Action::Ok => {
-                if was_hot {
-                    info!("monitor: cooled to {}°C", temp_c);
-                    was_hot = false;
-                }
-            }
-            Action::Hot => {
-                if !was_hot {
-                    warn!("monitor: hot {}°C pwm={}", temp_c, pid_pwm);
-                    was_hot = true;
-                }
-            }
+            Action::Ok => {}
             Action::EnterHalt => {
                 halted = true;
                 HALT_MINING.signal(true);
@@ -207,13 +193,11 @@ where
                     "monitor: dangerous temperature {}°C, halting mining",
                     temp_c
                 );
-                was_hot = false;
             }
             Action::Resume => {
                 halted = false;
                 HALT_MINING.signal(false);
                 warn!("monitor: cooled to {}°C, resuming mining", temp_c);
-                was_hot = false;
             }
         }
 

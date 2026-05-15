@@ -72,7 +72,6 @@ static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::
 // not pull in the rest of the mmm crate just for one const.
 static MONITOR_CONFIG: MonitorConfig = MonitorConfig {
     target_temp_c: 67.0,
-    hot_temp_c: 80.0,
     dangerous_temp_c: 90.0,
     cooldown_temp_c: 45.0,
     min_fan_pwm: 20,

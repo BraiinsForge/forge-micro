@@ -4,19 +4,13 @@
 use super::threshold::{evaluate, Action, Limits};
 
 const LIMITS: Limits = Limits {
-    hot_temp_c: 80.0,
     dangerous_temp_c: 90.0,
     cooldown_temp_c: 45.0,
 };
 
 #[test]
-fn ok_below_hot() {
+fn ok_below_dangerous() {
     assert_eq!(evaluate(70.0, false, &LIMITS), Action::Ok);
-}
-
-#[test]
-fn hot_warns_but_does_not_halt() {
-    assert_eq!(evaluate(82.0, false, &LIMITS), Action::Hot);
 }
 
 #[test]
@@ -40,14 +34,8 @@ fn halted_above_cooldown_stays_halted() {
 }
 
 #[test]
-fn boundary_at_hot_triggers_hot() {
-    // Inclusive: 80.0 must already trip the hot warning, not stay Ok.
-    assert_eq!(evaluate(80.0, false, &LIMITS), Action::Hot);
-}
-
-#[test]
 fn boundary_at_dangerous_triggers_halt() {
-    // Inclusive: 90.0 must already trip the halt, not stay Hot.
+    // Inclusive: 90.0 must already trip the halt, not stay Ok.
     assert_eq!(evaluate(90.0, false, &LIMITS), Action::EnterHalt);
 }
 

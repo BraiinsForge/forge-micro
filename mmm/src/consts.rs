@@ -11,7 +11,6 @@ pub const NUM_CHIPS: u8 = 4;
 /// from the upstream `bosminer` configuration.
 pub const MONITOR_CONFIG_BMM101: MonitorConfig = MonitorConfig {
     target_temp_c: 67.0,
-    hot_temp_c: 80.0,
     dangerous_temp_c: 90.0,
     cooldown_temp_c: 45.0,
     min_fan_pwm: 20,
