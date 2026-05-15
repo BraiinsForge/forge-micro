@@ -29,11 +29,10 @@ use eth_examples::metrics::{Metric, Value};
 use eth_examples::net;
 use eth_examples::pool_config::{self, PoolConfig, ProtocolConfig};
 use log::{error, info, warn};
-use mmm::consts::MONITOR_CONFIG_BMM101;
 use rand::rngs::OsRng;
 use static_cell::StaticCell;
 use stratum_client::AsicSession;
-use ubos_monitor::MonitorConfig;
+use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
 
 mod fan;
 mod gpiod;
@@ -57,8 +56,8 @@ const DEFAULT_POOL_USER: &str = "braiinstest.dumb_worker";
 const DEFAULT_POOL_HOST: &str = "172.65.65.63";
 
 /// Tunable monitor parameters. The PID gains and threshold
-/// temperatures live in `mmm::consts::MONITOR_CONFIG_BMM101`.
-static MONITOR_CONFIG: MonitorConfig = MONITOR_CONFIG_BMM101;
+/// temperatures live in `ubos_monitor::BMM101_DEFAULT`.
+static MONITOR_CONFIG: MonitorConfig = BMM101_DEFAULT;
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 static RESOURCES: StaticCell<StackResources<SOCKET_COUNT>> = StaticCell::new();

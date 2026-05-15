@@ -43,7 +43,7 @@ use eth_examples::sh1106::{Rotation, Sh1106};
 #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 use static_cell::ConstStaticCell;
 use static_cell::StaticCell;
-use ubos_monitor::{MonitorConfig, PidConfig, TempConfig};
+use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
@@ -68,23 +68,7 @@ static SV1_CONFIG: stratum_v1::Sv1Config = stratum_v1::Sv1Config {
 #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
-// Mirrors `mmm::MONITOR_CONFIG_BMM101`. Inlined so the firmware does
-// not pull in the rest of the mmm crate just for one const.
-static MONITOR_CONFIG: MonitorConfig = MonitorConfig {
-    temps: TempConfig {
-        target_temp_c: 67.0,
-        dangerous_temp_c: 90.0,
-        cooldown_temp_c: 45.0,
-    },
-    pid: PidConfig {
-        min_fan_pwm: 20,
-        p_gain: -5.0,
-        i_gain: -0.15,
-        d_gain: -100.0,
-        smoother_half_decay_secs: 10.0,
-    },
-    sample_interval: embassy_time::Duration::from_secs(1),
-};
+static MONITOR_CONFIG: MonitorConfig = BMM101_DEFAULT;
 
 defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
 

@@ -64,6 +64,27 @@ pub struct MonitorConfig {
     pub sample_interval: Duration,
 }
 
+/// Thermal-monitor tuning matching the BOS hashboard profile for the
+/// BMM101 (4×BM1362) board. Gains and thresholds carried forward from
+/// the upstream `bosminer` configuration. Shared between firmware that
+/// hosts the BMM hashboard (bmm-pico) and the chip-side mining backend
+/// (mmm + host-runner) so both halves stay tuned identically.
+pub const BMM101_DEFAULT: MonitorConfig = MonitorConfig {
+    temps: TempConfig {
+        target_temp_c: 67.0,
+        dangerous_temp_c: 90.0,
+        cooldown_temp_c: 45.0,
+    },
+    pid: PidConfig {
+        min_fan_pwm: 20,
+        p_gain: -5.0,
+        i_gain: -0.15,
+        d_gain: -100.0,
+        smoother_half_decay_secs: 10.0,
+    },
+    sample_interval: Duration::from_secs(1),
+};
+
 /// Fan PWM forced while halted. The PID is bypassed and 100% is
 /// written every tick until the temperature falls back below
 /// `cooldown_temp_c`, so a real ASIC chassis cools as fast as the
