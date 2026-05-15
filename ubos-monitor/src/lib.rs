@@ -36,7 +36,8 @@ use ubos_temperature::{publish_board_temperature, TemperatureSensor};
 pub static HALT_MINING: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
 use crate::pid::TempControl;
-use crate::threshold::{evaluate, Action, Limits};
+pub use crate::threshold::TempConfig;
+use crate::threshold::{evaluate, Action};
 
 /// Board-supplied fan PWM sink. `percent` is in `0..=100`. Boards
 /// translate that to whatever counter top their PWM peripheral uses.
@@ -44,18 +45,22 @@ pub trait FanOutput {
     fn set_pwm_percent(&mut self, percent: u8);
 }
 
-/// Tunable monitor parameters. Each board crate supplies its own
-/// `MonitorConfig` with gains and thresholds calibrated for its
-/// thermal mass and fan curve.
-pub struct MonitorConfig {
-    pub target_temp_c: f32,
-    pub dangerous_temp_c: f32,
-    pub cooldown_temp_c: f32,
+/// PID controller tuning. Independent of the temperatures in
+/// [`TempConfig`]: gains can be retuned without touching the
+/// thermal setpoint or the halt logic and vice versa.
+pub struct PidConfig {
     pub min_fan_pwm: u8,
     pub p_gain: f32,
     pub i_gain: f32,
     pub d_gain: f32,
     pub smoother_half_decay_secs: f32,
+}
+
+/// Tunable monitor parameters. Each board crate supplies its own
+/// `MonitorConfig` calibrated for its thermal mass and fan curve.
+pub struct MonitorConfig {
+    pub temps: TempConfig,
+    pub pid: PidConfig,
     pub sample_interval: Duration,
 }
 
@@ -136,18 +141,13 @@ where
 {
     let mut ticker = Ticker::every(config.sample_interval);
     let mut control = TempControl::new(
-        config.p_gain,
-        config.i_gain,
-        config.d_gain,
-        config.smoother_half_decay_secs,
-        config.min_fan_pwm,
+        config.pid.p_gain,
+        config.pid.i_gain,
+        config.pid.d_gain,
+        config.pid.smoother_half_decay_secs,
+        config.pid.min_fan_pwm,
     );
-    control.set_target(config.target_temp_c);
-
-    let limits = Limits {
-        dangerous_temp_c: config.dangerous_temp_c,
-        cooldown_temp_c: config.cooldown_temp_c,
-    };
+    control.set_target(config.temps.target_temp_c);
 
     #[allow(clippy::cast_precision_loss)]
     let delta_t = config.sample_interval.as_micros() as f32 / 1_000_000.0;
@@ -161,7 +161,7 @@ where
     // PID.
     let late_threshold = config.sample_interval * 2;
 
-    info!("monitor: started (target={}°C)", config.target_temp_c);
+    info!("monitor: started (target={}°C)", config.temps.target_temp_c);
 
     loop {
         ticker.next().await;
@@ -184,7 +184,7 @@ where
 
         let pid_pwm = control.update(temp_c, delta_t);
 
-        match evaluate(temp_c, halted, &limits) {
+        match evaluate(temp_c, halted, &config.temps) {
             Action::Ok => {}
             Action::EnterHalt => {
                 halted = true;

@@ -43,7 +43,7 @@ use eth_examples::sh1106::{Rotation, Sh1106};
 #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 use static_cell::ConstStaticCell;
 use static_cell::StaticCell;
-use ubos_monitor::MonitorConfig;
+use ubos_monitor::{MonitorConfig, PidConfig, TempConfig};
 use {defmt_rtt as _, panic_probe as _};
 
 use eth_examples::net;
@@ -71,14 +71,18 @@ static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::
 // Mirrors `mmm::MONITOR_CONFIG_BMM101`. Inlined so the firmware does
 // not pull in the rest of the mmm crate just for one const.
 static MONITOR_CONFIG: MonitorConfig = MonitorConfig {
-    target_temp_c: 67.0,
-    dangerous_temp_c: 90.0,
-    cooldown_temp_c: 45.0,
-    min_fan_pwm: 20,
-    p_gain: -5.0,
-    i_gain: -0.15,
-    d_gain: -100.0,
-    smoother_half_decay_secs: 10.0,
+    temps: TempConfig {
+        target_temp_c: 67.0,
+        dangerous_temp_c: 90.0,
+        cooldown_temp_c: 45.0,
+    },
+    pid: PidConfig {
+        min_fan_pwm: 20,
+        p_gain: -5.0,
+        i_gain: -0.15,
+        d_gain: -100.0,
+        smoother_half_decay_secs: 10.0,
+    },
     sample_interval: embassy_time::Duration::from_secs(1),
 };
 

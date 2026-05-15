@@ -1,7 +1,7 @@
 //! Tunables for the BMM100 BM1362 mining backend.
 
 use embassy_time::Duration;
-use ubos_monitor::MonitorConfig;
+use ubos_monitor::{MonitorConfig, PidConfig, TempConfig};
 
 /// Number of BM1362 chips on a BMM100 hashboard.
 pub const NUM_CHIPS: u8 = 4;
@@ -10,14 +10,18 @@ pub const NUM_CHIPS: u8 = 4;
 /// BMM101 (4×BM1362) board. Gains and thresholds were carried forward
 /// from the upstream `bosminer` configuration.
 pub const MONITOR_CONFIG_BMM101: MonitorConfig = MonitorConfig {
-    target_temp_c: 67.0,
-    dangerous_temp_c: 90.0,
-    cooldown_temp_c: 45.0,
-    min_fan_pwm: 20,
-    p_gain: -5.0,
-    i_gain: -0.15,
-    d_gain: -100.0,
-    smoother_half_decay_secs: 10.0,
+    temps: TempConfig {
+        target_temp_c: 67.0,
+        dangerous_temp_c: 90.0,
+        cooldown_temp_c: 45.0,
+    },
+    pid: PidConfig {
+        min_fan_pwm: 20,
+        p_gain: -5.0,
+        i_gain: -0.15,
+        d_gain: -100.0,
+        smoother_half_decay_secs: 10.0,
+    },
     sample_interval: Duration::from_secs(1),
 };
 
