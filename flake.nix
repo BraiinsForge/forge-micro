@@ -584,6 +584,19 @@
             cargoExtraArgs = "-p asic-uart-peer";
           };
 
+          clippy-ubos-monitor = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-monitor";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          test-ubos-monitor = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-monitor";
+          };
+
           clippy-esp32s3 = espCraneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
