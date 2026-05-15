@@ -68,6 +68,65 @@ const HALTED_FAN_PWM: u8 = 100;
 
 const METRIC_FAN_PWM: &str = "board_fan_pwm_percent";
 
+/// Consecutive sensor-read failures tolerated before declaring the
+/// bus dead. At a 1 Hz sample interval this is 5 seconds, long enough
+/// to ride out a transient I2C glitch but short enough to react if
+/// the bus has gone permanently silent (stuck SDA, dead chip, broken
+/// cable). On fault the loop halts mining and parks the fan at 100%
+/// until a successful reading clears it.
+const SENSOR_FAULT_TICKS: u32 = 5;
+
+/// Sample the sensor and track consecutive failures. On the rising
+/// edge into fault (`misses == SENSOR_FAULT_TICKS`) raises
+/// `HALT_MINING` and sets `halted`; while faulted, forces the fan to
+/// `HALTED_FAN_PWM` and publishes the metric so a fault is not
+/// silent on the dashboard. On the first successful reading after a
+/// fault, releases halt so the threshold evaluator can decide afresh
+/// from the new temperature.
+async fn sample_with_fault<S, F>(
+    sensor: &mut S,
+    fan: &mut F,
+    misses: &mut u32,
+    halted: &mut bool,
+) -> Option<i32>
+where
+    S: TemperatureSensor,
+    F: FanOutput,
+{
+    let Some(value) = sensor.read_millicelsius().await else {
+        *misses = misses.saturating_add(1);
+        if *misses == SENSOR_FAULT_TICKS {
+            error!(
+                "monitor: sensor unreadable for {} ticks; halting + forcing fan to 100%",
+                *misses
+            );
+            *halted = true;
+            HALT_MINING.signal(true);
+        }
+        if *misses >= SENSOR_FAULT_TICKS {
+            fan.set_pwm_percent(HALTED_FAN_PWM);
+            push(Metric {
+                name: METRIC_FAN_PWM,
+                labels: heapless::Vec::new(),
+                value: Value::Uint(u64::from(HALTED_FAN_PWM)),
+                timestamp_ms: 0,
+            })
+            .await;
+        }
+        return None;
+    };
+    if *misses >= SENSOR_FAULT_TICKS {
+        info!(
+            "monitor: sensor recovered after {} misses; releasing halt for re-evaluation",
+            *misses
+        );
+        *halted = false;
+        HALT_MINING.signal(false);
+    }
+    *misses = 0;
+    Some(value)
+}
+
 /// Run the monitor loop forever. Spawn this from a board firmware
 /// crate, passing a board-specific `TemperatureSensor` and a
 /// `FanOutput` over the board PWM peripheral.
@@ -97,6 +156,7 @@ where
 
     let mut was_hot = false;
     let mut halted = false;
+    let mut sensor_misses: u32 = 0;
     let mut prev_tick = Instant::now();
     // Matches BOS `monitor::main_loop`: warn when the tick fires more
     // than two periods late so a slow sensor read or a busy executor is
@@ -115,7 +175,9 @@ where
         }
         prev_tick = now;
 
-        let Some(millicelsius) = sensor.read_millicelsius().await else {
+        let Some(millicelsius) =
+            sample_with_fault(&mut sensor, &mut fan, &mut sensor_misses, &mut halted).await
+        else {
             continue;
         };
         #[allow(clippy::cast_precision_loss)]
