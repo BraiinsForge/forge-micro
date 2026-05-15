@@ -149,16 +149,13 @@ where
     );
     control.set_target(config.temps.target_temp_c);
 
-    #[allow(clippy::cast_precision_loss)]
-    let delta_t = config.sample_interval.as_micros() as f32 / 1_000_000.0;
-
     let mut halted = false;
     let mut sensor_misses: u32 = 0;
     let mut prev_tick = Instant::now();
     // Matches BOS `monitor::main_loop`: warn when the tick fires more
     // than two periods late so a slow sensor read or a busy executor is
-    // observable instead of silently feeding a stale `delta_t` to the
-    // PID.
+    // observable, since PID gains are tuned for the nominal one-tick
+    // sample interval.
     let late_threshold = config.sample_interval * 2;
 
     info!("monitor: started (target={}°C)", config.temps.target_temp_c);
@@ -182,7 +179,7 @@ where
 
         publish_board_temperature(millicelsius).await;
 
-        let pid_pwm = control.update(temp_c, delta_t);
+        let pid_pwm = control.update(temp_c);
 
         match evaluate(temp_c, halted, &config.temps) {
             Action::Ok => {}

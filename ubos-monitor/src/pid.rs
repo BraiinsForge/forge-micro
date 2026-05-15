@@ -122,13 +122,14 @@ impl PidController {
         self.err_sum = self.err_sum.clamp(min, max);
     }
 
-    /// Run one PID step. `error` is `target - measurement`. `delta_t`
-    /// is seconds since the previous `update`. `settled` enables noise
-    /// suppression once the controller has settled: the derivative is
-    /// frozen and the integral gain is damped to 0.15× of its nominal
-    /// value.
+    /// Run one PID step. `error` is `target - measurement`. `settled`
+    /// enables noise suppression once the controller has settled: the
+    /// derivative is frozen and the integral gain is damped to 0.15× of
+    /// its nominal value. Per-tick scaling is implicit; BOS likewise
+    /// feeds its PID a constant `TICK_LENGTH`, so the gains absorb the
+    /// nominal one-second-per-tick assumption.
     #[must_use]
-    pub fn update(&mut self, error: f32, delta_t: f32, settled: bool) -> f32 {
+    pub fn update(&mut self, error: f32, settled: bool) -> f32 {
         let p_term = self.p_gain * error;
 
         let i_gain = if settled {
@@ -136,16 +137,12 @@ impl PidController {
         } else {
             self.i_gain
         };
-        self.err_sum = (self.err_sum + i_gain * error * delta_t).clamp(self.out_min, self.out_max);
+        self.err_sum = (self.err_sum + i_gain * error).clamp(self.out_min, self.out_max);
         let i_term = self.err_sum;
 
-        // BOS feeds `pid_control` a nominal `TICK_LENGTH` regardless of
-        // wall-clock lateness, so `powf(decay_lambda, delta_t)` always
-        // reduces to `decay_lambda`. Use it directly to keep libm out of
-        // the hot path on softfloat targets.
         let derivative = if let Some(prev) = self.prev_smoothed_error {
             let new_smoothed = prev * self.decay_lambda + error * (1.0 - self.decay_lambda);
-            let derivative = (new_smoothed - prev) / delta_t;
+            let derivative = new_smoothed - prev;
             self.prev_smoothed_error = Some(new_smoothed);
             derivative
         } else {
@@ -215,20 +212,21 @@ impl TempControl {
     }
 
     /// Compute the next fan PWM percent (`min_fan_pwm..=100`) from the
-    /// latest temperature sample and the elapsed seconds since the
-    /// previous update.
+    /// latest temperature sample. Per-tick scaling is implicit: callers
+    /// must invoke `update` once per `sample_interval` for the PID gains
+    /// to behave as tuned.
     #[must_use]
-    pub fn update(&mut self, temp_c: f32, delta_t: f32) -> u8 {
+    pub fn update(&mut self, temp_c: f32) -> u8 {
         let error = self.target_temp_c - temp_c;
         self.history.add(error);
 
-        let freeze = self.history.min_max().is_some_and(|(min, max)| {
+        let settled = self.history.min_max().is_some_and(|(min, max)| {
             let stable = max - min < Self::STABLE_MAX_TEMP_DIFF_C;
             let close = libm::fabsf(error) < Self::CLOSE_TO_TARGET_C;
             self.history.full() && stable && close
         });
 
-        let raw = self.pid.update(error, delta_t, freeze);
+        let raw = self.pid.update(error, settled);
         // PID output is already clamped to [min_fan_pwm, 100].
         // u8 cast is safe because of the clamp.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
