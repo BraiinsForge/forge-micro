@@ -3,7 +3,9 @@
 //! the module-level statics, so the tests exercise the extracted
 //! `hashes_per_share` and `next_ewma` functions instead.
 
-use super::{hashes_per_share, next_ewma, EWMA_ALPHA_SHIFT};
+use super::{
+    decay_silent, hashes_per_share, next_ewma, BUCKET_MS, EWMA_ALPHA_SHIFT, MAX_DECAY_STEPS,
+};
 
 fn target_with_leading_zero_bytes(zero_bytes: usize) -> [u8; 32] {
     let mut target = [0u8; 32];
@@ -81,4 +83,53 @@ fn next_ewma_saturates_on_huge_bucket() {
     // u64; saturating_mul caps the rate at u64::MAX and the alpha
     // shift folds it into the EWMA without further overflow.
     assert_eq!(next_ewma(u64::MAX, 1, 0), u64::MAX >> EWMA_ALPHA_SHIFT);
+}
+
+#[test]
+fn decay_reaches_zero() {
+    // 64 consecutive zero-rate EWMA steps from 8000 must reach 0.
+    let mut value: u64 = 8_000;
+    for _ in 0..MAX_DECAY_STEPS {
+        value = next_ewma(0, BUCKET_MS, value);
+    }
+    assert_eq!(value, 0);
+}
+
+#[test]
+fn decay_partial_steps() {
+    // Three missed zero-rate buckets from 8000 reduce the EWMA in a
+    // predictable cascade: 8000 → 7000 → 6125 → 5359.
+    let start: u64 = 8_000;
+    let once = next_ewma(0, BUCKET_MS, start);
+    let twice = next_ewma(0, BUCKET_MS, once);
+    let thrice = next_ewma(0, BUCKET_MS, twice);
+    assert_eq!(once, 7_000);
+    assert_eq!(twice, 6_125);
+    assert_eq!(thrice, 5_359);
+}
+
+#[test]
+fn record_share_resume_does_not_exceed_displayed_value() {
+    // Steady-state EWMA, then 30 s of silence, then a low-rate share.
+    let steady: u64 = 8_000;
+    let elapsed_ms: u64 = 30 * BUCKET_MS;
+    let bucket_total: u64 = 32; // ~Diff-1 share, very low
+
+    // Pre-resume: what hashrate() returns the moment before the share.
+    let read_missed = (elapsed_ms - BUCKET_MS) / BUCKET_MS;
+    let displayed_before = decay_silent(steady, read_missed);
+
+    // Post-resume: what record_share now writes on the finalising share.
+    let silent_buckets = (elapsed_ms - BUCKET_MS) / BUCKET_MS;
+    let decayed = decay_silent(steady, silent_buckets);
+    let stored_after = next_ewma(bucket_total, BUCKET_MS, decayed);
+
+    // The new stored value must not exceed the decayed read by more than
+    // one α-step's worth of the incoming bucket rate.
+    assert!(
+        stored_after <= displayed_before + (bucket_total / 8 + 1),
+        "post-resume stored {} jumped above pre-resume displayed {}",
+        stored_after,
+        displayed_before,
+    );
 }

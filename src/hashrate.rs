@@ -32,6 +32,11 @@ const EWMA_ALPHA_SHIFT: u32 = 3;
 /// buckets and α = 1/8 the smoothing window is ~8 s.
 const BUCKET_MS: u64 = 1_000;
 
+/// Beyond this many missed buckets the read-side decay in [`hashrate`]
+/// clamps to zero. 64 steps of α = 1/8 reduce any starting value to
+/// less than 0.02% of the original, which rounds to zero in u64.
+const MAX_DECAY_STEPS: u64 = 64;
+
 /// Smoothed hashrate in H/s. Updated when a bucket's worth of hashes
 /// has accumulated; read by [`hashrate`].
 static EWMA_HASHRATE: AtomicU64 = AtomicU64::new(0);
@@ -83,11 +88,37 @@ pub fn record_share(target: &[u8; 32]) {
     // coherent snapshot.
     let bucket_total = BUCKET_HASHES.swap(hashes, Ordering::Relaxed);
     BUCKET_START_MS.store(now_ms, Ordering::Relaxed);
-    let previous = EWMA_HASHRATE.load(Ordering::Relaxed);
+    let stored = EWMA_HASHRATE.load(Ordering::Relaxed);
+    // When a share arrives after silence, decay the stored EWMA across
+    // the missed buckets first so the resumed value is consistent with
+    // what hashrate() was returning during the quiet period.
+    let (previous, fold_window) = if elapsed_ms >= 2 * BUCKET_MS {
+        let silent_buckets = (elapsed_ms - BUCKET_MS) / BUCKET_MS;
+        (decay_silent(stored, silent_buckets), BUCKET_MS)
+    } else {
+        (stored, elapsed_ms)
+    };
     EWMA_HASHRATE.store(
-        next_ewma(bucket_total, elapsed_ms, previous),
+        next_ewma(bucket_total, fold_window, previous),
         Ordering::Relaxed,
     );
+}
+
+/// Apply `missed` consecutive zero-rate EWMA steps to `value`. Returns 0
+/// once `missed >= MAX_DECAY_STEPS` because at α = 1/8 the residual after
+/// 64 steps is below 0.02% of the original.
+fn decay_silent(value: u64, missed: u64) -> u64 {
+    if missed >= MAX_DECAY_STEPS {
+        return 0;
+    }
+    let mut decayed = value;
+    for _ in 0..missed {
+        decayed = next_ewma(0, BUCKET_MS, decayed);
+        if decayed == 0 {
+            break;
+        }
+    }
+    decayed
 }
 
 /// Fold a finalized bucket into the EWMA. Pure: takes the bucket's
@@ -104,9 +135,30 @@ fn next_ewma(bucket_total: u64, elapsed_ms: u64, previous: u64) -> u64 {
 
 /// Smoothed hashrate in hashes per second. Zero until the first
 /// bucket finalizes, `BUCKET_MS` after the first share.
+///
+/// When shares stop arriving the stored EWMA goes stale because
+/// only [`record_share`] writes it. This function applies read-side
+/// decay: for every full `BUCKET_MS` window of staleness beyond the
+/// first two, it folds a zero-rate bucket into the EWMA. The result
+/// is never written back, preserving the single-writer invariant.
 #[must_use]
 pub fn hashrate() -> u64 {
-    EWMA_HASHRATE.load(Ordering::Relaxed)
+    let stored = EWMA_HASHRATE.load(Ordering::Relaxed);
+    if stored == 0 || !BUCKET_PRIMED.load(Ordering::Relaxed) {
+        return stored;
+    }
+
+    let bucket_start = BUCKET_START_MS.load(Ordering::Relaxed);
+    let now_ms = Instant::now().as_millis();
+    let stale_ms = now_ms.saturating_sub(bucket_start);
+
+    // The current bucket is still accumulating or just barely overdue.
+    if stale_ms < 2 * BUCKET_MS {
+        return stored;
+    }
+
+    let missed = (stale_ms - BUCKET_MS) / BUCKET_MS;
+    decay_silent(stored, missed)
 }
 
 /// `Display` adapter for a hashrate in H/s. Renders rates below 1 GH/s
