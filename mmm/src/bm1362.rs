@@ -88,8 +88,9 @@ impl HwSolution {
 /// applies this swap inline; mmm stores `HwWork.prev_hash` in canonical
 /// post-swap form so both the local hash check and the chip wire frame
 /// see the same bytes.
+#[cfg(test)]
 #[must_use]
-pub fn word_swap_prev_hash(input: &[u8; 32]) -> [u8; 32] {
+fn word_swap_prev_hash(input: &[u8; 32]) -> [u8; 32] {
     let mut output = [0u8; 32];
     for word_index in 0..8 {
         let offset = word_index * 4;
@@ -103,9 +104,9 @@ pub fn word_swap_prev_hash(input: &[u8; 32]) -> [u8; 32] {
 
 /// A work assignment to send to the chip.
 ///
-/// `prev_hash` is in canonical Bitcoin internal byte order (post the
-/// stratum 4-byte word swap); callers reading from a `WorkAssignment`
-/// must run the value through [`word_swap_prev_hash`] first.
+/// `prev_hash` is in canonical Bitcoin internal byte order (the stratum
+/// adapter word-swaps on arrival). Callers copy it straight from the
+/// `WorkAssignment` without any additional transformation.
 #[derive(Debug, Clone)]
 pub struct HwWork {
     pub work_id: u8,
@@ -557,9 +558,10 @@ mod tests {
             nbits,
             ntime,
             merkle_root: merkle,
-            // mmm stores `prev_hash` already word-swapped from stratum
-            // wire form so the local hash check produces the same bytes
-            // the chip and pool both compute against.
+            // The stratum adapter word-swaps prev_hash on arrival, so
+            // HwWork.prev_hash is already in Bitcoin internal byte
+            // order. Simulate that here so the reference header_hash
+            // (which swaps inline) produces the same 80-byte header.
             prev_hash: word_swap_prev_hash(&stratum_prev),
             version,
         };
