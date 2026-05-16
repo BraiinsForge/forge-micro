@@ -248,10 +248,19 @@ impl RawChipAddress {
     }
 }
 
+// The longest command this module builds is 11 bytes (2 preamble +
+// 8 payload + 1 CRC for a write-register frame); Frame is 16 bytes.
+// All in-module callers respect that bound.
 fn push_frame(frame: &mut Frame, header: &[u8], payload: &[u8], crc: u8) {
-    frame.0.extend_from_slice(header).expect("Frame capacity");
-    frame.0.extend_from_slice(payload).expect("Frame capacity");
-    frame.0.push(crc).expect("Frame capacity");
+    frame
+        .0
+        .extend_from_slice(header)
+        .expect("BUG: Frame capacity");
+    frame
+        .0
+        .extend_from_slice(payload)
+        .expect("BUG: Frame capacity");
+    frame.0.push(crc).expect("BUG: Frame capacity");
 }
 
 /// Build a write register command (`SetConfig`) — 11 bytes on wire.

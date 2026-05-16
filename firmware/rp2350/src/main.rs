@@ -240,6 +240,7 @@ fn pool_config_from_env() -> eth_examples::pool_config::PoolConfig {
         option_env!("POOL_SV1_PASS"),
         option_env!("POOL_SV2_PUBKEY"),
     )
+    // All inputs have validated defaults, so parse cannot fail.
     .expect("BUG: POOL_* env vars failed to parse")
 }
 

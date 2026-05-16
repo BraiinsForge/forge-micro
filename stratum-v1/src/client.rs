@@ -352,8 +352,10 @@ impl MiningClient for StratumV1Client {
                         info!(
                             "stratum-v1: set-difficulty diff={} target={}...",
                             set_diff.0,
+                            // mining_protocol::hex::encode_block_hash_lower emits lowercase
+                            // hex (0-9, a-f), which is valid ASCII.
                             core::str::from_utf8(&target_hex[..32])
-                                .expect("hex encoder emits ASCII"),
+                                .expect("BUG: hex encoder emits ASCII"),
                         );
                     }
                     visitor.visit_session_update(SessionUpdate::SetTarget(&self.session.target));
@@ -386,8 +388,10 @@ impl MiningClient for StratumV1Client {
                         debug_assert!(prefix_hex_ok);
                         info!(
                             "stratum-v1: set-extranonce prefix={} en2_size={}",
+                            // mining_protocol::hex::encode_lower_to_slice emits lowercase
+                            // hex (0-9, a-f), which is valid ASCII.
                             core::str::from_utf8(&prefix_hex[..prefix_hex_len])
-                                .expect("hex encoder emits ASCII"),
+                                .expect("BUG: hex encoder emits ASCII"),
                             self.session.extranonce_2_size,
                         );
                         visitor.visit_session_update(SessionUpdate::SetExtranonce {
@@ -465,7 +469,9 @@ fn dispatch_notify<V: MiningClientVisitor>(
             nbits,
             ntime,
             notify.clean_jobs,
-            core::str::from_utf8(&prev_hex).expect("hex encoder emits ASCII"),
+            // mining_protocol::hex::encode_lower_to_slice emits lowercase
+            // hex (0-9, a-f), which is valid ASCII.
+            core::str::from_utf8(&prev_hex).expect("BUG: hex encoder emits ASCII"),
         );
     }
 
@@ -710,8 +716,10 @@ fn dispatch_response<V: MiningClientVisitor>(
             debug_assert!(prefix_hex_ok);
             info!(
                 "stratum-v1: subscribe-success prefix={} en2_size={}",
+                // mining_protocol::hex::encode_lower_to_slice emits lowercase
+                // hex (0-9, a-f), which is valid ASCII.
                 core::str::from_utf8(&prefix_hex[..prefix_hex_len])
-                    .expect("hex encoder emits ASCII"),
+                    .expect("BUG: hex encoder emits ASCII"),
                 session.extranonce_2_size,
             );
             visitor.visit_session_update(SessionUpdate::SetExtranonce {
