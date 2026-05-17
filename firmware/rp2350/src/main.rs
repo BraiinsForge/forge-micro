@@ -249,20 +249,6 @@ fn pool_config_from_env() -> eth_examples::pool_config::PoolConfig {
     .expect("BUG: POOL_* env vars failed to parse")
 }
 
-/// Resolved protocol selection for `stratum_client_task`. Constructed
-/// once at boot from `PoolConfig`; if `POOL_PROTOCOL=sv2` but the
-/// `stratum2` feature is disabled, falls back to `Sv1` with a warning.
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
-enum Selected<'a> {
-    Sv1(&'a stratum_v1::Sv1Config),
-    #[cfg(feature = "stratum2")]
-    Sv2 {
-        config: &'a stratum_v2::Sv2Config,
-        ctx: &'a ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
-    },
-}
-
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 #[embassy_executor::task]
 #[allow(clippy::too_many_lines)]
 async fn stratum_client_task(
@@ -278,10 +264,7 @@ async fn stratum_client_task(
 
     let port = pool_config.port;
 
-    // Resolve which client we're actually going to use. If
-    // `POOL_PROTOCOL=sv2` is set but the `stratum2` feature is
-    // disabled at build time, fall back to V1 with a warning.
-    let selected: Selected<'static> = match &pool_config.protocol {
+    match &pool_config.protocol {
         ProtocolConfig::Sv1 { password } => {
             let sv1 = SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
                 user: pool_config.user.as_str(),
@@ -290,66 +273,27 @@ async fn stratum_client_task(
             Selected::Sv1(sv1)
         }
         ProtocolConfig::Sv2 { pool_pubkey } => {
-            #[cfg(feature = "stratum2")]
-            {
-                let sv2 = SV2_CONFIG_CELL.init(
-                    stratum_v2::Sv2Config::new(pool_config.user.as_str(), *pool_pubkey)
-                        .expect("BUG: POOL_USER exceeds Sv2Config::MAX_USER_LEN"),
-                );
-                let buffer = SECP_CTX_BUF.take();
-                let ctx = SECP_CTX.init(
-                    ii_sv2::security::CryptoCtx::preallocated(buffer)
-                        .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
-                );
-                Selected::Sv2 { config: sv2, ctx }
-            }
-            #[cfg(not(feature = "stratum2"))]
-            {
-                let _ = pool_pubkey;
-                warn!(
-                    "stratum-client: POOL_PROTOCOL=sv2 but feature `stratum2` is off; \
-                     falling back to V1 with empty password"
-                );
-                let sv1 = SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
-                    user: pool_config.user.as_str(),
-                    password: "",
-                });
-                Selected::Sv1(sv1)
-            }
-        }
-    };
-
-    loop {
-        let mut socket = match eth_examples::net::connect_stratum(
-            stack,
-            pool_config.host.as_str(),
-            port,
-            SOCKET_TIMEOUT,
-            rx_buffer,
-            tx_buffer,
-        )
-        .await
-        {
-            Ok(socket) => socket,
-            Err(error) => {
-                warn!(
-                    "stratum-client: connect failed: {}",
-                    defmt::Debug2Format(&error)
-                );
-                Timer::after(RECONNECT_DELAY).await;
-                continue;
-            }
-        };
-
-        let mut state = stratum_client::StratumState::new();
-        let session_result = match selected {
-            Selected::Sv1(sv1) => {
-                let mut client = stratum_v1::StratumV1Client::new(sv1);
-                stratum_client::run_stratum_client(
-                    &mut client,
-                    &mut socket,
-                    &ASIC_SESSION,
-                    &mut state,
+            let sv2 = SV2_CONFIG_CELL.init(
+                stratum_v2::Sv2Config::new(pool_config.user.as_str(), *pool_pubkey)
+                    // `pool_config::parse` already rejects POOL_USER longer
+                    // than `MAX_USER_LEN`, which equals `Sv2Config::MAX_USER_LEN`.
+                    .expect("BUG: POOL_USER exceeds Sv2Config::MAX_USER_LEN"),
+            );
+            let buffer = SECP_CTX_BUF.take();
+            let ctx = SECP_CTX.init(
+                ii_sv2::security::CryptoCtx::preallocated(buffer)
+                    // `SECP_CTX_SLOTS` is sized for `AllPreallocated` with
+                    // `lowmemory`; undersizing would be caught here at boot.
+                    .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
+            );
+            loop {
+                let mut socket = match eth_examples::net::connect_stratum(
+                    stack,
+                    pool_config.host.as_str(),
+                    port,
+                    SOCKET_TIMEOUT,
+                    rx_buffer,
+                    tx_buffer,
                 )
                 .await
             }
