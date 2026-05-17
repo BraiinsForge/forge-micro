@@ -97,7 +97,12 @@ impl ii_sv2::security::Rng for Sv2BoardRng {
     }
 }
 
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
+static TCP_RX: ConstStaticCell<[u8; eth_examples::pool_config::STRATUM_TCP_BUFFER_SIZE]> =
+    ConstStaticCell::new([0; eth_examples::pool_config::STRATUM_TCP_BUFFER_SIZE]);
+
+static TCP_TX: ConstStaticCell<[u8; eth_examples::pool_config::STRATUM_TCP_BUFFER_SIZE]> =
+    ConstStaticCell::new([0; eth_examples::pool_config::STRATUM_TCP_BUFFER_SIZE]);
+
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
 defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
@@ -244,24 +249,30 @@ fn pool_config_from_env() -> eth_examples::pool_config::PoolConfig {
     .expect("BUG: POOL_* env vars failed to parse")
 }
 
+/// Resolved protocol selection for `stratum_client_task`. Constructed
+/// once at boot from `PoolConfig`; if `POOL_PROTOCOL=sv2` but the
+/// `stratum2` feature is disabled, falls back to `Sv1` with a warning.
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
+enum Selected<'a> {
+    Sv1(&'a stratum_v1::Sv1Config),
+    #[cfg(feature = "stratum2")]
+    Sv2 {
+        config: &'a stratum_v2::Sv2Config,
+        ctx: &'a ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
+    },
+}
+
 #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 #[embassy_executor::task]
-#[allow(clippy::too_many_lines, clippy::items_after_statements)]
+#[allow(clippy::too_many_lines)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
     pool_config: &'static eth_examples::pool_config::PoolConfig,
 ) -> ! {
     use defmt::warn;
     use embassy_time::Timer;
-    use eth_examples::pool_config::{
-        ProtocolConfig, RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
-    };
-    use static_cell::ConstStaticCell;
+    use eth_examples::pool_config::{ProtocolConfig, RECONNECT_DELAY, SOCKET_TIMEOUT};
 
-    static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
-        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
-    static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
-        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
     let rx_buffer = TCP_RX.take();
     let tx_buffer = TCP_TX.take();
 
@@ -270,17 +281,6 @@ async fn stratum_client_task(
     // Resolve which client we're actually going to use. If
     // `POOL_PROTOCOL=sv2` is set but the `stratum2` feature is
     // disabled at build time, fall back to V1 with a warning.
-    enum Selected<'a> {
-        Sv1(&'a stratum_v1::Sv1Config),
-        #[cfg(feature = "stratum2")]
-        Sv2 {
-            config: &'a stratum_v2::Sv2Config,
-            ctx: &'a ii_sv2::security::CryptoCtx<
-                ii_sv2::security::secp256k1::AllPreallocated<'static>,
-            >,
-        },
-    }
-
     let selected: Selected<'static> = match &pool_config.protocol {
         ProtocolConfig::Sv1 { password } => {
             let sv1 = SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
