@@ -171,10 +171,13 @@ pub async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfig
 /// Returns an error string if DNS resolution, UDP communication, or NTP
 /// response parsing fails.
 pub async fn fetch_ntp_time(stack: Stack<'static>) -> Result<(), &'static str> {
-    let addresses = stack
-        .dns_query(Ntp::HOST, DnsQueryType::A)
-        .await
-        .map_err(|_| "dns query failed")?;
+    let addresses = with_timeout(
+        DNS_QUERY_TIMEOUT,
+        stack.dns_query(Ntp::HOST, DnsQueryType::A),
+    )
+    .await
+    .map_err(|_| "dns query timeout")?
+    .map_err(|_| "dns query failed")?;
     let address = *addresses.first().ok_or("no dns results")?;
 
     let mut rx_meta = [PacketMetadata::EMPTY; 1];
@@ -228,10 +231,13 @@ pub async fn fetch_btc_price<R: CryptoRng + RngCore>(
     tls_read: &mut [u8],
     tls_write: &mut [u8],
 ) -> Result<(), embedded_tls::TlsError> {
-    let addresses = stack
-        .dns_query(Btc::HOST, DnsQueryType::A)
-        .await
-        .map_err(|_| embedded_tls::TlsError::InternalError)?;
+    let addresses = with_timeout(
+        DNS_QUERY_TIMEOUT,
+        stack.dns_query(Btc::HOST, DnsQueryType::A),
+    )
+    .await
+    .map_err(|_| embedded_tls::TlsError::InternalError)?
+    .map_err(|_| embedded_tls::TlsError::InternalError)?;
     let address = *addresses
         .first()
         .ok_or(embedded_tls::TlsError::InternalError)?;
