@@ -244,8 +244,9 @@ impl Serial {
     /// share so the existing hashrate task picks them up.
     ///
     /// Returns `Ok(())` when a [`SerialMessage::Terminate`] command was
-    /// honoured, and `Err(kind)` on serial EOF or a read error so the
-    /// caller can decide whether to log, restart, or park.
+    /// honoured, and `Err(BrokenPipe)` only on serial EOF. Line-level
+    /// read errors are absorbed inside `handle_read` so a transient
+    /// FIFO overrun does not kill mining for the rest of the run.
     pub async fn run<R, T>(
         &self,
         mut rx: R,
@@ -357,9 +358,16 @@ impl Serial {
         }
     }
 
-    /// Returns `Err(kind)` for any read condition the server cannot
-    /// recover from (EOF or IO error); the caller propagates the error
-    /// up out of `run`. Logs the error before returning.
+    /// Returns `Err(BrokenPipe)` only on EOF, which is unrecoverable.
+    /// Line-level read errors (overrun, framing, parity, break) are
+    /// logged and swallowed: the embassy-rp `BufferedUart` re-arms its
+    /// RX interrupt on the next read, and the response parser already
+    /// resyncs on the next `0xAA 0x55` preamble plus CRC5. Treating
+    /// them as fatal previously killed mining for the rest of the run
+    /// after a single FIFO overrun, which is what happens on RP2350
+    /// when probe-rs is attached and the host stalls the blocking
+    /// defmt-rtt channel long enough for core 1's UART ISR to miss
+    /// the 32-byte HW FIFO drain window at 3 Mbaud.
     fn handle_read<E: embedded_io::Error>(
         result: Result<usize, E>,
         parser: &mut ResponseParser,
@@ -382,8 +390,9 @@ impl Serial {
             }
             Err(e) => {
                 let kind = e.kind();
-                error!("Serial read error: {:?}", Debug2Format(&kind));
-                Err(kind)
+                warn!("Serial read error: {:?} (recovering)", Debug2Format(&kind));
+                parser.clear();
+                Ok(())
             }
         }
     }

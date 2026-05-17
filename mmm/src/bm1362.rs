@@ -338,6 +338,12 @@ pub enum Response {
 pub struct ResponseParser {
     buf: [u8; 256],
     len: usize,
+    /// Lifetime-monotonic count of bytes resynced past while scanning
+    /// for the `0xAA 0x55` frame preamble. Not reset by [`clear`] so
+    /// the figure survives serial-actor recoveries and stays useful
+    /// for diagnostic reads.
+    ///
+    /// [`clear`]: ResponseParser::clear
     dropped_byte: u32,
 }
 
