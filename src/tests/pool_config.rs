@@ -1,7 +1,5 @@
 use super::*;
 
-const VALID_PUBKEY_B58: &str = "9awtMD5KQgvRUh2yFbjVeT7b6hjipWcAsQHd6wEhgtDT9soosna";
-
 const DEFAULT_USER: &str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8.test";
 
 #[test]
@@ -46,13 +44,21 @@ fn parse_sv2_with_no_pubkey_yields_validate_nothing() {
 
 #[test]
 fn parse_sv2_decodes_base58check_pubkey() {
+    // Encode a known 32-byte payload with the SV2 [1, 0] version prefix
+    // and assert decode returns exactly those bytes.
+    let known_key = [0xABu8; 32];
+    let mut raw = [0u8; 34];
+    raw[..2].copy_from_slice(&[1, 0]);
+    raw[2..].copy_from_slice(&known_key);
+    let encoded = bs58::encode(raw).with_check().into_string();
+
     let config = parse(
         "pool.example",
         "34254",
         "sv2",
         "user.worker",
         None,
-        Some(VALID_PUBKEY_B58),
+        Some(&encoded),
     )
     .expect("parse");
     let ProtocolConfig::Sv2 {
@@ -61,9 +67,7 @@ fn parse_sv2_decodes_base58check_pubkey() {
     else {
         panic!("expected Sv2 with Some pubkey");
     };
-    // Round-trip: the spec prefix [1, 0] precedes a 32-byte xonly
-    // key; we expect a fixed-shape array, not a specific value.
-    assert_eq!(key.len(), 32);
+    assert_eq!(key, known_key);
 }
 
 #[test]
