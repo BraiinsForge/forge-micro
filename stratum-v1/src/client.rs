@@ -460,18 +460,20 @@ fn dispatch_notify<V: MiningClientVisitor>(
     swap_prev_hash_words(&mut decode_scratch.prev_hash);
 
     {
+        const PREV_HASH_TAIL_LEN: usize = 6;
         let prev_hex = mining_protocol::hex::encode_block_hash_lower(&decode_scratch.prev_hash);
+        let prev_tail = &prev_hex[prev_hex.len().saturating_sub(PREV_HASH_TAIL_LEN)..];
         info!(
             "stratum-v1: notify job_id={} version={:#010x} nbits={:#010x} \
-             ntime={:#010x} clean_jobs={} prev_hash={}",
+             ntime={:#010x} clean_jobs={} prev_hash=…{}",
             notify.job_id,
             version,
             nbits,
             ntime,
             notify.clean_jobs,
-            // mining_protocol::hex::encode_lower_to_slice emits lowercase
+            // mining_protocol::hex::encode_block_hash_lower emits lowercase
             // hex (0-9, a-f), which is valid ASCII.
-            core::str::from_utf8(&prev_hex).expect("BUG: hex encoder emits ASCII"),
+            core::str::from_utf8(prev_tail).expect("BUG: hex encoder emits ASCII"),
         );
     }
 
