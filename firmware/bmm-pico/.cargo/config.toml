@@ -7,17 +7,18 @@ DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
 [build]
 target = "thumbv8m.main-none-eabihf"
 
-# `cargo run-N` flashes one of the six bmm-pico boards. Each alias
-# sets $PROBE_SERIAL via cargo's [env] table so scripts/run.sh picks
-# the matching `--probe`. The bare `cargo run` leaves the variable
-# unset, so probe-rs auto-selects when only one probe is attached.
-# The env table is used instead of overriding the runner from the
-# alias because cargo's --config merges arrays rather than replacing
-# them, so a runner override would have concatenated arg lists.
+# `cargo run-N` flashes one of the six bmm-pico boards. Each alias sets
+# $PROBE_SERIAL so scripts/run.sh picks the matching `--probe`, and
+# $MAC_SUFFIX so the firmware's MAC_ADDR last octet differs per board (all
+# six are on the same switch). The bare `cargo run` leaves both unset, so
+# probe-rs auto-selects when only one probe is attached and MAC defaults
+# to 0x01. The env table is used instead of overriding the runner from the
+# alias because cargo's --config merges arrays rather than replacing them,
+# so a runner override would have concatenated arg lists.
 [alias]
-run-1 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:FA67CE4A27C3E7EF\""]
-run-2 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:88BB90F0F41E72CA\""]
-run-3 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:D6116FA12FA4716C\""]
-run-4 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:330584C1CAFB25E0\""]
-run-5 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:B6E765A6D8F55506\""]
-run-6 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E4A10693F025DCA6\""]
+run-1 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:FA67CE4A27C3E7EF\"", "--config", "env.MAC_SUFFIX=\"1\""]
+run-2 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:88BB90F0F41E72CA\"", "--config", "env.MAC_SUFFIX=\"2\""]
+run-3 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:D6116FA12FA4716C\"", "--config", "env.MAC_SUFFIX=\"3\""]
+run-4 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:330584C1CAFB25E0\"", "--config", "env.MAC_SUFFIX=\"4\""]
+run-5 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:B6E765A6D8F55506\"", "--config", "env.MAC_SUFFIX=\"5\""]
+run-6 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E4A10693F025DCA6\"", "--config", "env.MAC_SUFFIX=\"6\""]
