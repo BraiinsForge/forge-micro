@@ -55,7 +55,40 @@ static POOL_CONFIG_CELL: StaticCell<eth_examples::pool_config::PoolConfig> = Sta
 // `Sv1`. Empty when the parsed protocol is `Sv2`.
 static SV1_CONFIG_CELL: StaticCell<stratum_v1::Sv1Config> = StaticCell::new();
 
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
+// `Sv2Config::new` copies the worker identity into the owned
+// `heapless::String<128>`. Held in a `StaticCell` to give
+// `StratumV2Client::new` a `&'static Sv2Config`. Only populated
+// when the parsed protocol is `Sv2`.
+static SV2_CONFIG_CELL: StaticCell<stratum_v2::Sv2Config> = StaticCell::new();
+
+// `secp256k1::AllPreallocated<'static>` precomputation buffer.
+// `lowmemory` brings the verify table down to ~16 KB; the slot
+// count is sized conservatively (covers signing + verification
+// per `secp256k1_context_preallocated_size(All)` at the lowmemory
+// flags). `CryptoCtx::preallocated` returns
+// `Error::NotEnoughMemory` at runtime if undersized.
+const SECP_CTX_SLOTS: usize = 4096;
+
+static SECP_CTX_BUF: static_cell::ConstStaticCell<[ii_sv2::security::AlignedType; SECP_CTX_SLOTS]> =
+    static_cell::ConstStaticCell::new([ii_sv2::security::AlignedType::ZERO; SECP_CTX_SLOTS]);
+
+static SECP_CTX: StaticCell<
+    ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
+> = StaticCell::new();
+
+struct Sv2BoardRng(esp_hal::rng::Rng);
+
+impl ii_sv2::security::Rng for Sv2BoardRng {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        // esp-hal `Rng` exposes a u32-at-a-time hardware RNG; fill
+        // 4-byte chunks and truncate the trailing chunk to fit.
+        for chunk in dest.chunks_mut(4) {
+            let bytes = self.0.random().to_le_bytes();
+            chunk.copy_from_slice(&bytes[..chunk.len()]);
+        }
+    }
+}
+
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
 mod config;
@@ -213,8 +246,8 @@ fn pool_config_from_env(
     )
 }
 
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 #[embassy_executor::task]
+#[allow(clippy::too_many_lines)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
     pool_config: &'static eth_examples::pool_config::PoolConfig,
@@ -235,57 +268,107 @@ async fn stratum_client_task(
 
     let port = pool_config.port;
 
-    // These boards have no SV2 client; if the user sets
-    // POOL_PROTOCOL=sv2, fall back to V1 with a warning.
-    let sv1 = match &pool_config.protocol {
-        ProtocolConfig::Sv1 { password } => SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
-            user: pool_config.user.as_str(),
-            password: password.as_deref().unwrap_or(""),
-        }),
-        ProtocolConfig::Sv2 { .. } => {
-            warn!(
-                "stratum-client: POOL_PROTOCOL=sv2 but no SV2 client on this board; \
-                 falling back to V1 with empty password"
-            );
-            SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
+    match &pool_config.protocol {
+        ProtocolConfig::Sv1 { password } => {
+            let sv1 = SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
                 user: pool_config.user.as_str(),
-                password: "",
-            })
-        }
-    };
-
-    loop {
-        let mut socket = match eth_examples::net::connect_stratum(
-            stack,
-            pool_config.host.as_str(),
-            port,
-            SOCKET_TIMEOUT,
-            rx_buffer,
-            tx_buffer,
-        )
-        .await
-        {
-            Ok(socket) => socket,
-            Err(error) => {
-                warn!(
-                    "stratum-client: connect failed: {}",
-                    defmt::Debug2Format(&error)
-                );
-                Timer::after(RECONNECT_DELAY).await;
-                continue;
-            }
-        };
-
-        let mut client = stratum_v1::StratumV1Client::new(sv1);
-        let mut state = stratum_client::StratumState::new();
-        if let Err(error) =
-            stratum_client::run_stratum_client(&mut client, &mut socket, &ASIC_SESSION, &mut state)
+                password: password.as_deref().unwrap_or(""),
+            });
+            loop {
+                let mut socket = match eth_examples::net::connect_stratum(
+                    stack,
+                    pool_config.host.as_str(),
+                    port,
+                    SOCKET_TIMEOUT,
+                    rx_buffer,
+                    tx_buffer,
+                )
                 .await
-        {
-            warn!(
-                "stratum-client: session error {}",
-                defmt::Debug2Format(&error)
+                {
+                    Ok(socket) => socket,
+                    Err(error) => {
+                        warn!(
+                            "stratum-client: connect failed: {}",
+                            defmt::Debug2Format(&error)
+                        );
+                        Timer::after(RECONNECT_DELAY).await;
+                        continue;
+                    }
+                };
+                let mut state = stratum_client::StratumState::new();
+                let mut client = stratum_v1::StratumV1Client::new(sv1);
+                if let Err(error) = stratum_client::run_stratum_client(
+                    &mut client,
+                    &mut socket,
+                    &ASIC_SESSION,
+                    &mut state,
+                )
+                .await
+                {
+                    warn!(
+                        "stratum-client: session error {}",
+                        defmt::Debug2Format(&error)
+                    );
+                }
+                Timer::after(RECONNECT_DELAY).await;
+            }
+        }
+        ProtocolConfig::Sv2 { pool_pubkey } => {
+            let sv2 = SV2_CONFIG_CELL.init(
+                stratum_v2::Sv2Config::new(pool_config.user.as_str(), *pool_pubkey)
+                    // `pool_config::parse` already rejects POOL_USER longer
+                    // than `MAX_USER_LEN`, which equals `Sv2Config::MAX_USER_LEN`.
+                    .expect("BUG: POOL_USER exceeds Sv2Config::MAX_USER_LEN"),
             );
+            let buffer = SECP_CTX_BUF.take();
+            let ctx = SECP_CTX.init(
+                ii_sv2::security::CryptoCtx::preallocated(buffer)
+                    // `SECP_CTX_SLOTS` is sized for `AllPreallocated` with
+                    // `lowmemory`; undersizing would be caught here at boot.
+                    .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
+            );
+            loop {
+                let mut socket = match eth_examples::net::connect_stratum(
+                    stack,
+                    pool_config.host.as_str(),
+                    port,
+                    SOCKET_TIMEOUT,
+                    rx_buffer,
+                    tx_buffer,
+                )
+                .await
+                {
+                    Ok(socket) => socket,
+                    Err(error) => {
+                        warn!(
+                            "stratum-client: connect failed: {}",
+                            defmt::Debug2Format(&error)
+                        );
+                        Timer::after(RECONNECT_DELAY).await;
+                        continue;
+                    }
+                };
+                let mut state = stratum_client::StratumState::new();
+                let mut client = stratum_v2::StratumV2Client::new(
+                    sv2,
+                    ctx,
+                    Sv2BoardRng(esp_hal::rng::Rng::new()),
+                );
+                if let Err(error) = stratum_client::run_stratum_client(
+                    &mut client,
+                    &mut socket,
+                    &ASIC_SESSION,
+                    &mut state,
+                )
+                .await
+                {
+                    warn!(
+                        "stratum-client: session error {}",
+                        defmt::Debug2Format(&error)
+                    );
+                }
+                Timer::after(RECONNECT_DELAY).await;
+            }
         }
     }
 }

@@ -1976,11 +1976,13 @@ dependencies = [
  "esp-rtos",
  "esp32s3-tsens",
  "eth-examples",
+ "ii-sv2",
  "portable-atomic",
  "rand_core 0.6.4",
  "static_cell",
  "stratum-client",
  "stratum-v1",
+ "stratum-v2",
  "ubos-temperature",
 ]
 

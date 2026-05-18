@@ -318,6 +318,39 @@
 
         espCraneLib = (crane.mkLib pkgs).overrideToolchain espToolchain;
 
+        # Xtensa GCC toolchain for `secp256k1-sys` (and any other C
+        # dependency in the esp32s3 build). `secp256k1-sys` arrives via
+        # the unconditional `ii-sv2` dep. Nixpkgs doesn't ship
+        # `xtensa-esp-elf-gcc`, and the rustup-managed copy from `espup`
+        # is invisible inside the flake check sandbox. Hashes paired with
+        # the URL; bump both when upgrading to a newer
+        # espressif/crosstool-NG release.
+        xtensaEspToolchain = pkgs.stdenv.mkDerivation {
+          pname = "xtensa-esp-elf";
+          version = "15.2.0_20250920";
+
+          src = pkgs.fetchurl {
+            url = "https://github.com/espressif/crosstool-NG/releases/download/esp-15.2.0_20250920/xtensa-esp-elf-15.2.0_20250920-x86_64-linux-gnu.tar.xz";
+            hash = "sha256-49d60UVEgUUnu+ei0PeexFkqTiM5LFHHOIwOaGtqaXc=";
+          };
+
+          nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+          buildInputs = [
+            pkgs.stdenv.cc.cc
+            pkgs.zlib
+          ];
+
+          sourceRoot = "xtensa-esp-elf";
+          dontStrip = true;
+
+          installPhase = ''
+            runHook preInstall
+            mkdir -p "$out"
+            cp -r . "$out"
+            runHook postInstall
+          '';
+        };
+
         src =
           let
             # Crane's default filter keeps Cargo.toml, Cargo.lock, and .rs files.
@@ -625,6 +658,14 @@
             cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
             cargoClippyExtraArgs = "-- -D warnings";
             RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
+            # `secp256k1-sys` is an unconditional dep via `ii-sv2` and
+            # its C build script requires a cross compiler. Point `cc-rs`
+            # at the espressif xtensa cross-gcc, and pass `-mlongcalls`
+            # so memset/memcpy from secp256k1's C code can be reached
+            # from text sections beyond the xtensa `call8` range.
+            nativeBuildInputs = [ xtensaEspToolchain ];
+            CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
+            CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
           };
 
           clippy-esp32s3-tsens = espCraneLib.cargoClippy {
@@ -804,6 +845,12 @@
               LIBCLANG_TOOLCHAIN_PATH="$(echo "$RUSTUP_HOME"/toolchains/esp/xtensa-esp32-elf-clang/esp-*/esp-clang/lib | head -1)"
 
               export PATH="$XTENSA_GCC_PATH:$RUSTUP_HOME/toolchains/esp/bin:$CARGO_HOME/bin:$PATH"
+
+              # `cc-rs` (via secp256k1-sys, an unconditional ii-sv2 dep) needs
+              # an explicit cross-compiler. `-mlongcalls` keeps memset /
+              # memcpy reachable past the xtensa `call8` range.
+              export CC_xtensa_esp32s3_none_elf="$XTENSA_GCC_PATH/xtensa-esp32s3-elf-gcc"
+              export CFLAGS_xtensa_esp32s3_none_elf="-mlongcalls"
 
               if [ -d "$LIBCLANG_TOOLCHAIN_PATH" ]; then
                 export LIBCLANG_PATH="$LIBCLANG_TOOLCHAIN_PATH"
