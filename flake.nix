@@ -367,6 +367,12 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p bmm-pico --target thumbv8m.main-none-eabihf";
             cargoClippyExtraArgs = "-- -D warnings";
+            # `secp256k1-sys` is an unconditional dep via `ii-sv2` and
+            # its C build script requires a cross compiler. `cc-rs`
+            # otherwise falls back to host `gcc` and fails on the
+            # thumb-specific flags; point it at arm-none-eabi-gcc.
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
           clippy-rp2040 = craneLib.cargoClippy {
