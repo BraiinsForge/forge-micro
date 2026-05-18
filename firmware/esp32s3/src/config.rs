@@ -75,6 +75,11 @@ pub struct Board<'d> {
 
 impl Board<'static> {
     pub const NAME: &str = "ESP32-S3 W5100S";
+    /// DNS-safe base hostname for mDNS. See `eth_examples::mdns::compose_hostname`
+    /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
+    pub const MDNS_HOSTNAME_BASE: &str = "esp32s3";
+    /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
+    pub const MCU: &str = "esp32s3";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
     pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x02];
 

@@ -56,6 +56,11 @@ pub struct Board {
 
 impl Board {
     pub const NAME: &str = "Pico2 W6100";
+    /// DNS-safe base hostname for mDNS. See `eth_examples::mdns::compose_hostname`
+    /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
+    pub const MDNS_HOSTNAME_BASE: &str = "rp2350";
+    /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
+    pub const MCU: &str = "rp2350";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
     pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 

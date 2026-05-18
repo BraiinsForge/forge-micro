@@ -104,6 +104,11 @@ const MAC_SUFFIX: u8 = match option_env!("MAC_SUFFIX") {
 
 impl Board {
     pub const NAME: &str = "BMM Adapter W5500";
+    /// DNS-safe base hostname for mDNS. See `eth_examples::mdns::compose_hostname`
+    /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
+    pub const MDNS_HOSTNAME_BASE: &str = "bmm-pico";
+    /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
+    pub const MCU: &str = "rp2350";
     /// Locally-administered MAC address. The LAA bit (mask 0x02 in the
     /// first octet) marks it as local. `MAC_ADDR[4]` is a board-family
     /// identifier set to 0x01 for BMM. `MAC_ADDR[5]` is the per-unit

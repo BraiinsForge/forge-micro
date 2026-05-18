@@ -191,6 +191,11 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
 }
 
 #[embassy_executor::task]
+async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -> ! {
+    eth_examples::mdns::run_mdns(stack, hostname, config::Board::NAME, config::Board::MCU).await
+}
+
+#[embassy_executor::task]
 async fn temperature_task(sensor: BoardTempSensor) -> ! {
     ubos_temperature::run_temperature(sensor).await
 }
@@ -456,7 +461,7 @@ async fn boot(spawner: Spawner) {
 
     let seed = rng.next_u64();
 
-    static RESOURCES: StaticCell<StackResources<7>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<8>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
         embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default()),
@@ -468,6 +473,16 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_task(stack)));
+
+    static MDNS_HOSTNAME: StaticCell<heapless::String<16>> = StaticCell::new();
+    let mdns_hostname =
+        eth_examples::mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
+            config::Board::MDNS_HOSTNAME_BASE,
+            config::Board::MAC_ADDR[5],
+            &MDNS_HOSTNAME,
+        );
+    spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
+
     spawner.spawn(unwrap!(cpu_load_task()));
 
     let adc = Adc::new(hw.adc, Irqs, AdcConfig::default());

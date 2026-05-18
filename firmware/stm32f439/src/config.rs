@@ -103,6 +103,11 @@ pub const DEFAULT_POOL_USER: &str = "braiinstest.stm32f439";
 
 impl Board {
     pub const NAME: &str = "Nucleo-F439ZI LAN8742A";
+    /// DNS-safe base hostname for mDNS. See `eth_examples::mdns::compose_hostname`
+    /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
+    pub const MDNS_HOSTNAME_BASE: &str = "stm32f439";
+    /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
+    pub const MCU: &str = "stm32f439";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
     pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x05];
 

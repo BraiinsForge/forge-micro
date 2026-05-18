@@ -216,6 +216,13 @@ impl<const CAP: usize, const BASE_LEN: usize> AssertCap<CAP, BASE_LEN> {
 /// `base.len()` so the const assertion turns a future enlargement of `base`
 /// into a build failure rather than a boot-time panic.
 ///
+/// `base` is hardcoded per board family, and callers pass `MAC_ADDR[5]` as
+/// `suffix` — itself a per-family constant — so two units of the same family
+/// on the same LAN share the resulting hostname across every advertised
+/// service and rely on RFC 6762 §9 conflict-resolution renames every boot.
+/// `Board::NAME` is human-readable and contains spaces, so it cannot be used
+/// as a DNS label.
+///
 /// # Panics
 ///
 /// Panics if `BASE_LEN` does not equal `base.len()`. Callers pass

@@ -186,6 +186,11 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
 }
 
 #[embassy_executor::task]
+async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -> ! {
+    eth_examples::mdns::run_mdns(stack, hostname, config::Board::NAME, config::Board::MCU).await
+}
+
+#[embassy_executor::task]
 async fn cpu_load_task() -> ! {
     eth_examples::cpu_load::run_cpu_load::<2>().await
 }
@@ -434,7 +439,7 @@ fn main() -> ! {
 )]
 async fn boot(spawner: Spawner) {
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
-    static RESOURCES: StaticCell<StackResources<7>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<8>> = StaticCell::new();
 
     let peripherals = esp_hal::init(esp_hal::Config::default());
     let hw = config::Board::take(peripherals);
@@ -556,6 +561,16 @@ async fn boot(spawner: Spawner) {
     spawner.must_spawn(bitcoin_price_task(stack, TlsRng(rng)));
     spawner.must_spawn(ntp_sync_task(stack));
     spawner.must_spawn(metrics_task(stack));
+
+    static MDNS_HOSTNAME: StaticCell<heapless::String<16>> = StaticCell::new();
+    let mdns_hostname =
+        eth_examples::mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
+            config::Board::MDNS_HOSTNAME_BASE,
+            config::Board::MAC_ADDR[5],
+            &MDNS_HOSTNAME,
+        );
+    spawner.must_spawn(mdns_task(stack, mdns_hostname));
+
     spawner.must_spawn(cpu_load_task());
     // No LED blink task: board wiring does not include an accessible LED.
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
