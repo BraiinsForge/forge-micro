@@ -8,18 +8,26 @@ path = "src/lib.rs"
 
 [features]
 default = ["defmt"]
-defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt"]
+defmt   = ["dep:defmt", "embassy-net/defmt", "edge-mdns/defmt", "ubos-logging/defmt"]
 
 [dependencies]
-embassy-net       = { workspace = true, features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "auto-icmp-echo-reply"] }
+embassy-net       = { workspace = true, features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "auto-icmp-echo-reply", "multicast"] }
 embassy-sync      = { workspace = true }
 embassy-time      = { workspace = true }
 embassy-futures   = { workspace = true }
 embedded-tls      = { workspace = true }
 embedded-io-async = { workspace = true }
+edge-mdns         = { workspace = true, features = ["io"] }
+edge-nal          = { workspace = true }
+edge-nal-embassy  = { workspace = true, features = ["udp", "multicast", "proto-ipv4", "medium-ethernet"] }
 embedded-hal      = { workspace = true }
 embedded-hal-async = { workspace = true }
 rand_core         = { workspace = true }
+# TODO: remove rand_core_v010 alias once edge-mdns moves back to rand_core 0.6
+# or the workspace migrates to 0.10. edge-mdns master depends on rand_core 0.10;
+# aliased here so CounterRng can implement the trait that Mdns::new requires,
+# without touching the workspace rand_core 0.6 used by embedded-tls.
+rand_core_v010    = { package = "rand_core", version = "0.10", default-features = false }
 portable-atomic   = { workspace = true }
 static_cell       = { workspace = true }
 heapless          = { workspace = true }
@@ -84,6 +92,9 @@ embassy-sync      = { version = "0.8", default-features = false }
 embassy-time      = { version = "0.5.1", default-features = false }
 embassy-net       = { version = "0.9.0", default-features = false }
 embassy-net-wiznet = { version = "0.3.0", default-features = false }
+edge-mdns         = { git = "https://github.com/sysgrok/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
+edge-nal          = { git = "https://github.com/sysgrok/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
+edge-nal-embassy  = { git = "https://github.com/sysgrok/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
 embassy-futures   = "0.1.2"
 heapless          = "0.8"
 defmt             = "1.0.1"

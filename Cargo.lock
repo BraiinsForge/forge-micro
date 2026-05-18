@@ -864,6 +864,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "deranged"
+version = "0.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
+dependencies = [
+ "powerfmt",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -905,6 +914,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4b8a88685455ed29a21542a33abd9cb6510b6b129abadabdcef0f4c55bc8f61"
 dependencies = [
  "litrs",
+]
+
+[[package]]
+name = "domain"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f7ff15f82df7d5086fb15dfc1c1e96598a6ded9829840a9bcfa1fa3ccd8d01d"
+dependencies = [
+ "domain-macros",
+ "heapless 0.8.0",
+ "octseq",
+ "time",
+]
+
+[[package]]
+name = "domain-macros"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d1a6796ad411f6812d691955066ad27450196bfb181bb91b66a643cc3e8f5b7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -959,6 +991,41 @@ dependencies = [
  "ed25519",
  "sha2 0.10.9",
  "subtle",
+]
+
+[[package]]
+name = "edge-mdns"
+version = "0.7.0"
+source = "git+https://github.com/sysgrok/edge-net?rev=1f084b41944c35b233cbe17accfbc09a56d5eaf0#1f084b41944c35b233cbe17accfbc09a56d5eaf0"
+dependencies = [
+ "defmt 1.0.1",
+ "domain",
+ "edge-nal",
+ "embassy-futures",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "heapless 0.9.2",
+ "rand_core 0.10.1",
+]
+
+[[package]]
+name = "edge-nal"
+version = "0.6.0"
+source = "git+https://github.com/sysgrok/edge-net?rev=1f084b41944c35b233cbe17accfbc09a56d5eaf0#1f084b41944c35b233cbe17accfbc09a56d5eaf0"
+dependencies = [
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+]
+
+[[package]]
+name = "edge-nal-embassy"
+version = "0.8.1"
+source = "git+https://github.com/sysgrok/edge-net?rev=1f084b41944c35b233cbe17accfbc09a56d5eaf0#1f084b41944c35b233cbe17accfbc09a56d5eaf0"
+dependencies = [
+ "edge-nal",
+ "embassy-futures",
+ "embassy-net",
+ "embedded-io-async 0.7.0",
 ]
 
 [[package]]
@@ -2013,6 +2080,9 @@ dependencies = [
  "bs58",
  "cortex-m",
  "defmt 1.0.1",
+ "edge-mdns",
+ "edge-nal",
+ "edge-nal-embassy",
  "embassy-executor 0.10.0",
  "embassy-futures",
  "embassy-net",
@@ -2027,6 +2097,7 @@ dependencies = [
  "heapless 0.8.0",
  "portable-atomic",
  "profont",
+ "rand_core 0.10.1",
  "rand_core 0.6.4",
  "sha2 0.10.9",
  "static_cell",
@@ -2842,6 +2913,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-conv"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6673768db2d862beb9b39a78fdcb1a69439615d5794a1be50caa9bc92c81967"
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2893,6 +2970,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff76201f031d8863c38aa7f905eca4f53abbfa15f609db4277d44cd8938f33fe"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "octseq"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "126c3ca37c9c44cec575247f43a3e4374d8927684f129d2beeb0d2cef262fe12"
+dependencies = [
+ "heapless 0.8.0",
 ]
 
 [[package]]
@@ -3118,6 +3204,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "powerfmt"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3249,6 +3341,12 @@ name = "rand_core"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
+
+[[package]]
+name = "rand_core"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "redox_syscall"
@@ -4039,6 +4137,24 @@ checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
 dependencies = [
  "cfg-if",
 ]
+
+[[package]]
+name = "time"
+version = "0.3.47"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
+dependencies = [
+ "deranged",
+ "num-conv",
+ "powerfmt",
+ "time-core",
+]
+
+[[package]]
+name = "time-core"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca"
 
 [[package]]
 name = "tinyvec"
