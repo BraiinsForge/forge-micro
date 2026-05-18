@@ -440,6 +440,12 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p stm32f407 --target thumbv7em-none-eabihf";
             cargoClippyExtraArgs = "-- -D warnings";
+            # `secp256k1-sys` is an unconditional dep via `ii-sv2` and
+            # its C build script requires a cross compiler. Point `cc-rs`
+            # at the arm-none-eabi cross-gcc so the C code is built
+            # against the correct ABI.
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
           clippy-stm32f439 = craneLib.cargoClippy {

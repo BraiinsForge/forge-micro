@@ -64,7 +64,41 @@ static POOL_CONFIG_CELL: StaticCell<eth_examples::pool_config::PoolConfig> = Sta
 // `Sv1`. Empty when the parsed protocol is `Sv2`.
 static SV1_CONFIG_CELL: StaticCell<stratum_v1::Sv1Config> = StaticCell::new();
 
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
+// `Sv2Config::new` copies the worker identity into the owned
+// `heapless::String<128>`. Held in a `StaticCell` to give
+// `StratumV2Client::new` a `&'static Sv2Config`. Only populated
+// when the parsed protocol is `Sv2`.
+static SV2_CONFIG_CELL: StaticCell<stratum_v2::Sv2Config> = StaticCell::new();
+
+// `secp256k1::AllPreallocated<'static>` precomputation buffer.
+// `lowmemory` shrinks the verify table so the context fits in this
+// board's SRAM; the conservative 4096-slot context used elsewhere
+// does not, so the slot count is dialed down to a verification-sized
+// 1024. `CryptoCtx::preallocated` returns `Error::NotEnoughMemory`
+// at runtime if undersized.
+const SECP_CTX_SLOTS: usize = 1024;
+
+static SECP_CTX_BUF: static_cell::ConstStaticCell<[ii_sv2::security::AlignedType; SECP_CTX_SLOTS]> =
+    static_cell::ConstStaticCell::new([ii_sv2::security::AlignedType::ZERO; SECP_CTX_SLOTS]);
+
+static SECP_CTX: StaticCell<
+    ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
+> = StaticCell::new();
+
+// The stm32 RNG peripheral is single-owner and already claimed by
+// the bitcoin-price TLS task. Seed a ChaCha20 PRNG once at boot
+// from the hardware RNG; the SV2 client uses this PRNG for ephemeral
+// keys and nonces across reconnects.
+static SV2_PRNG: StaticCell<rand_chacha::ChaCha20Rng> = StaticCell::new();
+
+struct Sv2BoardRng<'a>(&'a mut rand_chacha::ChaCha20Rng);
+
+impl ii_sv2::security::Rng for Sv2BoardRng<'_> {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        rand_chacha::rand_core::RngCore::fill_bytes(self.0, dest);
+    }
+}
+
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
 defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
@@ -213,11 +247,12 @@ fn pool_config_from_env(
     )
 }
 
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 #[embassy_executor::task]
+#[allow(clippy::too_many_lines)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
     pool_config: &'static eth_examples::pool_config::PoolConfig,
+    sv2_prng: &'static mut rand_chacha::ChaCha20Rng,
 ) -> ! {
     use defmt::warn;
     use embassy_time::Timer;
@@ -235,57 +270,104 @@ async fn stratum_client_task(
 
     let port = pool_config.port;
 
-    // These boards have no SV2 client; if the user sets
-    // POOL_PROTOCOL=sv2, fall back to V1 with a warning.
-    let sv1 = match &pool_config.protocol {
-        ProtocolConfig::Sv1 { password } => SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
-            user: pool_config.user.as_str(),
-            password: password.as_deref().unwrap_or(""),
-        }),
-        ProtocolConfig::Sv2 { .. } => {
-            warn!(
-                "stratum-client: POOL_PROTOCOL=sv2 but no SV2 client on this board; \
-                 falling back to V1 with empty password"
-            );
-            SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
+    match &pool_config.protocol {
+        ProtocolConfig::Sv1 { password } => {
+            let sv1 = SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
                 user: pool_config.user.as_str(),
-                password: "",
-            })
-        }
-    };
-
-    loop {
-        let mut socket = match eth_examples::net::connect_stratum(
-            stack,
-            pool_config.host.as_str(),
-            port,
-            SOCKET_TIMEOUT,
-            rx_buffer,
-            tx_buffer,
-        )
-        .await
-        {
-            Ok(socket) => socket,
-            Err(error) => {
-                warn!(
-                    "stratum-client: connect failed: {}",
-                    defmt::Debug2Format(&error)
-                );
-                Timer::after(RECONNECT_DELAY).await;
-                continue;
-            }
-        };
-
-        let mut client = stratum_v1::StratumV1Client::new(sv1);
-        let mut state = stratum_client::StratumState::new();
-        if let Err(error) =
-            stratum_client::run_stratum_client(&mut client, &mut socket, &ASIC_SESSION, &mut state)
+                password: password.as_deref().unwrap_or(""),
+            });
+            loop {
+                let mut socket = match eth_examples::net::connect_stratum(
+                    stack,
+                    pool_config.host.as_str(),
+                    port,
+                    SOCKET_TIMEOUT,
+                    rx_buffer,
+                    tx_buffer,
+                )
                 .await
-        {
-            warn!(
-                "stratum-client: session error {}",
-                defmt::Debug2Format(&error)
+                {
+                    Ok(socket) => socket,
+                    Err(error) => {
+                        warn!(
+                            "stratum-client: connect failed: {}",
+                            defmt::Debug2Format(&error)
+                        );
+                        Timer::after(RECONNECT_DELAY).await;
+                        continue;
+                    }
+                };
+                let mut state = stratum_client::StratumState::new();
+                let mut client = stratum_v1::StratumV1Client::new(sv1);
+                if let Err(error) = stratum_client::run_stratum_client(
+                    &mut client,
+                    &mut socket,
+                    &ASIC_SESSION,
+                    &mut state,
+                )
+                .await
+                {
+                    warn!(
+                        "stratum-client: session error {}",
+                        defmt::Debug2Format(&error)
+                    );
+                }
+                Timer::after(RECONNECT_DELAY).await;
+            }
+        }
+        ProtocolConfig::Sv2 { pool_pubkey } => {
+            let sv2 = SV2_CONFIG_CELL.init(
+                stratum_v2::Sv2Config::new(pool_config.user.as_str(), *pool_pubkey)
+                    // `pool_config::parse` already rejects POOL_USER longer
+                    // than `MAX_USER_LEN`, which equals `Sv2Config::MAX_USER_LEN`.
+                    .expect("BUG: POOL_USER exceeds Sv2Config::MAX_USER_LEN"),
             );
+            let buffer = SECP_CTX_BUF.take();
+            let ctx = SECP_CTX.init(
+                ii_sv2::security::CryptoCtx::preallocated(buffer)
+                    // `SECP_CTX_SLOTS` is sized for `AllPreallocated` with
+                    // `lowmemory`; undersizing would be caught here at boot.
+                    .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
+            );
+            loop {
+                let mut socket = match eth_examples::net::connect_stratum(
+                    stack,
+                    pool_config.host.as_str(),
+                    port,
+                    SOCKET_TIMEOUT,
+                    rx_buffer,
+                    tx_buffer,
+                )
+                .await
+                {
+                    Ok(socket) => socket,
+                    Err(error) => {
+                        warn!(
+                            "stratum-client: connect failed: {}",
+                            defmt::Debug2Format(&error)
+                        );
+                        Timer::after(RECONNECT_DELAY).await;
+                        continue;
+                    }
+                };
+                let mut state = stratum_client::StratumState::new();
+                let mut client =
+                    stratum_v2::StratumV2Client::new(sv2, ctx, Sv2BoardRng(&mut *sv2_prng));
+                if let Err(error) = stratum_client::run_stratum_client(
+                    &mut client,
+                    &mut socket,
+                    &ASIC_SESSION,
+                    &mut state,
+                )
+                .await
+                {
+                    warn!(
+                        "stratum-client: session error {}",
+                        defmt::Debug2Format(&error)
+                    );
+                }
+                Timer::after(RECONNECT_DELAY).await;
+            }
         }
     }
 }
@@ -323,6 +405,19 @@ async fn boot(spawner: Spawner) {
         .await
         .expect("BUG: RNG fill failed");
     let seed = u64::from_le_bytes(seed_bytes);
+
+    // Seed the SV2 ChaCha20 PRNG before the hardware RNG is moved into
+    // the bitcoin-price TLS task; the stratum-v2 noise handshake then
+    // has its own entropy stream that does not contend with TLS.
+    let sv2_prng = {
+        let mut sv2_seed = [0u8; 32];
+        rng.async_fill_bytes(&mut sv2_seed)
+            .await
+            .expect("BUG: RNG fill failed");
+        SV2_PRNG.init(
+            <rand_chacha::ChaCha20Rng as rand_chacha::rand_core::SeedableRng>::from_seed(sv2_seed),
+        )
+    };
 
     // Enable the 50 MHz oscillator on the WT32-ETH01 board.
     // Binding must remain alive for the oscillator to stay enabled.
@@ -464,7 +559,7 @@ async fn boot(spawner: Spawner) {
                     },
                     pool_config.user.as_str(),
                 );
-                spawner.spawn(unwrap!(stratum_client_task(stack, pool_config)));
+                spawner.spawn(unwrap!(stratum_client_task(stack, pool_config, sv2_prng,)));
             }
             Err(error) => {
                 defmt::error!(
