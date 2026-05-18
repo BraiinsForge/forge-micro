@@ -225,14 +225,15 @@ async fn asic_uart_task(uart: Uart<'static, esp_hal::Async>) -> ! {
     asic_uart_peer::run_asic_uart(&ASIC_SESSION, uart).await
 }
 
-/// Read the six `POOL_*` env vars at compile time (each falling
-/// through to its default if unset) and produce a typed
-/// `PoolConfig`. The result is stored in `POOL_CONFIG_CELL` and
-/// borrowed `'static` by the stratum task. Returns the parse error
-/// instead of panicking so the boot path can log and skip the
-/// stratum task on a bad operator-supplied value (e.g. a
-/// malformed `POOL_SV2_PUBKEY`).
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
+/// Read the `POOL_*` env vars at compile time (each falling through
+/// to its default if unset) and produce a typed `PoolConfig`. The
+/// result is stored in `POOL_CONFIG_CELL` and borrowed `'static` by
+/// the stratum task. Returns the parse error instead of panicking so
+/// the boot path can log and skip the stratum task on a bad
+/// operator-supplied value (e.g. a malformed `POOL_SV2_PUBKEY`).
+/// When `POOL_SV2_PUBKEY` is unset, `DEFAULT_POOL_SV2_PUBKEY` is
+/// used so the firmware always validates the Braiins prod key by
+/// default. Set `POOL_SV2_TRUST_ANY_KEY=1` to disable peer auth.
 fn pool_config_from_env(
 ) -> Result<eth_examples::pool_config::PoolConfig, eth_examples::pool_config::ConfigError> {
     use eth_examples::pool_config;
@@ -242,7 +243,8 @@ fn pool_config_from_env(
         option_env!("POOL_PROTOCOL").unwrap_or(pool_config::DEFAULT_POOL_PROTOCOL),
         option_env!("POOL_USER").unwrap_or(config::DEFAULT_POOL_USER),
         option_env!("POOL_SV1_PASS"),
-        option_env!("POOL_SV2_PUBKEY"),
+        option_env!("POOL_SV2_PUBKEY").unwrap_or(pool_config::DEFAULT_POOL_SV2_PUBKEY),
+        option_env!("POOL_SV2_TRUST_ANY_KEY"),
     )
 }
 

@@ -31,6 +31,13 @@ asic-cpu-mock      = { workspace = true }
 mining-protocol    = { workspace = true }
 stratum-client     = { workspace = true }
 stratum-v1         = { workspace = true }
+stratum-v2         = { workspace = true }
+# `alloc` enables `CryptoCtx::new()` (heap-allocated secp256k1
+# context). The firmware uses `lowmemory` + preallocated buffers to
+# fit the verification table in SRAM; on host neither constraint
+# applies, so prefer the simpler allocating path.
+ii-sv2             = { workspace = true, features = ["alloc"] }
+rand_core          = { workspace = true }
 ubos-logging       = { workspace = true }
 ubos-monitor       = { workspace = true }
 ubos-psu           = { workspace = true }

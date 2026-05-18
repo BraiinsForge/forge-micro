@@ -10,6 +10,7 @@ fn parse_defaults_yields_sv1_against_braiins_with_no_password() {
         DEFAULT_POOL_PROTOCOL,
         DEFAULT_USER,
         None,
+        DEFAULT_POOL_SV2_PUBKEY,
         None,
     )
     .expect("parse defaults");
@@ -23,7 +24,16 @@ fn parse_defaults_yields_sv1_against_braiins_with_no_password() {
 
 #[test]
 fn parse_sv1_with_explicit_password() {
-    let config = parse("h", "3333", "sv1", "u", Some("x"), None).expect("parse sv1+pass");
+    let config = parse(
+        "h",
+        "3333",
+        "sv1",
+        "u",
+        Some("x"),
+        DEFAULT_POOL_SV2_PUBKEY,
+        None,
+    )
+    .expect("parse sv1+pass");
     let ProtocolConfig::Sv1 {
         password: Some(pass),
     } = config.protocol
@@ -34,12 +44,62 @@ fn parse_sv1_with_explicit_password() {
 }
 
 #[test]
-fn parse_sv2_with_no_pubkey_yields_validate_nothing() {
-    let config = parse("pool.example", "34254", "sv2", "user.worker", None, None).expect("parse");
+fn parse_sv2_with_trust_any_key_yields_validate_nothing() {
+    let config = parse(
+        "pool.example",
+        "34254",
+        "sv2",
+        "user.worker",
+        None,
+        DEFAULT_POOL_SV2_PUBKEY,
+        Some("1"),
+    )
+    .expect("parse");
     assert!(matches!(
         config.protocol,
         ProtocolConfig::Sv2 { pool_pubkey: None }
     ));
+}
+
+#[test]
+fn parse_sv2_default_pubkey_decodes() {
+    let config = parse(
+        "pool.example",
+        "34254",
+        "sv2",
+        "user.worker",
+        None,
+        DEFAULT_POOL_SV2_PUBKEY,
+        None,
+    )
+    .expect("parse");
+    assert!(matches!(
+        config.protocol,
+        ProtocolConfig::Sv2 {
+            pool_pubkey: Some(_)
+        }
+    ));
+}
+
+#[test]
+fn parse_sv2_rejects_invalid_trust_any_key_value() {
+    for bad_value in &["0", "true", ""] {
+        let err = parse(
+            "pool.example",
+            "34254",
+            "sv2",
+            "user.worker",
+            None,
+            DEFAULT_POOL_SV2_PUBKEY,
+            Some(bad_value),
+        )
+        .expect_err("expected ConfigError for trust-any-key value");
+        assert_eq!(
+            err,
+            ConfigError::InvalidTrustAnyKey,
+            "wrong error for POOL_SV2_TRUST_ANY_KEY={bad_value:?}"
+        );
+    }
 }
 
 #[test]
@@ -58,7 +118,8 @@ fn parse_sv2_decodes_base58check_pubkey() {
         "sv2",
         "user.worker",
         None,
-        Some(&encoded),
+        &encoded,
+        None,
     )
     .expect("parse");
     let ProtocolConfig::Sv2 {
@@ -72,47 +133,100 @@ fn parse_sv2_decodes_base58check_pubkey() {
 
 #[test]
 fn parse_rejects_unknown_protocol() {
-    let err = parse("h", "1", "stratum3", "u", None, None).expect_err("expected ConfigError");
+    let err = parse(
+        "h",
+        "1",
+        "stratum3",
+        "u",
+        None,
+        DEFAULT_POOL_SV2_PUBKEY,
+        None,
+    )
+    .expect_err("expected ConfigError");
     assert_eq!(err, ConfigError::InvalidProtocol);
 }
 
 #[test]
 fn parse_rejects_non_numeric_port() {
-    let err = parse("h", "thirty-three-thirty-three", "sv1", "u", None, None)
-        .expect_err("expected ConfigError");
+    let err = parse(
+        "h",
+        "thirty-three-thirty-three",
+        "sv1",
+        "u",
+        None,
+        DEFAULT_POOL_SV2_PUBKEY,
+        None,
+    )
+    .expect_err("expected ConfigError");
     assert_eq!(err, ConfigError::InvalidPort);
 }
 
 #[test]
 fn parse_rejects_port_overflow() {
-    let err = parse("h", "65536", "sv1", "u", None, None).expect_err("expected ConfigError");
+    let err = parse(
+        "h",
+        "65536",
+        "sv1",
+        "u",
+        None,
+        DEFAULT_POOL_SV2_PUBKEY,
+        None,
+    )
+    .expect_err("expected ConfigError");
     assert_eq!(err, ConfigError::InvalidPort);
 }
 
 #[test]
 fn parse_rejects_oversized_host() {
     let long = "a".repeat(MAX_HOST_LEN + 1);
-    let err = parse(&long, "3333", "sv1", "u", None, None).expect_err("expected ConfigError");
+    let err = parse(
+        &long,
+        "3333",
+        "sv1",
+        "u",
+        None,
+        DEFAULT_POOL_SV2_PUBKEY,
+        None,
+    )
+    .expect_err("expected ConfigError");
     assert_eq!(err, ConfigError::HostTooLong);
 }
 
 #[test]
 fn parse_rejects_oversized_user() {
     let long = "a".repeat(MAX_USER_LEN + 1);
-    let err = parse("h", "3333", "sv1", &long, None, None).expect_err("expected ConfigError");
+    let err = parse(
+        "h",
+        "3333",
+        "sv1",
+        &long,
+        None,
+        DEFAULT_POOL_SV2_PUBKEY,
+        None,
+    )
+    .expect_err("expected ConfigError");
     assert_eq!(err, ConfigError::UserTooLong);
 }
 
 #[test]
 fn parse_rejects_oversized_sv1_pass() {
     let long = "a".repeat(MAX_PASS_LEN + 1);
-    let err = parse("h", "3333", "sv1", "u", Some(&long), None).expect_err("expected ConfigError");
+    let err = parse(
+        "h",
+        "3333",
+        "sv1",
+        "u",
+        Some(&long),
+        DEFAULT_POOL_SV2_PUBKEY,
+        None,
+    )
+    .expect_err("expected ConfigError");
     assert_eq!(err, ConfigError::PassTooLong);
 }
 
 #[test]
 fn parse_rejects_garbage_pubkey() {
-    let err = parse("h", "3333", "sv2", "u", None, Some("not-base58-check!"))
+    let err = parse("h", "3333", "sv2", "u", None, "not-base58-check!", None)
         .expect_err("expected ConfigError");
     assert_eq!(err, ConfigError::InvalidPubkey);
 }
@@ -123,6 +237,6 @@ fn parse_rejects_sv2_pubkey_wrong_version_prefix() {
     // a valid base58check string but not a valid SV2 PublicKey.
     let raw = [0u8; 32];
     let plain = bs58::encode(raw).with_check().into_string();
-    let err = parse("h", "3333", "sv2", "u", None, Some(&plain)).expect_err("expected ConfigError");
+    let err = parse("h", "3333", "sv2", "u", None, &plain, None).expect_err("expected ConfigError");
     assert_eq!(err, ConfigError::InvalidPubkey);
 }

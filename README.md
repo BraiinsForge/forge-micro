@@ -172,11 +172,18 @@ configures the probe-rs runner for flash and monitor.
 
 The rp2350 firmware reads pool config from compile-time env vars
 (`POOL_HOST`, `POOL_PORT`, `POOL_PROTOCOL`, `POOL_USER`,
-`POOL_SV1_PASS`, `POOL_SV2_PUBKEY`). Unset variables fall through to
-the defaults in `eth_examples::pool_config`. `POOL_HOST` accepts an
-IPv4 dotted quad only (DNS resolution is a follow-up). The other
-five firmwares still ship with hard-coded pool consts in their
-`src/config.rs` for now.
+`POOL_SV1_PASS`, `POOL_SV2_PUBKEY`, `POOL_SV2_TRUST_ANY_KEY`).
+Unset variables fall through to the defaults in
+`eth_examples::pool_config`. `POOL_HOST` accepts a DNS name or IPv4
+literal; resolution happens at boot via the smoltcp DNS query.
+
+`POOL_SV2_PUBKEY` defaults to the Braiins prod authority key
+(`DEFAULT_POOL_SV2_PUBKEY`) when unset, so an unconfigured firmware
+connects to `stratum.braiins.com` with peer authentication enabled.
+Set `POOL_SV2_TRUST_ANY_KEY=1` to disable peer auth for testing
+against an SV2 pool whose authority key does not match the Braiins
+prod key. Any other value for `POOL_SV2_TRUST_ANY_KEY` is a
+build-time error.
 
 `backend-uart` is the default (UART peer via the dummy-asic board);
 `backend-cpu` swaps in on-MCU CPU mining. The two are mutually

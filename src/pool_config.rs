@@ -1,6 +1,6 @@
 //! Pool connection config driven by `option_env!` overrides.
 //!
-//! Each firmware reads six environment variables at compile time
+//! Each firmware reads seven environment variables at compile time
 //! (with fall-through defaults below) and hands the resulting
 //! strings to [`parse`]. The returned [`PoolConfig`] feeds the
 //! runtime protocol selector in the stratum task: matching on
@@ -16,12 +16,19 @@
 //! | `POOL_PROTOCOL` | `sv1`/`sv2` | [`DEFAULT_POOL_PROTOCOL`] | |
 //! | `POOL_USER` | string | per-board | worker identity, P2TR + `.workersuffix` |
 //! | `POOL_SV1_PASS` | string | unset → no password | ignored under `sv2` |
-//! | `POOL_SV2_PUBKEY` | base58check string | unset → `ValidateNothing` | ignored under `sv1` |
+//! | `POOL_SV2_PUBKEY` | base58check string | unset → validate against [`DEFAULT_POOL_SV2_PUBKEY`] | ignored under `sv1` |
+//! | `POOL_SV2_TRUST_ANY_KEY` | `"1"` | unset | `"1"` → skip peer auth (noise still negotiated); any other value → [`ConfigError`] |
 
 use core::str::FromStr;
 
 use embassy_time::Duration;
 use heapless::String;
+
+/// Default SV2 authority public key for `stratum.braiins.com`.
+/// Applied when `POOL_SV2_PUBKEY` is unset, so an unconfigured
+/// firmware reaches the Braiins prod endpoint with peer
+/// authentication enabled rather than `ValidateNothing`.
+pub const DEFAULT_POOL_SV2_PUBKEY: &str = "9awtMD5KQgvRUh2yFbjVeT7b6hjipWcAsQHd6wEhgtDT9soosna";
 
 /// Default Braiins pool endpoint. Firmware resolves the DNS name
 /// at runtime via `stack.dns_query`.
@@ -60,7 +67,7 @@ pub const MAX_HOST_LEN: usize = 128;
 pub const MAX_USER_LEN: usize = 128;
 pub const MAX_PASS_LEN: usize = 128;
 
-/// Parsed result of the six `POOL_*` env vars.
+/// Parsed result of the seven `POOL_*` env vars.
 #[derive(Debug, Clone)]
 pub struct PoolConfig {
     pub host: String<MAX_HOST_LEN>,
@@ -82,8 +89,11 @@ pub enum ProtocolConfig {
         password: Option<String<MAX_PASS_LEN>>,
     },
     Sv2 {
-        /// `None` → `ValidateNothing` (test pools); `Some` →
-        /// `ValidateSignature` against the supplied authority key.
+        /// `None` → `POOL_SV2_TRUST_ANY_KEY=1` was set, so the noise
+        /// handshake proceeds without validating the pool's static key
+        /// (`ValidateNothing`). `Some` → `ValidateSignature` against
+        /// the supplied authority key; the default is the Braiins prod
+        /// key from [`DEFAULT_POOL_SV2_PUBKEY`].
         pool_pubkey: Option<[u8; 32]>,
     },
 }
@@ -101,17 +111,25 @@ pub enum ConfigError {
     InvalidPort,
     InvalidProtocol,
     InvalidPubkey,
+    /// `POOL_SV2_TRUST_ANY_KEY` was set to a value other than `"1"`.
+    /// Only `"1"` is accepted; any other value (including empty string
+    /// and `"true"`) is rejected so a mistyped override fails loudly
+    /// rather than silently enabling authentication when the operator
+    /// intended to disable it.
+    InvalidTrustAnyKey,
 }
 
-/// Parse the six raw env-var inputs into a typed [`PoolConfig`].
+/// Parse the seven raw env-var inputs into a typed [`PoolConfig`].
 ///
 /// Callers (firmware crates) read each var via `option_env!`. For
 /// the four required strings they apply the matching `DEFAULT_*`
-/// constant as fall-through and pass a `&str`. For the two
-/// optional fields (`POOL_SV1_PASS`, `POOL_SV2_PUBKEY`) they pass
-/// the `Option<&str>` straight through — an unset env var is just
-/// `None`, no sentinel string required. The function is
-/// `no_std`-friendly and runs once at boot.
+/// constant as fall-through and pass a `&str`. For `POOL_SV1_PASS`
+/// and `POOL_SV2_TRUST_ANY_KEY` they pass the `Option<&str>` straight
+/// through — an unset env var is just `None`, no sentinel string
+/// required. `sv2_pubkey_str` is always a `&str`; callers apply
+/// `DEFAULT_POOL_SV2_PUBKEY` as the fall-through so the function
+/// always has a key to decode when the SV2 path is taken. The
+/// function is `no_std`-friendly and runs once at boot.
 ///
 /// # Errors
 ///
@@ -126,12 +144,13 @@ pub fn parse(
     protocol_str: &str,
     user: &str,
     sv1_pass: Option<&str>,
-    sv2_pubkey_str: Option<&str>,
+    sv2_pubkey_str: &str,
+    sv2_trust_any_key: Option<&str>,
 ) -> Result<PoolConfig, ConfigError> {
     let host = String::<MAX_HOST_LEN>::from_str(host).map_err(|()| ConfigError::HostTooLong)?;
     let port: u16 = port_str.parse().map_err(|_| ConfigError::InvalidPort)?;
     let user = String::<MAX_USER_LEN>::from_str(user).map_err(|()| ConfigError::UserTooLong)?;
-    let protocol = parse_protocol(protocol_str, sv1_pass, sv2_pubkey_str)?;
+    let protocol = parse_protocol(protocol_str, sv1_pass, sv2_pubkey_str, sv2_trust_any_key)?;
 
     Ok(PoolConfig {
         host,
@@ -144,7 +163,8 @@ pub fn parse(
 fn parse_protocol(
     protocol_str: &str,
     sv1_pass: Option<&str>,
-    sv2_pubkey_str: Option<&str>,
+    sv2_pubkey_str: &str,
+    sv2_trust_any_key: Option<&str>,
 ) -> Result<ProtocolConfig, ConfigError> {
     match protocol_str {
         "sv1" => {
@@ -155,7 +175,11 @@ fn parse_protocol(
             Ok(ProtocolConfig::Sv1 { password })
         }
         "sv2" => {
-            let pool_pubkey = sv2_pubkey_str.map(decode_pubkey).transpose()?;
+            let pool_pubkey = match sv2_trust_any_key {
+                Some("1") => None,
+                Some(_) => return Err(ConfigError::InvalidTrustAnyKey),
+                None => Some(decode_pubkey(sv2_pubkey_str)?),
+            };
             Ok(ProtocolConfig::Sv2 { pool_pubkey })
         }
         _ => Err(ConfigError::InvalidProtocol),

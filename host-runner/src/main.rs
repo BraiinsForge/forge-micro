@@ -10,11 +10,12 @@
 //! identical across the firmware and host paths.
 //!
 //! Pool wiring matches the firmware: `POOL_HOST`, `POOL_PORT`,
-//! `POOL_PROTOCOL`, `POOL_USER`, and `POOL_SV1_PASS` env vars (read at
-//! compile time) drive `eth_examples::pool_config::parse`; defaults
-//! point at the public Braiins Pool so the binary works out of the
-//! box. V2 host support is not wired yet — `POOL_PROTOCOL=sv2` is
-//! rejected at boot.
+//! `POOL_PROTOCOL`, `POOL_USER`, `POOL_SV1_PASS`, `POOL_SV2_PUBKEY`,
+//! and `POOL_SV2_TRUST_ANY_KEY` env vars (read at compile time) drive
+//! `eth_examples::pool_config::parse`;
+//! defaults point at the public Braiins Pool so the binary works out of
+//! the box. Both SV1 and SV2 are wired here — the workspace defaults
+//! select SV2 against the Braiins V2 endpoint.
 //!
 //! Host-side prerequisites (run once per boot): `./setup-network.sh up`
 //! creates the TAP device and installs the NAT + forward rules. See
@@ -30,8 +31,9 @@ use eth_examples::net;
 use eth_examples::pool_config::{
     self, PoolConfig, ProtocolConfig, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
 };
-use log::{error, info, warn};
+use log::{info, warn};
 use rand::rngs::OsRng;
+use rand_core::RngCore;
 use static_cell::StaticCell;
 use stratum_client::AsicSession;
 use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
@@ -53,10 +55,6 @@ const BOARD_NAME: &str = "host-runner";
 /// `POOL_USER` is not set in the environment.
 const DEFAULT_POOL_USER: &str = "braiinstest.dumb_worker";
 
-/// Defaults to the public Braiins Pool so the binary works out of
-/// the box without requiring reach to the NUC regtest pool.
-const DEFAULT_POOL_HOST: &str = "172.65.65.63";
-
 /// Tunable monitor parameters. The PID gains and threshold
 /// temperatures live in `ubos_monitor::BMM101_DEFAULT`.
 static MONITOR_CONFIG: MonitorConfig = BMM101_DEFAULT;
@@ -72,6 +70,29 @@ static POOL_CONFIG_CELL: StaticCell<PoolConfig> = StaticCell::new();
 /// `Sv1`. Held in a `StaticCell` so `StratumV1Client::new` gets the
 /// `&'static Sv1Config` it expects.
 static SV1_CONFIG_CELL: StaticCell<stratum_v1::Sv1Config> = StaticCell::new();
+
+/// V2 session config; only initialised when the parsed protocol is
+/// `Sv2`. Held in a `StaticCell` so `StratumV2Client::new` gets the
+/// `&'static Sv2Config` it expects.
+static SV2_CONFIG_CELL: StaticCell<stratum_v2::Sv2Config> = StaticCell::new();
+
+/// Heap-allocated secp256k1 context for the SV2 noise handshake.
+/// The host has no SRAM ceiling, so the firmware's preallocated
+/// `AllPreallocated` buffer is replaced with the standard
+/// allocating context.
+static SECP_CTX: StaticCell<ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::All>> =
+    StaticCell::new();
+
+/// Adapter from `rand`'s `OsRng` onto the `ii_sv2::security::Rng`
+/// trait the V2 noise handshake takes. Wraps the upstream `RngCore`
+/// implementation without holding any state of its own.
+struct HostSv2Rng(OsRng);
+
+impl ii_sv2::security::Rng for HostSv2Rng {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.0.fill_bytes(dest);
+    }
+}
 
 /// Shared work / solution rendezvous between the stratum-client
 /// task and whichever ASIC driver is active (mmm BM1362 actor or
@@ -120,66 +141,126 @@ async fn asic_cpu_task() -> ! {
     asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
 }
 
-/// V1 stratum client task. Connects to `pool_config.host:port`,
-/// runs the trait-based mining loop against `ASIC_SESSION`, and
-/// reconnects with `RECONNECT_DELAY` between attempts.
+/// Stratum client task. Resolves `pool_config.host`, opens a TCP
+/// connection, and runs either the SV1 or SV2 trait-based mining loop
+/// against `ASIC_SESSION`. Reconnects with `RECONNECT_DELAY` between
+/// attempts. Mirrors the firmware shape so the SV1/SV2 switch and the
+/// DNS path stay identical across host and bare-metal.
 #[embassy_executor::task]
-async fn stratum_client_task(
-    stack: Stack<'static>,
-    pool_config: &'static PoolConfig,
-    sv1_config: &'static stratum_v1::Sv1Config,
-) -> ! {
-    use embassy_net::tcp::TcpSocket;
-    use embassy_net::IpAddress;
-
+async fn stratum_client_task(stack: Stack<'static>, pool_config: &'static PoolConfig) -> ! {
     static TCP_RX: StaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> = StaticCell::new();
     static TCP_TX: StaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> = StaticCell::new();
     let rx_buffer = TCP_RX.init([0; STRATUM_TCP_BUFFER_SIZE]);
     let tx_buffer = TCP_TX.init([0; STRATUM_TCP_BUFFER_SIZE]);
 
-    let ipv4: core::net::Ipv4Addr = pool_config
-        .host
-        .as_str()
-        .parse()
-        .expect("BUG: POOL_HOST is not a valid IPv4 literal (DNS not yet supported on host)");
-    let address = IpAddress::from(ipv4);
     let port = pool_config.port;
 
-    loop {
-        let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
-        socket.set_timeout(Some(SOCKET_TIMEOUT));
-        info!("stratum-client: connecting to {ipv4}:{port}");
-        if let Err(error) = socket.connect((address, port)).await {
-            warn!("stratum-client: connect failed {error:?}");
-            Timer::after(pool_config::RECONNECT_DELAY).await;
-            continue;
-        }
-        info!("stratum-client: connected to {ipv4}:{port}");
-
-        let mut client = stratum_v1::StratumV1Client::new(sv1_config);
-        let mut state = stratum_client::StratumState::new();
-        if let Err(error) =
-            stratum_client::run_stratum_client(&mut client, &mut socket, &ASIC_SESSION, &mut state)
+    match &pool_config.protocol {
+        ProtocolConfig::Sv1 { password } => {
+            let sv1 = SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
+                user: pool_config.user.as_str(),
+                password: password.as_deref().unwrap_or(""),
+            });
+            loop {
+                let mut socket = match net::connect_stratum(
+                    stack,
+                    pool_config.host.as_str(),
+                    port,
+                    SOCKET_TIMEOUT,
+                    rx_buffer,
+                    tx_buffer,
+                )
                 .await
-        {
-            warn!("stratum-client: session error {error:?}");
+                {
+                    Ok(socket) => socket,
+                    Err(error) => {
+                        warn!("stratum-client: connect failed: {error:?}");
+                        Timer::after(pool_config::RECONNECT_DELAY).await;
+                        continue;
+                    }
+                };
+                let mut state = stratum_client::StratumState::new();
+                let mut client = stratum_v1::StratumV1Client::new(sv1);
+                if let Err(error) = stratum_client::run_stratum_client(
+                    &mut client,
+                    &mut socket,
+                    &ASIC_SESSION,
+                    &mut state,
+                )
+                .await
+                {
+                    warn!("stratum-client: session error {error:?}");
+                }
+                Timer::after(pool_config::RECONNECT_DELAY).await;
+            }
+        }
+        ProtocolConfig::Sv2 { pool_pubkey } => {
+            let sv2 = SV2_CONFIG_CELL.init(
+                stratum_v2::Sv2Config::new(pool_config.user.as_str(), *pool_pubkey)
+                    // `pool_config::parse` rejects POOL_USER longer than
+                    // `MAX_USER_LEN`, which equals `Sv2Config::MAX_USER_LEN`.
+                    .expect("BUG: POOL_USER exceeds Sv2Config::MAX_USER_LEN"),
+            );
+            let ctx = SECP_CTX.init(ii_sv2::security::CryptoCtx::new());
+            loop {
+                let mut socket = match net::connect_stratum(
+                    stack,
+                    pool_config.host.as_str(),
+                    port,
+                    SOCKET_TIMEOUT,
+                    rx_buffer,
+                    tx_buffer,
+                )
+                .await
+                {
+                    Ok(socket) => socket,
+                    Err(error) => {
+                        warn!("stratum-client: connect failed: {error:?}");
+                        Timer::after(pool_config::RECONNECT_DELAY).await;
+                        continue;
+                    }
+                };
+                let mut state = stratum_client::StratumState::new();
+                let mut client = stratum_v2::StratumV2Client::new(sv2, ctx, HostSv2Rng(OsRng));
+                if let Err(error) = stratum_client::run_stratum_client(
+                    &mut client,
+                    &mut socket,
+                    &ASIC_SESSION,
+                    &mut state,
+                )
+                .await
+                {
+                    warn!("stratum-client: session error {error:?}");
+                }
+                Timer::after(pool_config::RECONNECT_DELAY).await;
+            }
         }
         Timer::after(pool_config::RECONNECT_DELAY).await;
     }
 }
 
-/// Read the six `POOL_*` env vars at compile time (each falling
-/// through to the host's defaults) and produce a typed `PoolConfig`.
+/// Read the `POOL_*` env vars at compile time (each falling through
+/// to shared defaults in `pool_config`) and produce a typed
+/// `PoolConfig`. Identical to the firmware path so the workspace-wide
+/// `.cargo/config.toml` POOL_* defaults reach every binary the same
+/// way. When `POOL_SV2_PUBKEY` is unset, `DEFAULT_POOL_SV2_PUBKEY`
+/// is used so the binary always validates the Braiins prod key by
+/// default. Set `POOL_SV2_TRUST_ANY_KEY=1` to disable peer auth.
 fn pool_config_from_env() -> PoolConfig {
     pool_config::parse(
-        option_env!("POOL_HOST").unwrap_or(DEFAULT_POOL_HOST),
+        option_env!("POOL_HOST").unwrap_or(pool_config::DEFAULT_POOL_HOST),
         option_env!("POOL_PORT").unwrap_or(pool_config::DEFAULT_POOL_PORT_STR),
         option_env!("POOL_PROTOCOL").unwrap_or(pool_config::DEFAULT_POOL_PROTOCOL),
         option_env!("POOL_USER").unwrap_or(DEFAULT_POOL_USER),
         option_env!("POOL_SV1_PASS"),
-        option_env!("POOL_SV2_PUBKEY"),
+        option_env!("POOL_SV2_PUBKEY").unwrap_or(pool_config::DEFAULT_POOL_SV2_PUBKEY),
+        option_env!("POOL_SV2_TRUST_ANY_KEY"),
     )
-    // All inputs have validated defaults, so parse cannot fail.
+    // Defaults are validated, so the default build always parses.
+    // A malformed operator-supplied POOL_SV2_PUBKEY at build time
+    // still panics here. The host has no watchdog reboot loop, so a
+    // loud boot-time failure is preferred over the firmware's
+    // log-and-skip path.
     .expect("BUG: POOL_* env vars failed to parse")
 }
 
@@ -236,20 +317,6 @@ fn main() {
         pool_config.user.as_str(),
     );
 
-    let sv1_config = match &pool_config.protocol {
-        ProtocolConfig::Sv1 { password } => SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
-            user: pool_config.user.as_str(),
-            password: password.as_deref().unwrap_or(""),
-        }),
-        ProtocolConfig::Sv2 { .. } => {
-            error!(
-                "host-runner: POOL_PROTOCOL=sv2 is not yet supported on the host; \
-                 set POOL_PROTOCOL=sv1 or leave it unset"
-            );
-            std::process::exit(1);
-        }
-    };
-
     let (device, config) = hosted_network::open_host_device();
 
     // Seconds-since-epoch are enough entropy for TCP ISN randomness on a
@@ -268,7 +335,7 @@ fn main() {
         spawner.spawn(net_task(runner).expect("BUG: net_task token"));
         spawner.spawn(heartbeat_task(stack).expect("BUG: heartbeat_task token"));
         spawner.spawn(
-            stratum_client_task(stack, pool_config, sv1_config)
+            stratum_client_task(stack, pool_config)
                 .expect("BUG: stratum_client_task token"),
         );
         spawner.spawn(ntp_sync_task(stack).expect("BUG: ntp_sync_task token"));

@@ -493,7 +493,12 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p host-runner --target arm-unknown-linux-musleabi";
             cargoClippyExtraArgs = "-- -D warnings";
+            nativeBuildInputs = [ bmmCc ];
             CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
+            # SV2 pulls in `secp256k1-sys`, whose C build script defers to
+            # `cc-rs`. Point it at the same musleabi cross-gcc the linker
+            # uses so the C objects share the target ABI.
+            CC_arm_unknown_linux_musleabi = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
           };
 
           clippy-embassy-net-afpacket = craneLib.cargoClippy {
