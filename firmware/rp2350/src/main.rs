@@ -233,9 +233,13 @@ async fn asic_cpu_task() -> ! {
 /// Read the six `POOL_*` env vars at compile time (each falling
 /// through to its default if unset) and produce a typed
 /// `PoolConfig`. The result is stored in `POOL_CONFIG_CELL` and
-/// borrowed `'static` by the stratum task.
+/// borrowed `'static` by the stratum task. Returns the parse error
+/// instead of panicking so the boot path can log and skip the
+/// stratum task on a bad operator-supplied value (e.g. a
+/// malformed `POOL_SV2_PUBKEY`).
 #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
-fn pool_config_from_env() -> eth_examples::pool_config::PoolConfig {
+fn pool_config_from_env(
+) -> Result<eth_examples::pool_config::PoolConfig, eth_examples::pool_config::ConfigError> {
     use eth_examples::pool_config;
     pool_config::parse(
         option_env!("POOL_HOST").unwrap_or(pool_config::DEFAULT_POOL_HOST),
@@ -245,8 +249,6 @@ fn pool_config_from_env() -> eth_examples::pool_config::PoolConfig {
         option_env!("POOL_SV1_PASS"),
         option_env!("POOL_SV2_PUBKEY"),
     )
-    // All inputs have validated defaults, so parse cannot fail.
-    .expect("BUG: POOL_* env vars failed to parse")
 }
 
 #[embassy_executor::task]
@@ -475,18 +477,28 @@ async fn boot(spawner: Spawner) {
     {
         // Core 1 hosts asic_uart_task (backend-uart) or asic_cpu_task
         // (backend-cpu); see spawn_core1 above.
-        let pool_config = POOL_CONFIG_CELL.init(pool_config_from_env());
-        info!(
-            "stratum-client: POOL_HOST={=str} POOL_PORT={=u16} POOL_PROTOCOL={=str} POOL_USER={=str}",
-            pool_config.host.as_str(),
-            pool_config.port,
-            match &pool_config.protocol {
-                eth_examples::pool_config::ProtocolConfig::Sv1 { .. } => "sv1",
-                eth_examples::pool_config::ProtocolConfig::Sv2 { .. } => "sv2",
-            },
-            pool_config.user.as_str(),
-        );
-        spawner.spawn(unwrap!(stratum_client_task(stack, pool_config)));
+        match pool_config_from_env() {
+            Ok(config) => {
+                let pool_config = POOL_CONFIG_CELL.init(config);
+                info!(
+                    "stratum-client: POOL_HOST={=str} POOL_PORT={=u16} POOL_PROTOCOL={=str} POOL_USER={=str}",
+                    pool_config.host.as_str(),
+                    pool_config.port,
+                    match &pool_config.protocol {
+                        eth_examples::pool_config::ProtocolConfig::Sv1 { .. } => "sv1",
+                        eth_examples::pool_config::ProtocolConfig::Sv2 { .. } => "sv2",
+                    },
+                    pool_config.user.as_str(),
+                );
+                spawner.spawn(unwrap!(stratum_client_task(stack, pool_config)));
+            }
+            Err(error) => {
+                defmt::error!(
+                    "stratum-client: POOL_* env vars invalid: {}; not starting stratum task",
+                    defmt::Debug2Format(&error),
+                );
+            }
+        }
     }
 
     net::run_http_server(stack, config::Board::NAME).await;

@@ -84,9 +84,10 @@ pub enum ProtocolConfig {
 }
 
 /// Failure modes for [`parse`]. Each is a string-shape problem
-/// caught at boot; the firmware should `expect` the result so a
-/// misconfigured env shows up as a clear panic rather than a
-/// hanging session.
+/// caught at boot; the firmware logs the variant and skips
+/// spawning the stratum task so the rest of the board boots
+/// normally and the operator can read the error from the defmt
+/// stream rather than chasing a reset loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigError {
     HostTooLong,
@@ -109,11 +110,11 @@ pub enum ConfigError {
 ///
 /// # Errors
 ///
-/// See [`ConfigError`] for the exhaustive list. All variants are
-/// recoverable in principle (the caller could substitute a default
-/// and retry), but the firmware boot path treats any error as
-/// fatal — a typo in `POOL_PUBKEY` is more useful as an immediate
-/// panic than as a silent `ValidateNothing` fallback.
+/// See [`ConfigError`] for the exhaustive list. The firmware boot
+/// path matches on the result: on `Err` it logs the variant via
+/// defmt and skips spawning the stratum task, so a typo in
+/// `POOL_SV2_PUBKEY` surfaces as a single error line rather than
+/// a watchdog-driven reset loop.
 pub fn parse(
     host: &str,
     port_str: &str,
