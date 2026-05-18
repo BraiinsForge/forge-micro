@@ -7,7 +7,7 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = []
+default = ["display", "backend-uart"]
 display = []
 # UART peer backend: drives an external dummy-asic board over UART.
 # Mutually exclusive with `backend-cpu`.
@@ -29,21 +29,6 @@ backend-cpu = [
     "asic-cpu-mock/defmt",
     "stratum-client/defmt",
     "stratum-v1/defmt",
-]
-# Adds the StratumV2 adapter to the build. Only meaningful with a
-# backend selected; pulls in `secp256k1/lowmemory` via the ii-sv2
-# chain. `rand_chacha` provides a ChaCha20 PRNG seeded once at boot
-# from the hardware RNG, since the stm32 RNG peripheral has a
-# single owner and the bitcoin-price task already claims it. Not
-# in default features: stm32f439 ships backend-less so the
-# dummy-asic peer can attach separately; an explicit
-# `--features "backend-<uart|cpu>,stratum2"` enables both halves.
-stratum2 = [
-    "dep:stratum-v2",
-    "dep:ii-sv2",
-    "dep:rand_chacha",
-    "ii-sv2/lowmemory",
-    "stratum-v2/defmt",
 ]
 
 [dependencies]

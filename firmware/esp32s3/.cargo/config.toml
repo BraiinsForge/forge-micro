@@ -7,6 +7,10 @@ runner = [
 ]
 
 [env]
+# DEFMT_LOG stays per-firmware (see workspace .cargo/config.toml for
+# why). This board's filter silences esp-hal/esp-rtos debug noise on
+# top of the common embassy_net filter. POOL_* defaults inherit from
+# the workspace config.
 DEFMT_LOG = "debug,esp_hal=info,esp_rtos=info,embassy_net=info"
 
 [build]

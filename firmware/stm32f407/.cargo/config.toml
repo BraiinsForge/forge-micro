@@ -6,6 +6,7 @@ runner = [
   "--log-format", "{t:>10} {f:<14} [{L}] {s}",
 ]
 
+# POOL_* defaults live in the workspace .cargo/config.toml.
 [env]
 DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
 

@@ -1,6 +1,7 @@
 [target.thumbv8m.main-none-eabihf]
 runner = "./scripts/run.sh"
 
+# POOL_* defaults live in the workspace .cargo/config.toml.
 [env]
 DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
 

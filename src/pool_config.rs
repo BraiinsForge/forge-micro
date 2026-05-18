@@ -31,6 +31,11 @@ pub const DEFAULT_POOL_HOST: &str = "stratum.braiins.com";
 /// uniform; [`parse`] runs `u16::from_str` once at boot.
 pub const DEFAULT_POOL_PORT_STR: &str = "3333";
 
+/// Compile-time fallback when `POOL_PROTOCOL` is unset in the
+/// environment. The workspace `.cargo/config.toml` sets it to
+/// `"sv2"`, which overrides this constant for every normal
+/// firmware and host build; this `"sv1"` only takes effect when a
+/// crate is built without the workspace config in scope.
 pub const DEFAULT_POOL_PROTOCOL: &str = "sv1";
 
 /// Delay between reconnect attempts when the TCP session drops or

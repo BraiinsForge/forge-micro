@@ -1,0 +1,24 @@
+# Workspace-wide env vars for all firmware crates. Cargo walks
+# upward from each crate's directory and merges [env] tables, with
+# per-board values overriding what's here.
+#
+# POOL_* defaults the firmware at the Braiins Pool V2 endpoint;
+# Braiins multiplexes SV1 and SV2 on the same host:port and the
+# noise handshake selects V2. The pubkey is the `[1, 0]`-prefixed
+# base58check form that `ii_sv2::security::PublicKey::from_str`
+# parses. Override per build with explicit `POOL_*` on the cargo
+# command line.
+#
+# DEFMT_LOG stays per-firmware on purpose: `defmt-macros` reads it
+# at proc-macro expansion and, when set, emits `defmt::export::...`
+# tokens. Crates that consume `ubos_logging` macros transitively
+# without `defmt` as a direct dep (mmm, ubos-monitor build paths
+# that pull eth-examples with `default-features = false`) then
+# fail with `E0433: unresolved module defmt`. A workspace-level
+# `DEFMT_LOG` would apply to those non-firmware builds too.
+
+[env]
+POOL_PROTOCOL = "sv2"
+POOL_HOST = "stratum.braiins.com"
+POOL_PORT = "3333"
+POOL_SV2_PUBKEY = "9awtMD5KQgvRUh2yFbjVeT7b6hjipWcAsQHd6wEhgtDT9soosna"
