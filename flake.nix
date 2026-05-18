@@ -449,6 +449,22 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          # stm32f439's default features are empty so the dummy-asic
+          # peer can attach against a bare board. Add an explicit
+          # check that exercises the SV2 build path (backend-uart +
+          # stratum2), since the default check would not pull
+          # secp256k1-sys or the noise stack.
+          clippy-stm32f439-stratum2 = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs =
+              "-p stm32f439 --target thumbv7em-none-eabihf"
+              + " --no-default-features --features \"backend-uart,stratum2\"";
+            cargoClippyExtraArgs = "-- -D warnings";
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
           clippy-eth-examples = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;

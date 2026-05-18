@@ -3862,11 +3862,14 @@ dependencies = [
  "embassy-time",
  "embedded-hal-bus",
  "eth-examples",
+ "ii-sv2",
  "panic-probe",
  "portable-atomic",
+ "rand_chacha",
  "static_cell",
  "stratum-client",
  "stratum-v1",
+ "stratum-v2",
  "ubos-temperature",
 ]
 
