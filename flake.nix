@@ -413,6 +413,12 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p rp2040 --target thumbv6m-none-eabi";
             cargoClippyExtraArgs = "-- -D warnings";
+            # `secp256k1-sys` is an unconditional dep via `ii-sv2` and
+            # its C build script requires a cross compiler. Point `cc-rs`
+            # at the arm-none-eabi cross-gcc so the C code is built
+            # against the M0+ ABI.
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
           clippy-rp2350 = craneLib.cargoClippy {

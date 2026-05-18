@@ -3389,11 +3389,13 @@ dependencies = [
  "embedded-hal-bus",
  "embedded-io-async 0.7.0",
  "eth-examples",
+ "ii-sv2",
  "panic-probe",
  "portable-atomic",
  "static_cell",
  "stratum-client",
  "stratum-v1",
+ "stratum-v2",
  "ubos-temperature",
 ]
 

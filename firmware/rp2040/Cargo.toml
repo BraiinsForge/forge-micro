@@ -47,6 +47,10 @@ asic-cpu-mock       = { workspace = true, optional = true }
 asic-uart-peer      = { workspace = true, optional = true }
 stratum-client      = { workspace = true, optional = true }
 stratum-v1          = { workspace = true, optional = true }
+stratum-v2          = { workspace = true, features = ["defmt"] }
+# Workspace dep is declared with default-features = false so the
+# firmware does not pull `alloc` via secp256k1's alloc feature.
+ii-sv2              = { workspace = true, features = ["lowmemory"] }
 ubos-temperature    = { workspace = true, features = ["defmt"] }
 embedded-hal-bus    = { workspace = true, features = ["async"] }
 embedded-io-async   = { workspace = true }
