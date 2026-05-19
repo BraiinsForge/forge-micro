@@ -1,4 +1,11 @@
-//! Firmware entry point for the W6100-EVB-Pico-2 (RP2350 + W6100).
+//! Firmware entry point for the W6100-EVB-Pico-2 (RP2350 + W6100) with the
+//! MMM backend.
+//!
+//! Initialises SPI at 33 MHz, brings the W6100 up via `embassy-net-wiznet`,
+//! starts the embassy-net stack with DHCP, and spawns the watchdog, LED
+//! blink, ethernet runner, NTP sync, BTC price, and MMM mining tasks
+//! before entering the HTTP server loop. Built with `cargo build` from
+//! this crate inside `nix develop .#arm`.
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
 //! Wiring/build: `../../../docs/SETUP.md`
@@ -7,33 +14,21 @@
 #![no_std]
 #![no_main]
 
-#[cfg(not(any(feature = "backend-uart", feature = "backend-cpu")))]
-compile_error!("a backend feature must be selected: `backend-uart` or `backend-cpu`");
-
-#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
-compile_error!(
-    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
-     pick exactly one with --no-default-features --features \"display,<backend>\""
-);
-
 use defmt::{info, unwrap};
+use embassy_executor::Executor;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W6100;
 use embassy_net_wiznet::{Device, Runner, State};
-use embassy_rp::adc::{Adc, Async as AdcAsync, Channel as AdcChannel, Config as AdcConfig};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-#[cfg(feature = "backend-uart")]
-use embassy_rp::peripherals::UART1;
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, SPI0};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
-#[cfg(feature = "backend-uart")]
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
-use embassy_rp::{adc, bind_interrupts, dma};
+use embassy_rp::{bind_interrupts, dma, i2c};
 use embassy_time::Delay;
 #[cfg(feature = "display")]
 use embassy_time::{Duration, Timer};
@@ -41,11 +36,27 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::{ConstStaticCell, StaticCell};
 #[cfg(feature = "display")]
 use ubos_main::sh1106::{Rotation, Sh1106};
+use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
 use {defmt_rtt as _, panic_probe as _};
 
 use ubos_main::net;
 
 mod config;
+mod fan;
+mod mining;
+mod psu;
+mod temperature;
+mod uart_baudrate;
+
+static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
+    ConstStaticCell::new(embassy_rp::multicore::Stack::new());
+
+static CORE1_EXECUTOR: StaticCell<Executor> = StaticCell::new();
+
+/// Software ring buffer size per direction for the core-1 `BufferedUart`.
+/// The RP2350 HW FIFO is 32 bytes; 1 KiB gives slack for ETH-ISR jitter
+/// at 3 Mbaud (backend-mmm).
+const UART_RING_BUFFER_SIZE: usize = 1024;
 
 // `ubos_main::pool_config::parse` runs at boot to copy seven
 // compile-time env-var strings into typed fields. The result lives
@@ -62,8 +73,7 @@ static SV1_CONFIG_CELL: StaticCell<stratum_v1::Sv1Config> = StaticCell::new();
 // `heapless::String<128>`. Held in a `StaticCell` to give
 // `StratumV2Client::new` a `&'static Sv2Config`. Only populated
 // when the parsed protocol is `Sv2`.
-static SV2_CONFIG_CELL: static_cell::StaticCell<stratum_v2::Sv2Config> =
-    static_cell::StaticCell::new();
+static SV2_CONFIG_CELL: StaticCell<stratum_v2::Sv2Config> = StaticCell::new();
 
 // `secp256k1::AllPreallocated<'static>` precomputation buffer.
 // `lowmemory` brings the verify table down to ~16 KB; the slot
@@ -73,12 +83,12 @@ static SV2_CONFIG_CELL: static_cell::StaticCell<stratum_v2::Sv2Config> =
 // `Error::NotEnoughMemory` at runtime if undersized.
 const SECP_CTX_SLOTS: usize = 4096;
 
-static SECP_CTX_BUF: static_cell::ConstStaticCell<[ii_sv2::security::AlignedType; SECP_CTX_SLOTS]> =
-    static_cell::ConstStaticCell::new([ii_sv2::security::AlignedType::ZERO; SECP_CTX_SLOTS]);
+static SECP_CTX_BUF: ConstStaticCell<[ii_sv2::security::AlignedType; SECP_CTX_SLOTS]> =
+    ConstStaticCell::new([ii_sv2::security::AlignedType::ZERO; SECP_CTX_SLOTS]);
 
-static SECP_CTX: static_cell::StaticCell<
+static SECP_CTX: StaticCell<
     ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
-> = static_cell::StaticCell::new();
+> = StaticCell::new();
 
 struct Sv2BoardRng(embassy_rp::clocks::RoscRng);
 
@@ -91,13 +101,9 @@ impl ii_sv2::security::Rng for Sv2BoardRng {
     }
 }
 
-static TCP_RX: ConstStaticCell<[u8; ubos_main::pool_config::STRATUM_TCP_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; ubos_main::pool_config::STRATUM_TCP_BUFFER_SIZE]);
-
-static TCP_TX: ConstStaticCell<[u8; ubos_main::pool_config::STRATUM_TCP_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; ubos_main::pool_config::STRATUM_TCP_BUFFER_SIZE]);
-
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
+
+static MONITOR_CONFIG: MonitorConfig = BMM101_DEFAULT;
 
 defmt::timestamp!("{=u64:iso8601s}", ubos_main::wall_clock_secs());
 
@@ -107,8 +113,7 @@ bind_interrupts!(struct Irqs {
         dma::InterruptHandler<DMA_CH1>,
         #[cfg(feature = "display")]
         dma::InterruptHandler<DMA_CH2>;
-    ADC_IRQ_FIFO => adc::InterruptHandler;
-    #[cfg(feature = "backend-uart")]
+    I2C1_IRQ => i2c::InterruptHandler<I2C1>;
     UART1_IRQ => BufferedInterruptHandler<UART1>;
 });
 
@@ -129,29 +134,6 @@ impl ubos_main::watchdog::Watchdog for BoardWatchdog {
 
     fn feed(&mut self) {
         self.0.feed(config::Watchdog::TIMEOUT);
-    }
-}
-
-struct BoardTempSensor {
-    adc: Adc<'static, AdcAsync>,
-    channel: AdcChannel<'static>,
-}
-
-impl ubos_temperature::TemperatureSensor for BoardTempSensor {
-    async fn read_millicelsius(&mut self) -> Option<i32> {
-        // RP2350 datasheet 12.4.6: same bipolar-diode sensor as RP2040 with
-        // the same documented 0.706 V / 1.721 mV per °C calibration, so the
-        // conversion math is identical.
-        const VREF_UV: i64 = 3_300_000;
-        const ADC_FULL_SCALE: i64 = 4095;
-        const VSENSE_AT_27C_UV: i64 = 706_000;
-        const UV_PER_C: i64 = 1_721;
-        const CALIBRATION_MC: i64 = 27_000;
-
-        let raw = self.adc.read(&mut self.channel).await.ok()?;
-        let vsense_uv = i64::from(raw) * VREF_UV / ADC_FULL_SCALE;
-        let millicelsius = CALIBRATION_MC - (vsense_uv - VSENSE_AT_27C_UV) * 1000 / UV_PER_C;
-        i32::try_from(millicelsius).ok()
     }
 }
 
@@ -196,8 +178,13 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 }
 
 #[embassy_executor::task]
-async fn temperature_task(sensor: BoardTempSensor) -> ! {
-    ubos_temperature::run_temperature(sensor).await
+async fn monitor_task(sensor: temperature::HashboardTemperature, fan: fan::BoardFan) -> ! {
+    ubos_monitor::run_monitor(sensor, fan, &MONITOR_CONFIG).await
+}
+
+#[embassy_executor::task]
+async fn tach_task(hardware: fan::TachHardware) -> ! {
+    fan::run_tach(hardware).await
 }
 
 #[embassy_executor::task]
@@ -215,18 +202,6 @@ type OledDisplay = Sh1106<
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay) -> ! {
     ubos_main::display::run(&mut display).await
-}
-
-#[cfg(feature = "backend-uart")]
-#[embassy_executor::task]
-async fn asic_uart_task(uart: BufferedUart) -> ! {
-    asic_uart_peer::run_asic_uart(&ASIC_SESSION, uart).await
-}
-
-#[cfg(feature = "backend-cpu")]
-#[embassy_executor::task]
-async fn asic_cpu_task() -> ! {
-    asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
 }
 
 /// Read the `POOL_*` env vars at compile time (each falling through
@@ -260,8 +235,13 @@ async fn stratum_client_task(
 ) -> ! {
     use defmt::warn;
     use embassy_time::Timer;
-    use ubos_main::pool_config::{ProtocolConfig, RECONNECT_DELAY, SOCKET_TIMEOUT};
-
+    use ubos_main::pool_config::{
+        ProtocolConfig, RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
+    };
+    static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
+        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
+    static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
+        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
     let rx_buffer = TCP_RX.take();
     let tx_buffer = TCP_TX.take();
 
@@ -382,49 +362,37 @@ async fn boot(spawner: Spawner) {
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
 
-    // Pin the worker to core 1 so embassy-net on core 0 stays
-    // responsive (cpu_miner hashes; uart_worker blocks on recv_share).
-    // Core 1 runs the same wfe-bracketed executor as core 0 so its idle
-    // ticks land in `IDLE_TICKS[1]`.
-    static CORE1_STACK: ConstStaticCell<
-        embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>,
-    > = ConstStaticCell::new(embassy_rp::multicore::Stack::new());
-    #[cfg(feature = "backend-uart")]
+    // Pin the MMM serial worker to core 1 so embassy-net on core 0 stays
+    // responsive. BufferedUart must be constructed on the core that polls
+    // it — `init_buffers` unmasks the UART IRQ on the calling core's NVIC,
+    // and the async write path pends the same IRQ to drain the SW TX ring
+    // buffer into the HW FIFO. RP2350's Cortex-M33 has per-core NVICs, so
+    // an unmask on one core and a pend on the other land on different
+    // controllers and the FIFO is never written.
     let uart_parts = (hw.uart, hw.uart_tx, hw.uart_rx);
     embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
-        // BufferedUart must be constructed on the core that polls it.
-        // `init_buffers` unmasks the UART IRQ on the calling core's NVIC,
-        // and the async write path manually pends the same IRQ to shovel
-        // the SW TX ringbuffer into the HW FIFO. RP2350's Cortex-M33 has
-        // a per-core NVIC, so an unmask on one core and a pend on the
-        // other land on different controllers and the FIFO is never
-        // written.
-        #[cfg(feature = "backend-uart")]
-        let uart = {
-            static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
-            static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+        let (mmm_tx, mmm_rx) = {
+            static TX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
+            static RX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
             let (peripheral, tx_pin, rx_pin) = uart_parts;
-            BufferedUart::new(
+            let uart = BufferedUart::new(
                 peripheral,
                 tx_pin,
                 rx_pin,
                 Irqs,
-                TX_BUF.init([0; 1024]),
-                RX_BUF.init([0; 1024]),
+                TX_BUF.init([0; UART_RING_BUFFER_SIZE]),
+                RX_BUF.init([0; UART_RING_BUFFER_SIZE]),
                 {
                     let mut config = UartConfig::default();
-                    config.baudrate = asic_uart_peer::BAUD_RATE;
+                    config.baudrate = mmm::consts::INITIAL_BAUDRATE;
                     config
                 },
-            )
+            );
+            uart_baudrate::split_uart1(uart)
         };
-        ubos_main::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner| {
-            #[cfg(feature = "backend-cpu")]
-            core1_spawner.spawn(unwrap!(asic_cpu_task()));
-            #[cfg(feature = "backend-uart")]
-            core1_spawner.spawn(unwrap!(asic_uart_task(uart)));
-            #[cfg(not(any(feature = "backend-cpu", feature = "backend-uart")))]
-            let _ = core1_spawner;
+        let executor = CORE1_EXECUTOR.init(Executor::new());
+        executor.run(|core1_spawner: Spawner| {
+            core1_spawner.spawn(unwrap!(mining::serial_task(mmm_rx, mmm_tx)));
         });
     });
 
@@ -434,6 +402,29 @@ async fn boot(spawner: Spawner) {
 
     let led = Output::new(hw.led, Level::Low);
     spawner.spawn(unwrap!(led_blink_task(led)));
+
+    // BMM100 hashboard PSU on I2C1: shared bus, PSU watchdog, power
+    // stats, and the miner bring-up task all run on core 0 so the I2C
+    // bus mutex can stay NoopRawMutex.
+    {
+        use embassy_rp::i2c::{Config as I2cConfig, I2c};
+        use embassy_sync::mutex::Mutex;
+
+        static I2C1_BUS: StaticCell<psu::Bus> = StaticCell::new();
+        let i2c = I2c::new_async(hw.i2c1, hw.scl, hw.sda, Irqs, I2cConfig::default());
+        let bus: &'static psu::Bus = I2C1_BUS.init(Mutex::new(i2c));
+        let (board_psu, psu_state, terminated) = psu::init(bus);
+        spawner.spawn(unwrap!(psu::watchdog_task(psu_state, terminated)));
+        spawner.spawn(unwrap!(psu::power_stats_task(board_psu)));
+        let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));
+        spawner.spawn(unwrap!(mining::miner_task(board_psu, reset)));
+
+        // Temperature and fan monitor via shared I2C bus.
+        let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
+        let hashboard_temp = temperature::HashboardTemperature::new(temp_device);
+        let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin);
+        spawner.spawn(unwrap!(monitor_task(hashboard_temp, board_fan)));
+    }
 
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = config::Spi::FREQUENCY;
@@ -483,14 +474,12 @@ async fn boot(spawner: Spawner) {
         );
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
-    spawner.spawn(unwrap!(cpu_load_task()));
-
-    let adc = Adc::new(hw.adc, Irqs, AdcConfig::default());
-    let temp_channel = AdcChannel::new_temp_sensor(hw.adc_temp_sensor);
-    spawner.spawn(unwrap!(temperature_task(BoardTempSensor {
-        adc,
-        channel: temp_channel,
+    spawner.spawn(unwrap!(tach_task(fan::TachHardware {
+        slice: hw.fan_tach_slice,
+        pin: hw.fan_tach_pin,
     })));
+
+    spawner.spawn(unwrap!(cpu_load_task()));
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
     // Binding must stay alive so the reset pin remains driven high.
@@ -530,8 +519,7 @@ async fn boot(spawner: Spawner) {
     info!("ip address: {:?}", config.address.address());
 
     {
-        // Core 1 hosts asic_uart_task (backend-uart) or asic_cpu_task
-        // (backend-cpu); see spawn_core1 above.
+        // Core 1 hosts serial_task (mmm backend); see spawn_core1 above.
         match pool_config_from_env() {
             Ok(config) => {
                 let pool_config = POOL_CONFIG_CELL.init(config);
