@@ -16,11 +16,12 @@ impl Http {
     pub const TX_BUFFER_SIZE: usize = 4096;
     /// HTTP response assembly buffer, separate from the TCP socket buffers.
     /// Sized to hold the inlined dashboard HTML plus headers in a single
-    /// response, comfortably under the TCP initial congestion window.
-    pub const RESPONSE_BUFFER_SIZE: usize = 6144;
-    /// Buffer for reading incoming HTTP requests, discarded after the
-    /// request line is parsed for routing.
-    pub const REQUEST_BUFFER_SIZE: usize = 1024;
+    /// response, kept under the TCP initial congestion window.
+    pub const RESPONSE_BUFFER_SIZE: usize = 10240;
+    /// Buffer for reading incoming HTTP requests. Sized to hold a small
+    /// POST body alongside headers so the config form fits in a single
+    /// read; the route line is parsed from the start of the same buffer.
+    pub const REQUEST_BUFFER_SIZE: usize = 2048;
 }
 
 /// TLS connection buffer sizes for the BTC price fetch.
