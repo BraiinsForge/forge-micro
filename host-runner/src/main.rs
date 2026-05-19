@@ -48,7 +48,7 @@ mod temperature;
 
 use hosted_network::HostDevice;
 
-const SOCKET_COUNT: usize = 8;
+const SOCKET_COUNT: usize = 9;
 const BOARD_NAME: &str = "host-runner";
 
 /// Per-board fall-through for the worker identity. Used when
@@ -127,6 +127,13 @@ async fn bitcoin_price_task(stack: Stack<'static>) -> ! {
 #[embassy_executor::task]
 async fn metrics_task(stack: Stack<'static>) -> ! {
     eth_examples::metrics::run(stack).await
+}
+
+#[embassy_executor::task]
+async fn mdns_task(stack: Stack<'static>) -> ! {
+    // hostname and board_name share BOARD_NAME: host-runner has no per-unit
+    // MAC suffix to compose a separate DNS label from.
+    eth_examples::mdns::run_mdns(stack, BOARD_NAME, BOARD_NAME, "host").await
 }
 
 #[embassy_executor::task]
@@ -340,6 +347,7 @@ fn main() {
         spawner.spawn(ntp_sync_task(stack).expect("BUG: ntp_sync_task token"));
         spawner.spawn(bitcoin_price_task(stack).expect("BUG: bitcoin_price_task token"));
         spawner.spawn(metrics_task(stack).expect("BUG: metrics_task token"));
+        spawner.spawn(mdns_task(stack).expect("BUG: mdns_task token"));
         spawner.spawn(hashrate_metrics_task().expect("BUG: hashrate_metrics_task token"));
         spawner.spawn(http_server_task(stack).expect("BUG: http_server_task token"));
         match fan::FanHwmonController::open() {
