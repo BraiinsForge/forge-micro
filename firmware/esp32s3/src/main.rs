@@ -1,4 +1,18 @@
-//! Firmware entry point for the ESP32-S3 `DevKit` + external W5100S (SPI).
+//! Firmware entry point for the ESP32-S3 `DevKit` + external W5100S (SPI)
+//! with the BMM100/BM1362 MMM backend.
+//!
+//! Configures SPI with DMA, brings up the W5100S via `embassy-net-wiznet`,
+//! starts the embassy-net stack with DHCP, and spawns the watchdog,
+//! ethernet runner, NTP, BTC, MMM mining, and HTTP tasks.
+//! Built with `cargo build` from this crate inside `nix develop .#esp`.
+//!
+//! The ESP32-S3 has two cores (`PRO_CPU` + `APP_CPU`). All tasks including the
+//! MMM serial task run on Core 0 (`PRO_CPU`) alongside embassy-net, mirroring
+//! the stm32f407 single-core approach. The S3's 128-byte hardware FIFO
+//! absorbs ETH-ISR jitter for the interrupt+FIFO UART path. Core 1 runs an
+//! idle executor so `IDLE_TICKS[1]` is populated for cpu-load metrics. If
+//! FIFO overruns are observed in practice, move `serial_task` to Core 1
+//! and add a cross-core channel for the `AsicSession`.
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
 //! Wiring/build: `../../../docs/SETUP.md`
@@ -6,20 +20,12 @@
 #![no_std]
 #![no_main]
 
-#[cfg(not(any(feature = "backend-uart", feature = "backend-cpu")))]
-compile_error!("a backend feature must be selected: `backend-uart` or `backend-cpu`");
-
-#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
-compile_error!(
-    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
-     pick exactly one with --no-default-features --features \"display,<backend>\""
-);
-
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5100S;
 use embassy_net_wiznet::{Device, Runner, State};
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Delay, Instant};
 #[cfg(feature = "display")]
 use embassy_time::{Duration, Timer};
@@ -27,6 +33,7 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_hal::dma::{DmaRxBuf, DmaTxBuf};
 use esp_hal::dma_buffers;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
+use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::peripherals::TIMG1;
 use esp_hal::rng::Rng;
@@ -34,12 +41,12 @@ use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::spi::Mode;
 use esp_hal::system::Stack;
 use esp_hal::timer::timg::{MwdtStage, TimerGroup, Wdt};
-#[cfg(feature = "backend-uart")]
 use esp_hal::uart::{Config as UartConfig, Uart};
 use esp_rtos::embassy::Callbacks;
 use ubos_main::net;
 #[cfg(feature = "display")]
 use ubos_main::sh1106::{Rotation, Sh1106};
+use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
 use portable_atomic::Ordering;
 use rand_core::{CryptoRng, RngCore};
 use static_cell::StaticCell;
@@ -96,7 +103,14 @@ impl ii_sv2::security::Rng for Sv2BoardRng {
 
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
+static MONITOR_CONFIG: MonitorConfig = BMM101_DEFAULT;
+
 mod config;
+mod fan;
+mod mining;
+mod psu;
+mod temperature;
+mod uart_baudrate;
 
 defmt::timestamp!("{=u64:iso8601s}", ubos_main::wall_clock_secs());
 
@@ -213,6 +227,16 @@ async fn temperature_task(sensor: BoardTempSensor) -> ! {
     ubos_temperature::run_temperature(sensor).await
 }
 
+#[embassy_executor::task]
+async fn monitor_task(sensor: temperature::HashboardTemperature, board_fan: fan::BoardFan) -> ! {
+    ubos_monitor::run_monitor(sensor, board_fan, &MONITOR_CONFIG).await
+}
+
+#[embassy_executor::task]
+async fn tach_task(hardware: fan::TachHardware) -> ! {
+    fan::run_tach(hardware).await
+}
+
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
     ExclusiveDevice<
@@ -227,12 +251,6 @@ type OledDisplay = Sh1106<
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay) -> ! {
     ubos_main::display::run(&mut display).await
-}
-
-#[cfg(feature = "backend-uart")]
-#[embassy_executor::task]
-async fn asic_uart_task(uart: Uart<'static, esp_hal::Async>) -> ! {
-    asic_uart_peer::run_asic_uart(&ASIC_SESSION, uart).await
 }
 
 /// Read the `POOL_*` env vars at compile time (each falling through
@@ -384,12 +402,6 @@ async fn stratum_client_task(
     }
 }
 
-#[cfg(feature = "backend-cpu")]
-#[embassy_executor::task]
-async fn asic_cpu_task() -> ! {
-    asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
-}
-
 /// Brackets `flags.wait()` inside `esp_rtos::embassy::Executor::run_with_callbacks`.
 /// `on_idle` records the entry instant; `before_poll` accumulates the
 /// elapsed ticks on the next iteration into `IDLE_TICKS[CPU_INDEX]`.
@@ -450,15 +462,14 @@ async fn boot(spawner: Spawner) {
     let timg0 = TimerGroup::new(hw.timg0);
     esp_rtos::start(timg0.timer0);
 
-    // Bring up APP_CPU with its own embassy executor. Mining workers run
-    // here so a busy hash loop on core 1 cannot starve embassy-net on
-    // core 0. With no backend feature the executor still runs so its
-    // idle wait populates `IDLE_TICKS[1]` and the second core's busy
-    // ratio is observable in `board_cpu_busy_ratio{cpu="1"}`.
+    // Pin the ubos-miner serial worker to Core 1 so embassy-net on Core 0
+    // stays responsive. Mirrors the rp2350/bmm-pico dual-core split.
+    // `ASIC_SESSION` uses `CriticalSectionRawMutex`, so the cross-core
+    // share is safe without an additional pipe. Core 1's executor uses
+    // `IdleAccounting::<1>` to populate `IDLE_TICKS[1]` for cpu-load metrics.
     static APP_EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
     static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
     let software_interrupts = SoftwareInterruptControl::new(hw.sw_interrupt);
-    #[cfg(feature = "backend-uart")]
     let uart_parts = (hw.uart0, hw.uart_tx, hw.uart_rx);
     esp_rtos::start_second_core(
         hw.cpu_ctrl,
@@ -466,37 +477,24 @@ async fn boot(spawner: Spawner) {
         software_interrupts.software_interrupt1,
         APP_CORE_STACK.init(Stack::new()),
         move || {
+            let (miner_rx, miner_tx) = {
+                let (peripheral, tx_pin, rx_pin) = uart_parts;
+                let uart_config = UartConfig::default()
+                    // Valid baud rate for UART0; cannot fail.
+                    .with_baudrate(ubos_miner::consts::INITIAL_BAUDRATE);
+                // Valid UART0 peripheral with default-compatible baud rate; cannot fail.
+                let uart = Uart::new(peripheral, uart_config)
+                    .expect("BUG: UART0 configuration failed")
+                    .with_tx(tx_pin)
+                    .with_rx(rx_pin)
+                    .into_async();
+                let (uart_rx, uart_tx) = uart.split();
+                uart_baudrate::split_uart0(uart_rx, uart_tx)
+            };
             let executor = APP_EXECUTOR.init(esp_rtos::embassy::Executor::new());
             executor.run_with_callbacks(
                 |app_spawner| {
-                    #[cfg(feature = "backend-cpu")]
-                    app_spawner.must_spawn(asic_cpu_task());
-                    #[cfg(feature = "backend-uart")]
-                    {
-                        let (uart0, uart_tx, uart_rx) = uart_parts;
-                        let uart_config =
-                            UartConfig::default().with_baudrate(asic_uart_peer::BAUD_RATE);
-                        // esp-hal 1.0.0 ships no UART DMA driver; the
-                        // interrupt+FIFO `into_async()` path here is the
-                        // full async story in this release. Issues
-                        // esp-rs/esp-hal#2642 (UART DMA) and #4720
-                        // (circular UHCI RX) closed after 1.0.0 and would
-                        // unlock a streaming-DMA backend; revisit when
-                        // the next esp-hal release reaches this workspace.
-                        // The S3's 128-byte hardware FIFO plus running the
-                        // worker on a separate core absorbs ETH-ISR-class
-                        // jitter without the per-byte deadline that
-                        // overruns the stm32f407 USART.
-                        // Valid peripheral and default-compatible baud rate; cannot fail.
-                        let uart = Uart::new(uart0, uart_config)
-                            .expect("BUG: UART0 configuration failed")
-                            .with_tx(uart_tx)
-                            .with_rx(uart_rx)
-                            .into_async();
-                        app_spawner.must_spawn(asic_uart_task(uart));
-                    }
-                    #[cfg(not(any(feature = "backend-cpu", feature = "backend-uart")))]
-                    let _ = app_spawner;
+                    app_spawner.must_spawn(mining::serial_task(miner_rx, miner_tx));
                 },
                 IdleAccounting::<1>::new(),
             );
@@ -622,34 +620,82 @@ async fn boot(spawner: Spawner) {
     #[cfg(feature = "display")]
     spawner.must_spawn(display_task(display));
 
+    // BMM100 hashboard PSU on I2C0 (GPIO8 SDA, GPIO9 SCL).
+    // All mining tasks run on Core 0 so the I2C bus mutex can stay
+    // `NoopRawMutex`: every consumer is on the same executor.
+    {
+        static I2C0_BUS: StaticCell<psu::Bus> = StaticCell::new();
+        // Valid I2C0 peripheral with conventional GPIO8/9 pins; cannot fail.
+        let i2c = I2c::new(hw.i2c0, I2cConfig::default())
+            .expect("BUG: I2C0 configuration failed")
+            .with_sda(hw.i2c_sda)
+            .with_scl(hw.i2c_scl)
+            .into_async();
+        let bus: &'static psu::Bus = I2C0_BUS.init(Mutex::new(i2c));
+        let (board_psu, psu_state, terminated) = psu::init(bus);
+        spawner.must_spawn(psu::watchdog_task(psu_state, terminated));
+        spawner.must_spawn(psu::power_stats_task(board_psu));
+
+        // Hashboard reset line (GPIO4, active-low).
+        let reset = mining::make_reset_pin(hw.hb_rst);
+        spawner.must_spawn(mining::miner_task(board_psu, reset));
+
+        // Temperature and fan monitor via shared I2C0 bus.
+        let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
+        let hashboard_temp = temperature::HashboardTemperature::new(temp_device);
+        let board_fan = fan::BoardFan::new(hw.ledc, hw.fan_pwm_pin);
+        let tach_hardware = fan::TachHardware::new(hw.pcnt, hw.fan_tach_pin);
+        spawner.must_spawn(monitor_task(hashboard_temp, board_fan));
+        spawner.must_spawn(tach_task(tach_hardware));
+    }
+
+    // BM1362 UART on UART0 (GPIO43 TX, GPIO44 RX).
+    // esp-hal 1.0.0 ships no UART DMA driver; the interrupt+FIFO
+    // `into_async()` path is used here. The S3's 128-byte hardware FIFO
+    // plus the 80 MHz APB clock absorbs ETH-ISR-class jitter without the
+    // per-byte deadline that overruns the STM32F407 USART.
+    {
+        let uart_config = UartConfig::default()
+            // Valid baud rate for UART0; cannot fail.
+            .with_baudrate(mmm::consts::INITIAL_BAUDRATE);
+        // Valid UART0 peripheral with default-compatible baud rate; cannot fail.
+        let uart = Uart::new(hw.uart0, uart_config)
+            .expect("BUG: UART0 configuration failed")
+            .with_tx(hw.uart_tx)
+            .with_rx(hw.uart_rx)
+            .into_async();
+        let (uart_rx, uart_tx) = uart.split();
+        let (mmm_rx, mmm_tx) = uart_baudrate::split_uart0(uart_rx, uart_tx);
+        spawner.must_spawn(mining::serial_task(mmm_rx, mmm_tx));
+    }
+
+    // Plug-detect input; hold the peripheral so it is not reclaimed.
+    let _plug_detect = Input::new(hw.plug_detect, InputConfig::default().with_pull(Pull::Up));
+
     info!("waiting for dhcp");
     let dhcp_config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", dhcp_config.address.address());
 
-    {
-        // APP_CPU hosts asic_uart_task (backend-uart) or asic_cpu_task
-        // (backend-cpu); see start_second_core above.
-        match pool_config_from_env() {
-            Ok(config) => {
-                let pool_config = POOL_CONFIG_CELL.init(config);
-                info!(
-                    "stratum-client: POOL_HOST={=str} POOL_PORT={=u16} POOL_PROTOCOL={=str} POOL_USER={=str}",
-                    pool_config.host.as_str(),
-                    pool_config.port,
-                    match &pool_config.protocol {
-                        ubos_main::pool_config::ProtocolConfig::Sv1 { .. } => "sv1",
-                        ubos_main::pool_config::ProtocolConfig::Sv2 { .. } => "sv2",
-                    },
-                    pool_config.user.as_str(),
-                );
-                spawner.must_spawn(stratum_client_task(stack, pool_config));
-            }
-            Err(error) => {
-                defmt::error!(
-                    "stratum-client: POOL_* env vars invalid: {}; not starting stratum task",
-                    defmt::Debug2Format(&error),
-                );
-            }
+    match pool_config_from_env() {
+        Ok(config) => {
+            let pool_config = POOL_CONFIG_CELL.init(config);
+            info!(
+                "stratum-client: POOL_HOST={=str} POOL_PORT={=u16} POOL_PROTOCOL={=str} POOL_USER={=str}",
+                pool_config.host.as_str(),
+                pool_config.port,
+                match &pool_config.protocol {
+                    ubos_main::pool_config::ProtocolConfig::Sv1 { .. } => "sv1",
+                    ubos_main::pool_config::ProtocolConfig::Sv2 { .. } => "sv2",
+                },
+                pool_config.user.as_str(),
+            );
+            spawner.must_spawn(stratum_client_task(stack, pool_config));
+        }
+        Err(error) => {
+            defmt::error!(
+                "stratum-client: POOL_* env vars invalid: {}; not starting stratum task",
+                defmt::Debug2Format(&error),
+            );
         }
     }
 

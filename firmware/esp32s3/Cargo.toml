@@ -7,29 +7,8 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["display", "backend-uart"]
+default = ["display"]
 display = []
-# UART peer backend: drives an external ASIC peer board over UART.
-# Mutually exclusive with `backend-cpu`.
-backend-uart = [
-    "dep:asic-uart-peer",
-    "dep:stratum-client",
-    "dep:stratum-v1",
-    "asic-uart-peer/defmt",
-    "stratum-client/defmt",
-    "stratum-v1/defmt",
-]
-# CPU mock backend: hashes on-MCU instead of driving a peer.
-# Mutually exclusive with `backend-uart`; enable with
-# `--no-default-features --features "display,backend-cpu"`.
-backend-cpu = [
-    "dep:asic-cpu-mock",
-    "dep:stratum-client",
-    "dep:stratum-v1",
-    "asic-cpu-mock/defmt",
-    "stratum-client/defmt",
-    "stratum-v1/defmt",
-]
 
 [dependencies]
 ubos-main              = { workspace = true, features = ["defmt"] }
@@ -42,15 +21,21 @@ defmt                  = { workspace = true }
 portable-atomic        = { workspace = true }
 static_cell            = { workspace = true }
 embedded-hal-bus       = { workspace = true, features = ["async"] }
-asic-cpu-mock          = { workspace = true, optional = true }
-asic-uart-peer         = { workspace = true, optional = true }
-stratum-client         = { workspace = true, optional = true }
-stratum-v1             = { workspace = true, optional = true }
+stratum-client         = { workspace = true, features = ["defmt"] }
+stratum-v1             = { workspace = true, features = ["defmt"] }
 stratum-v2             = { workspace = true, features = ["defmt"] }
 # Workspace dep is declared with default-features = false so the
 # firmware does not pull `alloc` via secp256k1's alloc feature.
 ii-sv2                 = { workspace = true, features = ["lowmemory"] }
 ubos-temperature       = { workspace = true, features = ["defmt"] }
+ubos-monitor           = { workspace = true, features = ["defmt"] }
+ubos-psu               = { workspace = true, features = ["defmt"] }
+mmm                    = { workspace = true, features = ["defmt"] }
+serial-baudrate        = { workspace = true }
+embassy-embedded-hal   = { version = "0.6.0", default-features = false, features = ["defmt"] }
+embassy-sync           = { workspace = true, features = ["defmt"] }
+embedded-io-async      = { workspace = true }
+critical-section       = { version = "1" }
 esp-hal                = { version = "1.0.0", features = ["defmt", "esp32s3", "unstable"] }
 esp-rtos               = { version = "0.2.0", features = ["embassy", "esp32s3", "defmt"] }
 esp-backtrace          = { version = "0.18.1", features = ["defmt", "esp32s3", "panic-handler"] }

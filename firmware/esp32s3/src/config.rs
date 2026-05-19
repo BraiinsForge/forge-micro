@@ -5,12 +5,11 @@
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
 use esp_hal::peripherals::{
-    CPU_CTRL, GPIO1, GPIO2, GPIO39, GPIO40, GPIO41, GPIO42, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1,
+    CPU_CTRL, GPIO1, GPIO10, GPIO11, GPIO2, GPIO39, GPIO4, GPIO40, GPIO41, GPIO42, GPIO43, GPIO44,
+    GPIO5, GPIO8, GPIO9, I2C0, LEDC, PCNT, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1, UART0,
 };
 #[cfg(feature = "display")]
 use esp_hal::peripherals::{GPIO15, GPIO16, GPIO17, GPIO6, GPIO7, SPI3};
-#[cfg(feature = "backend-uart")]
-use esp_hal::peripherals::{GPIO43, GPIO44, UART0};
 use esp_hal::time::Rate;
 
 pub struct Spi;
@@ -51,12 +50,30 @@ pub struct Board<'d> {
     pub sens: SENS<'d>,
     pub sw_interrupt: SW_INTERRUPT<'d>,
     pub cpu_ctrl: CPU_CTRL<'d>,
-    #[cfg(feature = "backend-uart")]
+    /// UART0 peripheral for the BM1362 chip serial link.
     pub uart0: UART0<'d>,
-    #[cfg(feature = "backend-uart")]
+    /// UART0 TX pin (GPIO43, default ROM UART TX).
     pub uart_tx: GPIO43<'d>,
-    #[cfg(feature = "backend-uart")]
+    /// UART0 RX pin (GPIO44, default ROM UART RX).
     pub uart_rx: GPIO44<'d>,
+    /// I2C0 peripheral for the BMM100 PSU and LM75A temperature sensors.
+    pub i2c0: I2C0<'d>,
+    /// I2C0 SDA pin (GPIO8, conventional ESP32-S3 I2C0 SDA).
+    pub i2c_sda: GPIO8<'d>,
+    /// I2C0 SCL pin (GPIO9, conventional ESP32-S3 I2C0 SCL).
+    pub i2c_scl: GPIO9<'d>,
+    /// Hashboard reset pin (GPIO4, active-low, held low until miner task releases).
+    pub hb_rst: GPIO4<'d>,
+    /// Hashboard plug-detect pin (GPIO5, input pull-up).
+    pub plug_detect: GPIO5<'d>,
+    /// LEDC peripheral for 25 kHz fan PWM on GPIO10.
+    pub ledc: LEDC<'d>,
+    /// Fan PWM output pin (GPIO10).
+    pub fan_pwm_pin: GPIO10<'d>,
+    /// PCNT peripheral for fan tach pulse counting on GPIO11.
+    pub pcnt: PCNT<'d>,
+    /// Fan tach input pin (GPIO11).
+    pub fan_tach_pin: GPIO11<'d>,
     #[cfg(feature = "display")]
     pub display_spi: SPI3<'d>,
     #[cfg(feature = "display")]
@@ -98,12 +115,18 @@ impl Board<'static> {
             sens: peripherals.SENS,
             sw_interrupt: peripherals.SW_INTERRUPT,
             cpu_ctrl: peripherals.CPU_CTRL,
-            #[cfg(feature = "backend-uart")]
             uart0: peripherals.UART0,
-            #[cfg(feature = "backend-uart")]
             uart_tx: peripherals.GPIO43,
-            #[cfg(feature = "backend-uart")]
             uart_rx: peripherals.GPIO44,
+            i2c0: peripherals.I2C0,
+            i2c_sda: peripherals.GPIO8,
+            i2c_scl: peripherals.GPIO9,
+            hb_rst: peripherals.GPIO4,
+            plug_detect: peripherals.GPIO5,
+            ledc: peripherals.LEDC,
+            fan_pwm_pin: peripherals.GPIO10,
+            pcnt: peripherals.PCNT,
+            fan_tach_pin: peripherals.GPIO11,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI3,
             #[cfg(feature = "display")]

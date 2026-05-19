@@ -2023,15 +2023,17 @@ dependencies = [
 name = "esp32s3"
 version = "0.1.0"
 dependencies = [
- "asic-cpu-mock",
- "asic-uart-peer",
+ "critical-section",
  "defmt 1.0.1",
  "defmt-rtt",
+ "embassy-embedded-hal 0.6.0",
  "embassy-executor 0.9.1",
  "embassy-net",
  "embassy-net-wiznet",
+ "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-hal-bus",
+ "embedded-io-async 0.7.0",
  "esp-backtrace",
  "esp-bootloader-esp-idf",
  "esp-hal",
@@ -2039,13 +2041,17 @@ dependencies = [
  "esp32s3-tsens",
  "heapless 0.8.0",
  "ii-sv2",
+ "mmm",
  "portable-atomic",
  "rand_core 0.6.4",
+ "serial-baudrate",
  "static_cell",
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
  "ubos-main",
+ "ubos-monitor",
+ "ubos-psu",
  "ubos-temperature",
 ]
 
