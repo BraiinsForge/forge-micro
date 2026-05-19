@@ -5,7 +5,7 @@ const VALID_PUBKEY_B58: &str = "9awtMD5KQgvRUh2yFbjVeT7b6hjipWcAsQHd6wEhgtDT9soo
 const DEFAULT_USER: &str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8.test";
 
 #[test]
-fn parse_defaults_yields_sv1_against_rpi_with_no_password() {
+fn parse_defaults_yields_sv1_against_braiins_with_no_password() {
     let config = parse(
         DEFAULT_POOL_HOST,
         DEFAULT_POOL_PORT_STR,
@@ -15,7 +15,7 @@ fn parse_defaults_yields_sv1_against_rpi_with_no_password() {
         None,
     )
     .expect("parse defaults");
-    assert_eq!(config.host.as_str(), "redacted100");
+    assert_eq!(config.host.as_str(), "stratum.braiins.com");
     assert_eq!(config.port, 3333);
     assert!(matches!(
         config.protocol,

@@ -126,5 +126,4 @@ impl Core1 {
 /// Per-board fall-through for `POOL_USER` (worker identity with
 /// the `.rp2350` suffix). Read by `pool_config_from_env()` in
 /// `main.rs` when the `POOL_USER` env var is unset.
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
-pub const DEFAULT_POOL_USER: &str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8.rp2350";
+pub const DEFAULT_POOL_USER: &str = "braiinstest.rp2350";

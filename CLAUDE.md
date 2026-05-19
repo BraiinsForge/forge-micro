@@ -108,7 +108,7 @@ Other useful series exported by `ckpool-exporter`:
 | `ckpool_client_last_share_seconds` | unix timestamp of the last share |
 | `ckpool_client_idle` | 1 if idle, 0 otherwise |
 
-The `worker` label matches the suffix in `Pool::USER` (e.g. `rp2040`,
+The `worker` label matches the suffix in `DEFAULT_POOL_USER` (e.g. `rp2040`,
 `esp32s3`). A worker that disappears from the result set has
 disconnected from the pool entirely.
 

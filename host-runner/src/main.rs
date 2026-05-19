@@ -27,7 +27,9 @@ use embassy_net::{Runner, Stack, StackResources};
 use embassy_time::{Duration, Ticker, Timer};
 use eth_examples::metrics::{Metric, Value};
 use eth_examples::net;
-use eth_examples::pool_config::{self, PoolConfig, ProtocolConfig};
+use eth_examples::pool_config::{
+    self, PoolConfig, ProtocolConfig, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
+};
 use log::{error, info, warn};
 use rand::rngs::OsRng;
 use static_cell::StaticCell;
@@ -130,58 +132,40 @@ async fn stratum_client_task(
     use embassy_net::tcp::TcpSocket;
     use embassy_net::IpAddress;
 
-    const TCP_BUFFER_SIZE: usize = 2048;
-    static TCP_RX: StaticCell<[u8; TCP_BUFFER_SIZE]> = StaticCell::new();
-    static TCP_TX: StaticCell<[u8; TCP_BUFFER_SIZE]> = StaticCell::new();
-    let rx_buffer = TCP_RX.init([0; TCP_BUFFER_SIZE]);
-    let tx_buffer = TCP_TX.init([0; TCP_BUFFER_SIZE]);
+    static TCP_RX: StaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> = StaticCell::new();
+    static TCP_TX: StaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> = StaticCell::new();
+    let rx_buffer = TCP_RX.init([0; STRATUM_TCP_BUFFER_SIZE]);
+    let tx_buffer = TCP_TX.init([0; STRATUM_TCP_BUFFER_SIZE]);
 
-    let host_quad = parse_ipv4_quad(pool_config.host.as_str())
+    let ipv4: core::net::Ipv4Addr = pool_config
+        .host
+        .as_str()
+        .parse()
         .expect("BUG: POOL_HOST is not a valid IPv4 literal (DNS not yet supported on host)");
-    let [a, b, c, d] = host_quad;
-    let address = IpAddress::v4(a, b, c, d);
+    let address = IpAddress::from(ipv4);
     let port = pool_config.port;
 
     loop {
         let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
-        socket.set_timeout(Some(embassy_time::Duration::from_secs(120)));
-        info!("stratum-client: connecting to {a}.{b}.{c}.{d}:{port}");
+        socket.set_timeout(Some(SOCKET_TIMEOUT));
+        info!("stratum-client: connecting to {ipv4}:{port}");
         if let Err(error) = socket.connect((address, port)).await {
             warn!("stratum-client: connect failed {error:?}");
             Timer::after(pool_config::RECONNECT_DELAY).await;
             continue;
         }
-        info!("stratum-client: connected to {a}.{b}.{c}.{d}:{port}");
+        info!("stratum-client: connected to {ipv4}:{port}");
 
         let mut client = stratum_v1::StratumV1Client::new(sv1_config);
         let mut state = stratum_client::StratumState::new();
-        match stratum_client::run_stratum_client(
-            &mut client,
-            &mut socket,
-            &ASIC_SESSION,
-            &mut state,
-        )
-        .await
+        if let Err(error) =
+            stratum_client::run_stratum_client(&mut client, &mut socket, &ASIC_SESSION, &mut state)
+                .await
         {
-            Ok(()) => {}
-            Err(error) => warn!("stratum-client: session error {error:?}"),
+            warn!("stratum-client: session error {error:?}");
         }
         Timer::after(pool_config::RECONNECT_DELAY).await;
     }
-}
-
-/// Parse `host` as an IPv4 dotted-quad. DNS resolution is deferred;
-/// today the runner accepts only literal addresses.
-fn parse_ipv4_quad(host: &str) -> Option<[u8; 4]> {
-    let mut parts = host.split('.');
-    let a = parts.next()?.parse::<u8>().ok()?;
-    let b = parts.next()?.parse::<u8>().ok()?;
-    let c = parts.next()?.parse::<u8>().ok()?;
-    let d = parts.next()?.parse::<u8>().ok()?;
-    if parts.next().is_some() {
-        return None;
-    }
-    Some([a, b, c, d])
 }
 
 /// Read the six `POOL_*` env vars at compile time (each falling

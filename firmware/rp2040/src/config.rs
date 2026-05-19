@@ -126,14 +126,6 @@ impl Core1 {
     pub const STACK_BYTES: usize = 4096;
 }
 
-/// Stratum pool connection parameters.
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
-pub struct Pool;
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
-impl Pool {
-    pub const HOST_IP: [u8; 4] = [192, 168, 89, 100];
-    pub const PORT: u16 = 3333;
-    pub const USER: &'static str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8.rp2040";
-    pub const PASS: &'static str = "x";
-    pub const RECONNECT_DELAY: Duration = Duration::from_secs(5);
-}
+/// Default pool user for this board. Override at compile time with
+/// `POOL_USER=...`.
+pub const DEFAULT_POOL_USER: &str = "braiinstest.rp2040";

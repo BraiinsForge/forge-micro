@@ -44,11 +44,16 @@ use rand_core::{CryptoRng, RngCore};
 use static_cell::StaticCell;
 use {defmt_rtt as _, esp_backtrace as _};
 
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
-static SV1_CONFIG: stratum_v1::Sv1Config = stratum_v1::Sv1Config {
-    user: config::Pool::USER,
-    password: config::Pool::PASS,
-};
+// `eth_examples::pool_config::parse` runs at boot to copy seven
+// compile-time env-var strings into typed fields. The result lives
+// for the lifetime of the firmware; held in a `StaticCell` so the
+// stratum task can take a `&'static PoolConfig`.
+static POOL_CONFIG_CELL: StaticCell<eth_examples::pool_config::PoolConfig> = StaticCell::new();
+
+// `Sv1Config` references &'static str borrowed from the parsed
+// `PoolConfig`; allocated at boot once the protocol is known to be
+// `Sv1`. Empty when the parsed protocol is `Sv2`.
+static SV1_CONFIG_CELL: StaticCell<stratum_v1::Sv1Config> = StaticCell::new();
 
 #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
@@ -187,61 +192,99 @@ async fn asic_uart_task(uart: Uart<'static, esp_hal::Async>) -> ! {
     asic_uart_peer::run_asic_uart(&ASIC_SESSION, uart).await
 }
 
+/// Read the six `POOL_*` env vars at compile time (each falling
+/// through to its default if unset) and produce a typed
+/// `PoolConfig`. The result is stored in `POOL_CONFIG_CELL` and
+/// borrowed `'static` by the stratum task.
+#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
+fn pool_config_from_env() -> eth_examples::pool_config::PoolConfig {
+    use eth_examples::pool_config;
+    pool_config::parse(
+        option_env!("POOL_HOST").unwrap_or(pool_config::DEFAULT_POOL_HOST),
+        option_env!("POOL_PORT").unwrap_or(pool_config::DEFAULT_POOL_PORT_STR),
+        option_env!("POOL_PROTOCOL").unwrap_or(pool_config::DEFAULT_POOL_PROTOCOL),
+        option_env!("POOL_USER").unwrap_or(config::DEFAULT_POOL_USER),
+        option_env!("POOL_SV1_PASS"),
+        option_env!("POOL_SV2_PUBKEY"),
+    )
+    // All inputs have validated defaults, so parse cannot fail.
+    .expect("BUG: POOL_* env vars failed to parse")
+}
+
 #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 #[embassy_executor::task]
-async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
+async fn stratum_client_task(
+    stack: embassy_net::Stack<'static>,
+    pool_config: &'static eth_examples::pool_config::PoolConfig,
+) -> ! {
     use defmt::warn;
-    use embassy_net::{tcp::TcpSocket, IpAddress};
     use embassy_time::Timer;
+    use eth_examples::pool_config::{
+        ProtocolConfig, RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
+    };
     use static_cell::ConstStaticCell;
 
-    const TCP_BUFFER_SIZE: usize = 2048;
-    static TCP_RX: ConstStaticCell<[u8; TCP_BUFFER_SIZE]> =
-        ConstStaticCell::new([0; TCP_BUFFER_SIZE]);
-    static TCP_TX: ConstStaticCell<[u8; TCP_BUFFER_SIZE]> =
-        ConstStaticCell::new([0; TCP_BUFFER_SIZE]);
+    static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
+        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
+    static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
+        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
     let rx_buffer = TCP_RX.take();
     let tx_buffer = TCP_TX.take();
 
-    let [a, b, c, d] = config::Pool::HOST_IP;
-    let address = IpAddress::v4(a, b, c, d);
+    let port = pool_config.port;
+
+    // These boards have no SV2 client; if the user sets
+    // POOL_PROTOCOL=sv2, fall back to V1 with a warning.
+    let sv1 = match &pool_config.protocol {
+        ProtocolConfig::Sv1 { password } => SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
+            user: pool_config.user.as_str(),
+            password: password.as_deref().unwrap_or(""),
+        }),
+        ProtocolConfig::Sv2 { .. } => {
+            warn!(
+                "stratum-client: POOL_PROTOCOL=sv2 but no SV2 client on this board; \
+                 falling back to V1 with empty password"
+            );
+            SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
+                user: pool_config.user.as_str(),
+                password: "",
+            })
+        }
+    };
 
     loop {
-        let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
-        socket.set_timeout(Some(embassy_time::Duration::from_secs(120)));
-        if let Err(error) = socket.connect((address, config::Pool::PORT)).await {
-            warn!(
-                "stratum-client: connect failed {}",
-                defmt::Debug2Format(&error)
-            );
-            Timer::after(config::Pool::RECONNECT_DELAY).await;
-            continue;
-        }
-        info!(
-            "stratum-client: connected to {}.{}.{}.{}:{}",
-            a,
-            b,
-            c,
-            d,
-            config::Pool::PORT
-        );
-        let mut client = stratum_v1::StratumV1Client::new(&SV1_CONFIG);
-        let mut state = stratum_client::StratumState::new();
-        match stratum_client::run_stratum_client(
-            &mut client,
-            &mut socket,
-            &ASIC_SESSION,
-            &mut state,
+        let mut socket = match eth_examples::net::connect_stratum(
+            stack,
+            pool_config.host.as_str(),
+            port,
+            SOCKET_TIMEOUT,
+            rx_buffer,
+            tx_buffer,
         )
         .await
         {
-            Ok(()) => {}
-            Err(error) => warn!(
+            Ok(socket) => socket,
+            Err(error) => {
+                warn!(
+                    "stratum-client: connect failed: {}",
+                    defmt::Debug2Format(&error)
+                );
+                Timer::after(RECONNECT_DELAY).await;
+                continue;
+            }
+        };
+
+        let mut client = stratum_v1::StratumV1Client::new(sv1);
+        let mut state = stratum_client::StratumState::new();
+        if let Err(error) =
+            stratum_client::run_stratum_client(&mut client, &mut socket, &ASIC_SESSION, &mut state)
+                .await
+        {
+            warn!(
                 "stratum-client: session error {}",
                 defmt::Debug2Format(&error)
-            ),
+            );
         }
-        Timer::after(config::Pool::RECONNECT_DELAY).await;
     }
 }
 
@@ -481,7 +524,18 @@ async fn boot(spawner: Spawner) {
     {
         // APP_CPU hosts asic_uart_task (backend-uart) or asic_cpu_task
         // (backend-cpu); see start_second_core above.
-        spawner.must_spawn(stratum_client_task(stack));
+        let pool_config = POOL_CONFIG_CELL.init(pool_config_from_env());
+        info!(
+            "stratum-client: POOL_HOST={=str} POOL_PORT={=u16} POOL_PROTOCOL={=str} POOL_USER={=str}",
+            pool_config.host.as_str(),
+            pool_config.port,
+            match &pool_config.protocol {
+                eth_examples::pool_config::ProtocolConfig::Sv1 { .. } => "sv1",
+                eth_examples::pool_config::ProtocolConfig::Sv2 { .. } => "sv2",
+            },
+            pool_config.user.as_str(),
+        );
+        spawner.must_spawn(stratum_client_task(stack, pool_config));
     }
 
     net::run_http_server(stack, config::Board::NAME).await;

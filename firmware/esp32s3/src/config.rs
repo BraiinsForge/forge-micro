@@ -32,17 +32,9 @@ impl Watchdog {
     pub const TIMEOUT: esp_hal::time::Duration = esp_hal::time::Duration::from_millis(2000);
 }
 
-/// Stratum pool connection parameters.
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
-pub struct Pool;
-#[cfg(any(feature = "backend-cpu", feature = "backend-uart",))]
-impl Pool {
-    pub const HOST_IP: [u8; 4] = [192, 168, 89, 100];
-    pub const PORT: u16 = 3333;
-    pub const USER: &'static str = "bcrt1qsdtjq8zjhefamsumwcfc6yh4gd98c900v8r4e8.esp32s3";
-    pub const PASS: &'static str = "x";
-    pub const RECONNECT_DELAY: embassy_time::Duration = embassy_time::Duration::from_secs(5);
-}
+/// Default pool user for this board. Override at compile time with
+/// `POOL_USER=...`.
+pub const DEFAULT_POOL_USER: &str = "braiinstest.esp32s3";
 
 /// Every peripheral singleton the board consumes, extracted in one place.
 pub struct Board<'d> {

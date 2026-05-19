@@ -23,9 +23,9 @@ use core::str::FromStr;
 use embassy_time::Duration;
 use heapless::String;
 
-/// Default V1 ckpool on the lab NUC. Matches today's hardcoded
-/// `Pool::HOST_IP` in firmware `config.rs`.
-pub const DEFAULT_POOL_HOST: &str = "redacted100";
+/// Default Braiins pool endpoint. Firmware resolves the DNS name
+/// at runtime via `stack.dns_query`.
+pub const DEFAULT_POOL_HOST: &str = "stratum.braiins.com";
 
 /// String form so the firmware's `option_env!` fall-through stays
 /// uniform; [`parse`] runs `u16::from_str` once at boot.
@@ -39,12 +39,21 @@ pub const DEFAULT_POOL_PROTOCOL: &str = "sv1";
 /// board needs a different cadence.
 pub const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 
+/// TCP socket buffer size for the stratum connection. Smaller than
+/// the HTTP/TLS buffers in `consts.rs` because stratum JSON-RPC
+/// messages are short.
+pub const STRATUM_TCP_BUFFER_SIZE: usize = 2048;
+
+/// TCP socket timeout for the stratum connection. Long enough to
+/// survive a few missed pool pings without dropping the session.
+pub const SOCKET_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// Maximum byte length of `POOL_HOST` (DNS name or IPv4 literal)
 /// and `POOL_USER`. Mining pool hostnames are short in practice;
 /// 128 covers the longest reasonable cases.
 pub const MAX_HOST_LEN: usize = 128;
 pub const MAX_USER_LEN: usize = 128;
-pub const MAX_PASS_LEN: usize = 32;
+pub const MAX_PASS_LEN: usize = 128;
 
 /// Parsed result of the six `POOL_*` env vars.
 #[derive(Debug, Clone)]
