@@ -1,9 +1,10 @@
 # Ethernet Examples
 
-Bare-metal Rust Ethernet across six boards plus a UART-attached mining
-peer, a Linux host-side runner, and the libraries that back them. Each
-firmware serves an HTTP metrics page with uptime, request count, current
-hashrate, BTC price via Binance over TLS, and UTC time via NTP.
+Bare-metal Rust Ethernet across six boards. Each serves a small HTTP
+dashboard that polls `/api/info` and renders uptime, DHCP-assigned IP,
+current hashrate (from the dummy-asic peer, an on-MCU CPU miner, or
+the on-board mmm ASIC backend), on-board temperature, fan speed and
+PWM duty, and UTC time via NTP.
 
 ## Start here
 
