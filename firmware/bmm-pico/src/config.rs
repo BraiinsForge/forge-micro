@@ -6,13 +6,11 @@
 
 use embassy_rp::peripherals::{
     ADC, ADC_TEMP_SENSOR, CORE1, DMA_CH0, DMA_CH1, I2C1, PIN_0, PIN_1, PIN_15, PIN_16, PIN_17,
-    PIN_18, PIN_19, PIN_2, PIN_20, PIN_21, PIN_25, PIN_3, PIN_6, PIN_7, PIN_8, PWM_SLICE4,
-    PWM_SLICE7, SPI0, UART0, WATCHDOG,
+    PIN_18, PIN_19, PIN_2, PIN_20, PIN_21, PIN_25, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8,
+    PWM_SLICE4, PWM_SLICE7, SPI0, UART0, UART1, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, SPI1};
-#[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
-use embassy_rp::peripherals::{PIN_4, PIN_5, UART1};
 use embassy_rp::Peri;
 use embassy_time::Duration;
 
@@ -44,11 +42,8 @@ pub struct Board {
     pub fan_pwm: Peri<'static, PIN_8>,
     pub fan_rpm_slice: Peri<'static, PWM_SLICE7>,
     pub fan_rpm: Peri<'static, PIN_15>,
-    #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
     pub uart: Peri<'static, UART1>,
-    #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
     pub uart_tx: Peri<'static, PIN_4>,
-    #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
     pub uart_rx: Peri<'static, PIN_5>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
@@ -142,11 +137,8 @@ impl Board {
             fan_pwm: peripherals.PIN_8,
             fan_rpm_slice: peripherals.PWM_SLICE7,
             fan_rpm: peripherals.PIN_15,
-            #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
             uart: peripherals.UART1,
-            #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
             uart_tx: peripherals.PIN_4,
-            #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
             uart_rx: peripherals.PIN_5,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI1,
@@ -194,21 +186,9 @@ impl Fan {
     pub const TACH_PULSES_PER_REV: u64 = 2;
 }
 
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-mmm"
-))]
 pub struct Core1;
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-mmm"
-))]
 impl Core1 {
-    /// Stack size for the Core 1 executor. Sized for the mmm backend,
-    /// which needs the most stack of the three; backend-uart and
-    /// backend-cpu share this budget to keep the value unconditional.
+    /// Stack size for the Core 1 executor, sized for the MMM backend.
     pub const STACK_BYTES: usize = 32_768;
 }
 
@@ -217,11 +197,6 @@ impl Core1 {
 /// six boards on the same switch report under distinct `worker`
 /// labels in ckpool. Only the six known `cargo run-N` aliases are
 /// enumerated; any other `MAC_SUFFIX` keeps the un-suffixed name.
-#[cfg(any(
-    feature = "backend-cpu",
-    feature = "backend-uart",
-    feature = "backend-mmm"
-))]
 pub const DEFAULT_POOL_USER: &str = match MAC_SUFFIX {
     1 => "braiinstest.bmm-pico-1",
     2 => "braiinstest.bmm-pico-2",

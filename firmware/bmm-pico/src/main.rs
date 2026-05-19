@@ -7,25 +7,6 @@
 #![no_std]
 #![no_main]
 
-#[cfg(not(any(
-    feature = "backend-uart",
-    feature = "backend-cpu",
-    feature = "backend-mmm"
-)))]
-compile_error!(
-    "a backend feature must be selected: `backend-uart`, `backend-cpu`, or `backend-mmm`"
-);
-
-#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
-compile_error!(
-    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
-     pick exactly one with --no-default-features --features \"display,<backend>\""
-);
-#[cfg(all(feature = "backend-mmm", feature = "backend-uart"))]
-compile_error!("features `backend-mmm` and `backend-uart` are mutually exclusive");
-#[cfg(all(feature = "backend-mmm", feature = "backend-cpu"))]
-compile_error!("features `backend-mmm` and `backend-cpu` are mutually exclusive");
-
 use defmt::{info, unwrap};
 use embassy_executor::Executor;
 use embassy_executor::Spawner;
@@ -34,15 +15,10 @@ use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-#[cfg(not(feature = "backend-mmm"))]
-use embassy_rp::i2c::{Config as I2cConfig, I2c};
-#[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
-use embassy_rp::peripherals::UART1;
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
-#[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{bind_interrupts, dma, i2c};
@@ -60,12 +36,9 @@ use ubos_main::net;
 
 mod config;
 mod fan;
-#[cfg(feature = "backend-mmm")]
 mod mining;
-#[cfg(feature = "backend-mmm")]
 mod psu;
 mod temperature;
-#[cfg(feature = "backend-mmm")]
 mod uart_baudrate;
 
 static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
@@ -75,8 +48,7 @@ static CORE1_EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 /// Software ring buffer size per direction for the core-1 `BufferedUart`.
 /// The RP2040/RP2350 HW FIFO is 32 bytes; 1 KiB gives plenty of slack for
-/// ETH-ISR jitter at 921600 baud (backend-uart) and 3 Mbaud (backend-mmm).
-#[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
+/// ETH-ISR jitter at 3 Mbaud (MMM backend).
 const UART_RING_BUFFER_SIZE: usize = 1024;
 
 // `ubos_main::pool_config::parse` runs at boot to copy seven
@@ -135,7 +107,6 @@ bind_interrupts!(struct Irqs {
         #[cfg(feature = "display")]
         dma::InterruptHandler<DMA_CH2>;
     I2C1_IRQ => i2c::InterruptHandler<I2C1>;
-    #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
     UART1_IRQ => BufferedInterruptHandler<UART1>;
 });
 
@@ -219,12 +190,6 @@ type OledDisplay = Sh1106<
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay) -> ! {
     ubos_main::display::run(&mut display).await
-}
-
-#[cfg(feature = "backend-uart")]
-#[embassy_executor::task]
-async fn asic_uart_task(uart: BufferedUart) -> ! {
-    asic_uart_peer::run_asic_uart(&ASIC_SESSION, uart).await
 }
 
 /// Read the `POOL_*` env vars at compile time (each falling through
@@ -371,51 +336,23 @@ async fn stratum_client_task(
     }
 }
 
-#[cfg(feature = "backend-cpu")]
-#[embassy_executor::task]
-async fn asic_cpu_task() -> ! {
-    asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
-}
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
 
-    // Pin the worker to core 1 so embassy-net on core 0 stays
-    // responsive.
+    // Pin the MMM serial worker to core 1 so embassy-net on core 0 stays
+    // responsive. BufferedUart must be constructed on the core that polls
+    // it — `init_buffers` unmasks the UART IRQ on the calling core's NVIC,
+    // and the async write path manually pends the same IRQ to shovel
+    // the SW TX ringbuffer into the HW FIFO. RP2350's Cortex-M33 has
+    // a per-core NVIC, so an unmask on one core and a pend on the
+    // other land on different controllers and the FIFO is never
+    // written.
     {
-        #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
         let uart_parts = (hw.uart, hw.uart_tx, hw.uart_rx);
         embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
-            // BufferedUart must be constructed on the core that polls it.
-            // `init_buffers` unmasks the UART IRQ on the calling core's NVIC,
-            // and the async write path manually pends the same IRQ to shovel
-            // the SW TX ringbuffer into the HW FIFO. RP2350's Cortex-M33 has
-            // a per-core NVIC, so an unmask on one core and a pend on the
-            // other land on different controllers and the FIFO is never
-            // written.
-            #[cfg(feature = "backend-uart")]
-            let uart = {
-                static TX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
-                static RX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
-                let (peripheral, tx_pin, rx_pin) = uart_parts;
-                BufferedUart::new(
-                    peripheral,
-                    tx_pin,
-                    rx_pin,
-                    Irqs,
-                    TX_BUF.init([0; UART_RING_BUFFER_SIZE]),
-                    RX_BUF.init([0; UART_RING_BUFFER_SIZE]),
-                    {
-                        let mut config = UartConfig::default();
-                        config.baudrate = asic_uart_peer::BAUD_RATE;
-                        config
-                    },
-                )
-            };
-            #[cfg(feature = "backend-mmm")]
             let (mmm_tx, mmm_rx) = {
                 static TX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
                 static RX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
@@ -437,11 +374,6 @@ async fn main(spawner: Spawner) {
             };
             let executor = CORE1_EXECUTOR.init(Executor::new());
             executor.run(|core1_spawner: Spawner| {
-                #[cfg(feature = "backend-cpu")]
-                core1_spawner.spawn(unwrap!(asic_cpu_task()));
-                #[cfg(feature = "backend-uart")]
-                core1_spawner.spawn(unwrap!(asic_uart_task(uart)));
-                #[cfg(feature = "backend-mmm")]
                 core1_spawner.spawn(unwrap!(mining::serial_task(mmm_rx, mmm_tx)));
             })
         });
@@ -457,7 +389,6 @@ async fn main(spawner: Spawner) {
     // BMM100 hashboard PSU on I2C1: shared bus, PSU watchdog, power
     // stats, and the miner bring-up task all run on core 0 so the I2C
     // bus mutex can stay NoopRawMutex.
-    #[cfg(feature = "backend-mmm")]
     {
         use embassy_rp::i2c::{Config as I2cConfig, I2c};
         use embassy_sync::mutex::Mutex;
@@ -526,14 +457,6 @@ async fn main(spawner: Spawner) {
         );
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
-    #[cfg(not(feature = "backend-mmm"))]
-    {
-        let i2c = I2c::new_async(hw.i2c, hw.i2c_scl, hw.i2c_sda, Irqs, I2cConfig::default());
-        let hashboard_temp = temperature::HashboardTemperature::new(i2c);
-        let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm);
-        spawner.spawn(unwrap!(monitor_task(hashboard_temp, board_fan)));
-    }
-
     spawner.spawn(unwrap!(tach_task(fan::TachHardware {
         slice: hw.fan_rpm_slice,
         pin: hw.fan_rpm,
@@ -577,8 +500,7 @@ async fn main(spawner: Spawner) {
     info!("ip address: {:?}", config.address.address());
 
     {
-        // Core 1 hosts asic_uart_task (backend-uart), asic_cpu_task
-        // (backend-cpu), or serial_task (backend-mmm); see spawn_core1 above.
+        // Core 1 hosts serial_task (MMM backend); see spawn_core1 above.
         match pool_config_from_env() {
             Ok(config) => {
                 let pool_config = POOL_CONFIG_CELL.init(config);

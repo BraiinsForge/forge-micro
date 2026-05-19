@@ -7,44 +7,8 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["display", "backend-mmm"]
+default = ["display"]
 display = []
-# UART peer backend: drives an external ASIC peer board over UART.
-# Mutually exclusive with `backend-cpu`.
-backend-uart = [
-    "dep:asic-uart-peer",
-    "dep:stratum-client",
-    "dep:stratum-v1",
-    "asic-uart-peer/defmt",
-    "stratum-client/defmt",
-    "stratum-v1/defmt",
-]
-# CPU mock backend: hashes on-MCU instead of driving a peer.
-# Mutually exclusive with `backend-uart`; enable with
-# `--no-default-features --features "display,backend-cpu"`.
-backend-cpu = [
-    "dep:asic-cpu-mock",
-    "dep:stratum-client",
-    "dep:stratum-v1",
-    "asic-cpu-mock/defmt",
-    "stratum-client/defmt",
-    "stratum-v1/defmt",
-]
-# MMM backend: drives a BMM100 hashboard directly over BM1362 chip serial
-# on UART1, hashboard PSU on I2C1. Mutually exclusive with backend-uart
-# and backend-cpu.
-backend-mmm = [
-    "dep:mmm",
-    "dep:stratum-client",
-    "dep:stratum-v1",
-    "dep:ubos-psu",
-    "dep:serial-baudrate",
-    "dep:embassy-embedded-hal",
-    "dep:embassy-sync",
-    "mmm/defmt",
-    "stratum-client/defmt",
-    "stratum-v1/defmt",
-]
 
 [dependencies]
 ubos-main            = { workspace = true, features = ["defmt"] }
@@ -63,23 +27,21 @@ embedded-io-async    = { workspace = true }
 portable-atomic      = { workspace = true }
 cortex-m             = { version = "0.7", features = ["inline-asm"] }
 cortex-m-rt          = "0.7"
-asic-cpu-mock        = { workspace = true, optional = true }
-asic-uart-peer       = { workspace = true, optional = true }
-stratum-client       = { workspace = true, optional = true }
-stratum-v1           = { workspace = true, optional = true }
+stratum-client       = { workspace = true, features = ["defmt"] }
+stratum-v1           = { workspace = true, features = ["defmt"] }
 stratum-v2           = { workspace = true, features = ["defmt"] }
 # Workspace dep is declared with default-features = false so the
 # firmware does not pull `alloc` via secp256k1's alloc feature.
 ii-sv2               = { workspace = true, features = ["lowmemory"] }
 ubos-monitor         = { workspace = true, features = ["defmt"] }
 ubos-temperature     = { workspace = true, features = ["defmt"] }
-mmm                  = { workspace = true, optional = true, features = ["defmt"] }
-ubos-psu             = { workspace = true, optional = true, features = ["defmt"] }
-serial-baudrate      = { workspace = true, optional = true }
-embassy-embedded-hal = { version = "0.6.0", optional = true, default-features = false, features = ["defmt"] }
-embassy-sync         = { workspace = true, optional = true, features = ["defmt"] }
+mmm                  = { workspace = true, features = ["defmt"] }
+ubos-psu             = { workspace = true, features = ["defmt"] }
+serial-baudrate      = { workspace = true }
+embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
+embassy-sync         = { workspace = true, features = ["defmt"] }
 
-# cortex-m and cortex-m-rt are pulled in by `#[embassy_executor::main]` and
+# cortex-m and cortex-m-rt are pulled in by `#[cortex_m_rt::entry]` and
 # the linker scripts; no direct source references, so machete can't see them.
 [package.metadata.cargo-machete]
 ignored = ["cortex-m", "cortex-m-rt"]

@@ -3,11 +3,9 @@
 //! MMM backend: `../../../docs/MMM.md`.
 
 use defmt::error;
-#[cfg(feature = "backend-mmm")]
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::i2c::{Async, I2c};
 use embassy_rp::peripherals::I2C1;
-#[cfg(feature = "backend-mmm")]
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use ubos_temperature::lm75a::{Error as Lm75aError, Lm75a};
 use ubos_temperature::TemperatureSensor;
@@ -19,11 +17,9 @@ const SENSOR_ADDRESSES: [u8; 4] = [0x49, 0x4a, 0x4b, 0x4c];
 /// temperature. BOS uses +7°C for every BMM101 sensor.
 const OFFSET_MILLICELSIUS: i32 = 7_000;
 
-/// When `backend-mmm` is active the I2C1 bus is shared between the PSU and
-/// temperature sensors via a bus mutex; otherwise it is owned directly.
-#[cfg(not(feature = "backend-mmm"))]
-type I2cBus = I2c<'static, I2C1, Async>;
-#[cfg(feature = "backend-mmm")]
+/// The I2C1 bus is shared between the PSU and temperature sensors via a
+/// bus mutex, so `HashboardTemperature` always receives a virtual device
+/// rather than direct bus ownership.
 type I2cBus = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C1, Async>>;
 
 pub struct HashboardTemperature {
