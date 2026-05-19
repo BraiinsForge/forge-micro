@@ -1,26 +1,26 @@
 //! Board constants and peripheral extraction for the W5500-EVB-Pico
-//! (RP2040). `Board::take` consumes the RP2040 `Peripherals` once and
-//! returns the exact set main.rs needs.
+//! (RP2040) running the MMM backend. `Board::take` consumes the RP2040
+//! `Peripherals` once and returns every singleton the board's schematic
+//! claims, keeping pin assignments in one place rather than scattered
+//! through `main`.
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
 use embassy_rp::peripherals::{
-    ADC, ADC_TEMP_SENSOR, CORE1, DMA_CH0, DMA_CH1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21,
-    PIN_25, SPI0, WATCHDOG,
+    CORE1, DMA_CH0, DMA_CH1, I2C1, PIN_15, PIN_16, PIN_17, PIN_18, PIN_19, PIN_2, PIN_20, PIN_21,
+    PIN_25, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8, PWM_SLICE4, PWM_SLICE7, SPI0, UART1,
+    WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, SPI1};
-#[cfg(feature = "backend-uart")]
-use embassy_rp::peripherals::{PIN_4, PIN_5, UART1};
 use embassy_rp::Peri;
 use embassy_time::Duration;
 
 /// Every peripheral singleton the board consumes, extracted in one place.
+#[allow(dead_code)]
 pub struct Board {
     pub watchdog: Peri<'static, WATCHDOG>,
     pub led: Peri<'static, PIN_25>,
-    pub adc: Peri<'static, ADC>,
-    pub adc_temp_sensor: Peri<'static, ADC_TEMP_SENSOR>,
     pub spi: Peri<'static, SPI0>,
     pub sck: Peri<'static, PIN_18>,
     pub mosi: Peri<'static, PIN_19>,
@@ -30,13 +30,24 @@ pub struct Board {
     pub w5500_reset: Peri<'static, PIN_20>,
     pub rx_dma: Peri<'static, DMA_CH0>,
     pub tx_dma: Peri<'static, DMA_CH1>,
-    pub core1: Peri<'static, CORE1>,
-    #[cfg(feature = "backend-uart")]
+    /// UART1 TX pin, drives BM1362 chip serial.
     pub uart: Peri<'static, UART1>,
-    #[cfg(feature = "backend-uart")]
     pub uart_tx: Peri<'static, PIN_4>,
-    #[cfg(feature = "backend-uart")]
     pub uart_rx: Peri<'static, PIN_5>,
+    /// I2C1 bus for BMM100 PSU and LM75A temperature sensors.
+    pub i2c1: Peri<'static, I2C1>,
+    pub sda: Peri<'static, PIN_6>,
+    pub scl: Peri<'static, PIN_7>,
+    /// Hashboard reset line (active-low output).
+    pub hb_rst: Peri<'static, PIN_2>,
+    /// Hashboard plug-detect line (input, pull-up).
+    pub hb_plug: Peri<'static, PIN_3>,
+    /// Fan PWM output (25 kHz via `PWM_SLICE4` channel A).
+    pub fan_pwm_slice: Peri<'static, PWM_SLICE4>,
+    pub fan_pwm_pin: Peri<'static, PIN_8>,
+    /// Fan tachometer input (rising-edge counter via `PWM_SLICE7`).
+    pub fan_tach_slice: Peri<'static, PWM_SLICE7>,
+    pub fan_tach_pin: Peri<'static, PIN_15>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
     #[cfg(feature = "display")]
@@ -51,25 +62,27 @@ pub struct Board {
     pub display_rst: Peri<'static, PIN_12>,
     #[cfg(feature = "display")]
     pub display_tx_dma: Peri<'static, DMA_CH2>,
+    pub core1: Peri<'static, CORE1>,
 }
 
 impl Board {
-    pub const NAME: &str = "Pico W5500 HAT";
-    /// DNS-safe base hostname for mDNS. See `eth_examples::mdns::compose_hostname`
-    /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
+    pub const NAME: &str = "W5500-EVB-Pico";
+    /// DNS-safe base hostname for mDNS. The runtime appends a per-unit
+    /// suffix derived from `MAC_ADDR[5]` so multiple rp2040 boards
+    /// on the same LAN do not collide on `_prometheus._tcp.local.` and
+    /// trigger RFC 6762 §9 conflict-resolution renames on every boot.
+    /// `Board::NAME` is human-readable and contains spaces, so it cannot
+    /// be used directly in a DNS label.
     pub const MDNS_HOSTNAME_BASE: &str = "rp2040";
     /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
     pub const MCU: &str = "rp2040";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
     pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x04];
 
-    /// Extracts every peripheral this board uses from the singleton.
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {
             watchdog: peripherals.WATCHDOG,
             led: peripherals.PIN_25,
-            adc: peripherals.ADC,
-            adc_temp_sensor: peripherals.ADC_TEMP_SENSOR,
             spi: peripherals.SPI0,
             sck: peripherals.PIN_18,
             mosi: peripherals.PIN_19,
@@ -79,13 +92,18 @@ impl Board {
             w5500_reset: peripherals.PIN_20,
             rx_dma: peripherals.DMA_CH0,
             tx_dma: peripherals.DMA_CH1,
-            core1: peripherals.CORE1,
-            #[cfg(feature = "backend-uart")]
             uart: peripherals.UART1,
-            #[cfg(feature = "backend-uart")]
             uart_tx: peripherals.PIN_4,
-            #[cfg(feature = "backend-uart")]
             uart_rx: peripherals.PIN_5,
+            i2c1: peripherals.I2C1,
+            sda: peripherals.PIN_6,
+            scl: peripherals.PIN_7,
+            hb_rst: peripherals.PIN_2,
+            hb_plug: peripherals.PIN_3,
+            fan_pwm_slice: peripherals.PWM_SLICE4,
+            fan_pwm_pin: peripherals.PIN_8,
+            fan_tach_slice: peripherals.PWM_SLICE7,
+            fan_tach_pin: peripherals.PIN_15,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI1,
             #[cfg(feature = "display")]
@@ -100,17 +118,16 @@ impl Board {
             display_rst: peripherals.PIN_12,
             #[cfg(feature = "display")]
             display_tx_dma: peripherals.DMA_CH2,
+            core1: peripherals.CORE1,
         }
     }
 }
 
-/// SPI clock frequency for the W5500 Ethernet chip.
 pub struct Spi;
 impl Spi {
     pub const FREQUENCY: u32 = 33_000_000;
 }
 
-/// SPI clock frequency for the SH1106 OLED display.
 #[cfg(feature = "display")]
 pub struct DisplaySpi;
 #[cfg(feature = "display")]
@@ -118,19 +135,30 @@ impl DisplaySpi {
     pub const FREQUENCY: u32 = 10_000_000;
 }
 
-/// Hardware watchdog timeout.
 pub struct Watchdog;
 impl Watchdog {
     pub const TIMEOUT: Duration = Duration::from_secs(2);
 }
 
-/// Core 1 stack size for the worker executor.
-pub struct Core1;
-impl Core1 {
-    /// Stack size in bytes for the Core 1 executor.
-    pub const STACK_BYTES: usize = 4096;
+/// Fan PWM and tachometer parameters. Default `clk_sys` on the RP2040 is
+/// 125 MHz, so `(PWM_TOP + 1) × divider = 6000` cycles per period puts
+/// the PWM frequency at ~20.83 kHz. The Intel 4-wire fan spec targets
+/// 25 kHz; `PWM_TOP` carries over from the rp2350 port where 150 MHz
+/// `clk_sys` hits 25 kHz exactly. The fan tolerates the lower frequency.
+pub struct Fan;
+impl Fan {
+    pub const PWM_TOP: u16 = 5999;
+    pub const TACH_WINDOW: Duration = Duration::from_secs(1);
+    pub const TACH_PULSES_PER_REV: u64 = 2;
 }
 
-/// Default pool user for this board. Override at compile time with
-/// `POOL_USER=...`.
+pub struct Core1;
+impl Core1 {
+    /// Stack size for the Core 1 executor, sized for the mmm backend.
+    pub const STACK_BYTES: usize = 32_768;
+}
+
+/// Per-board fall-through for `POOL_USER` (worker identity with
+/// the `.rp2040` suffix). Read by `pool_config_from_env()` in
+/// `main.rs` when the `POOL_USER` env var is unset.
 pub const DEFAULT_POOL_USER: &str = "braiinstest.rp2040";
