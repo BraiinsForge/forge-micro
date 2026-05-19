@@ -4,8 +4,7 @@
 //! (with fall-through defaults below) and hands the resulting
 //! strings to [`parse`]. The returned [`PoolConfig`] feeds the
 //! runtime protocol selector in the stratum task: matching on
-//! [`ProtocolConfig`] picks `StratumV1Client` vs `StratumV2Client`
-//! without a Cargo feature switch.
+//! [`ProtocolConfig`] picks `StratumV1Client` vs `StratumV2Client`.
 //!
 //! ## Variables
 //!

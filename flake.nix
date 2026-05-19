@@ -426,8 +426,8 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf";
             cargoClippyExtraArgs = "-- -D warnings";
-            # `stratum2` is in rp2350's default features, which pulls
-            # in `secp256k1-sys` and its C build script. `cc-rs`
+            # `secp256k1-sys` is an unconditional dep via `ii-sv2` and
+            # its C build script requires a cross compiler. `cc-rs`
             # otherwise falls back to host `gcc` and fails on the
             # thumb-specific flags; point it at arm-none-eabi-gcc.
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
@@ -769,7 +769,7 @@
                 picocom
                 usbutils
                 # Cross C compiler for crates with C sources
-                # (e.g. secp256k1-sys via stratum-v2's V2 feature).
+                # (e.g. secp256k1-sys via the unconditional ii-sv2 dep).
                 # Each rustc target needs a `CC_<target>` env var
                 # below; cc-rs' fallback to host `gcc` does not
                 # work for thumb targets.

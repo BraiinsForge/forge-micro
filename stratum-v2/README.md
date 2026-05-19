@@ -22,9 +22,9 @@ let mut client = StratumV2Client::new(sv2, ctx, BoardRng(rng));
 run_stratum_client(&mut client, &mut socket, &ASIC_SESSION, &mut state).await
 ```
 
-The `stratum2` Cargo feature on each firmware composes this crate
-on top of `backend-uart` / `backend-cpu`. Protocol selection (V1 vs V2)
-is decided at boot from `POOL_PROTOCOL`.
+This crate is an unconditional dependency of every firmware. Protocol
+selection (V1 vs V2) is decided at runtime from `POOL_PROTOCOL`; no
+feature flag gates its compilation.
 
 A self-contained host-side smoke test lives in `examples/client_probe.rs`.
 

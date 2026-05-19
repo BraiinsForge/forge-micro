@@ -8,6 +8,9 @@
 #![no_std]
 #![no_main]
 
+#[cfg(not(any(feature = "backend-uart", feature = "backend-cpu")))]
+compile_error!("a backend feature must be selected: `backend-uart` or `backend-cpu`");
+
 #[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
 compile_error!(
     "features `backend-uart` and `backend-cpu` are mutually exclusive; \
@@ -517,7 +520,6 @@ async fn boot(spawner: Spawner) {
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", config.address.address());
-    #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
     {
         // Core 1 hosts asic_uart_task (backend-uart) or asic_cpu_task
         // (backend-cpu); see spawn_core1 above.

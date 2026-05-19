@@ -187,10 +187,8 @@ build-time error.
 
 `backend-uart` is the default (UART peer via the dummy-asic board);
 `backend-cpu` swaps in on-MCU CPU mining. The two are mutually
-exclusive. `stratum2` is an additive cargo feature that pulls in the
-V2 adapter on top of either backend; it is on by default so
-`POOL_PROTOCOL=sv2` works without an extra flag. V1 is always built;
-protocol selection is purely runtime via `POOL_PROTOCOL=sv1|sv2`.
+exclusive. Both SV1 and SV2 are always built; protocol selection is
+purely runtime via `POOL_PROTOCOL=sv1|sv2`.
 
 Stratum V1, UART peer backend (default):
 
@@ -244,7 +242,7 @@ nix develop .#arm -c bash -c '
   POOL_PROTOCOL=sv2 \
   POOL_USER=<braiins-account>.<worker> \
   POOL_SV2_PUBKEY=<braiins-sv2-pubkey-base58check> \
-  cargo run --release --no-default-features --features "display,backend-cpu,stratum2"
+  cargo run --release --no-default-features --features "display,backend-cpu"
 '
 ```
 

@@ -8,6 +8,9 @@
 #![no_std]
 #![no_main]
 
+#[cfg(not(any(feature = "backend-uart", feature = "backend-cpu")))]
+compile_error!("a backend feature must be selected: `backend-uart` or `backend-cpu`");
+
 #[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
 compile_error!(
     "features `backend-uart` and `backend-cpu` are mutually exclusive; \
@@ -45,24 +48,21 @@ use eth_examples::net;
 
 mod config;
 
-// `eth_examples::pool_config::parse` runs at boot to copy six
+// `eth_examples::pool_config::parse` runs at boot to copy seven
 // compile-time env-var strings into typed fields. The result lives
 // for the lifetime of the firmware; held in a `StaticCell` so the
 // stratum task can take a `&'static PoolConfig`.
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static POOL_CONFIG_CELL: StaticCell<eth_examples::pool_config::PoolConfig> = StaticCell::new();
 
 // `Sv1Config` references &'static str borrowed from the parsed
 // `PoolConfig`; allocated at boot once the protocol is known to be
 // `Sv1`. Empty when the parsed protocol is `Sv2`.
-#[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
 static SV1_CONFIG_CELL: StaticCell<stratum_v1::Sv1Config> = StaticCell::new();
 
 // `Sv2Config::new` copies the worker identity into the owned
 // `heapless::String<128>`. Held in a `StaticCell` to give
 // `StratumV2Client::new` a `&'static Sv2Config`. Only populated
 // when the parsed protocol is `Sv2`.
-#[cfg(feature = "stratum2")]
 static SV2_CONFIG_CELL: static_cell::StaticCell<stratum_v2::Sv2Config> =
     static_cell::StaticCell::new();
 
@@ -72,22 +72,17 @@ static SV2_CONFIG_CELL: static_cell::StaticCell<stratum_v2::Sv2Config> =
 // per `secp256k1_context_preallocated_size(All)` at the lowmemory
 // flags). `CryptoCtx::preallocated` returns
 // `Error::NotEnoughMemory` at runtime if undersized.
-#[cfg(feature = "stratum2")]
 const SECP_CTX_SLOTS: usize = 4096;
 
-#[cfg(feature = "stratum2")]
 static SECP_CTX_BUF: static_cell::ConstStaticCell<[ii_sv2::security::AlignedType; SECP_CTX_SLOTS]> =
     static_cell::ConstStaticCell::new([ii_sv2::security::AlignedType::ZERO; SECP_CTX_SLOTS]);
 
-#[cfg(feature = "stratum2")]
 static SECP_CTX: static_cell::StaticCell<
     ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
 > = static_cell::StaticCell::new();
 
-#[cfg(feature = "stratum2")]
 struct Sv2BoardRng(embassy_rp::clocks::RoscRng);
 
-#[cfg(feature = "stratum2")]
 impl ii_sv2::security::Rng for Sv2BoardRng {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         // RoscRng has an inherent `fill_bytes` that routes
@@ -274,7 +269,44 @@ async fn stratum_client_task(
                 user: pool_config.user.as_str(),
                 password: password.as_deref().unwrap_or(""),
             });
-            Selected::Sv1(sv1)
+            loop {
+                let mut socket = match eth_examples::net::connect_stratum(
+                    stack,
+                    pool_config.host.as_str(),
+                    port,
+                    SOCKET_TIMEOUT,
+                    rx_buffer,
+                    tx_buffer,
+                )
+                .await
+                {
+                    Ok(socket) => socket,
+                    Err(error) => {
+                        warn!(
+                            "stratum-client: connect failed: {}",
+                            defmt::Debug2Format(&error)
+                        );
+                        Timer::after(RECONNECT_DELAY).await;
+                        continue;
+                    }
+                };
+                let mut state = stratum_client::StratumState::new();
+                let mut client = stratum_v1::StratumV1Client::new(sv1);
+                if let Err(error) = stratum_client::run_stratum_client(
+                    &mut client,
+                    &mut socket,
+                    &ASIC_SESSION,
+                    &mut state,
+                )
+                .await
+                {
+                    warn!(
+                        "stratum-client: session error {}",
+                        defmt::Debug2Format(&error)
+                    );
+                }
+                Timer::after(RECONNECT_DELAY).await;
+            }
         }
         ProtocolConfig::Sv2 { pool_pubkey } => {
             let sv2 = SV2_CONFIG_CELL.init(
@@ -300,27 +332,35 @@ async fn stratum_client_task(
                     tx_buffer,
                 )
                 .await
-            }
-            #[cfg(feature = "stratum2")]
-            Selected::Sv2 { config, ctx } => {
-                let mut client =
-                    stratum_v2::StratumV2Client::new(config, ctx, Sv2BoardRng(RoscRng));
-                stratum_client::run_stratum_client(
+                {
+                    Ok(socket) => socket,
+                    Err(error) => {
+                        warn!(
+                            "stratum-client: connect failed: {}",
+                            defmt::Debug2Format(&error)
+                        );
+                        Timer::after(RECONNECT_DELAY).await;
+                        continue;
+                    }
+                };
+                let mut state = stratum_client::StratumState::new();
+                let mut client = stratum_v2::StratumV2Client::new(sv2, ctx, Sv2BoardRng(RoscRng));
+                if let Err(error) = stratum_client::run_stratum_client(
                     &mut client,
                     &mut socket,
                     &ASIC_SESSION,
                     &mut state,
                 )
                 .await
+                {
+                    warn!(
+                        "stratum-client: session error {}",
+                        defmt::Debug2Format(&error)
+                    );
+                }
+                Timer::after(RECONNECT_DELAY).await;
             }
-        };
-        if let Err(error) = session_result {
-            warn!(
-                "stratum-client: session error {}",
-                defmt::Debug2Format(&error)
-            );
         }
-        Timer::after(RECONNECT_DELAY).await;
     }
 }
 
@@ -475,7 +515,6 @@ async fn boot(spawner: Spawner) {
     let config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", config.address.address());
 
-    #[cfg(any(feature = "backend-uart", feature = "backend-cpu"))]
     {
         // Core 1 hosts asic_uart_task (backend-uart) or asic_cpu_task
         // (backend-cpu); see spawn_core1 above.

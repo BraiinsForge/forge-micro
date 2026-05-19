@@ -235,7 +235,6 @@ async fn stratum_client_task(stack: Stack<'static>, pool_config: &'static PoolCo
                 Timer::after(pool_config::RECONNECT_DELAY).await;
             }
         }
-        Timer::after(pool_config::RECONNECT_DELAY).await;
     }
 }
 
