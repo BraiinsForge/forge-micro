@@ -123,7 +123,7 @@ impl RngCore for TlsRng {
     }
 
     fn next_u64(&mut self) -> u64 {
-        u64::from(self.0.random()) << 32 | u64::from(self.0.random())
+        (u64::from(self.0.random()) << 32) | u64::from(self.0.random())
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
