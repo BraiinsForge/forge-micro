@@ -1,6 +1,6 @@
 //! HTTP/1.0 response builders for the firmware web UI.
 //!
-//! Three endpoints share the socket loop in [`crate::net::run_http_server`]:
+//! Four endpoints share the socket loop in [`crate::net::run_http_server`]:
 //!
 //! - `GET /` returns the inlined HTML dashboard. The page is fully
 //!   static — every time-varying field is filled in client-side from
@@ -9,6 +9,9 @@
 //!   panel, and a configuration form view. Inlined CSS and JS keep
 //!   the first paint to a single response, well under the TCP initial
 //!   congestion window for one-RTT delivery on LAN.
+//! - `GET /logo.svg` serves the Braiins wordmark referenced by the
+//!   dashboard's nav bar. Kept as a separate cacheable asset rather
+//!   than inlined so the index response stays inside its buffer.
 //! - `GET /api/info` returns a compact JSON telemetry blob. The
 //!   dashboard polls it every 2 s and pushes hashrate and temperature
 //!   samples into ring buffers rendered as SVG polylines.
@@ -46,11 +49,12 @@ impl<'a> BufferWriter<'a> {
     pub(crate) fn len(&self) -> usize {
         self.position
     }
-}
 
-impl Write for BufferWriter<'_> {
-    fn write_str(&mut self, text: &str) -> fmt::Result {
-        let bytes = text.as_bytes();
+    /// Append raw bytes to the buffer. Used by static-asset routes
+    /// such as the logo where the payload is not valid UTF-8 from
+    /// the writer's point of view but still needs the same overflow
+    /// handling as text writes.
+    pub(crate) fn write_bytes(&mut self, bytes: &[u8]) -> fmt::Result {
         let remaining = self.buffer.len() - self.position;
         if bytes.len() > remaining {
             return Err(fmt::Error);
@@ -61,11 +65,23 @@ impl Write for BufferWriter<'_> {
     }
 }
 
+impl Write for BufferWriter<'_> {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        self.write_bytes(text.as_bytes())
+    }
+}
+
 /// Inlined dashboard. Static HTML; all telemetry is fetched from
 /// `/api/info` by the embedded JS and rendered into the card slots and
 /// the SVG chart. Sized so the whole page fits in one response buffer
 /// and arrives in a single RTT on LAN.
 const INDEX_HTML: &str = include_str!("index.html");
+
+/// Braiins wordmark served at `/logo.svg`. Kept as a separate asset
+/// rather than inlined into `index.html` so the dashboard page stays
+/// inside the response buffer budget and the browser can cache the
+/// logo across reloads.
+const LOGO_SVG: &[u8] = include_bytes!("logo.svg");
 
 /// Build an HTTP/1.0 response delivering the inlined dashboard.
 ///
@@ -159,6 +175,28 @@ pub fn build_api_info_response(buffer: &mut [u8], board_name: &str, uptime_secs:
     }
     let _ = writer.write_str("\"}");
 
+    writer.len()
+}
+
+/// Build an HTTP/1.0 response delivering the Braiins wordmark SVG.
+///
+/// Sets a long `Cache-Control` so the logo survives reloads; the
+/// asset never changes between firmware versions in practice, and
+/// keeping it out of the dashboard response makes room for the SPA
+/// to grow without bumping the response buffer again.
+pub fn build_logo_response(buffer: &mut [u8]) -> usize {
+    let mut writer = BufferWriter::new(buffer);
+    let _ = write!(
+        writer,
+        "HTTP/1.0 200 OK\r\n\
+         Content-Type: image/svg+xml\r\n\
+         Cache-Control: public, max-age=86400\r\n\
+         Connection: close\r\n\
+         Content-Length: {}\r\n\
+         \r\n",
+        LOGO_SVG.len()
+    );
+    let _ = writer.write_bytes(LOGO_SVG);
     writer.len()
 }
 

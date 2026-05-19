@@ -328,10 +328,11 @@ pub async fn run_bitcoin_price<R: CryptoRng + RngCore>(stack: Stack<'static>, mu
 
 /// Accept HTTP connections and serve the dashboard. Runs forever.
 ///
-/// Routes `GET /` to the inlined HTML dashboard, `GET /api/info` to a
-/// small JSON telemetry blob the dashboard polls, and `POST /api/config`
-/// to a stub handler that logs the submitted body before returning a
-/// 200 OK. Anything else gets a 404. A single TCP read is expected to
+/// Routes `GET /` to the inlined HTML dashboard, `GET /logo.svg` to
+/// the cacheable Braiins wordmark, `GET /api/info` to a small JSON
+/// telemetry blob the dashboard polls, and `POST /api/config` to a
+/// stub handler that logs the submitted body before returning a 200
+/// OK. Anything else gets a 404. A single TCP read is expected to
 /// cover the request line and any small body; a well-behaved client
 /// sends the whole request in one segment, and the config form fits
 /// comfortably in [`Http::REQUEST_BUFFER_SIZE`].
@@ -363,6 +364,7 @@ pub async fn run_http_server(stack: Stack<'static>, board_name: &'static str) ->
             Some("/api/info") => {
                 crate::http::build_api_info_response(response, board_name, uptime_secs)
             }
+            Some("/logo.svg") => crate::http::build_logo_response(response),
             Some("/api/config") => {
                 let body = extract_request_body(&request_buffer[..request_length]);
                 // `/api/config` is unauthenticated; truncate to keep a LAN peer

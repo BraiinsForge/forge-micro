@@ -7,7 +7,9 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
 .bar{display:flex;align-items:stretch;gap:4px;background:var(--panel);padding:0 20px;height:48px;border-bottom:1px solid var(--border)}
-.logo{color:var(--accent-hi);font-weight:700;font-size:1rem;letter-spacing:.04em;align-self:center;margin-right:24px}
+.logo{display:flex;align-items:center;gap:8px;margin-right:24px;color:var(--mute);font-size:.75rem;text-transform:uppercase;letter-spacing:.12em}
+.logo img{height:18px;display:block}
+.logo .mu{display:inline-block;font:600 1.4rem/1 ui-serif,Georgia,serif;color:var(--accent-hi);text-shadow:0 0 4px var(--accent),0 0 10px var(--accent);letter-spacing:0;text-transform:none}
 .bar a{color:var(--mute);text-decoration:none;padding:0 14px;display:flex;align-items:center;font-size:.85rem;border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:.06em}
 .bar a:hover{color:var(--fg)}
 .bar a.on{color:var(--fg);border-bottom-color:var(--accent)}
@@ -41,7 +43,7 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 .hide{display:none}
 </style></head><body>
 <nav class="bar">
-<span class="logo">microBOS</span>
+<span class="logo"><img src="/logo.svg" alt="Braiins"><span class="mu">µ</span></span>
 <a href="#" id="nDash">Dashboard</a>
 <a href="#config" id="nCfg">Configuration</a>
 <span class="sp"></span>
