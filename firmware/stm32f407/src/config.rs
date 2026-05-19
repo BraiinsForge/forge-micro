@@ -5,11 +5,10 @@
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
 use embassy_stm32::peripherals::{
-    ADC1, DMA2_CH0, ETH, ETH_SMA, IWDG, PA1, PA2, PA6, PA7, PB11, PB12, PB13, PC1, PC4, PC5, PE14,
-    RNG, TIM3,
+    ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0, ETH, ETH_SMA, I2C1, IWDG, PA1, PA2,
+    PA6, PA7, PB11, PB12, PB13, PB6, PB7, PB8, PB9, PC1, PC4, PC5, PD8, PD9, PE0, PE1, PE14, RNG,
+    TIM3, TIM4, USART3,
 };
-#[cfg(feature = "backend-uart")]
-use embassy_stm32::peripherals::{DMA1_CH1, DMA1_CH3, PD8, PD9, USART3};
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::{DMA1_CH5, PC10, PC12, PD1, PD3, PD5, SPI3};
 use embassy_stm32::time::Hertz;
@@ -46,6 +45,7 @@ pub fn stm32_config() -> embassy_stm32::Config {
 }
 
 /// Every peripheral singleton the board consumes, extracted in one place.
+#[allow(dead_code)]
 pub struct Board {
     pub iwdg: Peri<'static, IWDG>,
     pub rng: Peri<'static, RNG>,
@@ -65,18 +65,36 @@ pub struct Board {
     pub tx_en: Peri<'static, PB11>,
     pub mdio: Peri<'static, PA2>,
     pub mdc: Peri<'static, PC1>,
-    #[cfg(feature = "backend-uart")]
+    /// USART3 peripheral for the BM1362 chip serial link.
     pub usart3: Peri<'static, USART3>,
-    #[cfg(feature = "backend-uart")]
+    /// USART3 TX pin (PD8, AF7).
     pub usart3_tx: Peri<'static, PD8>,
-    #[cfg(feature = "backend-uart")]
+    /// USART3 RX pin (PD9, AF7).
     pub usart3_rx: Peri<'static, PD9>,
     /// DMA1 Stream1 Channel4 — `USART3_RX` per RM0090 table 42.
-    #[cfg(feature = "backend-uart")]
     pub usart3_rx_dma: Peri<'static, DMA1_CH1>,
     /// DMA1 Stream3 Channel4 — `USART3_TX` per RM0090 table 42.
-    #[cfg(feature = "backend-uart")]
     pub usart3_tx_dma: Peri<'static, DMA1_CH3>,
+    /// I2C1 peripheral for the BMM100 PSU and LM75A temperature sensors.
+    pub i2c1: Peri<'static, I2C1>,
+    /// I2C1 SCL pin (PB6, AF4).
+    pub scl: Peri<'static, PB6>,
+    /// I2C1 SDA pin (PB7, AF4).
+    pub sda: Peri<'static, PB7>,
+    /// DMA1 Stream0 — `I2C1_RX` per RM0090 table 42.
+    pub i2c1_rx_dma: Peri<'static, DMA1_CH0>,
+    /// DMA1 Stream6 — `I2C1_TX` per RM0090 table 42.
+    pub i2c1_tx_dma: Peri<'static, DMA1_CH6>,
+    /// Hashboard reset line (active-low GPIO output, PE0).
+    pub hb_rst: Peri<'static, PE0>,
+    /// Hashboard plug-detect line (GPIO input with pull-up, PE1).
+    pub hb_plug: Peri<'static, PE1>,
+    /// TIM4 peripheral shared between PWM (CH3/PB8) and tach (CH4/PB9).
+    pub tim4: Peri<'static, TIM4>,
+    /// Fan PWM output pin (PB8, `TIM4_CH3` AF2).
+    pub fan_pwm_pin: Peri<'static, PB8>,
+    /// Fan tachometer input pin (PB9, `TIM4_CH4` AF2).
+    pub fan_tach_pin: Peri<'static, PB9>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI3>,
     #[cfg(feature = "display")]
@@ -134,16 +152,21 @@ impl Board {
             tx_en: peripherals.PB11,
             mdio: peripherals.PA2,
             mdc: peripherals.PC1,
-            #[cfg(feature = "backend-uart")]
             usart3: peripherals.USART3,
-            #[cfg(feature = "backend-uart")]
             usart3_tx: peripherals.PD8,
-            #[cfg(feature = "backend-uart")]
             usart3_rx: peripherals.PD9,
-            #[cfg(feature = "backend-uart")]
             usart3_rx_dma: peripherals.DMA1_CH1,
-            #[cfg(feature = "backend-uart")]
             usart3_tx_dma: peripherals.DMA1_CH3,
+            i2c1: peripherals.I2C1,
+            scl: peripherals.PB6,
+            sda: peripherals.PB7,
+            i2c1_rx_dma: peripherals.DMA1_CH0,
+            i2c1_tx_dma: peripherals.DMA1_CH6,
+            hb_rst: peripherals.PE0,
+            hb_plug: peripherals.PE1,
+            tim4: peripherals.TIM4,
+            fan_pwm_pin: peripherals.PB8,
+            fan_tach_pin: peripherals.PB9,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI3,
             #[cfg(feature = "display")]

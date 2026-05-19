@@ -1,4 +1,10 @@
-//! Firmware entry point for the `DevEBox` STM32F407VGT6 + WT32-ETH01 (LAN8720).
+//! Firmware entry point for the `DevEBox` STM32F407VGT6 + WT32-ETH01
+//! (LAN8720) with the BMM100/BM1362 MMM backend.
+//!
+//! Enables the module's 50 MHz oscillator, starts the built-in MAC with
+//! an auto-probed LAN8720 PHY, runs the embassy-net stack with DHCP, and
+//! spawns the watchdog, LED blink, NTP, BTC, MMM mining, and HTTP tasks.
+//! Built with `cargo build` from this crate inside `nix develop .#arm`.
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
 //! Wiring/build: `../../../docs/SETUP.md`
@@ -6,41 +12,28 @@
 #![no_std]
 #![no_main]
 
-#[cfg(not(any(feature = "backend-uart", feature = "backend-cpu")))]
-compile_error!("a backend feature must be selected: `backend-uart` or `backend-cpu`");
-
-#[cfg(all(feature = "backend-uart", feature = "backend-cpu"))]
-compile_error!(
-    "features `backend-uart` and `backend-cpu` are mutually exclusive; \
-     pick exactly one with --no-default-features --features \"display,<backend>\""
-);
-
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_stm32::adc::{Adc, AdcChannel, Exten, RingBufferedAdc, SampleTime};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::gpio::{Level, Output, Speed};
-#[cfg(feature = "backend-uart")]
-use embassy_stm32::mode::Async;
+use embassy_stm32::i2c::{Config as I2cConfig, I2c};
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::DMA1_CH5;
-use embassy_stm32::peripherals::{ADC1, DMA2_CH0, ETH, ETH_SMA, IWDG};
-#[cfg(feature = "backend-uart")]
-use embassy_stm32::peripherals::{DMA1_CH1, DMA1_CH3};
+use embassy_stm32::peripherals::{
+    ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0, ETH, ETH_SMA, IWDG,
+};
 use embassy_stm32::rng::Rng;
 #[cfg(feature = "display")]
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer as LowLevelTimer};
 use embassy_stm32::triggers::TIM3_TRGO;
-#[cfg(feature = "backend-uart")]
-use embassy_stm32::usart::{
-    Config as UartConfig, InterruptHandler as UsartInterruptHandler, RingBufferedUartRx, Uart,
-    UartTx,
-};
+use embassy_stm32::usart::{Config as UartConfig, InterruptHandler as UsartInterruptHandler, Uart};
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{bind_interrupts, dma, eth, peripherals, rng};
+use embassy_sync::mutex::Mutex;
 #[cfg(feature = "display")]
 use embassy_time::{Duration, Timer};
 #[cfg(feature = "display")]
@@ -48,11 +41,17 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::StaticCell;
 #[cfg(feature = "display")]
 use ubos_main::sh1106::{Rotation, Sh1106};
+use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
 use {defmt_rtt as _, panic_probe as _};
 
 use ubos_main::net;
 
 mod config;
+mod fan;
+mod mining;
+mod psu;
+mod temperature;
+mod uart_baudrate;
 
 // `ubos_main::pool_config::parse` runs at boot to copy seven
 // compile-time env-var strings into typed fields. The result lives
@@ -102,18 +101,21 @@ impl ii_sv2::security::Rng for Sv2BoardRng<'_> {
 
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
+static MONITOR_CONFIG: MonitorConfig = BMM101_DEFAULT;
+
 defmt::timestamp!("{=u64:iso8601s}", ubos_main::wall_clock_secs());
 
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
     RNG => rng::InterruptHandler<peripherals::RNG>;
     DMA2_STREAM0 => dma::InterruptHandler<DMA2_CH0>;
-    #[cfg(feature = "backend-uart")]
     USART3 => UsartInterruptHandler<peripherals::USART3>;
-    #[cfg(feature = "backend-uart")]
     DMA1_STREAM1 => dma::InterruptHandler<DMA1_CH1>;
-    #[cfg(feature = "backend-uart")]
     DMA1_STREAM3 => dma::InterruptHandler<DMA1_CH3>;
+    DMA1_STREAM0 => dma::InterruptHandler<DMA1_CH0>;
+    DMA1_STREAM6 => dma::InterruptHandler<DMA1_CH6>;
+    I2C1_EV => embassy_stm32::i2c::EventInterruptHandler<peripherals::I2C1>;
+    I2C1_ER => embassy_stm32::i2c::ErrorInterruptHandler<peripherals::I2C1>;
     #[cfg(feature = "display")]
     DMA1_STREAM5 => dma::InterruptHandler<DMA1_CH5>;
 });
@@ -208,6 +210,16 @@ async fn cpu_load_task() -> ! {
     ubos_main::cpu_load::run_cpu_load::<1>().await
 }
 
+#[embassy_executor::task]
+async fn monitor_task(sensor: temperature::HashboardTemperature, fan: fan::BoardFan) -> ! {
+    ubos_monitor::run_monitor(sensor, fan, &MONITOR_CONFIG).await
+}
+
+#[embassy_executor::task]
+async fn tach_task(hardware: fan::TachHardware) -> ! {
+    fan::run_tach(hardware).await
+}
+
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
     ExclusiveDevice<
@@ -222,14 +234,6 @@ type OledDisplay = Sh1106<
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay) -> ! {
     ubos_main::display::run(&mut display).await
-}
-
-#[cfg(feature = "backend-uart")]
-#[embassy_executor::task]
-async fn asic_uart_task(
-    uart: asic_uart_peer::SplitUart<RingBufferedUartRx<'static>, UartTx<'static, Async>>,
-) -> ! {
-    asic_uart_peer::run_asic_uart(&ASIC_SESSION, uart).await
 }
 
 /// Read the `POOL_*` env vars at compile time (each falling through
@@ -379,12 +383,6 @@ async fn stratum_client_task(
     }
 }
 
-#[cfg(feature = "backend-cpu")]
-#[embassy_executor::task]
-async fn asic_cpu_task() -> ! {
-    asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
-}
-
 #[cortex_m_rt::entry]
 fn main() -> ! {
     ubos_main::cpu_load::run_cortex_m_executor::<0, _>(|spawner| {
@@ -497,12 +495,48 @@ async fn boot(spawner: Spawner) {
         _timer: temp_timer,
     })));
 
-    #[cfg(feature = "backend-uart")]
+    // BMM100 hashboard PSU on I2C1: shared bus, PSU watchdog, power stats,
+    // and the miner bring-up task all run on the single-core executor, so
+    // the I2C bus mutex can stay `NoopRawMutex`.
+    {
+        static I2C1_BUS: StaticCell<psu::Bus> = StaticCell::new();
+        let i2c = I2c::new(
+            hw.i2c1,
+            hw.scl,
+            hw.sda,
+            hw.i2c1_tx_dma,
+            hw.i2c1_rx_dma,
+            Irqs,
+            I2cConfig::default(),
+        );
+        let bus: &'static psu::Bus = I2C1_BUS.init(Mutex::new(i2c));
+        let (board_psu, psu_state, terminated) = psu::init(bus);
+        spawner.spawn(unwrap!(psu::watchdog_task(psu_state, terminated)));
+        spawner.spawn(unwrap!(psu::power_stats_task(board_psu)));
+
+        // Hashboard reset line (PE0, active-low).
+        let reset_pin = Output::new(hw.hb_rst, Level::Low, Speed::Low);
+        let reset = mining::BoardResetPin::new(reset_pin);
+        spawner.spawn(unwrap!(mining::miner_task(board_psu, reset)));
+
+        // Temperature and fan monitor via shared I2C1 bus.
+        let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
+        let hashboard_temp = temperature::HashboardTemperature::new(temp_device);
+        let board_fan = fan::BoardFan::new(hw.tim4, hw.fan_pwm_pin, hw.fan_tach_pin);
+        let tach_hardware = fan::TachHardware::new(&board_fan);
+        spawner.spawn(unwrap!(monitor_task(hashboard_temp, board_fan)));
+        spawner.spawn(unwrap!(tach_task(tach_hardware)));
+    }
+
+    // BM1362 UART on USART3 (PD8 TX, PD9 RX) with DMA ring buffer.
+    // Serial task runs on the same executor as embassy-net because the
+    // STM32F407 is single-core. USART3 uses DMA so ETH-ISR jitter affects
+    // only the DMA transfer level; the 1 KiB ring buffer absorbs bursts.
     {
         static DMA_RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
         let uart_config = {
             let mut config = UartConfig::default();
-            config.baudrate = asic_uart_peer::BAUD_RATE;
+            config.baudrate = mmm::consts::INITIAL_BAUDRATE;
             config
         };
         // Valid USART3 peripheral with type-checked DMA channels; cannot fail.
@@ -518,11 +552,8 @@ async fn boot(spawner: Spawner) {
         .expect("BUG: USART3 configuration failed");
         let (uart_tx, uart_rx) = uart.split();
         let ring_rx = uart_rx.into_ring_buffered(DMA_RX_BUF.init([0; 1024]));
-        let split_uart = asic_uart_peer::SplitUart {
-            rx: ring_rx,
-            tx: uart_tx,
-        };
-        spawner.spawn(unwrap!(asic_uart_task(split_uart)));
+        let (mmm_tx, mmm_rx) = uart_baudrate::split_usart3(uart_tx, ring_rx);
+        spawner.spawn(unwrap!(mining::serial_task(mmm_rx, mmm_tx)));
     }
 
     // SH1106 OLED on SPI3: reset pulse, then async TX-only SPI with DMA.
@@ -586,8 +617,6 @@ async fn boot(spawner: Spawner) {
             }
         }
     }
-    #[cfg(feature = "backend-cpu")]
-    spawner.spawn(unwrap!(asic_cpu_task()));
 
     net::run_http_server(stack, config::Board::NAME).await;
 }

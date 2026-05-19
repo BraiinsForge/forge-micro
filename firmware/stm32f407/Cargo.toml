@@ -7,55 +7,40 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["display", "backend-uart"]
+default = ["display"]
 display = []
-# UART peer backend: drives an external ASIC peer board over UART.
-# Mutually exclusive with `backend-cpu`.
-backend-uart = [
-    "dep:asic-uart-peer",
-    "dep:stratum-client",
-    "dep:stratum-v1",
-    "asic-uart-peer/defmt",
-    "stratum-client/defmt",
-    "stratum-v1/defmt",
-]
-# CPU mock backend: hashes on-MCU instead of driving a peer.
-# Mutually exclusive with `backend-uart`; enable with
-# `--no-default-features --features "display,backend-cpu"`.
-backend-cpu = [
-    "dep:asic-cpu-mock",
-    "dep:stratum-client",
-    "dep:stratum-v1",
-    "asic-cpu-mock/defmt",
-    "stratum-client/defmt",
-    "stratum-v1/defmt",
-]
 
 [dependencies]
 ubos-main           = { workspace = true, features = ["defmt"] }
 embassy-executor    = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time        = { workspace = true, features = ["defmt"] }
 embassy-net         = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
-embassy-stm32       = { version = "0.6.0", features = ["defmt", "stm32f407vg", "memory-x", "time-driver-tim2", "time"] }
+embassy-stm32       = { version = "0.6.0", features = ["defmt", "stm32f407vg", "memory-x", "time-driver-tim2", "time", "unstable-pac"] }
 defmt               = { workspace = true }
 defmt-rtt           = { workspace = true }
 panic-probe         = { workspace = true, features = ["print-defmt"] }
 static_cell         = { workspace = true }
 embedded-hal-bus    = { workspace = true, features = ["async"] }
+embedded-io-async   = { workspace = true }
 cortex-m            = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt         = "0.7"
 portable-atomic     = { workspace = true }
-asic-cpu-mock       = { workspace = true, optional = true }
-asic-uart-peer      = { workspace = true, optional = true }
-stratum-client      = { workspace = true, optional = true }
-stratum-v1          = { workspace = true, optional = true }
+stratum-client      = { workspace = true, features = ["defmt"] }
+stratum-v1          = { workspace = true, features = ["defmt"] }
 stratum-v2          = { workspace = true, features = ["defmt"] }
 # Workspace dep is declared with default-features = false so the
 # firmware does not pull `alloc` via secp256k1's alloc feature.
 ii-sv2              = { workspace = true, features = ["lowmemory"] }
 rand_chacha         = { workspace = true }
 ubos-temperature    = { workspace = true, features = ["defmt"] }
+ubos-monitor        = { workspace = true, features = ["defmt"] }
+ubos-psu            = { workspace = true, features = ["defmt"] }
+mmm                 = { workspace = true, features = ["defmt"] }
+serial-baudrate     = { workspace = true }
+embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
+embassy-sync        = { workspace = true, features = ["defmt"] }
 heapless            = { workspace = true }
+critical-section    = { version = "1" }
 
 # cortex-m is pulled in for the `critical-section-single-core`
 # feature; no direct source references, so machete cannot see it.
