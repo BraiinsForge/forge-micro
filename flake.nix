@@ -394,12 +394,7 @@
       in
       {
         # Each firmware crate is checked under its default feature set
-        # only. Cross-combinations of the display and backend-uart
-        # features are not gated here: fanning out would multiply CI time
-        # without catching bugs the default combos already cover for most
-        # boards.
-        # A future change that breaks a non-default combo will land
-        # unnoticed until a human builds that combo locally.
+        # only.
         checks = {
           clippy-bmm-pico = craneLib.cargoClippy {
             inherit src;
@@ -589,20 +584,6 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
-          clippy-asic-cpu-mock = craneLib.cargoClippy {
-            inherit src;
-            cargoArtifacts = null;
-            cargoExtraArgs = "-p asic-cpu-mock";
-            cargoClippyExtraArgs = "-- -D warnings";
-          };
-
-          clippy-asic-uart-peer = craneLib.cargoClippy {
-            inherit src;
-            cargoArtifacts = null;
-            cargoExtraArgs = "-p asic-uart-peer";
-            cargoClippyExtraArgs = "-- -D warnings";
-          };
-
           clippy-ubos-main-host = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
@@ -638,18 +619,6 @@
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p stratum-client";
-          };
-
-          test-asic-cpu-mock = craneLib.cargoTest {
-            inherit src;
-            cargoArtifacts = null;
-            cargoExtraArgs = "-p asic-cpu-mock";
-          };
-
-          test-asic-uart-peer = craneLib.cargoTest {
-            inherit src;
-            cargoArtifacts = null;
-            cargoExtraArgs = "-p asic-uart-peer";
           };
 
           clippy-ubos-monitor = craneLib.cargoClippy {

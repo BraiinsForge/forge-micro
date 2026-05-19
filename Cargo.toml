@@ -74,8 +74,6 @@ members = [
     "firmware/stm32f407",
     "firmware/stm32f439",
     "firmware/esp32s3",
-    "asic-cpu-mock",
-    "asic-uart-peer",
     "embassy-net-afpacket",
     "embedded-i2c-unix",
     "embedded-serial-unix",
@@ -129,8 +127,6 @@ format_no_std     = "1.2.0"
 nb                = "1"
 sha2              = { version = "0.10", default-features = false }
 esp32s3-tsens     = { path = "esp32s3-tsens" }
-asic-cpu-mock     = { path = "asic-cpu-mock" }
-asic-uart-peer    = { path = "asic-uart-peer" }
 mining-protocol   = { path = "mining-protocol" }
 serial-baudrate   = { path = "serial-baudrate" }
 stratum-client    = { path = "stratum-client" }

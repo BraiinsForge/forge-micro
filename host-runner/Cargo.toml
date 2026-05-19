@@ -27,7 +27,8 @@ mmm                = { path = "../mmm", default-features = false }
 static_cell        = { workspace = true }
 ubos-main          = { workspace = true, default-features = false }
 rand               = "0.8"
-asic-cpu-mock      = { workspace = true }
+sha2               = { workspace = true }
+embassy-futures    = { workspace = true }
 mining-protocol    = { workspace = true }
 stratum-client     = { workspace = true }
 stratum-v1         = { workspace = true }

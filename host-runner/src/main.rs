@@ -38,6 +38,7 @@ use static_cell::StaticCell;
 use stratum_client::AsicSession;
 use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
 
+mod cpu_mock;
 mod fan;
 mod gpiod;
 mod hosted_network;
@@ -145,7 +146,7 @@ async fn http_server_task(stack: Stack<'static>) -> ! {
 /// Consumes work from `ASIC_SESSION` and pushes solutions back.
 #[embassy_executor::task]
 async fn asic_cpu_task() -> ! {
-    asic_cpu_mock::run_asic_cpu(&ASIC_SESSION).await
+    cpu_mock::run_asic_cpu(&ASIC_SESSION).await
 }
 
 /// Stratum client task. Resolves `pool_config.host`, opens a TCP
