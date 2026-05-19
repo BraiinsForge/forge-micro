@@ -320,7 +320,13 @@ pub async fn run_bitcoin_price<R: CryptoRng + RngCore>(stack: Stack<'static>, mu
     }
 }
 
-/// Accept HTTP connections and serve the metrics page. Runs forever.
+/// Accept HTTP connections and serve the dashboard. Runs forever.
+///
+/// Routes `GET /` to the inlined HTML dashboard and `GET /api/info` to
+/// a small JSON telemetry blob the dashboard polls. Anything else gets
+/// a 404. A single TCP read is expected to cover the request line; a
+/// well-behaved browser sends the whole header block in one segment,
+/// and the GET requests we care about have no body.
 pub async fn run_http_server(stack: Stack<'static>, board_name: &'static str) -> ! {
     let rx = HTTP_RX.take();
     let tx = HTTP_TX.take();
@@ -335,21 +341,24 @@ pub async fn run_http_server(stack: Stack<'static>, board_name: &'static str) ->
             continue;
         }
 
-        // Read and discard the request without parsing. A single read may
-        // return only part of the HTTP request if the client splits it
-        // across TCP segments. Acceptable here because the response is the
-        // same metrics page regardless of request contents.
         let mut request_buffer = [0; Http::REQUEST_BUFFER_SIZE];
-        match socket.read(&mut request_buffer).await {
+        let request_length = match socket.read(&mut request_buffer).await {
             Ok(0) | Err(_) => continue,
-            Ok(_) => {}
-        }
+            Ok(length) => length,
+        };
 
-        let count = REQUEST_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
         let uptime_secs = Instant::now().as_secs();
-        let len = crate::http::build_metrics_response(response, board_name, uptime_secs, count);
+        let path = parse_request_path(&request_buffer[..request_length]);
+        let length = match path {
+            Some("/") | None => crate::http::build_index_response(response),
+            Some("/api/info") => {
+                crate::http::build_api_info_response(response, board_name, uptime_secs)
+            }
+            Some(_) => crate::http::build_not_found_response(response),
+        };
 
-        if let Err(error) = socket.write_all(&response[..len]).await {
+        if let Err(error) = socket.write_all(&response[..length]).await {
             warn!("tcp write error: {:?}", error);
         }
 
@@ -359,4 +368,23 @@ pub async fn run_http_server(stack: Stack<'static>, board_name: &'static str) ->
         // instead of RST when the socket is dropped.
         Timer::after(Duration::from_millis(50)).await;
     }
+}
+
+/// Extract the request path from the first line of an HTTP request.
+///
+/// Expects `METHOD SP PATH SP HTTP/VERSION CRLF`. Returns `None` if the
+/// line is malformed or not valid UTF-8. The method is not inspected,
+/// so `POST /` or `PUT /api/info` are routed the same as the matching
+/// `GET`. Acceptable here because all handlers are idempotent and
+/// produce the same response body regardless of verb.
+fn parse_request_path(request: &[u8]) -> Option<&str> {
+    let line_end = request
+        .iter()
+        .position(|&byte| byte == b'\r' || byte == b'\n')?;
+    let line = &request[..line_end];
+    let first_space = line.iter().position(|&byte| byte == b' ')?;
+    let after_method = &line[first_space + 1..];
+    let second_space = after_method.iter().position(|&byte| byte == b' ')?;
+    let path_bytes = &after_method[..second_space];
+    core::str::from_utf8(path_bytes).ok()
 }
