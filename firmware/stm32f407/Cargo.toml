@@ -55,6 +55,7 @@ stratum-v2          = { workspace = true, features = ["defmt"] }
 ii-sv2              = { workspace = true, features = ["lowmemory"] }
 rand_chacha         = { workspace = true }
 ubos-temperature    = { workspace = true, features = ["defmt"] }
+heapless            = { workspace = true }
 
 # cortex-m is pulled in for the `critical-section-single-core`
 # feature; no direct source references, so machete cannot see it.

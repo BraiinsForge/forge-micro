@@ -57,6 +57,7 @@ stratum-v2          = { workspace = true, features = ["defmt"] }
 # firmware does not pull `alloc` via secp256k1's alloc feature.
 ii-sv2              = { workspace = true, features = ["lowmemory"] }
 ubos-temperature    = { workspace = true, features = ["defmt"] }
+heapless            = { workspace = true }
 
 # cortex-m is pulled in for the `inline-asm` feature; no direct
 # source references, so machete cannot see it.

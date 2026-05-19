@@ -57,3 +57,4 @@ esp-backtrace          = { version = "0.18.1", features = ["defmt", "esp32s3", "
 rand_core              = { workspace = true }
 defmt-rtt              = "1.1.0"
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32s3"] }
+heapless               = { workspace = true }

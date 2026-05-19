@@ -54,6 +54,7 @@ ii-sv2              = { workspace = true, features = ["lowmemory"] }
 ubos-temperature    = { workspace = true, features = ["defmt"] }
 embedded-hal-bus    = { workspace = true, features = ["async"] }
 embedded-io-async   = { workspace = true }
+heapless            = { workspace = true }
 cortex-m            = { version = "0.7", features = ["inline-asm"] }
 cortex-m-rt         = "0.7"
 
