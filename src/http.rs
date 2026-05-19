@@ -1,6 +1,6 @@
 //! HTTP/1.0 response builders for the firmware web UI.
 //!
-//! Two endpoints share the socket loop in [`crate::net::run_http_server`]:
+//! Three endpoints share the socket loop in [`crate::net::run_http_server`]:
 //!
 //! - `GET /` returns the inlined HTML dashboard. The page is fully
 //!   static — every time-varying field is filled in client-side from
@@ -11,6 +11,9 @@
 //! - `GET /api/info` returns a compact JSON telemetry blob. The
 //!   dashboard polls it every 2 s and pushes the hashrate sample into
 //!   a 120-slot ring buffer rendered as the SVG polyline.
+//! - `POST /api/config` accepts a pool-config form submission. The
+//!   router logs the submitted body and returns a stub 200 OK; no
+//!   firmware state changes yet.
 //!
 //! Any other path gets a small 404. Responses are written into a
 //! caller-owned buffer sized in [`crate::consts::Http::RESPONSE_BUFFER_SIZE`].
@@ -20,8 +23,9 @@ use core::fmt::{self, Write};
 use embassy_net::Ipv4Address;
 use portable_atomic::Ordering;
 
+use crate::display::{FAN_PWM_PERCENT, FAN_RPM};
 use crate::hashrate::SHARE_COUNT;
-use crate::net::{BTC_PRICE_CENTS, LOCAL_IPV4, NTP_EPOCH_OFFSET};
+use crate::net::{BTC_PRICE_CENTS, LOCAL_IPV4, NTP_EPOCH_OFFSET, TEMPERATURE_C};
 
 /// Wrapper around a byte slice that tracks the write position.
 pub(crate) struct BufferWriter<'a> {
@@ -109,6 +113,15 @@ pub fn build_api_info_response(buffer: &mut [u8], board_name: &str, uptime_secs:
     let hashrate = crate::hashrate::hashrate();
     let shares = SHARE_COUNT.load(Ordering::Relaxed);
     let cents = BTC_PRICE_CENTS.load(Ordering::Relaxed);
+    let temperature = TEMPERATURE_C.load(Ordering::Relaxed);
+    let fan_rpm = FAN_RPM.load(Ordering::Relaxed);
+    // `display::FAN_PWM_PERCENT` uses `u8::MAX` to mean "no fan on this
+    // board"; the dashboard treats zero as "not available", so map the
+    // sentinel to zero before serializing.
+    let fan_pwm = match FAN_PWM_PERCENT.load(Ordering::Relaxed) {
+        u8::MAX => 0,
+        percent => percent,
+    };
 
     let _ = write!(
         writer,
@@ -117,6 +130,9 @@ pub fn build_api_info_response(buffer: &mut [u8], board_name: &str, uptime_secs:
          \"shares\":{shares},\
          \"uptime\":{uptime_secs},\
          \"btc_cents\":{cents},\
+         \"temperature\":{temperature},\
+         \"fan_rpm\":{fan_rpm},\
+         \"fan_pwm\":{fan_pwm},\
          \"ip\":\""
     );
 
@@ -142,6 +158,26 @@ pub fn build_api_info_response(buffer: &mut [u8], board_name: &str, uptime_secs:
     }
     let _ = writer.write_str("\"}");
 
+    writer.len()
+}
+
+/// Build a small HTTP/1.0 200 OK acknowledgement for the config POST.
+///
+/// The route handler logs the submitted body and then writes this
+/// response. No state changes on the firmware side yet; this is the
+/// scaffolding for the eventual pool-config commit handler.
+pub fn build_config_ack_response(buffer: &mut [u8]) -> usize {
+    let mut writer = BufferWriter::new(buffer);
+    let _ = write!(
+        writer,
+        "HTTP/1.0 200 OK\r\n\
+         Content-Type: application/json\r\n\
+         Cache-Control: no-store\r\n\
+         Connection: close\r\n\
+         Content-Length: 11\r\n\
+         \r\n\
+         {{\"ok\":true}}"
+    );
     writer.len()
 }
 

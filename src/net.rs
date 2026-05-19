@@ -135,6 +135,12 @@ pub static LAST_BTC_FETCH_UPTIME_SECS: AtomicU64 = AtomicU64::new(0);
 /// `0.0.0.0` round-trips through this encoding, but `DHCPv4` unicast leases
 /// never assign it, so the sentinel does not collide in practice.
 pub static LOCAL_IPV4: AtomicU32 = AtomicU32::new(0);
+/// Most recent on-board temperature reading in whole degrees Celsius.
+/// Zero until a producer writes; the dashboard renders zero as a flat
+/// trace at the chart baseline. The store is `u32`, so producers must
+/// clamp sub-zero readings to zero before storing; an `i32 as u32`
+/// cast of a negative value would wrap to a huge positive number.
+pub static TEMPERATURE_C: AtomicU32 = AtomicU32::new(0);
 
 static TCP_RX: ConstStaticCell<[u8; Tls::TCP_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::TCP_BUFFER_SIZE]);
@@ -322,11 +328,13 @@ pub async fn run_bitcoin_price<R: CryptoRng + RngCore>(stack: Stack<'static>, mu
 
 /// Accept HTTP connections and serve the dashboard. Runs forever.
 ///
-/// Routes `GET /` to the inlined HTML dashboard and `GET /api/info` to
-/// a small JSON telemetry blob the dashboard polls. Anything else gets
-/// a 404. A single TCP read is expected to cover the request line; a
-/// well-behaved browser sends the whole header block in one segment,
-/// and the GET requests we care about have no body.
+/// Routes `GET /` to the inlined HTML dashboard, `GET /api/info` to a
+/// small JSON telemetry blob the dashboard polls, and `POST /api/config`
+/// to a stub handler that logs the submitted body before returning a
+/// 200 OK. Anything else gets a 404. A single TCP read is expected to
+/// cover the request line and any small body; a well-behaved client
+/// sends the whole request in one segment, and the config form fits
+/// comfortably in [`Http::REQUEST_BUFFER_SIZE`].
 pub async fn run_http_server(stack: Stack<'static>, board_name: &'static str) -> ! {
     let rx = HTTP_RX.take();
     let tx = HTTP_TX.take();
@@ -355,6 +363,19 @@ pub async fn run_http_server(stack: Stack<'static>, board_name: &'static str) ->
             Some("/api/info") => {
                 crate::http::build_api_info_response(response, board_name, uptime_secs)
             }
+            Some("/api/config") => {
+                let body = extract_request_body(&request_buffer[..request_length]);
+                // `/api/config` is unauthenticated; truncate to keep a LAN peer
+                // from spamming the defmt link with megabytes of attacker text.
+                // Truncate the bytes before the UTF-8 check: slicing a `&str`
+                // at the cap would panic on a multi-byte codepoint boundary,
+                // while a chopped codepoint here just turns into Err and
+                // falls back to `<non-utf8>`.
+                let truncated = &body[..body.len().min(256)];
+                let body_str = core::str::from_utf8(truncated).unwrap_or("<non-utf8>");
+                info!("pool config update ({} bytes): {}", body.len(), body_str);
+                crate::http::build_config_ack_response(response)
+            }
             Some(_) => crate::http::build_not_found_response(response),
         };
 
@@ -368,6 +389,19 @@ pub async fn run_http_server(stack: Stack<'static>, board_name: &'static str) ->
         // instead of RST when the socket is dropped.
         Timer::after(Duration::from_millis(50)).await;
     }
+}
+
+/// Locate the body of an HTTP request inside the read buffer.
+///
+/// Returns the slice after the first `\r\n\r\n` header terminator, or an
+/// empty slice if no terminator is present. Used by the config POST
+/// route to surface the submitted JSON for logging; the caller is
+/// responsible for trusting nothing about the body's validity.
+fn extract_request_body(request: &[u8]) -> &[u8] {
+    let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return &[];
+    };
+    &request[position + 4..]
 }
 
 /// Extract the request path from the first line of an HTTP request.
