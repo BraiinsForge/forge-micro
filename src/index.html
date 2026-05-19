@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>microBOS</title>
 <style>
-:root{--bg:#262626;--panel:#393939;--border:#525252;--fg:#f4f4f4;--mute:#c6c6c6;--accent:#6b50ff;--accent-hi:#8b7cff;--green:#34c06a;--orange:#fe8431;--red:#ff8389}
+:root{--bg:#262626;--panel:#161616;--field:#393939;--border:#525252;--fg:#fff;--mute:#a8a8a8;--accent:#6b50ff;--accent-hi:#8b7cff;--green:#34c06a;--orange:#fe8431;--red:#d9222c}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
 .bar{display:flex;align-items:stretch;gap:4px;background:var(--panel);padding:0 20px;height:48px;border-bottom:1px solid var(--border)}
@@ -17,7 +17,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-appl
 .dot.live{background:var(--green);box-shadow:0 0 6px var(--green)}
 main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-width:1200px;margin:0 auto}
 @media(max-width:760px){main{grid-template-columns:1fr}}
-.chart{background:var(--panel);border-radius:4px;padding:12px;border-top:1px solid var(--border)}
+.chart{background:var(--panel);border-radius:4px;padding:12px}
 .chart svg{display:block;width:100%;height:auto}
 .gr{stroke:var(--border);stroke-width:.5;opacity:.5;vector-effect:non-scaling-stroke}
 .tk{stroke:var(--mute);stroke-width:.5;vector-effect:non-scaling-stroke}
@@ -27,14 +27,14 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 .lg{position:absolute;top:18px;right:24px;font-size:.7rem;color:var(--mute)}
 .lg span{display:inline-block;width:10px;height:2px;vertical-align:middle;margin:0 4px 0 10px}
 .side{display:grid;gap:8px;align-content:start}
-.card{background:var(--panel);border-radius:4px;padding:12px 14px;border-top:1px solid var(--border)}
+.card{background:var(--panel);border-radius:4px;padding:12px 14px}
 .k{color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.1em}
 .v{font-size:1.05rem;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
 .cfg{max-width:520px;margin:0 auto;padding:24px 16px}
 .cfg h2{color:var(--accent-hi);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.1em;margin:24px 0 4px;border-bottom:1px solid var(--border);padding-bottom:6px}
 .cfg label{display:block;color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.08em;margin:10px 0 2px}
-.cfg input{width:100%;background:var(--panel);color:var(--fg);border:0;border-bottom:1px solid var(--border);padding:8px 10px;font:13px ui-monospace,monospace}
-.cfg input:focus{outline:0;border-bottom-color:var(--accent);background:#444}
+.cfg input{width:100%;background:var(--field);color:var(--fg);border:0;border-bottom:1px solid var(--border);padding:8px 10px;font:13px ui-monospace,monospace}
+.cfg input:focus{outline:0;border-bottom-color:var(--accent)}
 .cfg button{margin-top:20px;background:var(--accent);color:#fff;border:0;padding:10px 24px;font-weight:600;letter-spacing:.04em;cursor:pointer;text-transform:uppercase;font-size:.8rem}
 .cfg button:hover{background:var(--accent-hi)}
 .msg{margin-top:12px;color:var(--green);font-size:.8rem;min-height:1.2em}
