@@ -1,6 +1,6 @@
 # Ethernet Examples
 
-Bare-metal Rust Ethernet across five boards. Each serves an HTTP metrics
+Bare-metal Rust Ethernet across six boards. Each serves an HTTP metrics
 page with uptime, request count, current hashrate from the dummy-asic
 peer, BTC price via Binance over TLS, and UTC time via NTP.
 
@@ -8,6 +8,7 @@ peer, BTC price via Binance over TLS, and UTC time via NTP.
 
 | Crate | MCU | Ethernet | Target |
 |-------|-----|----------|--------|
+| bmm-pico | RP2350A | W5500 (onboard SPI) | thumbv8m.main-none-eabihf |
 | rp2040 | RP2040 | W5500 (onboard SPI) | thumbv6m-none-eabi |
 | rp2350 | RP2350A | W6100 (onboard SPI) | thumbv8m.main-none-eabihf |
 | stm32f407 | STM32F407VGT6 | LAN8720 (RMII, WT32-ETH01 cannibalized) | thumbv7em-none-eabihf |
