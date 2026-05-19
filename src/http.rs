@@ -4,14 +4,15 @@
 //!
 //! - `GET /` returns the inlined HTML dashboard. The page is fully
 //!   static — every time-varying field is filled in client-side from
-//!   `/api/info`. Card layout with a hashrate hero, a hand-rolled SVG
-//!   polyline chart, and per-stat cards. Inlined CSS and JS keep the
-//!   first paint to a single response, well under the TCP initial
+//!   `/api/info`. Hash-routed single-page app with a top nav bar, a
+//!   dual-axis hashrate/temperature chart, a right-side telemetry
+//!   panel, and a configuration form view. Inlined CSS and JS keep
+//!   the first paint to a single response, well under the TCP initial
 //!   congestion window for one-RTT delivery on LAN.
 //! - `GET /api/info` returns a compact JSON telemetry blob. The
-//!   dashboard polls it every 2 s and pushes the hashrate sample into
-//!   a 120-slot ring buffer rendered as the SVG polyline.
-//! - `POST /api/config` accepts a pool-config form submission. The
+//!   dashboard polls it every 2 s and pushes hashrate and temperature
+//!   samples into ring buffers rendered as SVG polylines.
+//! - `POST /api/config` accepts the dashboard's pool-config form. The
 //!   router logs the submitted body and returns a stub 200 OK; no
 //!   firmware state changes yet.
 //!

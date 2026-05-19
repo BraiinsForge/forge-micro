@@ -1,59 +1,137 @@
 <!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Rusty Boards</title>
+<title>microBOS</title>
 <style>
-:root{--bg:#262626;--panel:#393939;--border:#525252;--fg:#ffffff;--mute:#a8a8a8;--accent:#6b50ff;--accent-hi:#8b7cff;--green:#34c06a;--orange:#fe8431;--red:#ff8389}
+:root{--bg:#262626;--panel:#393939;--border:#525252;--fg:#f4f4f4;--mute:#c6c6c6;--accent:#6b50ff;--accent-hi:#8b7cff;--green:#34c06a;--orange:#fe8431;--red:#ff8389}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
-.wrap{max-width:760px;margin:0 auto;padding:24px}
-header{display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
-h1{margin:0;color:var(--accent-hi);font-size:1.05rem;font-weight:600;letter-spacing:.04em}
-.sub{color:var(--mute);font-size:.85rem}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 6px var(--red);transition:background .3s,box-shadow .3s;flex:0 0 auto}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+.bar{display:flex;align-items:stretch;gap:4px;background:var(--panel);padding:0 20px;height:48px;border-bottom:1px solid var(--border)}
+.logo{color:var(--accent-hi);font-weight:700;font-size:1rem;letter-spacing:.04em;align-self:center;margin-right:24px}
+.bar a{color:var(--mute);text-decoration:none;padding:0 14px;display:flex;align-items:center;font-size:.85rem;border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:.06em}
+.bar a:hover{color:var(--fg)}
+.bar a.on{color:var(--fg);border-bottom-color:var(--accent)}
+.bar .off{color:var(--mute);padding:0 14px;display:flex;align-items:center;font-size:.85rem;text-transform:uppercase;letter-spacing:.06em;opacity:.5;cursor:not-allowed}
+.sp{flex:1}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 6px var(--red);align-self:center;transition:background .3s,box-shadow .3s}
 .dot.live{background:var(--green);box-shadow:0 0 6px var(--green)}
-.hero{background:var(--panel);border-radius:4px;padding:28px;text-align:center;margin-bottom:8px;border-left:3px solid var(--accent)}
-.hero .label{color:var(--mute);font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px}
-.hero .v{font-size:2.6rem;color:var(--green);font-weight:600;font-variant-numeric:tabular-nums}
-.hero .u{color:var(--mute);font-size:1rem;margin-left:8px}
-.chart{background:var(--panel);border-radius:4px;padding:14px 18px;margin-bottom:8px}
-.chart svg{display:block;width:100%;height:120px}
-.chart polyline{fill:none;stroke:var(--accent);stroke-width:1.5;vector-effect:non-scaling-stroke}
-.chart .grid{stroke:var(--mute);stroke-width:.5;opacity:.2;vector-effect:non-scaling-stroke}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
-.card{background:var(--panel);border-radius:4px;padding:14px 16px}
-.card .k{color:var(--mute);font-size:.7rem;text-transform:uppercase;letter-spacing:.1em}
-.card .v{font-size:1.05rem;margin-top:4px;font-variant-numeric:tabular-nums}
-.card.btc .v{color:var(--orange)}
-</style></head><body><div class="wrap">
-<header><span id="dot" class="dot"></span><h1 id="name">rusty-boards</h1><span class="sub" id="ip">connecting…</span></header>
-<div class="hero"><div class="label">Hashrate</div><div><span id="hr" class="v">–</span><span id="hu" class="u">H/s</span></div></div>
-<div class="chart"><svg viewBox="0 0 240 60" preserveAspectRatio="none"><line class="grid" x1="0" y1="15" x2="240" y2="15"/><line class="grid" x1="0" y1="30" x2="240" y2="30"/><line class="grid" x1="0" y1="45" x2="240" y2="45"/><polyline id="poly" points=""/></svg></div>
-<div class="cards">
+main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-width:1200px;margin:0 auto}
+@media(max-width:760px){main{grid-template-columns:1fr}}
+.chart{background:var(--panel);border-radius:4px;padding:12px;border-top:1px solid var(--border)}
+.chart svg{display:block;width:100%;height:auto}
+.gr{stroke:var(--border);stroke-width:.5;opacity:.5;vector-effect:non-scaling-stroke}
+.tk{stroke:var(--mute);stroke-width:.5;vector-effect:non-scaling-stroke}
+.ax{fill:var(--mute);font-size:9px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.hrL{fill:none;stroke:var(--accent);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.tpL{fill:none;stroke:var(--orange);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.lg{position:absolute;top:18px;right:24px;font-size:.7rem;color:var(--mute)}
+.lg span{display:inline-block;width:10px;height:2px;vertical-align:middle;margin:0 4px 0 10px}
+.side{display:grid;gap:8px;align-content:start}
+.card{background:var(--panel);border-radius:4px;padding:12px 14px;border-top:1px solid var(--border)}
+.k{color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.1em}
+.v{font-size:1.05rem;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
+.cfg{max-width:520px;margin:0 auto;padding:24px 16px}
+.cfg h2{color:var(--accent-hi);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.1em;margin:24px 0 4px;border-bottom:1px solid var(--border);padding-bottom:6px}
+.cfg label{display:block;color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.08em;margin:10px 0 2px}
+.cfg input{width:100%;background:var(--panel);color:var(--fg);border:0;border-bottom:1px solid var(--border);padding:8px 10px;font:13px ui-monospace,monospace}
+.cfg input:focus{outline:0;border-bottom-color:var(--accent);background:#444}
+.cfg button{margin-top:20px;background:var(--accent);color:#fff;border:0;padding:10px 24px;font-weight:600;letter-spacing:.04em;cursor:pointer;text-transform:uppercase;font-size:.8rem}
+.cfg button:hover{background:var(--accent-hi)}
+.msg{margin-top:12px;color:var(--green);font-size:.8rem;min-height:1.2em}
+.hide{display:none}
+</style></head><body>
+<nav class="bar">
+<span class="logo">microBOS</span>
+<a href="#" id="nDash">Dashboard</a>
+<a href="#config" id="nCfg">Configuration</a>
+<span class="sp"></span>
+<span class="off" title="not implemented yet">Log out</span>
+<span class="dot" id="dot" title="link"></span>
+</nav>
+<main id="dash" style="position:relative">
+<div class="chart">
+<div class="lg"><span style="background:#6b50ff"></span>Hashrate<span style="background:#fe8431"></span>Temp</div>
+<svg viewBox="0 0 680 320" preserveAspectRatio="xMidYMid meet">
+<g id="grid"></g><g id="yL"></g><g id="yR"></g><g id="xA"></g>
+<polyline id="hrLine" class="hrL"/><polyline id="tpLine" class="tpL"/>
+</svg>
+</div>
+<aside class="side">
+<div class="card"><div class="k">Hashrate</div><div id="hr" class="v">–</div></div>
+<div class="card"><div class="k">IP address</div><div id="ip" class="v">–</div></div>
+<div class="card"><div class="k">Time (UTC)</div><div id="t" class="v">–</div></div>
 <div class="card"><div class="k">Uptime</div><div id="up" class="v">–</div></div>
-<div class="card"><div class="k">Shares</div><div id="sh" class="v">–</div></div>
-<div class="card btc"><div class="k">BTC</div><div id="btc" class="v">–</div></div>
-<div class="card"><div class="k">Time</div><div id="t" class="v">–</div></div>
-</div></div>
+<div class="card"><div class="k">Fan speed</div><div id="fs" class="v">–</div></div>
+<div class="card"><div class="k">Fan PWM</div><div id="fp" class="v">–</div></div>
+</aside>
+</main>
+<section class="cfg hide" id="cfg">
+<form id="cfgForm">
+<h2>Pool 1 — Primary</h2>
+<label>URL<input name="url1" placeholder="stratum+tcp://host:port"></label>
+<label>Username<input name="user1"></label>
+<label>Password<input name="pass1" type="password"></label>
+<h2>Pool 2 — Backup</h2>
+<label>URL<input name="url2"></label>
+<label>Username<input name="user2"></label>
+<label>Password<input name="pass2" type="password"></label>
+<h2>Pool 3 — Backup</h2>
+<label>URL<input name="url3"></label>
+<label>Username<input name="user3"></label>
+<label>Password<input name="pass3" type="password"></label>
+<button type="submit">Save</button>
+<div class="msg" id="msg"></div>
+</form>
+</section>
 <script>
-const N=120,buf=new Array(N).fill(0),$=id=>document.getElementById(id);
-function fmtHr(h){if(h>=1e9)return[(h/1e9).toFixed(2),'GH/s'];if(h>=1e6)return[(h/1e6).toFixed(2),'MH/s'];if(h>=1e3)return[(h/1e3).toFixed(2),'kH/s'];return[h.toFixed(0),'H/s']}
-function fmtUp(s){const d=s/86400|0,h=s/3600%24|0,m=s/60%60|0,x=s%60;return d?`${d}d ${h}h ${m}m`:h?`${h}h ${m}m ${x}s`:`${m}m ${x}s`}
-function draw(){const m=Math.max(1,...buf);const p=buf.map((v,i)=>`${(i*240/(N-1)).toFixed(1)},${(60-v/m*55).toFixed(1)}`).join(' ');$('poly').setAttribute('points',p)}
+const N=150,W=680,H=320,L=44,R=44,T=10,B=20,PW=W-L-R,PH=H-T-B;
+const hrBuf=new Array(N).fill(0),tpBuf=new Array(N).fill(0);
+const $=id=>document.getElementById(id);
+function route(){const c=location.hash==='#config';$('dash').classList.toggle('hide',c);$('cfg').classList.toggle('hide',!c);$('nDash').classList.toggle('on',!c);$('nCfg').classList.toggle('on',c)}
+addEventListener('hashchange',route);route();
+function fmtHr(h){if(h>=1e12)return(h/1e12).toFixed(2)+' TH/s';if(h>=1e9)return(h/1e9).toFixed(2)+' GH/s';if(h>=1e6)return(h/1e6).toFixed(2)+' MH/s';if(h>=1e3)return(h/1e3).toFixed(2)+' kH/s';return h.toFixed(0)+' H/s'}
+function fmtUp(s){const d=s/86400|0,h=s/3600%24|0,m=s/60%60|0;return d?`${d}d ${h}h ${m}m`:h?`${h}h ${m}m`:`${m}m ${s%60|0}s`}
+function ceil(v,s){return Math.max(s,Math.ceil(v/s)*s)}
+function draw(){
+ const tpMaj=20,tpMin=10;
+ const hrPeak=Math.max(...hrBuf);
+ const hrMaj=Math.max(1e12,ceil(hrPeak/4,1e12)),hrMin=hrMaj/2;
+ const hrMax=ceil(hrPeak,hrMaj),tpMax=ceil(Math.max(...tpBuf),tpMaj);
+ let g='',yl='',yr='',xa='';
+ for(let v=0;v<=hrMax;v+=hrMin){const y=T+PH-(v/hrMax)*PH,maj=v%hrMaj===0;
+  if(maj){g+=`<line class="gr" x1="${L}" y1="${y}" x2="${L+PW}" y2="${y}"/>`;yl+=`<text class="ax" x="${L-6}" y="${y+3}" text-anchor="end">${(v/1e12).toFixed(0)}T</text>`}
+  else{yl+=`<line class="tk" x1="${L-3}" y1="${y}" x2="${L}" y2="${y}"/>`}}
+ for(let v=0;v<=tpMax;v+=tpMin){const y=T+PH-(v/tpMax)*PH,maj=v%tpMaj===0;
+  if(maj){yr+=`<text class="ax" x="${L+PW+6}" y="${y+3}">${v}°C</text>`}
+  else{yr+=`<line class="tk" x1="${L+PW}" y1="${y}" x2="${L+PW+3}" y2="${y}"/>`}}
+ for(let m=0;m<=5;m++){const x=L+(m/5)*PW;
+  g+=`<line class="gr" x1="${x}" y1="${T}" x2="${x}" y2="${T+PH}"/>`;
+  xa+=`<text class="ax" x="${x}" y="${H-6}" text-anchor="middle">-${5-m}m</text>`}
+ $('grid').innerHTML=g;$('yL').innerHTML=yl;$('yR').innerHTML=yr;$('xA').innerHTML=xa;
+ const pts=(b,m)=>b.map((v,i)=>`${(L+i*PW/(N-1)).toFixed(1)},${(T+PH-(v/m)*PH).toFixed(1)}`).join(' ');
+ $('hrLine').setAttribute('points',pts(hrBuf,hrMax));$('tpLine').setAttribute('points',pts(tpBuf,tpMax));
+}
 async function tick(){
- try{
-  const r=await fetch('/api/info',{cache:'no-store'});if(!r.ok)throw 0;
+ try{const r=await fetch('/api/info',{cache:'no-store'});if(!r.ok)throw 0;
   const d=await r.json();
-  $('name').textContent=d.name;
-  $('ip').textContent=d.ip||'no ip';
   $('dot').className='dot live';
-  const[hv,hu]=fmtHr(d.hashrate);$('hr').textContent=hv;$('hu').textContent=hu;
+  $('hr').textContent=fmtHr(d.hashrate);
+  $('ip').textContent=d.ip||'–';
+  $('t').textContent=d.time||'–';
   $('up').textContent=fmtUp(d.uptime);
-  $('sh').textContent=d.shares;
-  $('btc').textContent=d.btc_cents?'$'+(d.btc_cents/100).toFixed(2):'–';
-  $('t').textContent=d.time||'no ntp';
-  buf.shift();buf.push(d.hashrate);draw();
+  $('fs').textContent=d.fan_rpm?d.fan_rpm+' RPM':'–';
+  $('fp').textContent=d.fan_pwm?d.fan_pwm+' %':'–';
+  hrBuf.shift();hrBuf.push(d.hashrate);
+  tpBuf.shift();tpBuf.push(d.temperature||0);
+  draw();
  }catch(e){$('dot').className='dot'}
 }
 tick();setInterval(tick,2000);
+$('cfgForm').addEventListener('submit',async e=>{
+ e.preventDefault();
+ const body=JSON.stringify(Object.fromEntries(new FormData(e.target)));
+ try{const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body});
+  $('msg').textContent=r.ok?'Saved (logged to firmware console).':'Save failed.'}
+ catch(_){$('msg').textContent='Save failed.'}
+});
 </script></body></html>
