@@ -223,4 +223,37 @@ wrapper).
 The NUC provides DNS forwarding and NAT to the internet via WiFi, so
 boards can resolve hostnames for NTP sync and HTTPS requests.
 
+### mDNS discovery
+
+Each board advertises itself via mDNS as `_prometheus._tcp.local` so
+Prometheus and ad-hoc tooling can find it without static config. The
+announcement carries an `A` record for `<hostname>.local`, an `SRV`
+pointing at the metrics port, and TXT entries for `path`, `board`,
+and `mcu`.
+
+Browsing requires `avahi-daemon` on the workstation. On NixOS, enable
+it in the host configuration. The `nssmdns4` switch also wires mDNS
+into NSS so `ping bmm-pico-01.local` and any other hostname-based
+tool resolves through the same announcements.
+
+```nix
+services.avahi = {
+  enable = true;
+  nssmdns4 = true;
+};
+```
+
+Then browse every advertised board:
+
+```sh
+avahi-browse -rt _prometheus._tcp
+```
+
+Without the daemon, a unicast query against a known IP also works
+because edge-mdns answers on port 5353:
+
+```sh
+dig +time=3 +tries=1 -p 5353 @<board-ip> _prometheus._tcp.local PTR
+```
+
 Support node (NUC): `redacted/README.md`.
