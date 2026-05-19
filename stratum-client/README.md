@@ -28,10 +28,11 @@ async fn stratum_task(stack: Stack<'static>) -> ! {
 ```
 
 The chip side reads `ASIC_SESSION.work_receiver()` and pushes solutions
-via `ASIC_SESSION.submit_solution(...)`. See `asic-cpu-mock` and
-`asic-uart-peer` for the two stock implementations.
+via `ASIC_SESSION.submit_solution(...)`. The firmware drives the BM1362
+hashboard via MMM; `host-runner` contains an inline CPU mock used as a
+fallback when no hashboard is present.
 
 ## See also
 
 - `mining-protocol` — `MiningClient` trait the adapter implements
-- `asic-cpu-mock`, `asic-uart-peer` — chip-side `AsicSession` consumers
+- `mmm` — BM1362 driver that consumes `AsicSession` on real hardware

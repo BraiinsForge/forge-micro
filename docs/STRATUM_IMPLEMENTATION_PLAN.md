@@ -28,8 +28,6 @@ ubos-main/
                       (renamed from stratum-v1-core)
   stratum-v2/         NEW — V2 adapter, MiningClient impl, depends on micro-sv2
   stratum-client/     NEW — replaces ubos-backend; generic over MiningClient
-  asic-cpu-mock/      NEW — ASIC-side of AsicSession for the CPU mock
-  asic-uart-peer/     NEW — ASIC-side of AsicSession over UART to a peer
   ubos-main-host/  NEW — embassy-net + tuntap integration harness
   # ubos-backend, cpu-miner, asic-interface deleted: all firmwares
   # have migrated and the legacy stack is no longer used.
@@ -229,8 +227,8 @@ form requires.
 | `coinbase_prefix`, `coinbase_suffix`, `extranonce_prefix`, merkle branches | raw byte slices, no swap | hex, no swap | binary, no swap |
 
 The "brain-damaged" V1 prev_hash byte swap moves into the V1 adapter's
-hex-decode step. The block header builder in `asic-cpu-mock` (and
-the `WorkAssignment` shape generally) becomes a straight
+hex-decode step. The block header builder (and the `WorkAssignment`
+shape generally) becomes a straight
 `header[4..36].copy_from_slice(&prev_hash)` — no per-word loop, no
 comment about V1 quirks. The solver never sees a V1-specific
 byte order.
@@ -718,9 +716,9 @@ Each phase is independently `cargo check`-clean, `cargo clippy
 -- -D warnings`-clean, and reviewable in isolation.
 
 1. **Crate scaffolding.** Add `mining-protocol`, `stratum-v2`,
-   `stratum-client`, `asic-cpu-mock`, and `ubos-main-host` to
-   the workspace as empty stubs. Rename `stratum-v1-core` to
-   `stratum-v1`. Wire flake `checks` derivations for each new crate.
+   `stratum-client`, and `ubos-main-host` to the workspace as empty
+   stubs. Rename `stratum-v1-core` to `stratum-v1`. Wire flake
+   `checks` derivations for each new crate.
 2. **`mining-protocol` types.** Define `JobId`, `MiningJob`, `Share`,
    `SessionUpdate`, `SubmitResult`, `LazyMerkle`, `Error`. No traits
    yet. Tests for `LazyMerkle::compute` against known V1 vectors.
@@ -744,16 +742,13 @@ Each phase is independently `cargo check`-clean, `cargo clippy
    `WorkRing<8>`, `AsicSession`. Tasks: `stratum_task`,
    `work_generator_task`. Implements `MiningClientVisitor`. Old
    `ubos-backend` stays in tree until all firmwares migrate.
-7. **New `asic-cpu-mock` crate.** Implements the ASIC side of
-   `AsicSession` (read `work` Watch, hash, push to `solutions`
-   Channel). Replaces today's `cpu-miner` integration for migrated
-   firmwares.
+7. **CPU mock.** Inline CPU-mock ASIC (read `work` Watch, hash, push
+   to `solutions` Channel) as a fallback in `host-runner`.
 8. **rp2040 firmware migration.** Wire rp2040 to `stratum-client` +
-   `asic-cpu-mock`. Verify against ckpool. Other firmwares stay
+   MMM hashboard driver. Verify against ckpool. Other firmwares stay
    on `ubos-backend` for now.
 9. **Migrate remaining firmwares.** rp2350, stm32f407, stm32f439,
-   bmm-pico move to `stratum-client`. Pick `asic-cpu-mock` or the
-   `uart-asic` AsicSession adapter per board. Once all firmwares
+   bmm-pico move to `stratum-client` + MMM. Once all firmwares
    are migrated, `ubos-backend` and `cpu-miner` are deleted.
 10. **Host integration harness.** Stand up `ubos-main-host` with
     `embassy-net` + tuntap. Smoke test against ckpool / regtest pool.

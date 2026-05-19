@@ -33,14 +33,9 @@ nix develop .#arm -c bash -c 'cd firmware/stm32f439 && cargo run --release'
 nix develop .#esp -c bash -c 'cd firmware/esp32s3   && cargo run --release'
 ```
 
-Default features vary by board: `rp2040`, `rp2350`, `stm32f407`,
-`stm32f439`, and `esp32s3` enable `backend-uart`; `bmm-pico` enables
-`backend-mmm`. Every board also enables `display` in defaults. SV2 is
-always built on all boards. Switch to CPU mining with
-`--no-default-features --features "display,backend-cpu"`. Building
-without a backend feature is rejected at compile
-time. The `backend-cpu` and `backend-uart` features are mutually
-exclusive.
+Every board drives a BM1362 hashboard via MMM unconditionally. The
+`display` feature is always in defaults and SV2 is always built on all
+boards.
 
 The bmm-pico crate also has multiple boards attached (six). Aliases
 `cargo run-1` through `cargo run-6` pin the probe serial of each.

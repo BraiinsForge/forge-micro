@@ -20,9 +20,8 @@ let mut client = StratumV1Client::new(&SV1_CONFIG);
 run_stratum_client(&mut client, &mut socket, &ASIC_SESSION, &mut state).await
 ```
 
-The crate is normally not used standalone; firmwares pull it in via
-the `backend-uart` or `backend-cpu` feature (both compose
-`stratum-v1` + `stratum-client`).
+The crate is normally not used standalone; firmwares pull it in alongside
+`stratum-client` to drive the pool connection.
 
 A self-contained host-side smoke test lives in `examples/client_probe.rs`.
 

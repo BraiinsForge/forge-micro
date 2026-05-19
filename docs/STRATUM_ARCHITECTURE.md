@@ -126,8 +126,8 @@ This file is the picture; the plan is the rationale.
                          │   / try_changed()                      │
                          ▼                                        │
    ┌─────────────────────────────────────────────────────────────────────┐
-   │                asic-cpu-mock   (or asic-uart-peer adapter)          │
-   │      [crate: asic-cpu-mock — CPU-mock backend]                      │
+   │                BM1362 hashboard driver (MMM) or inline CPU mock     │
+   │      [mmm crate on hardware; host-runner::cpu_mock as fallback]     │
    │                                                                     │
    │   Loop:                                                             │
    │     if work_receiver.try_changed() {                                │

@@ -54,7 +54,7 @@ static CORE1_EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 /// Software ring buffer size per direction for the core-1 `BufferedUart`.
 /// The RP2040 HW FIFO is 32 bytes; 1 KiB gives slack for ETH-ISR jitter
-/// at 3 Mbaud (backend-mmm).
+/// at the BM1362 hashboard baud rate.
 const UART_RING_BUFFER_SIZE: usize = 1024;
 
 // `ubos_main::pool_config::parse` runs at boot to copy seven
