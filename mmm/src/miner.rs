@@ -13,11 +13,11 @@
 //! halt before attempting bring-up again. `STOP_MINING` remains the
 //! orderly-shutdown path that runs the deinit replay.
 
-use embassy_futures::select::{select, select3, Either, Either3};
+use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
-use ubos_logging::{error, info, warn, Debug2Format};
+use ubos_logging::{Debug2Format, error, info, warn};
 use ubos_monitor::HALT_MINING;
 use ubos_psu::Psu;
 
