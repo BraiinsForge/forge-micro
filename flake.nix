@@ -150,17 +150,16 @@
                     probe-rs-tools-remote = mkRemoteProbeRsTools aarch64Pkgs.probe-rs-tools;
                   })
                   (final: _prev: {
-                    load-test = aarch64Pkgs.callPackage ./redacted/pkgs/load-test.nix { };
+                    load-test = aarch64Pkgs.callPackage ./nuc/pkgs/load-test.nix { };
                   })
                 ];
               }
             )
-            ./redacted/nuc.nix
+            ./nuc/nuc.nix
           ]
           ++ extraModules;
         };
-      sdImageFor =
-        buildSystem: (mkNuc buildSystem [ ./redacted/sd-image.nix ]).config.system.build.sdImage;
+      sdImageFor = buildSystem: (mkNuc buildSystem [ ./nuc/sd-image.nix ]).config.system.build.sdImage;
     in
     (flake-utils.lib.eachDefaultSystem (
       system:
@@ -385,7 +384,7 @@
         # Host-target load-test crate lives outside the ubos-main
         # workspace, so it gets its own src filter and dep cache rather
         # than sharing the embedded workspace wiring above.
-        loadTestSrc = craneLib.cleanCargoSource ./redacted/pkgs/load-test;
+        loadTestSrc = craneLib.cleanCargoSource ./nuc/pkgs/load-test;
         loadTestArtifacts = craneLib.buildDepsOnly {
           src = loadTestSrc;
           strictDeps = true;
@@ -927,7 +926,7 @@
     ))
     // {
       # Raspberry Pi 4 support node that connects the target boards to the
-      # redacted mesh. See redacted/nuc.nix for the host definition.
+      # redacted mesh. See nuc/nuc.nix for the host definition.
       # Deployment runs from the developer workstation, always x86_64.
       nixosConfigurations.nuc = mkNuc "x86_64-linux" [ ];
 

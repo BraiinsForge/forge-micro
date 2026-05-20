@@ -15,4 +15,4 @@ Docs live in `docs/`:
 - `docs/METRICS.md` -- Prometheus exposition, CPU-busy ratio model
 - `docs/DEBUGGING.md` -- probe-rs, binary size, stack analysis
 
-Support node (NUC): see `redacted/README.md`.
+Support node (NUC): see `nuc/README.md`.
