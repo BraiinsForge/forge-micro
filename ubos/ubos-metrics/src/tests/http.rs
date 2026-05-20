@@ -36,10 +36,11 @@ use std::sync::Mutex;
 
 use portable_atomic::Ordering;
 
-use super::{build_api_info_response, build_index_response, INDEX_HTML};
-use crate::consts::Http;
+use ubos_core::consts::Http;
 use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
-use crate::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, TEMPERATURE_C};
+use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, TEMPERATURE_C};
+
+use super::{build_api_info_response, build_index_response, INDEX_HTML};
 
 static STATE_LOCK: Mutex<()> = Mutex::new(());
 

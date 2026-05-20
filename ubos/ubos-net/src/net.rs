@@ -1,7 +1,7 @@
 //! Network tasks shared across all boards: DHCP wait, NTP, BTC price
 //! fetch, and the HTTP server loop.
 //!
-//! Architecture: `../docs/OVERVIEW.md`.
+//! Architecture: `../../../docs/OVERVIEW.md`.
 
 use embassy_futures::yield_now;
 use embassy_net::dns::DnsQueryType;
@@ -16,7 +16,7 @@ use rand_core::{CryptoRng, RngCore};
 use static_cell::ConstStaticCell;
 use ubos_logging::{info, warn, Debug2Format};
 
-use ubos_core::consts::{Btc, Http, Net, Ntp, Tls};
+use ubos_core::consts::{Btc, Net, Ntp, Tls};
 
 /// Maximum number of DNS A-record results retained for connect attempts.
 /// Pool DNS responses are typically two or three addresses; four covers the
@@ -125,7 +125,9 @@ pub async fn connect_stratum<'b>(
     Err(StratumConnectError::AllConnectsFailed)
 }
 
-pub(crate) static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
+/// Count of accepted HTTP requests since boot, incremented by the
+/// dashboard HTTP server in `ubos-metrics::http`.
+pub static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
 pub static BTC_PRICE_CENTS: AtomicU32 = AtomicU32::new(0);
 pub static NTP_EPOCH_OFFSET: AtomicU64 = AtomicU64::new(0);
 /// Uptime seconds of the last successful BTC price fetch, or zero if none.
@@ -156,13 +158,6 @@ static TLS_READ: ConstStaticCell<[u8; Tls::READ_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::READ_BUFFER_SIZE]);
 static TLS_WRITE: ConstStaticCell<[u8; Tls::WRITE_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::WRITE_BUFFER_SIZE]);
-static HTTP_RX: ConstStaticCell<[u8; Http::RX_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Http::RX_BUFFER_SIZE]);
-static HTTP_TX: ConstStaticCell<[u8; Http::TX_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Http::TX_BUFFER_SIZE]);
-static HTTP_RESPONSE: ConstStaticCell<[u8; Http::RESPONSE_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Http::RESPONSE_BUFFER_SIZE]);
-
 /// Wait until the network stack receives a DHCP lease.
 pub async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
     loop {
@@ -330,103 +325,4 @@ pub async fn run_bitcoin_price<R: CryptoRng + RngCore>(stack: Stack<'static>, mu
         }
         Timer::after(Btc::FETCH_INTERVAL).await;
     }
-}
-
-/// Accept HTTP connections and serve the dashboard. Runs forever.
-///
-/// Routes `GET /` to the inlined HTML dashboard, `GET /logo.svg` to
-/// the cacheable Braiins wordmark, `GET /api/info` to a small JSON
-/// telemetry blob the dashboard polls, and `POST /api/config` to a
-/// stub handler that logs the submitted body before returning a 200
-/// OK. Anything else gets a 404. A single TCP read is expected to
-/// cover the request line and any small body; a well-behaved client
-/// sends the whole request in one segment, and the config form fits
-/// comfortably in [`Http::REQUEST_BUFFER_SIZE`].
-pub async fn run_http_server(stack: Stack<'static>, board_name: &'static str) -> ! {
-    let rx = HTTP_RX.take();
-    let tx = HTTP_TX.take();
-    let response = HTTP_RESPONSE.take();
-
-    loop {
-        let mut socket = TcpSocket::new(stack, rx, tx);
-        socket.set_timeout(Some(Net::SOCKET_TIMEOUT));
-
-        if let Err(error) = socket.accept(Http::PORT).await {
-            warn!("tcp accept error: {:?}", error);
-            continue;
-        }
-
-        let mut request_buffer = [0; Http::REQUEST_BUFFER_SIZE];
-        let request_length = match socket.read(&mut request_buffer).await {
-            Ok(0) | Err(_) => continue,
-            Ok(length) => length,
-        };
-
-        REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
-        let uptime_secs = Instant::now().as_secs();
-        let path = parse_request_path(&request_buffer[..request_length]);
-        let length = match path {
-            Some("/") | None => crate::http::build_index_response(response),
-            Some("/api/info") => {
-                crate::http::build_api_info_response(response, board_name, uptime_secs)
-            }
-            Some("/logo.svg") => crate::http::build_logo_response(response),
-            Some("/api/config") => {
-                let body = extract_request_body(&request_buffer[..request_length]);
-                // `/api/config` is unauthenticated; truncate to keep a LAN peer
-                // from spamming the defmt link with megabytes of attacker text.
-                // Truncate the bytes before the UTF-8 check: slicing a `&str`
-                // at the cap would panic on a multi-byte codepoint boundary,
-                // while a chopped codepoint here just turns into Err and
-                // falls back to `<non-utf8>`.
-                let truncated = &body[..body.len().min(256)];
-                let body_str = core::str::from_utf8(truncated).unwrap_or("<non-utf8>");
-                info!("pool config update ({} bytes): {}", body.len(), body_str);
-                crate::http::build_config_ack_response(response)
-            }
-            Some(_) => crate::http::build_not_found_response(response),
-        };
-
-        if let Err(error) = socket.write_all(&response[..length]).await {
-            warn!("tcp write error: {:?}", error);
-        }
-
-        socket.flush().await.ok();
-        socket.close();
-        // Wait for the FIN handshake so the peer sees a clean close
-        // instead of RST when the socket is dropped.
-        Timer::after(Duration::from_millis(50)).await;
-    }
-}
-
-/// Locate the body of an HTTP request inside the read buffer.
-///
-/// Returns the slice after the first `\r\n\r\n` header terminator, or an
-/// empty slice if no terminator is present. Used by the config POST
-/// route to surface the submitted JSON for logging; the caller is
-/// responsible for trusting nothing about the body's validity.
-fn extract_request_body(request: &[u8]) -> &[u8] {
-    let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
-        return &[];
-    };
-    &request[position + 4..]
-}
-
-/// Extract the request path from the first line of an HTTP request.
-///
-/// Expects `METHOD SP PATH SP HTTP/VERSION CRLF`. Returns `None` if the
-/// line is malformed or not valid UTF-8. The method is not inspected,
-/// so `POST /` or `PUT /api/info` are routed the same as the matching
-/// `GET`. Acceptable here because all handlers are idempotent and
-/// produce the same response body regardless of verb.
-fn parse_request_path(request: &[u8]) -> Option<&str> {
-    let line_end = request
-        .iter()
-        .position(|&byte| byte == b'\r' || byte == b'\n')?;
-    let line = &request[..line_end];
-    let first_space = line.iter().position(|&byte| byte == b' ')?;
-    let after_method = &line[first_space + 1..];
-    let second_space = after_method.iter().position(|&byte| byte == b' ')?;
-    let path_bytes = &after_method[..second_space];
-    core::str::from_utf8(path_bytes).ok()
 }

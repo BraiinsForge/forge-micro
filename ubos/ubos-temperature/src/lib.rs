@@ -10,7 +10,7 @@
 pub mod lm75a;
 
 use embassy_time::{Duration, Ticker};
-use ubos_main::metrics::{push, Metric, Value};
+use ubos_metrics::metrics::{push, Metric, Value};
 
 /// Internal chip temperature sampling parameters.
 pub struct Temperature;

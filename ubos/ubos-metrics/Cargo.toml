@@ -1,0 +1,40 @@
+[package]
+name    = "ubos-metrics"
+edition = "2021"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[features]
+default = ["defmt"]
+defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt", "ubos-net/defmt"]
+
+[dependencies]
+embassy-futures   = { workspace = true }
+embassy-net       = { workspace = true, features = ["tcp"] }
+embassy-sync      = { workspace = true }
+embassy-time      = { workspace = true }
+embedded-io-async = { workspace = true }
+heapless          = { workspace = true }
+portable-atomic   = { workspace = true }
+static_cell       = { workspace = true }
+defmt             = { workspace = true, optional = true }
+ubos-core         = { workspace = true }
+ubos-logging      = { workspace = true }
+ubos-net          = { workspace = true, default-features = false }
+
+[build-dependencies]
+# Pre-compresses `src/index.html` with gzip at build time so the
+# firmware ships the dashboard with `Content-Encoding: gzip`.
+flate2            = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[dev-dependencies]
+flate2            = { version = "1", default-features = false, features = ["rust_backend"] }
+
+# Cortex-M boards drive embassy's `raw::Executor` directly via
+# `cpu_load::run_cortex_m_executor`. Gated to ARM so the ESP32-S3
+# build does not pull in the cortex-m crate.
+[target.'cfg(target_arch = "arm")'.dependencies]
+cortex-m          = "0.7"
+embassy-executor  = { workspace = true }

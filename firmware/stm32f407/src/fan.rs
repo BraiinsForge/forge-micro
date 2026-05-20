@@ -31,7 +31,7 @@ use embassy_stm32::Peri;
 use embassy_time::{Duration, Instant, Timer as EmbassyTimer};
 use portable_atomic::Ordering;
 use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
-use ubos_main::metrics::{push, Metric, Value};
+use ubos_metrics::metrics::{push, Metric, Value};
 use ubos_monitor::FanOutput;
 
 /// Target PWM frequency per Intel 4-wire fan specification.

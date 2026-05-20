@@ -14,5 +14,5 @@ defmt   = ["dep:defmt"]
 defmt              = { workspace = true, optional = true }
 embassy-time       = { workspace = true }
 embedded-hal-async = { workspace = true }
-ubos-main          = { workspace = true, default-features = false }
+ubos-metrics      = { workspace = true, default-features = false }
 heapless           = { workspace = true }

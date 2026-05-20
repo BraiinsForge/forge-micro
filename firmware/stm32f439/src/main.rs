@@ -44,7 +44,7 @@ use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
 use {defmt_rtt as _, panic_probe as _};
 
-use ubos_main::net;
+use ubos_net::net;
 
 mod config;
 mod fan;
@@ -103,7 +103,7 @@ static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::
 
 static MONITOR_CONFIG: MonitorConfig = BMM101_DEFAULT;
 
-defmt::timestamp!("{=u64:iso8601s}", ubos_main::wall_clock_secs());
+defmt::timestamp!("{=u64:iso8601s}", ubos_net::wall_clock_secs());
 
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
@@ -192,12 +192,12 @@ async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
-    ubos_main::metrics::run(stack).await
+    ubos_metrics::metrics::run(stack).await
 }
 
 #[embassy_executor::task]
 async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -> ! {
-    ubos_main::mdns::run_mdns(stack, hostname, config::Board::NAME, config::Board::MCU).await
+    ubos_net::mdns::run_mdns(stack, hostname, config::Board::NAME, config::Board::MCU).await
 }
 
 #[embassy_executor::task]
@@ -207,7 +207,7 @@ async fn temperature_task(sensor: BoardTempSensor) -> ! {
 
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
-    ubos_main::cpu_load::run_cpu_load::<1>().await
+    ubos_metrics::cpu_load::run_cpu_load::<1>().await
 }
 
 #[embassy_executor::task]
@@ -289,7 +289,7 @@ async fn stratum_client_task(
                 password: password.as_deref().unwrap_or(""),
             });
             loop {
-                let mut socket = match ubos_main::net::connect_stratum(
+                let mut socket = match ubos_net::net::connect_stratum(
                     stack,
                     pool_config.host.as_str(),
                     port,
@@ -342,7 +342,7 @@ async fn stratum_client_task(
                     .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
             );
             loop {
-                let mut socket = match ubos_main::net::connect_stratum(
+                let mut socket = match ubos_net::net::connect_stratum(
                     stack,
                     pool_config.host.as_str(),
                     port,
@@ -386,7 +386,7 @@ async fn stratum_client_task(
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
-    ubos_main::cpu_load::run_cortex_m_executor::<0, _>(|spawner| {
+    ubos_metrics::cpu_load::run_cortex_m_executor::<0, _>(|spawner| {
         spawner.spawn(unwrap!(boot(spawner)));
     })
 }
@@ -459,7 +459,7 @@ async fn boot(spawner: Spawner) {
 
     static MDNS_HOSTNAME: StaticCell<heapless::String<16>> = StaticCell::new();
     let mdns_hostname =
-        ubos_main::mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
+        ubos_net::mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
             config::Board::MDNS_HOSTNAME_BASE,
             config::Board::MAC_ADDR[5],
             &MDNS_HOSTNAME,
@@ -615,5 +615,5 @@ async fn boot(spawner: Spawner) {
         }
     }
 
-    net::run_http_server(stack, config::Board::NAME).await;
+    ubos_metrics::http::run_http_server(stack, config::Board::NAME).await;
 }

@@ -13,8 +13,9 @@ use portable_atomic::Ordering;
 use profont::PROFONT_12_POINT;
 
 use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
-use ubos_main::net::{BTC_PRICE_CENTS, LOCAL_IPV4};
-use ubos_main::{hashrate, ntp};
+use ubos_metrics::hashrate;
+use ubos_net::net::{BTC_PRICE_CENTS, LOCAL_IPV4};
+use ubos_net::ntp;
 
 use crate::sh1106::Sh1106;
 
@@ -58,11 +59,11 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
     }
 
     // Line 2: UTC time from NTP, or "no sync" if NTP has not completed.
-    let ntp_offset = ubos_main::net::NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
+    let ntp_offset = ubos_net::net::NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
     if ntp_offset == 0 {
         Text::new("no sync", Point::new(0, 29), style).draw(display)?;
     } else {
-        let unix_secs = ubos_main::wall_clock_secs();
+        let unix_secs = ubos_net::wall_clock_secs();
         let length = ntp::format_utc_time(time_buffer, unix_secs);
         if length > 0 {
             // format_utc_time writes valid ASCII into the buffer.

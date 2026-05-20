@@ -1,6 +1,6 @@
 //! Prometheus metrics exposition server running on [`Metrics::PORT`].
 //!
-//! Endpoint model: `../docs/METRICS.md`.
+//! Endpoint model: `../../../docs/METRICS.md`.
 
 use core::fmt::Write as _;
 
@@ -15,9 +15,9 @@ use portable_atomic::Ordering;
 use static_cell::ConstStaticCell;
 use ubos_logging::warn;
 
-use ubos_core::consts::Metrics;
 use crate::http::BufferWriter;
-use crate::net::{BTC_PRICE_CENTS, LAST_BTC_FETCH_UPTIME_SECS, NTP_EPOCH_OFFSET, REQUEST_COUNT};
+use ubos_core::consts::Metrics;
+use ubos_net::net::{BTC_PRICE_CENTS, LAST_BTC_FETCH_UPTIME_SECS, NTP_EPOCH_OFFSET, REQUEST_COUNT};
 
 /// A metric value.
 pub enum Value {

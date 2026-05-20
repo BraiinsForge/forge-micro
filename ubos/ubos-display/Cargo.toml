@@ -16,4 +16,5 @@ format_no_std     = { workspace = true }
 portable-atomic   = { workspace = true }
 profont           = { workspace = true }
 ubos-core         = { workspace = true }
-ubos-main         = { workspace = true, default-features = false }
+ubos-metrics      = { workspace = true, default-features = false }
+ubos-net          = { workspace = true, default-features = false }

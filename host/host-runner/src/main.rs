@@ -26,11 +26,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use embassy_executor::{Executor, Spawner};
 use embassy_net::{Runner, Stack, StackResources};
 use embassy_time::{Duration, Ticker, Timer};
-use ubos_main::metrics::{Metric, Value};
-use ubos_main::net;
-use ubos_pool::pool_config::{
-    self, PoolConfig, ProtocolConfig, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
-};
 use log::{info, warn};
 use rand::rngs::OsRng;
 use rand_core::RngCore;
@@ -115,7 +110,7 @@ async fn heartbeat_task(stack: Stack<'static>) {
     loop {
         Timer::after(Duration::from_secs(10)).await;
         let address = stack.config_v4().map(|config| config.address);
-        let hashrate = ubos_main::hashrate::HashrateDisplay(ubos_main::hashrate::hashrate());
+        let hashrate = ubos_metrics::hashrate::HashrateDisplay(ubos_metrics::hashrate::hashrate());
         info!("host-runner: tick, address={address:?}, hashrate={hashrate}");
     }
 }
@@ -132,19 +127,19 @@ async fn bitcoin_price_task(stack: Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn metrics_task(stack: Stack<'static>) -> ! {
-    ubos_main::metrics::run(stack).await
+    ubos_metrics::metrics::run(stack).await
 }
 
 #[embassy_executor::task]
 async fn mdns_task(stack: Stack<'static>) -> ! {
     // hostname and board_name share BOARD_NAME: host-runner has no per-unit
     // MAC suffix to compose a separate DNS label from.
-    ubos_main::mdns::run_mdns(stack, BOARD_NAME, BOARD_NAME, "host").await
+    ubos_net::mdns::run_mdns(stack, BOARD_NAME, BOARD_NAME, "host").await
 }
 
 #[embassy_executor::task]
 async fn http_server_task(stack: Stack<'static>) -> ! {
-    net::run_http_server(stack, BOARD_NAME).await
+    ubos_metrics::http::run_http_server(stack, BOARD_NAME).await
 }
 
 /// CPU-side ASIC mock; spawned when no BM1362 hashboard is wired.
@@ -276,17 +271,17 @@ fn pool_config_from_env() -> PoolConfig {
     .expect("BUG: POOL_* env vars failed to parse")
 }
 
-/// Republishes `ubos_main::hashrate::hashrate()` as a Prometheus
+/// Republishes `ubos_metrics::hashrate::hashrate()` as a Prometheus
 /// metric on a fixed cadence. The EWMA hashrate is bumped
 /// automatically every time a share is recorded via
-/// `ubos_main::hashrate::record_share`.
+/// `ubos_metrics::hashrate::record_share`.
 #[embassy_executor::task]
 async fn hashrate_metrics_task() -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(5));
     loop {
         ticker.next().await;
-        let hashrate_hz = ubos_main::hashrate::hashrate();
-        ubos_main::metrics::push(Metric {
+        let hashrate_hz = ubos_metrics::hashrate::hashrate();
+        ubos_metrics::metrics::push(Metric {
             name: "board_hashrate_hz",
             // the workspace ubos-* crates still use heapless 0.8 while
             // host-runner needs 0.9 for embassy-net 0.9's StaticConfigV4;

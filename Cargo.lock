@@ -343,8 +343,9 @@ dependencies = [
  "stratum-v2",
  "ubos-core",
  "ubos-display",
- "ubos-main",
+ "ubos-metrics",
  "ubos-monitor",
+ "ubos-net",
  "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
@@ -2029,8 +2030,9 @@ dependencies = [
  "stratum-v2",
  "ubos-core",
  "ubos-display",
- "ubos-main",
+ "ubos-metrics",
  "ubos-monitor",
+ "ubos-net",
  "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
@@ -2457,8 +2459,9 @@ dependencies = [
  "stratum-v1",
  "stratum-v2",
  "ubos-logging",
- "ubos-main",
+ "ubos-metrics",
  "ubos-monitor",
+ "ubos-net",
  "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
@@ -2832,7 +2835,7 @@ dependencies = [
  "sha2 0.10.9",
  "stratum-client",
  "ubos-logging",
- "ubos-main",
+ "ubos-metrics",
  "ubos-monitor",
  "ubos-psu",
 ]
@@ -3468,8 +3471,9 @@ dependencies = [
  "stratum-v2",
  "ubos-core",
  "ubos-display",
- "ubos-main",
+ "ubos-metrics",
  "ubos-monitor",
+ "ubos-net",
  "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
@@ -3513,8 +3517,9 @@ dependencies = [
  "stratum-v2",
  "ubos-core",
  "ubos-display",
- "ubos-main",
+ "ubos-metrics",
  "ubos-monitor",
+ "ubos-net",
  "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
@@ -3943,8 +3948,9 @@ dependencies = [
  "stratum-v2",
  "ubos-core",
  "ubos-display",
- "ubos-main",
+ "ubos-metrics",
  "ubos-monitor",
+ "ubos-net",
  "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
@@ -3980,8 +3986,9 @@ dependencies = [
  "stratum-v2",
  "ubos-core",
  "ubos-display",
- "ubos-main",
+ "ubos-metrics",
  "ubos-monitor",
+ "ubos-net",
  "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
@@ -4336,7 +4343,8 @@ dependencies = [
  "portable-atomic",
  "profont",
  "ubos-core",
- "ubos-main",
+ "ubos-metrics",
+ "ubos-net",
 ]
 
 [[package]]
@@ -4348,41 +4356,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "ubos-main"
+name = "ubos-main-host"
+version = "0.1.0"
+dependencies = [
+ "stratum-client",
+]
+
+[[package]]
+name = "ubos-metrics"
 version = "0.1.0"
 dependencies = [
  "cortex-m",
  "defmt 1.0.1",
- "edge-mdns",
- "edge-nal",
- "edge-nal-embassy",
  "embassy-executor 0.10.0",
  "embassy-futures",
  "embassy-net",
  "embassy-sync 0.8.0",
  "embassy-time",
- "embedded-hal 1.0.0",
- "embedded-hal-async",
  "embedded-io-async 0.7.0",
- "embedded-tls",
  "flate2",
- "format_no_std",
  "heapless 0.8.0",
  "portable-atomic",
- "rand_core 0.10.1",
- "rand_core 0.6.4",
- "sha2 0.10.9",
  "static_cell",
  "ubos-core",
  "ubos-logging",
- "ubos-pool",
-]
-
-[[package]]
-name = "ubos-main-host"
-version = "0.1.0"
-dependencies = [
- "stratum-client",
+ "ubos-net",
 ]
 
 [[package]]
@@ -4395,8 +4393,32 @@ dependencies = [
  "heapless 0.8.0",
  "libm",
  "ubos-logging",
- "ubos-main",
+ "ubos-metrics",
  "ubos-temperature",
+]
+
+[[package]]
+name = "ubos-net"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.0.1",
+ "edge-mdns",
+ "edge-nal",
+ "edge-nal-embassy",
+ "embassy-futures",
+ "embassy-net",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+ "embedded-tls",
+ "heapless 0.8.0",
+ "portable-atomic",
+ "rand_core 0.10.1",
+ "rand_core 0.6.4",
+ "static_cell",
+ "ubos-core",
+ "ubos-logging",
+ "ubos-pool",
 ]
 
 [[package]]
@@ -4432,7 +4454,7 @@ dependencies = [
  "embassy-time",
  "embedded-hal-async",
  "heapless 0.8.0",
- "ubos-main",
+ "ubos-metrics",
 ]
 
 [[package]]

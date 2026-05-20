@@ -1,6 +1,6 @@
 //! CPU busy ratio published as a Prometheus gauge.
 //!
-//! Model and caveats: `../docs/METRICS.md`.
+//! Model and caveats: `../../../docs/METRICS.md`.
 
 use core::num::NonZeroU64;
 

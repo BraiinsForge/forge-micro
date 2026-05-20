@@ -466,10 +466,38 @@
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
-          clippy-ubos-main = craneLib.cargoClippy {
+          clippy-ubos-core = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
-            cargoExtraArgs = "-p ubos-main";
+            cargoExtraArgs = "-p ubos-core";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-ubos-metrics = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-metrics";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-ubos-display = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-display";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-ubos-net = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-net";
+            cargoClippyExtraArgs = "-- -D warnings";
+          };
+
+          clippy-ubos-pool = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-pool";
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
@@ -589,10 +617,16 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
-          test = craneLib.cargoTest {
+          test-ubos-metrics = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
-            cargoExtraArgs = "-p ubos-main";
+            cargoExtraArgs = "-p ubos-metrics";
+          };
+
+          test-ubos-pool = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-pool";
           };
 
           test-mmm = craneLib.cargoTest {
@@ -680,7 +714,7 @@
             strictDeps = true;
           };
 
-          fmt-ubos-main = craneLib.cargoFmt { inherit src; };
+          fmt = craneLib.cargoFmt { inherit src; };
 
           fmt-load-test = craneLib.cargoFmt { src = loadTestSrc; };
 

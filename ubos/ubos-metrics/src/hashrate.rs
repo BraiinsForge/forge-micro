@@ -1,6 +1,6 @@
 //! Bucketed EWMA hashrate accounting shared by every firmware.
 //!
-//! Metrics: `../docs/METRICS.md`.
+//! Metrics: `../../../docs/METRICS.md`.
 
 use core::sync::atomic::Ordering;
 

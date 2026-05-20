@@ -26,7 +26,7 @@ use esp_hal::peripherals::{GPIO10, GPIO11, LEDC, PCNT};
 use esp_hal::time::Rate;
 use portable_atomic::Ordering;
 use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
-use ubos_main::metrics::{push, Metric, Value};
+use ubos_metrics::metrics::{push, Metric, Value};
 use ubos_monitor::FanOutput;
 
 /// Target PWM frequency per Intel 4-wire fan specification.

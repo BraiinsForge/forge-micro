@@ -23,15 +23,15 @@ members = [
     "ubos/ubos-core",
     "ubos/ubos-display",
     "ubos/ubos-logging",
-    "ubos/ubos-main",
+    "ubos/ubos-metrics",
     "ubos/ubos-monitor",
+    "ubos/ubos-net",
     "ubos/ubos-pool",
     "ubos/ubos-psu",
     "ubos/ubos-temperature",
 ]
 
 [workspace.dependencies]
-ubos-main         = { path = "ubos/ubos-main", default-features = false }
 embassy-executor  = { version = "0.10.0", default-features = false }
 embassy-sync      = { version = "0.8", default-features = false }
 embassy-time      = { version = "0.5.1", default-features = false }
@@ -74,7 +74,9 @@ ii-sv2            = { git = "ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.
 ubos-core         = { path = "ubos/ubos-core" }
 ubos-display      = { path = "ubos/ubos-display" }
 ubos-logging      = { path = "ubos/ubos-logging", default-features = false }
+ubos-metrics      = { path = "ubos/ubos-metrics", default-features = false }
 ubos-monitor      = { path = "ubos/ubos-monitor", default-features = false }
+ubos-net          = { path = "ubos/ubos-net", default-features = false }
 ubos-pool         = { path = "ubos/ubos-pool" }
 ubos-psu          = { path = "ubos/ubos-psu", default-features = false }
 ubos-temperature  = { path = "ubos/ubos-temperature", default-features = false }

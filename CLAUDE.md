@@ -80,13 +80,17 @@ probe.
 - All crates use `portable-atomic` for a uniform atomics API across targets.
 - The cortex-m firmware (rp2040, rp2350, stm32f407, stm32f439) uses
   `#[cortex_m_rt::entry]` and drives `embassy_executor::raw::Executor`
-  via `ubos_main::cpu_load::run_cortex_m_executor` so the poll/wfe
-  loop can bracket `wfe` with `Instant::now()` reads.
+  via `ubos_metrics::cpu_load::run_cortex_m_executor` so the poll/wfe
+  loop can bracket `wfe` with `Instant::now()` reads. bmm-pico stays
+  on `#[embassy_executor::main]` because its core-1 split runs a
+  separate hand-managed executor for the MMM serial worker; the
+  busy-ratio metric is intentionally absent there.
 - The esp32s3 firmware uses `#[esp_hal::main]` and constructs the
   esp-rtos embassy executor manually so it can pass idle hooks to
   `Executor::run_with_callbacks`.
 - All boards share network tasks, constants, buffers, and response
-  building via the root `ubos-main` library crate.
+  building via the `ubos-core`, `ubos-net`, and `ubos-metrics` crates
+  under `ubos/`.
 - Embassy task constructors return `Result<SpawnToken, SpawnError>`;
   `spawner.spawn()` returns `()`. The `unwrap!` wraps the constructor.
 - ESP32 crate pins `embassy-executor = "0.9.1"` to match `esp-rtos 0.2.0`

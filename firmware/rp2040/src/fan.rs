@@ -26,8 +26,7 @@ use embassy_rp::Peri;
 use embassy_time::Ticker;
 use portable_atomic::Ordering;
 use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
-use ubos_main::metrics::{push, Metric, Value};
-use portable_atomic::Ordering;
+use ubos_metrics::metrics::{push, Metric, Value};
 use ubos_monitor::FanOutput;
 
 use crate::config::Fan;

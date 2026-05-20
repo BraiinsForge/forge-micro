@@ -29,7 +29,7 @@ sha2               = { workspace = true }
 # Pulled in for the hashrate metric only; the `default-features =
 # false` flavor keeps ubos-metrics no-defmt for mmm consumers
 # that don't already enable defmt themselves.
-ubos-main          = { workspace = true, default-features = false }
+ubos-metrics      = { workspace = true, default-features = false }
 mining-protocol    = { workspace = true }
 stratum-client     = { workspace = true }
 ubos-logging       = { workspace = true }
