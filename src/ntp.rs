@@ -37,19 +37,23 @@ pub fn parse_timestamp_secs(response: &[u8]) -> Option<u64> {
 /// Format a Unix timestamp as `HH:MM:SS UTC` into the provided buffer.
 ///
 /// Returns the number of bytes written. The buffer must be at least 12
-/// bytes to hold the full formatted string.
+/// bytes to hold the full formatted string; a shorter buffer trips the
+/// debug assertion in debug builds and panics on the slice write in
+/// release. Callers must size at compile time.
 pub fn format_utc_time(buffer: &mut [u8], unix_secs: u64) -> usize {
+    // "HH:MM:SS UTC" = 12 bytes. Callers must size the buffer for the
+    // full string; the assertion catches regressions in debug, and the
+    // slice write below panics in release rather than silently writing
+    // a partial string.
+    debug_assert!(buffer.len() >= 12, "format_utc_time needs >=12 bytes");
+
     let day_secs = unix_secs % SECONDS_PER_DAY;
     let hours = day_secs / SECONDS_PER_HOUR;
     let minutes = (day_secs % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE;
     let seconds = day_secs % SECONDS_PER_MINUTE;
 
-    // "HH:MM:SS UTC" = 12 bytes.
     let output = b" UTC";
     let needed = 8 + output.len();
-    if buffer.len() < needed {
-        return 0;
-    }
 
     // hours < 24, minutes < 60, seconds < 60, so every digit fits in u8.
     buffer[0] = b'0' + (hours / 10) as u8;
@@ -126,12 +130,5 @@ mod tests {
         // One full day + 3661 seconds = 01:01:01.
         let length = format_utc_time(&mut buffer, SECONDS_PER_DAY + 3661);
         assert_eq!(&buffer[..length], b"01:01:01 UTC");
-    }
-
-    #[test]
-    fn format_buffer_too_small() {
-        let mut buffer = [0u8; 8];
-        let length = format_utc_time(&mut buffer, 0);
-        assert_eq!(length, 0);
     }
 }
