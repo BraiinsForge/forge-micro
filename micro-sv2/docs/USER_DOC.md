@@ -32,7 +32,7 @@ Add the umbrella crate as a dependency:
 
 ```toml
 [dependencies]
-ii-sv2 = { git = "https://gitlab.ii.zone/dynamo/libraries/micro-sv2" }
+ii-sv2 = { git = "https://gitlab.ii.zone/braiins-forge/mining/usv2" }
 ```
 
 Encode and decode a SV2 frame end-to-end without encryption (useful for

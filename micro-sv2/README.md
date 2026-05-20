@@ -13,7 +13,7 @@ standard channel, and receive jobs / prev-hash / target updates from a pool.
 
 ```toml
 [dependencies]
-ii-sv2 = { git = "https://gitlab.ii.zone/dynamo/libraries/micro-sv2" }
+ii-sv2 = { git = "https://gitlab.ii.zone/braiins-forge/mining/usv2" }
 ```
 
 ```rust
