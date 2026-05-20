@@ -30,7 +30,7 @@ use embassy_stm32::timer::Channel;
 use embassy_stm32::Peri;
 use embassy_time::{Duration, Instant, Timer as EmbassyTimer};
 use portable_atomic::Ordering;
-use ubos_display::display::{FAN_PWM_PERCENT, FAN_RPM};
+use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
 use ubos_main::metrics::{push, Metric, Value};
 use ubos_monitor::FanOutput;
 

@@ -14,6 +14,7 @@ display = []
 ubos-main              = { workspace = true, features = ["defmt"] }
 ubos-pool            = { workspace = true }
 ubos-display         = { workspace = true }
+ubos-core            = { workspace = true }
 esp32s3-tsens          = { workspace = true }
 embassy-executor       = { version = "0.9.1", features = ["defmt"] }
 embassy-time           = { workspace = true, features = ["defmt", "generic-queue-8"] }

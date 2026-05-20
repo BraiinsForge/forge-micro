@@ -1,6 +1,6 @@
 //! SNTP response parser and UTC formatter.
 
-use crate::consts::Ntp;
+use ubos_core::consts::Ntp;
 
 /// NTP epoch (1900-01-01) to Unix epoch (1970-01-01) offset in seconds.
 const NTP_TO_UNIX_OFFSET: u64 = 2_208_988_800;

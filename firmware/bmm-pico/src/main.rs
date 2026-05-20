@@ -120,7 +120,7 @@ type EthernetRunner = Runner<
 
 struct BoardWatchdog(Watchdog);
 
-impl ubos_main::watchdog::Watchdog for BoardWatchdog {
+impl ubos_core::watchdog::Watchdog for BoardWatchdog {
     fn init(&mut self) {
         self.0.start(config::Watchdog::TIMEOUT);
     }
@@ -142,12 +142,12 @@ async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> 
 
 #[embassy_executor::task]
 async fn watchdog_task(watchdog: BoardWatchdog) -> ! {
-    ubos_main::watchdog::run_watchdog(watchdog).await
+    ubos_core::watchdog::run_watchdog(watchdog).await
 }
 
 #[embassy_executor::task]
 async fn led_blink_task(led: Output<'static>) -> ! {
-    ubos_main::led::run_led_blink(led).await
+    ubos_core::led::run_led_blink(led).await
 }
 
 #[embassy_executor::task]

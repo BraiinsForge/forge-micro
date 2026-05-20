@@ -9,23 +9,14 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::Text;
 use embedded_hal::digital::OutputPin;
-use portable_atomic::{AtomicU32, AtomicU8, Ordering};
+use portable_atomic::Ordering;
 use profont::PROFONT_12_POINT;
 
+use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
 use ubos_main::net::{BTC_PRICE_CENTS, LOCAL_IPV4};
 use ubos_main::{hashrate, ntp};
 
 use crate::sh1106::Sh1106;
-
-/// Last measured fan tach in RPM. Zero on boards without a fan, or
-/// before the first tach sample completes on boards with one.
-pub static FAN_RPM: AtomicU32 = AtomicU32::new(0);
-
-/// Current fan PWM duty as an integer percent in the range 0 to 100
-/// inclusive. `u8::MAX` is the sentinel for "this board has no fan";
-/// the display uses it to decide whether to show fan info or fall back
-/// to the BTC price.
-pub static FAN_PWM_PERCENT: AtomicU8 = AtomicU8::new(u8::MAX);
 
 /// Render IP, UTC time, BTC price or fan PWM/RPM, and hashrate onto
 /// the display.

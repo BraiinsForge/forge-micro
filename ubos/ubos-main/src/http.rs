@@ -20,14 +20,14 @@
 //!   firmware state changes yet.
 //!
 //! Any other path gets a small 404. Responses are written into a
-//! caller-owned buffer sized in [`crate::consts::Http::RESPONSE_BUFFER_SIZE`].
+//! caller-owned buffer sized in [`ubos_core::consts::Http::RESPONSE_BUFFER_SIZE`].
 
 use core::fmt::{self, Write};
 
 use embassy_net::Ipv4Address;
 use portable_atomic::Ordering;
 
-use crate::display::{FAN_PWM_PERCENT, FAN_RPM};
+use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
 use crate::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, TEMPERATURE_C};
 
 /// Wrapper around a byte slice that tracks the write position.

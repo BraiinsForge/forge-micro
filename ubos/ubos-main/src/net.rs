@@ -16,7 +16,7 @@ use rand_core::{CryptoRng, RngCore};
 use static_cell::ConstStaticCell;
 use ubos_logging::{info, warn, Debug2Format};
 
-use crate::consts::{Btc, Http, Net, Ntp, Tls};
+use ubos_core::consts::{Btc, Http, Net, Ntp, Tls};
 
 /// Maximum number of DNS A-record results retained for connect attempts.
 /// Pool DNS responses are typically two or three addresses; four covers the

@@ -34,7 +34,7 @@ use rand_core_v010::TryRng;
 use static_cell::{ConstStaticCell, StaticCell};
 use ubos_logging::{info, warn, Debug2Format};
 
-use crate::consts::{Http, Mdns as MdnsConsts, Metrics};
+use ubos_core::consts::{Http, Mdns as MdnsConsts, Metrics};
 
 /// `edge_mdns::io::Mdns::new` takes a `&Signal` to wake the responder
 /// for unsolicited re-announces. We never signal it; address changes

@@ -38,7 +38,7 @@ use portable_atomic::Ordering;
 
 use super::{build_api_info_response, build_index_response, INDEX_HTML};
 use crate::consts::Http;
-use crate::display::{FAN_PWM_PERCENT, FAN_RPM};
+use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
 use crate::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, TEMPERATURE_C};
 
 static STATE_LOCK: Mutex<()> = Mutex::new(());

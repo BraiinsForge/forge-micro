@@ -15,7 +15,7 @@ use portable_atomic::Ordering;
 use static_cell::ConstStaticCell;
 use ubos_logging::warn;
 
-use crate::consts::Metrics;
+use ubos_core::consts::Metrics;
 use crate::http::BufferWriter;
 use crate::net::{BTC_PRICE_CENTS, LAST_BTC_FETCH_UPTIME_SECS, NTP_EPOCH_OFFSET, REQUEST_COUNT};
 
@@ -161,7 +161,7 @@ pub async fn run(stack: Stack<'static>) -> ! {
 
     loop {
         let mut socket = TcpSocket::new(stack, rx, tx);
-        socket.set_timeout(Some(crate::consts::Net::SOCKET_TIMEOUT));
+        socket.set_timeout(Some(ubos_core::consts::Net::SOCKET_TIMEOUT));
 
         let accept_future = socket.accept(Metrics::PORT);
         let receive_future = METRICS.receive();

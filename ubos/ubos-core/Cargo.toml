@@ -1,0 +1,12 @@
+[package]
+name    = "ubos-core"
+edition = "2021"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+embassy-time    = { workspace = true }
+embedded-hal    = { workspace = true }
+portable-atomic = { workspace = true }
