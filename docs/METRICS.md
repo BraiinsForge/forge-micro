@@ -6,7 +6,7 @@ Each firmware exposes a Prometheus text endpoint on
 
 ## Endpoint model
 
-Code: `src/metrics.rs`.
+Code: `ubos/ubos-metrics/src/metrics.rs`.
 
 Any async context pushes a `Metric` value into a static `Channel` via
 `push`. The `run` task owns a local `FnvIndexMap` and drains the channel,
@@ -17,7 +17,7 @@ Prometheus exposition format 0.0.4.
 
 ## CPU busy ratio
 
-Code: `src/cpu_load.rs`.
+Code: `ubos/ubos-metrics/src/cpu_load.rs`.
 
 Each board brackets its executor's idle wait with `Instant::now()` and
 adds the elapsed ticks to the per-core slot in `IDLE_TICKS`. The publisher
@@ -62,7 +62,7 @@ reference impl at <https://gitlab.com/giacomocaironi/embassy-cpu-usage>).
 
 ## BTC price
 
-Code: `src/btc.rs`.
+Code: `ubos/ubos-pool/src/btc.rs`.
 
 The Binance ticker response contains the price as a `"dollar.cents"` string.
 The parser extracts dollar and cent parts as integers and returns
@@ -71,7 +71,7 @@ MCUs without an FPU.
 
 ## Hashrate
 
-Code: `src/hashrate.rs`.
+Code: `ubos/ubos-metrics/src/hashrate.rs`.
 
 `record_share` bumps `SHARE_COUNT` and feeds the share's difficulty into
 an EWMA-smoothed bucketed estimator over 1-second buckets with α = 1/8
