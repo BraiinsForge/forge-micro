@@ -55,6 +55,30 @@ impl Watchdog {
     pub const FEED_PERIOD: Duration = Duration::from_millis(500);
 }
 
+/// mDNS/DNS-SD responder settings per RFC 6762 and RFC 6763.
+pub struct Mdns;
+impl Mdns {
+    /// A record TTL in seconds. RFC 6762 §10 recommends 120 s for volatile
+    /// addresses such as DHCP leases.
+    pub const TTL_SECS: u32 = 120;
+    /// DNS-SD service type for Prometheus scrape targets.
+    pub const SERVICE_TYPE: &str = "_prometheus";
+    /// Transport protocol for the Prometheus service.
+    pub const SERVICE_PROTOCOL: &str = "_tcp";
+    /// URL path to the Prometheus metrics endpoint.
+    pub const METRICS_PATH: &str = "/metrics";
+    /// Seconds to wait before retrying after a bind or run error.
+    pub const RETRY_DELAY_SECS: u64 = 5;
+    /// Buffer size for mDNS datagrams. RFC 6762 §17 caps mDNS messages at
+    /// the interface UDP payload max.
+    pub const BUFFER_SIZE: usize = 1472;
+    /// Packet-metadata slots per direction for the mDNS UDP socket.
+    pub const METADATA_SLOTS: usize = 4;
+    /// Sockets in the UDP pool. One is sufficient because the responder
+    /// holds a single socket for the lifetime of each run attempt.
+    pub const SOCKET_POOL_SIZE: usize = 1;
+}
+
 /// Prometheus metrics exposition server settings.
 pub struct Metrics;
 impl Metrics {

@@ -10,6 +10,7 @@ pub mod display;
 pub mod hashrate;
 pub mod http;
 pub mod led;
+pub mod mdns;
 pub mod metrics;
 pub mod net;
 pub mod ntp;
