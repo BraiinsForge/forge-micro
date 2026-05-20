@@ -59,16 +59,14 @@ fn reset_atomics() {
     POOL_ALIVE_BITMAP.store(0, Ordering::Relaxed);
 }
 
+/// Source HTML carries the pools panel. Asserted against the source
+/// file rather than the response body because the body is gzipped on
+/// the wire; the round-trip test below covers source → compressed →
+/// decompressed equality, so adding "source contains X" closes the
+/// chain without a second gunzip per check.
 #[test]
-fn index_response_carries_pools_panel() {
-    let mut buffer = [0u8; 16 * 1024];
-    let length = build_index_response(&mut buffer);
-    let response = core::str::from_utf8(&buffer[..length]).expect("utf8 index");
-
-    assert!(response.starts_with("HTTP/1.0 200 OK\r\n"));
-    assert!(response.contains("Content-Type: text/html"));
-
-    let document = body(response);
+fn dashboard_html_carries_pools_panel() {
+    let document = include_str!("../index.html");
     assert!(
         document.contains("class=\"k\">Pools<"),
         "missing Pools panel heading"
@@ -84,6 +82,33 @@ fn index_response_carries_pools_panel() {
     assert_eq!(document.matches("class=\"dot\"").count(), 4);
     assert_eq!(document.matches("class=\"pt\"").count(), 3);
     assert_eq!(document.matches(">Dead<").count(), 3);
+}
+
+/// Round-trip: decompressing the response body must yield the source
+/// HTML unchanged. Catches a build.rs regression that silently emits
+/// a stream for some other input.
+#[test]
+fn index_response_decompresses_to_source_html() {
+    let mut buffer = [0u8; Http::RESPONSE_BUFFER_SIZE];
+    let length = build_index_response(&mut buffer);
+    let response = &buffer[..length];
+
+    let sep = b"\r\n\r\n";
+    let body_offset = response
+        .windows(sep.len())
+        .position(|window| window == sep)
+        .expect("response separator")
+        + sep.len();
+
+    let mut decoder = flate2::read::GzDecoder::new(&response[body_offset..]);
+    let mut decompressed = std::vec::Vec::new();
+    std::io::Read::read_to_end(&mut decoder, &mut decompressed).expect("gunzip body");
+
+    let source = include_str!("../index.html");
+    assert_eq!(
+        core::str::from_utf8(&decompressed).expect("decompressed utf8"),
+        source
+    );
 }
 
 #[test]
@@ -135,13 +160,13 @@ fn api_info_renders_all_telemetry() {
     }
 }
 
-/// Page-size guard against silent truncation. `BufferWriter::write_str`
-/// returns `Err(fmt::Error)` on overflow, but the call site does
-/// `let _ = writer.write_str(INDEX_HTML)`, which discards it. The socket
-/// then ships a headers-only response and the browser renders a blank
-/// page. There is no log line, no panic, no metric — only "the page is
-/// broken". Demanding the rendered body equal `INDEX_HTML` catches that
-/// before it ships.
+/// Page-size guard against silent truncation. `BufferWriter::write_bytes`
+/// returns `Err(fmt::Error)` on overflow, but the call site discards
+/// it through `let _ = ...`. The socket then ships a headers-only
+/// response and the browser renders a blank page. There is no log
+/// line, no panic, no metric — only "the page is broken". Demanding
+/// the rendered body end with the full `INDEX_HTML` bytes catches
+/// that before it ships.
 ///
 /// The wire-budget side of the same risk is enforced at compile time
 /// by the assertion in `consts.rs` that keeps `RESPONSE_BUFFER_SIZE`
@@ -154,12 +179,8 @@ fn index_response_fits_initcwnd_budget() {
     // ceiling that the firmware actually has to live with.
     let mut buffer = [0u8; Http::RESPONSE_BUFFER_SIZE];
     let length = build_index_response(&mut buffer);
-    let response = core::str::from_utf8(&buffer[..length]).expect("utf8 index");
+    let response = &buffer[..length];
 
-    // Truncation guard: `BufferWriter::write_str` swallows overflow
-    // through `let _ = ...`, so a too-large `INDEX_HTML` would silently
-    // emit a half-page. Demand the rendered body ends with the full
-    // static asset to catch that before it ships.
     assert!(
         response.ends_with(INDEX_HTML),
         "index response truncated at {length} bytes; INDEX_HTML is {} bytes",

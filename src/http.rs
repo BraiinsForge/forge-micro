@@ -70,11 +70,12 @@ impl Write for BufferWriter<'_> {
     }
 }
 
-/// Inlined dashboard. Static HTML; all telemetry is fetched from
-/// `/api/info` by the embedded JS and rendered into the card slots and
-/// the SVG chart. Sized so the whole page fits in one response buffer
-/// and arrives in a single RTT on LAN.
-const INDEX_HTML: &str = include_str!("index.html");
+/// Gzipped dashboard payload, produced from `src/index.html` by the
+/// crate's `build.rs`. Served with `Content-Encoding: gzip` so a fresh
+/// connection paints in one RTT well inside the TCP initial congestion
+/// window even as the SPA grows. Every browser in the field already
+/// supports the encoding.
+const INDEX_HTML: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 
 #[cfg(test)]
 #[path = "tests/http.rs"]
@@ -97,11 +98,12 @@ pub fn build_index_response(buffer: &mut [u8]) -> usize {
         writer,
         "HTTP/1.0 200 OK\r\n\
          Content-Type: text/html; charset=utf-8\r\n\
+         Content-Encoding: gzip\r\n\
          Cache-Control: no-store\r\n\
          Connection: close\r\n\
          \r\n"
     );
-    let _ = writer.write_str(INDEX_HTML);
+    let _ = writer.write_bytes(INDEX_HTML);
     writer.len()
 }
 
