@@ -36,7 +36,8 @@ use std::sync::Mutex;
 
 use portable_atomic::Ordering;
 
-use super::{build_api_info_response, build_index_response};
+use super::{build_api_info_response, build_index_response, INDEX_HTML};
+use crate::consts::Http;
 use crate::display::{FAN_PWM_PERCENT, FAN_RPM};
 use crate::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, TEMPERATURE_C};
 
@@ -132,6 +133,38 @@ fn api_info_renders_all_telemetry() {
     ] {
         assert!(document.contains(needle), "missing {needle} in {document}");
     }
+}
+
+/// Page-size guard against silent truncation. `BufferWriter::write_str`
+/// returns `Err(fmt::Error)` on overflow, but the call site does
+/// `let _ = writer.write_str(INDEX_HTML)`, which discards it. The socket
+/// then ships a headers-only response and the browser renders a blank
+/// page. There is no log line, no panic, no metric — only "the page is
+/// broken". Demanding the rendered body equal `INDEX_HTML` catches that
+/// before it ships.
+///
+/// The wire-budget side of the same risk is enforced at compile time
+/// by the assertion in `consts.rs` that keeps `RESPONSE_BUFFER_SIZE`
+/// below `INITCWND_BUDGET`, so a single-RTT first paint is structural.
+#[test]
+fn index_response_fits_initcwnd_budget() {
+    // Use the same buffer size the firmware allocates so a truncation
+    // inside `build_index_response` shows up the same way it would in
+    // production. A larger scratch buffer here would mask the buffer
+    // ceiling that the firmware actually has to live with.
+    let mut buffer = [0u8; Http::RESPONSE_BUFFER_SIZE];
+    let length = build_index_response(&mut buffer);
+    let response = core::str::from_utf8(&buffer[..length]).expect("utf8 index");
+
+    // Truncation guard: `BufferWriter::write_str` swallows overflow
+    // through `let _ = ...`, so a too-large `INDEX_HTML` would silently
+    // emit a half-page. Demand the rendered body ends with the full
+    // static asset to catch that before it ships.
+    assert!(
+        response.ends_with(INDEX_HTML),
+        "index response truncated at {length} bytes; INDEX_HTML is {} bytes",
+        INDEX_HTML.len()
+    );
 }
 
 #[test]
