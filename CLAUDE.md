@@ -64,34 +64,6 @@ the NUC reports `ppps` but does not actually cut power, so
 what triggers the wedge; never run it twice in a row on the same
 probe.
 
-## Verification via prometheus
-
-Pool-side mining stats live in prometheus on the NUC, scraped from
-ckpool's exposition file at `/var/lib/node_exporter/textfile/ckpool.prom`.
-This is the source of truth for "is the board mining?" — board HTTP
-pages can lag or show stale data after a reflash.
-
-```sh
-# Per-board hashrate from the pool's perspective, kH/s.
-curl -sS 'http://redacted50.69/prometheus/api/v1/query?query=ckpool_client_hashrate_bps' \
-  | jq -r '.data.result[] | "\(.metric.worker): \(.value[1] | tonumber / 1000) kH/s"'
-```
-
-Other useful series exported by `ckpool-exporter`:
-
-| Metric | Meaning |
-|--------|---------|
-| `ckpool_client_hashrate_bps` | rolling 1-min hashrate (`dsps1 * 2^32`) |
-| `ckpool_client_dsps{window=...}` | diff-shares-per-second, 1m / 5m / 1h |
-| `ckpool_client_diff` | current pool difficulty for the worker |
-| `ckpool_client_best_diff` | best share difficulty seen |
-| `ckpool_client_last_share_seconds` | unix timestamp of the last share |
-| `ckpool_client_idle` | 1 if idle, 0 otherwise |
-
-The `worker` label matches the suffix in `DEFAULT_POOL_USER` (e.g. `rp2040`,
-`esp32s3`). A worker that disappears from the result set has
-disconnected from the pool entirely.
-
 ## Targets
 
 | Crate | Target | MCU |

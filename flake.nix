@@ -150,7 +150,6 @@
                     probe-rs-tools-remote = mkRemoteProbeRsTools aarch64Pkgs.probe-rs-tools;
                   })
                   (final: _prev: {
-                    ckpool = final.callPackage ./redacted/pkgs/ckpool.nix { };
                     load-test = aarch64Pkgs.callPackage ./redacted/pkgs/load-test.nix { };
                   })
                 ];
