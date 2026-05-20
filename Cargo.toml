@@ -1,70 +1,3 @@
-[package]
-name    = "ubos-main"
-edition = "2021"
-version = "0.1.0"
-
-[lib]
-path = "src/lib.rs"
-
-[features]
-default = ["defmt"]
-defmt   = ["dep:defmt", "embassy-net/defmt", "edge-mdns/defmt", "ubos-logging/defmt"]
-
-[dependencies]
-embassy-net       = { workspace = true, features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "auto-icmp-echo-reply", "multicast"] }
-embassy-sync      = { workspace = true }
-embassy-time      = { workspace = true }
-embassy-futures   = { workspace = true }
-embedded-tls      = { workspace = true }
-embedded-io-async = { workspace = true }
-edge-mdns         = { workspace = true, features = ["io"] }
-edge-nal          = { workspace = true }
-edge-nal-embassy  = { workspace = true, features = ["udp", "multicast", "proto-ipv4", "medium-ethernet"] }
-embedded-hal      = { workspace = true }
-embedded-hal-async = { workspace = true }
-rand_core         = { workspace = true }
-# TODO: remove rand_core_v010 alias once edge-mdns moves back to rand_core 0.6
-# or the workspace migrates to 0.10. edge-mdns master depends on rand_core 0.10;
-# aliased here so CounterRng can implement the trait that Mdns::new requires,
-# without touching the workspace rand_core 0.6 used by embedded-tls.
-rand_core_v010    = { package = "rand_core", version = "0.10", default-features = false }
-portable-atomic   = { workspace = true }
-static_cell       = { workspace = true }
-heapless          = { workspace = true }
-defmt             = { workspace = true, optional = true }
-embedded-graphics = { workspace = true }
-profont           = { workspace = true }
-format_no_std     = { workspace = true }
-sha2              = { workspace = true }
-ubos-logging      = { workspace = true }
-# Base58check decode for `POOL_SV2_PUBKEY`. `no_std` build via
-# `default-features = false`, matches micro-sv2's posture.
-bs58              = { version = "0.5", default-features = false, features = ["check"] }
-
-[build-dependencies]
-# Pre-compresses `src/index.html` with gzip at build time so the
-# firmware ships the dashboard with `Content-Encoding: gzip`. The
-# `rust_backend` feature pins miniz_oxide, keeping the build deps
-# pure Rust and avoiding any C zlib in the sandbox.
-flate2            = { version = "1", default-features = false, features = ["rust_backend"] }
-
-[dev-dependencies]
-# Host tests assemble base58check strings via `.into_string()`,
-# which needs the `alloc` feature on top of `check`. The lib
-# build never sees the extra feature.
-bs58              = { version = "0.5", default-features = false, features = ["check", "alloc"] }
-# Round-trip check: decompress the gzipped dashboard body in the
-# render test and compare against the source HTML. Build path uses
-# the same crate via `[build-dependencies]`.
-flate2            = { version = "1", default-features = false, features = ["rust_backend"] }
-
-# Cortex-M boards drive embassy's `raw::Executor` directly via
-# `cpu_load::run_cortex_m_executor`. Gated to ARM so the ESP32-S3
-# build does not pull in the cortex-m crate.
-[target.'cfg(target_arch = "arm")'.dependencies]
-cortex-m          = "0.7"
-embassy-executor  = { workspace = true }
-
 [workspace]
 resolver = "2"
 members = [
@@ -88,13 +21,14 @@ members = [
     "ubos/stratum-v1",
     "ubos/stratum-v2",
     "ubos/ubos-logging",
+    "ubos/ubos-main",
     "ubos/ubos-monitor",
     "ubos/ubos-psu",
     "ubos/ubos-temperature",
 ]
 
 [workspace.dependencies]
-ubos-main         = { path = ".", default-features = false }
+ubos-main         = { path = "ubos/ubos-main", default-features = false }
 embassy-executor  = { version = "0.10.0", default-features = false }
 embassy-sync      = { version = "0.8", default-features = false }
 embassy-time      = { version = "0.5.1", default-features = false }
@@ -142,9 +76,6 @@ ubos-temperature  = { path = "ubos/ubos-temperature", default-features = false }
 [workspace.lints.clippy]
 pedantic     = { level = "warn", priority = -1 }
 unwrap_used  = "deny"
-
-[lints]
-workspace = true
 
 [profile.dev]
 opt-level = "s"

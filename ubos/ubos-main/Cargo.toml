@@ -1,0 +1,69 @@
+[package]
+name    = "ubos-main"
+edition = "2021"
+version = "0.1.0"
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[features]
+default = ["defmt"]
+defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt"]
+
+[dependencies]
+embassy-net       = { workspace = true, features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "auto-icmp-echo-reply", "multicast"] }
+embassy-sync      = { workspace = true }
+embassy-time      = { workspace = true }
+embassy-futures   = { workspace = true }
+embedded-tls      = { workspace = true }
+embedded-io-async = { workspace = true }
+edge-mdns         = { workspace = true, features = ["io", "defmt"] }
+edge-nal          = { workspace = true }
+edge-nal-embassy  = { workspace = true, features = ["udp", "multicast", "proto-ipv4", "medium-ethernet"] }
+embedded-hal      = { workspace = true }
+embedded-hal-async = { workspace = true }
+rand_core         = { workspace = true }
+# edge-mdns master depends on rand_core 0.10. Aliased here so CounterRng can
+# implement the trait that Mdns::new requires, without touching the workspace
+# rand_core 0.6 used by embedded-tls. Drop this alias once edge-mdns moves
+# back to rand_core 0.6 or the workspace migrates to 0.10.
+rand_core_v010    = { package = "rand_core", version = "0.10", default-features = false }
+portable-atomic   = { workspace = true }
+static_cell       = { workspace = true }
+heapless          = { workspace = true }
+defmt             = { workspace = true, optional = true }
+embedded-graphics = { workspace = true }
+profont           = { workspace = true }
+format_no_std     = { workspace = true }
+sha2              = { workspace = true }
+ubos-logging      = { workspace = true }
+# Base58check decode for `POOL_SV2_PUBKEY`. `no_std` build via
+# `default-features = false`, matches micro-sv2's posture.
+bs58              = { version = "0.5", default-features = false, features = ["check"] }
+
+[build-dependencies]
+# Pre-compresses `src/index.html` with gzip at build time so the
+# firmware ships the dashboard with `Content-Encoding: gzip`. The
+# `rust_backend` feature pins miniz_oxide, keeping the build deps
+# pure Rust and avoiding any C zlib in the sandbox.
+flate2            = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[dev-dependencies]
+# Host tests assemble base58check strings via `.into_string()`,
+# which needs the `alloc` feature on top of `check`. The lib
+# build never sees the extra feature.
+bs58              = { version = "0.5", default-features = false, features = ["check", "alloc"] }
+# Round-trip check: decompress the gzipped dashboard body in the
+# render test and compare against the source HTML. Build path uses
+# the same crate via `[build-dependencies]`.
+flate2            = { version = "1", default-features = false, features = ["rust_backend"] }
+
+# Cortex-M boards drive embassy's `raw::Executor` directly via
+# `cpu_load::run_cortex_m_executor`. Gated to ARM so the ESP32-S3
+# build does not pull in the cortex-m crate.
+[target.'cfg(target_arch = "arm")'.dependencies]
+cortex-m          = "0.7"
+embassy-executor  = { workspace = true }
