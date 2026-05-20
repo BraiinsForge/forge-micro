@@ -28,18 +28,17 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
  .card{padding:10px 12px}
  .pool{font-size:.78rem;padding:6px 0}
  .pt{font-size:.68rem}
- .lg{position:static;text-align:right;margin-bottom:4px}
 }
 .left{display:grid;gap:16px;align-content:start;min-width:0}
-.chart{background:var(--panel);border-radius:4px;padding:12px}
+.chart{background:var(--panel);border-radius:4px;padding:12px;position:relative}
 .chart svg{display:block;width:100%;height:auto}
 .gr{stroke:var(--border);stroke-width:.5;opacity:.5;vector-effect:non-scaling-stroke}
 .tk{stroke:var(--mute);stroke-width:.5;vector-effect:non-scaling-stroke}
 .ax{fill:var(--mute);font-size:9px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .hrL{fill:none;stroke:var(--accent);stroke-width:1.5;vector-effect:non-scaling-stroke}
 .tpL{fill:none;stroke:var(--orange);stroke-width:1.5;vector-effect:non-scaling-stroke}
-.lg{position:absolute;top:18px;right:24px;font-size:.7rem;color:var(--mute)}
-.lg span{display:inline-block;width:10px;height:2px;vertical-align:middle;margin:0 4px 0 10px}
+.lg{text-align:center;margin-top:8px;font-size:.7rem;color:var(--mute)}
+.lg span{display:inline-block;width:10px;height:2px;vertical-align:middle;margin:0 6px}
 .side{display:grid;gap:8px;align-content:start}
 .card{background:var(--panel);border-radius:4px;padding:12px 14px}
 .k{color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.1em}
@@ -70,14 +69,14 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 <span class="off" title="not implemented yet">Log out</span>
 <span class="dot" id="dot" title="link"></span>
 </nav>
-<main id="dash" style="position:relative">
+<main id="dash">
 <div class="left">
 <div class="chart">
-<div class="lg"><span style="background:#6b50ff"></span>Hashrate<span style="background:#fe8431"></span>Temp</div>
 <svg viewBox="0 0 680 320" preserveAspectRatio="xMidYMid meet">
 <g id="grid"></g><g id="yL"></g><g id="yR"></g><g id="xA"></g>
 <polyline id="hrLine" class="hrL"/><polyline id="tpLine" class="tpL"/>
 </svg>
+<div class="lg"><span style="background:#6b50ff"></span>Hashrate<span style="background:#fe8431"></span>Temp</div>
 </div>
 <div class="card pools">
 <div class="k">Pools</div>
