@@ -18,8 +18,9 @@ critical-section   = { version = "1.2", features = ["std"] }
 ctrlc              = "3"
 env_logger         = "0.11"
 gpiocdev           = "0.8"
-# embassy-net 0.9's StaticConfigV4 needs heapless 0.9, while ubos-main
-# still pins 0.8; both coexist here until the workspace bumps.
+# embassy-net 0.9's StaticConfigV4 needs heapless 0.9, while the
+# workspace ubos-* crates still pin 0.8; both coexist here until the
+# workspace bumps.
 heapless           = "0.9"
 heapless-v08       = { package = "heapless", version = "0.8" }
 log                = { version = "0.4", default-features = false }

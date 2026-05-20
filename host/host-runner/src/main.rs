@@ -36,7 +36,12 @@ use rand::rngs::OsRng;
 use rand_core::RngCore;
 use static_cell::StaticCell;
 use stratum_client::AsicSession;
+use ubos_metrics::metrics::{Metric, Value};
 use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
+use ubos_net::net;
+use ubos_pool::pool_config::{
+    self, PoolConfig, ProtocolConfig, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
+};
 
 mod cpu_mock;
 mod fan;
@@ -283,9 +288,9 @@ async fn hashrate_metrics_task() -> ! {
         let hashrate_hz = ubos_main::hashrate::hashrate();
         ubos_main::metrics::push(Metric {
             name: "board_hashrate_hz",
-            // ubos-main still uses heapless 0.8 while host-runner needs
-            // 0.9 for embassy-net 0.9's StaticConfigV4; renamed dep keeps
-            // both in the build.
+            // the workspace ubos-* crates still use heapless 0.8 while
+            // host-runner needs 0.9 for embassy-net 0.9's StaticConfigV4;
+            // renamed dep keeps both in the build.
             labels: heapless_v08::Vec::new(),
             value: Value::Uint(hashrate_hz),
             timestamp_ms: 0,

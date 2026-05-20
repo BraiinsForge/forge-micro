@@ -1,6 +1,6 @@
 # host-runner
 
-ubos-main are using embassy net stack. To run them in Linux userspace
+The ubos-main firmwares use the embassy net stack. To run them in Linux userspace
 you need a way to put raw packets onto the network. The transport is
 selected by target architecture:
 
@@ -43,7 +43,7 @@ Default log filter is `info`. Bump with e.g. `RUST_LOG=debug,smoltcp=info`.
 
 ### Pool configuration
 
-Same `POOL_*` env-var contract as the firmware; see `../docs/SETUP.md`
+Same `POOL_*` env-var contract as the firmware; see `../../docs/SETUP.md`
 for the full table.
 
 Stratum V1 against Braiins pool:

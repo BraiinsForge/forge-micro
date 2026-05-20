@@ -5,6 +5,14 @@
 //! back. Used as the host-runner fallback when no BM1362 hashboard is
 //! available.
 
+use embassy_futures::yield_now;
+#[cfg(test)]
+use stratum_client::WorkAssignment;
+use stratum_client::{AsicSession, Solution};
+
+use hash::{hash_meets_target, sha256d};
+use header::build_header;
+
 mod hash {
     //! SHA-256d primitive and hash-vs-target comparison.
 
@@ -60,14 +68,6 @@ mod header {
         header
     }
 }
-
-use embassy_futures::yield_now;
-use stratum_client::{AsicSession, Solution};
-#[cfg(test)]
-use stratum_client::WorkAssignment;
-
-use hash::{hash_meets_target, sha256d};
-use header::build_header;
 
 /// Number of nonces hashed before the loop yields and re-checks
 /// for a fresh `WorkAssignment`. Sized so a Cortex-M0+ takes
