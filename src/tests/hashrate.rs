@@ -128,8 +128,6 @@ fn record_share_resume_does_not_exceed_displayed_value() {
     // one α-step's worth of the incoming bucket rate.
     assert!(
         stored_after <= displayed_before + (bucket_total / 8 + 1),
-        "post-resume stored {} jumped above pre-resume displayed {}",
-        stored_after,
-        displayed_before,
+        "post-resume stored {stored_after} jumped above pre-resume displayed {displayed_before}",
     );
 }
