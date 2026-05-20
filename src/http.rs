@@ -76,6 +76,10 @@ impl Write for BufferWriter<'_> {
 /// and arrives in a single RTT on LAN.
 const INDEX_HTML: &str = include_str!("index.html");
 
+#[cfg(test)]
+#[path = "tests/http.rs"]
+mod tests;
+
 /// Braiins wordmark served at `/logo.svg`. Kept as a separate asset
 /// rather than inlined into `index.html` so the dashboard page stays
 /// inside the response buffer budget and the browser can cache the
