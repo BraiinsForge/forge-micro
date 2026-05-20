@@ -28,8 +28,7 @@ use embassy_net::Ipv4Address;
 use portable_atomic::Ordering;
 
 use crate::display::{FAN_PWM_PERCENT, FAN_RPM};
-use crate::hashrate::SHARE_COUNT;
-use crate::net::{BTC_PRICE_CENTS, LOCAL_IPV4, NTP_EPOCH_OFFSET, TEMPERATURE_C};
+use crate::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, TEMPERATURE_C};
 
 /// Wrapper around a byte slice that tracks the write position.
 pub(crate) struct BufferWriter<'a> {
@@ -105,9 +104,8 @@ pub fn build_index_response(buffer: &mut [u8]) -> usize {
 /// Build an HTTP/1.0 JSON response for the `/api/info` endpoint.
 ///
 /// The dashboard polls this every two seconds. Optional fields (`ip`,
-/// `time`) appear as empty strings and `btc_cents` is zero when the
-/// underlying state has not been initialized; the client treats those
-/// as "not yet available".
+/// `time`) appear as empty strings when the underlying state has not
+/// been initialized; the client treats those as "not yet available".
 ///
 /// `board_name` is interpolated unescaped into the JSON `"name"` field;
 /// callers must keep it free of `"` and `\`.
@@ -128,8 +126,6 @@ pub fn build_api_info_response(buffer: &mut [u8], board_name: &str, uptime_secs:
     );
 
     let hashrate = crate::hashrate::hashrate();
-    let shares = SHARE_COUNT.load(Ordering::Relaxed);
-    let cents = BTC_PRICE_CENTS.load(Ordering::Relaxed);
     let temperature = TEMPERATURE_C.load(Ordering::Relaxed);
     let fan_rpm = FAN_RPM.load(Ordering::Relaxed);
     // `display::FAN_PWM_PERCENT` uses `u8::MAX` to mean "no fan on this
@@ -139,17 +135,17 @@ pub fn build_api_info_response(buffer: &mut [u8], board_name: &str, uptime_secs:
         u8::MAX => 0,
         percent => percent,
     };
+    let pools = POOL_ALIVE_BITMAP.load(Ordering::Relaxed);
 
     let _ = write!(
         writer,
         "{{\"name\":\"{board_name}\",\
          \"hashrate\":{hashrate},\
-         \"shares\":{shares},\
          \"uptime\":{uptime_secs},\
-         \"btc_cents\":{cents},\
          \"temperature\":{temperature},\
          \"fan_rpm\":{fan_rpm},\
          \"fan_pwm\":{fan_pwm},\
+         \"pools\":{pools},\
          \"ip\":\""
     );
 

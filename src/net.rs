@@ -11,7 +11,7 @@ use embassy_net::{IpAddress, Stack};
 use embassy_time::{with_timeout, Duration, Instant, Timer};
 use embedded_io_async::Write;
 use embedded_tls::{Aes128GcmSha256, TlsConfig, TlsConnection, TlsContext, UnsecureProvider};
-use portable_atomic::{AtomicU32, AtomicU64, Ordering};
+use portable_atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use rand_core::{CryptoRng, RngCore};
 use static_cell::ConstStaticCell;
 use ubos_logging::{info, warn, Debug2Format};
@@ -141,6 +141,12 @@ pub static LOCAL_IPV4: AtomicU32 = AtomicU32::new(0);
 /// clamp sub-zero readings to zero before storing; an `i32 as u32`
 /// cast of a negative value would wrap to a huge positive number.
 pub static TEMPERATURE_C: AtomicU32 = AtomicU32::new(0);
+/// Per-pool reachability bitmap: bit 0 is pool 1, bit 1 is pool 2, bit 2
+/// is pool 3. Cleared bits render as `Dead` on the dashboard, set bits as
+/// `Alive`. Zero until a producer writes; mirrors `TEMPERATURE_C` in that
+/// no firmware producer is wired yet, the dashboard stub exists ahead of
+/// the upcoming Stratum client work.
+pub static POOL_ALIVE_BITMAP: AtomicU8 = AtomicU8::new(0);
 
 static TCP_RX: ConstStaticCell<[u8; Tls::TCP_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::TCP_BUFFER_SIZE]);

@@ -19,6 +19,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-appl
 .dot.live{background:var(--green);box-shadow:0 0 6px var(--green)}
 main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-width:1200px;margin:0 auto}
 @media(max-width:760px){main{grid-template-columns:1fr}}
+.left{display:grid;gap:16px;align-content:start;min-width:0}
 .chart{background:var(--panel);border-radius:4px;padding:12px}
 .chart svg{display:block;width:100%;height:auto}
 .gr{stroke:var(--border);stroke-width:.5;opacity:.5;vector-effect:non-scaling-stroke}
@@ -31,6 +32,14 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 .side{display:grid;gap:8px;align-content:start}
 .card{background:var(--panel);border-radius:4px;padding:12px 14px}
 .k{color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.1em}
+.pools .k{margin-bottom:6px}
+.pool{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem}
+.pools .pool:first-of-type{border-top:0}
+.ps{display:flex;align-items:center;gap:8px}
+.ps .dot{align-self:auto}
+.pt{color:var(--mute);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;min-width:3em;text-align:right}
+.pool.live .pt{color:var(--green)}
+.pool.live .dot{background:var(--green);box-shadow:0 0 6px var(--green)}
 .v{font-size:1.05rem;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
 .cfg{max-width:520px;margin:0 auto;padding:24px 16px}
 .cfg h2{color:var(--accent-hi);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.1em;margin:24px 0 4px;border-bottom:1px solid var(--border);padding-bottom:6px}
@@ -51,12 +60,20 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 <span class="dot" id="dot" title="link"></span>
 </nav>
 <main id="dash" style="position:relative">
+<div class="left">
 <div class="chart">
 <div class="lg"><span style="background:#6b50ff"></span>Hashrate<span style="background:#fe8431"></span>Temp</div>
 <svg viewBox="0 0 680 320" preserveAspectRatio="xMidYMid meet">
 <g id="grid"></g><g id="yL"></g><g id="yR"></g><g id="xA"></g>
 <polyline id="hrLine" class="hrL"/><polyline id="tpLine" class="tpL"/>
 </svg>
+</div>
+<div class="card pools">
+<div class="k">Pools</div>
+<div class="pool" id="po1"><span>Pool 1 — Primary</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
+<div class="pool" id="po2"><span>Pool 2 — Backup</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
+<div class="pool" id="po3"><span>Pool 3 — Backup</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
+</div>
 </div>
 <aside class="side">
 <div class="card"><div class="k">Hashrate</div><div id="hr" class="v">–</div></div>
@@ -123,6 +140,8 @@ async function tick(){
   $('up').textContent=fmtUp(d.uptime);
   $('fs').textContent=d.fan_rpm?d.fan_rpm+' RPM':'–';
   $('fp').textContent=d.fan_pwm?d.fan_pwm+' %':'–';
+  const pm=d.pools|0;
+  for(let i=0;i<3;i++){const el=$('po'+(i+1)),a=(pm>>i)&1;el.classList.toggle('live',!!a);el.querySelector('.pt').textContent=a?'Alive':'Dead'}
   hrBuf.shift();hrBuf.push(d.hashrate);
   tpBuf.shift();tpBuf.push(d.temperature||0);
   draw();
