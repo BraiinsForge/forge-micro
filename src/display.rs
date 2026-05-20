@@ -109,7 +109,7 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
 
     // Line 4: current hashrate. Read from the shared EWMA so the
     // displayed rate reflects whatever backend is wired (cpu mock,
-    // UART dummy-asic, future ASIC). HashrateDisplay switches to GH/s
+    // external UART peer, future ASIC). HashrateDisplay switches to GH/s
     // at 1 GH/s, so 24 bytes covers both representations.
     let hashrate = crate::hashrate::HashrateDisplay(crate::hashrate::hashrate());
     let mut hashrate_buffer = [0u8; 24];

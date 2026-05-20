@@ -76,7 +76,6 @@ members = [
     "firmware/esp32s3",
     "asic-cpu-mock",
     "asic-uart-peer",
-    "dummy-asic",
     "embassy-net-afpacket",
     "embedded-i2c-unix",
     "embedded-serial-unix",
@@ -160,11 +159,6 @@ debug         = 2
 incremental   = false
 lto           = "fat"
 opt-level     = "s"
-
-# The dummy-asic mining loop is a tight hot path where speed matters
-# more than image size. Override just this crate to opt-level 3.
-[profile.release.package.dummy-asic]
-opt-level = 3
 
 # Vendored copy of embassy-net-wiznet 0.3.0 with the read_frame underflow
 # fix from upstream commit 14592448 applied on top. Single-crate patch

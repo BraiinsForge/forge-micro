@@ -42,18 +42,6 @@ without a backend feature is rejected at compile
 time. The `backend-cpu` and `backend-uart` features are mutually
 exclusive.
 
-The dummy-asic crate has multiple peers attached, so it uses
-per-host run aliases that override the runner with the right probe
-serial. Run from `dummy-asic/` under `.#esp`:
-
-```sh
-nix develop .#esp -c bash -c 'cd dummy-asic && cargo run-rp2040    --release'
-nix develop .#esp -c bash -c 'cd dummy-asic && cargo run-rp2350    --release'
-nix develop .#esp -c bash -c 'cd dummy-asic && cargo run-stm32f407 --release'
-nix develop .#esp -c bash -c 'cd dummy-asic && cargo run-esp32s3   --release'
-# stm32f439 alias still has a TODO probe serial.
-```
-
 The bmm-pico crate also has multiple boards attached (six). Aliases
 `cargo run-1` through `cargo run-6` pin the probe serial of each.
 The bare `cargo run --release` auto-picks when only one board is
@@ -80,10 +68,6 @@ the NUC reports `ppps` but does not actually cut power, so
 `uhubctl` and software USB resets do not help). `probe-rs info` is
 what triggers the wedge; never run it twice in a row on the same
 probe.
-
-The dummy-asic `cargo run-<board>` aliases invoke `probe-rs`
-directly rather than `probe-rs-runner`, so they get neither the
-`RUST_LOG=info` default nor the silent-exit hint described above.
 
 ## Verification via prometheus
 
@@ -133,15 +117,14 @@ disconnected from the pool entirely.
   loop can bracket `wfe` with `Instant::now()` reads.
 - The esp32s3 firmware uses `#[esp_hal::main]` and constructs the
   esp-rtos embassy executor manually so it can pass idle hooks to
-  `Executor::run_with_callbacks`. The dummy-asic crate, which has no
-  idle accounting, still uses the simpler `#[esp_rtos::main]`.
+  `Executor::run_with_callbacks`.
 - All boards share network tasks, constants, buffers, and response
   building via the root `ubos-main` library crate.
 - Embassy task constructors return `Result<SpawnToken, SpawnError>`;
   `spawner.spawn()` returns `()`. The `unwrap!` wraps the constructor.
 - ESP32 crate pins `embassy-executor = "0.9.1"` to match `esp-rtos 0.2.0`
   internal dependency (workspace `0.10.0` is incompatible).
-- UART for the dummy-asic link uses DMA on cortex-m targets:
+- UART for the BM1362 chip serial link uses DMA on cortex-m targets:
   `embassy-stm32` `RingBufferedUartRx` for stm32f407/stm32f439, and
   `embassy-rp` `BufferedUart` (interrupt-driven, 1 KiB software ring
   buffer each direction) for rp2040/rp2350/bmm-pico. The RP hardware
@@ -149,9 +132,8 @@ disconnected from the pool entirely.
   calls at 921600 baud, and embassy-rp 0.10.0 ships no ring-buffered
   DMA RX. `BufferedUart` already implements `embedded_io_async::Read`
   and `Write` directly, so no newtype adapter is needed. The esp32s3
-  host firmware and the dummy-asic peer stay
-  on the interrupt+FIFO `Uart::into_async()` path because esp-hal
-  1.0.0 ships no UART DMA driver. The closed-after-1.0.0 issues
+  board firmware stays on the interrupt+FIFO `Uart::into_async()` path
+  because esp-hal 1.0.0 ships no UART DMA driver. The closed-after-1.0.0 issues
   esp-rs/esp-hal#2642 (UART DMA support) and #4720 (circular UHCI RX)
   track this gap; revisit when the next esp-hal release reaches this
   workspace. The S3's 128-byte hardware FIFO plus its dual-core split

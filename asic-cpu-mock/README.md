@@ -27,4 +27,4 @@ with `backend-uart` (which spawns `asic-uart-peer` instead).
 ## See also
 
 - `stratum-client` — owns the `AsicSession` this task feeds
-- `asic-uart-peer` — sibling that drives an external dummy-asic board
+- `asic-uart-peer` — sibling that drives an external ASIC peer board

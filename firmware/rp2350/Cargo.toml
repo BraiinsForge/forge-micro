@@ -9,7 +9,7 @@ workspace = true
 [features]
 default = ["display", "backend-uart"]
 display = []
-# UART peer backend: drives an external dummy-asic board over UART.
+# UART peer backend: drives an external ASIC peer board over UART.
 # Always links Stratum V1; the V2 adapter is also always linked.
 # Mutually exclusive with `backend-cpu`.
 backend-uart = [
