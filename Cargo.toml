@@ -164,7 +164,7 @@ opt-level     = "s"
 # crates.io was built against and hangs RP2040 at startup. See
 # embassy-rs/embassy#1389 and #4500 for the class of failure.
 [patch.crates-io]
-embassy-net-wiznet = { path = "firmware/embassy-net-wiznet-patch" }
+embassy-net-wiznet = { path = "patches/embassy-net-wiznet" }
 
 [profile.rust-analyzer]
 inherits = "dev"

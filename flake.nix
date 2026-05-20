@@ -353,15 +353,15 @@
           let
             # Crane's default filter keeps Cargo.toml, Cargo.lock, and .rs files.
             # We also need .cargo/config.toml (per-crate target settings), linker
-            # scripts (.x), the vendored embassy-net-wiznet-patch directory, the
-            # dashboard HTML that eth-examples' build.rs gzips into OUT_DIR, the
-            # Braiins wordmark served at /logo.svg via include_bytes!, and the
-            # build.rs sibling at the eth-examples crate root.
+            # scripts (.x), the vendored embassy-net-wiznet patches directory,
+            # the dashboard HTML that ubos-metrics's build.rs gzips into OUT_DIR,
+            # the Braiins wordmark served at /logo.svg via include_bytes!, and
+            # the build.rs sibling at the ubos-metrics crate root.
             customFilter =
               path: _type:
               (builtins.match ".*\\.cargo/config\\.toml$" path != null)
               || (builtins.match ".*\\.x$" path != null)
-              || (builtins.match ".*/embassy-net-wiznet-patch/.*" path != null)
+              || (builtins.match ".*/patches/embassy-net-wiznet/.*" path != null)
               || (builtins.match ".*\\.html$" path != null)
               || (builtins.match ".*\\.svg$" path != null)
               || (baseNameOf path == "build.rs");
