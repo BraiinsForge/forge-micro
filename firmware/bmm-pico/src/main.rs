@@ -50,13 +50,13 @@ use embassy_time::Delay;
 #[cfg(feature = "display")]
 use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
-#[cfg(feature = "display")]
-use eth_examples::sh1106::{Rotation, Sh1106};
 use static_cell::{ConstStaticCell, StaticCell};
+#[cfg(feature = "display")]
+use ubos_main::sh1106::{Rotation, Sh1106};
 use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
 use {defmt_rtt as _, panic_probe as _};
 
-use eth_examples::net;
+use ubos_main::net;
 
 mod config;
 mod fan;
@@ -79,11 +79,11 @@ static CORE1_EXECUTOR: StaticCell<Executor> = StaticCell::new();
 #[cfg(any(feature = "backend-uart", feature = "backend-mmm"))]
 const UART_RING_BUFFER_SIZE: usize = 1024;
 
-// `eth_examples::pool_config::parse` runs at boot to copy seven
+// `ubos_main::pool_config::parse` runs at boot to copy seven
 // compile-time env-var strings into typed fields. The result lives
 // for the lifetime of the firmware; held in a `StaticCell` so the
 // stratum task can take a `&'static PoolConfig`.
-static POOL_CONFIG_CELL: StaticCell<eth_examples::pool_config::PoolConfig> = StaticCell::new();
+static POOL_CONFIG_CELL: StaticCell<ubos_main::pool_config::PoolConfig> = StaticCell::new();
 
 // `Sv1Config` references &'static str borrowed from the parsed
 // `PoolConfig`; allocated at boot once the protocol is known to be
@@ -126,7 +126,7 @@ static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::
 
 static MONITOR_CONFIG: MonitorConfig = BMM101_DEFAULT;
 
-defmt::timestamp!("{=u64:iso8601s}", eth_examples::wall_clock_secs());
+defmt::timestamp!("{=u64:iso8601s}", ubos_main::wall_clock_secs());
 
 bind_interrupts!(struct Irqs {
     DMA_IRQ_0 =>
@@ -149,7 +149,7 @@ type EthernetRunner = Runner<
 
 struct BoardWatchdog(Watchdog);
 
-impl eth_examples::watchdog::Watchdog for BoardWatchdog {
+impl ubos_main::watchdog::Watchdog for BoardWatchdog {
     fn init(&mut self) {
         self.0.start(config::Watchdog::TIMEOUT);
     }
@@ -171,12 +171,12 @@ async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> 
 
 #[embassy_executor::task]
 async fn watchdog_task(watchdog: BoardWatchdog) -> ! {
-    eth_examples::watchdog::run_watchdog(watchdog).await
+    ubos_main::watchdog::run_watchdog(watchdog).await
 }
 
 #[embassy_executor::task]
 async fn led_blink_task(led: Output<'static>) -> ! {
-    eth_examples::led::run_led_blink(led).await
+    ubos_main::led::run_led_blink(led).await
 }
 
 #[embassy_executor::task]
@@ -191,12 +191,12 @@ async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
-    eth_examples::metrics::run(stack).await
+    ubos_main::metrics::run(stack).await
 }
 
 #[embassy_executor::task]
 async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -> ! {
-    eth_examples::mdns::run_mdns(stack, hostname, config::Board::NAME, config::Board::MCU).await
+    ubos_main::mdns::run_mdns(stack, hostname, config::Board::NAME, config::Board::MCU).await
 }
 
 #[embassy_executor::task]
@@ -218,7 +218,7 @@ type OledDisplay = Sh1106<
 #[cfg(feature = "display")]
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay) -> ! {
-    eth_examples::display::run(&mut display).await
+    ubos_main::display::run(&mut display).await
 }
 
 #[cfg(feature = "backend-uart")]
@@ -237,8 +237,8 @@ async fn asic_uart_task(uart: BufferedUart) -> ! {
 /// used so the firmware always validates the Braiins prod key by
 /// default. Set `POOL_SV2_TRUST_ANY_KEY=1` to disable peer auth.
 fn pool_config_from_env(
-) -> Result<eth_examples::pool_config::PoolConfig, eth_examples::pool_config::ConfigError> {
-    use eth_examples::pool_config;
+) -> Result<ubos_main::pool_config::PoolConfig, ubos_main::pool_config::ConfigError> {
+    use ubos_main::pool_config;
     pool_config::parse(
         option_env!("POOL_HOST").unwrap_or(pool_config::DEFAULT_POOL_HOST),
         option_env!("POOL_PORT").unwrap_or(pool_config::DEFAULT_POOL_PORT_STR),
@@ -254,11 +254,11 @@ fn pool_config_from_env(
 #[allow(clippy::too_many_lines)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
-    pool_config: &'static eth_examples::pool_config::PoolConfig,
+    pool_config: &'static ubos_main::pool_config::PoolConfig,
 ) -> ! {
     use defmt::warn;
     use embassy_time::Timer;
-    use eth_examples::pool_config::{
+    use ubos_main::pool_config::{
         ProtocolConfig, RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
     };
     static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
@@ -277,7 +277,7 @@ async fn stratum_client_task(
                 password: password.as_deref().unwrap_or(""),
             });
             loop {
-                let mut socket = match eth_examples::net::connect_stratum(
+                let mut socket = match ubos_main::net::connect_stratum(
                     stack,
                     pool_config.host.as_str(),
                     port,
@@ -330,7 +330,7 @@ async fn stratum_client_task(
                     .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
             );
             loop {
-                let mut socket = match eth_examples::net::connect_stratum(
+                let mut socket = match ubos_main::net::connect_stratum(
                     stack,
                     pool_config.host.as_str(),
                     port,
@@ -519,7 +519,7 @@ async fn main(spawner: Spawner) {
 
     static MDNS_HOSTNAME: StaticCell<heapless::String<16>> = StaticCell::new();
     let mdns_hostname =
-        eth_examples::mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
+        ubos_main::mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
             config::Board::MDNS_HOSTNAME_BASE,
             config::Board::MAC_ADDR[5],
             &MDNS_HOSTNAME,
@@ -587,8 +587,8 @@ async fn main(spawner: Spawner) {
                     pool_config.host.as_str(),
                     pool_config.port,
                     match &pool_config.protocol {
-                        eth_examples::pool_config::ProtocolConfig::Sv1 { .. } => "sv1",
-                        eth_examples::pool_config::ProtocolConfig::Sv2 { .. } => "sv2",
+                        ubos_main::pool_config::ProtocolConfig::Sv1 { .. } => "sv1",
+                        ubos_main::pool_config::ProtocolConfig::Sv2 { .. } => "sv2",
                     },
                     pool_config.user.as_str(),
                 );

@@ -75,7 +75,7 @@ pub struct Board<'d> {
 
 impl Board<'static> {
     pub const NAME: &str = "ESP32-S3 W5100S";
-    /// DNS-safe base hostname for mDNS. See `eth_examples::mdns::compose_hostname`
+    /// DNS-safe base hostname for mDNS. See `ubos_net::mdns::compose_hostname`
     /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "esp32s3";
     /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.

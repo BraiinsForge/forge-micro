@@ -1,4 +1,4 @@
-# Ethernet Examples
+# ubos-main
 
 ## Build
 
@@ -129,14 +129,14 @@ disconnected from the pool entirely.
 - All crates use `portable-atomic` for a uniform atomics API across targets.
 - The cortex-m firmware (rp2040, rp2350, stm32f407, stm32f439) uses
   `#[cortex_m_rt::entry]` and drives `embassy_executor::raw::Executor`
-  via `eth_examples::cpu_load::run_cortex_m_executor` so the poll/wfe
+  via `ubos_main::cpu_load::run_cortex_m_executor` so the poll/wfe
   loop can bracket `wfe` with `Instant::now()` reads.
 - The esp32s3 firmware uses `#[esp_hal::main]` and constructs the
   esp-rtos embassy executor manually so it can pass idle hooks to
   `Executor::run_with_callbacks`. The dummy-asic crate, which has no
   idle accounting, still uses the simpler `#[esp_rtos::main]`.
 - All boards share network tasks, constants, buffers, and response
-  building via the root `eth-examples` library crate.
+  building via the root `ubos-main` library crate.
 - Embassy task constructors return `Result<SpawnToken, SpawnError>`;
   `spawner.spawn()` returns `()`. The `unwrap!` wraps the constructor.
 - ESP32 crate pins `embassy-executor = "0.9.1"` to match `esp-rtos 0.2.0`

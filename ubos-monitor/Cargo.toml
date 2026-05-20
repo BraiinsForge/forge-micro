@@ -19,7 +19,7 @@ defmt   = [
 embassy-sync     = { workspace = true }
 embassy-time     = { workspace = true }
 defmt            = { workspace = true, optional = true }
-eth-examples     = { workspace = true, default-features = false }
+ubos-main        = { workspace = true, default-features = false }
 heapless         = { workspace = true }
 libm             = "0.2"
 ubos-logging     = { workspace = true }

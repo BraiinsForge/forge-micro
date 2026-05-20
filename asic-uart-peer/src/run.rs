@@ -16,7 +16,7 @@
 //!
 //! Share decoding errors (opcode mismatch, checksum) drop the
 //! frame and resync to the next `FRAME_START`, matching the
-//! legacy `eth_examples::uart_asic` behaviour.
+//! legacy `ubos_main::uart_asic` behaviour.
 
 use embassy_futures::select::{select, Either};
 use embedded_io_async::{Read, Write};
@@ -77,7 +77,7 @@ pub async fn run_asic_uart<U: Read + Write>(asic: &'static AsicSession, mut uart
                     "asic-uart-peer: solution received work_id={} nonce={:#010x}",
                     solution.work_id, solution.nonce,
                 );
-                eth_examples::hashrate::record_share(&current.target);
+                ubos_main::hashrate::record_share(&current.target);
                 let queued = asic.submit_solution(solution);
                 if !queued {
                     warn!("asic-uart-peer: solutions channel full, dropped");

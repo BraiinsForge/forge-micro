@@ -1,4 +1,4 @@
-# Development shells for the eth-examples firmware.
+# Development shells for the ubos-main firmware.
 #
 # Why: each board needs a specific Rust target and, for the ESP32-S3,
 # an Xtensa toolchain that is not in nixpkgs. This flake pins both so
@@ -14,7 +14,7 @@
 # How: `nix develop .#arm` for the ARM boards, `nix develop .#esp` for
 # the ESP32-S3. Both shells print the relevant build commands on entry.
 {
-  description = "Bare-metal Ethernet examples";
+  description = "ubos-main bare-metal Rust firmware workspace";
 
   # Binary caches for prebuilt Raspberry Pi kernel and deploy-rs.
   nixConfig = {
@@ -383,7 +383,7 @@
           ];
         };
 
-        # Host-target load-test crate lives outside the eth-examples
+        # Host-target load-test crate lives outside the ubos-main
         # workspace, so it gets its own src filter and dep cache rather
         # than sharing the embedded workspace wiring above.
         loadTestSrc = craneLib.cleanCargoSource ./redacted/pkgs/load-test;
@@ -473,10 +473,10 @@
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
-          clippy-eth-examples = craneLib.cargoClippy {
+          clippy-ubos-main = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
-            cargoExtraArgs = "-p eth-examples";
+            cargoExtraArgs = "-p ubos-main";
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
@@ -603,17 +603,17 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
-          clippy-eth-examples-host = craneLib.cargoClippy {
+          clippy-ubos-main-host = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
-            cargoExtraArgs = "-p eth-examples-host";
+            cargoExtraArgs = "-p ubos-main-host";
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
           test = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
-            cargoExtraArgs = "-p eth-examples";
+            cargoExtraArgs = "-p ubos-main";
           };
 
           test-mmm = craneLib.cargoTest {
@@ -722,7 +722,7 @@
             strictDeps = true;
           };
 
-          fmt-eth-examples = craneLib.cargoFmt { inherit src; };
+          fmt-ubos-main = craneLib.cargoFmt { inherit src; };
 
           fmt-load-test = craneLib.cargoFmt { src = loadTestSrc; };
 
@@ -793,7 +793,7 @@
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
 
             shellHook = ''
-              echo "eth-examples dev environment ready (ARM boards)"
+              echo "ubos-main dev environment ready (ARM boards)"
               echo ""
               echo "  cd firmware/bmm-pico  && cargo build --release  # BMM Adapter RP2350 W5500"
               echo "  cd firmware/rp2040    && cargo build --release  # RP2040 W5500"
@@ -885,7 +885,7 @@
                 export LIBCLANG_PATH="$LIBCLANG_TOOLCHAIN_PATH"
               fi
 
-              echo "eth-examples dev environment ready (ESP32-S3)"
+              echo "ubos-main dev environment ready (ESP32-S3)"
               echo ""
               echo "  cd firmware/esp32s3 && cargo build --release  # ESP32-S3 W5100S"
               echo ""
@@ -905,7 +905,7 @@
             RUST_ANALYZER_SERVER_PATH = "${hostRustToolchain}/bin/rust-analyzer";
 
             shellHook = ''
-              echo "eth-examples dev environment ready (host-runner, native, TAP)"
+              echo "ubos-main dev environment ready (host-runner, native, TAP)"
               echo ""
               echo "  cargo run -p host-runner"
               echo ""
@@ -927,16 +927,16 @@
             RUST_ANALYZER_SERVER_PATH = "${bmmRustToolchain}/bin/rust-analyzer";
 
             # Resolved at shell-entry time relative to the user's cwd, which
-            # by convention is boards/eth-examples (matches the existing
+            # by convention is boards/ubos-main (matches the existing
             # arm/esp shells using $PWD for state directories).
             shellHook = ''
-              export CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_RUNNER="$PWD/host-runner/scripts/runner.py"
-              echo "eth-examples dev environment ready (host-runner, BMM/miniminer cross)"
+              export CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_RUNNER="$PWD/host/host-runner/scripts/runner.py"
+              echo "ubos-main dev environment ready (host-runner, BMM/miniminer cross)"
               echo ""
-              echo "  cd host-runner && cargo build --release"
-              echo "                    cargo run --release -- --hostname redacted50.1"
+              echo "  cd host/host-runner && cargo build --release"
+              echo "                         cargo run --release -- --hostname redacted50.1"
               echo ""
-              echo "See host-runner/scripts/runner.py --help for more flags."
+              echo "See host/host-runner/scripts/runner.py --help for more flags."
               echo ""
               echo "For native host-runner: nix develop .#host"
             '';
@@ -952,7 +952,7 @@
               ++ [ deploy-rs.packages.${system}.default ];
 
             shellHook = ''
-              echo "eth-examples — available development shells:"
+              echo "ubos-main — available development shells:"
               echo ""
               echo "  nix develop .#arm   — ARM boards (RP2040, RP2350, STM32F407, STM32F439)"
               echo "  nix develop .#esp   — ESP32-S3 board"

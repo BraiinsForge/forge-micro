@@ -6,7 +6,7 @@ races a Share-frame read against the next assignment, and submits the
 peer's solutions back into the session.
 
 `no_std`, no `alloc`. Wire protocol is bit-compatible with the
-retired `eth_examples::uart_asic` codec (`FRAME_START = 0xA5`, opcodes
+retired `ubos_main::uart_asic` codec (`FRAME_START = 0xA5`, opcodes
 `0x01` / `0x02`, XOR-8 checksum, 119 / 43 byte frames) so existing
 `dummy-asic` firmware works unchanged at `921_600` baud.
 

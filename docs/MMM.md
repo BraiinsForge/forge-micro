@@ -1,9 +1,8 @@
 # MMM backend (BM1362 hashboard)
 
-`firmware/bmm-pico` built with `--features backend-mmm` drives a real
-BM1362 hashboard instead of mining in software or talking to the
-`dummy-asic` peer. The driver lives in the workspace-shared `mmm/` crate.
-This page covers how the BMM Adapter wires the driver up.
+Every firmware crate drives a real BM1362 hashboard via the
+workspace-shared `ubos/mmm/` crate. This page covers how the BMM
+Adapter wires the driver up.
 
 ## Topology
 

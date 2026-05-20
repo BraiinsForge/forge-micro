@@ -240,7 +240,7 @@ impl Serial {
     /// Server entry point. Owns the byte stream and the work registry;
     /// reads assignments from `session.work_receiver()` and submits
     /// found shares back through `session.submit_solution`. Bumps
-    /// `eth_examples::hashrate::record_share` for every diff-1 chip
+    /// `ubos_main::hashrate::record_share` for every diff-1 chip
     /// share so the existing hashrate task picks them up.
     ///
     /// Returns `Ok(())` when a [`SerialMessage::Terminate`] command was
@@ -432,7 +432,7 @@ impl Serial {
                 // scanning to so the shared hashrate EWMA reflects
                 // the actual chip work rather than only pool-passing
                 // shares. The estimator already weights by target.
-                eth_examples::hashrate::record_share(&DIFF_1_TARGET);
+                ubos_main::hashrate::record_share(&DIFF_1_TARGET);
 
                 if !hash_meets_target(&hash, &slot.assignment.target) {
                     trace!(

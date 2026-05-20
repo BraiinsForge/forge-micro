@@ -1,6 +1,6 @@
 # Overview
 
-`eth-examples` is a bare-metal Rust Ethernet workspace spanning six firmware
+`ubos-main` is a bare-metal Rust Ethernet workspace spanning six firmware
 crates, a UART-attached mining peer, the libraries that back them, and a
 host-side runner that mirrors the firmware tasks against a Linux network
 device.
@@ -65,7 +65,7 @@ exclusive:
 
 Every backend pushes shares into the same `stratum-client::AsicSession`
 solution channel that the V1 and V2 client tasks drain. Hashes accumulated
-by the backend feed `eth-examples::hashrate` for the EWMA-smoothed rate
+by the backend feed `ubos-main::hashrate` for the EWMA-smoothed rate
 the Prometheus endpoint and display surface. The mmm backend ties
 together the BM1362 chip-serial actor, the BMM100 PSU driver, and a
 runtime baud-rate switch; see [MMM.md](MMM.md).
@@ -74,7 +74,7 @@ runtime baud-rate switch; see [MMM.md](MMM.md).
 
 ### Shared firmware library
 
-- `src/` (`eth-examples`) -- above-the-link-layer tasks shared by every
+- `src/` (`ubos-main`) -- above-the-link-layer tasks shared by every
   firmware crate: HTTP server, metrics, NTP, BTC, display, CPU-load
   accounting, EWMA hashrate accounting, watchdog.
 

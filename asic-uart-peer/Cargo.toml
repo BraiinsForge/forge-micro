@@ -14,6 +14,6 @@ defmt   = ["dep:defmt", "ubos-logging/defmt"]
 defmt             = { workspace = true, optional = true }
 embassy-futures   = { workspace = true }
 embedded-io-async = { workspace = true }
-eth-examples      = { workspace = true, default-features = false }
+ubos-main         = { workspace = true, default-features = false }
 stratum-client    = { workspace = true }
 ubos-logging      = { workspace = true }

@@ -32,7 +32,7 @@ backend-cpu = [
 ]
 
 [dependencies]
-eth-examples        = { workspace = true, features = ["defmt"] }
+ubos-main           = { workspace = true, features = ["defmt"] }
 embassy-executor    = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time        = { workspace = true, features = ["defmt"] }
 embassy-net         = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }

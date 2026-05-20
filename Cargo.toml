@@ -1,5 +1,5 @@
 [package]
-name    = "eth-examples"
+name    = "ubos-main"
 edition = "2021"
 version = "0.1.0"
 
@@ -81,7 +81,7 @@ members = [
     "embedded-i2c-unix",
     "embedded-serial-unix",
     "esp32s3-tsens",
-    "eth-examples-host",
+    "ubos-main-host",
     "mining-protocol",
     "mmm",
     "rp235x-sha256",
@@ -97,7 +97,7 @@ members = [
 ]
 
 [workspace.dependencies]
-eth-examples      = { path = ".", default-features = false }
+ubos-main         = { path = ".", default-features = false }
 embassy-executor  = { version = "0.10.0", default-features = false }
 embassy-sync      = { version = "0.8", default-features = false }
 embassy-time      = { version = "0.5.1", default-features = false }

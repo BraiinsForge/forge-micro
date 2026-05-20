@@ -1,6 +1,6 @@
 # host-runner
 
-eth-examples are using embassy net stack. To run them in Linux userspace
+ubos-main are using embassy net stack. To run them in Linux userspace
 you need a way to put raw packets onto the network. The transport is
 selected by target architecture:
 

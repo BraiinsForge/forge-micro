@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name    = "eth-examples-host"
+name    = "ubos-main-host"
 version = "0.1.0"
 
 [lints]

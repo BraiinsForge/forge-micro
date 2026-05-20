@@ -1,4 +1,4 @@
-//! Host-side runner for eth-examples tasks.
+//! Host-side runner for ubos-main tasks.
 //!
 //! Brings up an embassy-net Stack over a host network device so the same
 //! tasks that run on the RP2350 can be exercised on a host. By default the
@@ -12,7 +12,7 @@
 //! Pool wiring matches the firmware: `POOL_HOST`, `POOL_PORT`,
 //! `POOL_PROTOCOL`, `POOL_USER`, `POOL_SV1_PASS`, `POOL_SV2_PUBKEY`,
 //! and `POOL_SV2_TRUST_ANY_KEY` env vars (read at compile time) drive
-//! `eth_examples::pool_config::parse`;
+//! `ubos_main::pool_config::parse`;
 //! defaults point at the public Braiins Pool so the binary works out of
 //! the box. Both SV1 and SV2 are wired here — the workspace defaults
 //! select SV2 against the Braiins V2 endpoint.
@@ -26,9 +26,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use embassy_executor::{Executor, Spawner};
 use embassy_net::{Runner, Stack, StackResources};
 use embassy_time::{Duration, Ticker, Timer};
-use eth_examples::metrics::{Metric, Value};
-use eth_examples::net;
-use eth_examples::pool_config::{
+use ubos_main::metrics::{Metric, Value};
+use ubos_main::net;
+use ubos_main::pool_config::{
     self, PoolConfig, ProtocolConfig, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
 };
 use log::{info, warn};
@@ -109,7 +109,7 @@ async fn heartbeat_task(stack: Stack<'static>) {
     loop {
         Timer::after(Duration::from_secs(10)).await;
         let address = stack.config_v4().map(|config| config.address);
-        let hashrate = eth_examples::hashrate::HashrateDisplay(eth_examples::hashrate::hashrate());
+        let hashrate = ubos_main::hashrate::HashrateDisplay(ubos_main::hashrate::hashrate());
         info!("host-runner: tick, address={address:?}, hashrate={hashrate}");
     }
 }
@@ -126,14 +126,14 @@ async fn bitcoin_price_task(stack: Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn metrics_task(stack: Stack<'static>) -> ! {
-    eth_examples::metrics::run(stack).await
+    ubos_main::metrics::run(stack).await
 }
 
 #[embassy_executor::task]
 async fn mdns_task(stack: Stack<'static>) -> ! {
     // hostname and board_name share BOARD_NAME: host-runner has no per-unit
     // MAC suffix to compose a separate DNS label from.
-    eth_examples::mdns::run_mdns(stack, BOARD_NAME, BOARD_NAME, "host").await
+    ubos_main::mdns::run_mdns(stack, BOARD_NAME, BOARD_NAME, "host").await
 }
 
 #[embassy_executor::task]
@@ -270,19 +270,19 @@ fn pool_config_from_env() -> PoolConfig {
     .expect("BUG: POOL_* env vars failed to parse")
 }
 
-/// Republishes `eth_examples::hashrate::hashrate()` as a Prometheus
+/// Republishes `ubos_main::hashrate::hashrate()` as a Prometheus
 /// metric on a fixed cadence. The EWMA hashrate is bumped
 /// automatically every time a share is recorded via
-/// `eth_examples::hashrate::record_share`.
+/// `ubos_main::hashrate::record_share`.
 #[embassy_executor::task]
 async fn hashrate_metrics_task() -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(5));
     loop {
         ticker.next().await;
-        let hashrate_hz = eth_examples::hashrate::hashrate();
-        eth_examples::metrics::push(Metric {
+        let hashrate_hz = ubos_main::hashrate::hashrate();
+        ubos_main::metrics::push(Metric {
             name: "board_hashrate_hz",
-            // eth-examples still uses heapless 0.8 while host-runner needs
+            // ubos-main still uses heapless 0.8 while host-runner needs
             // 0.9 for embassy-net 0.9's StaticConfigV4; renamed dep keeps
             // both in the build.
             labels: heapless_v08::Vec::new(),

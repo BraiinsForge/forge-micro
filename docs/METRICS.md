@@ -2,7 +2,7 @@
 
 Each firmware exposes a Prometheus text endpoint on
 `http://<board-ip>:<Metrics::PORT>/`. The bench NUC scrapes it from
-`redacted/`.
+`nuc/`.
 
 ## Endpoint model
 
@@ -77,6 +77,5 @@ Code: `src/hashrate.rs`.
 an EWMA-smoothed bucketed estimator over 1-second buckets with α = 1/8
 (~8 s smoothing window). `hashrate` reads the smoothed value and applies
 read-side decay so the displayed rate drops toward zero when shares stop
-arriving. Backends call `record_share` for every share they consume:
-`asic-uart-peer::run` (UART peer backend) and `mmm::serial` (BM1362
-hashboard backend, one call per diff-1 chip share).
+arriving. The mmm backend calls `record_share` for every share it
+consumes (one call per diff-1 chip share); see `mmm::serial`.

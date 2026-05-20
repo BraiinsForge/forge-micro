@@ -14,7 +14,7 @@ its own adapter.
 
 - SV2 protocol implementation. That lives in `~/braiins/micro-sv2/`,
   a separate repository providing types, framing, messages, and
-  crypto. This document describes only how `eth-examples` consumes it.
+  crypto. This document describes only how `ubos-main` consumes it.
 - New CPU solver behavior. Today's "always-zero extranonce_2" stays.
   The trait shape supports rolling but the implementation comes with
   the ASIC driver.
@@ -22,7 +22,7 @@ its own adapter.
 ## Crate layout
 
 ```
-eth-examples/
+ubos-main/
   mining-protocol/    NEW — trait + borrowed domain types, no_std, no alloc
   stratum-v1/         restructured: V1 wire types + MiningClient impl
                       (renamed from stratum-v1-core)
@@ -30,7 +30,7 @@ eth-examples/
   stratum-client/     NEW — replaces ubos-backend; generic over MiningClient
   asic-cpu-mock/      NEW — ASIC-side of AsicSession for the CPU mock
   asic-uart-peer/     NEW — ASIC-side of AsicSession over UART to a peer
-  eth-examples-host/  NEW — embassy-net + tuntap integration harness
+  ubos-main-host/  NEW — embassy-net + tuntap integration harness
   # ubos-backend, cpu-miner, asic-interface deleted: all firmwares
   # have migrated and the legacy stack is no longer used.
 ```
@@ -39,7 +39,7 @@ External:
 
 - `~/braiins/micro-sv2/` — owns its types, framing, messages, and
   crypto, including the Noise handshake. Has no awareness of
-  `eth-examples`.
+  `ubos-main`.
 
 ### Why one crate per protocol, not two
 
@@ -519,11 +519,11 @@ Mapping our trait API onto micro-sv2:
 | `ii_sv2::framing::frame_to_message::<M>` | Typed decode for the "expected response" path during initial setup (e.g. `SetupConnectionSuccess`). |
 | `ii_sv2::framing::MessageGroup::dispatch` (`MiningMessages`) | The `accept()` body. Borrows into the same wire buffer; the visitor sees borrowed `MiningJob<'_>` that points into it. |
 | `ii_sv2::security::Authenticator` (`ValidateNothing`, `ValidateSignature`, `ValidateTime`, `ValidateFull`) | Constructed by the V2 adapter from `Sv2Config::pool_pubkey`. |
-| `ii_sv2::security::Clock` | Implemented in `eth-examples` against NTP-synced wall time. Required only for `ValidateTime` / `ValidateFull`. |
+| `ii_sv2::security::Clock` | Implemented in `ubos-main` against NTP-synced wall time. Required only for `ValidateTime` / `ValidateFull`. |
 
 The trait crate (`mining-protocol`) stays protocol-agnostic. Nothing
 above leaks into it. The V2 adapter is the only crate in
-`eth-examples` that depends on `ii-sv2`.
+`ubos-main` that depends on `ii-sv2`.
 
 ### V2 transport bound
 
@@ -531,7 +531,7 @@ Where `mining-protocol` requires `T: Read + Write` for the transport,
 this is `embedded_io_async::Read + embedded_io_async::Write` — the
 same traits `micro-sv2`'s handshake uses. Embassy `TcpSocket` already
 implements both; tokio `tokio::io::duplex` works via
-`embedded-io-adapters` for host tests in `eth-examples-host`.
+`embedded-io-adapters` for host tests in `ubos-main-host`.
 
 ### Translating Sv2Config into an Authenticator
 
@@ -576,7 +576,7 @@ There is no QEMU setup in this repo. Three test paths:
 |---|---|
 | Pure protocol — parser, encoder, framer, Noise codec | Host unit tests in `src/tests/`, same model `stratum-v1` already uses. |
 | State machine — the adapter's `MiningClient` impl with a fake `embedded-io-async` transport | Host unit tests with an in-memory pipe. No real TCP. |
-| Embassy integration — full task + `embassy-net` + Noise + pool | A new `eth-examples-host` sibling crate using `embassy-net` over Linux TUN/TAP, the upstream `embassy/examples/std` pattern. |
+| Embassy integration — full task + `embassy-net` + Noise + pool | A new `ubos-main-host` sibling crate using `embassy-net` over Linux TUN/TAP, the upstream `embassy/examples/std` pattern. |
 
 Real-hardware flashing only at the end. A std-only smoke binary
 analogous to `stratum-v1/examples/probe.rs` connects to a real
@@ -629,8 +629,8 @@ Pending count derives in prometheus as `sent - accepted - rejected`.
   behaviour.
 - **`JobRing::lookup(JobId) -> Option<&JobSlot>`** — small API
   addition next to the existing `is_valid`. Cheap; depth is 2.
-- **Exposition:** `eth-examples` gains a regular workspace dep on
-  `stratum-client`. `eth-examples::metrics::render_exposition`
+- **Exposition:** `ubos-main` gains a regular workspace dep on
+  `stratum-client`. `ubos-main::metrics::render_exposition`
   reads the four atomics and emits prometheus counter lines next
   to the existing `board_uptime_seconds` block.
 
@@ -683,9 +683,9 @@ necessary; fix it first and the metrics design simplifies.
       when the slot was rotated out by `clean_jobs` between submit
       and response — accept count still goes up).
 - [ ] Add `stratum-client = { workspace = true }` to
-      `eth-examples/Cargo.toml`.
+      `ubos-main/Cargo.toml`.
 - [ ] Render the four counters in
-      `eth-examples::metrics::render_exposition` (next to
+      `ubos-main::metrics::render_exposition` (next to
       `board_uptime_seconds`). Names: `stratum_submits_sent_total`,
       `stratum_submits_accepted_total`,
       `stratum_submits_rejected_total`,
@@ -718,7 +718,7 @@ Each phase is independently `cargo check`-clean, `cargo clippy
 -- -D warnings`-clean, and reviewable in isolation.
 
 1. **Crate scaffolding.** Add `mining-protocol`, `stratum-v2`,
-   `stratum-client`, `asic-cpu-mock`, and `eth-examples-host` to
+   `stratum-client`, `asic-cpu-mock`, and `ubos-main-host` to
    the workspace as empty stubs. Rename `stratum-v1-core` to
    `stratum-v1`. Wire flake `checks` derivations for each new crate.
 2. **`mining-protocol` types.** Define `JobId`, `MiningJob`, `Share`,
@@ -755,7 +755,7 @@ Each phase is independently `cargo check`-clean, `cargo clippy
    bmm-pico move to `stratum-client`. Pick `asic-cpu-mock` or the
    `uart-asic` AsicSession adapter per board. Once all firmwares
    are migrated, `ubos-backend` and `cpu-miner` are deleted.
-10. **Host integration harness.** Stand up `eth-examples-host` with
+10. **Host integration harness.** Stand up `ubos-main-host` with
     `embassy-net` + tuntap. Smoke test against ckpool / regtest pool.
 11. **V2 adapter (`stratum-v2`) — read-side.** Implement
     `MiningClient::connect` (Noise handshake → SetupConnection →

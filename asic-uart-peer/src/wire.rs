@@ -1,8 +1,8 @@
 //! Wire-level encoder/decoder for the dummy-asic UART link.
 //!
 //! Mirrors the protocol previously implemented in
-//! `eth_examples::uart_asic`; opcodes, frame lengths, and baud
-//! rate must move in lockstep with `boards/eth-examples/dummy-
+//! `ubos_main::uart_asic`; opcodes, frame lengths, and baud
+//! rate must move in lockstep with `boards/ubos-main/dummy-
 //! asic/src/protocol.rs` on the peer side or the link desyncs at
 //! boot.
 

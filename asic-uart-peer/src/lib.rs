@@ -7,7 +7,7 @@
 //! and pushes the result back into the session.
 //!
 //! The wire protocol is the same as the legacy
-//! `eth_examples::uart_asic` module — one Work frame out, one
+//! `ubos_main::uart_asic` module — one Work frame out, one
 //! Share frame back, XOR-8 checksum, resync on stray bytes — so a
 //! board running the new stack and a peer running the old
 //! `dummy-asic` firmware stay interoperable.
