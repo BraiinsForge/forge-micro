@@ -37,6 +37,9 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 .ax{fill:var(--mute);font-size:9px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .hrL{fill:none;stroke:var(--accent);stroke-width:1.5;vector-effect:non-scaling-stroke}
 .tpL{fill:none;stroke:var(--orange);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.cur{stroke:var(--mute);stroke-width:.5;stroke-dasharray:2 2;vector-effect:non-scaling-stroke}
+.tt{position:absolute;top:14px;right:18px;background:var(--bg);border:1px solid var(--border);padding:6px 10px;font:.7rem/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none}
+.tt .ts{color:var(--mute)}
 .lg{text-align:center;margin-top:8px;font-size:.7rem;color:var(--mute)}
 .lg span{display:inline-block;width:10px;height:2px;vertical-align:middle;margin:0 6px}
 .side{display:grid;gap:8px;align-content:start}
@@ -75,7 +78,9 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 <svg viewBox="0 0 680 320" preserveAspectRatio="xMidYMid meet">
 <g id="grid"></g><g id="yL"></g><g id="yR"></g><g id="xA"></g>
 <polyline id="hrLine" class="hrL"/><polyline id="tpLine" class="tpL"/>
+<g id="tip"></g>
 </svg>
+<div class="tt hide" id="tt"><span class="ts" id="ttT">T-0s</span><br><span id="ttH">–</span><br><span id="ttC">–</span></div>
 <div class="lg"><span style="background:#6b50ff"></span>Hashrate<span style="background:#fe8431"></span>Temp</div>
 </div>
 <div class="card pools">
@@ -115,6 +120,7 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 <script>
 const N=150,W=680,H=320,L=44,R=44,T=10,B=20,PW=W-L-R,PH=H-T-B;
 const hrBuf=new Array(N).fill(0),tpBuf=new Array(N).fill(0);
+let hrMax=1e12,tpMax=20;
 const $=id=>document.getElementById(id);
 function route(){const c=location.hash==='#config';$('dash').classList.toggle('hide',c);$('cfg').classList.toggle('hide',!c);$('nDash').classList.toggle('on',!c);$('nCfg').classList.toggle('on',c)}
 addEventListener('hashchange',route);route();
@@ -125,7 +131,7 @@ function draw(){
  const tpMaj=20,tpMin=10;
  const hrPeak=Math.max(...hrBuf);
  const hrMaj=Math.max(1e12,ceil(hrPeak/4,1e12)),hrMin=hrMaj/2;
- const hrMax=ceil(hrPeak,hrMaj),tpMax=ceil(Math.max(...tpBuf),tpMaj);
+ hrMax=ceil(hrPeak,hrMaj);tpMax=ceil(Math.max(...tpBuf),tpMaj);
  let g='',yl='',yr='',xa='';
  for(let v=0;v<=hrMax;v+=hrMin){const y=T+PH-(v/hrMax)*PH,maj=v%hrMaj===0;
   if(maj){g+=`<line class="gr" x1="${L}" y1="${y}" x2="${L+PW}" y2="${y}"/>`;yl+=`<text class="ax" x="${L-6}" y="${y+3}" text-anchor="end">${(v/1e12).toFixed(0)}T</text>`}
@@ -158,6 +164,20 @@ async function tick(){
  }catch(e){$('dot').className='dot'}
 }
 tick();setInterval(tick,2000);
+const tt=$('tt'),svg=document.querySelector('.chart svg');
+function showTip(e){
+ if(e.pointerType!=='mouse')return;
+ const r=svg.getBoundingClientRect(),vx=(e.clientX-r.left)/r.width*W;
+ let i=Math.round((vx-L)*(N-1)/PW);if(i<0)i=0;if(i>=N)i=N-1;
+ const x=L+i*PW/(N-1),hy=T+PH-(hrBuf[i]/hrMax)*PH,ty=T+PH-(tpBuf[i]/tpMax)*PH,a=(N-1-i)*2;
+ $('tip').innerHTML=`<line class="cur" x1="${x}" y1="${T}" x2="${x}" y2="${T+PH}"/><circle class="hrL" cx="${x}" cy="${hy.toFixed(1)}" r="3"/><circle class="tpL" cx="${x}" cy="${ty.toFixed(1)}" r="3"/>`;
+ $('ttT').textContent='T-'+(a<60?a+'s':(a/60|0)+'m '+(a%60)+'s');
+ $('ttH').textContent=fmtHr(hrBuf[i]);
+ $('ttC').textContent=tpBuf[i]+'°C';
+ tt.classList.remove('hide');
+}
+svg.addEventListener('pointermove',showTip);
+svg.addEventListener('pointerleave',()=>{$('tip').innerHTML='';tt.classList.add('hide')});
 $('cfgForm').addEventListener('submit',async e=>{
  e.preventDefault();
  const body=JSON.stringify(Object.fromEntries(new FormData(e.target)));
