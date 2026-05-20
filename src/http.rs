@@ -192,9 +192,7 @@ pub fn build_logo_response(buffer: &mut [u8]) -> usize {
          Content-Type: image/svg+xml\r\n\
          Cache-Control: public, max-age=86400\r\n\
          Connection: close\r\n\
-         Content-Length: {}\r\n\
-         \r\n",
-        LOGO_SVG.len()
+         \r\n"
     );
     let _ = writer.write_bytes(LOGO_SVG);
     writer.len()
@@ -213,7 +211,6 @@ pub fn build_config_ack_response(buffer: &mut [u8]) -> usize {
          Content-Type: application/json\r\n\
          Cache-Control: no-store\r\n\
          Connection: close\r\n\
-         Content-Length: 11\r\n\
          \r\n\
          {{\"ok\":true}}"
     );
@@ -228,7 +225,6 @@ pub fn build_not_found_response(buffer: &mut [u8]) -> usize {
         "HTTP/1.0 404 Not Found\r\n\
          Content-Type: text/plain\r\n\
          Connection: close\r\n\
-         Content-Length: 9\r\n\
          \r\n\
          not found"
     );
