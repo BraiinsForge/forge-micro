@@ -27,7 +27,7 @@ portable-atomic    = { workspace = true }
 serial-baudrate    = { workspace = true }
 sha2               = { workspace = true }
 # Pulled in for the hashrate metric only; the `default-features =
-# false` flavor keeps ubos-main no-defmt for mmm consumers
+# false` flavor keeps ubos-metrics no-defmt for mmm consumers
 # that don't already enable defmt themselves.
 ubos-main          = { workspace = true, default-features = false }
 mining-protocol    = { workspace = true }

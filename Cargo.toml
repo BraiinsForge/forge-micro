@@ -77,20 +77,20 @@ members = [
     "embassy-net-afpacket",
     "embedded-i2c-unix",
     "embedded-serial-unix",
-    "esp32s3-tsens",
     "ubos-main-host",
-    "mining-protocol",
-    "mmm",
-    "rp235x-sha256",
-    "serial-baudrate",
-    "stratum-client",
-    "stratum-v1",
-    "stratum-v2",
-    "ubos-logging",
-    "ubos-monitor",
-    "ubos-psu",
-    "ubos-temperature",
     "host-runner",
+    "ubos/esp32s3-tsens",
+    "ubos/mining-protocol",
+    "ubos/mmm",
+    "ubos/rp235x-sha256",
+    "ubos/serial-baudrate",
+    "ubos/stratum-client",
+    "ubos/stratum-v1",
+    "ubos/stratum-v2",
+    "ubos/ubos-logging",
+    "ubos/ubos-monitor",
+    "ubos/ubos-psu",
+    "ubos/ubos-temperature",
 ]
 
 [workspace.dependencies]
@@ -126,18 +126,18 @@ profont           = { version = "0.7.0", default-features = false }
 format_no_std     = "1.2.0"
 nb                = "1"
 sha2              = { version = "0.10", default-features = false }
-esp32s3-tsens     = { path = "esp32s3-tsens" }
-mining-protocol   = { path = "mining-protocol" }
-serial-baudrate   = { path = "serial-baudrate" }
-stratum-client    = { path = "stratum-client" }
-stratum-v1        = { path = "stratum-v1" }
-stratum-v2        = { path = "stratum-v2" }
-mmm               = { path = "mmm", default-features = false }
+esp32s3-tsens     = { path = "ubos/esp32s3-tsens" }
+mining-protocol   = { path = "ubos/mining-protocol" }
+serial-baudrate   = { path = "ubos/serial-baudrate" }
+stratum-client    = { path = "ubos/stratum-client" }
+stratum-v1        = { path = "ubos/stratum-v1" }
+stratum-v2        = { path = "ubos/stratum-v2" }
+mmm               = { path = "ubos/mmm", default-features = false }
 ii-sv2            = { git = "ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git", tag = "v0.2.0", default-features = false }
-ubos-logging      = { path = "ubos-logging", default-features = false }
-ubos-monitor      = { path = "ubos-monitor", default-features = false }
-ubos-psu          = { path = "ubos-psu", default-features = false }
-ubos-temperature  = { path = "ubos-temperature", default-features = false }
+ubos-logging      = { path = "ubos/ubos-logging", default-features = false }
+ubos-monitor      = { path = "ubos/ubos-monitor", default-features = false }
+ubos-psu          = { path = "ubos/ubos-psu", default-features = false }
+ubos-temperature  = { path = "ubos/ubos-temperature", default-features = false }
 
 [workspace.lints.clippy]
 pedantic     = { level = "warn", priority = -1 }

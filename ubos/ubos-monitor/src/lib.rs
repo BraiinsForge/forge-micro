@@ -26,6 +26,7 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_main::metrics::{push, Metric, Value};
 use ubos_logging::{error, info, warn};
+use ubos_metrics::metrics::{push, Metric, Value};
 use ubos_temperature::{publish_board_temperature, TemperatureSensor};
 
 /// Emergency-stop carrying the current halt state. `true` is raised

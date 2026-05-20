@@ -23,7 +23,7 @@ gpiocdev           = "0.8"
 heapless           = "0.9"
 heapless-v08       = { package = "heapless", version = "0.8" }
 log                = { version = "0.4", default-features = false }
-mmm                = { path = "../mmm", default-features = false }
+mmm                = { workspace = true }
 static_cell        = { workspace = true }
 ubos-main          = { workspace = true, default-features = false }
 rand               = "0.8"
