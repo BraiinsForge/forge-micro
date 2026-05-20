@@ -25,7 +25,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Timer};
 use rand_core_v010::TryRng;
-use static_cell::ConstStaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 use ubos_logging::{info, warn, Debug2Format};
 
 use crate::consts::{Mdns as MdnsConsts, Metrics};
@@ -188,4 +188,56 @@ async fn bind_and_run(
     );
 
     mdns.run(handler).await
+}
+
+/// Length of the `-XX` per-unit suffix appended to `base` by [`compose_hostname`].
+const HOSTNAME_SUFFIX_LEN: usize = 3;
+
+/// Compile-time guard: `CAP` must be at least `BASE_LEN + HOSTNAME_SUFFIX_LEN`.
+///
+/// Evaluated by referencing `AssertCap::<CAP, BASE_LEN>::OK` in the caller.
+/// The associated const triggers a compile-time assertion rather than a
+/// runtime panic, so a future enlargement of `MDNS_HOSTNAME_BASE` surfaces
+/// at build time rather than at boot.
+struct AssertCap<const CAP: usize, const BASE_LEN: usize>;
+
+impl<const CAP: usize, const BASE_LEN: usize> AssertCap<CAP, BASE_LEN> {
+    const OK: () = assert!(
+        CAP >= BASE_LEN + HOSTNAME_SUFFIX_LEN,
+        "MDNS_HOSTNAME_BASE leaves no room for the `-XX` serial suffix",
+    );
+}
+
+/// Compose `<base>-<suffix:02x>` into `cell` and return it as `&'static str`.
+///
+/// `cell` must be initialised exactly once for the lifetime of the firmware;
+/// callers reuse the returned slice as the mDNS hostname. `CAP` must be at
+/// least `base.len() + HOSTNAME_SUFFIX_LEN`; `BASE_LEN` must equal
+/// `base.len()` so the const assertion turns a future enlargement of `base`
+/// into a build failure rather than a boot-time panic.
+///
+/// # Panics
+///
+/// Panics if `BASE_LEN` does not equal `base.len()`. Callers pass
+/// `BASE_LEN` as a `const` derived from the same `base` symbol, so this
+/// only fires when a caller hand-writes an inconsistent literal.
+pub fn compose_hostname<const CAP: usize, const BASE_LEN: usize>(
+    base: &'static str,
+    suffix: u8,
+    cell: &'static StaticCell<heapless::String<CAP>>,
+) -> &'static str {
+    use core::fmt::Write;
+    // Referencing AssertCap::OK triggers the compile-time assertion.
+    let _: () = AssertCap::<CAP, BASE_LEN>::OK;
+    assert_eq!(
+        base.len(),
+        BASE_LEN,
+        "BUG: BASE_LEN const generic must equal base.len()",
+    );
+    let mut buffer: heapless::String<CAP> = heapless::String::new();
+    // `AssertCap` above proves `CAP >= BASE_LEN + HOSTNAME_SUFFIX_LEN`,
+    // so writing `<base>-<suffix:02x>` always fits.
+    write!(&mut buffer, "{base}-{suffix:02x}")
+        .expect("BUG: mDNS hostname does not fit in the buffer");
+    cell.init(buffer).as_str()
 }
