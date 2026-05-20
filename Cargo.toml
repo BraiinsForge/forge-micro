@@ -41,11 +41,22 @@ ubos-logging      = { workspace = true }
 # `default-features = false`, matches micro-sv2's posture.
 bs58              = { version = "0.5", default-features = false, features = ["check"] }
 
+[build-dependencies]
+# Pre-compresses `src/index.html` with gzip at build time so the
+# firmware ships the dashboard with `Content-Encoding: gzip`. The
+# `rust_backend` feature pins miniz_oxide, keeping the build deps
+# pure Rust and avoiding any C zlib in the sandbox.
+flate2            = { version = "1", default-features = false, features = ["rust_backend"] }
+
 [dev-dependencies]
 # Host tests assemble base58check strings via `.into_string()`,
 # which needs the `alloc` feature on top of `check`. The lib
 # build never sees the extra feature.
 bs58              = { version = "0.5", default-features = false, features = ["check", "alloc"] }
+# Round-trip check: decompress the gzipped dashboard body in the
+# render test and compare against the source HTML. Build path uses
+# the same crate via `[build-dependencies]`.
+flate2            = { version = "1", default-features = false, features = ["rust_backend"] }
 
 # Cortex-M boards drive embassy's `raw::Executor` directly via
 # `cpu_load::run_cortex_m_executor`. Gated to ARM so the ESP32-S3
