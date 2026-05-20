@@ -1,8 +1,8 @@
 //! `StratumV1Client` — implements `mining_protocol::MiningClient`
 //! by wrapping the wire layer in `crate::wire`.
 //!
-//! See `boards/eth-examples/IMPLEMENTATION_PLAN.md` and
-//! `boards/eth-examples/ARCHITECTURE.md` for the surrounding design.
+//! Architecture: `../../docs/STRATUM_ARCHITECTURE.md`.
+//! Design rationale: `../../docs/STRATUM_IMPLEMENTATION_PLAN.md`.
 
 use core::fmt::Write as _;
 

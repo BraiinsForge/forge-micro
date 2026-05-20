@@ -336,7 +336,7 @@ size, no `unsafe`, no fragmentation.
 `stratum-client` is the integration crate. It owns the `MiningClient`
 adapter (V1 or V2 — generic), the visitor impl, two rings, the work
 generator, and the `AsicSession` shared with the ASIC implementation.
-See `ARCHITECTURE.md` for the visual.
+See `STRATUM_ARCHITECTURE.md` for the visual.
 
 ### Job ring (depth 2) with validity flag
 

@@ -1,6 +1,6 @@
 # Architecture: stratum-client + ASIC mock
 
-Visual reference for the design captured in `IMPLEMENTATION_PLAN.md`.
+Visual reference for the design captured in `STRATUM_IMPLEMENTATION_PLAN.md`.
 This file is the picture; the plan is the rationale.
 
 ## System overview
