@@ -1,8 +1,8 @@
-//! Board constants and peripheral extraction for the ESP32-S3 `DevKit`.
-//! `Board::take` consumes the esp-hal `Peripherals` and returns the SPI2
-//! peripheral, four GPIO pins, two DMA channels, RNG, and timer group
-//! that main.rs needs. SPI frequency is pinned below the W5100S
-//! datasheet limit because higher rates corrupt frames on this wiring.
+//! Peripheral extraction for the ESP32-S3 `DevKit`. SPI frequency is pinned
+//! below the W5100S datasheet limit because higher rates corrupt frames
+//! on this wiring.
+//!
+//! Wiring/pinout: `../../../docs/SETUP.md`
 
 use esp_hal::peripherals::{
     CPU_CTRL, GPIO1, GPIO2, GPIO39, GPIO40, GPIO41, GPIO42, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1,

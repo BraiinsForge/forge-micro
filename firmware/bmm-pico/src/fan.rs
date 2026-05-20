@@ -1,23 +1,6 @@
-//! Fan PWM drive and tachometer readback.
+//! Fan PWM drive and tachometer readback for the BMM Adapter.
 //!
-//! The BMM Adapter has `FAN_PWM` on J13 pin 3 and `FAN_RPM` on
-//! J13 pin 4, but the Intel 4-wire fan spec has TACH
-//! on pin 3 and PWM on pin 4. Here we work with it
-//! according to the spec, so the cable between the connector and
-//! the fan must swap pins 3 and 4 relative to the schematic net
-//! names.
-//! TODO: Drop this when a future revision renames it
-//!
-//! Slice 4 channel A on `PIN_8` drives the fan's PWM input at 25 kHz,
-//! the rate specified by the Intel 4-wire fan spec. `BoardFan` exposes
-//! the PWM output behind the `ubos_monitor::FanOutput` trait so the
-//! monitor task can drive duty cycle from a PID loop.
-//!
-//! Slice 7 channel B on `PIN_15` runs in `RisingEdge` divmode and
-//! counts tach pulses. Standard 4-wire fans emit two pulses per
-//! revolution, so RPM is `pulses × 60 / 2` over the sample window.
-//! The tach output is open-collector, so the pad's internal pull-up
-//! is enabled to idle the line high between pulses.
+//! MMM backend: `../../../docs/MMM.md`.
 
 use defmt::info;
 use embassy_rp::gpio::Pull;
@@ -71,6 +54,14 @@ impl FanOutput for BoardFan {
 }
 
 /// Tach input peripherals consumed by [`run_tach`].
+///
+/// The BMM Adapter schematic names J13 pin 3 `FAN_PWM` and pin 4
+/// `FAN_RPM`, but the Intel 4-wire fan spec assigns PWM to pin 4 and
+/// TACH to pin 3. The firmware follows the spec, so the cable between
+/// the connector and the fan must swap pins 3 and 4 relative to the
+/// schematic net names.
+///
+/// TODO: Drop this note when a future board revision renames the nets.
 pub struct TachHardware {
     pub slice: Peri<'static, PWM_SLICE7>,
     pub pin: Peri<'static, PIN_15>,

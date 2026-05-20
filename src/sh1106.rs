@@ -1,12 +1,4 @@
 //! Minimal SH1106 OLED driver for 128x64 displays over SPI.
-//!
-//! The SH1106 has no maintained embedded-hal 1.0 driver. This is a
-//! purpose-built replacement: blocking and async page-writes from an
-//! in-memory framebuffer, just enough for `DrawTarget<Color =
-//! BinaryColor>`.
-//!
-//! Takes an `SpiDevice` and a DC (data/command) `OutputPin` directly,
-//! avoiding the `display-interface` abstraction.
 
 use core::convert::Infallible;
 
@@ -68,6 +60,10 @@ fn init_commands(rotation: Rotation) -> [u8; 23] {
 }
 
 /// SH1106 driver with an internal framebuffer.
+///
+/// Purpose-built because no maintained embedded-hal 1.0 driver exists.
+/// Takes `SpiDevice` and DC `OutputPin` directly, bypassing the
+/// `display-interface` abstraction layer.
 pub struct Sh1106<SPI, DC> {
     spi: SPI,
     dc: DC,

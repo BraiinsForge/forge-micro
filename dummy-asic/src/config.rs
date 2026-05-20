@@ -1,7 +1,6 @@
-//! Board constants and peripheral extraction for the XIAO ESP32-S3 dummy-asic
-//! (dummy ASIC). `Board::take` consumes the esp-hal `Peripherals` and returns
-//! the timer group, software interrupt control, CPU control, UART pins, and
-//! SHA peripheral that main.rs needs.
+//! Board constants and peripheral extraction for the XIAO ESP32-S3 dummy ASIC.
+//!
+//! Dummy ASIC: `../../docs/DUMMY_ASIC.md`.
 
 use esp_hal::peripherals::{CPU_CTRL, GPIO8, GPIO9, SHA, SW_INTERRUPT, TIMG0, UART1};
 

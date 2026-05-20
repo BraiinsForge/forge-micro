@@ -1,12 +1,8 @@
 //! `serial_baudrate::BaudRate` wrapper for embassy-rp `BufferedUart` halves.
+//! Re-implements the PL011 divisor math against the PAC so each half can
+//! retune the line with a `&self` receiver.
 //!
-//! embassy-rp 0.10 exposes runtime baud rate switching only on the unsplit
-//! `BufferedUart` via `&mut self`; the per-half `info: &'static Info` field
-//! that drives `set_baudrate_inner` is private. `mmm::serial::Serial::run`
-//! takes two independent halves, each implementing
-//! `serial_baudrate::BaudRate(&self, ...)`. This module wraps each half with
-//! the UART register block and re-implements the divisor math against the
-//! PAC, mirroring `embassy_rp::uart::Uart::set_baudrate_inner`.
+//! Backend architecture: `../../../docs/MMM.md`.
 
 use embassy_rp::pac::uart::regs::{Uartfbrd, Uartibrd};
 use embassy_rp::pac::uart::Uart as UartRegs;

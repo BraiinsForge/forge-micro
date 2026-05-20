@@ -1,9 +1,7 @@
-//! Firmware entry point for the `DevEBox` STM32F407VGT6 board wired to
-//! a WT32-ETH01 RMII module. Enables the module's 50 MHz oscillator,
-//! starts the built-in MAC with an auto-probed LAN8720 PHY, runs the
-//! embassy-net stack with DHCP, and spawns the watchdog, LED blink,
-//! NTP, and BTC tasks before entering the HTTP server loop. Built
-//! with `cargo build` from this crate inside `nix develop .#arm`.
+//! Firmware entry point for the `DevEBox` STM32F407VGT6 + WT32-ETH01 (LAN8720).
+//!
+//! Board docs: `../../../docs/OVERVIEW.md`
+//! Wiring/build: `../../../docs/SETUP.md`
 
 #![no_std]
 #![no_main]

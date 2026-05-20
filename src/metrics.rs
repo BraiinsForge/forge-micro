@@ -1,37 +1,6 @@
 //! Prometheus metrics exposition server running on [`Metrics::PORT`].
 //!
-//! # Model
-//!
-//! Callers push [`Metric`] values into a static [`Channel`] via [`push`].
-//! The [`run`] task owns a local [`FnvIndexMap`] that it drains from the
-//! channel, upserting each received metric by name + label set. On each
-//! incoming TCP connection to [`Metrics::PORT`] it drains any pending
-//! channel messages first, then renders all stored metrics plus a set of
-//! hardcoded derived metrics for uptime, request count, BTC price, and
-//! NTP sync state in Prometheus text exposition format version 0.0.4.
-//!
-//! # Usage
-//!
-//! From a firmware `main`:
-//!
-//! ```ignore
-//! #[embassy_executor::task]
-//! async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
-//!     eth_examples::metrics::run(stack).await
-//! }
-//! spawner.spawn(unwrap!(metrics_task(stack)));
-//! ```
-//!
-//! Push a custom metric from any async context:
-//!
-//! ```ignore
-//! eth_examples::metrics::push(Metric {
-//!     name: "my_sensor_temperature_celsius",
-//!     labels: heapless::Vec::new(),
-//!     value: Value::Float(23.5),
-//!     timestamp_ms: 0,
-//! }).await;
-//! ```
+//! Endpoint model: `../docs/METRICS.md`.
 
 use core::fmt::Write as _;
 

@@ -1,7 +1,8 @@
 //! Board constants and peripheral extraction for the BMM Adapter (RP2350 +
 //! W5500). `Board::take` consumes the RP2350 `Peripherals` once and returns
-//! every singleton the board's schematic claims, keeping pin assignments
-//! in one place rather than scattered through `main`.
+//! every singleton the board's schematic claims.
+//!
+//! Wiring/pinout: `../../../docs/SETUP.md`
 
 use embassy_rp::peripherals::{
     ADC, ADC_TEMP_SENSOR, CORE1, DMA_CH0, DMA_CH1, I2C1, PIN_0, PIN_1, PIN_15, PIN_16, PIN_17,

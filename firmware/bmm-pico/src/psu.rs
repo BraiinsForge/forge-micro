@@ -1,9 +1,7 @@
-//! BMM100 PSU integration over the shared I2C1 bus.
+//! BMM100 PSU integration over the shared I2C1 bus. Owns the static
+//! cells for the `MiniminerPsu` state, terminated flag, and PSU handle.
 //!
-//! Owns the static cells for the `MiniminerPsu` state, the terminated flag,
-//! and the PSU handle. The bus mutex is owned by `main` so future I2C
-//! consumers can take additional `I2cDevice` handles from the same mutex
-//! without going through this module.
+//! Backend architecture: `../../../docs/MMM.md`.
 
 use defmt::{error, info, Debug2Format};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;

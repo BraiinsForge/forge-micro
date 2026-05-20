@@ -1,7 +1,4 @@
-//! Status LED blink loop. Toggles any `StatefulOutputPin` at 500 ms intervals
-//! so an operator can see the executor is alive. Spawned as a task by
-//! the ARM boards; the ESP32-S3 dev board exposes no GPIO LED and
-//! skips it.
+//! Status LED blink loop. Toggles any `StatefulOutputPin` at 500 ms intervals.
 
 use embassy_time::{Duration, Ticker};
 use embedded_hal::digital::StatefulOutputPin;

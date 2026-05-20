@@ -1,41 +1,7 @@
 //! XIAO ESP32-S3 dummy ASIC: receives mining Work over UART, searches nonces
-//! with the hardware SHA accelerator, returns Share packets with the found
-//! nonce and hash.
+//! with the hardware SHA accelerator, returns Share packets.
 //!
-//! Embassy runs on both ESP32-S3 cores via `esp_rtos 0.2.0`:
-//!   - Core 0 (`PRO_CPU`): UART reader + writer.
-//!   - Core 1 (`APP_CPU`): solver task.
-//!
-//! The UART is split into `UartRx` / `UartTx` halves so the reader and writer
-//! run concurrently without borrow contention.
-//!
-//! `esp_rtos::start_second_core` manages the `APP_CPU` scheduler.  The
-//! thread-mode `esp_rtos::embassy::Executor` then runs on the second core,
-//! started from within the closure passed to `start_second_core`.
-//!
-//! # Binary protocol — UART1, 921 600 baud, GPIO8 TX / GPIO9 RX
-//!
-//! ## Work frame (host → dummy-asic, opcode 0x01) — 119 bytes total
-//!
-//! | Offset | Size | Content |
-//! |--------|------|---------|
-//! | 0      | 1    | Start byte `0xA5` |
-//! | 1      | 1    | Opcode `0x01` |
-//! | 2      | 80   | 80-byte Bitcoin block header; the solver overwrites the nonce field |
-//! | 82     | 32   | 256-bit target, little-endian; hash accepted when `digest <= target` |
-//! | 114    | 4    | Host-assigned `work_id`, big-endian; echoed in every share derived from this Work |
-//! | 118    | 1    | XOR-8 checksum over bytes 1–117 (opcode + payload) |
-//!
-//! ## Share frame (dummy-asic → host, opcode 0x02) — 43 bytes total
-//!
-//! | Offset | Size | Content |
-//! |--------|------|---------|
-//! | 0      | 1    | Start byte `0xA5` |
-//! | 1      | 1    | Opcode `0x02` |
-//! | 2      | 4    | Found nonce, big-endian |
-//! | 6      | 4    | `work_id` of the Work that produced this share, big-endian |
-//! | 10     | 32   | SHA-256d hash |
-//! | 42     | 1    | XOR-8 checksum over bytes 1–41 (opcode + payload) |
+//! Protocol, runtime model, and flashing: `../../docs/DUMMY_ASIC.md`.
 
 #![no_std]
 #![no_main]

@@ -1,8 +1,4 @@
-//! HTTP/1.0 response builder for the single metrics endpoint.  Reads
-//! every time-varying value from the shared atomics so the HTTP page
-//! stays in sync with the display and the caller does not have to load
-//! the same statics twice per request.  Called by
-//! [`crate::net::run_http_server`] for every request.
+//! HTTP/1.0 response builder for the single metrics endpoint.
 
 use core::fmt::{self, Write};
 

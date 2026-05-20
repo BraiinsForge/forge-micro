@@ -1,9 +1,8 @@
-//! Firmware entry point for the BMM Adapter (RP2350 + W5500). Initialises
-//! SPI at 33 MHz, brings the W5500 up via `embassy-net-wiznet`, starts the
-//! embassy-net stack with DHCP, and spawns the watchdog, LED blink,
-//! ethernet runner, NTP sync, and BTC price tasks before entering
-//! the HTTP server loop. Built with `cargo build` from this crate
-//! inside `nix develop .#arm`.
+//! Firmware entry point for the BMM Adapter (RP2350 + W5500).
+//!
+//! Board docs: `../../../docs/OVERVIEW.md`
+//! Wiring/build: `../../../docs/SETUP.md`
+//! Mining backend: `../../../docs/MMM.md`
 
 #![no_std]
 #![no_main]

@@ -1,11 +1,6 @@
-//! BMM101 hashboard temperature sensor array.
+//! BMM101 hashboard temperature sensor array over I2C1.
 //!
-//! Reads four LM75A board sensors over I2C1. Each reading is offset by
-//! `OFFSET_MILLICELSIUS` to approximate chip junction temperature from
-//! the board-mounted sensor; the controller exposes the maximum across
-//! all sensors so a single hot spot wins. Mirrors the
-//! `BRAIINS_MINI_BMM101_BM1362_4X1` descriptor in bos-main and the
-//! host-runner `HashboardTemperature`.
+//! MMM backend: `../../../docs/MMM.md`.
 
 use defmt::error;
 #[cfg(feature = "backend-mmm")]

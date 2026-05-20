@@ -1,9 +1,8 @@
-//! Board constants, clock tree, and peripheral extraction for the
-//! `DevEBox` STM32F407. `stm32_config` builds the `embassy_stm32::Config`
-//! that drives the core at 168 MHz from an 8 MHz HSE, which the
-//! ethernet MAC and RMII reference clock depend on. `Board::take`
-//! consumes the peripherals main.rs needs: ETH, PHY management pins,
-//! seven RMII pins, watchdog, and LED.
+//! Clock tree and peripheral extraction for the `DevEBox` STM32F407.
+//! `stm32_config` runs the core at 168 MHz from an 8 MHz HSE for the
+//! ethernet MAC and RMII reference clock.
+//!
+//! Wiring/pinout: `../../../docs/SETUP.md`
 
 use embassy_stm32::peripherals::{
     ADC1, DMA2_CH0, ETH, ETH_SMA, IWDG, PA1, PA2, PA6, PA7, PB11, PB12, PB13, PC1, PC4, PC5, PE14,

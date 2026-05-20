@@ -1,7 +1,9 @@
-//! `PRO_CPU` workload: UART reader and writer.
+//! `PRO_CPU` workload: UART reader and writer tasks.
 //!
 //! The UART is split so reader and writer own `UartRx` / `UartTx` halves
 //! respectively and never contend.
+//!
+//! Dummy ASIC: `../../docs/DUMMY_ASIC.md`.
 
 use esp_hal::uart::{UartRx, UartTx};
 

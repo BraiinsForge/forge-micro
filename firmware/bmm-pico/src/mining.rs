@@ -1,11 +1,7 @@
-//! BM1362 chip-side wiring: hashboard reset pin and the two long-running
-//! tasks the mmm backend needs.
+//! Hashboard reset pin plus the two long-running tasks the mmm backend
+//! spawns: the chip-serial actor and the bring-up/teardown state machine.
 //!
-//! `serial_task` owns the UART halves and drives `mmm::serial::SERIAL` for
-//! the lifetime of the firmware; `miner_task` runs the bring-up / teardown
-//! state machine in `mmm::miner::run`. Neither ever returns under normal
-//! operation: there is no SIGINT on bare metal, so `STOP_MINING` is never
-//! raised and `mmm::miner::run` parks inside its bring-up loop.
+//! Backend architecture: `../../../docs/MMM.md`.
 
 use defmt::{error, info, Debug2Format};
 use embassy_rp::gpio::Output;

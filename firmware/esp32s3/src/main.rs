@@ -1,9 +1,7 @@
-//! Firmware entry point for the ESP32-S3 `DevKit` with an external
-//! W5100S over SPI. Configures SPI with DMA, brings up the W5100S via
-//! `embassy-net-wiznet`, starts the embassy-net stack with DHCP, and
-//! spawns the watchdog, ethernet runner, NTP, and BTC tasks before
-//! entering the HTTP server loop. Built with `cargo build` from this
-//! crate inside `nix develop .#esp`.
+//! Firmware entry point for the ESP32-S3 `DevKit` + external W5100S (SPI).
+//!
+//! Board docs: `../../../docs/OVERVIEW.md`
+//! Wiring/build: `../../../docs/SETUP.md`
 
 #![no_std]
 #![no_main]

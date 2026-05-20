@@ -1,48 +1,7 @@
-//! Nonce search on `APP_CPU`.
+//! Nonce-search task on `APP_CPU`. Hashes via the ESP32-S3 SHA peripheral
+//! against a captured midstate and publishes solutions to `SOLUTIONS`.
 //!
-//! Hosts the SHA-256d helper plus the embassy task that sweeps nonces for
-//! the current Work item.  The task consumes `CURRENT_WORK` and publishes
-//! to `SOLUTIONS` both defined in `main.rs`.
-//!
-//! SHA-256d uses the ESP32-S3 SHA accelerator.  Software SHA on Xtensa
-//! is far slower than the UART can drain, so the hardware peripheral
-//! is the actual bound this peer is supposed to demonstrate.
-//!
-//! Bypasses esp-hal in the per-nonce hot path.  Bytes 0..64 of the
-//! 80-byte header are constant per Work and would normally be hashed
-//! every iteration.  Hashing them once into a midstate and continuing
-//! from there per nonce removes one hardware block from the
-//! per-iteration cost.  esp-hal exposes this via `ShaDigest::save`/
-//! `restore`, but `restore` writes 128 bytes to `m_mem` and 64 bytes
-//! to `h_mem` via volatile peripheral-bus stores per nonce, which
-//! costs more CPU time than the hardware block saved.  Going through
-//! the SHA peripheral's register block directly cuts that to 8 H
-//! writes plus 16 M writes per nonce, which is what makes the
-//! optimisation pay off here.
-//!
-//! Hacks worth flagging for anyone touching this file:
-//!   * Register addresses are duplicated from the esp32s3 PAC at
-//!     `0x6003_b000`.  Going through `register_block().busy()` etc.
-//!     does not reliably boil down to a single volatile store, so
-//!     the hot loop touches the registers via raw pointers.  If the
-//!     PAC ever remaps the SHA peripheral this file will silently
-//!     produce wrong hashes.
-//!   * The hot loop never writes the SHA mode register.  It assumes
-//!     `Sha::start::<Sha256>()` in `capture_midstate` set `MODE` to
-//!     SHA-256 and that nothing else has reset it since, which is
-//!     true because the solver is the sole owner of the SHA
-//!     peripheral.
-//!   * Message and digest words are written in native endianness.
-//!     The Xtensa LX7 in the ESP32-S3 is little-endian, and the
-//!     HAL's `SocDependentEndianess` resolves to native on non-ESP32
-//!     parts, so this matches what the HAL's verifier on the host
-//!     expects.  The original ESP32 uses a big-endian Tensilica core
-//!     and would need the opposite layout.
-//!   * The peripheral's H register state is overwritten on every
-//!     iteration: `CONTINUE` for the first SHA pulls H from our
-//!     midstate write, `START` for the second SHA resets H to the
-//!     SHA-256 IV.  Nothing else gets to touch H between those two
-//!     points.
+//! Solver internals and sharp edges: `../../docs/DUMMY_ASIC.md`.
 
 use core::ptr;
 

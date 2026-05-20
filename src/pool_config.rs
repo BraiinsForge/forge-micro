@@ -1,22 +1,6 @@
-//! Pool connection config driven by `option_env!` overrides.
+//! Pool connection config driven by `option_env!` compile-time overrides.
 //!
-//! Each firmware reads seven environment variables at compile time
-//! (with fall-through defaults below) and hands the resulting
-//! strings to [`parse`]. The returned [`PoolConfig`] feeds the
-//! runtime protocol selector in the stratum task: matching on
-//! [`ProtocolConfig`] picks `StratumV1Client` vs `StratumV2Client`.
-//!
-//! ## Variables
-//!
-//! | Var | Type | Default | Notes |
-//! |---|---|---|---|
-//! | `POOL_HOST` | string | [`DEFAULT_POOL_HOST`] | IPv4 literal or DNS name |
-//! | `POOL_PORT` | u16 | [`DEFAULT_POOL_PORT_STR`] | |
-//! | `POOL_PROTOCOL` | `sv1`/`sv2` | [`DEFAULT_POOL_PROTOCOL`] | |
-//! | `POOL_USER` | string | per-board | worker identity, P2TR + `.workersuffix` |
-//! | `POOL_SV1_PASS` | string | unset → no password | ignored under `sv2` |
-//! | `POOL_SV2_PUBKEY` | base58check string | unset → validate against [`DEFAULT_POOL_SV2_PUBKEY`] | ignored under `sv1` |
-//! | `POOL_SV2_TRUST_ANY_KEY` | `"1"` | unset | `"1"` → skip peer auth (noise still negotiated); any other value → [`ConfigError`] |
+//! Setup: `../docs/SETUP.md`.
 
 use core::str::FromStr;
 

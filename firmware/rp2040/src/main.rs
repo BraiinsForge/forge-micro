@@ -1,9 +1,7 @@
-//! Firmware entry point for the W5500-EVB-Pico. Initialises SPI at
-//! 33 MHz, brings the W5500 up via `embassy-net-wiznet`, starts the
-//! embassy-net stack with DHCP, and spawns the watchdog, LED blink,
-//! ethernet runner, NTP sync, and BTC price tasks before entering
-//! the HTTP server loop. Built with `cargo build` from this crate
-//! inside `nix develop .#arm`.
+//! Firmware entry point for the W5500-EVB-Pico (RP2040 + W5500).
+//!
+//! Board docs: `../../../docs/OVERVIEW.md`
+//! Wiring/build: `../../../docs/SETUP.md`
 
 #![no_std]
 #![no_main]

@@ -1,8 +1,7 @@
-//! Binance ticker JSON parser. Extracts the "price" field from the
-//! compact ticker response and converts a dollar.cents string to total
-//! cents as u32, avoiding software float emulation on MCUs without an
-//! FPU. Used by [`crate::net::fetch_btc_price`] after the TLS response body
-//! is read into the HTTP RX buffer.
+//! Binance ticker JSON parser. Extracts the `"price"` field and converts
+//! the dollar.cents string to total cents as a `u32`.
+//!
+//! Metrics: `../docs/METRICS.md`.
 
 /// Parse BTC price in cents from a Binance ticker JSON response.
 ///

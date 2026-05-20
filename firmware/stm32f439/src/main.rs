@@ -1,9 +1,7 @@
-//! Firmware entry point for the Nucleo-F439ZI board using its
-//! onboard LAN8742A PHY and RJ45 over RMII. Starts the built-in
-//! MAC with an auto-probed PHY, runs the embassy-net stack with
-//! DHCP, and spawns the watchdog, LED blink, NTP, and BTC tasks
-//! before entering the HTTP server loop. Built with `cargo build`
-//! from this crate inside `nix develop .#arm`.
+//! Firmware entry point for the Nucleo-F439ZI (onboard LAN8742A over RMII).
+//!
+//! Board docs: `../../../docs/OVERVIEW.md`
+//! Wiring/build: `../../../docs/SETUP.md`
 
 #![no_std]
 #![no_main]

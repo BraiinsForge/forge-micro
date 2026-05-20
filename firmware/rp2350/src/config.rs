@@ -1,8 +1,8 @@
-//! Board constants and peripheral extraction for the Pico 2. `Board::take`
-//! consumes the RP2350 `Peripherals` once and returns the exact set
-//! this board uses: SPI0, seven GPIO pins, watchdog, and two DMA channels.
-//! This keeps pin assignments in one place rather than scattered
-//! through `main`.
+//! Board constants and peripheral extraction for the W6100-EVB-Pico-2
+//! (RP2350). `Board::take` consumes the RP2350 `Peripherals` once and
+//! returns the exact set main.rs needs.
+//!
+//! Wiring/pinout: `../../../docs/SETUP.md`
 
 use embassy_rp::peripherals::{
     ADC, ADC_TEMP_SENSOR, CORE1, DMA_CH0, DMA_CH1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21,

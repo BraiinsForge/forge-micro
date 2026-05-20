@@ -1,11 +1,6 @@
 //! Bucketed EWMA hashrate accounting shared by every firmware.
 //!
-//! [`record_share`] bumps [`SHARE_COUNT`] and feeds the current
-//! share's difficulty into an EWMA-smoothed bucketed estimator;
-//! [`hashrate`] reads the smoothed value. ASIC backends call
-//! [`record_share`] for every share they consume (the
-//! `stratum-client` task wires this up at solution time), so any
-//! ASIC implementation gets metrics for free.
+//! Metrics: `../docs/METRICS.md`.
 
 use core::sync::atomic::Ordering;
 

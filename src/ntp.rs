@@ -1,8 +1,4 @@
-//! SNTP response parser and UTC formatter. `parse_timestamp_secs`
-//! extracts the transmit timestamp from a 48-byte SNTP packet and
-//! maps NTP epoch (1900) to Unix epoch (1970). `format_utc_time`
-//! renders a Unix second count as `HH:MM:SS UTC` for the metrics
-//! page. Used by [`crate::net::fetch_ntp_time`] and [`crate::http`].
+//! SNTP response parser and UTC formatter.
 
 use crate::consts::Ntp;
 

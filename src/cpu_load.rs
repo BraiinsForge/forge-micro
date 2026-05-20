@@ -1,49 +1,6 @@
 //! CPU busy ratio published as a Prometheus gauge.
 //!
-//! # Model
-//!
-//! Boards bracket their executor's idle wait with
-//! [`embassy_time::Instant::now`] and add the elapsed ticks to the
-//! per-core slot in [`IDLE_TICKS`]. The publisher task periodically
-//! diffs each slot against wall-clock ticks and pushes
-//! `1.0 - idle / elapsed` as `board_cpu_busy_ratio` into the shared
-//! metrics channel, labelled `cpu="0"`, `cpu="1"`, ... up to the
-//! per-board active-core count. The ratio falls back to `0.0` when
-//! no time has elapsed between samples.
-//!
-//! Two seams exist depending on the runtime:
-//!
-//! - On the Cortex-M boards, [`run_cortex_m_executor`] drives
-//!   `raw::Executor::poll()` under `#[cortex_m_rt::entry]` and
-//!   brackets `cortex_m::asm::wfe()` with `Instant::now()` reads.
-//! - On ESP32-S3, `esp_rtos::embassy::Executor::run_with_callbacks`
-//!   exposes `before_poll` and `on_idle` hooks; `on_idle` records the
-//!   entry instant and `before_poll` accumulates the delta on the
-//!   following iteration.
-//!
-//! # Caveats
-//!
-//! Interrupt handlers that wake the wait instruction run before the
-//! second `Instant::now()` and are accounted as idle. The metric is a
-//! coarse executor-level load indicator, not a true busy-cycle count.
-//!
-//! On multicore boards the cortex-m thread-mode pender issues `sev`,
-//! which sets the global event register on every core. A wake on one
-//! core therefore unblocks the other core's `wfe` even when that
-//! core's task list is empty, so a quiet core's idle counter is
-//! undercounted whenever a busy core makes progress.
-//!
-//! The final `clamp(0.0, 1.0)` defends against the accounting skew
-//! above and any residual `f32` rounding in the division; the metric
-//! is reported as a coarse ratio rather than a precise count.
-//!
-//! # Origin
-//!
-//! The technique of driving `raw::Executor::poll()` manually and
-//! bracketing `wfe` with `Instant::now()` reads is from Giacomo
-//! Caironi's "Measuring CPU usage with Rust Embassy"
-//! (<https://www.giacomocaironi.dev/posts/measuring-cpu-usage-with-rust-embassy/>,
-//! reference impl at <https://gitlab.com/giacomocaironi/embassy-cpu-usage>).
+//! Model and caveats: `../docs/METRICS.md`.
 
 use core::num::NonZeroU64;
 

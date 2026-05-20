@@ -1,16 +1,6 @@
-//! Shared OLED display rendering and task loop. Draws IP address, UTC
-//! time, BTC price or fan PWM/RPM, and hashrate onto the SH1106. Board
-//! crates call [`run`] from a one-line `#[embassy_executor::task]` wrapper.
+//! Shared OLED display rendering and task loop for the SH1106 128x64 display.
 //!
-//! Values come from shared atomics: `LOCAL_IPV4`, `NTP_EPOCH_OFFSET`,
-//! `BTC_PRICE_CENTS`, [`FAN_PWM_PERCENT`], [`FAN_RPM`], and the EWMA
-//! inside `crate::hashrate`. The task signature carries only the
-//! display handle; any producer can publish without rewiring the
-//! display's spawn path.
-//!
-//! Line 3 shows fan PWM and RPM on boards that have cleared the
-//! [`FAN_PWM_PERCENT`] sentinel; on boards without a fan the same line
-//! falls back to the BTC price.
+//! Architecture: `../docs/OVERVIEW.md`.
 
 use embassy_net::Ipv4Address;
 use embassy_time::{Duration, Timer};

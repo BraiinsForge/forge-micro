@@ -1,9 +1,7 @@
-//! Network tasks shared across all boards. Provides the DHCP wait,
-//! one-shot NTP and BTC fetches, periodic sync loops, and the HTTP
-//! server loop. Boards differ only at the MAC/PHY layer; once a
-//! `Stack<'static>` is constructed, every board spawns the same
-//! `run_http_server`, `run_ntp_sync`, and `run_bitcoin_price` tasks
-//! from this module.
+//! Network tasks shared across all boards: DHCP wait, NTP, BTC price
+//! fetch, and the HTTP server loop.
+//!
+//! Architecture: `../docs/OVERVIEW.md`.
 
 use embassy_futures::yield_now;
 use embassy_net::dns::DnsQueryType;

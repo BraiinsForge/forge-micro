@@ -1,8 +1,7 @@
-//! UART framing for the dummy-ASIC mining protocol.
+//! UART framing for the dummy-asic mining protocol. Codec only; frame
+//! transport is the caller's responsibility.
 //!
-//! Wire-level frame definitions and the reader / writer helpers used by the
-//! UART tasks.  Kept free of shared-state access so the codec can be read in
-//! isolation; frame transport is the caller's responsibility.
+//! Spec: `../../docs/DUMMY_ASIC.md`.
 
 use embassy_futures::yield_now;
 use embedded_io_async::{Read as AsyncRead, Write as AsyncWrite};

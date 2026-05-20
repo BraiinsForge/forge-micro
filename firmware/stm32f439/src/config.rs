@@ -1,11 +1,6 @@
-//! Board constants, clock tree, and peripheral extraction for the
-//! Nucleo-F439ZI. `stm32_config` builds the `embassy_stm32::Config`
-//! that drives the core at 180 MHz from an 8 MHz HSE in bypass mode
-//! (ST-LINK MCO), which the ethernet MAC and RMII reference clock
-//! depend on. `Board::take` consumes the peripherals main.rs needs:
-//! ETH, PHY management pins, seven RMII pins, watchdog, and LED.
-//! RMII TX pins are PG11/PG13, matching the MB1137 default solder
-//! bridges SB183 and SB182 that wire them to the onboard LAN8742A.
+//! Clock tree and peripheral extraction for the Nucleo-F439ZI.
+//!
+//! Wiring/pinout: `../../../docs/SETUP.md`.
 
 use embassy_stm32::peripherals::{
     ADC1, DMA2_CH0, ETH, ETH_SMA, IWDG, PA1, PA2, PA7, PB0, PB13, PC1, PC4, PC5, PG11, PG13, RNG,

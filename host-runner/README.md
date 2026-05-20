@@ -43,15 +43,8 @@ Default log filter is `info`. Bump with e.g. `RUST_LOG=debug,smoltcp=info`.
 
 ### Pool configuration
 
-Same env-var contract as the rp2350 firmware (`eth_examples::pool_config`):
-`POOL_HOST` (DNS name or IPv4 literal), `POOL_PORT`,
-`POOL_PROTOCOL=sv1|sv2`, `POOL_USER`, `POOL_SV1_PASS` (V1 only),
-`POOL_SV2_PUBKEY` (V2 only, base58check — defaults to the Braiins
-prod authority key so peer authentication is enabled when the
-variable is unset), `POOL_SV2_TRUST_ANY_KEY` (V2 only — set to
-`"1"` to disable peer auth for testing against an SV2 pool whose
-key differs from the Braiins prod key; any other value is a
-build-time error).
+Same `POOL_*` env-var contract as the firmware; see `../docs/SETUP.md`
+for the full table.
 
 Stratum V1 against Braiins pool:
 

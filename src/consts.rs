@@ -1,10 +1,4 @@
-//! Shared configuration values grouped by subsystem. Unit structs
-//! (`Net`, `Http`, `Tls`, `Ntp`, `Btc`, `Watchdog`, `Metrics`) act as
-//! namespaces for constants so call sites read `Ntp::PORT` instead of
-//! a flat `NTP_PORT`. Values are referenced from [`crate::net`],
-//! [`crate::metrics`], and [`crate::watchdog`]. The temperature-sampling
-//! constants live in [`ubos_temperature::Temperature`] alongside the
-//! `TemperatureSensor` trait and `run_temperature` task.
+//! Shared configuration constants grouped by subsystem namespace.
 
 use embassy_time::Duration;
 
