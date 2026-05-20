@@ -341,6 +341,7 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-display",
  "ubos-main",
  "ubos-monitor",
  "ubos-pool",
@@ -2025,6 +2026,7 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-display",
  "ubos-main",
  "ubos-monitor",
  "ubos-pool",
@@ -3462,6 +3464,7 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-display",
  "ubos-main",
  "ubos-monitor",
  "ubos-pool",
@@ -3505,6 +3508,7 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-display",
  "ubos-main",
  "ubos-monitor",
  "ubos-pool",
@@ -3933,6 +3937,7 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-display",
  "ubos-main",
  "ubos-monitor",
  "ubos-pool",
@@ -3968,6 +3973,7 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-display",
  "ubos-main",
  "ubos-monitor",
  "ubos-pool",
@@ -4303,6 +4309,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
+name = "ubos-display"
+version = "0.1.0"
+dependencies = [
+ "embassy-net",
+ "embassy-time",
+ "embedded-graphics",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "format_no_std",
+ "portable-atomic",
+ "profont",
+ "ubos-main",
+]
+
+[[package]]
 name = "ubos-logging"
 version = "0.1.0"
 dependencies = [
@@ -4324,7 +4345,6 @@ dependencies = [
  "embassy-net",
  "embassy-sync 0.8.0",
  "embassy-time",
- "embedded-graphics",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-io-async 0.7.0",
@@ -4333,7 +4353,6 @@ dependencies = [
  "format_no_std",
  "heapless 0.8.0",
  "portable-atomic",
- "profont",
  "rand_core 0.10.1",
  "rand_core 0.6.4",
  "sha2 0.10.9",

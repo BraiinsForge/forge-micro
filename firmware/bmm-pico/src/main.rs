@@ -28,7 +28,7 @@ use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::{ConstStaticCell, StaticCell};
 #[cfg(feature = "display")]
-use ubos_main::sh1106::{Rotation, Sh1106};
+use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -189,7 +189,7 @@ type OledDisplay = Sh1106<
 #[cfg(feature = "display")]
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay) -> ! {
-    ubos_main::display::run(&mut display).await
+    ubos_display::display::run(&mut display).await
 }
 
 /// Read the `POOL_*` env vars at compile time (each falling through

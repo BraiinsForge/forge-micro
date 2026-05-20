@@ -35,8 +35,6 @@ portable-atomic   = { workspace = true }
 static_cell       = { workspace = true }
 heapless          = { workspace = true }
 defmt             = { workspace = true, optional = true }
-embedded-graphics = { workspace = true }
-profont           = { workspace = true }
 format_no_std     = { workspace = true }
 sha2              = { workspace = true }
 ubos-logging      = { workspace = true }

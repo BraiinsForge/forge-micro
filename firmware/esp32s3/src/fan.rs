@@ -25,7 +25,7 @@ use esp_hal::pcnt::Pcnt;
 use esp_hal::peripherals::{GPIO10, GPIO11, LEDC, PCNT};
 use esp_hal::time::Rate;
 use portable_atomic::Ordering;
-use ubos_main::display::{FAN_PWM_PERCENT, FAN_RPM};
+use ubos_display::display::{FAN_PWM_PERCENT, FAN_RPM};
 use ubos_main::metrics::{push, Metric, Value};
 use ubos_monitor::FanOutput;
 

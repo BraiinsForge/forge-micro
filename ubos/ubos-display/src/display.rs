@@ -1,6 +1,6 @@
 //! Shared OLED display rendering and task loop for the SH1106 128x64 display.
 //!
-//! Architecture: `../docs/OVERVIEW.md`.
+//! Architecture: `../../../docs/OVERVIEW.md`.
 
 use embassy_net::Ipv4Address;
 use embassy_time::{Duration, Timer};
@@ -12,8 +12,9 @@ use embedded_hal::digital::OutputPin;
 use portable_atomic::{AtomicU32, AtomicU8, Ordering};
 use profont::PROFONT_12_POINT;
 
-use crate::net::{BTC_PRICE_CENTS, LOCAL_IPV4};
-use crate::ntp;
+use ubos_main::net::{BTC_PRICE_CENTS, LOCAL_IPV4};
+use ubos_main::{hashrate, ntp};
+
 use crate::sh1106::Sh1106;
 
 /// Last measured fan tach in RPM. Zero on boards without a fan, or
@@ -66,11 +67,11 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
     }
 
     // Line 2: UTC time from NTP, or "no sync" if NTP has not completed.
-    let ntp_offset = crate::net::NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
+    let ntp_offset = ubos_main::net::NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
     if ntp_offset == 0 {
         Text::new("no sync", Point::new(0, 29), style).draw(display)?;
     } else {
-        let unix_secs = crate::wall_clock_secs();
+        let unix_secs = ubos_main::wall_clock_secs();
         let length = ntp::format_utc_time(time_buffer, unix_secs);
         if length > 0 {
             // format_utc_time writes valid ASCII into the buffer.
@@ -107,11 +108,11 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
         }
     }
 
-    // Line 4: current hashrate. Read from the shared EWMA so the
-    // displayed rate reflects whatever backend is wired (cpu mock,
-    // external UART peer, future ASIC). HashrateDisplay switches to GH/s
-    // at 1 GH/s, so 24 bytes covers both representations.
-    let hashrate = crate::hashrate::HashrateDisplay(crate::hashrate::hashrate());
+    // Line 4: current hashrate. Read from the shared EWMA fed by the
+    // BM1362 MMM path (and by the host-runner CPU mock when used).
+    // HashrateDisplay switches to GH/s at 1 GH/s, so 24 bytes covers
+    // both representations.
+    let hashrate = hashrate::HashrateDisplay(hashrate::hashrate());
     let mut hashrate_buffer = [0u8; 24];
     if let Ok(text) = format_no_std::show(&mut hashrate_buffer, format_args!("{hashrate}")) {
         Text::new(text, Point::new(0, 61), style).draw(display)?;

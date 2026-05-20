@@ -5,7 +5,6 @@
 
 pub mod consts;
 pub mod cpu_load;
-pub mod display;
 pub mod hashrate;
 pub mod http;
 pub mod led;
@@ -13,7 +12,6 @@ pub mod mdns;
 pub mod metrics;
 pub mod net;
 pub mod ntp;
-pub mod sh1106;
 pub mod watchdog;
 
 /// Seconds since Unix epoch if NTP has synced, or seconds since boot otherwise.

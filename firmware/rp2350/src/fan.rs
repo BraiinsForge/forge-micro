@@ -24,7 +24,7 @@ use embassy_rp::peripherals::{PIN_15, PIN_8, PWM_SLICE4, PWM_SLICE7};
 use embassy_rp::pwm::{Config as PwmConfig, InputMode, Pwm};
 use embassy_rp::Peri;
 use embassy_time::Ticker;
-use ubos_main::display::{FAN_PWM_PERCENT, FAN_RPM};
+use ubos_display::display::{FAN_PWM_PERCENT, FAN_RPM};
 use ubos_main::metrics::{push, Metric, Value};
 use portable_atomic::Ordering;
 use ubos_monitor::FanOutput;
