@@ -37,8 +37,8 @@ use mining_protocol::hex::decode_to_slice as decode_hex;
 mod tests;
 
 /// Bytes reserved for incoming wire frames (one JSON-RPC line).
-/// Matches the value `ubos-backend` settled on; public pools push
-/// notifies with merkle paths that fit comfortably here.
+/// Public pools push notifies with merkle paths that fit comfortably
+/// here.
 pub const WIRE_BUFFER_BYTES: usize = 4096;
 
 /// Bytes reserved for one outgoing message before it hits the

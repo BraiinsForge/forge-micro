@@ -73,7 +73,7 @@ mod header {
 /// for a fresh `WorkAssignment`. Sized so a Cortex-M0+ takes
 /// roughly tens of milliseconds per chunk — enough to amortise the
 /// poll overhead, short enough that work changes propagate
-/// promptly. 256 happens to match what `ubos-backend` settled on.
+/// promptly. 256 happens to match what `stratum-client` settled on.
 pub const HASHES_PER_CHUNK: u32 = 256;
 
 /// Run the CPU-mock ASIC forever.

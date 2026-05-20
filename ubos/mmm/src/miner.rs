@@ -23,8 +23,7 @@ use ubos_psu::Psu;
 
 /// Mirrors the chip rail state for downstream consumers (host
 /// fan controller etc.). `true` between PSU enable and PSU disable
-/// in `run`; `false` at startup and after teardown. Replaces the
-/// legacy `ubos_backend::MINER_IS_RUNNING`.
+/// in `run`; `false` at startup and after teardown.
 pub static MINER_IS_RUNNING: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
 use crate::bmm100_trace::{DEINIT, INIT};

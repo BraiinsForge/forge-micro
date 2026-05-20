@@ -178,8 +178,8 @@ impl Default for SessionState {
 
 /// Initial share target before the pool sends its first
 /// `mining.set_difficulty`. Two leading zero bytes corresponds to
-/// pool diff 1/256² — the same default `ubos-backend` used. Once a
-/// real difficulty arrives, this slot gets overwritten.
+/// pool diff 1/256² as the initial default. Once a real difficulty
+/// arrives, this slot gets overwritten.
 const PERMISSIVE_TARGET: [u8; 32] = {
     let mut target = [0xFFu8; 32];
     target[31] = 0x00;
