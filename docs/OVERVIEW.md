@@ -52,13 +52,13 @@ back to the BTC price.
 
 ## Mining backend
 
-Every board drives a real BM1362 hashboard via the `mmm` crate. The mmm
-backend pushes shares into the `stratum-client::AsicSession` solution
-channel that the V1 and V2 client tasks drain. Hashes accumulated by the
-backend feed `ubos_metrics::hashrate` for the EWMA-smoothed rate the
-Prometheus endpoint and display surface. The mmm backend ties together
+Every board drives a real BM1362 hashboard via the `ubos-miner` crate. The
+ubos-miner backend pushes shares into the `stratum-client::AsicSession`
+solution channel that the V1 and V2 client tasks drain. Hashes accumulated
+by the backend feed `ubos_metrics::hashrate` for the EWMA-smoothed rate the
+Prometheus endpoint and display surface. The ubos-miner backend ties together
 the BM1362 chip-serial actor, the BMM100 PSU driver, and a runtime
-baud-rate switch; see [MMM.md](MMM.md).
+baud-rate switch; see [MINER.md](MINER.md).
 
 ## Workspace crates
 
@@ -84,8 +84,8 @@ baud-rate switch; see [MMM.md](MMM.md).
 - `ubos/stratum-client/` -- shared work-generator task, `JobRing`,
   `WorkRing`, and `AsicSession` ASIC abstraction; generic over the
   protocol adapter.
-- `ubos/mmm/` -- BM1362 chip driver: frame layouts, parser, miner state
-  machine, and the single-task chip-serial actor.
+- `ubos/ubos-miner/` -- BM1362 chip driver: frame layouts, parser, miner
+  state machine, and the single-task chip-serial actor.
 
 ### Hardware drivers
 
@@ -103,7 +103,7 @@ baud-rate switch; see [MMM.md](MMM.md).
 
 - `host/host-runner/` -- Linux runner that re-uses the firmware tasks
   against a TAP device (or an `AF_PACKET` raw socket). Also wires up an
-  hwmon fan controller, optional `MMM_I2C_BUS` PSU exercise, and an
+  hwmon fan controller, optional `UBOS_I2C_BUS` PSU exercise, and an
   optional real BM1362 hashboard.
 - `host/embassy-net-afpacket/` -- `embassy-net` driver bound to a Linux
   NIC via `AF_PACKET`/`SOCK_RAW`, with synthetic-MAC + promiscuous-mode

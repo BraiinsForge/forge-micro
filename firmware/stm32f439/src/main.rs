@@ -1,10 +1,10 @@
 //! Firmware entry point for the Nucleo-F439ZI (onboard LAN8742A over RMII)
-//! with the BMM100/BM1362 MMM backend.
+//! with the BMM100/BM1362 ubos-miner backend.
 //!
 //! Starts the built-in MAC with an auto-probed PHY, runs the embassy-net
-//! stack with DHCP, and spawns the watchdog, LED blink, NTP, BTC, MMM
-//! mining, and HTTP tasks. Built with `cargo build` from this crate inside
-//! `nix develop .#arm`.
+//! stack with DHCP, and spawns the watchdog, LED blink, NTP, BTC,
+//! ubos-miner mining, and HTTP tasks. Built with `cargo build` from this
+//! crate inside `nix develop .#arm`.
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
 //! Wiring/build: `../../../docs/SETUP.md`
@@ -533,7 +533,7 @@ async fn boot(spawner: Spawner) {
         static DMA_RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
         let uart_config = {
             let mut config = UartConfig::default();
-            config.baudrate = mmm::consts::INITIAL_BAUDRATE;
+            config.baudrate = ubos_miner::consts::INITIAL_BAUDRATE;
             config
         };
         // Valid USART3 peripheral with type-checked DMA channels; cannot fail.
@@ -549,8 +549,8 @@ async fn boot(spawner: Spawner) {
         .expect("BUG: USART3 configuration failed");
         let (uart_tx, uart_rx) = uart.split();
         let ring_rx = uart_rx.into_ring_buffered(DMA_RX_BUF.init([0; 1024]));
-        let (mmm_tx, mmm_rx) = uart_baudrate::split_usart3(uart_tx, ring_rx);
-        spawner.spawn(unwrap!(mining::serial_task(mmm_rx, mmm_tx)));
+        let (miner_tx, miner_rx) = uart_baudrate::split_usart3(uart_tx, ring_rx);
+        spawner.spawn(unwrap!(mining::serial_task(miner_rx, miner_tx)));
     }
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.

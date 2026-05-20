@@ -2,7 +2,7 @@
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
 //! Wiring/build: `../../../docs/SETUP.md`
-//! Mining backend: `../../../docs/MMM.md`
+//! Mining backend: `../../../docs/MINER.md`
 
 #![no_std]
 #![no_main]
@@ -48,7 +48,7 @@ static CORE1_EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 /// Software ring buffer size per direction for the core-1 `BufferedUart`.
 /// The RP2040/RP2350 HW FIFO is 32 bytes; 1 KiB gives plenty of slack for
-/// ETH-ISR jitter at 3 Mbaud (MMM backend).
+/// ETH-ISR jitter at 3 Mbaud (ubos-miner backend).
 const UART_RING_BUFFER_SIZE: usize = 1024;
 
 // `ubos_pool::pool_config::parse` runs at boot to copy seven
@@ -342,7 +342,7 @@ async fn main(spawner: Spawner) {
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
 
-    // Pin the MMM serial worker to core 1 so embassy-net on core 0 stays
+    // Pin the ubos-miner serial worker to core 1 so embassy-net on core 0 stays
     // responsive. BufferedUart must be constructed on the core that polls
     // it — `init_buffers` unmasks the UART IRQ on the calling core's NVIC,
     // and the async write path manually pends the same IRQ to shovel
@@ -353,7 +353,7 @@ async fn main(spawner: Spawner) {
     {
         let uart_parts = (hw.uart, hw.uart_tx, hw.uart_rx);
         embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
-            let (mmm_tx, mmm_rx) = {
+            let (miner_tx, miner_rx) = {
                 static TX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
                 static RX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
                 let (peripheral, tx_pin, rx_pin) = uart_parts;
@@ -366,7 +366,7 @@ async fn main(spawner: Spawner) {
                     RX_BUF.init([0; UART_RING_BUFFER_SIZE]),
                     {
                         let mut config = UartConfig::default();
-                        config.baudrate = mmm::consts::INITIAL_BAUDRATE;
+                        config.baudrate = ubos_miner::consts::INITIAL_BAUDRATE;
                         config
                     },
                 );
@@ -374,7 +374,7 @@ async fn main(spawner: Spawner) {
             };
             let executor = CORE1_EXECUTOR.init(Executor::new());
             executor.run(|core1_spawner: Spawner| {
-                core1_spawner.spawn(unwrap!(mining::serial_task(mmm_rx, mmm_tx)));
+                core1_spawner.spawn(unwrap!(mining::serial_task(miner_rx, miner_tx)));
             })
         });
     }
@@ -500,7 +500,7 @@ async fn main(spawner: Spawner) {
     info!("ip address: {:?}", config.address.address());
 
     {
-        // Core 1 hosts serial_task (MMM backend); see spawn_core1 above.
+        // Core 1 hosts serial_task (ubos-miner backend); see spawn_core1 above.
         match pool_config_from_env() {
             Ok(config) => {
                 let pool_config = POOL_CONFIG_CELL.init(config);

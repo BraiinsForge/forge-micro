@@ -24,7 +24,7 @@ gpiocdev           = "0.8"
 heapless           = "0.9"
 heapless-v08       = { package = "heapless", version = "0.8" }
 log                = { version = "0.4", default-features = false }
-mmm                = { workspace = true }
+ubos-miner         = { workspace = true }
 static_cell        = { workspace = true }
 ubos-metrics       = { workspace = true, default-features = false }
 ubos-net           = { workspace = true, default-features = false }

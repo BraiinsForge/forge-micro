@@ -1,5 +1,5 @@
 //! Board constants and peripheral extraction for the W5500-EVB-Pico
-//! (RP2040) running the MMM backend. `Board::take` consumes the RP2040
+//! (RP2040) running the ubos-miner backend. `Board::take` consumes the RP2040
 //! `Peripherals` once and returns every singleton the board's schematic
 //! claims, keeping pin assignments in one place rather than scattered
 //! through `main`.
@@ -154,7 +154,7 @@ impl Fan {
 
 pub struct Core1;
 impl Core1 {
-    /// Stack size for the Core 1 executor, sized for the mmm backend.
+    /// Stack size for the Core 1 executor, sized for the ubos-miner backend.
     pub const STACK_BYTES: usize = 32_768;
 }
 

@@ -333,7 +333,6 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "heapless 0.8.0",
  "ii-sv2",
- "mmm",
  "panic-probe",
  "portable-atomic",
  "serial-baudrate",
@@ -344,6 +343,7 @@ dependencies = [
  "ubos-core",
  "ubos-display",
  "ubos-metrics",
+ "ubos-miner",
  "ubos-monitor",
  "ubos-net",
  "ubos-pool",
@@ -2020,7 +2020,6 @@ dependencies = [
  "esp32s3-tsens",
  "heapless 0.8.0",
  "ii-sv2",
- "mmm",
  "portable-atomic",
  "rand_core 0.6.4",
  "serial-baudrate",
@@ -2031,6 +2030,7 @@ dependencies = [
  "ubos-core",
  "ubos-display",
  "ubos-metrics",
+ "ubos-miner",
  "ubos-monitor",
  "ubos-net",
  "ubos-pool",
@@ -2449,7 +2449,6 @@ dependencies = [
  "ii-sv2",
  "log",
  "mining-protocol",
- "mmm",
  "portable-atomic",
  "rand",
  "rand_core 0.6.4",
@@ -2460,6 +2459,7 @@ dependencies = [
  "stratum-v2",
  "ubos-logging",
  "ubos-metrics",
+ "ubos-miner",
  "ubos-monitor",
  "ubos-net",
  "ubos-pool",
@@ -2816,28 +2816,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "mmm"
-version = "0.1.0"
-dependencies = [
- "defmt 1.0.1",
- "embassy-futures",
- "embassy-sync 0.8.0",
- "embassy-time",
- "embedded-io 0.7.1",
- "embedded-io-async 0.7.0",
- "heapless 0.8.0",
- "mining-protocol",
- "portable-atomic",
- "serial-baudrate",
- "sha2 0.10.9",
- "stratum-client",
- "ubos-logging",
- "ubos-metrics",
- "ubos-monitor",
- "ubos-psu",
 ]
 
 [[package]]
@@ -3461,7 +3439,6 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "heapless 0.8.0",
  "ii-sv2",
- "mmm",
  "panic-probe",
  "portable-atomic",
  "serial-baudrate",
@@ -3472,6 +3449,7 @@ dependencies = [
  "ubos-core",
  "ubos-display",
  "ubos-metrics",
+ "ubos-miner",
  "ubos-monitor",
  "ubos-net",
  "ubos-pool",
@@ -3507,7 +3485,6 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "heapless 0.8.0",
  "ii-sv2",
- "mmm",
  "panic-probe",
  "portable-atomic",
  "serial-baudrate",
@@ -3518,6 +3495,7 @@ dependencies = [
  "ubos-core",
  "ubos-display",
  "ubos-metrics",
+ "ubos-miner",
  "ubos-monitor",
  "ubos-net",
  "ubos-pool",
@@ -3937,7 +3915,6 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "heapless 0.8.0",
  "ii-sv2",
- "mmm",
  "panic-probe",
  "portable-atomic",
  "rand_chacha",
@@ -3949,6 +3926,7 @@ dependencies = [
  "ubos-core",
  "ubos-display",
  "ubos-metrics",
+ "ubos-miner",
  "ubos-monitor",
  "ubos-net",
  "ubos-pool",
@@ -3975,7 +3953,6 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "heapless 0.8.0",
  "ii-sv2",
- "mmm",
  "panic-probe",
  "portable-atomic",
  "rand_chacha",
@@ -3987,6 +3964,7 @@ dependencies = [
  "ubos-core",
  "ubos-display",
  "ubos-metrics",
+ "ubos-miner",
  "ubos-monitor",
  "ubos-net",
  "ubos-pool",
@@ -4381,6 +4359,28 @@ dependencies = [
  "ubos-core",
  "ubos-logging",
  "ubos-net",
+]
+
+[[package]]
+name = "ubos-miner"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.0.1",
+ "embassy-futures",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "embedded-io 0.7.1",
+ "embedded-io-async 0.7.0",
+ "heapless 0.8.0",
+ "mining-protocol",
+ "portable-atomic",
+ "serial-baudrate",
+ "sha2 0.10.9",
+ "stratum-client",
+ "ubos-logging",
+ "ubos-metrics",
+ "ubos-monitor",
+ "ubos-psu",
 ]
 
 [[package]]

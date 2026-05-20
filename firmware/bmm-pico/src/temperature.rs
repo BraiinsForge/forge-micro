@@ -1,6 +1,6 @@
 //! BMM101 hashboard temperature sensor array over I2C1.
 //!
-//! MMM backend: `../../../docs/MMM.md`.
+//! ubos-miner backend: `../../../docs/MINER.md`.
 
 use defmt::error;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;

@@ -2,7 +2,7 @@
 //! Re-implements the PL011 divisor math against the PAC so each half can
 //! retune the line with a `&self` receiver.
 //!
-//! Backend architecture: `../../../docs/MMM.md`.
+//! Backend architecture: `../../../docs/MINER.md`.
 
 use embassy_rp::pac::uart::regs::{Uartfbrd, Uartibrd};
 use embassy_rp::pac::uart::Uart as UartRegs;
@@ -16,14 +16,14 @@ const MAX_INTEGER_DIVISOR: u32 = 65_535;
 
 /// Receiving half of a `BufferedUart` plus the underlying register block so
 /// `BaudRate::set_baudrate` can take `&self`.
-pub struct MmmUartRx {
+pub struct MinerUartRx {
     inner: BufferedUartRx,
     regs: UartRegs,
 }
 
 /// Transmitting half of a `BufferedUart` plus the underlying register block
 /// so `BaudRate::set_baudrate` can take `&self`.
-pub struct MmmUartTx {
+pub struct MinerUartTx {
     inner: BufferedUartTx,
     regs: UartRegs,
 }
@@ -36,27 +36,30 @@ pub struct MmmUartTx {
 /// `BufferedUart` in this firmware lives on `UART1`; if a future board adds a
 /// second instance, mint a `split_uart0` alongside this one.
 #[must_use]
-pub fn split_uart1(uart: BufferedUart) -> (MmmUartTx, MmmUartRx) {
+pub fn split_uart1(uart: BufferedUart) -> (MinerUartTx, MinerUartRx) {
     let (tx, rx) = uart.split();
     let regs = embassy_rp::pac::UART1;
-    (MmmUartTx { inner: tx, regs }, MmmUartRx { inner: rx, regs })
+    (
+        MinerUartTx { inner: tx, regs },
+        MinerUartRx { inner: rx, regs },
+    )
 }
 
-impl ErrorType for MmmUartRx {
+impl ErrorType for MinerUartRx {
     type Error = UartError;
 }
 
-impl Read for MmmUartRx {
+impl Read for MinerUartRx {
     async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
         self.inner.read(buffer).await
     }
 }
 
-impl ErrorType for MmmUartTx {
+impl ErrorType for MinerUartTx {
     type Error = UartError;
 }
 
-impl Write for MmmUartTx {
+impl Write for MinerUartTx {
     async fn write(&mut self, buffer: &[u8]) -> Result<usize, Self::Error> {
         self.inner.write(buffer).await
     }
@@ -66,7 +69,7 @@ impl Write for MmmUartTx {
     }
 }
 
-impl BaudRate for MmmUartTx {
+impl BaudRate for MinerUartTx {
     fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind> {
         write_baudrate(self.regs, baud)
     }
@@ -76,7 +79,7 @@ impl BaudRate for MmmUartTx {
     }
 }
 
-impl BaudRate for MmmUartRx {
+impl BaudRate for MinerUartRx {
     fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind> {
         write_baudrate(self.regs, baud)
     }
@@ -88,7 +91,7 @@ impl BaudRate for MmmUartRx {
 
 /// Replicates `embassy_rp::uart::Uart::set_baudrate_inner` plus the
 /// `lcr_modify` enable/disable dance the PL011 needs around an `LCR_H` write.
-/// The mmm actor wraps every call with a one-second drain on either side, so
+/// The ubos-miner actor wraps every call with a one-second drain on either side, so
 /// the wait-for-in-flight-character logic in embassy-rp's version is dropped.
 fn write_baudrate(regs: UartRegs, baud: u32) -> Result<(), ErrorKind> {
     if baud == 0 {
@@ -108,7 +111,7 @@ fn write_baudrate(regs: UartRegs, baud: u32) -> Result<(), ErrorKind> {
 
     // The PL011 latches IBRD/FBRD on the next LCR_H write, and writing LCR_H
     // while the UART is enabled is undefined. Disable UARTEN/TXE/RXE,
-    // commit, then restore CR. The mmm 1 s drain around this call covers any
+    // commit, then restore CR. The ubos-miner 1 s drain around this call covers any
     // bytes already on the wire.
     let cr = regs.uartcr().read();
     if cr.uarten() {

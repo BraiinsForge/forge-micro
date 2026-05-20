@@ -67,7 +67,7 @@ pub struct MonitorConfig {
 /// BMM101 (4×BM1362) board. Gains and thresholds carried forward from
 /// the upstream `bosminer` configuration. Shared between firmware that
 /// hosts the BMM hashboard (bmm-pico) and the chip-side mining backend
-/// (mmm + host-runner) so both halves stay tuned identically.
+/// (ubos-miner + host-runner) so both halves stay tuned identically.
 pub const BMM101_DEFAULT: MonitorConfig = MonitorConfig {
     temps: TempConfig {
         target_temp_c: 67.0,

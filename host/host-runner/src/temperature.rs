@@ -27,7 +27,7 @@ pub struct HashboardTemperature {
 
 impl HashboardTemperature {
     /// Open a second handle to the PSU I2C bus and instantiate the four
-    /// LM75A sensors. Bus path comes from `MMM_I2C_BUS`, defaulting to
+    /// LM75A sensors. Bus path comes from `UBOS_I2C_BUS`, defaulting to
     /// `/dev/i2c-0`. Returns `None` if the env var is set but empty
     /// or the bus cannot be opened.
     pub fn open() -> Option<Self> {

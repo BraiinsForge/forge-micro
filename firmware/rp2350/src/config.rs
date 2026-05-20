@@ -1,5 +1,5 @@
 //! Board constants and peripheral extraction for the W6100-EVB-Pico-2
-//! (RP2350) running the MMM backend. `Board::take` consumes the RP2350
+//! (RP2350) running the ubos-miner backend. `Board::take` consumes the RP2350
 //! `Peripherals` once and returns every singleton the board's schematic
 //! claims, keeping pin assignments in one place rather than scattered
 //! through `main`.
@@ -148,7 +148,7 @@ impl Fan {
 
 pub struct Core1;
 impl Core1 {
-    /// Stack size for the Core 1 executor, sized for the mmm backend.
+    /// Stack size for the Core 1 executor, sized for the ubos-miner backend.
     pub const STACK_BYTES: usize = 32_768;
 }
 

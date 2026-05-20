@@ -188,7 +188,7 @@ impl Fan {
 
 pub struct Core1;
 impl Core1 {
-    /// Stack size for the Core 1 executor, sized for the MMM backend.
+    /// Stack size for the Core 1 executor, sized for the ubos-miner backend.
     pub const STACK_BYTES: usize = 32_768;
 }
 

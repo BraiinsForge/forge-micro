@@ -745,10 +745,10 @@ Each phase is independently `cargo check`-clean, `cargo clippy
 7. **CPU mock.** Inline CPU-mock ASIC (read `work` Watch, hash, push
    to `solutions` Channel) as a fallback in `host-runner`.
 8. **rp2040 firmware migration.** Wire rp2040 to `stratum-client` +
-   MMM hashboard driver. Verify against ckpool. Other firmwares stay
-   on `ubos-backend` for now.
+   ubos-miner hashboard driver. Verify against ckpool. Other firmwares
+   stay on `ubos-backend` for now.
 9. **Migrate remaining firmwares.** rp2350, stm32f407, stm32f439,
-   bmm-pico move to `stratum-client` + MMM. Once all firmwares
+   bmm-pico move to `stratum-client` + ubos-miner. Once all firmwares
    are migrated, `ubos-backend` and `cpu-miner` are deleted.
 10. **Host integration harness.** Stand up `ubos-main-host` with
     `embassy-net` + tuntap. Smoke test against ckpool / regtest pool.

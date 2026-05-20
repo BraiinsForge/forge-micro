@@ -33,9 +33,9 @@ nix develop .#arm -c bash -c 'cd firmware/stm32f439 && cargo run --release'
 nix develop .#esp -c bash -c 'cd firmware/esp32s3   && cargo run --release'
 ```
 
-Every board drives a BM1362 hashboard via MMM unconditionally. The
-`display` feature is always in defaults and SV2 is always built on all
-boards.
+Every board drives a BM1362 hashboard via `ubos-miner` unconditionally.
+The `display` feature is always in defaults and SV2 is always built on
+all boards.
 
 The bmm-pico crate also has multiple boards attached (six). Aliases
 `cargo run-1` through `cargo run-6` pin the probe serial of each.
@@ -83,8 +83,8 @@ probe.
   via `ubos_metrics::cpu_load::run_cortex_m_executor` so the poll/wfe
   loop can bracket `wfe` with `Instant::now()` reads. bmm-pico stays
   on `#[embassy_executor::main]` because its core-1 split runs a
-  separate hand-managed executor for the MMM serial worker; the
-  busy-ratio metric is intentionally absent there.
+  separate hand-managed executor for the `ubos-miner` serial worker;
+  the busy-ratio metric is intentionally absent there.
 - The esp32s3 firmware uses `#[esp_hal::main]` and constructs the
   esp-rtos embassy executor manually so it can pass idle hooks to
   `Executor::run_with_callbacks`.

@@ -1,14 +1,14 @@
-//! Hashboard reset pin plus the two long-running tasks the mmm backend
+//! Hashboard reset pin plus the two long-running tasks the ubos-miner backend
 //! spawns: the chip-serial actor and the bring-up/teardown state machine.
 //!
-//! Backend architecture: `../../../docs/MMM.md`.
+//! Backend architecture: `../../../docs/MINER.md`.
 
 use defmt::{error, info, Debug2Format};
 use embassy_rp::gpio::Output;
 use embassy_time::{Duration, Timer};
 
 use crate::psu::BoardPsu;
-use crate::uart_baudrate::{MmmUartRx, MmmUartTx};
+use crate::uart_baudrate::{MinerUartRx, MinerUartTx};
 
 /// Drives the hashboard reset line through an embassy-rp GPIO.
 pub struct BoardResetPin {
@@ -22,7 +22,7 @@ impl BoardResetPin {
     }
 }
 
-impl mmm::reset::ResetPin for BoardResetPin {
+impl ubos_miner::reset::ResetPin for BoardResetPin {
     fn enter_reset(&mut self) {
         self.pin.set_low();
     }
@@ -32,17 +32,20 @@ impl mmm::reset::ResetPin for BoardResetPin {
     }
 }
 
-/// Long park used after either task's main loop returns. The mmm actor only
-/// returns on a fatal serial error; rather than panic and reset the whole
+/// Long park used after either task's main loop returns. The ubos-miner actor
+/// only returns on a fatal serial error; rather than panic and reset the whole
 /// firmware, the task idles so the rest of the system keeps running and a
 /// human can pull logs.
 const PARK_INTERVAL: Duration = Duration::from_secs(60);
 
 #[embassy_executor::task]
-pub async fn serial_task(rx: MmmUartRx, tx: MmmUartTx) -> ! {
-    match mmm::serial::SERIAL.run(rx, tx, &crate::ASIC_SESSION).await {
-        Ok(()) => info!("mmm serial actor terminated cleanly"),
-        Err(kind) => error!("mmm serial actor exited: {:?}", Debug2Format(&kind)),
+pub async fn serial_task(rx: MinerUartRx, tx: MinerUartTx) -> ! {
+    match ubos_miner::serial::SERIAL
+        .run(rx, tx, &crate::ASIC_SESSION)
+        .await
+    {
+        Ok(()) => info!("ubos-miner serial actor terminated cleanly"),
+        Err(kind) => error!("ubos-miner serial actor exited: {:?}", Debug2Format(&kind)),
     }
     loop {
         Timer::after(PARK_INTERVAL).await;
@@ -51,8 +54,8 @@ pub async fn serial_task(rx: MmmUartRx, tx: MmmUartTx) -> ! {
 
 #[embassy_executor::task]
 pub async fn miner_task(psu: &'static BoardPsu, mut reset: BoardResetPin) -> ! {
-    mmm::miner::run(psu, &mut reset).await;
-    info!("mmm miner exited");
+    ubos_miner::miner::run(psu, &mut reset).await;
+    info!("ubos-miner miner exited");
     loop {
         Timer::after(PARK_INTERVAL).await;
     }

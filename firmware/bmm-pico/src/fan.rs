@@ -1,6 +1,6 @@
 //! Fan PWM drive and tachometer readback for the BMM Adapter.
 //!
-//! MMM backend: `../../../docs/MMM.md`.
+//! ubos-miner backend: `../../../docs/MINER.md`.
 
 use defmt::info;
 use embassy_rp::gpio::Pull;

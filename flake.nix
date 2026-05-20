@@ -574,10 +574,10 @@
             cargoExtraArgs = "-p embedded-i2c-unix";
           };
 
-          clippy-mmm = craneLib.cargoClippy {
+          clippy-ubos-miner = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
-            cargoExtraArgs = "-p mmm";
+            cargoExtraArgs = "-p ubos-miner";
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
@@ -635,10 +635,10 @@
             cargoExtraArgs = "-p ubos-pool";
           };
 
-          test-mmm = craneLib.cargoTest {
+          test-ubos-miner = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
-            cargoExtraArgs = "-p mmm";
+            cargoExtraArgs = "-p ubos-miner";
           };
 
           test-stratum-v1 = craneLib.cargoTest {

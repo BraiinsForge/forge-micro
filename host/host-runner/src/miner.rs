@@ -1,4 +1,4 @@
-//! Drives `mmm::miner::run` against the gpiocdev-backed reset pin
+//! Drives `ubos_miner::miner::run` against the gpiocdev-backed reset pin
 //! and the workspace-static `MiniminerPsu`.
 
 use embassy_time::{Duration, Timer};
@@ -19,7 +19,7 @@ pub async fn miner_task(psu: &'static HostPsu) -> ! {
         }
     };
     info!("host-runner: miner bringup");
-    mmm::miner::run(psu, &mut reset_pin).await;
+    ubos_miner::miner::run(psu, &mut reset_pin).await;
     info!("host-runner: miner exited; shutting down");
     Timer::after(Duration::from_secs(1)).await;
     std::process::exit(0);

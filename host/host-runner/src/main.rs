@@ -43,7 +43,7 @@ mod fan;
 mod gpiod;
 mod hosted_network;
 mod miner;
-mod mmm_serial;
+mod miner_serial;
 mod psu;
 mod temperature;
 
@@ -96,7 +96,7 @@ impl ii_sv2::security::Rng for HostSv2Rng {
 }
 
 /// Shared work / solution rendezvous between the stratum-client
-/// task and whichever ASIC driver is active (mmm BM1362 actor or
+/// task and whichever ASIC driver is active (ubos-miner BM1362 actor or
 /// in-process CPU mock).
 pub static ASIC_SESSION: AsicSession = AsicSession::new();
 
@@ -299,7 +299,7 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // SIGINT signals `STOP_MINING` so the BM1362 driver tears the
-    // chip down cleanly (when the mmm path is active), then exits
+    // chip down cleanly (when the ubos-miner path is active), then exits
     // the process unconditionally. Without the explicit `exit`,
     // the embassy executor would keep running the network /
     // stratum / CPU-mock tasks indefinitely — none of them watch
@@ -307,7 +307,7 @@ fn main() {
     // this is a developer tool, not a production controller.
     ctrlc::set_handler(|| {
         info!("host-runner: SIGINT received, signalling miner stop");
-        mmm::miner::STOP_MINING.signal(());
+        ubos_miner::miner::STOP_MINING.signal(());
         std::process::exit(130);
     })
     .expect("BUG: ctrlc handler already installed");
@@ -369,16 +369,18 @@ fn main() {
             }
         }
         match psu::open() {
-            Some((mmm_psu, state, terminated)) => {
+            Some((miner_psu, state, terminated)) => {
                 spawner
                     .spawn(psu::watchdog_task(state, terminated).expect("BUG: psu watchdog token"));
-                spawner.spawn(psu::power_stats_task(mmm_psu).expect("BUG: psu power_stats token"));
-                spawner.spawn(mmm_serial::mmm_serial_task().expect("BUG: mmm_serial_task token"));
-                spawner.spawn(miner::miner_task(mmm_psu).expect("BUG: miner_task token"));
+                spawner
+                    .spawn(psu::power_stats_task(miner_psu).expect("BUG: psu power_stats token"));
+                spawner
+                    .spawn(miner_serial::miner_serial_task().expect("BUG: miner_serial_task token"));
+                spawner.spawn(miner::miner_task(miner_psu).expect("BUG: miner_task token"));
             }
             None => {
                 warn!(
-                    "host-runner: {} unset or i2c open failed; mmm miner not spawned, falling back to in-process CPU mining",
+                    "host-runner: {} unset or i2c open failed; ubos-miner not spawned, falling back to in-process CPU mining",
                     psu::I2C_BUS_ENV
                 );
                 spawner.spawn(asic_cpu_task().expect("BUG: asic_cpu_task token"));

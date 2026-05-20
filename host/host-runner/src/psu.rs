@@ -1,6 +1,6 @@
 //! Workspace-static `MiniminerPsu` over the Linux i2c-dev bus.
 //!
-//! Activated by `MMM_I2C_BUS=/dev/i2c-N`; without the env var set
+//! Activated by `UBOS_I2C_BUS=/dev/i2c-N`; without the env var set
 //! `open()` returns `None` and the runner skips the miner spawn. The
 //! `'static` references are exposed so `main.rs` can hand them to the
 //! watchdog and miner tasks.
@@ -17,7 +17,7 @@ use ubos_psu::{run_watchdog, MiniminerPsu, MiniminerPsuConfig, Psu, State};
 /// Env var that points at the i2c-dev character device wired to the
 /// BMM100 PSU. Unset means no hashboard is attached and the runner
 /// skips the miner.
-pub const I2C_BUS_ENV: &str = "MMM_I2C_BUS";
+pub const I2C_BUS_ENV: &str = "UBOS_I2C_BUS";
 
 pub type HostPsu = MiniminerPsu<HostI2c, HostI2cError>;
 pub type HostState = Mutex<CriticalSectionRawMutex, State<HostI2c>>;
@@ -26,7 +26,7 @@ static STATE: StaticCell<HostState> = StaticCell::new();
 static TERMINATED: StaticCell<AtomicBool> = StaticCell::new();
 static PSU: StaticCell<HostPsu> = StaticCell::new();
 
-/// Open the I2C bus from `MMM_I2C_BUS`, stand up the PSU + watchdog
+/// Open the I2C bus from `UBOS_I2C_BUS`, stand up the PSU + watchdog
 /// state, and return the `'static` references the miner / watchdog
 /// tasks need. Returns `None` if the env var is unset/empty or the
 /// bus cannot be opened.

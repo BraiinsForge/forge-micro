@@ -1,18 +1,18 @@
 //! Firmware entry point for the ESP32-S3 `DevKit` + external W5100S (SPI)
-//! with the BMM100/BM1362 MMM backend.
+//! with the BMM100/BM1362 ubos-miner backend.
 //!
 //! Configures SPI with DMA, brings up the W5100S via `embassy-net-wiznet`,
 //! starts the embassy-net stack with DHCP, and spawns the watchdog,
-//! ethernet runner, NTP, BTC, MMM mining, and HTTP tasks.
+//! ethernet runner, NTP, BTC, ubos-miner mining, and HTTP tasks.
 //! Built with `cargo build` from this crate inside `nix develop .#esp`.
 //!
-//! The ESP32-S3 has two cores (`PRO_CPU` + `APP_CPU`). All tasks including the
-//! MMM serial task run on Core 0 (`PRO_CPU`) alongside embassy-net, mirroring
-//! the stm32f407 single-core approach. The S3's 128-byte hardware FIFO
-//! absorbs ETH-ISR jitter for the interrupt+FIFO UART path. Core 1 runs an
-//! idle executor so `IDLE_TICKS[1]` is populated for cpu-load metrics. If
-//! FIFO overruns are observed in practice, move `serial_task` to Core 1
-//! and add a cross-core channel for the `AsicSession`.
+//! The ESP32-S3 has two cores (`PRO_CPU` + `APP_CPU`). Embassy-net, the
+//! mining state machine, and all peripheral tasks run on Core 0; the
+//! ubos-miner `serial_task` runs on a separate executor on Core 1, mirroring
+//! the rp2350 and bmm-pico dual-core split that keeps the chip UART loop
+//! off the network path. `ASIC_SESSION` uses a `CriticalSectionRawMutex`,
+//! so cross-core sharing needs no additional channel. Core 1 also accumulates
+//! `IDLE_TICKS[1]` via `IdleAccounting::<1>` for the cpu-load metric.
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
 //! Wiring/build: `../../../docs/SETUP.md`
@@ -644,26 +644,6 @@ async fn boot(spawner: Spawner) {
         let tach_hardware = fan::TachHardware::new(hw.pcnt, hw.fan_tach_pin);
         spawner.must_spawn(monitor_task(hashboard_temp, board_fan));
         spawner.must_spawn(tach_task(tach_hardware));
-    }
-
-    // BM1362 UART on UART0 (GPIO43 TX, GPIO44 RX).
-    // esp-hal 1.0.0 ships no UART DMA driver; the interrupt+FIFO
-    // `into_async()` path is used here. The S3's 128-byte hardware FIFO
-    // plus the 80 MHz APB clock absorbs ETH-ISR-class jitter without the
-    // per-byte deadline that overruns the STM32F407 USART.
-    {
-        let uart_config = UartConfig::default()
-            // Valid baud rate for UART0; cannot fail.
-            .with_baudrate(mmm::consts::INITIAL_BAUDRATE);
-        // Valid UART0 peripheral with default-compatible baud rate; cannot fail.
-        let uart = Uart::new(hw.uart0, uart_config)
-            .expect("BUG: UART0 configuration failed")
-            .with_tx(hw.uart_tx)
-            .with_rx(hw.uart_rx)
-            .into_async();
-        let (uart_rx, uart_tx) = uart.split();
-        let (mmm_rx, mmm_tx) = uart_baudrate::split_uart0(uart_rx, uart_tx);
-        spawner.must_spawn(mining::serial_task(mmm_rx, mmm_tx));
     }
 
     // Plug-detect input; hold the peripheral so it is not reclaimed.

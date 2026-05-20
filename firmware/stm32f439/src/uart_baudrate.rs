@@ -2,7 +2,7 @@
 //!
 //! embassy-stm32 0.6.0 exposes `Uart::set_baudrate` on the unsplit peripheral
 //! with `&self`, but the split `UartTx`/`RingBufferedUartRx` halves do not
-//! expose baud-rate control. `mmm::serial::SERIAL.run` takes the two halves
+//! expose baud-rate control. `ubos_miner::serial::SERIAL.run` takes the two halves
 //! and requires each to implement `serial_baudrate::BaudRate`. This module
 //! wraps each half with a direct PAC write to USART3's BRR register so either
 //! side can retune the line.
@@ -24,12 +24,12 @@ use serial_baudrate::BaudRate;
 const APB1_CLOCK_HZ: u32 = 45_000_000;
 
 /// Receiving half of USART3 with `BaudRate` support.
-pub struct MmmUartRx {
+pub struct MinerUartRx {
     inner: RingBufferedUartRx<'static>,
 }
 
 /// Transmitting half of USART3 with `BaudRate` support.
-pub struct MmmUartTx {
+pub struct MinerUartTx {
     inner: UartTx<'static, Async>,
 }
 
@@ -39,25 +39,25 @@ pub struct MmmUartTx {
 pub fn split_usart3(
     tx: UartTx<'static, Async>,
     rx: RingBufferedUartRx<'static>,
-) -> (MmmUartTx, MmmUartRx) {
-    (MmmUartTx { inner: tx }, MmmUartRx { inner: rx })
+) -> (MinerUartTx, MinerUartRx) {
+    (MinerUartTx { inner: tx }, MinerUartRx { inner: rx })
 }
 
-impl ErrorType for MmmUartRx {
+impl ErrorType for MinerUartRx {
     type Error = embassy_stm32::usart::Error;
 }
 
-impl Read for MmmUartRx {
+impl Read for MinerUartRx {
     async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
         self.inner.read(buffer).await
     }
 }
 
-impl ErrorType for MmmUartTx {
+impl ErrorType for MinerUartTx {
     type Error = embassy_stm32::usart::Error;
 }
 
-impl Write for MmmUartTx {
+impl Write for MinerUartTx {
     async fn write(&mut self, buffer: &[u8]) -> Result<usize, Self::Error> {
         // `UartTx::write` inherent method returns `Result<(), Error>`.
         self.inner.write(buffer).await?;
@@ -69,7 +69,7 @@ impl Write for MmmUartTx {
     }
 }
 
-impl BaudRate for MmmUartTx {
+impl BaudRate for MinerUartTx {
     fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind> {
         write_usart3_brr(baud)
     }
@@ -79,7 +79,7 @@ impl BaudRate for MmmUartTx {
     }
 }
 
-impl BaudRate for MmmUartRx {
+impl BaudRate for MinerUartRx {
     fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind> {
         write_usart3_brr(baud)
     }
@@ -92,7 +92,7 @@ impl BaudRate for MmmUartRx {
 /// Write a new baud rate divisor to USART3 BRR.
 ///
 /// RM0090 §30.5.4 requires UE = 0 before changing BRR. This function
-/// clears UE, writes BRR, then restores UE. The mmm backend drains
+/// clears UE, writes BRR, then restores UE. The ubos-miner backend drains
 /// for one second on either side of a baud-rate change, so no
 /// in-flight character guard is needed here.
 fn write_usart3_brr(baud: u32) -> Result<(), ErrorKind> {
@@ -104,7 +104,7 @@ fn write_usart3_brr(baud: u32) -> Result<(), ErrorKind> {
     if !(16..=0xFFFF).contains(&brr) {
         return Err(ErrorKind::InvalidInput);
     }
-    // USART3 is a valid peripheral constant; the mmm serial actor's
+    // USART3 is a valid peripheral constant; the ubos-miner serial actor's
     // caller mutex ensures only one task drives set_baudrate at a time.
     let regs = pac::USART3;
     let cr1 = regs.cr1().read();

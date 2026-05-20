@@ -1,26 +1,22 @@
 //! BM1362 chip-side wiring: hashboard reset pin and the two long-running
-//! tasks the mmm backend needs.
+//! tasks the ubos-miner backend needs.
 //!
-//! `serial_task` owns the UART halves and drives `mmm::serial::SERIAL` for
+//! `serial_task` owns the UART halves and drives `ubos_miner::serial::SERIAL` for
 //! the lifetime of the firmware; `miner_task` runs the bring-up / teardown
-//! state machine in `mmm::miner::run`. Neither ever returns under normal
+//! state machine in `ubos_miner::miner::run`. Neither ever returns under normal
 //! operation.
 //!
-//! The ESP32-S3 runs two cores, but the MMM serial task runs on Core 0 (the
-//! `PRO_CPU` embassy executor) alongside embassy-net. This mirrors the
-//! stm32f407 single-core trade-off: the S3's 128-byte hardware FIFO absorbs
-//! ETH-ISR jitter well enough for the interrupt+FIFO UART path. Running the
-//! serial task on Core 1 (`APP_CPU`) would require a cross-core channel for
-//! the ASIC session, which adds complexity without clear benefit at this
-//! baud rate. If FIFO overruns are observed in practice, move `serial_task`
-//! to the App CPU executor and add a cross-core pipe.
+//! The ubos-miner `serial_task` runs on Core 1 (the `APP_CPU` embassy executor)
+//! while embassy-net and the mining state machine run on Core 0, mirroring
+//! the rp2350/bmm-pico dual-core split. `ASIC_SESSION` uses a
+//! `CriticalSectionRawMutex`, so the cross-core share needs no extra pipe.
 
 use defmt::{error, info, Debug2Format};
 use embassy_time::{Duration, Timer};
 use esp_hal::gpio::{Level, Output, OutputConfig};
 
 use crate::psu::BoardPsu;
-use crate::uart_baudrate::{MmmUartRx, MmmUartTx};
+use crate::uart_baudrate::{MinerUartRx, MinerUartTx};
 
 /// Drives the hashboard reset line through an esp-hal GPIO output.
 pub struct BoardResetPin {
@@ -34,7 +30,7 @@ impl BoardResetPin {
     }
 }
 
-impl mmm::reset::ResetPin for BoardResetPin {
+impl ubos_miner::reset::ResetPin for BoardResetPin {
     fn enter_reset(&mut self) {
         self.pin.set_low();
     }
@@ -44,16 +40,19 @@ impl mmm::reset::ResetPin for BoardResetPin {
     }
 }
 
-/// Long park used after either task's main loop returns. The mmm actor only
-/// returns on a fatal serial error; the task idles so the rest of the system
-/// keeps running and a human can pull logs.
+/// Long park used after either task's main loop returns. The ubos-miner actor
+/// only returns on a fatal serial error; the task idles so the rest of the
+/// system keeps running and a human can pull logs.
 const PARK_INTERVAL: Duration = Duration::from_secs(60);
 
 #[embassy_executor::task]
-pub async fn serial_task(rx: MmmUartRx, tx: MmmUartTx) -> ! {
-    match mmm::serial::SERIAL.run(rx, tx, &crate::ASIC_SESSION).await {
-        Ok(()) => info!("mmm serial actor terminated cleanly"),
-        Err(kind) => error!("mmm serial actor exited: {:?}", Debug2Format(&kind)),
+pub async fn serial_task(rx: MinerUartRx, tx: MinerUartTx) -> ! {
+    match ubos_miner::serial::SERIAL
+        .run(rx, tx, &crate::ASIC_SESSION)
+        .await
+    {
+        Ok(()) => info!("ubos-miner serial actor terminated cleanly"),
+        Err(kind) => error!("ubos-miner serial actor exited: {:?}", Debug2Format(&kind)),
     }
     loop {
         Timer::after(PARK_INTERVAL).await;
@@ -62,8 +61,8 @@ pub async fn serial_task(rx: MmmUartRx, tx: MmmUartTx) -> ! {
 
 #[embassy_executor::task]
 pub async fn miner_task(psu: &'static BoardPsu, mut reset: BoardResetPin) -> ! {
-    mmm::miner::run(psu, &mut reset).await;
-    info!("mmm miner exited");
+    ubos_miner::miner::run(psu, &mut reset).await;
+    info!("ubos-miner miner exited");
     loop {
         Timer::after(PARK_INTERVAL).await;
     }

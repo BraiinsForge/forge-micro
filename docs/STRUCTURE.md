@@ -42,7 +42,7 @@ gives the framework's table of contents.
 | Prefix      | Meaning                                    |
 |-------------|--------------------------------------------|
 | `ubos-`     | core firmware framework                    |
-| `mmm`, `mining-protocol`, `stratum-*` | mining domain         |
+| `ubos-miner`, `mining-protocol`, `stratum-*` | mining domain    |
 | `esp32s3-`, `rp235x-`, `serial-`      | hardware-specific drivers |
 
 The firmware framework is split along domain lines. `ubos-core`,

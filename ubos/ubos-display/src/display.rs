@@ -101,7 +101,7 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
     }
 
     // Line 4: current hashrate. Read from the shared EWMA fed by the
-    // BM1362 MMM path (and by the host-runner CPU mock when used).
+    // ubos-miner BM1362 path (and by the host-runner CPU mock when used).
     // HashrateDisplay switches to GH/s at 1 GH/s, so 24 bytes covers
     // both representations.
     let hashrate = hashrate::HashrateDisplay(hashrate::hashrate());

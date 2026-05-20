@@ -84,9 +84,9 @@ Same pinout as the W5500-EVB-Pico, with a W6100 in place of the W5500.
 ### BMM Adapter (bmm-pico)
 
 RP2350A on the BMM Adapter carrier board with a W5500 over SPI0 and the
-chip-side resources required by the mmm backend on UART1, I2C1, and GPIO.
+chip-side resources required by the ubos-miner backend on UART1, I2C1, and GPIO.
 See `firmware/bmm-pico/src/config.rs` for the full peripheral map. The
-mmm bring-up is in [MMM.md](MMM.md).
+ubos-miner bring-up is in [MINER.md](MINER.md).
 
 ### DevEBox STM32F407 + LAN8720 (stm32f407)
 
@@ -139,7 +139,7 @@ cd firmware/esp32s3 && cargo run --release
 Each crate's `.cargo/config.toml` pins the probe serial, so `cargo run`
 flashes the right board without a `--probe` flag.
 
-Every board drives a BM1362 hashboard via the `mmm` backend
+Every board drives a BM1362 hashboard via the `ubos-miner` backend
 unconditionally. The `display` feature is enabled by default on
 boards that have a display.
 

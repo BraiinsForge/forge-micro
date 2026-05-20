@@ -1,6 +1,6 @@
 [package]
 edition = "2024"
-name    = "mmm"
+name    = "ubos-miner"
 version = "0.1.0"
 
 [features]
@@ -27,7 +27,7 @@ portable-atomic    = { workspace = true }
 serial-baudrate    = { workspace = true }
 sha2               = { workspace = true }
 # Pulled in for the hashrate metric only; the `default-features =
-# false` flavor keeps ubos-metrics no-defmt for mmm consumers
+# false` flavor keeps ubos-metrics no-defmt for ubos-miner consumers
 # that don't already enable defmt themselves.
 ubos-metrics      = { workspace = true, default-features = false }
 mining-protocol    = { workspace = true }

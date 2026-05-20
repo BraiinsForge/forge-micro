@@ -126,8 +126,8 @@ This file is the picture; the plan is the rationale.
                          │   / try_changed()                      │
                          ▼                                        │
    ┌─────────────────────────────────────────────────────────────────────┐
-   │                BM1362 hashboard driver (MMM) or inline CPU mock     │
-   │      [mmm crate on hardware; host-runner::cpu_mock as fallback]     │
+   │           BM1362 hashboard driver (ubos-miner) or inline CPU mock   │
+   │   [ubos-miner crate on hardware; host-runner::cpu_mock as fallback] │
    │                                                                     │
    │   Loop:                                                             │
    │     if work_receiver.try_changed() {                                │

@@ -12,7 +12,7 @@
 # DEFMT_LOG stays per-firmware on purpose: `defmt-macros` reads it
 # at proc-macro expansion and, when set, emits `defmt::export::...`
 # tokens. Crates that consume `ubos_logging` macros transitively
-# without `defmt` as a direct dep (mmm, ubos-monitor build paths
+# without `defmt` as a direct dep (ubos-miner, ubos-monitor build paths
 # that pull ubos-metrics/ubos-net with `default-features = false`) then
 # fail with `E0433: unresolved module defmt`. A workspace-level
 # `DEFMT_LOG` would apply to those non-firmware builds too.
