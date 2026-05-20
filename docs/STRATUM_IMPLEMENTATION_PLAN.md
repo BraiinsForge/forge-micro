@@ -104,8 +104,8 @@ The wire types themselves keep their hex-`&str` shape. The changes:
   (`{ Notify(_), SetDifficulty(_), SubscribeResult(_), AuthorizeResult(_), ... }`)
   replacing today's nested `Rpc<'a> { Response, Notification(_) }`. Aligns
   with V2's `MiningMessages<'a>` so dispatch looks identical at the call site.
-- **`hex.rs`** — hex decode utility (`decode_hex` currently in `ubos-backend`)
-  moves in.
+- **`hex.rs`** — hex decode utility (`decode_hex` originally in the
+  legacy `ubos-backend` crate) moves in.
 - **`scratch.rs`** — typed `DecodeScratch` struct (binary `prev_hash[32]`,
   `coinbase_prefix[…]`, `coinbase_suffix[…]`, `branches: [[u8; 32]; 16]`,
   precomputed `merkle_root[32]`). Filled inside `accept()`; `MiningJob<'_>`
@@ -113,9 +113,9 @@ The wire types themselves keep their hex-`&str` shape. The changes:
 - **Merkle root compute** moves into `mining-protocol` as
   `LazyMerkle::compute`. V2 standard channels never use the `Prepared`
   arm, but the type owns the operation.
-- **No `LineAction::Notify`-style intermediate.** Today's `ubos-backend`
-  copies parsed strings into a ~1.6 KiB enum because parse and dispatch
-  happen in different scopes. The visitor pattern keeps the borrow live
+- **No `LineAction::Notify`-style intermediate.** The original
+  `ubos-backend` copied parsed strings into a ~1.6 KiB enum because
+  parse and dispatch happened in different scopes. The visitor pattern keeps the borrow live
   for the whole `accept()` call, so the adapter parses → hex-decodes into
   `decode_scratch` → builds `MiningJob<'_>` → calls visitor — all in one
   borrow scope, no copy.
@@ -517,11 +517,11 @@ Mapping our trait API onto micro-sv2:
 | `ii_sv2::framing::frame_to_message::<M>` | Typed decode for the "expected response" path during initial setup (e.g. `SetupConnectionSuccess`). |
 | `ii_sv2::framing::MessageGroup::dispatch` (`MiningMessages`) | The `accept()` body. Borrows into the same wire buffer; the visitor sees borrowed `MiningJob<'_>` that points into it. |
 | `ii_sv2::security::Authenticator` (`ValidateNothing`, `ValidateSignature`, `ValidateTime`, `ValidateFull`) | Constructed by the V2 adapter from `Sv2Config::pool_pubkey`. |
-| `ii_sv2::security::Clock` | Implemented in `ubos-main` against NTP-synced wall time. Required only for `ValidateTime` / `ValidateFull`. |
+| `ii_sv2::security::Clock` | Implemented in `ubos-net` against NTP-synced wall time. Required only for `ValidateTime` / `ValidateFull`. |
 
 The trait crate (`mining-protocol`) stays protocol-agnostic. Nothing
-above leaks into it. The V2 adapter is the only crate in
-`ubos-main` that depends on `ii-sv2`.
+above leaks into it. The V2 adapter is the only crate in the
+`boards/ubos-main` workspace that depends on `ii-sv2`.
 
 ### V2 transport bound
 
@@ -560,7 +560,7 @@ adapter:
   `CloseChannel` are deferred upstream. The V2 adapter never emits
   `SessionUpdate::Reconnect` until these land; pool-side reconnects
   are handled at the TCP layer in the meantime (socket close →
-  `stratum-client`'s outer reconnect loop, same as today's V1
+  `stratum-client`'s outer reconnect loop, same as the original V1
   behavior in `ubos-backend`).
 
 Phase 11 below should call out which of these we'll wait on vs
@@ -627,8 +627,8 @@ Pending count derives in prometheus as `sent - accepted - rejected`.
   behaviour.
 - **`JobRing::lookup(JobId) -> Option<&JobSlot>`** — small API
   addition next to the existing `is_valid`. Cheap; depth is 2.
-- **Exposition:** `ubos-main` gains a regular workspace dep on
-  `stratum-client`. `ubos-main::metrics::render_exposition`
+- **Exposition:** `ubos-metrics` gains a regular workspace dep on
+  `stratum-client`. `ubos_metrics::metrics::build_prometheus_response`
   reads the four atomics and emits prometheus counter lines next
   to the existing `board_uptime_seconds` block.
 
@@ -681,9 +681,9 @@ necessary; fix it first and the metrics design simplifies.
       when the slot was rotated out by `clean_jobs` between submit
       and response — accept count still goes up).
 - [ ] Add `stratum-client = { workspace = true }` to
-      `ubos-main/Cargo.toml`.
+      `ubos/ubos-metrics/Cargo.toml`.
 - [ ] Render the four counters in
-      `ubos-main::metrics::render_exposition` (next to
+      `ubos_metrics::metrics::build_prometheus_response` (next to
       `board_uptime_seconds`). Names: `stratum_submits_sent_total`,
       `stratum_submits_accepted_total`,
       `stratum_submits_rejected_total`,
@@ -784,7 +784,7 @@ a pool well before the submit path is complete.
 - **Cortex-M0+ binary size on RP2040.** Adding a trait layer plus a
   copy step in `visit_new_job` should be small, but worth measuring at
   phase 5. `cargo size --release -- -A` budget is in `README.md`.
-- **`large_futures` clippy** already complains about
+- **`large_futures` clippy** complained about the legacy
   `ubos-backend::stratum_task`. The refactor must not regress that.
   The borrowed-not-owned visitor types help — `LineAction` (~1.6 KiB)
   is no longer the dispatch shape.
