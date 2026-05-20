@@ -343,6 +343,7 @@ dependencies = [
  "stratum-v2",
  "ubos-main",
  "ubos-monitor",
+ "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
 ]
@@ -2026,6 +2027,7 @@ dependencies = [
  "stratum-v2",
  "ubos-main",
  "ubos-monitor",
+ "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
 ]
@@ -2453,6 +2455,7 @@ dependencies = [
  "ubos-logging",
  "ubos-main",
  "ubos-monitor",
+ "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
 ]
@@ -3461,6 +3464,7 @@ dependencies = [
  "stratum-v2",
  "ubos-main",
  "ubos-monitor",
+ "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
 ]
@@ -3503,6 +3507,7 @@ dependencies = [
  "stratum-v2",
  "ubos-main",
  "ubos-monitor",
+ "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
 ]
@@ -3930,6 +3935,7 @@ dependencies = [
  "stratum-v2",
  "ubos-main",
  "ubos-monitor",
+ "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
 ]
@@ -3964,6 +3970,7 @@ dependencies = [
  "stratum-v2",
  "ubos-main",
  "ubos-monitor",
+ "ubos-pool",
  "ubos-psu",
  "ubos-temperature",
 ]
@@ -4307,7 +4314,6 @@ dependencies = [
 name = "ubos-main"
 version = "0.1.0"
 dependencies = [
- "bs58",
  "cortex-m",
  "defmt 1.0.1",
  "edge-mdns",
@@ -4333,6 +4339,7 @@ dependencies = [
  "sha2 0.10.9",
  "static_cell",
  "ubos-logging",
+ "ubos-pool",
 ]
 
 [[package]]
@@ -4354,6 +4361,15 @@ dependencies = [
  "ubos-logging",
  "ubos-main",
  "ubos-temperature",
+]
+
+[[package]]
+name = "ubos-pool"
+version = "0.1.0"
+dependencies = [
+ "bs58",
+ "embassy-time",
+ "heapless 0.8.0",
 ]
 
 [[package]]

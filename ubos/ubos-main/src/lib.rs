@@ -3,7 +3,6 @@
 //! Architecture: `../docs/OVERVIEW.md`.
 #![no_std]
 
-pub mod btc;
 pub mod consts;
 pub mod cpu_load;
 pub mod display;
@@ -14,7 +13,6 @@ pub mod mdns;
 pub mod metrics;
 pub mod net;
 pub mod ntp;
-pub mod pool_config;
 pub mod sh1106;
 pub mod watchdog;
 

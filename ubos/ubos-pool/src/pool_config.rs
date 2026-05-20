@@ -1,6 +1,6 @@
 //! Pool connection config driven by `option_env!` compile-time overrides.
 //!
-//! Setup: `../docs/SETUP.md`.
+//! Setup: `../../../docs/SETUP.md`.
 
 use core::str::FromStr;
 

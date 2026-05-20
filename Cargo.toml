@@ -23,6 +23,7 @@ members = [
     "ubos/ubos-logging",
     "ubos/ubos-main",
     "ubos/ubos-monitor",
+    "ubos/ubos-pool",
     "ubos/ubos-psu",
     "ubos/ubos-temperature",
 ]
@@ -70,6 +71,7 @@ mmm               = { path = "ubos/mmm", default-features = false }
 ii-sv2            = { git = "ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git", tag = "v0.2.0", default-features = false }
 ubos-logging      = { path = "ubos/ubos-logging", default-features = false }
 ubos-monitor      = { path = "ubos/ubos-monitor", default-features = false }
+ubos-pool         = { path = "ubos/ubos-pool" }
 ubos-psu          = { path = "ubos/ubos-psu", default-features = false }
 ubos-temperature  = { path = "ubos/ubos-temperature", default-features = false }
 

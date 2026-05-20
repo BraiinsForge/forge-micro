@@ -12,7 +12,7 @@
 //! Pool wiring matches the firmware: `POOL_HOST`, `POOL_PORT`,
 //! `POOL_PROTOCOL`, `POOL_USER`, `POOL_SV1_PASS`, `POOL_SV2_PUBKEY`,
 //! and `POOL_SV2_TRUST_ANY_KEY` env vars (read at compile time) drive
-//! `ubos_main::pool_config::parse`;
+//! `ubos_pool::pool_config::parse`;
 //! defaults point at the public Braiins Pool so the binary works out of
 //! the box. Both SV1 and SV2 are wired here — the workspace defaults
 //! select SV2 against the Braiins V2 endpoint.
@@ -28,7 +28,7 @@ use embassy_net::{Runner, Stack, StackResources};
 use embassy_time::{Duration, Ticker, Timer};
 use ubos_main::metrics::{Metric, Value};
 use ubos_main::net;
-use ubos_main::pool_config::{
+use ubos_pool::pool_config::{
     self, PoolConfig, ProtocolConfig, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
 };
 use log::{info, warn};

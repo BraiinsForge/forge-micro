@@ -56,11 +56,11 @@ use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
 use ubos_net::net;
 use {defmt_rtt as _, esp_backtrace as _};
 
-// `ubos_main::pool_config::parse` runs at boot to copy seven
+// `ubos_pool::pool_config::parse` runs at boot to copy seven
 // compile-time env-var strings into typed fields. The result lives
 // for the lifetime of the firmware; held in a `StaticCell` so the
 // stratum task can take a `&'static PoolConfig`.
-static POOL_CONFIG_CELL: StaticCell<ubos_main::pool_config::PoolConfig> = StaticCell::new();
+static POOL_CONFIG_CELL: StaticCell<ubos_pool::pool_config::PoolConfig> = StaticCell::new();
 
 // `Sv1Config` references &'static str borrowed from the parsed
 // `PoolConfig`; allocated at boot once the protocol is known to be
@@ -263,8 +263,8 @@ async fn display_task(mut display: OledDisplay) -> ! {
 /// used so the firmware always validates the Braiins prod key by
 /// default. Set `POOL_SV2_TRUST_ANY_KEY=1` to disable peer auth.
 fn pool_config_from_env(
-) -> Result<ubos_main::pool_config::PoolConfig, ubos_main::pool_config::ConfigError> {
-    use ubos_main::pool_config;
+) -> Result<ubos_pool::pool_config::PoolConfig, ubos_pool::pool_config::ConfigError> {
+    use ubos_pool::pool_config;
     pool_config::parse(
         option_env!("POOL_HOST").unwrap_or(pool_config::DEFAULT_POOL_HOST),
         option_env!("POOL_PORT").unwrap_or(pool_config::DEFAULT_POOL_PORT_STR),
@@ -280,11 +280,12 @@ fn pool_config_from_env(
 #[allow(clippy::too_many_lines)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
-    pool_config: &'static ubos_main::pool_config::PoolConfig,
+    pool_config: &'static ubos_pool::pool_config::PoolConfig,
 ) -> ! {
     use defmt::warn;
     use embassy_time::Timer;
-    use ubos_main::pool_config::{
+    use static_cell::ConstStaticCell;
+    use ubos_pool::pool_config::{
         ProtocolConfig, RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
     };
 
@@ -684,8 +685,8 @@ async fn boot(spawner: Spawner) {
                 pool_config.host.as_str(),
                 pool_config.port,
                 match &pool_config.protocol {
-                    ubos_main::pool_config::ProtocolConfig::Sv1 { .. } => "sv1",
-                    ubos_main::pool_config::ProtocolConfig::Sv2 { .. } => "sv2",
+                    ubos_pool::pool_config::ProtocolConfig::Sv1 { .. } => "sv1",
+                    ubos_pool::pool_config::ProtocolConfig::Sv2 { .. } => "sv2",
                 },
                 pool_config.user.as_str(),
             );

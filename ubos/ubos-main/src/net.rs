@@ -286,7 +286,7 @@ pub async fn fetch_btc_price<R: CryptoRng + RngCore>(
         }
     }
 
-    if let Some(cents) = crate::btc::parse_price_cents(&response_buffer[..total]) {
+    if let Some(cents) = ubos_pool::btc::parse_price_cents(&response_buffer[..total]) {
         let dollars = cents / 100;
         let remainder = cents % 100;
         info!("btc price updated: ${}.{:02}", dollars, remainder);

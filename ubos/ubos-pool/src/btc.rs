@@ -1,7 +1,7 @@
 //! Binance ticker JSON parser. Extracts the `"price"` field and converts
 //! the dollar.cents string to total cents as a `u32`.
 //!
-//! Metrics: `../docs/METRICS.md`.
+//! Metrics: `../../../docs/METRICS.md`.
 
 /// Parse BTC price in cents from a Binance ticker JSON response.
 ///

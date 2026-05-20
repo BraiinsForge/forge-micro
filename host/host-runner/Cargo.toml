@@ -27,6 +27,7 @@ log                = { version = "0.4", default-features = false }
 mmm                = { workspace = true }
 static_cell        = { workspace = true }
 ubos-main          = { workspace = true, default-features = false }
+ubos-pool            = { workspace = true }
 rand               = "0.8"
 sha2               = { workspace = true }
 embassy-futures    = { workspace = true }

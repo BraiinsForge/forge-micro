@@ -40,9 +40,7 @@ profont           = { workspace = true }
 format_no_std     = { workspace = true }
 sha2              = { workspace = true }
 ubos-logging      = { workspace = true }
-# Base58check decode for `POOL_SV2_PUBKEY`. `no_std` build via
-# `default-features = false`, matches micro-sv2's posture.
-bs58              = { version = "0.5", default-features = false, features = ["check"] }
+ubos-pool         = { workspace = true }
 
 [build-dependencies]
 # Pre-compresses `src/index.html` with gzip at build time so the
@@ -52,10 +50,6 @@ bs58              = { version = "0.5", default-features = false, features = ["ch
 flate2            = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
-# Host tests assemble base58check strings via `.into_string()`,
-# which needs the `alloc` feature on top of `check`. The lib
-# build never sees the extra feature.
-bs58              = { version = "0.5", default-features = false, features = ["check", "alloc"] }
 # Round-trip check: decompress the gzipped dashboard body in the
 # render test and compare against the source HTML. Build path uses
 # the same crate via `[build-dependencies]`.
