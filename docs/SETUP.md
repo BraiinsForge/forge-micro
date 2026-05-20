@@ -225,11 +225,12 @@ boards can resolve hostnames for NTP sync and HTTPS requests.
 
 ### mDNS discovery
 
-Each board advertises itself via mDNS as `_prometheus._tcp.local` so
-Prometheus and ad-hoc tooling can find it without static config. The
-announcement carries an `A` record for `<hostname>.local`, an `SRV`
-pointing at the metrics port, and TXT entries for `path`, `board`,
-and `mcu`.
+Each board advertises itself via mDNS as `_prometheus._tcp.local` and
+`_http._tcp.local` so Prometheus, browsers, and ad-hoc tooling can find
+it without static config. The announcement carries an `A` record for
+`<hostname>.local` and one `SRV`/`TXT`/`PTR` set per service pointing
+at the metrics port and the HTTP UI port respectively. Each TXT
+record carries `path=`, `board=`, and `mcu=`.
 
 Browsing requires `avahi-daemon` on the workstation. On NixOS, enable
 it in the host configuration. The `nssmdns4` switch also wires mDNS
@@ -247,6 +248,7 @@ Then browse every advertised board:
 
 ```sh
 avahi-browse -rt _prometheus._tcp
+avahi-browse -rt _http._tcp
 ```
 
 Without the daemon, a unicast query against a known IP also works
@@ -254,6 +256,7 @@ because edge-mdns answers on port 5353:
 
 ```sh
 dig +time=3 +tries=1 -p 5353 @<board-ip> _prometheus._tcp.local PTR
+dig +time=3 +tries=1 -p 5353 @<board-ip> _http._tcp.local PTR
 ```
 
 Support node (NUC): `redacted/README.md`.
