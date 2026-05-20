@@ -17,7 +17,7 @@ impl Http {
     /// HTTP response assembly buffer, separate from the TCP socket buffers.
     /// Sized to hold the inlined dashboard HTML plus headers in a single
     /// response, kept under the TCP initial congestion window.
-    pub const RESPONSE_BUFFER_SIZE: usize = 10240;
+    pub const RESPONSE_BUFFER_SIZE: usize = 12288;
     /// Buffer for reading incoming HTTP requests. Sized to hold a small
     /// POST body alongside headers so the config form fits in a single
     /// read; the route line is parsed from the start of the same buffer.
