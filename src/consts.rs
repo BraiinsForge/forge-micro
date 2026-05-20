@@ -61,12 +61,16 @@ impl Mdns {
     /// A record TTL in seconds. RFC 6762 §10 recommends 120 s for volatile
     /// addresses such as DHCP leases.
     pub const TTL_SECS: u32 = 120;
-    /// DNS-SD service type for Prometheus scrape targets.
-    pub const SERVICE_TYPE: &str = "_prometheus";
-    /// Transport protocol for the Prometheus service.
-    pub const SERVICE_PROTOCOL: &str = "_tcp";
-    /// URL path to the Prometheus metrics endpoint.
+    /// DNS-SD service type for the Prometheus metrics scrape target.
+    pub const PROMETHEUS_SERVICE: &str = "_prometheus";
+    /// DNS-SD service type for the board HTTP UI.
+    pub const HTTP_SERVICE: &str = "_http";
+    /// Transport protocol used by every service the responder advertises.
+    pub const TCP_PROTOCOL: &str = "_tcp";
+    /// URL path advertised in the Prometheus service TXT record.
     pub const METRICS_PATH: &str = "/metrics";
+    /// URL path advertised in the HTTP service TXT record.
+    pub const HTTP_PATH: &str = "/";
     /// Seconds to wait before retrying after a bind or run error.
     pub const RETRY_DELAY_SECS: u64 = 5;
     /// Buffer size for mDNS datagrams. RFC 6762 §17 caps mDNS messages at

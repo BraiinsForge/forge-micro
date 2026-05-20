@@ -1,10 +1,16 @@
-//! mDNS responder advertising the board hostname and Prometheus service.
+//! mDNS responder advertising the board hostname and its DNS-SD services.
 //!
 //! Delegates the RFC 6762 probe phase from §8.1, the announcement phase from
 //! §8.3, and query-response handling to edge-mdns. We provide:
 //! - A: `<hostname>.local.` → DHCP-assigned IPv4
-//! - PTR/SRV/TXT: `_prometheus._tcp.local.` on `Metrics::PORT` with TXT
-//!   `path=/metrics`, `board=<board_name>`, `mcu=<mcu_name>`
+//! - PTR/SRV/TXT for each entry in [`run_mdns`]'s service list. Today that
+//!   list is `_prometheus._tcp.local.` on [`Metrics::PORT`] and
+//!   `_http._tcp.local.` on [`Http::PORT`], both keyed with TXT
+//!   `path=<endpoint>`, `board=<board_name>`, `mcu=<mcu_name>`.
+//!
+//! [`run_mdns`] builds the service list once and hands a slice into the
+//! responder loop, so adding the next service only needs another entry
+//! here — call sites stay untouched.
 //!
 //! The responder reads `stack.config_v4()` on every loop iteration, so a
 //! DHCP renewal with a new lease becomes visible on the next socket-error
@@ -17,7 +23,7 @@ use edge_mdns::buf::VecBufAccess;
 use edge_mdns::domain::base::Ttl;
 use edge_mdns::host::{Host, Service, ServiceAnswers};
 use edge_mdns::io::{self, MdnsIoError, IPV4_DEFAULT_SOCKET};
-use edge_mdns::HostAnswersMdnsHandler;
+use edge_mdns::{HostAnswer, HostAnswers, HostAnswersMdnsHandler, MdnsError};
 use edge_nal::UdpSplit;
 use edge_nal_embassy::{Udp, UdpBuffers, UdpError};
 use embassy_net::Stack;
@@ -28,7 +34,7 @@ use rand_core_v010::TryRng;
 use static_cell::{ConstStaticCell, StaticCell};
 use ubos_logging::{info, warn, Debug2Format};
 
-use crate::consts::{Mdns as MdnsConsts, Metrics};
+use crate::consts::{Http, Mdns as MdnsConsts, Metrics};
 
 /// `edge_mdns::io::Mdns::new` takes a `&Signal` to wake the responder
 /// for unsolicited re-announces. We never signal it; address changes
@@ -97,7 +103,36 @@ impl TryRng for CounterRng {
     }
 }
 
-/// Announce `<hostname>.local.` and `_prometheus._tcp.local.` via mDNS.
+/// `HostAnswers` adapter visiting every service in `services` against a
+/// shared `host`. Adding another `_…._tcp` advert means adding an entry to
+/// the slice that the caller builds; the responder loop and call sites do
+/// not change.
+///
+/// Each visited [`ServiceAnswers`] re-emits the host's A record (AAAA is
+/// skipped because `Host::ipv6` is `UNSPECIFIED`), so an A query response
+/// includes one copy per service. RFC 6762 §10.2 known-answer suppression
+/// handles the duplicates at the receiver; stripping them on our side
+/// would require reimplementing `Service::visit_answers`.
+struct ServicesAnswers<'a> {
+    host: &'a Host<'a>,
+    services: &'a [Service<'a>],
+}
+
+impl HostAnswers for ServicesAnswers<'_> {
+    fn visit<F, E>(&self, mut f: F) -> Result<(), E>
+    where
+        F: FnMut(HostAnswer) -> Result<(), E>,
+        E: From<MdnsError>,
+    {
+        for service in self.services {
+            ServiceAnswers::new(self.host, service).visit(&mut f)?;
+        }
+        Ok(())
+    }
+}
+
+/// Announce `<hostname>.local.` plus the DNS-SD services listed in
+/// [`module-level docs`](crate::mdns) via mDNS.
 ///
 /// `hostname` is the DNS-safe per-unit label used in the A and SRV records;
 /// `board_name` is the human-readable board family exposed in the TXT
@@ -118,10 +153,38 @@ pub async fn run_mdns(
     let udp_buffers = UDP_BUFFERS.take();
     let udp = Udp::new(stack, udp_buffers);
 
-    let txt_kvs: &[(&str, &str)] = &[
+    let prometheus_txt: [(&str, &str); 3] = [
         ("path", MdnsConsts::METRICS_PATH),
         ("board", board_name),
         ("mcu", mcu_name),
+    ];
+    let http_txt: [(&str, &str); 3] = [
+        ("path", MdnsConsts::HTTP_PATH),
+        ("board", board_name),
+        ("mcu", mcu_name),
+    ];
+
+    let services: [Service<'_>; 2] = [
+        Service {
+            name: hostname,
+            priority: 0,
+            weight: 0,
+            service: MdnsConsts::PROMETHEUS_SERVICE,
+            protocol: MdnsConsts::TCP_PROTOCOL,
+            port: Metrics::PORT,
+            service_subtypes: &[],
+            txt_kvs: &prometheus_txt,
+        },
+        Service {
+            name: hostname,
+            priority: 0,
+            weight: 0,
+            service: MdnsConsts::HTTP_SERVICE,
+            protocol: MdnsConsts::TCP_PROTOCOL,
+            port: Http::PORT,
+            service_subtypes: &[],
+            txt_kvs: &http_txt,
+        },
     ];
 
     loop {
@@ -136,7 +199,7 @@ pub async fn run_mdns(
             octets[0], octets[1], octets[2], octets[3]
         );
 
-        if let Err(error) = bind_and_run(&udp, host_ipv4, hostname, txt_kvs).await {
+        if let Err(error) = bind_and_run(&udp, host_ipv4, hostname, &services).await {
             warn!("mdns: {:?}", Debug2Format(&error));
         }
 
@@ -144,13 +207,13 @@ pub async fn run_mdns(
     }
 }
 
-/// Bind the UDP socket, build the host and service records, and run the
-/// edge-mdns responder until it returns an error.
+/// Bind the UDP socket, build the host record, and run the edge-mdns
+/// responder over the caller's service list until it returns an error.
 async fn bind_and_run(
     udp: &Udp<'_>,
     host_ipv4: Ipv4Addr,
     hostname: &str,
-    txt_kvs: &[(&str, &str)],
+    services: &[Service<'_>],
 ) -> Result<(), MdnsIoError<UdpError>> {
     let host = Host {
         hostname,
@@ -159,22 +222,14 @@ async fn bind_and_run(
         ttl: Ttl::from_secs(MdnsConsts::TTL_SECS),
     };
 
-    let service = Service {
-        name: hostname,
-        priority: 0,
-        weight: 0,
-        service: MdnsConsts::SERVICE_TYPE,
-        protocol: MdnsConsts::SERVICE_PROTOCOL,
-        port: Metrics::PORT,
-        service_subtypes: &[],
-        txt_kvs,
-    };
-
     let mut socket = io::bind(udp, IPV4_DEFAULT_SOCKET, Some(Ipv4Addr::UNSPECIFIED), None).await?;
 
     let (recv, send) = socket.split();
 
-    let handler = HostAnswersMdnsHandler::new(ServiceAnswers::new(&host, &service));
+    let handler = HostAnswersMdnsHandler::new(ServicesAnswers {
+        host: &host,
+        services,
+    });
 
     let mdns = io::Mdns::<_, _, _, _, _, CriticalSectionRawMutex>::new(
         Some(Ipv4Addr::UNSPECIFIED),
