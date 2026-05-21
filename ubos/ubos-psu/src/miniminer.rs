@@ -5,6 +5,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::Ticker;
 use embedded_hal_async::i2c::I2c;
 use portable_atomic::{AtomicBool, Ordering};
+use ubos_logging::{info, warn};
 
 use crate::state::{ensure_initialized, InitStatus, State};
 use crate::{ina230, tps6287x, watchdog, Error, Psu};
@@ -62,10 +63,9 @@ pub async fn run_watchdog<I, E>(
         let mut guard = state.lock().await;
         if guard.init == InitStatus::Initialized {
             let address = guard.config.watchdog_address;
-            ubos_logging::info!("petting the watchdog");
+            info!("petting the watchdog");
             if let Err(_error) = watchdog::heartbeat(&mut guard.i2c, address).await {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("psu watchdog heartbeat failed");
+                warn!("psu watchdog heartbeat failed");
             }
         }
     }

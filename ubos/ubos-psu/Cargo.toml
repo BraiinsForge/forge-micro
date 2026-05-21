@@ -24,4 +24,4 @@ critical-section   = { version = "1.2", features = ["std"] }
 
 [features]
 default = []
-defmt   = ["dep:defmt"]
+defmt   = ["dep:defmt", "ubos-logging/defmt"]
