@@ -1,8 +1,9 @@
-//! Async I2C adapter for Linux `/dev/i2c-N` character devices.
+//! I2C adapter for Linux `/dev/i2c-N` character devices.
 //!
-//! Mirrors `embedded-serial-unix`: open a non-blocking fd, wrap
-//! it in `async_io::Async`, expose
-//! `embedded_hal_async::i2c::I2c` over `I2C_RDWR` ioctls.
+//! Exposes `embedded_hal_async::i2c::I2c` over `I2C_RDWR` ioctls
+//! on a synchronous fd; the kernel keeps individual ioctl
+//! latencies short enough that an async reactor is not worth its
+//! overhead.
 
 #![warn(missing_docs)]
 // libc FFI: every `as` cast below is bounded by the kernel ABI.
@@ -62,7 +63,11 @@ pub struct I2c {
 }
 
 impl I2c {
-    /// Opens an I2C bus character device in non-blocking mode.
+    /// Opens an I2C bus character device.
+    ///
+    /// The fd is opened without `O_NONBLOCK`; `I2C_RDWR` ioctls block
+    /// briefly enough that wrapping the fd in an async reactor would
+    /// only add overhead.
     ///
     /// # Errors
     /// Returns the underlying `open(2)` error if the path does
@@ -72,13 +77,11 @@ impl I2c {
         let cpath = CString::new(path)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains a NUL byte"))?;
 
-        // Removed O_NONBLOCK. The fd will now operate synchronously.
         let raw = unsafe { libc::open(cpath.as_ptr(), libc::O_RDWR) };
         if raw == -1 {
             return Err(io::Error::last_os_error());
         }
 
-        // Removed Async::new() wrapper.
         Ok(Self { fd: Fd(raw) })
     }
 }
