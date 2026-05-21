@@ -4454,6 +4454,7 @@ dependencies = [
  "embassy-time",
  "embedded-hal-async",
  "heapless 0.8.0",
+ "ubos-logging",
  "ubos-metrics",
 ]
 
