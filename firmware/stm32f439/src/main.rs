@@ -17,7 +17,7 @@ use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_stm32::adc::{Adc, AdcChannel, Exten, RingBufferedAdc, SampleTime};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
-use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{Config as I2cConfig, I2c};
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::DMA2_CH3;
@@ -491,6 +491,11 @@ async fn boot(spawner: Spawner) {
         ring: temp_ring,
         _timer: temp_timer,
     })));
+
+    // Hashboard plug-detect input (PE1, pull-up). Hold the binding at
+    // function scope so the GPIO stays driven for the lifetime of the
+    // firmware; dropping `Input` would clear the PUPDR pull setting.
+    let _hb_plug = Input::new(hw.hb_plug, Pull::Up);
 
     // BMM100 hashboard PSU on I2C1: shared bus, PSU watchdog, power stats,
     // and the miner bring-up task all run on the single-core executor, so

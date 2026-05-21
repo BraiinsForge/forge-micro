@@ -402,6 +402,11 @@ async fn boot(spawner: Spawner) {
     let led = Output::new(hw.led, Level::Low);
     spawner.spawn(unwrap!(led_blink_task(led)));
 
+    // Hashboard plug-detect input (GPIO3, pull-up). Hold the binding at
+    // function scope so the GPIO stays driven for the lifetime of the
+    // firmware; dropping `Input` would clear the pad and pull setting.
+    let _hb_plug = Input::new(hw.hb_plug, Pull::Up);
+
     // BMM100 hashboard PSU on I2C1: shared bus, PSU watchdog, power
     // stats, and the miner bring-up task all run on core 0 so the I2C
     // bus mutex can stay NoopRawMutex.
