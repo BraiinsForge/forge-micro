@@ -242,7 +242,11 @@ similar to what this project targets at growth.
 
 ## Migration plan
 
-The reorganization will land across a sequence of atomic commits, each
+> **Status.** Complete. The reorganization landed across the commits
+> described below; this section is kept as a historical record of the
+> sequence.
+
+The reorganization landed across a sequence of atomic commits, each
 keeping `cargo check` green for every affected crate:
 
 1. `redacted/` → `nuc/` (independent rename).
@@ -253,10 +257,10 @@ keeping `cargo check` green for every affected crate:
    in lockstep.
 4. Every existing host crate moves into `host/`.
 5. Root `Cargo.toml` converts to a virtual manifest; the old root
-   library crate moves to `ubos/ubos-main/`.
-6. `ubos-main` splits into four crates along domain lines, each as its
-   own commit: `ubos-pool`, `ubos-display`, `ubos-core`, and finally
-   `ubos-net` plus `ubos-metrics` together. The `run_http_server` task
-   moves out of `net.rs` into `http.rs` during the final split to break
-   the net→http back-reference.
+   library crate moves to `ubos/ubos-main/` as an intermediate step.
+6. `ubos-main` splits into five crates along domain lines: `ubos-pool`,
+   `ubos-display`, `ubos-core`, and finally `ubos-net` plus
+   `ubos-metrics` together. The `run_http_server` task moves out of
+   `net.rs` into `http.rs` during the final split to break the
+   net→http back-reference.
 7. The empty `ubos-main` shell is deleted at the end of the split.

@@ -1,5 +1,13 @@
 # Mining Protocol Abstraction
 
+> **Status.** Phases 1–9 have landed: every firmware crate runs against
+> `stratum-client` + `ubos-miner`, and `ubos-backend` + `cpu-miner` have
+> been removed from the workspace. Phases 10–14 remain pending. The
+> phase descriptions below are kept in their original future tense as a
+> historical record of the plan; references to `ubos-backend` and the
+> intermediate `ubos-main` library crate describe the state at the time
+> the plan was written, not the current code.
+
 ## Goal
 
 Add Stratum V2 support to the on-device mining client without forking
