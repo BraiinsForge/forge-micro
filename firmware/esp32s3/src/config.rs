@@ -65,7 +65,7 @@ pub struct Board<'d> {
     /// Hashboard reset pin (GPIO4, active-low, held low until miner task releases).
     pub hb_rst: GPIO4<'d>,
     /// Hashboard plug-detect pin (GPIO5, input pull-up).
-    pub plug_detect: GPIO5<'d>,
+    pub hb_plug: GPIO5<'d>,
     /// LEDC peripheral for 25 kHz fan PWM on GPIO10.
     pub ledc: LEDC<'d>,
     /// Fan PWM output pin (GPIO10).
@@ -122,7 +122,7 @@ impl Board<'static> {
             i2c_sda: peripherals.GPIO8,
             i2c_scl: peripherals.GPIO9,
             hb_rst: peripherals.GPIO4,
-            plug_detect: peripherals.GPIO5,
+            hb_plug: peripherals.GPIO5,
             ledc: peripherals.LEDC,
             fan_pwm_pin: peripherals.GPIO10,
             pcnt: peripherals.PCNT,

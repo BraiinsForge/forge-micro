@@ -647,7 +647,7 @@ async fn boot(spawner: Spawner) {
     }
 
     // Plug-detect input; hold the peripheral so it is not reclaimed.
-    let _plug_detect = Input::new(hw.plug_detect, InputConfig::default().with_pull(Pull::Up));
+    let _hb_plug = Input::new(hw.hb_plug, InputConfig::default().with_pull(Pull::Up));
 
     info!("waiting for dhcp");
     let dhcp_config = net::wait_for_config(stack).await;
