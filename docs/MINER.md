@@ -101,7 +101,8 @@ pulses per revolution, so `RPM = pulses × 60 / 2` over the sample window.
 
 ## Temperature sensors
 
-Code: `firmware/bmm-pico/src/temperature.rs`.
+Code: `ubos/ubos-temperature/src/lm75a.rs` (four-sensor logic);
+`firmware/bmm-pico/src/temperature.rs` binds it to the board's I2C bus.
 
 The BMM101 hashboard carries four LM75A sensors at I2C addresses
 `0x49`-`0x4c` (IC12D, IC12C, IC12B, IC12A) on the shared I2C1 bus. Each

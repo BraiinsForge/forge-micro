@@ -4,8 +4,17 @@
 //! converts to millicelsius. Resolution is 0.125°C on the LM75B and
 //! 0.5°C on the LM75A. Both produce the same register layout, so the
 //! driver handles either.
+//!
+//! [`Lm75aHashboard`] wraps four `Lm75a` sensors for the BMM101 layout,
+//! sharing a single I2C bus and exposing the hottest reading via the
+//! [`TemperatureSensor`](crate::TemperatureSensor) trait. Board firmware
+//! crates instantiate this directly so the four-sensor logic does not
+//! need to be duplicated per board.
 
 use embedded_hal_async::i2c::I2c;
+use ubos_logging::error;
+
+use crate::TemperatureSensor;
 
 const REG_TEMPERATURE: u8 = 0x00;
 
@@ -25,6 +34,11 @@ impl Lm75a {
     #[must_use]
     pub const fn new(address: u8) -> Self {
         Self { address }
+    }
+
+    #[must_use]
+    pub const fn address(&self) -> u8 {
+        self.address
     }
 
     /// Read the temperature register and convert to millicelsius.
@@ -51,6 +65,65 @@ pub enum Error<E> {
     OutOfRange(i32),
 }
 
+/// Four LM75A sensors on the BMM101 hashboard wired to one shared I2C
+/// bus. Returns the hottest of the four readings each sample, offset by
+/// [`Lm75aHashboard::OFFSET_MILLICELSIUS`] to approximate chip junction
+/// temperature. Mirrors the `BRAIINS_MINI_BMM101_BM1362_4X1` descriptor
+/// in bos-main.
+pub struct Lm75aHashboard<Bus> {
+    bus: Bus,
+    sensors: [Lm75a; 4],
+}
+
+impl<Bus> Lm75aHashboard<Bus> {
+    /// LM75A I2C addresses on the BMM101: IC12D, IC12C, IC12B, IC12A.
+    pub const SENSOR_ADDRESSES: [u8; 4] = [0x49, 0x4a, 0x4b, 0x4c];
+
+    /// Offset added to each board reading to approximate chip junction
+    /// temperature. BOS uses +7 °C for every BMM101 sensor.
+    pub const OFFSET_MILLICELSIUS: i32 = 7_000;
+
+    #[must_use]
+    pub fn new(bus: Bus) -> Self {
+        Self {
+            bus,
+            sensors: Self::SENSOR_ADDRESSES.map(Lm75a::new),
+        }
+    }
+}
+
+impl<Bus> TemperatureSensor for Lm75aHashboard<Bus>
+where
+    Bus: I2c,
+{
+    async fn read_millicelsius(&mut self) -> Option<i32> {
+        let mut hottest: Option<i32> = None;
+        for sensor in &self.sensors {
+            match sensor.read_millicelsius(&mut self.bus).await {
+                Ok(reading) => {
+                    let adjusted = reading + Self::OFFSET_MILLICELSIUS;
+                    hottest = Some(hottest.map_or(adjusted, |current| current.max(adjusted)));
+                }
+                Err(Error::I2c(bus_error)) => {
+                    error!(
+                        "temperature: LM75A {:#x} I2C error: {:?}",
+                        sensor.address(),
+                        ubos_logging::Debug2Format(&bus_error),
+                    );
+                }
+                Err(Error::OutOfRange(raw)) => {
+                    error!(
+                        "temperature: LM75A {:#x} reading {} mC out of range",
+                        sensor.address(),
+                        raw,
+                    );
+                }
+            }
+        }
+        hottest
+    }
+}
+
 /// Decode the 16-bit big-endian register: high byte is signed integer
 /// degrees C, low byte's top 3 bits are fractional in 0.125°C steps.
 /// Convert directly to millicelsius without floats.
@@ -67,42 +140,5 @@ fn raw_to_millicelsius(buffer: [u8; 2]) -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Encode a temperature in 0.125°C steps as the LM75A two-byte
-    /// register value.
-    fn encode(eighths_of_degree: i16) -> [u8; 2] {
-        (eighths_of_degree << 5).to_be_bytes()
-    }
-
-    #[test]
-    fn zero() {
-        assert_eq!(raw_to_millicelsius(encode(0)), 0);
-    }
-
-    #[test]
-    fn positive_integer_degree() {
-        assert_eq!(raw_to_millicelsius(encode(25 * 8)), 25_000);
-    }
-
-    #[test]
-    fn positive_half_degree() {
-        assert_eq!(raw_to_millicelsius(encode(25 * 8 + 4)), 25_500);
-    }
-
-    #[test]
-    fn positive_eighth_degree() {
-        assert_eq!(raw_to_millicelsius(encode(25 * 8 + 1)), 25_125);
-    }
-
-    #[test]
-    fn negative_integer_degree() {
-        assert_eq!(raw_to_millicelsius(encode(-25 * 8)), -25_000);
-    }
-
-    #[test]
-    fn negative_half_degree() {
-        assert_eq!(raw_to_millicelsius(encode(-25 * 8 - 4)), -25_500);
-    }
-}
+#[path = "tests/lm75a.rs"]
+mod tests;
