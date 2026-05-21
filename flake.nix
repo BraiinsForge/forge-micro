@@ -494,6 +494,12 @@
             cargoClippyExtraArgs = "-- -D warnings";
           };
 
+          test-ubos-net = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-net";
+          };
+
           clippy-ubos-pool = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = null;
