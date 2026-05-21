@@ -141,13 +141,13 @@ impl Watchdog {
 }
 
 /// Fan PWM and tachometer parameters. Default `clk_sys` on the RP2040 is
-/// 125 MHz, so `(PWM_TOP + 1) × divider = 6000` cycles per period puts
-/// the PWM frequency at ~20.83 kHz. The Intel 4-wire fan spec targets
-/// 25 kHz; `PWM_TOP` carries over from the rp2350 port where 150 MHz
-/// `clk_sys` hits 25 kHz exactly. The fan tolerates the lower frequency.
+/// 125 MHz; `(PWM_TOP + 1) × divider = 5000` cycles per period puts the
+/// PWM frequency at exactly 25 kHz, matching the Intel 4-wire fan spec.
+/// The rp2350 port uses `PWM_TOP = 5999` at 150 MHz `clk_sys` to land at
+/// the same 25 kHz.
 pub struct Fan;
 impl Fan {
-    pub const PWM_TOP: u16 = 5999;
+    pub const PWM_TOP: u16 = 4999;
     pub const TACH_WINDOW: Duration = Duration::from_secs(1);
     pub const TACH_PULSES_PER_REV: u64 = 2;
 }
