@@ -5,16 +5,14 @@
 //! consumers can take additional `I2cDevice` handles from the same mutex
 //! without going through this module.
 
-use defmt::{error, info, Debug2Format};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_embedded_hal::shared_bus::I2cDeviceError;
 use embassy_stm32::i2c::{Error as I2cError, I2c, Master};
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::mutex::Mutex;
-use embassy_time::{Duration, Ticker};
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
-use ubos_psu::{run_watchdog, MiniminerPsu, MiniminerPsuConfig, Psu, State};
+use ubos_psu::{run_watchdog, MiniminerPsu, MiniminerPsuConfig, State};
 
 /// Bus mutex shared by every consumer on I2C1. `NoopRawMutex` is sufficient
 /// because the STM32F439 is single-core: every I2C consumer runs on the same
@@ -49,31 +47,7 @@ pub async fn watchdog_task(state: &'static PsuState, terminated: &'static Atomic
     run_watchdog(state, terminated).await;
 }
 
-/// Cadence at which the sensor task reads INA230 input/output power. Matches
-/// the host-runner cadence so the prometheus series rates are comparable.
-const SENSOR_INTERVAL: Duration = Duration::from_secs(2);
-
 #[embassy_executor::task]
 pub async fn power_stats_task(psu: &'static BoardPsu) -> ! {
-    let mut ticker = Ticker::every(SENSOR_INTERVAL);
-    loop {
-        ticker.next().await;
-        let input = psu.read_input_power_mw().await;
-        let output = psu.read_output_power_mw().await;
-        match (input, output) {
-            (Ok(input), Ok(output)) => {
-                info!("psu sensors: input={} mW output={} mW", input, output);
-            }
-            (Err(error), Ok(_)) | (Ok(_), Err(error)) => {
-                error!("psu sensor read failed: {:?}", Debug2Format(&error));
-            }
-            (Err(input_error), Err(output_error)) => {
-                error!(
-                    "psu sensor read failed: input={:?} output={:?}",
-                    Debug2Format(&input_error),
-                    Debug2Format(&output_error)
-                );
-            }
-        }
-    }
+    ubos_psu::run_power_stats(psu).await
 }

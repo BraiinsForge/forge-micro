@@ -56,6 +56,47 @@ pub use config::MiniminerPsuConfig;
 pub use miniminer::{run_watchdog, MiniminerPsu, RawMutex};
 pub use state::State;
 
+/// Cadence at which [`run_power_stats`] reads INA230 input/output power.
+/// Matches the host-runner cadence so the prometheus series rates are
+/// comparable across firmware targets.
+pub const POWER_STATS_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(2);
+
+/// Periodic log of input and output power readings. Runs forever.
+///
+/// Reads both sides at [`POWER_STATS_INTERVAL`] and emits a single info
+/// line on success, or one of two error lines depending on which side
+/// failed. Board firmware crates wrap this in a `#[embassy_executor::task]`
+/// of their own because tasks cannot be generic.
+pub async fn run_power_stats<P>(psu: &P) -> !
+where
+    P: Psu,
+{
+    let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
+    loop {
+        ticker.next().await;
+        let input = psu.read_input_power_mw().await;
+        let output = psu.read_output_power_mw().await;
+        match (input, output) {
+            (Ok(input), Ok(output)) => {
+                ubos_logging::info!("psu sensors: input={} mW output={} mW", input, output);
+            }
+            (Err(error), Ok(_)) | (Ok(_), Err(error)) => {
+                ubos_logging::error!(
+                    "psu sensor read failed: {:?}",
+                    ubos_logging::Debug2Format(&error),
+                );
+            }
+            (Err(input_error), Err(output_error)) => {
+                ubos_logging::error!(
+                    "psu sensor read failed: input={:?} output={:?}",
+                    ubos_logging::Debug2Format(&input_error),
+                    ubos_logging::Debug2Format(&output_error),
+                );
+            }
+        }
+    }
+}
+
 pub trait Psu {
     type BusError: embedded_hal_async::i2c::Error;
 

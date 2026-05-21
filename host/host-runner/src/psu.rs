@@ -7,12 +7,11 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-use embassy_time::{Duration, Ticker};
 use embedded_i2c_unix::{Error as HostI2cError, I2c as HostI2c};
 use log::{error, info};
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
-use ubos_psu::{run_watchdog, MiniminerPsu, MiniminerPsuConfig, Psu, State};
+use ubos_psu::{run_power_stats, run_watchdog, MiniminerPsu, MiniminerPsuConfig, State};
 
 /// Env var that points at the i2c-dev character device wired to the
 /// BMM100 PSU. Unset means no hashboard is attached and the runner
@@ -55,25 +54,7 @@ pub async fn watchdog_task(state: &'static HostState, terminated: &'static Atomi
     run_watchdog(state, terminated).await;
 }
 
-/// Cadence at which the sensor task reads INA230 input/output power.
-const SENSOR_INTERVAL: Duration = Duration::from_secs(2);
-
-/// Periodic INA230 read-out. Locks the PSU state long enough to issue
-/// two I2C reads and logs the milliwatt readings.
 #[embassy_executor::task]
-pub async fn power_stats_task(psu: &'static HostPsu) {
-    let mut ticker = Ticker::every(SENSOR_INTERVAL);
-    loop {
-        ticker.next().await;
-        let input = psu.read_input_power_mw().await;
-        let output = psu.read_output_power_mw().await;
-        match (input, output) {
-            (Ok(input), Ok(output)) => {
-                info!("psu sensors: input={input} mW output={output} mW");
-            }
-            (Err(error), _) | (_, Err(error)) => {
-                error!("psu sensor read failed: {error:?}");
-            }
-        }
-    }
+pub async fn power_stats_task(psu: &'static HostPsu) -> ! {
+    run_power_stats(psu).await
 }
