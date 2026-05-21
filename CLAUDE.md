@@ -107,6 +107,10 @@ probe.
   because esp-hal 1.0.0 ships no UART DMA driver. The closed-after-1.0.0 issues
   esp-rs/esp-hal#2642 (UART DMA support) and #4720 (circular UHCI RX)
   track this gap; revisit when the next esp-hal release reaches this
-  workspace. The S3's 128-byte hardware FIFO plus its dual-core split
-  absorb the ETH-ISR-class jitter that overran the 1-byte USART
-  holding register on stm32f407.
+  workspace. All dual-core boards (rp2040, rp2350, bmm-pico, esp32s3) pin the
+  ubos-miner `serial_task` to Core 1 so embassy-net on Core 0 stays
+  responsive; the shared `ASIC_SESSION` uses `CriticalSectionRawMutex`,
+  so cross-core sharing is free. On esp32s3, Core 1's executor also runs
+  `IdleAccounting::<1>` so `IDLE_TICKS[1]` is populated for cpu-load
+  metrics. The S3's 128-byte hardware FIFO absorbs the ETH-ISR-class
+  jitter that overran the 1-byte USART holding register on stm32f407.
