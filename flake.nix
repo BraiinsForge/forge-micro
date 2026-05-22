@@ -399,6 +399,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p bmm-pico --target thumbv8m.main-none-eabihf";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
             # `secp256k1-sys` is an unconditional dep via `ii-sv2` and
             # its C build script requires a cross compiler. `cc-rs`
             # otherwise falls back to host `gcc` and fails on the
@@ -412,6 +413,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p rp2040 --target thumbv6m-none-eabi";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
             # `secp256k1-sys` is an unconditional dep via `ii-sv2` and
             # its C build script requires a cross compiler. Point `cc-rs`
             # at the arm-none-eabi cross-gcc so the C code is built
@@ -425,6 +427,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
             # `secp256k1-sys` is an unconditional dep via `ii-sv2` and
             # its C build script requires a cross compiler. `cc-rs`
             # otherwise falls back to host `gcc` and fails on the
@@ -438,6 +441,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p rp235x-sha256 --target thumbv8m.main-none-eabihf";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-stm32f407 = craneLib.cargoClippy {
@@ -445,6 +449,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p stm32f407 --target thumbv7em-none-eabihf";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
             # `secp256k1-sys` is an unconditional dep via `ii-sv2` and
             # its C build script requires a cross compiler. Point `cc-rs`
             # at the arm-none-eabi cross-gcc so the C code is built
@@ -458,6 +463,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p stm32f439 --target thumbv7em-none-eabihf";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
             # `secp256k1-sys` is an unconditional dep via `ii-sv2` and
             # its C build script requires a cross compiler. Point `cc-rs`
             # at the arm-none-eabi cross-gcc so the C code is built
@@ -471,6 +477,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-core";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-ubos-metrics = craneLib.cargoClippy {
@@ -478,6 +485,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-metrics";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-ubos-display = craneLib.cargoClippy {
@@ -485,6 +493,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-display";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-ubos-net = craneLib.cargoClippy {
@@ -492,12 +501,14 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-net";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           test-ubos-net = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-net";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-ubos-pool = craneLib.cargoClippy {
@@ -505,6 +516,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-pool";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-ubos-logging = craneLib.cargoClippy {
@@ -512,6 +524,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-logging";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-host-runner-host = craneLib.cargoClippy {
@@ -519,12 +532,14 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p host-runner";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           test-host-runner = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p host-runner";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-host-runner-bmm = bmmCraneLib.cargoClippy {
@@ -532,6 +547,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p host-runner --target arm-unknown-linux-musleabi";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
             nativeBuildInputs = [ bmmCc ];
             CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
             # SV2 pulls in `secp256k1-sys`, whose C build script defers to
@@ -545,6 +561,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p embassy-net-afpacket";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-embedded-serial-unix = craneLib.cargoClippy {
@@ -552,6 +569,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p embedded-serial-unix";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-ubos-psu = craneLib.cargoClippy {
@@ -559,12 +577,14 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-psu";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           test-ubos-psu = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-psu";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-embedded-i2c-unix = craneLib.cargoClippy {
@@ -572,12 +592,14 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p embedded-i2c-unix";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           test-embedded-i2c-unix = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p embedded-i2c-unix";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-ubos-miner = craneLib.cargoClippy {
@@ -585,6 +607,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-miner";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-serial-baudrate = craneLib.cargoClippy {
@@ -592,6 +615,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p serial-baudrate";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-mining-protocol = craneLib.cargoClippy {
@@ -599,6 +623,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p mining-protocol";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-stratum-v1 = craneLib.cargoClippy {
@@ -606,6 +631,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p stratum-v1";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-stratum-v2 = craneLib.cargoClippy {
@@ -613,6 +639,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p stratum-v2";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-stratum-client = craneLib.cargoClippy {
@@ -620,6 +647,7 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p stratum-client";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-ubos-main-host = craneLib.cargoClippy {
@@ -627,42 +655,49 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-main-host";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           test-ubos-metrics = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-metrics";
+            doInstallCargoArtifacts = false;
           };
 
           test-ubos-pool = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-pool";
+            doInstallCargoArtifacts = false;
           };
 
           test-ubos-miner = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-miner";
+            doInstallCargoArtifacts = false;
           };
 
           test-stratum-v1 = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p stratum-v1";
+            doInstallCargoArtifacts = false;
           };
 
           test-mining-protocol = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p mining-protocol";
+            doInstallCargoArtifacts = false;
           };
 
           test-stratum-client = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p stratum-client";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-ubos-monitor = craneLib.cargoClippy {
@@ -670,12 +705,14 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-monitor";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           test-ubos-monitor = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-monitor";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-ubos-temperature = craneLib.cargoClippy {
@@ -683,12 +720,14 @@
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-temperature";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
           };
 
           test-ubos-temperature = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-temperature";
+            doInstallCargoArtifacts = false;
           };
 
           clippy-esp32s3 = espCraneLib.cargoClippy {
@@ -699,6 +738,7 @@
             # pulled in transitively; disambiguate by pinning to @0.1.0.
             cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
             RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
             # `secp256k1-sys` is an unconditional dep via `ii-sv2` and
             # its C build script requires a cross compiler. Point `cc-rs`
@@ -716,6 +756,7 @@
             cargoVendorDir = espCargoVendorDir;
             cargoExtraArgs = "-p esp32s3-tsens --target xtensa-esp32s3-none-elf -Z build-std=core";
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
             RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
           };
 
@@ -723,17 +764,25 @@
             src = loadTestSrc;
             cargoArtifacts = loadTestArtifacts;
             cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
             strictDeps = true;
           };
 
-          fmt = craneLib.cargoFmt { inherit src; };
+          fmt = craneLib.cargoFmt {
+            inherit src;
+            doInstallCargoArtifacts = false;
+          };
 
-          fmt-load-test = craneLib.cargoFmt { src = loadTestSrc; };
+          fmt-load-test = craneLib.cargoFmt {
+            src = loadTestSrc;
+            doInstallCargoArtifacts = false;
+          };
 
           test-load-test = craneLib.cargoTest {
             src = loadTestSrc;
             cargoArtifacts = loadTestArtifacts;
             strictDeps = true;
+            doInstallCargoArtifacts = false;
           };
 
           drc-bmm-adapter =
