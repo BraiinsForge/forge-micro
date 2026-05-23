@@ -342,9 +342,9 @@
             # Crane's default filter keeps Cargo.toml, Cargo.lock, and .rs files.
             # We also need .cargo/config.toml (per-crate target settings), linker
             # scripts (.x), the vendored embassy-net-wiznet patches directory,
-            # the dashboard HTML that ubos-metrics's build.rs gzips into OUT_DIR,
+            # the dashboard HTML that ubos-webui's build.rs gzips into OUT_DIR,
             # the Braiins wordmark served at /logo.svg via include_bytes!, and
-            # the build.rs sibling at the ubos-metrics crate root.
+            # the build.rs sibling at the ubos-webui crate root.
             customFilter =
               path: _type:
               (builtins.match ".*\\.cargo/config\\.toml$" path != null)
@@ -502,6 +502,13 @@
       {
         # Each firmware crate is checked under its default feature set
         # only.
+        #
+        # `patches/edge-nal-embassy` is intentionally not gated by its
+        # own clippy or build derivation. It is a vendored upstream
+        # crate carrying a local fix that we do not author; gating it
+        # in CI would tie the build to upstream lint cleanliness we do
+        # not control. Every firmware build derivation below exercises
+        # it transitively, so a real breakage still fails the gate.
         checks = {
           clippy-bmm-pico = craneLib.cargoClippy {
             inherit src;
@@ -513,6 +520,22 @@
             # its C build script requires a cross compiler. `cc-rs`
             # otherwise falls back to host `gcc` and fails on the
             # thumb-specific flags; point it at arm-none-eabi-gcc.
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
+          # Release build of each firmware binary. cargo check and
+          # cargo clippy stop short of linking the final ELF for
+          # binary crates, so they miss .bss / flash overflows. This
+          # derivation invokes the full linker pass so any RAM or
+          # flash budget regression fails CI at the same gate as a
+          # missing trait bound. See docs/API_REFACTOR_SIZES.md for
+          # the prior regression that motivated this gate.
+          build-bmm-pico = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p bmm-pico --target thumbv8m.main-none-eabihf";
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
@@ -531,6 +554,15 @@
             CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
+          build-rp2040 = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p rp2040 --target thumbv6m-none-eabi";
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
           clippy-rp2350 = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = thumbv8mArtifacts;
@@ -541,6 +573,15 @@
             # its C build script requires a cross compiler. `cc-rs`
             # otherwise falls back to host `gcc` and fails on the
             # thumb-specific flags; point it at arm-none-eabi-gcc.
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
+          build-rp2350 = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf";
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
@@ -567,6 +608,15 @@
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
+          build-stm32f407 = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p stm32f407 --target thumbv7em-none-eabihf";
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
           clippy-stm32f439 = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = stm32f439Artifacts;
@@ -581,10 +631,35 @@
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
+          build-stm32f439 = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p stm32f439 --target thumbv7em-none-eabihf";
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
           clippy-ubos-core = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = hostArtifacts;
             cargoExtraArgs = "-p ubos-core";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+          };
+
+          clippy-ubos-http = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p ubos-http";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+          };
+
+          clippy-ubos-api = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p ubos-api";
             cargoClippyExtraArgs = "-- -D warnings";
             doInstallCargoArtifacts = false;
           };
@@ -597,10 +672,26 @@
             doInstallCargoArtifacts = false;
           };
 
+          clippy-ubos-webui = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p ubos-webui";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+          };
+
           clippy-ubos-display = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = hostArtifacts;
             cargoExtraArgs = "-p ubos-display";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+          };
+
+          clippy-ubos-mdns = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p ubos-mdns";
             cargoClippyExtraArgs = "-- -D warnings";
             doInstallCargoArtifacts = false;
           };
@@ -767,6 +858,18 @@
             doInstallCargoArtifacts = false;
           };
 
+          test-ubos-http = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-http";
+          };
+
+          test-ubos-api = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = null;
+            cargoExtraArgs = "-p ubos-api";
+          };
+
           test-ubos-metrics = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = hostArtifacts;
@@ -857,6 +960,24 @@
             nativeBuildInputs = [ xtensaEspToolchain ];
             CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
             CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
+          };
+
+          build-esp32s3 = espCraneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoVendorDir = espCargoVendorDir;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
+            RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
+            nativeBuildInputs = [ xtensaEspToolchain ];
+            CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
+            CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
+            # Crane runs cargo from the workspace root, so the per-crate
+            # `firmware/esp32s3/.cargo/config.toml` rustflags are out of
+            # cargo's discovery path. Without `-Tlinkall.x` the linker
+            # uses default section placement and secp256k1-sys's calls
+            # to memset/memcpy overflow the xtensa windowed-call range.
+            CARGO_TARGET_XTENSA_ESP32S3_NONE_ELF_RUSTFLAGS = "-Clink-arg=-Tlinkall.x -Clink-arg=-Tdefmt.x -Clink-arg=-nostartfiles";
           };
 
           clippy-esp32s3-tsens = espCraneLib.cargoClippy {
