@@ -8,27 +8,17 @@ workspace = true
 
 [features]
 default    = ["defmt"]
-defmt      = ["dep:defmt", "edge-mdns/defmt", "embassy-net/defmt", "ubos-logging/defmt"]
+defmt      = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt"]
 ccmram-bss = []
 
 [dependencies]
-edge-mdns         = { workspace = true, features = ["io"] }
-edge-nal          = { workspace = true }
-edge-nal-embassy  = { workspace = true, features = ["udp", "multicast", "proto-ipv4", "medium-ethernet"] }
-embassy-futures   = { workspace = true }
-embassy-net       = { workspace = true, features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "auto-icmp-echo-reply", "multicast"] }
-embassy-sync      = { workspace = true }
+embassy-net       = { workspace = true, features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "auto-icmp-echo-reply"] }
 embassy-time      = { workspace = true }
 embedded-io-async = { workspace = true }
 embedded-tls      = { workspace = true }
 heapless          = { workspace = true }
 portable-atomic   = { workspace = true }
 rand_core         = { workspace = true }
-# edge-mdns master depends on rand_core 0.10. Aliased here so CounterRng can
-# implement the trait that Mdns::new requires, without touching the workspace
-# rand_core 0.6 used by embedded-tls. Drop this alias once edge-mdns moves
-# back to rand_core 0.6 or the workspace migrates to 0.10.
-rand_core_v010    = { package = "rand_core", version = "0.10", default-features = false }
 static_cell       = { workspace = true }
 defmt             = { workspace = true, optional = true }
 ubos-core         = { workspace = true }
