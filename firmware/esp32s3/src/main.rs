@@ -199,14 +199,41 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
     ubos_metrics::metrics::run(stack).await
 }
 
+const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
+    &ubos_api::HTTP_API_SERVICE,
+    &ubos_metrics::PROMETHEUS_SERVICE,
+];
+
 #[embassy_executor::task]
 async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -> ! {
-    ubos_net::mdns::run_mdns(stack, hostname, config::Board::NAME, config::Board::MCU).await
+    ubos_mdns::run_mdns(
+        stack,
+        hostname,
+        config::Board::NAME,
+        config::Board::MCU,
+        MDNS_SERVICES,
+    )
+    .await
 }
 
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<2>().await
+}
+
+#[embassy_executor::task]
+async fn stratum_metrics_task() -> ! {
+    stratum_client::publishers::run_stratum_metrics_publisher().await
+}
+
+#[embassy_executor::task]
+async fn miner_metrics_task() -> ! {
+    ubos_miner::publishers::run_miner_metrics_publisher().await
+}
+
+#[embassy_executor::task]
+async fn hashrate_metrics_task() -> ! {
+    ubos_metrics::hashrate::run_hashrate_publisher().await
 }
 
 /// Adapts `esp32s3_tsens::Tsens` to the `TemperatureSensor` trait.
@@ -301,6 +328,7 @@ async fn stratum_client_task(
                 password: password.as_deref().unwrap_or(""),
             });
             loop {
+                stratum_client::record_reconnect_attempt();
                 let mut socket = match ubos_net::net::connect_stratum(
                     stack,
                     pool_config.host.as_str(),
@@ -354,6 +382,7 @@ async fn stratum_client_task(
                     .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
             );
             loop {
+                stratum_client::record_reconnect_attempt();
                 let mut socket = match ubos_net::net::connect_stratum(
                     stack,
                     pool_config.host.as_str(),
@@ -556,13 +585,24 @@ async fn boot(spawner: Spawner) {
     );
     spawner.must_spawn(net_task(runner));
 
+    // Seed the session CSPRNG before rng is moved into the bitcoin-price TLS task.
+    // esp-hal Rng produces one u32 per call; 8 calls fill the 32-byte seed.
+    let csprng_seed = {
+        let mut seed = [0u8; 32];
+        for chunk in seed.chunks_exact_mut(4) {
+            chunk.copy_from_slice(&rng.random().to_le_bytes());
+        }
+        seed
+    };
+    ubos_api::seed_csprng(csprng_seed).await;
+
     spawner.must_spawn(bitcoin_price_task(stack, TlsRng(rng)));
     spawner.must_spawn(ntp_sync_task(stack));
     spawner.must_spawn(metrics_task(stack));
 
     static MDNS_HOSTNAME: StaticCell<heapless::String<16>> = StaticCell::new();
     let mdns_hostname =
-        ubos_net::mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
+        ubos_mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
             config::Board::MDNS_HOSTNAME_BASE,
             config::Board::MAC_ADDR[5],
             &MDNS_HOSTNAME,
@@ -570,6 +610,9 @@ async fn boot(spawner: Spawner) {
     spawner.must_spawn(mdns_task(stack, mdns_hostname));
 
     spawner.must_spawn(cpu_load_task());
+    spawner.must_spawn(miner_metrics_task());
+    spawner.must_spawn(stratum_metrics_task());
+    spawner.must_spawn(hashrate_metrics_task());
     // No LED blink task: board wiring does not include an accessible LED.
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
     spawner.must_spawn(temperature_task(BoardTempSensor(tsens)));
@@ -676,5 +719,5 @@ async fn boot(spawner: Spawner) {
         }
     }
 
-    ubos_metrics::http::run_http_server(stack, config::Board::NAME).await;
+    ubos_api::run(stack, config::Board::NAME).await;
 }

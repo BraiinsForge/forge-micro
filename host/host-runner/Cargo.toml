@@ -18,11 +18,11 @@ critical-section   = { version = "1.2", features = ["std"] }
 ctrlc              = "3"
 env_logger         = "0.11"
 gpiocdev           = "0.8"
-# embassy-net 0.9's StaticConfigV4 needs heapless 0.9, while the
-# workspace ubos-* crates still pin 0.8; both coexist here until the
-# workspace bumps.
+# embassy-net 0.9's StaticConfigV4 needs heapless 0.9; the workspace
+# ubos-* crates pin 0.8 but only the publisher entry points (which now
+# live inside those crates) touch the 0.8 type, so host-runner only
+# needs 0.9 directly.
 heapless           = "0.9"
-heapless-v08       = { package = "heapless", version = "0.8" }
 log                = { version = "0.4", default-features = false }
 ubos-api           = { workspace = true, default-features = false }
 ubos-miner         = { workspace = true }

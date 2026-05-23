@@ -15,17 +15,17 @@
 #![no_main]
 
 use defmt::{info, unwrap};
-use embassy_executor::Executor;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W6100;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0, UART1};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0, TRNG, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
+use embassy_rp::trng::{self, Trng};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{bind_interrupts, dma, i2c};
@@ -50,8 +50,6 @@ mod uart_baudrate;
 
 static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
     ConstStaticCell::new(embassy_rp::multicore::Stack::new());
-
-static CORE1_EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 /// Software ring buffer size per direction for the core-1 `BufferedUart`.
 /// The RP2350 HW FIFO is 32 bytes; 1 KiB gives slack for ETH-ISR jitter
@@ -115,6 +113,7 @@ bind_interrupts!(struct Irqs {
         dma::InterruptHandler<DMA_CH2>;
     I2C1_IRQ => i2c::InterruptHandler<I2C1>;
     UART1_IRQ => BufferedInterruptHandler<UART1>;
+    TRNG_IRQ => trng::InterruptHandler<TRNG>;
 });
 
 type EthernetRunner = Runner<
@@ -172,9 +171,21 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
     ubos_metrics::metrics::run(stack).await
 }
 
+const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
+    &ubos_api::HTTP_API_SERVICE,
+    &ubos_metrics::PROMETHEUS_SERVICE,
+];
+
 #[embassy_executor::task]
 async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -> ! {
-    ubos_net::mdns::run_mdns(stack, hostname, config::Board::NAME, config::Board::MCU).await
+    ubos_mdns::run_mdns(
+        stack,
+        hostname,
+        config::Board::NAME,
+        config::Board::MCU,
+        MDNS_SERVICES,
+    )
+    .await
 }
 
 #[embassy_executor::task]
@@ -190,6 +201,21 @@ async fn tach_task(hardware: fan::TachHardware) -> ! {
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<2>().await
+}
+
+#[embassy_executor::task]
+async fn stratum_metrics_task() -> ! {
+    stratum_client::publishers::run_stratum_metrics_publisher().await
+}
+
+#[embassy_executor::task]
+async fn miner_metrics_task() -> ! {
+    ubos_miner::publishers::run_miner_metrics_publisher().await
+}
+
+#[embassy_executor::task]
+async fn hashrate_metrics_task() -> ! {
+    ubos_metrics::hashrate::run_hashrate_publisher().await
 }
 
 #[cfg(feature = "display")]
@@ -254,6 +280,7 @@ async fn stratum_client_task(
                 password: password.as_deref().unwrap_or(""),
             });
             loop {
+                stratum_client::record_reconnect_attempt();
                 let mut socket = match ubos_net::net::connect_stratum(
                     stack,
                     pool_config.host.as_str(),
@@ -307,6 +334,7 @@ async fn stratum_client_task(
                     .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
             );
             loop {
+                stratum_client::record_reconnect_attempt();
                 let mut socket = match ubos_net::net::connect_stratum(
                     stack,
                     pool_config.host.as_str(),
@@ -390,8 +418,11 @@ async fn boot(spawner: Spawner) {
             );
             uart_baudrate::split_uart1(uart)
         };
-        let executor = CORE1_EXECUTOR.init(Executor::new());
-        executor.run(|core1_spawner: Spawner| {
+        // Drive core 1 through `run_cortex_m_executor::<1, _>` so the
+        // poll/wfe loop accumulates idle ticks into `IDLE_TICKS[1]`,
+        // letting `run_cpu_load::<2>()` publish a real busy ratio for
+        // this core instead of a constant 1.0.
+        ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner: Spawner| {
             core1_spawner.spawn(unwrap!(mining::serial_task(miner_rx, miner_tx)));
         });
     });
@@ -466,13 +497,35 @@ async fn boot(spawner: Spawner) {
     );
     spawner.spawn(unwrap!(net_task(runner)));
 
+    // Seed the session CSPRNG from the RP2350 hardware TRNG, not the
+    // ring-oscillator-bit `RoscRng`. The TRNG runs three built-in
+    // entropy health checks per draw and is NIST-aligned; `RoscRng`
+    // takes one ROSC randombit per read with no oracle. The TRNG is
+    // only used at boot, so the peripheral is dropped right after the
+    // seed is taken — `bitcoin_price_task` continues to use `RoscRng`
+    // for its TLS nonces because the RP2040 sister firmware has no
+    // TRNG and we keep that code path uniform.
+    let mut csprng_seed = [0u8; 32];
+    {
+        // Datasheet § 12.12.2: sample counts of 20-25 minimise generation
+        // time but fail the on-die NIST entropy checks often enough to
+        // log every boot. 100 trades a few hundred extra microseconds for
+        // a quiet boot; the TRNG is only sampled once for the 32-byte
+        // CSPRNG seed.
+        let mut trng_config = trng::Config::default();
+        trng_config.sample_count = 100;
+        let mut trng = Trng::new(hw.trng, Irqs, trng_config);
+        trng.fill_bytes(&mut csprng_seed).await;
+    }
+    ubos_api::seed_csprng(csprng_seed).await;
+
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_task(stack)));
 
     static MDNS_HOSTNAME: StaticCell<heapless::String<16>> = StaticCell::new();
     let mdns_hostname =
-        ubos_net::mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
+        ubos_mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
             config::Board::MDNS_HOSTNAME_BASE,
             config::Board::MAC_ADDR[5],
             &MDNS_HOSTNAME,
@@ -485,6 +538,9 @@ async fn boot(spawner: Spawner) {
     })));
 
     spawner.spawn(unwrap!(cpu_load_task()));
+    spawner.spawn(unwrap!(miner_metrics_task()));
+    spawner.spawn(unwrap!(stratum_metrics_task()));
+    spawner.spawn(unwrap!(hashrate_metrics_task()));
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
     // Binding must stay alive so the reset pin remains driven high.
@@ -549,5 +605,5 @@ async fn boot(spawner: Spawner) {
         }
     }
 
-    ubos_metrics::http::run_http_server(stack, config::Board::NAME).await;
+    ubos_api::run(stack, config::Board::NAME).await;
 }

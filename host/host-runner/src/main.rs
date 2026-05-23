@@ -25,13 +25,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use embassy_executor::{Executor, Spawner};
 use embassy_net::{Runner, Stack, StackResources};
-use embassy_time::{Duration, Ticker, Timer};
+use embassy_time::{Duration, Timer};
 use log::{info, warn};
 use rand::rngs::OsRng;
 use rand_core::RngCore;
 use static_cell::StaticCell;
 use stratum_client::AsicSession;
-use ubos_metrics::metrics::{Metric, Value};
 use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
 use ubos_net::net;
 use ubos_pool::pool_config::{
@@ -130,16 +129,21 @@ async fn metrics_task(stack: Stack<'static>) -> ! {
     ubos_metrics::metrics::run(stack).await
 }
 
+const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
+    &ubos_api::HTTP_API_SERVICE,
+    &ubos_metrics::PROMETHEUS_SERVICE,
+];
+
 #[embassy_executor::task]
 async fn mdns_task(stack: Stack<'static>) -> ! {
     // hostname and board_name share BOARD_NAME: host-runner has no per-unit
     // MAC suffix to compose a separate DNS label from.
-    ubos_net::mdns::run_mdns(stack, BOARD_NAME, BOARD_NAME, "host").await
+    ubos_mdns::run_mdns(stack, BOARD_NAME, BOARD_NAME, "host", MDNS_SERVICES).await
 }
 
 #[embassy_executor::task]
 async fn http_server_task(stack: Stack<'static>) -> ! {
-    ubos_metrics::http::run_http_server(stack, BOARD_NAME).await
+    ubos_api::run(stack, BOARD_NAME).await
 }
 
 /// CPU-side ASIC mock; spawned when no BM1362 hashboard is wired.
@@ -170,6 +174,7 @@ async fn stratum_client_task(stack: Stack<'static>, pool_config: &'static PoolCo
                 password: password.as_deref().unwrap_or(""),
             });
             loop {
+                stratum_client::record_reconnect_attempt();
                 let mut socket = match net::connect_stratum(
                     stack,
                     pool_config.host.as_str(),
@@ -211,6 +216,7 @@ async fn stratum_client_task(stack: Stack<'static>, pool_config: &'static PoolCo
             );
             let ctx = SECP_CTX.init(ii_sv2::security::CryptoCtx::new());
             loop {
+                stratum_client::record_reconnect_attempt();
                 let mut socket = match net::connect_stratum(
                     stack,
                     pool_config.host.as_str(),
@@ -271,27 +277,19 @@ fn pool_config_from_env() -> PoolConfig {
     .expect("BUG: POOL_* env vars failed to parse")
 }
 
-/// Republishes `ubos_metrics::hashrate::hashrate()` as a Prometheus
-/// metric on a fixed cadence. The EWMA hashrate is bumped
-/// automatically every time a share is recorded via
-/// `ubos_metrics::hashrate::record_share`.
+#[embassy_executor::task]
+async fn stratum_metrics_task() -> ! {
+    stratum_client::publishers::run_stratum_metrics_publisher().await
+}
+
+#[embassy_executor::task]
+async fn miner_metrics_task() -> ! {
+    ubos_miner::publishers::run_miner_metrics_publisher().await
+}
+
 #[embassy_executor::task]
 async fn hashrate_metrics_task() -> ! {
-    let mut ticker = Ticker::every(Duration::from_secs(5));
-    loop {
-        ticker.next().await;
-        let hashrate_hz = ubos_metrics::hashrate::hashrate();
-        ubos_metrics::metrics::push(Metric {
-            name: "board_hashrate_hz",
-            // the workspace ubos-* crates still use heapless 0.8 while
-            // host-runner needs 0.9 for embassy-net 0.9's StaticConfigV4;
-            // renamed dep keeps both in the build.
-            labels: heapless_v08::Vec::new(),
-            value: Value::Uint(hashrate_hz),
-            timestamp_ms: 0,
-        })
-        .await;
-    }
+    ubos_metrics::hashrate::run_hashrate_publisher().await
 }
 
 #[allow(clippy::single_match_else)]
@@ -349,7 +347,16 @@ fn main() {
         spawner.spawn(bitcoin_price_task(stack).expect("BUG: bitcoin_price_task token"));
         spawner.spawn(metrics_task(stack).expect("BUG: metrics_task token"));
         spawner.spawn(mdns_task(stack).expect("BUG: mdns_task token"));
+        spawner.spawn(miner_metrics_task().expect("BUG: miner_metrics_task token"));
+        spawner.spawn(stratum_metrics_task().expect("BUG: stratum_metrics_task token"));
         spawner.spawn(hashrate_metrics_task().expect("BUG: hashrate_metrics_task token"));
+        // Seed the session CSPRNG before the HTTP server task can handle
+        // any request. Firmware boards seed in their async `boot` entry
+        // before spawning; host-runner has no async entry, so
+        // `block_on` is used here to match the boot-time ordering.
+        let mut csprng_seed = [0u8; 32];
+        OsRng.fill_bytes(&mut csprng_seed);
+        embassy_futures::block_on(ubos_api::seed_csprng(csprng_seed));
         spawner.spawn(http_server_task(stack).expect("BUG: http_server_task token"));
         match fan::FanHwmonController::open() {
             Some(controller) => match temperature::HashboardTemperature::open() {

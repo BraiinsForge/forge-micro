@@ -8,7 +8,7 @@
 
 use embassy_rp::peripherals::{
     CORE1, DMA_CH0, DMA_CH1, I2C1, PIN_15, PIN_16, PIN_17, PIN_18, PIN_19, PIN_2, PIN_20, PIN_21,
-    PIN_25, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8, PWM_SLICE4, PWM_SLICE7, SPI0, UART1,
+    PIN_25, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8, PWM_SLICE4, PWM_SLICE7, SPI0, TRNG, UART1,
     WATCHDOG,
 };
 #[cfg(feature = "display")]
@@ -63,11 +63,15 @@ pub struct Board {
     #[cfg(feature = "display")]
     pub display_tx_dma: Peri<'static, DMA_CH2>,
     pub core1: Peri<'static, CORE1>,
+    /// Hardware TRNG peripheral. Used at boot to seed the session
+    /// CSPRNG in `ubos_api`. RP2350-specific; the RP2040 has no
+    /// equivalent and seeds from `RoscRng` instead.
+    pub trng: Peri<'static, TRNG>,
 }
 
 impl Board {
     pub const NAME: &str = "Pico2 W6100";
-    /// DNS-safe base hostname for mDNS. See `ubos_net::mdns::compose_hostname`
+    /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
     /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "rp2350";
     /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
@@ -115,6 +119,7 @@ impl Board {
             #[cfg(feature = "display")]
             display_tx_dma: peripherals.DMA_CH2,
             core1: peripherals.CORE1,
+            trng: peripherals.TRNG,
         }
     }
 }
