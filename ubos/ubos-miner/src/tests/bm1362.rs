@@ -1,4 +1,5 @@
 use super::*;
+use portable_atomic::Ordering as AtomicOrdering;
 
 #[test]
 fn crc5_broadcast_write_0x58() {
@@ -95,11 +96,19 @@ fn parse_register_response() {
         }
         Response::HwSolution(_) => panic!("expected register response"),
     }
-    assert_eq!(parser.dropped_byte, 0);
 }
 
 #[test]
 fn parse_with_junk() {
+    // `UART_DESYNC_BYTES` is process-global, so record the baseline
+    // before feeding two junk bytes and assert the post-feed counter
+    // is exactly two higher. The absolute value is not asserted
+    // because other tests in the same binary may have already bumped
+    // the counter. The delta assertion assumes this is the only test
+    // that feeds desync bytes; cargo runs tests concurrently by
+    // default, so a future test that also exercises the desync path
+    // must either gate on `serial_test` or stop reading this counter.
+    let before = crate::bm1362::UART_DESYNC_BYTES.load(AtomicOrdering::SeqCst);
     let mut parser = ResponseParser::new();
     feed(
         &mut parser,
@@ -109,7 +118,12 @@ fn parse_with_junk() {
     );
     let resp = parser.pop().expect("should parse despite junk");
     assert!(matches!(resp, Response::RegisterResponse(_)));
-    assert_eq!(parser.dropped_byte, 2);
+    let after = crate::bm1362::UART_DESYNC_BYTES.load(AtomicOrdering::SeqCst);
+    assert_eq!(
+        after.wrapping_sub(before),
+        2,
+        "expected exactly two desync bytes accounted (got {before} → {after})",
+    );
 }
 
 /// Locks ubos-miner's local share-verification hash to

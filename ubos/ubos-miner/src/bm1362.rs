@@ -7,7 +7,13 @@
 //! ([`ResponseParser`]).
 
 use heapless::Vec as HVec;
+use portable_atomic::{AtomicU32, Ordering};
 use sha2::{Digest, Sha256};
+
+/// Lifetime-monotonic count of bytes discarded while scanning for the
+/// `0xAA 0x55` frame preamble in the UART byte stream. Survives serial-
+/// actor recoveries; useful for detecting sustained desync or noise.
+pub static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
 
 // ---------------------------------------------------------------------------
 // CRC
@@ -338,13 +344,6 @@ pub enum Response {
 pub struct ResponseParser {
     buf: [u8; 256],
     len: usize,
-    /// Lifetime-monotonic count of bytes resynced past while scanning
-    /// for the `0xAA 0x55` frame preamble. Not reset by [`clear`] so
-    /// the figure survives serial-actor recoveries and stays useful
-    /// for diagnostic reads.
-    ///
-    /// [`clear`]: ResponseParser::clear
-    dropped_byte: u32,
 }
 
 impl ResponseParser {
@@ -353,7 +352,6 @@ impl ResponseParser {
         Self {
             buf: [0; 256],
             len: 0,
-            dropped_byte: 0,
         }
     }
 
@@ -411,7 +409,7 @@ impl ResponseParser {
     fn drop_first(&mut self) {
         self.buf.copy_within(1..self.len, 0);
         self.len -= 1;
-        self.dropped_byte += 1;
+        UART_DESYNC_BYTES.fetch_add(1, Ordering::Relaxed);
     }
 }
 

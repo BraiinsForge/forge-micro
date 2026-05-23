@@ -17,6 +17,7 @@ use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
+use portable_atomic::{AtomicBool, Ordering};
 use ubos_logging::{Debug2Format, error, info, warn};
 use ubos_monitor::HALT_MINING;
 use ubos_psu::Psu;
@@ -26,13 +27,21 @@ use ubos_psu::Psu;
 /// in `run`; `false` at startup and after teardown.
 pub static MINER_IS_RUNNING: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
+/// Atomic mirror of [`MINER_IS_RUNNING`] for scrape-time reads that
+/// must not wait for the next signal edge. Stored with
+/// `Ordering::Release`; readers must use `Ordering::Acquire`. Cross-core
+/// consumers see the matching epoch on dual-core boards.
+pub static MINER_IS_RUNNING_STATE: AtomicBool = AtomicBool::new(false);
+
 use crate::bmm100_trace::{DEINIT, INIT};
 use crate::replay::replay;
 use crate::reset::ResetPin;
 use crate::serial::SERIAL;
 
-/// Rail voltage the chip runs at. Mirrors the redacted miner.
-const VOLTAGE_MV: u32 = 1400;
+/// Default ASIC core voltage, in millivolts, that the firmware programs at
+/// boot. Exported so API response builders can report it without duplicating
+/// the constant across crates.
+pub const VOLTAGE_MV: u32 = 1400;
 
 /// Settling time held between each reset / PSU transition during
 /// the bring-up sequence.
@@ -55,6 +64,7 @@ where
 {
     // Publish the initial state so a fan task that started before us
     // sees `false` instead of waiting forever for the first edge.
+    MINER_IS_RUNNING_STATE.store(false, Ordering::Release);
     MINER_IS_RUNNING.signal(false);
     let mut halted = false;
 
@@ -90,6 +100,7 @@ where
         // Fans follow the rail, not the init-replay completion: the
         // chip is dissipating power as soon as the PSU is on, and
         // init replay can take long enough for thermals to climb.
+        MINER_IS_RUNNING_STATE.store(true, Ordering::Release);
         MINER_IS_RUNNING.signal(true);
         match settle_or_abort(RESET_HOLD, psu, reset_pin).await {
             Settled::Continue => {}
@@ -150,6 +161,7 @@ where
 {
     reset_pin.enter_reset();
     let _ = psu.disable().await;
+    MINER_IS_RUNNING_STATE.store(false, Ordering::Release);
     MINER_IS_RUNNING.signal(false);
 }
 
