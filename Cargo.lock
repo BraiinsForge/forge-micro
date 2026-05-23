@@ -4415,6 +4415,7 @@ dependencies = [
  "edge-nal",
  "edge-nal-embassy",
  "embassy-net",
+ "embassy-time",
  "embedded-io-async 0.7.0",
  "ubos-core",
  "ubos-logging",

@@ -22,6 +22,7 @@ members = [
     "ubos/stratum-v2",
     "ubos/ubos-core",
     "ubos/ubos-display",
+    "ubos/ubos-http",
     "ubos/ubos-logging",
     "ubos/ubos-metrics",
     "ubos/ubos-monitor",
@@ -82,6 +83,7 @@ ubos-miner        = { path = "ubos/ubos-miner", default-features = false }
 ii-sv2            = { git = "ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git", tag = "v0.2.0", default-features = false }
 ubos-core         = { path = "ubos/ubos-core" }
 ubos-display      = { path = "ubos/ubos-display" }
+ubos-http         = { path = "ubos/ubos-http", default-features = false }
 ubos-logging      = { path = "ubos/ubos-logging", default-features = false }
 ubos-metrics      = { path = "ubos/ubos-metrics", default-features = false }
 ubos-monitor      = { path = "ubos/ubos-monitor", default-features = false }

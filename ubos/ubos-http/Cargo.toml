@@ -1,0 +1,22 @@
+[package]
+name    = "ubos-http"
+edition = "2021"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[features]
+default = ["defmt"]
+defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt", "edge-http/defmt"]
+
+[dependencies]
+edge-http         = { workspace = true, features = ["io"] }
+edge-nal          = { workspace = true }
+edge-nal-embassy  = { workspace = true, features = ["tcp", "proto-ipv4", "medium-ethernet"] }
+embassy-net       = { workspace = true, features = ["tcp", "medium-ethernet", "proto-ipv4"] }
+embassy-time      = { workspace = true }
+embedded-io-async = { workspace = true }
+defmt             = { workspace = true, optional = true }
+ubos-core         = { workspace = true }
+ubos-logging      = { workspace = true }
