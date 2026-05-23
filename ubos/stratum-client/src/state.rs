@@ -7,7 +7,16 @@
 //! generator's source of truth for the latest job.
 
 use mining_protocol::{MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
+use portable_atomic::{AtomicU64, Ordering};
 use ubos_logging::{info, warn};
+
+/// Lifetime-monotonic count of shares the pool accepted. Incremented
+/// in [`StratumState::visit_submit_result`] on the `Accepted` arm.
+pub static SHARES_ACCEPTED: AtomicU64 = AtomicU64::new(0);
+
+/// Lifetime-monotonic count of shares the pool rejected. Incremented
+/// in [`StratumState::visit_submit_result`] on the `Rejected` arm.
+pub static SHARES_REJECTED: AtomicU64 = AtomicU64::new(0);
 
 use crate::job_ring::{JobRing, JOB_RING_DEPTH};
 use crate::work::MAX_EXTRANONCE_2;
@@ -95,6 +104,7 @@ impl MiningClientVisitor for StratumState {
                     "stratum-client: {} share(s) accepted, +{} work",
                     count, work,
                 );
+                SHARES_ACCEPTED.fetch_add(u64::from(count), Ordering::Relaxed);
             }
             SubmitResult::Rejected {
                 error_code,
@@ -104,6 +114,7 @@ impl MiningClientVisitor for StratumState {
                     "stratum-client: share rejected code={:?} message={:?}",
                     error_code, error_message,
                 );
+                SHARES_REJECTED.fetch_add(1, Ordering::Relaxed);
             }
         }
     }
@@ -117,7 +128,7 @@ impl MiningClientVisitor for StratumState {
                 let target_hex = mining_protocol::hex::encode_block_hash_lower(target);
                 info!(
                     "stratum-client: set target {}...",
-                    core::str::from_utf8(&target_hex[..32]).expect("hex encoder emits ASCII"),
+                    core::str::from_utf8(&target_hex[..32]).expect("BUG: hex encoder emits ASCII"),
                 );
             }
             SessionUpdate::SetExtranonce { prefix, en2_size } => {
@@ -142,7 +153,7 @@ impl MiningClientVisitor for StratumState {
                 info!(
                     "stratum-client: set extranonce prefix={} en2_size={}",
                     core::str::from_utf8(&prefix_hex[..prefix_hex_len])
-                        .expect("hex encoder emits ASCII"),
+                        .expect("BUG: hex encoder emits ASCII"),
                     en2_size,
                 );
             }

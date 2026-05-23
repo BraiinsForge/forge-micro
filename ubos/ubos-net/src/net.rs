@@ -126,7 +126,7 @@ pub async fn connect_stratum<'b>(
 }
 
 /// Count of accepted HTTP requests since boot, incremented by the
-/// dashboard HTTP server in `ubos-metrics::http`.
+/// dashboard HTTP server in `ubos-api::dashboard`.
 pub static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
 pub static BTC_PRICE_CENTS: AtomicU32 = AtomicU32::new(0);
 pub static NTP_EPOCH_OFFSET: AtomicU64 = AtomicU64::new(0);
@@ -143,12 +143,28 @@ pub static LOCAL_IPV4: AtomicU32 = AtomicU32::new(0);
 /// clamp sub-zero readings to zero before storing; an `i32 as u32`
 /// cast of a negative value would wrap to a huge positive number.
 pub static TEMPERATURE_C: AtomicU32 = AtomicU32::new(0);
-/// Per-pool reachability bitmap: bit 0 is pool 1, bit 1 is pool 2, bit 2
-/// is pool 3. Cleared bits render as `Dead` on the dashboard, set bits as
-/// `Alive`. Zero until a producer writes; mirrors `TEMPERATURE_C` in that
-/// no firmware producer is wired yet, the dashboard stub exists ahead of
-/// the upcoming Stratum client work.
+/// Per-pool reachability bitmap, one bit per pool index. Set bits
+/// render as `Alive` on the dashboard; cleared bits as `Dead`.
+/// Written by the stratum task via [`set_pool_alive`].
+///
+/// Only bit 0 (primary pool) is driven today. The dashboard reserves
+/// rows for backup pools; their bits stay zero and render `Dead`
+/// until secondary/tertiary stratum clients are wired up.
 pub static POOL_ALIVE_BITMAP: AtomicU8 = AtomicU8::new(0);
+
+/// Set or clear the reachability bit for `pool_index` (0 = primary).
+///
+/// Thread-safe; uses a relaxed RMW so the bitmap stays coherent even
+/// when multiple tasks race on separate pool indexes.
+pub fn set_pool_alive(pool_index: u8, alive: bool) {
+    debug_assert!(pool_index < 8, "pool_index must fit in the u8 bitmap");
+    let bit = 1u8 << pool_index;
+    if alive {
+        POOL_ALIVE_BITMAP.fetch_or(bit, Ordering::Relaxed);
+    } else {
+        POOL_ALIVE_BITMAP.fetch_and(!bit, Ordering::Relaxed);
+    }
+}
 
 static TCP_RX: ConstStaticCell<[u8; Tls::TCP_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::TCP_BUFFER_SIZE]);
