@@ -31,6 +31,12 @@ members = [
     "ubos/ubos-temperature",
 ]
 
+[workspace.package]
+version = "0.0.1"
+
+[workspace.metadata.crane]
+name = "ubos-main"
+
 [workspace.dependencies]
 embassy-executor  = { version = "0.10.0", default-features = false }
 embassy-sync      = { version = "0.8", default-features = false }
