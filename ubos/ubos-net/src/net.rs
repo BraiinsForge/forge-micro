@@ -3,7 +3,6 @@
 //!
 //! Architecture: `../../../docs/OVERVIEW.md`.
 
-use embassy_futures::yield_now;
 use embassy_net::dns::DnsQueryType;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
@@ -186,13 +185,20 @@ static TLS_READ: ConstStaticCell<[u8; Tls::READ_BUFFER_SIZE]> =
 static TLS_WRITE: ConstStaticCell<[u8; Tls::WRITE_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::WRITE_BUFFER_SIZE]);
 /// Wait until the network stack receives a DHCP lease.
+///
+/// Polls `stack.config_v4()` at a 100 ms cadence rather than yielding
+/// inside a tight loop, so the executor is not pegged for the entire
+/// DHCP acquisition window.
 pub async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
     loop {
         if let Some(config) = stack.config_v4() {
             LOCAL_IPV4.store(config.address.address().to_bits(), Ordering::Relaxed);
             return config.clone();
         }
-        yield_now().await;
+        // 100 ms is short enough to keep DHCP re-acquisition responsive but
+        // long enough to keep this poll off the executor hot path. Previously
+        // a `yield_now()`, which was a CPU-bound spin.
+        Timer::after(Duration::from_millis(100)).await;
     }
 }
 
