@@ -6,6 +6,9 @@ version = "0.1.0"
 [lints]
 workspace = true
 
+[features]
+ccmram-bss = []
+
 [dependencies]
 embassy-time    = { workspace = true }
 embedded-hal    = { workspace = true }

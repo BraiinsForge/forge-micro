@@ -4,6 +4,8 @@
 //! and the LED/watchdog task wrappers.
 #![no_std]
 
+#[cfg(feature = "ccmram-bss")]
+pub mod ccmram;
 pub mod consts;
 pub mod fan_state;
 pub mod led;
