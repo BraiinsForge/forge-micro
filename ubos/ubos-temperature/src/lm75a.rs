@@ -11,8 +11,11 @@
 //! crates instantiate this directly so the four-sensor logic does not
 //! need to be duplicated per board.
 
+use core::fmt::Write as _;
+
 use embedded_hal_async::i2c::I2c;
 use ubos_logging::error;
+use ubos_metrics::metrics::{push, Label, LabelValue, Metric, Value};
 
 use crate::TemperatureSensor;
 
@@ -103,6 +106,23 @@ where
                 Ok(reading) => {
                     let adjusted = reading + Self::OFFSET_MILLICELSIUS;
                     hottest = Some(hottest.map_or(adjusted, |current| current.max(adjusted)));
+
+                    // Push the per-sensor reading labeled by I2C address so
+                    // the dashboard can show hot vs cold sensors independently.
+                    let mut address_str = heapless::String::<24>::new();
+                    let _ = write!(address_str, "{:#04x}", sensor.address());
+                    let mut labels = heapless::Vec::new();
+                    let _ = labels.push(Label {
+                        name: "addr",
+                        value: LabelValue::Short(address_str),
+                    });
+                    push(Metric {
+                        name: "board_lm75a_temperature_millicelsius",
+                        labels,
+                        value: Value::Int(i64::from(adjusted)),
+                        timestamp_ms: 0,
+                    })
+                    .await;
                 }
                 Err(Error::I2c(bus_error)) => {
                     error!(
