@@ -102,6 +102,15 @@ impl Metrics {
     pub const RESPONSE_BUFFER_SIZE: usize = 2048;
     pub const REQUEST_BUFFER_SIZE: usize = 256;
     pub const CHANNEL_DEPTH: usize = 32;
-    pub const MAX_METRICS: usize = 16;
+    /// Maximum number of distinct metric series held in the exposition
+    /// map. Must be a power of two (heapless `FnvIndexMap` invariant).
+    /// The map is keyed by the fully label-expanded series, so per-CPU
+    /// and per-LM75A label combinations each consume one slot. 64 is
+    /// ~2.5x headroom over the 25 label-expanded series pushed today
+    /// while staying well within the .bss budget on the smallest
+    /// targets (stm32f407 at 128 KiB, rp2040 at 256 KiB). An earlier
+    /// 128-entry trial blew the stm32f4 SRAM during the api refactor;
+    /// see `docs/API_REFACTOR_SIZES.md` for the data.
+    pub const MAX_METRICS: usize = 64;
     pub const MAX_LABELS: usize = 4;
 }

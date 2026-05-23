@@ -7,8 +7,9 @@ version = "0.1.0"
 workspace = true
 
 [features]
-default = ["defmt"]
-defmt   = ["dep:defmt", "edge-mdns/defmt", "embassy-net/defmt", "ubos-logging/defmt"]
+default    = ["defmt"]
+defmt      = ["dep:defmt", "edge-mdns/defmt", "embassy-net/defmt", "ubos-logging/defmt"]
+ccmram-bss = []
 
 [dependencies]
 edge-mdns         = { workspace = true, features = ["io"] }

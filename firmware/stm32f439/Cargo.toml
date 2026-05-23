@@ -14,7 +14,7 @@ display = []
 ubos-api             = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-metrics         = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-mdns            = { workspace = true, features = ["defmt"] }
-ubos-net             = { workspace = true, features = ["defmt"] }
+ubos-net             = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-pool            = { workspace = true }
 ubos-display         = { workspace = true }
 ubos-core            = { workspace = true, features = ["ccmram-bss"] }

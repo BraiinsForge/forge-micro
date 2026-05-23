@@ -1,13 +1,26 @@
 /// Build script that configures linker scripts and error handling.
 ///
-/// For STM32, the memory-x feature of embassy-stm32 auto-generates the memory
-/// layout. We only need link.x and defmt.x linker scripts.
+/// The local `memory.x` is copied into `$OUT_DIR` and that directory is
+/// added to the linker search path so cortex-m-rt's `link.x` picks up
+/// our extended layout instead of the one embassy-stm32 would generate.
+/// We carry our own memory.x to declare the CCM RAM region; the
+/// `memory-x` feature on the `embassy-stm32` dependency is therefore
+/// disabled.
 fn main() {
     linker_be_nice();
+
+    let out_dir = std::env::var_os("OUT_DIR").expect("BUG: OUT_DIR not set by cargo");
+    let destination = std::path::Path::new(&out_dir).join("memory.x");
+    std::fs::copy("memory.x", &destination).expect("BUG: copy memory.x to OUT_DIR");
+    println!(
+        "cargo:rustc-link-search={}",
+        std::path::Path::new(&out_dir).display()
+    );
 
     println!("cargo:rustc-link-arg=-Tlink.x");
     println!("cargo:rustc-link-arg=-Tdefmt.x");
 
+    println!("cargo:rerun-if-changed=memory.x");
     println!("cargo:rerun-if-changed=build.rs");
 }
 

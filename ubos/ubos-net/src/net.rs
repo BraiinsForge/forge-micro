@@ -170,8 +170,19 @@ static TCP_RX: ConstStaticCell<[u8; Tls::TCP_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::TCP_BUFFER_SIZE]);
 static TCP_TX: ConstStaticCell<[u8; Tls::TCP_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::TCP_BUFFER_SIZE]);
+// `TLS_READ` is CPU-only scratch filled by the embedded-tls record parser.
+// `TlsConnection::read()` decrypts into this buffer using CPU memcpy paths
+// inside embedded-tls; the MAC DMA only ever touches the smoltcp socket
+// RX ring (the `TCP_RX` buffer handed to `TcpSocket::new`), which is a
+// separate allocation. `TLS_READ` is never passed to any DMA descriptor, so
+// it is safe to place in CCM on stm32f4.
+#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
 static TLS_READ: ConstStaticCell<[u8; Tls::READ_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::READ_BUFFER_SIZE]);
+// `TLS_WRITE` is CPU-only scratch for the embedded-tls record builder;
+// the bytes are copied to the TCP TX buffer before DMA touches them,
+// so it can live in CCM on stm32f4.
+#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
 static TLS_WRITE: ConstStaticCell<[u8; Tls::WRITE_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Tls::WRITE_BUFFER_SIZE]);
 /// Wait until the network stack receives a DHCP lease.
