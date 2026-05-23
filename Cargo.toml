@@ -31,6 +31,7 @@ members = [
     "ubos/ubos-pool",
     "ubos/ubos-psu",
     "ubos/ubos-temperature",
+    "ubos/ubos-webui",
 ]
 
 [workspace.package]
@@ -93,6 +94,7 @@ ubos-net          = { path = "ubos/ubos-net", default-features = false }
 ubos-pool         = { path = "ubos/ubos-pool" }
 ubos-psu          = { path = "ubos/ubos-psu", default-features = false }
 ubos-temperature  = { path = "ubos/ubos-temperature", default-features = false }
+ubos-webui        = { path = "ubos/ubos-webui", default-features = false }
 
 [workspace.lints.clippy]
 pedantic     = { level = "warn", priority = -1 }

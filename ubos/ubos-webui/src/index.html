@@ -181,7 +181,9 @@ svg.addEventListener('pointerleave',()=>{$('tip').innerHTML='';tt.classList.add(
 $('cfgForm').addEventListener('submit',async e=>{
  e.preventDefault();
  const body=JSON.stringify(Object.fromEntries(new FormData(e.target)));
- try{const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body});
+ try{const t=await fetch('/',{cache:'no-store'});
+  const csrf=t.headers.get('X-CSRF-Token')||'';
+  const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body});
   $('msg').textContent=r.ok?'Saved (logged to firmware console).':'Save failed.'}
  catch(_){$('msg').textContent='Save failed.'}
 });

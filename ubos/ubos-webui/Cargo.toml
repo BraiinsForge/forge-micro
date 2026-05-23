@@ -1,0 +1,12 @@
+[package]
+name    = "ubos-webui"
+edition = "2021"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+# Pre-compresses `src/index.html` with gzip at build time so the
+# firmware ships the dashboard with `Content-Encoding: gzip`.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
