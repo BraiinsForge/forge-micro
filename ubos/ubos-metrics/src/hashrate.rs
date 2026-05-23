@@ -2,10 +2,8 @@
 //!
 //! Metrics: `../../../docs/METRICS.md`.
 
-use core::sync::atomic::Ordering;
-
 use embassy_time::Instant;
-use portable_atomic::{AtomicBool, AtomicU64};
+use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 
 #[cfg(test)]
 #[path = "tests/hashrate.rs"]
@@ -154,6 +152,40 @@ pub fn hashrate() -> u64 {
 
     let missed = (stale_ms - BUCKET_MS) / BUCKET_MS;
     decay_silent(stored, missed)
+}
+
+/// Periodically push `board_hashrate_hps` and `board_shares_total` to
+/// the metrics exposition channel.
+///
+/// Reads the same atomics as [`hashrate`] and [`SHARE_COUNT`]. Boards
+/// spawn this from their own `#[embassy_executor::task]` wrapper so the
+/// pool/stack/cap configuration stays per-target.
+pub async fn run_hashrate_publisher() -> ! {
+    use embassy_time::{Duration, Ticker};
+
+    use crate::metrics::{push, Metric, Value};
+
+    let mut ticker = Ticker::every(Duration::from_secs(2));
+    loop {
+        ticker.next().await;
+        push(Metric {
+            name: "board_hashrate_hps",
+            labels: heapless::Vec::new(),
+            value: Value::Uint(hashrate()),
+            timestamp_ms: 0,
+        })
+        .await;
+        // ASIC-reported share count, distinct from the upstream pool's
+        // accepted/rejected acknowledgements (`board_shares_accepted_total`
+        // and `board_shares_rejected_total` published by stratum-client).
+        push(Metric {
+            name: "board_shares_total",
+            labels: heapless::Vec::new(),
+            value: Value::Uint(SHARE_COUNT.load(Ordering::Relaxed)),
+            timestamp_ms: 0,
+        })
+        .await;
+    }
 }
 
 /// `Display` adapter for a hashrate in H/s. Renders rates below 1 GH/s

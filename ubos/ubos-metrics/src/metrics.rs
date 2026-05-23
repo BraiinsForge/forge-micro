@@ -4,22 +4,44 @@
 
 use core::fmt::Write as _;
 
+use edge_http::io::server::{handle_connection, Connection, Handler};
+use edge_http::io::Error as HttpError;
+use edge_http::Method;
+use edge_nal::TcpSplit;
+use edge_nal::{TcpAccept as _, TcpBind as _};
+use edge_nal_embassy::{Tcp, TcpBuffers};
+
 use embassy_futures::select::{select, Either};
-use embassy_net::tcp::TcpSocket;
 use embassy_net::Stack;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_time::{Duration, Instant, Timer};
-use embedded_io_async::Write;
+use embassy_sync::mutex::Mutex;
+use embassy_time::{with_timeout, Instant};
+use embedded_io_async::{Read, Write};
 use portable_atomic::Ordering;
 use static_cell::ConstStaticCell;
-use ubos_logging::warn;
+use ubos_logging::{warn, Debug2Format};
 
-use crate::http::BufferWriter;
-use ubos_core::consts::Metrics;
+use ubos_core::consts::{Metrics, Net};
+use ubos_http::{format_content_length, BufferWriter, CONTENT_LENGTH_DECIMAL_DIGITS};
 use ubos_net::net::{BTC_PRICE_CENTS, LAST_BTC_FETCH_UPTIME_SECS, NTP_EPOCH_OFFSET, REQUEST_COUNT};
 
+/// Maximum number of HTTP headers parsed per metrics request.
+///
+/// Prometheus scrapers send roughly six headers (Host, User-Agent,
+/// Accept, Accept-Encoding, X-Prometheus-Scrape-Timeout-Seconds, and
+/// Connection); sixteen slots fit all observed headers with room for
+/// future additions without inflating the per-connection stack frame.
+const MAX_HEADERS: usize = 16;
+
+/// Logging task identifier passed to `edge_http::io::server::handle_connection`.
+///
+/// The accept loop serves one connection at a time; edge-http only
+/// uses this value to tag log lines.
+const TASK_ID: usize = 0;
+
 /// A metric value.
+#[non_exhaustive]
 pub enum Value {
     /// Signed integer value.
     Int(i64),
@@ -31,6 +53,7 @@ pub enum Value {
 
 /// A label value, either a static string or an owned inline string for
 /// dynamic values such as chip identifiers.
+#[non_exhaustive]
 pub enum LabelValue {
     /// A compile-time constant string.
     Static(&'static str),
@@ -72,8 +95,17 @@ struct StoredValue {
 ///
 /// Labels are sorted so that `{a="1",b="2"}` and `{b="2",a="1"}` map to
 /// the same key.
+///
+/// Budget: 49 bytes covers the longest emitted key,
+/// `board_lm75a_temperature_millicelsius{addr="0x4c"}`, including the
+/// full label-expanded form with braces and quoted value. The remaining
+/// 15 bytes fit one additional short label before `upsert_metric` hits
+/// the cap and emits a `warn!`. If a new long-name metric is added,
+/// raise `KEY_CAPACITY` instead of relying on the runtime drop.
+const KEY_CAPACITY: usize = 64;
+
 #[derive(PartialEq, Eq, Hash)]
-struct MetricKey(heapless::String<128>);
+struct MetricKey(heapless::String<KEY_CAPACITY>);
 
 impl MetricKey {
     /// Build a key from a metric, sorting its labels by name.
@@ -96,7 +128,7 @@ impl MetricKey {
             sorted_indices[inner] = pivot;
         }
 
-        let mut key = heapless::String::<128>::new();
+        let mut key = heapless::String::<KEY_CAPACITY>::new();
         key.push_str(metric.name).ok()?;
         if count > 0 {
             key.push('{').ok()?;
@@ -117,7 +149,7 @@ impl MetricKey {
 
 /// Append a Prometheus-escaped label value to `key`. Returns `None` if the
 /// buffer fills.
-fn push_escaped_label_value(key: &mut heapless::String<128>, value: &str) -> Option<()> {
+fn push_escaped_label_value(key: &mut heapless::String<KEY_CAPACITY>, value: &str) -> Option<()> {
     for character in value.chars() {
         match character {
             '\\' => key.push_str("\\\\").ok()?,
@@ -133,14 +165,49 @@ fn push_escaped_label_value(key: &mut heapless::String<128>, value: &str) -> Opt
 static METRICS: Channel<CriticalSectionRawMutex, Metric, { Metrics::CHANNEL_DEPTH }> =
     Channel::new();
 
-static METRICS_RX: ConstStaticCell<[u8; Metrics::RX_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Metrics::RX_BUFFER_SIZE]);
-static METRICS_TX: ConstStaticCell<[u8; Metrics::TX_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Metrics::TX_BUFFER_SIZE]);
-static METRICS_RESPONSE: ConstStaticCell<[u8; Metrics::RESPONSE_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Metrics::RESPONSE_BUFFER_SIZE]);
+/// Accepted-connection pool depth for the metrics server. Raising this
+/// breaks the `METRICS_BODY_BUFFER` single-writer assumption below; the
+/// `const _` assertion next to that buffer enforces the coupling at
+/// compile time.
+const METRICS_TCP_POOL_DEPTH: usize = 1;
+
+static METRICS_TCP_BUFFERS: ConstStaticCell<
+    TcpBuffers<METRICS_TCP_POOL_DEPTH, { Metrics::TX_BUFFER_SIZE }, { Metrics::RX_BUFFER_SIZE }>,
+> = ConstStaticCell::new(TcpBuffers::new());
+
+#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
 static METRICS_REQUEST: ConstStaticCell<[u8; Metrics::REQUEST_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Metrics::REQUEST_BUFFER_SIZE]);
+
+/// Hoisted `FnvIndexMap` so it can be placed in CCM RAM on boards that
+/// enable the `ccmram-bss` feature. Embedding the map inside the
+/// async `run` future would force it into the standard `.bss` along
+/// with the rest of the task state, which is exactly what blew the
+/// stm32f4 main SRAM during the api refactor.
+#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
+static METRIC_MAP: ConstStaticCell<
+    heapless::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
+> = ConstStaticCell::new(heapless::FnvIndexMap::new());
+
+/// Hoisted exposition body buffer. Lives next to `METRIC_MAP` so the
+/// 2 KiB scratch does not ride on the metrics-task async frame.
+///
+/// Wrapped in `Mutex` rather than `ConstStaticCell`+`RefCell` so the
+/// lock guard can be held across `await` points during the response
+/// write. Sound only because the `TcpBuffers` pool depth is 1, so
+/// `serve_metrics` cannot be re-entered concurrently; if pool depth is
+/// ever raised, scrapes will serialize on this lock.
+#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
+static METRICS_BODY_BUFFER: Mutex<CriticalSectionRawMutex, [u8; Metrics::RESPONSE_BUFFER_SIZE]> =
+    Mutex::new([0; Metrics::RESPONSE_BUFFER_SIZE]);
+
+const _: () = assert!(
+    METRICS_TCP_POOL_DEPTH == 1,
+    "METRICS_BODY_BUFFER is a single Mutex shared across all accepted \
+     connections; raising the pool depth requires either making the buffer \
+     per-slot or accepting that concurrent scrapes will serialize on this \
+     lock."
+);
 
 /// Push a metric into the exposition channel. Awaits if the channel is full.
 pub async fn push(metric: Metric) {
@@ -150,57 +217,74 @@ pub async fn push(metric: Metric) {
 /// Serve Prometheus exposition on [`Metrics::PORT`] and consume pushed metrics.
 ///
 /// Call this from a firmware `#[embassy_executor::task]`.
+///
+/// # Panics
+///
+/// Panics if `TcpBind::bind` returns an error. The current
+/// `edge-nal-embassy` implementation of `bind` is infallible and
+/// only stores the address; a panic here would indicate a library
+/// contract violation.
 pub async fn run(stack: Stack<'static>) -> ! {
-    let rx = METRICS_RX.take();
-    let tx = METRICS_TX.take();
-    let response = METRICS_RESPONSE.take();
-    let request_buffer = METRICS_REQUEST.take();
+    let tcp_buffers = METRICS_TCP_BUFFERS.take();
+    let work_buffer = METRICS_REQUEST.take();
+    let map = METRIC_MAP.take();
 
-    let mut map: heapless::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }> =
-        heapless::FnvIndexMap::new();
+    let tcp = Tcp::new(stack, tcp_buffers);
+
+    let bind_addr = core::net::SocketAddr::new(
+        core::net::IpAddr::V4(core::net::Ipv4Addr::UNSPECIFIED),
+        Metrics::PORT,
+    );
+
+    #[expect(
+        clippy::expect_used,
+        reason = "TcpBind::bind on edge-nal-embassy is infallible"
+    )]
+    // edge-nal-embassy TcpBind::bind() is documented infallible;
+    // a failure here is a library contract violation.
+    let acceptor = tcp
+        .bind(bind_addr)
+        .await
+        .expect("BUG: metrics TCP bind failed");
 
     loop {
-        let mut socket = TcpSocket::new(stack, rx, tx);
-        socket.set_timeout(Some(ubos_core::consts::Net::SOCKET_TIMEOUT));
-
-        let accept_future = socket.accept(Metrics::PORT);
-        let receive_future = METRICS.receive();
-
-        match select(accept_future, receive_future).await {
+        match select(acceptor.accept(), METRICS.receive()).await {
             Either::Second(metric) => {
-                upsert_metric(&mut map, metric);
-                continue;
+                upsert_metric(map, metric);
             }
             Either::First(Err(error)) => {
-                warn!("metrics tcp accept error: {:?}", error);
-                continue;
+                warn!("metrics tcp accept error: {:?}", Debug2Format(&error));
             }
-            Either::First(Ok(())) => {}
+            Either::First(Ok((_peer_addr, socket))) => {
+                // Drain pending metrics so the response reflects the latest values.
+                while let Ok(metric) = METRICS.try_receive() {
+                    upsert_metric(map, metric);
+                }
+                let handler = MetricsHandler {
+                    map,
+                    body_buffer: &METRICS_BODY_BUFFER,
+                };
+                // Cap per-connection lifetime so a stalled scraper
+                // cannot hold the single accept slot indefinitely,
+                // which would starve subsequent scrapes and the
+                // metric upserts driven from this select loop.
+                if with_timeout(
+                    Net::SOCKET_TIMEOUT,
+                    handle_connection::<_, _, MAX_HEADERS>(
+                        socket,
+                        work_buffer,
+                        None,
+                        TASK_ID,
+                        handler,
+                    ),
+                )
+                .await
+                .is_err()
+                {
+                    warn!("metrics connection timed out");
+                }
+            }
         }
-
-        // Drain any metrics that arrived while the accept was pending.
-        while let Ok(metric) = METRICS.try_receive() {
-            upsert_metric(&mut map, metric);
-        }
-
-        let length = read_request(&mut socket, request_buffer).await;
-        let path_ok = parse_metrics_request(&request_buffer[..length]);
-
-        let response_len = if path_ok {
-            build_prometheus_response(response, &map)
-        } else {
-            build_not_found_response(response)
-        };
-
-        if let Err(error) = socket.write_all(&response[..response_len]).await {
-            warn!("metrics tcp write error: {:?}", error);
-        }
-
-        socket.flush().await.ok();
-        socket.close();
-        // Wait for the FIN handshake so the peer sees a clean close
-        // instead of RST when the socket is dropped.
-        Timer::after(Duration::from_millis(50)).await;
     }
 }
 
@@ -210,7 +294,10 @@ fn upsert_metric(
     metric: Metric,
 ) {
     let Some(key) = MetricKey::from_metric(&metric) else {
-        warn!("metrics key encoding overflowed, dropping metric");
+        warn!(
+            "metrics key encoding overflowed for {}; dropping metric (raise KEY_CAPACITY)",
+            metric.name
+        );
         return;
     };
     let stored = StoredValue {
@@ -222,67 +309,134 @@ fn upsert_metric(
     }
 }
 
-/// Read up to [`Metrics::REQUEST_BUFFER_SIZE`] bytes or until `\r\n` appears.
+/// edge-http handler for the Prometheus `/metrics` endpoint.
 ///
-/// Returns the number of bytes read.
-async fn read_request(socket: &mut TcpSocket<'_>, buffer: &mut [u8]) -> usize {
-    let mut total = 0;
-    loop {
-        match socket.read(&mut buffer[total..]).await {
-            Ok(0) | Err(_) => break,
-            Ok(count) => {
-                total += count;
-                // Stop once we have a complete first line.
-                if buffer[..total].windows(2).any(|window| window == b"\r\n") {
-                    break;
-                }
-                if total >= buffer.len() {
-                    break;
-                }
+/// Holds a mutable reference to the metric map and a reference to the
+/// hoisted exposition body buffer. One `MetricsHandler` is constructed
+/// per accepted connection and dropped when `handle_connection`
+/// returns. The body buffer is reached through a `Mutex` so its guard
+/// can be held across `await` points during the response write.
+struct MetricsHandler<'a> {
+    map: &'a mut heapless::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
+    body_buffer: &'a Mutex<CriticalSectionRawMutex, [u8; Metrics::RESPONSE_BUFFER_SIZE]>,
+}
+
+impl Handler for MetricsHandler<'_> {
+    type Error<E>
+        = HttpError<E>
+    where
+        E: core::fmt::Debug;
+
+    async fn handle<T, const N: usize>(
+        &self,
+        _task_id: impl core::fmt::Display + Copy,
+        connection: &mut Connection<'_, T, N>,
+    ) -> Result<(), Self::Error<T::Error>>
+    where
+        T: Read + Write + TcpSplit,
+    {
+        let (is_get, path) = {
+            let headers = connection.headers().map_err(|_| HttpError::InvalidState)?;
+
+            // Compare method before the borrow on `headers` ends; the
+            // result is a plain bool that does not hold any reference.
+            let is_get = headers.method == Method::Get;
+
+            let mut path_buf = heapless::String::<128>::new();
+            let path_too_long = headers.path.len() > 128;
+            if path_too_long {
+                warn!(
+                    "metrics: request path {} bytes exceeds 128 cap; replaced with `/`",
+                    headers.path.len()
+                );
             }
+            let _ = path_buf.push_str(if path_too_long { "/" } else { headers.path });
+
+            (is_get, path_buf)
+        };
+
+        match (is_get, path.as_str()) {
+            (true, "/metrics") => self.serve_metrics(connection).await,
+            (false, "/metrics") => serve_method_not_allowed(connection).await,
+            _ => serve_not_found(connection).await,
         }
     }
-    total
 }
 
-/// Return true if the request is `GET /metrics HTTP/...`.
-fn parse_metrics_request(buffer: &[u8]) -> bool {
-    let Some(line_end) = buffer.windows(2).position(|window| window == b"\r\n") else {
-        return false;
-    };
-    let Ok(line) = core::str::from_utf8(&buffer[..line_end]) else {
-        return false;
-    };
-    let mut parts = line.splitn(3, ' ');
-    let method = parts.next().unwrap_or("");
-    let path = parts.next().unwrap_or("");
-    // Prometheus scrapers do not attach query strings; exact match is enough.
-    method == "GET" && path == "/metrics"
+impl MetricsHandler<'_> {
+    /// Build the Prometheus body and send it with an accurate `Content-Length`.
+    async fn serve_metrics<T, const N: usize>(
+        &self,
+        connection: &mut Connection<'_, T, N>,
+    ) -> Result<(), HttpError<T::Error>>
+    where
+        T: Read + Write + TcpSplit,
+    {
+        let mut body_buffer = self.body_buffer.lock().await;
+        let body_len = build_prometheus_body(&mut body_buffer, self.map);
+
+        let mut length_buffer = [0u8; CONTENT_LENGTH_DECIMAL_DIGITS];
+        let content_length = format_content_length(&mut length_buffer, body_len);
+
+        connection
+            .initiate_response(
+                200,
+                Some("OK"),
+                &[
+                    ("Content-Type", "text/plain; version=0.0.4"),
+                    ("Content-Length", content_length),
+                    ("Connection", "close"),
+                ],
+            )
+            .await?;
+
+        embedded_io_async::Write::write_all(connection, &body_buffer[..body_len]).await?;
+
+        Ok(())
+    }
 }
 
-/// Write the Prometheus 404 response into `buffer`. Returns byte count.
-fn build_not_found_response(buffer: &mut [u8]) -> usize {
-    let mut writer = BufferWriter::new(buffer);
-    let _ = write!(
-        writer,
-        "HTTP/1.0 404 Not Found\r\nConnection: close\r\n\r\n"
-    );
-    writer.len()
+/// Write the 404 response.
+async fn serve_not_found<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    ubos_http::write_status_only(connection, 404, "Not Found", "text/plain", &[], b"").await
 }
 
-/// Write the Prometheus text exposition response into `buffer`. Returns byte count.
-fn build_prometheus_response(
-    buffer: &mut [u8],
+/// Write the 405 response. Includes `Allow: GET` per RFC 7231 §6.5.5.
+async fn serve_method_not_allowed<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    ubos_http::write_status_only(
+        connection,
+        405,
+        "Method Not Allowed",
+        "text/plain",
+        &[("Allow", "GET")],
+        b"",
+    )
+    .await
+}
+
+/// Build the Prometheus text exposition body into `buffer`. Returns byte count.
+///
+/// Emits a single `defmt::warn!` if the response did not fit in the
+/// buffer: a silent truncation would ship a malformed exposition that
+/// the scraper rejects with no diagnostic on this side. The metric
+/// budget is sized for the current series count plus headroom; if this
+/// warning ever fires, raise `Metrics::RESPONSE_BUFFER_SIZE` or trim
+/// the metric set.
+fn build_prometheus_body(
+    buffer: &mut [u8; Metrics::RESPONSE_BUFFER_SIZE],
     map: &heapless::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
 ) -> usize {
     let mut writer = BufferWriter::new(buffer);
-    let _ = write!(
-        writer,
-        "HTTP/1.0 200 OK\r\n\
-         Content-Type: text/plain; version=0.0.4\r\n\
-         Connection: close\r\n\
-         \r\n"
-    );
 
     // Render map-stored metrics. HELP/TYPE lines are omitted — they are
     // optional in the Prometheus text format.
@@ -306,7 +460,7 @@ fn build_prometheus_response(
     let request_count = REQUEST_COUNT.load(Ordering::Relaxed);
     let _ = writeln!(
         writer,
-        "# HELP board_http_requests_total HTTP requests served on the HTML page."
+        "# HELP board_http_requests_total Accepted connections on the HTTP port, regardless of response status."
     );
     let _ = writeln!(writer, "# TYPE board_http_requests_total counter");
     render_scalar(
@@ -323,10 +477,11 @@ fn build_prometheus_response(
             "# HELP board_btc_price_usd Last successful BTC/USDT price from Binance in USD."
         );
         let _ = writeln!(writer, "# TYPE board_btc_price_usd gauge");
-        let price_usd = btc_cents / 100;
+        let dollars = btc_cents / 100;
+        let cents = btc_cents % 100;
         let _ = write!(
             writer,
-            "board_btc_price_usd{{source=\"binance\"}} {price_usd}"
+            "board_btc_price_usd{{source=\"binance\"}} {dollars}.{cents:02}"
         );
         if let Some(ts_ms) = ts_ms {
             let _ = write!(writer, " {ts_ms}");
@@ -361,6 +516,12 @@ fn build_prometheus_response(
     let synced = u8::from(ntp_offset != 0);
     render_scalar(&mut writer, "board_ntp_synced", synced, ts_ms);
 
+    if writer.overflowed() {
+        warn!(
+            "prometheus response buffer overflow; truncated exposition served \
+             (raise Metrics::RESPONSE_BUFFER_SIZE or reduce series count)"
+        );
+    }
     writer.len()
 }
 

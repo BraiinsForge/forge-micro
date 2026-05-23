@@ -14,30 +14,11 @@ impl Http {
     pub const PORT: u16 = 80;
     pub const RX_BUFFER_SIZE: usize = 4096;
     pub const TX_BUFFER_SIZE: usize = 4096;
-    /// HTTP response assembly buffer, separate from the TCP socket buffers.
-    /// Sized to hold the inlined dashboard HTML plus headers in a single
-    /// response, kept under the TCP initial congestion window.
-    pub const RESPONSE_BUFFER_SIZE: usize = 12288;
     /// Buffer for reading incoming HTTP requests. Sized to hold a small
     /// POST body alongside headers so the config form fits in a single
     /// read; the route line is parsed from the start of the same buffer.
     pub const REQUEST_BUFFER_SIZE: usize = 2048;
-    /// Conservative budget for a single response on a fresh connection.
-    /// Linux defaults TCP initcwnd to 10 segments; at typical Ethernet
-    /// MSS 1460 that delivers ≈14 KiB in one RTT before slow start kicks
-    /// in. Anything larger needs a second RTT for first paint. The page
-    /// size guard tests and the buffer-size compile-time check below
-    /// both consult this value.
-    pub const INITCWND_BUDGET: usize = 14 * 1024;
 }
-
-// The HTTP response buffer must not grow past the wire budget; otherwise
-// `build_index_response` could silently emit a response that splits the
-// initial-window delivery and stalls first paint on a real connection.
-const _: () = assert!(
-    Http::RESPONSE_BUFFER_SIZE <= Http::INITCWND_BUDGET,
-    "Http::RESPONSE_BUFFER_SIZE exceeds Http::INITCWND_BUDGET",
-);
 
 /// TLS connection buffer sizes for the BTC price fetch.
 pub struct Tls;
