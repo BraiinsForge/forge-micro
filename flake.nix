@@ -16,18 +16,6 @@
 {
   description = "ubos-main bare-metal Rust firmware workspace";
 
-  # Binary caches for prebuilt Raspberry Pi kernel and deploy-rs.
-  nixConfig = {
-    extra-substituters = [
-      "https://nixos-raspberrypi.cachix.org"
-      "https://deploy-rs.cachix.org"
-    ];
-    extra-trusted-public-keys = [
-      "nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI="
-      "deploy-rs.cachix.org-1:xfNobmiwF/vzvK1gpfediPwpdIP0rpDV2rYqx40zdSI="
-    ];
-  };
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
@@ -36,9 +24,9 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     crane.url = "github:ipetkov/crane";
-    # Pinned to PR#131 branch to share the nixos-raspberrypi binary cache and
-    # avoid the nvmd/nixpkgs fork rebuild penalty. Revisit once the PR is
-    # released on the upstream branch.
+    # Pinned to PR#131 branch to avoid the nvmd/nixpkgs fork rebuild penalty
+    # and to match cache paths for users who opt into the nixos-raspberrypi
+    # cachix entry locally. Revisit once the PR is released upstream.
     nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/remove-options-compat";
     deploy-rs.url = "github:serokell/deploy-rs";
   };
