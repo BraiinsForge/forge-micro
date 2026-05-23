@@ -12,8 +12,11 @@ impl Net {
 pub struct Http;
 impl Http {
     pub const PORT: u16 = 80;
-    pub const RX_BUFFER_SIZE: usize = 4096;
-    pub const TX_BUFFER_SIZE: usize = 4096;
+    /// Per-direction TCP socket buffer for the HTTP listener. 2 KiB is
+    /// ~1.4× Ethernet MSS (1460), enough to hold a full response segment
+    /// plus headers without inflating .bss on the 128 KiB stm32f407.
+    pub const RX_BUFFER_SIZE: usize = 2048;
+    pub const TX_BUFFER_SIZE: usize = 2048;
     /// Buffer for reading incoming HTTP requests. Sized to hold a small
     /// POST body alongside headers so the config form fits in a single
     /// read; the route line is parsed from the start of the same buffer.
@@ -25,7 +28,7 @@ pub struct Tls;
 impl Tls {
     pub const READ_BUFFER_SIZE: usize = 16640;
     pub const WRITE_BUFFER_SIZE: usize = 1024;
-    pub const TCP_BUFFER_SIZE: usize = 4096;
+    pub const TCP_BUFFER_SIZE: usize = 2048;
     /// Buffer for reading TLS HTTP response bodies such as the Binance price API.
     pub const RESPONSE_BUFFER_SIZE: usize = 1024;
 }
@@ -97,8 +100,8 @@ impl Mdns {
 pub struct Metrics;
 impl Metrics {
     pub const PORT: u16 = 8081;
-    pub const RX_BUFFER_SIZE: usize = 2048;
-    pub const TX_BUFFER_SIZE: usize = 2048;
+    pub const RX_BUFFER_SIZE: usize = 1024;
+    pub const TX_BUFFER_SIZE: usize = 1024;
     pub const RESPONSE_BUFFER_SIZE: usize = 2048;
     pub const REQUEST_BUFFER_SIZE: usize = 256;
     pub const CHANNEL_DEPTH: usize = 32;
