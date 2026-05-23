@@ -7,7 +7,7 @@
 use embassy_rp::peripherals::{
     ADC, ADC_TEMP_SENSOR, CORE1, DMA_CH0, DMA_CH1, I2C1, PIN_0, PIN_1, PIN_15, PIN_16, PIN_17,
     PIN_18, PIN_19, PIN_2, PIN_20, PIN_21, PIN_25, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8,
-    PWM_SLICE4, PWM_SLICE7, SPI0, UART0, UART1, WATCHDOG,
+    PWM_SLICE4, PWM_SLICE7, SPI0, TRNG, UART0, UART1, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, SPI1};
@@ -60,6 +60,10 @@ pub struct Board {
     #[cfg(feature = "display")]
     pub display_tx_dma: Peri<'static, DMA_CH2>,
     pub core1: Peri<'static, CORE1>,
+    /// Hardware TRNG peripheral. Used at boot to seed the session
+    /// CSPRNG in `ubos_api`. RP2350-specific; the RP2040 has no
+    /// equivalent and seeds from `RoscRng` instead.
+    pub trng: Peri<'static, TRNG>,
 }
 
 /// Compile-time parser used by `Board::MAC_ADDR` to read the `MAC_SUFFIX` env
@@ -155,6 +159,7 @@ impl Board {
             #[cfg(feature = "display")]
             display_tx_dma: peripherals.DMA_CH2,
             core1: peripherals.CORE1,
+            trng: peripherals.TRNG,
         }
     }
 }

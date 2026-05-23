@@ -15,10 +15,11 @@ use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0, UART1};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0, TRNG, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
+use embassy_rp::trng::{self, Trng};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{bind_interrupts, dma, i2c};
@@ -108,6 +109,7 @@ bind_interrupts!(struct Irqs {
         dma::InterruptHandler<DMA_CH2>;
     I2C1_IRQ => i2c::InterruptHandler<I2C1>;
     UART1_IRQ => BufferedInterruptHandler<UART1>;
+    TRNG_IRQ => trng::InterruptHandler<TRNG>;
 });
 
 type EthernetRunner = Runner<
@@ -478,9 +480,26 @@ async fn main(spawner: Spawner) {
     );
     spawner.spawn(unwrap!(net_task(runner)));
 
-    // Seed the session CSPRNG before rng is moved into the bitcoin-price TLS task.
+    // Seed the session CSPRNG from the RP2350 hardware TRNG, not the
+    // ring-oscillator-bit `RoscRng`. The TRNG runs three built-in
+    // entropy health checks per draw and is NIST-aligned; `RoscRng`
+    // takes one ROSC randombit per read with no oracle. The TRNG is
+    // only used at boot, so the peripheral is dropped right after the
+    // seed is taken — `bitcoin_price_task` continues to use `RoscRng`
+    // for its TLS nonces because the rp2040 sister firmware has no
+    // TRNG and we keep that code path uniform.
     let mut csprng_seed = [0u8; 32];
-    rng.fill_bytes(&mut csprng_seed);
+    {
+        // Datasheet § 12.12.2: sample counts of 20-25 minimise generation
+        // time but fail the on-die NIST entropy checks often enough to
+        // log every boot. 100 trades a few hundred extra microseconds for
+        // a quiet boot; the TRNG is only sampled once for the 32-byte
+        // CSPRNG seed.
+        let mut trng_config = trng::Config::default();
+        trng_config.sample_count = 100;
+        let mut trng = Trng::new(hw.trng, Irqs, trng_config);
+        trng.fill_bytes(&mut csprng_seed).await;
+    }
     ubos_api::seed_csprng(csprng_seed).await;
 
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
