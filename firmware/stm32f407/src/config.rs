@@ -124,7 +124,7 @@ pub const DEFAULT_POOL_USER: &str = "braiinstest.stm32f407";
 
 impl Board {
     pub const NAME: &str = "DevEBox STM32F407 LAN8720";
-    /// DNS-safe base hostname for mDNS. See `ubos_net::mdns::compose_hostname`
+    /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
     /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "stm32f407";
     /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.

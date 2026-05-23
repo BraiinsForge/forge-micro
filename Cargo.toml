@@ -20,6 +20,7 @@ members = [
     "ubos/stratum-client",
     "ubos/stratum-v1",
     "ubos/stratum-v2",
+    "ubos/ubos-mdns",
     "ubos/ubos-core",
     "ubos/ubos-display",
     "ubos/ubos-http",
@@ -87,6 +88,7 @@ ubos-http         = { path = "ubos/ubos-http", default-features = false }
 ubos-logging      = { path = "ubos/ubos-logging", default-features = false }
 ubos-metrics      = { path = "ubos/ubos-metrics", default-features = false }
 ubos-monitor      = { path = "ubos/ubos-monitor", default-features = false }
+ubos-mdns         = { path = "ubos/ubos-mdns", default-features = false }
 ubos-net          = { path = "ubos/ubos-net", default-features = false }
 ubos-pool         = { path = "ubos/ubos-pool" }
 ubos-psu          = { path = "ubos/ubos-psu", default-features = false }

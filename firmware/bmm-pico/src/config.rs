@@ -99,7 +99,7 @@ const MAC_SUFFIX: u8 = match option_env!("MAC_SUFFIX") {
 
 impl Board {
     pub const NAME: &str = "BMM Adapter W5500";
-    /// DNS-safe base hostname for mDNS. See `ubos_net::mdns::compose_hostname`
+    /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
     /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "bmm-pico";
     /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.

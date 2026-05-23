@@ -130,7 +130,7 @@ pub const DEFAULT_POOL_USER: &str = "braiinstest.stm32f439";
 
 impl Board {
     pub const NAME: &str = "Nucleo-F439ZI LAN8742A";
-    /// DNS-safe base hostname for mDNS. See `ubos_net::mdns::compose_hostname`
+    /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
     /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "stm32f439";
     /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.

@@ -100,6 +100,16 @@ impl Mdns {
     /// Sockets in the UDP pool. One is sufficient because the responder
     /// holds a single socket for the lifetime of each run attempt.
     pub const SOCKET_POOL_SIZE: usize = 1;
+    /// Maximum number of services that the responder can announce in a
+    /// single run. Eight entries occupy at most a few hundred bytes of
+    /// stack and leave room for all planned service crates without
+    /// revisiting this constant.
+    pub const MAX_SERVICES: usize = 8;
+    /// Maximum number of TXT key-value pairs per service entry,
+    /// including the two runtime-appended `board=` and `mcu=` pairs.
+    /// Four static pairs plus two runtime pairs is sufficient for any
+    /// service planned in this workspace.
+    pub const MAX_TXT_PAIRS: usize = 6;
 }
 
 /// Prometheus metrics exposition server settings.
