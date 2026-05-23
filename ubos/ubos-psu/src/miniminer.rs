@@ -140,6 +140,16 @@ where
         .map_err(Error::Bus)
     }
 
+    async fn read_status(&self) -> Result<crate::StatusFlags, Error<E>> {
+        if self.terminated.load(Ordering::Acquire) {
+            return Err(Error::Terminated);
+        }
+        let mut guard = self.state.lock().await;
+        ensure_initialized(&mut guard).await?;
+        let State { i2c, config, .. } = &mut *guard;
+        tps6287x::read_status(i2c, config).await
+    }
+
     async fn terminate(&self) {
         if self.terminated.swap(true, Ordering::AcqRel) {
             return;

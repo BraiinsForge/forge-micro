@@ -254,7 +254,7 @@ where
         .map_err(Error::Bus)
 }
 
-async fn read_status<I, E>(
+pub(crate) async fn read_status<I, E>(
     i2c: &mut I,
     config: &MiniminerPsuConfig,
 ) -> Result<crate::StatusFlags, Error<E>>

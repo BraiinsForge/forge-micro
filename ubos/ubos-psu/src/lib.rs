@@ -71,6 +71,8 @@ pub async fn run_power_stats<P>(psu: &P) -> !
 where
     P: Psu,
 {
+    use ubos_metrics::metrics::{push, Metric, Value};
+
     let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
     loop {
         ticker.next().await;
@@ -79,6 +81,20 @@ where
         match (input, output) {
             (Ok(input), Ok(output)) => {
                 ubos_logging::info!("psu sensors: input={} mW output={} mW", input, output);
+                push(Metric {
+                    name: "board_psu_input_power_mw",
+                    labels: heapless::Vec::new(),
+                    value: Value::Uint(u64::from(input)),
+                    timestamp_ms: 0,
+                })
+                .await;
+                push(Metric {
+                    name: "board_psu_output_power_mw",
+                    labels: heapless::Vec::new(),
+                    value: Value::Uint(u64::from(output)),
+                    timestamp_ms: 0,
+                })
+                .await;
             }
             (Err(error), Ok(_)) | (Ok(_), Err(error)) => {
                 ubos_logging::error!(
@@ -94,6 +110,55 @@ where
                 );
             }
         }
+
+        match psu.read_status().await {
+            Ok(flags) => {
+                push(Metric {
+                    name: "board_psu_status_current_limit",
+                    labels: heapless::Vec::new(),
+                    value: Value::Uint(u64::from(flags.current_limit)),
+                    timestamp_ms: 0,
+                })
+                .await;
+                push(Metric {
+                    name: "board_psu_status_thermal_shutdown",
+                    labels: heapless::Vec::new(),
+                    value: Value::Uint(u64::from(flags.thermal_shutdown)),
+                    timestamp_ms: 0,
+                })
+                .await;
+                push(Metric {
+                    name: "board_psu_status_overvoltage",
+                    labels: heapless::Vec::new(),
+                    value: Value::Uint(u64::from(flags.overvoltage)),
+                    timestamp_ms: 0,
+                })
+                .await;
+                push(Metric {
+                    name: "board_psu_status_undervoltage",
+                    labels: heapless::Vec::new(),
+                    value: Value::Uint(u64::from(flags.undervoltage)),
+                    timestamp_ms: 0,
+                })
+                .await;
+            }
+            // A terminated PSU will not recover; stop polling it so the
+            // task does not spam warn logs on every tick indefinitely.
+            // Parking here is symmetric with the `(Err(_), Err(_))` power-read
+            // path: both represent an unrecoverable device condition and
+            // neither can reset the hardware — the miner task owns that.
+            Err(Error::Terminated) => {
+                ubos_logging::warn!("psu status: device terminated; halting poll loop");
+                core::future::pending::<()>().await;
+                unreachable!()
+            }
+            Err(error) => {
+                ubos_logging::warn!(
+                    "psu status read failed: {:?}",
+                    ubos_logging::Debug2Format(&error),
+                );
+            }
+        }
     }
 }
 
@@ -105,6 +170,8 @@ pub trait Psu {
     async fn set_voltage(&self, millivolts: u32) -> Result<(), Error<Self::BusError>>;
     async fn read_input_power_mw(&self) -> Result<u32, Error<Self::BusError>>;
     async fn read_output_power_mw(&self) -> Result<u32, Error<Self::BusError>>;
+    /// Read the `TPS6287x` STATUS register and decode the four fault flags.
+    async fn read_status(&self) -> Result<StatusFlags, Error<Self::BusError>>;
     async fn terminate(&self);
 }
 
