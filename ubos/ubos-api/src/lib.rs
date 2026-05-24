@@ -12,6 +12,8 @@ pub mod allow_list;
 pub mod auth;
 pub mod csprng;
 pub mod csrf;
+pub mod schema;
 pub mod session;
+pub mod system;
 
 pub use csprng::seed_csprng;
