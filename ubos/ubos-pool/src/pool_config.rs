@@ -130,9 +130,9 @@ pub fn parse(
     sv2_pubkey_str: &str,
     sv2_trust_any_key: Option<&str>,
 ) -> Result<PoolConfig, ConfigError> {
-    let host = String::<MAX_HOST_LEN>::from_str(host).map_err(|()| ConfigError::HostTooLong)?;
+    let host = String::<MAX_HOST_LEN>::from_str(host).map_err(|_| ConfigError::HostTooLong)?;
     let port: u16 = port_str.parse().map_err(|_| ConfigError::InvalidPort)?;
-    let user = String::<MAX_USER_LEN>::from_str(user).map_err(|()| ConfigError::UserTooLong)?;
+    let user = String::<MAX_USER_LEN>::from_str(user).map_err(|_| ConfigError::UserTooLong)?;
     let protocol = parse_protocol(protocol_str, sv1_pass, sv2_pubkey_str, sv2_trust_any_key)?;
 
     Ok(PoolConfig {
@@ -154,7 +154,7 @@ fn parse_protocol(
             let password: Option<String<MAX_PASS_LEN>> = sv1_pass
                 .map(String::from_str)
                 .transpose()
-                .map_err(|()| ConfigError::PassTooLong)?;
+                .map_err(|_| ConfigError::PassTooLong)?;
             Ok(ProtocolConfig::Sv1 { password })
         }
         "sv2" => {

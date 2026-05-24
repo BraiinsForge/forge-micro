@@ -40,7 +40,7 @@ impl Sv2Config {
     /// [`MAX_USER_LEN`] bytes.
     pub fn new(user: &str, pool_pubkey: Option<[u8; 32]>) -> Result<Self, UserTooLong> {
         let mut owned = String::new();
-        owned.push_str(user).map_err(|()| UserTooLong)?;
+        owned.push_str(user).map_err(|_| UserTooLong)?;
         Ok(Self {
             user: owned,
             pool_pubkey,

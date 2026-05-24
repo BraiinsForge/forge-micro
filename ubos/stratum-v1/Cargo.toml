@@ -10,7 +10,7 @@ defmt   = ["dep:defmt", "mining-protocol/defmt", "ubos-logging/defmt"]
 [dependencies]
 defmt             = { workspace = true, optional = true }
 embedded-io-async = { workspace = true }
-heapless          = { workspace = true }
+heapless          = { workspace = true, features = ["serde"] }
 mining-protocol   = { workspace = true }
 serde             = { version = "1", default-features = false, features = ["derive"] }
 serde-json-core   = "0.6"

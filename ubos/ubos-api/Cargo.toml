@@ -28,7 +28,7 @@ embassy-sync      = { workspace = true }
 embassy-time      = { workspace = true }
 rand_chacha       = { workspace = true }
 embedded-io-async = { workspace = true }
-heapless          = { workspace = true }
+heapless          = { workspace = true, features = ["serde"] }
 portable-atomic   = { workspace = true }
 serde             = { workspace = true }
 serde-json-core   = { workspace = true }

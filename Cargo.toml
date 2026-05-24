@@ -52,7 +52,7 @@ edge-mdns         = { git = "https://github.com/sysgrok/edge-net", rev = "1f084b
 edge-nal          = { git = "https://github.com/sysgrok/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
 edge-nal-embassy  = { git = "https://github.com/sysgrok/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
 embassy-futures   = "0.1.2"
-heapless          = "0.8"
+heapless          = "0.9"
 defmt             = "1.0.1"
 defmt-rtt         = "1.0.0"
 panic-probe       = { version = "1.0.0", default-features = false }

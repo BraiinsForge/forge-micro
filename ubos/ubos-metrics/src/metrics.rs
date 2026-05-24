@@ -186,8 +186,8 @@ static METRICS_REQUEST: ConstStaticCell<[u8; Metrics::REQUEST_BUFFER_SIZE]> =
 /// stm32f4 main SRAM during the api refactor.
 #[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
 static METRIC_MAP: ConstStaticCell<
-    heapless::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
-> = ConstStaticCell::new(heapless::FnvIndexMap::new());
+    heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
+> = ConstStaticCell::new(heapless::index_map::FnvIndexMap::new());
 
 /// Hoisted exposition body buffer. Lives next to `METRIC_MAP` so the
 /// 2 KiB scratch does not ride on the metrics-task async frame.
@@ -290,7 +290,7 @@ pub async fn run(stack: Stack<'static>) -> ! {
 
 /// Upsert a metric into the map, sorting its labels into a canonical key.
 fn upsert_metric(
-    map: &mut heapless::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
+    map: &mut heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
     metric: Metric,
 ) {
     let Some(key) = MetricKey::from_metric(&metric) else {
@@ -317,7 +317,7 @@ fn upsert_metric(
 /// returns. The body buffer is reached through a `Mutex` so its guard
 /// can be held across `await` points during the response write.
 struct MetricsHandler<'a> {
-    map: &'a mut heapless::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
+    map: &'a mut heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
     body_buffer: &'a Mutex<CriticalSectionRawMutex, [u8; Metrics::RESPONSE_BUFFER_SIZE]>,
 }
 
@@ -434,7 +434,7 @@ where
 /// the metric set.
 fn build_prometheus_body(
     buffer: &mut [u8; Metrics::RESPONSE_BUFFER_SIZE],
-    map: &heapless::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
+    map: &heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
 ) -> usize {
     let mut writer = BufferWriter::new(buffer);
 

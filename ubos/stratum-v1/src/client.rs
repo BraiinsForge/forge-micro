@@ -226,7 +226,7 @@ impl MiningClient for StratumV1Client {
         let wire_borrow = lookup_wire_job_id(&self.session, share.id).ok_or(Error::UnknownJobId)?;
         wire_job_id
             .push_str(wire_borrow)
-            .map_err(|()| Error::Adapter)?;
+            .map_err(|_| Error::Adapter)?;
 
         let pool_difficulty = mining_protocol::difficulty::approx_value(&self.session.target);
         let submit_id = self
