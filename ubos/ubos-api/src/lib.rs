@@ -8,6 +8,7 @@
 //! dispatch, and the dashboard request handler.
 #![no_std]
 
+pub mod allow_list;
 pub mod auth;
 pub mod csprng;
 pub mod csrf;
