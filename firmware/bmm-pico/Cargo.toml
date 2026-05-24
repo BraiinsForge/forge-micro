@@ -11,7 +11,9 @@ default = ["display"]
 display = []
 
 [dependencies]
+ubos-api             = { workspace = true, features = ["defmt"] }
 ubos-metrics         = { workspace = true, features = ["defmt"] }
+ubos-mdns            = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt"] }
 ubos-pool            = { workspace = true }
 ubos-display         = { workspace = true }

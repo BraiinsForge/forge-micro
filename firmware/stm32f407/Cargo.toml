@@ -11,15 +11,17 @@ default = ["display"]
 display = []
 
 [dependencies]
-ubos-metrics         = { workspace = true, features = ["defmt"] }
+ubos-api             = { workspace = true, features = ["defmt", "ccmram-bss"] }
+ubos-metrics         = { workspace = true, features = ["defmt", "ccmram-bss"] }
+ubos-mdns            = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt"] }
 ubos-pool            = { workspace = true }
 ubos-display         = { workspace = true }
-ubos-core            = { workspace = true }
+ubos-core            = { workspace = true, features = ["ccmram-bss"] }
 embassy-executor    = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time        = { workspace = true, features = ["defmt"] }
 embassy-net         = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
-embassy-stm32       = { version = "0.6.0", features = ["defmt", "stm32f407vg", "memory-x", "time-driver-tim2", "time", "unstable-pac"] }
+embassy-stm32       = { version = "0.6.0", features = ["defmt", "stm32f407vg", "time-driver-tim2", "time", "unstable-pac"] }
 defmt               = { workspace = true }
 defmt-rtt           = { workspace = true }
 panic-probe         = { workspace = true, features = ["print-defmt"] }
