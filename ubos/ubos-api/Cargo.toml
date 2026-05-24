@@ -1,0 +1,50 @@
+[package]
+name    = "ubos-api"
+edition = "2021"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[features]
+default = ["defmt"]
+defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt", "ubos-http/defmt", "ubos-metrics/defmt", "ubos-miner/defmt"]
+# Opt-in for cortex-m boards whose linker exposes a `.ccmram.bss`
+# section. Relocates the HTTP scratch buffers and the credential /
+# session / CSRF / CSPRNG state off main SRAM. Pairs with the same
+# feature on `ubos-metrics` and `ubos-core`. The `ubos-core` feature
+# is required so the pre-init zeroing helper is compiled in;
+# otherwise downstream firmware enabling only `ubos-api/ccmram-bss`
+# would relocate statics into CCM without the zero-init that makes
+# them safe to read.
+ccmram-bss = ["ubos-core/ccmram-bss", "ubos-metrics/ccmram-bss"]
+
+[dependencies]
+edge-http         = { workspace = true, features = ["io"] }
+edge-nal          = { workspace = true }
+edge-nal-embassy  = { workspace = true, features = ["tcp", "proto-ipv4", "medium-ethernet"] }
+embassy-net       = { workspace = true, features = ["tcp"] }
+embassy-sync      = { workspace = true }
+embassy-time      = { workspace = true }
+rand_chacha       = { workspace = true }
+embedded-io-async = { workspace = true }
+heapless          = { workspace = true }
+portable-atomic   = { workspace = true }
+serde             = { workspace = true }
+serde-json-core   = { workspace = true }
+static_cell       = { workspace = true }
+defmt             = { workspace = true, optional = true }
+stratum-client    = { workspace = true }
+ubos-core         = { workspace = true }
+ubos-http         = { workspace = true, default-features = false }
+ubos-mdns         = { workspace = true, default-features = false }
+ubos-logging      = { workspace = true }
+ubos-metrics      = { workspace = true, default-features = false }
+ubos-miner        = { workspace = true, default-features = false }
+ubos-net          = { workspace = true, default-features = false }
+ubos-webui        = { workspace = true, default-features = false }
+
+[dev-dependencies]
+critical-section  = { version = "1.2", features = ["std"] }
+embassy-futures   = { workspace = true }
+flate2            = { version = "1", default-features = false, features = ["rust_backend"] }
