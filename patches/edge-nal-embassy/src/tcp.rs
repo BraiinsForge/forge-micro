@@ -105,9 +105,12 @@ impl edge_nal::TcpAccept for TcpAccept<'_> {
             .accept(to_emb_bind_socket(self.local).ok_or(TcpError::UnsupportedProto)?)
             .await?;
 
-        let local_endpoint = unwrap!(socket.socket.local_endpoint());
+        // Return the peer's address so callers can inspect the remote IP.
+        // The original code called local_endpoint(), which returns the bound
+        // server address and defeats any IP-based filtering at the handler.
+        let remote_endpoint = unwrap!(socket.socket.remote_endpoint());
 
-        Ok((to_net_socket(local_endpoint), socket))
+        Ok((to_net_socket(remote_endpoint), socket))
     }
 }
 
