@@ -220,6 +220,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -340,8 +346,10 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-api",
  "ubos-core",
  "ubos-display",
+ "ubos-mdns",
  "ubos-metrics",
  "ubos-miner",
  "ubos-monitor",
@@ -968,6 +976,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "edge-http"
+version = "0.7.0"
+source = "git+https://github.com/sysgrok/edge-net?rev=1f084b41944c35b233cbe17accfbc09a56d5eaf0#1f084b41944c35b233cbe17accfbc09a56d5eaf0"
+dependencies = [
+ "base64",
+ "defmt 1.0.1",
+ "edge-nal",
+ "embassy-futures",
+ "embassy-sync 0.8.0",
+ "embedded-io-async 0.7.0",
+ "heapless 0.9.2",
+ "httparse",
+ "sha1_smol",
+]
+
+[[package]]
 name = "edge-mdns"
 version = "0.7.0"
 source = "git+https://github.com/sysgrok/edge-net?rev=1f084b41944c35b233cbe17accfbc09a56d5eaf0#1f084b41944c35b233cbe17accfbc09a56d5eaf0"
@@ -994,7 +1018,6 @@ dependencies = [
 [[package]]
 name = "edge-nal-embassy"
 version = "0.8.1"
-source = "git+https://github.com/sysgrok/edge-net?rev=1f084b41944c35b233cbe17accfbc09a56d5eaf0#1f084b41944c35b233cbe17accfbc09a56d5eaf0"
 dependencies = [
  "edge-nal",
  "embassy-futures",
@@ -2027,8 +2050,10 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-api",
  "ubos-core",
  "ubos-display",
+ "ubos-mdns",
  "ubos-metrics",
  "ubos-miner",
  "ubos-monitor",
@@ -2444,7 +2469,6 @@ dependencies = [
  "embedded-serial-unix",
  "env_logger",
  "gpiocdev",
- "heapless 0.8.0",
  "heapless 0.9.2",
  "ii-sv2",
  "log",
@@ -2457,7 +2481,9 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-api",
  "ubos-logging",
+ "ubos-mdns",
  "ubos-metrics",
  "ubos-miner",
  "ubos-monitor",
@@ -2466,6 +2492,12 @@ dependencies = [
  "ubos-psu",
  "ubos-temperature",
 ]
+
+[[package]]
+name = "httparse"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "hybrid-array"
@@ -3446,8 +3478,10 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-api",
  "ubos-core",
  "ubos-display",
+ "ubos-mdns",
  "ubos-metrics",
  "ubos-miner",
  "ubos-monitor",
@@ -3492,8 +3526,10 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-api",
  "ubos-core",
  "ubos-display",
+ "ubos-mdns",
  "ubos-metrics",
  "ubos-miner",
  "ubos-monitor",
@@ -3700,6 +3736,12 @@ version = "0.1.0"
 dependencies = [
  "embedded-io 0.7.1",
 ]
+
+[[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"
@@ -3923,8 +3965,10 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-api",
  "ubos-core",
  "ubos-display",
+ "ubos-mdns",
  "ubos-metrics",
  "ubos-miner",
  "ubos-monitor",
@@ -3961,8 +4005,10 @@ dependencies = [
  "stratum-client",
  "stratum-v1",
  "stratum-v2",
+ "ubos-api",
  "ubos-core",
  "ubos-display",
+ "ubos-mdns",
  "ubos-metrics",
  "ubos-miner",
  "ubos-monitor",
@@ -3983,7 +4029,10 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "heapless 0.8.0",
  "mining-protocol",
+ "portable-atomic",
  "ubos-logging",
+ "ubos-metrics",
+ "ubos-net",
 ]
 
 [[package]]
@@ -4300,6 +4349,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
+name = "ubos-api"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "defmt 1.0.1",
+ "edge-http",
+ "edge-nal",
+ "edge-nal-embassy",
+ "embassy-futures",
+ "embassy-net",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+ "flate2",
+ "heapless 0.8.0",
+ "portable-atomic",
+ "rand_chacha",
+ "serde",
+ "serde-json-core",
+ "static_cell",
+ "stratum-client",
+ "ubos-core",
+ "ubos-http",
+ "ubos-logging",
+ "ubos-mdns",
+ "ubos-metrics",
+ "ubos-miner",
+ "ubos-net",
+ "ubos-webui",
+]
+
+[[package]]
 name = "ubos-core"
 version = "0.1.0"
 dependencies = [
@@ -4326,6 +4407,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubos-http"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.0.1",
+ "edge-http",
+ "edge-nal",
+ "edge-nal-embassy",
+ "embassy-net",
+ "embedded-io-async 0.7.0",
+ "ubos-core",
+ "ubos-logging",
+]
+
+[[package]]
 name = "ubos-logging"
 version = "0.1.0"
 dependencies = [
@@ -4341,23 +4436,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubos-mdns"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.0.1",
+ "edge-mdns",
+ "edge-nal",
+ "edge-nal-embassy",
+ "embassy-net",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "heapless 0.8.0",
+ "rand_core 0.10.1",
+ "static_cell",
+ "ubos-core",
+ "ubos-logging",
+]
+
+[[package]]
 name = "ubos-metrics"
 version = "0.1.0"
 dependencies = [
  "cortex-m",
  "defmt 1.0.1",
+ "edge-http",
+ "edge-nal",
+ "edge-nal-embassy",
  "embassy-executor 0.10.0",
  "embassy-futures",
  "embassy-net",
  "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-io-async 0.7.0",
- "flate2",
  "heapless 0.8.0",
  "portable-atomic",
  "static_cell",
  "ubos-core",
+ "ubos-http",
  "ubos-logging",
+ "ubos-mdns",
  "ubos-net",
 ]
 
@@ -4402,10 +4519,6 @@ name = "ubos-net"
 version = "0.1.0"
 dependencies = [
  "defmt 1.0.1",
- "edge-mdns",
- "edge-nal",
- "edge-nal-embassy",
- "embassy-futures",
  "embassy-net",
  "embassy-sync 0.8.0",
  "embassy-time",
@@ -4413,7 +4526,6 @@ dependencies = [
  "embedded-tls",
  "heapless 0.8.0",
  "portable-atomic",
- "rand_core 0.10.1",
  "rand_core 0.6.4",
  "static_cell",
  "ubos-core",
@@ -4441,9 +4553,11 @@ dependencies = [
  "embassy-time",
  "embedded-hal-async",
  "embedded-hal-mock",
+ "heapless 0.8.0",
  "portable-atomic",
  "static_cell",
  "ubos-logging",
+ "ubos-metrics",
 ]
 
 [[package]]
@@ -4456,6 +4570,13 @@ dependencies = [
  "heapless 0.8.0",
  "ubos-logging",
  "ubos-metrics",
+]
+
+[[package]]
+name = "ubos-webui"
+version = "0.1.0"
+dependencies = [
+ "flate2",
 ]
 
 [[package]]
