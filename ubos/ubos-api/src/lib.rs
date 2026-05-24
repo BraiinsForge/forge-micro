@@ -10,6 +10,7 @@
 
 pub mod auth;
 pub mod csprng;
+pub mod csrf;
 pub mod session;
 
 pub use csprng::seed_csprng;
