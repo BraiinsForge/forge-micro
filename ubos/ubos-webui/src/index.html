@@ -164,6 +164,18 @@ async function tick(){
  }catch(e){$('dot').className='dot'}
 }
 tick();setInterval(tick,2000);
+async function loadCfg(){
+ try{const r=await fetch('/api/config',{cache:'no-store'});if(!r.ok)return;
+  const d=await r.json(),f=$('cfgForm'),pools=d.pool||[];
+  for(let i=0;i<3;i++){
+   const p=pools[i],n=i+1;
+   f['url'+n].value=p?`stratum+tcp://${p.host}:${p.port}`:'';
+   f['user'+n].value=p&&p.user?p.user:'';
+   f['pass'+n].value=p&&p.protocol&&p.protocol.Sv1&&p.protocol.Sv1.password?p.protocol.Sv1.password:'';
+  }
+ }catch(_){}
+}
+loadCfg();
 const tt=$('tt'),svg=document.querySelector('.chart svg');
 function showTip(e){
  if(e.pointerType!=='mouse')return;
@@ -180,11 +192,19 @@ svg.addEventListener('pointermove',showTip);
 svg.addEventListener('pointerleave',()=>{$('tip').innerHTML='';tt.classList.add('hide')});
 $('cfgForm').addEventListener('submit',async e=>{
  e.preventDefault();
- const body=JSON.stringify(Object.fromEntries(new FormData(e.target)));
+ const f=new FormData(e.target),pool=[];
+ for(let i=1;i<=3;i++){
+  const url=(f.get('url'+i)||'').trim();if(!url)continue;
+  const m=url.match(/^(?:stratum\+tcp:\/\/)?([^:\/]+)(?::(\d+))?$/);
+  if(!m){$('msg').textContent='Invalid pool '+i+' URL';return}
+  const pass=f.get('pass'+i);
+  pool.push({host:m[1],port:m[2]?+m[2]:3333,user:f.get('user'+i)||'',protocol:{Sv1:{password:pass||null}}});
+ }
+ const body=JSON.stringify({pool});
  try{const t=await fetch('/',{cache:'no-store'});
   const csrf=t.headers.get('X-CSRF-Token')||'';
   const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body});
-  $('msg').textContent=r.ok?'Saved (logged to firmware console).':'Save failed.'}
+  $('msg').textContent=r.ok?'Saved.':'Save failed.'}
  catch(_){$('msg').textContent='Save failed.'}
 });
 </script></body></html>
