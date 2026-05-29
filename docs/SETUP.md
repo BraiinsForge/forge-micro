@@ -84,9 +84,9 @@ Same pinout as the W5500-EVB-Pico, with a W6100 in place of the W5500.
 ### BMM Adapter (bmm-pico)
 
 RP2350A on the BMM Adapter carrier board with a W5500 over SPI0 and the
-chip-side resources required by the ubos-miner backend on UART1, I2C1, and GPIO.
+chip-side resources required by the ubos-mining backend on UART1, I2C1, and GPIO.
 See `firmware/bmm-pico/src/config.rs` for the full peripheral map. The
-ubos-miner bring-up is in [MINER.md](MINER.md).
+ubos-mining bring-up is in [MINING.md](MINING.md).
 
 ### DevEBox STM32F407 + LAN8720 (stm32f407)
 
@@ -139,14 +139,19 @@ cd firmware/esp32s3 && cargo run --release
 Each crate's `.cargo/config.toml` pins the probe serial, so `cargo run`
 flashes the right board without a `--probe` flag.
 
-Every board drives a BM1362 hashboard via the `ubos-miner` backend
+Every board drives a BM1362 hashboard via the `ubos-mining` backend
 unconditionally. The `display` feature is enabled by default on
 boards that have a display.
 
 ## Pool configuration
 
-Pool parameters are baked in at compile time via `option_env!` variables.
-Set them in the environment before `cargo build` / `cargo run`:
+Pool config lives in the `ubos-config` record store and is persisted in
+the on-chip flash. The HTTP API mutates it at runtime; the `POOL_*` env
+vars only seed `Config::default`, which is the value used on a fresh
+board before the first store. A stored blob in flash supersedes both.
+
+Set the env vars before `cargo build` / `cargo run` to change the
+factory defaults of a freshly flashed board:
 
 ```sh
 POOL_HOST=stratum.example.com POOL_PORT=3333 cargo run --release
@@ -156,18 +161,10 @@ POOL_HOST=stratum.example.com POOL_PORT=3333 cargo run --release
 |---|---|---|---|
 | `POOL_HOST` | string | `stratum.braiins.com` | IPv4 literal or DNS name |
 | `POOL_PORT` | u16 | `3333` | |
-| `POOL_PROTOCOL` | `sv1`/`sv2` | `sv1` | |
-| `POOL_USER` | string | per-board | worker identity, P2TR address + `.workersuffix` |
-| `POOL_SV1_PASS` | string | unset → no password | ignored under `sv2` |
-| `POOL_SV2_PUBKEY` | base58check string | unset → Braiins prod key | ignored under `sv1` |
-| `POOL_SV2_TRUST_ANY_KEY` | `"1"` | unset | `"1"` skips peer auth (Noise handshake still runs); any other value is a build error |
+| `POOL_USER` | string | empty | worker identity, P2TR address + `.workersuffix` |
+| `POOL_PASSWORD` | string | unset → no password | seeds the Sv1 password slot of the default `PoolEntry` |
 
-When `POOL_SV2_PUBKEY` is unset, the firmware validates the server's Noise
-static key against the Braiins production endpoint key hardcoded in
-`ubos/ubos-pool/src/pool_config.rs`. Set `POOL_SV2_TRUST_ANY_KEY=1` to
-skip validation for local testing.
-
-Code: `ubos/ubos-pool/src/pool_config.rs`.
+Code: `ubos/ubos-config/src/lib.rs` (`DEFAULT_POOL_*` and `Config::default`).
 
 ## Networking (bench)
 

@@ -77,5 +77,5 @@ Code: `ubos/ubos-metrics/src/hashrate.rs`.
 an EWMA-smoothed bucketed estimator over 1-second buckets with α = 1/8
 (~8 s smoothing window). `hashrate` reads the smoothed value and applies
 read-side decay so the displayed rate drops toward zero when shares stop
-arriving. The ubos-miner backend calls `record_share` for every share it
-consumes (one call per diff-1 chip share); see `ubos_miner::serial`.
+arriving. The ubos-mining backend calls `record_share` for every share it
+consumes (one call per diff-1 chip share); see `ubos_mining::serial`.

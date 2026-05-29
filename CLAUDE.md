@@ -33,7 +33,7 @@ nix develop .#arm -c bash -c 'cd firmware/stm32f439 && cargo run --release'
 nix develop .#esp -c bash -c 'cd firmware/esp32s3   && cargo run --release'
 ```
 
-Every board drives a BM1362 hashboard via `ubos-miner` unconditionally.
+Every board drives a BM1362 hashboard via `ubos-mining` unconditionally.
 The `display` feature is always in defaults and SV2 is always built on
 all boards.
 
@@ -83,7 +83,7 @@ probe.
   via `ubos_metrics::cpu_load::run_cortex_m_executor` so the poll/wfe
   loop can bracket `wfe` with `Instant::now()` reads. bmm-pico stays
   on `#[embassy_executor::main]` because its core-1 split runs a
-  separate hand-managed executor for the `ubos-miner` serial worker;
+  separate hand-managed executor for the `ubos-mining` serial worker;
   the busy-ratio metric is intentionally absent there.
 - The esp32s3 firmware uses `#[esp_hal::main]` and constructs the
   esp-rtos embassy executor manually so it can pass idle hooks to
@@ -108,7 +108,7 @@ probe.
   esp-rs/esp-hal#2642 (UART DMA support) and #4720 (circular UHCI RX)
   track this gap; revisit when the next esp-hal release reaches this
   workspace. All dual-core boards (rp2040, rp2350, bmm-pico, esp32s3) pin the
-  ubos-miner `serial_task` to Core 1 so embassy-net on Core 0 stays
+  ubos-mining `serial_task` to Core 1 so embassy-net on Core 0 stays
   responsive; the shared `ASIC_SESSION` uses `CriticalSectionRawMutex`,
   so cross-core sharing is free. On esp32s3, Core 1's executor also runs
   `IdleAccounting::<1>` so `IDLE_TICKS[1]` is populated for cpu-load

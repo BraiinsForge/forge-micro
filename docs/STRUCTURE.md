@@ -42,25 +42,31 @@ gives the framework's table of contents.
 | Prefix      | Meaning                                    |
 |-------------|--------------------------------------------|
 | `ubos-`     | core firmware framework                    |
-| `ubos-miner`, `mining-protocol`, `stratum-*` | mining domain    |
+| `ubos-mining`, `mining-protocol`, `stratum-*` | mining domain    |
 | `esp32s3-`, `rp235x-`, `serial-`      | hardware-specific drivers |
 
 The firmware framework is split along domain lines. `ubos-core`,
-`ubos-pool`, and `ubos-logging` are leaf crates with no `ubos-*`
-dependencies; the chain `(core + pool + logging) ← ubos-net ←
-ubos-metrics ← ubos-display` runs strictly one-way above them.
-Hardware and protocol crates sit beside the chain without participating
+`ubos-pool`, `ubos-logging`, and `ubos-config` are leaf crates with no
+`ubos-*` dependencies above the logging facade; the chain
+`(core + pool + logging + config) ← ubos-net ← ubos-metrics ← ubos-display`
+runs strictly one-way above them. `ubos-manager` sits beside the chain
+and supervises the thermal/cooling/mining handles via watch channels;
+hardware and protocol crates sit beside the chain without participating
 in it.
 
 | Crate              | Purpose                                            |
 |--------------------|----------------------------------------------------|
-| `ubos-core`        | shared constants, watchdog feed loop, status LED   |
+| `ubos-core`        | shared constants, watchdog feed loop, status LED, typed units |
+| `ubos-config`      | runtime `Config` watch, `ConfigHandle`, flash-backed `sequential-storage` persistence |
+| `ubos-manager`     | supervisor crate: routes `Message::Halt`/`Resume` to mining/cooling/thermal handles |
 | `ubos-net`         | DHCP, NTP sync, mDNS responder, BTC fetch; owns the cross-board atomics (IP, BTC price, NTP offset, request count) and `wall_clock_secs` |
 | `ubos-metrics`     | Prometheus TCP server, hashrate EWMA, CPU-load gauge, HTTP metrics-page builder + accept loop |
 | `ubos-display`     | SH1106 OLED driver and render task                 |
-| `ubos-pool`        | pool URL/protocol configuration, BTC price parser  |
+| `ubos-pool`        | Binance BTC ticker JSON parser                     |
 | `ubos-logging`     | `defmt`/`log` macro facade                         |
-| `ubos-monitor`     | PID fan controller and thermal guard               |
+| `ubos-thermal`     | sensor poll, `ThermalHandle` publisher, thermal guard |
+| `ubos-cooling`     | fan PID controller and `FanOutput` HAL trait        |
+| `ubos-mining`      | BM1362 chip-serial actor, miner state machine, `MiningHandle` |
 | `ubos-psu`         | async PSU driver over I2C                          |
 | `ubos-temperature` | temperature sampling and LM75A driver              |
 
@@ -217,9 +223,9 @@ Kashitsyn, *Rust at scale: packages, crates, and modules*
 
 Applied here: `metrics.rs` and `net.rs` are dependency hubs;
 isolating them into their own crates keeps the hubs small and
-stable. `display.rs`, `pool_config.rs`, and `btc.rs` are leaves with
-their own change cadence. The split groups modules by change
-frequency, which matches corrode.dev's pragmatic rule
+stable. `display.rs` and `btc.rs` are leaves with their own change
+cadence. The split groups modules by change frequency, which matches
+corrode.dev's pragmatic rule
 (<https://corrode.dev/blog/tips-for-faster-rust-compile-times/>):
 
 > Split when independent logical units change at different

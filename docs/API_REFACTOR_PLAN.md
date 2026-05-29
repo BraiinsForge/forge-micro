@@ -96,12 +96,12 @@ Hardcoded metrics rendered outside the channel:
 | Power       | INA230 bus voltage / shunt voltage / current | INA230 driver only reads `REG_POWER`                       |
 | Temperature | Per-LM75A reading (4 sensors)                | Each sensor is read in `ubos-temperature/src/lm75a.rs:102`, only the max is returned |
 | Temperature | RP2350/RP2040 die temperature                | `ADC_TEMP_SENSOR` extracted in `bmm-pico/src/config.rs:23`, never wired |
-| Fan         | Sensor-fault consecutive misses              | `sensor_misses` local in `ubos-monitor/src/lib.rs:173`     |
+| Fan         | Sensor-fault consecutive misses              | `sensor_misses` local in `ubos-thermal/src/lib.rs:run_thermal` |
 | Mining      | Hashrate (H/s)                               | `EWMA_HASHRATE` already read for `/api/info`               |
 | Mining      | Total chip shares                            | `SHARE_COUNT` at `ubos-metrics/src/hashrate.rs:16`         |
 | Mining      | Accepted / rejected pool shares              | Only logged in `stratum-client/src/state.rs:91`            |
-| Mining      | `MINER_IS_RUNNING` state                     | `Signal` at `ubos-miner/src/miner.rs:27`                   |
-| Mining      | UART desync byte count                       | `dropped_byte: u32` at `ubos-miner/src/bm1362.rs:347`      |
+| Mining      | `MINER_IS_RUNNING` state                     | superseded by `MiningHandle::state().is_some_and(|s| s.running)`, exposed via `board_miner_running` |
+| Mining      | UART desync byte count                       | `dropped_byte: u32` at `ubos-mining/src/bm1362.rs:347`      |
 | Mining      | Pool liveness                                | `POOL_ALIVE_BITMAP` declared at `ubos-net/src/net.rs:151`, never written |
 | Network     | Stratum reconnect count                      | Loop in `stratum_client_task`, no counter                  |
 | Scheduler   | bmm-pico Core 1 busy ratio                   | `IDLE_TICKS[1]` populated, `cpu_load_task` not spawned     |
@@ -177,7 +177,7 @@ ubos/
                            BufferWriter, method+path routing)
   ubos-api/         NEW — REST endpoint handlers, schema types
                           (depends on ubos-http, ubos-metrics, ubos-net,
-                           ubos-miner-state, ubos-mdns-registry)
+                           ubos-mining-state, ubos-mdns-registry)
   ubos-webui/       NEW — bundled SPA assets (index.html.gz, logo.svg,
                           future CSS/JS), served by ubos-api
   ubos-mdns/        NEW — extracted from ubos-net, owns the responder
@@ -339,14 +339,14 @@ the SPA is migrated.
      pretending we are a reference-device.
    - `GET /api/system/asic` — `ASICModel` is a free-form string,
      value `"BM1362"`. `frequencyOptions` and `voltageOptions`
-     come from `ubos-miner` consts. The schema is ours; Deck
+     come from `ubos-mining` consts. The schema is ours; Deck
      implements it.
    - `GET /api/system/statistics` — adapt the existing ring buffer
      that already feeds the SPA into the spec's `{currentTimestamp,
      labels[], statistics[][]}` shape. Honor `?columns=`.
    - `GET /api/system/scoreboard` — add a bounded
      `BoundedHeap<SubmitResult, 20>` in `ubos-metrics` (or
-     `ubos-miner-stats`, decide in implementation) populated from
+     `ubos-mining-stats`, decide in implementation) populated from
      `visit_submit_result` in `stratum-client/src/state.rs:91`. No
      new ASIC data, just bookkeeping that already passes through
      the same function.

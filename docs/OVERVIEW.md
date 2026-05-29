@@ -52,25 +52,35 @@ back to the BTC price.
 
 ## Mining backend
 
-Every board drives a real BM1362 hashboard via the `ubos-miner` crate. The
-ubos-miner backend pushes shares into the `stratum-client::AsicSession`
+Every board drives a real BM1362 hashboard via the `ubos-mining` crate. The
+ubos-mining backend pushes shares into the `stratum-client::AsicSession`
 solution channel that the V1 and V2 client tasks drain. Hashes accumulated
 by the backend feed `ubos_metrics::hashrate` for the EWMA-smoothed rate the
-Prometheus endpoint and display surface. The ubos-miner backend ties together
+Prometheus endpoint and display surface. The ubos-mining backend ties together
 the BM1362 chip-serial actor, the BMM100 PSU driver, and a runtime
-baud-rate switch; see [MINER.md](MINER.md).
+baud-rate switch; see [MINING.md](MINING.md).
 
 ## Workspace crates
 
 ### Shared firmware libraries
 
-- `ubos/ubos-core/` -- consts, watchdog, LED.
+- `ubos/ubos-core/` -- consts, watchdog, LED, typed units (`Frequency`,
+  `Voltage`, `Temperature`).
+- `ubos/ubos-config/` -- runtime `Config` watch and `ConfigHandle`, with
+  flash-backed `sequential-storage` persistence behind the
+  `flash-storage` feature.
+- `ubos/ubos-manager/` -- supervisor that routes `Message::Halt` and
+  `Message::Resume` to the mining, cooling, and thermal handles when
+  pause reasons arrive (thermal trip, fan fault, operator pause, reconfigure).
 - `ubos/ubos-net/` -- network bring-up, NTP, BTC price, mDNS.
 - `ubos/ubos-metrics/` -- HTTP server, metrics, CPU-load accounting,
   EWMA hashrate accounting.
 - `ubos/ubos-display/` -- SH1106 driver and render task.
-- `ubos/ubos-pool/` -- pool config and BTC parser.
-- `ubos/ubos-monitor/` -- emergency-stop signal and health monitor.
+- `ubos/ubos-pool/` -- Binance BTC ticker JSON parser.
+- `ubos/ubos-thermal/` -- sensor poll, `ThermalHandle` publisher,
+  safety trip asserted as `PauseReason::DangerousTemperature` on
+  `ManagerHandle`.
+- `ubos/ubos-cooling/` -- fan PID controller and `FanOutput` HAL trait.
 - `ubos/ubos-logging/` -- macro facade that swaps between `defmt` and
   `log` at compile time, so the same crate builds for firmware and host.
 
@@ -84,7 +94,7 @@ baud-rate switch; see [MINER.md](MINER.md).
 - `ubos/stratum-client/` -- shared work-generator task, `JobRing`,
   `WorkRing`, and `AsicSession` ASIC abstraction; generic over the
   protocol adapter.
-- `ubos/ubos-miner/` -- BM1362 chip driver: frame layouts, parser, miner
+- `ubos/ubos-mining/` -- BM1362 chip driver: frame layouts, parser, miner
   state machine, and the single-task chip-serial actor.
 
 ### Hardware drivers

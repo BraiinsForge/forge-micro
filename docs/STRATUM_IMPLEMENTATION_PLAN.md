@@ -1,7 +1,7 @@
 # Mining Protocol Abstraction
 
 > **Status.** Phases 1–9 have landed: every firmware crate runs against
-> `stratum-client` + `ubos-miner`, and `ubos-backend` + `cpu-miner` have
+> `stratum-client` + `ubos-mining`, and `ubos-backend` + `cpu-miner` have
 > been removed from the workspace. Phases 10–14 remain pending. The
 > phase descriptions below are kept in their original future tense as a
 > historical record of the plan; references to `ubos-backend` and the
@@ -455,54 +455,52 @@ the trait stays the same.
 
 ## Pool configuration
 
+Pool configuration is owned by `ubos-config` and lives in the runtime
+`Config` watched by `ConfigHandle`. The dashboard and stratum tasks
+share the same surface:
+
 ```rust
-pub struct PoolConfig {
-    pub host_ip: [u8; 4],
+pub struct PoolEntry {
+    pub host: heapless::String<128>,
     pub port: u16,
-    pub reconnect_delay: Duration,
-    pub protocol: Protocol,
+    pub user: heapless::String<128>,
+    pub protocol: ProtocolKind,
 }
 
-pub enum Protocol {
-    StratumV1(Sv1Config),
-    StratumV2(Sv2Config),
-}
-
-pub struct Sv1Config {
-    pub user: &'static str,
-    pub password: &'static str,
-}
-
-pub struct Sv2Config {
-    pub user: &'static str,
-    pub pool_pubkey: Option<[u8; 32]>,
+pub enum ProtocolKind {
+    Sv1 { password: Option<heapless::String<128>> },
+    Sv2 { pool_pubkey: Option<[u8; 32]> },
 }
 ```
 
-Transport-level fields stay on the outer struct. Protocol-specific
-config lives in its variant. `user` is duplicated across both
-sub-configs by design — it is protocol-level, not transport-level,
-and each adapter only sees the variant it cares about.
+Strings are owned (`heapless::String<128>`) so a `PoolEntry` can be
+cloned out of the config watch without borrowing static storage. The
+stratum task reads `Config::pool` (a `heapless::Vec<PoolEntry, 3>`)
+each reconnect and constructs the protocol-specific config fresh from
+the current entry.
 
-Adapters take their typed sub-config:
+Adapters take their typed sub-config built from the `PoolEntry`:
 
 ```rust
-impl StratumV1Client {
-    pub fn new(net: &PoolConfig, sv1: &Sv1Config) -> Self;
-}
-impl StratumV2Client {
-    pub fn new(net: &PoolConfig, sv2: &Sv2Config) -> Self;
-}
+let sv1 = stratum_v1::Sv1Config::new(entry.user.as_str(), password_str)?;
+let mut client = stratum_v1::StratumV1Client::new(&sv1);
+
+let sv2 = stratum_v2::Sv2Config::new(entry.user.as_str(), *pool_pubkey)?;
+let mut client = stratum_v2::StratumV2Client::new(&sv2, secp_ctx, rng);
 ```
 
-Firmware destructures at spawn time:
+Firmware destructures the protocol variant at session start:
 
 ```rust
-match &POOL.protocol {
-    Protocol::StratumV1(sv1) => spawn(stratum_v1_task(stack, &POOL, sv1)),
-    Protocol::StratumV2(sv2) => spawn(stratum_v2_task(stack, &POOL, sv2)),
+match &entry.protocol {
+    ProtocolKind::Sv1 { password } => { /* build Sv1Config, run V1 */ }
+    ProtocolKind::Sv2 { pool_pubkey } => { /* build Sv2Config, run V2 */ }
 }
 ```
+
+Reconnect delay is a constant in the stratum task (not a config field).
+Host resolution happens once per session via DNS or IPv4 literal parse,
+not stored as `[u8; 4]`.
 
 ## Consuming micro-sv2 in the V2 adapter
 
@@ -753,10 +751,10 @@ Each phase is independently `cargo check`-clean, `cargo clippy
 7. **CPU mock.** Inline CPU-mock ASIC (read `work` Watch, hash, push
    to `solutions` Channel) as a fallback in `host-runner`.
 8. **rp2040 firmware migration.** Wire rp2040 to `stratum-client` +
-   ubos-miner hashboard driver. Verify against ckpool. Other firmwares
+   ubos-mining hashboard driver. Verify against ckpool. Other firmwares
    stay on `ubos-backend` for now.
 9. **Migrate remaining firmwares.** rp2350, stm32f407, stm32f439,
-   bmm-pico move to `stratum-client` + ubos-miner. Once all firmwares
+   bmm-pico move to `stratum-client` + ubos-mining. Once all firmwares
    are migrated, `ubos-backend` and `cpu-miner` are deleted.
 10. **Host integration harness.** Stand up `ubos-main-host` with
     `embassy-net` + tuntap. Smoke test against ckpool / regtest pool.
