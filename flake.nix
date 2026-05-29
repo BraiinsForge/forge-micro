@@ -404,6 +404,7 @@
             "-p ubos-display"
             "-p ubos-logging"
             "-p ubos-main-host"
+            "-p ubos-manager"
             "-p ubos-metrics"
             "-p ubos-mining"
             "-p ubos-net"
@@ -425,6 +426,13 @@
           doCheck = false;
           cargoBuildCommand = "true";
           cargoExtraArgs = "-p ubos-monitor";
+        };
+
+        ubosManagerArtifacts = craneLib.buildDepsOnly {
+          inherit src;
+          doCheck = false;
+          cargoBuildCommand = "true";
+          cargoExtraArgs = "-p ubos-manager";
         };
 
         thumbv6mArtifacts = craneLib.buildDepsOnly {
@@ -924,6 +932,21 @@
             inherit src;
             cargoArtifacts = ubosMonitorArtifacts;
             cargoExtraArgs = "-p ubos-monitor";
+            doInstallCargoArtifacts = false;
+          };
+
+          clippy-ubos-manager = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = ubosManagerArtifacts;
+            cargoExtraArgs = "-p ubos-manager";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+          };
+
+          test-ubos-manager = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = ubosManagerArtifacts;
+            cargoExtraArgs = "-p ubos-manager";
             doInstallCargoArtifacts = false;
           };
 

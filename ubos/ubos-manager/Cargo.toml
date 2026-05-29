@@ -1,0 +1,21 @@
+[package]
+name    = "ubos-manager"
+edition = "2021"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[features]
+default = ["defmt"]
+defmt   = [
+    "dep:defmt",
+    "ubos-logging/defmt",
+    "ubos-mining/defmt",
+]
+
+[dependencies]
+embassy-sync    = { workspace = true }
+defmt           = { workspace = true, optional = true }
+ubos-mining     = { workspace = true, default-features = false }
+ubos-logging    = { workspace = true }
