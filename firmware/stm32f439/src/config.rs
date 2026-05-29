@@ -11,9 +11,9 @@
 //! Wiring/pinout: `../../../docs/SETUP.md`.
 
 use embassy_stm32::peripherals::{
-    ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0, ETH, ETH_SMA, I2C1, IWDG, PA1, PA2,
-    PA7, PB0, PB13, PB6, PB7, PB8, PB9, PC1, PC4, PC5, PD8, PD9, PE0, PE1, PG11, PG13, RNG, TIM3,
-    TIM4, USART3,
+    ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0, ETH, ETH_SMA, FLASH, I2C1, IWDG, PA1,
+    PA2, PA7, PB0, PB13, PB6, PB7, PB8, PB9, PC1, PC4, PC5, PD8, PD9, PE0, PE1, PG11, PG13, RNG,
+    TIM3, TIM4, USART3,
 };
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::{DMA2_CH3, PB3, PB5, PE7, PE8, PE9, SPI1};
@@ -101,6 +101,9 @@ pub struct Board {
     pub fan_pwm_pin: Peri<'static, PB8>,
     /// Fan tachometer input pin (PB9, `TIM4_CH4` AF2).
     pub fan_tach_pin: Peri<'static, PB9>,
+    /// FLASH peripheral for the on-board flash; ubos-config persists the
+    /// runtime config record in the last two 128 KiB sectors of bank 1.
+    pub flash: Peri<'static, FLASH>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
     #[cfg(feature = "display")]
@@ -123,10 +126,6 @@ pub struct DisplaySpi;
 impl DisplaySpi {
     pub const FREQUENCY: Hertz = Hertz(10_000_000);
 }
-
-/// Default pool user for this board. Override at compile time with
-/// `POOL_USER=...`.
-pub const DEFAULT_POOL_USER: &str = "braiinstest.stm32f439";
 
 impl Board {
     pub const NAME: &str = "Nucleo-F439ZI LAN8742A";
@@ -172,6 +171,7 @@ impl Board {
             tim4: peripherals.TIM4,
             fan_pwm_pin: peripherals.PB8,
             fan_tach_pin: peripherals.PB9,
+            flash: peripherals.FLASH,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI1,
             #[cfg(feature = "display")]
@@ -188,4 +188,18 @@ impl Board {
             display_tx_dma: peripherals.DMA2_CH3,
         }
     }
+}
+
+/// On-board flash parameters for the ubos-config record store.
+///
+/// Claims the last two 128 KiB sectors of bank 1 (sectors 10-11) so
+/// the config store has the two-page minimum sequential-storage
+/// requires. The same range as the F407 because bank 1's sector
+/// geometry is identical; bank 2 stays unused for now. The
+/// application binary must not grow past the start of the range —
+/// the linker does not enforce this today, so a binary creeping past
+/// 768 KiB would silently overwrite the config region.
+pub struct Flash;
+impl Flash {
+    pub const CONFIG_RANGE: core::ops::Range<u32> = 0x000C_0000..0x0010_0000;
 }

@@ -9,13 +9,12 @@
 //! hashrate publisher, NTP, BTC price, metrics, and HTTP server are
 //! identical across the firmware and host paths.
 //!
-//! Pool wiring matches the firmware: `POOL_HOST`, `POOL_PORT`,
-//! `POOL_PROTOCOL`, `POOL_USER`, `POOL_SV1_PASS`, `POOL_SV2_PUBKEY`,
-//! and `POOL_SV2_TRUST_ANY_KEY` env vars (read at compile time) drive
-//! `ubos_pool::pool_config::parse`;
-//! defaults point at the public Braiins Pool so the binary works out of
-//! the box. Both SV1 and SV2 are wired here — the workspace defaults
-//! select SV2 against the Braiins V2 endpoint.
+//! Pool config matches the firmware: the stratum task reads
+//! `ubos_config::Config::pool[0]` on each reconnect, so an operator
+//! POSTs credentials to `/api/config` and they persist in the host's
+//! file-backed storage. `Config::default()` seeds an SV1 entry at
+//! the public Braiins endpoint with an empty user so the connection
+//! is rejected until the operator configures their worker.
 //!
 //! Host-side prerequisites (run once per boot): `./setup-network.sh up`
 //! creates the TAP device and installs the NAT + forward rules. See
@@ -29,13 +28,14 @@ use embassy_time::{Duration, Timer};
 use log::{info, warn};
 use rand::rngs::OsRng;
 use rand_core::RngCore;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::AsicSession;
-use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
+use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
+use ubos_config::FileStorage;
+use ubos_manager::Handle as ManagerHandle;
+use ubos_mining::Handle as MiningHandle;
 use ubos_net::net;
-use ubos_pool::pool_config::{
-    self, PoolConfig, ProtocolConfig, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
-};
+use ubos_thermal::Handle as ThermalHandle;
 
 mod cpu_mock;
 mod fan;
@@ -51,30 +51,8 @@ use hosted_network::HostDevice;
 const SOCKET_COUNT: usize = 9;
 const BOARD_NAME: &str = "host-runner";
 
-/// Per-board fall-through for the worker identity. Used when
-/// `POOL_USER` is not set in the environment.
-const DEFAULT_POOL_USER: &str = "braiinstest.dumb_worker";
-
-/// Tunable monitor parameters. The PID gains and threshold
-/// temperatures live in `ubos_monitor::BMM101_DEFAULT`.
-static MONITOR_CONFIG: MonitorConfig = BMM101_DEFAULT;
-
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 static RESOURCES: StaticCell<StackResources<SOCKET_COUNT>> = StaticCell::new();
-
-/// Parsed pool config; populated once at boot from compile-time
-/// env vars and held for the lifetime of the process.
-static POOL_CONFIG_CELL: StaticCell<PoolConfig> = StaticCell::new();
-
-/// V1 session config; only initialised when the parsed protocol is
-/// `Sv1`. Held in a `StaticCell` so `StratumV1Client::new` gets the
-/// `&'static Sv1Config` it expects.
-static SV1_CONFIG_CELL: StaticCell<stratum_v1::Sv1Config> = StaticCell::new();
-
-/// V2 session config; only initialised when the parsed protocol is
-/// `Sv2`. Held in a `StaticCell` so `StratumV2Client::new` gets the
-/// `&'static Sv2Config` it expects.
-static SV2_CONFIG_CELL: StaticCell<stratum_v2::Sv2Config> = StaticCell::new();
 
 /// Heap-allocated secp256k1 context for the SV2 noise handshake.
 /// The host has no SRAM ceiling, so the firmware's preallocated
@@ -95,7 +73,7 @@ impl ii_sv2::security::Rng for HostSv2Rng {
 }
 
 /// Shared work / solution rendezvous between the stratum-client
-/// task and whichever ASIC driver is active (ubos-miner BM1362 actor or
+/// task and whichever ASIC driver is active (ubos-mining BM1362 actor or
 /// in-process CPU mock).
 pub static ASIC_SESSION: AsicSession = AsicSession::new();
 
@@ -142,8 +120,27 @@ async fn mdns_task(stack: Stack<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn http_server_task(stack: Stack<'static>) -> ! {
-    ubos_api::run(stack, BOARD_NAME).await
+async fn http_server_task(
+    stack: Stack<'static>,
+    thermal: ThermalHandle,
+    manager: ManagerHandle,
+) -> ! {
+    ubos_api::run(stack, BOARD_NAME, thermal, manager).await
+}
+
+#[embassy_executor::task]
+async fn thermal_task(sensor: temperature::HashboardTemperature, manager: ManagerHandle) -> ! {
+    ubos_thermal::run_thermal(sensor, manager).await
+}
+
+#[embassy_executor::task]
+async fn manager_task(mining: MiningHandle) -> ! {
+    ubos_manager::run_manager(mining).await
+}
+
+#[embassy_executor::task]
+async fn config_task(manager: ManagerHandle, mining: MiningHandle, storage: FileStorage) -> ! {
+    ubos_config::run(manager, mining, storage).await
 }
 
 /// CPU-side ASIC mock; spawned when no BM1362 hashboard is wired.
@@ -153,128 +150,106 @@ async fn asic_cpu_task() -> ! {
     cpu_mock::run_asic_cpu(&ASIC_SESSION).await
 }
 
-/// Stratum client task. Resolves `pool_config.host`, opens a TCP
-/// connection, and runs either the SV1 or SV2 trait-based mining loop
-/// against `ASIC_SESSION`. Reconnects with `RECONNECT_DELAY` between
-/// attempts. Mirrors the firmware shape so the SV1/SV2 switch and the
-/// DNS path stay identical across host and bare-metal.
+/// Stratum client task. Reads the current pool config on each loop
+/// iteration, opens a TCP connection, and runs either the SV1 or SV2
+/// trait-based mining loop against `ASIC_SESSION`. Reconnects with
+/// `RECONNECT_DELAY` between attempts. Mirrors the firmware shape so
+/// the SV1/SV2 switch and the DNS path stay identical across host and
+/// bare-metal.
 #[embassy_executor::task]
-async fn stratum_client_task(stack: Stack<'static>, pool_config: &'static PoolConfig) -> ! {
-    static TCP_RX: StaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> = StaticCell::new();
-    static TCP_TX: StaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> = StaticCell::new();
-    let rx_buffer = TCP_RX.init([0; STRATUM_TCP_BUFFER_SIZE]);
-    let tx_buffer = TCP_TX.init([0; STRATUM_TCP_BUFFER_SIZE]);
+#[allow(clippy::too_many_lines)]
+async fn stratum_client_task(stack: Stack<'static>) -> ! {
+    use embassy_futures::select::{select, Either};
 
-    let port = pool_config.port;
+    static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
+        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
+    static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
+        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
+    let rx_buffer = TCP_RX.take();
+    let tx_buffer = TCP_TX.take();
 
-    match &pool_config.protocol {
-        ProtocolConfig::Sv1 { password } => {
-            let sv1 = SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
-                user: pool_config.user.as_str(),
-                password: password.as_deref().unwrap_or(""),
-            });
-            loop {
-                stratum_client::record_reconnect_attempt();
-                let mut socket = match net::connect_stratum(
-                    stack,
-                    pool_config.host.as_str(),
-                    port,
-                    SOCKET_TIMEOUT,
-                    rx_buffer,
-                    tx_buffer,
-                )
-                .await
-                {
-                    Ok(socket) => socket,
-                    Err(error) => {
-                        warn!("stratum-client: connect failed: {error:?}");
-                        Timer::after(pool_config::RECONNECT_DELAY).await;
-                        continue;
-                    }
-                };
-                let mut state = stratum_client::StratumState::new();
-                let mut client = stratum_v1::StratumV1Client::new(sv1);
-                if let Err(error) = stratum_client::run_stratum_client(
-                    &mut client,
-                    &mut socket,
-                    &ASIC_SESSION,
-                    &mut state,
-                )
-                .await
-                {
-                    warn!("stratum-client: session error {error:?}");
+    // SV2 secp context — initialised once even if the first pool entry
+    // is Sv1, so a runtime protocol switch needs no late allocation.
+    let secp_ctx = SECP_CTX.init(ii_sv2::security::CryptoCtx::new());
+
+    let config_handle = ubos_config::handle();
+    let restart = config_handle.stratum_restart();
+
+    loop {
+        let snapshot = config_handle.current();
+        let Some(entry) = snapshot.pool.first() else {
+            warn!("stratum-client: pool list empty, awaiting config update");
+            restart.wait().await;
+            continue;
+        };
+
+        let one_session = async {
+            stratum_client::record_reconnect_attempt();
+            let mut socket = match net::connect_stratum(
+                stack,
+                entry.host.as_str(),
+                entry.port,
+                SOCKET_TIMEOUT,
+                rx_buffer,
+                tx_buffer,
+            )
+            .await
+            {
+                Ok(socket) => socket,
+                Err(error) => {
+                    warn!("stratum-client: connect failed: {error:?}");
+                    Timer::after(RECONNECT_DELAY).await;
+                    return;
                 }
-                Timer::after(pool_config::RECONNECT_DELAY).await;
-            }
-        }
-        ProtocolConfig::Sv2 { pool_pubkey } => {
-            let sv2 = SV2_CONFIG_CELL.init(
-                stratum_v2::Sv2Config::new(pool_config.user.as_str(), *pool_pubkey)
-                    // `pool_config::parse` rejects POOL_USER longer than
-                    // `MAX_USER_LEN`, which equals `Sv2Config::MAX_USER_LEN`.
-                    .expect("BUG: POOL_USER exceeds Sv2Config::MAX_USER_LEN"),
-            );
-            let ctx = SECP_CTX.init(ii_sv2::security::CryptoCtx::new());
-            loop {
-                stratum_client::record_reconnect_attempt();
-                let mut socket = match net::connect_stratum(
-                    stack,
-                    pool_config.host.as_str(),
-                    port,
-                    SOCKET_TIMEOUT,
-                    rx_buffer,
-                    tx_buffer,
-                )
-                .await
-                {
-                    Ok(socket) => socket,
-                    Err(error) => {
-                        warn!("stratum-client: connect failed: {error:?}");
-                        Timer::after(pool_config::RECONNECT_DELAY).await;
-                        continue;
+            };
+            let mut state = stratum_client::StratumState::new();
+
+            match &entry.protocol {
+                ubos_config::ProtocolKind::Sv1 { password } => {
+                    let sv1 = stratum_v1::Sv1Config::new(
+                        entry.user.as_str(),
+                        password.as_ref().map_or("", heapless::String::as_str),
+                    )
+                    .expect("BUG: PoolEntry user/password match Sv1Config buffer sizes");
+                    let mut client = stratum_v1::StratumV1Client::new(&sv1);
+                    if let Err(error) = stratum_client::run_stratum_client(
+                        &mut client,
+                        &mut socket,
+                        &ASIC_SESSION,
+                        &mut state,
+                    )
+                    .await
+                    {
+                        warn!("stratum-client: session error {error:?}");
                     }
-                };
-                let mut state = stratum_client::StratumState::new();
-                let mut client = stratum_v2::StratumV2Client::new(sv2, ctx, HostSv2Rng(OsRng));
-                if let Err(error) = stratum_client::run_stratum_client(
-                    &mut client,
-                    &mut socket,
-                    &ASIC_SESSION,
-                    &mut state,
-                )
-                .await
-                {
-                    warn!("stratum-client: session error {error:?}");
                 }
-                Timer::after(pool_config::RECONNECT_DELAY).await;
+                ubos_config::ProtocolKind::Sv2 { pool_pubkey } => {
+                    let sv2 = stratum_v2::Sv2Config::new(entry.user.as_str(), *pool_pubkey)
+                        .expect("BUG: PoolEntry.user matches Sv2Config buffer size");
+                    let mut client =
+                        stratum_v2::StratumV2Client::new(&sv2, secp_ctx, HostSv2Rng(OsRng));
+                    if let Err(error) = stratum_client::run_stratum_client(
+                        &mut client,
+                        &mut socket,
+                        &ASIC_SESSION,
+                        &mut state,
+                    )
+                    .await
+                    {
+                        warn!("stratum-client: session error {error:?}");
+                    }
+                }
             }
+
+            Timer::after(RECONNECT_DELAY).await;
+        };
+        if matches!(
+            select(one_session, restart.wait()).await,
+            Either::Second(())
+        ) {
+            info!("stratum-client: pool config changed, reconnecting");
         }
     }
-}
-
-/// Read the `POOL_*` env vars at compile time (each falling through
-/// to shared defaults in `pool_config`) and produce a typed
-/// `PoolConfig`. Identical to the firmware path so the workspace-wide
-/// `.cargo/config.toml` POOL_* defaults reach every binary the same
-/// way. When `POOL_SV2_PUBKEY` is unset, `DEFAULT_POOL_SV2_PUBKEY`
-/// is used so the binary always validates the Braiins prod key by
-/// default. Set `POOL_SV2_TRUST_ANY_KEY=1` to disable peer auth.
-fn pool_config_from_env() -> PoolConfig {
-    pool_config::parse(
-        option_env!("POOL_HOST").unwrap_or(pool_config::DEFAULT_POOL_HOST),
-        option_env!("POOL_PORT").unwrap_or(pool_config::DEFAULT_POOL_PORT_STR),
-        option_env!("POOL_PROTOCOL").unwrap_or(pool_config::DEFAULT_POOL_PROTOCOL),
-        option_env!("POOL_USER").unwrap_or(DEFAULT_POOL_USER),
-        option_env!("POOL_SV1_PASS"),
-        option_env!("POOL_SV2_PUBKEY").unwrap_or(pool_config::DEFAULT_POOL_SV2_PUBKEY),
-        option_env!("POOL_SV2_TRUST_ANY_KEY"),
-    )
-    // Defaults are validated, so the default build always parses.
-    // A malformed operator-supplied POOL_SV2_PUBKEY at build time
-    // still panics here. The host has no watchdog reboot loop, so a
-    // loud boot-time failure is preferred over the firmware's
-    // log-and-skip path.
-    .expect("BUG: POOL_* env vars failed to parse")
 }
 
 #[embassy_executor::task]
@@ -283,8 +258,8 @@ async fn stratum_metrics_task() -> ! {
 }
 
 #[embassy_executor::task]
-async fn miner_metrics_task() -> ! {
-    ubos_miner::publishers::run_miner_metrics_publisher().await
+async fn miner_metrics_task(mining: MiningHandle) -> ! {
+    ubos_mining::publishers::run_miner_metrics_publisher(mining).await
 }
 
 #[embassy_executor::task]
@@ -292,12 +267,16 @@ async fn hashrate_metrics_task() -> ! {
     ubos_metrics::hashrate::run_hashrate_publisher().await
 }
 
-#[allow(clippy::single_match_else)]
+#[allow(
+    clippy::single_match_else,
+    clippy::items_after_statements,
+    clippy::too_many_lines
+)]
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // SIGINT signals `STOP_MINING` so the BM1362 driver tears the
-    // chip down cleanly (when the ubos-miner path is active), then exits
+    // chip down cleanly (when the ubos-mining path is active), then exits
     // the process unconditionally. Without the explicit `exit`,
     // the embassy executor would keep running the network /
     // stratum / CPU-mock tasks indefinitely — none of them watch
@@ -305,22 +284,10 @@ fn main() {
     // this is a developer tool, not a production controller.
     ctrlc::set_handler(|| {
         info!("host-runner: SIGINT received, signalling miner stop");
-        ubos_miner::miner::STOP_MINING.signal(());
+        ubos_mining::miner::STOP_MINING.signal(());
         std::process::exit(130);
     })
     .expect("BUG: ctrlc handler already installed");
-
-    let pool_config = POOL_CONFIG_CELL.init(pool_config_from_env());
-    info!(
-        "host-runner: POOL_HOST={} POOL_PORT={} POOL_PROTOCOL={} POOL_USER={}",
-        pool_config.host.as_str(),
-        pool_config.port,
-        match &pool_config.protocol {
-            ProtocolConfig::Sv1 { .. } => "sv1",
-            ProtocolConfig::Sv2 { .. } => "sv2",
-        },
-        pool_config.user.as_str(),
-    );
 
     let (device, config) = hosted_network::open_host_device();
 
@@ -333,23 +300,40 @@ fn main() {
     let (stack, runner) =
         embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
+    let thermal = ubos_thermal::handle();
+
+    let manager_handle = ubos_manager::handle();
+
+    let mining_handle = ubos_mining::handle();
+
     let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner: Spawner| {
         // SpawnError only fires on reuse of a task token; each constructor
         // invocation mints a fresh one, so a first-time spawn cannot fail.
         spawner.spawn(net_task(runner).expect("BUG: net_task token"));
         spawner.spawn(heartbeat_task(stack).expect("BUG: heartbeat_task token"));
-        spawner.spawn(
-            stratum_client_task(stack, pool_config)
-                .expect("BUG: stratum_client_task token"),
-        );
+        spawner.spawn(stratum_client_task(stack).expect("BUG: stratum_client_task token"));
         spawner.spawn(ntp_sync_task(stack).expect("BUG: ntp_sync_task token"));
         spawner.spawn(bitcoin_price_task(stack).expect("BUG: bitcoin_price_task token"));
         spawner.spawn(metrics_task(stack).expect("BUG: metrics_task token"));
         spawner.spawn(mdns_task(stack).expect("BUG: mdns_task token"));
-        spawner.spawn(miner_metrics_task().expect("BUG: miner_metrics_task token"));
+        spawner.spawn(miner_metrics_task(mining_handle).expect("BUG: miner_metrics_task token"));
         spawner.spawn(stratum_metrics_task().expect("BUG: stratum_metrics_task token"));
         spawner.spawn(hashrate_metrics_task().expect("BUG: hashrate_metrics_task token"));
+        let config_storage = FileStorage::new(
+            std::env::var_os("UBOS_CONFIG_DIR")
+                .map_or_else(|| std::path::PathBuf::from(".ubos-config"), Into::into),
+        );
+        spawner.spawn(
+            config_task(manager_handle, mining_handle, config_storage)
+                .expect("BUG: config_task token"),
+        );
+        // Spawned unconditionally because the manager drains its
+        // command channel independent of any hardware: the HTTP server
+        // below issues `manager.assert/clear` for the pause/resume
+        // endpoints regardless of fan or LM75A presence, so the
+        // channel must always have a consumer.
+        spawner.spawn(manager_task(mining_handle).expect("BUG: manager_task token"));
         // Seed the session CSPRNG before the HTTP server task can handle
         // any request. Firmware boards seed in their async `boot` entry
         // before spawning; host-runner has no async entry, so
@@ -357,12 +341,18 @@ fn main() {
         let mut csprng_seed = [0u8; 32];
         OsRng.fill_bytes(&mut csprng_seed);
         embassy_futures::block_on(ubos_api::seed_csprng(csprng_seed));
-        spawner.spawn(http_server_task(stack).expect("BUG: http_server_task token"));
+        spawner.spawn(
+            http_server_task(stack, thermal, manager_handle)
+                .expect("BUG: http_server_task token"),
+        );
         match fan::FanHwmonController::open() {
             Some(controller) => match temperature::HashboardTemperature::open() {
                 Some(sensor) => {
                     spawner.spawn(
-                        fan::pid_fan_task(controller, sensor, &MONITOR_CONFIG)
+                        thermal_task(sensor, manager_handle).expect("BUG: thermal_task token"),
+                    );
+                    spawner.spawn(
+                        fan::pid_fan_task(controller, thermal)
                             .expect("BUG: pid_fan_task token"),
                     );
                 }
@@ -387,9 +377,10 @@ fn main() {
             }
             None => {
                 warn!(
-                    "host-runner: {} unset or i2c open failed; ubos-miner not spawned, falling back to in-process CPU mining",
+                    "host-runner: {} unset or i2c open failed; ubos-mining not spawned, falling back to in-process CPU mining",
                     psu::I2C_BUS_ENV
                 );
+                spawner.spawn(miner::miner_idle_task().expect("BUG: miner_idle_task token"));
                 spawner.spawn(asic_cpu_task().expect("BUG: asic_cpu_task token"));
             }
         }

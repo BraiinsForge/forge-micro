@@ -8,6 +8,7 @@
 
 use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
+use ubos_core::units::Temperature;
 use ubos_temperature::lm75a::{Error as Lm75aError, Lm75a};
 use ubos_temperature::TemperatureSensor;
 
@@ -55,7 +56,7 @@ impl HashboardTemperature {
 }
 
 impl TemperatureSensor for HashboardTemperature {
-    async fn read_millicelsius(&mut self) -> Option<i32> {
+    async fn read(&mut self) -> Option<Temperature> {
         let mut hottest: Option<i32> = None;
         for (address, sensor) in SENSOR_ADDRESSES.iter().zip(self.sensors.iter()) {
             match sensor.read_millicelsius(&mut self.bus).await {
@@ -71,6 +72,6 @@ impl TemperatureSensor for HashboardTemperature {
                 }
             }
         }
-        hottest
+        hottest.map(Temperature::from_millicelsius)
     }
 }

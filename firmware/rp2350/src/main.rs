@@ -1,9 +1,9 @@
 //! Firmware entry point for the W6100-EVB-Pico-2 (RP2350 + W6100) with the
-//! ubos-miner backend.
+//! ubos-mining backend.
 //!
 //! Initialises SPI at 33 MHz, brings the W6100 up via `embassy-net-wiznet`,
 //! starts the embassy-net stack with DHCP, and spawns the watchdog, LED
-//! blink, ethernet runner, NTP sync, BTC price, and ubos-miner mining tasks
+//! blink, ethernet runner, NTP sync, BTC price, and ubos-mining mining tasks
 //! before entering the HTTP server loop. Built with `cargo build` from
 //! this crate inside `nix develop .#arm`.
 //!
@@ -20,8 +20,9 @@ use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W6100;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::clocks::RoscRng;
+use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0, TRNG, UART1};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, FLASH, I2C1, SPI0, TRNG, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
@@ -34,9 +35,12 @@ use embassy_time::Delay;
 use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::{ConstStaticCell, StaticCell};
+use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
-use ubos_monitor::{MonitorConfig, BMM101_DEFAULT};
+use ubos_manager::Handle as ManagerHandle;
+use ubos_mining::Handle as MiningHandle;
+use ubos_thermal::Handle as ThermalHandle;
 use {defmt_rtt as _, panic_probe as _};
 
 use ubos_net::net;
@@ -55,23 +59,6 @@ static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1
 /// The RP2350 HW FIFO is 32 bytes; 1 KiB gives slack for ETH-ISR jitter
 /// at the BM1362 hashboard baud rate.
 const UART_RING_BUFFER_SIZE: usize = 1024;
-
-// `ubos_pool::pool_config::parse` runs at boot to copy seven
-// compile-time env-var strings into typed fields. The result lives
-// for the lifetime of the firmware; held in a `StaticCell` so the
-// stratum task can take a `&'static PoolConfig`.
-static POOL_CONFIG_CELL: StaticCell<ubos_pool::pool_config::PoolConfig> = StaticCell::new();
-
-// `Sv1Config` references &'static str borrowed from the parsed
-// `PoolConfig`; allocated at boot once the protocol is known to be
-// `Sv1`. Empty when the parsed protocol is `Sv2`.
-static SV1_CONFIG_CELL: StaticCell<stratum_v1::Sv1Config> = StaticCell::new();
-
-// `Sv2Config::new` copies the worker identity into the owned
-// `heapless::String<128>`. Held in a `StaticCell` to give
-// `StratumV2Client::new` a `&'static Sv2Config`. Only populated
-// when the parsed protocol is `Sv2`.
-static SV2_CONFIG_CELL: StaticCell<stratum_v2::Sv2Config> = StaticCell::new();
 
 // `secp256k1::AllPreallocated<'static>` precomputation buffer.
 // `lowmemory` brings the verify table down to ~16 KB; the slot
@@ -100,8 +87,6 @@ impl ii_sv2::security::Rng for Sv2BoardRng {
 }
 
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
-
-static MONITOR_CONFIG: MonitorConfig = BMM101_DEFAULT;
 
 defmt::timestamp!("{=u64:iso8601s}", ubos_net::wall_clock_secs());
 
@@ -189,8 +174,33 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 }
 
 #[embassy_executor::task]
-async fn monitor_task(sensor: temperature::HashboardTemperature, fan: fan::BoardFan) -> ! {
-    ubos_monitor::run_monitor(sensor, fan, &MONITOR_CONFIG).await
+async fn thermal_task(sensor: temperature::HashboardTemperature, manager: ManagerHandle) -> ! {
+    ubos_thermal::run_thermal(sensor, manager).await
+}
+
+#[embassy_executor::task]
+async fn manager_task(mining: MiningHandle) -> ! {
+    ubos_manager::run_manager(mining).await
+}
+
+/// Storage backend type the [`config_task`] hands to
+/// [`ubos_config::run`]. The chain is
+/// `embassy-rp blocking Flash → SyncFlash → FlashStorage`.
+type BoardConfigStorage =
+    FlashStorage<SyncFlash<Flash<'static, FLASH, FlashBlocking, { config::Flash::SIZE }>>>;
+
+#[embassy_executor::task]
+async fn config_task(
+    manager: ManagerHandle,
+    mining: MiningHandle,
+    storage: BoardConfigStorage,
+) -> ! {
+    ubos_config::run(manager, mining, storage).await
+}
+
+#[embassy_executor::task]
+async fn cooling_task(fan: fan::BoardFan, thermal: ThermalHandle) -> ! {
+    ubos_cooling::run_cooling(fan, thermal).await
 }
 
 #[embassy_executor::task]
@@ -209,8 +219,8 @@ async fn stratum_metrics_task() -> ! {
 }
 
 #[embassy_executor::task]
-async fn miner_metrics_task() -> ! {
-    ubos_miner::publishers::run_miner_metrics_publisher().await
+async fn miner_metrics_task(mining: MiningHandle) -> ! {
+    ubos_mining::publishers::run_miner_metrics_publisher(mining).await
 }
 
 #[embassy_executor::task]
@@ -230,40 +240,13 @@ async fn display_task(mut display: OledDisplay) -> ! {
     ubos_display::display::run(&mut display).await
 }
 
-/// Read the `POOL_*` env vars at compile time (each falling through
-/// to its default if unset) and produce a typed `PoolConfig`. The
-/// result is stored in `POOL_CONFIG_CELL` and borrowed `'static` by
-/// the stratum task. Returns the parse error instead of panicking so
-/// the boot path can log and skip the stratum task on a bad
-/// operator-supplied value (e.g. a malformed `POOL_SV2_PUBKEY`).
-/// When `POOL_SV2_PUBKEY` is unset, `DEFAULT_POOL_SV2_PUBKEY` is
-/// used so the firmware always validates the Braiins prod key by
-/// default. Set `POOL_SV2_TRUST_ANY_KEY=1` to disable peer auth.
-fn pool_config_from_env(
-) -> Result<ubos_pool::pool_config::PoolConfig, ubos_pool::pool_config::ConfigError> {
-    use ubos_pool::pool_config;
-    pool_config::parse(
-        option_env!("POOL_HOST").unwrap_or(pool_config::DEFAULT_POOL_HOST),
-        option_env!("POOL_PORT").unwrap_or(pool_config::DEFAULT_POOL_PORT_STR),
-        option_env!("POOL_PROTOCOL").unwrap_or(pool_config::DEFAULT_POOL_PROTOCOL),
-        option_env!("POOL_USER").unwrap_or(config::DEFAULT_POOL_USER),
-        option_env!("POOL_SV1_PASS"),
-        option_env!("POOL_SV2_PUBKEY").unwrap_or(pool_config::DEFAULT_POOL_SV2_PUBKEY),
-        option_env!("POOL_SV2_TRUST_ANY_KEY"),
-    )
-}
-
 #[embassy_executor::task]
 #[allow(clippy::too_many_lines)]
-async fn stratum_client_task(
-    stack: embassy_net::Stack<'static>,
-    pool_config: &'static ubos_pool::pool_config::PoolConfig,
-) -> ! {
+async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
     use defmt::warn;
+    use embassy_futures::select::{select, Either};
     use embassy_time::Timer;
-    use ubos_pool::pool_config::{
-        ProtocolConfig, RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE,
-    };
+    use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
     static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
         ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
     static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
@@ -271,107 +254,99 @@ async fn stratum_client_task(
     let rx_buffer = TCP_RX.take();
     let tx_buffer = TCP_TX.take();
 
-    let port = pool_config.port;
+    // SV2 secp context — initialised once even if the first pool entry
+    // is Sv1, so a runtime protocol switch needs no late allocation.
+    let secp_buffer = SECP_CTX_BUF.take();
+    let secp_ctx = SECP_CTX.init(
+        ii_sv2::security::CryptoCtx::preallocated(secp_buffer)
+            .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
+    );
 
-    match &pool_config.protocol {
-        ProtocolConfig::Sv1 { password } => {
-            let sv1 = SV1_CONFIG_CELL.init(stratum_v1::Sv1Config {
-                user: pool_config.user.as_str(),
-                password: password.as_deref().unwrap_or(""),
-            });
-            loop {
-                stratum_client::record_reconnect_attempt();
-                let mut socket = match ubos_net::net::connect_stratum(
-                    stack,
-                    pool_config.host.as_str(),
-                    port,
-                    SOCKET_TIMEOUT,
-                    rx_buffer,
-                    tx_buffer,
-                )
-                .await
-                {
-                    Ok(socket) => socket,
-                    Err(error) => {
-                        warn!(
-                            "stratum-client: connect failed: {}",
-                            defmt::Debug2Format(&error)
-                        );
-                        Timer::after(RECONNECT_DELAY).await;
-                        continue;
-                    }
-                };
-                let mut state = stratum_client::StratumState::new();
-                let mut client = stratum_v1::StratumV1Client::new(sv1);
-                if let Err(error) = stratum_client::run_stratum_client(
-                    &mut client,
-                    &mut socket,
-                    &ASIC_SESSION,
-                    &mut state,
-                )
-                .await
-                {
+    let config_handle = ubos_config::handle();
+    let restart = config_handle.stratum_restart();
+
+    loop {
+        let snapshot = config_handle.current();
+        let Some(entry) = snapshot.pool.first() else {
+            warn!("stratum-client: pool list empty, awaiting config update");
+            restart.wait().await;
+            continue;
+        };
+
+        let one_session = async {
+            stratum_client::record_reconnect_attempt();
+            let mut socket = match ubos_net::net::connect_stratum(
+                stack,
+                entry.host.as_str(),
+                entry.port,
+                SOCKET_TIMEOUT,
+                rx_buffer,
+                tx_buffer,
+            )
+            .await
+            {
+                Ok(socket) => socket,
+                Err(error) => {
                     warn!(
-                        "stratum-client: session error {}",
+                        "stratum-client: connect failed: {}",
                         defmt::Debug2Format(&error)
                     );
+                    Timer::after(RECONNECT_DELAY).await;
+                    return;
                 }
-                Timer::after(RECONNECT_DELAY).await;
-            }
-        }
-        ProtocolConfig::Sv2 { pool_pubkey } => {
-            let sv2 = SV2_CONFIG_CELL.init(
-                stratum_v2::Sv2Config::new(pool_config.user.as_str(), *pool_pubkey)
-                    // `pool_config::parse` already rejects POOL_USER longer
-                    // than `MAX_USER_LEN`, which equals `Sv2Config::MAX_USER_LEN`.
-                    .expect("BUG: POOL_USER exceeds Sv2Config::MAX_USER_LEN"),
-            );
-            let buffer = SECP_CTX_BUF.take();
-            let ctx = SECP_CTX.init(
-                ii_sv2::security::CryptoCtx::preallocated(buffer)
-                    // `SECP_CTX_SLOTS` is sized for `AllPreallocated` with
-                    // `lowmemory`; undersizing would be caught here at boot.
-                    .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
-            );
-            loop {
-                stratum_client::record_reconnect_attempt();
-                let mut socket = match ubos_net::net::connect_stratum(
-                    stack,
-                    pool_config.host.as_str(),
-                    port,
-                    SOCKET_TIMEOUT,
-                    rx_buffer,
-                    tx_buffer,
-                )
-                .await
-                {
-                    Ok(socket) => socket,
-                    Err(error) => {
+            };
+            let mut state = stratum_client::StratumState::new();
+
+            match &entry.protocol {
+                ubos_config::ProtocolKind::Sv1 { password } => {
+                    let sv1 = stratum_v1::Sv1Config::new(
+                        entry.user.as_str(),
+                        password.as_ref().map_or("", heapless::String::as_str),
+                    )
+                    .expect("BUG: PoolEntry user/password match Sv1Config buffer sizes");
+                    let mut client = stratum_v1::StratumV1Client::new(&sv1);
+                    if let Err(error) = stratum_client::run_stratum_client(
+                        &mut client,
+                        &mut socket,
+                        &ASIC_SESSION,
+                        &mut state,
+                    )
+                    .await
+                    {
                         warn!(
-                            "stratum-client: connect failed: {}",
+                            "stratum-client: session error {}",
                             defmt::Debug2Format(&error)
                         );
-                        Timer::after(RECONNECT_DELAY).await;
-                        continue;
                     }
-                };
-                let mut state = stratum_client::StratumState::new();
-                let mut client = stratum_v2::StratumV2Client::new(sv2, ctx, Sv2BoardRng(RoscRng));
-                if let Err(error) = stratum_client::run_stratum_client(
-                    &mut client,
-                    &mut socket,
-                    &ASIC_SESSION,
-                    &mut state,
-                )
-                .await
-                {
-                    warn!(
-                        "stratum-client: session error {}",
-                        defmt::Debug2Format(&error)
-                    );
                 }
-                Timer::after(RECONNECT_DELAY).await;
+                ubos_config::ProtocolKind::Sv2 { pool_pubkey } => {
+                    let sv2 = stratum_v2::Sv2Config::new(entry.user.as_str(), *pool_pubkey)
+                        .expect("BUG: PoolEntry.user matches Sv2Config buffer size");
+                    let mut client =
+                        stratum_v2::StratumV2Client::new(&sv2, secp_ctx, Sv2BoardRng(RoscRng));
+                    if let Err(error) = stratum_client::run_stratum_client(
+                        &mut client,
+                        &mut socket,
+                        &ASIC_SESSION,
+                        &mut state,
+                    )
+                    .await
+                    {
+                        warn!(
+                            "stratum-client: session error {}",
+                            defmt::Debug2Format(&error)
+                        );
+                    }
+                }
             }
+
+            Timer::after(RECONNECT_DELAY).await;
+        };
+        if matches!(
+            select(one_session, restart.wait()).await,
+            Either::Second(())
+        ) {
+            info!("stratum-client: pool config changed, reconnecting");
         }
     }
 }
@@ -390,7 +365,7 @@ async fn boot(spawner: Spawner) {
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
 
-    // Pin the ubos-miner serial worker to core 1 so embassy-net on core 0 stays
+    // Pin the ubos-mining serial worker to core 1 so embassy-net on core 0 stays
     // responsive. BufferedUart must be constructed on the core that polls
     // it — `init_buffers` unmasks the UART IRQ on the calling core's NVIC,
     // and the async write path pends the same IRQ to drain the SW TX ring
@@ -412,7 +387,7 @@ async fn boot(spawner: Spawner) {
                 RX_BUF.init([0; UART_RING_BUFFER_SIZE]),
                 {
                     let mut config = UartConfig::default();
-                    config.baudrate = ubos_miner::consts::INITIAL_BAUDRATE;
+                    config.baudrate = ubos_mining::consts::INITIAL_BAUDRATE;
                     config
                 },
             );
@@ -439,6 +414,12 @@ async fn boot(spawner: Spawner) {
     // firmware; dropping `Input` would clear the pad and pull setting.
     let _hb_plug = Input::new(hw.hb_plug, Pull::Up);
 
+    let thermal = ubos_thermal::handle();
+
+    let manager_handle = ubos_manager::handle();
+
+    let mining_handle = ubos_mining::handle();
+
     // BMM100 hashboard PSU on I2C1: shared bus, PSU watchdog, power
     // stats, and the miner bring-up task all run on core 0 so the I2C
     // bus mutex can stay NoopRawMutex.
@@ -459,8 +440,20 @@ async fn boot(spawner: Spawner) {
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
         let hashboard_temp = temperature::HashboardTemperature::new(temp_device);
         let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin);
-        spawner.spawn(unwrap!(monitor_task(hashboard_temp, board_fan)));
+        spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
+        spawner.spawn(unwrap!(manager_task(mining_handle)));
+        spawner.spawn(unwrap!(cooling_task(board_fan, thermal)));
     }
+
+    let config_storage = FlashStorage::new(
+        SyncFlash(Flash::<_, FlashBlocking, { config::Flash::SIZE }>::new_blocking(hw.flash)),
+        config::Flash::CONFIG_RANGE,
+    );
+    spawner.spawn(unwrap!(config_task(
+        manager_handle,
+        mining_handle,
+        config_storage
+    )));
 
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = config::Spi::FREQUENCY;
@@ -538,7 +531,7 @@ async fn boot(spawner: Spawner) {
     })));
 
     spawner.spawn(unwrap!(cpu_load_task()));
-    spawner.spawn(unwrap!(miner_metrics_task()));
+    spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
     spawner.spawn(unwrap!(stratum_metrics_task()));
     spawner.spawn(unwrap!(hashrate_metrics_task()));
 
@@ -579,31 +572,8 @@ async fn boot(spawner: Spawner) {
     let config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", config.address.address());
 
-    {
-        // Core 1 hosts serial_task (ubos-miner backend); see spawn_core1 above.
-        match pool_config_from_env() {
-            Ok(config) => {
-                let pool_config = POOL_CONFIG_CELL.init(config);
-                info!(
-                    "stratum-client: POOL_HOST={=str} POOL_PORT={=u16} POOL_PROTOCOL={=str} POOL_USER={=str}",
-                    pool_config.host.as_str(),
-                    pool_config.port,
-                    match &pool_config.protocol {
-                        ubos_pool::pool_config::ProtocolConfig::Sv1 { .. } => "sv1",
-                        ubos_pool::pool_config::ProtocolConfig::Sv2 { .. } => "sv2",
-                    },
-                    pool_config.user.as_str(),
-                );
-                spawner.spawn(unwrap!(stratum_client_task(stack, pool_config)));
-            }
-            Err(error) => {
-                defmt::error!(
-                    "stratum-client: POOL_* env vars invalid: {}; not starting stratum task",
-                    defmt::Debug2Format(&error),
-                );
-            }
-        }
-    }
+    // Core 1 hosts serial_task (ubos-mining backend); see spawn_core1 above.
+    spawner.spawn(unwrap!(stratum_client_task(stack)));
 
-    ubos_api::run(stack, config::Board::NAME).await;
+    ubos_api::run(stack, config::Board::NAME, thermal, manager_handle).await;
 }

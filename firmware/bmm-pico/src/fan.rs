@@ -1,6 +1,6 @@
 //! Fan PWM drive and tachometer readback for the BMM Adapter.
 //!
-//! ubos-miner backend: `../../../docs/MINER.md`.
+//! ubos-mining backend: `../../../docs/MINING.md`.
 
 use defmt::info;
 use embassy_rp::gpio::Pull;
@@ -8,15 +8,15 @@ use embassy_rp::peripherals::{PIN_15, PIN_8, PWM_SLICE4, PWM_SLICE7};
 use embassy_rp::pwm::{Config as PwmConfig, InputMode, Pwm};
 use embassy_rp::Peri;
 use embassy_time::Ticker;
-use portable_atomic::Ordering;
-use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
+use ubos_cooling::FanOutput;
+use ubos_core::fan_state;
+use ubos_core::units::{FanPwm, FanRpm};
 use ubos_metrics::metrics::{push, Metric, Value};
-use ubos_monitor::FanOutput;
 
 use crate::config::Fan;
 
 /// PWM output driving the fan input. Construct once and pass into the
-/// monitor task; the monitor sets duty via `FanOutput::set_pwm_percent`.
+/// cooling task; the cooling loop sets duty via `FanOutput::set_pwm`.
 pub struct BoardFan {
     pwm: Pwm<'static>,
     top: u16,
@@ -29,7 +29,7 @@ impl BoardFan {
         pwm_config.top = Fan::PWM_TOP;
         let pwm = Pwm::new_output_a(slice, pin, pwm_config);
         // Clear the display's no-fan sentinel so line 3 switches to PWM/RPM.
-        FAN_PWM_PERCENT.store(0, Ordering::Relaxed);
+        fan_state::store_pwm(FanPwm::ZERO);
         Self {
             pwm,
             top: Fan::PWM_TOP,
@@ -38,8 +38,8 @@ impl BoardFan {
 }
 
 impl FanOutput for BoardFan {
-    fn set_pwm_percent(&mut self, percent: u8) {
-        let percent = percent.min(100);
+    fn set_pwm(&mut self, pwm: FanPwm) {
+        let percent = pwm.percent();
         let compare = u32::from(self.top) * u32::from(percent) / 100;
         let mut config = PwmConfig::default();
         config.top = self.top;
@@ -49,7 +49,7 @@ impl FanOutput for BoardFan {
             config.compare_a = compare as u16;
         }
         self.pwm.set_config(&config);
-        FAN_PWM_PERCENT.store(percent, Ordering::Relaxed);
+        fan_state::store_pwm(pwm);
     }
 }
 
@@ -89,7 +89,7 @@ pub async fn run_tach(hardware: TachHardware) -> ! {
         ticker.next().await;
         let counts = u64::from(tach.counter());
         let rpm = counts * 60 / Fan::TACH_PULSES_PER_REV / Fan::TACH_WINDOW.as_secs();
-        FAN_RPM.store(u32::try_from(rpm).unwrap_or(u32::MAX), Ordering::Relaxed);
+        fan_state::store_rpm(FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX)));
         push(Metric {
             name: "board_fan_rpm",
             labels: heapless::Vec::new(),

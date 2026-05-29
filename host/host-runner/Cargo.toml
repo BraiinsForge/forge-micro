@@ -21,12 +21,11 @@ gpiocdev           = "0.8"
 heapless           = { workspace = true }
 log                = { version = "0.4", default-features = false }
 ubos-api           = { workspace = true, default-features = false }
-ubos-miner         = { workspace = true }
+ubos-mining         = { workspace = true }
 static_cell        = { workspace = true }
 ubos-metrics       = { workspace = true, default-features = false }
 ubos-mdns          = { workspace = true, default-features = false }
 ubos-net           = { workspace = true, default-features = false }
-ubos-pool            = { workspace = true }
 rand               = "0.8"
 sha2               = { workspace = true }
 embassy-futures    = { workspace = true }
@@ -41,7 +40,11 @@ stratum-v2         = { workspace = true }
 ii-sv2             = { workspace = true, features = ["alloc"] }
 rand_core          = { workspace = true }
 ubos-logging       = { workspace = true }
-ubos-monitor       = { workspace = true }
+ubos-core          = { workspace = true }
+ubos-thermal       = { workspace = true, default-features = false }
+ubos-manager       = { workspace = true, default-features = false }
+ubos-config        = { workspace = true, default-features = false, features = ["std"] }
+ubos-cooling       = { workspace = true, default-features = false }
 ubos-psu           = { workspace = true }
 ubos-temperature   = { workspace = true, default-features = false }
 embassy-sync       = { workspace = true }

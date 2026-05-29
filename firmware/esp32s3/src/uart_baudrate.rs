@@ -1,6 +1,6 @@
 //! `serial_baudrate::BaudRate` wrappers for the ESP32-S3 `UART0` halves.
 //!
-//! `ubos_miner::serial::SERIAL.run` takes split UART halves and requires each to
+//! `ubos_mining::serial::SERIAL.run` takes split UART halves and requires each to
 //! implement `serial_baudrate::BaudRate`. The split `UartRx` / `UartTx`
 //! halves expose `apply_config` but that method only resets the FIFO; it
 //! does not touch the clock divider. To change the baud rate without the
@@ -21,7 +21,7 @@
 //! used here (115 200 – 3 000 000), `APB_CLK` = 80 MHz, so `clk_div` = 1 and
 //! `CLKDIV = (80_000_000 << 4) / baud` (with integer truncation).
 //!
-//! The `ubos-miner` serial actor drains for one second on each side of a
+//! The `ubos-mining` serial actor drains for one second on each side of a
 //! baud-rate change, so no in-flight character guard is needed before writing
 //! `CLKDIV`.
 
@@ -100,9 +100,9 @@ impl BaudRate for MinerUartRx {
 /// Write a new baud rate divisor to `UART0 CLKDIV`.
 ///
 /// ESP32-S3 TRM §26.3.2: `CLKDIV = (APB_CLK << 4) / baud` (with `clk_div = 1`,
-/// `FRAG = 0`). The `ubos-miner` serial actor drains for one second on either
+/// `FRAG = 0`). The `ubos-mining` serial actor drains for one second on either
 /// side of a baud-rate change, so no in-flight character guard is needed here.
-/// `UART0::regs()` is a static PAC accessor; the ubos-miner serial actor's internal
+/// `UART0::regs()` is a static PAC accessor; the ubos-mining serial actor's internal
 /// mutex ensures only one task calls `set_baudrate` at a time.
 fn write_uart0_clkdiv(baud: u32) -> Result<(), ErrorKind> {
     if baud == 0 {
@@ -119,7 +119,7 @@ fn write_uart0_clkdiv(baud: u32) -> Result<(), ErrorKind> {
     #[allow(clippy::cast_possible_truncation)]
     let divider_integer = divider_integer as u16;
     // Safety: UART0::regs() returns a stable static register-block pointer.
-    // The ubos-miner serial actor serialises set_baudrate calls so no concurrent
+    // The ubos-mining serial actor serialises set_baudrate calls so no concurrent
     // write races are possible.
     let regs = UART0::regs();
     regs.clkdiv()

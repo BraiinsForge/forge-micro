@@ -5,8 +5,8 @@
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
 use esp_hal::peripherals::{
-    CPU_CTRL, GPIO1, GPIO10, GPIO11, GPIO2, GPIO39, GPIO4, GPIO40, GPIO41, GPIO42, GPIO43, GPIO44,
-    GPIO5, GPIO8, GPIO9, I2C0, LEDC, PCNT, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1, UART0,
+    CPU_CTRL, FLASH, GPIO1, GPIO10, GPIO11, GPIO2, GPIO39, GPIO4, GPIO40, GPIO41, GPIO42, GPIO43,
+    GPIO44, GPIO5, GPIO8, GPIO9, I2C0, LEDC, PCNT, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1, UART0,
 };
 #[cfg(feature = "display")]
 use esp_hal::peripherals::{GPIO15, GPIO16, GPIO17, GPIO6, GPIO7, SPI3};
@@ -26,14 +26,22 @@ impl DisplaySpi {
     pub const FREQUENCY: Rate = Rate::from_mhz(10);
 }
 
+/// On-board flash parameters for the ubos-config record store.
+///
+/// Claims the last two 4 KiB sectors of the 4 MiB flash, which sits
+/// above the default ESP-IDF factory app partition (`0x3F_0000` end).
+/// No `partitions.csv` is checked in, so this assumes the stock layout
+/// the bootloader uses by default; if a custom table is introduced the
+/// range must move below the new app-partition boundary.
+pub struct Flash;
+impl Flash {
+    pub const CONFIG_RANGE: core::ops::Range<u32> = 0x003F_E000..0x0040_0000;
+}
+
 pub struct Watchdog;
 impl Watchdog {
     pub const TIMEOUT: esp_hal::time::Duration = esp_hal::time::Duration::from_millis(2000);
 }
-
-/// Default pool user for this board. Override at compile time with
-/// `POOL_USER=...`.
-pub const DEFAULT_POOL_USER: &str = "braiinstest.esp32s3";
 
 /// Every peripheral singleton the board consumes, extracted in one place.
 pub struct Board<'d> {
@@ -74,6 +82,8 @@ pub struct Board<'d> {
     pub pcnt: PCNT<'d>,
     /// Fan tach input pin (GPIO11).
     pub fan_tach_pin: GPIO11<'d>,
+    /// On-board SPI flash for the ubos-config record store.
+    pub flash: FLASH<'d>,
     #[cfg(feature = "display")]
     pub display_spi: SPI3<'d>,
     #[cfg(feature = "display")]
@@ -127,6 +137,7 @@ impl Board<'static> {
             fan_pwm_pin: peripherals.GPIO10,
             pcnt: peripherals.PCNT,
             fan_tach_pin: peripherals.GPIO11,
+            flash: peripherals.FLASH,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI3,
             #[cfg(feature = "display")]

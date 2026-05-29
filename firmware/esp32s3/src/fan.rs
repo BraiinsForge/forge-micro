@@ -3,7 +3,7 @@
 //! LEDC drives the 25 kHz PWM signal on `GPIO10` (`LowSpeed` Timer0, Channel0).
 //! PCNT Unit0 counts rising edges from the tach input pin.
 //!
-//! `BoardFan` implements `ubos_monitor::FanOutput::set_pwm_percent`. The
+//! `BoardFan` implements `ubos_cooling::FanOutput::set_pwm`. The
 //! LEDC timer uses 10-bit duty resolution (1024 steps), giving a duty
 //! granularity of ~0.1 % at 25 kHz which is well within the Intel 4-wire
 //! fan specification.
@@ -24,10 +24,10 @@ use esp_hal::pcnt::channel::{CtrlMode, EdgeMode};
 use esp_hal::pcnt::Pcnt;
 use esp_hal::peripherals::{GPIO10, GPIO11, LEDC, PCNT};
 use esp_hal::time::Rate;
-use portable_atomic::Ordering;
-use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
+use ubos_cooling::FanOutput;
+use ubos_core::fan_state;
+use ubos_core::units::{FanPwm, FanRpm};
 use ubos_metrics::metrics::{push, Metric, Value};
-use ubos_monitor::FanOutput;
 
 /// Target PWM frequency per Intel 4-wire fan specification.
 const FAN_PWM_FREQ: Rate = Rate::from_khz(25);
@@ -90,21 +90,21 @@ impl BoardFan {
             .expect("BUG: LEDC channel configuration failed");
 
         // Clear the display's no-fan sentinel so line 3 shows PWM/RPM.
-        FAN_PWM_PERCENT.store(0, Ordering::Relaxed);
+        fan_state::store_pwm(FanPwm::ZERO);
 
         Self { channel: channel0 }
     }
 }
 
 impl FanOutput for BoardFan {
-    fn set_pwm_percent(&mut self, percent: u8) {
-        let percent = percent.min(100);
+    fn set_pwm(&mut self, pwm: FanPwm) {
+        let percent = pwm.percent();
         // LEDC set_duty takes a percentage; it is clamp-safe here.
         // Valid timer attached; set_duty cannot return Error::Channel.
         self.channel
             .set_duty(percent)
             .expect("BUG: LEDC set_duty failed");
-        FAN_PWM_PERCENT.store(percent, Ordering::Relaxed);
+        fan_state::store_pwm(pwm);
     }
 }
 
@@ -189,7 +189,7 @@ pub async fn run_tach(hardware: TachHardware) -> ! {
         let pulses = u64::try_from(pulses.max(0)).unwrap_or(0);
 
         let rpm = pulses * 60 / TACH_PULSES_PER_REV / TACH_WINDOW.as_secs();
-        FAN_RPM.store(u32::try_from(rpm).unwrap_or(u32::MAX), Ordering::Relaxed);
+        fan_state::store_rpm(FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX)));
         push(Metric {
             name: "board_fan_rpm",
             labels: heapless::Vec::new(),

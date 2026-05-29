@@ -5,9 +5,9 @@
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
 use embassy_rp::peripherals::{
-    ADC, ADC_TEMP_SENSOR, CORE1, DMA_CH0, DMA_CH1, I2C1, PIN_0, PIN_1, PIN_15, PIN_16, PIN_17,
-    PIN_18, PIN_19, PIN_2, PIN_20, PIN_21, PIN_25, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8,
-    PWM_SLICE4, PWM_SLICE7, SPI0, TRNG, UART0, UART1, WATCHDOG,
+    ADC, ADC_TEMP_SENSOR, CORE1, DMA_CH0, DMA_CH1, FLASH, I2C1, PIN_0, PIN_1, PIN_15, PIN_16,
+    PIN_17, PIN_18, PIN_19, PIN_2, PIN_20, PIN_21, PIN_25, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7,
+    PIN_8, PWM_SLICE4, PWM_SLICE7, SPI0, TRNG, UART0, UART1, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, SPI1};
@@ -42,6 +42,9 @@ pub struct Board {
     pub fan_pwm: Peri<'static, PIN_8>,
     pub fan_rpm_slice: Peri<'static, PWM_SLICE7>,
     pub fan_rpm: Peri<'static, PIN_15>,
+    /// FLASH peripheral for the on-board QSPI; ubos-config persists the
+    /// runtime config record in the last two sectors of this device.
+    pub flash: Peri<'static, FLASH>,
     pub uart: Peri<'static, UART1>,
     pub uart_tx: Peri<'static, PIN_4>,
     pub uart_rx: Peri<'static, PIN_5>,
@@ -141,6 +144,7 @@ impl Board {
             fan_pwm: peripherals.PIN_8,
             fan_rpm_slice: peripherals.PWM_SLICE7,
             fan_rpm: peripherals.PIN_15,
+            flash: peripherals.FLASH,
             uart: peripherals.UART1,
             uart_tx: peripherals.PIN_4,
             uart_rx: peripherals.PIN_5,
@@ -193,21 +197,19 @@ impl Fan {
 
 pub struct Core1;
 impl Core1 {
-    /// Stack size for the Core 1 executor, sized for the ubos-miner backend.
+    /// Stack size for the Core 1 executor, sized for the ubos-mining backend.
     pub const STACK_BYTES: usize = 32_768;
 }
 
-/// Default pool user for this board. Override at compile time with
-/// `POOL_USER=...`. The per-board suffix matches `MAC_SUFFIX` so the
-/// six boards on the same switch report under distinct `worker`
-/// labels in ckpool. Only the six known `cargo run-N` aliases are
-/// enumerated; any other `MAC_SUFFIX` keeps the un-suffixed name.
-pub const DEFAULT_POOL_USER: &str = match MAC_SUFFIX {
-    1 => "braiinstest.bmm-pico-1",
-    2 => "braiinstest.bmm-pico-2",
-    3 => "braiinstest.bmm-pico-3",
-    4 => "braiinstest.bmm-pico-4",
-    5 => "braiinstest.bmm-pico-5",
-    6 => "braiinstest.bmm-pico-6",
-    _ => "braiinstest.bmm-pico",
-};
+/// On-board QSPI flash parameters for the ubos-config record store.
+///
+/// `SIZE` covers the full 2 MiB physical flash; the `CONFIG_RANGE`
+/// claims the final two 4 KiB erase sectors. The application binary
+/// must not grow past the start of the range — the linker script does
+/// not enforce this today, so a binary creeping past ~2040 KiB will
+/// silently overwrite the config region.
+pub struct Flash;
+impl Flash {
+    pub const SIZE: usize = 2 * 1024 * 1024;
+    pub const CONFIG_RANGE: core::ops::Range<u32> = 0x001F_E000..0x0020_0000;
+}

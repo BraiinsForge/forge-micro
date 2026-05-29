@@ -2,7 +2,7 @@
 //!
 //! embassy-stm32 0.6.0 exposes `Uart::set_baudrate` on the unsplit peripheral
 //! with `&self`, but the split `UartTx`/`RingBufferedUartRx` halves do not
-//! expose baud-rate control. `ubos_miner::serial::SERIAL.run` takes the two halves
+//! expose baud-rate control. `ubos_mining::serial::SERIAL.run` takes the two halves
 //! and requires each to implement `serial_baudrate::BaudRate`. This module
 //! wraps each half with a direct PAC write to USART3's BRR register so either
 //! side can retune the line.
@@ -97,7 +97,7 @@ impl BaudRate for MinerUartRx {
 ///
 /// RM0090 §30.5.4 requires UE = 0 before changing BRR or OVER8. This
 /// function clears UE, sets OVER8 = 1, writes BRR encoded for 8×
-/// oversampling, then restores UE. The ubos-miner backend drains for
+/// oversampling, then restores UE. The ubos-mining backend drains for
 /// one second on either side of a baud-rate change, so no in-flight
 /// character guard is needed here.
 fn write_usart3_brr(baud: u32) -> Result<(), ErrorKind> {
@@ -114,7 +114,7 @@ fn write_usart3_brr(baud: u32) -> Result<(), ErrorKind> {
     // BRR layout under OVER8 = 1: mantissa in [15:4], frac3 in [2:0],
     // bit 3 reserved (kept clear).
     let brr = ((usartdiv_x8 & !0x7) << 1) | (usartdiv_x8 & 0x7);
-    // USART3 is a valid peripheral constant; the ubos-miner serial actor's
+    // USART3 is a valid peripheral constant; the ubos-mining serial actor's
     // caller mutex ensures only one task drives set_baudrate at a time.
     let regs = pac::USART3;
     let cr1_before = regs.cr1().read();

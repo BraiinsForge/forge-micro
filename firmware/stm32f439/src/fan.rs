@@ -29,10 +29,10 @@ use embassy_stm32::timer::low_level::{
 use embassy_stm32::timer::Channel;
 use embassy_stm32::Peri;
 use embassy_time::{Duration, Instant, Timer as EmbassyTimer};
-use portable_atomic::Ordering;
-use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
+use ubos_cooling::FanOutput;
+use ubos_core::fan_state;
+use ubos_core::units::{FanPwm, FanRpm};
 use ubos_metrics::metrics::{push, Metric, Value};
-use ubos_monitor::FanOutput;
 
 /// Target PWM frequency per Intel 4-wire fan specification.
 const FAN_PWM_FREQ: Hertz = Hertz(25_000);
@@ -122,7 +122,7 @@ impl BoardFan {
         timer.clear_input_interrupt(Channel::Ch4);
 
         // Clear the display's no-fan sentinel so line 3 switches to PWM/RPM.
-        FAN_PWM_PERCENT.store(0, Ordering::Relaxed);
+        fan_state::store_pwm(FanPwm::ZERO);
 
         Self {
             timer,
@@ -134,13 +134,13 @@ impl BoardFan {
 }
 
 impl FanOutput for BoardFan {
-    fn set_pwm_percent(&mut self, percent: u8) {
-        let percent = percent.min(100);
+    fn set_pwm(&mut self, pwm: FanPwm) {
+        let percent = pwm.percent();
         let compare = u32::from(percent) * self.arr / 100;
         // compare ≤ arr ≤ 65 535 (TIM4 is a 16-bit timer); truncation is safe.
         #[allow(clippy::cast_possible_truncation)]
         self.timer.set_compare_value(Channel::Ch3, compare as u16);
-        FAN_PWM_PERCENT.store(percent, Ordering::Relaxed);
+        fan_state::store_pwm(pwm);
     }
 }
 
@@ -193,7 +193,7 @@ pub async fn run_tach(_hardware: TachHardware) -> ! {
         }
 
         let rpm = pulses * 60 / TACH_PULSES_PER_REV / TACH_WINDOW.as_secs();
-        FAN_RPM.store(u32::try_from(rpm).unwrap_or(u32::MAX), Ordering::Relaxed);
+        fan_state::store_rpm(FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX)));
         push(Metric {
             name: "board_fan_rpm",
             labels: heapless::Vec::new(),

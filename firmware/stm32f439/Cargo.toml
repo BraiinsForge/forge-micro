@@ -15,7 +15,6 @@ ubos-api             = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-metrics         = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-mdns            = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt", "ccmram-bss"] }
-ubos-pool            = { workspace = true }
 ubos-display         = { workspace = true }
 ubos-core            = { workspace = true, features = ["ccmram-bss"] }
 embassy-executor    = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
@@ -39,11 +38,15 @@ stratum-v2          = { workspace = true, features = ["defmt"] }
 ii-sv2              = { workspace = true, features = ["lowmemory"] }
 rand_chacha         = { workspace = true }
 ubos-temperature    = { workspace = true, features = ["defmt"] }
-ubos-monitor        = { workspace = true, features = ["defmt"] }
+ubos-thermal        = { workspace = true, features = ["defmt"] }
+ubos-manager        = { workspace = true, features = ["defmt"] }
+ubos-config         = { workspace = true, features = ["defmt"] }
+ubos-cooling        = { workspace = true, features = ["defmt"] }
 ubos-psu            = { workspace = true, features = ["defmt"] }
-ubos-miner          = { workspace = true, features = ["defmt"] }
+ubos-mining         = { workspace = true, features = ["defmt"] }
 serial-baudrate     = { workspace = true }
 embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
+embassy-futures     = { workspace = true }
 embassy-sync        = { workspace = true, features = ["defmt"] }
 heapless            = { workspace = true }
 critical-section    = { version = "1" }

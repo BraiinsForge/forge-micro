@@ -1,5 +1,5 @@
 //! hwmon-based fan controller. Drives PID-modulated PWM via
-//! `ubos_monitor::run_monitor` fed by the BMM101 LM75A array.
+//! `ubos_cooling::run_cooling` fed by the BMM101 LM75A array.
 //!
 //! Ported from `bosminer-fan::hwmon::HwmonFanPwm` and
 //! `bosminer-hal::sysfs::hwmon_fan::FanHwmonController`. The kernel
@@ -14,9 +14,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use log::{error, info, warn};
-use ubos_monitor::{FanOutput, MonitorConfig};
-
-use crate::temperature::HashboardTemperature;
+use ubos_cooling::FanOutput;
+use ubos_core::units::FanPwm;
+use ubos_thermal::Handle as ThermalHandle;
 
 /// Root of the platform-device tree the kernel exposes for hwmon
 /// drivers. Hardcoded — same as the upstream constant.
@@ -145,18 +145,14 @@ fn find_pwmfan_devices(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
 }
 
 impl FanOutput for FanHwmonController {
-    fn set_pwm_percent(&mut self, percent: u8) {
-        self.set_speed(percent);
+    fn set_pwm(&mut self, pwm: FanPwm) {
+        self.set_speed(pwm.percent());
     }
 }
 
 /// PID-driven fan loop. Spawned by main once both the fan controller
 /// and the LM75A sensor array have opened.
 #[embassy_executor::task]
-pub async fn pid_fan_task(
-    controller: FanHwmonController,
-    sensor: HashboardTemperature,
-    config: &'static MonitorConfig,
-) -> ! {
-    ubos_monitor::run_monitor(sensor, controller, config).await
+pub async fn pid_fan_task(controller: FanHwmonController, thermal: ThermalHandle) -> ! {
+    ubos_cooling::run_cooling(controller, thermal).await
 }

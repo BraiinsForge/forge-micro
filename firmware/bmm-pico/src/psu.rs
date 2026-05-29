@@ -1,7 +1,7 @@
 //! BMM100 PSU integration over the shared I2C1 bus. Owns the static
 //! cells for the `MiniminerPsu` state, terminated flag, and PSU handle.
 //!
-//! Backend architecture: `../../../docs/MINER.md`.
+//! Backend architecture: `../../../docs/MINING.md`.
 
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_embedded_hal::shared_bus::I2cDeviceError;

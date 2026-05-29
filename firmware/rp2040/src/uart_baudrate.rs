@@ -2,7 +2,7 @@
 //!
 //! embassy-rp 0.10 exposes runtime baud rate switching only on the unsplit
 //! `BufferedUart` via `&mut self`; the per-half `info: &'static Info` field
-//! that drives `set_baudrate_inner` is private. `ubos_miner::serial::Serial::run`
+//! that drives `set_baudrate_inner` is private. `ubos_mining::serial::Serial::run`
 //! takes two independent halves, each implementing
 //! `serial_baudrate::BaudRate(&self, ...)`. This module wraps each half with
 //! the UART register block and re-implements the divisor math against the
@@ -95,7 +95,7 @@ impl BaudRate for MinerUartRx {
 
 /// Replicates `embassy_rp::uart::Uart::set_baudrate_inner` plus the
 /// `lcr_modify` enable/disable dance the PL011 needs around an `LCR_H` write.
-/// The ubos-miner actor wraps every call with a one-second drain on either side, so
+/// The ubos-mining actor wraps every call with a one-second drain on either side, so
 /// the wait-for-in-flight-character logic in embassy-rp's version is dropped.
 fn write_baudrate(regs: UartRegs, baud: u32) -> Result<(), ErrorKind> {
     if baud == 0 {
@@ -115,7 +115,7 @@ fn write_baudrate(regs: UartRegs, baud: u32) -> Result<(), ErrorKind> {
 
     // The PL011 latches IBRD/FBRD on the next LCR_H write, and writing LCR_H
     // while the UART is enabled is undefined. Disable UARTEN/TXE/RXE,
-    // commit, then restore CR. The ubos-miner 1 s drain around this call covers any
+    // commit, then restore CR. The ubos-mining 1 s drain around this call covers any
     // bytes already on the wire.
     let cr = regs.uartcr().read();
     if cr.uarten() {

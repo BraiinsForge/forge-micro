@@ -2,7 +2,7 @@
 //! Re-implements the PL011 divisor math against the PAC so each half can
 //! retune the line with a `&self` receiver.
 //!
-//! Backend architecture: `../../../docs/MINER.md`.
+//! Backend architecture: `../../../docs/MINING.md`.
 
 use embassy_rp::pac::uart::regs::{Uartfbrd, Uartibrd};
 use embassy_rp::pac::uart::Uart as UartRegs;
@@ -91,7 +91,7 @@ impl BaudRate for MinerUartRx {
 
 /// Replicates `embassy_rp::uart::Uart::set_baudrate_inner` plus the
 /// `lcr_modify` enable/disable dance the PL011 needs around an `LCR_H` write.
-/// The ubos-miner actor wraps every call with a one-second drain on either side, so
+/// The ubos-mining actor wraps every call with a one-second drain on either side, so
 /// the wait-for-in-flight-character logic in embassy-rp's version is dropped.
 fn write_baudrate(regs: UartRegs, baud: u32) -> Result<(), ErrorKind> {
     if baud == 0 {
@@ -111,7 +111,7 @@ fn write_baudrate(regs: UartRegs, baud: u32) -> Result<(), ErrorKind> {
 
     // The PL011 latches IBRD/FBRD on the next LCR_H write, and writing LCR_H
     // while the UART is enabled is undefined. Disable UARTEN/TXE/RXE,
-    // commit, then restore CR. The ubos-miner 1 s drain around this call covers any
+    // commit, then restore CR. The ubos-mining 1 s drain around this call covers any
     // bytes already on the wire.
     let cr = regs.uartcr().read();
     if cr.uarten() {

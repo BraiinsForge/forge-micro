@@ -1,9 +1,12 @@
 [target.thumbv8m.main-none-eabihf]
 runner = "./scripts/run.sh"
 
-# POOL_* defaults live in the workspace .cargo/config.toml.
+# POOL_* env vars seed Config::default() at compile time. They only
+# matter on first boot or after a schema mismatch; a persisted config
+# in flash supersedes them.
 [env]
 DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
+POOL_USER = "braiinstest.dumb_worker"
 
 [build]
 target = "thumbv8m.main-none-eabihf"

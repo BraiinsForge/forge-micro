@@ -1,4 +1,4 @@
-//! Linux gpiocdev backend for `ubos_miner::reset::ResetPin`.
+//! Linux gpiocdev backend for `ubos_mining::reset::ResetPin`.
 //!
 //! Resolves the line by name (matching upstream's gpiocdev convention)
 //! so the deployment host's gpiochip + offset don't need to be
@@ -10,7 +10,7 @@ use gpiocdev::line::Value;
 use gpiocdev::Request;
 use log::{error, info};
 
-use ubos_miner::reset::ResetPin;
+use ubos_mining::reset::ResetPin;
 
 pub const RESET_LINE: &str = "HB0_RESET";
 

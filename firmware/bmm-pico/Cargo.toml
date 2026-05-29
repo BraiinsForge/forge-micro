@@ -15,7 +15,6 @@ ubos-api             = { workspace = true, features = ["defmt"] }
 ubos-metrics         = { workspace = true, features = ["defmt"] }
 ubos-mdns            = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt"] }
-ubos-pool            = { workspace = true }
 ubos-display         = { workspace = true }
 ubos-core            = { workspace = true }
 embassy-executor     = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
@@ -39,12 +38,16 @@ stratum-v2           = { workspace = true, features = ["defmt"] }
 # Workspace dep is declared with default-features = false so the
 # firmware does not pull `alloc` via secp256k1's alloc feature.
 ii-sv2               = { workspace = true, features = ["lowmemory"] }
-ubos-monitor         = { workspace = true, features = ["defmt"] }
+ubos-thermal         = { workspace = true, features = ["defmt"] }
+ubos-manager         = { workspace = true, features = ["defmt"] }
+ubos-config          = { workspace = true, features = ["defmt"] }
+ubos-cooling         = { workspace = true, features = ["defmt"] }
 ubos-temperature     = { workspace = true, features = ["defmt"] }
-ubos-miner           = { workspace = true, features = ["defmt"] }
+ubos-mining          = { workspace = true, features = ["defmt"] }
 ubos-psu             = { workspace = true, features = ["defmt"] }
 serial-baudrate      = { workspace = true }
 embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
+embassy-futures      = { workspace = true }
 embassy-sync         = { workspace = true, features = ["defmt"] }
 
 # cortex-m and cortex-m-rt are pulled in by `#[cortex_m_rt::entry]` and

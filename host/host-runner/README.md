@@ -51,9 +51,8 @@ Stratum V1 against Braiins pool:
 ```sh
 POOL_HOST=172.65.65.63 \
 POOL_PORT=3333 \
-POOL_PROTOCOL=sv1 \
 POOL_USER=<braiins-account>.<worker> \
-POOL_SV1_PASS=x \
+POOL_PASSWORD=x \
 nix develop .#host -c cargo run -p host-runner
 ```
 
