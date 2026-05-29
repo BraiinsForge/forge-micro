@@ -14,7 +14,7 @@ members = [
     "host/ubos-main-host",
     "ubos/esp32s3-tsens",
     "ubos/mining-protocol",
-    "ubos/ubos-miner",
+    "ubos/ubos-mining",
     "ubos/rp235x-sha256",
     "ubos/serial-baudrate",
     "ubos/stratum-client",
@@ -82,7 +82,7 @@ serial-baudrate   = { path = "ubos/serial-baudrate" }
 stratum-client    = { path = "ubos/stratum-client" }
 stratum-v1        = { path = "ubos/stratum-v1" }
 stratum-v2        = { path = "ubos/stratum-v2" }
-ubos-miner        = { path = "ubos/ubos-miner", default-features = false }
+ubos-mining       = { path = "ubos/ubos-mining", default-features = false }
 ii-sv2            = { git = "ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git", tag = "v0.2.0", default-features = false }
 ubos-api          = { path = "ubos/ubos-api", default-features = false }
 ubos-core         = { path = "ubos/ubos-core" }

@@ -126,7 +126,7 @@ fn parse_with_junk() {
     );
 }
 
-/// Locks ubos-miner's local share-verification hash to
+/// Locks ubos-mining's local share-verification hash to
 /// `mining_protocol::hashing::header_hash`. Both sides reconstruct the
 /// same canonical block header from the same `WorkAssignment` fields,
 /// and the pool will reject any submit whose chip-side hash diverges

@@ -405,7 +405,7 @@
             "-p ubos-logging"
             "-p ubos-main-host"
             "-p ubos-metrics"
-            "-p ubos-miner"
+            "-p ubos-mining"
             "-p ubos-net"
             "-p ubos-pool"
             "-p ubos-psu"
@@ -802,10 +802,10 @@
             doInstallCargoArtifacts = false;
           };
 
-          clippy-ubos-miner = craneLib.cargoClippy {
+          clippy-ubos-mining = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = hostArtifacts;
-            cargoExtraArgs = "-p ubos-miner";
+            cargoExtraArgs = "-p ubos-mining";
             cargoClippyExtraArgs = "-- -D warnings";
             doInstallCargoArtifacts = false;
           };
@@ -884,10 +884,10 @@
             doInstallCargoArtifacts = false;
           };
 
-          test-ubos-miner = craneLib.cargoTest {
+          test-ubos-mining = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = hostArtifacts;
-            cargoExtraArgs = "-p ubos-miner";
+            cargoExtraArgs = "-p ubos-mining";
             doInstallCargoArtifacts = false;
           };
 

@@ -1,4 +1,4 @@
-//! Per-board metric publishers for ubos-miner state.
+//! Per-board metric publishers for ubos-mining state.
 //!
 //! Lives here rather than each firmware's `main.rs` so the
 //! atomics, metric names, and cadence stay in one place. Boards

@@ -91,7 +91,7 @@ impl HwSolution {
 /// Stratum's `mining.notify` emits `prev_hash` as eight big-endian 32-bit
 /// words, but Bitcoin's block header wants them in native (little-endian)
 /// byte order inside each word. `mining_protocol::hashing::build_header`
-/// applies this swap inline; ubos-miner stores `HwWork.prev_hash` in canonical
+/// applies this swap inline; ubos-mining stores `HwWork.prev_hash` in canonical
 /// post-swap form so both the local hash check and the chip wire frame
 /// see the same bytes.
 #[cfg(test)]
