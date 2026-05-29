@@ -2,6 +2,8 @@
 
 use embassy_time::Duration;
 
+use crate::units::{Frequency, Voltage};
+
 /// TCP/UDP socket timeouts shared across NTP and HTTP.
 pub struct Net;
 impl Net {
@@ -94,6 +96,19 @@ impl Mdns {
     /// Four static pairs plus two runtime pairs is sufficient for any
     /// service planned in this workspace.
     pub const MAX_TXT_PAIRS: usize = 6;
+}
+
+/// BM1362 mining defaults that must agree across `ubos-config`,
+/// `ubos-mining`, and `ubos-api`. Hoisted here so the boot-default
+/// frequency and voltage have one source of truth; `Config::default()`
+/// reads them through `.mhz()`/`.mv()`, while `ubos-mining` and the
+/// API schema re-export the typed constants directly.
+pub struct Mining;
+impl Mining {
+    /// Default mining frequency programmed at chip init.
+    pub const DEFAULT_FREQUENCY: Frequency = Frequency::from_mhz(525);
+    /// Default ASIC core voltage programmed at chip init.
+    pub const DEFAULT_VOLTAGE: Voltage = Voltage::from_mv(1400);
 }
 
 /// Prometheus metrics exposition server settings.

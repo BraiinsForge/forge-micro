@@ -1,47 +1,39 @@
 //! BMM100 mining main loop.
 //!
 //! Each iteration brings the chip up (PSU, reset sequencing, init
-//! replay), waits on [`STOP_MINING`] or [`HALT_MINING`], and tears it
-//! down (deinit replay, work stop, PSU off). On a fatal init failure
-//! (chip goes silent at a new line rate, etc.) the iteration cuts the
-//! rail, sleeps, and starts over so a transient bring-up failure does
-//! not leave the chip powered without supervision.
+//! replay), waits on [`STOP_MINING`] or a [`Message`] delivered on
+//! the command channel, and tears it down (deinit replay, work stop,
+//! PSU off). On a fatal init failure (chip goes silent at a new line
+//! rate, etc.) the iteration cuts the rail, sleeps, and starts over
+//! so a transient bring-up failure does not leave the chip powered
+//! without supervision.
 //!
-//! `HALT_MINING` is the thermal-emergency path: when asserted the loop
-//! drops the rail immediately (no deinit replay, the board is already
-//! over `dangerous_temp_c`) and waits for the monitor to clear the
-//! halt before attempting bring-up again. `STOP_MINING` remains the
-//! orderly-shutdown path that runs the deinit replay.
+//! `Message::Halt` is the thermal-emergency path: when delivered
+//! the loop drops the rail immediately (no deinit replay, the board
+//! is already over `dangerous_temp_c`) and waits for
+//! `Message::Resume` before attempting bring-up again. `STOP_MINING`
+//! remains the orderly-shutdown path that runs the deinit replay.
 
 use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
-use portable_atomic::{AtomicBool, Ordering};
+use ubos_core::consts::Mining;
+use ubos_core::units::Voltage;
 use ubos_logging::{Debug2Format, error, info, warn};
-use ubos_monitor::HALT_MINING;
 use ubos_psu::Psu;
 
-/// Mirrors the chip rail state for downstream consumers (host
-/// fan controller etc.). `true` between PSU enable and PSU disable
-/// in `run`; `false` at startup and after teardown.
-pub static MINER_IS_RUNNING: Signal<CriticalSectionRawMutex, bool> = Signal::new();
-
-/// Atomic mirror of [`MINER_IS_RUNNING`] for scrape-time reads that
-/// must not wait for the next signal edge. Stored with
-/// `Ordering::Release`; readers must use `Ordering::Acquire`. Cross-core
-/// consumers see the matching epoch on dual-core boards.
-pub static MINER_IS_RUNNING_STATE: AtomicBool = AtomicBool::new(false);
-
 use crate::bmm100_trace::{DEINIT, INIT};
+use crate::control::{COMMAND_CHANNEL, Message, MiningState, STATE_WATCH};
 use crate::replay::replay;
 use crate::reset::ResetPin;
 use crate::serial::SERIAL;
 
-/// Default ASIC core voltage, in millivolts, that the firmware programs at
-/// boot. Exported so API response builders can report it without duplicating
-/// the constant across crates.
-pub const VOLTAGE_MV: u32 = 1400;
+/// Default ASIC core voltage that the firmware programs at boot.
+/// Aliased from `ubos_core::consts::Mining::DEFAULT_VOLTAGE` so the
+/// boot-default voltage has one source of truth shared with
+/// `ubos-config::Config::default()` and the `ubos-api` schema.
+pub const VOLTAGE: Voltage = Mining::DEFAULT_VOLTAGE;
 
 /// Settling time held between each reset / PSU transition during
 /// the bring-up sequence.
@@ -57,6 +49,27 @@ const RETRY_DELAY: Duration = Duration::from_secs(5);
 /// outer loop returns.
 pub static STOP_MINING: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
+/// Idle counterpart to [`run`] for deployments without a real chip.
+///
+/// Publishes the initial `MiningState` so subscribers see a defined value,
+/// then drains the command channel forever. Used by host-runner when no PSU
+/// is configured: thermal still publishes temperatures and the API still
+/// renders state, while `halt`/`resume` edges from thermal are absorbed
+/// instead of back-pressuring the sender once the channel fills.
+pub async fn run_idle() -> ! {
+    publish_running(false);
+    info!("mining: idle loop active (no chip); commands will be dropped");
+    loop {
+        let _ = COMMAND_CHANNEL.receive().await;
+    }
+}
+
+/// Drive the BMM100 mining work loop.
+///
+/// Brings the chip up via the PSU and reset sequencing, mines until a
+/// halt or stop is observed, tears down on `Message::Resume`, and
+/// retries on transient init failures. Returns when `STOP_MINING`
+/// fires; on bare metal that never happens, so the loop runs forever.
 pub async fn run<P, R>(psu: &P, reset_pin: &mut R)
 where
     P: Psu,
@@ -64,16 +77,15 @@ where
 {
     // Publish the initial state so a fan task that started before us
     // sees `false` instead of waiting forever for the first edge.
-    MINER_IS_RUNNING_STATE.store(false, Ordering::Release);
-    MINER_IS_RUNNING.signal(false);
+    publish_running(false);
     let mut halted = false;
 
     loop {
         if halted {
-            info!("miner: halt active; awaiting clear");
+            info!("mining: halt active; awaiting clear");
             match wait_halt_clear_or_stop().await {
                 Resumed::Cleared => {
-                    info!("miner: halt cleared; restarting bring-up");
+                    info!("mining: halt cleared; restarting bring-up");
                     halted = false;
                 }
                 Resumed::Stopped => return,
@@ -81,10 +93,10 @@ where
         }
 
         // -- bring-up --
-        info!("miner: setting voltage to {} mV", VOLTAGE_MV);
-        let _ = psu.set_voltage(VOLTAGE_MV).await;
+        info!("mining: setting voltage to {} mV", VOLTAGE.mv());
+        let _ = psu.set_voltage(VOLTAGE).await;
 
-        info!("miner: entering reset");
+        info!("mining: entering reset");
         reset_pin.enter_reset();
         match settle_or_abort(RESET_HOLD, psu, reset_pin).await {
             Settled::Continue => {}
@@ -95,13 +107,12 @@ where
             }
         }
 
-        info!("miner: enabling PSU");
+        info!("mining: enabling PSU");
         let _ = psu.enable().await;
         // Fans follow the rail, not the init-replay completion: the
         // chip is dissipating power as soon as the PSU is on, and
         // init replay can take long enough for thermals to climb.
-        MINER_IS_RUNNING_STATE.store(true, Ordering::Release);
-        MINER_IS_RUNNING.signal(true);
+        publish_running(true);
         match settle_or_abort(RESET_HOLD, psu, reset_pin).await {
             Settled::Continue => {}
             Settled::Stop => return,
@@ -111,7 +122,7 @@ where
             }
         }
 
-        info!("miner: exiting reset");
+        info!("mining: exiting reset");
         reset_pin.exit_reset();
         match settle_or_abort(RESET_HOLD, psu, reset_pin).await {
             Settled::Continue => {}
@@ -133,22 +144,58 @@ where
         }
 
         // -- mine --
-        info!("miner: mining; awaiting STOP_MINING or HALT_MINING");
-        match select(STOP_MINING.wait(), HALT_MINING.wait()).await {
+        info!("mining: mining; awaiting STOP_MINING or Message");
+        match select(STOP_MINING.wait(), next_halt_change()).await {
             Either::First(()) => {
                 // -- teardown (orderly stop) --
-                info!("miner: replaying deinit ({} steps)", DEINIT.len());
+                info!("mining: replaying deinit ({} steps)", DEINIT.len());
                 let _ = replay(&SERIAL, DEINIT).await;
                 let _ = SERIAL.stop_sending_work().await;
                 let _ = SERIAL.reset().await;
                 cut_rail(psu, reset_pin).await;
-                info!("miner: stopped");
+                info!("mining: stopped");
                 return;
             }
-            Either::Second(value) => {
-                warn!("miner: halt asserted while mining; cutting rail");
+            Either::Second(true) => {
+                warn!("mining: halt asserted while mining; cutting rail");
                 cut_rail(psu, reset_pin).await;
-                halted = value;
+                halted = true;
+            }
+            Either::Second(false) => {}
+        }
+    }
+}
+
+/// Publish a `MiningState` reflecting the rail flag. `chip_count` and
+/// `target` are placeholders until 3f/Step 6 wires the tuner and
+/// chain enumeration.
+fn publish_running(running: bool) {
+    STATE_WATCH.sender().send(MiningState {
+        running,
+        chip_count: 0,
+        target: None,
+    });
+}
+
+/// Block until a `Message::Halt`/`Resume` arrives. Returns the
+/// resulting halt state. Other command variants are not yet implemented
+/// and are dropped with a warn so producers can be migrated in 3e
+/// without a behavior break here.
+async fn next_halt_change() -> bool {
+    loop {
+        match COMMAND_CHANNEL.receive().await {
+            Message::Halt => return true,
+            Message::Resume => return false,
+            Message::SetTarget { freq, voltage } => {
+                warn!(
+                    "mining: dropping SetTarget({} MHz, {} mV); tuner lands in Step 6",
+                    freq.mhz(),
+                    voltage.mv()
+                );
+            }
+            #[cfg(feature = "legacy-replay")]
+            Message::ExecuteStep(_) => {
+                warn!("mining: dropping ExecuteStep; replay path stays inside run() until Step 6");
             }
         }
     }
@@ -161,8 +208,7 @@ where
 {
     reset_pin.enter_reset();
     let _ = psu.disable().await;
-    MINER_IS_RUNNING_STATE.store(false, Ordering::Release);
-    MINER_IS_RUNNING.signal(false);
+    publish_running(false);
 }
 
 enum Resumed {
@@ -170,11 +216,11 @@ enum Resumed {
     Stopped,
 }
 
-/// Block while halted. Returns `Cleared` once the monitor publishes a
-/// `false` halt state; returns `Stopped` if `STOP_MINING` fires first.
+/// Block while halted. Returns `Cleared` once a `Message::Resume`
+/// edge is observed; returns `Stopped` if `STOP_MINING` fires first.
 async fn wait_halt_clear_or_stop() -> Resumed {
     loop {
-        match select(HALT_MINING.wait(), STOP_MINING.wait()).await {
+        match select(next_halt_change(), STOP_MINING.wait()).await {
             Either::First(false) => return Resumed::Cleared,
             Either::First(true) => {}
             Either::Second(()) => return Resumed::Stopped,
@@ -204,43 +250,43 @@ where
 {
     let _ = SERIAL.reset().await;
 
-    info!("miner: replaying init ({} steps)", INIT.len());
+    info!("mining: replaying init ({} steps)", INIT.len());
     match select3(
         replay(&SERIAL, INIT),
         STOP_MINING.wait(),
-        HALT_MINING.wait(),
+        next_halt_change(),
     )
     .await
     {
         Either3::First(Ok(())) => InitPhase::Done,
         Either3::First(Err(kind)) => {
             error!(
-                "miner: init replay failed ({:?}); cutting rail and retrying",
+                "mining: init replay failed ({:?}); cutting rail and retrying",
                 Debug2Format(&kind)
             );
             cut_rail(psu, reset_pin).await;
             match select3(
                 Timer::after(RETRY_DELAY),
                 STOP_MINING.wait(),
-                HALT_MINING.wait(),
+                next_halt_change(),
             )
             .await
             {
                 Either3::First(()) => InitPhase::Retry,
                 Either3::Second(()) => {
-                    info!("miner: stop signalled during recovery");
+                    info!("mining: stop signalled during recovery");
                     InitPhase::Stop
                 }
                 Either3::Third(value) => InitPhase::Halt(value),
             }
         }
         Either3::Second(()) => {
-            info!("miner: stop signalled during init replay; cutting rail");
+            info!("mining: stop signalled during init replay; cutting rail");
             cut_rail(psu, reset_pin).await;
             InitPhase::Stop
         }
         Either3::Third(value) => {
-            warn!("miner: halt asserted during init replay; cutting rail");
+            warn!("mining: halt asserted during init replay; cutting rail");
             cut_rail(psu, reset_pin).await;
             InitPhase::Halt(value)
         }
@@ -255,9 +301,9 @@ enum Settled {
     /// `STOP_MINING` fired during the sleep; the rail has been cut
     /// and the run loop must return.
     Stop,
-    /// `HALT_MINING` fired during the sleep; the rail has been cut
-    /// and the carried value is the new `halted` state for the run
-    /// loop to resume from.
+    /// A `Message::Halt` edge fired during the sleep; the rail has
+    /// been cut and the carried value is the new `halted` state for
+    /// the run loop to resume from.
     Halt(bool),
 }
 
@@ -274,7 +320,7 @@ where
     match select3(
         Timer::after(duration),
         STOP_MINING.wait(),
-        HALT_MINING.wait(),
+        next_halt_change(),
     )
     .await
     {

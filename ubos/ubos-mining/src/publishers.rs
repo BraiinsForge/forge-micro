@@ -9,12 +9,12 @@ use embassy_time::{Duration, Ticker};
 use portable_atomic::Ordering;
 use ubos_metrics::metrics::{Metric, Value, push};
 
+use crate::Handle as MiningHandle;
 use crate::bm1362::UART_DESYNC_BYTES;
-use crate::miner::MINER_IS_RUNNING_STATE;
 
 /// Periodically push `board_uart_desync_bytes_total` and
 /// `board_miner_running` to the metrics exposition channel.
-pub async fn run_miner_metrics_publisher() -> ! {
+pub async fn run_miner_metrics_publisher(mining: MiningHandle) -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(2));
     loop {
         ticker.next().await;
@@ -26,7 +26,7 @@ pub async fn run_miner_metrics_publisher() -> ! {
             timestamp_ms: 0,
         })
         .await;
-        let running = u64::from(MINER_IS_RUNNING_STATE.load(Ordering::Acquire));
+        let running = u64::from(mining.state().is_some_and(|state| state.running));
         push(Metric {
             name: "board_miner_running",
             labels: heapless::Vec::new(),

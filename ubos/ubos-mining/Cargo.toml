@@ -4,34 +4,38 @@ name    = "ubos-mining"
 version = "0.1.0"
 
 [features]
-default = ["defmt"]
-defmt   = [
+default       = ["defmt", "legacy-replay"]
+defmt         = [
     "dep:defmt",
     "ubos-logging/defmt",
-    "ubos-monitor/defmt",
     "ubos-psu/defmt",
 ]
+# Step 6 of the migration plan introduces a typed `FlatTuner` and
+# demotes the recorded `bmm100_trace` bring-up to a regression
+# fallback gated behind this feature. Until then the trace is the
+# only working bring-up path, so the feature defaults on.
+legacy-replay = []
 
 [lints]
 workspace = true
 
 [dependencies]
-defmt              = { workspace = true, optional = true }
-embassy-futures    = { workspace = true }
-embassy-sync       = { workspace = true }
-embassy-time       = { workspace = true }
-embedded-io        = "0.7"
-embedded-io-async  = { workspace = true }
-heapless           = { workspace = true }
-portable-atomic    = { workspace = true }
-serial-baudrate    = { workspace = true }
-sha2               = { workspace = true }
+defmt             = { workspace = true, optional = true }
+embassy-futures   = { workspace = true }
+embassy-sync      = { workspace = true }
+embassy-time      = { workspace = true }
+embedded-io       = "0.7"
+embedded-io-async = { workspace = true }
+heapless          = { workspace = true }
+portable-atomic   = { workspace = true }
+serial-baudrate   = { workspace = true }
+sha2              = { workspace = true }
+ubos-core         = { workspace = true }
 # Pulled in for the hashrate metric only; the `default-features =
 # false` flavor keeps ubos-metrics no-defmt for ubos-mining consumers
 # that don't already enable defmt themselves.
 ubos-metrics      = { workspace = true, default-features = false }
-mining-protocol    = { workspace = true }
-stratum-client     = { workspace = true }
-ubos-logging       = { workspace = true }
-ubos-monitor       = { workspace = true, default-features = false }
-ubos-psu           = { workspace = true }
+mining-protocol   = { workspace = true }
+stratum-client    = { workspace = true }
+ubos-logging      = { workspace = true }
+ubos-psu          = { workspace = true }
