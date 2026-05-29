@@ -404,7 +404,6 @@
             "-p ubos-display"
             "-p ubos-logging"
             "-p ubos-main-host"
-            "-p ubos-manager"
             "-p ubos-metrics"
             "-p ubos-mining"
             "-p ubos-net"
@@ -421,11 +420,18 @@
           cargoExtraArgs = "-p host-runner";
         };
 
-        ubosMonitorArtifacts = craneLib.buildDepsOnly {
+        ubosThermalArtifacts = craneLib.buildDepsOnly {
           inherit src;
           doCheck = false;
           cargoBuildCommand = "true";
-          cargoExtraArgs = "-p ubos-monitor";
+          cargoExtraArgs = "-p ubos-thermal";
+        };
+
+        ubosCoolingArtifacts = craneLib.buildDepsOnly {
+          inherit src;
+          doCheck = false;
+          cargoBuildCommand = "true";
+          cargoExtraArgs = "-p ubos-cooling";
         };
 
         ubosManagerArtifacts = craneLib.buildDepsOnly {
@@ -920,18 +926,33 @@
             doInstallCargoArtifacts = false;
           };
 
-          clippy-ubos-monitor = craneLib.cargoClippy {
+          clippy-ubos-thermal = craneLib.cargoClippy {
             inherit src;
-            cargoArtifacts = ubosMonitorArtifacts;
-            cargoExtraArgs = "-p ubos-monitor";
+            cargoArtifacts = ubosThermalArtifacts;
+            cargoExtraArgs = "-p ubos-thermal";
             cargoClippyExtraArgs = "-- -D warnings";
             doInstallCargoArtifacts = false;
           };
 
-          test-ubos-monitor = craneLib.cargoTest {
+          test-ubos-thermal = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = ubosMonitorArtifacts;
-            cargoExtraArgs = "-p ubos-monitor";
+            cargoArtifacts = ubosThermalArtifacts;
+            cargoExtraArgs = "-p ubos-thermal";
+            doInstallCargoArtifacts = false;
+          };
+
+          clippy-ubos-cooling = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = ubosCoolingArtifacts;
+            cargoExtraArgs = "-p ubos-cooling";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+          };
+
+          test-ubos-cooling = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = ubosCoolingArtifacts;
+            cargoExtraArgs = "-p ubos-cooling";
             doInstallCargoArtifacts = false;
           };
 

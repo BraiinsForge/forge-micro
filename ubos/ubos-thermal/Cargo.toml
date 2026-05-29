@@ -1,6 +1,6 @@
 [package]
+name    = "ubos-thermal"
 edition = "2021"
-name    = "ubos-monitor"
 version = "0.1.0"
 
 [lints]
@@ -11,7 +11,9 @@ default = ["defmt"]
 defmt   = [
     "dep:defmt",
     "embassy-time/defmt",
+    "ubos-config/defmt",
     "ubos-logging/defmt",
+    "ubos-manager/defmt",
     "ubos-temperature/defmt",
 ]
 
@@ -19,8 +21,8 @@ defmt   = [
 embassy-sync     = { workspace = true }
 embassy-time     = { workspace = true }
 defmt            = { workspace = true, optional = true }
-ubos-metrics      = { workspace = true, default-features = false }
-heapless         = { workspace = true }
-libm             = "0.2"
-ubos-logging     = { workspace = true }
+ubos-config      = { workspace = true, default-features = false }
+ubos-core        = { workspace = true }
+ubos-manager     = { workspace = true, default-features = false }
 ubos-temperature = { workspace = true, default-features = false }
+ubos-logging     = { workspace = true }

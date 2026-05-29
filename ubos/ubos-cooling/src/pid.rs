@@ -69,7 +69,7 @@ pub(crate) struct PidController {
     /// factor for the exponential smoother. Pre-computed at construction
     /// because `libm::expf` / `libm::logf` are not const fn. Matches BOS
     /// `pid_control` numerics in the nominal `delta_t == 1 s` case the
-    /// monitor loop drives.
+    /// cooling loop drives.
     decay_lambda: f32,
     out_min: f32,
     out_max: f32,
@@ -176,7 +176,7 @@ pub struct TempControl {
 
 impl TempControl {
     /// Window of samples checked for stability. 60 samples at the
-    /// 1 Hz monitor cadence is one minute of history, the same length
+    /// 1 Hz cooling cadence is one minute of history, the same length
     /// the BOS controller uses.
     const HISTORY_SIZE: usize = 60;
     /// Maximum spread, in degrees Celsius, between the min and max of
@@ -213,8 +213,8 @@ impl TempControl {
 
     /// Compute the next fan PWM percent (`min_fan_pwm..=100`) from the
     /// latest temperature sample. Per-tick scaling is implicit: callers
-    /// must invoke `update` once per `sample_interval` for the PID gains
-    /// to behave as tuned.
+    /// must invoke `update` once per sample tick for the PID gains to
+    /// behave as tuned.
     #[must_use]
     pub fn update(&mut self, temp_c: f32) -> u8 {
         let error = self.target_temp_c - temp_c;

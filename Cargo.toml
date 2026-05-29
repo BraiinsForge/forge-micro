@@ -28,7 +28,8 @@ members = [
     "ubos/ubos-logging",
     "ubos/ubos-manager",
     "ubos/ubos-metrics",
-    "ubos/ubos-monitor",
+    "ubos/ubos-cooling",
+    "ubos/ubos-thermal",
     "ubos/ubos-net",
     "ubos/ubos-pool",
     "ubos/ubos-psu",
@@ -92,7 +93,8 @@ ubos-http         = { path = "ubos/ubos-http", default-features = false }
 ubos-logging      = { path = "ubos/ubos-logging", default-features = false }
 ubos-manager      = { path = "ubos/ubos-manager", default-features = false }
 ubos-metrics      = { path = "ubos/ubos-metrics", default-features = false }
-ubos-monitor      = { path = "ubos/ubos-monitor", default-features = false }
+ubos-cooling      = { path = "ubos/ubos-cooling", default-features = false }
+ubos-thermal      = { path = "ubos/ubos-thermal", default-features = false }
 ubos-mdns         = { path = "ubos/ubos-mdns", default-features = false }
 ubos-net          = { path = "ubos/ubos-net", default-features = false }
 ubos-pool         = { path = "ubos/ubos-pool" }
