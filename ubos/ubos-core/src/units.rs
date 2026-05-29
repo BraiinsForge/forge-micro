@@ -1,0 +1,137 @@
+//! Typed units for the six quantities that cross module boundaries
+//! in the miner: frequency, voltage, power, temperature, fan PWM, and
+//! fan RPM. Each newtype wraps the canonical scalar already used in
+//! the codebase (MHz, mV, mW, millicelsius, percent, RPM) so the
+//! refactor is mechanical: bare integers at signatures become typed
+//! values, conversions stay inside the driver that owns the wire
+//! encoding. The newtypes are `#[repr(transparent)]` over their inner
+//! scalar, so atomic storage and FFI layouts are unaffected.
+
+/// Clock frequency in megahertz. Used for ASIC PLL targets and the
+/// frequency option list exposed by the configuration API.
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Frequency(u32);
+
+impl Frequency {
+    #[must_use]
+    pub const fn from_mhz(mhz: u32) -> Self {
+        Self(mhz)
+    }
+
+    #[must_use]
+    pub const fn mhz(self) -> u32 {
+        self.0
+    }
+}
+
+/// Voltage in millivolts. Used for ASIC core voltage targets and PSU
+/// DAC encoding. Negative values are not representable; the rails the
+/// miner controls are all single-ended positive supplies.
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Voltage(u32);
+
+impl Voltage {
+    #[must_use]
+    pub const fn from_mv(mv: u32) -> Self {
+        Self(mv)
+    }
+
+    #[must_use]
+    pub const fn mv(self) -> u32 {
+        self.0
+    }
+}
+
+/// Electrical power in milliwatts. Reported by the INA230 sensor on
+/// the PSU side; never used as a setpoint by current control loops.
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Power(u32);
+
+impl Power {
+    #[must_use]
+    pub const fn from_mw(mw: u32) -> Self {
+        Self(mw)
+    }
+
+    #[must_use]
+    pub const fn mw(self) -> u32 {
+        self.0
+    }
+}
+
+/// Temperature in millicelsius. The LM75A driver decodes its register
+/// directly into this unit, and the metrics layer publishes it
+/// unchanged. The PID loop in `ubos-cooling` consumes
+/// [`celsius_f32`](Self::celsius_f32) to operate in floating-point
+/// degrees Celsius; that is the only sanctioned lossy conversion.
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Temperature(i32);
+
+impl Temperature {
+    #[must_use]
+    pub const fn from_millicelsius(millicelsius: i32) -> Self {
+        Self(millicelsius)
+    }
+
+    #[must_use]
+    pub const fn millicelsius(self) -> i32 {
+        self.0
+    }
+
+    /// Convert to degrees Celsius as `f32`. Lossy: callers that need
+    /// fractional degrees use this accessor, including the cooling PID
+    /// loop, thermal threshold evaluation, and dashboard reporting.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn celsius_f32(self) -> f32 {
+        self.0 as f32 / 1000.0
+    }
+}
+
+/// Fan PWM duty cycle in percent, clamped to `0..=100`. The
+/// constructor saturates rather than failing because every existing
+/// producer (PID output, configuration parser, dashboard slider) is
+/// expected to be in range and the clamp gives a safer fallback than
+/// an `Option` that callers would unwrap.
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FanPwm(u8);
+
+impl FanPwm {
+    pub const ZERO: Self = Self(0);
+    pub const FULL: Self = Self(100);
+
+    #[must_use]
+    pub const fn from_percent(percent: u8) -> Self {
+        let clamped = if percent > 100 { 100 } else { percent };
+        Self(clamped)
+    }
+
+    #[must_use]
+    pub const fn percent(self) -> u8 {
+        self.0
+    }
+}
+
+/// Fan tachometer reading in revolutions per minute. Read-only
+/// telemetry: the tach task derives it from pulse counts and
+/// publishes it, no control loop consumes it.
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FanRpm(u32);
+
+impl FanRpm {
+    #[must_use]
+    pub const fn from_rpm(rpm: u32) -> Self {
+        Self(rpm)
+    }
+
+    #[must_use]
+    pub const fn rpm(self) -> u32 {
+        self.0
+    }
+}
