@@ -28,7 +28,7 @@ fn terminated_short_circuits_methods() {
     let bus = Mock::new(&[]);
     let config = crate::MiniminerPsuConfig::DEFAULT;
     let (psu, _state) = make_handle(bus, config, true);
-    let result = run(psu.set_voltage(700));
+    let result = run(psu.set_voltage(Voltage::from_mv(700)));
     assert!(matches!(result, Err(Error::Terminated)));
 }
 
@@ -58,7 +58,7 @@ fn dropped_set_voltage_future_does_not_corrupt_bus() {
     let (psu, state) = make_handle(bus, config, false);
 
     // First call runs init then writes 700 mV.
-    run(psu.set_voltage(700)).expect("BUG: first call");
+    run(psu.set_voltage(Voltage::from_mv(700))).expect("BUG: first call");
 
     // Build a second future and let it fall out of scope
     // without polling. With the Mock's synchronous I2C, a
@@ -66,11 +66,11 @@ fn dropped_set_voltage_future_does_not_corrupt_bus() {
     // we drop pre-poll to verify that the no-poll path leaves
     // the lock + state untouched for the next caller.
     {
-        let _future = psu.set_voltage(800);
+        let _future = psu.set_voltage(Voltage::from_mv(800));
     }
 
     // Third call must complete cleanly with the bus advancing.
-    run(psu.set_voltage(800)).expect("BUG: third call");
+    run(psu.set_voltage(Voltage::from_mv(800))).expect("BUG: third call");
 
     let mut guard = run(state.lock());
     guard.i2c.done();
@@ -99,10 +99,10 @@ fn terminate_disables_dcdc_and_short_circuits_subsequent_calls() {
     let bus = Mock::new(&transactions);
     let (psu, state) = make_handle(bus, config, false);
 
-    run(psu.set_voltage(700)).expect("BUG: set_voltage");
+    run(psu.set_voltage(Voltage::from_mv(700))).expect("BUG: set_voltage");
     run(psu.terminate());
 
-    let post = run(psu.set_voltage(800));
+    let post = run(psu.set_voltage(Voltage::from_mv(800)));
     assert!(matches!(post, Err(Error::Terminated)));
 
     let mut guard = run(state.lock());

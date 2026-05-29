@@ -3,7 +3,7 @@
 //! `metrics` builds the Prometheus text-format body and serves it via
 //! an edge-http `Handler` driven by a dedicated accept loop on the
 //! Prometheus port. `hashrate` owns the EWMA accumulator that the
-//! `ubos-miner` firmware path and the host-runner CPU mock push work
+//! `ubos-mining` firmware path and the host-runner CPU mock push work
 //! into. `cpu_load` samples per-core idle ticks and exposes a
 //! busy-ratio gauge.
 //!

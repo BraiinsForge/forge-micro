@@ -1,6 +1,6 @@
 //! Bitcoin header construction, double-SHA256, and target comparison.
 //!
-//! Pure helpers used by the share-verification paths in ubos-miner (chip-driver)
+//! Pure helpers used by the share-verification paths in ubos-mining (chip-driver)
 //! and any future on-MCU verifier. Lifted out of the retired `cpu-miner`
 //! crate so callers do not pay for the CPU-mining loop just to validate
 //! shares.

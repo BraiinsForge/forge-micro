@@ -128,13 +128,9 @@ async fn main() -> Result<()> {
         .with_context(|| format!("connect {pool}"))?;
     let mut transport = FromTokio::new(stream);
 
-    // Build a runtime config so we can override via env. The struct
-    // takes `&'static str`; leak the strings to satisfy the lifetime.
-    let runtime_config: &'static Sv1Config = Box::leak(Box::new(Sv1Config {
-        user: Box::leak(user.into_boxed_str()),
-        password: Box::leak(pass.into_boxed_str()),
-    }));
-    let mut client = StratumV1Client::new(runtime_config);
+    let runtime_config = Sv1Config::new(&user, &pass)
+        .map_err(|error| anyhow!("worker name / password exceeds Sv1Config buffer: {error:?}"))?;
+    let mut client = StratumV1Client::new(&runtime_config);
     client
         .connect(&mut transport)
         .await

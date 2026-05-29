@@ -23,7 +23,8 @@ run_stratum_client(&mut client, &mut socket, &ASIC_SESSION, &mut state).await
 ```
 
 This crate is an unconditional dependency of every firmware. Protocol
-selection (V1 vs V2) is decided at runtime from `POOL_PROTOCOL`; no
+selection (V1 vs V2) is decided at runtime from
+`ubos_config::PoolEntry::protocol` (`ProtocolKind::Sv1 | Sv2`); no
 feature flag gates its compilation.
 
 A self-contained host-side smoke test lives in `examples/client_probe.rs`.

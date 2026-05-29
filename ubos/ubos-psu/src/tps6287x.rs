@@ -180,7 +180,7 @@ where
     .map_err(Error::Bus)?;
     let dac = config
         .dcdc_voltage_range
-        .voltage_to_dac(config.dcdc_initial_mv)
+        .voltage_to_dac(config.dcdc_initial.mv())
         .ok_or(Error::OutOfRange)?;
     i2c.write(config.dcdc_address, &encode_vset(dac))
         .await
@@ -398,7 +398,7 @@ mod bus_tests {
         let address = config.dcdc_address;
         let dac = config
             .dcdc_voltage_range
-            .voltage_to_dac(config.dcdc_initial_mv)
+            .voltage_to_dac(config.dcdc_initial.mv())
             .expect("BUG: initial mv must be in vrange2");
 
         let expectations = [

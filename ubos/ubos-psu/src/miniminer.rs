@@ -7,6 +7,8 @@ use embedded_hal_async::i2c::I2c;
 use portable_atomic::{AtomicBool, Ordering};
 use ubos_logging::{info, warn};
 
+use ubos_core::units::{Power, Voltage};
+
 use crate::state::{ensure_initialized, InitStatus, State};
 use crate::{ina230, tps6287x, watchdog, Error, Psu};
 
@@ -98,17 +100,17 @@ where
         tps6287x::disable(i2c, config).await
     }
 
-    async fn set_voltage(&self, millivolts: u32) -> Result<(), Error<E>> {
+    async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<E>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
         ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
-        tps6287x::set_voltage(i2c, config, millivolts).await
+        tps6287x::set_voltage(i2c, config, voltage.mv()).await
     }
 
-    async fn read_input_power_mw(&self) -> Result<u32, Error<E>> {
+    async fn read_input_power(&self) -> Result<Power, Error<E>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -121,10 +123,11 @@ where
             config.ina_input_max_current_a,
         )
         .await
+        .map(Power::from_mw)
         .map_err(Error::Bus)
     }
 
-    async fn read_output_power_mw(&self) -> Result<u32, Error<E>> {
+    async fn read_output_power(&self) -> Result<Power, Error<E>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -137,6 +140,7 @@ where
             config.ina_output_max_current_a,
         )
         .await
+        .map(Power::from_mw)
         .map_err(Error::Bus)
     }
 

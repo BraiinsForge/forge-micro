@@ -75,7 +75,9 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
 
     // Line 3: fan PWM and RPM when the board publishes them, BTC
     // price otherwise. `FAN_PWM_PERCENT == u8::MAX` is the "no fan"
-    // sentinel; any board with a fan task clears it on startup.
+    // sentinel; any board with a fan task clears it on startup. The
+    // raw atomic is read deliberately: `fan_state::load_pwm()` collapses
+    // the sentinel to `FanPwm::ZERO` and would erase this branch.
     let pwm_percent = FAN_PWM_PERCENT.load(Ordering::Relaxed);
     if pwm_percent == u8::MAX {
         let cents = BTC_PRICE_CENTS.load(Ordering::Relaxed);
@@ -101,7 +103,7 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
     }
 
     // Line 4: current hashrate. Read from the shared EWMA fed by the
-    // ubos-miner BM1362 path (and by the host-runner CPU mock when used).
+    // ubos-mining BM1362 path (and by the host-runner CPU mock when used).
     // HashrateDisplay switches to GH/s at 1 GH/s, so 24 bytes covers
     // both representations.
     let hashrate = hashrate::HashrateDisplay(hashrate::hashrate());

@@ -99,7 +99,7 @@ pub(crate) mod test_support {
     pub fn init_transactions(config: &MiniminerPsuConfig) -> Vec<Transaction> {
         let dac = config
             .dcdc_voltage_range
-            .voltage_to_dac(config.dcdc_initial_mv)
+            .voltage_to_dac(config.dcdc_initial.mv())
             .expect("BUG: initial mv must be in vrange");
         let cal_in = ina230::calibration_value(
             ina230::current_lsb_microamps(config.ina_input_max_current_a),

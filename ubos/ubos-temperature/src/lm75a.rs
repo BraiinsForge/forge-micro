@@ -14,6 +14,7 @@
 use core::fmt::Write as _;
 
 use embedded_hal_async::i2c::I2c;
+use ubos_core::units::Temperature;
 use ubos_logging::error;
 use ubos_metrics::metrics::{push, Label, LabelValue, Metric, Value};
 
@@ -99,7 +100,7 @@ impl<Bus> TemperatureSensor for Lm75aHashboard<Bus>
 where
     Bus: I2c,
 {
-    async fn read_millicelsius(&mut self) -> Option<i32> {
+    async fn read(&mut self) -> Option<Temperature> {
         let mut hottest: Option<i32> = None;
         for sensor in &self.sensors {
             match sensor.read_millicelsius(&mut self.bus).await {
@@ -140,7 +141,7 @@ where
                 }
             }
         }
-        hottest
+        hottest.map(Temperature::from_millicelsius)
     }
 }
 

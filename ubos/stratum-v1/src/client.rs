@@ -64,8 +64,8 @@ const HANDSHAKE_RESULT_BYTES: usize = 256;
 /// Owns the wire buffer, decode scratch, and persistent session
 /// state. Constructed once per session; the firmware drops it and
 /// builds a fresh one on reconnect.
-pub struct StratumV1Client {
-    config: &'static Sv1Config,
+pub struct StratumV1Client<'cfg> {
+    config: &'cfg Sv1Config,
     wire_buffer: LineBuffer<WIRE_BUFFER_BYTES>,
     decode_scratch: DecodeScratch,
     session: SessionState,
@@ -90,10 +90,10 @@ enum V1State {
     Rejected(SessionRejection),
 }
 
-impl StratumV1Client {
+impl<'cfg> StratumV1Client<'cfg> {
     /// Construct an adapter ready for `connect`.
     #[must_use]
-    pub const fn new(config: &'static Sv1Config) -> Self {
+    pub const fn new(config: &'cfg Sv1Config) -> Self {
         Self {
             config,
             wire_buffer: LineBuffer::new(),
@@ -160,7 +160,7 @@ impl StratumV1Client {
     }
 }
 
-impl MiningClient for StratumV1Client {
+impl MiningClient for StratumV1Client<'_> {
     /// V1 has no transport-level handshake (no Noise, no certificate
     /// validation). `connect` pipelines the three handshake
     /// requests — `mining.configure`, `mining.subscribe`,
@@ -182,7 +182,7 @@ impl MiningClient for StratumV1Client {
         .await?;
 
         let subscribe_id = self.session.pending.register(PendingRequestKind::Subscribe);
-        let agent = self.config.user;
+        let agent = self.config.user.as_str();
         self.send_now(transport, |buf| {
             let subscribe = Subscribe {
                 agent_signature: Some(agent),
@@ -193,8 +193,8 @@ impl MiningClient for StratumV1Client {
         .await?;
 
         let authorize_id = self.session.pending.register(PendingRequestKind::Authorize);
-        let user = self.config.user;
-        let password = self.config.password;
+        let user = self.config.user.as_str();
+        let password = self.config.password.as_str();
         self.send_now(transport, |buf| {
             let authorize = Authorize {
                 name: user,
@@ -246,7 +246,7 @@ impl MiningClient for StratumV1Client {
         let _ = write!(&mut version_hex, "{:08x}", share.version_bits);
 
         let message = Submit {
-            user_name: self.config.user,
+            user_name: self.config.user.as_str(),
             job_id: wire_job_id.as_str(),
             extra_nonce_2: extranonce_2_hex.as_str(),
             time: ntime_hex.as_str(),

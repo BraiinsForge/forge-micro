@@ -56,6 +56,8 @@ pub use config::MiniminerPsuConfig;
 pub use miniminer::{run_watchdog, MiniminerPsu, RawMutex};
 pub use state::State;
 
+use ubos_core::units::{Power, Voltage};
+
 /// Cadence at which [`run_power_stats`] reads INA230 input/output power.
 /// Matches the host-runner cadence so the prometheus series rates are
 /// comparable across firmware targets.
@@ -76,22 +78,26 @@ where
     let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
     loop {
         ticker.next().await;
-        let input = psu.read_input_power_mw().await;
-        let output = psu.read_output_power_mw().await;
+        let input = psu.read_input_power().await;
+        let output = psu.read_output_power().await;
         match (input, output) {
             (Ok(input), Ok(output)) => {
-                ubos_logging::info!("psu sensors: input={} mW output={} mW", input, output);
+                ubos_logging::info!(
+                    "psu sensors: input={} mW output={} mW",
+                    input.mw(),
+                    output.mw()
+                );
                 push(Metric {
                     name: "board_psu_input_power_mw",
                     labels: heapless::Vec::new(),
-                    value: Value::Uint(u64::from(input)),
+                    value: Value::Uint(u64::from(input.mw())),
                     timestamp_ms: 0,
                 })
                 .await;
                 push(Metric {
                     name: "board_psu_output_power_mw",
                     labels: heapless::Vec::new(),
-                    value: Value::Uint(u64::from(output)),
+                    value: Value::Uint(u64::from(output.mw())),
                     timestamp_ms: 0,
                 })
                 .await;
@@ -167,9 +173,9 @@ pub trait Psu {
 
     async fn enable(&self) -> Result<(), Error<Self::BusError>>;
     async fn disable(&self) -> Result<(), Error<Self::BusError>>;
-    async fn set_voltage(&self, millivolts: u32) -> Result<(), Error<Self::BusError>>;
-    async fn read_input_power_mw(&self) -> Result<u32, Error<Self::BusError>>;
-    async fn read_output_power_mw(&self) -> Result<u32, Error<Self::BusError>>;
+    async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<Self::BusError>>;
+    async fn read_input_power(&self) -> Result<Power, Error<Self::BusError>>;
+    async fn read_output_power(&self) -> Result<Power, Error<Self::BusError>>;
     /// Read the `TPS6287x` STATUS register and decode the four fault flags.
     async fn read_status(&self) -> Result<StatusFlags, Error<Self::BusError>>;
     async fn terminate(&self);

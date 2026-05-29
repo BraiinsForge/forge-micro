@@ -15,10 +15,9 @@ use mining_protocol::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-const TEST_CONFIG: Sv1Config = Sv1Config {
-    user: "alice.worker1",
-    password: "x",
-};
+fn test_config() -> Sv1Config {
+    Sv1Config::new("alice.worker1", "x").expect("test fixture: user/password fit Sv1Config buffer")
+}
 
 /// Spy visitor that records observable parameters so tests can
 /// assert on what dispatch produced.
@@ -58,7 +57,7 @@ impl MiningClientVisitor for RecordingVisitor {
 }
 
 /// Drive once against `b`'s payload, then dispatch into `visitor`.
-async fn pump_one(client: &mut StratumV1Client, payload: &[u8]) -> RecordingVisitor {
+async fn pump_one(client: &mut StratumV1Client<'_>, payload: &[u8]) -> RecordingVisitor {
     let (a, mut b) = tokio::io::duplex(8192);
     let mut a_io = FromTokio::new(a);
     let payload_owned: Vec<u8> = payload.to_vec();
@@ -78,7 +77,8 @@ async fn connect_pipelines_handshake_messages() {
     let mut a_io = FromTokio::new(a);
     let mut b_io = b;
 
-    let mut client = StratumV1Client::new(&TEST_CONFIG);
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
     client
         .connect(&mut a_io)
         .await
@@ -136,7 +136,8 @@ async fn drive_propagates_transport_close_as_error() {
     let mut a_io = FromTokio::new(a);
     drop(b);
 
-    let mut client = StratumV1Client::new(&TEST_CONFIG);
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
     let err = client
         .drive(&mut a_io)
         .await
@@ -146,7 +147,8 @@ async fn drive_propagates_transport_close_as_error() {
 
 #[tokio::test]
 async fn accept_dispatches_set_difficulty_as_set_target() {
-    let mut client = StratumV1Client::new(&TEST_CONFIG);
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
     let visitor = pump_one(
         &mut client,
         br#"{"id":null,"method":"mining.set_difficulty","params":[1024]}"#,
@@ -162,7 +164,8 @@ async fn accept_dispatches_set_difficulty_as_set_target() {
 
 #[tokio::test]
 async fn accept_dispatches_set_version_mask() {
-    let mut client = StratumV1Client::new(&TEST_CONFIG);
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
     let visitor = pump_one(
         &mut client,
         br#"{"id":null,"method":"mining.set_version_mask","params":["1fffe000"]}"#,
@@ -174,7 +177,8 @@ async fn accept_dispatches_set_version_mask() {
 
 #[tokio::test]
 async fn accept_dispatches_subscribe_response_as_set_extranonce() {
-    let mut client = StratumV1Client::new(&TEST_CONFIG);
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
     let subscribe_id = client.register_pending(PendingRequestKind::Subscribe);
     let payload = std::format!(
         r#"{{"id":{subscribe_id},"result":[[["mining.notify","abc"]],"deadbeef",4],"error":null}}"#,
@@ -186,7 +190,8 @@ async fn accept_dispatches_subscribe_response_as_set_extranonce() {
 
 #[tokio::test]
 async fn accept_dispatches_notify_as_new_job() {
-    let mut client = StratumV1Client::new(&TEST_CONFIG);
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
 
     // Prime extranonce_1 / extranonce_2_size so the notify can build
     // a complete MiningJob.
@@ -206,7 +211,8 @@ async fn accept_dispatches_notify_as_new_job() {
 
 #[tokio::test]
 async fn submit_rejects_unknown_job_id() {
-    let mut client = StratumV1Client::new(&TEST_CONFIG);
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
     let share = Share {
         id: JobId(999),
         nonce: 0,
@@ -219,7 +225,8 @@ async fn submit_rejects_unknown_job_id() {
 
 #[tokio::test]
 async fn submit_encodes_mining_submit_with_wire_job_id() {
-    let mut client = StratumV1Client::new(&TEST_CONFIG);
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
 
     // Prime extranonce_1 / extranonce_2_size and a JobId mapping by
     // pumping a subscribe response and a notify.

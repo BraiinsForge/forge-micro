@@ -136,12 +136,6 @@ pub static LAST_BTC_FETCH_UPTIME_SECS: AtomicU64 = AtomicU64::new(0);
 /// `0.0.0.0` round-trips through this encoding, but `DHCPv4` unicast leases
 /// never assign it, so the sentinel does not collide in practice.
 pub static LOCAL_IPV4: AtomicU32 = AtomicU32::new(0);
-/// Most recent on-board temperature reading in whole degrees Celsius.
-/// Zero until a producer writes; the dashboard renders zero as a flat
-/// trace at the chart baseline. The store is `u32`, so producers must
-/// clamp sub-zero readings to zero before storing; an `i32 as u32`
-/// cast of a negative value would wrap to a huge positive number.
-pub static TEMPERATURE_C: AtomicU32 = AtomicU32::new(0);
 /// Per-pool reachability bitmap, one bit per pool index. Set bits
 /// render as `Alive` on the dashboard; cleared bits as `Dead`.
 /// Written by the stratum task via [`set_pool_alive`].
