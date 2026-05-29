@@ -6,20 +6,25 @@
 //! advertise what the firmware will accept on a future PATCH.
 
 use serde::Serialize;
+use ubos_core::consts::Mining;
+use ubos_core::units::Frequency;
 
-/// Default mining frequency in MHz programmed at chip init.
-pub const DEFAULT_FREQUENCY_MHZ: u32 = 525;
+/// Default mining frequency programmed at chip init. Aliased from
+/// `ubos_core::consts::Mining::DEFAULT_FREQUENCY` so the boot-default
+/// frequency has one source of truth shared with
+/// `ubos-config::Config::default()` and `ubos-mining`.
+pub const DEFAULT_FREQUENCY: Frequency = Mining::DEFAULT_FREQUENCY;
 
-/// Discrete frequencies in MHz that the chip and firmware support.
+/// Discrete frequencies in MHz for the JSON wire representation.
 ///
-/// Used to populate `frequencyOptions` in `SystemAsic` and to
-/// validate future PATCH requests.
+/// `SystemAsic` serializes `frequency_options` as `&'static [u32]`;
+/// this slice feeds that field.
 pub const FREQUENCY_OPTIONS_MHZ: &[u32] = &[400, 425, 450, 475, 500, 525, 550, 575, 600];
 
-/// Discrete core voltages in millivolts that the PSU driver supports.
+/// Discrete core voltages in millivolts for the JSON wire representation.
 ///
-/// Used to populate `voltageOptions` in `SystemAsic` and to
-/// validate future PATCH requests.
+/// `SystemAsic` serializes `voltage_options` as `&'static [u32]`;
+/// this slice feeds that field.
 pub const VOLTAGE_OPTIONS_MV: &[u32] = &[1100, 1150, 1200, 1250, 1300, 1350, 1400, 1450, 1500];
 
 /// ASIC capability metadata for `GET /api/system/asic`.

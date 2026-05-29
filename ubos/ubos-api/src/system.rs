@@ -23,15 +23,17 @@ use embedded_io_async::{Read, Write};
 use heapless::String;
 use portable_atomic::Ordering;
 use stratum_client::{SHARES_ACCEPTED, SHARES_REJECTED};
-use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
+use ubos_core::fan_state;
 use ubos_logging::info;
+use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_metrics::hashrate::{hashrate, SHARE_COUNT};
-use ubos_miner::consts::NUM_CHIPS;
-use ubos_miner::miner::VOLTAGE_MV;
-use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, TEMPERATURE_C};
+use ubos_mining::consts::NUM_CHIPS;
+use ubos_mining::miner::VOLTAGE;
+use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP};
+use ubos_thermal::Handle as ThermalHandle;
 
 use crate::schema::{
-    system_asic::{DEFAULT_FREQUENCY_MHZ, FREQUENCY_OPTIONS_MHZ, VOLTAGE_OPTIONS_MV},
+    system_asic::{DEFAULT_FREQUENCY, FREQUENCY_OPTIONS_MHZ, VOLTAGE_OPTIONS_MV},
     system_statistics::LABELS,
     GenericResponse, SystemAsic, SystemInfo, SystemScoreboardEntry, SystemStatistics, API_VARIANT,
 };
@@ -188,24 +190,25 @@ where
 
 /// Handle `GET /api/system/info`.
 ///
-/// Populates all fields from the shared atomics. Fields that depend
-/// on future phases are zeroed or empty per the plan.
+/// Populates all fields from the shared atomics and the thermal handle.
+/// Fields that depend on future phases are zeroed or empty per the plan.
 async fn handle_info<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     board_name: &str,
+    thermal: ThermalHandle,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     let uptime_seconds = Instant::now().as_secs();
     let hashrate_hps = hashrate();
-    let temperature_celsius = TEMPERATURE_C.load(Ordering::Relaxed).cast_signed();
-    let fan_speed_rpm = FAN_RPM.load(Ordering::Relaxed);
-    let fan_pwm_percent = match FAN_PWM_PERCENT.load(Ordering::Relaxed) {
-        u8::MAX => 0,
-        percent => percent,
-    };
+    #[allow(clippy::cast_possible_truncation)]
+    let temperature_celsius = thermal
+        .current()
+        .map_or(0i32, |r| r.chip_max.celsius_f32() as i32);
+    let fan_speed_rpm = fan_state::load_rpm().rpm();
+    let fan_pwm_percent = fan_state::load_pwm().percent();
     let pools_bitmap = POOL_ALIVE_BITMAP.load(Ordering::Relaxed);
     let shares_accepted = SHARES_ACCEPTED.load(Ordering::Relaxed);
     let shares_rejected = SHARES_REJECTED.load(Ordering::Relaxed);
@@ -225,8 +228,8 @@ where
         time: build_time_string(),
         asic_count: NUM_CHIPS,
         asic_model: "BM1362",
-        default_frequency_mhz: DEFAULT_FREQUENCY_MHZ,
-        default_voltage_mv: VOLTAGE_MV,
+        default_frequency_mhz: DEFAULT_FREQUENCY.mhz(),
+        default_voltage_mv: VOLTAGE.mv(),
         shares_accepted,
         shares_rejected,
         shares_total,
@@ -252,9 +255,9 @@ where
         device_model: "miniminer",
         swarm_color: "blue",
         asic_count: NUM_CHIPS,
-        default_frequency: DEFAULT_FREQUENCY_MHZ,
+        default_frequency: DEFAULT_FREQUENCY.mhz(),
         frequency_options: FREQUENCY_OPTIONS_MHZ,
-        default_voltage: VOLTAGE_MV,
+        default_voltage: VOLTAGE.mv(),
         voltage_options: VOLTAGE_OPTIONS_MV,
     };
 
@@ -367,12 +370,12 @@ where
     }
 }
 
-/// Handle a POST action endpoint (pause, resume, restart, identify,
+/// Handle a POST action endpoint (restart, identify,
 /// blockFound/dismiss).
 ///
 /// Logs one `info!` line naming the action and returns 200 with
-/// `{"message":"ack"}`. No firmware state is changed by any of these
-/// stubs; actual wiring is deferred to a later phase.
+/// `{"message":"ack"}`. Pause and resume are handled separately
+/// by `dispatch` because they carry a `Manager` side-effect.
 async fn handle_action<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -541,6 +544,8 @@ pub(crate) async fn dispatch<T, const N: usize>(
     path: &str,
     body: &[u8],
     board_name: &str,
+    thermal: ThermalHandle,
+    manager: ManagerHandle,
 ) -> Result<bool, HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -558,7 +563,7 @@ where
             write_method_not_allowed(connection, allowed).await?;
         }
         DispatchOutcome::Handled(Route::SystemInfo) => {
-            handle_info(connection, scratch, board_name).await?;
+            handle_info(connection, scratch, board_name, thermal).await?;
         }
         DispatchOutcome::Handled(Route::SystemAsic) => {
             handle_asic(connection, scratch).await?;
@@ -578,9 +583,11 @@ where
             handle_not_implemented(connection, scratch, "unsupported on this platform").await?;
         }
         DispatchOutcome::Handled(Route::PauseAck) => {
+            manager.send(ManagerMessage::Stop).await;
             handle_action(connection, scratch, "pause").await?;
         }
         DispatchOutcome::Handled(Route::ResumeAck) => {
+            manager.send(ManagerMessage::Start).await;
             handle_action(connection, scratch, "resume").await?;
         }
         DispatchOutcome::Handled(Route::RestartAck) => {

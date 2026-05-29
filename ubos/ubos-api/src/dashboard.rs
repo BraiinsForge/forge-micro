@@ -16,9 +16,21 @@
 //! - `GET /api/info` returns a compact JSON telemetry blob. The
 //!   dashboard polls it every 2 s and pushes hashrate and temperature
 //!   samples into ring buffers rendered as SVG polylines.
-//! - `POST /api/config` accepts the dashboard's pool-config form. The
-//!   router logs the submitted body and returns a stub 200 OK; no
-//!   firmware state changes yet.
+//! - `GET /api/config` returns the current pool list as a
+//!   [`ubos_config::PoolUpdate`]. The dashboard fetches it on page
+//!   load to populate the form with the values the firmware is
+//!   already running. The response carries only the `pool` field by
+//!   construction, so `ApiConfig` (the dashboard's own basic-auth
+//!   credentials), `ThermalConfig`, and `CoolingConfig` stay inside
+//!   the firmware. Pool worker credentials are part of the form
+//!   payload by design: the operator entered them and the dashboard
+//!   must round-trip them to support editing.
+//! - `POST /api/config` accepts a [`ubos_config::PoolUpdate`] JSON
+//!   body, merges it into the current [`ubos_config::Config`] from
+//!   [`ubos_config::handle`], and forwards the result as
+//!   [`ubos_config::Message::Update`]. The dashboard parses its own
+//!   URL syntax in JS before sending; the firmware stays a typed
+//!   sink.
 //!
 //! Any other path returns a 404 with a plain-text body. Wrong-method
 //! requests on known paths return 405. The transport loop and request parsing live in
@@ -37,11 +49,11 @@ use heapless::Vec;
 use portable_atomic::Ordering;
 use static_cell::ConstStaticCell;
 use ubos_core::consts::Http;
-use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
+use ubos_core::fan_state;
 use ubos_logging::{info, warn};
-use ubos_net::net::{
-    LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, REQUEST_COUNT, TEMPERATURE_C,
-};
+use ubos_manager::Handle as ManagerHandle;
+use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, REQUEST_COUNT};
+use ubos_thermal::Handle as ThermalHandle;
 use ubos_webui::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG};
 
 use ubos_http::{format_content_length, write_status_only, Service, CONTENT_LENGTH_DECIMAL_DIGITS};
@@ -69,6 +81,13 @@ const API_INFO_BODY_BUFFER_SIZE: usize = 512;
 
 /// Body buffer for the POST /api/config acknowledgement.
 const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
+
+/// Body buffer size for `GET /api/config` responses.
+///
+/// Each [`ubos_config::PoolEntry`] serialises to at most ~460 bytes
+/// (three 128-byte heapless strings plus JSON framing); three entries
+/// plus the outer `{"pool":[…]}` wrapper fit inside 1.5 KiB with margin.
+const CONFIG_RESPONSE_BUFFER_SIZE: usize = 1536;
 
 /// Buffer for reading POST/PATCH request bodies.
 ///
@@ -402,6 +421,8 @@ static HTTP_WORK_BUFFER: ConstStaticCell<[u8; Http::REQUEST_BUFFER_SIZE]> =
 /// than success rate.
 pub struct DashboardService {
     board_name: &'static str,
+    thermal: ThermalHandle,
+    manager: ManagerHandle,
 }
 
 impl Service for DashboardService {
@@ -582,8 +603,16 @@ impl Service for DashboardService {
         }
 
         if path == "/api/system" || path.starts_with("/api/system/") {
-            let handled =
-                crate::system::dispatch(connection, method, path, body, self.board_name).await?;
+            let handled = crate::system::dispatch(
+                connection,
+                method,
+                path,
+                body,
+                self.board_name,
+                self.thermal,
+                self.manager,
+            )
+            .await?;
             if !handled {
                 return write_status_only(
                     connection,
@@ -704,12 +733,13 @@ impl Service for DashboardService {
             ("GET", "/api/info") => {
                 let uptime_secs = Instant::now().as_secs();
                 let hashrate = ubos_metrics::hashrate::hashrate();
-                let temperature = TEMPERATURE_C.load(Ordering::Relaxed);
-                let fan_rpm = FAN_RPM.load(Ordering::Relaxed);
-                let fan_pwm = match FAN_PWM_PERCENT.load(Ordering::Relaxed) {
-                    u8::MAX => 0,
-                    percent => percent,
-                };
+                #[allow(clippy::cast_possible_truncation)]
+                let temperature = self
+                    .thermal
+                    .current()
+                    .map_or(0i32, |r| r.chip_max.celsius_f32() as i32);
+                let fan_rpm = fan_state::load_rpm().rpm();
+                let fan_pwm = fan_state::load_pwm().percent();
                 let pools = POOL_ALIVE_BITMAP.load(Ordering::Relaxed);
 
                 // Build the JSON body into a stack buffer.
@@ -768,10 +798,51 @@ impl Service for DashboardService {
 
                 write_json_response(connection, &body_buf[..json_len]).await
             }
+            ("GET", "/api/config") => {
+                let snapshot = ubos_config::handle().current();
+                let response = ubos_config::PoolUpdate {
+                    pool: snapshot.pool,
+                };
+                let mut body_buf = [0u8; CONFIG_RESPONSE_BUFFER_SIZE];
+                if let Ok(length) = serde_json_core::ser::to_slice(&response, &mut body_buf) {
+                    write_json_response(connection, &body_buf[..length]).await
+                } else {
+                    warn!("config: failed to serialize PoolUpdate response");
+                    write_status_only(
+                        connection,
+                        500,
+                        "Internal Server Error",
+                        "application/json",
+                        &[],
+                        b"{\"message\":\"config serialize failed\"}",
+                    )
+                    .await
+                }
+            }
             ("POST", "/api/config") => {
-                // Log the audit event with the request size only.
                 info!("pool config update ({} bytes)", body.len());
-                write_json_response(connection, CONFIG_ACK_BODY).await
+                if let Ok((update, _)) =
+                    serde_json_core::de::from_slice::<ubos_config::PoolUpdate>(body)
+                {
+                    let config_handle = ubos_config::handle();
+                    let mut new_config = config_handle.current();
+                    new_config.pool = update.pool;
+                    config_handle
+                        .send(ubos_config::Message::Update(new_config))
+                        .await;
+                    write_json_response(connection, CONFIG_ACK_BODY).await
+                } else {
+                    warn!("config: rejected POST /api/config with invalid JSON");
+                    write_status_only(
+                        connection,
+                        400,
+                        "Bad Request",
+                        "application/json",
+                        &[],
+                        b"{\"message\":\"invalid pool update JSON\"}",
+                    )
+                    .await
+                }
             }
             (_, "/" | "/login" | "/logout" | "/logo.svg" | "/api/info" | "/api/config") => {
                 write_status_only(
@@ -807,7 +878,12 @@ impl Service for DashboardService {
 /// stub handler that logs the submitted body before returning a 200
 /// OK. Wrong-method requests on known paths return 405. Anything else
 /// gets a 404. The transport loop lives in `ubos-http`.
-pub async fn run(stack: Stack<'static>, board_name: &'static str) -> ! {
+pub async fn run(
+    stack: Stack<'static>,
+    board_name: &'static str,
+    thermal: ThermalHandle,
+    manager: ManagerHandle,
+) -> ! {
     // Populate the credential store before the accept loop so the very
     // first request finds the defaults in place and the operator sees
     // the default-credentials warning at boot rather than on first
@@ -816,7 +892,11 @@ pub async fn run(stack: Stack<'static>, board_name: &'static str) -> ! {
     ubos_http::serve(
         stack,
         Http::PORT,
-        DashboardService { board_name },
+        DashboardService {
+            board_name,
+            thermal,
+            manager,
+        },
         HTTP_TCP_BUFFERS.take(),
         HTTP_WORK_BUFFER.take(),
     )

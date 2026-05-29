@@ -8,7 +8,7 @@ workspace = true
 
 [features]
 default = ["defmt"]
-defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt", "ubos-http/defmt", "ubos-metrics/defmt", "ubos-miner/defmt"]
+defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-config/defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt", "ubos-http/defmt", "ubos-metrics/defmt", "ubos-manager/defmt", "ubos-mining/defmt", "ubos-thermal/defmt"]
 # Opt-in for cortex-m boards whose linker exposes a `.ccmram.bss`
 # section. Relocates the HTTP scratch buffers and the credential /
 # session / CSRF / CSPRNG state off main SRAM. Pairs with the same
@@ -35,13 +35,16 @@ serde-json-core   = { workspace = true }
 static_cell       = { workspace = true }
 defmt             = { workspace = true, optional = true }
 stratum-client    = { workspace = true }
+ubos-config       = { workspace = true, default-features = false }
 ubos-core         = { workspace = true }
 ubos-http         = { workspace = true, default-features = false }
 ubos-mdns         = { workspace = true, default-features = false }
 ubos-logging      = { workspace = true }
 ubos-metrics      = { workspace = true, default-features = false }
-ubos-miner        = { workspace = true, default-features = false }
+ubos-mining       = { workspace = true, default-features = false }
+ubos-manager      = { workspace = true, default-features = false }
 ubos-net          = { workspace = true, default-features = false }
+ubos-thermal      = { workspace = true, default-features = false }
 ubos-webui        = { workspace = true, default-features = false }
 
 [dev-dependencies]

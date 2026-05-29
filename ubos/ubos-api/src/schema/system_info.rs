@@ -30,8 +30,8 @@ pub struct SystemInfo<'response> {
     pub hashrate: u64,
     /// Firmware uptime in whole seconds since boot.
     pub uptime_seconds: u64,
-    /// Board temperature in degrees Celsius as reported by the thermal
-    /// monitor task.
+    /// Board temperature in degrees Celsius as reported by
+    /// `ubos_thermal::run_thermal`.
     pub temperature_celsius: i32,
     /// Fan rotational speed in RPM; zero if no fan is present.
     pub fan_speed_rpm: u32,
