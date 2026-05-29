@@ -427,6 +427,20 @@
           cargoExtraArgs = "-p ubos-thermal";
         };
 
+        ubosConfigArtifacts = craneLib.buildDepsOnly {
+          inherit src;
+          doCheck = false;
+          cargoBuildCommand = "true";
+          cargoExtraArgs = "-p ubos-config";
+        };
+
+        ubosConfigStdArtifacts = craneLib.buildDepsOnly {
+          inherit src;
+          doCheck = false;
+          cargoBuildCommand = "true";
+          cargoExtraArgs = "-p ubos-config --features std";
+        };
+
         ubosCoolingArtifacts = craneLib.buildDepsOnly {
           inherit src;
           doCheck = false;
@@ -968,6 +982,36 @@
             inherit src;
             cargoArtifacts = ubosManagerArtifacts;
             cargoExtraArgs = "-p ubos-manager";
+            doInstallCargoArtifacts = false;
+          };
+
+          clippy-ubos-config = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = ubosConfigArtifacts;
+            cargoExtraArgs = "-p ubos-config";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+          };
+
+          test-ubos-config = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = ubosConfigArtifacts;
+            cargoExtraArgs = "-p ubos-config";
+            doInstallCargoArtifacts = false;
+          };
+
+          clippy-ubos-config-std = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = ubosConfigStdArtifacts;
+            cargoExtraArgs = "-p ubos-config --features std";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+          };
+
+          test-ubos-config-std = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = ubosConfigStdArtifacts;
+            cargoExtraArgs = "-p ubos-config --features std";
             doInstallCargoArtifacts = false;
           };
 

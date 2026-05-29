@@ -1,0 +1,75 @@
+//! Flash-backed [`Storage`] implementation using `sequential-storage`.
+//!
+//! [`FlashStorage`] wraps a `sequential-storage` [`MapStorage`] with a
+//! `u8` key and `NorFlash` backend. Each call to [`Storage::load`] or
+//! [`Storage::store`] serialises the blob into a stack-allocated scratch
+//! buffer and delegates to the map. The [`NoCache`] variant is used so
+//! no heap allocation is required.
+
+use embedded_storage_async::nor_flash::NorFlash;
+use sequential_storage::{
+    cache::NoCache,
+    map::{MapConfig, MapStorage},
+};
+
+use crate::storage::Storage;
+
+/// Stack buffer size for postcard-encoded `Config` blobs.
+///
+/// Aliased from [`crate::LOAD_BUFFER_SIZE`] so the encode budget in
+/// `lib.rs` and the flash scratch budget here cannot drift. Revisit if
+/// `Config` grows beyond this limit; `store_item` returns
+/// `Error::ItemTooBig` before corrupting flash if the encoded size
+/// exceeds the page size.
+pub(crate) const SCRATCH_SIZE: usize = crate::LOAD_BUFFER_SIZE;
+
+/// Flash-backed config storage using `sequential-storage` map mode.
+///
+/// Generic over any [`NorFlash`] implementation. The `range` parameter
+/// restricts the flash region this storage may read, write, or erase;
+/// addresses outside the range are never touched.
+///
+/// Per-board constants for the flash range live in the firmware crates
+/// so this type stays board-agnostic.
+pub struct FlashStorage<F: NorFlash> {
+    map: MapStorage<u8, F, NoCache>,
+}
+
+impl<F: NorFlash> FlashStorage<F> {
+    /// Create a new [`FlashStorage`] over the given flash and address range.
+    ///
+    /// The `range` must be aligned to the flash erase size, span at
+    /// least two erase pages, and be valid for the underlying `NorFlash`
+    /// implementation. `MapConfig::new` is `const fn` and rejects a
+    /// structurally invalid range at compile time, so board-local
+    /// constants are validated without runtime overhead.
+    pub fn new(flash: F, range: core::ops::Range<u32>) -> Self {
+        Self {
+            map: MapStorage::new(flash, MapConfig::new(range), NoCache::new()),
+        }
+    }
+}
+
+impl<F: NorFlash> Storage for FlashStorage<F> {
+    type Error = sequential_storage::Error<F::Error>;
+
+    async fn load<'b>(
+        &mut self,
+        key: u8,
+        buffer: &'b mut [u8],
+    ) -> Result<Option<&'b [u8]>, Self::Error> {
+        let mut scratch = [0u8; SCRATCH_SIZE];
+        let result = self.map.fetch_item::<&[u8]>(&mut scratch, &key).await?;
+        let Some(stored) = result else {
+            return Ok(None);
+        };
+        let length = stored.len().min(buffer.len());
+        buffer[..length].copy_from_slice(&stored[..length]);
+        Ok(Some(&buffer[..length]))
+    }
+
+    async fn store(&mut self, key: u8, data: &[u8]) -> Result<(), Self::Error> {
+        let mut scratch = [0u8; SCRATCH_SIZE];
+        self.map.store_item(&mut scratch, &key, &data).await
+    }
+}

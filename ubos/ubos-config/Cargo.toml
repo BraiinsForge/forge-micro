@@ -1,0 +1,40 @@
+[package]
+name    = "ubos-config"
+edition = "2021"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[features]
+default  = ["defmt"]
+defmt    = [
+    "dep:defmt",
+    "heapless/defmt",
+    "ubos-logging/defmt",
+    "ubos-manager/defmt",
+    "ubos-mining/defmt",
+]
+std = ["postcard/use-std"]
+
+[dependencies]
+embassy-sync           = { workspace = true }
+defmt                  = { workspace = true, optional = true }
+heapless               = { workspace = true, features = ["serde"] }
+serde                  = { version = "1", default-features = false, features = ["derive"] }
+ubos-core              = { workspace = true }
+ubos-logging           = { workspace = true }
+ubos-manager           = { workspace = true, default-features = false }
+ubos-mining            = { workspace = true, default-features = false }
+postcard               = { workspace = true }
+postcard-schema        = { workspace = true }
+sequential-storage     = { workspace = true }
+embedded-storage       = { workspace = true }
+embedded-storage-async = { workspace = true }
+
+[dev-dependencies]
+# Host tests re-decode the base58check literal embedded in the
+# `DEFAULT_POOL_SV2_PUBKEY` doc comment and assert it matches the
+# hardcoded bytes. `alloc` is required by `with_check` on top of
+# `check`. The lib build never sees the dev-dep.
+bs58                   = { version = "0.5", default-features = false, features = ["check", "alloc"] }
