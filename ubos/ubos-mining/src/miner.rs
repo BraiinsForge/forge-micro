@@ -31,6 +31,7 @@ use crate::consts::MAX_CHIPS;
 use crate::control::{COMMAND_CHANNEL, Message, MiningState, STATE_WATCH};
 use crate::reset::ResetPin;
 use crate::serial::SERIAL;
+use crate::tuner::fixed::FixedTuner;
 use crate::tuner::replay::ReplayTuner;
 use crate::tuner::{Tuner, TuningConfig};
 use ubos_asic::{RawChipAddress, RegisterResponse, build_command, build_raw_command};
@@ -240,22 +241,30 @@ where
                 voltage: Voltage::from_mv(snapshot.tuning.voltage_mv),
             };
 
-            match snapshot.miner.algorithm {
+            let outcome = match snapshot.miner.algorithm {
                 TuningAlgorithm::Replay => {
                     let mut tuner = ReplayTuner;
-                    if self
-                        .bring_up_cycle(
-                            target,
-                            snapshot.miner.algorithm,
-                            &mut tuner,
-                            &mut config_subscription,
-                        )
-                        .await
-                        .is_stop()
-                    {
-                        return;
-                    }
+                    self.bring_up_cycle(
+                        target,
+                        snapshot.miner.algorithm,
+                        &mut tuner,
+                        &mut config_subscription,
+                    )
+                    .await
                 }
+                TuningAlgorithm::Fixed => {
+                    let mut tuner = FixedTuner::default();
+                    self.bring_up_cycle(
+                        target,
+                        snapshot.miner.algorithm,
+                        &mut tuner,
+                        &mut config_subscription,
+                    )
+                    .await
+                }
+            };
+            if outcome.is_stop() {
+                return;
             }
         }
     }
@@ -547,11 +556,18 @@ pub async fn run_idle() -> ! {
 }
 
 /// Publish a `MiningState` reflecting the rail flag. `chip_count` is
-/// a placeholder until chain enumeration runs.
+/// a placeholder until chain enumeration runs. Frequency and voltage
+/// carry forward from the prior publish so the tuner ramp telemetry
+/// isn't clobbered by a halt edge.
 fn publish_running(running: bool) {
+    let prior = STATE_WATCH
+        .try_get()
+        .unwrap_or(crate::control::MiningState::IDLE);
     STATE_WATCH.sender().send(MiningState {
         running,
         chip_count: 0,
+        frequency: prior.frequency,
+        voltage: prior.voltage,
     });
 }
 

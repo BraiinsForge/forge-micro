@@ -10,9 +10,10 @@
 //! `ubos-mining` or `ubos-manager`.
 //!
 //! Tuner implementations live in submodules: `replay::ReplayTuner`
-//! walks the captured BMM100 trace through `MinerControl`'s
-//! byte-level escape hatches. Additional tuners can live alongside
-//! it; the active tuner is runtime-selectable via
+//! walks the captured wire trace through `MinerControl`'s
+//! byte-level escape hatches; `fixed::FixedTuner` is the typed
+//! open-loop ramp that reaches arbitrary targets via the BM1362
+//! PLL calculator. The active tuner is runtime-selectable via
 //! `MinerConfig::algorithm`.
 
 use ubos_core::units::{Frequency, Voltage};
@@ -68,4 +69,5 @@ impl From<MinerError> for TunerError {
     }
 }
 
+pub mod fixed;
 pub mod replay;

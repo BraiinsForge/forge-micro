@@ -8,6 +8,7 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::{Receiver, Watch};
+use ubos_core::units::{Frequency, Voltage};
 
 type CSMutex = CriticalSectionRawMutex;
 
@@ -42,6 +43,37 @@ pub struct MiningState {
     /// Chips detected on the serial bus during the most recent
     /// bring-up. Zero before the first bring-up completes.
     pub chip_count: u8,
+    /// PLL frequency the tuner most recently programmed. Updated
+    /// on every `FixedTuner` ramp step so the publisher surfaces the
+    /// live operating point, not just the configured target.
+    pub frequency: Frequency,
+    /// Core voltage the tuner most recently programmed. Updated
+    /// on every `FixedTuner` voltage step.
+    pub voltage: Voltage,
+}
+
+impl MiningState {
+    /// Idle baseline used before the first bring-up publishes a
+    /// real state. Zero frequency / voltage rather than `None`
+    /// because the publisher gauges expose `u32` and `0` is a
+    /// visibly-distinct "not-yet-mining" value on a dashboard.
+    pub const IDLE: Self = Self {
+        running: false,
+        chip_count: 0,
+        frequency: Frequency::from_khz(0),
+        voltage: Voltage::from_mv(0),
+    };
+}
+
+/// Update the published frequency / voltage without touching the
+/// `running` / `chip_count` fields. Called by the tuner after every
+/// ramp step so the metrics gauges and any UI subscribers track the
+/// live operating point.
+pub(crate) fn publish_tuner_step(frequency: Frequency, voltage: Voltage) {
+    let mut state = STATE_WATCH.try_get().unwrap_or(MiningState::IDLE);
+    state.frequency = frequency;
+    state.voltage = voltage;
+    STATE_WATCH.sender().send(state);
 }
 
 /// Internal command enum carried by the command channel. `pub` so

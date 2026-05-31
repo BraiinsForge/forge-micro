@@ -23,11 +23,14 @@
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TuningAlgorithm {
-    /// Captured BMM100 trace replayed verbatim. The chip is brought
-    /// up via the exact byte sequence the host emitted on the
-    /// reference BMM100 board.
-    #[default]
+    /// Captured wire trace replayed verbatim; the bring-up fallback
+    /// while `FixedTuner` accumulates bench hours.
     Replay,
+    /// Open-loop frequency ramp built on the BM1362 PLL calculator
+    /// and the `HashCountingNumber` formula. Reaches arbitrary targets
+    /// without relying on the captured trace and is the default tuner.
+    #[default]
+    Fixed,
 }
 
 /// Miner-level orchestration. Separate from `TuningConfig` because
