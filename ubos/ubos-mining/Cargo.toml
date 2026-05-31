@@ -10,6 +10,12 @@ defmt   = [
     "ubos-logging/defmt",
     "ubos-psu/defmt",
 ]
+# Opt-in for cortex-m boards whose linker exposes a `.ccmram.bss`
+# section. Moves the SERIAL mailbox and its buffers, mining state
+# watch, command channel, stop signal, and desync counter off main
+# SRAM so the stm32f407 fits; no effect on boards that do not declare
+# the section. None of the relocated statics are DMA targets.
+ccmram-bss    = []
 
 [lints]
 workspace = true

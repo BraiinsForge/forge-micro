@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 /// Lifetime-monotonic count of bytes discarded while scanning for the
 /// `0xAA 0x55` frame preamble in the UART byte stream. Survives serial-
 /// actor recoveries; useful for detecting sustained desync or noise.
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
 
 // ---------------------------------------------------------------------------

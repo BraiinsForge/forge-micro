@@ -47,6 +47,7 @@ const RETRY_DELAY: Duration = Duration::from_secs(5);
 /// Raise once to stop the miner. The run loop awaits this between init
 /// and deinit; signalling it triggers the teardown sequence and the
 /// outer loop returns.
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub static STOP_MINING: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Error type for chip-control operations.

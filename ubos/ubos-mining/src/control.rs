@@ -23,11 +23,13 @@ const CMD_CHANNEL_DEPTH: usize = 4;
 
 /// Module-internal state watch. Single writer is [`crate::Miner::run`];
 /// readers are obtained via [`Handle::subscribe`].
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub(crate) static STATE_WATCH: Watch<CSMutex, MiningState, WATCH_CAPACITY> = Watch::new();
 
 /// Module-internal command channel. Single consumer is
 /// [`crate::Miner::run`]; producers send via the [`Handle`]
 /// inherent methods.
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, CMD_CHANNEL_DEPTH> = Channel::new();
 
 /// Snapshot of slow-changing operational state. Share counters and

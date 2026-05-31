@@ -568,4 +568,5 @@ impl Default for Serial {
 /// Single workspace serial actor. One BM1362 chain per process; matches
 /// `ubos_mining::psu::PSU` in shape so consumers reach in directly rather than
 /// wiring a static through every task constructor.
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub static SERIAL: Serial = Serial::new();
