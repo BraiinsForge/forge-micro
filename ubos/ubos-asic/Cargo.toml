@@ -1,0 +1,16 @@
+[package]
+edition = "2021"
+name    = "ubos-asic"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+defmt   = ["dep:defmt"]
+
+[dependencies]
+bitfield-struct = { workspace = true }
+defmt           = { workspace = true, optional = true }
+ubos-core       = { workspace = true }
