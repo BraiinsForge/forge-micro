@@ -194,12 +194,6 @@ pub async fn run_tach(_hardware: TachHardware) -> ! {
 
         let rpm = pulses * 60 / TACH_PULSES_PER_REV / TACH_WINDOW.as_secs();
         fan_state::store_rpm(FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX)));
-        push(Metric {
-            name: "board_fan_rpm",
-            labels: heapless::Vec::new(),
-            value: Value::Uint(rpm),
-            timestamp_ms: 0,
-        })
-        .await;
+        push(Metric::with_no_labels("board_fan_rpm", Value::Uint(rpm))).await;
     }
 }

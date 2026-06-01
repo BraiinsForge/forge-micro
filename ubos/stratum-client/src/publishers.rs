@@ -19,26 +19,20 @@ pub async fn run_stratum_metrics_publisher() -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(2));
     loop {
         ticker.next().await;
-        push(Metric {
-            name: "board_shares_accepted_total",
-            labels: heapless::Vec::new(),
-            value: Value::Uint(SHARES_ACCEPTED.load(Ordering::Relaxed)),
-            timestamp_ms: 0,
-        })
+        push(Metric::with_no_labels(
+            "board_shares_accepted_total",
+            Value::Uint(SHARES_ACCEPTED.load(Ordering::Relaxed)),
+        ))
         .await;
-        push(Metric {
-            name: "board_shares_rejected_total",
-            labels: heapless::Vec::new(),
-            value: Value::Uint(SHARES_REJECTED.load(Ordering::Relaxed)),
-            timestamp_ms: 0,
-        })
+        push(Metric::with_no_labels(
+            "board_shares_rejected_total",
+            Value::Uint(SHARES_REJECTED.load(Ordering::Relaxed)),
+        ))
         .await;
-        push(Metric {
-            name: "board_stratum_reconnects_total",
-            labels: heapless::Vec::new(),
-            value: Value::Uint(u64::from(STRATUM_RECONNECTS.load(Ordering::Relaxed))),
-            timestamp_ms: 0,
-        })
+        push(Metric::with_no_labels(
+            "board_stratum_reconnects_total",
+            Value::Uint(u64::from(STRATUM_RECONNECTS.load(Ordering::Relaxed))),
+        ))
         .await;
     }
 }

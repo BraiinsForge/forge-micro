@@ -168,22 +168,18 @@ pub async fn run_hashrate_publisher() -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(2));
     loop {
         ticker.next().await;
-        push(Metric {
-            name: "board_hashrate_hps",
-            labels: heapless::Vec::new(),
-            value: Value::Uint(hashrate()),
-            timestamp_ms: 0,
-        })
+        push(Metric::with_no_labels(
+            "board_hashrate_hps",
+            Value::Uint(hashrate()),
+        ))
         .await;
         // ASIC-reported share count, distinct from the upstream pool's
         // accepted/rejected acknowledgements (`board_shares_accepted_total`
         // and `board_shares_rejected_total` published by stratum-client).
-        push(Metric {
-            name: "board_shares_total",
-            labels: heapless::Vec::new(),
-            value: Value::Uint(SHARE_COUNT.load(Ordering::Relaxed)),
-            timestamp_ms: 0,
-        })
+        push(Metric::with_no_labels(
+            "board_shares_total",
+            Value::Uint(SHARE_COUNT.load(Ordering::Relaxed)),
+        ))
         .await;
     }
 }

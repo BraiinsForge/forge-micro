@@ -40,12 +40,10 @@ pub trait TemperatureSensor {
 /// Callers that already have a value in hand (e.g. `ubos-thermal`
 /// inside its sample loop) use this instead of running a second sampler.
 pub async fn publish_board_temperature(temp: Temperature) {
-    push(Metric {
-        name: TemperatureParams::METRIC_NAME,
-        labels: heapless::Vec::new(),
-        value: Value::Int(i64::from(temp.millicelsius())),
-        timestamp_ms: 0,
-    })
+    push(Metric::with_no_labels(
+        TemperatureParams::METRIC_NAME,
+        Value::Int(i64::from(temp.millicelsius())),
+    ))
     .await;
 }
 

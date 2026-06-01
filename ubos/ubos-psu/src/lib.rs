@@ -87,19 +87,15 @@ where
                     input.mw(),
                     output.mw()
                 );
-                push(Metric {
-                    name: "board_psu_input_power_mw",
-                    labels: heapless::Vec::new(),
-                    value: Value::Uint(u64::from(input.mw())),
-                    timestamp_ms: 0,
-                })
+                push(Metric::with_no_labels(
+                    "board_psu_input_power_mw",
+                    Value::Uint(u64::from(input.mw())),
+                ))
                 .await;
-                push(Metric {
-                    name: "board_psu_output_power_mw",
-                    labels: heapless::Vec::new(),
-                    value: Value::Uint(u64::from(output.mw())),
-                    timestamp_ms: 0,
-                })
+                push(Metric::with_no_labels(
+                    "board_psu_output_power_mw",
+                    Value::Uint(u64::from(output.mw())),
+                ))
                 .await;
             }
             (Err(error), Ok(_)) | (Ok(_), Err(error)) => {
@@ -119,33 +115,25 @@ where
 
         match psu.read_status().await {
             Ok(flags) => {
-                push(Metric {
-                    name: "board_psu_status_current_limit",
-                    labels: heapless::Vec::new(),
-                    value: Value::Uint(u64::from(flags.current_limit)),
-                    timestamp_ms: 0,
-                })
+                push(Metric::with_no_labels(
+                    "board_psu_status_current_limit",
+                    Value::Uint(u64::from(flags.current_limit)),
+                ))
                 .await;
-                push(Metric {
-                    name: "board_psu_status_thermal_shutdown",
-                    labels: heapless::Vec::new(),
-                    value: Value::Uint(u64::from(flags.thermal_shutdown)),
-                    timestamp_ms: 0,
-                })
+                push(Metric::with_no_labels(
+                    "board_psu_status_thermal_shutdown",
+                    Value::Uint(u64::from(flags.thermal_shutdown)),
+                ))
                 .await;
-                push(Metric {
-                    name: "board_psu_status_overvoltage",
-                    labels: heapless::Vec::new(),
-                    value: Value::Uint(u64::from(flags.overvoltage)),
-                    timestamp_ms: 0,
-                })
+                push(Metric::with_no_labels(
+                    "board_psu_status_overvoltage",
+                    Value::Uint(u64::from(flags.overvoltage)),
+                ))
                 .await;
-                push(Metric {
-                    name: "board_psu_status_undervoltage",
-                    labels: heapless::Vec::new(),
-                    value: Value::Uint(u64::from(flags.undervoltage)),
-                    timestamp_ms: 0,
-                })
+                push(Metric::with_no_labels(
+                    "board_psu_status_undervoltage",
+                    Value::Uint(u64::from(flags.undervoltage)),
+                ))
                 .await;
             }
             // A terminated PSU will not recover; stop polling it so the

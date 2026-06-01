@@ -100,12 +100,6 @@ pub async fn run_tach(hardware: TachHardware) -> ! {
         // Physical fan RPM cannot approach u32::MAX; saturate defensively
         // in case a stuck tach line produces spurious edge counts.
         fan_state::store_rpm(FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX)));
-        push(Metric {
-            name: "board_fan_rpm",
-            labels: heapless::Vec::new(),
-            value: Value::Uint(rpm),
-            timestamp_ms: 0,
-        })
-        .await;
+        push(Metric::with_no_labels("board_fan_rpm", Value::Uint(rpm))).await;
     }
 }

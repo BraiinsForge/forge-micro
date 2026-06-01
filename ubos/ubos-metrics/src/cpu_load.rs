@@ -7,7 +7,7 @@ use core::num::NonZeroU64;
 use embassy_time::{Duration, Instant, Ticker};
 use portable_atomic::{AtomicU64, Ordering};
 
-use crate::metrics::{push, Label, LabelValue, Metric, Value};
+use crate::metrics::{push, Label, LabelValue, Labels, Metric, Value};
 
 /// Maximum number of cores tracked by [`IDLE_TICKS`]. Each board
 /// declares how many of these slots it populates by passing `N_CPUS`
@@ -55,7 +55,7 @@ pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
             let idle = now_idle[cpu_index].wrapping_sub(prev_idle[cpu_index]);
             let busy = busy_ratio(idle, elapsed);
 
-            let mut labels = heapless::Vec::new();
+            let mut labels = Labels::new();
             // Window and cpu labels are fixed and known to fit; pushes cannot fail.
             let _ = labels.push(Label {
                 name: "window",
@@ -65,12 +65,11 @@ pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
                 name: "cpu",
                 value: LabelValue::Static(CPU_LABELS[cpu_index]),
             });
-            push(Metric {
-                name: "board_cpu_busy_ratio",
+            push(Metric::with_labels(
+                "board_cpu_busy_ratio",
                 labels,
-                value: Value::Float(busy),
-                timestamp_ms: 0,
-            })
+                Value::Float(busy),
+            ))
             .await;
 
             prev_idle[cpu_index] = now_idle[cpu_index];

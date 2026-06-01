@@ -41,6 +41,7 @@ const MAX_HEADERS: usize = 16;
 const TASK_ID: usize = 0;
 
 /// A metric value.
+#[derive(Clone, Copy)]
 #[non_exhaustive]
 pub enum Value {
     /// Signed integer value.
@@ -76,13 +77,76 @@ pub struct Label {
     pub value: LabelValue,
 }
 
+/// Fixed-capacity label vector carried by a [`Metric`]. Re-exported as a
+/// type alias so callers building labels for `Metric::with_labels` need
+/// not name the const generic capacity directly.
+pub type Labels = heapless::Vec<Label, { Metrics::MAX_LABELS }>;
+
 /// A single metric observation to push into the exposition channel.
+///
+/// Fields are private; construct through [`Metric::with_no_labels`] or
+/// [`Metric::with_labels`]. Both constructors stamp the metric with the
+/// current monotonic time.
+///
+/// The stored timestamp is **monotonic milliseconds since boot**
+/// (`embassy_time::Instant::now().as_millis()`). The exposition path
+/// adds the NTP epoch offset at scrape time to render an absolute
+/// Unix-epoch timestamp.
 pub struct Metric {
-    pub name: &'static str,
-    pub labels: heapless::Vec<Label, { Metrics::MAX_LABELS }>,
-    pub value: Value,
-    /// Milliseconds since Unix epoch, or zero to omit the timestamp field.
-    pub timestamp_ms: u64,
+    name: &'static str,
+    labels: Labels,
+    value: Value,
+    timestamp_ms: u64,
+}
+
+impl Metric {
+    /// Build a metric with no labels, stamped with the current
+    /// monotonic time.
+    #[must_use]
+    pub fn with_no_labels(name: &'static str, value: Value) -> Self {
+        Self {
+            name,
+            labels: Labels::new(),
+            value,
+            timestamp_ms: Instant::now().as_millis(),
+        }
+    }
+
+    /// Build a metric carrying the provided labels, stamped with the
+    /// current monotonic time.
+    #[must_use]
+    pub fn with_labels(name: &'static str, labels: Labels, value: Value) -> Self {
+        Self {
+            name,
+            labels,
+            value,
+            timestamp_ms: Instant::now().as_millis(),
+        }
+    }
+
+    /// The metric's identifier as emitted in the Prometheus body.
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// The metric's current value.
+    #[must_use]
+    pub fn value(&self) -> Value {
+        self.value
+    }
+
+    /// Monotonic-ms timestamp captured when the metric was constructed.
+    #[must_use]
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp_ms
+    }
+
+    /// Labels attached to this metric.
+    #[must_use]
+    pub fn labels(&self) -> &[Label] {
+        &self.labels
+    }
 }
 
 /// Stored value associated with a map key.
@@ -110,8 +174,9 @@ struct MetricKey(heapless::String<KEY_CAPACITY>);
 impl MetricKey {
     /// Build a key from a metric, sorting its labels by name.
     fn from_metric(metric: &Metric) -> Option<Self> {
+        let labels = metric.labels();
         let mut sorted_indices: [usize; Metrics::MAX_LABELS] = [0; Metrics::MAX_LABELS];
-        let count = metric.labels.len();
+        let count = labels.len();
         for (index, slot) in sorted_indices.iter_mut().enumerate().take(count) {
             *slot = index;
         }
@@ -119,9 +184,7 @@ impl MetricKey {
         for outer in 1..count {
             let pivot = sorted_indices[outer];
             let mut inner = outer;
-            while inner > 0
-                && metric.labels[sorted_indices[inner - 1]].name > metric.labels[pivot].name
-            {
+            while inner > 0 && labels[sorted_indices[inner - 1]].name > labels[pivot].name {
                 sorted_indices[inner] = sorted_indices[inner - 1];
                 inner -= 1;
             }
@@ -129,16 +192,16 @@ impl MetricKey {
         }
 
         let mut key = heapless::String::<KEY_CAPACITY>::new();
-        key.push_str(metric.name).ok()?;
+        key.push_str(metric.name()).ok()?;
         if count > 0 {
             key.push('{').ok()?;
             for (position, &slot) in sorted_indices[..count].iter().enumerate() {
                 if position > 0 {
                     key.push(',').ok()?;
                 }
-                key.push_str(metric.labels[slot].name).ok()?;
+                key.push_str(labels[slot].name).ok()?;
                 key.push_str("=\"").ok()?;
-                push_escaped_label_value(&mut key, metric.labels[slot].value.as_str())?;
+                push_escaped_label_value(&mut key, labels[slot].value.as_str())?;
                 key.push('"').ok()?;
             }
             key.push('}').ok()?;
@@ -250,7 +313,7 @@ pub async fn run(stack: Stack<'static>) -> ! {
     loop {
         match select(acceptor.accept(), METRICS.receive()).await {
             Either::Second(metric) => {
-                upsert_metric(map, metric);
+                upsert_metric(map, &metric);
             }
             Either::First(Err(error)) => {
                 warn!("metrics tcp accept error: {:?}", Debug2Format(&error));
@@ -258,7 +321,7 @@ pub async fn run(stack: Stack<'static>) -> ! {
             Either::First(Ok((_peer_addr, socket))) => {
                 // Drain pending metrics so the response reflects the latest values.
                 while let Ok(metric) = METRICS.try_receive() {
-                    upsert_metric(map, metric);
+                    upsert_metric(map, &metric);
                 }
                 let handler = MetricsHandler {
                     map,
@@ -291,18 +354,18 @@ pub async fn run(stack: Stack<'static>) -> ! {
 /// Upsert a metric into the map, sorting its labels into a canonical key.
 fn upsert_metric(
     map: &mut heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
-    metric: Metric,
+    metric: &Metric,
 ) {
-    let Some(key) = MetricKey::from_metric(&metric) else {
+    let Some(key) = MetricKey::from_metric(metric) else {
         warn!(
             "metrics key encoding overflowed for {}; dropping metric (raise KEY_CAPACITY)",
-            metric.name
+            metric.name()
         );
         return;
     };
     let stored = StoredValue {
-        value: metric.value,
-        timestamp_ms: metric.timestamp_ms,
+        value: metric.value(),
+        timestamp_ms: metric.timestamp(),
     };
     if map.insert(key, stored).is_err() {
         warn!("metrics map full, dropping metric");
@@ -538,20 +601,13 @@ fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue)
         }
         Value::Float(value) => render_float_value(writer, *value),
     }
-    // Pushers that set ts_ms = 0 want the current wall-clock time at
-    // scrape time so that prometheus doesn't drop the sample as
-    // timestamp-less and still honours NTP sync for absolute time.
-    let ts_ms = if stored.timestamp_ms == 0 {
-        let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
-        if ntp_offset == 0 {
-            0
-        } else {
-            (Instant::now().as_secs() + ntp_offset) * 1000
-        }
-    } else {
-        stored.timestamp_ms
-    };
-    if ts_ms != 0 {
+    // Stored timestamps are monotonic ms since boot. Add the NTP epoch
+    // offset to produce an absolute Unix-epoch timestamp. If NTP has
+    // not synced yet, omit the timestamp so Prometheus stamps the
+    // sample at scrape time.
+    let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
+    if ntp_offset != 0 {
+        let ts_ms = stored.timestamp_ms + ntp_offset * 1000;
         let _ = write!(writer, " {ts_ms}");
     }
     let _ = writeln!(writer);

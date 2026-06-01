@@ -19,20 +19,16 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle) -> ! {
     loop {
         ticker.next().await;
         let desync = u64::from(UART_DESYNC_BYTES.load(Ordering::Relaxed));
-        push(Metric {
-            name: "board_uart_desync_bytes_total",
-            labels: heapless::Vec::new(),
-            value: Value::Uint(desync),
-            timestamp_ms: 0,
-        })
+        push(Metric::with_no_labels(
+            "board_uart_desync_bytes_total",
+            Value::Uint(desync),
+        ))
         .await;
         let running = u64::from(mining.state().is_some_and(|state| state.running));
-        push(Metric {
-            name: "board_miner_running",
-            labels: heapless::Vec::new(),
-            value: Value::Uint(running),
-            timestamp_ms: 0,
-        })
+        push(Metric::with_no_labels(
+            "board_miner_running",
+            Value::Uint(running),
+        ))
         .await;
     }
 }

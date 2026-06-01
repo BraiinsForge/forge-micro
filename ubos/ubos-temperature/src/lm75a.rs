@@ -16,7 +16,7 @@ use core::fmt::Write as _;
 use embedded_hal_async::i2c::I2c;
 use ubos_core::units::Temperature;
 use ubos_logging::error;
-use ubos_metrics::metrics::{push, Label, LabelValue, Metric, Value};
+use ubos_metrics::metrics::{push, Label, LabelValue, Labels, Metric, Value};
 
 use crate::TemperatureSensor;
 
@@ -112,17 +112,16 @@ where
                     // the dashboard can show hot vs cold sensors independently.
                     let mut address_str = heapless::String::<24>::new();
                     let _ = write!(address_str, "{:#04x}", sensor.address());
-                    let mut labels = heapless::Vec::new();
+                    let mut labels = Labels::new();
                     let _ = labels.push(Label {
                         name: "addr",
                         value: LabelValue::Short(address_str),
                     });
-                    push(Metric {
-                        name: "board_lm75a_temperature_millicelsius",
+                    push(Metric::with_labels(
+                        "board_lm75a_temperature_millicelsius",
                         labels,
-                        value: Value::Int(i64::from(adjusted)),
-                        timestamp_ms: 0,
-                    })
+                        Value::Int(i64::from(adjusted)),
+                    ))
                     .await;
                 }
                 Err(Error::I2c(bus_error)) => {

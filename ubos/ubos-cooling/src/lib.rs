@@ -98,12 +98,10 @@ pub async fn run_cooling<F: FanOutput>(mut fan: F, thermal: ThermalHandle) -> ! 
         fan.set_pwm(pwm);
         fan_state::store_pwm(pwm);
 
-        push(Metric {
-            name: METRIC_FAN_PWM,
-            labels: heapless::Vec::new(),
-            value: Value::Uint(u64::from(pwm.percent())),
-            timestamp_ms: 0,
-        })
+        push(Metric::with_no_labels(
+            METRIC_FAN_PWM,
+            Value::Uint(u64::from(pwm.percent())),
+        ))
         .await;
     }
 }
