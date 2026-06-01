@@ -17,6 +17,10 @@
 // rejects out-of-range values explicitly.
 #![allow(clippy::cast_possible_truncation)]
 
+#[cfg(test)]
+#[path = "tests/lib.rs"]
+mod tests;
+
 ubos_events::events! {
     psu_fault() error = "PSU fault",
 }
@@ -24,7 +28,7 @@ ubos_events::events! {
 /// PSU status flags decoded from the `TPS6287x` STATUS register.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 // Mirrors a hardware status byte; collapsing the bits into a state
-// machine would lose the 1:1 mapping to the silicon register.
+// machine would lose the 1:1 mapping to the register.
 #[allow(clippy::struct_excessive_bools)]
 pub struct StatusFlags {
     pub current_limit: bool,
@@ -50,13 +54,16 @@ pub enum Error<E> {
 /// Async PSU control surface. One implementation per hardware
 /// platform; consumers stay generic over `Psu`.
 pub mod config;
+pub mod hashnode;
 pub mod ina230;
 pub mod miniminer;
+pub mod sic45x;
 pub mod state;
 pub mod tps6287x;
 pub mod watchdog;
 
 pub use config::MiniminerPsuConfig;
+pub use hashnode::{HashnodePsu, HashnodePsuConfig, HashnodeState};
 pub use miniminer::{MiniminerPsu, RawMutex, run_watchdog};
 pub use state::State;
 
@@ -304,8 +311,18 @@ where
                     || flags.thermal_shutdown
                     || flags.overvoltage
                     || flags.undervoltage;
+                // Emit the fault event and log it once on the rising edge: the
+                // SIC latches the rail off in hardware, so a tripped rail must
+                // not be silent, but logging every tick would spam.
                 if fault_now && !psu_fault_active {
                     crate::events::psu_fault();
+                    ubos_logging::warn!(
+                        "psu FAULT: overvoltage={} current_limit={} undervoltage={} thermal_shutdown={}",
+                        flags.overvoltage,
+                        flags.current_limit,
+                        flags.undervoltage,
+                        flags.thermal_shutdown,
+                    );
                 }
                 psu_fault_active = fault_now;
             }
@@ -337,9 +354,11 @@ pub trait Psu {
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<Self::BusError>>;
     async fn read_input_power(&self) -> Result<Power, Error<Self::BusError>>;
     async fn read_output_power(&self) -> Result<Power, Error<Self::BusError>>;
-    /// Read the INA230 bus voltage on the output rail. Used to compare
-    /// the commanded `set_voltage` against the voltage the hashboard
-    /// actually sees so droop or sense-line loss is visible to operators.
+    /// Read the actual output rail voltage. Used to compare the commanded
+    /// `set_voltage` against the voltage the hashboard actually sees so
+    /// droop or sense-line loss is visible to operators. The source
+    /// register is implementation-defined (e.g. `SIC READ_VOUT` for
+    /// `HashnodePsu`).
     async fn read_output_voltage(&self) -> Result<Voltage, Error<Self::BusError>>;
     /// Read the `TPS6287x` STATUS register and decode the four fault flags.
     async fn read_status(&self) -> Result<StatusFlags, Error<Self::BusError>>;
