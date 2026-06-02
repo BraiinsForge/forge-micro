@@ -127,8 +127,8 @@ impl Metrics {
     /// ~2.5x headroom over the 25 label-expanded series pushed today
     /// while staying well within the .bss budget on the smallest
     /// targets (stm32f407 at 128 KiB, rp2040 at 256 KiB). An earlier
-    /// 128-entry trial blew the stm32f4 SRAM during the api refactor;
-    /// see `docs/API_REFACTOR_SIZES.md` for the data.
+    /// 128-entry trial blew the stm32f4 SRAM; see the Footprint section
+    /// of `docs/STRUCTURE.md` for the per-board RAM snapshot.
     pub const MAX_METRICS: usize = 64;
     pub const MAX_LABELS: usize = 4;
 }

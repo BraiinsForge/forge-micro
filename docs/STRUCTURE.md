@@ -59,8 +59,12 @@ in it.
 | `ubos-core`        | shared constants, watchdog feed loop, status LED, typed units |
 | `ubos-config`      | runtime `Config` watch, `ConfigHandle`, flash-backed `sequential-storage` persistence |
 | `ubos-manager`     | supervisor crate: routes `Message::Halt`/`Resume` to mining/cooling/thermal handles |
-| `ubos-net`         | DHCP, NTP sync, mDNS responder, BTC fetch; owns the cross-board atomics (IP, BTC price, NTP offset, request count) and `wall_clock_secs` |
-| `ubos-metrics`     | Prometheus TCP server, hashrate EWMA, CPU-load gauge, HTTP metrics-page builder + accept loop |
+| `ubos-net`         | DHCP, NTP sync, BTC fetch; owns the cross-board atomics (IP, BTC price, NTP offset, request count) and `wall_clock_secs` |
+| `ubos-http`        | HTTP/1.0 transport primitives: TCP accept loop, request parser, `Service` trait |
+| `ubos-api`         | REST handlers, auth, CSRF, IP allow-list, schema types; serves the dashboard SPA |
+| `ubos-webui`       | bundled web assets: gzipped `index.html` and `login.html`, raw `logo.svg` |
+| `ubos-mdns`        | DNS-SD responder; per-service `declare_service!` macro composed by firmware |
+| `ubos-metrics`     | Prometheus exporter task, hashrate EWMA, CPU-load gauge, shared metric map |
 | `ubos-display`     | SH1106 OLED driver and render task                 |
 | `ubos-pool`        | Binance BTC ticker JSON parser                     |
 | `ubos-logging`     | `defmt`/`log` macro facade                         |
@@ -155,6 +159,42 @@ agents respectively; everything longer-form lives here.
   target environment it builds for. A `host/` crate must never appear
   in a firmware crate's dep graph, and a `ubos/` crate must never
   pull in `std`.
+
+## Footprint
+
+Per-board RAM headroom after the API refactor. Numbers reflect a
+release build at the point this snapshot was taken; reproduce with
+the `cargo size` recipe below.
+
+| Board     | Flash     | Main RAM   | CCM RAM      | Headroom note                                  |
+|-----------|-----------|------------|--------------|------------------------------------------------|
+| bmm-pico  | 458 / 2048 KiB | 242 / 512 KiB | —          | comfortable                                    |
+| rp2040    | 478 / 2048 KiB | 240 / 256 KiB (94%) | —    | tight; ~16 KiB free, flag any new static state |
+| rp2350    | 459 / 2048 KiB | 243 / 512 KiB | —          | comfortable                                    |
+| stm32f407 | 459 / 1024 KiB | 126 / 128 KiB (98%) | 24 / 64 KiB CCM | tight; future statics must go to CCM        |
+| stm32f439 | 460 / 2048 KiB | 174 / 192 KiB | 24 / 64 KiB CCM | comfortable                                |
+| esp32s3   | 622 / 8192 KiB | ~249 / 320 KiB DRAM | — | comfortable                                    |
+
+The stm32f4 firmwares ship per-board `memory.x` declaring the 64 KiB
+Core-Coupled Memory region embassy-stm32 leaves unused. `ubos-metrics`
+and `ubos-api` expose a `ccmram-bss` cargo feature that places non-DMA
+static state (metric map, HTTP scratch buffers, credential / session /
+CSRF / CSPRNG tables) in `.ccmram.bss`. Only stm32f407 and stm32f439
+enable the feature; on every other board the `link_section`
+annotations are no-ops. New CCM-eligible statics should carry:
+
+```rust
+#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
+```
+
+Reproduce with:
+
+```sh
+nix develop .#arm -c bash -c 'cd firmware/<board> && cargo build --release && cargo size --release -- -A'
+nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo build --release'
+nix develop .#esp -c bash -c 'xtensa-esp-elf-size -A \
+  /home/jkr/projects/rusty-boards-api/build/target/xtensa-esp32s3-none-elf/release/esp32s3'
+```
 
 ## Rationale
 

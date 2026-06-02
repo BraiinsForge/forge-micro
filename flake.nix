@@ -557,8 +557,9 @@
           # binary crates, so they miss .bss / flash overflows. This
           # derivation invokes the full linker pass so any RAM or
           # flash budget regression fails CI at the same gate as a
-          # missing trait bound. See docs/API_REFACTOR_SIZES.md for
-          # the prior regression that motivated this gate.
+          # missing trait bound. The Footprint section of
+          # docs/STRUCTURE.md records the per-board RAM snapshot this
+          # gate protects.
           build-bmm-pico = craneLib.cargoBuild {
             inherit src;
             cargoArtifacts = null;
