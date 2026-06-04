@@ -7,7 +7,9 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:32px;width:100%;max-width:360px}
-h1{margin:0 0 24px;font-size:1.1rem;font-weight:600;color:var(--accent-hi)}
+.logo{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 24px;color:var(--mute);font-size:.75rem;text-transform:uppercase;letter-spacing:.12em}
+.logo img{height:18px;display:block}
+.logo .mu{display:inline-block;font:600 1.4rem/1 ui-serif,Georgia,serif;color:var(--accent-hi);text-shadow:0 0 4px var(--accent),0 0 10px var(--accent);letter-spacing:0;text-transform:none}
 label{display:block;margin-bottom:4px;font-size:.85rem;color:var(--mute)}
 input{display:block;width:100%;background:var(--field);border:1px solid var(--border);border-radius:4px;color:var(--fg);padding:8px 10px;font-size:.95rem;margin-bottom:16px;outline:none}
 input:focus{border-color:var(--accent)}
@@ -18,7 +20,7 @@ button:hover{background:var(--accent-hi)}
 </style>
 </head><body>
 <div class="card">
-<h1>microBOS Login</h1>
+<div class="logo"><img src="/logo.svg" alt="Braiins"><span class="mu">µ</span></div>
 <div class="err" id="err">Invalid username or password.</div>
 <form method="post" action="/login">
 <label for="u">Username</label>
