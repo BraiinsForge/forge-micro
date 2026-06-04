@@ -46,6 +46,7 @@ main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;pa
 .side .card{height:64px;overflow:hidden}
 .card{background:var(--panel);border-radius:4px;padding:10px 14px}
 .k{color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.1em}
+.pools{grid-column:1/-1}
 .pools .k{margin-bottom:6px}
 .pool{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem}
 .pools .pool:first-of-type{border-top:0}
@@ -54,7 +55,8 @@ main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;pa
 .pool.live .pt{color:var(--green)}
 .pool.live .dot{background:var(--green);box-shadow:0 0 6px var(--green)}
 .v{font-size:1.05rem;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
-.lkc .ps{margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem}
+.lkc .ps{margin-top:4px}
+.lkc .pt{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1.05rem;min-width:auto;text-align:left;letter-spacing:.06em}
 .lkc.live .dot{background:var(--green);box-shadow:0 0 6px var(--green)}
 .lkc.live #lk{color:var(--green)}
 .lkc.dead #lk{color:var(--red)}
@@ -109,12 +111,6 @@ main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;pa
 <div class="tt hide"><span class="ts">T-0s</span><br><span class="vv">–</span></div>
 <div class="lg"><span style="background:#f9c74f"></span>Power IN<span style="background:#4cc9f0"></span>Power OUT</div>
 </div>
-<div class="card pools">
-<div class="k">Pools</div>
-<div class="pool" id="po1"><span>Pool 1 — Primary</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
-<div class="pool" id="po2"><span>Pool 2 — Backup</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
-<div class="pool" id="po3"><span>Pool 3 — Backup</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
-</div>
 </div>
 <aside class="side">
 <div class="card lkc dead"><div class="k">Link</div><div class="ps"><span class="dot"></span><span id="lk" class="pt">Dead</span></div></div>
@@ -122,10 +118,17 @@ main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;pa
 <div class="card"><div class="k">IP address</div><div id="ip" class="v">–</div></div>
 <div class="card"><div class="k">Time UTC</div><div id="t" class="v">–</div></div>
 <div class="card"><div class="k">Uptime</div><div id="up" class="v">–</div></div>
+<div class="card"><div class="k">Temperature</div><div id="tp" class="v">–</div></div>
 <div class="card"><div class="k">Fan speed / PWM</div><div class="v"><span id="fs">–</span> / <span id="fp">–</span></div></div>
 <div class="card"><div class="k">Power in / out</div><div class="v"><span id="pwrIn">–</span> / <span id="pwrOut">–</span></div></div>
 <div class="card"><div class="k">Voltage set / measured</div><div class="v"><span id="vSet">–</span> / <span id="vMeas">–</span></div></div>
 </aside>
+<div class="card pools">
+<div class="k">Pools</div>
+<div class="pool" id="po1"><span>Pool 1 — Primary</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
+<div class="pool" id="po2"><span>Pool 2 — Backup</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
+<div class="pool" id="po3"><span>Pool 3 — Backup</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
+</div>
 </main>
 <section class="cfg hide" id="cfg">
 <form id="cfgForm">
@@ -205,6 +208,7 @@ async function tick(){
   $('ip').textContent=d.ip||'–';
   $('t').textContent=d.time||'–';
   $('up').textContent=fmtUp(d.uptime);
+  $('tp').textContent=d.temperature?d.temperature+' °C':'–';
   $('fs').textContent=d.fan_rpm?d.fan_rpm+' RPM':'–';
   $('fp').textContent=d.fan_pwm?d.fan_pwm+' %':'–';
   // Zero reads render as '–' to match the fan tiles: the cold-boot
