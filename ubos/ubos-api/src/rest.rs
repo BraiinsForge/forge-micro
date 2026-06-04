@@ -1,0 +1,478 @@
+//! REST API listener on port 8080.
+//!
+//! Sibling of `dashboard` but serves only `/api/*` and adds CORS headers
+//! so the SPA (loaded from port 80) can fetch cross-origin. Same auth
+//! profile as the dashboard: Basic for machine clients, session cookie
+//! for the SPA, CSRF for session-authenticated mutating requests.
+
+use core::fmt::Write as _;
+
+use edge_http::io::server::Connection;
+use edge_http::io::Error as HttpError;
+use edge_nal::TcpSplit;
+use embassy_net::{Ipv4Address, Stack};
+use embassy_time::Instant;
+use embedded_io_async::{Read, Write};
+use heapless::Vec;
+use portable_atomic::Ordering;
+use static_cell::ConstStaticCell;
+use ubos_core::consts::Api;
+use ubos_logging::{info, warn};
+use ubos_manager::Handle as ManagerHandle;
+use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, REQUEST_COUNT};
+use ubos_thermal::Handle as ThermalHandle;
+
+use ubos_http::{write_status_only, Service, CONTENT_LENGTH_DECIMAL_DIGITS};
+
+use crate::dashboard::{
+    read_body, validate_board_name, write_json_response_with_extra, API_INFO_BODY_BUFFER_SIZE,
+    BODY_READ_BUFFER_SIZE, CONFIG_ACK_BODY, CONFIG_RESPONSE_BUFFER_SIZE, MAX_RESPONSE_HEADERS,
+};
+
+/// REST API handler implementing `ubos_http::Service`.
+///
+/// Serves only `/api/*` paths and attaches CORS headers to every
+/// response so the SPA loaded from port 80 can fetch cross-origin.
+/// Auth profile mirrors `DashboardService`: Basic or session cookie
+/// with CSRF enforcement on session-authenticated mutating requests.
+pub struct RestApiService {
+    pub(crate) board_name: &'static str,
+    pub(crate) thermal: ThermalHandle,
+    pub(crate) manager: ManagerHandle,
+}
+
+/// Build the CORS header slice for a response.
+///
+/// Returns a two-entry vec with `Access-Control-Allow-Origin` and
+/// `Access-Control-Allow-Credentials` when `origin` is present,
+/// or an empty vec for machine clients that did not send an Origin
+/// header (no browser context, no CORS headers needed).
+fn cors_headers(origin: &str) -> Vec<(&str, &str), 2> {
+    let mut headers: Vec<(&str, &str), 2> = Vec::new();
+    if !origin.is_empty() {
+        // Infallible: two pushes into a capacity-2 vec.
+        let _ = headers.push(("Access-Control-Allow-Origin", origin));
+        let _ = headers.push(("Access-Control-Allow-Credentials", "true"));
+    }
+    headers
+}
+
+impl Service for RestApiService {
+    // The line count comes from the flat match dispatch table and the
+    // duplicated-from-dashboard handler bodies. Splitting each route into
+    // a helper would require threading the generic `Connection` parameter
+    // and the CORS slice through every call, adding noise without reducing
+    // complexity.
+    #[allow(clippy::too_many_lines)]
+    async fn handle<TcpSocket, const N: usize>(
+        &self,
+        peer_ip: core::net::IpAddr,
+        connection: &mut Connection<'_, TcpSocket, N>,
+    ) -> Result<(), HttpError<TcpSocket::Error>>
+    where
+        TcpSocket: Read + Write + TcpSplit,
+    {
+        // Count every accepted connection so `board_http_requests_total`
+        // reflects combined traffic across both listeners.
+        REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
+
+        // The allow-list is the compile-time default for now.
+        if !ubos_auth::allow_list::is_allowed(peer_ip, ubos_auth::allow_list::DEFAULT_ALLOW_LIST) {
+            // No CORS headers: a request from outside the allow-list
+            // should not be able to read the API surface at all.
+            return write_status_only(
+                connection,
+                401,
+                "Unauthorized",
+                "application/json",
+                &[],
+                b"{\"message\":\"Client not in allowed network range\"}",
+            )
+            .await;
+        }
+
+        // Extract all header values we need into owned stack locals
+        // before any mutation of the connection. The headers borrow
+        // `connection` immutably; copying values out into owned strings
+        // releases that borrow so `read_body` can take a mutable borrow
+        // for the body read later.
+        let (
+            method_buf,
+            path_buf,
+            authorization_buf,
+            cookie_buf,
+            csrf_buf,
+            content_length,
+            origin_buf,
+        ) = {
+            let headers = connection
+                .headers()
+                .map_err(|_| edge_http::io::Error::InvalidState)?;
+
+            let mut method = heapless::String::<16>::new();
+            let _ = core::write!(method, "{}", headers.method);
+
+            let mut path = heapless::String::<128>::new();
+            // Paths longer than the buffer are left empty so the route
+            // match below falls through to 404.
+            if headers.path.len() <= 128 {
+                let _ = path.push_str(headers.path);
+            }
+
+            let authorization: Option<heapless::String<128>> =
+                headers.headers.get("Authorization").and_then(|value| {
+                    let mut owned = heapless::String::<128>::new();
+                    if owned.push_str(value).is_err() {
+                        warn!("Authorization header truncated, treating as missing");
+                        return None;
+                    }
+                    Some(owned)
+                });
+
+            let cookie: Option<heapless::String<256>> =
+                headers.headers.get("Cookie").and_then(|value| {
+                    let mut owned = heapless::String::<256>::new();
+                    if owned.push_str(value).is_err() {
+                        warn!("Cookie header truncated, treating as missing");
+                        return None;
+                    }
+                    Some(owned)
+                });
+
+            let csrf: Option<heapless::String<64>> =
+                headers.headers.get("X-CSRF-Token").and_then(|value| {
+                    let mut owned = heapless::String::<64>::new();
+                    owned.push_str(value).ok()?;
+                    Some(owned)
+                });
+
+            let content_length = headers.headers.content_len();
+
+            let origin: heapless::String<128> =
+                headers
+                    .headers
+                    .get("Origin")
+                    .map_or_else(heapless::String::new, |value| {
+                        let mut owned = heapless::String::<128>::new();
+                        if owned.push_str(value).is_err() {
+                            warn!("Origin header truncated, treating as missing");
+                            return heapless::String::new();
+                        }
+                        owned
+                    });
+
+            (
+                method,
+                path,
+                authorization,
+                cookie,
+                csrf,
+                content_length,
+                origin,
+            )
+        };
+
+        let method = method_buf.as_str();
+        let path = path_buf.as_str();
+        let authorization = authorization_buf.as_deref();
+        let cookie = cookie_buf.as_deref();
+        let origin = origin_buf.as_str();
+
+        // Build the CORS header pair once; all response paths in this
+        // handler receive it.
+        let cors = cors_headers(origin);
+        let cors_slice = cors.as_slice();
+
+        // Handle OPTIONS preflight before auth so browsers can probe
+        // cross-origin before presenting credentials.
+        if method == "OPTIONS" && path.starts_with("/api/") {
+            // Five CORS headers exceed the `MAX_EXTRA_STATUS_HEADERS`
+            // limit of `write_status_only`, so the response is built
+            // directly through `initiate_response`.
+            let mut length_buffer = [0u8; CONTENT_LENGTH_DECIMAL_DIGITS];
+            let content_length_str = ubos_http::format_content_length(&mut length_buffer, 0);
+            let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
+            // The preflight response carries CORS headers only when an
+            // Origin was present; machine clients do not preflight.
+            if !origin.is_empty() {
+                let _ = headers.push(("Access-Control-Allow-Origin", origin));
+                let _ = headers.push(("Access-Control-Allow-Credentials", "true"));
+                let _ = headers.push(("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS"));
+                let _ = headers.push((
+                    "Access-Control-Allow-Headers",
+                    "Authorization, X-CSRF-Token, Content-Type",
+                ));
+                let _ = headers.push(("Access-Control-Max-Age", "86400"));
+            }
+            let _ = headers.push(("Content-Length", content_length_str));
+            let _ = headers.push(("Connection", "close"));
+            connection
+                .initiate_response(204, Some("No Content"), &headers)
+                .await?;
+            return Ok(());
+        }
+
+        // Every route on this listener requires auth; there are no
+        // anonymous endpoints on port 8080.
+        let auth_ctx = ubos_auth::auth::authenticate(authorization, cookie)
+            .await
+            .unwrap_or(ubos_auth::auth::AuthCtx::Anonymous);
+
+        if matches!(auth_ctx, ubos_auth::auth::AuthCtx::Anonymous) {
+            // Attach CORS headers so a browser can surface the 401 to JS.
+            let mut extra: Vec<(&str, &str), 4> = Vec::new();
+            let _ = extra.push(("WWW-Authenticate", "Basic realm=\"ubos\""));
+            for &header in cors_slice {
+                let _ = extra.push(header);
+            }
+            return write_status_only(
+                connection,
+                401,
+                "Unauthorized",
+                "application/json",
+                extra.as_slice(),
+                b"{\"message\":\"unauthorized\"}",
+            )
+            .await;
+        }
+
+        let is_mutating = matches!(method, "POST" | "PATCH" | "DELETE");
+
+        // Read mutating request bodies before the CSRF check so an
+        // oversized payload returns 413 without consuming the token.
+        let mut body_buffer = [0u8; BODY_READ_BUFFER_SIZE];
+        let body: &[u8] = if is_mutating {
+            match read_body(connection, &mut body_buffer, content_length).await {
+                Some(bytes) => bytes,
+                None => {
+                    return write_status_only(
+                        connection,
+                        413,
+                        "Payload Too Large",
+                        "text/plain",
+                        cors_slice,
+                        b"payload too large",
+                    )
+                    .await;
+                }
+            }
+        } else {
+            &[]
+        };
+
+        // Session-authenticated mutating requests require a valid CSRF
+        // token. Basic-authenticated requests are exempt.
+        if is_mutating {
+            if let ubos_auth::auth::AuthCtx::Session(ref session_id) = auth_ctx {
+                let token_str = csrf_buf.as_deref().unwrap_or("");
+                if token_str.is_empty()
+                    || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str).await
+                {
+                    return write_status_only(
+                        connection,
+                        403,
+                        "Forbidden",
+                        "application/json",
+                        cors_slice,
+                        b"{\"message\":\"CSRF token invalid or missing\"}",
+                    )
+                    .await;
+                }
+            }
+        }
+
+        // Route dispatch: only /api/* paths are served here.
+        if path == "/api/system" || path.starts_with("/api/system/") {
+            let handled = crate::system::dispatch(
+                connection,
+                method,
+                path,
+                body,
+                self.board_name,
+                self.thermal,
+                self.manager,
+                cors_slice,
+            )
+            .await?;
+            if !handled {
+                return write_status_only(
+                    connection,
+                    404,
+                    "Not Found",
+                    "text/plain",
+                    cors_slice,
+                    b"not found",
+                )
+                .await;
+            }
+            return Ok(());
+        }
+
+        match (method, path) {
+            ("GET", "/api/info") => {
+                let uptime_secs = Instant::now().as_secs();
+                let hashrate = ubos_metrics::hashrate::hashrate();
+                #[allow(clippy::cast_possible_truncation)]
+                let temperature = self
+                    .thermal
+                    .current()
+                    .map_or(0i32, |r| r.chip_max.celsius_f32() as i32);
+                let fan_rpm = ubos_core::fan_state::load_rpm().rpm();
+                let fan_pwm = ubos_core::fan_state::load_pwm().percent();
+                let pools = POOL_ALIVE_BITMAP.load(Ordering::Relaxed);
+
+                let mut body_buf = [0u8; API_INFO_BODY_BUFFER_SIZE];
+                let mut writer = ubos_http::BufferWriter::new(&mut body_buf);
+
+                debug_assert!(
+                    validate_board_name(self.board_name),
+                    "BUG: board_name contains JSON-unsafe characters"
+                );
+                let _ = core::write!(
+                    writer,
+                    "{{\"name\":\"{}\",\
+                     \"hashrate\":{hashrate},\
+                     \"uptime\":{uptime_secs},\
+                     \"temperature\":{temperature},\
+                     \"fan_rpm\":{fan_rpm},\
+                     \"fan_pwm\":{fan_pwm},\
+                     \"pools\":{pools},\
+                     \"ip\":\"",
+                    self.board_name
+                );
+
+                let ip_bits = LOCAL_IPV4.load(Ordering::Relaxed);
+                if ip_bits != 0 {
+                    let octets = Ipv4Address::from_bits(ip_bits).octets();
+                    let _ = core::write!(
+                        writer,
+                        "{}.{}.{}.{}",
+                        octets[0],
+                        octets[1],
+                        octets[2],
+                        octets[3]
+                    );
+                }
+
+                let _ = writer.write_str("\",\"time\":\"");
+                let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
+                if ntp_offset != 0 {
+                    let unix_secs = ubos_net::wall_clock_secs();
+                    let mut time_buffer = [0u8; 16];
+                    let length = ubos_net::ntp::format_utc_time(&mut time_buffer, unix_secs);
+                    if let Ok(time_str) = core::str::from_utf8(&time_buffer[..length]) {
+                        let _ = writer.write_str(time_str);
+                    }
+                }
+                let _ = writer.write_str("\"}");
+                let json_len = writer.len();
+
+                write_json_response_with_extra(connection, &body_buf[..json_len], cors_slice).await
+            }
+            ("GET", "/api/config") => {
+                let snapshot = ubos_config::handle().current();
+                let response = ubos_config::PoolUpdate {
+                    pool: snapshot.pool,
+                };
+                let mut body_buf = [0u8; CONFIG_RESPONSE_BUFFER_SIZE];
+                if let Ok(length) = serde_json_core::ser::to_slice(&response, &mut body_buf) {
+                    write_json_response_with_extra(connection, &body_buf[..length], cors_slice).await
+                } else {
+                    warn!("config: failed to serialize PoolUpdate response");
+                    write_status_only(
+                        connection,
+                        500,
+                        "Internal Server Error",
+                        "application/json",
+                        cors_slice,
+                        b"{\"message\":\"config serialize failed\"}",
+                    )
+                    .await
+                }
+            }
+            ("POST", "/api/config") => {
+                info!("pool config update ({} bytes)", body.len());
+                if let Ok((update, _)) =
+                    serde_json_core::de::from_slice::<ubos_config::PoolUpdate>(body)
+                {
+                    let config_handle = ubos_config::handle();
+                    let mut new_config = config_handle.current();
+                    new_config.pool = update.pool;
+                    config_handle
+                        .send(ubos_config::Message::Update(new_config))
+                        .await;
+                    write_json_response_with_extra(connection, CONFIG_ACK_BODY, cors_slice).await
+                } else {
+                    warn!("config: rejected POST /api/config with invalid JSON");
+                    write_status_only(
+                        connection,
+                        400,
+                        "Bad Request",
+                        "application/json",
+                        cors_slice,
+                        b"{\"message\":\"invalid pool update JSON\"}",
+                    )
+                    .await
+                }
+            }
+            (_, "/api/info" | "/api/config") => {
+                write_status_only(
+                    connection,
+                    405,
+                    "Method Not Allowed",
+                    "text/plain",
+                    cors_slice,
+                    b"method not allowed",
+                )
+                .await
+            }
+            _ => {
+                write_status_only(
+                    connection,
+                    404,
+                    "Not Found",
+                    "text/plain",
+                    cors_slice,
+                    b"not found",
+                )
+                .await
+            }
+        }
+    }
+}
+
+#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
+static REST_TCP_BUFFERS: ConstStaticCell<
+    edge_nal_embassy::TcpBuffers<1, { Api::TX_BUFFER_SIZE }, { Api::RX_BUFFER_SIZE }>,
+> = ConstStaticCell::new(edge_nal_embassy::TcpBuffers::new());
+#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
+static REST_WORK_BUFFER: ConstStaticCell<[u8; Api::REQUEST_BUFFER_SIZE]> =
+    ConstStaticCell::new([0; Api::REQUEST_BUFFER_SIZE]);
+
+/// Accept connections on `Api::PORT` (8080) and serve the REST API.
+///
+/// Runs forever. A second call to `ubos_auth::auth::init_credentials`
+/// is a no-op when the dashboard listener has already populated the
+/// store.
+pub async fn run_rest_api(
+    stack: Stack<'static>,
+    board_name: &'static str,
+    thermal: ThermalHandle,
+    manager: ManagerHandle,
+) -> ! {
+    // Credential store init also happens in dashboard::run; this is a
+    // no-op when already populated (init_credentials is idempotent).
+    ubos_auth::auth::init_credentials().await;
+    ubos_http::serve(
+        stack,
+        Api::PORT,
+        RestApiService {
+            board_name,
+            thermal,
+            manager,
+        },
+        REST_TCP_BUFFERS.take(),
+        REST_WORK_BUFFER.take(),
+    )
+    .await
+}

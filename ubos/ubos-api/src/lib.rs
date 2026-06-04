@@ -11,9 +11,10 @@
 //! `/api/*` endpoint (including `/api/info` and `/api/config`) requires
 //! a valid session cookie or `Authorization: Basic` header.
 //!
-//! `HTTP_API_SERVICE` is the mDNS advertisement for the HTTP endpoint;
-//! firmware that advertises this crate includes it in the service list
-//! it passes to [`ubos_mdns::run_mdns`].
+//! `HTTP_API_SERVICE` is the mDNS advertisement for the HTTP dashboard
+//! endpoint; `REST_API_SERVICE` advertises the REST listener on port
+//! 8080. Firmware includes both in the service list passed to
+//! [`ubos_mdns::run_mdns`].
 #![no_std]
 
 ubos_mdns::declare_service!(
@@ -25,8 +26,19 @@ ubos_mdns::declare_service!(
     }
 );
 
+ubos_mdns::declare_service!(
+    pub REST_API_SERVICE = ubos_mdns::ServiceEntry {
+        service: ubos_core::consts::Mdns::UBOS_API_SERVICE,
+        port: ubos_core::consts::Api::PORT,
+        txt_keys: &["path"],
+        txt_values: &[ubos_core::consts::Mdns::UBOS_API_PATH],
+    }
+);
+
 pub mod dashboard;
+pub mod rest;
 pub mod schema;
 pub mod system;
 
 pub use dashboard::run;
+pub use rest::run_rest_api;

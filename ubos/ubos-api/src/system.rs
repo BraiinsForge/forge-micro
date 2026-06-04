@@ -87,17 +87,27 @@ fn build_time_string() -> String<24> {
     result
 }
 
+/// Maximum number of response headers built per system dispatch response.
+///
+/// Four fixed headers (Content-Type, Cache-Control, Connection,
+/// Content-Length) plus up to two CORS headers from the REST listener
+/// equals six. Eight slots leave headroom for future additions.
+const MAX_SYSTEM_RESPONSE_HEADERS: usize = 8;
+
 /// Write a JSON response to `connection` with the given status code and
 /// pre-serialized body bytes.
 ///
 /// `status` is the numeric HTTP status code. `reason` is the reason phrase.
 /// `body` contains the serialized JSON bytes and determines the
-/// `Content-Length` header value.
+/// `Content-Length` header value. `extra_headers` carries caller-supplied
+/// headers such as CORS headers from the REST listener; pass `&[]` for the
+/// dashboard listener.
 async fn write_json_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     status: u16,
     reason: &str,
     body: &[u8],
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -105,17 +115,28 @@ where
     let mut length_buffer = [0u8; ubos_http::CONTENT_LENGTH_DECIMAL_DIGITS];
     let content_length = ubos_http::format_content_length(&mut length_buffer, body.len());
 
+    let mut headers: heapless::Vec<(&str, &str), MAX_SYSTEM_RESPONSE_HEADERS> =
+        heapless::Vec::new();
+    headers
+        .push(("Content-Type", "application/json"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Cache-Control", "no-store"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Connection", "close"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Content-Length", content_length))
+        .expect("BUG: response header vec sized for max headers");
+    for &header in extra_headers {
+        headers
+            .push(header)
+            .expect("BUG: response header vec sized for max headers");
+    }
+
     connection
-        .initiate_response(
-            status,
-            Some(reason),
-            &[
-                ("Content-Type", "application/json"),
-                ("Cache-Control", "no-store"),
-                ("Connection", "close"),
-                ("Content-Length", content_length),
-            ],
-        )
+        .initiate_response(status, Some(reason), &headers)
         .await?;
 
     embedded_io_async::Write::write_all(connection, body).await?;
@@ -128,10 +149,13 @@ where
 ///
 /// RFC 7231 §6.5.5 mandates the `Allow` header on every 405. The
 /// routing table populates `allowed` per route so each response advertises
-/// only the methods that route actually accepts.
+/// only the methods that route actually accepts. `extra_headers` carries
+/// caller-supplied headers such as CORS headers from the REST listener;
+/// pass `&[]` for the dashboard listener.
 async fn write_method_not_allowed<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     allowed: &'static str,
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -140,17 +164,28 @@ where
     let mut length_buffer = [0u8; ubos_http::CONTENT_LENGTH_DECIMAL_DIGITS];
     let content_length = ubos_http::format_content_length(&mut length_buffer, body.len());
 
+    let mut headers: heapless::Vec<(&str, &str), MAX_SYSTEM_RESPONSE_HEADERS> =
+        heapless::Vec::new();
+    headers
+        .push(("Allow", allowed))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Content-Type", "text/plain"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Content-Length", content_length))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Connection", "close"))
+        .expect("BUG: response header vec sized for max headers");
+    for &header in extra_headers {
+        headers
+            .push(header)
+            .expect("BUG: response header vec sized for max headers");
+    }
+
     connection
-        .initiate_response(
-            405,
-            Some("Method Not Allowed"),
-            &[
-                ("Allow", allowed),
-                ("Content-Type", "text/plain"),
-                ("Content-Length", content_length),
-                ("Connection", "close"),
-            ],
-        )
+        .initiate_response(405, Some("Method Not Allowed"), &headers)
         .await?;
 
     embedded_io_async::Write::write_all(connection, body).await?;
@@ -162,17 +197,20 @@ where
 ///
 /// Falls back to a 500 plain-text response when `serde_json_core`
 /// returns an error; the schema structs are plain serde derivations
-/// so this path is treated as a firmware bug.
+/// so this path is treated as a firmware bug. `extra_headers` carries
+/// caller-supplied headers such as CORS headers from the REST listener;
+/// pass `&[]` for the dashboard listener.
 async fn serialize_and_respond<T, const N: usize, V: serde::Serialize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     value: &V,
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     if let Ok(length) = serde_json_core::to_slice(value, scratch) {
-        write_json_response(connection, 200, "OK", &scratch[..length]).await
+        write_json_response(connection, 200, "OK", &scratch[..length], extra_headers).await
     } else {
         // BUG: serialization of a schema struct failed; the schemas are
         // plain serde derivations so this path should be unreachable.
@@ -183,6 +221,7 @@ where
             500,
             "Internal Server Error",
             b"{\"message\":\"serialization error\"}",
+            extra_headers,
         )
         .await
     }
@@ -192,11 +231,14 @@ where
 ///
 /// Populates all fields from the shared atomics and the thermal handle.
 /// Fields that depend on future phases are zeroed or empty per the plan.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener; pass `&[]` for the dashboard listener.
 async fn handle_info<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     board_name: &str,
     thermal: ThermalHandle,
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -237,15 +279,18 @@ where
         best_session_nonce_diff: 0,
     };
 
-    serialize_and_respond(connection, scratch, &info).await
+    serialize_and_respond(connection, scratch, &info, extra_headers).await
 }
 
 /// Handle `GET /api/system/asic`.
 ///
 /// Returns static capability metadata for the BM1362 chip.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener; pass `&[]` for the dashboard listener.
 async fn handle_asic<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -261,16 +306,19 @@ where
         voltage_options: VOLTAGE_OPTIONS_MV,
     };
 
-    serialize_and_respond(connection, scratch, &asic).await
+    serialize_and_respond(connection, scratch, &asic, extra_headers).await
 }
 
 /// Handle `GET /api/system/statistics`.
 ///
 /// Returns the fixed label set with an empty rows slice. A ring buffer
 /// will be wired in a later phase without a schema change.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener; pass `&[]` for the dashboard listener.
 async fn handle_statistics<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -288,23 +336,26 @@ where
         statistics: &[],
     };
 
-    serialize_and_respond(connection, scratch, &statistics).await
+    serialize_and_respond(connection, scratch, &statistics, extra_headers).await
 }
 
 /// Handle `GET /api/system/scoreboard`.
 ///
 /// Serializes an empty `SystemScoreboardEntry` slice as a JSON array.
 /// The scoreboard ring buffer is wired in a later phase.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener; pass `&[]` for the dashboard listener.
 async fn handle_scoreboard<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     let entries: &[SystemScoreboardEntry] = &[];
     if let Ok(length) = serde_json_core::to_slice(entries, scratch) {
-        write_json_response(connection, 200, "OK", &scratch[..length]).await
+        write_json_response(connection, 200, "OK", &scratch[..length], extra_headers).await
     } else {
         // BUG: serializing an empty slice failed; this is a serde_json_core
         // invariant violation.
@@ -313,23 +364,35 @@ where
             500,
             "Internal Server Error",
             b"{\"error\":\"serialization\"}",
+            extra_headers,
         )
         .await
     }
 }
 
 /// Handle a not-implemented endpoint with a 501 JSON response.
+///
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener; pass `&[]` for the dashboard listener.
 async fn handle_not_implemented<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     message: &str,
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     let body = GenericResponse { message };
     if let Ok(length) = serde_json_core::to_slice(&body, scratch) {
-        write_json_response(connection, 501, "Not Implemented", &scratch[..length]).await
+        write_json_response(
+            connection,
+            501,
+            "Not Implemented",
+            &scratch[..length],
+            extra_headers,
+        )
+        .await
     } else {
         // BUG: serializing GenericResponse failed; the struct is a plain
         // serde derivation so this path is unreachable in practice.
@@ -338,6 +401,7 @@ where
             501,
             "Not Implemented",
             b"{\"error\":\"serialization\"}",
+            extra_headers,
         )
         .await
     }
@@ -346,17 +410,20 @@ where
 /// Write a 200 OK response with `{"message":"ack"}` body.
 ///
 /// Shared by every stub action handler. The body signals that the
-/// request was received; no firmware state is changed.
+/// request was received; no firmware state is changed. `extra_headers`
+/// carries caller-supplied headers such as CORS headers from the REST
+/// listener; pass `&[]` for the dashboard listener.
 async fn write_ack_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     let body = GenericResponse { message: "ack" };
     if let Ok(length) = serde_json_core::to_slice(&body, scratch) {
-        write_json_response(connection, 200, "OK", &scratch[..length]).await
+        write_json_response(connection, 200, "OK", &scratch[..length], extra_headers).await
     } else {
         // BUG: serializing GenericResponse { message: "ack" } failed;
         // the struct is a plain serde derivation so this path is unreachable.
@@ -365,6 +432,7 @@ where
             500,
             "Internal Server Error",
             b"{\"error\":\"serialization\"}",
+            extra_headers,
         )
         .await
     }
@@ -376,16 +444,19 @@ where
 /// Logs one `info!` line naming the action and returns 200 with
 /// `{"message":"ack"}`. Pause and resume are handled separately
 /// by `dispatch` because they carry a `Manager` side-effect.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener; pass `&[]` for the dashboard listener.
 async fn handle_action<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     action: &str,
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     info!("api action: {}", action);
-    write_ack_response(connection, scratch).await
+    write_ack_response(connection, scratch, extra_headers).await
 }
 
 /// Handle `PATCH /api/system`.
@@ -395,16 +466,19 @@ where
 /// persistence out of scope for this phase. The body itself is not
 /// logged because legitimate clients may include credentials in the
 /// JSON payload, and the stub has no operational use for the contents.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener; pass `&[]` for the dashboard listener.
 async fn handle_patch_system<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     body_len: usize,
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     info!("api patch /api/system ({} bytes)", body_len);
-    write_ack_response(connection, scratch).await
+    write_ack_response(connection, scratch, extra_headers).await
 }
 
 /// A known route on the `/api/system/*` surface.
@@ -535,9 +609,16 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
 /// the slice is all the body content available; callers must read it
 /// before calling this function.
 ///
+/// `extra_headers` is forwarded to every response writer. The dashboard
+/// caller passes `&[]`; the REST listener passes its pre-built CORS slice.
+///
 /// Crate-private because the auth/CSRF/allow-list gates live in
 /// `DashboardService::handle`; exposing this directly would let an
 /// outside caller bypass those checks.
+// The argument count comes from threading `extra_headers` through the
+// existing board_name/thermal/manager set. A context struct would
+// reduce the count but add indirection without simplifying the callers.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     method: &str,
@@ -546,6 +627,7 @@ pub(crate) async fn dispatch<T, const N: usize>(
     board_name: &str,
     thermal: ThermalHandle,
     manager: ManagerHandle,
+    extra_headers: &[(&str, &str)],
 ) -> Result<bool, HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -560,47 +642,53 @@ where
     match route(method, path) {
         DispatchOutcome::NotFound => return Ok(false),
         DispatchOutcome::MethodNotAllowed { allowed } => {
-            write_method_not_allowed(connection, allowed).await?;
+            write_method_not_allowed(connection, allowed, extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::SystemInfo) => {
-            handle_info(connection, scratch, board_name, thermal).await?;
+            handle_info(connection, scratch, board_name, thermal, extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::SystemAsic) => {
-            handle_asic(connection, scratch).await?;
+            handle_asic(connection, scratch, extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::SystemStatistics) => {
-            handle_statistics(connection, scratch).await?;
+            handle_statistics(connection, scratch, extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::SystemScoreboard) => {
-            handle_scoreboard(connection, scratch).await?;
+            handle_scoreboard(connection, scratch, extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::SystemLogs) => {
-            handle_not_implemented(connection, scratch, "not implemented").await?;
+            handle_not_implemented(connection, scratch, "not implemented", extra_headers).await?;
         }
         DispatchOutcome::Handled(
             Route::SystemWifiScan | Route::SystemOta | Route::SystemOtaWww,
         ) => {
-            handle_not_implemented(connection, scratch, "unsupported on this platform").await?;
+            handle_not_implemented(
+                connection,
+                scratch,
+                "unsupported on this platform",
+                extra_headers,
+            )
+            .await?;
         }
         DispatchOutcome::Handled(Route::PauseAck) => {
             manager.send(ManagerMessage::Stop).await;
-            handle_action(connection, scratch, "pause").await?;
+            handle_action(connection, scratch, "pause", extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::ResumeAck) => {
             manager.send(ManagerMessage::Start).await;
-            handle_action(connection, scratch, "resume").await?;
+            handle_action(connection, scratch, "resume", extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::RestartAck) => {
-            handle_action(connection, scratch, "restart").await?;
+            handle_action(connection, scratch, "restart", extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::IdentifyAck) => {
-            handle_action(connection, scratch, "identify").await?;
+            handle_action(connection, scratch, "identify", extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::BlockFoundDismissAck) => {
-            handle_action(connection, scratch, "blockFound/dismiss").await?;
+            handle_action(connection, scratch, "blockFound/dismiss", extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::PatchSystem) => {
-            handle_patch_system(connection, scratch, body.len()).await?;
+            handle_patch_system(connection, scratch, body.len(), extra_headers).await?;
         }
     }
 

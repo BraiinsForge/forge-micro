@@ -69,7 +69,7 @@ mod tests;
 /// Set-Cookie or X-CSRF-Token header. Eight slots cover the worst-case
 /// header count (4 fixed + 1 encoding + 1 extra = 6) with two slots to
 /// spare.
-const MAX_RESPONSE_HEADERS: usize = 8;
+pub(crate) const MAX_RESPONSE_HEADERS: usize = 8;
 
 /// Body buffer size for JSON responses built by `/api/info`.
 ///
@@ -77,24 +77,24 @@ const MAX_RESPONSE_HEADERS: usize = 8;
 /// roughly 200 bytes (name≤32 + numeric fields + 16-byte IPv4 + 16-byte
 /// time string + JSON framing). 512 bytes leaves room for future field
 /// additions while staying on the stack.
-const API_INFO_BODY_BUFFER_SIZE: usize = 512;
+pub(crate) const API_INFO_BODY_BUFFER_SIZE: usize = 512;
 
 /// Body buffer for the POST /api/config acknowledgement.
-const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
+pub(crate) const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
 
 /// Body buffer size for `GET /api/config` responses.
 ///
 /// Each [`ubos_config::PoolEntry`] serialises to at most ~460 bytes
 /// (three 128-byte heapless strings plus JSON framing); three entries
 /// plus the outer `{"pool":[…]}` wrapper fit inside 1.5 KiB with margin.
-const CONFIG_RESPONSE_BUFFER_SIZE: usize = 1536;
+pub(crate) const CONFIG_RESPONSE_BUFFER_SIZE: usize = 1536;
 
 /// Buffer for reading POST/PATCH request bodies.
 ///
 /// Sized to `Http::REQUEST_BUFFER_SIZE` so a login form or config
 /// payload fits in one allocation. Requests that exceed this cap
 /// receive a 413 response.
-const BODY_READ_BUFFER_SIZE: usize = Http::REQUEST_BUFFER_SIZE;
+pub(crate) const BODY_READ_BUFFER_SIZE: usize = Http::REQUEST_BUFFER_SIZE;
 
 /// Validate that a board name string contains no JSON-unsafe characters.
 ///
@@ -182,7 +182,7 @@ where
 /// for gzip assets and `None` for plain assets.
 /// `extra_headers` may carry additional headers such as `X-CSRF-Token`.
 /// `body` is the raw asset bytes.
-async fn write_asset<T, const N: usize>(
+pub(crate) async fn write_asset<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     content_type: &str,
     cache_control: &str,
@@ -235,9 +235,25 @@ where
 }
 
 /// Write a JSON response with `body` bytes.
-async fn write_json_response<T, const N: usize>(
+pub(crate) async fn write_json_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     body: &[u8],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    write_json_response_with_extra(connection, body, &[]).await
+}
+
+/// Write a JSON response with `body` bytes and optional extra headers.
+///
+/// Used by the REST listener to attach CORS headers to JSON responses.
+/// `extra_headers` is appended after the four fixed headers; the total
+/// must not exceed `MAX_RESPONSE_HEADERS`.
+pub(crate) async fn write_json_response_with_extra<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    body: &[u8],
+    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -245,17 +261,27 @@ where
     let mut length_buffer = [0u8; CONTENT_LENGTH_DECIMAL_DIGITS];
     let content_length = format_content_length(&mut length_buffer, body.len());
 
+    let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
+    headers
+        .push(("Content-Type", "application/json"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Cache-Control", "no-store"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Connection", "close"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Content-Length", content_length))
+        .expect("BUG: response header vec sized for max headers");
+    for &header in extra_headers {
+        headers
+            .push(header)
+            .expect("BUG: response header vec sized for max headers");
+    }
+
     connection
-        .initiate_response(
-            200,
-            Some("OK"),
-            &[
-                ("Content-Type", "application/json"),
-                ("Cache-Control", "no-store"),
-                ("Connection", "close"),
-                ("Content-Length", content_length),
-            ],
-        )
+        .initiate_response(200, Some("OK"), &headers)
         .await?;
 
     embedded_io_async::Write::write_all(connection, body).await?;
@@ -265,6 +291,8 @@ where
 
 /// Read up to `BODY_READ_BUFFER_SIZE` bytes of request body via the
 /// `Connection::Read` impl.
+///
+/// Called from both the dashboard and REST listeners.
 ///
 /// Reads up to `content_length` bytes when provided, or until the
 /// connection signals EOF otherwise. Returns the filled prefix of
@@ -277,7 +305,7 @@ where
 /// one-byte overflow probe. If the probe reads a byte, the body
 /// exceeded the buffer and the function returns `None` so the caller
 /// can send a 413 rather than silently truncating the body.
-async fn read_body<'buf, T, const N: usize>(
+pub(crate) async fn read_body<'buf, T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     buffer: &'buf mut [u8],
     content_length: Option<u64>,
@@ -611,6 +639,7 @@ impl Service for DashboardService {
                 self.board_name,
                 self.thermal,
                 self.manager,
+                &[],
             )
             .await?;
             if !handled {
