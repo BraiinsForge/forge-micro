@@ -359,7 +359,7 @@ where
             connection,
             500,
             "Internal Server Error",
-            b"{\"error\":\"serialization\"}",
+            b"{\"message\":\"serialization error\"}",
             extra_headers,
         )
         .await
@@ -396,7 +396,7 @@ where
             connection,
             501,
             "Not Implemented",
-            b"{\"error\":\"serialization\"}",
+            b"{\"message\":\"serialization error\"}",
             extra_headers,
         )
         .await
@@ -427,7 +427,7 @@ where
             connection,
             500,
             "Internal Server Error",
-            b"{\"error\":\"serialization\"}",
+            b"{\"message\":\"serialization error\"}",
             extra_headers,
         )
         .await
