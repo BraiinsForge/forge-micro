@@ -118,6 +118,7 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 </form>
 </section>
 <script>
+const API=`${location.protocol}//${location.hostname}:8080`;
 const N=150,W=680,H=320,L=44,R=44,T=10,B=20,PW=W-L-R,PH=H-T-B;
 const hrBuf=new Array(N).fill(0),tpBuf=new Array(N).fill(0);
 let hrMax=1e12,tpMax=20;
@@ -147,7 +148,7 @@ function draw(){
  $('hrLine').setAttribute('points',pts(hrBuf,hrMax));$('tpLine').setAttribute('points',pts(tpBuf,tpMax));
 }
 async function tick(){
- try{const r=await fetch('/api/info',{cache:'no-store'});if(!r.ok)throw 0;
+ try{const r=await fetch(API+'/api/info',{cache:'no-store',credentials:'include'});if(!r.ok)throw 0;
   const d=await r.json();
   $('dot').className='dot live';
   $('hr').textContent=fmtHr(d.hashrate);
@@ -165,7 +166,7 @@ async function tick(){
 }
 tick();setInterval(tick,2000);
 async function loadCfg(){
- try{const r=await fetch('/api/config',{cache:'no-store'});if(!r.ok)return;
+ try{const r=await fetch(API+'/api/config',{cache:'no-store',credentials:'include'});if(!r.ok)return;
   const d=await r.json(),f=$('cfgForm'),pools=d.pool||[];
   for(let i=0;i<3;i++){
    const p=pools[i],n=i+1;
@@ -203,7 +204,7 @@ $('cfgForm').addEventListener('submit',async e=>{
  const body=JSON.stringify({pool});
  try{const t=await fetch('/',{cache:'no-store'});
   const csrf=t.headers.get('X-CSRF-Token')||'';
-  const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body});
+  const r=await fetch(API+'/api/config',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body,credentials:'include'});
   $('msg').textContent=r.ok?'Saved.':'Save failed.'}
  catch(_){$('msg').textContent='Save failed.'}
 });
