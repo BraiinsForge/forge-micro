@@ -243,8 +243,9 @@ async fn rest_api_task(
     stack: embassy_net::Stack<'static>,
     thermal: ThermalHandle,
     manager: ManagerHandle,
+    psu: ubos_psu::Handle,
 ) -> ! {
-    ubos_api::run_rest_api(stack, config::Board::NAME, thermal, manager).await
+    ubos_api::run_rest_api(stack, config::Board::NAME, thermal, manager, psu).await
 }
 
 #[embassy_executor::task]
@@ -569,6 +570,11 @@ async fn boot(spawner: Spawner) {
     // Core 1 hosts serial_task (ubos-mining backend); see spawn_core1 above.
     spawner.spawn(unwrap!(stratum_client_task(stack)));
 
-    spawner.spawn(unwrap!(rest_api_task(stack, thermal, manager_handle)));
+    spawner.spawn(unwrap!(rest_api_task(
+        stack,
+        thermal,
+        manager_handle,
+        ubos_psu::handle()
+    )));
     ubos_webui::run(stack).await;
 }

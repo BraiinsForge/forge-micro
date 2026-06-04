@@ -4530,6 +4530,7 @@ dependencies = [
  "ubos-metrics",
  "ubos-mining",
  "ubos-net",
+ "ubos-psu",
  "ubos-thermal",
 ]
 

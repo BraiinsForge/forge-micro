@@ -293,8 +293,9 @@ async fn rest_api_task(
     stack: embassy_net::Stack<'static>,
     thermal: ThermalHandle,
     manager: ManagerHandle,
+    psu: ubos_psu::Handle,
 ) -> ! {
-    ubos_api::run_rest_api(stack, config::Board::NAME, thermal, manager).await
+    ubos_api::run_rest_api(stack, config::Board::NAME, thermal, manager, psu).await
 }
 
 #[embassy_executor::task]
@@ -697,6 +698,11 @@ async fn boot(spawner: Spawner) {
 
     spawner.must_spawn(stratum_client_task(stack));
 
-    spawner.must_spawn(rest_api_task(stack, thermal, manager_handle));
+    spawner.must_spawn(rest_api_task(
+        stack,
+        thermal,
+        manager_handle,
+        ubos_psu::handle(),
+    ));
     ubos_webui::run(stack).await;
 }

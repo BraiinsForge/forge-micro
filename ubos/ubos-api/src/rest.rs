@@ -83,6 +83,7 @@ pub struct RestApiService {
     pub(crate) board_name: &'static str,
     pub(crate) thermal: ThermalHandle,
     pub(crate) manager: ManagerHandle,
+    pub(crate) psu: ubos_psu::Handle,
 }
 
 /// Build the CORS header slice for a response.
@@ -364,6 +365,13 @@ impl Service for RestApiService {
                 let fan_rpm = ubos_core::fan_state::load_rpm().rpm();
                 let fan_pwm = ubos_core::fan_state::load_pwm().percent();
                 let pools = POOL_ALIVE_BITMAP.load(Ordering::Relaxed);
+                let psu_reading = self.psu.current();
+                let power_in_mw = psu_reading.map_or(0u32, |r| r.input_power.mw());
+                let power_out_mw = psu_reading.map_or(0u32, |r| r.output_power.mw());
+                let voltage_set_mv = psu_reading.map_or(0u32, |r| r.output_voltage_set.mv());
+                let voltage_measured_mv =
+                    psu_reading.map_or(0u32, |r| r.output_voltage_measured.mv());
+                let psu_fault = psu_reading.is_some_and(|r| r.sensor_fault);
 
                 let mut body_buf = [0u8; API_INFO_BODY_BUFFER_SIZE];
                 let mut writer = ubos_http::BufferWriter::new(&mut body_buf);
@@ -380,6 +388,11 @@ impl Service for RestApiService {
                      \"temperature\":{temperature},\
                      \"fan_rpm\":{fan_rpm},\
                      \"fan_pwm\":{fan_pwm},\
+                     \"power_in_mw\":{power_in_mw},\
+                     \"power_out_mw\":{power_out_mw},\
+                     \"voltage_set_mv\":{voltage_set_mv},\
+                     \"voltage_measured_mv\":{voltage_measured_mv},\
+                     \"psu_fault\":{psu_fault},\
                      \"pools\":{pools},\
                      \"ip\":\"",
                     self.board_name
@@ -503,6 +516,7 @@ pub async fn run_rest_api(
     board_name: &'static str,
     thermal: ThermalHandle,
     manager: ManagerHandle,
+    psu: ubos_psu::Handle,
 ) -> ! {
     // Credential store init also happens in `ubos_webui::dashboard::run`;
     // this is a no-op when already populated (init_credentials is idempotent).
@@ -514,6 +528,7 @@ pub async fn run_rest_api(
             board_name,
             thermal,
             manager,
+            psu,
         },
         REST_TCP_BUFFERS.take(),
         REST_WORK_BUFFER.take(),

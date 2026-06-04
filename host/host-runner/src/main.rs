@@ -125,8 +125,9 @@ async fn rest_api_task(
     stack: Stack<'static>,
     thermal: ThermalHandle,
     manager: ManagerHandle,
+    psu: ubos_psu::Handle,
 ) -> ! {
-    ubos_api::run_rest_api(stack, BOARD_NAME, thermal, manager).await
+    ubos_api::run_rest_api(stack, BOARD_NAME, thermal, manager, psu).await
 }
 
 #[embassy_executor::task]
@@ -348,7 +349,7 @@ fn main() {
         OsRng.fill_bytes(&mut csprng_seed);
         embassy_futures::block_on(ubos_auth::csprng::seed_csprng(csprng_seed));
         spawner.spawn(
-            rest_api_task(stack, thermal, manager_handle)
+            rest_api_task(stack, thermal, manager_handle, ubos_psu::handle())
                 .expect("BUG: rest_api_task token"),
         );
         spawner.spawn(webui_task(stack).expect("BUG: webui_task token"));
