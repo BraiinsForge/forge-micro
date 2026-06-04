@@ -73,48 +73,6 @@ impl Watchdog {
     pub const FEED_PERIOD: Duration = Duration::from_millis(500);
 }
 
-/// mDNS/DNS-SD responder settings per RFC 6762 and RFC 6763.
-pub struct Mdns;
-impl Mdns {
-    /// A record TTL in seconds. RFC 6762 §10 recommends 120 s for volatile
-    /// addresses such as DHCP leases.
-    pub const TTL_SECS: u32 = 120;
-    /// DNS-SD service type for the Prometheus metrics scrape target.
-    pub const PROMETHEUS_SERVICE: &str = "_prometheus";
-    /// DNS-SD service type for the board's web UI on port 80.
-    pub const HTTP_SERVICE: &str = "_http";
-    /// DNS-SD service type for the JSON REST API (port 8080).
-    pub const UBOS_API_SERVICE: &str = "_ubos";
-    /// Transport protocol used by every service the responder advertises.
-    pub const TCP_PROTOCOL: &str = "_tcp";
-    /// URL path advertised in the Prometheus service TXT record.
-    pub const METRICS_PATH: &str = "/metrics";
-    /// URL path advertised in the HTTP service TXT record.
-    pub const HTTP_PATH: &str = "/";
-    /// URL path advertised in the REST API service TXT record.
-    pub const UBOS_API_PATH: &str = "/api/";
-    /// Seconds to wait before retrying after a bind or run error.
-    pub const RETRY_DELAY_SECS: u64 = 5;
-    /// Buffer size for mDNS datagrams. RFC 6762 §17 caps mDNS messages at
-    /// the interface UDP payload max.
-    pub const BUFFER_SIZE: usize = 1472;
-    /// Packet-metadata slots per direction for the mDNS UDP socket.
-    pub const METADATA_SLOTS: usize = 4;
-    /// Sockets in the UDP pool. One is sufficient because the responder
-    /// holds a single socket for the lifetime of each run attempt.
-    pub const SOCKET_POOL_SIZE: usize = 1;
-    /// Maximum number of services that the responder can announce in a
-    /// single run. Eight entries occupy at most a few hundred bytes of
-    /// stack and leave room for all planned service crates without
-    /// revisiting this constant.
-    pub const MAX_SERVICES: usize = 8;
-    /// Maximum number of TXT key-value pairs per service entry,
-    /// including the two runtime-appended `board=` and `mcu=` pairs.
-    /// Four static pairs plus two runtime pairs is sufficient for any
-    /// service planned in this workspace.
-    pub const MAX_TXT_PAIRS: usize = 6;
-}
-
 /// BM1362 mining defaults that must agree across `ubos-config`,
 /// `ubos-mining`, and `ubos-api`. Hoisted here so the boot-default
 /// frequency and voltage have one source of truth; `Config::default()`
