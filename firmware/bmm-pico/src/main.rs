@@ -493,7 +493,7 @@ async fn main(spawner: Spawner) {
         let mut trng = Trng::new(hw.trng, Irqs, trng_config);
         trng.fill_bytes(&mut csprng_seed).await;
     }
-    ubos_api::seed_csprng(csprng_seed).await;
+    ubos_auth::csprng::seed_csprng(csprng_seed).await;
 
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));

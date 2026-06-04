@@ -494,7 +494,7 @@ async fn boot(spawner: Spawner) {
     // boards are demonstration hardware per CLAUDE.md and not used in production.
     let mut csprng_seed = [0u8; 32];
     rng.fill_bytes(&mut csprng_seed);
-    ubos_api::seed_csprng(csprng_seed).await;
+    ubos_auth::csprng::seed_csprng(csprng_seed).await;
 
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));

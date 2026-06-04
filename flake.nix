@@ -400,6 +400,7 @@
             "-p stratum-client"
             "-p stratum-v1"
             "-p stratum-v2"
+            "-p ubos-auth"
             "-p ubos-core"
             "-p ubos-display"
             "-p ubos-logging"
@@ -693,6 +694,14 @@
             doInstallCargoArtifacts = false;
           };
 
+          clippy-ubos-auth = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p ubos-auth";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+          };
+
           clippy-ubos-metrics = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = hostArtifacts;
@@ -897,6 +906,13 @@
             inherit src;
             cargoArtifacts = null;
             cargoExtraArgs = "-p ubos-api";
+          };
+
+          test-ubos-auth = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p ubos-auth";
+            doInstallCargoArtifacts = false;
           };
 
           test-ubos-metrics = craneLib.cargoTest {

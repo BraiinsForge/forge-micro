@@ -340,7 +340,7 @@ fn main() {
         // `block_on` is used here to match the boot-time ordering.
         let mut csprng_seed = [0u8; 32];
         OsRng.fill_bytes(&mut csprng_seed);
-        embassy_futures::block_on(ubos_api::seed_csprng(csprng_seed));
+        embassy_futures::block_on(ubos_auth::csprng::seed_csprng(csprng_seed));
         spawner.spawn(
             http_server_task(stack, thermal, manager_handle)
                 .expect("BUG: http_server_task token"),

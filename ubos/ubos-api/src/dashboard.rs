@@ -444,7 +444,7 @@ impl Service for DashboardService {
         REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
 
         // The allow-list is the compile-time default for now.
-        if !crate::allow_list::is_allowed(peer_ip, crate::allow_list::DEFAULT_ALLOW_LIST) {
+        if !ubos_auth::allow_list::is_allowed(peer_ip, ubos_auth::allow_list::DEFAULT_ALLOW_LIST) {
             return write_status_only(
                 connection,
                 401,
@@ -516,15 +516,15 @@ impl Service for DashboardService {
         let cookie = cookie_buf.as_deref();
 
         let needs_auth = path.starts_with("/api/") || path == "/logout";
-        let auth_ctx = crate::auth::authenticate(authorization, cookie)
+        let auth_ctx = ubos_auth::auth::authenticate(authorization, cookie)
             .await
-            .unwrap_or(crate::auth::AuthCtx::Anonymous);
+            .unwrap_or(ubos_auth::auth::AuthCtx::Anonymous);
 
         // Anonymous requests to authenticated paths are rejected.
         // RFC 7235 requires `WWW-Authenticate` on 401 so a Basic-auth
         // machine client knows the route accepts credentials and which
         // realm to retry against.
-        if needs_auth && matches!(auth_ctx, crate::auth::AuthCtx::Anonymous) {
+        if needs_auth && matches!(auth_ctx, ubos_auth::auth::AuthCtx::Anonymous) {
             return write_status_only(
                 connection,
                 401,
@@ -584,10 +584,10 @@ impl Service for DashboardService {
         // existing session on `GET /` and reused here.
         let needs_csrf = needs_auth || (path == "/login" && is_mutating);
         if needs_csrf && is_mutating {
-            if let crate::auth::AuthCtx::Session(ref session_id) = auth_ctx {
+            if let ubos_auth::auth::AuthCtx::Session(ref session_id) = auth_ctx {
                 let token_str = csrf_buf.as_deref().unwrap_or("");
                 if token_str.is_empty()
-                    || !crate::csrf::consume_csrf_token(session_id.as_str(), token_str).await
+                    || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str).await
                 {
                     return write_status_only(
                         connection,
@@ -630,9 +630,9 @@ impl Service for DashboardService {
         match (method, path) {
             ("GET", "/") => {
                 match auth_ctx {
-                    crate::auth::AuthCtx::Anonymous => write_redirect(connection, "/login").await,
-                    crate::auth::AuthCtx::Session(ref session_id) => {
-                        let csrf_token = crate::csrf::issue_csrf_token(session_id.as_str()).await;
+                    ubos_auth::auth::AuthCtx::Anonymous => write_redirect(connection, "/login").await,
+                    ubos_auth::auth::AuthCtx::Session(ref session_id) => {
+                        let csrf_token = ubos_auth::csrf::issue_csrf_token(session_id.as_str()).await;
                         let csrf_header_value = csrf_token.as_str();
                         write_asset(
                             connection,
@@ -645,7 +645,7 @@ impl Service for DashboardService {
                         .await
                     }
                     // Basic clients do not use the SPA's CSRF surface.
-                    crate::auth::AuthCtx::Basic => {
+                    ubos_auth::auth::AuthCtx::Basic => {
                         write_asset(
                             connection,
                             "text/html; charset=utf-8",
@@ -677,12 +677,12 @@ impl Service for DashboardService {
                 let supplied_username = form_field(body_str, "username").unwrap_or_default();
                 let supplied_password = form_field(body_str, "password").unwrap_or_default();
 
-                let stored = crate::auth::current_credentials().await;
-                let username_ok = crate::auth::constant_time_eq(
+                let stored = ubos_auth::auth::current_credentials().await;
+                let username_ok = ubos_auth::auth::constant_time_eq(
                     stored.username.as_str(),
                     supplied_username.as_str(),
                 );
-                let password_ok = crate::auth::constant_time_eq(
+                let password_ok = ubos_auth::auth::constant_time_eq(
                     stored.password.as_str(),
                     supplied_password.as_str(),
                 );
@@ -692,12 +692,12 @@ impl Service for DashboardService {
                     // Invalidate any session presented on the inbound
                     // request so a stale cookie from a prior login cannot
                     // outlive the current login.
-                    let existing_session = crate::auth::extract_session_cookie_from_str(cookie);
+                    let existing_session = ubos_auth::auth::extract_session_cookie_from_str(cookie);
                     if let Some(existing) = existing_session {
-                        crate::session::invalidate_session(existing).await;
+                        ubos_auth::session::invalidate_session(existing).await;
                     }
-                    let token = crate::csprng::random_token().await;
-                    crate::session::create_session(token.clone()).await;
+                    let token = ubos_auth::csprng::random_token().await;
+                    ubos_auth::session::create_session(token.clone()).await;
                     // Build the Set-Cookie header value into a stack buffer.
                     // The `Secure` attribute is omitted because the device
                     // runs HTTP only with no TLS terminator; revisit if
@@ -714,8 +714,8 @@ impl Service for DashboardService {
                 }
             }
             ("POST", "/logout") => {
-                if let Some(token) = crate::auth::extract_session_cookie_from_str(cookie) {
-                    crate::session::invalidate_session(token).await;
+                if let Some(token) = ubos_auth::auth::extract_session_cookie_from_str(cookie) {
+                    ubos_auth::session::invalidate_session(token).await;
                 }
                 write_logout_redirect(connection).await
             }
@@ -888,7 +888,7 @@ pub async fn run(
     // first request finds the defaults in place and the operator sees
     // the default-credentials warning at boot rather than on first
     // login attempt.
-    crate::auth::init_credentials().await;
+    ubos_auth::auth::init_credentials().await;
     ubos_http::serve(
         stack,
         Http::PORT,

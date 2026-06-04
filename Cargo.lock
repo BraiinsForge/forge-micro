@@ -357,6 +357,7 @@ dependencies = [
  "stratum-v1",
  "stratum-v2",
  "ubos-api",
+ "ubos-auth",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -2095,6 +2096,7 @@ dependencies = [
  "stratum-v1",
  "stratum-v2",
  "ubos-api",
+ "ubos-auth",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -2552,6 +2554,7 @@ dependencies = [
  "stratum-v1",
  "stratum-v2",
  "ubos-api",
+ "ubos-auth",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -3588,6 +3591,7 @@ dependencies = [
  "stratum-v1",
  "stratum-v2",
  "ubos-api",
+ "ubos-auth",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -3639,6 +3643,7 @@ dependencies = [
  "stratum-v1",
  "stratum-v2",
  "ubos-api",
+ "ubos-auth",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -4099,6 +4104,7 @@ dependencies = [
  "stratum-v1",
  "stratum-v2",
  "ubos-api",
+ "ubos-auth",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -4142,6 +4148,7 @@ dependencies = [
  "stratum-v1",
  "stratum-v2",
  "ubos-api",
+ "ubos-auth",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -4503,11 +4510,11 @@ dependencies = [
  "flate2",
  "heapless 0.9.2",
  "portable-atomic",
- "rand_chacha",
  "serde",
  "serde-json-core",
  "static_cell",
  "stratum-client",
+ "ubos-auth",
  "ubos-config",
  "ubos-core",
  "ubos-http",
@@ -4519,6 +4526,21 @@ dependencies = [
  "ubos-net",
  "ubos-thermal",
  "ubos-webui",
+]
+
+[[package]]
+name = "ubos-auth"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "defmt 1.0.1",
+ "embassy-futures",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "heapless 0.9.2",
+ "portable-atomic",
+ "rand_chacha",
+ "ubos-logging",
 ]
 
 [[package]]

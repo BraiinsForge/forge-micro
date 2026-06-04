@@ -474,7 +474,7 @@ async fn boot(spawner: Spawner) {
     rng.async_fill_bytes(&mut csprng_seed)
         .await
         .expect("BUG: RNG fill failed");
-    ubos_api::seed_csprng(csprng_seed).await;
+    ubos_auth::csprng::seed_csprng(csprng_seed).await;
 
     spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));

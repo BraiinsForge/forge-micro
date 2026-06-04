@@ -119,12 +119,19 @@ static DEFAULT_CREDS_WARNED: AtomicBool = AtomicBool::new(false);
 /// Populate `CREDENTIALS` with the default `root`/`root` pair and warn
 /// when the defaults are still in use.
 ///
-/// Called once from `dashboard::run` before the HTTP accept loop so the
-/// store is ready before the first request arrives and the warning
-/// fires at boot rather than on first login attempt. Repeated calls are
+/// Called from each listener task at boot (`ubos_webui::dashboard::run`
+/// and `ubos_api::rest::run_rest_api`) before the HTTP accept loop so the
+/// store is ready before the first request arrives and the warning fires
+/// at boot rather than on first login attempt. Repeated calls are
 /// idempotent: a populated store is left untouched and the warning is
 /// gated by `DEFAULT_CREDS_WARNED` so it only emits once per boot.
-pub(crate) async fn init_credentials() {
+///
+/// # Panics
+///
+/// Panics with `BUG: …` if `DEFAULT_USERNAME` or `DEFAULT_PASSWORD`
+/// exceeds `CREDENTIAL_MAX_LEN`. Both constants are shorter than the
+/// limit by construction; the assertion is unreachable in practice.
+pub async fn init_credentials() {
     let mut guard = CREDENTIALS.lock().await;
     if guard.username.is_empty() {
         // DEFAULT_USERNAME and DEFAULT_PASSWORD fit in CREDENTIAL_MAX_LEN.
@@ -152,7 +159,7 @@ pub(crate) async fn init_credentials() {
 ///
 /// Callers must `init_credentials` before the first request, so the
 /// store is guaranteed populated by the time this runs.
-pub(crate) async fn current_credentials() -> Credentials {
+pub async fn current_credentials() -> Credentials {
     CREDENTIALS.lock().await.clone()
 }
 
@@ -306,7 +313,8 @@ async fn authenticate_basic(authorization: &str) -> Result<AuthCtx, AuthError> {
 /// credentials are bounded by `CREDENTIAL_MAX_LEN` at their setup sites,
 /// and CSRF and session tokens are exactly 32 ASCII characters by
 /// `csprng::random_token` construction.
-pub(crate) fn constant_time_eq(left: &str, right: &str) -> bool {
+#[must_use]
+pub fn constant_time_eq(left: &str, right: &str) -> bool {
     // Record whether either input is oversize before touching the buffers
     // so the guard does not short-circuit the constant-time scan below.
     let oversize = (left.len() > SECRET_MAX_LEN) | (right.len() > SECRET_MAX_LEN);
@@ -331,7 +339,8 @@ pub(crate) fn constant_time_eq(left: &str, right: &str) -> bool {
 ///
 /// Returns `None` when `cookie_header` is `None`, when the header is
 /// absent, or when the `session` key is not found in the cookie string.
-pub(crate) fn extract_session_cookie_from_str(cookie_header: Option<&str>) -> Option<&str> {
+#[must_use]
+pub fn extract_session_cookie_from_str(cookie_header: Option<&str>) -> Option<&str> {
     let cookie_header = cookie_header?;
     for pair in cookie_header.split(';') {
         let pair = pair.trim();

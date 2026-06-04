@@ -12,6 +12,7 @@ display = []
 
 [dependencies]
 ubos-api             = { workspace = true, features = ["defmt"] }
+ubos-auth            = { workspace = true, features = ["defmt"] }
 ubos-metrics         = { workspace = true, features = ["defmt"] }
 ubos-mdns            = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt"] }

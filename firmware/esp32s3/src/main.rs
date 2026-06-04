@@ -569,7 +569,7 @@ async fn boot(spawner: Spawner) {
         }
         seed
     };
-    ubos_api::seed_csprng(csprng_seed).await;
+    ubos_auth::csprng::seed_csprng(csprng_seed).await;
 
     spawner.must_spawn(bitcoin_price_task(stack, TlsRng(rng)));
     spawner.must_spawn(ntp_sync_task(stack));

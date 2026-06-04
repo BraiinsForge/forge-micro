@@ -8,7 +8,7 @@ workspace = true
 
 [features]
 default = ["defmt"]
-defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-config/defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt", "ubos-http/defmt", "ubos-metrics/defmt", "ubos-manager/defmt", "ubos-mining/defmt", "ubos-thermal/defmt"]
+defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-auth/defmt", "ubos-config/defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt", "ubos-http/defmt", "ubos-metrics/defmt", "ubos-manager/defmt", "ubos-mining/defmt", "ubos-thermal/defmt"]
 # Opt-in for cortex-m boards whose linker exposes a `.ccmram.bss`
 # section. Relocates the HTTP scratch buffers and the credential /
 # session / CSRF / CSPRNG state off main SRAM. Pairs with the same
@@ -17,7 +17,7 @@ defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-config/defmt", "ubos-logging/
 # otherwise downstream firmware enabling only `ubos-api/ccmram-bss`
 # would relocate statics into CCM without the zero-init that makes
 # them safe to read.
-ccmram-bss = ["ubos-core/ccmram-bss", "ubos-metrics/ccmram-bss"]
+ccmram-bss = ["ubos-auth/ccmram-bss", "ubos-core/ccmram-bss", "ubos-metrics/ccmram-bss"]
 
 [dependencies]
 edge-http         = { workspace = true, features = ["io"] }
@@ -26,8 +26,8 @@ edge-nal-embassy  = { workspace = true, features = ["tcp", "proto-ipv4", "medium
 embassy-net       = { workspace = true, features = ["tcp"] }
 embassy-sync      = { workspace = true }
 embassy-time      = { workspace = true }
-rand_chacha       = { workspace = true }
 embedded-io-async = { workspace = true }
+ubos-auth         = { workspace = true, default-features = false }
 heapless          = { workspace = true, features = ["serde"] }
 portable-atomic   = { workspace = true }
 serde             = { workspace = true }

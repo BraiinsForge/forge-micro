@@ -9,9 +9,9 @@ use crate::auth::{authenticate, AuthCtx, AuthError};
 #[test]
 fn basic_auth_root_root_accepted() {
     // The credential store is now eagerly populated by `init_credentials`
-    // at the top of `dashboard::run`; tests have no boot path, so each
-    // test that depends on the defaults invokes the helper directly. It
-    // is idempotent, so cross-test ordering does not matter.
+    // at the top of each listener task at boot; tests have no boot path,
+    // so each test that depends on the defaults invokes the helper
+    // directly. It is idempotent, so cross-test ordering does not matter.
     embassy_futures::block_on(crate::auth::init_credentials());
     // "root:root" in base64 is "cm9vdDpyb290"
     let result = embassy_futures::block_on(authenticate(Some("Basic cm9vdDpyb290"), None));
