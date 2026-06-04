@@ -23,10 +23,10 @@ pub const LOGO_SVG: &[u8] = include_bytes!("logo.svg");
 
 ubos_mdns::declare_service!(
     pub WEBUI_SERVICE = ubos_mdns::ServiceEntry {
-        service: ubos_core::consts::Mdns::HTTP_SERVICE,
+        service: "_http",
         port: ubos_core::consts::Http::PORT,
         txt_keys: &["path"],
-        txt_values: &[ubos_core::consts::Mdns::HTTP_PATH],
+        txt_values: &["/"],
     }
 );
 
