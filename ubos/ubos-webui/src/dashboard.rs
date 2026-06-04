@@ -6,8 +6,9 @@
 //! - `GET /` returns the inlined HTML dashboard. The page is fully
 //!   static — every time-varying field is filled in client-side via
 //!   cross-origin fetches against the REST listener. Hash-routed SPA
-//!   with a top nav bar, a dual-axis hashrate/temperature chart, a
-//!   right-side telemetry panel, and a configuration form view.
+//!   with a top nav bar, three single-axis charts for hashrate,
+//!   temperature, and input/output power, a right-side telemetry
+//!   panel led by a Link status card, and a configuration form view.
 //! - `HEAD /` mirrors `GET /` but returns no body. The dashboard
 //!   uses it to refresh the single-use CSRF token between mutating
 //!   requests without re-downloading the gzipped HTML asset.

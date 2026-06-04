@@ -35,6 +35,8 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 .ax{fill:var(--mute);font-size:9px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .hrL{fill:none;stroke:var(--accent);stroke-width:1.5;vector-effect:non-scaling-stroke}
 .tpL{fill:none;stroke:var(--orange);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.inL{fill:none;stroke:#f9c74f;stroke-width:1.5;vector-effect:non-scaling-stroke}
+.outL{fill:none;stroke:#4cc9f0;stroke-width:1.5;vector-effect:non-scaling-stroke}
 .cur{stroke:var(--mute);stroke-width:.5;stroke-dasharray:2 2;vector-effect:non-scaling-stroke}
 .tt{position:absolute;top:14px;right:18px;background:var(--bg);border:1px solid var(--border);padding:6px 10px;font:.7rem/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none}
 .tt .ts{color:var(--mute)}
@@ -74,14 +76,32 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 </nav>
 <main id="dash">
 <div class="left">
-<div class="chart">
-<svg viewBox="0 0 680 320" preserveAspectRatio="xMidYMid meet">
-<g id="grid"></g><g id="yL"></g><g id="yR"></g><g id="xA"></g>
-<polyline id="hrLine" class="hrL"/><polyline id="tpLine" class="tpL"/>
-<g id="tip"></g>
+<div class="chart" id="cHr">
+<svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
+<g class="g"></g><g class="y"></g><g class="x"></g>
+<g class="lines"></g>
+<g class="tip"></g>
 </svg>
-<div class="tt hide" id="tt"><span class="ts" id="ttT">T-0s</span><br><span id="ttH">–</span><br><span id="ttC">–</span></div>
-<div class="lg"><span style="background:#6b50ff"></span>Hashrate<span style="background:#fe8431"></span>Temp</div>
+<div class="tt hide"><span class="ts">T-0s</span><br><span class="vv">–</span></div>
+<div class="lg"><span style="background:#6b50ff"></span>Hashrate</div>
+</div>
+<div class="chart" id="cTp">
+<svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
+<g class="g"></g><g class="y"></g><g class="x"></g>
+<g class="lines"></g>
+<g class="tip"></g>
+</svg>
+<div class="tt hide"><span class="ts">T-0s</span><br><span class="vv">–</span></div>
+<div class="lg"><span style="background:#fe8431"></span>Temperature</div>
+</div>
+<div class="chart" id="cPw">
+<svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
+<g class="g"></g><g class="y"></g><g class="x"></g>
+<g class="lines"></g>
+<g class="tip"></g>
+</svg>
+<div class="tt hide"><span class="ts">T-0s</span><br><span class="vv">–</span></div>
+<div class="lg"><span style="background:#f9c74f"></span>Power IN<span style="background:#4cc9f0"></span>Power OUT</div>
 </div>
 <div class="card pools">
 <div class="k">Pools</div>
@@ -124,35 +144,43 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 </section>
 <script>
 const API=`${location.protocol}//${location.hostname}:8080`;
-const N=150,W=680,H=320,L=44,R=44,T=10,B=20,PW=W-L-R,PH=H-T-B;
+const N=150,W=680,H=120,L=52,R=12,T=10,B=20,PW=W-L-R,PH=H-T-B;
 const hrBuf=new Array(N).fill(0),tpBuf=new Array(N).fill(0);
-let hrMax=1e12,tpMax=20;
+const inBuf=new Array(N).fill(0),outBuf=new Array(N).fill(0);
 const $=id=>document.getElementById(id);
+const $$=(p,s)=>p.querySelector(s);
 function route(){const c=location.hash==='#config';$('dash').classList.toggle('hide',c);$('cfg').classList.toggle('hide',!c);$('nDash').classList.toggle('on',!c);$('nCfg').classList.toggle('on',c)}
 addEventListener('hashchange',route);route();
 function fmtHr(h){if(h>=1e12)return(h/1e12).toFixed(2)+' TH/s';if(h>=1e9)return(h/1e9).toFixed(2)+' GH/s';if(h>=1e6)return(h/1e6).toFixed(2)+' MH/s';if(h>=1e3)return(h/1e3).toFixed(2)+' kH/s';return h.toFixed(0)+' H/s'}
 function fmtUp(s){const d=s/86400|0,h=s/3600%24|0,m=s/60%60|0;return d?`${d}d ${h}h ${m}m`:h?`${h}h ${m}m`:`${m}m ${s%60|0}s`}
 function ceil(v,s){return Math.max(s,Math.ceil(v/s)*s)}
-function draw(){
- const tpMaj=20,tpMin=10;
- const hrPeak=Math.max(...hrBuf);
- const hrMaj=Math.max(1e12,ceil(hrPeak/4,1e12)),hrMin=hrMaj/2;
- hrMax=ceil(hrPeak,hrMaj);tpMax=ceil(Math.max(...tpBuf),tpMaj);
- let g='',yl='',yr='',xa='';
- for(let v=0;v<=hrMax;v+=hrMin){const y=T+PH-(v/hrMax)*PH,maj=v%hrMaj===0;
-  if(maj){g+=`<line class="gr" x1="${L}" y1="${y}" x2="${L+PW}" y2="${y}"/>`;yl+=`<text class="ax" x="${L-6}" y="${y+3}" text-anchor="end">${(v/1e12).toFixed(0)}T</text>`}
-  else{yl+=`<line class="tk" x1="${L-3}" y1="${y}" x2="${L}" y2="${y}"/>`}}
- for(let v=0;v<=tpMax;v+=tpMin){const y=T+PH-(v/tpMax)*PH,maj=v%tpMaj===0;
-  if(maj){yr+=`<text class="ax" x="${L+PW+6}" y="${y+3}">${v}°C</text>`}
-  else{yr+=`<line class="tk" x1="${L+PW}" y1="${y}" x2="${L+PW+3}" y2="${y}"/>`}}
- for(let m=0;m<=5;m++){const x=L+(m/5)*PW;
-  g+=`<line class="gr" x1="${x}" y1="${T}" x2="${x}" y2="${T+PH}"/>`;
-  xa+=`<text class="ax" x="${x}" y="${H-6}" text-anchor="middle">-${5-m}m</text>`}
- $('grid').innerHTML=g;$('yL').innerHTML=yl;$('yR').innerHTML=yr;$('xA').innerHTML=xa;
- const pts=(b,m)=>b.map((v,i)=>`${(L+i*PW/(N-1)).toFixed(1)},${(T+PH-(v/m)*PH).toFixed(1)}`).join(' ');
- $('hrLine').setAttribute('points',pts(hrBuf,hrMax));$('tpLine').setAttribute('points',pts(tpBuf,tpMax));
+const charts=[
+ {id:'cHr',maj:1e12,axis:v=>(v/1e12).toFixed(0)+'T',val:fmtHr,max:1e12,
+  lines:[{cls:'hrL',buf:hrBuf,lbl:'Hashrate'}]},
+ {id:'cTp',maj:20,axis:v=>v+'°C',val:v=>v+'°C',max:20,
+  lines:[{cls:'tpL',buf:tpBuf,lbl:'Temperature'}]},
+ {id:'cPw',maj:50,axis:v=>v+'W',val:v=>v.toFixed(0)+' W',max:50,
+  lines:[{cls:'inL',buf:inBuf,lbl:'Power IN'},{cls:'outL',buf:outBuf,lbl:'Power OUT'}]}
+];
+function drawChart(c){
+ const root=$(c.id),peak=Math.max(...c.lines.flatMap(ln=>ln.buf));
+ const maj=Math.max(c.maj,ceil(peak/4,c.maj)),min=maj/2;
+ c.max=ceil(peak,maj);
+ let g='',ya='',xa='';
+ for(let v=0;v<=c.max;v+=min){const py=T+PH-(v/c.max)*PH,m=v%maj===0;
+  if(m){g+=`<line class="gr" x1="${L}" y1="${py}" x2="${L+PW}" y2="${py}"/>`;ya+=`<text class="ax" x="${L-6}" y="${py+3}" text-anchor="end">${c.axis(v)}</text>`}
+  else{ya+=`<line class="tk" x1="${L-3}" y1="${py}" x2="${L}" y2="${py}"/>`}}
+ for(let m=0;m<=5;m++){const px=L+(m/5)*PW;
+  g+=`<line class="gr" x1="${px}" y1="${T}" x2="${px}" y2="${T+PH}"/>`;
+  xa+=`<text class="ax" x="${px}" y="${H-6}" text-anchor="middle">-${5-m}m</text>`}
+ $$(root,'.g').innerHTML=g;$$(root,'.y').innerHTML=ya;$$(root,'.x').innerHTML=xa;
+ $$(root,'.lines').innerHTML=c.lines.map(ln=>{
+  const pts=ln.buf.map((v,i)=>`${(L+i*PW/(N-1)).toFixed(1)},${(T+PH-(v/c.max)*PH).toFixed(1)}`).join(' ');
+  return `<polyline class="${ln.cls}" points="${pts}"/>`;
+ }).join('');
 }
-function setLk(ok){const lk=$('lk');lk.textContent=ok?'Alive':'Dead';lk.classList.toggle('alive',ok);lk.classList.toggle('dead',!ok)}
+function draw(){charts.forEach(drawChart)}
+function setLk(ok){const lk=$('lk'),c=lk.closest('.lkc');lk.textContent=ok?'Alive':'Dead';c.classList.toggle('live',ok);c.classList.toggle('dead',!ok)}
 async function tick(){
  try{const r=await fetch(API+'/api/info',{cache:'no-store',credentials:'include'});if(!r.ok)throw 0;
   const d=await r.json();
@@ -166,7 +194,9 @@ async function tick(){
   // Zero reads render as '–' to match the fan tiles: the cold-boot
   // window before the first PSU sample is indistinguishable from a
   // genuine 0 mW / 0 mV reading, and treating both as "no data"
-  // avoids a misleading 0.0 W flash during boot.
+  // avoids a misleading 0.0 W flash during boot. The power chart
+  // below still pushes the literal value so the trace stays
+  // continuous; the two displays serve different needs.
   $('pwrIn').textContent=d.power_in_mw?(d.power_in_mw/1000).toFixed(1)+' W':'–';
   $('pwrOut').textContent=d.power_out_mw?(d.power_out_mw/1000).toFixed(1)+' W':'–';
   $('vSet').textContent=d.voltage_set_mv?(d.voltage_set_mv/1000).toFixed(3)+' V':'–';
@@ -175,6 +205,8 @@ async function tick(){
   for(let i=0;i<3;i++){const el=$('po'+(i+1)),a=(pm>>i)&1;el.classList.toggle('live',!!a);el.querySelector('.pt').textContent=a?'Alive':'Dead'}
   hrBuf.shift();hrBuf.push(d.hashrate);
   tpBuf.shift();tpBuf.push(d.temperature||0);
+  inBuf.shift();inBuf.push((d.power_in_mw||0)/1000);
+  outBuf.shift();outBuf.push((d.power_out_mw||0)/1000);
   draw();
  }catch(e){setLk(false);console.warn('tick fetch failed:',e)}
 }
@@ -191,20 +223,26 @@ async function loadCfg(){
  }catch(_){}
 }
 loadCfg();
-const tt=$('tt'),svg=document.querySelector('.chart svg');
-function showTip(e){
- if(e.pointerType!=='mouse')return;
- const r=svg.getBoundingClientRect(),vx=(e.clientX-r.left)/r.width*W;
- let i=Math.round((vx-L)*(N-1)/PW);if(i<0)i=0;if(i>=N)i=N-1;
- const x=L+i*PW/(N-1),hy=T+PH-(hrBuf[i]/hrMax)*PH,ty=T+PH-(tpBuf[i]/tpMax)*PH,a=(N-1-i)*2;
- $('tip').innerHTML=`<line class="cur" x1="${x}" y1="${T}" x2="${x}" y2="${T+PH}"/><circle class="hrL" cx="${x}" cy="${hy.toFixed(1)}" r="3"/><circle class="tpL" cx="${x}" cy="${ty.toFixed(1)}" r="3"/>`;
- $('ttT').textContent='T-'+(a<60?a+'s':(a/60|0)+'m '+(a%60)+'s');
- $('ttH').textContent=fmtHr(hrBuf[i]);
- $('ttC').textContent=tpBuf[i]+'°C';
- tt.classList.remove('hide');
-}
-svg.addEventListener('pointermove',showTip);
-svg.addEventListener('pointerleave',()=>{$('tip').innerHTML='';tt.classList.add('hide')});
+charts.forEach(c=>{
+ const root=$(c.id),svg=$$(root,'svg'),tt=$$(root,'.tt'),tip=$$(root,'.tip'),ts=$$(root,'.ts'),vv=$$(root,'.vv');
+ svg.addEventListener('pointermove',e=>{
+  if(e.pointerType!=='mouse')return;
+  const r=svg.getBoundingClientRect(),vx=(e.clientX-r.left)/r.width*W;
+  let i=Math.round((vx-L)*(N-1)/PW);if(i<0)i=0;if(i>=N)i=N-1;
+  const px=L+i*PW/(N-1),a=(N-1-i)*2;
+  const circles=c.lines.map(ln=>{
+   const py=T+PH-(ln.buf[i]/c.max)*PH;
+   return `<circle class="${ln.cls}" cx="${px}" cy="${py.toFixed(1)}" r="3"/>`;
+  }).join('');
+  tip.innerHTML=`<line class="cur" x1="${px}" y1="${T}" x2="${px}" y2="${T+PH}"/>${circles}`;
+  ts.textContent='T-'+(a<60?a+'s':(a/60|0)+'m '+(a%60)+'s');
+  vv.innerHTML=c.lines.length>1
+   ?c.lines.map(ln=>`${ln.lbl}: ${c.val(ln.buf[i])}`).join('<br>')
+   :c.val(c.lines[0].buf[i]);
+  tt.classList.remove('hide');
+ });
+ svg.addEventListener('pointerleave',()=>{tip.innerHTML='';tt.classList.add('hide')});
+});
 $('nLogout').addEventListener('click',async e=>{
  e.preventDefault();
  try{const t=await fetch('/',{method:'HEAD',cache:'no-store'});
