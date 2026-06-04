@@ -10,7 +10,7 @@ impl Net {
     pub const SOCKET_TIMEOUT: Duration = Duration::from_secs(10);
 }
 
-/// Plain HTTP server settings.
+/// Plain HTTP server settings for the web-UI listener on port 80.
 pub struct Http;
 impl Http {
     pub const PORT: u16 = 80;
@@ -22,6 +22,19 @@ impl Http {
     /// Buffer for reading incoming HTTP requests. Sized to hold a small
     /// POST body alongside headers so the config form fits in a single
     /// read; the route line is parsed from the start of the same buffer.
+    pub const REQUEST_BUFFER_SIZE: usize = 2048;
+}
+
+/// REST API listener settings (port 8080).
+///
+/// Sibling of `Http` so the REST surface can be sized independently of
+/// the web-UI shell. Buffer sizes mirror `Http` today; tune separately if
+/// REST payloads diverge from the SPA's needs.
+pub struct Api;
+impl Api {
+    pub const PORT: u16 = 8080;
+    pub const RX_BUFFER_SIZE: usize = 2048;
+    pub const TX_BUFFER_SIZE: usize = 2048;
     pub const REQUEST_BUFFER_SIZE: usize = 2048;
 }
 
@@ -68,14 +81,18 @@ impl Mdns {
     pub const TTL_SECS: u32 = 120;
     /// DNS-SD service type for the Prometheus metrics scrape target.
     pub const PROMETHEUS_SERVICE: &str = "_prometheus";
-    /// DNS-SD service type for the board HTTP UI.
+    /// DNS-SD service type for the board's web UI on port 80.
     pub const HTTP_SERVICE: &str = "_http";
+    /// DNS-SD service type for the JSON REST API (port 8080).
+    pub const UBOS_API_SERVICE: &str = "_ubos";
     /// Transport protocol used by every service the responder advertises.
     pub const TCP_PROTOCOL: &str = "_tcp";
     /// URL path advertised in the Prometheus service TXT record.
     pub const METRICS_PATH: &str = "/metrics";
     /// URL path advertised in the HTTP service TXT record.
     pub const HTTP_PATH: &str = "/";
+    /// URL path advertised in the REST API service TXT record.
+    pub const UBOS_API_PATH: &str = "/api/";
     /// Seconds to wait before retrying after a bind or run error.
     pub const RETRY_DELAY_SECS: u64 = 5;
     /// Buffer size for mDNS datagrams. RFC 6762 §17 caps mDNS messages at
