@@ -23,8 +23,8 @@ use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, REQUEST_COU
 use ubos_thermal::Handle as ThermalHandle;
 
 use ubos_http::{
-    read_body, write_json_response, write_status_only, Service, CONTENT_LENGTH_DECIMAL_DIGITS,
-    MAX_RESPONSE_HEADERS,
+    extract_request_parts, read_body, write_json_response, write_status_only, RequestParts,
+    Service, CONTENT_LENGTH_DECIMAL_DIGITS, MAX_RESPONSE_HEADERS,
 };
 
 /// Body buffer size for JSON responses built by `/api/info`.
@@ -136,86 +136,15 @@ impl Service for RestApiService {
             .await;
         }
 
-        // Extract all header values we need into owned stack locals
-        // before any mutation of the connection. The headers borrow
-        // `connection` immutably; copying values out into owned strings
-        // releases that borrow so `read_body` can take a mutable borrow
-        // for the body read later.
-        let (
-            method_buf,
-            path_buf,
-            authorization_buf,
-            cookie_buf,
-            csrf_buf,
+        let RequestParts {
+            method: method_buf,
+            path: path_buf,
+            authorization: authorization_buf,
+            cookie: cookie_buf,
+            csrf: csrf_buf,
+            origin: origin_buf,
             content_length,
-            origin_buf,
-        ) = {
-            let headers = connection
-                .headers()
-                .map_err(|_| edge_http::io::Error::InvalidState)?;
-
-            let mut method = heapless::String::<16>::new();
-            let _ = core::write!(method, "{}", headers.method);
-
-            let mut path = heapless::String::<128>::new();
-            // Paths longer than the buffer are left empty so the route
-            // match below falls through to 404.
-            if headers.path.len() <= 128 {
-                let _ = path.push_str(headers.path);
-            }
-
-            let authorization: Option<heapless::String<128>> =
-                headers.headers.get("Authorization").and_then(|value| {
-                    let mut owned = heapless::String::<128>::new();
-                    if owned.push_str(value).is_err() {
-                        warn!("Authorization header truncated, treating as missing");
-                        return None;
-                    }
-                    Some(owned)
-                });
-
-            let cookie: Option<heapless::String<256>> =
-                headers.headers.get("Cookie").and_then(|value| {
-                    let mut owned = heapless::String::<256>::new();
-                    if owned.push_str(value).is_err() {
-                        warn!("Cookie header truncated, treating as missing");
-                        return None;
-                    }
-                    Some(owned)
-                });
-
-            let csrf: Option<heapless::String<64>> =
-                headers.headers.get("X-CSRF-Token").and_then(|value| {
-                    let mut owned = heapless::String::<64>::new();
-                    owned.push_str(value).ok()?;
-                    Some(owned)
-                });
-
-            let content_length = headers.headers.content_len();
-
-            let origin: heapless::String<128> =
-                headers
-                    .headers
-                    .get("Origin")
-                    .map_or_else(heapless::String::new, |value| {
-                        let mut owned = heapless::String::<128>::new();
-                        if owned.push_str(value).is_err() {
-                            warn!("Origin header truncated, treating as missing");
-                            return heapless::String::new();
-                        }
-                        owned
-                    });
-
-            (
-                method,
-                path,
-                authorization,
-                cookie,
-                csrf,
-                content_length,
-                origin,
-            )
-        };
+        } = extract_request_parts(connection)?;
 
         let method = method_buf.as_str();
         let path = path_buf.as_str();
