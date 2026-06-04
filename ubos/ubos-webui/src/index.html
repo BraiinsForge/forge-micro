@@ -69,7 +69,7 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 <a href="#" id="nDash">Dashboard</a>
 <a href="#config" id="nCfg">Configuration</a>
 <span class="sp"></span>
-<span class="off" title="not implemented yet">Log out</span>
+<a href="#" id="nLogout">Log out</a>
 <span class="dot" id="dot" title="link"></span>
 </nav>
 <main id="dash">
@@ -203,6 +203,14 @@ function showTip(e){
 }
 svg.addEventListener('pointermove',showTip);
 svg.addEventListener('pointerleave',()=>{$('tip').innerHTML='';tt.classList.add('hide')});
+$('nLogout').addEventListener('click',async e=>{
+ e.preventDefault();
+ try{const t=await fetch('/',{cache:'no-store'});
+  const csrf=t.headers.get('X-CSRF-Token')||'';
+  await fetch('/logout',{method:'POST',headers:{'X-CSRF-Token':csrf},credentials:'include',redirect:'manual'});
+ }catch(_){}
+ location.href='/login';
+});
 $('cfgForm').addEventListener('submit',async e=>{
  e.preventDefault();
  const f=new FormData(e.target),pool=[];
