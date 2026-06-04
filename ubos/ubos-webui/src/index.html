@@ -14,8 +14,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-appl
 .bar a:hover{color:var(--fg)}
 .bar a.on{color:var(--fg);border-bottom-color:var(--accent)}
 .sp{flex:1}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 6px var(--red);align-self:center;transition:background .3s,box-shadow .3s}
-.dot.live{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 6px var(--red);transition:background .3s,box-shadow .3s}
 main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-width:1200px;margin:0 auto}
 @media(max-width:760px){main{grid-template-columns:1fr}}
 @media(max-width:480px){
@@ -48,11 +47,14 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 .pool{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem}
 .pools .pool:first-of-type{border-top:0}
 .ps{display:flex;align-items:center;gap:8px}
-.ps .dot{align-self:auto}
 .pt{color:var(--mute);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;min-width:3em;text-align:right}
 .pool.live .pt{color:var(--green)}
 .pool.live .dot{background:var(--green);box-shadow:0 0 6px var(--green)}
 .v{font-size:1.05rem;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
+.lkc .ps{margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem}
+.lkc.live .dot{background:var(--green);box-shadow:0 0 6px var(--green)}
+.lkc.live #lk{color:var(--green)}
+.lkc.dead #lk{color:var(--red)}
 .cfg{max-width:520px;margin:0 auto;padding:24px 16px}
 .cfg h2{color:var(--accent-hi);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.1em;margin:24px 0 4px;border-bottom:1px solid var(--border);padding-bottom:6px}
 .cfg label{display:block;color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.08em;margin:10px 0 2px}
@@ -69,7 +71,6 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 <a href="#config" id="nCfg">Configuration</a>
 <span class="sp"></span>
 <a href="#" id="nLogout">Log out</a>
-<span class="dot" id="dot" title="link"></span>
 </nav>
 <main id="dash">
 <div class="left">
@@ -90,6 +91,7 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 </div>
 </div>
 <aside class="side">
+<div class="card lkc dead"><div class="k">Link</div><div class="ps"><span class="dot"></span><span id="lk" class="pt">Dead</span></div></div>
 <div class="card"><div class="k">Hashrate</div><div id="hr" class="v">–</div></div>
 <div class="card"><div class="k">IP address</div><div id="ip" class="v">–</div></div>
 <div class="card"><div class="k">Time (UTC)</div><div id="t" class="v">–</div></div>
@@ -150,10 +152,11 @@ function draw(){
  const pts=(b,m)=>b.map((v,i)=>`${(L+i*PW/(N-1)).toFixed(1)},${(T+PH-(v/m)*PH).toFixed(1)}`).join(' ');
  $('hrLine').setAttribute('points',pts(hrBuf,hrMax));$('tpLine').setAttribute('points',pts(tpBuf,tpMax));
 }
+function setLk(ok){const lk=$('lk');lk.textContent=ok?'Alive':'Dead';lk.classList.toggle('alive',ok);lk.classList.toggle('dead',!ok)}
 async function tick(){
  try{const r=await fetch(API+'/api/info',{cache:'no-store',credentials:'include'});if(!r.ok)throw 0;
   const d=await r.json();
-  $('dot').className='dot live';
+  setLk(true);
   $('hr').textContent=fmtHr(d.hashrate);
   $('ip').textContent=d.ip||'–';
   $('t').textContent=d.time||'–';
@@ -173,7 +176,7 @@ async function tick(){
   hrBuf.shift();hrBuf.push(d.hashrate);
   tpBuf.shift();tpBuf.push(d.temperature||0);
   draw();
- }catch(e){$('dot').className='dot'}
+ }catch(e){setLk(false);console.warn('tick fetch failed:',e)}
 }
 tick();setInterval(tick,2000);
 async function loadCfg(){
