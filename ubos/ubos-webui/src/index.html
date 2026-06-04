@@ -201,6 +201,7 @@ async function tick(){
  try{const r=await fetch(API+'/api/info',{cache:'no-store',credentials:'include'});if(!r.ok)throw 0;
   const d=await r.json();
   setLk(true);
+  if(d.name&&document.title!==d.name)document.title=d.name;
   $('hr').textContent=fmtHr(d.hashrate);
   $('ip').textContent=d.ip||'–';
   $('t').textContent=d.time||'–';
