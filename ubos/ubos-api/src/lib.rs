@@ -11,10 +11,10 @@
 
 ubos_mdns::declare_service!(
     pub REST_API_SERVICE = ubos_mdns::ServiceEntry {
-        service: ubos_core::consts::Mdns::UBOS_API_SERVICE,
+        service: "_ubos",
         port: ubos_core::consts::Api::PORT,
         txt_keys: &["path"],
-        txt_values: &[ubos_core::consts::Mdns::UBOS_API_PATH],
+        txt_values: &["/api/"],
     }
 );
 
