@@ -37,7 +37,7 @@ The migration phasing lives in **Appendix A**; the crate inventory in
 | `STOP_MINING`, `MINER_IS_RUNNING` signals have no producer/consumer | resolved by deleting `MINER_IS_RUNNING` in favor of `MiningHandle::state()` and wiring `STOP_MINING` to host-runner's SIGINT handler and the work-loop selects | Pause API is a logging stub |
 | API reaches into atomics of 5+ crates directly | `ubos/ubos-api/src/system.rs:25-36` | HTTP layer pinned to every subsystem's internals |
 | No tuner — `INIT: &[Step]` is a captured trace replayed verbatim, voltage hardcoded `1400 mV` | `ubos/ubos-mining/src/replay.rs` | Cannot set frequency or voltage at runtime |
-| No config persistence — `POST /api/config` returns 200 and does nothing | `ubos/ubos-api/src/dashboard.rs:768` | Web UI changes are placebo |
+| No config persistence — `POST /api/config` returns 200 and does nothing | `ubos/ubos-api/src/rest.rs:379` | Web UI changes are placebo |
 | `ubos-net` exposes `pub static`s for `LOCAL_IPV4`, `BTC_PRICE_CENTS`, `POOL_ALIVE_BITMAP`, … | `ubos/ubos-net/src/net.rs:129-152` | Shared mutable state crosses every boundary |
 | Multi-pool wiring planned but bit 0 hardcoded | `ubos/stratum-client/src/run.rs:66` | Single point of failure |
 | Watchdog feeds unconditionally | `ubos/ubos-core/src/watchdog.rs` | A hung task never reboots the system |
