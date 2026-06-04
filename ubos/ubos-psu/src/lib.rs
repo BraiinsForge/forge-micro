@@ -56,31 +56,141 @@ pub use config::MiniminerPsuConfig;
 pub use miniminer::{run_watchdog, MiniminerPsu, RawMutex};
 pub use state::State;
 
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::watch::{Receiver, Watch};
+use portable_atomic::{AtomicU32, Ordering as AtomicOrdering};
 use ubos_core::units::{Power, Voltage};
+
+type CSMutex = CriticalSectionRawMutex;
+
+/// A single PSU telemetry sample.
+///
+/// Published by [`run_power_stats`] on every tick. Successful ticks
+/// carry fresh values with `sensor_fault = false`; failed ticks carry
+/// the most recent known-good values plus `sensor_fault = true` so
+/// consumers see a stable last-good reading alongside a fault flag,
+/// mirroring [`ubos_thermal::ThermalReading`].
+#[derive(Clone, Copy)]
+pub struct PsuReading {
+    /// Input-side power (DC-DC primary).
+    pub input_power: Power,
+    /// Output-side power (hashboard rail).
+    pub output_power: Power,
+    /// Voltage last commanded via [`Psu::set_voltage`]. Zero before
+    /// the first successful command.
+    pub output_voltage_set: Voltage,
+    /// Voltage observed by the INA230 bus-voltage register on the
+    /// output rail. Comparing against `output_voltage_set` exposes
+    /// droop or sense-line loss.
+    pub output_voltage_measured: Voltage,
+    /// Monotonic timestamp of this reading in milliseconds since boot.
+    pub timestamp_ms: u64,
+    /// True when one or more reads on this tick failed and the values
+    /// above are the last successful sample carried forward.
+    pub sensor_fault: bool,
+}
+
+/// Subscriber capacity for the PSU watch. No consumer subscribes
+/// today; the REST API peeks via [`Handle::current`], which does not
+/// consume a slot. The capacity reserves headroom for future
+/// `subscribe()` callers.
+const WATCH_CAPACITY: usize = 4;
+
+/// Module-internal state watch. Single writer is [`run_power_stats`];
+/// readers obtained via [`Handle::subscribe`] or [`Handle::current`].
+pub(crate) static STATE_WATCH: Watch<CSMutex, PsuReading, WATCH_CAPACITY> = Watch::new();
+
+/// Most recent voltage commanded via [`Psu::set_voltage`], in
+/// millivolts. Zero means no `set_voltage` call has succeeded yet on
+/// this boot. Written by the PSU impl, read by [`run_power_stats`].
+static SET_VOLTAGE_MV: AtomicU32 = AtomicU32::new(0);
+
+/// Record a successful `set_voltage` write so the telemetry publisher
+/// can include the commanded value in the next [`PsuReading`].
+pub(crate) fn record_set_voltage(voltage: Voltage) {
+    SET_VOLTAGE_MV.store(voltage.mv(), AtomicOrdering::Relaxed);
+}
+
+/// Per-task subscription returned by [`Handle::subscribe`].
+pub type PsuSubscription = Receiver<'static, CSMutex, PsuReading, WATCH_CAPACITY>;
+
+/// Obtain a handle to the PSU telemetry module. `Copy`; callers freely
+/// pass it to multiple tasks.
+#[must_use]
+pub fn handle() -> Handle {
+    Handle {
+        state: &STATE_WATCH,
+    }
+}
+
+/// Consumer-side handle for the PSU telemetry.
+///
+/// `Copy` because it holds only a `&'static` reference. Every consumer
+/// task takes its own value.
+#[derive(Clone, Copy)]
+pub struct Handle {
+    state: &'static Watch<CSMutex, PsuReading, WATCH_CAPACITY>,
+}
+
+impl Handle {
+    /// Most recent published reading, or `None` if the PSU task has not
+    /// completed a first successful poll yet.
+    #[must_use]
+    pub fn current(&self) -> Option<PsuReading> {
+        self.state.try_get()
+    }
+
+    /// Per-task subscription. Call once per consumer task before
+    /// entering its loop.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying `Watch` has no free receiver slots.
+    #[must_use]
+    pub fn subscribe(&self) -> PsuSubscription {
+        self.state
+            .receiver()
+            .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
+    }
+}
 
 /// Cadence at which [`run_power_stats`] reads INA230 input/output power.
 /// Matches the host-runner cadence so the prometheus series rates are
 /// comparable across firmware targets.
 pub const POWER_STATS_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(2);
 
-/// Periodic log of input and output power readings. Runs forever.
+/// Periodic publisher for INA230 power and voltage readings. Runs forever.
 ///
-/// Reads both sides at [`POWER_STATS_INTERVAL`] and emits a single info
-/// line on success, or one of two error lines depending on which side
-/// failed. Board firmware crates wrap this in a `#[embassy_executor::task]`
-/// of their own because tasks cannot be generic.
+/// Reads input power, output power, and the output-rail bus voltage at
+/// every [`POWER_STATS_INTERVAL`] tick. Successful reads push to
+/// prometheus and publish a fresh [`PsuReading`]; failures log an error
+/// and republish the last known values with `sensor_fault = true` so
+/// consumers see a stable last-good sample plus a fault flag. Mirrors
+/// the publish pattern in `ubos_thermal::run_thermal`. Board firmware
+/// crates wrap this in a `#[embassy_executor::task]` of their own
+/// because tasks cannot be generic.
+// The function reads in a flat sequence (power, voltage, status) and
+// pushes metrics inline; splitting into helpers would force the `P:
+// Psu` bound and the publisher captures through each one.
+#[allow(clippy::too_many_lines)]
 pub async fn run_power_stats<P>(psu: &P) -> !
 where
     P: Psu,
 {
     use ubos_metrics::metrics::{push, Metric, Value};
 
+    let publisher = STATE_WATCH.sender();
     let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
+    let mut last_known: Option<(Power, Power, Voltage)> = None;
     loop {
         ticker.next().await;
-        let input = psu.read_input_power().await;
-        let output = psu.read_output_power().await;
-        match (input, output) {
+        let input_result = psu.read_input_power().await;
+        let output_result = psu.read_output_power().await;
+        let voltage_result = psu.read_output_voltage().await;
+        let set_voltage = Voltage::from_mv(SET_VOLTAGE_MV.load(AtomicOrdering::Relaxed));
+        let now_ms = embassy_time::Instant::now().as_millis();
+
+        match (&input_result, &output_result) {
             (Ok(input), Ok(output)) => {
                 ubos_logging::info!(
                     "psu sensors: input={} mW output={} mW",
@@ -101,15 +211,64 @@ where
             (Err(error), Ok(_)) | (Ok(_), Err(error)) => {
                 ubos_logging::error!(
                     "psu sensor read failed: {:?}",
-                    ubos_logging::Debug2Format(&error),
+                    ubos_logging::Debug2Format(error),
                 );
             }
             (Err(input_error), Err(output_error)) => {
                 ubos_logging::error!(
                     "psu sensor read failed: input={:?} output={:?}",
-                    ubos_logging::Debug2Format(&input_error),
-                    ubos_logging::Debug2Format(&output_error),
+                    ubos_logging::Debug2Format(input_error),
+                    ubos_logging::Debug2Format(output_error),
                 );
+            }
+        }
+
+        match &voltage_result {
+            Ok(voltage) => {
+                push(Metric::with_no_labels(
+                    "board_psu_output_voltage_measured_mv",
+                    Value::Uint(u64::from(voltage.mv())),
+                ))
+                .await;
+            }
+            Err(error) => {
+                ubos_logging::error!(
+                    "psu voltage read failed: {:?}",
+                    ubos_logging::Debug2Format(error),
+                );
+            }
+        }
+        if set_voltage.mv() != 0 {
+            push(Metric::with_no_labels(
+                "board_psu_output_voltage_set_mv",
+                Value::Uint(u64::from(set_voltage.mv())),
+            ))
+            .await;
+        }
+
+        match (input_result, output_result, voltage_result) {
+            (Ok(input), Ok(output), Ok(voltage)) => {
+                last_known = Some((input, output, voltage));
+                publisher.send(PsuReading {
+                    input_power: input,
+                    output_power: output,
+                    output_voltage_set: set_voltage,
+                    output_voltage_measured: voltage,
+                    timestamp_ms: now_ms,
+                    sensor_fault: false,
+                });
+            }
+            _ => {
+                if let Some((input, output, voltage)) = last_known {
+                    publisher.send(PsuReading {
+                        input_power: input,
+                        output_power: output,
+                        output_voltage_set: set_voltage,
+                        output_voltage_measured: voltage,
+                        timestamp_ms: now_ms,
+                        sensor_fault: true,
+                    });
+                }
             }
         }
 
@@ -164,6 +323,10 @@ pub trait Psu {
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<Self::BusError>>;
     async fn read_input_power(&self) -> Result<Power, Error<Self::BusError>>;
     async fn read_output_power(&self) -> Result<Power, Error<Self::BusError>>;
+    /// Read the INA230 bus voltage on the output rail. Used to compare
+    /// the commanded `set_voltage` against the voltage the hashboard
+    /// actually sees so droop or sense-line loss is visible to operators.
+    async fn read_output_voltage(&self) -> Result<Voltage, Error<Self::BusError>>;
     /// Read the `TPS6287x` STATUS register and decode the four fault flags.
     async fn read_status(&self) -> Result<StatusFlags, Error<Self::BusError>>;
     async fn terminate(&self);

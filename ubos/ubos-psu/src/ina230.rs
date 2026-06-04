@@ -8,8 +8,13 @@
 use embedded_hal_async::i2c::I2c;
 
 const REG_CONFIG: u8 = 0x00;
+const REG_BUS_VOLTAGE: u8 = 0x02;
 const REG_POWER: u8 = 0x03;
 const REG_CALIBRATION: u8 = 0x05;
+
+/// Bus-voltage LSB in microvolts. INA230 reports the rail voltage in
+/// 1.25 mV steps (datasheet §7.6.2.2).
+const BUS_VOLTAGE_LSB_MICROVOLTS: u32 = 1_250;
 
 /// CONFIG: averaging=Avg1, `VBus` CT=1.1ms, Shunt CT=1.1ms, Mode=continuous
 /// shunt+bus. Bits laid out per datasheet Table 6-2.
@@ -75,6 +80,21 @@ where
         power_register,
         current_lsb_microamps(max_current_a),
     ))
+}
+
+/// Read the bus-voltage register and return millivolts.
+///
+/// The register is unsigned 16-bit with a 1.25 mV LSB, so the value
+/// fits in `u32` for any rail this driver targets.
+pub(crate) async fn read_bus_voltage_mv<I, E>(i2c: &mut I, address: u8) -> Result<u32, E>
+where
+    I: I2c<Error = E>,
+{
+    let mut buffer = [0u8; 2];
+    i2c.write_read(address, &[REG_BUS_VOLTAGE], &mut buffer)
+        .await?;
+    let register = u16::from_be_bytes(buffer);
+    Ok((u32::from(register) * BUS_VOLTAGE_LSB_MICROVOLTS) / 1_000)
 }
 
 #[cfg(test)]
@@ -169,5 +189,21 @@ mod bus_tests {
         bus.done();
         // Allow ±1 mW tolerance for integer rounding.
         assert!((4_574..=4_576).contains(&mw), "unexpected mw: {mw}");
+    }
+
+    #[test]
+    fn read_bus_voltage_mv_decodes_register() {
+        let address = 0x46;
+        // bus_register = 1000 → 1000 * 1.25 mV = 1250 mV.
+        let expectations = [Transaction::write_read(
+            address,
+            vec![REG_BUS_VOLTAGE],
+            vec![0x03, 0xe8],
+        )];
+        let mut bus = Mock::new(&expectations);
+        let mv =
+            run(read_bus_voltage_mv(&mut bus, address)).expect("BUG: read_bus_voltage_mv failed");
+        bus.done();
+        assert_eq!(mv, 1250);
     }
 }

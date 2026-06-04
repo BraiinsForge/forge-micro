@@ -107,7 +107,14 @@ where
         let mut guard = self.state.lock().await;
         ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
-        tps6287x::set_voltage(i2c, config, voltage.mv()).await
+        let result = tps6287x::set_voltage(i2c, config, voltage.mv()).await;
+        // Record the commanded value so telemetry consumers can compare
+        // it with the INA230 bus-voltage readback. Only on success: a
+        // failed write leaves the rail at the previous commanded value.
+        if result.is_ok() {
+            crate::record_set_voltage(voltage);
+        }
+        result
     }
 
     async fn read_input_power(&self) -> Result<Power, Error<E>> {
@@ -142,6 +149,19 @@ where
         .await
         .map(Power::from_mw)
         .map_err(Error::Bus)
+    }
+
+    async fn read_output_voltage(&self) -> Result<Voltage, Error<E>> {
+        if self.terminated.load(Ordering::Acquire) {
+            return Err(Error::Terminated);
+        }
+        let mut guard = self.state.lock().await;
+        ensure_initialized(&mut guard).await?;
+        let State { i2c, config, .. } = &mut *guard;
+        ina230::read_bus_voltage_mv(i2c, config.ina_output_address)
+            .await
+            .map(Voltage::from_mv)
+            .map_err(Error::Bus)
     }
 
     async fn read_status(&self) -> Result<crate::StatusFlags, Error<E>> {
