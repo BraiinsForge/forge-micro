@@ -164,7 +164,8 @@ const hrBuf=new Array(N).fill(0),tpBuf=new Array(N).fill(0);
 const inBuf=new Array(N).fill(0),outBuf=new Array(N).fill(0);
 const $=id=>document.getElementById(id);
 const $$=(p,s)=>p.querySelector(s);
-function route(){const c=location.hash==='#config';$('dash').classList.toggle('hide',c);$('cfg').classList.toggle('hide',!c);$('nDash').classList.toggle('on',!c);$('nCfg').classList.toggle('on',c)}
+let cfgLoaded=false,cfgLoading=false;
+function route(){const c=location.hash==='#config';$('dash').classList.toggle('hide',c);$('cfg').classList.toggle('hide',!c);$('nDash').classList.toggle('on',!c);$('nCfg').classList.toggle('on',c);if(c&&!cfgLoaded&&!cfgLoading)loadCfg()}
 addEventListener('hashchange',route);route();
 function fmtHr(h){if(h>=1e12)return(h/1e12).toFixed(2)+' TH/s';if(h>=1e9)return(h/1e9).toFixed(2)+' GH/s';if(h>=1e6)return(h/1e6).toFixed(2)+' MH/s';if(h>=1e3)return(h/1e3).toFixed(2)+' kH/s';return h.toFixed(0)+' H/s'}
 function fmtUp(s){const d=s/86400|0,h=s/3600%24|0,m=s/60%60|0;return d?`${d}d ${h}h ${m}m`:h?`${h}h ${m}m`:`${m}m ${s%60|0}s`}
@@ -235,25 +236,39 @@ function syncPoolUi(n){
  root.dataset.trust=f['trust'+n].checked?'yes':'no';
 }
 async function loadCfg(){
- const msg=$('msg');
- try{const r=await fetch(API+'/api/config',{cache:'no-store',credentials:'include'});
-  if(!r.ok)throw new Error('HTTP '+r.status);
-  const d=await r.json(),f=$('cfgForm'),pools=d.pool||[];
-  for(let i=0;i<3;i++){
-   const p=pools[i],n=i+1;
-   const sv1=p&&p.protocol&&p.protocol.Sv1;
-   const sv2=p&&p.protocol&&p.protocol.Sv2;
-   const scheme=sv2?'stratum2+tcp':'stratum+tcp';
-   f['url'+n].value=p?`${scheme}://${p.host}:${p.port}`:'';
-   f['user'+n].value=p&&p.user?p.user:'';
-   f['pass'+n].value=sv1&&sv1.password?sv1.password:'';
-   f['trust'+n].checked=!!(sv2&&!sv2.pool_pubkey);
-   f['key'+n].value=sv2&&sv2.pool_pubkey?bytesToHex(sv2.pool_pubkey):'';
-   syncPoolUi(n);
+ // The REST listener serves connections one-at-a-time, so a click on
+ // Configuration that lands while the 2 s /api/info poll is in flight
+ // can fail at the TCP layer. Retry the GET a few times with backoff
+ // before reporting Load failed, so the operator does not have to
+ // bounce out of the tab to recover from a transient race.
+ const msg=$('msg');cfgLoading=true;
+ const delays=[0,250,500,1000];
+ let lastErr;
+ try{
+  for(const wait of delays){
+   if(wait)await new Promise(r=>setTimeout(r,wait));
+   try{
+    const r=await fetch(API+'/api/config',{cache:'no-store',credentials:'include'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=await r.json(),f=$('cfgForm'),pools=d.pool||[];
+    for(let i=0;i<3;i++){
+     const p=pools[i],n=i+1;
+     const sv1=p&&p.protocol&&p.protocol.Sv1;
+     const sv2=p&&p.protocol&&p.protocol.Sv2;
+     const scheme=sv2?'stratum2+tcp':'stratum+tcp';
+     f['url'+n].value=p?`${scheme}://${p.host}:${p.port}`:'';
+     f['user'+n].value=p&&p.user?p.user:'';
+     f['pass'+n].value=sv1&&sv1.password?sv1.password:'';
+     f['trust'+n].checked=!!(sv2&&!sv2.pool_pubkey);
+     f['key'+n].value=sv2&&sv2.pool_pubkey?bytesToHex(sv2.pool_pubkey):'';
+     syncPoolUi(n);
+    }
+    cfgLoaded=true;msg.style.color='';msg.textContent='';return;
+   }catch(e){lastErr=e;console.warn('loadCfg attempt failed:',e)}
   }
- }catch(e){msg.style.color='var(--red)';msg.textContent='Load failed: '+e.message}
+  msg.style.color='var(--red)';msg.textContent='Load failed: '+((lastErr&&lastErr.message)||'unknown');
+ }finally{cfgLoading=false}
 }
-loadCfg();
 for(let i=1;i<=3;i++){
  const f=$('cfgForm');
  f['url'+i].addEventListener('input',()=>syncPoolUi(i));
