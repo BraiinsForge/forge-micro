@@ -25,7 +25,7 @@ use ubos_thermal::Handle as ThermalHandle;
 use ubos_http::{write_status_only, Service, CONTENT_LENGTH_DECIMAL_DIGITS};
 
 use crate::dashboard::{
-    read_body, validate_board_name, write_json_response_with_extra, API_INFO_BODY_BUFFER_SIZE,
+    read_body, validate_board_name, write_json_response, API_INFO_BODY_BUFFER_SIZE,
     BODY_READ_BUFFER_SIZE, CONFIG_ACK_BODY, CONFIG_RESPONSE_BUFFER_SIZE, MAX_RESPONSE_HEADERS,
 };
 
@@ -367,7 +367,7 @@ impl Service for RestApiService {
                 let _ = writer.write_str("\"}");
                 let json_len = writer.len();
 
-                write_json_response_with_extra(connection, &body_buf[..json_len], cors_slice).await
+                write_json_response(connection, &body_buf[..json_len], cors_slice).await
             }
             ("GET", "/api/config") => {
                 let snapshot = ubos_config::handle().current();
@@ -376,7 +376,7 @@ impl Service for RestApiService {
                 };
                 let mut body_buf = [0u8; CONFIG_RESPONSE_BUFFER_SIZE];
                 if let Ok(length) = serde_json_core::ser::to_slice(&response, &mut body_buf) {
-                    write_json_response_with_extra(connection, &body_buf[..length], cors_slice).await
+                    write_json_response(connection, &body_buf[..length], cors_slice).await
                 } else {
                     warn!("config: failed to serialize PoolUpdate response");
                     write_status_only(
@@ -401,7 +401,7 @@ impl Service for RestApiService {
                     config_handle
                         .send(ubos_config::Message::Update(new_config))
                         .await;
-                    write_json_response_with_extra(connection, CONFIG_ACK_BODY, cors_slice).await
+                    write_json_response(connection, CONFIG_ACK_BODY, cors_slice).await
                 } else {
                     warn!("config: rejected POST /api/config with invalid JSON");
                     write_status_only(

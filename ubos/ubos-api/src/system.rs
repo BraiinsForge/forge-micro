@@ -1,10 +1,9 @@
 //! REST endpoints under `/api/system/*`.
 //!
-//! Dispatched from `DashboardService::handle` ahead of the legacy
-//! `/api/*` routes so the SPA's `/api/info` keeps working unchanged.
-//! Each handler builds a value of the appropriate schema struct,
-//! serializes it with `serde_json_core`, and wraps it in a JSON
-//! response via `write_json_response`.
+//! Dispatched from `RestApiService::handle` on the REST listener
+//! (port 8080). Each handler builds a value of the appropriate
+//! schema struct, serializes it with `serde_json_core`, and wraps it
+//! in a JSON response via `write_json_response`.
 //!
 //! Phase 5 adds stub action endpoints: POST /api/system/{pause,resume,
 //! restart,identify,blockFound/dismiss} and PATCH /api/system. All
@@ -100,8 +99,7 @@ const MAX_SYSTEM_RESPONSE_HEADERS: usize = 8;
 /// `status` is the numeric HTTP status code. `reason` is the reason phrase.
 /// `body` contains the serialized JSON bytes and determines the
 /// `Content-Length` header value. `extra_headers` carries caller-supplied
-/// headers such as CORS headers from the REST listener; pass `&[]` for the
-/// dashboard listener.
+/// headers such as CORS headers from the REST listener.
 async fn write_json_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     status: u16,
@@ -150,8 +148,7 @@ where
 /// RFC 7231 §6.5.5 mandates the `Allow` header on every 405. The
 /// routing table populates `allowed` per route so each response advertises
 /// only the methods that route actually accepts. `extra_headers` carries
-/// caller-supplied headers such as CORS headers from the REST listener;
-/// pass `&[]` for the dashboard listener.
+/// caller-supplied headers such as CORS headers from the REST listener.
 async fn write_method_not_allowed<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     allowed: &'static str,
@@ -198,8 +195,7 @@ where
 /// Falls back to a 500 plain-text response when `serde_json_core`
 /// returns an error; the schema structs are plain serde derivations
 /// so this path is treated as a firmware bug. `extra_headers` carries
-/// caller-supplied headers such as CORS headers from the REST listener;
-/// pass `&[]` for the dashboard listener.
+/// caller-supplied headers such as CORS headers from the REST listener.
 async fn serialize_and_respond<T, const N: usize, V: serde::Serialize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -232,7 +228,7 @@ where
 /// Populates all fields from the shared atomics and the thermal handle.
 /// Fields that depend on future phases are zeroed or empty per the plan.
 /// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener; pass `&[]` for the dashboard listener.
+/// from the REST listener.
 async fn handle_info<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -286,7 +282,7 @@ where
 ///
 /// Returns static capability metadata for the BM1362 chip.
 /// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener; pass `&[]` for the dashboard listener.
+/// from the REST listener.
 async fn handle_asic<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -314,7 +310,7 @@ where
 /// Returns the fixed label set with an empty rows slice. A ring buffer
 /// will be wired in a later phase without a schema change.
 /// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener; pass `&[]` for the dashboard listener.
+/// from the REST listener.
 async fn handle_statistics<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -344,7 +340,7 @@ where
 /// Serializes an empty `SystemScoreboardEntry` slice as a JSON array.
 /// The scoreboard ring buffer is wired in a later phase.
 /// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener; pass `&[]` for the dashboard listener.
+/// from the REST listener.
 async fn handle_scoreboard<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -373,7 +369,7 @@ where
 /// Handle a not-implemented endpoint with a 501 JSON response.
 ///
 /// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener; pass `&[]` for the dashboard listener.
+/// from the REST listener.
 async fn handle_not_implemented<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -412,7 +408,7 @@ where
 /// Shared by every stub action handler. The body signals that the
 /// request was received; no firmware state is changed. `extra_headers`
 /// carries caller-supplied headers such as CORS headers from the REST
-/// listener; pass `&[]` for the dashboard listener.
+/// listener.
 async fn write_ack_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -445,7 +441,7 @@ where
 /// `{"message":"ack"}`. Pause and resume are handled separately
 /// by `dispatch` because they carry a `Manager` side-effect.
 /// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener; pass `&[]` for the dashboard listener.
+/// from the REST listener.
 async fn handle_action<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -467,7 +463,7 @@ where
 /// logged because legitimate clients may include credentials in the
 /// JSON payload, and the stub has no operational use for the contents.
 /// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener; pass `&[]` for the dashboard listener.
+/// from the REST listener.
 async fn handle_patch_system<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -609,11 +605,12 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
 /// the slice is all the body content available; callers must read it
 /// before calling this function.
 ///
-/// `extra_headers` is forwarded to every response writer. The dashboard
-/// caller passes `&[]`; the REST listener passes its pre-built CORS slice.
+/// `extra_headers` is forwarded to every response writer. The REST
+/// listener passes its pre-built CORS slice when the request had an
+/// Origin header, and `&[]` otherwise.
 ///
 /// Crate-private because the auth/CSRF/allow-list gates live in
-/// `DashboardService::handle`; exposing this directly would let an
+/// `RestApiService::handle`; exposing this directly would let an
 /// outside caller bypass those checks.
 // The argument count comes from threading `extra_headers` through the
 // existing board_name/thermal/manager set. A context struct would

@@ -1,58 +1,39 @@
 //! Dashboard service and HTTP handler for the firmware web UI.
 //!
-//! Four legacy endpoints are handled by `DashboardService` alongside
-//! the `/api/system/*` surface dispatched by `system::dispatch`:
+//! Owns only the web-UI surface on port 80; the JSON `/api/*` surface
+//! moved to the REST listener in `crate::rest` on port 8080.
 //!
 //! - `GET /` returns the inlined HTML dashboard. The page is fully
-//!   static — every time-varying field is filled in client-side from
-//!   `/api/info`. Hash-routed single-page app with a top nav bar, a
-//!   dual-axis hashrate/temperature chart, a right-side telemetry
-//!   panel, and a configuration form view. Inlined CSS and JS keep
-//!   the first paint to a single response that fits in one TCP segment,
-//!   enabling one-RTT delivery on LAN.
+//!   static — every time-varying field is filled in client-side via
+//!   cross-origin fetches against the REST listener. Hash-routed SPA
+//!   with a top nav bar, a dual-axis hashrate/temperature chart, a
+//!   right-side telemetry panel, and a configuration form view.
+//! - `GET /login`, `POST /login`, `POST /logout` drive the session
+//!   cookie used by the SPA when it calls the REST listener.
 //! - `GET /logo.svg` serves the Braiins wordmark referenced by the
 //!   dashboard's nav bar. Kept as a separate cacheable asset rather
 //!   than inlined so the index response stays inside its buffer.
-//! - `GET /api/info` returns a compact JSON telemetry blob. The
-//!   dashboard polls it every 2 s and pushes hashrate and temperature
-//!   samples into ring buffers rendered as SVG polylines.
-//! - `GET /api/config` returns the current pool list as a
-//!   [`ubos_config::PoolUpdate`]. The dashboard fetches it on page
-//!   load to populate the form with the values the firmware is
-//!   already running. The response carries only the `pool` field by
-//!   construction, so `ApiConfig` (the dashboard's own basic-auth
-//!   credentials), `ThermalConfig`, and `CoolingConfig` stay inside
-//!   the firmware. Pool worker credentials are part of the form
-//!   payload by design: the operator entered them and the dashboard
-//!   must round-trip them to support editing.
-//! - `POST /api/config` accepts a [`ubos_config::PoolUpdate`] JSON
-//!   body, merges it into the current [`ubos_config::Config`] from
-//!   [`ubos_config::handle`], and forwards the result as
-//!   [`ubos_config::Message::Update`]. The dashboard parses its own
-//!   URL syntax in JS before sending; the firmware stays a typed
-//!   sink.
 //!
 //! Any other path returns a 404 with a plain-text body. Wrong-method
-//! requests on known paths return 405. The transport loop and request parsing live in
-//! `ubos-http`; this module owns the handler dispatch and the response
-//! streaming through `edge-http`'s `Connection` state machine.
+//! requests on known paths return 405. The transport loop and request
+//! parsing live in `ubos-http`; this module owns the handler dispatch
+//! and the response streaming through `edge-http`'s `Connection` state
+//! machine.
 
 use core::fmt::Write as _;
 
 use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
 use edge_nal::TcpSplit;
-use embassy_net::{Ipv4Address, Stack};
-use embassy_time::Instant;
+use embassy_net::Stack;
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
 use portable_atomic::Ordering;
 use static_cell::ConstStaticCell;
 use ubos_core::consts::Http;
-use ubos_core::fan_state;
-use ubos_logging::{info, warn};
+use ubos_logging::warn;
 use ubos_manager::Handle as ManagerHandle;
-use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, REQUEST_COUNT};
+use ubos_net::net::REQUEST_COUNT;
 use ubos_thermal::Handle as ThermalHandle;
 use ubos_webui::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG};
 
@@ -234,23 +215,12 @@ where
     Ok(())
 }
 
-/// Write a JSON response with `body` bytes.
-pub(crate) async fn write_json_response<T, const N: usize>(
-    connection: &mut Connection<'_, T, N>,
-    body: &[u8],
-) -> Result<(), HttpError<T::Error>>
-where
-    T: Read + Write + TcpSplit,
-{
-    write_json_response_with_extra(connection, body, &[]).await
-}
-
 /// Write a JSON response with `body` bytes and optional extra headers.
 ///
-/// Used by the REST listener to attach CORS headers to JSON responses.
-/// `extra_headers` is appended after the four fixed headers; the total
-/// must not exceed `MAX_RESPONSE_HEADERS`.
-pub(crate) async fn write_json_response_with_extra<T, const N: usize>(
+/// The REST listener attaches CORS headers via `extra_headers`; pass
+/// `&[]` to send only the four fixed headers. The total must not
+/// exceed `MAX_RESPONSE_HEADERS`.
+pub(crate) async fn write_json_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     body: &[u8],
     extra_headers: &[(&str, &str)],
@@ -441,17 +411,12 @@ static HTTP_WORK_BUFFER: ConstStaticCell<[u8; Http::REQUEST_BUFFER_SIZE]> =
 
 /// Dashboard handler implementing `ubos_http::Service`.
 ///
-/// Holds the board name used in `/api/info` responses and dispatches
-/// each request to the appropriate response builder. Methods are
-/// enforced: wrong-method requests on known paths return 405.
-/// `REQUEST_COUNT` increments on every accepted connection regardless of
-/// response status, so the metric reflects accept-level traffic rather
-/// than success rate.
-pub struct DashboardService {
-    board_name: &'static str,
-    thermal: ThermalHandle,
-    manager: ManagerHandle,
-}
+/// Serves the web-UI shell on port 80 (HTML, login, logout, logo).
+/// Methods are enforced: wrong-method requests on known paths return
+/// 405. `REQUEST_COUNT` increments on every accepted connection
+/// regardless of response status, so the metric reflects accept-level
+/// traffic rather than success rate.
+pub struct DashboardService;
 
 impl Service for DashboardService {
     // The line count comes from the flat match dispatch table, not
@@ -543,7 +508,7 @@ impl Service for DashboardService {
         let authorization = authorization_buf.as_deref();
         let cookie = cookie_buf.as_deref();
 
-        let needs_auth = path.starts_with("/api/") || path == "/logout";
+        let needs_auth = path == "/logout";
         let auth_ctx = ubos_auth::auth::authenticate(authorization, cookie)
             .await
             .unwrap_or(ubos_auth::auth::AuthCtx::Anonymous);
@@ -628,32 +593,6 @@ impl Service for DashboardService {
                     .await;
                 }
             }
-        }
-
-        if path == "/api/system" || path.starts_with("/api/system/") {
-            let handled = crate::system::dispatch(
-                connection,
-                method,
-                path,
-                body,
-                self.board_name,
-                self.thermal,
-                self.manager,
-                &[],
-            )
-            .await?;
-            if !handled {
-                return write_status_only(
-                    connection,
-                    404,
-                    "Not Found",
-                    "text/plain",
-                    &[],
-                    b"not found",
-                )
-                .await;
-            }
-            return Ok(());
         }
 
         match (method, path) {
@@ -759,121 +698,7 @@ impl Service for DashboardService {
                 )
                 .await
             }
-            ("GET", "/api/info") => {
-                let uptime_secs = Instant::now().as_secs();
-                let hashrate = ubos_metrics::hashrate::hashrate();
-                #[allow(clippy::cast_possible_truncation)]
-                let temperature = self
-                    .thermal
-                    .current()
-                    .map_or(0i32, |r| r.chip_max.celsius_f32() as i32);
-                let fan_rpm = fan_state::load_rpm().rpm();
-                let fan_pwm = fan_state::load_pwm().percent();
-                let pools = POOL_ALIVE_BITMAP.load(Ordering::Relaxed);
-
-                // Build the JSON body into a stack buffer.
-                let mut body_buf = [0u8; API_INFO_BODY_BUFFER_SIZE];
-                // Use a BufferWriter to fill body_buf with the JSON.
-                let mut writer = ubos_http::BufferWriter::new(&mut body_buf);
-
-                // `board_name` is interpolated without JSON escaping. The
-                // caller must guarantee the value passes `validate_board_name`.
-                // Each consumer crate enforces this at compile time with:
-                //   `const _: () = assert!(validate_board_name(Board::NAME), ...);`
-                // The debug_assert here catches violations in tests and debug
-                // builds; release builds rely on the consumer-side const assert.
-                debug_assert!(
-                    validate_board_name(self.board_name),
-                    "BUG: board_name contains JSON-unsafe characters"
-                );
-                let _ = core::write!(
-                    writer,
-                    "{{\"name\":\"{}\",\
-                     \"hashrate\":{hashrate},\
-                     \"uptime\":{uptime_secs},\
-                     \"temperature\":{temperature},\
-                     \"fan_rpm\":{fan_rpm},\
-                     \"fan_pwm\":{fan_pwm},\
-                     \"pools\":{pools},\
-                     \"ip\":\"",
-                    self.board_name
-                );
-
-                let ip_bits = LOCAL_IPV4.load(Ordering::Relaxed);
-                if ip_bits != 0 {
-                    let octets = Ipv4Address::from_bits(ip_bits).octets();
-                    let _ = core::write!(
-                        writer,
-                        "{}.{}.{}.{}",
-                        octets[0],
-                        octets[1],
-                        octets[2],
-                        octets[3]
-                    );
-                }
-
-                let _ = writer.write_str("\",\"time\":\"");
-                let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
-                if ntp_offset != 0 {
-                    let unix_secs = ubos_net::wall_clock_secs();
-                    let mut time_buffer = [0u8; 16];
-                    let length = ubos_net::ntp::format_utc_time(&mut time_buffer, unix_secs);
-                    if let Ok(time_str) = core::str::from_utf8(&time_buffer[..length]) {
-                        let _ = writer.write_str(time_str);
-                    }
-                }
-                let _ = writer.write_str("\"}");
-                let json_len = writer.len();
-
-                write_json_response(connection, &body_buf[..json_len]).await
-            }
-            ("GET", "/api/config") => {
-                let snapshot = ubos_config::handle().current();
-                let response = ubos_config::PoolUpdate {
-                    pool: snapshot.pool,
-                };
-                let mut body_buf = [0u8; CONFIG_RESPONSE_BUFFER_SIZE];
-                if let Ok(length) = serde_json_core::ser::to_slice(&response, &mut body_buf) {
-                    write_json_response(connection, &body_buf[..length]).await
-                } else {
-                    warn!("config: failed to serialize PoolUpdate response");
-                    write_status_only(
-                        connection,
-                        500,
-                        "Internal Server Error",
-                        "application/json",
-                        &[],
-                        b"{\"message\":\"config serialize failed\"}",
-                    )
-                    .await
-                }
-            }
-            ("POST", "/api/config") => {
-                info!("pool config update ({} bytes)", body.len());
-                if let Ok((update, _)) =
-                    serde_json_core::de::from_slice::<ubos_config::PoolUpdate>(body)
-                {
-                    let config_handle = ubos_config::handle();
-                    let mut new_config = config_handle.current();
-                    new_config.pool = update.pool;
-                    config_handle
-                        .send(ubos_config::Message::Update(new_config))
-                        .await;
-                    write_json_response(connection, CONFIG_ACK_BODY).await
-                } else {
-                    warn!("config: rejected POST /api/config with invalid JSON");
-                    write_status_only(
-                        connection,
-                        400,
-                        "Bad Request",
-                        "application/json",
-                        &[],
-                        b"{\"message\":\"invalid pool update JSON\"}",
-                    )
-                    .await
-                }
-            }
-            (_, "/" | "/login" | "/logout" | "/logo.svg" | "/api/info" | "/api/config") => {
+            (_, "/" | "/login" | "/logout" | "/logo.svg") => {
                 write_status_only(
                     connection,
                     405,
@@ -901,17 +726,21 @@ impl Service for DashboardService {
 
 /// Accept HTTP connections and serve the dashboard. Runs forever.
 ///
-/// Routes `GET /` to the inlined HTML dashboard, `GET /logo.svg` to
-/// the cacheable Braiins wordmark, `GET /api/info` to a small JSON
-/// telemetry blob the dashboard polls, and `POST /api/config` to a
-/// stub handler that logs the submitted body before returning a 200
-/// OK. Wrong-method requests on known paths return 405. Anything else
-/// gets a 404. The transport loop lives in `ubos-http`.
+/// Routes `GET /` to the inlined HTML dashboard, `GET /login`/`POST
+/// /login`/`POST /logout` to the session flow, and `GET /logo.svg` to
+/// the cacheable Braiins wordmark. Wrong-method requests on known
+/// paths return 405. Anything else gets a 404. The transport loop
+/// lives in `ubos-http`.
+///
+/// `_board_name`, `_thermal`, and `_manager` are unused by the web-UI
+/// shell; the parameters remain in the signature until the listener
+/// moves to `ubos-webui` so existing call sites in firmware continue
+/// to compile across the strip commit.
 pub async fn run(
     stack: Stack<'static>,
-    board_name: &'static str,
-    thermal: ThermalHandle,
-    manager: ManagerHandle,
+    _board_name: &'static str,
+    _thermal: ThermalHandle,
+    _manager: ManagerHandle,
 ) -> ! {
     // Populate the credential store before the accept loop so the very
     // first request finds the defaults in place and the operator sees
@@ -921,11 +750,7 @@ pub async fn run(
     ubos_http::serve(
         stack,
         Http::PORT,
-        DashboardService {
-            board_name,
-            thermal,
-            manager,
-        },
+        DashboardService,
         HTTP_TCP_BUFFERS.take(),
         HTTP_WORK_BUFFER.take(),
     )
