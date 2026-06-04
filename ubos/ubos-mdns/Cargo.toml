@@ -21,5 +21,4 @@ heapless         = { workspace = true }
 rand_core_v010   = { package = "rand_core", version = "0.10", default-features = false }
 static_cell      = { workspace = true }
 defmt            = { workspace = true, optional = true }
-ubos-core        = { workspace = true }
 ubos-logging     = { workspace = true }

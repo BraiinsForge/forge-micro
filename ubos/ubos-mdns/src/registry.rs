@@ -39,12 +39,12 @@ pub struct ServiceEntry {
 /// # Example
 ///
 /// ```rust,ignore
-/// use ubos_core::consts::{Http, Mdns as MdnsConsts};
+/// use ubos_core::consts::Http;
 /// ubos_mdns::declare_service!(pub HTTP_API_SERVICE = ubos_mdns::ServiceEntry {
-///     service: MdnsConsts::HTTP_SERVICE,
+///     service: "_http",
 ///     port: Http::PORT,
 ///     txt_keys: &["path"],
-///     txt_values: &[MdnsConsts::HTTP_PATH],
+///     txt_values: &["/"],
 /// });
 /// ```
 #[macro_export]

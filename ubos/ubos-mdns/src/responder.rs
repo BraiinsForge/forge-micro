@@ -32,9 +32,33 @@ use rand_core_v010::TryRng;
 use static_cell::{ConstStaticCell, StaticCell};
 use ubos_logging::{info, warn, Debug2Format};
 
-use ubos_core::consts::Mdns as MdnsConsts;
-
 use crate::registry::ServiceEntry;
+
+/// Transport protocol used by every service the responder advertises.
+const TCP_PROTOCOL: &str = "_tcp";
+/// A record TTL in seconds. RFC 6762 §10 recommends 120 s for volatile
+/// addresses such as DHCP leases.
+const TTL_SECS: u32 = 120;
+/// Seconds to wait before retrying after a bind or run error.
+const RETRY_DELAY_SECS: u64 = 5;
+/// Buffer size for mDNS datagrams. RFC 6762 §17 caps mDNS messages at
+/// the interface UDP payload max.
+const BUFFER_SIZE: usize = 1472;
+/// Packet-metadata slots per direction for the mDNS UDP socket.
+const METADATA_SLOTS: usize = 4;
+/// Sockets in the UDP pool. One is sufficient because the responder
+/// holds a single socket for the lifetime of each run attempt.
+const SOCKET_POOL_SIZE: usize = 1;
+/// Maximum number of services that the responder can announce in a
+/// single run. Eight entries occupy at most a few hundred bytes of
+/// stack and leave room for all planned service crates without
+/// revisiting this constant.
+const MAX_SERVICES: usize = 8;
+/// Maximum number of TXT key-value pairs per service entry, including
+/// the two runtime-appended `board=` and `mcu=` pairs. Four static
+/// pairs plus two runtime pairs is sufficient for any service planned
+/// in this workspace.
+const MAX_TXT_PAIRS: usize = 6;
 
 /// `edge_mdns::io::Mdns::new` takes a `&Signal` to wake the responder
 /// for unsolicited re-announces. We never signal it; address changes
@@ -44,20 +68,13 @@ use crate::registry::ServiceEntry;
 static MDNS_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Scratch buffer for incoming mDNS datagrams handed to `edge-mdns`.
-static RECV_BUFFER: VecBufAccess<CriticalSectionRawMutex, { MdnsConsts::BUFFER_SIZE }> =
-    VecBufAccess::new();
+static RECV_BUFFER: VecBufAccess<CriticalSectionRawMutex, { BUFFER_SIZE }> = VecBufAccess::new();
 /// Scratch buffer for outgoing mDNS datagrams built by `edge-mdns`.
-static SEND_BUFFER: VecBufAccess<CriticalSectionRawMutex, { MdnsConsts::BUFFER_SIZE }> =
-    VecBufAccess::new();
+static SEND_BUFFER: VecBufAccess<CriticalSectionRawMutex, { BUFFER_SIZE }> = VecBufAccess::new();
 
 /// Pool of raw UDP socket buffers consumed by `edge-nal-embassy`.
 static UDP_BUFFERS: ConstStaticCell<
-    UdpBuffers<
-        { MdnsConsts::SOCKET_POOL_SIZE },
-        { MdnsConsts::BUFFER_SIZE },
-        { MdnsConsts::BUFFER_SIZE },
-        { MdnsConsts::METADATA_SLOTS },
-    >,
+    UdpBuffers<{ SOCKET_POOL_SIZE }, { BUFFER_SIZE }, { BUFFER_SIZE }, { METADATA_SLOTS }>,
 > = ConstStaticCell::new(UdpBuffers::new());
 
 /// A counter-based RNG used only for the 0-250 ms probe-jitter delay.
@@ -156,7 +173,7 @@ impl HostAnswers for ServicesAnswers<'_> {
 /// entry's parallel key/value slices and appending the runtime
 /// `board=` and `mcu=` pairs.
 ///
-/// Returns a `heapless::Vec` capped at [`MdnsConsts::MAX_TXT_PAIRS`].
+/// Returns a `heapless::Vec` capped at [`MAX_TXT_PAIRS`].
 /// Two slots are reserved for the runtime `board=` and `mcu=` entries,
 /// leaving `MAX_TXT_PAIRS - 2` = 4 slots for static keys. Panics if
 /// the registry entry exceeds that budget; `declare_service!` data is
@@ -167,11 +184,11 @@ fn build_txt_pairs<'a>(
     entry: &'a ServiceEntry,
     board_name: &'a str,
     mcu_name: &'a str,
-) -> Vec<(&'a str, &'a str), { MdnsConsts::MAX_TXT_PAIRS }> {
+) -> Vec<(&'a str, &'a str), { MAX_TXT_PAIRS }> {
     // Static keys must leave room for the two runtime entries appended
     // below. Overflow is a declare_service! bug; the assert surfaces it
     // before .take() would silently truncate.
-    let mut pairs: Vec<(&str, &str), { MdnsConsts::MAX_TXT_PAIRS }> = Vec::new();
+    let mut pairs: Vec<(&str, &str), { MAX_TXT_PAIRS }> = Vec::new();
     // Parallel slices: a length mismatch would let zip() silently drop
     // trailing entries on the longer slice, advertising fewer TXT pairs
     // than the caller wrote in declare_service!. The debug_assert
@@ -182,7 +199,7 @@ fn build_txt_pairs<'a>(
         entry.txt_values.len(),
         "BUG: declare_service! passed mismatched TXT key/value slice lengths"
     );
-    let static_cap = MdnsConsts::MAX_TXT_PAIRS.saturating_sub(2);
+    let static_cap = MAX_TXT_PAIRS.saturating_sub(2);
     assert!(
         entry.txt_keys.len() <= static_cap,
         "BUG: declare_service! passed more static TXT keys than MAX_TXT_PAIRS - 2 can hold"
@@ -224,7 +241,7 @@ fn build_service<'a>(
         priority: 0,
         weight: 0,
         service: entry.service,
-        protocol: MdnsConsts::TCP_PROTOCOL,
+        protocol: TCP_PROTOCOL,
         port: entry.port,
         service_subtypes: &[],
         txt_kvs: txt_storage,
@@ -241,14 +258,14 @@ fn build_service<'a>(
 /// it on every loop pass to build the SRV and TXT records.
 ///
 /// Each iteration reads the stack's current IPv4 config; if no lease
-/// is held the loop sleeps for [`MdnsConsts::RETRY_DELAY_SECS`]
+/// is held the loop sleeps for [`RETRY_DELAY_SECS`]
 /// seconds and tries again. On any socket or protocol error the same
 /// delay applies, so an address change after a DHCP renewal is picked
 /// up on the next restart without requiring a reboot.
 ///
 /// # Panics
 ///
-/// Panics if `services.len()` exceeds [`MdnsConsts::MAX_SERVICES`]:
+/// Panics if `services.len()` exceeds [`MAX_SERVICES`]:
 /// the per-service `txt_storage` and the `built` answer-record vec are
 /// sized for that bound. Callers wire `services` from a `static` slice
 /// determined at firmware link time, so this is a firmware bug, not a
@@ -265,7 +282,7 @@ pub async fn run_mdns(
 
     loop {
         let Some(config) = stack.config_v4() else {
-            Timer::after(Duration::from_secs(MdnsConsts::RETRY_DELAY_SECS)).await;
+            Timer::after(Duration::from_secs(RETRY_DELAY_SECS)).await;
             continue;
         };
         let host_ipv4 = config.address.address();
@@ -278,10 +295,8 @@ pub async fn run_mdns(
         // Build TXT storage for each caller-supplied entry on the stack.
         // The Vec elements live for the duration of `bind_and_run`;
         // `build_service` borrows slices into these Vecs.
-        let mut txt_storage: Vec<
-            Vec<(&str, &str), { MdnsConsts::MAX_TXT_PAIRS }>,
-            { MdnsConsts::MAX_SERVICES },
-        > = Vec::new();
+        let mut txt_storage: Vec<Vec<(&str, &str), { MAX_TXT_PAIRS }>, { MAX_SERVICES }> =
+            Vec::new();
         for entry in services {
             // `services` is bounded to MAX_SERVICES by the caller's static slice.
             txt_storage
@@ -289,7 +304,7 @@ pub async fn run_mdns(
                 .expect("BUG: txt_storage sized for MAX_SERVICES entries; services slice must not exceed MAX_SERVICES");
         }
 
-        let mut built: Vec<Service<'_>, { MdnsConsts::MAX_SERVICES }> = Vec::new();
+        let mut built: Vec<Service<'_>, { MAX_SERVICES }> = Vec::new();
         for (entry, txt) in services.iter().zip(txt_storage.iter()) {
             // zip() produces at most services.len() pairs, which is bounded
             // to MAX_SERVICES by the same invariant as txt_storage above.
@@ -302,7 +317,7 @@ pub async fn run_mdns(
             warn!("mdns: {:?}", Debug2Format(&error));
         }
 
-        Timer::after(Duration::from_secs(MdnsConsts::RETRY_DELAY_SECS)).await;
+        Timer::after(Duration::from_secs(RETRY_DELAY_SECS)).await;
     }
 }
 
@@ -318,7 +333,7 @@ async fn bind_and_run(
         hostname,
         ipv4: host_ipv4,
         ipv6: Ipv6Addr::UNSPECIFIED,
-        ttl: Ttl::from_secs(MdnsConsts::TTL_SECS),
+        ttl: Ttl::from_secs(TTL_SECS),
     };
 
     let mut socket = io::bind(udp, IPV4_DEFAULT_SOCKET, Some(Ipv4Addr::UNSPECIFIED), None).await?;
