@@ -15,8 +15,8 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-appl
 .bar a.on{color:var(--fg);border-bottom-color:var(--accent)}
 .sp{flex:1}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 6px var(--red);transition:background .3s,box-shadow .3s}
-main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-width:1200px;margin:0 auto}
-@media(max-width:760px){main{grid-template-columns:1fr}}
+main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;padding:16px;max-width:1200px;margin:0 auto;align-items:start}
+@media(max-width:760px){main{grid-template-columns:1fr}.chart{height:auto}.side .card{height:auto}}
 @media(max-width:480px){
  main{padding:10px;gap:10px}
  .bar{padding:0 12px}
@@ -27,9 +27,9 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
  .pool{font-size:.78rem;padding:6px 0}
  .pt{font-size:.68rem}
 }
-.left{display:grid;gap:16px;align-content:start;min-width:0}
-.chart{background:var(--panel);border-radius:4px;padding:12px;position:relative}
-.chart svg{display:block;width:100%;height:auto}
+.left{display:flex;flex-direction:column;gap:8px;min-width:0}
+.chart{background:var(--panel);border-radius:4px;padding:12px;position:relative;height:208px}
+.chart svg{display:block;width:100%;height:160px}
 .gr{stroke:var(--border);stroke-width:.5;opacity:.5;vector-effect:non-scaling-stroke}
 .tk{stroke:var(--mute);stroke-width:.5;vector-effect:non-scaling-stroke}
 .ax{fill:var(--mute);font-size:9px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
@@ -42,8 +42,9 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 .tt .ts{color:var(--mute)}
 .lg{text-align:center;margin-top:8px;font-size:.7rem;color:var(--mute)}
 .lg span{display:inline-block;width:10px;height:2px;vertical-align:middle;margin:0 6px}
-.side{display:grid;gap:8px;align-content:start}
-.card{background:var(--panel);border-radius:4px;padding:12px 14px}
+.side{display:flex;flex-direction:column;gap:8px}
+.side .card{height:64px;overflow:hidden}
+.card{background:var(--panel);border-radius:4px;padding:10px 14px}
 .k{color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.1em}
 .pools .k{margin-bottom:6px}
 .pool{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem}
@@ -114,14 +115,11 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 <div class="card lkc dead"><div class="k">Link</div><div class="ps"><span class="dot"></span><span id="lk" class="pt">Dead</span></div></div>
 <div class="card"><div class="k">Hashrate</div><div id="hr" class="v">–</div></div>
 <div class="card"><div class="k">IP address</div><div id="ip" class="v">–</div></div>
-<div class="card"><div class="k">Time (UTC)</div><div id="t" class="v">–</div></div>
+<div class="card"><div class="k">Time UTC</div><div id="t" class="v">–</div></div>
 <div class="card"><div class="k">Uptime</div><div id="up" class="v">–</div></div>
-<div class="card"><div class="k">Fan speed</div><div id="fs" class="v">–</div></div>
-<div class="card"><div class="k">Fan PWM</div><div id="fp" class="v">–</div></div>
-<div class="card"><div class="k">Power in</div><div id="pwrIn" class="v">–</div></div>
-<div class="card"><div class="k">Power out</div><div id="pwrOut" class="v">–</div></div>
-<div class="card"><div class="k">Voltage set</div><div id="vSet" class="v">–</div></div>
-<div class="card"><div class="k">Voltage measured</div><div id="vMeas" class="v">–</div></div>
+<div class="card"><div class="k">Fan speed / PWM</div><div class="v"><span id="fs">–</span> / <span id="fp">–</span></div></div>
+<div class="card"><div class="k">Power in / out</div><div class="v"><span id="pwrIn">–</span> / <span id="pwrOut">–</span></div></div>
+<div class="card"><div class="k">Voltage set / measured</div><div class="v"><span id="vSet">–</span> / <span id="vMeas">–</span></div></div>
 </aside>
 </main>
 <section class="cfg hide" id="cfg">
