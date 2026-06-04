@@ -63,6 +63,11 @@ main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;pa
 .cfg label{display:block;color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.08em;margin:10px 0 2px}
 .cfg input{width:100%;background:var(--field);color:var(--fg);border:0;border-bottom:1px solid var(--border);padding:8px 10px;font:13px ui-monospace,monospace}
 .cfg input:focus{outline:0;border-bottom-color:var(--accent)}
+.cfg label.tr{font-size:.8rem;text-transform:none;color:var(--fg);margin:14px 0 2px;display:flex;align-items:center;gap:8px;cursor:pointer}
+.cfg label.tr input{width:auto;margin:0}
+.pcfg[data-protocol="sv1"] .s2{display:none}
+.pcfg[data-protocol="sv2"] .s1{display:none}
+.pcfg[data-trust="yes"] .sk{display:none}
 .cfg button{margin-top:20px;background:var(--accent);color:#fff;border:0;padding:10px 24px;font-weight:600;letter-spacing:.04em;cursor:pointer;text-transform:uppercase;font-size:.8rem}
 .cfg button:hover{background:var(--accent-hi)}
 .msg{margin-top:12px;color:var(--green);font-size:.8rem;min-height:1.2em}
@@ -124,18 +129,30 @@ main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;pa
 </main>
 <section class="cfg hide" id="cfg">
 <form id="cfgForm">
+<div class="pcfg" id="pcfg1" data-protocol="sv1" data-trust="no">
 <h2>Pool 1 — Primary</h2>
-<label>URL<input name="url1" placeholder="stratum+tcp://host:port"></label>
+<label>URL<input name="url1" placeholder="stratum+tcp:// or stratum2+tcp://"></label>
 <label>Username<input name="user1"></label>
-<label>Password<input name="pass1" type="password"></label>
+<label class="s1">Password<input name="pass1" type="password"></label>
+<label class="tr s2"><input name="trust1" type="checkbox">Trust pool (skip authority check)</label>
+<label class="s2 sk">Authority pubkey (hex)<input name="key1" placeholder="64 hex chars"></label>
+</div>
+<div class="pcfg" id="pcfg2" data-protocol="sv1" data-trust="no">
 <h2>Pool 2 — Backup</h2>
 <label>URL<input name="url2"></label>
 <label>Username<input name="user2"></label>
-<label>Password<input name="pass2" type="password"></label>
+<label class="s1">Password<input name="pass2" type="password"></label>
+<label class="tr s2"><input name="trust2" type="checkbox">Trust pool (skip authority check)</label>
+<label class="s2 sk">Authority pubkey (hex)<input name="key2" placeholder="64 hex chars"></label>
+</div>
+<div class="pcfg" id="pcfg3" data-protocol="sv1" data-trust="no">
 <h2>Pool 3 — Backup</h2>
 <label>URL<input name="url3"></label>
 <label>Username<input name="user3"></label>
-<label>Password<input name="pass3" type="password"></label>
+<label class="s1">Password<input name="pass3" type="password"></label>
+<label class="tr s2"><input name="trust3" type="checkbox">Trust pool (skip authority check)</label>
+<label class="s2 sk">Authority pubkey (hex)<input name="key3" placeholder="64 hex chars"></label>
+</div>
 <button type="submit">Save</button>
 <div class="msg" id="msg"></div>
 </form>
@@ -209,18 +226,39 @@ async function tick(){
  }catch(e){setLk(false);console.warn('tick fetch failed:',e)}
 }
 tick();setInterval(tick,2000);
+const POOL_RE=/^(?:(stratum2?\+tcp):\/\/)?([^:\/]+)(?::(\d+))?$/;
+function bytesToHex(b){return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')}
+function hexToBytes(h){const b=[];for(let i=0;i<h.length;i+=2)b.push(parseInt(h.slice(i,i+2),16));return b}
+function syncPoolUi(n){
+ const root=$('pcfg'+n),f=$('cfgForm'),m=(f['url'+n].value||'').match(POOL_RE);
+ root.dataset.protocol=m&&m[1]==='stratum2+tcp'?'sv2':'sv1';
+ root.dataset.trust=f['trust'+n].checked?'yes':'no';
+}
 async function loadCfg(){
- try{const r=await fetch(API+'/api/config',{cache:'no-store',credentials:'include'});if(!r.ok)return;
+ const msg=$('msg');
+ try{const r=await fetch(API+'/api/config',{cache:'no-store',credentials:'include'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
   const d=await r.json(),f=$('cfgForm'),pools=d.pool||[];
   for(let i=0;i<3;i++){
    const p=pools[i],n=i+1;
-   f['url'+n].value=p?`stratum+tcp://${p.host}:${p.port}`:'';
+   const sv1=p&&p.protocol&&p.protocol.Sv1;
+   const sv2=p&&p.protocol&&p.protocol.Sv2;
+   const scheme=sv2?'stratum2+tcp':'stratum+tcp';
+   f['url'+n].value=p?`${scheme}://${p.host}:${p.port}`:'';
    f['user'+n].value=p&&p.user?p.user:'';
-   f['pass'+n].value=p&&p.protocol&&p.protocol.Sv1&&p.protocol.Sv1.password?p.protocol.Sv1.password:'';
+   f['pass'+n].value=sv1&&sv1.password?sv1.password:'';
+   f['trust'+n].checked=!!(sv2&&!sv2.pool_pubkey);
+   f['key'+n].value=sv2&&sv2.pool_pubkey?bytesToHex(sv2.pool_pubkey):'';
+   syncPoolUi(n);
   }
- }catch(_){}
+ }catch(e){msg.style.color='var(--red)';msg.textContent='Load failed: '+e.message}
 }
 loadCfg();
+for(let i=1;i<=3;i++){
+ const f=$('cfgForm');
+ f['url'+i].addEventListener('input',()=>syncPoolUi(i));
+ f['trust'+i].addEventListener('change',()=>syncPoolUi(i));
+}
 charts.forEach(c=>{
  const root=$(c.id),svg=$$(root,'svg'),tt=$$(root,'.tt'),tip=$$(root,'.tip'),ts=$$(root,'.ts'),vv=$$(root,'.vv');
  svg.addEventListener('pointermove',e=>{
@@ -251,19 +289,36 @@ $('nLogout').addEventListener('click',async e=>{
 });
 $('cfgForm').addEventListener('submit',async e=>{
  e.preventDefault();
+ const msg=$('msg');msg.style.color='';
  const f=new FormData(e.target),pool=[];
  for(let i=1;i<=3;i++){
   const url=(f.get('url'+i)||'').trim();if(!url)continue;
-  const m=url.match(/^(?:stratum\+tcp:\/\/)?([^:\/]+)(?::(\d+))?$/);
-  if(!m){$('msg').textContent='Invalid pool '+i+' URL';return}
-  const pass=f.get('pass'+i);
-  pool.push({host:m[1],port:m[2]?+m[2]:3333,user:f.get('user'+i)||'',protocol:{Sv1:{password:pass||null}}});
+  const m=url.match(POOL_RE);
+  if(!m){msg.style.color='var(--red)';msg.textContent='Invalid pool '+i+' URL';return}
+  const host=m[2],port=m[3]?+m[3]:3333,user=f.get('user'+i)||'';
+  let protocol;
+  if(m[1]==='stratum2+tcp'){
+   const trust=f.get('trust'+i)==='on';
+   let pool_pubkey=null;
+   if(!trust){
+    const hex=(f.get('key'+i)||'').trim();
+    if(!/^[0-9a-fA-F]{64}$/.test(hex)){msg.style.color='var(--red)';msg.textContent='Pool '+i+': pubkey must be 64 hex chars';return}
+    pool_pubkey=hexToBytes(hex);
+   }
+   protocol={Sv2:{pool_pubkey}};
+  }else{
+   const pass=f.get('pass'+i);
+   protocol={Sv1:{password:pass||null}};
+  }
+  pool.push({host,port,user,protocol});
  }
  const body=JSON.stringify({pool});
  try{const t=await fetch('/',{method:'HEAD',cache:'no-store'});
   const csrf=t.headers.get('X-CSRF-Token')||'';
   const r=await fetch(API+'/api/config',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body,credentials:'include'});
-  $('msg').textContent=r.ok?'Saved.':'Save failed.'}
- catch(_){$('msg').textContent='Save failed.'}
+  if(r.ok){msg.style.color='';msg.textContent='Saved.'}
+  else{msg.style.color='var(--red)';msg.textContent='Save failed: HTTP '+r.status}
+ }
+ catch(e){msg.style.color='var(--red)';msg.textContent='Save failed: '+e.message}
 });
 </script></body></html>
