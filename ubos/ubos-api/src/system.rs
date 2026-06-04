@@ -5,10 +5,10 @@
 //! schema struct, serializes it with `serde_json_core`, and wraps it
 //! in a JSON response via `write_json_response`.
 //!
-//! Phase 5 adds stub action endpoints: POST /api/system/{pause,resume,
-//! restart,identify,blockFound/dismiss} and PATCH /api/system. All
-//! return 200 with `{"message":"ack"}` after emitting one `info!` log
-//! line. No firmware state is changed. Method enforcement is strict:
+//! Action endpoints (`POST /api/system/{pause,resume,restart,identify,
+//! blockFound/dismiss}` and `PATCH /api/system`) are stubs today: each
+//! returns 200 with `{"message":"ack"}` after emitting one `info!` log
+//! line and changes no firmware state. Method enforcement is strict:
 //! every known path responds with 405 when the wrong method is used.
 
 use core::fmt::Write as _;
