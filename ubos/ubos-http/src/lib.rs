@@ -13,11 +13,13 @@
 #![no_std]
 
 pub mod buffer;
+pub mod request;
 pub mod response;
 pub mod serve;
 
 pub use buffer::BufferWriter;
 pub use core::net::IpAddr;
+pub use request::{extract_request_parts, RequestParts};
 pub use response::{
     format_content_length, read_body, write_json_response, write_status_only,
     CONTENT_LENGTH_DECIMAL_DIGITS, MAX_EXTRA_STATUS_HEADERS, MAX_RESPONSE_HEADERS,
