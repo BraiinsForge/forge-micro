@@ -188,12 +188,17 @@ boards can resolve hostnames for NTP sync and HTTPS requests.
 
 ### mDNS discovery
 
-Each board advertises itself via mDNS as `_prometheus._tcp.local` and
-`_http._tcp.local` so Prometheus, browsers, and ad-hoc tooling can find
-it without static config. The announcement carries an `A` record for
-`<hostname>.local` and one `SRV`/`TXT`/`PTR` set per service pointing
-at the metrics port and the HTTP UI port respectively. Each TXT
-record carries `path=`, `board=`, and `mcu=`.
+Each board advertises itself via three mDNS services so Prometheus,
+browsers, REST clients, and ad-hoc tooling can find it without static
+config. The announcement carries an `A` record for `<hostname>.local`
+and one `SRV`/`TXT`/`PTR` set per service. Each TXT record carries
+`path=`, `board=`, and `mcu=`.
+
+| Service              | Port | Purpose                    |
+|----------------------|------|----------------------------|
+| `_http._tcp.local`   | 80   | Web UI (dashboard/login)   |
+| `_ubos._tcp.local`   | 8080 | JSON REST API              |
+| `_prometheus._tcp.local` | 8081 | Prometheus scrape target |
 
 Browsing requires `avahi-daemon` on the workstation. On NixOS, enable
 it in the host configuration. The `nssmdns4` switch also wires mDNS
@@ -212,6 +217,7 @@ Then browse every advertised board:
 ```sh
 avahi-browse -rt _prometheus._tcp
 avahi-browse -rt _http._tcp
+avahi-browse -rt _ubos._tcp
 ```
 
 Without the daemon, a unicast query against a known IP also works
@@ -220,6 +226,7 @@ because edge-mdns answers on port 5353:
 ```sh
 dig +time=3 +tries=1 -p 5353 @<board-ip> _prometheus._tcp.local PTR
 dig +time=3 +tries=1 -p 5353 @<board-ip> _http._tcp.local PTR
+dig +time=3 +tries=1 -p 5353 @<board-ip> _ubos._tcp.local PTR
 ```
 
 Support node (NUC): `nuc/README.md`.

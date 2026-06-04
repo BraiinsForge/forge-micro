@@ -9,52 +9,81 @@ reference-miner where compatibility costs nothing.
 
 | Port | Crate          | Purpose                                                |
 |------|----------------|--------------------------------------------------------|
-| 80   | `ubos-api`     | dashboard SPA, login, REST API                         |
+| 80   | `ubos-webui`   | dashboard SPA, login, logout, logo                     |
+| 8080 | `ubos-api`     | JSON REST API (`/api/*`)                               |
 | 8081 | `ubos-metrics` | Prometheus text-format exposition at `/metrics`        |
 
-Both are discoverable via mDNS (`_http._tcp.local.`,
-`_prometheus._tcp.local.`).
+Discoverable via mDNS: `_http._tcp.local.` (port 80),
+`_ubos._tcp.local.` (port 8080), `_prometheus._tcp.local.` (port 8081).
 
 ## Crate map
 
-| Crate         | Role                                                                  |
-|---------------|-----------------------------------------------------------------------|
-| `ubos-http`   | TCP accept loop, per-connection state machine, `Service` trait        |
-| `ubos-api`    | request routing, auth, CSRF, allow-list, REST handlers, schema types  |
-| `ubos-webui`  | gzipped `index.html` / `login.html` and raw `logo.svg`                |
-| `ubos-mdns`   | DNS-SD responder; per-service registration via `declare_service!`     |
-| `ubos-metrics`| Prometheus exporter task and metric storage                           |
+| Crate          | Role                                                                      |
+|----------------|---------------------------------------------------------------------------|
+| `ubos-http`    | TCP accept loop, per-connection state machine, `Service` trait; generic response helpers (`read_body`, `write_json_response`, `MAX_RESPONSE_HEADERS`) |
+| `ubos-auth`    | shared HTTP middleware: allow-list, auth, sessions, CSRF, CSPRNG          |
+| `ubos-api`     | REST handlers, `REST_API_SERVICE` mDNS entry, schema types                |
+| `ubos-webui`   | gzipped `index.html` / `login.html`, raw `logo.svg`; webui listener; `WEBUI_SERVICE` mDNS entry |
+| `ubos-mdns`    | DNS-SD responder; per-service registration via `declare_service!`         |
+| `ubos-metrics` | Prometheus exporter task and metric storage                               |
 
-`ubos-api::run` (`ubos-api/src/lib.rs:38`, re-exported from
-`dashboard::run`) is the single firmware entry point for port 80;
-`ubos-metrics::run` is the entry point for port 8081.
+`ubos_webui::run` (`ubos-webui/src/dashboard.rs`) is the firmware
+entry point for port 80. `ubos_api::run_rest_api`
+(`ubos-api/src/rest.rs`) is the entry point for port 8080.
+`ubos_metrics::run` (`ubos-metrics/src/metrics.rs`) is the entry point
+for port 8081. The old `ubos-api::run` / `dashboard::run` no longer
+exists as a public name; it moved to `ubos-webui`.
 
 ## Request lifecycle
 
+### Webui listener (port 80)
+
 Every request on port 80 passes through, in order:
 
-1. **IP allow-list** (`ubos-api/src/dashboard.rs:446`). Off-list peers
-   get `401` with body `{"message":"Client not in allowed network range"}`
-   verbatim, before any auth attempt.
-2. **Authentication**. Anonymous routes (`/login`, `/logo.svg`) skip.
-   Everything else requires either `Authorization: Basic …` or a valid
-   `session=` cookie. Failure: `401`, `WWW-Authenticate: Basic realm="ubos"`.
-3. **CSRF** (session-authenticated, state-changing only). `POST`,
+1. **IP allow-list** (`ubos-auth/src/allow_list.rs`). Off-list peers get
+   `401` with body `{"message":"Client not in allowed network range"}`,
+   before any auth attempt.
+2. **Authentication** (`ubos_auth::auth::authenticate`,
+   `ubos-auth/src/auth.rs`). Anonymous routes (`/login`, `/logo.svg`)
+   skip. Everything else requires either `Authorization: Basic …` or a
+   valid `session=` cookie. Failure: `401`,
+   `WWW-Authenticate: Basic realm="ubos"`.
+3. **CSRF** (session-authenticated, state-changing only). `POST` from a
+   session client carrying a prior session cookie must include an
+   `X-CSRF-Token` header matching a token bound to that session. Basic
+   clients are exempt; anonymous `POST /login` (no active session cookie)
+   is exempt. Failure: `403`, `{"message":"CSRF token invalid or missing"}`.
+4. **Routing**. Known paths: `/`, `/login`, `/logout`, `/logo.svg`.
+   Wrong method on a known path → `405`. Unknown path → `404`.
+
+### REST listener (port 8080)
+
+Every request on port 8080 passes through, in order:
+
+1. **IP allow-list** (`ubos-auth/src/allow_list.rs`). Same check as
+   port 80.
+2. **CORS preflight**. `OPTIONS /api/*` is handled before auth so
+   browsers can probe cross-origin before presenting credentials. See
+   the CORS section below for the headers attached.
+3. **Authentication** (`ubos_auth::auth::authenticate`,
+   `ubos-auth/src/auth.rs`). Every route on port 8080 requires auth;
+   there are no anonymous endpoints. Anonymous requests receive `401`
+   with CORS headers attached.
+4. **CSRF** (session-authenticated, state-changing only). `POST`,
    `PATCH`, `DELETE` from a session client must carry an `X-CSRF-Token`
    header matching a token bound to that session. Basic clients are
-   exempt; `GET` and `POST /login` are exempt. Failure: `403`,
-   `{"message":"csrf"}`.
-4. **Routing**. `/api/system/*` is dispatched first (`system::dispatch`),
-   then the legacy table (`/`, `/login`, `/logout`, `/logo.svg`,
-   `/api/info`, `/api/config`). Wrong method on a known path → `405`.
-   Unknown path → `404`.
+   exempt. Failure: `403`,
+   `{"message":"CSRF token invalid or missing"}`.
+5. **Routing**. `/api/system/*` is dispatched first (`system::dispatch`),
+   then `/api/info` and `/api/config`. Wrong method on a known path →
+   `405`. Unknown path → `404`.
 
 ## Endpoints
 
 `Auth` column: **none** = anonymous, **any** = Basic or session,
 **+CSRF** = session also needs `X-CSRF-Token`.
 
-### Pages and legacy API (port 80)
+### Pages (port 80)
 
 | Method | Path           | Auth        | Description                                                       |
 |--------|----------------|-------------|-------------------------------------------------------------------|
@@ -63,13 +92,18 @@ Every request on port 80 passes through, in order:
 | POST   | `/login`       | none        | Form `username=&password=`; sets `session=` cookie on success     |
 | POST   | `/logout`      | session     | Invalidates session, clears cookie                                |
 | GET    | `/logo.svg`    | none        | Braiins wordmark; `Cache-Control: public, max-age=86400`          |
-| GET    | `/api/info`    | any         | Legacy telemetry blob consumed by the SPA poll                    |
-| GET    | `/api/config`  | any         | `{"pool": […]}` from `ubos-config`                                |
-| POST   | `/api/config`  | any +CSRF   | Update pool list; returns `{"ok":true}`                           |
 
 Anonymous `GET /` is rewritten to `302 Found → /login`.
 
-### `/api/system/*` (port 80)
+### REST API (port 8080)
+
+| Method | Path           | Auth        | Description                                                       |
+|--------|----------------|-------------|-------------------------------------------------------------------|
+| GET    | `/api/info`    | any         | Telemetry blob consumed by the SPA poll                           |
+| GET    | `/api/config`  | any         | `{"pool": […]}` from `ubos-config`                                |
+| POST   | `/api/config`  | any +CSRF   | Update pool list; returns `{"ok":true}`                           |
+
+### `/api/system/*` (port 8080)
 
 | Method | Path                              | Auth      | Status | Description                                                              |
 |--------|-----------------------------------|-----------|--------|--------------------------------------------------------------------------|
@@ -90,8 +124,8 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 
 Stubs are wired to the router and return the documented response so
 external clients can integrate against the full surface. Action handlers
-live in `ubos-api/src/system.rs:585-599`; PATCH at
-`ubos-api/src/system.rs:398`.
+live in `ubos-api/src/system.rs` (`handle_action` and `write_ack_response`);
+PATCH lands in `handle_patch_system` in the same file.
 
 ### Metrics (port 8081)
 
@@ -126,7 +160,7 @@ change while pre-1.0.
 ## Authentication
 
 Two paths share a single credential store
-(`pub static CREDENTIALS` at `ubos-api/src/auth.rs:112`, initialised
+(`pub static CREDENTIALS` at `ubos-auth/src/auth.rs:112`, initialised
 to `root` / `root` by `init_credentials`).
 
 **HTTP Basic** — `Authorization: Basic <base64>`. Stateless,
@@ -138,7 +172,7 @@ base64url token in `Set-Cookie: session=<token>; HttpOnly;
 SameSite=Strict; Path=/`. The token is looked up in a fixed
 `FnvIndexMap<_, _, 8>` with 24 h TTL; the oldest entry is evicted on
 overflow so a tab refresh cannot lock out parallel tabs. See
-`ubos-api/src/session.rs`.
+`ubos-auth/src/session.rs`.
 
 Credentials are plaintext, not hashed, and not persisted across reboot.
 `PATCH /api/system` is a stub; the defaults reapply on every boot.
@@ -148,15 +182,37 @@ Credentials are plaintext, not hashed, and not persisted across reboot.
 State-changing requests from session clients carry `X-CSRF-Token`.
 The token is minted on `GET /` (single-use, bound to the issuing
 session, 1 h TTL) and stored in `FnvIndexMap<_, _, 16>` at
-`ubos-api/src/csrf.rs`. Mismatched session id or expired token → `403`.
+`ubos-auth/src/csrf.rs`. Mismatched session id or expired token → `403`.
 
 Basic auth bypasses the check; the `Authorization` header already
 proves identity per request without any ambient browser credentials to
 forge.
 
+## CORS
+
+The REST listener (port 8080) echoes the `Origin` request header as
+`Access-Control-Allow-Origin` and unconditionally appends
+`Access-Control-Allow-Credentials: true` when an `Origin` is present.
+This lets the SPA loaded from port 80 issue cross-origin `fetch` calls
+to port 8080 with the `session=` cookie attached.
+
+Preflight `OPTIONS /api/*` responses additionally carry:
+
+- `Access-Control-Allow-Methods: GET, POST, PATCH, OPTIONS`
+- `Access-Control-Allow-Headers: Authorization, X-CSRF-Token, Content-Type`
+- `Access-Control-Max-Age: 86400`
+
+The IP allow-list is the primary security boundary: only clients on the
+RFC 1918 LAN can reach the REST surface at all. CORS headers on top
+unblock the browser's same-origin restriction for the SPA without
+widening network access.
+
+Machine clients (no `Origin` header) receive no CORS headers; the
+preflight logic is skipped entirely.
+
 ## IP allow-list
 
-Network-level screen applied before auth (`ubos-api/src/allow_list.rs`).
+Network-level screen applied before auth (`ubos-auth/src/allow_list.rs`).
 Default ranges (`DEFAULT_ALLOW_LIST`):
 
 - `10.0.0.0/8`
@@ -174,11 +230,11 @@ that owns the port:
 
 ```rust
 ubos_mdns::declare_service!(
-    pub HTTP_API_SERVICE = ubos_mdns::ServiceEntry {
-        service: "_http",
-        port: 80,
+    pub REST_API_SERVICE = ubos_mdns::ServiceEntry {
+        service: ubos_core::consts::Mdns::UBOS_API_SERVICE,
+        port: ubos_core::consts::Api::PORT,
         txt_keys:   &["path"],
-        txt_values: &["/"],
+        txt_values: &[ubos_core::consts::Mdns::UBOS_API_PATH],
     }
 );
 ```
@@ -190,10 +246,11 @@ pairs per service. No `linkme` is used.
 
 Today the workspace advertises:
 
-| Service        | Port | Declared in                       |
-|----------------|------|-----------------------------------|
-| `_http`        | 80   | `ubos-api/src/lib.rs:19`          |
-| `_prometheus`  | 8081 | `ubos-metrics/src/lib.rs`         |
+| Service        | Port | Declared in                        |
+|----------------|------|------------------------------------|
+| `_http`        | 80   | `ubos-webui/src/lib.rs:24`         |
+| `_ubos`        | 8080 | `ubos-api/src/lib.rs:12`           |
+| `_prometheus`  | 8081 | `ubos-metrics/src/lib.rs:15`       |
 
 Hostnames are composed per-board in each firmware's `config.rs` from
 the `MDNS_HOSTNAME_BASE` const and the last MAC byte.
@@ -211,21 +268,25 @@ via `include_bytes!`; no runtime compression cost.
 
 ## Limits and timeouts
 
-| Constant                          | Value      | Location                          |
-|-----------------------------------|------------|-----------------------------------|
-| `Net::SOCKET_TIMEOUT`             | 10 s       | `ubos-core/src/consts.rs:10`      |
-| `Http::PORT`                      | 80         | `ubos-core/src/consts.rs:16`      |
-| `Http::RX_BUFFER_SIZE`            | 2048 B     | `ubos-core/src/consts.rs:20`      |
-| `Http::TX_BUFFER_SIZE`            | 2048 B     | `ubos-core/src/consts.rs:21`      |
-| `Http::REQUEST_BUFFER_SIZE`       | 2048 B     | `ubos-core/src/consts.rs:25`      |
-| `Metrics::PORT`                   | 8081       | `ubos-core/src/consts.rs:117`     |
-| `Metrics::RESPONSE_BUFFER_SIZE`   | 2048 B     | `ubos-core/src/consts.rs:120`     |
-| `Metrics::MAX_METRICS`            | 64         | `ubos-core/src/consts.rs:132`     |
-| `MAX_SESSIONS`                    | 8          | `ubos-api/src/session.rs:22`      |
-| `SESSION_TTL_SECS`                | 86 400     | `ubos-api/src/session.rs:26`      |
-| `MAX_TOKENS` (CSRF)               | 16         | `ubos-api/src/csrf.rs:32`         |
-| `CSRF_TTL_SECS`                   | 3 600      | `ubos-api/src/csrf.rs:35`         |
-| TCP pool size (both servers)      | 1          | `ubos-http/src/serve.rs`          |
+| Constant                          | Value      | Location                              |
+|-----------------------------------|------------|---------------------------------------|
+| `Net::SOCKET_TIMEOUT`             | 10 s       | `ubos-core/src/consts.rs:10`          |
+| `Http::PORT`                      | 80         | `ubos-core/src/consts.rs:16`          |
+| `Http::RX_BUFFER_SIZE`            | 2048 B     | `ubos-core/src/consts.rs:20`          |
+| `Http::TX_BUFFER_SIZE`            | 2048 B     | `ubos-core/src/consts.rs:21`          |
+| `Http::REQUEST_BUFFER_SIZE`       | 2048 B     | `ubos-core/src/consts.rs:25`          |
+| `Api::PORT`                       | 8080       | `ubos-core/src/consts.rs:35`          |
+| `Api::RX_BUFFER_SIZE`             | 2048 B     | `ubos-core/src/consts.rs:36`          |
+| `Api::TX_BUFFER_SIZE`             | 2048 B     | `ubos-core/src/consts.rs:37`          |
+| `Api::REQUEST_BUFFER_SIZE`        | 2048 B     | `ubos-core/src/consts.rs:38`          |
+| `Metrics::PORT`                   | 8081       | `ubos-core/src/consts.rs:92`          |
+| `Metrics::RESPONSE_BUFFER_SIZE`   | 2048 B     | `ubos-core/src/consts.rs:95`          |
+| `Metrics::MAX_METRICS`            | 64         | `ubos-core/src/consts.rs:107`         |
+| `MAX_SESSIONS`                    | 8          | `ubos-auth/src/session.rs:22`         |
+| `SESSION_TTL_SECS`                | 86 400     | `ubos-auth/src/session.rs:26`         |
+| `MAX_TOKENS` (CSRF)               | 16         | `ubos-auth/src/csrf.rs:32`            |
+| `CSRF_TTL_SECS`                   | 3 600      | `ubos-auth/src/csrf.rs:35`            |
+| TCP pool size (both servers)      | 1          | `ubos-http/src/serve.rs`              |
 
 Each server accepts one connection at a time. Concurrent scrapers or
 browser tabs serialize on the accept loop; this matches the firmware's

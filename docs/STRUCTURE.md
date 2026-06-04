@@ -54,15 +54,22 @@ and supervises the thermal/cooling/mining handles via watch channels;
 hardware and protocol crates sit beside the chain without participating
 in it.
 
+`ubos-auth` depends on `ubos-logging` only and holds the shared HTTP
+middleware (allow-list, auth, sessions, CSRF, CSPRNG). Both listener
+crates `ubos-webui` (port 80) and `ubos-api` (port 8080) depend on
+`ubos-auth`, `ubos-http`, `ubos-mdns`, and `ubos-net`; neither depends
+on the other.
+
 | Crate              | Purpose                                            |
 |--------------------|----------------------------------------------------|
 | `ubos-core`        | shared constants, watchdog feed loop, status LED, typed units |
 | `ubos-config`      | runtime `Config` watch, `ConfigHandle`, flash-backed `sequential-storage` persistence |
 | `ubos-manager`     | supervisor crate: routes `Message::Halt`/`Resume` to mining/cooling/thermal handles |
 | `ubos-net`         | DHCP, NTP sync, BTC fetch; owns the cross-board atomics (IP, BTC price, NTP offset, request count) and `wall_clock_secs` |
-| `ubos-http`        | HTTP/1.0 transport primitives: TCP accept loop, request parser, `Service` trait |
-| `ubos-api`         | REST handlers, auth, CSRF, IP allow-list, schema types; serves the dashboard SPA |
-| `ubos-webui`       | bundled web assets: gzipped `index.html` and `login.html`, raw `logo.svg` |
+| `ubos-http`        | HTTP/1.0 transport primitives: TCP accept loop, request parser, `Service` trait; generic response helpers (`read_body`, `write_json_response`, `MAX_RESPONSE_HEADERS`) |
+| `ubos-auth`        | shared HTTP middleware: IP allow-list, credential store, session table, CSRF tokens, CSPRNG |
+| `ubos-api`         | REST handlers, `REST_API_SERVICE` mDNS entry, schema types; serves `/api/*` on port 8080 |
+| `ubos-webui`       | gzipped `index.html` and `login.html`, raw `logo.svg`; webui listener (`run`) and `WEBUI_SERVICE` mDNS entry on port 80 |
 | `ubos-mdns`        | DNS-SD responder; per-service `declare_service!` macro composed by firmware |
 | `ubos-metrics`     | Prometheus exporter task, hashrate EWMA, CPU-load gauge, shared metric map |
 | `ubos-display`     | SH1106 OLED driver and render task                 |
@@ -176,12 +183,13 @@ the `cargo size` recipe below.
 | esp32s3   | 622 / 8192 KiB | ~249 / 320 KiB DRAM | — | comfortable                                    |
 
 The stm32f4 firmwares ship per-board `memory.x` declaring the 64 KiB
-Core-Coupled Memory region embassy-stm32 leaves unused. `ubos-metrics`
-and `ubos-api` expose a `ccmram-bss` cargo feature that places non-DMA
-static state (metric map, HTTP scratch buffers, credential / session /
-CSRF / CSPRNG tables) in `.ccmram.bss`. Only stm32f407 and stm32f439
-enable the feature; on every other board the `link_section`
-annotations are no-ops. New CCM-eligible statics should carry:
+Core-Coupled Memory region embassy-stm32 leaves unused. `ubos-metrics`,
+`ubos-auth`, `ubos-api`, and `ubos-webui` expose a `ccmram-bss` cargo
+feature that places non-DMA static state (metric map, HTTP scratch
+buffers, credential / session / CSRF / CSPRNG tables) in
+`.ccmram.bss`. Only stm32f407 and stm32f439 enable the feature; on
+every other board the `link_section` annotations are no-ops. New
+CCM-eligible statics should carry:
 
 ```rust
 #[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
