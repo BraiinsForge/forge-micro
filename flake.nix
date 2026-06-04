@@ -42,7 +42,7 @@
       deploy-rs,
     }@inputs:
     let
-      nucHost = "redacted50.69";
+      nucHost = "nuc.nb.redacted";
       probeRsHost = "ws://${nucHost}:8080";
       probeRsToken = "redacted";
 
