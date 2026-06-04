@@ -19,7 +19,7 @@ pub mod serve;
 pub use buffer::BufferWriter;
 pub use core::net::IpAddr;
 pub use response::{
-    format_content_length, write_status_only, CONTENT_LENGTH_DECIMAL_DIGITS,
-    MAX_EXTRA_STATUS_HEADERS,
+    format_content_length, read_body, write_json_response, write_status_only,
+    CONTENT_LENGTH_DECIMAL_DIGITS, MAX_EXTRA_STATUS_HEADERS, MAX_RESPONSE_HEADERS,
 };
 pub use serve::{serve, Service};

@@ -22,12 +22,56 @@ use ubos_manager::Handle as ManagerHandle;
 use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, REQUEST_COUNT};
 use ubos_thermal::Handle as ThermalHandle;
 
-use ubos_http::{write_status_only, Service, CONTENT_LENGTH_DECIMAL_DIGITS};
-
-use crate::dashboard::{
-    read_body, validate_board_name, write_json_response, API_INFO_BODY_BUFFER_SIZE,
-    BODY_READ_BUFFER_SIZE, CONFIG_ACK_BODY, CONFIG_RESPONSE_BUFFER_SIZE, MAX_RESPONSE_HEADERS,
+use ubos_http::{
+    read_body, write_json_response, write_status_only, Service, CONTENT_LENGTH_DECIMAL_DIGITS,
+    MAX_RESPONSE_HEADERS,
 };
+
+/// Body buffer size for JSON responses built by `/api/info`.
+///
+/// The largest `/api/info` JSON body with all fields populated is
+/// roughly 200 bytes (name≤32 + numeric fields + 16-byte IPv4 + 16-byte
+/// time string + JSON framing). 512 bytes leaves room for future field
+/// additions while staying on the stack.
+const API_INFO_BODY_BUFFER_SIZE: usize = 512;
+
+/// Body buffer for the POST /api/config acknowledgement.
+const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
+
+/// Body buffer size for `GET /api/config` responses.
+///
+/// Each [`ubos_config::PoolEntry`] serialises to at most ~460 bytes
+/// (three 128-byte heapless strings plus JSON framing); three entries
+/// plus the outer `{"pool":[…]}` wrapper fit inside 1.5 KiB with margin.
+const CONFIG_RESPONSE_BUFFER_SIZE: usize = 1536;
+
+/// Buffer for reading POST/PATCH request bodies.
+///
+/// Sized to `Api::REQUEST_BUFFER_SIZE` so a config payload fits in one
+/// allocation. Requests that exceed this cap receive a 413 response.
+const BODY_READ_BUFFER_SIZE: usize = Api::REQUEST_BUFFER_SIZE;
+
+/// Validate that a board name string contains no JSON-unsafe characters.
+///
+/// Returns `true` when `name` contains no `"` (0x22) or `\` (0x5c)
+/// bytes. Any such byte would break the unescaped JSON string literal
+/// in the `/api/info` response body, so callers that inject board names
+/// into JSON must enforce this invariant at compile time.
+const fn validate_board_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == 0x22 || bytes[index] == 0x5c {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+#[cfg(test)]
+#[path = "tests/rest.rs"]
+mod tests;
 
 /// REST API handler implementing `ubos_http::Service`.
 ///
@@ -452,7 +496,7 @@ static REST_WORK_BUFFER: ConstStaticCell<[u8; Api::REQUEST_BUFFER_SIZE]> =
 /// Accept connections on `Api::PORT` (8080) and serve the REST API.
 ///
 /// Runs forever. A second call to `ubos_auth::auth::init_credentials`
-/// is a no-op when the dashboard listener has already populated the
+/// is a no-op when the webui listener has already populated the
 /// store.
 pub async fn run_rest_api(
     stack: Stack<'static>,
@@ -460,8 +504,8 @@ pub async fn run_rest_api(
     thermal: ThermalHandle,
     manager: ManagerHandle,
 ) -> ! {
-    // Credential store init also happens in dashboard::run; this is a
-    // no-op when already populated (init_credentials is idempotent).
+    // Credential store init also happens in `ubos_webui::dashboard::run`;
+    // this is a no-op when already populated (init_credentials is idempotent).
     ubos_auth::auth::init_credentials().await;
     ubos_http::serve(
         stack,

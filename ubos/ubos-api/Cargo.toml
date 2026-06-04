@@ -45,9 +45,7 @@ ubos-mining       = { workspace = true, default-features = false }
 ubos-manager      = { workspace = true, default-features = false }
 ubos-net          = { workspace = true, default-features = false }
 ubos-thermal      = { workspace = true, default-features = false }
-ubos-webui        = { workspace = true, default-features = false }
 
 [dev-dependencies]
 critical-section  = { version = "1.2", features = ["std"] }
 embassy-futures   = { workspace = true }
-flate2            = { version = "1", default-features = false, features = ["rust_backend"] }

@@ -1,10 +1,8 @@
-//! Bundled web UI assets served by `ubos-api`.
+//! Web-UI listener on port 80.
 //!
-//! Owns the dashboard's HTML source, the wordmark SVG, and the
-//! `build.rs` step that gzip-compresses the HTML at compile time
-//! so the firmware ships the page with `Content-Encoding: gzip`.
-//! Consumers receive the byte slices as `pub const`s and embed them
-//! into HTTP responses; this crate has no runtime code.
+//! Owns the dashboard SPA HTML, login form, and logout handler. The
+//! REST API surface (`/api/*`) lives in `ubos-api` on port 8080. mDNS
+//! announces `_http._tcp` on port 80 via `WEBUI_SERVICE`.
 #![no_std]
 
 /// Gzipped dashboard payload produced from `src/index.html` by
@@ -22,3 +20,36 @@ pub const LOGIN_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login
 
 /// Braiins wordmark SVG served at `/logo.svg`.
 pub const LOGO_SVG: &[u8] = include_bytes!("logo.svg");
+
+ubos_mdns::declare_service!(
+    pub WEBUI_SERVICE = ubos_mdns::ServiceEntry {
+        service: ubos_core::consts::Mdns::HTTP_SERVICE,
+        port: ubos_core::consts::Http::PORT,
+        txt_keys: &["path"],
+        txt_values: &[ubos_core::consts::Mdns::HTTP_PATH],
+    }
+);
+
+pub mod dashboard;
+pub use dashboard::run;
+
+#[cfg(test)]
+mod test_time_stubs {
+    // `ubos_auth::session` and `ubos_auth::csrf` call
+    // `embassy_time::Instant::now()` transitively via `dashboard::run`.
+    // `embassy-time-driver` declares the hook as `extern "Rust"`; no
+    // hardware driver is linked into the host test binary, so satisfy
+    // the linker with stubs that return a fixed tick of zero.
+    #[allow(clippy::no_mangle_with_rust_abi)]
+    #[unsafe(no_mangle)]
+    fn _embassy_time_now() -> u64 {
+        0
+    }
+
+    #[allow(clippy::no_mangle_with_rust_abi)]
+    #[unsafe(no_mangle)]
+    fn _embassy_time_schedule_wake(_at: u64, _waker: &core::task::Waker) {
+        // No scheduler in the host binary; test paths do not block on
+        // timers so leaving this empty is safe.
+    }
+}

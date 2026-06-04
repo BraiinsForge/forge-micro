@@ -22,9 +22,15 @@
 //! past the zero-sized `PhantomData` field and starts at zero) and the
 //! `Mutex<_, FnvIndexMap<_>>`
 //! / `Mutex<_, Option<_>>` wrappers used by `ubos-api` (the inner
-//! atomic state's zero value means "unlocked"). Anything not on this
-//! list MUST be audited before it gains `link_section = ".ccmram.bss"`,
-//! since the compiler will not catch a mismatch.
+//! atomic state's zero value means "unlocked"), and the
+//! `edge_nal_embassy::Pool<T, N>` (aliased as `TcpBuffers`) used by the
+//! REST and webui listeners (`used: [Cell<bool>; N]` is `false` at zero
+//! and `data: [UnsafeCell<MaybeUninit<T>>; N]` stays uninhabited until
+//! the pool hands out a slot, so the all-zero image is the same valid
+//! "empty pool" state that `Pool::new()` constructs). Anything not on
+//! this list MUST be audited before it gains
+//! `link_section = ".ccmram.bss"`, since the compiler will not catch a
+//! mismatch.
 //!
 //! The Rust language does not guarantee that `Option<T>::None` is
 //! represented as all-zero bytes for an arbitrary `T`; that depends on

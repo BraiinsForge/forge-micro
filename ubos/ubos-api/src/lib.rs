@@ -1,30 +1,13 @@
-//! HTTP API surface for the firmware web UI and external clients.
+//! REST API listener on port 8080 for the firmware.
 //!
-//! This crate owns the request handlers; transport primitives live in
-//! `ubos-http`. It serves the dashboard's four legacy endpoints (`/`,
-//! `/logo.svg`, `/api/info`, `/api/config`) and the reference-miner-shaped
-//! read endpoints under `/api/system/*`. The system endpoints are
-//! dispatched by `system::dispatch` before the legacy match so the
-//! SPA's existing `/api/info` poll keeps working unchanged.
+//! Serves the `/api/*` surface and the reference-miner-shaped read endpoints
+//! under `/api/system/*`. The web-UI shell on port 80 lives in
+//! `ubos-webui`. Transport primitives live in `ubos-http`.
 //!
-//! Only `/`, `/login`, `/logout`, and `/logo.svg` are anonymous; every
-//! `/api/*` endpoint (including `/api/info` and `/api/config`) requires
-//! a valid session cookie or `Authorization: Basic` header.
-//!
-//! `HTTP_API_SERVICE` is the mDNS advertisement for the HTTP dashboard
-//! endpoint; `REST_API_SERVICE` advertises the REST listener on port
-//! 8080. Firmware includes both in the service list passed to
+//! `REST_API_SERVICE` advertises the REST listener on port 8080 via
+//! mDNS. Firmware includes it in the service list passed to
 //! [`ubos_mdns::run_mdns`].
 #![no_std]
-
-ubos_mdns::declare_service!(
-    pub HTTP_API_SERVICE = ubos_mdns::ServiceEntry {
-        service: ubos_core::consts::Mdns::HTTP_SERVICE,
-        port: ubos_core::consts::Http::PORT,
-        txt_keys: &["path"],
-        txt_values: &[ubos_core::consts::Mdns::HTTP_PATH],
-    }
-);
 
 ubos_mdns::declare_service!(
     pub REST_API_SERVICE = ubos_mdns::ServiceEntry {
@@ -35,10 +18,29 @@ ubos_mdns::declare_service!(
     }
 );
 
-pub mod dashboard;
 pub mod rest;
 pub mod schema;
 pub mod system;
 
-pub use dashboard::run;
 pub use rest::run_rest_api;
+
+#[cfg(test)]
+mod test_time_stubs {
+    // `rest` and `system` call `embassy_time::Instant::now()` directly,
+    // and `ubos_auth` does so transitively from this crate's tests.
+    // `embassy-time-driver` declares the hook as `extern "Rust"`; no
+    // hardware driver is linked into the host test binary, so satisfy
+    // the linker with stubs that return a fixed tick of zero.
+    #[allow(clippy::no_mangle_with_rust_abi)]
+    #[unsafe(no_mangle)]
+    fn _embassy_time_now() -> u64 {
+        0
+    }
+
+    #[allow(clippy::no_mangle_with_rust_abi)]
+    #[unsafe(no_mangle)]
+    fn _embassy_time_schedule_wake(_at: u64, _waker: &core::task::Waker) {
+        // No scheduler in the host binary; test paths do not block on
+        // timers so leaving this empty is safe.
+    }
+}

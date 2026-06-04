@@ -908,6 +908,13 @@
             cargoExtraArgs = "-p ubos-api";
           };
 
+          test-ubos-webui = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p ubos-webui";
+            doInstallCargoArtifacts = false;
+          };
+
           test-ubos-auth = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = hostArtifacts;

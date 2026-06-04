@@ -17,6 +17,7 @@ edge-nal-embassy  = { workspace = true, features = ["tcp", "proto-ipv4", "medium
 embassy-net       = { workspace = true, features = ["tcp", "medium-ethernet", "proto-ipv4"] }
 embassy-time      = { workspace = true }
 embedded-io-async = { workspace = true }
+heapless          = { workspace = true }
 defmt             = { workspace = true, optional = true }
 ubos-core         = { workspace = true }
 ubos-logging      = { workspace = true }

@@ -32,68 +32,24 @@ use portable_atomic::Ordering;
 use static_cell::ConstStaticCell;
 use ubos_core::consts::Http;
 use ubos_logging::warn;
-use ubos_manager::Handle as ManagerHandle;
 use ubos_net::net::REQUEST_COUNT;
-use ubos_thermal::Handle as ThermalHandle;
-use ubos_webui::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG};
 
-use ubos_http::{format_content_length, write_status_only, Service, CONTENT_LENGTH_DECIMAL_DIGITS};
+use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG};
+use ubos_http::{
+    format_content_length, read_body, write_status_only, Service, CONTENT_LENGTH_DECIMAL_DIGITS,
+    MAX_RESPONSE_HEADERS,
+};
 
 #[cfg(test)]
 #[path = "tests/dashboard.rs"]
 mod tests;
-
-/// Maximum number of response headers built per request.
-///
-/// Most responses use 4 headers (Content-Type, Cache-Control,
-/// Connection, Content-Length). Session responses need an additional
-/// Set-Cookie or X-CSRF-Token header. Eight slots cover the worst-case
-/// header count (4 fixed + 1 encoding + 1 extra = 6) with two slots to
-/// spare.
-pub(crate) const MAX_RESPONSE_HEADERS: usize = 8;
-
-/// Body buffer size for JSON responses built by `/api/info`.
-///
-/// The largest `/api/info` JSON body with all fields populated is
-/// roughly 200 bytes (name≤32 + numeric fields + 16-byte IPv4 + 16-byte
-/// time string + JSON framing). 512 bytes leaves room for future field
-/// additions while staying on the stack.
-pub(crate) const API_INFO_BODY_BUFFER_SIZE: usize = 512;
-
-/// Body buffer for the POST /api/config acknowledgement.
-pub(crate) const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
-
-/// Body buffer size for `GET /api/config` responses.
-///
-/// Each [`ubos_config::PoolEntry`] serialises to at most ~460 bytes
-/// (three 128-byte heapless strings plus JSON framing); three entries
-/// plus the outer `{"pool":[…]}` wrapper fit inside 1.5 KiB with margin.
-pub(crate) const CONFIG_RESPONSE_BUFFER_SIZE: usize = 1536;
 
 /// Buffer for reading POST/PATCH request bodies.
 ///
 /// Sized to `Http::REQUEST_BUFFER_SIZE` so a login form or config
 /// payload fits in one allocation. Requests that exceed this cap
 /// receive a 413 response.
-pub(crate) const BODY_READ_BUFFER_SIZE: usize = Http::REQUEST_BUFFER_SIZE;
-
-/// Validate that a board name string contains no JSON-unsafe characters.
-///
-/// Returns `true` when `name` contains no `"` (0x22) or `\` (0x5c)
-/// bytes. Any such byte would break the unescaped JSON string literal
-/// in the `/api/info` response body, so callers that inject board names
-/// into JSON must enforce this invariant at compile time.
-pub(crate) const fn validate_board_name(name: &str) -> bool {
-    let bytes = name.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == 0x22 || bytes[index] == 0x5c {
-            return false;
-        }
-        index += 1;
-    }
-    true
-}
+const BODY_READ_BUFFER_SIZE: usize = Http::REQUEST_BUFFER_SIZE;
 
 /// Write a 302 redirect response to `location`.
 async fn write_redirect<T, const N: usize>(
@@ -163,7 +119,7 @@ where
 /// for gzip assets and `None` for plain assets.
 /// `extra_headers` may carry additional headers such as `X-CSRF-Token`.
 /// `body` is the raw asset bytes.
-pub(crate) async fn write_asset<T, const N: usize>(
+async fn write_asset<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     content_type: &str,
     cache_control: &str,
@@ -177,11 +133,11 @@ where
     let mut length_buffer = [0u8; CONTENT_LENGTH_DECIMAL_DIGITS];
     let content_length = format_content_length(&mut length_buffer, body.len());
 
-    // Assemble headers into a small stack array. The maximum is
+    // Assemble headers on the stack. The capacity is
     // MAX_RESPONSE_HEADERS; each push is infallible within that budget
-    // because the slots used here are counted statically (4 fixed +
-    // 1 optional encoding + extra_headers ≤ 2, totalling at most 6,
-    // well within the 8-slot cap).
+    // because the slots used here are counted statically: 4 fixed plus
+    // 1 optional encoding plus extra_headers up to 2, totalling at most
+    // 6, within the 8-slot cap.
     let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
     headers
         .push(("Content-Type", content_type))
@@ -215,113 +171,6 @@ where
     Ok(())
 }
 
-/// Write a JSON response with `body` bytes and optional extra headers.
-///
-/// The REST listener attaches CORS headers via `extra_headers`; pass
-/// `&[]` to send only the four fixed headers. The total must not
-/// exceed `MAX_RESPONSE_HEADERS`.
-pub(crate) async fn write_json_response<T, const N: usize>(
-    connection: &mut Connection<'_, T, N>,
-    body: &[u8],
-    extra_headers: &[(&str, &str)],
-) -> Result<(), HttpError<T::Error>>
-where
-    T: Read + Write + TcpSplit,
-{
-    let mut length_buffer = [0u8; CONTENT_LENGTH_DECIMAL_DIGITS];
-    let content_length = format_content_length(&mut length_buffer, body.len());
-
-    let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
-    headers
-        .push(("Content-Type", "application/json"))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Cache-Control", "no-store"))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Connection", "close"))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Content-Length", content_length))
-        .expect("BUG: response header vec sized for max headers");
-    for &header in extra_headers {
-        headers
-            .push(header)
-            .expect("BUG: response header vec sized for max headers");
-    }
-
-    connection
-        .initiate_response(200, Some("OK"), &headers)
-        .await?;
-
-    embedded_io_async::Write::write_all(connection, body).await?;
-
-    Ok(())
-}
-
-/// Read up to `BODY_READ_BUFFER_SIZE` bytes of request body via the
-/// `Connection::Read` impl.
-///
-/// Called from both the dashboard and REST listeners.
-///
-/// Reads up to `content_length` bytes when provided, or until the
-/// connection signals EOF otherwise. Returns the filled prefix of
-/// `buffer` on success. Returns `None` when the declared
-/// `content_length` exceeds the buffer or the read fails; the caller
-/// should send a 413.
-///
-/// When `content_length` is absent (chunked or close-delimited
-/// transfer), the read fills the buffer at most, then attempts a
-/// one-byte overflow probe. If the probe reads a byte, the body
-/// exceeded the buffer and the function returns `None` so the caller
-/// can send a 413 rather than silently truncating the body.
-pub(crate) async fn read_body<'buf, T, const N: usize>(
-    connection: &mut Connection<'_, T, N>,
-    buffer: &'buf mut [u8],
-    content_length: Option<u64>,
-) -> Option<&'buf [u8]>
-where
-    T: Read + Write + TcpSplit,
-{
-    let length_declared = match content_length {
-        Some(declared) => {
-            // On 32-bit targets a u64 Content-Length above usize::MAX
-            // saturates to usize::MAX; that value still exceeds any
-            // realistic buffer, so the body-too-large branch fires
-            // unchanged and the response becomes a 413.
-            let declared = usize::try_from(declared).unwrap_or(usize::MAX);
-            if declared > buffer.len() {
-                return None;
-            }
-            Some(declared)
-        }
-        None => None,
-    };
-
-    let want = length_declared.unwrap_or(buffer.len());
-    let mut total = 0usize;
-    while total < want {
-        match embedded_io_async::Read::read(connection, &mut buffer[total..want]).await {
-            Ok(0) => break,
-            Ok(read) => total += read,
-            Err(_) => return None,
-        }
-    }
-
-    // When no Content-Length was declared, probe for one more byte. Any
-    // returned byte means the body was larger than the buffer, so return
-    // None to trigger a 413 at the call site. This prevents silent
-    // truncation of chunked or close-delimited bodies.
-    if length_declared.is_none() && total == buffer.len() {
-        let mut overflow_probe = [0u8; 1];
-        if let Ok(1) = embedded_io_async::Read::read(connection, &mut overflow_probe).await {
-            return None;
-        }
-    }
-
-    Some(&buffer[..total])
-}
-
 /// Decoded form-field length cap. Larger inputs are rejected.
 const FORM_FIELD_MAX_LEN: usize = 64;
 
@@ -332,7 +181,7 @@ const FORM_FIELD_MAX_LEN: usize = 64;
 /// decoded value exceeds [`FORM_FIELD_MAX_LEN`], or the value contains
 /// malformed `%`-escapes or non-UTF-8 bytes. `+` is decoded as a space
 /// per `application/x-www-form-urlencoded`.
-pub(crate) fn form_field(body: &str, key: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
+fn form_field(body: &str, key: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
     // Build "key=" prefix to search for.
     let mut prefix = heapless::String::<64>::new();
     prefix.push_str(key).ok()?;
@@ -361,7 +210,7 @@ pub(crate) fn form_field(body: &str, key: &str) -> Option<heapless::String<FORM_
 /// Decode a `application/x-www-form-urlencoded` value into a bounded
 /// string. Returns `None` on malformed `%`-escapes, non-UTF-8 output, or
 /// overflow past [`FORM_FIELD_MAX_LEN`].
-pub(crate) fn percent_decode(input: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
+fn percent_decode(input: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
     let mut buffer = [0u8; FORM_FIELD_MAX_LEN];
     let mut written = 0usize;
     let bytes = input.as_bytes();
@@ -402,6 +251,7 @@ pub(crate) fn percent_decode(input: &str) -> Option<heapless::String<FORM_FIELD_
     Some(result)
 }
 
+#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
 static HTTP_TCP_BUFFERS: ConstStaticCell<
     edge_nal_embassy::TcpBuffers<1, { Http::TX_BUFFER_SIZE }, { Http::RX_BUFFER_SIZE }>,
 > = ConstStaticCell::new(edge_nal_embassy::TcpBuffers::new());
@@ -598,9 +448,12 @@ impl Service for DashboardService {
         match (method, path) {
             ("GET", "/") => {
                 match auth_ctx {
-                    ubos_auth::auth::AuthCtx::Anonymous => write_redirect(connection, "/login").await,
+                    ubos_auth::auth::AuthCtx::Anonymous => {
+                        write_redirect(connection, "/login").await
+                    }
                     ubos_auth::auth::AuthCtx::Session(ref session_id) => {
-                        let csrf_token = ubos_auth::csrf::issue_csrf_token(session_id.as_str()).await;
+                        let csrf_token =
+                            ubos_auth::csrf::issue_csrf_token(session_id.as_str()).await;
                         let csrf_header_value = csrf_token.as_str();
                         write_asset(
                             connection,
@@ -724,24 +577,14 @@ impl Service for DashboardService {
     }
 }
 
-/// Accept HTTP connections and serve the dashboard. Runs forever.
+/// Accept HTTP connections and serve the web-UI shell. Runs forever.
 ///
 /// Routes `GET /` to the inlined HTML dashboard, `GET /login`/`POST
 /// /login`/`POST /logout` to the session flow, and `GET /logo.svg` to
 /// the cacheable Braiins wordmark. Wrong-method requests on known
 /// paths return 405. Anything else gets a 404. The transport loop
 /// lives in `ubos-http`.
-///
-/// `_board_name`, `_thermal`, and `_manager` are unused by the web-UI
-/// shell; the parameters remain in the signature until the listener
-/// moves to `ubos-webui` so existing call sites in firmware continue
-/// to compile across the strip commit.
-pub async fn run(
-    stack: Stack<'static>,
-    _board_name: &'static str,
-    _thermal: ThermalHandle,
-    _manager: ManagerHandle,
-) -> ! {
+pub async fn run(stack: Stack<'static>) -> ! {
     // Populate the credential store before the accept loop so the very
     // first request finds the defaults in place and the operator sees
     // the default-credentials warning at boot rather than on first
