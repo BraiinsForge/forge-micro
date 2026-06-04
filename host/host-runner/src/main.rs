@@ -108,7 +108,8 @@ async fn metrics_task(stack: Stack<'static>) -> ! {
 }
 
 const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
-    &ubos_api::HTTP_API_SERVICE,
+    &ubos_webui::WEBUI_SERVICE,
+    &ubos_api::REST_API_SERVICE,
     &ubos_metrics::PROMETHEUS_SERVICE,
 ];
 
@@ -120,12 +121,17 @@ async fn mdns_task(stack: Stack<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn http_server_task(
+async fn rest_api_task(
     stack: Stack<'static>,
     thermal: ThermalHandle,
     manager: ManagerHandle,
 ) -> ! {
-    ubos_api::run(stack, BOARD_NAME, thermal, manager).await
+    ubos_api::run_rest_api(stack, BOARD_NAME, thermal, manager).await
+}
+
+#[embassy_executor::task]
+async fn webui_task(stack: Stack<'static>) -> ! {
+    ubos_webui::run(stack).await
 }
 
 #[embassy_executor::task]
@@ -342,9 +348,10 @@ fn main() {
         OsRng.fill_bytes(&mut csprng_seed);
         embassy_futures::block_on(ubos_auth::csprng::seed_csprng(csprng_seed));
         spawner.spawn(
-            http_server_task(stack, thermal, manager_handle)
-                .expect("BUG: http_server_task token"),
+            rest_api_task(stack, thermal, manager_handle)
+                .expect("BUG: rest_api_task token"),
         );
+        spawner.spawn(webui_task(stack).expect("BUG: webui_task token"));
         match fan::FanHwmonController::open() {
             Some(controller) => match temperature::HashboardTemperature::open() {
                 Some(sensor) => {

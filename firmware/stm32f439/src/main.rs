@@ -183,7 +183,8 @@ async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
 }
 
 const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
-    &ubos_api::HTTP_API_SERVICE,
+    &ubos_webui::WEBUI_SERVICE,
+    &ubos_api::REST_API_SERVICE,
     &ubos_metrics::PROMETHEUS_SERVICE,
 ];
 
@@ -272,6 +273,15 @@ type OledDisplay = Sh1106<
 #[embassy_executor::task]
 async fn display_task(mut display: OledDisplay) -> ! {
     ubos_display::display::run(&mut display).await
+}
+
+#[embassy_executor::task]
+async fn rest_api_task(
+    stack: embassy_net::Stack<'static>,
+    thermal: ThermalHandle,
+    manager: ManagerHandle,
+) -> ! {
+    ubos_api::run_rest_api(stack, config::Board::NAME, thermal, manager).await
 }
 
 #[embassy_executor::task]
@@ -641,5 +651,6 @@ async fn boot(spawner: Spawner) {
 
     spawner.spawn(unwrap!(stratum_client_task(stack, sv2_prng)));
 
-    ubos_api::run(stack, config::Board::NAME, thermal, manager_handle).await;
+    spawner.spawn(unwrap!(rest_api_task(stack, thermal, manager_handle)));
+    ubos_webui::run(stack).await;
 }
