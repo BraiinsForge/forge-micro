@@ -97,6 +97,10 @@ main{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px;max-widt
 <div class="card"><div class="k">Uptime</div><div id="up" class="v">–</div></div>
 <div class="card"><div class="k">Fan speed</div><div id="fs" class="v">–</div></div>
 <div class="card"><div class="k">Fan PWM</div><div id="fp" class="v">–</div></div>
+<div class="card"><div class="k">Power in</div><div id="pwrIn" class="v">–</div></div>
+<div class="card"><div class="k">Power out</div><div id="pwrOut" class="v">–</div></div>
+<div class="card"><div class="k">Voltage set</div><div id="vSet" class="v">–</div></div>
+<div class="card"><div class="k">Voltage measured</div><div id="vMeas" class="v">–</div></div>
 </aside>
 </main>
 <section class="cfg hide" id="cfg">
@@ -157,6 +161,14 @@ async function tick(){
   $('up').textContent=fmtUp(d.uptime);
   $('fs').textContent=d.fan_rpm?d.fan_rpm+' RPM':'–';
   $('fp').textContent=d.fan_pwm?d.fan_pwm+' %':'–';
+  // Zero reads render as '–' to match the fan tiles: the cold-boot
+  // window before the first PSU sample is indistinguishable from a
+  // genuine 0 mW / 0 mV reading, and treating both as "no data"
+  // avoids a misleading 0.0 W flash during boot.
+  $('pwrIn').textContent=d.power_in_mw?(d.power_in_mw/1000).toFixed(1)+' W':'–';
+  $('pwrOut').textContent=d.power_out_mw?(d.power_out_mw/1000).toFixed(1)+' W':'–';
+  $('vSet').textContent=d.voltage_set_mv?(d.voltage_set_mv/1000).toFixed(3)+' V':'–';
+  $('vMeas').textContent=d.voltage_measured_mv?(d.voltage_measured_mv/1000).toFixed(3)+' V':'–';
   const pm=d.pools|0;
   for(let i=0;i<3;i++){const el=$('po'+(i+1)),a=(pm>>i)&1;el.classList.toggle('live',!!a);el.querySelector('.pt').textContent=a?'Alive':'Dead'}
   hrBuf.shift();hrBuf.push(d.hashrate);
