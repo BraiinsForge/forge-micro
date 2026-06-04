@@ -31,13 +31,12 @@ use heapless::Vec;
 use portable_atomic::Ordering;
 use static_cell::ConstStaticCell;
 use ubos_core::consts::Http;
-use ubos_logging::warn;
 use ubos_net::net::REQUEST_COUNT;
 
 use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG};
 use ubos_http::{
-    format_content_length, read_body, write_status_only, Service, CONTENT_LENGTH_DECIMAL_DIGITS,
-    MAX_RESPONSE_HEADERS,
+    extract_request_parts, format_content_length, read_body, write_status_only, RequestParts,
+    Service, CONTENT_LENGTH_DECIMAL_DIGITS, MAX_RESPONSE_HEADERS,
 };
 
 #[cfg(test)]
@@ -299,59 +298,15 @@ impl Service for DashboardService {
             .await;
         }
 
-        // Extract all header values we need into owned stack locals
-        // before any mutation of the connection. The headers borrow
-        // `connection` immutably; copying values out into owned strings
-        // releases that borrow so `read_body` can take a mutable borrow
-        // for the body read later.
-        let (method_buf, path_buf, authorization_buf, cookie_buf, csrf_buf, content_length) = {
-            let headers = connection
-                .headers()
-                .map_err(|_| edge_http::io::Error::InvalidState)?;
-
-            // `Method::as_str` is private; use the `Display` impl.
-            let mut method = heapless::String::<16>::new();
-            let _ = core::write!(method, "{}", headers.method);
-
-            let mut path = heapless::String::<128>::new();
-            // Paths longer than the buffer are left empty so the route
-            // match below falls through to 404 instead of being silently
-            // remapped to a valid route.
-            if headers.path.len() <= 128 {
-                let _ = path.push_str(headers.path);
-            }
-
-            let authorization: Option<heapless::String<128>> =
-                headers.headers.get("Authorization").and_then(|value| {
-                    let mut owned = heapless::String::<128>::new();
-                    if owned.push_str(value).is_err() {
-                        warn!("Authorization header truncated, treating as missing");
-                        return None;
-                    }
-                    Some(owned)
-                });
-
-            let cookie: Option<heapless::String<256>> =
-                headers.headers.get("Cookie").and_then(|value| {
-                    let mut owned = heapless::String::<256>::new();
-                    if owned.push_str(value).is_err() {
-                        warn!("Cookie header truncated, treating as missing");
-                        return None;
-                    }
-                    Some(owned)
-                });
-
-            let csrf: Option<heapless::String<64>> =
-                headers.headers.get("X-CSRF-Token").and_then(|value| {
-                    let mut owned = heapless::String::<64>::new();
-                    owned.push_str(value).ok()?;
-                    Some(owned)
-                });
-
-            let content_length = headers.headers.content_len();
-
-            (method, path, authorization, cookie, csrf, content_length)
-        };
+        let RequestParts {
+            method: method_buf,
+            path: path_buf,
+            authorization: authorization_buf,
+            cookie: cookie_buf,
+            csrf: csrf_buf,
+            content_length,
+            ..
+        } = extract_request_parts(connection)?;
 
         let method = method_buf.as_str();
         let path = path_buf.as_str();
