@@ -8,6 +8,9 @@
 //!   cross-origin fetches against the REST listener. Hash-routed SPA
 //!   with a top nav bar, a dual-axis hashrate/temperature chart, a
 //!   right-side telemetry panel, and a configuration form view.
+//! - `HEAD /` mirrors `GET /` but returns no body. The dashboard
+//!   uses it to refresh the single-use CSRF token between mutating
+//!   requests without re-downloading the gzipped HTML asset.
 //! - `GET /login`, `POST /login`, `POST /logout` drive the session
 //!   cookie used by the SPA when it calls the REST listener.
 //! - `GET /logo.svg` serves the Braiins wordmark referenced by the
@@ -108,6 +111,44 @@ where
                 ("Connection", "close"),
             ],
         )
+        .await
+}
+
+/// Write an empty `200 OK` body-less response for `HEAD /`.
+///
+/// `extra_headers` carries the optional `X-CSRF-Token` for session
+/// clients. Content-Length is fixed at 0 and Content-Encoding is
+/// intentionally omitted so edge-http's `SendBody::finish` accepts the
+/// zero bytes that follow `initiate_response`.
+async fn write_head_ok<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
+    // Four fixed slots plus caller-supplied extras. The .expect() calls
+    // assume the call site stays within MAX_RESPONSE_HEADERS=8.
+    headers
+        .push(("Content-Type", "text/html; charset=utf-8"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Content-Length", "0"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Cache-Control", "no-store"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Connection", "close"))
+        .expect("BUG: response header vec sized for max headers");
+    for &header in extra_headers {
+        headers
+            .push(header)
+            .expect("BUG: response header vec sized for max headers");
+    }
+    connection
+        .initiate_response(200, Some("OK"), &headers)
         .await
 }
 
@@ -434,6 +475,27 @@ impl Service for DashboardService {
                     }
                 }
             }
+            ("HEAD", "/") => {
+                // Issues a fresh CSRF token in the response headers
+                // without serving the dashboard body, so the SPA can
+                // refresh its token between mutating requests without
+                // refetching the gzipped HTML asset. Content-Length is
+                // 0 and Content-Encoding is omitted because edge-http
+                // finishes the response by checking advertised length
+                // against bytes written, and the client only consumes
+                // the response headers anyway.
+                match auth_ctx {
+                    ubos_auth::auth::AuthCtx::Anonymous => {
+                        write_redirect(connection, "/login").await
+                    }
+                    ubos_auth::auth::AuthCtx::Session(ref session_id) => {
+                        let csrf_token =
+                            ubos_auth::csrf::issue_csrf_token(session_id.as_str()).await;
+                        write_head_ok(connection, &[("X-CSRF-Token", csrf_token.as_str())]).await
+                    }
+                    ubos_auth::auth::AuthCtx::Basic => write_head_ok(connection, &[]).await,
+                }
+            }
             ("GET", "/login") => {
                 write_asset(
                     connection,
@@ -534,11 +596,11 @@ impl Service for DashboardService {
 
 /// Accept HTTP connections and serve the web-UI shell. Runs forever.
 ///
-/// Routes `GET /` to the inlined HTML dashboard, `GET /login`/`POST
-/// /login`/`POST /logout` to the session flow, and `GET /logo.svg` to
-/// the cacheable Braiins wordmark. Wrong-method requests on known
-/// paths return 405. Anything else gets a 404. The transport loop
-/// lives in `ubos-http`.
+/// Routes `GET /` to the inlined HTML dashboard, `HEAD /` to the
+/// body-less CSRF token refresh, `GET /login`/`POST /login`/`POST
+/// /logout` to the session flow, and `GET /logo.svg` to the cacheable
+/// Braiins wordmark. Wrong-method requests on known paths return 405.
+/// Anything else gets a 404. The transport loop lives in `ubos-http`.
 pub async fn run(stack: Stack<'static>) -> ! {
     // Populate the credential store before the accept loop so the very
     // first request finds the defaults in place and the operator sees
