@@ -172,29 +172,26 @@ function route(){const c=location.hash==='#config';$('dash').classList.toggle('h
 addEventListener('hashchange',route);route();
 function fmtHr(h){if(h>=1e12)return(h/1e12).toFixed(2)+' TH/s';if(h>=1e9)return(h/1e9).toFixed(2)+' GH/s';if(h>=1e6)return(h/1e6).toFixed(2)+' MH/s';if(h>=1e3)return(h/1e3).toFixed(2)+' kH/s';return h.toFixed(0)+' H/s'}
 function fmtUp(s){const d=s/86400|0,h=s/3600%24|0,m=s/60%60|0;return d?`${d}d ${h}h ${m}m`:h?`${h}h ${m}m`:`${m}m ${s%60|0}s`}
-function ceil(v,s){return Math.max(s,Math.ceil(v/s)*s)}
 const charts=[
- {id:'cHr',maj:1e12,axis:v=>(v/1e12).toFixed(0)+'T',val:fmtHr,max:1e12,
+ {id:'cHr',min:0,max:2e12,maj:1e12,minTick:5e11,axis:v=>(v/1e12).toFixed(0)+'T',val:fmtHr,
   lines:[{cls:'hrL',buf:hrBuf,lbl:'Hashrate'}]},
- {id:'cTp',maj:20,axis:v=>v+'°C',val:v=>v+'°C',max:20,
+ {id:'cTp',min:20,max:100,maj:20,minTick:10,axis:v=>v+'°C',val:v=>v+'°C',
   lines:[{cls:'tpL',buf:tpBuf,lbl:'Temperature'}]},
- {id:'cPw',maj:50,axis:v=>v+'W',val:v=>v.toFixed(0)+' W',max:50,
+ {id:'cPw',min:0,max:60,maj:20,minTick:10,axis:v=>v+'W',val:v=>v.toFixed(0)+' W',
   lines:[{cls:'inL',buf:inBuf,lbl:'Power IN'},{cls:'outL',buf:outBuf,lbl:'Power OUT'}]}
 ];
 function drawChart(c){
- const root=$(c.id),peak=Math.max(...c.lines.flatMap(ln=>ln.buf));
- const maj=Math.max(c.maj,ceil(peak/4,c.maj)),min=maj/2;
- c.max=ceil(peak,maj);
+ const root=$(c.id),span=c.max-c.min,steps=Math.round(span/c.minTick),majEvery=Math.round(c.maj/c.minTick);
  let g='',ya='',xa='';
- for(let v=0;v<=c.max;v+=min){const py=T+PH-(v/c.max)*PH,m=v%maj===0;
-  if(m){g+=`<line class="gr" x1="${L}" y1="${py}" x2="${L+PW}" y2="${py}"/>`;ya+=`<text class="ax" x="${L-6}" y="${py+3}" text-anchor="end">${c.axis(v)}</text>`}
+ for(let i=0;i<=steps;i++){const py=T+PH-(i/steps)*PH,big=i%majEvery===0;
+  if(big){const v=c.min+i*c.minTick;g+=`<line class="gr" x1="${L}" y1="${py}" x2="${L+PW}" y2="${py}"/>`;ya+=`<text class="ax" x="${L-6}" y="${py+3}" text-anchor="end">${c.axis(v)}</text>`}
   else{ya+=`<line class="tk" x1="${L-3}" y1="${py}" x2="${L}" y2="${py}"/>`}}
  for(let m=0;m<=5;m++){const px=L+(m/5)*PW;
   g+=`<line class="gr" x1="${px}" y1="${T}" x2="${px}" y2="${T+PH}"/>`;
   xa+=`<text class="ax" x="${px}" y="${H-6}" text-anchor="middle">-${5-m}m</text>`}
  $$(root,'.g').innerHTML=g;$$(root,'.y').innerHTML=ya;$$(root,'.x').innerHTML=xa;
  $$(root,'.lines').innerHTML=c.lines.map(ln=>{
-  const pts=ln.buf.map((v,i)=>`${(L+i*PW/(N-1)).toFixed(1)},${(T+PH-(v/c.max)*PH).toFixed(1)}`).join(' ');
+  const pts=ln.buf.map((v,i)=>{const clamped=Math.min(Math.max(v,c.min),c.max);return `${(L+i*PW/(N-1)).toFixed(1)},${(T+PH-((clamped-c.min)/span)*PH).toFixed(1)}`}).join(' ');
   return `<polyline class="${ln.cls}" points="${pts}"/>`;
  }).join('');
 }
@@ -284,9 +281,10 @@ charts.forEach(c=>{
   if(e.pointerType!=='mouse')return;
   const r=svg.getBoundingClientRect(),vx=(e.clientX-r.left)/r.width*W;
   let i=Math.round((vx-L)*(N-1)/PW);if(i<0)i=0;if(i>=N)i=N-1;
-  const px=L+i*PW/(N-1),a=(N-1-i)*2;
+  const px=L+i*PW/(N-1),a=(N-1-i)*2,span=c.max-c.min;
   const circles=c.lines.map(ln=>{
-   const py=T+PH-(ln.buf[i]/c.max)*PH;
+   const clamped=Math.min(Math.max(ln.buf[i],c.min),c.max);
+   const py=T+PH-((clamped-c.min)/span)*PH;
    return `<circle class="${ln.cls}" cx="${px}" cy="${py.toFixed(1)}" r="3"/>`;
   }).join('');
   tip.innerHTML=`<line class="cur" x1="${px}" y1="${T}" x2="${px}" y2="${T+PH}"/>${circles}`;
