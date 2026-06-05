@@ -29,13 +29,13 @@ pub mod pool;
 pub mod thermal;
 
 pub use api::ApiConfig;
-pub use cooling::{CoolingConfig, PidConfig};
-pub use mining::TuningConfig;
+pub use cooling::{CoolingBounds, CoolingConfig, PidConfig, BOUNDS as COOLING_BOUNDS};
+pub use mining::{MiningBounds, TuningConfig, BOUNDS as MINING_BOUNDS};
 pub use pool::{
     PoolEntry, ProtocolKind, DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY,
     DEFAULT_POOL_USER,
 };
-pub use thermal::ThermalConfig;
+pub use thermal::{ThermalBounds, ThermalConfig, BOUNDS as THERMAL_BOUNDS};
 
 pub mod storage;
 pub use storage::{decode_blob, encode_blob, LoadError, Storage, CONFIG_KEY};
@@ -241,6 +241,37 @@ impl Config {
     /// allowing the firmware to fall back to defaults safely.
     pub const SCHEMA_HASH: [u8; 8] =
         postcard_schema::key::hash::fnv1a64::hash_ty_path::<Config>("ubos_config::Config");
+
+    /// Validate operator-tunable fields against their per-domain bounds.
+    ///
+    /// Runs the pool, thermal, tuning, and api sub-validators and enforces
+    /// the cross-field rule `cooling.target_temp_c < thermal.dangerous_temp_c`.
+    /// Stored blobs pass through serde and can carry out-of-range or
+    /// non-finite floats in those fields; [`load_initial`] calls this after
+    /// [`decode_blob`] so a corrupted blob falls back to defaults instead
+    /// of feeding `Reconfiguring` consumers values that bypass per-update
+    /// validation.
+    ///
+    /// The `cooling.pid` gains are not user-tunable through [`ConfigUpdate`]
+    /// and therefore only enter flash via [`Config::default`]; they are not
+    /// re-validated here.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first failing field's static error string.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        for (slot, entry) in self.pool.iter().enumerate() {
+            entry.validate(slot)?;
+        }
+        self.thermal.validate()?;
+        self.tuning.validate()?;
+        self.api.validate()?;
+        CoolingConfig::validate_target_temp(
+            self.cooling.target_temp_c,
+            self.thermal.dangerous_temp_c,
+        )?;
+        Ok(())
+    }
 }
 
 /// Reconfigure task for the config subsystem.
@@ -289,16 +320,19 @@ async fn load_initial<S: Storage>(storage: &mut S) -> Config {
             return Config::default();
         }
     };
-    match decode_blob::<S::Error>(blob) {
-        Ok(config) => {
-            info!("config: loaded from storage");
-            config
-        }
+    let config = match decode_blob::<S::Error>(blob) {
+        Ok(config) => config,
         Err(error) => {
             log_decode_error(&error);
-            Config::default()
+            return Config::default();
         }
+    };
+    if config.validate().is_err() {
+        warn!("config: stored config failed validation, using defaults");
+        return Config::default();
     }
+    info!("config: loaded from storage");
+    config
 }
 
 /// Log the variant-specific reason a stored blob could not be decoded.

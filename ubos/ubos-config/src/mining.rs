@@ -1,6 +1,10 @@
-//! Mining tuning configuration.
+//! Mining tuning configuration and bounds.
 //!
-//! Defines [`TuningConfig`] for ASIC frequency and voltage overrides.
+//! Defines [`TuningConfig`] for ASIC frequency and voltage overrides,
+//! [`MiningBounds`] with the accepted ranges, and the [`BOUNDS`]
+//! constant.
+
+use core::ops::RangeInclusive;
 
 /// ASIC frequency and voltage overrides.
 #[derive(
@@ -23,3 +27,40 @@ impl Default for TuningConfig {
         }
     }
 }
+
+impl TuningConfig {
+    /// Validate frequency and voltage against [`BOUNDS`].
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when either field falls outside its accepted range.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if !BOUNDS.frequency_mhz.contains(&self.frequency_mhz) {
+            return Err("tuning.frequency_mhz must be between 400 and 600");
+        }
+        if !BOUNDS.voltage_mv.contains(&self.voltage_mv) {
+            return Err("tuning.voltage_mv must be between 1100 and 1500");
+        }
+        Ok(())
+    }
+}
+
+/// Accepted ranges for each [`TuningConfig`] field.
+///
+/// Serializable so API endpoints can return the bounds alongside the
+/// current config without a separate hard-coded schema.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct MiningBounds {
+    /// Accepted range for `frequency_mhz` in MHz.
+    pub frequency_mhz: RangeInclusive<u32>,
+    /// Accepted range for `voltage_mv` in millivolts.
+    pub voltage_mv: RangeInclusive<u32>,
+}
+
+/// Accepted value ranges for [`TuningConfig`] fields.
+pub const BOUNDS: MiningBounds = MiningBounds {
+    frequency_mhz: 400..=600,
+    voltage_mv: 1100..=1500,
+};

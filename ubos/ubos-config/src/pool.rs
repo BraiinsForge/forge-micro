@@ -1,7 +1,7 @@
-//! Pool endpoint configuration.
+//! Pool endpoint configuration and validation.
 //!
-//! Defines [`PoolEntry`], [`ProtocolKind`], and the factory-default
-//! pool constants.
+//! Defines [`PoolEntry`], [`ProtocolKind`], the factory-default pool
+//! constants, and per-entry validation.
 
 /// Factory-default pool host for [`crate::Config::default`]. Overridable at
 /// compile time by setting the `POOL_HOST` env var; a stored config
@@ -63,4 +63,55 @@ pub struct PoolEntry {
     pub user: heapless::String<128>,
     /// Protocol selection and its parameters.
     pub protocol: ProtocolKind,
+}
+
+/// Maximum number of pool slots the firmware persists and validates.
+///
+/// Drives both the `heapless::Vec<PoolEntry, 3>` capacity in
+/// [`crate::Config`] / [`crate::ConfigUpdate`] and the length of the
+/// per-slot error-message tables below, so growing the slot count is
+/// a single-const change that fails to compile until every table is
+/// extended in step.
+pub const MAX_POOLS: usize = 3;
+
+const POOL_HOST_EMPTY: [&str; MAX_POOLS] = [
+    "pool 1: host must not be empty",
+    "pool 2: host must not be empty",
+    "pool 3: host must not be empty",
+];
+
+const POOL_PORT_ZERO: [&str; MAX_POOLS] = [
+    "pool 1: port must be greater than 0",
+    "pool 2: port must be greater than 0",
+    "pool 3: port must be greater than 0",
+];
+
+impl PoolEntry {
+    /// Validate this entry against basic connectivity requirements.
+    ///
+    /// `slot` is the zero-based index into the pool list; the error
+    /// message includes the human-readable slot number so the operator
+    /// knows which of the UI rows failed. The method covers the full
+    /// [`MAX_POOLS`] capacity; out-of-range slot indices fall back to a
+    /// generic message rather than panicking, so the public API stays
+    /// total even if a future caller iterates an unbounded source.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when the host is empty or the port is zero.
+    pub fn validate(&self, slot: usize) -> Result<(), &'static str> {
+        if self.host.is_empty() {
+            return Err(POOL_HOST_EMPTY
+                .get(slot)
+                .copied()
+                .unwrap_or("pool: host must not be empty"));
+        }
+        if self.port == 0 {
+            return Err(POOL_PORT_ZERO
+                .get(slot)
+                .copied()
+                .unwrap_or("pool: port must be greater than 0"));
+        }
+        Ok(())
+    }
 }

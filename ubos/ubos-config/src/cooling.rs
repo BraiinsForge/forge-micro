@@ -1,6 +1,9 @@
-//! Cooling loop configuration.
+//! Cooling loop configuration and validation.
 //!
-//! Defines [`CoolingConfig`] and [`PidConfig`].
+//! Defines [`CoolingConfig`], [`PidConfig`], [`CoolingBounds`], and
+//! the static [`BOUNDS`] constant.
+
+use core::ops::RangeInclusive;
 
 /// PID controller gains for the cooling loop.
 ///
@@ -57,3 +60,46 @@ impl Default for CoolingConfig {
         }
     }
 }
+
+impl CoolingConfig {
+    /// Validate the proposed `target` temperature against [`BOUNDS`] and
+    /// `dangerous_temp_c`.
+    ///
+    /// `dangerous_temp_c` is resolved by the caller to either the value
+    /// being set in the same update or the current live config's value.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when `target` is non-finite, outside
+    /// `BOUNDS.target_temp_c`, or not strictly less than
+    /// `dangerous_temp_c`.
+    pub fn validate_target_temp(target: f32, dangerous_temp_c: f32) -> Result<(), &'static str> {
+        if !target.is_finite() {
+            return Err("cooling_target_temp_c must be a finite number");
+        }
+        if !BOUNDS.target_temp_c.contains(&target) {
+            return Err("cooling_target_temp_c must be between 30 and 85");
+        }
+        if target >= dangerous_temp_c {
+            return Err("cooling_target_temp_c must be less than dangerous_temp_c");
+        }
+        Ok(())
+    }
+}
+
+/// Accepted ranges for each [`CoolingConfig`] field.
+///
+/// Serializable so API endpoints can return the bounds alongside the
+/// current config without a separate hard-coded schema.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct CoolingBounds {
+    /// Accepted range for `target_temp_c` in Celsius.
+    pub target_temp_c: RangeInclusive<f32>,
+}
+
+/// Accepted value ranges for [`CoolingConfig`] fields.
+pub const BOUNDS: CoolingBounds = CoolingBounds {
+    target_temp_c: 30.0..=85.0,
+};
