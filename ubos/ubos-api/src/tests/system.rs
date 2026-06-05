@@ -18,6 +18,8 @@ use crate::system::{route, DispatchOutcome, Route};
 const ROUTES: &[(&str, &str, Route)] = &[
     ("GET", "/api/system/info", Route::SystemInfo),
     ("GET", "/api/system/asic", Route::SystemAsic),
+    ("GET", "/api/system/thermal", Route::SystemThermal),
+    ("GET", "/api/system/cooling", Route::SystemCooling),
     ("GET", "/api/system/statistics", Route::SystemStatistics),
     ("GET", "/api/system/scoreboard", Route::SystemScoreboard),
     ("GET", "/api/system/logs", Route::SystemLogs),

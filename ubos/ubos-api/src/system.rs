@@ -297,6 +297,56 @@ where
     .await
 }
 
+/// Handle `GET /api/system/thermal`.
+///
+/// Returns the accepted ranges for the Temperature config section so the
+/// webui pulls its input `min`/`max` from the same source the firmware
+/// validates against, matching the `/api/system/asic` precedent.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener.
+async fn handle_thermal<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    scratch: &mut [u8],
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    serialize_and_respond(
+        connection,
+        scratch,
+        &ubos_config::THERMAL_INFO,
+        extra_headers,
+    )
+    .await
+}
+
+/// Handle `GET /api/system/cooling`.
+///
+/// Returns the accepted ranges for the Cooling config section so the
+/// webui pulls its `targetC` input `min`/`max` from the same source
+/// the firmware validates against. Mirrors `handle_thermal` for the
+/// cooling domain, following the `MiningInfo` precedent of keeping
+/// bounds metadata at a dedicated endpoint.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener.
+async fn handle_cooling<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    scratch: &mut [u8],
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    serialize_and_respond(
+        connection,
+        scratch,
+        &ubos_config::COOLING_INFO,
+        extra_headers,
+    )
+    .await
+}
+
 /// Handle `GET /api/system/statistics`.
 ///
 /// Returns the fixed label set with an empty rows slice. A ring buffer
@@ -479,6 +529,10 @@ pub(crate) enum Route {
     SystemInfo,
     /// `GET /api/system/asic`
     SystemAsic,
+    /// `GET /api/system/thermal`
+    SystemThermal,
+    /// `GET /api/system/cooling`
+    SystemCooling,
     /// `GET /api/system/statistics`
     SystemStatistics,
     /// `GET /api/system/scoreboard`
@@ -532,6 +586,14 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
         },
         "/api/system/asic" => match method {
             "GET" => DispatchOutcome::Handled(Route::SystemAsic),
+            _ => DispatchOutcome::MethodNotAllowed { allowed: "GET" },
+        },
+        "/api/system/thermal" => match method {
+            "GET" => DispatchOutcome::Handled(Route::SystemThermal),
+            _ => DispatchOutcome::MethodNotAllowed { allowed: "GET" },
+        },
+        "/api/system/cooling" => match method {
+            "GET" => DispatchOutcome::Handled(Route::SystemCooling),
             _ => DispatchOutcome::MethodNotAllowed { allowed: "GET" },
         },
         "/api/system/statistics" => match method {
@@ -638,6 +700,12 @@ where
         }
         DispatchOutcome::Handled(Route::SystemAsic) => {
             handle_asic(connection, scratch, extra_headers).await?;
+        }
+        DispatchOutcome::Handled(Route::SystemThermal) => {
+            handle_thermal(connection, scratch, extra_headers).await?;
+        }
+        DispatchOutcome::Handled(Route::SystemCooling) => {
+            handle_cooling(connection, scratch, extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::SystemStatistics) => {
             handle_statistics(connection, scratch, extra_headers).await?;
