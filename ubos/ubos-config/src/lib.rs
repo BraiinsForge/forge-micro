@@ -22,6 +22,10 @@ mod message;
 #[path = "tests/storage.rs"]
 mod tests_storage;
 
+#[cfg(test)]
+#[path = "tests/validation.rs"]
+mod tests_validation;
+
 pub mod api;
 pub mod cooling;
 pub mod mining;
@@ -168,18 +172,145 @@ impl Handle {
     }
 }
 
-/// Pool-only partial update accepted by `POST /api/config`.
+/// Partial-update wire shape for `GET` and `POST /api/config`.
 ///
-/// The dashboard form edits pool credentials in isolation; sending a
-/// full [`Config`] would force the UI to round-trip every unrelated
-/// field (thermal, cooling, api) on every save. The handler merges
-/// this struct into [`ConfigHandle::current`] before sending
-/// [`Message::Update`].
+/// All fields are `Option` so callers can patch one section at a time
+/// without round-tripping unrelated state. A missing JSON key deserializes
+/// as `None`; the POST handler merges only the fields that are `Some` into
+/// the running [`Config`]. On `GET`, the response includes all fields with
+/// `api.password` blanked to avoid leaking the stored secret.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct PoolUpdate {
-    /// Replacement value for [`Config::pool`].
-    pub pool: heapless::Vec<PoolEntry, 3>,
+pub struct ConfigUpdate {
+    /// Replacement value for [`Config::pool`]; `None` means leave
+    /// unchanged. `Some(empty Vec)` is the wire shape for "no pools
+    /// configured" and clears all three persisted slots — the webui
+    /// produces this when every URL input is blank.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<heapless::Vec<PoolEntry, 3>>,
+    /// Replacement value for [`Config::thermal`]; `None` means leave unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thermal: Option<ThermalConfig>,
+    /// Replacement value for [`CoolingConfig::target_temp_c`]; `None` means leave unchanged.
+    ///
+    /// The full [`CoolingConfig`] is not exposed because PID gains are tuned
+    /// at the factory and must not be overwritten from the UI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cooling_target_temp_c: Option<f32>,
+    /// Replacement value for [`Config::tuning`]; `None` means leave unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tuning: Option<TuningConfig>,
+    /// Replacement value for [`Config::api`]; `None` means leave unchanged.
+    ///
+    /// On `GET`, `password` is set to an empty string so the stored secret
+    /// never leaves the device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api: Option<ApiConfig>,
+}
+
+impl ConfigUpdate {
+    /// Merge the update into `target`, overwriting only the fields that are
+    /// `Some`.
+    ///
+    /// Consumes `self`; each `Some` field is moved into `target` rather than
+    /// cloned, so callers cannot reuse the update afterwards.
+    pub fn apply(self, target: &mut Config) {
+        if let Some(pool) = self.pool {
+            target.pool = pool;
+        }
+        if let Some(thermal) = self.thermal {
+            target.thermal = thermal;
+        }
+        if let Some(temp) = self.cooling_target_temp_c {
+            target.cooling.target_temp_c = temp;
+        }
+        if let Some(tuning) = self.tuning {
+            target.tuning = tuning;
+        }
+        if let Some(api) = self.api {
+            target.api = api;
+        }
+    }
+
+    /// Produce a fully-populated `ConfigUpdate` from a live [`Config`].
+    ///
+    /// Used by `GET /api/config`. The `api.password` field is set to an empty
+    /// string so the stored credential is never transmitted to the client.
+    #[must_use]
+    pub fn from_config(config: &Config) -> Self {
+        let mut api = config.api.clone();
+        api.password = heapless::String::new();
+        Self {
+            pool: Some(config.pool.clone()),
+            thermal: Some(config.thermal.clone()),
+            cooling_target_temp_c: Some(config.cooling.target_temp_c),
+            tuning: Some(config.tuning.clone()),
+            api: Some(api),
+        }
+    }
+
+    /// Validate all present fields against the bounds and against `current`.
+    ///
+    /// `current` is the live [`Config`] snapshot the update will be merged
+    /// into; the caller is responsible for reading it once and passing it
+    /// in so the function is pure and the read order is explicit.
+    ///
+    /// For `cooling_target_temp_c`, the dangerous-temp limit is resolved
+    /// from the incoming `thermal` field when present, otherwise from
+    /// `current.thermal.dangerous_temp_c`.
+    ///
+    /// The cross-field rule covers both directions:
+    /// - When `cooling_target_temp_c` is in the update, the incoming target
+    ///   must be strictly less than the incoming (or current) `dangerous_temp_c`.
+    /// - When only `thermal` is in the update, the current `cooling.target_temp_c`
+    ///   must still be strictly less than the incoming `dangerous_temp_c`.
+    ///
+    /// Returns `Ok(())` when every present field is within its allowed range.
+    /// Returns `Err(msg)` with a static, operator-readable message on the
+    /// first violation found.
+    ///
+    /// The `cooling.pid` gains are deliberately not part of [`ConfigUpdate`]
+    /// and therefore never flow through this validator; see the parallel
+    /// note on [`Config::validate`].
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` on the first field that fails its validation rule.
+    pub fn validate(&self, current: &Config) -> Result<(), &'static str> {
+        if let Some(pool) = &self.pool {
+            for (slot, entry) in pool.iter().enumerate() {
+                entry.validate(slot)?;
+            }
+        }
+        if let Some(thermal) = &self.thermal {
+            thermal.validate()?;
+        }
+        if let Some(tuning) = &self.tuning {
+            tuning.validate()?;
+        }
+        if let Some(api) = &self.api {
+            api.validate()?;
+        }
+
+        if self.thermal.is_some() || self.cooling_target_temp_c.is_some() {
+            let dangerous = self
+                .thermal
+                .as_ref()
+                .map_or(current.thermal.dangerous_temp_c, |thermal| {
+                    thermal.dangerous_temp_c
+                });
+
+            if let Some(target) = self.cooling_target_temp_c {
+                CoolingConfig::validate_target_temp(target, dangerous)?;
+            } else if current.cooling.target_temp_c >= dangerous {
+                return Err(
+                    "current cooling.target_temp_c must remain less than thermal.dangerous_temp_c",
+                );
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// All runtime-tunable firmware parameters.

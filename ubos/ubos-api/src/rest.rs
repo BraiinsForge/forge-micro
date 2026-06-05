@@ -40,10 +40,14 @@ const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
 
 /// Body buffer size for `GET /api/config` responses.
 ///
-/// Each [`ubos_config::PoolEntry`] serialises to at most ~460 bytes
-/// (three 128-byte heapless strings plus JSON framing); three entries
-/// plus the outer `{"pool":[…]}` wrapper fit inside 1.5 KiB with margin.
-const CONFIG_RESPONSE_BUFFER_SIZE: usize = 1536;
+/// A full [`ubos_config::ConfigUpdate`] snapshot breaks down as: three
+/// pool entries at up to ~580 bytes each in the SV1 worst case (three
+/// 128-byte heapless strings — host, user, password — plus JSON
+/// framing), plus `thermal` (~80 bytes), `cooling_target_temp_c`
+/// (~30 bytes), `tuning` (~50 bytes), and `api` (~80 bytes), plus
+/// outer JSON framing — close to ~1900 bytes total. 2048 bytes
+/// covers this with margin while keeping the stack budget predictable.
+const CONFIG_RESPONSE_BUFFER_SIZE: usize = 2048;
 
 /// Buffer for reading POST/PATCH request bodies.
 ///
@@ -356,16 +360,18 @@ impl Service for RestApiService {
                 write_json_response(connection, &body_buf[..json_len], cors_slice).await
             }
             ("GET", "/api/config") => {
-                let snapshot = ubos_config::handle().current();
-                let response = ubos_config::PoolUpdate {
-                    pool: snapshot.pool,
-                };
                 let mut body_buf = [0u8; CONFIG_RESPONSE_BUFFER_SIZE];
-                if let Ok(length) = serde_json_core::ser::to_slice(&response, &mut body_buf) {
-                    write_json_response(connection, &body_buf[..length], cors_slice).await
-                } else {
-                    warn!("config: failed to serialize PoolUpdate response");
-                    write_status_only(
+                // Drop the snapshot and the response struct before the
+                // await so neither lives on the rest_api future stack
+                // across write_json_response.
+                let serialize_result = {
+                    let snapshot = ubos_config::handle().current();
+                    let response = ubos_config::ConfigUpdate::from_config(&snapshot);
+                    serde_json_core::ser::to_slice(&response, &mut body_buf)
+                };
+                let Ok(length) = serialize_result else {
+                    warn!("config: failed to serialize ConfigUpdate response");
+                    return write_status_only(
                         connection,
                         500,
                         "Internal Server Error",
@@ -373,33 +379,79 @@ impl Service for RestApiService {
                         cors_slice,
                         b"{\"message\":\"config serialize failed\"}",
                     )
-                    .await
-                }
+                    .await;
+                };
+                write_json_response(connection, &body_buf[..length], cors_slice).await
             }
             ("POST", "/api/config") => {
-                info!("pool config update ({} bytes)", body.len());
-                if let Ok((update, _)) =
-                    serde_json_core::de::from_slice::<ubos_config::PoolUpdate>(body)
-                {
-                    let config_handle = ubos_config::handle();
-                    let mut new_config = config_handle.current();
-                    new_config.pool = update.pool;
-                    config_handle
-                        .send(ubos_config::Message::Update(new_config))
-                        .await;
-                    write_json_response(connection, CONFIG_ACK_BODY, cors_slice).await
-                } else {
+                info!("config update ({} bytes)", body.len());
+                let Ok((mut update, _)) =
+                    serde_json_core::de::from_slice::<ubos_config::ConfigUpdate>(body)
+                else {
                     warn!("config: rejected POST /api/config with invalid JSON");
-                    write_status_only(
+                    return write_status_only(
                         connection,
                         400,
                         "Bad Request",
                         "application/json",
                         cors_slice,
-                        b"{\"message\":\"invalid pool update JSON\"}",
+                        b"{\"message\":\"invalid config update JSON\"}",
                     )
-                    .await
+                    .await;
+                };
+
+                let config_handle = ubos_config::handle();
+                let current = config_handle.current();
+
+                // An empty password in the update means the operator did
+                // not re-type the current secret; preserve the stored value
+                // before validating so the printable-ASCII rule sees the
+                // value that will actually be applied. A password loaded
+                // from an older firmware build that bypassed validation
+                // must not slip through an empty-password round-trip.
+                if let Some(ref mut api) = update.api {
+                    if api.password.is_empty() {
+                        api.password = current.api.password.clone();
+                    }
                 }
+
+                if let Err(reason) = update.validate(&current) {
+                    warn!("config: rejected POST /api/config: {}", reason);
+                    // `reason` is always a `&'static str` literal from
+                    // `ubos_config::ConfigUpdate::validate`; none contain
+                    // `"` or `\`, so the formatter below produces valid JSON
+                    // without escaping. Keep all new reasons static.
+                    let mut error_buf = [0u8; 128];
+                    let mut writer = ubos_http::BufferWriter::new(&mut error_buf);
+                    let _ = core::write!(writer, "{{\"message\":\"{reason}\"}}");
+                    let overflowed = writer.overflowed();
+                    let error_len = writer.len();
+                    let body: &[u8] = if overflowed {
+                        warn!(
+                            "config: error reason exceeded {}B error_buf; serving generic body",
+                            error_buf.len()
+                        );
+                        b"{\"message\":\"config validation failed\"}"
+                    } else {
+                        &error_buf[..error_len]
+                    };
+                    return write_status_only(
+                        connection,
+                        400,
+                        "Bad Request",
+                        "application/json",
+                        cors_slice,
+                        body,
+                    )
+                    .await;
+                }
+
+                let mut new_config = current;
+                update.apply(&mut new_config);
+                config_handle
+                    .send(ubos_config::Message::Update(new_config))
+                    .await;
+                write_json_response(connection, CONFIG_ACK_BODY, cors_slice).await
             }
             (_, "/api/info" | "/api/config") => {
                 write_status_only(
@@ -440,6 +492,9 @@ static REST_WORK_BUFFER: ConstStaticCell<[u8; Api::REQUEST_BUFFER_SIZE]> =
 /// Runs forever. A second call to `ubos_auth::auth::init_credentials`
 /// is a no-op when the webui listener has already populated the
 /// store.
+// The future is large because `handle` carries all per-request state on
+// the stack; Box::pin is unavailable in a no_std context.
+#[allow(clippy::large_futures)]
 pub async fn run_rest_api(
     stack: Stack<'static>,
     board_name: &'static str,
