@@ -163,8 +163,8 @@ main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;pa
 <script>
 const API=`${location.protocol}//${location.hostname}:8080`;
 const N=150,W=680,H=120,L=52,R=12,T=10,B=20,PW=W-L-R,PH=H-T-B;
-const hrBuf=new Array(N).fill(0),tpBuf=new Array(N).fill(0);
-const inBuf=new Array(N).fill(0),outBuf=new Array(N).fill(0);
+const hrBuf=new Array(N).fill(null),tpBuf=new Array(N).fill(null);
+const inBuf=new Array(N).fill(null),outBuf=new Array(N).fill(null);
 const $=id=>document.getElementById(id);
 const $$=(p,s)=>p.querySelector(s);
 let cfgLoaded=false,cfgLoading=false;
@@ -191,8 +191,12 @@ function drawChart(c){
   xa+=`<text class="ax" x="${px}" y="${H-6}" text-anchor="middle">-${5-m}m</text>`}
  $$(root,'.g').innerHTML=g;$$(root,'.y').innerHTML=ya;$$(root,'.x').innerHTML=xa;
  $$(root,'.lines').innerHTML=c.lines.map(ln=>{
-  const pts=ln.buf.map((v,i)=>{const clamped=Math.min(Math.max(v,c.min),c.max);return `${(L+i*PW/(N-1)).toFixed(1)},${(T+PH-((clamped-c.min)/span)*PH).toFixed(1)}`}).join(' ');
-  return `<polyline class="${ln.cls}" points="${pts}"/>`;
+  let path='',pen=false;
+  for(let i=0;i<N;i++){const v=ln.buf[i];if(v==null){pen=false;continue}
+   const clamped=Math.min(Math.max(v,c.min),c.max);
+   const px=(L+i*PW/(N-1)).toFixed(1),py=(T+PH-((clamped-c.min)/span)*PH).toFixed(1);
+   path+=(pen?'L':'M')+px+','+py+' ';pen=true}
+  return `<path class="${ln.cls}" d="${path}"/>`;
  }).join('');
 }
 function draw(){charts.forEach(drawChart)}
@@ -221,10 +225,10 @@ async function tick(){
   $('vMeas').textContent=d.voltage_measured_mv?(d.voltage_measured_mv/1000).toFixed(3)+' V':'–';
   const pm=d.pools|0;
   for(let i=0;i<3;i++){const el=$('po'+(i+1)),a=(pm>>i)&1;el.classList.toggle('live',!!a);el.querySelector('.pt').textContent=a?'Alive':'Dead'}
-  hrBuf.shift();hrBuf.push(d.hashrate);
-  tpBuf.shift();tpBuf.push(d.temperature||0);
-  inBuf.shift();inBuf.push((d.power_in_mw||0)/1000);
-  outBuf.shift();outBuf.push((d.power_out_mw||0)/1000);
+  hrBuf.shift();hrBuf.push(d.hashrate??null);
+  tpBuf.shift();tpBuf.push(d.temperature||null);
+  inBuf.shift();inBuf.push(d.power_in_mw?d.power_in_mw/1000:null);
+  outBuf.shift();outBuf.push(d.power_out_mw?d.power_out_mw/1000:null);
   draw();
  }catch(e){setLk(false);console.warn('tick fetch failed:',e)}
 }
@@ -284,15 +288,16 @@ charts.forEach(c=>{
   let i=Math.round((vx-L)*(N-1)/PW);if(i<0)i=0;if(i>=N)i=N-1;
   const px=L+i*PW/(N-1),a=(N-1-i)*2,span=c.max-c.min;
   const circles=c.lines.map(ln=>{
-   const clamped=Math.min(Math.max(ln.buf[i],c.min),c.max);
+   const v=ln.buf[i];if(v==null)return '';
+   const clamped=Math.min(Math.max(v,c.min),c.max);
    const py=T+PH-((clamped-c.min)/span)*PH;
    return `<circle class="${ln.cls}" cx="${px}" cy="${py.toFixed(1)}" r="3"/>`;
   }).join('');
   tip.innerHTML=`<line class="cur" x1="${px}" y1="${T}" x2="${px}" y2="${T+PH}"/>${circles}`;
   ts.textContent='T-'+(a<60?a+'s':(a/60|0)+'m '+(a%60)+'s');
   vv.innerHTML=c.lines.length>1
-   ?c.lines.map(ln=>`${ln.lbl}: ${c.val(ln.buf[i])}`).join('<br>')
-   :c.val(c.lines[0].buf[i]);
+   ?c.lines.map(ln=>ln.buf[i]!=null?`${ln.lbl}: ${c.val(ln.buf[i])}`:`${ln.lbl}: –`).join('<br>')
+   :(c.lines[0].buf[i]!=null?c.val(c.lines[0].buf[i]):'–');
   tt.classList.remove('hide');
  });
  svg.addEventListener('pointerleave',()=>{tip.innerHTML='';tt.classList.add('hide')});
