@@ -29,13 +29,20 @@ pub mod pool;
 pub mod thermal;
 
 pub use api::ApiConfig;
-pub use cooling::{CoolingBounds, CoolingConfig, PidConfig, BOUNDS as COOLING_BOUNDS};
-pub use mining::{MiningBounds, TuningConfig, BOUNDS as MINING_BOUNDS};
+pub use cooling::{
+    CoolingBounds, CoolingConfig, CoolingInfo, PidConfig, BOUNDS as COOLING_BOUNDS,
+    INFO as COOLING_INFO,
+};
+pub use mining::{
+    MiningBounds, MiningInfo, TuningConfig, BOUNDS as MINING_BOUNDS, INFO as MINING_INFO,
+};
 pub use pool::{
     PoolEntry, ProtocolKind, DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY,
     DEFAULT_POOL_USER,
 };
-pub use thermal::{ThermalBounds, ThermalConfig, BOUNDS as THERMAL_BOUNDS};
+pub use thermal::{
+    ThermalBounds, ThermalConfig, ThermalInfo, BOUNDS as THERMAL_BOUNDS, INFO as THERMAL_INFO,
+};
 
 pub mod storage;
 pub use storage::{decode_blob, encode_blob, LoadError, Storage, CONFIG_KEY};

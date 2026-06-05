@@ -103,3 +103,18 @@ pub struct CoolingBounds {
 pub const BOUNDS: CoolingBounds = CoolingBounds {
     target_temp_c: 30.0..=85.0,
 };
+
+/// Static bounds metadata for the cooling config section.
+///
+/// Carries the accepted ranges for [`CoolingConfig`] so the webui can
+/// pull input `min`/`max` attributes from the same source the firmware
+/// validates against.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoolingInfo {
+    /// Accepted ranges for [`CoolingConfig`] fields.
+    pub bounds: &'static CoolingBounds,
+}
+
+/// Bounds metadata served at `GET /api/system/cooling`.
+pub const INFO: CoolingInfo = CoolingInfo { bounds: &BOUNDS };

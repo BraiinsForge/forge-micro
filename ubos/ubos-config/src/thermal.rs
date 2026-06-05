@@ -89,3 +89,18 @@ pub const BOUNDS: ThermalBounds = ThermalBounds {
     dangerous_temp_c: 50.0..=110.0,
     cooldown_temp_c: 20.0..=90.0,
 };
+
+/// Static bounds metadata for the thermal config section.
+///
+/// Carries the accepted ranges for [`ThermalConfig`] so the webui can
+/// pull input `min`/`max` attributes from the same source the firmware
+/// validates against.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThermalInfo {
+    /// Accepted ranges for [`ThermalConfig`] fields.
+    pub bounds: &'static ThermalBounds,
+}
+
+/// Bounds metadata served at `GET /api/system/thermal`.
+pub const INFO: ThermalInfo = ThermalInfo { bounds: &BOUNDS };
