@@ -73,11 +73,11 @@ impl Watchdog {
     pub const FEED_PERIOD: Duration = Duration::from_millis(500);
 }
 
-/// BM1362 mining defaults that must agree across `ubos-config`,
-/// `ubos-mining`, and `ubos-api`. Hoisted here so the boot-default
-/// frequency and voltage have one source of truth; `Config::default()`
-/// reads them through `.mhz()`/`.mv()`, while `ubos-mining` and the
-/// API schema re-export the typed constants directly.
+/// BM1362 mining defaults shared by `ubos-config` and `ubos-mining`.
+/// Hoisted here so the boot-default frequency and voltage have one
+/// source of truth; `Config::default()` reads them through
+/// `.mhz()`/`.mv()`, and `ubos-mining` re-exports the typed constants
+/// directly.
 pub struct Mining;
 impl Mining {
     /// Default mining frequency programmed at chip init.

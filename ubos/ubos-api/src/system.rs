@@ -26,15 +26,12 @@ use ubos_core::fan_state;
 use ubos_logging::info;
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_metrics::hashrate::{hashrate, SHARE_COUNT};
-use ubos_mining::consts::NUM_CHIPS;
-use ubos_mining::miner::VOLTAGE;
 use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP};
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::schema::{
-    system_asic::{DEFAULT_FREQUENCY, FREQUENCY_OPTIONS_MHZ, VOLTAGE_OPTIONS_MV},
-    system_statistics::LABELS,
-    GenericResponse, SystemAsic, SystemInfo, SystemScoreboardEntry, SystemStatistics, API_VARIANT,
+    system_statistics::LABELS, GenericResponse, SystemInfo, SystemScoreboardEntry,
+    SystemStatistics, API_VARIANT,
 };
 
 /// Serialization scratch buffer size in bytes.
@@ -264,10 +261,10 @@ where
         pools_bitmap,
         ip: build_ip_string(),
         time: build_time_string(),
-        asic_count: NUM_CHIPS,
-        asic_model: "BM1362",
-        default_frequency_mhz: DEFAULT_FREQUENCY.mhz(),
-        default_voltage_mv: VOLTAGE.mv(),
+        asic_count: ubos_config::MINING_INFO.asic_count,
+        asic_model: ubos_config::MINING_INFO.asic_model,
+        default_frequency_mhz: ubos_config::MINING_INFO.default_frequency_mhz,
+        default_voltage_mv: ubos_config::MINING_INFO.default_voltage_mv,
         shares_accepted,
         shares_rejected,
         shares_total,
@@ -291,18 +288,13 @@ async fn handle_asic<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    let asic = SystemAsic {
-        asic_model: "BM1362",
-        device_model: "miniminer",
-        swarm_color: "blue",
-        asic_count: NUM_CHIPS,
-        default_frequency: DEFAULT_FREQUENCY.mhz(),
-        frequency_options: FREQUENCY_OPTIONS_MHZ,
-        default_voltage: VOLTAGE.mv(),
-        voltage_options: VOLTAGE_OPTIONS_MV,
-    };
-
-    serialize_and_respond(connection, scratch, &asic, extra_headers).await
+    serialize_and_respond(
+        connection,
+        scratch,
+        &ubos_config::MINING_INFO,
+        extra_headers,
+    )
+    .await
 }
 
 /// Handle `GET /api/system/statistics`.

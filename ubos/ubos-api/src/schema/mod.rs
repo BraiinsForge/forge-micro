@@ -6,13 +6,11 @@
 //! heap allocation.
 
 pub mod generic_response;
-pub mod system_asic;
 pub mod system_info;
 pub mod system_scoreboard;
 pub mod system_statistics;
 
 pub use generic_response::GenericResponse;
-pub use system_asic::SystemAsic;
 pub use system_info::SystemInfo;
 pub use system_scoreboard::SystemScoreboardEntry;
 pub use system_statistics::SystemStatistics;
