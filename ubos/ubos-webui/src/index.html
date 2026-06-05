@@ -38,10 +38,9 @@ main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;pa
 .inL{fill:none;stroke:#f9c74f;stroke-width:1.5;vector-effect:non-scaling-stroke}
 .outL{fill:none;stroke:#4cc9f0;stroke-width:1.5;vector-effect:non-scaling-stroke}
 .cur{stroke:var(--mute);stroke-width:.5;stroke-dasharray:2 2;vector-effect:non-scaling-stroke}
-.tt{position:absolute;top:14px;right:18px;background:var(--bg);border:1px solid var(--border);padding:6px 10px;font:.7rem/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none}
-.tt .ts{color:var(--mute)}
-.lg{text-align:center;margin-top:8px;font-size:.7rem;color:var(--mute)}
-.lg span{display:inline-block;width:10px;height:2px;vertical-align:middle;margin:0 6px}
+.hd{display:flex;justify-content:space-between;align-items:center;font-size:.7rem;color:var(--mute);margin-bottom:6px;min-height:14px}
+.hd .lb span{display:inline-block;width:10px;height:2px;vertical-align:middle;margin:0 6px}
+.hd .va{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg)}
 .side{display:flex;flex-direction:column;gap:8px}
 .side .card{height:64px;overflow:hidden}
 .card{background:var(--panel);border-radius:4px;padding:10px 14px}
@@ -85,31 +84,28 @@ main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;pa
 <main id="dash">
 <div class="left">
 <div class="chart" id="cHr">
+<div class="hd"><span class="lb"><span style="background:#6b50ff"></span>Hashrate</span><span class="va"></span></div>
 <svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
 <g class="g"></g><g class="y"></g><g class="x"></g>
 <g class="lines"></g>
 <g class="tip"></g>
 </svg>
-<div class="tt hide"><span class="ts">T-0s</span><br><span class="vv">–</span></div>
-<div class="lg"><span style="background:#6b50ff"></span>Hashrate</div>
 </div>
 <div class="chart" id="cTp">
+<div class="hd"><span class="lb"><span style="background:#fe8431"></span>Temperature</span><span class="va"></span></div>
 <svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
 <g class="g"></g><g class="y"></g><g class="x"></g>
 <g class="lines"></g>
 <g class="tip"></g>
 </svg>
-<div class="tt hide"><span class="ts">T-0s</span><br><span class="vv">–</span></div>
-<div class="lg"><span style="background:#fe8431"></span>Temperature</div>
 </div>
 <div class="chart" id="cPw">
+<div class="hd"><span class="lb"><span style="background:#f9c74f"></span>Power IN<span style="background:#4cc9f0"></span>Power OUT</span><span class="va"></span></div>
 <svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
 <g class="g"></g><g class="y"></g><g class="x"></g>
 <g class="lines"></g>
 <g class="tip"></g>
 </svg>
-<div class="tt hide"><span class="ts">T-0s</span><br><span class="vv">–</span></div>
-<div class="lg"><span style="background:#f9c74f"></span>Power IN<span style="background:#4cc9f0"></span>Power OUT</div>
 </div>
 </div>
 <aside class="side">
@@ -281,7 +277,7 @@ for(let i=1;i<=3;i++){
  f['trust'+i].addEventListener('change',()=>syncPoolUi(i));
 }
 charts.forEach(c=>{
- const root=$(c.id),svg=$$(root,'svg'),tt=$$(root,'.tt'),tip=$$(root,'.tip'),ts=$$(root,'.ts'),vv=$$(root,'.vv');
+ const root=$(c.id),svg=$$(root,'svg'),tip=$$(root,'.tip'),va=$$(root,'.va');
  svg.addEventListener('pointermove',e=>{
   if(e.pointerType!=='mouse')return;
   const r=svg.getBoundingClientRect(),vx=(e.clientX-r.left)/r.width*W;
@@ -294,13 +290,11 @@ charts.forEach(c=>{
    return `<circle class="${ln.cls}" cx="${px}" cy="${py.toFixed(1)}" r="3"/>`;
   }).join('');
   tip.innerHTML=`<line class="cur" x1="${px}" y1="${T}" x2="${px}" y2="${T+PH}"/>${circles}`;
-  ts.textContent='T-'+(a<60?a+'s':(a/60|0)+'m '+(a%60)+'s');
-  vv.innerHTML=c.lines.length>1
-   ?c.lines.map(ln=>ln.buf[i]!=null?`${ln.lbl}: ${c.val(ln.buf[i])}`:`${ln.lbl}: –`).join('<br>')
-   :(c.lines[0].buf[i]!=null?c.val(c.lines[0].buf[i]):'–');
-  tt.classList.remove('hide');
+  const ts='T-'+(a<60?a+'s':(a/60|0)+'m '+(a%60)+'s');
+  const parts=c.lines.map(ln=>ln.buf[i]!=null?(c.lines.length>1?`${ln.lbl}: ${c.val(ln.buf[i])}`:c.val(ln.buf[i])):null).filter(Boolean);
+  va.textContent=parts.length?`${ts}, ${parts.join(', ')}`:ts;
  });
- svg.addEventListener('pointerleave',()=>{tip.innerHTML='';tt.classList.add('hide')});
+ svg.addEventListener('pointerleave',()=>{tip.innerHTML='';va.textContent=''});
 });
 $('nLogout').addEventListener('click',async e=>{
  e.preventDefault();
