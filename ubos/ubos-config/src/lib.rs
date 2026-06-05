@@ -22,6 +22,21 @@ mod message;
 #[path = "tests/storage.rs"]
 mod tests_storage;
 
+pub mod api;
+pub mod cooling;
+pub mod mining;
+pub mod pool;
+pub mod thermal;
+
+pub use api::ApiConfig;
+pub use cooling::{CoolingConfig, PidConfig};
+pub use mining::TuningConfig;
+pub use pool::{
+    PoolEntry, ProtocolKind, DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY,
+    DEFAULT_POOL_USER,
+};
+pub use thermal::ThermalConfig;
+
 pub mod storage;
 pub use storage::{decode_blob, encode_blob, LoadError, Storage, CONFIG_KEY};
 
@@ -60,31 +75,6 @@ const COMMAND_CHANNEL_DEPTH: usize = 4;
 /// [`flash_storage::SCRATCH_SIZE`] is a const alias for this value, so
 /// raising it here raises the flash scratch budget in lockstep.
 pub(crate) const LOAD_BUFFER_SIZE: usize = 512;
-
-/// Factory-default pool host for [`Config::default`]. Overridable at
-/// compile time by setting the `POOL_HOST` env var; a stored config
-/// in flash supersedes both.
-pub const DEFAULT_POOL_HOST: &str = "stratum.braiins.com";
-
-/// Factory-default pool port. Overridable via the `POOL_PORT` env var.
-pub const DEFAULT_POOL_PORT: u16 = 3333;
-
-/// Factory-default worker name. Empty by default as a sentinel meaning
-/// "operator has not configured a worker yet" — most pools accept an
-/// empty worker and authorise on a default account, so this fails open;
-/// the dashboard should prompt the operator to set a real worker before
-/// shipping. Overridable via the `POOL_USER` env var.
-pub const DEFAULT_POOL_USER: &str = "";
-
-/// Factory-default SV2 authority public key for `stratum.braiins.com`,
-/// pre-decoded from base58check `9awtMD5KQgvRUh2yFbjVeT7b6hjipWcAsQHd6wEhgtDT9soosna`
-/// to its 32-byte xonly form. An unconfigured firmware reaches the
-/// Braiins prod endpoint with `ValidateSignature` rather than
-/// `ValidateNothing`.
-pub const DEFAULT_POOL_SV2_PUBKEY: [u8; 32] = [
-    0x29, 0x95, 0x4c, 0x97, 0x45, 0x6b, 0x59, 0x9c, 0x83, 0x6f, 0x70, 0xf5, 0x08, 0xd6, 0x19, 0xd3,
-    0x28, 0x52, 0x7b, 0xb8, 0x72, 0x29, 0xd7, 0xd7, 0xd2, 0xe6, 0x7e, 0x6d, 0xcd, 0x18, 0xeb, 0xcf,
-];
 
 type CSMutex = CriticalSectionRawMutex;
 
@@ -171,140 +161,6 @@ impl Handle {
     }
 }
 
-/// Selects the pool mining protocol and carries its protocol-specific
-/// parameters.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ProtocolKind {
-    /// Stratum V1 with an optional worker password.
-    Sv1 {
-        /// `None` means no password sent; most pools authorise by
-        /// worker name alone.
-        password: Option<heapless::String<128>>,
-    },
-    /// Stratum V2 with an optional authority public key.
-    Sv2 {
-        /// `None` means `ValidateNothing`; `Some` means
-        /// `ValidateSignature` against the supplied 32-byte key.
-        pool_pubkey: Option<[u8; 32]>,
-    },
-}
-
-/// A single pool endpoint entry.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct PoolEntry {
-    /// DNS name or IPv4 literal of the pool host.
-    pub host: heapless::String<128>,
-    /// TCP port.
-    pub port: u16,
-    /// Worker name sent in `mining.authorize`.
-    pub user: heapless::String<128>,
-    /// Protocol selection and its parameters.
-    pub protocol: ProtocolKind,
-}
-
-/// PID controller gains for the cooling loop.
-///
-/// Separated from [`CoolingConfig`] so gains can be retuned without
-/// touching the thermal setpoint.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct PidConfig {
-    /// Minimum PWM duty cycle; prevents the fan from stopping entirely.
-    pub min_fan_pwm: u8,
-    /// Proportional gain.
-    pub p_gain: f32,
-    /// Integral gain.
-    pub i_gain: f32,
-    /// Derivative gain.
-    pub d_gain: f32,
-    /// Half-decay time for the derivative smoother in seconds.
-    pub smoother_half_decay_secs: f32,
-}
-
-/// Tunable parameters for the cooling loop.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct CoolingConfig {
-    /// PID setpoint temperature in Celsius.
-    pub target_temp_c: f32,
-    /// PID controller gains.
-    pub pid: PidConfig,
-}
-
-/// Tunable parameters for the thermal monitor loop.
-///
-/// `sample_interval_ms` is stored as milliseconds for serde
-/// simplicity; the runtime converts to `Duration` at the boundary.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ThermalConfig {
-    /// Poll interval in milliseconds.
-    pub sample_interval_ms: u32,
-    /// Temperature in Celsius above which mining is halted.
-    pub dangerous_temp_c: f32,
-    /// Temperature in Celsius below which a halted miner may resume.
-    pub cooldown_temp_c: f32,
-}
-
-/// ASIC frequency and voltage overrides.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct TuningConfig {
-    /// Target ASIC core frequency in MHz.
-    pub frequency_mhz: u32,
-    /// Core supply voltage in millivolts.
-    pub voltage_mv: u32,
-}
-
-/// HTTP API credentials.
-///
-/// `heapless::String<N>` has a `const fn new()` but no const
-/// constructor that accepts content, so `ApiConfig::default` is a
-/// regular `Default` impl rather than a `const`. The shadow step
-/// publishes the value at runtime; no call site needs it at
-/// compile time.
-#[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
-)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ApiConfig {
-    /// Login username; maximum 32 bytes.
-    pub username: heapless::String<32>,
-    /// Login password; maximum 32 bytes.
-    pub password: heapless::String<32>,
-}
-
-impl Default for ApiConfig {
-    fn default() -> Self {
-        let mut username = heapless::String::new();
-        let mut password = heapless::String::new();
-        // "root" is 4 bytes; both fields have 32-byte capacity, so
-        // push_str cannot return an error.
-        username
-            .push_str("root")
-            .expect("BUG: \"root\" exceeds ApiConfig::username capacity");
-        // Same invariant: 4-byte literal into a 32-byte heapless::String.
-        password
-            .push_str("root")
-            .expect("BUG: \"root\" exceeds ApiConfig::password capacity");
-        Self { username, password }
-    }
-}
-
 /// Pool-only partial update accepted by `POST /api/config`.
 ///
 /// The dashboard form edits pool credentials in isolation; sending a
@@ -366,25 +222,9 @@ impl Default for Config {
             .expect("BUG: single default pool entry exceeds Config::pool capacity");
         Self {
             pool,
-            thermal: ThermalConfig {
-                sample_interval_ms: 1000,
-                dangerous_temp_c: 90.0,
-                cooldown_temp_c: 45.0,
-            },
-            cooling: CoolingConfig {
-                target_temp_c: 67.0,
-                pid: PidConfig {
-                    min_fan_pwm: 20,
-                    p_gain: -5.0,
-                    i_gain: -0.15,
-                    d_gain: -100.0,
-                    smoother_half_decay_secs: 10.0,
-                },
-            },
-            tuning: TuningConfig {
-                frequency_mhz: ubos_core::consts::Mining::DEFAULT_FREQUENCY.mhz(),
-                voltage_mv: ubos_core::consts::Mining::DEFAULT_VOLTAGE.mv(),
-            },
+            thermal: ThermalConfig::default(),
+            cooling: CoolingConfig::default(),
+            tuning: TuningConfig::default(),
             api: ApiConfig::default(),
         }
     }
