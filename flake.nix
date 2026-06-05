@@ -42,7 +42,7 @@
       deploy-rs,
     }@inputs:
     let
-      nucHost = "nuc.nb.redacted";
+      nucHost = "redacted.redacted";
       probeRsHost = "ws://${nucHost}:8080";
       probeRsToken = "redacted";
 
@@ -1363,7 +1363,7 @@
     ))
     // {
       # Raspberry Pi 4 support node that connects the target boards to the
-      # redacted mesh. See nuc/nuc.nix for the host definition.
+      # nbvpn.braiins.cz mesh. See nuc/nuc.nix for the host definition.
       # Deployment runs from the developer workstation, always x86_64.
       nixosConfigurations.nuc = mkNuc "x86_64-linux" [ ];
 
