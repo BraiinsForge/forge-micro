@@ -53,6 +53,10 @@ main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;pa
 .pt{color:var(--mute);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;min-width:3em;text-align:right}
 .pool.live .pt{color:var(--green)}
 .pool.live .dot{background:var(--green);box-shadow:0 0 6px var(--green)}
+.pool.empty .pt{color:var(--mute)}
+.pool.empty .dot{background:var(--mute);box-shadow:none}
+.pm{display:flex;flex-direction:column;min-width:0}
+.pi{font-size:.7rem;color:var(--mute);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .v{font-size:1.05rem;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
 .lkc .ps{margin-top:4px}
 .lkc .pt{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1.05rem;min-width:auto;text-align:left;letter-spacing:.06em}
@@ -121,9 +125,9 @@ main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;pa
 </aside>
 <div class="card pools">
 <div class="k">Pools</div>
-<div class="pool" id="po1"><span>Pool 1 — Primary</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
-<div class="pool" id="po2"><span>Pool 2 — Backup</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
-<div class="pool" id="po3"><span>Pool 3 — Backup</span><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
+<div class="pool" id="po1"><div class="pm"><span>Pool 1 — Primary</span><span class="pi"></span></div><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
+<div class="pool" id="po2"><div class="pm"><span>Pool 2 — Backup</span><span class="pi"></span></div><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
+<div class="pool" id="po3"><div class="pm"><span>Pool 3 — Backup</span><span class="pi"></span></div><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
 </div>
 </main>
 <section class="cfg hide" id="cfg">
@@ -161,6 +165,11 @@ const API=`${location.protocol}//${location.hostname}:8080`;
 const N=150,W=680,H=120,L=52,R=12,T=10,B=20,PW=W-L-R,PH=H-T-B;
 const hrBuf=new Array(N).fill(null),tpBuf=new Array(N).fill(null);
 const inBuf=new Array(N).fill(null),outBuf=new Array(N).fill(null);
+// Per-slot pool meta cache. undefined = not yet fetched (fall back to
+// Dead on a clear bit), null = fetched and slot is empty, object =
+// fetched and configured. Populated by loadPoolMeta() and refreshed by
+// loadCfg() and the save handler.
+const poolCfg=[undefined,undefined,undefined];
 const $=id=>document.getElementById(id);
 const $$=(p,s)=>p.querySelector(s);
 let cfgLoaded=false,cfgLoading=false;
@@ -220,7 +229,9 @@ async function tick(){
   $('vSet').textContent=d.voltage_set_mv?(d.voltage_set_mv/1000).toFixed(3)+' V':'–';
   $('vMeas').textContent=d.voltage_measured_mv?(d.voltage_measured_mv/1000).toFixed(3)+' V':'–';
   const pm=d.pools|0;
-  for(let i=0;i<3;i++){const el=$('po'+(i+1)),a=(pm>>i)&1;el.classList.toggle('live',!!a);el.querySelector('.pt').textContent=a?'Alive':'Dead'}
+  for(let i=0;i<3;i++){const el=$('po'+(i+1)),a=(pm>>i)&1,c=poolCfg[i];
+   el.classList.toggle('live',!!a);el.classList.toggle('empty',!a&&c===null);
+   el.querySelector('.pt').textContent=a?'Alive':(c===null?'Empty':'Dead')}
   hrBuf.shift();hrBuf.push(d.hashrate??null);
   tpBuf.shift();tpBuf.push(d.temperature||null);
   inBuf.shift();inBuf.push(d.power_in_mw?d.power_in_mw/1000:null);
@@ -228,7 +239,36 @@ async function tick(){
   draw();
  }catch(e){setLk(false);console.warn('tick fetch failed:',e)}
 }
-tick();setInterval(tick,2000);
+tick().then(loadPoolMeta);setInterval(tick,2000);
+function renderPoolMeta(){
+ for(let i=0;i<3;i++){
+  const c=poolCfg[i],pi=$('po'+(i+1)).querySelector('.pi');
+  if(c===undefined)pi.textContent='';
+  else if(c===null)pi.textContent='not configured';
+  else pi.textContent=`${c.host}:${c.port} · ${c.sv2?'SV2':'SV1'}`+(c.user?' · '+c.user:'');
+ }
+}
+async function loadPoolMeta(){
+ // Same retry budget as loadCfg: the REST listener serves one
+ // connection at a time, so a /api/info tick in flight can knock
+ // this fetch over. A short backoff keeps the dashboard labels
+ // populated without spinning when the board is genuinely offline.
+ const delays=[0,250,500,1000];
+ for(const wait of delays){
+  if(wait)await new Promise(r=>setTimeout(r,wait));
+  try{
+   const r=await fetch(API+'/api/config',{cache:'no-store',credentials:'include'});
+   if(!r.ok)continue;
+   const d=await r.json(),pools=d.pool||[];
+   for(let i=0;i<3;i++){
+    const p=pools[i];
+    if(!p){poolCfg[i]=null;continue}
+    poolCfg[i]={host:p.host,port:p.port,user:p.user||'',sv2:!!(p.protocol&&p.protocol.Sv2)};
+   }
+   renderPoolMeta();return;
+  }catch(_){}
+ }
+}
 const POOL_RE=/^(?:(stratum2?\+tcp):\/\/)?([^:\/]+)(?::(\d+))?$/;
 function bytesToHex(b){return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')}
 function hexToBytes(h){const b=[];for(let i=0;i<h.length;i+=2)b.push(parseInt(h.slice(i,i+2),16));return b}
@@ -264,7 +304,9 @@ async function loadCfg(){
      f['trust'+n].checked=!!(sv2&&!sv2.pool_pubkey);
      f['key'+n].value=sv2&&sv2.pool_pubkey?bytesToHex(sv2.pool_pubkey):'';
      syncPoolUi(n);
+     poolCfg[i]=p?{host:p.host,port:p.port,user:p.user||'',sv2:!!sv2}:null;
     }
+    renderPoolMeta();
     cfgLoaded=true;msg.style.color='';msg.textContent='';return;
    }catch(e){lastErr=e;console.warn('loadCfg attempt failed:',e)}
   }
@@ -333,7 +375,7 @@ $('cfgForm').addEventListener('submit',async e=>{
  try{const t=await fetch('/',{method:'HEAD',cache:'no-store'});
   const csrf=t.headers.get('X-CSRF-Token')||'';
   const r=await fetch(API+'/api/config',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body,credentials:'include'});
-  if(r.ok){msg.style.color='';msg.textContent='Saved.'}
+  if(r.ok){msg.style.color='';msg.textContent='Saved.';loadPoolMeta()}
   else{msg.style.color='var(--red)';msg.textContent='Save failed: HTTP '+r.status}
  }
  catch(e){msg.style.color='var(--red)';msg.textContent='Save failed: '+e.message}
