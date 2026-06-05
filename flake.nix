@@ -1199,7 +1199,7 @@
               echo "Inspect binary size: cargo size --release -- -A"
               echo ""
               echo "For ESP32-S3 board: nix develop .#esp"
-              echo "Deploy to NUC:      deploy .#nuc"
+              echo "Deploy to NUC:      deploy .#redacted"
             '';
           };
 
@@ -1365,16 +1365,16 @@
       # Raspberry Pi 4 support node that connects the target boards to the
       # nbvpn.braiins.cz mesh. See nuc/nuc.nix for the host definition.
       # Deployment runs from the developer workstation, always x86_64.
-      nixosConfigurations.nuc = mkNuc "x86_64-linux" [ ];
+      nixosConfigurations.redacted = mkNuc "x86_64-linux" [ ];
 
       # Remote deployment via deploy-rs. Pushes the NUC NixOS closure over
       # SSH and activates it without requiring a full SD-card reflash.
-      deploy.nodes.nuc = {
+      deploy.nodes.redacted = {
         hostname = nucHost;
         sshUser = "admin";
         profiles.system = {
           user = "root";
-          path = deploy-rs.lib.aarch64-linux.activate.nixos self.nixosConfigurations.nuc;
+          path = deploy-rs.lib.aarch64-linux.activate.nixos self.nixosConfigurations.redacted;
         };
       };
 
