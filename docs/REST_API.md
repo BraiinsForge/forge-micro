@@ -100,15 +100,17 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 | Method | Path           | Auth        | Description                                                       |
 |--------|----------------|-------------|-------------------------------------------------------------------|
 | GET    | `/api/info`    | any         | Telemetry blob consumed by the SPA poll                           |
-| GET    | `/api/config`  | any         | `{"pool": […]}` from `ubos-config`                                |
-| POST   | `/api/config`  | any +CSRF   | Update pool list; returns `{"ok":true}`                           |
+| GET    | `/api/config`  | any         | `ConfigUpdate` snapshot: `pool`, `thermal`, `cooling_target_temp_c`, `tuning`, `api` (password blanked) |
+| POST   | `/api/config`  | any +CSRF   | Partial `ConfigUpdate` (any subset of those fields); returns `{"ok":true}` |
 
 ### `/api/system/*` (port 8080)
 
 | Method | Path                              | Auth      | Status | Description                                                              |
 |--------|-----------------------------------|-----------|--------|--------------------------------------------------------------------------|
 | GET    | `/api/system/info`                | any       | 200    | `SystemInfo`; full telemetry with `apiVariant: "ubos-0.1"`               |
-| GET    | `/api/system/asic`                | any       | 200    | `SystemAsic`; `asicModel: "BM1362"`, frequency/voltage options           |
+| GET    | `/api/system/asic`                | any       | 200    | `MiningInfo`; chip facts (`asicModel`, `deviceModel`, `swarmColor`, `asicCount`), tuning defaults, `bounds: { frequencyMhz: { start, end }, voltageMv: { start, end } }` |
+| GET    | `/api/system/thermal`             | any       | 200    | `ThermalInfo`; accepted ranges as `bounds: { sampleIntervalMs, dangerousTempC, cooldownTempC }` |
+| GET    | `/api/system/cooling`             | any       | 200    | `CoolingInfo`; accepted ranges as `bounds: { targetTempC }` |
 | GET    | `/api/system/statistics`          | any       | 200    | `SystemStatistics`; label set + (currently empty) ring of samples        |
 | GET    | `/api/system/scoreboard`          | any       | 200    | `SystemScoreboardEntry[]`; currently empty                               |
 | GET    | `/api/system/logs`                | any       | 501    | `{"message":"not implemented"}`                                          |
@@ -138,18 +140,28 @@ No auth, no allow-list. Any other path → `404`; any other method on
 
 ## Schemas
 
-Each response struct lives in its own module under
-`ubos-api/src/schema/` and derives `serde::Serialize` with
-`#[serde(rename_all = "camelCase")]`. Bodies are serialized with
-`serde-json-core` into a 2 KiB stack scratch buffer
+`/api/system/*` response structs derive `serde::Serialize` with
+`#[serde(rename_all = "camelCase")]`. ubos-api-owned schemas live in
+their own modules under `ubos-api/src/schema/`; `MiningInfo`,
+`ThermalInfo`, and `CoolingInfo` live in `ubos-config` (alongside the
+bounds they carry) and are served at `/api/system/asic`,
+`/api/system/thermal`, and `/api/system/cooling`.
+`ConfigUpdate` (the `/api/config` GET response and POST body) uses
+serde's default snake_case naming so the wire shape matches the
+ubos-config field names; consumers of `/api/config` decode keys like
+`sample_interval_ms` and `cooling_target_temp_c`. Bodies are
+serialized with `serde-json-core` into a 2 KiB stack scratch buffer
 (`ubos-api/src/system.rs`).
 
 | Struct                  | Endpoint(s)                                        |
 |-------------------------|----------------------------------------------------|
 | `SystemInfo`            | `GET /api/system/info`                             |
-| `SystemAsic`            | `GET /api/system/asic`                             |
+| `MiningInfo`            | `GET /api/system/asic`                             |
+| `ThermalInfo`           | `GET /api/system/thermal`                          |
+| `CoolingInfo`           | `GET /api/system/cooling`                          |
 | `SystemStatistics`      | `GET /api/system/statistics`                       |
 | `SystemScoreboardEntry` | `GET /api/system/scoreboard`                       |
+| `ConfigUpdate`          | `GET /api/config`, `POST /api/config`              |
 | `GenericResponse`       | action stubs, 501 responses, errors                |
 
 `API_VARIANT = "ubos-0.1"` (`ubos-api/src/schema/mod.rs:24`) ships on
