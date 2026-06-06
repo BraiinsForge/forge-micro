@@ -330,20 +330,30 @@ main {
   color: var(--red);
 }
 
-/* ---------- Configuration page ---------- */
+/* ---------- Configuration page ----------
+   Outer grid mirrors the dashboard `main` so a user toggling between
+   Dashboard and Configuration sees no horizontal shift: same outer
+   width, same sidebar column, same panel column. The nav rail uses
+   a 100vw box-shadow to bleed its dark background to the left
+   viewport edge; body { overflow-x: clip } in common.css contains
+   the shadow without promoting body to a scroll container. An outer
+   padding leaves visible body bg gaps between the rail and the
+   sticky header and footer. */
 
 .cfg {
   display: grid;
-  grid-template-columns: 160px 1fr;
-  max-width: 860px;
+  grid-template-columns: 240px 1fr;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 24px 16px;
-  gap: 0 24px;
+  padding: 16px;
+  column-gap: 16px;
+  min-height: calc(100vh - 96px);
 }
 
 @media (max-width: 760px) {
   .cfg {
     grid-template-columns: 1fr;
+    min-height: 0;
   }
 }
 
@@ -351,16 +361,20 @@ main {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-top: 4px;
+  padding: 12px 8px;
+  background: var(--panel);
+  box-shadow: -100vw 0 0 var(--panel);
 }
 
 @media (max-width: 760px) {
   .cfgnav {
     flex-direction: row;
     border-bottom: 1px solid var(--border);
-    padding-bottom: 8px;
+    padding: 0 8px 8px;
     margin-bottom: 16px;
     gap: 0;
+    box-shadow: none;
+    background: transparent;
   }
 }
 

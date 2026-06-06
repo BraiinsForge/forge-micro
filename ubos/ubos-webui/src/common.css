@@ -40,6 +40,12 @@ body {
   background: var(--bg);
   color: var(--fg);
   font: var(--fs-body)/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Confine the configuration page's left-bleed nav rail so its
+     box-shadow does not stretch the document beyond the viewport.
+     `clip` instead of `hidden` so the body is not promoted to a
+     scroll container, which would break `position: sticky` on the
+     nav bar and footer. */
+  overflow-x: clip;
 }
 
 .logo {
