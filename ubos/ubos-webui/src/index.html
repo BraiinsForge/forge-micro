@@ -1,538 +1,181 @@
-<!DOCTYPE html><html lang="en"><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>microBOS</title>
-<style>
-:root{--bg:#262626;--panel:#161616;--field:#393939;--border:#525252;--fg:#fff;--mute:#a8a8a8;--accent:#6b50ff;--accent-hi:#8b7cff;--green:#34c06a;--orange:#fe8431;--red:#d9222c}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
-.bar{display:flex;align-items:stretch;gap:4px;background:var(--panel);padding:0 20px;height:48px;border-bottom:1px solid var(--border)}
-.logo{display:flex;align-items:center;gap:8px;margin-right:24px;color:var(--mute);font-size:.75rem;text-transform:uppercase;letter-spacing:.12em}
-.logo img{height:18px;display:block}
-.logo .mu{display:inline-block;font:600 1.4rem/1 ui-serif,Georgia,serif;color:var(--accent-hi);text-shadow:0 0 4px var(--accent),0 0 10px var(--accent);letter-spacing:0;text-transform:none}
-.bar a{color:var(--mute);text-decoration:none;padding:0 14px;display:flex;align-items:center;font-size:.85rem;border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:.06em}
-.bar a:hover{color:var(--fg)}
-.bar a.on{color:var(--fg);border-bottom-color:var(--accent)}
-.sp{flex:1}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 6px var(--red);transition:background .3s,box-shadow .3s}
-main{display:grid;grid-template-columns:1fr 240px;column-gap:16px;row-gap:8px;padding:16px;max-width:1200px;margin:0 auto;align-items:start}
-@media(max-width:760px){main{grid-template-columns:1fr}.chart{height:auto}.side .card{height:auto}}
-@media(max-width:480px){
- main{padding:10px;gap:10px}
- .bar{padding:0 12px}
- .bar a{padding:0 8px;font-size:.78rem}
- .logo{margin-right:12px}
- .cfg{padding:16px 12px}
- .card{padding:10px 12px}
- .pool{font-size:.78rem;padding:6px 0}
- .pt{font-size:.68rem}
-}
-.left{display:flex;flex-direction:column;gap:8px;min-width:0}
-.chart{background:var(--panel);border-radius:4px;padding:12px;position:relative;height:208px}
-.chart svg{display:block;width:100%;height:160px}
-.gr{stroke:var(--border);stroke-width:.5;opacity:.5;vector-effect:non-scaling-stroke}
-.tk{stroke:var(--mute);stroke-width:.5;vector-effect:non-scaling-stroke}
-.ax{fill:var(--mute);font-size:9px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-.hrL{fill:none;stroke:var(--accent);stroke-width:1.5;vector-effect:non-scaling-stroke}
-.tpL{fill:none;stroke:var(--orange);stroke-width:1.5;vector-effect:non-scaling-stroke}
-.inL{fill:none;stroke:#f9c74f;stroke-width:1.5;vector-effect:non-scaling-stroke}
-.outL{fill:none;stroke:#4cc9f0;stroke-width:1.5;vector-effect:non-scaling-stroke}
-.cur{stroke:var(--mute);stroke-width:.5;stroke-dasharray:2 2;vector-effect:non-scaling-stroke}
-.hd{display:flex;justify-content:space-between;align-items:center;font-size:.7rem;color:var(--mute);margin-bottom:6px;min-height:14px}
-.hd .lb span{display:inline-block;width:10px;height:2px;vertical-align:middle;margin:0 6px}
-.hd .va{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg)}
-.side{display:flex;flex-direction:column;gap:8px}
-.side .card{height:64px;overflow:hidden}
-.card{background:var(--panel);border-radius:4px;padding:10px 14px}
-.k{color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.1em}
-.pools{grid-column:1/-1}
-.pools .k{margin-bottom:6px}
-.pool{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem}
-.pools .pool:first-of-type{border-top:0}
-.ps{display:flex;align-items:center;gap:8px}
-.pt{color:var(--mute);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;min-width:3em;text-align:right}
-.pool.live .pt{color:var(--green)}
-.pool.live .dot{background:var(--green);box-shadow:0 0 6px var(--green)}
-.pool.empty .pt{color:var(--mute)}
-.pool.empty .dot{background:var(--mute);box-shadow:none}
-.pm{display:flex;flex-direction:column;min-width:0}
-.pi{font-size:.7rem;color:var(--mute);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.v{font-size:1.05rem;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
-.lkc .ps{margin-top:4px}
-.lkc .pt{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1.05rem;min-width:auto;text-align:left;letter-spacing:.06em}
-.lkc.live .dot{background:var(--green);box-shadow:0 0 6px var(--green)}
-.lkc.live #lk{color:var(--green)}
-.lkc.dead #lk{color:var(--red)}
-.cfg{display:grid;grid-template-columns:160px 1fr;max-width:860px;margin:0 auto;padding:24px 16px;gap:0 24px}
-@media(max-width:760px){.cfg{grid-template-columns:1fr}}
-.cfgnav{display:flex;flex-direction:column;gap:2px;padding-top:4px}
-@media(max-width:760px){.cfgnav{flex-direction:row;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:16px;gap:0}}
-.cfgnav a{color:var(--mute);text-decoration:none;padding:7px 10px;font-size:.82rem;border-left:2px solid transparent;cursor:pointer}
-.cfgnav a:hover{color:var(--fg)}
-.cfgnav a.on{color:var(--fg);border-left-color:var(--accent)}
-@media(max-width:760px){.cfgnav a{border-left:0;border-bottom:2px solid transparent;padding:6px 12px}.cfgnav a.on{border-bottom-color:var(--accent)}}
-.cfgpanel{min-width:0}
-.cfgsec{display:none}
-.cfgsec.on{display:block;background:var(--panel);border-radius:4px;padding:16px 20px}
-.cfgsec h2{color:var(--mute);font-weight:600;font-size:.65rem;text-transform:uppercase;letter-spacing:.1em;margin:0 0 16px;border-bottom:1px solid var(--border);padding-bottom:6px}
-.cfgsec h3{color:var(--fg);font-weight:600;font-size:.85rem;letter-spacing:0;margin:24px 0 4px;border-bottom:1px solid var(--border);padding-bottom:6px}
-.cfgsec label{display:block;color:var(--mute);font-size:.65rem;text-transform:uppercase;letter-spacing:.1em;margin:10px 0 2px}
-.cfgsec input{width:100%;background:var(--field);color:var(--fg);border:0;border-bottom:1px solid var(--border);padding:8px 10px;font:13px ui-monospace,monospace}
-.cfgsec input:focus{outline:0;border-bottom-color:var(--accent)}
-.cfgsec label.tr{font-size:.8rem;text-transform:none;color:var(--fg);margin:14px 0 2px;display:flex;align-items:center;gap:8px;cursor:pointer}
-.cfgsec label.tr input{width:auto;margin:0}
-.pcfg[data-protocol="sv1"] .s2{display:none}
-.pcfg[data-protocol="sv2"] .s1{display:none}
-.pcfg[data-trust="yes"] .sk{display:none}
-.cfgsec button{margin-top:20px;background:var(--accent);color:#fff;border:0;padding:10px 24px;font-weight:600;letter-spacing:.04em;cursor:pointer;text-transform:uppercase;font-size:.8rem}
-.cfgsec button:hover{background:var(--accent-hi)}
-.msg{margin-top:12px;color:var(--green);font-size:.8rem;min-height:1.2em}
-.hide{display:none}
-</style></head><body>
-<nav class="bar">
-<span class="logo"><img src="/logo.svg" alt="Braiins"><span class="mu">µ</span></span>
-<a href="#" id="nDash">Dashboard</a>
-<a href="#config" id="nCfg">Configuration</a>
-<span class="sp"></span>
-<a href="#" id="nLogout">Log out</a>
-</nav>
-<main id="dash">
-<div class="left">
-<div class="chart" id="cHr">
-<div class="hd"><span class="lb"><span style="background:#6b50ff"></span>Hashrate</span><span class="va"></span></div>
-<svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
-<g class="g"></g><g class="y"></g><g class="x"></g>
-<g class="lines"></g>
-<g class="tip"></g>
-</svg>
-</div>
-<div class="chart" id="cTp">
-<div class="hd"><span class="lb"><span style="background:#fe8431"></span>Temperature</span><span class="va"></span></div>
-<svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
-<g class="g"></g><g class="y"></g><g class="x"></g>
-<g class="lines"></g>
-<g class="tip"></g>
-</svg>
-</div>
-<div class="chart" id="cPw">
-<div class="hd"><span class="lb"><span style="background:#f9c74f"></span>Power IN<span style="background:#4cc9f0"></span>Power OUT</span><span class="va"></span></div>
-<svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
-<g class="g"></g><g class="y"></g><g class="x"></g>
-<g class="lines"></g>
-<g class="tip"></g>
-</svg>
-</div>
-</div>
-<aside class="side">
-<div class="card lkc dead"><div class="k">Link</div><div class="ps"><span class="dot"></span><span id="lk" class="pt">Dead</span></div></div>
-<div class="card"><div class="k">Hashrate</div><div id="hr" class="v">–</div></div>
-<div class="card"><div class="k">IP address</div><div id="ip" class="v">–</div></div>
-<div class="card"><div class="k">Time UTC</div><div id="t" class="v">–</div></div>
-<div class="card"><div class="k">Uptime</div><div id="up" class="v">–</div></div>
-<div class="card"><div class="k">Temperature</div><div id="tp" class="v">–</div></div>
-<div class="card"><div class="k">Fan speed / PWM</div><div class="v"><span id="fs">–</span> / <span id="fp">–</span></div></div>
-<div class="card"><div class="k">Power in / out</div><div class="v"><span id="pwrIn">–</span> / <span id="pwrOut">–</span></div></div>
-<div class="card"><div class="k">Voltage set / measured</div><div class="v"><span id="vSet">–</span> / <span id="vMeas">–</span></div></div>
-</aside>
-<div class="card pools">
-<div class="k">Pools</div>
-<div class="pool" id="po1"><div class="pm"><span>Pool 1 — Primary</span><span class="pi"></span></div><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
-<div class="pool" id="po2"><div class="pm"><span>Pool 2 — Backup</span><span class="pi"></span></div><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
-<div class="pool" id="po3"><div class="pm"><span>Pool 3 — Backup</span><span class="pi"></span></div><span class="ps"><span class="dot"></span><span class="pt">Dead</span></span></div>
-</div>
-</main>
-<section class="cfg hide" id="cfg">
-<nav class="cfgnav">
-<a href="#config/pools" id="snPools">Pools</a>
-<a href="#config/temperature" id="snTemp">Temperature</a>
-<a href="#config/mining" id="snMining">Mining</a>
-<a href="#config/system" id="snSystem">System</a>
-</nav>
-<div class="cfgpanel">
-<div class="cfgsec" id="secPools"><h2>Pools</h2>
-<form id="cfgForm">
-<div class="pcfg" id="pcfg1" data-protocol="sv1" data-trust="no">
-<h3>Pool 1 — Primary</h3>
-<label>URL<input name="url1" placeholder="stratum+tcp:// or stratum2+tcp://"></label>
-<label>Username<input name="user1"></label>
-<label class="s1">Password<input name="pass1" type="password"></label>
-<label class="tr s2"><input name="trust1" type="checkbox">Trust pool (skip authority check)</label>
-<label class="s2 sk">Authority pubkey (hex)<input name="key1" placeholder="64 hex chars"></label>
-</div>
-<div class="pcfg" id="pcfg2" data-protocol="sv1" data-trust="no">
-<h3>Pool 2 — Backup</h3>
-<label>URL<input name="url2"></label>
-<label>Username<input name="user2"></label>
-<label class="s1">Password<input name="pass2" type="password"></label>
-<label class="tr s2"><input name="trust2" type="checkbox">Trust pool (skip authority check)</label>
-<label class="s2 sk">Authority pubkey (hex)<input name="key2" placeholder="64 hex chars"></label>
-</div>
-<div class="pcfg" id="pcfg3" data-protocol="sv1" data-trust="no">
-<h3>Pool 3 — Backup</h3>
-<label>URL<input name="url3"></label>
-<label>Username<input name="user3"></label>
-<label class="s1">Password<input name="pass3" type="password"></label>
-<label class="tr s2"><input name="trust3" type="checkbox">Trust pool (skip authority check)</label>
-<label class="s2 sk">Authority pubkey (hex)<input name="key3" placeholder="64 hex chars"></label>
-</div>
-<button type="submit">Save</button>
-<div class="msg" id="msg"></div>
-</form>
-</div>
-<div class="cfgsec" id="secTemp"><h2>Temperature</h2>
-<form id="fmTemp">
-<!-- min/max for sampleMs, dangerC, cooldownC are loaded from GET /api/system/thermal (bounds.sampleIntervalMs, bounds.dangerousTempC, bounds.cooldownTempC) so the accepted range lives in ubos-config::thermal. -->
-<!-- min/max for targetC are loaded from GET /api/system/cooling (bounds.targetTempC) so the accepted range lives in ubos-config::cooling. -->
-<label>Sample interval (ms)<input id="sampleMs" type="number" step="100"></label>
-<label>Danger threshold (°C)<input id="dangerC" type="number" step="0.5"></label>
-<label>Cooldown threshold (°C)<input id="cooldownC" type="number" step="0.5"></label>
-<label>Target temperature (°C)<input id="targetC" type="number" step="0.5"></label>
-<button type="submit">Save</button>
-<div class="msg" id="msgTemp"></div>
-</form>
-</div>
-<div class="cfgsec" id="secMining"><h2>Mining</h2>
-<form id="fmMining">
-<!-- min/max are loaded from GET /api/system/asic (bounds.frequencyMhz, bounds.voltageMv) so the accepted range lives in ubos-config::mining. -->
-<label>Frequency (MHz)<input id="freqMhz" type="number" step="1"></label>
-<label>Voltage (mV)<input id="voltMv" type="number" step="1"></label>
-<button type="submit">Save</button>
-<div class="msg" id="msgMining"></div>
-</form>
-</div>
-<div class="cfgsec" id="secSystem"><h2>System</h2>
-<form id="fmSystem">
-<label>Username<input id="sysUser" type="text" maxlength="32"></label>
-<label>Password<input id="sysPass" type="password" maxlength="32" placeholder="leave blank to keep current"></label>
-<button type="submit">Save</button>
-<div class="msg" id="msgSystem"></div>
-</form>
-</div>
-</div>
-</section>
-<script>
-const API=`${location.protocol}//${location.hostname}:8080`;
-const N=150,W=680,H=120,L=52,R=12,T=10,B=20,PW=W-L-R,PH=H-T-B;
-const hrBuf=new Array(N).fill(null),tpBuf=new Array(N).fill(null);
-const inBuf=new Array(N).fill(null),outBuf=new Array(N).fill(null);
-// Per-slot pool meta cache. undefined = not yet fetched (fall back to
-// Dead on a clear bit), null = fetched and slot is empty, object =
-// fetched and configured. Populated by loadPoolMeta() and refreshed by
-// loadCfg() and the save handler.
-const poolCfg=[undefined,undefined,undefined];
-// Snapshot of the Temperature form values as loaded from GET /api/config.
-// The submit handler sends `thermal` and `cooling_target_temp_c` only when
-// they actually changed, so editing one threshold does not drag the others
-// through the cross-field validator.
-let tempInit=null;
-const $=id=>document.getElementById(id);
-const $$=(p,s)=>p.querySelector(s);
-let cfgLoaded=false,cfgLoading=false,asicLoaded=false,thermalLoaded=false,coolingLoaded=false;
-// Constrain the frequency/voltage inputs from GET /api/system/asic so
-// the accepted range has a single source of truth in ubos-config::mining.
-async function loadAsicBounds(){
- if(asicLoaded)return true;
- const r=await fetch(API+'/api/system/asic',{cache:'no-store',credentials:'include'});
- if(!r.ok)throw new Error('HTTP '+r.status);
- const d=await r.json();
- const f=$('freqMhz'),v=$('voltMv'),b=d.bounds||{};
- if(b.frequencyMhz){f.min=b.frequencyMhz.start;f.max=b.frequencyMhz.end}
- if(b.voltageMv){v.min=b.voltageMv.start;v.max=b.voltageMv.end}
- asicLoaded=true;return true;
-}
-// Same pattern as loadAsicBounds: pull the accepted ranges for the
-// sampleMs, dangerC, and cooldownC inputs from GET /api/system/thermal
-// so the bounds live only in ubos-config::thermal.
-async function loadThermalBounds(){
- if(thermalLoaded)return true;
- const r=await fetch(API+'/api/system/thermal',{cache:'no-store',credentials:'include'});
- if(!r.ok)throw new Error('HTTP '+r.status);
- const d=await r.json(),b=d.bounds||{};
- const s=$('sampleMs'),dg=$('dangerC'),cd=$('cooldownC');
- if(b.sampleIntervalMs){s.min=b.sampleIntervalMs.start;s.max=b.sampleIntervalMs.end}
- if(b.dangerousTempC){dg.min=b.dangerousTempC.start;dg.max=b.dangerousTempC.end}
- if(b.cooldownTempC){cd.min=b.cooldownTempC.start;cd.max=b.cooldownTempC.end}
- thermalLoaded=true;return true;
-}
-// Pull the accepted range for the targetC input from GET /api/system/cooling
-// so the bound lives only in ubos-config::cooling.
-async function loadCoolingBounds(){
- if(coolingLoaded)return true;
- const r=await fetch(API+'/api/system/cooling',{cache:'no-store',credentials:'include'});
- if(!r.ok)throw new Error('HTTP '+r.status);
- const d=await r.json(),b=d.bounds||{},tg=$('targetC');
- if(b.targetTempC){tg.min=b.targetTempC.start;tg.max=b.targetTempC.end}
- coolingLoaded=true;return true;
-}
-const CFG_SECTIONS={pools:'secPools',temperature:'secTemp',mining:'secMining',system:'secSystem'};
-const CFG_NAV={pools:'snPools',temperature:'snTemp',mining:'snMining',system:'snSystem'};
-function route(){
- const h=location.hash;
- const isCfg=h==='#config'||h.startsWith('#config/');
- $('dash').classList.toggle('hide',isCfg);
- $('cfg').classList.toggle('hide',!isCfg);
- $('nDash').classList.toggle('on',!isCfg);
- $('nCfg').classList.toggle('on',isCfg);
- if(isCfg){
-  const sub=(h.startsWith('#config/')?h.slice(8):'') || 'pools';
-  const secKey=CFG_SECTIONS[sub]?sub:'pools';
-  Object.keys(CFG_SECTIONS).forEach(k=>{
-   $(CFG_SECTIONS[k]).classList.toggle('on',k===secKey);
-   $(CFG_NAV[k]).classList.toggle('on',k===secKey);
-  });
-  if(!cfgLoaded&&!cfgLoading)loadCfg();
- }
-}
-addEventListener('hashchange',route);route();
-function fmtHr(h){if(h>=1e12)return(h/1e12).toFixed(2)+' TH/s';if(h>=1e9)return(h/1e9).toFixed(2)+' GH/s';if(h>=1e6)return(h/1e6).toFixed(2)+' MH/s';if(h>=1e3)return(h/1e3).toFixed(2)+' kH/s';return h.toFixed(0)+' H/s'}
-function fmtUp(s){const d=s/86400|0,h=s/3600%24|0,m=s/60%60|0;return d?`${d}d ${h}h ${m}m`:h?`${h}h ${m}m`:`${m}m ${s%60|0}s`}
-const charts=[
- {id:'cHr',min:0,max:2e12,maj:1e12,minTick:5e11,axis:v=>(v/1e12).toFixed(0)+'T',val:fmtHr,
-  lines:[{cls:'hrL',buf:hrBuf,lbl:'Hashrate'}]},
- {id:'cTp',min:20,max:100,maj:20,minTick:10,axis:v=>v+'°C',val:v=>v+'°C',
-  lines:[{cls:'tpL',buf:tpBuf,lbl:'Temperature'}]},
- {id:'cPw',min:0,max:60,maj:20,minTick:10,axis:v=>v+'W',val:v=>v.toFixed(0)+' W',
-  lines:[{cls:'inL',buf:inBuf,lbl:'Power IN'},{cls:'outL',buf:outBuf,lbl:'Power OUT'}]}
-];
-function drawChart(c){
- const root=$(c.id),span=c.max-c.min,steps=Math.round(span/c.minTick),majEvery=Math.round(c.maj/c.minTick);
- let g='',ya='',xa='';
- for(let i=0;i<=steps;i++){const py=T+PH-(i/steps)*PH,big=i%majEvery===0;
-  if(big){const v=c.min+i*c.minTick;g+=`<line class="gr" x1="${L}" y1="${py}" x2="${L+PW}" y2="${py}"/>`;ya+=`<text class="ax" x="${L-6}" y="${py+3}" text-anchor="end">${c.axis(v)}</text>`}
-  else{ya+=`<line class="tk" x1="${L-3}" y1="${py}" x2="${L}" y2="${py}"/>`}}
- for(let m=0;m<=5;m++){const px=L+(m/5)*PW;
-  g+=`<line class="gr" x1="${px}" y1="${T}" x2="${px}" y2="${T+PH}"/>`;
-  xa+=`<text class="ax" x="${px}" y="${H-6}" text-anchor="middle">-${5-m}m</text>`}
- $$(root,'.g').innerHTML=g;$$(root,'.y').innerHTML=ya;$$(root,'.x').innerHTML=xa;
- $$(root,'.lines').innerHTML=c.lines.map(ln=>{
-  let path='',pen=false;
-  for(let i=0;i<N;i++){const v=ln.buf[i];if(v==null){pen=false;continue}
-   const clamped=Math.min(Math.max(v,c.min),c.max);
-   const px=(L+i*PW/(N-1)).toFixed(1),py=(T+PH-((clamped-c.min)/span)*PH).toFixed(1);
-   path+=(pen?'L':'M')+px+','+py+' ';pen=true}
-  return `<path class="${ln.cls}" d="${path}"/>`;
- }).join('');
-}
-function draw(){charts.forEach(drawChart)}
-function setLk(ok){const lk=$('lk'),c=lk.closest('.lkc');lk.textContent=ok?'Alive':'Dead';c.classList.toggle('live',ok);c.classList.toggle('dead',!ok)}
-async function tick(){
- try{const r=await fetch(API+'/api/info',{cache:'no-store',credentials:'include'});if(!r.ok)throw 0;
-  const d=await r.json();
-  setLk(true);
-  if(d.name&&document.title!==d.name)document.title=d.name;
-  $('hr').textContent=fmtHr(d.hashrate);
-  $('ip').textContent=d.ip||'–';
-  $('t').textContent=d.time||'–';
-  $('up').textContent=fmtUp(d.uptime);
-  $('tp').textContent=d.temperature?d.temperature+' °C':'–';
-  $('fs').textContent=d.fan_rpm?d.fan_rpm+' RPM':'–';
-  $('fp').textContent=d.fan_pwm?d.fan_pwm+' %':'–';
-  // Zero reads render as '–' to match the fan tiles: the cold-boot
-  // window before the first PSU sample is indistinguishable from a
-  // genuine 0 mW / 0 mV reading, and treating both as "no data"
-  // avoids a misleading 0.0 W flash during boot. The power chart
-  // below still pushes the literal value so the trace stays
-  // continuous; the two displays serve different needs.
-  $('pwrIn').textContent=d.power_in_mw?(d.power_in_mw/1000).toFixed(1)+' W':'–';
-  $('pwrOut').textContent=d.power_out_mw?(d.power_out_mw/1000).toFixed(1)+' W':'–';
-  $('vSet').textContent=d.voltage_set_mv?(d.voltage_set_mv/1000).toFixed(3)+' V':'–';
-  $('vMeas').textContent=d.voltage_measured_mv?(d.voltage_measured_mv/1000).toFixed(3)+' V':'–';
-  const pm=d.pools|0;
-  for(let i=0;i<3;i++){const el=$('po'+(i+1)),a=(pm>>i)&1,c=poolCfg[i];
-   el.classList.toggle('live',!!a);el.classList.toggle('empty',!a&&c===null);
-   el.querySelector('.pt').textContent=a?'Alive':(c===null?'Empty':'Dead')}
-  hrBuf.shift();hrBuf.push(d.hashrate??null);
-  tpBuf.shift();tpBuf.push(d.temperature||null);
-  inBuf.shift();inBuf.push(d.power_in_mw?d.power_in_mw/1000:null);
-  outBuf.shift();outBuf.push(d.power_out_mw?d.power_out_mw/1000:null);
-  draw();
- }catch(e){setLk(false);console.warn('tick fetch failed:',e)}
-}
-tick().then(loadPoolMeta);setInterval(tick,2000);
-function renderPoolMeta(){
- for(let i=0;i<3;i++){
-  const c=poolCfg[i],pi=$('po'+(i+1)).querySelector('.pi');
-  if(c===undefined)pi.textContent='';
-  else if(c===null)pi.textContent='not configured';
-  else pi.textContent=`${c.host}:${c.port} · ${c.sv2?'SV2':'SV1'}`+(c.user?' · '+c.user:'');
- }
-}
-async function loadPoolMeta(){
- // Same retry budget as loadCfg: the REST listener serves one
- // connection at a time, so a /api/info tick in flight can knock
- // this fetch over. A short backoff keeps the dashboard labels
- // populated without spinning when the board is genuinely offline.
- const delays=[0,250,500,1000];
- for(const wait of delays){
-  if(wait)await new Promise(r=>setTimeout(r,wait));
-  try{
-   const r=await fetch(API+'/api/config',{cache:'no-store',credentials:'include'});
-   if(!r.ok)continue;
-   const d=await r.json(),pools=d.pool||[];
-   for(let i=0;i<3;i++){
-    const p=pools[i];
-    if(!p){poolCfg[i]=null;continue}
-    poolCfg[i]={host:p.host,port:p.port,user:p.user||'',sv2:!!(p.protocol&&p.protocol.Sv2)};
-   }
-   renderPoolMeta();return;
-  }catch(_){}
- }
-}
-const POOL_RE=/^(?:(stratum2?\+tcp):\/\/)?([^:\/]+)(?::(\d+))?$/;
-function bytesToHex(b){return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')}
-function hexToBytes(h){const b=[];for(let i=0;i<h.length;i+=2)b.push(parseInt(h.slice(i,i+2),16));return b}
-function syncPoolUi(n){
- const root=$('pcfg'+n),f=$('cfgForm'),m=(f['url'+n].value||'').match(POOL_RE);
- root.dataset.protocol=m&&m[1]==='stratum2+tcp'?'sv2':'sv1';
- root.dataset.trust=f['trust'+n].checked?'yes':'no';
-}
-async function loadCfg(){
- // The REST listener serves connections one-at-a-time, so a click on
- // Configuration that lands while the 2 s /api/info poll is in flight
- // can fail at the TCP layer. Retry the GET a few times with backoff
- // before reporting Load failed, so the operator does not have to
- // bounce out of the tab to recover from a transient race.
- // Each section has its own .msg status div. Mirror load status to
- // all four so the operator sees the result on whichever section they
- // happen to be viewing when the load finishes.
- const msgIds=['msg','msgTemp','msgMining','msgSystem'];
- const setMsg=(color,text)=>msgIds.forEach(id=>{const m=$(id);m.style.color=color;m.textContent=text});
- cfgLoading=true;
- const delays=[0,250,500,1000];
- let lastErr;
- try{
-  for(const wait of delays){
-   if(wait)await new Promise(r=>setTimeout(r,wait));
-   try{
-    await loadAsicBounds();
-    await loadThermalBounds();
-    await loadCoolingBounds();
-    const r=await fetch(API+'/api/config',{cache:'no-store',credentials:'include'});
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    const d=await r.json(),f=$('cfgForm'),pools=d.pool||[];
-    for(let i=0;i<3;i++){
-     const p=pools[i],n=i+1;
-     const sv1=p&&p.protocol&&p.protocol.Sv1;
-     const sv2=p&&p.protocol&&p.protocol.Sv2;
-     const scheme=sv2?'stratum2+tcp':'stratum+tcp';
-     f['url'+n].value=p?`${scheme}://${p.host}:${p.port}`:'';
-     f['user'+n].value=p&&p.user?p.user:'';
-     f['pass'+n].value=sv1&&sv1.password?sv1.password:'';
-     f['trust'+n].checked=!!(sv2&&!sv2.pool_pubkey);
-     f['key'+n].value=sv2&&sv2.pool_pubkey?bytesToHex(sv2.pool_pubkey):'';
-     syncPoolUi(n);
-     poolCfg[i]=p?{host:p.host,port:p.port,user:p.user||'',sv2:!!sv2}:null;
-    }
-    renderPoolMeta();
-    if(d.thermal){$('sampleMs').value=d.thermal.sample_interval_ms;$('dangerC').value=d.thermal.dangerous_temp_c;$('cooldownC').value=d.thermal.cooldown_temp_c}
-    if(d.cooling_target_temp_c!=null)$('targetC').value=d.cooling_target_temp_c;
-    tempInit={sampleMs:d.thermal?d.thermal.sample_interval_ms:null,dangerC:d.thermal?d.thermal.dangerous_temp_c:null,cooldownC:d.thermal?d.thermal.cooldown_temp_c:null,targetC:d.cooling_target_temp_c!=null?d.cooling_target_temp_c:null};
-    if(d.tuning){$('freqMhz').value=d.tuning.frequency_mhz;$('voltMv').value=d.tuning.voltage_mv}
-    if(d.api){$('sysUser').value=d.api.username||''}
-    cfgLoaded=true;setMsg('','');return;
-   }catch(e){lastErr=e;console.warn('loadCfg attempt failed:',e)}
-  }
-  setMsg('var(--red)','Load failed: '+((lastErr&&lastErr.message)||'unknown'));
- }finally{cfgLoading=false}
-}
-for(let i=1;i<=3;i++){
- const f=$('cfgForm');
- f['url'+i].addEventListener('input',()=>syncPoolUi(i));
- f['trust'+i].addEventListener('change',()=>syncPoolUi(i));
-}
-charts.forEach(c=>{
- const root=$(c.id),svg=$$(root,'svg'),tip=$$(root,'.tip'),va=$$(root,'.va');
- svg.addEventListener('pointermove',e=>{
-  if(e.pointerType!=='mouse')return;
-  const r=svg.getBoundingClientRect(),vx=(e.clientX-r.left)/r.width*W;
-  let i=Math.round((vx-L)*(N-1)/PW);if(i<0)i=0;if(i>=N)i=N-1;
-  const px=L+i*PW/(N-1),a=(N-1-i)*2,span=c.max-c.min;
-  const circles=c.lines.map(ln=>{
-   const v=ln.buf[i];if(v==null)return '';
-   const clamped=Math.min(Math.max(v,c.min),c.max);
-   const py=T+PH-((clamped-c.min)/span)*PH;
-   return `<circle class="${ln.cls}" cx="${px}" cy="${py.toFixed(1)}" r="3"/>`;
-  }).join('');
-  tip.innerHTML=`<line class="cur" x1="${px}" y1="${T}" x2="${px}" y2="${T+PH}"/>${circles}`;
-  const ts='T-'+(a<60?a+'s':(a/60|0)+'m '+(a%60)+'s');
-  const parts=c.lines.map(ln=>ln.buf[i]!=null?(c.lines.length>1?`${ln.lbl}: ${c.val(ln.buf[i])}`:c.val(ln.buf[i])):null).filter(Boolean);
-  va.textContent=parts.length?`${ts}, ${parts.join(', ')}`:ts;
- });
- svg.addEventListener('pointerleave',()=>{tip.innerHTML='';va.textContent=''});
-});
-$('nLogout').addEventListener('click',async e=>{
- e.preventDefault();
- try{const t=await fetch('/',{method:'HEAD',cache:'no-store'});
-  const csrf=t.headers.get('X-CSRF-Token')||'';
-  await fetch('/logout',{method:'POST',headers:{'X-CSRF-Token':csrf},credentials:'include',redirect:'manual'});
- }catch(_){}
- location.href='/login';
-});
-async function csrfPost(body){
- const t=await fetch('/',{method:'HEAD',cache:'no-store'});
- const csrf=t.headers.get('X-CSRF-Token')||'';
- return fetch(API+'/api/config',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body),credentials:'include'});
-}
-$('cfgForm').addEventListener('submit',async e=>{
- e.preventDefault();
- const msg=$('msg');msg.style.color='';
- const f=new FormData(e.target),pool=[];
- for(let i=1;i<=3;i++){
-  const url=(f.get('url'+i)||'').trim();if(!url)continue;
-  const m=url.match(POOL_RE);
-  if(!m){msg.style.color='var(--red)';msg.textContent='Invalid pool '+i+' URL';return}
-  const host=m[2],port=m[3]?+m[3]:3333,user=f.get('user'+i)||'';
-  let protocol;
-  if(m[1]==='stratum2+tcp'){
-   const trust=f.get('trust'+i)==='on';
-   let pool_pubkey=null;
-   if(!trust){
-    const hex=(f.get('key'+i)||'').trim();
-    if(!/^[0-9a-fA-F]{64}$/.test(hex)){msg.style.color='var(--red)';msg.textContent='Pool '+i+': pubkey must be 64 hex chars';return}
-    pool_pubkey=hexToBytes(hex);
-   }
-   protocol={Sv2:{pool_pubkey}};
-  }else{
-   const pass=f.get('pass'+i);
-   protocol={Sv1:{password:pass||null}};
-  }
-  pool.push({host,port,user,protocol});
- }
- try{const r=await csrfPost({pool});
-  if(r.ok){msg.style.color='';msg.textContent='Saved.';loadPoolMeta()}
-  else{msg.style.color='var(--red)';msg.textContent='Save failed: HTTP '+r.status}
- }
- catch(e){msg.style.color='var(--red)';msg.textContent='Save failed: '+e.message}
-});
-$('fmTemp').addEventListener('submit',async e=>{
- e.preventDefault();
- const msg=$('msgTemp');msg.style.color='';
- const sampleMs=+$('sampleMs').value,dangerC=+$('dangerC').value,cooldownC=+$('cooldownC').value,targetC=+$('targetC').value;
- const body={};
- if(!tempInit||sampleMs!==tempInit.sampleMs||dangerC!==tempInit.dangerC||cooldownC!==tempInit.cooldownC){
-  body.thermal={sample_interval_ms:sampleMs,dangerous_temp_c:dangerC,cooldown_temp_c:cooldownC};
- }
- if(!tempInit||targetC!==tempInit.targetC)body.cooling_target_temp_c=targetC;
- if(!Object.keys(body).length){msg.textContent='No changes.';return}
- try{const r=await csrfPost(body);
-  if(r.ok){msg.style.color='';msg.textContent='Saved.';tempInit={sampleMs,dangerC,cooldownC,targetC}}
-  else{msg.style.color='var(--red)';msg.textContent='Save failed: HTTP '+r.status}
- }catch(e){msg.style.color='var(--red)';msg.textContent='Save failed: '+e.message}
-});
-$('fmMining').addEventListener('submit',async e=>{
- e.preventDefault();
- const msg=$('msgMining');msg.style.color='';
- try{const r=await csrfPost({tuning:{frequency_mhz:+$('freqMhz').value,voltage_mv:+$('voltMv').value}});
-  if(r.ok){msg.style.color='';msg.textContent='Saved.'}
-  else{msg.style.color='var(--red)';msg.textContent='Save failed: HTTP '+r.status}
- }catch(e){msg.style.color='var(--red)';msg.textContent='Save failed: '+e.message}
-});
-$('fmSystem').addEventListener('submit',async e=>{
- e.preventDefault();
- const msg=$('msgSystem');msg.style.color='';
- try{const r=await csrfPost({api:{username:$('sysUser').value,password:$('sysPass').value}});
-  if(r.ok){msg.style.color='';msg.textContent='Saved.'}
-  else{msg.style.color='var(--red)';msg.textContent='Save failed: HTTP '+r.status}
- }catch(e){msg.style.color='var(--red)';msg.textContent='Save failed: '+e.message}
-});
-</script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>microBOS</title>
+  <!--CSS-->
+</head>
+<body>
+  <nav class="bar">
+    <span class="logo">
+      <img src="/logo.svg" alt="Braiins">
+      <span class="mu">µ</span>
+    </span>
+    <a href="#" id="nDash">Dashboard</a>
+    <a href="#config" id="nCfg">Configuration</a>
+    <span class="sp"></span>
+    <a href="#" id="nLogout">Log out</a>
+  </nav>
+
+  <main id="dash">
+    <div class="left">
+      <div class="chart" id="cHr">
+        <div class="hd">
+          <span class="lb"><span style="background:#6b50ff"></span>Hashrate</span>
+          <span class="va"></span>
+        </div>
+        <svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
+          <g class="g"></g><g class="y"></g><g class="x"></g>
+          <g class="lines"></g>
+          <g class="tip"></g>
+        </svg>
+      </div>
+      <div class="chart" id="cTp">
+        <div class="hd">
+          <span class="lb"><span style="background:#fe8431"></span>Temperature</span>
+          <span class="va"></span>
+        </div>
+        <svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
+          <g class="g"></g><g class="y"></g><g class="x"></g>
+          <g class="lines"></g>
+          <g class="tip"></g>
+        </svg>
+      </div>
+      <div class="chart" id="cPw">
+        <div class="hd">
+          <span class="lb">
+            <span style="background:#f9c74f"></span>Power IN
+            <span style="background:#4cc9f0"></span>Power OUT
+          </span>
+          <span class="va"></span>
+        </div>
+        <svg viewBox="0 0 680 120" preserveAspectRatio="xMidYMid meet">
+          <g class="g"></g><g class="y"></g><g class="x"></g>
+          <g class="lines"></g>
+          <g class="tip"></g>
+        </svg>
+      </div>
+    </div>
+
+    <aside class="side">
+      <div class="card lkc dead">
+        <div class="k">Link</div>
+        <div class="ps"><span class="dot"></span><span id="lk" class="pt">Dead</span></div>
+      </div>
+      <div class="card"><div class="k">Hashrate</div><div id="hr" class="v">–</div></div>
+      <div class="card"><div class="k">IP address</div><div id="ip" class="v">–</div></div>
+      <div class="card"><div class="k">Time UTC</div><div id="t" class="v">–</div></div>
+      <div class="card"><div class="k">Uptime</div><div id="up" class="v">–</div></div>
+      <div class="card"><div class="k">Temperature</div><div id="tp" class="v">–</div></div>
+      <div class="card">
+        <div class="k">Fan speed / PWM</div>
+        <div class="v"><span id="fs">–</span> / <span id="fp">–</span></div>
+      </div>
+      <div class="card">
+        <div class="k">Power in / out</div>
+        <div class="v"><span id="pwrIn">–</span> / <span id="pwrOut">–</span></div>
+      </div>
+      <div class="card">
+        <div class="k">Voltage set / measured</div>
+        <div class="v"><span id="vSet">–</span> / <span id="vMeas">–</span></div>
+      </div>
+    </aside>
+
+    <div class="card pools">
+      <div class="k">Pools</div>
+      <div class="pool" id="po1">
+        <div class="pm"><span>Pool 1 — Primary</span><span class="pi"></span></div>
+        <span class="ps"><span class="dot"></span><span class="pt">Dead</span></span>
+      </div>
+      <div class="pool" id="po2">
+        <div class="pm"><span>Pool 2 — Backup</span><span class="pi"></span></div>
+        <span class="ps"><span class="dot"></span><span class="pt">Dead</span></span>
+      </div>
+      <div class="pool" id="po3">
+        <div class="pm"><span>Pool 3 — Backup</span><span class="pi"></span></div>
+        <span class="ps"><span class="dot"></span><span class="pt">Dead</span></span>
+      </div>
+    </div>
+  </main>
+
+  <section class="cfg hide" id="cfg">
+    <nav class="cfgnav">
+      <a href="#config/pools" id="snPools">Pools</a>
+      <a href="#config/temperature" id="snTemp">Temperature</a>
+      <a href="#config/mining" id="snMining">Mining</a>
+      <a href="#config/system" id="snSystem">System</a>
+    </nav>
+    <div class="cfgpanel">
+      <div class="cfgsec" id="secPools">
+        <h2>Pools</h2>
+        <form id="cfgForm">
+          <div class="pcfg" id="pcfg1" data-protocol="sv1" data-trust="no">
+            <h3>Pool 1 — Primary</h3>
+            <label>URL<input name="url1" placeholder="stratum+tcp:// or stratum2+tcp://"></label>
+            <label>Username<input name="user1"></label>
+            <label class="s1">Password<input name="pass1" type="password"></label>
+            <label class="tr s2"><input name="trust1" type="checkbox">Trust pool (skip authority check)</label>
+            <label class="s2 sk">Authority pubkey (hex)<input name="key1" placeholder="64 hex chars"></label>
+          </div>
+          <div class="pcfg" id="pcfg2" data-protocol="sv1" data-trust="no">
+            <h3>Pool 2 — Backup</h3>
+            <label>URL<input name="url2"></label>
+            <label>Username<input name="user2"></label>
+            <label class="s1">Password<input name="pass2" type="password"></label>
+            <label class="tr s2"><input name="trust2" type="checkbox">Trust pool (skip authority check)</label>
+            <label class="s2 sk">Authority pubkey (hex)<input name="key2" placeholder="64 hex chars"></label>
+          </div>
+          <div class="pcfg" id="pcfg3" data-protocol="sv1" data-trust="no">
+            <h3>Pool 3 — Backup</h3>
+            <label>URL<input name="url3"></label>
+            <label>Username<input name="user3"></label>
+            <label class="s1">Password<input name="pass3" type="password"></label>
+            <label class="tr s2"><input name="trust3" type="checkbox">Trust pool (skip authority check)</label>
+            <label class="s2 sk">Authority pubkey (hex)<input name="key3" placeholder="64 hex chars"></label>
+          </div>
+          <button type="submit">Save</button>
+          <div class="msg" id="msg"></div>
+        </form>
+      </div>
+
+      <div class="cfgsec" id="secTemp">
+        <h2>Temperature</h2>
+        <form id="fmTemp">
+          <!-- min/max for sampleMs, dangerC, cooldownC are loaded from GET /api/system/thermal (bounds.sampleIntervalMs, bounds.dangerousTempC, bounds.cooldownTempC) so the accepted range lives in ubos-config::thermal. -->
+          <!-- min/max for targetC are loaded from GET /api/system/cooling (bounds.targetTempC) so the accepted range lives in ubos-config::cooling. -->
+          <label>Sample interval (ms)<input id="sampleMs" type="number" step="100"></label>
+          <label>Danger threshold (°C)<input id="dangerC" type="number" step="0.5"></label>
+          <label>Cooldown threshold (°C)<input id="cooldownC" type="number" step="0.5"></label>
+          <label>Target temperature (°C)<input id="targetC" type="number" step="0.5"></label>
+          <button type="submit">Save</button>
+          <div class="msg" id="msgTemp"></div>
+        </form>
+      </div>
+
+      <div class="cfgsec" id="secMining">
+        <h2>Mining</h2>
+        <form id="fmMining">
+          <!-- min/max are loaded from GET /api/system/asic (bounds.frequencyMhz, bounds.voltageMv) so the accepted range lives in ubos-config::mining. -->
+          <label>Frequency (MHz)<input id="freqMhz" type="number" step="1"></label>
+          <label>Voltage (mV)<input id="voltMv" type="number" step="1"></label>
+          <button type="submit">Save</button>
+          <div class="msg" id="msgMining"></div>
+        </form>
+      </div>
+
+      <div class="cfgsec" id="secSystem">
+        <h2>System</h2>
+        <form id="fmSystem">
+          <label>Username<input id="sysUser" type="text" maxlength="32"></label>
+          <label>Password<input id="sysPass" type="password" maxlength="32" placeholder="leave blank to keep current"></label>
+          <button type="submit">Save</button>
+          <div class="msg" id="msgSystem"></div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!--JS-->
+</body>
+</html>

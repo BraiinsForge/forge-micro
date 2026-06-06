@@ -342,15 +342,18 @@
             # Crane's default filter keeps Cargo.toml, Cargo.lock, and .rs files.
             # We also need .cargo/config.toml (per-crate target settings), linker
             # scripts (.x), the vendored embassy-net-wiznet patches directory,
-            # the dashboard HTML that ubos-webui's build.rs gzips into OUT_DIR,
-            # the Braiins wordmark served at /logo.svg via include_bytes!, and
-            # the build.rs sibling at the ubos-webui crate root.
+            # the dashboard HTML/CSS/JS that ubos-webui's build.rs composes and
+            # gzips into OUT_DIR, the Braiins wordmark served at /logo.svg via
+            # include_bytes!, and the build.rs sibling at the ubos-webui crate
+            # root.
             customFilter =
               path: _type:
               (builtins.match ".*\\.cargo/config\\.toml$" path != null)
               || (builtins.match ".*\\.x$" path != null)
               || (builtins.match ".*/patches/embassy-net-wiznet/.*" path != null)
               || (builtins.match ".*\\.html$" path != null)
+              || (builtins.match ".*\\.css$" path != null)
+              || (builtins.match ".*\\.js$" path != null)
               || (builtins.match ".*\\.svg$" path != null)
               || (baseNameOf path == "build.rs");
           in
@@ -419,6 +422,11 @@
           doCheck = false;
           cargoBuildCommand = "true";
           cargoExtraArgs = "-p host-runner";
+          # host-runner depends on `ubos-webui`, whose `build.rs` shells
+          # out to `esbuild` to minify the dashboard and login assets.
+          # `buildDepsOnly` still executes build scripts, so esbuild
+          # must be on PATH here too.
+          nativeBuildInputs = [ pkgs.esbuild ];
         };
 
         ubosThermalArtifacts = craneLib.buildDepsOnly {
@@ -506,7 +514,12 @@
           doCheck = false;
           cargoBuildCommand = "true";
           cargoExtraArgs = "-p host-runner --target arm-unknown-linux-musleabi";
-          nativeBuildInputs = [ bmmCc ];
+          # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
+          # runs as part of host-runner's dependency closure.
+          nativeBuildInputs = [
+            bmmCc
+            pkgs.esbuild
+          ];
           CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
           CC_arm_unknown_linux_musleabi = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
         };
@@ -549,7 +562,10 @@
             # its C build script requires a cross compiler. `cc-rs`
             # otherwise falls back to host `gcc` and fails on the
             # thumb-specific flags; point it at arm-none-eabi-gcc.
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
@@ -566,7 +582,10 @@
             cargoArtifacts = null;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p bmm-pico --target thumbv8m.main-none-eabihf";
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
@@ -580,7 +599,10 @@
             # its C build script requires a cross compiler. Point `cc-rs`
             # at the arm-none-eabi cross-gcc so the C code is built
             # against the M0+ ABI.
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
             CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
@@ -589,7 +611,10 @@
             cargoArtifacts = null;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p rp2040 --target thumbv6m-none-eabi";
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
             CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
@@ -603,7 +628,10 @@
             # its C build script requires a cross compiler. `cc-rs`
             # otherwise falls back to host `gcc` and fails on the
             # thumb-specific flags; point it at arm-none-eabi-gcc.
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
@@ -612,7 +640,10 @@
             cargoArtifacts = null;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf";
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
@@ -634,7 +665,10 @@
             # its C build script requires a cross compiler. Point `cc-rs`
             # at the arm-none-eabi cross-gcc so the C code is built
             # against the correct ABI.
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
@@ -643,7 +677,10 @@
             cargoArtifacts = null;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p stm32f407 --target thumbv7em-none-eabihf";
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
@@ -657,7 +694,10 @@
             # its C build script requires a cross compiler. Point `cc-rs`
             # at the arm-none-eabi cross-gcc so the C code is built
             # against the correct ABI.
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
@@ -666,7 +706,10 @@
             cargoArtifacts = null;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p stm32f439 --target thumbv7em-none-eabihf";
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
@@ -716,6 +759,9 @@
             cargoExtraArgs = "-p ubos-webui";
             cargoClippyExtraArgs = "-- -D warnings";
             doInstallCargoArtifacts = false;
+            # build.rs runs `esbuild --minify` on the dashboard CSS/JS
+            # before gzipping into OUT_DIR.
+            nativeBuildInputs = [ pkgs.esbuild ];
           };
 
           clippy-ubos-display = craneLib.cargoClippy {
@@ -771,6 +817,9 @@
             cargoExtraArgs = "-p host-runner";
             cargoClippyExtraArgs = "-- -D warnings";
             doInstallCargoArtifacts = false;
+            # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
+            # runs as part of host-runner's dependency closure.
+            nativeBuildInputs = [ pkgs.esbuild ];
           };
 
           test-host-runner = craneLib.cargoTest {
@@ -778,6 +827,9 @@
             cargoArtifacts = hostRunnerArtifacts;
             cargoExtraArgs = "-p host-runner";
             doInstallCargoArtifacts = false;
+            # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
+            # runs as part of host-runner's dependency closure.
+            nativeBuildInputs = [ pkgs.esbuild ];
           };
 
           clippy-host-runner-bmm = bmmCraneLib.cargoClippy {
@@ -786,7 +838,12 @@
             cargoExtraArgs = "-p host-runner --target arm-unknown-linux-musleabi";
             cargoClippyExtraArgs = "-- -D warnings";
             doInstallCargoArtifacts = false;
-            nativeBuildInputs = [ bmmCc ];
+            # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
+            # runs as part of host-runner's dependency closure.
+            nativeBuildInputs = [
+              bmmCc
+              pkgs.esbuild
+            ];
             CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
             # SV2 pulls in `secp256k1-sys`, whose C build script defers to
             # `cc-rs`. Point it at the same musleabi cross-gcc the linker
@@ -913,6 +970,9 @@
             cargoArtifacts = hostArtifacts;
             cargoExtraArgs = "-p ubos-webui";
             doInstallCargoArtifacts = false;
+            # build.rs runs `esbuild --minify` on the dashboard CSS/JS
+            # before gzipping into OUT_DIR.
+            nativeBuildInputs = [ pkgs.esbuild ];
           };
 
           test-ubos-auth = craneLib.cargoTest {
@@ -1069,7 +1129,10 @@
             # at the espressif xtensa cross-gcc, and pass `-mlongcalls`
             # so memset/memcpy from secp256k1's C code can be reached
             # from text sections beyond the xtensa `call8` range.
-            nativeBuildInputs = [ xtensaEspToolchain ];
+            nativeBuildInputs = [
+              xtensaEspToolchain
+              pkgs.esbuild
+            ];
             CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
             CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
           };
@@ -1081,7 +1144,10 @@
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
             RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
-            nativeBuildInputs = [ xtensaEspToolchain ];
+            nativeBuildInputs = [
+              xtensaEspToolchain
+              pkgs.esbuild
+            ];
             CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
             CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
             # Crane runs cargo from the workspace root, so the per-crate
@@ -1175,6 +1241,9 @@
                 # below; cc-rs' fallback to host `gcc` does not
                 # work for thumb targets.
                 gcc-arm-embedded
+                # Used by ubos-webui's build.rs to minify the dashboard
+                # CSS/JS before gzipping into OUT_DIR.
+                esbuild
               ]
               ++ [ deploy-rs.packages.${system}.default ];
 
@@ -1225,6 +1294,9 @@
               libxml2
               openssl
               libffi
+              # Used by ubos-webui's build.rs to minify the dashboard
+              # CSS/JS before gzipping into OUT_DIR.
+              esbuild
             ]);
 
             NIX_LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
@@ -1295,7 +1367,12 @@
           };
 
           host = pkgs.mkShell {
-            buildInputs = [ hostRustToolchain ];
+            buildInputs = [
+              hostRustToolchain
+              # Used by ubos-webui's build.rs to minify the dashboard
+              # CSS/JS before gzipping into OUT_DIR.
+              pkgs.esbuild
+            ];
 
             RUST_ANALYZER_SERVER_PATH = "${hostRustToolchain}/bin/rust-analyzer";
 
@@ -1315,6 +1392,9 @@
               pkgs.python3
               pkgs.openssh
               pkgs.sshpass
+              # Used by ubos-webui's build.rs to minify the dashboard
+              # CSS/JS before gzipping into OUT_DIR.
+              pkgs.esbuild
             ];
 
             CARGO_BUILD_TARGET = "arm-unknown-linux-musleabi";

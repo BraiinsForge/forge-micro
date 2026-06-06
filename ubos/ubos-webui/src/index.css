@@ -1,0 +1,523 @@
+/* Dashboard-specific styles. Built into index.html alongside
+   common.css; do not duplicate the shared palette or base resets. */
+
+/* ---------- Top navigation bar ---------- */
+
+.bar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  background: var(--panel);
+  padding: 0 20px;
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  margin-right: 24px;
+}
+
+.bar a {
+  color: var(--mute);
+  text-decoration: none;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  font-size: 0.85rem;
+  border-bottom: 2px solid transparent;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.bar a:hover {
+  color: var(--fg);
+}
+
+.bar a.on {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+.sp {
+  flex: 1;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 6px var(--red);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+
+/* ---------- Main dashboard grid ---------- */
+
+/* Charts on the left column, summary cards on the right, pools card
+   spans both. */
+main {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  column-gap: 16px;
+  row-gap: 8px;
+  padding: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+  .chart {
+    height: auto;
+  }
+  .side .card {
+    height: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  main {
+    padding: 10px;
+    gap: 10px;
+  }
+  .bar {
+    padding: 0 12px;
+  }
+  .bar a {
+    padding: 0 8px;
+    font-size: 0.78rem;
+  }
+  .logo {
+    margin-right: 12px;
+  }
+  .cfg {
+    padding: 16px 12px;
+  }
+  .card {
+    padding: 10px 12px;
+  }
+  .pool {
+    font-size: 0.78rem;
+    padding: 6px 0;
+  }
+  .pt {
+    font-size: 0.68rem;
+  }
+}
+
+.left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* ---------- Charts ----------
+   Chart layout constants live in index.js as PAD_LEFT / PAD_RIGHT /
+   PAD_TOP / PAD_BOTTOM and PLOT_WIDTH / PLOT_HEIGHT. Keep the SVG
+   viewBox here in sync with CHART_WIDTH and CHART_HEIGHT there. */
+
+.chart {
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 12px;
+  position: relative;
+  height: 208px;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: 160px;
+}
+
+.gr {
+  stroke: var(--border);
+  stroke-width: 0.5;
+  opacity: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.tk {
+  stroke: var(--mute);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.ax {
+  fill: var(--mute);
+  font-size: 9px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.hrL {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.tpL {
+  fill: none;
+  stroke: var(--orange);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.inL {
+  fill: none;
+  stroke: #f9c74f;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.outL {
+  fill: none;
+  stroke: #4cc9f0;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.cur {
+  stroke: var(--mute);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.7rem;
+  color: var(--mute);
+  margin-bottom: 6px;
+  min-height: 14px;
+}
+
+.hd .lb span {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  vertical-align: middle;
+  margin: 0 6px;
+}
+
+.hd .va {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--fg);
+}
+
+/* ---------- Sidebar summary cards ---------- */
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.side .card {
+  height: 64px;
+  overflow: hidden;
+}
+
+.card {
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 10px 14px;
+}
+
+.k {
+  color: var(--mute);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.v {
+  font-size: 1.05rem;
+  margin-top: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Pools card ---------- */
+
+.pools {
+  grid-column: 1 / -1;
+}
+
+.pools .k {
+  margin-bottom: 6px;
+}
+
+.pool {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.pools .pool:first-of-type {
+  border-top: 0;
+}
+
+.ps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pt {
+  color: var(--mute);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  min-width: 3em;
+  text-align: right;
+}
+
+.pool.live .pt {
+  color: var(--green);
+}
+
+.pool.live .dot {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+}
+
+.pool.empty .pt {
+  color: var(--mute);
+}
+
+.pool.empty .dot {
+  background: var(--mute);
+  box-shadow: none;
+}
+
+.pm {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pi {
+  font-size: 0.7rem;
+  color: var(--mute);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Link card reuses the .ps/.pt structure but with bigger text. */
+.lkc .ps {
+  margin-top: 4px;
+}
+
+.lkc .pt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.05rem;
+  min-width: auto;
+  text-align: left;
+  letter-spacing: 0.06em;
+}
+
+.lkc.live .dot {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+}
+
+.lkc.live #lk {
+  color: var(--green);
+}
+
+.lkc.dead #lk {
+  color: var(--red);
+}
+
+/* ---------- Configuration page ---------- */
+
+.cfg {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  gap: 0 24px;
+}
+
+@media (max-width: 760px) {
+  .cfg {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cfgnav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+}
+
+@media (max-width: 760px) {
+  .cfgnav {
+    flex-direction: row;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+    gap: 0;
+  }
+}
+
+.cfgnav a {
+  color: var(--mute);
+  text-decoration: none;
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+
+.cfgnav a:hover {
+  color: var(--fg);
+}
+
+.cfgnav a.on {
+  color: var(--fg);
+  border-left-color: var(--accent);
+}
+
+@media (max-width: 760px) {
+  .cfgnav a {
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+    padding: 6px 12px;
+  }
+  .cfgnav a.on {
+    border-bottom-color: var(--accent);
+  }
+}
+
+.cfgpanel {
+  min-width: 0;
+}
+
+.cfgsec {
+  display: none;
+}
+
+.cfgsec.on {
+  display: block;
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 16px 20px;
+}
+
+.cfgsec h2 {
+  color: var(--mute);
+  font-weight: 600;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin: 0 0 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.cfgsec h3 {
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0;
+  margin: 24px 0 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.cfgsec label {
+  display: block;
+  color: var(--mute);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin: 10px 0 2px;
+}
+
+.cfgsec input {
+  width: 100%;
+  background: var(--field);
+  color: var(--fg);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  font: 13px ui-monospace, monospace;
+}
+
+.cfgsec input:focus {
+  outline: 0;
+  border-bottom-color: var(--accent);
+}
+
+.cfgsec label.tr {
+  font-size: 0.8rem;
+  text-transform: none;
+  color: var(--fg);
+  margin: 14px 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.cfgsec label.tr input {
+  width: auto;
+  margin: 0;
+}
+
+/* Per-pool form: protocol and trust toggles drive which subfields show. */
+.pcfg[data-protocol="sv1"] .s2 {
+  display: none;
+}
+
+.pcfg[data-protocol="sv2"] .s1 {
+  display: none;
+}
+
+.pcfg[data-trust="yes"] .sk {
+  display: none;
+}
+
+.cfgsec button {
+  margin-top: 20px;
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  padding: 10px 24px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+}
+
+.cfgsec button:hover {
+  background: var(--accent-hi);
+}
+
+.msg {
+  margin-top: 12px;
+  color: var(--green);
+  font-size: 0.8rem;
+  min-height: 1.2em;
+}
+
+.hide {
+  display: none;
+}

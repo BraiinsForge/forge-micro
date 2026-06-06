@@ -1,0 +1,73 @@
+/* Login-page-specific styles. Built into login.html alongside
+   common.css. */
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 32px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.logo {
+  justify-content: center;
+  margin: 0 0 24px;
+}
+
+label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+  color: var(--mute);
+}
+
+input {
+  display: block;
+  width: 100%;
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  padding: 8px 10px;
+  font-size: 0.95rem;
+  margin-bottom: 16px;
+  outline: none;
+}
+
+input:focus {
+  border-color: var(--accent);
+}
+
+button {
+  width: 100%;
+  background: var(--accent);
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  padding: 9px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--accent-hi);
+}
+
+.err {
+  color: var(--red);
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+  display: none;
+}
+
+.err.show {
+  display: block;
+}

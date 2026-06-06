@@ -17,8 +17,9 @@ defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-auth/defmt", "ubos-http/defmt
 ccmram-bss = ["ubos-core/ccmram-bss"]
 
 [build-dependencies]
-# Pre-compresses `src/index.html` with gzip at build time so the
-# firmware ships the dashboard with `Content-Encoding: gzip`.
+# Used by `build.rs` to gzip each composed page (`index.html`,
+# `login.html`) after esbuild has minified its CSS and JS, so the
+# firmware ships each page with `Content-Encoding: gzip`.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [dependencies]

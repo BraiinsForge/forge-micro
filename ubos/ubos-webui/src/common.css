@@ -1,0 +1,54 @@
+/* Styles shared by every page. The dashboard and login pages each
+   prepend this file before their own page-specific CSS at build time;
+   build.rs drives the composition step. New shared rules — color
+   palette, base typography, common layout primitives — belong here
+   so neither page drifts. */
+
+:root {
+  --bg: #262626;
+  --panel: #161616;
+  --field: #393939;
+  --border: #525252;
+  --fg: #fff;
+  --mute: #a8a8a8;
+  --accent: #6b50ff;
+  --accent-hi: #8b7cff;
+  --green: #34c06a;
+  --orange: #fe8431;
+  --red: #d9222c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mute);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.logo img {
+  height: 18px;
+  display: block;
+}
+
+.logo .mu {
+  display: inline-block;
+  font: 600 1.4rem/1 ui-serif, Georgia, serif;
+  color: var(--accent-hi);
+  text-shadow: 0 0 4px var(--accent), 0 0 10px var(--accent);
+  letter-spacing: 0;
+  text-transform: none;
+}
