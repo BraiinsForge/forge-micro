@@ -24,7 +24,6 @@ edge-http         = { workspace = true, features = ["io"] }
 edge-nal          = { workspace = true }
 edge-nal-embassy  = { workspace = true, features = ["tcp", "proto-ipv4", "medium-ethernet"] }
 embassy-net       = { workspace = true, features = ["tcp"] }
-embassy-sync      = { workspace = true }
 embassy-time      = { workspace = true }
 embedded-io-async = { workspace = true }
 ubos-auth         = { workspace = true, default-features = false }
