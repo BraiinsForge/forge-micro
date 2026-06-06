@@ -23,10 +23,10 @@
   padding: 0 14px;
   display: flex;
   align-items: center;
-  font-size: 0.85rem;
+  font-size: var(--fs-body);
   border-bottom: 2px solid transparent;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--ls-cap);
 }
 
 .bar a:hover {
@@ -88,7 +88,7 @@ main {
   }
   .bar a {
     padding: 0 8px;
-    font-size: 0.78rem;
+    font-size: var(--fs-label);
   }
   .logo {
     margin-right: 12px;
@@ -100,11 +100,11 @@ main {
     padding: 10px 12px;
   }
   .pool {
-    font-size: 0.78rem;
+    font-size: var(--fs-label);
     padding: 6px 0;
   }
   .pt {
-    font-size: 0.68rem;
+    font-size: var(--fs-label);
   }
 }
 
@@ -192,7 +192,7 @@ main {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.7rem;
+  font-size: var(--fs-label);
   color: var(--mute);
   margin-bottom: 6px;
   min-height: 14px;
@@ -232,13 +232,13 @@ main {
 
 .k {
   color: var(--mute);
-  font-size: 0.65rem;
+  font-size: var(--fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--ls-cap);
 }
 
 .v {
-  font-size: 1.05rem;
+  font-size: var(--fs-val);
   margin-top: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-variant-numeric: tabular-nums;
@@ -261,7 +261,7 @@ main {
   padding: 8px 0;
   border-top: 1px solid var(--border);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.85rem;
+  font-size: var(--fs-body);
 }
 
 .pools .pool:first-of-type {
@@ -276,9 +276,9 @@ main {
 
 .pt {
   color: var(--mute);
-  font-size: 0.72rem;
+  font-size: var(--fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--ls-cap);
   min-width: 3em;
   text-align: right;
 }
@@ -308,7 +308,7 @@ main {
 }
 
 .pi {
-  font-size: 0.7rem;
+  font-size: var(--fs-label);
   color: var(--mute);
   margin-top: 2px;
   white-space: nowrap;
@@ -323,10 +323,10 @@ main {
 
 .lkc .pt {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 1.05rem;
+  font-size: var(--fs-val);
   min-width: auto;
   text-align: left;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--ls-cap);
 }
 
 .lkc.live .dot {
@@ -380,7 +380,7 @@ main {
   color: var(--mute);
   text-decoration: none;
   padding: 7px 10px;
-  font-size: 0.82rem;
+  font-size: var(--fs-body);
   border-left: 2px solid transparent;
   cursor: pointer;
 }
@@ -422,10 +422,10 @@ main {
 
 .cfgsec h2 {
   color: var(--mute);
-  font-weight: 600;
-  font-size: 0.65rem;
+  font-weight: var(--fw-emp);
+  font-size: var(--fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--ls-cap);
   margin: 0 0 16px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 6px;
@@ -433,8 +433,8 @@ main {
 
 .cfgsec h3 {
   color: var(--fg);
-  font-weight: 600;
-  font-size: 0.85rem;
+  font-weight: var(--fw-emp);
+  font-size: var(--fs-body);
   letter-spacing: 0;
   margin: 24px 0 4px;
   border-bottom: 1px solid var(--border);
@@ -444,9 +444,9 @@ main {
 .cfgsec label {
   display: block;
   color: var(--mute);
-  font-size: 0.65rem;
+  font-size: var(--fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--ls-cap);
   margin: 10px 0 2px;
 }
 
@@ -457,7 +457,7 @@ main {
   border: 0;
   border-bottom: 1px solid var(--border);
   padding: 8px 10px;
-  font: 13px ui-monospace, monospace;
+  font: var(--fs-val) ui-monospace, monospace;
 }
 
 .cfgsec input:focus {
@@ -466,7 +466,7 @@ main {
 }
 
 .cfgsec label.tr {
-  font-size: 0.8rem;
+  font-size: var(--fs-body);
   text-transform: none;
   color: var(--fg);
   margin: 14px 0 2px;
@@ -500,11 +500,11 @@ main {
   color: #fff;
   border: 0;
   padding: 10px 24px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: var(--fw-emp);
+  letter-spacing: var(--ls-cap);
   cursor: pointer;
   text-transform: uppercase;
-  font-size: 0.8rem;
+  font-size: var(--fs-body);
 }
 
 .cfgsec button:hover {
@@ -514,7 +514,7 @@ main {
 .msg {
   margin-top: 12px;
   color: var(--green);
-  font-size: 0.8rem;
+  font-size: var(--fs-label);
   min-height: 1.2em;
 }
 

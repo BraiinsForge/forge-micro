@@ -16,6 +16,19 @@
   --green: #34c06a;
   --orange: #fe8431;
   --red: #d9222c;
+
+  /* Type scale. Four sizes, one emphasis weight, one tracking value
+     for uppercase labels. Every font-size in the webui resolves to
+     one of these tokens so the page lines up visually and tunes from
+     one place. Aligned with the Carbon Design System scale used by
+     Braiins OS, without shipping any web fonts. The regular weight
+     is the browser default and needs no token. */
+  --fs-label: 0.75rem;
+  --fs-body: 0.875rem;
+  --fs-val: 1rem;
+  --fs-head: 1.25rem;
+  --fw-emp: 600;
+  --ls-cap: 0.1em;
 }
 
 * {
@@ -26,7 +39,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--fs-body)/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 .logo {
@@ -34,9 +47,9 @@ body {
   align-items: center;
   gap: 8px;
   color: var(--mute);
-  font-size: 0.75rem;
+  font-size: var(--fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: var(--ls-cap);
 }
 
 .logo img {
@@ -46,7 +59,7 @@ body {
 
 .logo .mu {
   display: inline-block;
-  font: 600 1.4rem/1 ui-serif, Georgia, serif;
+  font: var(--fw-emp) var(--fs-head)/1 ui-serif, Georgia, serif;
   color: var(--accent-hi);
   text-shadow: 0 0 4px var(--accent), 0 0 10px var(--accent);
   letter-spacing: 0;
