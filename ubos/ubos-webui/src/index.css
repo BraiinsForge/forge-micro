@@ -417,28 +417,31 @@ main {
 
 .cfgsec.on {
   display: block;
+}
+
+/* Each form lays its dark panels and its save button + status line
+   out as a vertical stack with consistent breathing room. The save
+   button and the .msg live outside any panel on the body bg so the
+   form's terminal controls feel distinct from the configuration
+   surfaces. */
+.cfgsec form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel {
   background: var(--panel);
   border-radius: 4px;
   padding: 16px 20px;
 }
 
-.cfgsec h2 {
-  color: var(--mute);
-  font-weight: var(--fw-emp);
-  font-size: var(--fs-label);
-  text-transform: uppercase;
-  letter-spacing: var(--ls-cap);
-  margin: 0 0 16px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 6px;
-}
-
-.cfgsec h3 {
+.panel h3 {
   color: var(--fg);
   font-weight: var(--fw-emp);
   font-size: var(--fs-body);
   letter-spacing: 0;
-  margin: 24px 0 4px;
+  margin: 0 0 12px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 6px;
 }
@@ -496,8 +499,11 @@ main {
   display: none;
 }
 
+/* Save button sits outside the panels on the body bg as a deliberate
+   submit affordance. align-self: flex-start sizes it to its content
+   instead of stretching to the full panel column width. */
 .cfgsec button {
-  margin-top: 20px;
+  align-self: flex-start;
   background: var(--accent);
   color: #fff;
   border: 0;
@@ -514,7 +520,6 @@ main {
 }
 
 .msg {
-  margin-top: 12px;
   color: var(--green);
   font-size: var(--fs-label);
   min-height: 1.2em;
