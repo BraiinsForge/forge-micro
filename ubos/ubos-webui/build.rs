@@ -23,12 +23,15 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
 const CSS_MARKER: &str = "<!--CSS-->";
 const JS_MARKER: &str = "<!--JS-->";
+const BUILD_REV_MARKER: &str = "{{BUILD_REV}}";
+const BUILD_TIME_MARKER: &str = "{{BUILD_TIME}}";
 
 /// Strip HTML comments, trim per-line indentation, and drop the
 /// inter-line newlines. esbuild has no HTML loader; do the cheap
@@ -124,7 +127,7 @@ fn esbuild_minify(source: &str, loader: &str) -> String {
 /// Read template + page assets, splice in minified `<style>` and
 /// `<script>` bodies, gzip, and write the result to
 /// `OUT_DIR/<name>.html.gz`.
-fn build_page(common_css: &str, name: &str, out_dir: &Path) {
+fn build_page(common_css: &str, name: &str, out_dir: &Path, build_rev: &str, build_time: &str) {
     let template_path = format!("src/{name}.html");
     let css_path = format!("src/{name}.css");
     let js_path = format!("src/{name}.js");
@@ -138,18 +141,18 @@ fn build_page(common_css: &str, name: &str, out_dir: &Path) {
     let minified_css = esbuild_minify(&combined_css, "css");
     let minified_js = esbuild_minify(&page_js, "js");
 
-    assert!(
-        template.contains(CSS_MARKER),
-        "{template_path}: missing {CSS_MARKER}"
-    );
-    assert!(
-        template.contains(JS_MARKER),
-        "{template_path}: missing {JS_MARKER}"
-    );
+    for marker in [CSS_MARKER, JS_MARKER, BUILD_REV_MARKER, BUILD_TIME_MARKER] {
+        assert!(
+            template.contains(marker),
+            "{template_path}: missing {marker}"
+        );
+    }
 
     let inlined = template
         .replace(CSS_MARKER, &format!("<style>{minified_css}</style>"))
-        .replace(JS_MARKER, &format!("<script>{minified_js}</script>"));
+        .replace(JS_MARKER, &format!("<script>{minified_js}</script>"))
+        .replace(BUILD_REV_MARKER, build_rev)
+        .replace(BUILD_TIME_MARKER, build_time);
     let html = minify_html(&inlined);
 
     // GzEncoder over a Vec never returns Err: the backing buffer grows
@@ -177,8 +180,109 @@ fn main() {
     // src/common.css is checked into the crate sources.
     let common_css = fs::read_to_string("src/common.css").expect("BUG: read src/common.css");
 
-    build_page(&common_css, "index", &out_dir);
-    build_page(&common_css, "login", &out_dir);
+    let build_rev = resolve_build_rev();
+    let build_time = resolve_build_time();
+
+    build_page(&common_css, "index", &out_dir, &build_rev, &build_time);
+    build_page(&common_css, "login", &out_dir, &build_rev, &build_time);
 
     println!("cargo:rerun-if-changed=src/common.css");
+    println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_REV");
+    println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_TIME");
+}
+
+/// Resolve the short commit hash for the build-info footer. The flake
+/// passes `UBOS_WEBUI_BUILD_REV` because the nix sandbox has no `.git`
+/// directory; outside the sandbox the dev shell falls back to `git
+/// rev-parse` against the crate's manifest directory.
+fn resolve_build_rev() -> String {
+    if let Ok(rev) = env::var("UBOS_WEBUI_BUILD_REV") {
+        let trimmed = rev.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    git_short_rev().unwrap_or_else(|| "unknown".to_string())
+}
+
+fn git_short_rev() -> Option<String> {
+    let manifest_dir = env::var_os("CARGO_MANIFEST_DIR")?;
+    let output = Command::new("git")
+        .args(["rev-parse", "--short=12", "HEAD"])
+        .current_dir(&manifest_dir)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let rev = String::from_utf8(output.stdout).ok()?;
+    let trimmed = rev.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// Resolve the build timestamp. Prefers `UBOS_WEBUI_BUILD_TIME`,
+/// which the flake sets to `self.lastModified` so a flake build is
+/// stamped with the source revision time; falls back to the system
+/// clock for dev-shell rebuilds. `SOURCE_DATE_EPOCH` is intentionally
+/// ignored: nix-shell pins it to 1980-01-01 to make zip archives
+/// reproducible, which would freeze every dev-shell page at that
+/// date.
+fn resolve_build_time() -> String {
+    format_utc(epoch_seconds())
+}
+
+fn epoch_seconds() -> u64 {
+    if let Ok(value) = env::var("UBOS_WEBUI_BUILD_TIME") {
+        if let Ok(parsed) = value.parse::<u64>() {
+            return parsed;
+        }
+    }
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("BUG: system clock before unix epoch")
+        .as_secs()
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
+fn format_utc(seconds: u64) -> String {
+    let days = (seconds / 86400) as i64;
+    let secs_of_day = seconds % 86400;
+    let hour = secs_of_day / 3600;
+    let minute = (secs_of_day % 3600) / 60;
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02} UTC")
+}
+
+/// Days-since-1970-01-01 to proleptic Gregorian (year, month, day).
+/// Howard Hinnant's date algorithm; valid for every value an i64 day
+/// count can hold. Locals (`z`, `doe`, `yoe`, `doy`, `mp`) keep the
+/// names from the published reference so the implementation reads
+/// against the paper.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let mut year = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
+    if month <= 2 {
+        year += 1;
+    }
+    (year, month, day)
 }

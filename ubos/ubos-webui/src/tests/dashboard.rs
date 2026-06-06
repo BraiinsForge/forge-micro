@@ -41,7 +41,7 @@ fn index_payload_is_well_formed_html() {
     );
 }
 
-/// Both template markers must be substituted. Catches a regression
+/// Every template marker must be substituted. Catches a regression
 /// where build.rs reads the wrong file, skips the replace pass, or
 /// changes the marker spelling without updating the template.
 #[test]
@@ -49,6 +49,14 @@ fn index_payload_has_no_unsubstituted_markers() {
     let html = decompress(crate::INDEX_HTML_GZ);
     assert!(!html.contains("<!--CSS-->"), "CSS marker not substituted");
     assert!(!html.contains("<!--JS-->"), "JS marker not substituted");
+    assert!(
+        !html.contains("{{BUILD_REV}}"),
+        "build rev marker not substituted"
+    );
+    assert!(
+        !html.contains("{{BUILD_TIME}}"),
+        "build time marker not substituted"
+    );
 }
 
 /// Each source piece must be semantically present in the payload.
@@ -115,6 +123,8 @@ fn login_payload_is_well_formed_and_within_budget() {
     assert!(html.trim_end().ends_with("</html>"));
     assert!(!html.contains("<!--CSS-->"));
     assert!(!html.contains("<!--JS-->"));
+    assert!(!html.contains("{{BUILD_REV}}"));
+    assert!(!html.contains("{{BUILD_TIME}}"));
     assert!(html.contains(r#"action="/login""#), "missing login form");
     assert!(
         crate::LOGIN_HTML_GZ.len() <= MAX_GZ_BYTES,
