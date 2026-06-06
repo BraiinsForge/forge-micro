@@ -187,7 +187,7 @@ pub struct ConfigUpdate {
     /// configured" and clears all three persisted slots — the webui
     /// produces this when every URL input is blank.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pool: Option<heapless::Vec<PoolEntry, 3>>,
+    pub pool: Option<heapless::Vec<PoolEntry, { pool::MAX_POOLS }>>,
     /// Replacement value for [`Config::thermal`]; `None` means leave unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thermal: Option<ThermalConfig>,
@@ -320,7 +320,7 @@ impl ConfigUpdate {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Ordered list of pool endpoints; the client tries them in order.
-    pub pool: heapless::Vec<PoolEntry, 3>,
+    pub pool: heapless::Vec<PoolEntry, { pool::MAX_POOLS }>,
     /// Thermal monitoring parameters.
     pub thermal: ThermalConfig,
     /// Cooling loop parameters.

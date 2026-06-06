@@ -67,7 +67,7 @@ pub struct PoolEntry {
 
 /// Maximum number of pool slots the firmware persists and validates.
 ///
-/// Drives both the `heapless::Vec<PoolEntry, 3>` capacity in
+/// Drives both the `heapless::Vec<PoolEntry, MAX_POOLS>` capacity in
 /// [`crate::Config`] / [`crate::ConfigUpdate`] and the length of the
 /// per-slot error-message tables below, so growing the slot count is
 /// a single-const change that fails to compile until every table is
