@@ -1,17 +1,9 @@
 /* Dashboard-specific styles. Built into index.html alongside
    common.css; do not duplicate the shared palette or base resets. */
 
-/* ---------- Top navigation bar ---------- */
-
-.bar {
-  display: flex;
-  align-items: stretch;
-  gap: 4px;
-  background: var(--panel);
-  padding: 0 20px;
-  height: 48px;
-  border-bottom: 1px solid var(--border);
-}
+/* ---------- Top navigation bar ----------
+   .bar core lives in common.css; only the dashboard-specific link
+   styling lives here. */
 
 .logo {
   margin-right: 24px;
@@ -36,10 +28,6 @@
 .bar a.on {
   color: var(--fg);
   border-bottom-color: var(--accent);
-}
-
-.sp {
-  flex: 1;
 }
 
 .dot {

@@ -65,3 +65,41 @@ body {
   letter-spacing: 0;
   text-transform: none;
 }
+
+/* Sticky top header and bottom footer. The dashboard puts its
+   navigation links in the .bar at the top; every page repeats the
+   .bar.ft variant at the bottom for build provenance. Both bars
+   are pinned via position: sticky so they stay on screen while the
+   page scrolls. */
+.bar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  background: var(--panel);
+  padding: 0 20px;
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.bar.ft {
+  top: auto;
+  bottom: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
+}
+
+.sp {
+  flex: 1;
+}
+
+.bi {
+  display: flex;
+  align-items: center;
+  color: var(--mute);
+  font-size: var(--fs-label);
+  letter-spacing: var(--ls-cap);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
