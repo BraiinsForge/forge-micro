@@ -7,6 +7,7 @@
 //! See `docs/REGISTERS.md` for a per-register reference.
 
 use bitfield_struct::bitfield;
+use ubos_core::units::Voltage;
 
 /// Identifies a chip register by its protocol-level address and pins
 /// its wire payload to a big-endian 4-byte payload.
@@ -1030,49 +1031,91 @@ pub const SOFT_RESET_SRST_B1: u32 = 0x0000_0002;
 /// chain.
 pub const BASE_CLOCK: u64 = 25_000_000;
 
-/// REFDIV value the BM1362 PLL is programmed with; the PLL search
-/// collapses to a constant REFDIV.
-const PLL_REFDIV: u64 = 2;
-
-/// Output frequency bounds enforced at the PLL-search entry point.
-/// Both are local policy: the lower bound is the floor the local FBDIV
-/// range reaches, and the upper bound is a chosen operating window, not
-/// a hard chip ceiling.
-const MIN_FREQ_KHZ: u32 = 50_000;
-/// The PLL search space (FBDIV 160..=237 across the divider matrix)
-/// can reach well past 700 MHz; this upper bound is local policy, a
-/// chosen operating window for the BM1362 rather than a hard chip
-/// ceiling.
-const MAX_FREQ_KHZ: u32 = 700_000;
-
-/// FBDIV register-value range for the BM1362 PLL.
-const FBDIV_MIN: u8 = 160;
-const FBDIV_MAX: u8 = 237;
-
-/// POSTDIV1 stored-value range. The actual divisor applied by the
-/// chip is `stored + 1`.
-const POSTDIV1_STORED_MIN: u8 = 1;
-const POSTDIV1_STORED_MAX: u8 = 6;
-
-/// POSTDIV2 stored-value range. The actual divisor is `stored + 1`.
-/// The PLL search additionally constrains `POSTDIV2_stored <=
-/// POSTDIV1_stored`, enforced by the search loop bound rather than the
-/// constant itself.
-const POSTDIV2_STORED_MIN: u8 = 0;
-const POSTDIV2_STORED_MAX: u8 = 5;
-
-/// Hash clock in Hz produced by the divider tuple with WDIV pinned
-/// to 0:
-///
-/// ```text
-/// freq_hz = BASE_CLOCK * FBDIV / REFDIV / (POSTDIV1+1) / (POSTDIV2+1)
-/// ```
-fn pll_freq_hz(fbdiv: u8, postdiv1_stored: u8, postdiv2_stored: u8) -> u64 {
-    BASE_CLOCK * u64::from(fbdiv)
-        / PLL_REFDIV
-        / (u64::from(postdiv1_stored) + 1)
-        / (u64::from(postdiv2_stored) + 1)
+/// Capability bounds for a single ASIC, consumed by the tuner.
+#[derive(Clone, Copy)]
+pub struct ChipDescriptor {
+    /// Maximum core voltage a single chip tolerates. The board-rail
+    /// ceiling consumed by the tuner is this value scaled by the
+    /// hashboard's `num_voltage_domains`.
+    pub max_core_voltage: Voltage,
 }
+
+/// Per-chip capability constants for the BM1362. `max_core_voltage`
+/// is board-local tuning and safety policy; the 422 mV figure is not a
+/// chip-spec value.
+pub static BM1362: ChipDescriptor = ChipDescriptor {
+    max_core_voltage: Voltage::from_mv(422),
+};
+
+/// Hashboard-level descriptor. References a `ChipDescriptor` so the
+/// tuner can read chip capabilities through a board-scoped seam;
+/// per-board topology fields land here alongside the code that
+/// consumes them.
+#[derive(Clone, Copy)]
+pub struct BoardDescriptor {
+    /// Chip populated on this hashboard.
+    pub chip: &'static ChipDescriptor,
+    /// Number of voltage domains stacked in series on the rail. The
+    /// PSU programs the sum across the stack, so the rail-side
+    /// ceiling is `chip.max_core_voltage * num_voltage_domains`.
+    pub num_voltage_domains: u8,
+    /// Upper bound the PSU enforces on this board's rail. The
+    /// `max_rail_voltage` accessor clamps the chip-stack product
+    /// against this so `Psu::set_voltage` never returns
+    /// `Error::OutOfRange` from a descriptor / PSU range mismatch.
+    /// Matches the `end_mv()` of the `VoltageRange` the firmware
+    /// configures on the board's PSU.
+    // TODO: PSU-specific fields are currently bundled into the board
+    // descriptor, which is acceptable for now, but should be split into
+    // a dedicated PSU descriptor later.
+    pub max_psu_voltage: Voltage,
+}
+
+impl BoardDescriptor {
+    /// Open-core rail voltage: the per-chip maximum scaled by the
+    /// number of series-stacked voltage domains, clamped against the
+    /// PSU's configured upper bound. The tuner anchors the
+    /// `V^2 * f` curve here before any clock is applied, and the
+    /// rail walks down V as f climbs.
+    #[must_use]
+    pub const fn max_rail_voltage(&self) -> Voltage {
+        let chip_stack = self
+            .chip
+            .max_core_voltage
+            .mv()
+            .saturating_mul(self.num_voltage_domains as u32);
+        let psu_max = self.max_psu_voltage.mv();
+        let clamped = if chip_stack < psu_max {
+            chip_stack
+        } else {
+            psu_max
+        };
+        Voltage::from_mv(clamped)
+    }
+}
+
+/// Hashboard descriptor. The `max_psu_voltage` mirrors
+/// `MiniminerPsuConfig::DEFAULT.dcdc_voltage_range` (`VRange2`, end
+/// 1675 mV).
+pub const BMM100: BoardDescriptor = BoardDescriptor {
+    chip: &BM1362,
+    num_voltage_domains: 4,
+    max_psu_voltage: Voltage::from_mv(1675),
+};
+
+/// Output frequency lower bound enforced at the calculator entry
+/// points. This is local policy: the floor the local FBDIV range
+/// reaches, not a hard chip limit. Shared by the PLL search and the
+/// hash-counting-number derivation.
+const MIN_FREQ_KHZ: u32 = 50_000;
+
+/// Output frequency upper bound enforced at the calculator entry
+/// points. The PLL search space (FBDIV 160..=237 across the divider
+/// matrix) can reach well past 700 MHz; this upper bound is local
+/// policy, a chosen operating window for the BM1362 rather than a hard
+/// chip ceiling. Shared by the PLL search and the hash-counting-number
+/// derivation.
+const MAX_FREQ_KHZ: u32 = 700_000;
 
 impl PllParameterReg {
     /// REFDIV value the BM1362 PLL is programmed with; the PLL search
