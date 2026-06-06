@@ -244,6 +244,31 @@ pub struct HashCountingNumberReg {
     pub hcn: u32,
 }
 
+impl HashCountingNumberReg {
+    /// Returns the hash-counting-number for `target_khz`, or `None`
+    /// outside `[MIN_FREQ_KHZ, MAX_FREQ_KHZ]`. The value scales
+    /// inversely with the target clock:
+    ///
+    /// `hcn = HCN_NUMERATOR_KHZ / freq_khz`
+    ///
+    /// with [`HCN_NUMERATOR_KHZ`] = `5 * 2^24 * 1000` and integer
+    /// (floor) division performed in `u64` since the numerator
+    /// exceeds `u32::MAX`.
+    #[must_use]
+    pub const fn from_freq(target_khz: u32) -> Option<Self> {
+        if target_khz < MIN_FREQ_KHZ || target_khz > MAX_FREQ_KHZ {
+            return None;
+        }
+        // The division result is bounded by
+        // HCN_NUMERATOR_KHZ / MIN_FREQ_KHZ = 83_886_080_000 / 50_000
+        // = 1_677_721, well inside u32. The truncation cannot lose
+        // bits within the calculator's safe range.
+        #[allow(clippy::cast_possible_truncation)]
+        let hcn = (HCN_NUMERATOR_KHZ / target_khz as u64) as u32;
+        Some(Self::new().with_hcn(hcn))
+    }
+}
+
 impl Register for HashCountingNumberReg {
     const REG_NUM: u8 = 0x10;
     fn from_be_bytes(bytes: [u8; 4]) -> Self {
@@ -253,6 +278,15 @@ impl Register for HashCountingNumberReg {
         self.into_bits().to_be_bytes()
     }
 }
+
+/// Numerator of the local hash-counting-number formula in kHz units,
+/// equal to `5 * 2^24 * 1000 = 83_886_080_000`. The HCN scales
+/// inversely with hash-clock frequency; this exact `5 * 2^24` per-MHz
+/// numerator is a local derivation. The factor of 1000 scales the
+/// per-MHz form to kHz so the formula preserves precision for 6.25 MHz
+/// PLL steps (kHz integer math avoids the truncation a floor-MHz
+/// divisor would impose).
+pub const HCN_NUMERATOR_KHZ: u64 = (5u64 << 24) * 1000;
 
 /// Ticket-mask register (`0x14`).
 ///
@@ -990,6 +1024,137 @@ pub const SOFT_RESET_QUIESCENT: u32 = 0x0000_0000;
 /// set (`b3_0 = 0x2`), every other field zero. Equivalent to
 /// `SoftResetControlReg::new().with_b3_0(0x2)`.
 pub const SOFT_RESET_SRST_B1: u32 = 0x0000_0002;
+
+/// Crystal frequency driving the BM1362 PLL reference input. All
+/// hash-clock targets derive from this constant via the PLL divider
+/// chain.
+pub const BASE_CLOCK: u64 = 25_000_000;
+
+/// REFDIV value the BM1362 PLL is programmed with; the PLL search
+/// collapses to a constant REFDIV.
+const PLL_REFDIV: u64 = 2;
+
+/// Output frequency bounds enforced at the PLL-search entry point.
+/// Both are local policy: the lower bound is the floor the local FBDIV
+/// range reaches, and the upper bound is a chosen operating window, not
+/// a hard chip ceiling.
+const MIN_FREQ_KHZ: u32 = 50_000;
+/// The PLL search space (FBDIV 160..=237 across the divider matrix)
+/// can reach well past 700 MHz; this upper bound is local policy, a
+/// chosen operating window for the BM1362 rather than a hard chip
+/// ceiling.
+const MAX_FREQ_KHZ: u32 = 700_000;
+
+/// FBDIV register-value range for the BM1362 PLL.
+const FBDIV_MIN: u8 = 160;
+const FBDIV_MAX: u8 = 237;
+
+/// POSTDIV1 stored-value range. The actual divisor applied by the
+/// chip is `stored + 1`.
+const POSTDIV1_STORED_MIN: u8 = 1;
+const POSTDIV1_STORED_MAX: u8 = 6;
+
+/// POSTDIV2 stored-value range. The actual divisor is `stored + 1`.
+/// The PLL search additionally constrains `POSTDIV2_stored <=
+/// POSTDIV1_stored`, enforced by the search loop bound rather than the
+/// constant itself.
+const POSTDIV2_STORED_MIN: u8 = 0;
+const POSTDIV2_STORED_MAX: u8 = 5;
+
+/// Hash clock in Hz produced by the divider tuple with WDIV pinned
+/// to 0:
+///
+/// ```text
+/// freq_hz = BASE_CLOCK * FBDIV / REFDIV / (POSTDIV1+1) / (POSTDIV2+1)
+/// ```
+fn pll_freq_hz(fbdiv: u8, postdiv1_stored: u8, postdiv2_stored: u8) -> u64 {
+    BASE_CLOCK * u64::from(fbdiv)
+        / PLL_REFDIV
+        / (u64::from(postdiv1_stored) + 1)
+        / (u64::from(postdiv2_stored) + 1)
+}
+
+impl PllParameterReg {
+    /// REFDIV value the BM1362 PLL is programmed with; the PLL search
+    /// collapses to a constant REFDIV.
+    const PLL_REFDIV: u64 = 2;
+
+    /// FBDIV register-value search range for the BM1362 PLL. These
+    /// bounds are local policy chosen to keep the divider chain in a
+    /// usable window, not chip-recovered hard limits.
+    const FBDIV_MIN: u8 = 160;
+    const FBDIV_MAX: u8 = 237;
+
+    /// POSTDIV1 stored-value range. The actual divisor applied by the
+    /// chip is `stored + 1`.
+    const POSTDIV1_STORED_MIN: u8 = 1;
+    const POSTDIV1_STORED_MAX: u8 = 6;
+
+    /// POSTDIV2 stored-value range. The actual divisor is `stored + 1`.
+    /// The PLL search additionally constrains `POSTDIV2_stored <=
+    /// POSTDIV1_stored`, enforced by the search loop bound rather than
+    /// the constant itself.
+    const POSTDIV2_STORED_MIN: u8 = 0;
+    const POSTDIV2_STORED_MAX: u8 = 5;
+
+    /// Hash clock in Hz produced by the divider tuple with WDIV pinned
+    /// to 0:
+    ///
+    /// ```text
+    /// freq_hz = BASE_CLOCK * FBDIV / REFDIV / (POSTDIV1+1) / (POSTDIV2+1)
+    /// ```
+    fn pll_freq_hz(fbdiv: u8, postdiv1_stored: u8, postdiv2_stored: u8) -> u64 {
+        BASE_CLOCK * u64::from(fbdiv)
+            / Self::PLL_REFDIV
+            / (u64::from(postdiv1_stored) + 1)
+            / (u64::from(postdiv2_stored) + 1)
+    }
+
+    /// Returns the PLL parameter register value that drives the chip
+    /// closest to `target_khz`, or `None` if `target_khz` is outside
+    /// the calculator's safe range `[MIN_FREQ_KHZ, MAX_FREQ_KHZ]`.
+    ///
+    /// Exhaustive search over `(POSTDIV2_stored, POSTDIV1_stored,
+    /// FBDIV)` with sort key `(distance_to_target, POSTDIV2, FBDIV,
+    /// POSTDIV1)`. Targets between grid points resolve to the nearest
+    /// reachable hash clock. REFDIV is pinned to 2 and WDIV to 0. The
+    /// search bounds, the WDIV pin, and the tie-break key are local
+    /// policy, not chip-recovered requirements. The chosen FBDIV also
+    /// sets [`Self::vco_high`] via [`PLL_VCO_HIGH_THRESHOLD_HZ`].
+    #[must_use]
+    pub fn from_freq(target_khz: u32) -> Option<Self> {
+        if !(MIN_FREQ_KHZ..=MAX_FREQ_KHZ).contains(&target_khz) {
+            return None;
+        }
+        let goal_hz = u64::from(target_khz) * 1_000;
+
+        let mut best: Option<(u64, u8, u8, u8)> = None;
+        for postdiv2_stored in Self::POSTDIV2_STORED_MIN..=Self::POSTDIV2_STORED_MAX {
+            let pd1_min = postdiv2_stored.max(Self::POSTDIV1_STORED_MIN);
+            for postdiv1_stored in pd1_min..=Self::POSTDIV1_STORED_MAX {
+                for fbdiv in Self::FBDIV_MIN..=Self::FBDIV_MAX {
+                    let freq = Self::pll_freq_hz(fbdiv, postdiv1_stored, postdiv2_stored);
+                    let distance = freq.abs_diff(goal_hz);
+                    let key = (distance, postdiv2_stored, fbdiv, postdiv1_stored);
+                    if best.is_none_or(|current| key < current) {
+                        best = Some(key);
+                    }
+                }
+            }
+        }
+
+        best.map(|(_, postdiv2_stored, fbdiv, postdiv1_stored)| {
+            let vco_hz = BASE_CLOCK * u64::from(fbdiv) / Self::PLL_REFDIV;
+            Self::new()
+                .with_pll_en(true)
+                .with_vco_high(vco_hz >= PLL_VCO_HIGH_THRESHOLD_HZ)
+                .with_fbdiv(fbdiv)
+                .with_refdiv(PLL_REFDIV_VALUE)
+                .with_postdiv1_minus_1(postdiv1_stored)
+                .with_postdiv2_minus_1(postdiv2_stored)
+        })
+    }
+}
 
 #[cfg(test)]
 #[path = "tests/registers.rs"]

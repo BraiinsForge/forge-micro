@@ -1,5 +1,157 @@
 use super::*;
 
+/// Reference corpus covering 50..=500 MHz in 25 MHz steps, expressed
+/// in kHz so the calculator's kHz signature is exercised at the
+/// factory grid points. Pairs the target hash clock with the expected
+/// `PllParameterReg` payload and the expected `HashCountingNumberReg`
+/// payload. The PLL values match the exhaustive divider search; the
+/// HCN values match the formula `floor(HCN_NUMERATOR_KHZ / khz)`.
+/// Tests below pin both register constructors to this corpus so any
+/// drift surfaces immediately.
+const FREQ_REGISTER_CORPUS: &[(u32, u32, u32)] = &[
+    (50_000, 0x40a8_0265, 0x0019_9999),
+    (75_000, 0x40a8_0263, 0x0011_1111),
+    (100_000, 0x40a8_0262, 0x000c_cccc),
+    (125_000, 0x40b4_0252, 0x000a_3d70),
+    (150_000, 0x40a8_0261, 0x0008_8888),
+    (175_000, 0x40a8_0251, 0x0007_5075),
+    (200_000, 0x40a0_0241, 0x0006_6666),
+    (225_000, 0x40b4_0241, 0x0005_b05b),
+    (250_000, 0x40a0_0231, 0x0005_1eb8),
+    (275_000, 0x40b0_0231, 0x0004_a790),
+    (300_000, 0x40a8_0260, 0x0004_4444),
+    (325_000, 0x40b6_0260, 0x0003_f03f),
+    (350_000, 0x40a8_0250, 0x0003_a83a),
+    (375_000, 0x40b4_0250, 0x0003_69d0),
+    (400_000, 0x40a0_0240, 0x0003_3333),
+    (425_000, 0x40aa_0240, 0x0003_0303),
+    (450_000, 0x40b4_0240, 0x0002_d82d),
+    (475_000, 0x40be_0240, 0x0002_b1da),
+    (500_000, 0x40a0_0230, 0x0002_8f5c),
+];
+
+#[test]
+fn pll_parameter_from_freq_packs_to_corpus() {
+    for &(khz, expected_pll, _) in FREQ_REGISTER_CORPUS {
+        let reg = PllParameterReg::from_freq(khz).expect("BUG: corpus frequency missing");
+        let value = u32::from_be_bytes(reg.to_be_bytes());
+        assert_eq!(value, expected_pll, "PLL register mismatch at {khz} kHz");
+    }
+}
+
+#[test]
+fn hash_counting_number_from_freq_packs_to_corpus() {
+    for &(khz, _, expected_hcn) in FREQ_REGISTER_CORPUS {
+        let reg = HashCountingNumberReg::from_freq(khz).expect("BUG: corpus frequency missing");
+        let value = u32::from_be_bytes(reg.to_be_bytes());
+        assert_eq!(
+            value, expected_hcn,
+            "hash-counting-number mismatch at {khz} kHz"
+        );
+    }
+}
+
+#[test]
+fn hash_counting_number_formula_matches_constant() {
+    // HCN_NUMERATOR_KHZ = 5 * 2^24 * 1000 = 83_886_080_000; document
+    // the constant here so a drift in either site surfaces at test
+    // time. The MHz-form numerator 5 * 2^24 falls out of the per-kHz
+    // form by exact division.
+    assert_eq!(HCN_NUMERATOR_KHZ, (5u64 << 24) * 1000);
+    assert_eq!(HCN_NUMERATOR_KHZ, 83_886_080_000);
+    assert_eq!(HCN_NUMERATOR_KHZ / 1000, 5 << 24);
+}
+
+#[test]
+fn pll_parameter_from_freq_rejects_out_of_range() {
+    // Targets outside the calculator's safe range return None without
+    // attempting the search. Both edges and trivial extremes covered.
+    assert!(PllParameterReg::from_freq(0).is_none());
+    assert!(PllParameterReg::from_freq(25_000).is_none());
+    assert!(PllParameterReg::from_freq(49_999).is_none());
+    assert!(PllParameterReg::from_freq(700_001).is_none());
+    assert!(PllParameterReg::from_freq(u32::MAX).is_none());
+}
+
+#[test]
+fn hash_counting_number_from_freq_rejects_out_of_range() {
+    assert!(HashCountingNumberReg::from_freq(0).is_none());
+    assert!(HashCountingNumberReg::from_freq(49_999).is_none());
+    assert!(HashCountingNumberReg::from_freq(700_001).is_none());
+    assert!(HashCountingNumberReg::from_freq(u32::MAX).is_none());
+}
+
+#[test]
+fn pll_parameter_from_freq_resolves_quarter_mhz_step() {
+    // 56_250 kHz = 56.25 MHz is the first off-integer step in the
+    // FixedTuner 6.25 MHz ramp from 50 MHz. The calculator must reach
+    // it exactly via some `(fbdiv, postdiv1, postdiv2)` tuple in the
+    // search space.
+    let reg = PllParameterReg::from_freq(56_250).expect("BUG: 56.25 MHz must resolve in range");
+    let actual_hz = u64::from(reg.fbdiv()) * 25_000_000
+        / 2
+        / (u64::from(reg.postdiv1_minus_1()) + 1)
+        / (u64::from(reg.postdiv2_minus_1()) + 1);
+    assert_eq!(actual_hz, 56_250_000, "calculator missed 56.25 MHz target");
+}
+
+#[test]
+fn pll_parameter_from_freq_resolves_off_grid_to_nearest() {
+    // 262_000 kHz is between the 250 and 275 MHz corpus entries. The
+    // calculator's nearest-reachable result is 262.5 MHz at
+    // (fbdiv=168, pd1_stored=3, pd2_stored=1), which packs to
+    // 0x40a8_0231. Hand-verified: 25e6*168/2/4/2 = 262.5e6.
+    let reg = PllParameterReg::from_freq(262_000).expect("BUG: 262 MHz must resolve in range");
+    assert_eq!(reg.fbdiv(), 168);
+    assert_eq!(reg.postdiv1_minus_1(), 3);
+    assert_eq!(reg.postdiv2_minus_1(), 1);
+    assert_eq!(reg.to_be_bytes(), [0x40, 0xa8, 0x02, 0x31]);
+}
+
+#[test]
+fn pll_parameter_from_freq_resolves_exact_off_table_target() {
+    // 287_000 kHz has no exact reachable match; the closest is
+    // 287.5 MHz. Several tuples produce 287.5 MHz exactly:
+    // (fbdiv=161,pd1=6,pd2=0), (fbdiv=184,pd1=3,pd2=1),
+    // (fbdiv=230,pd1=4,pd2=1). The calculator sort key prefers
+    // minimum pd2_stored, matching the corpus pattern at entries
+    // where pd2=0 is reachable, so fbdiv=161, pd1=6, pd2=0 wins.
+    let reg = PllParameterReg::from_freq(287_000).expect("BUG: 287 MHz must resolve in range");
+    assert_eq!(reg.fbdiv(), 161);
+    assert_eq!(reg.postdiv1_minus_1(), 6);
+    assert_eq!(reg.postdiv2_minus_1(), 0);
+}
+
+#[test]
+fn pll_parameter_from_freq_sets_vco_high_band() {
+    // 650 MHz resolves exactly at (fbdiv=208, pd1_stored=3,
+    // pd2_stored=0). The VCO runs at 25e6 * 208 / 2 = 2.6 GHz, at or
+    // above the 2.4 GHz high-band edge, so vco_high (bit 28) is set and
+    // the payload's top byte is 0x50 rather than 0x40.
+    let reg = PllParameterReg::from_freq(650_000).expect("BUG: 650 MHz must resolve in range");
+    assert_eq!(reg.fbdiv(), 208);
+    assert!(reg.vco_high());
+    assert_eq!(reg.to_be_bytes(), [0x50, 0xD0, 0x02, 0x30]);
+}
+
+#[test]
+fn pll_field_decomposition_round_trips() {
+    // 125 MHz corpus entry decodes as fbdiv=180, actual_pd1=6,
+    // actual_pd2=3 (stored values are pd-1) — the wire format
+    // 0x40b4_0252. Verify field accessors return the expected encoded
+    // values and to_be_bytes reverses from_be_bytes.
+    let reg = PllParameterReg::from_freq(125_000).expect("BUG: 125 MHz corpus entry missing");
+    assert!(reg.pll_en());
+    assert!(!reg.locked());
+    // VCO = 25e6 * 180 / 2 = 2.25 GHz, below the 2.4 GHz high-band edge.
+    assert!(!reg.vco_high());
+    assert_eq!(reg.fbdiv(), 180);
+    assert_eq!(reg.refdiv(), PLL_REFDIV_VALUE);
+    assert_eq!(reg.postdiv1_minus_1(), 5);
+    assert_eq!(reg.postdiv2_minus_1(), 2);
+    assert_eq!(reg.to_be_bytes(), [0x40, 0xb4, 0x02, 0x52]);
+}
+
 #[test]
 fn control_command_chain_inactive_packs_to_broadcast() {
     // chain_inactive() is the broadcast preamble issued three times at
