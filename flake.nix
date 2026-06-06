@@ -46,6 +46,18 @@
       probeRsHost = "ws://${nucHost}:8080";
       probeRsToken = "redacted";
 
+      webuiBuildEnv = {
+        # 12 chars to match the build.rs git-fallback (`rev-parse
+        # --short=12`); the Nix `shortRev` default of 7 would produce
+        # different footer widths inside vs. outside the sandbox.
+        UBOS_WEBUI_BUILD_REV =
+          let
+            rev = self.rev or self.dirtyRev or null;
+          in
+          if rev == null then "unknown" else builtins.substring 0 12 rev;
+        UBOS_WEBUI_BUILD_TIME = toString self.lastModified;
+      };
+
       # `serve` panics on `ConnectionClosed` when the client disconnects
       # mid-RPC, leaving the probe Session held but the worker dead.
       # systemd does not restart because the panic is tokio-contained,
@@ -567,6 +579,7 @@
               pkgs.esbuild
             ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           # Release build of each firmware binary. cargo check and
@@ -587,6 +600,7 @@
               pkgs.esbuild
             ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           clippy-rp2040 = craneLib.cargoClippy {
@@ -604,6 +618,7 @@
               pkgs.esbuild
             ];
             CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           build-rp2040 = craneLib.cargoBuild {
@@ -616,6 +631,7 @@
               pkgs.esbuild
             ];
             CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           clippy-rp2350 = craneLib.cargoClippy {
@@ -633,6 +649,7 @@
               pkgs.esbuild
             ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           build-rp2350 = craneLib.cargoBuild {
@@ -645,6 +662,7 @@
               pkgs.esbuild
             ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           clippy-rp235x-sha256 = craneLib.cargoClippy {
@@ -670,6 +688,7 @@
               pkgs.esbuild
             ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           build-stm32f407 = craneLib.cargoBuild {
@@ -682,6 +701,7 @@
               pkgs.esbuild
             ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           clippy-stm32f439 = craneLib.cargoClippy {
@@ -699,6 +719,7 @@
               pkgs.esbuild
             ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           build-stm32f439 = craneLib.cargoBuild {
@@ -711,6 +732,7 @@
               pkgs.esbuild
             ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           clippy-ubos-core = craneLib.cargoClippy {
@@ -762,6 +784,7 @@
             # build.rs runs `esbuild --minify` on the dashboard CSS/JS
             # before gzipping into OUT_DIR.
             nativeBuildInputs = [ pkgs.esbuild ];
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           clippy-ubos-display = craneLib.cargoClippy {
@@ -820,6 +843,7 @@
             # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
             # runs as part of host-runner's dependency closure.
             nativeBuildInputs = [ pkgs.esbuild ];
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           test-host-runner = craneLib.cargoTest {
@@ -830,6 +854,7 @@
             # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
             # runs as part of host-runner's dependency closure.
             nativeBuildInputs = [ pkgs.esbuild ];
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           clippy-host-runner-bmm = bmmCraneLib.cargoClippy {
@@ -849,6 +874,7 @@
             # `cc-rs`. Point it at the same musleabi cross-gcc the linker
             # uses so the C objects share the target ABI.
             CC_arm_unknown_linux_musleabi = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           clippy-embassy-net-afpacket = craneLib.cargoClippy {
@@ -973,6 +999,7 @@
             # build.rs runs `esbuild --minify` on the dashboard CSS/JS
             # before gzipping into OUT_DIR.
             nativeBuildInputs = [ pkgs.esbuild ];
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           test-ubos-auth = craneLib.cargoTest {
@@ -1135,6 +1162,7 @@
             ];
             CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
             CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           build-esp32s3 = espCraneLib.cargoBuild {
@@ -1156,6 +1184,7 @@
             # uses default section placement and secp256k1-sys's calls
             # to memset/memcpy overflow the xtensa windowed-call range.
             CARGO_TARGET_XTENSA_ESP32S3_NONE_ELF_RUSTFLAGS = "-Clink-arg=-Tlinkall.x -Clink-arg=-Tdefmt.x -Clink-arg=-nostartfiles";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
           clippy-esp32s3-tsens = espCraneLib.cargoClippy {
@@ -1256,6 +1285,8 @@
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
 
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+
             shellHook = ''
               echo "ubos-main dev environment ready (ARM boards)"
               echo ""
@@ -1313,6 +1344,8 @@
             PROBE_RS_REMOTE_TOKEN = probeRsToken;
             RUST_ANALYZER_SERVER_PATH = "${espRustToolchain}/bin/rust-analyzer";
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
             shellHook = ''
               export RUSTUP_HOME="$PWD/.rustup"
@@ -1376,6 +1409,8 @@
 
             RUST_ANALYZER_SERVER_PATH = "${hostRustToolchain}/bin/rust-analyzer";
 
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+
             shellHook = ''
               echo "ubos-main dev environment ready (host-runner, native, TAP)"
               echo ""
@@ -1400,6 +1435,8 @@
             CARGO_BUILD_TARGET = "arm-unknown-linux-musleabi";
             CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
             RUST_ANALYZER_SERVER_PATH = "${bmmRustToolchain}/bin/rust-analyzer";
+
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
             # Resolved at shell-entry time relative to the user's cwd, which
             # by convention is boards/ubos-main (matches the existing
