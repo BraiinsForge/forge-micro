@@ -1,14 +1,17 @@
 //! Typed units for the six quantities that cross module boundaries
 //! in the miner: frequency, voltage, power, temperature, fan PWM, and
 //! fan RPM. Each newtype wraps the canonical scalar already used in
-//! the codebase (MHz, mV, mW, millicelsius, percent, RPM) so the
+//! the codebase (kHz, mV, mW, millicelsius, percent, RPM) so the
 //! refactor is mechanical: bare integers at signatures become typed
 //! values, conversions stay inside the driver that owns the wire
 //! encoding. The newtypes are `#[repr(transparent)]` over their inner
 //! scalar, so atomic storage and FFI layouts are unaffected.
 
-/// Clock frequency in megahertz. Used for ASIC PLL targets and the
-/// frequency option list exposed by the configuration API.
+/// Clock frequency in kilohertz. The internal scalar is kHz so a
+/// 6.25 MHz PLL step survives the type without truncation; consumers
+/// that operate at MHz granularity (config, dashboard, telemetry)
+/// use [`Self::mhz`], and the chip-programming path uses
+/// [`Self::khz`] to keep the PLL calculator exact.
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Frequency(u32);
@@ -16,11 +19,21 @@ pub struct Frequency(u32);
 impl Frequency {
     #[must_use]
     pub const fn from_mhz(mhz: u32) -> Self {
-        Self(mhz)
+        Self(mhz.saturating_mul(1000))
+    }
+
+    #[must_use]
+    pub const fn from_khz(khz: u32) -> Self {
+        Self(khz)
     }
 
     #[must_use]
     pub const fn mhz(self) -> u32 {
+        self.0 / 1000
+    }
+
+    #[must_use]
+    pub const fn khz(self) -> u32 {
         self.0
     }
 }
@@ -135,3 +148,7 @@ impl FanRpm {
         self.0
     }
 }
+
+#[cfg(test)]
+#[path = "tests/units.rs"]
+mod tests;

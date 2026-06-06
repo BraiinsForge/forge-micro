@@ -870,6 +870,13 @@
             doInstallCargoArtifacts = false;
           };
 
+          test-ubos-core = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p ubos-core";
+            doInstallCargoArtifacts = false;
+          };
+
           clippy-ubos-http = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = hostArtifacts;
