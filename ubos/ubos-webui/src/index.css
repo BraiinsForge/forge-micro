@@ -442,14 +442,21 @@ main {
   padding: 16px 20px;
 }
 
-.panel h3 {
+/* Section heading sits on body bg above its panel so it reads as the
+   label for the panel surface below it rather than the first row of
+   inputs. The form's flex gap controls spacing between sections. */
+.psec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.psec h3 {
   color: var(--fg);
   font-weight: var(--fw-emp);
   font-size: var(--fs-body);
   letter-spacing: 0;
-  margin: 0 0 12px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 6px;
+  margin: 0;
 }
 
 .cfgsec label {

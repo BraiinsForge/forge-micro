@@ -113,29 +113,35 @@
     <div class="cfgpanel">
       <div class="cfgsec" id="secPools">
         <form id="cfgForm">
-          <div class="pcfg panel" id="pcfg1" data-protocol="sv1" data-trust="no">
+          <div class="psec">
             <h3>Pool 1 — Primary</h3>
-            <label>URL<input name="url1" placeholder="stratum+tcp:// or stratum2+tcp://"></label>
-            <label>Username<input name="user1"></label>
-            <label class="s1">Password<input name="pass1" type="password"></label>
-            <label class="tr s2"><input name="trust1" type="checkbox">Trust pool (skip authority check)</label>
-            <label class="s2 sk">Authority pubkey (hex)<input name="key1" placeholder="64 hex chars"></label>
+            <div class="pcfg panel" id="pcfg1" data-protocol="sv1" data-trust="no">
+              <label>URL<input name="url1" placeholder="stratum+tcp:// or stratum2+tcp://"></label>
+              <label>Username<input name="user1"></label>
+              <label class="s1">Password<input name="pass1" type="password"></label>
+              <label class="tr s2"><input name="trust1" type="checkbox">Trust pool (skip authority check)</label>
+              <label class="s2 sk">Authority pubkey (hex)<input name="key1" placeholder="64 hex chars"></label>
+            </div>
           </div>
-          <div class="pcfg panel" id="pcfg2" data-protocol="sv1" data-trust="no">
+          <div class="psec">
             <h3>Pool 2 — Backup</h3>
-            <label>URL<input name="url2"></label>
-            <label>Username<input name="user2"></label>
-            <label class="s1">Password<input name="pass2" type="password"></label>
-            <label class="tr s2"><input name="trust2" type="checkbox">Trust pool (skip authority check)</label>
-            <label class="s2 sk">Authority pubkey (hex)<input name="key2" placeholder="64 hex chars"></label>
+            <div class="pcfg panel" id="pcfg2" data-protocol="sv1" data-trust="no">
+              <label>URL<input name="url2"></label>
+              <label>Username<input name="user2"></label>
+              <label class="s1">Password<input name="pass2" type="password"></label>
+              <label class="tr s2"><input name="trust2" type="checkbox">Trust pool (skip authority check)</label>
+              <label class="s2 sk">Authority pubkey (hex)<input name="key2" placeholder="64 hex chars"></label>
+            </div>
           </div>
-          <div class="pcfg panel" id="pcfg3" data-protocol="sv1" data-trust="no">
+          <div class="psec">
             <h3>Pool 3 — Backup</h3>
-            <label>URL<input name="url3"></label>
-            <label>Username<input name="user3"></label>
-            <label class="s1">Password<input name="pass3" type="password"></label>
-            <label class="tr s2"><input name="trust3" type="checkbox">Trust pool (skip authority check)</label>
-            <label class="s2 sk">Authority pubkey (hex)<input name="key3" placeholder="64 hex chars"></label>
+            <div class="pcfg panel" id="pcfg3" data-protocol="sv1" data-trust="no">
+              <label>URL<input name="url3"></label>
+              <label>Username<input name="user3"></label>
+              <label class="s1">Password<input name="pass3" type="password"></label>
+              <label class="tr s2"><input name="trust3" type="checkbox">Trust pool (skip authority check)</label>
+              <label class="s2 sk">Authority pubkey (hex)<input name="key3" placeholder="64 hex chars"></label>
+            </div>
           </div>
           <button type="submit">Save</button>
           <div class="msg" id="msg"></div>
@@ -145,16 +151,20 @@
       <div class="cfgsec" id="secTemp">
         <form id="fmTemp">
           <!-- min/max for sampleMs, dangerC, cooldownC are loaded from GET /api/system/thermal (bounds.sampleIntervalMs, bounds.dangerousTempC, bounds.cooldownTempC) so the accepted range lives in ubos-config::thermal. -->
-          <div class="panel">
+          <div class="psec">
             <h3>Thermals</h3>
-            <label>Sample interval (ms)<input id="sampleMs" type="number" step="100"></label>
-            <label>Danger threshold (°C)<input id="dangerC" type="number" step="0.5"></label>
-            <label>Cooldown threshold (°C)<input id="cooldownC" type="number" step="0.5"></label>
+            <div class="panel">
+              <label>Sample interval (ms)<input id="sampleMs" type="number" step="100"></label>
+              <label>Danger threshold (°C)<input id="dangerC" type="number" step="0.5"></label>
+              <label>Cooldown threshold (°C)<input id="cooldownC" type="number" step="0.5"></label>
+            </div>
           </div>
           <!-- min/max for targetC are loaded from GET /api/system/cooling (bounds.targetTempC) so the accepted range lives in ubos-config::cooling. -->
-          <div class="panel">
+          <div class="psec">
             <h3>Cooling</h3>
-            <label>Target temperature (°C)<input id="targetC" type="number" step="0.5"></label>
+            <div class="panel">
+              <label>Target temperature (°C)<input id="targetC" type="number" step="0.5"></label>
+            </div>
           </div>
           <button type="submit">Save</button>
           <div class="msg" id="msgTemp"></div>
@@ -164,10 +174,12 @@
       <div class="cfgsec" id="secMining">
         <form id="fmMining">
           <!-- min/max are loaded from GET /api/system/asic (bounds.frequencyMhz, bounds.voltageMv) so the accepted range lives in ubos-config::mining. -->
-          <div class="panel">
+          <div class="psec">
             <h3>Mining</h3>
-            <label>Frequency (MHz)<input id="freqMhz" type="number" step="1"></label>
-            <label>Voltage (mV)<input id="voltMv" type="number" step="1"></label>
+            <div class="panel">
+              <label>Frequency (MHz)<input id="freqMhz" type="number" step="1"></label>
+              <label>Voltage (mV)<input id="voltMv" type="number" step="1"></label>
+            </div>
           </div>
           <button type="submit">Save</button>
           <div class="msg" id="msgMining"></div>
@@ -176,10 +188,12 @@
 
       <div class="cfgsec" id="secSystem">
         <form id="fmSystem">
-          <div class="panel">
+          <div class="psec">
             <h3>System</h3>
-            <label>Username<input id="sysUser" type="text" maxlength="32"></label>
-            <label>Password<input id="sysPass" type="password" maxlength="32" placeholder="leave blank to keep current"></label>
+            <div class="panel">
+              <label>Username<input id="sysUser" type="text" maxlength="32"></label>
+              <label>Password<input id="sysPass" type="password" maxlength="32" placeholder="leave blank to keep current"></label>
+            </div>
           </div>
           <button type="submit">Save</button>
           <div class="msg" id="msgSystem"></div>
