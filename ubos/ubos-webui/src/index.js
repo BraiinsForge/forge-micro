@@ -257,11 +257,23 @@ function setLk(alive) {
   setIcon(card, alive);
 }
 
+// The Link badge tolerates a few dropped polls before showing Dead:
+// the one-connection REST listener occasionally loses a race against
+// another fetch, and a single miss is not a real outage.
+const LINK_FAIL_THRESHOLD = 3;
+let linkFailures = 0;
+
 async function tick() {
+  // Skip the poll while the Configuration page is loading. The REST
+  // listener serves one connection at a time, so this 2 s poll and the
+  // config page's fetches knock each other over; pausing here is the
+  // main fix for the transient Configuration "Load failed" races.
+  if (cfgLoading) return;
   try {
     const response = await fetch(API + '/api/info', { cache: 'no-store', credentials: 'include' });
     if (!response.ok) throw 0;
     const data = await response.json();
+    linkFailures = 0;
     setLk(true);
     if (data.name && document.title !== data.name) document.title = data.name;
     $('hr').textContent = fmtHr(data.hashrate);
@@ -297,7 +309,10 @@ async function tick() {
     outBuf.shift(); outBuf.push(data.power_out_mw == null ? null : data.power_out_mw / 1000);
     draw();
   } catch (error) {
-    setLk(false);
+    // Only flip to Dead after several consecutive misses so a single
+    // dropped poll does not flash Dead on an otherwise healthy board.
+    linkFailures++;
+    if (linkFailures >= LINK_FAIL_THRESHOLD) setLk(false);
     console.warn('tick fetch failed:', error);
   }
 }
