@@ -76,7 +76,9 @@ body {
    navigation links in the .bar at the top; every page repeats the
    .bar.ft variant at the bottom for build provenance. Both bars
    are pinned via position: sticky so they stay on screen while the
-   page scrolls. */
+   page scrolls. A box-shadow of body bg below the header and above
+   the footer paints a permanent body-bg strip between each bar and
+   the scroll content so panels never visually touch the bar edges. */
 .bar {
   display: flex;
   align-items: stretch;
@@ -84,17 +86,16 @@ body {
   background: var(--panel);
   padding: 0 20px;
   height: 48px;
-  border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 10;
+  box-shadow: 0 8px 0 var(--bg);
 }
 
 .bar.ft {
   top: auto;
   bottom: 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 0;
+  box-shadow: 0 -8px 0 var(--bg);
 }
 
 .sp {
