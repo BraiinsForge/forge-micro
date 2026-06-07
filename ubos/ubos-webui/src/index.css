@@ -483,6 +483,19 @@ main {
   border-bottom-color: var(--accent);
 }
 
+/* Browser-default spinner buttons on type=number inputs read as noisy
+   chrome inside the dark panel and the operator can just type. */
+.cfgsec input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.cfgsec input[type="number"]::-webkit-inner-spin-button,
+.cfgsec input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .cfgsec label.tr {
   font-size: var(--fs-body);
   text-transform: none;
