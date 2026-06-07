@@ -150,11 +150,10 @@
 
       <div class="cfgsec" id="secTemp">
         <form id="fmTemp">
-          <!-- min/max for sampleMs, dangerC, cooldownC are loaded from GET /api/system/thermal (bounds.sampleIntervalMs, bounds.dangerousTempC, bounds.cooldownTempC) so the accepted range lives in ubos-config::thermal. -->
+          <!-- min/max for dangerC and cooldownC are loaded from GET /api/system/thermal (bounds.dangerousTempC, bounds.cooldownTempC) so the accepted range lives in ubos-config::thermal. The sample interval is not user-configurable; the JS keeps the loaded value and replays it on save so the API still gets a complete thermal object. -->
           <div class="psec">
             <h3>Thermals</h3>
             <div class="panel">
-              <label>Sample interval (ms)<input id="sampleMs" type="number" step="100"></label>
               <label>Danger threshold (°C)<input id="dangerC" type="number" step="0.5"></label>
               <label>Cooldown threshold (°C)<input id="cooldownC" type="number" step="0.5"></label>
             </div>

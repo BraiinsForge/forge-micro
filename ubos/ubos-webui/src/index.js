@@ -67,21 +67,17 @@ async function loadAsicBounds() {
 }
 
 // Same pattern as loadAsicBounds: pull the accepted ranges for the
-// sampleMs, dangerC, and cooldownC inputs from GET /api/system/thermal
-// so the bounds live only in ubos-config::thermal.
+// dangerC and cooldownC inputs from GET /api/system/thermal so the
+// bounds live only in ubos-config::thermal. The sample interval is
+// not user-editable, so its bounds are ignored here.
 async function loadThermalBounds() {
   if (thermalLoaded) return true;
   const response = await fetch(API + '/api/system/thermal', { cache: 'no-store', credentials: 'include' });
   if (!response.ok) throw new Error('HTTP ' + response.status);
   const data = await response.json();
   const bounds = data.bounds || {};
-  const sampleInput = $('sampleMs');
   const dangerInput = $('dangerC');
   const cooldownInput = $('cooldownC');
-  if (bounds.sampleIntervalMs) {
-    sampleInput.min = bounds.sampleIntervalMs.start;
-    sampleInput.max = bounds.sampleIntervalMs.end;
-  }
   if (bounds.dangerousTempC) {
     dangerInput.min = bounds.dangerousTempC.start;
     dangerInput.max = bounds.dangerousTempC.end;
@@ -431,7 +427,6 @@ async function loadCfg() {
         }
         renderPoolMeta();
         if (data.thermal) {
-          $('sampleMs').value = data.thermal.sample_interval_ms;
           $('dangerC').value = data.thermal.dangerous_temp_c;
           $('cooldownC').value = data.thermal.cooldown_temp_c;
         }
@@ -599,14 +594,16 @@ $('fmTemp').addEventListener('submit', async event => {
   event.preventDefault();
   const msg = $('msgTemp');
   msg.style.color = '';
-  const sampleMs = +$('sampleMs').value;
   const dangerC = +$('dangerC').value;
   const cooldownC = +$('cooldownC').value;
   const targetC = +$('targetC').value;
   const body = {};
-  if (!tempInit || sampleMs !== tempInit.sampleMs || dangerC !== tempInit.dangerC || cooldownC !== tempInit.cooldownC) {
+  // sample_interval_ms is not user-editable but the API expects a
+  // complete thermal object, so replay the loaded value alongside any
+  // edited threshold.
+  if (!tempInit || dangerC !== tempInit.dangerC || cooldownC !== tempInit.cooldownC) {
     body.thermal = {
-      sample_interval_ms: sampleMs,
+      sample_interval_ms: tempInit ? tempInit.sampleMs : null,
       dangerous_temp_c: dangerC,
       cooldown_temp_c: cooldownC,
     };
@@ -623,7 +620,7 @@ $('fmTemp').addEventListener('submit', async event => {
     if (response.ok) {
       msg.style.color = '';
       msg.textContent = 'Saved.';
-      tempInit = { sampleMs, dangerC, cooldownC, targetC };
+      tempInit = { sampleMs: tempInit ? tempInit.sampleMs : null, dangerC, cooldownC, targetC };
       return;
     }
     msg.style.color = 'var(--red)';
