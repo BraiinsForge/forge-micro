@@ -504,6 +504,17 @@ charts.forEach(chart => {
   });
 });
 
+// Theme toggle. The boot script in <head> set the initial value on
+// <html data-theme>; this handler flips it on click and persists the
+// choice in localStorage so the next page load skips the system
+// fallback.
+$('thm').addEventListener('click', () => {
+  const current = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  const next = current === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('theme', next); } catch (_) { }
+});
+
 $('nLogout').addEventListener('click', async event => {
   event.preventDefault();
   try {

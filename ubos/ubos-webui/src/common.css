@@ -16,6 +16,7 @@
   --green: #34c06a;
   --orange: #fe8431;
   --red: #d9222c;
+  --logo-invert: 0;
 
   /* Type scale. Four sizes, one emphasis weight, one tracking value
      for uppercase labels. Every font-size in the webui resolves to
@@ -29,6 +30,25 @@
   --fs-head: 1.25rem;
   --fw-emp: 600;
   --ls-cap: 0.1em;
+}
+
+/* Light theme overrides. A boot script in each page's <head> sets
+   data-theme on <html> from localStorage or prefers-color-scheme
+   before first paint. The :root block above stays as the dark
+   defaults so an unset attribute or a "dark" value resolves there.
+   Values mirror the Braiins OS Carbon "g10" tokens served at the
+   miner web UI, so a fleet that mixes microBOS and Braiins OS
+   reads as one product instead of two. The accent purple keeps
+   the same lighter hover in both themes; Braiins OS does that on
+   purpose and a darker hover would break the visual rhyme. */
+[data-theme="light"] {
+  --bg: #f4f4f4;
+  --panel: #ffffff;
+  --field: #f4f4f4;
+  --border: #e0e0e0;
+  --fg: #393939;
+  --mute: #6f6f6f;
+  --logo-invert: 1;
 }
 
 * {
@@ -61,6 +81,10 @@ body {
 .logo img {
   height: 18px;
   display: block;
+  /* logo.svg ships as a single-fill white wordmark. invert(1) flips
+     it to near-black for the light theme; the dark theme leaves it
+     untouched. */
+  filter: invert(var(--logo-invert));
 }
 
 .logo .mu {
@@ -93,10 +117,10 @@ body {
 }
 
 /* Footer overrides the .bar flex layout with a three-column grid so
-   the build-info text stays centered relative to the viewport. The
-   leading and trailing 1fr columns balance the build info into the
-   middle, and the trailing slot is left empty for footer content
-   that lands in a later commit. */
+   the build-info text stays centered relative to the viewport even
+   though the theme toggle takes its own slot on the right. The
+   leading 1fr column is intentionally empty; together with the
+   trailing 1fr column it balances the build info into the middle. */
 .bar.ft {
   top: auto;
   bottom: 0;
@@ -121,4 +145,45 @@ body {
 
 .bar.ft .bi {
   grid-column: 2;
+}
+
+/* Theme toggle. The button sits at the right edge of the footer in
+   both pages. Two SVG icons live inside the button at all times;
+   CSS hides whichever does not match the current theme so the
+   click handler only has to flip a single attribute. The default
+   without [data-theme] shows the sun, matching the dark-theme
+   defaults in :root. */
+.thm {
+  grid-column: 3;
+  justify-self: end;
+  background: none;
+  border: 0;
+  color: var(--mute);
+  cursor: pointer;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+}
+
+.thm:hover {
+  color: var(--fg);
+}
+
+.thmIcon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  display: block;
+}
+
+.thmIcon.iMoon {
+  display: none;
+}
+
+[data-theme="light"] .thmIcon.iSun {
+  display: none;
+}
+
+[data-theme="light"] .thmIcon.iMoon {
+  display: block;
 }

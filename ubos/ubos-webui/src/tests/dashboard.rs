@@ -117,7 +117,7 @@ fn index_asset_is_non_empty_gzip() {
 /// it is worth catching.
 #[test]
 fn login_payload_is_well_formed_and_within_budget() {
-    const MAX_GZ_BYTES: usize = 2 * 1024;
+    const MAX_GZ_BYTES: usize = 3 * 1024;
     let html = decompress(crate::LOGIN_HTML_GZ);
     assert!(html.starts_with("<!DOCTYPE html>"));
     assert!(html.trim_end().ends_with("</html>"));
