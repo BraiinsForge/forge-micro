@@ -30,6 +30,7 @@ use flate2::Compression;
 
 const CSS_MARKER: &str = "<!--CSS-->";
 const JS_MARKER: &str = "<!--JS-->";
+const ICONS_MARKER: &str = "<!--ICONS-->";
 const BUILD_REV_MARKER: &str = "{{BUILD_REV}}";
 const BUILD_TIME_MARKER: &str = "{{BUILD_TIME}}";
 
@@ -127,7 +128,14 @@ fn esbuild_minify(source: &str, loader: &str) -> String {
 /// Read template + page assets, splice in minified `<style>` and
 /// `<script>` bodies, gzip, and write the result to
 /// `OUT_DIR/<name>.html.gz`.
-fn build_page(common_css: &str, name: &str, out_dir: &Path, build_rev: &str, build_time: &str) {
+fn build_page(
+    common_css: &str,
+    icons_svg: &str,
+    name: &str,
+    out_dir: &Path,
+    build_rev: &str,
+    build_time: &str,
+) {
     let template_path = format!("src/{name}.html");
     let css_path = format!("src/{name}.css");
     let js_path = format!("src/{name}.js");
@@ -141,7 +149,13 @@ fn build_page(common_css: &str, name: &str, out_dir: &Path, build_rev: &str, bui
     let minified_css = esbuild_minify(&combined_css, "css");
     let minified_js = esbuild_minify(&page_js, "js");
 
-    for marker in [CSS_MARKER, JS_MARKER, BUILD_REV_MARKER, BUILD_TIME_MARKER] {
+    for marker in [
+        CSS_MARKER,
+        JS_MARKER,
+        ICONS_MARKER,
+        BUILD_REV_MARKER,
+        BUILD_TIME_MARKER,
+    ] {
         assert!(
             template.contains(marker),
             "{template_path}: missing {marker}"
@@ -151,6 +165,7 @@ fn build_page(common_css: &str, name: &str, out_dir: &Path, build_rev: &str, bui
     let inlined = template
         .replace(CSS_MARKER, &format!("<style>{minified_css}</style>"))
         .replace(JS_MARKER, &format!("<script>{minified_js}</script>"))
+        .replace(ICONS_MARKER, icons_svg)
         .replace(BUILD_REV_MARKER, build_rev)
         .replace(BUILD_TIME_MARKER, build_time);
     let html = minify_html(&inlined);
@@ -177,16 +192,32 @@ fn main() {
     // OUT_DIR is set by cargo for every build script invocation.
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("BUG: OUT_DIR unset by cargo"));
 
-    // src/common.css is checked into the crate sources.
+    // src/common.css and src/icons.svg are checked into the crate sources.
     let common_css = fs::read_to_string("src/common.css").expect("BUG: read src/common.css");
+    let icons_svg = fs::read_to_string("src/icons.svg").expect("BUG: read src/icons.svg");
 
     let build_rev = resolve_build_rev();
     let build_time = resolve_build_time();
 
-    build_page(&common_css, "index", &out_dir, &build_rev, &build_time);
-    build_page(&common_css, "login", &out_dir, &build_rev, &build_time);
+    build_page(
+        &common_css,
+        &icons_svg,
+        "index",
+        &out_dir,
+        &build_rev,
+        &build_time,
+    );
+    build_page(
+        &common_css,
+        &icons_svg,
+        "login",
+        &out_dir,
+        &build_rev,
+        &build_time,
+    );
 
     println!("cargo:rerun-if-changed=src/common.css");
+    println!("cargo:rerun-if-changed=src/icons.svg");
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_REV");
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_TIME");
 }

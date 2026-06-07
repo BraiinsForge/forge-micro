@@ -32,7 +32,8 @@
 
 /* Status badge. Filled Carbon-style circle with a check or X cutout;
    the parent card class drives the colour through currentColor. The
-   shared symbol defs live in index.html at the top of <body>. */
+   shared symbol defs live in src/icons.svg and build.rs splices them
+   into each page through the ICONS marker. */
 .defs {
   width: 0;
   height: 0;

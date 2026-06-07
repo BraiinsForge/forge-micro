@@ -50,6 +50,10 @@ fn index_payload_has_no_unsubstituted_markers() {
     assert!(!html.contains("<!--CSS-->"), "CSS marker not substituted");
     assert!(!html.contains("<!--JS-->"), "JS marker not substituted");
     assert!(
+        !html.contains("<!--ICONS-->"),
+        "icons marker not substituted"
+    );
+    assert!(
         !html.contains("{{BUILD_REV}}"),
         "build rev marker not substituted"
     );
@@ -123,6 +127,7 @@ fn login_payload_is_well_formed_and_within_budget() {
     assert!(html.trim_end().ends_with("</html>"));
     assert!(!html.contains("<!--CSS-->"));
     assert!(!html.contains("<!--JS-->"));
+    assert!(!html.contains("<!--ICONS-->"));
     assert!(!html.contains("{{BUILD_REV}}"));
     assert!(!html.contains("{{BUILD_TIME}}"));
     assert!(html.contains(r#"action="/login""#), "missing login form");
