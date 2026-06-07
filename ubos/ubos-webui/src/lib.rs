@@ -6,13 +6,13 @@
 #![no_std]
 
 /// Gzipped dashboard payload composed from `src/index.html`,
-/// `src/index.css`, `src/index.js`, and `src/common.css` by the
-/// crate's `build.rs`.
+/// `src/index.css`, `src/index.js`, `src/common.css`, `src/common.js`,
+/// and `src/icons.svg` by the crate's `build.rs`.
 pub const INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 
 /// Gzipped login-page payload composed from `src/login.html`,
-/// `src/login.css`, `src/login.js`, and `src/common.css` by the
-/// crate's `build.rs`.
+/// `src/login.css`, `src/login.js`, `src/common.css`, `src/common.js`,
+/// and `src/icons.svg` by the crate's `build.rs`.
 pub const LOGIN_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login.html.gz"));
 
 /// Braiins wordmark SVG served at `/logo.svg`.

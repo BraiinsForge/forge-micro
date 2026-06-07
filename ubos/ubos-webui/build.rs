@@ -5,14 +5,15 @@
 //!   src/<name>.css  — page-specific styles
 //!   src/<name>.js   — page-specific script
 //!   src/common.css  — styles shared by every page, prepended to each
+//!   src/common.js   — script shared by every page, prepended to each
 //!
 //! For each page, this script concatenates `common.css` with the page
-//! CSS, runs `esbuild --minify` on the combined CSS and the page JS,
-//! splices the minified results into the HTML template, and gzips the
-//! result. `src/lib.rs` includes the gzipped output via
-//! `include_bytes!` and serves it with `Content-Encoding: gzip`, so
-//! first paint stays inside the TCP initcwnd budget without any
-//! runtime compression cost on the MCU.
+//! CSS and `common.js` with the page JS, runs `esbuild --minify` on
+//! both combined sources, splices the minified results into the HTML
+//! template, and gzips the result. `src/lib.rs` includes the gzipped
+//! output via `include_bytes!` and serves it with
+//! `Content-Encoding: gzip`, so first paint stays inside the TCP
+//! initcwnd budget without any runtime compression cost on the MCU.
 //!
 //! `esbuild` must be on PATH at build time. The Nix `arm` and `esp`
 //! devshells provide it, and every firmware/ubos-webui flake check
@@ -130,6 +131,7 @@ fn esbuild_minify(source: &str, loader: &str) -> String {
 /// `OUT_DIR/<name>.html.gz`.
 fn build_page(
     common_css: &str,
+    common_js: &str,
     icons_svg: &str,
     name: &str,
     out_dir: &Path,
@@ -146,8 +148,9 @@ fn build_page(
     let page_js = fs::read_to_string(&js_path).unwrap_or_else(|_| panic!("BUG: read {js_path}"));
 
     let combined_css = format!("{common_css}\n{page_css}");
+    let combined_js = format!("{common_js}\n{page_js}");
     let minified_css = esbuild_minify(&combined_css, "css");
-    let minified_js = esbuild_minify(&page_js, "js");
+    let minified_js = esbuild_minify(&combined_js, "js");
 
     for marker in [
         CSS_MARKER,
@@ -192,8 +195,10 @@ fn main() {
     // OUT_DIR is set by cargo for every build script invocation.
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("BUG: OUT_DIR unset by cargo"));
 
-    // src/common.css and src/icons.svg are checked into the crate sources.
+    // src/common.css, src/common.js, and src/icons.svg are checked into
+    // the crate sources.
     let common_css = fs::read_to_string("src/common.css").expect("BUG: read src/common.css");
+    let common_js = fs::read_to_string("src/common.js").expect("BUG: read src/common.js");
     let icons_svg = fs::read_to_string("src/icons.svg").expect("BUG: read src/icons.svg");
 
     let build_rev = resolve_build_rev();
@@ -201,6 +206,7 @@ fn main() {
 
     build_page(
         &common_css,
+        &common_js,
         &icons_svg,
         "index",
         &out_dir,
@@ -209,6 +215,7 @@ fn main() {
     );
     build_page(
         &common_css,
+        &common_js,
         &icons_svg,
         "login",
         &out_dir,
@@ -217,6 +224,7 @@ fn main() {
     );
 
     println!("cargo:rerun-if-changed=src/common.css");
+    println!("cargo:rerun-if-changed=src/common.js");
     println!("cargo:rerun-if-changed=src/icons.svg");
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_REV");
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_TIME");
