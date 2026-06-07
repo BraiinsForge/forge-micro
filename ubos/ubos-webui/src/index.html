@@ -18,6 +18,11 @@
     <a href="#" id="nDash">Dashboard</a>
     <a href="#config" id="nCfg">Configuration</a>
     <span class="sp"></span>
+    <button type="button" class="thm" id="thm" aria-label="Cycle theme: auto, light, dark">
+      <svg class="thmIcon iAuto" aria-hidden="true"><use href="#iAuto"/></svg>
+      <svg class="thmIcon iSun" aria-hidden="true"><use href="#iSun"/></svg>
+      <svg class="thmIcon iMoon" aria-hidden="true"><use href="#iMoon"/></svg>
+    </button>
     <a href="#" id="nLogout" aria-label="Log out" title="Log out"><svg class="navIcon" aria-hidden="true"><use href="#iLogout"/></svg></a>
   </nav>
 
@@ -202,11 +207,6 @@
 
   <footer class="bar ft">
     <span class="bi">{{BUILD_REV}} · {{BUILD_TIME}}</span>
-    <button type="button" class="thm" id="thm" aria-label="Cycle theme: auto, light, dark">
-      <svg class="thmIcon iAuto" aria-hidden="true"><use href="#iAuto"/></svg>
-      <svg class="thmIcon iSun" aria-hidden="true"><use href="#iSun"/></svg>
-      <svg class="thmIcon iMoon" aria-hidden="true"><use href="#iMoon"/></svg>
-    </button>
   </footer>
 
   <!--JS-->

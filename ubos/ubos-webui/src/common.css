@@ -147,17 +147,17 @@ body {
   grid-column: 2;
 }
 
-/* Theme toggle. The button sits at the right edge of the footer in
-   both pages and cycles the user's preference between auto, light,
-   and dark on each click. Three SVG icons live inside the button
-   at all times; the [data-theme-pref] attribute on <html> decides
-   which one is visible, so the JS handler only flips one attribute
-   per click. The pref attribute is set by the boot script before
-   first paint, so a missing-attribute fallback is not needed in
-   practice. */
+/* Theme toggle. Cycles the operator's preference between auto,
+   light, and dark on each click. Three SVG icons live inside the
+   button at all times; the [data-theme-pref] attribute on <html>
+   decides which one is visible, so the JS handler only flips one
+   attribute per click. The pref attribute is set by the boot
+   script before first paint, so a missing-attribute fallback is
+   not needed in practice. The button itself only carries visual
+   rules so it can sit equally well in the dashboard nav row and
+   in the login footer; the footer pins it to the right via the
+   .bar.ft .thm block further below. */
 .thm {
-  grid-column: 3;
-  justify-self: end;
   background: none;
   border: 0;
   color: var(--mute);
@@ -169,6 +169,11 @@ body {
 
 .thm:hover {
   color: var(--fg);
+}
+
+.bar.ft .thm {
+  grid-column: 3;
+  justify-self: end;
 }
 
 .thmIcon {
