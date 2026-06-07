@@ -30,6 +30,16 @@
   border-bottom-color: var(--accent);
 }
 
+/* Icon-only nav link. The Carbon glyph inherits its size from this
+   class and its colour from the parent <a>, so the hover transition
+   defined on .bar a already paints the icon. */
+.navIcon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  display: block;
+}
+
 /* Status badge. Filled Carbon-style circle with a check or X cutout;
    the parent card class drives the colour through currentColor. The
    shared symbol defs live in src/icons.svg and build.rs splices them
