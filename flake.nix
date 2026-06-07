@@ -87,9 +87,48 @@
           # CMSIS-DAP probe is wedged (probe-rs/probe-rs#1849).
           # Caller-set RUST_LOG wins.
           export RUST_LOG="''${RUST_LOG:-info}"
+          # Keep probe-rs's ANSI colors alive through the tee. A bare
+          # pipe makes probe-rs see a non-tty and drop color on both the
+          # terminal and the saved log. probe-rs builds on anstream,
+          # which honors CLICOLOR_FORCE; NO_COLOR still wins and a
+          # caller-set value is preserved. The saved log keeps the
+          # escapes; read it back with `less -R`.
+          if [ -z "''${NO_COLOR:-}" ]; then
+            export CLICOLOR_FORCE="''${CLICOLOR_FORCE:-1}"
+          fi
+          # Persist a copy of each session so a flash can be left
+          # unattended and read back later. Logs land in the project's
+          # logs/ directory - the nearest ancestor holding flake.nix,
+          # i.e. ubos-main. PROBE_RS_LOG_DIR overrides this, and the NUC
+          # layers rotation on top of that override separately.
+          #
+          # Named <firmware>[-<suffix>]-<timestamp>.log. The firmware
+          # name is the crate directory we run from (rp2350, bmm-pico,
+          # ...). MAC_SUFFIX is the only varying byte of any board's
+          # MAC: the cargo run-N aliases set it to distinguish the six
+          # bmm-pico units, so it is appended when present. The
+          # timestamp keeps one file per flash rather than overwriting.
+          fw="$(basename "$PWD")"
+          suffix="''${MAC_SUFFIX:-}"
+          stamp="$(date +%Y%m%dT%H%M%S)"
+          log_dir="''${PROBE_RS_LOG_DIR:-}"
+          if [ -z "$log_dir" ]; then
+            root="$PWD"
+            while [ "$root" != "/" ] && [ ! -e "$root/flake.nix" ]; do
+              root="$(dirname "$root")"
+            done
+            if [ -e "$root/flake.nix" ]; then
+              log_dir="$root/logs"
+            else
+              log_dir="$PWD/logs"
+            fi
+          fi
+          log_file="$log_dir/$fw''${suffix:+-$suffix}-$stamp.log"
+          mkdir -p "$log_dir"
+          echo "probe-rs-runner: logging to $log_file" >&2
           start=$(date +%s)
-          probe-rs "''${args[@]}"
-          status=$?
+          probe-rs "''${args[@]}" 2>&1 | tee "$log_file"
+          status=''${PIPESTATUS[0]}
           elapsed=$(( $(date +%s) - start ))
           # A real flash plus attach of any of our targets takes longer
           # than this threshold. An exit-0 in under that with `run`
