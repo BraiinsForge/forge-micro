@@ -92,10 +92,18 @@ body {
   box-shadow: 0 8px 0 var(--bg);
 }
 
+/* Footer overrides the .bar flex layout with a three-column grid so
+   the build-info text stays centered relative to the viewport. The
+   leading and trailing 1fr columns balance the build info into the
+   middle, and the trailing slot is left empty for footer content
+   that lands in a later commit. */
 .bar.ft {
   top: auto;
   bottom: 0;
   box-shadow: 0 -8px 0 var(--bg);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
 }
 
 .sp {
@@ -109,4 +117,8 @@ body {
   font-size: var(--fs-label);
   letter-spacing: var(--ls-cap);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.bar.ft .bi {
+  grid-column: 2;
 }
