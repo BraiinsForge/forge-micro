@@ -247,12 +247,18 @@ function draw() {
   charts.forEach(drawChart);
 }
 
+function setIcon(node, alive) {
+  const use = node.querySelector('.dot use');
+  if (use) use.setAttribute('href', alive ? '#sok' : '#serr');
+}
+
 function setLk(alive) {
   const badge = $('lk');
   const card = badge.closest('.lkc');
   badge.textContent = alive ? 'Alive' : 'Dead';
   card.classList.toggle('live', alive);
   card.classList.toggle('dead', !alive);
+  setIcon(card, alive);
 }
 
 async function tick() {
@@ -287,6 +293,7 @@ async function tick() {
       element.classList.toggle('live', !!alive);
       element.classList.toggle('empty', !alive && cached === null);
       element.querySelector('.pt').textContent = alive ? 'Alive' : (cached === null ? 'Empty' : 'Dead');
+      setIcon(element, !!alive);
     }
     hrBuf.shift(); hrBuf.push(data.hashrate ?? null);
     tpBuf.shift(); tpBuf.push(data.temperature ?? null);

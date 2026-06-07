@@ -30,13 +30,22 @@
   border-bottom-color: var(--accent);
 }
 
+/* Status badge. Filled Carbon-style circle with a check or X cutout;
+   the parent card class drives the colour through currentColor. The
+   shared symbol defs live in index.html at the top of <body>. */
+.defs {
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
 .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--red);
-  box-shadow: 0 0 6px var(--red);
-  transition: background 0.3s, box-shadow 0.3s;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  fill: currentColor;
+  color: var(--red);
+  transition: color 0.3s;
 }
 
 /* ---------- Main dashboard grid ---------- */
@@ -276,8 +285,7 @@ main {
 }
 
 .pool.live .dot {
-  background: var(--green);
-  box-shadow: 0 0 6px var(--green);
+  color: var(--green);
 }
 
 .pool.empty .pt {
@@ -285,8 +293,7 @@ main {
 }
 
 .pool.empty .dot {
-  background: var(--mute);
-  box-shadow: none;
+  display: none;
 }
 
 .pm {
@@ -318,8 +325,7 @@ main {
 }
 
 .lkc.live .dot {
-  background: var(--green);
-  box-shadow: 0 0 6px var(--green);
+  color: var(--green);
 }
 
 .lkc.live #lk {

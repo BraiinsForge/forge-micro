@@ -7,6 +7,10 @@
   <!--CSS-->
 </head>
 <body>
+  <svg class="defs" aria-hidden="true">
+    <symbol id="sok" viewBox="0 0 32 32"><path d="M16,2A14,14,0,1,0,30,16,14,14,0,0,0,16,2ZM14,21.5908l-5-5L10.5906,15,14,18.4092,21.41,11l1.5957,1.5859Z"/></symbol>
+    <symbol id="serr" viewBox="0 0 32 32"><path d="M16,2C8.3,2,2,8.3,2,16s6.3,14,14,14s14-6.3,14-14S23.7,2,16,2z M21.4,23L16,17.6L10.6,23L9,21.4l5.4-5.4L9,10.6L10.6,9l5.4,5.4L21.4,9l1.6,1.6L17.6,16l5.4,5.4L21.4,23z"/></symbol>
+  </svg>
   <nav class="bar">
     <span class="logo">
       <img src="/logo.svg" alt="Braiins">
@@ -61,7 +65,7 @@
     <aside class="side">
       <div class="card lkc dead">
         <div class="k">Link</div>
-        <div class="ps"><span class="dot"></span><span id="lk" class="pt">Dead</span></div>
+        <div class="ps"><svg class="dot"><use href="#serr"/></svg><span id="lk" class="pt">Dead</span></div>
       </div>
       <div class="card"><div class="k">Hashrate</div><div id="hr" class="v">–</div></div>
       <div class="card"><div class="k">IP address</div><div id="ip" class="v">–</div></div>
@@ -86,15 +90,15 @@
       <div class="k">Pools</div>
       <div class="pool" id="po1">
         <div class="pm"><span>Pool 1 — Primary</span><span class="pi"></span></div>
-        <span class="ps"><span class="dot"></span><span class="pt">Dead</span></span>
+        <span class="ps"><svg class="dot"><use href="#serr"/></svg><span class="pt">Dead</span></span>
       </div>
       <div class="pool" id="po2">
         <div class="pm"><span>Pool 2 — Backup</span><span class="pi"></span></div>
-        <span class="ps"><span class="dot"></span><span class="pt">Dead</span></span>
+        <span class="ps"><svg class="dot"><use href="#serr"/></svg><span class="pt">Dead</span></span>
       </div>
       <div class="pool" id="po3">
         <div class="pm"><span>Pool 3 — Backup</span><span class="pi"></span></div>
-        <span class="ps"><span class="dot"></span><span class="pt">Dead</span></span>
+        <span class="ps"><svg class="dot"><use href="#serr"/></svg><span class="pt">Dead</span></span>
       </div>
     </div>
   </main>
