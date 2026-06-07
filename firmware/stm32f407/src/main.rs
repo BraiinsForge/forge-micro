@@ -475,7 +475,17 @@ async fn boot(spawner: Spawner) {
         hw.mdc,
     );
 
-    static RESOURCES: StaticCell<StackResources<8>> = StaticCell::new();
+    // Socket-set capacity for the embassy-net stack. Seven sockets are
+    // held continuously: DHCPv4, DNS, the stratum client, the mDNS
+    // responder, and the three HTTP listeners on :80, :8080, and :8081
+    // (each serves one connection at a time). On top of that the NTP
+    // sync (every 60 s) and BTC price fetch (every 300 s) each open a
+    // transient socket, and every closed TCP connection lingers in
+    // TIME_WAIT holding a slot until smoltcp reaps it. At 8 a coincident
+    // NTP+BTC plus one TIME_WAIT socket overran the set and panicked in
+    // SocketSet::add after a few hours; 16 leaves headroom for the
+    // transients and TIME_WAIT churn.
+    static RESOURCES: StaticCell<StackResources<16>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
         embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default()),

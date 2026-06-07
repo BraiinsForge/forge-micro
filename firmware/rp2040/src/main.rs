@@ -488,7 +488,21 @@ async fn boot(spawner: Spawner) {
 
     let seed = rng.next_u64();
 
-    static RESOURCES: StaticCell<StackResources<8>> = StaticCell::new();
+    // Socket-set capacity for the embassy-net stack. Seven sockets are
+    // held continuously: DHCPv4, DNS, the stratum client, the mDNS
+    // responder, and the three HTTP listeners on :80, :8080, and :8081
+    // (each serves one connection at a time). On top of that the NTP
+    // sync (every 60 s) and BTC price fetch (every 300 s) each open a
+    // transient socket, and every closed TCP connection lingers in
+    // TIME_WAIT holding a slot until smoltcp reaps it. At 8 a coincident
+    // NTP+BTC plus one TIME_WAIT socket overran the set and panicked in
+    // SocketSet::add after a few hours. The sibling boards use 16, but
+    // the RP2040's 256K RAM is already near-full from the W5500 stack,
+    // the secp256k1 context, and the UART ring buffers, so 16 fails to
+    // link. 10 is the most this board fits: it covers the seven
+    // continuous sockets plus NTP, BTC, and one TIME_WAIT slot, with no
+    // margin for a second coincident TIME_WAIT.
+    static RESOURCES: StaticCell<StackResources<10>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
         embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default()),
