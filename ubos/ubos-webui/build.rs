@@ -152,13 +152,12 @@ fn build_page(
     let minified_css = esbuild_minify(&combined_css, "css");
     let minified_js = esbuild_minify(&combined_js, "js");
 
-    for marker in [
-        CSS_MARKER,
-        JS_MARKER,
-        ICONS_MARKER,
-        BUILD_REV_MARKER,
-        BUILD_TIME_MARKER,
-    ] {
+    // CSS/JS/ICONS are structural: a page missing one would ship with
+    // no styles, no script, or no icon defs, so require them on every
+    // page. The build-provenance markers are optional because the
+    // login page carries no footer to show them; the replace() calls
+    // below are no-ops when a marker is absent.
+    for marker in [CSS_MARKER, JS_MARKER, ICONS_MARKER] {
         assert!(
             template.contains(marker),
             "{template_path}: missing {marker}"

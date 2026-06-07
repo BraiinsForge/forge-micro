@@ -68,6 +68,18 @@ body {
   overflow-x: clip;
 }
 
+/* The shared SVG symbol library (icons.svg) is spliced into every page
+   through the ICONS marker. It only holds <symbol> defs reached by
+   <use>, so collapse it to zero size and take it out of flow; without
+   this it lays out as a visible box and shoves page content aside
+   (the login card most visibly). Lives here, not in a page CSS, so
+   both pages hide it. */
+.defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
 .logo {
   display: flex;
   align-items: center;

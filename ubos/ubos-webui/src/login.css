@@ -1,12 +1,11 @@
 /* Login-page-specific styles. Built into login.html alongside
    common.css. */
 
-/* Body lays out the centered login card and the sticky build-info
-   footer in a column. margin: auto on the card centers it in the
-   remaining flex space above the footer. */
+/* The login card is the only thing on the page. margin: auto on the
+   card absorbs the free space on every side of a full-viewport flex
+   box, centering it both vertically and horizontally. */
 body {
   display: flex;
-  flex-direction: column;
   min-height: 100vh;
 }
 

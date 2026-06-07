@@ -13,12 +13,17 @@ function applyThemePref(pref) {
   document.documentElement.dataset.theme = resolved;
 }
 
-document.getElementById('thm').addEventListener('click', () => {
-  const current = document.documentElement.dataset.themePref || 'auto';
-  const next = THEME_PREFS[(THEME_PREFS.indexOf(current) + 1) % THEME_PREFS.length];
-  try { localStorage.setItem('theme', next); } catch (_) { }
-  applyThemePref(next);
-});
+// The login page drops the footer that hosts the toggle, so the
+// button is absent there; only wire the click handler when present.
+const thm = document.getElementById('thm');
+if (thm) {
+  thm.addEventListener('click', () => {
+    const current = document.documentElement.dataset.themePref || 'auto';
+    const next = THEME_PREFS[(THEME_PREFS.indexOf(current) + 1) % THEME_PREFS.length];
+    try { localStorage.setItem('theme', next); } catch (_) { }
+    applyThemePref(next);
+  });
+}
 
 prefersLight.addEventListener('change', () => {
   if ((document.documentElement.dataset.themePref || 'auto') === 'auto') {
