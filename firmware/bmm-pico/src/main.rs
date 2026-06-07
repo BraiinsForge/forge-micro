@@ -7,7 +7,7 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, unwrap};
+use defmt::{info, unwrap, warn};
 use embassy_executor::Executor;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
@@ -22,7 +22,7 @@ use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_rp::trng::{self, Trng};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
-use embassy_rp::watchdog::Watchdog;
+use embassy_rp::watchdog::{ResetReason, Watchdog};
 use embassy_rp::{bind_interrupts, dma, i2c};
 use embassy_time::Delay;
 #[cfg(feature = "display")]
@@ -396,9 +396,18 @@ async fn main(spawner: Spawner) {
         });
     }
 
-    spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(Watchdog::new(
-        hw.watchdog
-    )))));
+    // Report why the chip last reset before arming the watchdog again.
+    // A timed-out reason means the previous run stalled the executor
+    // past config::Watchdog::TIMEOUT, the leading suspect for the
+    // infrequent restarts seen on detached boards; a power-on or
+    // external reset reads as None.
+    let watchdog = Watchdog::new(hw.watchdog);
+    match watchdog.reset_reason() {
+        Some(ResetReason::TimedOut) => warn!("last reset: watchdog timeout"),
+        Some(ResetReason::Forced) => warn!("last reset: watchdog forced"),
+        None => info!("last reset: power-on or external"),
+    }
+    spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(watchdog))));
 
     let led = Output::new(hw.led, Level::Low);
     spawner.spawn(unwrap!(led_blink_task(led)));
