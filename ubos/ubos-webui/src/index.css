@@ -91,6 +91,15 @@ main {
   align-items: start;
 }
 
+/* Grid and flex items default to min-width: auto and refuse to shrink
+   below their content, so on a phone the chart SVG and pool rows force
+   the single 1fr column wider than the screen. min-width: 0 lets each
+   column track collapse to the viewport; the cards already clip or
+   ellipsize their own contents. */
+main > * {
+  min-width: 0;
+}
+
 @media (max-width: 760px) {
   main {
     grid-template-columns: 1fr;
@@ -108,15 +117,26 @@ main {
     padding: 10px;
     gap: 10px;
   }
+  /* The nav is one non-wrapping row: logo, two text links, then the
+     theme and logout controls. On a narrow phone the full Braiins
+     wordmark plus the uppercase links overran the width and pushed
+     the controls off the clipped right edge. Hide the wordmark while
+     the glowing micro glyph stays as the mark, drop the link tracking,
+     and tighten the gaps so the row fits the narrowest reasonable
+     phone. */
   .bar {
-    padding: 0 12px;
+    padding: 0 8px;
   }
   .bar a {
-    padding: 0 8px;
+    padding: 0 6px;
     font-size: var(--fs-label);
+    letter-spacing: 0;
   }
   .logo {
-    margin-right: 12px;
+    margin-right: 8px;
+  }
+  .logo img {
+    display: none;
   }
   .cfg {
     padding: 16px 12px;
@@ -388,6 +408,13 @@ main {
   .cfg {
     grid-template-columns: 1fr;
     min-height: 0;
+    /* The page frame makes .cfg a flex: 1 filler. On mobile the nav
+       and panel stack as two grid rows; the default align-content
+       would split the leftover height between them and stretch the
+       nav row, dropping the active item's underline well below its
+       label, more so for shorter panels. Pack the rows at the top so
+       the nav keeps its natural height. */
+    align-content: start;
   }
 }
 
