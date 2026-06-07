@@ -53,6 +53,29 @@
   transition: color 0.3s;
 }
 
+/* ---------- Page frame ----------
+   Make the page at least viewport-tall and let the active view grow,
+   so the sticky build-info footer rests at the window bottom even when
+   the dashboard is shorter than a tall screen rather than floating up
+   under the content. The inactive view carries .hide, which sets
+   display: none, and drops out of the flex flow. */
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* Grow to fill the column so the footer sits at the bottom. width:
+   100% is needed because both views center themselves with
+   max-width + margin: 0 auto; as flex items their auto margins would
+   otherwise override the stretch and collapse them to content width,
+   most visibly the narrow config form. */
+main,
+.cfg {
+  flex: 1;
+  width: 100%;
+}
+
 /* ---------- Main dashboard grid ---------- */
 
 /* Charts on the left column, summary cards on the right, pools card
