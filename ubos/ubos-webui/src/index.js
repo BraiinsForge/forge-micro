@@ -4,18 +4,34 @@
 // shell, login, and logout live on the same port 80 we were served from.
 const API = `${location.protocol}//${location.hostname}:8080`;
 
-// Chart geometry. CHART_WIDTH and CHART_HEIGHT must match the SVG
-// `viewBox` declared in index.html. The PLOT_* values are the inner
-// drawing region after axis-label padding.
+// Chart geometry. PAD_* are fixed pixel gutters reserved for axis
+// labels; the chart width and height are read from each SVG element's
+// rendered box at draw time so the coordinate space always matches the
+// actual pixel box and the viewBox never letterboxes.
 const SAMPLE_COUNT = 150;
-const CHART_WIDTH = 680;
-const CHART_HEIGHT = 120;
 const PAD_LEFT = 52;
 const PAD_RIGHT = 12;
 const PAD_TOP = 10;
 const PAD_BOTTOM = 20;
-const PLOT_WIDTH = CHART_WIDTH - PAD_LEFT - PAD_RIGHT;
-const PLOT_HEIGHT = CHART_HEIGHT - PAD_TOP - PAD_BOTTOM;
+
+// Return the coordinate-space dimensions for a chart SVG element.
+// Reads the element's rendered size so the viewBox matches exactly and
+// no letterboxing occurs. Returns null when the element is not yet
+// laid out (zero width or height), which signals the caller to skip
+// drawing until the next resize event delivers real dimensions.
+function chartDims(svg) {
+  const width = Math.round(svg.clientWidth);
+  const height = Math.round(svg.clientHeight);
+  if (width === 0 || height === 0) return null;
+  return {
+    width,
+    height,
+    plotLeft: PAD_LEFT,
+    plotTop: PAD_TOP,
+    plotWidth: width - PAD_LEFT - PAD_RIGHT,
+    plotHeight: height - PAD_TOP - PAD_BOTTOM,
+  };
+}
 
 // Rolling sample buffers: oldest at index 0, newest at the end.
 const hrBuf = new Array(SAMPLE_COUNT).fill(null);
@@ -195,6 +211,11 @@ const charts = [
 
 function drawChart(chart) {
   const root = $(chart.id);
+  const svg = $$(root, 'svg');
+  const dims = chartDims(svg);
+  if (!dims) return;
+  svg.setAttribute('viewBox', `0 0 ${dims.width} ${dims.height}`);
+  const { width, height, plotLeft, plotTop, plotWidth, plotHeight } = dims;
   const span = chart.max - chart.min;
   const steps = Math.round(span / chart.minTick);
   const majEvery = Math.round(chart.maj / chart.minTick);
@@ -202,20 +223,20 @@ function drawChart(chart) {
   let yAxisSvg = '';
   let xAxisSvg = '';
   for (let step = 0; step <= steps; step++) {
-    const pixelY = PAD_TOP + PLOT_HEIGHT - (step / steps) * PLOT_HEIGHT;
+    const pixelY = plotTop + plotHeight - (step / steps) * plotHeight;
     const isMajor = step % majEvery === 0;
     if (isMajor) {
       const value = chart.min + step * chart.minTick;
-      gridSvg += `<line class="gr" x1="${PAD_LEFT}" y1="${pixelY}" x2="${PAD_LEFT + PLOT_WIDTH}" y2="${pixelY}"/>`;
-      yAxisSvg += `<text class="ax" x="${PAD_LEFT - 6}" y="${pixelY + 3}" text-anchor="end">${chart.axis(value)}</text>`;
+      gridSvg += `<line class="gr" x1="${plotLeft}" y1="${pixelY}" x2="${plotLeft + plotWidth}" y2="${pixelY}"/>`;
+      yAxisSvg += `<text class="ax" x="${plotLeft - 6}" y="${pixelY + 3}" text-anchor="end">${chart.axis(value)}</text>`;
       continue;
     }
-    yAxisSvg += `<line class="tk" x1="${PAD_LEFT - 3}" y1="${pixelY}" x2="${PAD_LEFT}" y2="${pixelY}"/>`;
+    yAxisSvg += `<line class="tk" x1="${plotLeft - 3}" y1="${pixelY}" x2="${plotLeft}" y2="${pixelY}"/>`;
   }
   for (let minute = 0; minute <= 5; minute++) {
-    const pixelX = PAD_LEFT + (minute / 5) * PLOT_WIDTH;
-    gridSvg += `<line class="gr" x1="${pixelX}" y1="${PAD_TOP}" x2="${pixelX}" y2="${PAD_TOP + PLOT_HEIGHT}"/>`;
-    xAxisSvg += `<text class="ax" x="${pixelX}" y="${CHART_HEIGHT - 6}" text-anchor="middle">-${5 - minute}m</text>`;
+    const pixelX = plotLeft + (minute / 5) * plotWidth;
+    gridSvg += `<line class="gr" x1="${pixelX}" y1="${plotTop}" x2="${pixelX}" y2="${plotTop + plotHeight}"/>`;
+    xAxisSvg += `<text class="ax" x="${pixelX}" y="${height - 6}" text-anchor="middle">-${5 - minute}m</text>`;
   }
   $$(root, '.g').innerHTML = gridSvg;
   $$(root, '.y').innerHTML = yAxisSvg;
@@ -230,8 +251,8 @@ function drawChart(chart) {
         continue;
       }
       const clamped = Math.min(Math.max(value, chart.min), chart.max);
-      const pixelX = (PAD_LEFT + index * PLOT_WIDTH / (SAMPLE_COUNT - 1)).toFixed(1);
-      const pixelY = (PAD_TOP + PLOT_HEIGHT - ((clamped - chart.min) / span) * PLOT_HEIGHT).toFixed(1);
+      const pixelX = (plotLeft + index * plotWidth / (SAMPLE_COUNT - 1)).toFixed(1);
+      const pixelY = (plotTop + plotHeight - ((clamped - chart.min) / span) * plotHeight).toFixed(1);
       path += (penDown ? 'L' : 'M') + pixelX + ',' + pixelY + ' ';
       penDown = true;
     }
@@ -494,22 +515,28 @@ charts.forEach(chart => {
   const valueText = $$(root, '.va');
   svg.addEventListener('pointermove', event => {
     if (event.pointerType !== 'mouse') return;
+    const dims = chartDims(svg);
+    if (!dims) return;
+    const { plotLeft, plotTop, plotWidth, plotHeight } = dims;
+    // Map the pointer's CSS-pixel position into viewBox coordinates.
+    // clientWidth equals the viewBox width (1 unit = 1 CSS pixel), so
+    // no scale factor is needed beyond the element's own bounding rect.
     const rect = svg.getBoundingClientRect();
-    const viewX = (event.clientX - rect.left) / rect.width * CHART_WIDTH;
-    let index = Math.round((viewX - PAD_LEFT) * (SAMPLE_COUNT - 1) / PLOT_WIDTH);
+    const viewX = (event.clientX - rect.left) * (dims.width / rect.width);
+    let index = Math.round((viewX - plotLeft) * (SAMPLE_COUNT - 1) / plotWidth);
     if (index < 0) index = 0;
     if (index >= SAMPLE_COUNT) index = SAMPLE_COUNT - 1;
-    const pixelX = PAD_LEFT + index * PLOT_WIDTH / (SAMPLE_COUNT - 1);
+    const pixelX = plotLeft + index * plotWidth / (SAMPLE_COUNT - 1);
     const secondsAgo = (SAMPLE_COUNT - 1 - index) * 2;
     const span = chart.max - chart.min;
     const circles = chart.lines.map(line => {
       const value = line.buf[index];
       if (value == null) return '';
       const clamped = Math.min(Math.max(value, chart.min), chart.max);
-      const pixelY = PAD_TOP + PLOT_HEIGHT - ((clamped - chart.min) / span) * PLOT_HEIGHT;
+      const pixelY = plotTop + plotHeight - ((clamped - chart.min) / span) * plotHeight;
       return `<circle class="${line.cls}" cx="${pixelX}" cy="${pixelY.toFixed(1)}" r="3"/>`;
     }).join('');
-    tip.innerHTML = `<line class="cur" x1="${pixelX}" y1="${PAD_TOP}" x2="${pixelX}" y2="${PAD_TOP + PLOT_HEIGHT}"/>${circles}`;
+    tip.innerHTML = `<line class="cur" x1="${pixelX}" y1="${plotTop}" x2="${pixelX}" y2="${plotTop + plotHeight}"/>${circles}`;
     const timestamp = 'T-' + (secondsAgo < 60 ? secondsAgo + 's' : (secondsAgo / 60 | 0) + 'm ' + (secondsAgo % 60) + 's');
     const parts = chart.lines
       .map(line => {
@@ -523,6 +550,16 @@ charts.forEach(chart => {
     tip.innerHTML = '';
     valueText.textContent = '';
   });
+});
+
+// Redraw all charts whenever any chart SVG changes size so the
+// coordinate space always matches the rendered box. A single observer
+// covers all three SVGs; the callback redraws every chart because
+// mobile rotations and desktop window resizes affect all of them.
+const chartResizeObserver = new ResizeObserver(() => draw());
+charts.forEach(chart => {
+  const svg = $$($(chart.id), 'svg');
+  chartResizeObserver.observe(svg);
 });
 
 $('nLogout').addEventListener('click', async event => {

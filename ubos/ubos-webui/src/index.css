@@ -161,9 +161,11 @@ main > * {
 }
 
 /* ---------- Charts ----------
-   Chart layout constants live in index.js as PAD_LEFT / PAD_RIGHT /
-   PAD_TOP / PAD_BOTTOM and PLOT_WIDTH / PLOT_HEIGHT. Keep the SVG
-   viewBox here in sync with CHART_WIDTH and CHART_HEIGHT there. */
+   The chart coordinate space is read from each SVG's rendered pixel
+   box at draw time in index.js (see chartDims) and the viewBox is set
+   from JS, so there is no fixed width or height to keep in sync here.
+   The svg height below is what the chart fills; PAD_* in index.js
+   reserve the axis-label gutters. */
 
 .chart {
   background: var(--panel);
