@@ -371,8 +371,14 @@ function hexToBytes(hex) {
 function syncPoolUi(slot) {
   const root = $('pcfg' + slot);
   const form = $('cfgForm');
-  const match = (form['url' + slot].value || '').match(POOL_RE);
-  root.dataset.protocol = match && match[1] === 'stratum2+tcp' ? 'sv2' : 'sv1';
+  const value = (form['url' + slot].value || '').trim();
+  const match = value.match(POOL_RE);
+  // Empty URL stays empty so the CSS keeps both protocol-specific
+  // blocks hidden; the protocol is unknown until the user types
+  // something the regex recognizes.
+  root.dataset.protocol = value
+    ? (match && match[1] === 'stratum2+tcp' ? 'sv2' : 'sv1')
+    : '';
   root.dataset.trust = form['trust' + slot].checked ? 'yes' : 'no';
 }
 

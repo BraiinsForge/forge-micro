@@ -523,12 +523,14 @@ main {
   margin: 0;
 }
 
-/* Per-pool form: protocol and trust toggles drive which subfields show. */
-.pcfg[data-protocol="sv1"] .s2 {
+/* Per-pool form: protocol and trust toggles drive which subfields show.
+   Using :not() so an empty data-protocol (a slot with no URL yet) hides
+   both sv1-only and sv2-only fields until the URL scheme picks a side. */
+.pcfg:not([data-protocol="sv1"]) .s1 {
   display: none;
 }
 
-.pcfg[data-protocol="sv2"] .s1 {
+.pcfg:not([data-protocol="sv2"]) .s2 {
   display: none;
 }
 
