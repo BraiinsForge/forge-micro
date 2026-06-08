@@ -9,5 +9,6 @@ pub mod ccmram;
 pub mod consts;
 pub mod fan_state;
 pub mod led;
+pub mod reboot;
 pub mod units;
 pub mod watchdog;
