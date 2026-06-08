@@ -1,6 +1,9 @@
 //! Unit tests for blob framing and storage error paths.
 
-use crate::{decode_blob, encode_blob, Config, LoadError, DEFAULT_POOL_SV2_PUBKEY};
+use crate::{
+    decode_blob, encode_blob, Config, LoadError, NetworkConfig, NetworkMode,
+    DEFAULT_POOL_SV2_PUBKEY,
+};
 
 /// Base58check literal whose decoded 32-byte tail must equal
 /// [`DEFAULT_POOL_SV2_PUBKEY`]. Kept in sync with the doc comment on
@@ -22,7 +25,32 @@ fn round_trip_default() {
     assert_eq!(decoded, config);
 }
 
-/// A blob with a wrong 8-byte prefix returns SchemaMismatch.
+/// Round-trip a static network config so the encoding of the
+/// `NetworkMode::Static` variant and its address/prefix/gateway/dns
+/// fields plus a non-empty hostname is exercised, not just the DHCP
+/// default the other tests cover.
+#[test]
+fn round_trip_static_network() {
+    let mut dns = heapless::Vec::new();
+    dns.push([1, 1, 1, 1]).expect("dns slot available");
+    dns.push([8, 8, 8, 8]).expect("dns slot available");
+    let mut config = Config::default();
+    config.network = NetworkConfig {
+        mode: NetworkMode::Static {
+            address: [192, 168, 1, 50],
+            prefix_len: 24,
+            gateway: [192, 168, 1, 1],
+            dns,
+        },
+        hostname: heapless::String::try_from("miner-1").expect("hostname fits"),
+    };
+    let mut buffer = [0u8; 512];
+    let length = encode_blob(&config, &mut buffer).expect("encode must succeed");
+    let decoded: Config = decode_blob::<()>(&buffer[..length]).expect("decode must succeed");
+    assert_eq!(decoded, config);
+}
+
+/// A blob with a wrong 8-byte prefix returns `SchemaMismatch`.
 #[test]
 fn schema_mismatch_returns_error() {
     // All zeroes: wrong prefix, rest unused.
@@ -65,6 +93,43 @@ fn corrupted_payload_returns_corrupt() {
 /// Precondition: the `POOL_*` env vars consumed by [`Config::default`]
 /// must be unset at build time. The golden bytes capture the unmodified
 /// factory defaults; setting any override shifts the encoded payload.
+// Schema hash for ubos_config::Config as of this commit.
+// Update this when Config's shape changes.
+const EXPECTED_HASH: [u8; 8] = [173, 66, 162, 142, 99, 4, 179, 69];
+
+// Postcard encoding of Config::default() with the schema-hash prefix.
+// 113 bytes total: 8-byte hash + 103-byte pre-network payload + 2-byte
+// network section.
+// Update this when Config's default values or shape changes.
+const EXPECTED_BLOB: &[u8] = &[
+    173, 66, 162, 142, 99, 4, 179, 69, // schema hash
+    1,  // pool: heapless::Vec<PoolEntry, 3> (length=1)
+    19, 115, 116, 114, 97, 116, 117, 109, 46, 98, 114, 97, 105, 105, 110, 115, 46, 99, 111,
+    109, // pool[0].host = "stratum.braiins.com" (len 19)
+    133, 26, // pool[0].port = 3333 (varint)
+    0,  // pool[0].user = "" (len 0)
+    1,  // pool[0].protocol tag = 1 (Sv2)
+    1,  // pool[0].protocol.pool_pubkey = Some
+    // pool[0].protocol.pool_pubkey = DEFAULT_POOL_SV2_PUBKEY (32 bytes)
+    41, 149, 76, 151, 69, 107, 89, 156, 131, 111, 112, 245, 8, 214, 25, 211, 40, 82, 123, 184, 114,
+    41, 215, 215, 210, 230, 126, 109, 205, 24, 235, 207, //
+    232, 7, // thermal.sample_interval_ms = 1000 (varint)
+    0, 0, 180, 66, // thermal.dangerous_temp_c = 90.0f32
+    0, 0, 52, 66, // thermal.cooldown_temp_c = 45.0f32
+    0, 0, 134, 66, // cooling.target_temp_c = 67.0f32
+    20, // cooling.pid.min_fan_pwm = 20 (varint)
+    0, 0, 160, 192, // cooling.pid.p_gain = -5.0f32
+    154, 153, 25, 190, // cooling.pid.i_gain = -0.15f32
+    0, 0, 200, 194, // cooling.pid.d_gain = -100.0f32
+    0, 0, 32, 65, // cooling.pid.smoother_half_decay_secs = 10.0f32
+    141, 4, // tuning.frequency_mhz = 525 (varint)
+    248, 10, // tuning.voltage_mv = 1400 (varint)
+    4, 114, 111, 111, 116, // api.username = "root"
+    4, 114, 111, 111, 116, // api.password = "root"
+    0,   // network.mode tag = 0 (Dhcp)
+    0,   // network.hostname = "" (len 0)
+];
+
 #[test]
 fn golden_snapshot() {
     assert!(
@@ -73,41 +138,6 @@ fn golden_snapshot() {
             && option_env!("POOL_USER").is_none(),
         "POOL_* env vars override Config::default; unset them to run this test",
     );
-
-    // Schema hash for ubos_config::Config as of this commit.
-    // Update this when Config's shape changes.
-    const EXPECTED_HASH: [u8; 8] = [15, 25, 189, 233, 212, 18, 114, 221];
-
-    // Postcard encoding of Config::default() with the schema-hash prefix.
-    // 111 bytes total: 8-byte hash + 103-byte payload.
-    // Update this when Config's default values or shape changes.
-    const EXPECTED_BLOB: &[u8] = &[
-        15, 25, 189, 233, 212, 18, 114, 221, // schema hash
-        1,   // pool: heapless::Vec<PoolEntry, 3> (length=1)
-        19, 115, 116, 114, 97, 116, 117, 109, 46, 98, 114, 97, 105, 105, 110, 115, 46, 99, 111,
-        109, // pool[0].host = "stratum.braiins.com" (len 19)
-        133, 26, // pool[0].port = 3333 (varint)
-        0,  // pool[0].user = "" (len 0)
-        1,  // pool[0].protocol tag = 1 (Sv2)
-        1,  // pool[0].protocol.pool_pubkey = Some
-        // pool[0].protocol.pool_pubkey = DEFAULT_POOL_SV2_PUBKEY (32 bytes)
-        0x29, 0x95, 0x4c, 0x97, 0x45, 0x6b, 0x59, 0x9c, 0x83, 0x6f, 0x70, 0xf5, 0x08, 0xd6, 0x19,
-        0xd3, 0x28, 0x52, 0x7b, 0xb8, 0x72, 0x29, 0xd7, 0xd7, 0xd2, 0xe6, 0x7e, 0x6d, 0xcd, 0x18,
-        0xeb, 0xcf, //
-        232, 7, // thermal.sample_interval_ms = 1000 (varint)
-        0, 0, 180, 66, // thermal.dangerous_temp_c = 90.0f32
-        0, 0, 52, 66, // thermal.cooldown_temp_c = 45.0f32
-        0, 0, 134, 66, // cooling.target_temp_c = 67.0f32
-        20, // cooling.pid.min_fan_pwm = 20 (varint)
-        0, 0, 160, 192, // cooling.pid.p_gain = -5.0f32
-        154, 153, 25, 190, // cooling.pid.i_gain = -0.15f32
-        0, 0, 200, 194, // cooling.pid.d_gain = -100.0f32
-        0, 0, 32, 65, // cooling.pid.smoother_half_decay_secs = 10.0f32
-        141, 4, // tuning.frequency_mhz = 525 (varint)
-        248, 10, // tuning.voltage_mv = 1400 (varint)
-        4, 114, 111, 111, 116, // api.username = "root"
-        4, 114, 111, 111, 116, // api.password = "root"
-    ];
 
     assert_eq!(Config::SCHEMA_HASH, EXPECTED_HASH);
 

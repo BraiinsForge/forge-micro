@@ -33,6 +33,7 @@ mod tests_factory_reset;
 pub mod api;
 pub mod cooling;
 pub mod mining;
+pub mod network;
 pub mod pool;
 pub mod thermal;
 
@@ -44,6 +45,7 @@ pub use cooling::{
 pub use mining::{
     MiningBounds, MiningInfo, TuningConfig, BOUNDS as MINING_BOUNDS, INFO as MINING_INFO,
 };
+pub use network::{NetworkConfig, NetworkMode};
 pub use pool::{
     PoolEntry, ProtocolKind, DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY,
     DEFAULT_POOL_USER,
@@ -214,6 +216,9 @@ pub struct ConfigUpdate {
     /// never leaves the device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api: Option<ApiConfig>,
+    /// Replacement value for [`Config::network`]; `None` means leave unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<NetworkConfig>,
 }
 
 impl ConfigUpdate {
@@ -238,6 +243,9 @@ impl ConfigUpdate {
         if let Some(api) = self.api {
             target.api = api;
         }
+        if let Some(network) = self.network {
+            target.network = network;
+        }
     }
 
     /// Produce a fully-populated `ConfigUpdate` from a live [`Config`].
@@ -254,6 +262,7 @@ impl ConfigUpdate {
             cooling_target_temp_c: Some(config.cooling.target_temp_c),
             tuning: Some(config.tuning.clone()),
             api: Some(api),
+            network: Some(config.network.clone()),
         }
     }
 
@@ -299,6 +308,9 @@ impl ConfigUpdate {
         if let Some(api) = &self.api {
             api.validate()?;
         }
+        if let Some(network) = &self.network {
+            network.validate()?;
+        }
 
         if self.thermal.is_some() || self.cooling_target_temp_c.is_some() {
             let dangerous = self
@@ -337,6 +349,8 @@ pub struct Config {
     pub tuning: TuningConfig,
     /// HTTP API credentials.
     pub api: ApiConfig,
+    /// Network interface configuration (IP assignment mode and hostname).
+    pub network: NetworkConfig,
 }
 
 impl Default for Config {
@@ -372,6 +386,7 @@ impl Default for Config {
             cooling: CoolingConfig::default(),
             tuning: TuningConfig::default(),
             api: ApiConfig::default(),
+            network: NetworkConfig::default(),
         }
     }
 }
@@ -412,6 +427,7 @@ impl Config {
         self.thermal.validate()?;
         self.tuning.validate()?;
         self.api.validate()?;
+        self.network.validate()?;
         CoolingConfig::validate_target_temp(
             self.cooling.target_temp_c,
             self.thermal.dangerous_temp_c,

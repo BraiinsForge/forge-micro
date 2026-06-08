@@ -1,7 +1,8 @@
 //! Tests for [`crate::ConfigUpdate::validate`].
 
 use crate::{
-    ApiConfig, Config, ConfigUpdate, PoolEntry, ProtocolKind, ThermalConfig, TuningConfig,
+    ApiConfig, Config, ConfigUpdate, NetworkConfig, NetworkMode, PoolEntry, ProtocolKind,
+    ThermalConfig, TuningConfig,
 };
 
 /// Builds a minimal valid [`ConfigUpdate`] with no fields set.
@@ -12,6 +13,7 @@ fn empty_update() -> ConfigUpdate {
         cooling_target_temp_c: None,
         tuning: None,
         api: None,
+        network: None,
     }
 }
 
@@ -473,6 +475,177 @@ fn api_empty_password_passes() {
     api.password = heapless::String::new();
     update.api = Some(api);
     assert!(update.validate(&Config::default()).is_ok());
+}
+
+/// Builds a valid static [`NetworkConfig`].
+fn valid_network_static() -> NetworkConfig {
+    let mut dns = heapless::Vec::new();
+    dns.push([8, 8, 8, 8]).expect("BUG: dns has capacity");
+    NetworkConfig {
+        mode: NetworkMode::Static {
+            address: [192, 168, 1, 10],
+            prefix_len: 24,
+            gateway: [192, 168, 1, 1],
+            dns,
+        },
+        hostname: heapless::String::new(),
+    }
+}
+
+// --- Network ---
+
+/// Default network config (DHCP, empty hostname) passes validation.
+#[test]
+fn network_default_passes() {
+    assert!(NetworkConfig::default().validate().is_ok());
+}
+
+/// A valid static config passes validation.
+#[test]
+fn network_static_valid_passes() {
+    assert!(valid_network_static().validate().is_ok());
+}
+
+/// `prefix_len` of 0 is rejected for static mode.
+#[test]
+fn network_static_prefix_len_zero_rejected() {
+    let mut network = valid_network_static();
+    let NetworkMode::Static {
+        ref mut prefix_len, ..
+    } = network.mode
+    else {
+        panic!("expected Static");
+    };
+    *prefix_len = 0;
+    assert_eq!(
+        network.validate(),
+        Err("network.prefix_len must be between 1 and 32")
+    );
+}
+
+/// `prefix_len` of 33 is rejected for static mode.
+#[test]
+fn network_static_prefix_len_33_rejected() {
+    let mut network = valid_network_static();
+    let NetworkMode::Static {
+        ref mut prefix_len, ..
+    } = network.mode
+    else {
+        panic!("expected Static");
+    };
+    *prefix_len = 33;
+    assert_eq!(
+        network.validate(),
+        Err("network.prefix_len must be between 1 and 32")
+    );
+}
+
+/// Zero address `0.0.0.0` is rejected for static mode.
+#[test]
+fn network_static_zero_address_rejected() {
+    let mut network = valid_network_static();
+    let NetworkMode::Static {
+        ref mut address, ..
+    } = network.mode
+    else {
+        panic!("expected Static");
+    };
+    *address = [0, 0, 0, 0];
+    assert_eq!(
+        network.validate(),
+        Err("network.address must not be 0.0.0.0")
+    );
+}
+
+/// Zero gateway `0.0.0.0` is rejected for static mode.
+#[test]
+fn network_static_zero_gateway_rejected() {
+    let mut network = valid_network_static();
+    let NetworkMode::Static {
+        ref mut gateway, ..
+    } = network.mode
+    else {
+        panic!("expected Static");
+    };
+    *gateway = [0, 0, 0, 0];
+    assert_eq!(
+        network.validate(),
+        Err("network.gateway must not be 0.0.0.0")
+    );
+}
+
+/// A hostname with a space is rejected.
+#[test]
+fn network_hostname_space_rejected() {
+    let mut network = NetworkConfig::default();
+    network
+        .hostname
+        .push_str("my host")
+        .expect("BUG: hostname fits");
+    assert_eq!(
+        network.validate(),
+        Err("network.hostname must contain only letters, digits, and hyphens")
+    );
+}
+
+/// A hostname with an underscore is rejected.
+#[test]
+fn network_hostname_underscore_rejected() {
+    let mut network = NetworkConfig::default();
+    network
+        .hostname
+        .push_str("my_host")
+        .expect("BUG: hostname fits");
+    assert_eq!(
+        network.validate(),
+        Err("network.hostname must contain only letters, digits, and hyphens")
+    );
+}
+
+/// A hostname starting with a hyphen is rejected.
+#[test]
+fn network_hostname_leading_hyphen_rejected() {
+    let mut network = NetworkConfig::default();
+    network
+        .hostname
+        .push_str("-myhost")
+        .expect("BUG: hostname fits");
+    assert_eq!(
+        network.validate(),
+        Err("network.hostname must not start or end with a hyphen")
+    );
+}
+
+/// A hostname ending with a hyphen is rejected.
+#[test]
+fn network_hostname_trailing_hyphen_rejected() {
+    let mut network = NetworkConfig::default();
+    network
+        .hostname
+        .push_str("myhost-")
+        .expect("BUG: hostname fits");
+    assert_eq!(
+        network.validate(),
+        Err("network.hostname must not start or end with a hyphen")
+    );
+}
+
+/// An empty hostname is accepted as the "use build-time default" sentinel.
+#[test]
+fn network_hostname_empty_passes() {
+    let network = NetworkConfig::default();
+    assert!(network.validate().is_ok());
+}
+
+/// A well-formed hostname passes validation.
+#[test]
+fn network_hostname_valid_passes() {
+    let mut network = NetworkConfig::default();
+    network
+        .hostname
+        .push_str("miner-01")
+        .expect("BUG: hostname fits");
+    assert!(network.validate().is_ok());
 }
 
 // --- Config::validate ---
