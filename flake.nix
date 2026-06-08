@@ -663,6 +663,19 @@
             inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
+          build-bmm-pico-no-display = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p bmm-pico --target thumbv8m.main-none-eabihf --no-default-features";
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+          };
+
           clippy-rp2040 = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = thumbv6mArtifacts;
@@ -694,6 +707,19 @@
             inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
+          build-rp2040-no-display = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p rp2040 --target thumbv6m-none-eabi --no-default-features";
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
+            CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+          };
+
           clippy-rp2350 = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = thumbv8mArtifacts;
@@ -717,6 +743,19 @@
             cargoArtifacts = null;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf";
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+          };
+
+          build-rp2350-no-display = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf --no-default-features";
             nativeBuildInputs = [
               pkgs.gcc-arm-embedded
               pkgs.esbuild
@@ -764,6 +803,19 @@
             inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
           };
 
+          build-stm32f407-no-display = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p stm32f407 --target thumbv7em-none-eabihf --no-default-features";
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
+            CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+          };
+
           clippy-stm32f439 = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = stm32f439Artifacts;
@@ -787,6 +839,19 @@
             cargoArtifacts = null;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p stm32f439 --target thumbv7em-none-eabihf";
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
+            CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+          };
+
+          build-stm32f439-no-display = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p stm32f439 --target thumbv7em-none-eabihf --no-default-features";
             nativeBuildInputs = [
               pkgs.gcc-arm-embedded
               pkgs.esbuild
@@ -1216,6 +1281,28 @@
             cargoVendorDir = espCargoVendorDir;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
+            RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
+            nativeBuildInputs = [
+              xtensaEspToolchain
+              pkgs.esbuild
+            ];
+            CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
+            CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
+            # Crane runs cargo from the workspace root, so the per-crate
+            # `firmware/esp32s3/.cargo/config.toml` rustflags are out of
+            # cargo's discovery path. Without `-Tlinkall.x` the linker
+            # uses default section placement and secp256k1-sys's calls
+            # to memset/memcpy overflow the xtensa windowed-call range.
+            CARGO_TARGET_XTENSA_ESP32S3_NONE_ELF_RUSTFLAGS = "-Clink-arg=-Tlinkall.x -Clink-arg=-Tdefmt.x -Clink-arg=-nostartfiles";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+          };
+
+          build-esp32s3-no-display = espCraneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoVendorDir = espCargoVendorDir;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core --no-default-features";
             RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
             nativeBuildInputs = [
               xtensaEspToolchain

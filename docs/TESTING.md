@@ -108,6 +108,10 @@ For each board, check default features and important variants such as
 target dependency drift, linker-script failures, accidental feature coupling,
 and oversized binaries before hardware testing.
 
+The flake exposes this as `build-<board>` for the default feature set and
+`build-<board>-no-display` for the `--no-default-features` variant. The ESP32-S3
+entries use the same naming pattern with the Xtensa toolchain derivation.
+
 ## Web and host-runner tests
 
 `ubos-webui` requires `esbuild` in `PATH`; run it only in a devshell that
@@ -159,10 +163,9 @@ not because generated or board-only wiring code drags down a global percentage.
 
 ## Implementation order
 
-1. Add a checked-in host test runner that executes the fast host crates one at
-   a time and prints a summary.
-2. Add the initial `stratum-v2` state and frame/error tests.
-3. Add a devshell web/host-runner check for `ubos-webui` and `host-runner`.
-4. Add firmware build-matrix checks per board and feature variant.
-5. Add hardware smoke scripts once board availability and probe mapping are
+1. Ensure the fast host crates are covered by individual `test-*` flake checks.
+2. Add firmware build-matrix checks per board and feature variant.
+3. Add the initial `stratum-v2` state and frame/error tests.
+4. Add a devshell web/host-runner check for `ubos-webui` and `host-runner`.
+5. Add hardware smoke checks once board availability and probe mapping are
    stable.
