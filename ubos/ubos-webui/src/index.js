@@ -562,24 +562,6 @@ charts.forEach(chart => {
   chartResizeObserver.observe(svg);
 });
 
-$('nLogout').addEventListener('click', async event => {
-  event.preventDefault();
-  try {
-    const tokenResponse = await fetch('/', { method: 'HEAD', cache: 'no-store' });
-    const csrf = tokenResponse.headers.get('X-CSRF-Token') || '';
-    await fetch('/logout', {
-      method: 'POST',
-      headers: { 'X-CSRF-Token': csrf },
-      credentials: 'include',
-      redirect: 'manual',
-    });
-  } catch (_) {
-    // Navigate to /login even if the POST failed; the cookie is also
-    // invalidated server-side on the next protected request.
-  }
-  location.href = '/login';
-});
-
 async function csrfPost(body) {
   const tokenResponse = await fetch('/', { method: 'HEAD', cache: 'no-store' });
   const csrf = tokenResponse.headers.get('X-CSRF-Token') || '';

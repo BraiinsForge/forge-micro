@@ -40,6 +40,31 @@
   display: block;
 }
 
+/* Logout is a POST form so the browser navigates to /login by
+   following the redirect, the same way the login form does. The
+   wrapping form uses display: contents so it leaves the nav flex
+   layout untouched and the button sits inline like the other nav
+   items; the button repeats the .bar a icon-link styling because
+   .bar a only matches anchors. */
+.lo {
+  display: contents;
+}
+
+#nLogout {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--mute);
+  cursor: pointer;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+}
+
+#nLogout:hover {
+  color: var(--fg);
+}
+
 /* Status badge. Filled Carbon-style circle with a check or X cutout;
    the parent card class drives the colour through currentColor. The
    shared symbol defs are spliced from src/icons.svg via the ICONS

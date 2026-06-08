@@ -355,26 +355,20 @@ impl Service for DashboardService {
         let authorization = authorization_buf.as_deref();
         let cookie = cookie_buf.as_deref();
 
-        let needs_auth = path == "/logout";
         let auth_ctx = ubos_auth::auth::authenticate(authorization, cookie)
             .await
             .unwrap_or(ubos_auth::auth::AuthCtx::Anonymous);
 
-        // Anonymous requests to authenticated paths are rejected.
-        // RFC 7235 requires `WWW-Authenticate` on 401 so a Basic-auth
-        // machine client knows the route accepts credentials and which
-        // realm to retry against.
-        if needs_auth && matches!(auth_ctx, ubos_auth::auth::AuthCtx::Anonymous) {
-            return write_status_only(
-                connection,
-                401,
-                "Unauthorized",
-                "application/json",
-                &[("WWW-Authenticate", "Basic realm=\"ubos\"")],
-                b"{\"message\":\"unauthorized\"}",
-            )
-            .await;
-        }
+        // Logout is idempotent and unauthenticated. The logout control is
+        // a navigation form, so a top-level POST that arrives without a
+        // live session must still land on `/login` by following the
+        // redirect. Gating it on auth would answer an anonymous logout
+        // with `401` plus `WWW-Authenticate: Basic`, which the browser
+        // renders as a native credential prompt instead. That happens
+        // whenever the session is gone but the tab still shows the button,
+        // for example after the in-RAM sessions are cleared by a reboot.
+        // The handler invalidates whatever session the cookie names, which
+        // is a no-op when there is none, then redirects.
 
         let is_mutating = matches!(method, "POST" | "PATCH" | "DELETE");
 
@@ -410,20 +404,24 @@ impl Service for DashboardService {
             &[]
         };
 
-        // Session-authenticated state-changing requests require a valid
-        // CSRF token in the X-CSRF-Token header that was issued for the
-        // same session. Basic-authenticated requests are exempt.
+        // POST /login requires a valid X-CSRF-Token header issued for the
+        // presented session. A victim browser on the LAN could otherwise
+        // be force-logged-in by an attacker page: the attacker submits
+        // their own credentials into the victim's browser, takes over the
+        // active session, and then observes any state the victim stores in
+        // that session. The check applies only when a session cookie is
+        // already present so that a fresh anonymous login (no prior
+        // session) is not gated; the token is issued to the existing
+        // session on `GET /` and reused here. Basic-authenticated requests
+        // are exempt because they carry no SPA session.
         //
-        // POST /login requires CSRF because a victim browser on the LAN
-        // could otherwise be force-logged-in by an attacker page: the
-        // attacker submits their own credentials into the victim's browser,
-        // takes over the active session, and then observes any state the
-        // victim stores in that session. The check applies only when a
-        // session cookie is already present so that a fresh anonymous login
-        // (no prior session) is not gated; the CSRF token is issued to the
-        // existing session on `GET /` and reused here.
-        let needs_csrf = needs_auth || (path == "/login" && is_mutating);
-        if needs_csrf && is_mutating {
+        // POST /logout is intentionally not CSRF-gated. Logout is a plain
+        // navigation form so the browser follows the redirect to /login
+        // exactly like the login form; a form POST cannot send the
+        // X-CSRF-Token header, and a forced logout is a low-value CSRF
+        // target that exposes no state and changes no credentials.
+        let needs_csrf = path == "/login" && is_mutating;
+        if needs_csrf {
             if let ubos_auth::auth::AuthCtx::Session(ref session_id) = auth_ctx {
                 let token_str = csrf_buf.as_deref().unwrap_or("");
                 if token_str.is_empty()
