@@ -13,4 +13,4 @@ pub mod registry;
 pub mod responder;
 
 pub use registry::ServiceEntry;
-pub use responder::{compose_hostname, run_mdns};
+pub use responder::{compose_hostname, compose_hostname_configured, run_mdns};

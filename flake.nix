@@ -930,6 +930,13 @@
             doInstallCargoArtifacts = false;
           };
 
+          test-ubos-mdns = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p ubos-mdns";
+            doInstallCargoArtifacts = false;
+          };
+
           clippy-ubos-net = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = hostArtifacts;

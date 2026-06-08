@@ -423,3 +423,43 @@ pub fn compose_hostname<const CAP: usize, const BASE_LEN: usize>(
         .expect("BUG: mDNS hostname does not fit in the buffer");
     cell.init(buffer).as_str()
 }
+
+/// Compose a hostname, preferring an operator-configured value over the
+/// `<base>-<suffix:02x>` default.
+///
+/// When `configured` is empty, this function delegates entirely to
+/// [`compose_hostname`], treating the empty string as the "use
+/// build-time default" sentinel. Callers that want to honour every
+/// valid operator hostname must ensure `CAP` is at least as large as
+/// the hostname capacity accepted by the config layer; the config layer
+/// currently caps hostnames at 32 bytes, so `CAP >= 32` prevents silent
+/// fallback for any operator-supplied value. When `configured` does not
+/// fit in the buffer (i.e. `configured.len() > CAP`), the function
+/// silently falls back to the composed `<base>-<suffix:02x>` default —
+/// it does not return an error, it does not truncate.
+///
+/// DNS-label charset validity of `configured` is assumed: the config
+/// layer validates the input before it reaches this function, so no
+/// re-validation is performed here.
+///
+/// `cell` must be initialised exactly once for the lifetime of the
+/// firmware, the same constraint as [`compose_hostname`].
+pub fn compose_hostname_configured<const CAP: usize, const BASE_LEN: usize>(
+    configured: &str,
+    base: &'static str,
+    suffix: u8,
+    cell: &'static StaticCell<heapless::String<CAP>>,
+) -> &'static str {
+    if configured.is_empty() {
+        return compose_hostname::<CAP, BASE_LEN>(base, suffix, cell);
+    }
+    let mut buffer: heapless::String<CAP> = heapless::String::new();
+    let Ok(()) = buffer.push_str(configured) else {
+        return compose_hostname::<CAP, BASE_LEN>(base, suffix, cell);
+    };
+    cell.init(buffer).as_str()
+}
+
+#[cfg(test)]
+#[path = "tests/responder.rs"]
+mod tests;
