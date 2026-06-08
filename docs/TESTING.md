@@ -132,6 +132,12 @@ missing frontend tool does not hide library test failures.
 If necessary, split host-runner logic into a small library crate so its unit
 tests do not need to build the executable dependency graph.
 
+Run this layer through the aggregate flake check:
+
+```sh
+nix build .#checks.x86_64-linux.web-host --no-link
+```
+
 ## Hardware-in-loop smoke tests
 
 Hardware tests should be small, explicit, and slower than the PR gate. Run them

@@ -1388,6 +1388,24 @@
                   > "$out/README"
               '';
 
+          web-host =
+            pkgs.runCommand "ubos-main-web-host-tests"
+              {
+                nativeBuildInputs = [
+                  test-ubos-webui
+                  test-host-runner
+                ];
+              }
+              ''
+                mkdir -p "$out"
+                printf '%s\n' \
+                  "ubos-main web/host-runner test aggregate" \
+                  "" \
+                  "Building this check forces the web UI and native host-runner tests to build/run." \
+                  "These checks require the flake-provided esbuild dependency." \
+                  > "$out/README"
+              '';
+
           drc-bmm-adapter =
             pkgs.runCommand "drc-bmm-adapter"
               {
