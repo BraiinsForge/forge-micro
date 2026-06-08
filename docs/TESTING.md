@@ -1,0 +1,154 @@
+# Testing
+
+`ubos-main` mixes pure `no_std` libraries, firmware binaries, host runners,
+frontend assets, and hardware behavior. A single workspace coverage number is
+not a useful signal: `cargo test --workspace` can unify incompatible embedded
+features, while firmware runtime behavior needs board builds and hardware smoke
+tests rather than host line coverage.
+
+Use layered checks instead. Each layer should have a clear owner, runtime, and
+failure meaning.
+
+## Fast host tests
+
+Run host-testable crates package by package. This avoids Cargo feature
+unification across unrelated firmware targets and avoids duplicate Embassy
+time-driver symbols between crates that provide host-test stubs.
+
+Primary crates:
+
+- `embedded-i2c-unix`
+- `mining-protocol`
+- `stratum-client`
+- `stratum-v1`
+- `ubos-api`
+- `ubos-auth`
+- `ubos-config`
+- `ubos-cooling`
+- `ubos-http`
+- `ubos-manager`
+- `ubos-metrics`
+- `ubos-mining`
+- `ubos-net`
+- `ubos-psu`
+- `ubos-temperature`
+- `ubos-thermal`
+
+This is the default pull-request gate. It should stay quick and deterministic,
+with no hardware, web bundler, network service, or probe dependency.
+
+## Protocol contract tests
+
+Protocol crates should have the strongest host coverage because they are pure
+logic and regressions can break all boards.
+
+- `stratum-v1` already has parser, wire, state, target, and async client tests.
+- `mining-protocol` covers hashing, difficulty, hex parsing, and merkle logic.
+- `stratum-v2` should match the `stratum-v1` standard before it is treated as
+  production-covered.
+
+Minimum `stratum-v2` coverage:
+
+- `V2SessionState` defaults, job-id ring rotation, stale lookup expiry, and
+  sequence-number wrapping.
+- Future-job storage and activation around `NewMiningJob` /
+  `SetNewPrevHash`.
+- Fake async-stream tests for partial reads, partial writes, oversized frames,
+  decode failure, rejected sessions, and submit-before-channel-open.
+- Golden transcript replay for at least one successful pool handshake/channel
+  open and one rejection path.
+
+## Driver and control tests
+
+Board-adjacent behavior should be pushed into host-testable libraries or small
+pure helpers. Firmware `main.rs` files should remain wiring code.
+
+Cover with mocks or pure tests:
+
+- PSU state transitions, register encoding, miniminer watchdog behavior.
+- Fan PID behavior and tach/RPM conversion.
+- Thermal thresholds and pause/resume reasons.
+- BM1362 frame parsing, reset sequencing, and serial actor error handling.
+- Config validation, persistence format, and migration/default behavior.
+- Metrics formatting and hashrate smoothing.
+
+The rule is: if a behavior can be expressed without owning a hardware
+peripheral singleton, it belongs in a host-testable crate or helper.
+
+## Firmware build matrix
+
+Firmware crates need compile coverage, feature coverage, and binary-size
+visibility. They do not need host unit tests for every HAL call.
+
+Run each board in the correct Nix devshell:
+
+- `firmware/rp2040`
+- `firmware/rp2350`
+- `firmware/bmm-pico`
+- `firmware/stm32f407`
+- `firmware/stm32f439`
+- `firmware/esp32s3`
+
+For each board, check default features and important variants such as
+`--no-default-features` where `display` is optional. The gate should catch
+target dependency drift, linker-script failures, accidental feature coupling,
+and oversized binaries before hardware testing.
+
+## Web and host-runner tests
+
+`ubos-webui` requires `esbuild` in `PATH`; run it only in a devshell that
+provides the bundler. Keep this separate from the fast host Rust gate so a
+missing frontend tool does not hide library test failures.
+
+`host-runner` should have two tracks:
+
+- unit tests for logic that does not require `ubos-webui` or host devices;
+- a devshell integration build that includes the full web UI and host network
+  stack.
+
+If necessary, split host-runner logic into a small library crate so its unit
+tests do not need to build the executable dependency graph.
+
+## Hardware-in-loop smoke tests
+
+Hardware tests should be small, explicit, and slower than the PR gate. Run them
+nightly, before releases, or before merging firmware changes that affect board
+bring-up.
+
+Recommended smoke checks:
+
+- flash firmware to a selected board;
+- wait for DHCP and mDNS;
+- request `/api/info`;
+- request Prometheus metrics and verify required metric names;
+- wait for NTP time to become valid;
+- verify mining state reaches expected idle or active state;
+- observe for a fixed window with no watchdog reset.
+
+Each supported MCU family should have at least one board in the smoke matrix.
+
+## Coverage reporting
+
+Use `cargo-llvm-cov` from the Nix devshell for host-testable crates only.
+Report per-crate coverage instead of one global threshold.
+
+Suggested policy:
+
+- high threshold for protocol, config, auth, API, control, and parser crates;
+- moderate threshold for hardware-driver crates with mockable register logic;
+- no line threshold for firmware binaries, frontend generated assets, or
+  vendored patches;
+- build/HIL gates cover firmware glue that cannot be meaningfully host-tested.
+
+Coverage should fail only when it points to missing meaningful behavior tests,
+not because generated or board-only wiring code drags down a global percentage.
+
+## Implementation order
+
+1. Add a checked-in host test runner that executes the fast host crates one at
+   a time and prints a summary.
+2. Add the initial `stratum-v2` state and frame/error tests.
+3. Add a devshell web/host-runner check for `ubos-webui` and `host-runner`.
+4. Add firmware build-matrix checks per board and feature variant.
+5. Add hardware smoke scripts once board availability and probe mapping are
+   stable.

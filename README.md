@@ -13,6 +13,7 @@ Docs live in `docs/`:
 - `docs/SETUP.md` -- probes, wiring, pinouts, building and flashing
 - `docs/MINING.md` -- BM1362 hashboard backend on the BMM Adapter
 - `docs/METRICS.md` -- Prometheus exposition, CPU-busy ratio model
+- `docs/TESTING.md` -- layered test architecture and coverage strategy
 - `docs/DEBUGGING.md` -- probe-rs, binary size, stack analysis
 
 Support node (NUC): see `nuc/README.md`.
