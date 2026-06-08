@@ -12,10 +12,26 @@
 # with the base runner's and feeding probe-rs two --chip flags.
 set -euo pipefail
 
-args=(run --chip RP235x)
+# Default to `run` (flash + reset + monitor). The attach-N aliases set
+# $PROBE_RS_ACTION=attach so `cargo attach-N` connects to the already
+# running core and streams defmt without flashing or resetting it. Both
+# subcommands take the same --chip/--probe/--log-format/ELF arguments.
+args=("${PROBE_RS_ACTION:-run}" --chip RP235x)
 if [ -n "${PROBE_SERIAL:-}" ]; then
   args+=(--probe "$PROBE_SERIAL")
 fi
-args+=(--log-format "{t:>10} {f:<14} [{L}] {s}" "$@")
+log_format=(--log-format "{t:>10} {f:<14} [{L}] {s}")
+
+# `cargo run` appends the freshly built ELF as the first positional arg.
+# $PROBE_RS_ELF overrides it so `cargo attach-N` can decode defmt against
+# a binary matching the firmware already on the board rather than the one
+# this build just produced; mismatched symbol tables decode to garbage.
+# Trailing args after `--` are forwarded either way.
+if [ -n "${PROBE_RS_ELF:-}" ]; then
+  shift || true
+  args+=("${log_format[@]}" "$PROBE_RS_ELF" "$@")
+else
+  args+=("${log_format[@]}" "$@")
+fi
 
 exec probe-rs-runner "${args[@]}"
