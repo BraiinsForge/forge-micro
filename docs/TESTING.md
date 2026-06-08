@@ -49,7 +49,12 @@ nix flake check
 
 The fast host layer is represented by individual `test-*` flake checks rather
 than a shell script. CI can build the whole flake or select named checks such as
-`checks.x86_64-linux.test-ubos-config`.
+`checks.x86_64-linux.test-ubos-config`. To run just this layer, build the
+aggregate check:
+
+```sh
+nix build .#checks.x86_64-linux.fast-host --no-link
+```
 
 ## Protocol contract tests
 

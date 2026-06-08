@@ -623,7 +623,7 @@
         # in CI would tie the build to upstream lint cleanliness we do
         # not control. Every firmware build derivation below exercises
         # it transitively, so a real breakage still fails the gate.
-        checks = {
+        checks = rec {
           clippy-bmm-pico = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = thumbv8mArtifacts;
@@ -1353,6 +1353,40 @@
             strictDeps = true;
             doInstallCargoArtifacts = false;
           };
+
+          fast-host =
+            pkgs.runCommand "ubos-main-fast-host-tests"
+              {
+                nativeBuildInputs = [
+                  test-embedded-i2c-unix
+                  test-mining-protocol
+                  test-stratum-client
+                  test-stratum-v1
+                  test-ubos-api
+                  test-ubos-auth
+                  test-ubos-config
+                  test-ubos-config-std
+                  test-ubos-cooling
+                  test-ubos-http
+                  test-ubos-manager
+                  test-ubos-metrics
+                  test-ubos-mining
+                  test-ubos-net
+                  test-ubos-psu
+                  test-ubos-temperature
+                  test-ubos-thermal
+                  test-load-test
+                ];
+              }
+              ''
+                mkdir -p "$out"
+                printf '%s\n' \
+                  "ubos-main fast host test aggregate" \
+                  "" \
+                  "Building this check forces the isolated host-testable crate checks to build/run." \
+                  "See docs/TESTING.md for the layer policy." \
+                  > "$out/README"
+              '';
 
           drc-bmm-adapter =
             pkgs.runCommand "drc-bmm-adapter"
