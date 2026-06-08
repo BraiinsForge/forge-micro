@@ -174,12 +174,12 @@ the `cargo size` recipe below.
 
 | Board     | Flash     | Main RAM   | CCM RAM      | Headroom note                                  |
 |-----------|-----------|------------|--------------|------------------------------------------------|
-| bmm-pico  | 458 / 2048 KiB | 242 / 512 KiB | —          | comfortable                                    |
-| rp2040    | 478 / 2048 KiB | 240 / 256 KiB (94%) | —    | tight; ~16 KiB free, flag any new static state |
-| rp2350    | 459 / 2048 KiB | 243 / 512 KiB | —          | comfortable                                    |
-| stm32f407 | 459 / 1024 KiB | 126 / 128 KiB (98%) | 24 / 64 KiB CCM | tight; future statics must go to CCM        |
-| stm32f439 | 460 / 2048 KiB | 174 / 192 KiB | 24 / 64 KiB CCM | comfortable                                |
-| esp32s3   | 622 / 8192 KiB | ~249 / 320 KiB DRAM | — | comfortable                                    |
+| bmm-pico  | 564 / 2048 KiB | 174 / 512 KiB | —          | comfortable                                    |
+| rp2040    | 582 / 2048 KiB | 171 / 256 KiB (67%) | —    | comfortable; ~85 KiB free                      |
+| rp2350    | 566 / 2048 KiB | 175 / 512 KiB | —          | comfortable                                    |
+| stm32f407 | 568 / 1024 KiB | 107 / 128 KiB (84%) | 23 / 64 KiB CCM | tight; ~21 KiB free, route new statics to CCM |
+| stm32f439 | 568 / 2048 KiB | 107 / 192 KiB | 23 / 64 KiB CCM | comfortable                                |
+| esp32s3   | 739 / 8192 KiB | 172 / 320 KiB DRAM | — | comfortable                                    |
 
 The stm32f4 firmwares ship per-board `memory.x` declaring the 64 KiB
 Core-Coupled Memory region embassy-stm32 leaves unused. `ubos-metrics`,

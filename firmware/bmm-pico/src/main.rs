@@ -56,13 +56,16 @@ static CORE1_EXECUTOR: StaticCell<Executor> = StaticCell::new();
 /// ETH-ISR jitter at 3 Mbaud (ubos-mining backend).
 const UART_RING_BUFFER_SIZE: usize = 1024;
 
-// `secp256k1::AllPreallocated<'static>` precomputation buffer.
-// `lowmemory` brings the verify table down to ~16 KB; the slot
-// count is sized conservatively (covers signing + verification
-// per `secp256k1_context_preallocated_size(All)` at the lowmemory
-// flags). `CryptoCtx::preallocated` returns
-// `Error::NotEnoughMemory` at runtime if undersized.
-const SECP_CTX_SLOTS: usize = 4096;
+// Preallocated buffer for the SV2 `secp256k1::AllPreallocated` context.
+// `CryptoCtx::preallocated` needs a `[AlignedType]` slice at least
+// `secp256k1_context_preallocated_size(All)` slots long. Modern
+// libsecp256k1 (secp256k1-sys 0.11) holds the ecmult and ecmult-gen
+// tables in static `.rodata`, so the runtime context is tiny: that size
+// is 13 `AlignedType` slots (208 B), measured against the compiled C
+// library. 64 slots (1 KiB) keep a ~5x margin, and
+// `CryptoCtx::preallocated` returns `NotEnoughMemory` (caught by the
+// boot `expect`) if ever undersized.
+const SECP_CTX_SLOTS: usize = 64;
 
 static SECP_CTX_BUF: ConstStaticCell<[ii_sv2::security::AlignedType; SECP_CTX_SLOTS]> =
     ConstStaticCell::new([ii_sv2::security::AlignedType::ZERO; SECP_CTX_SLOTS]);
