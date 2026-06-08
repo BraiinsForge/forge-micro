@@ -34,8 +34,22 @@ Primary crates:
 - `ubos-temperature`
 - `ubos-thermal`
 
+Standalone host utilities:
+
+- `nuc/pkgs/load-test`
+
 This is the default pull-request gate. It should stay quick and deterministic,
 with no hardware, web bundler, network service, or probe dependency.
+
+Run the layer through flake checks from `boards/ubos-main`:
+
+```sh
+nix flake check
+```
+
+The fast host layer is represented by individual `test-*` flake checks rather
+than a shell script. CI can build the whole flake or select named checks such as
+`checks.x86_64-linux.test-ubos-config`.
 
 ## Protocol contract tests
 
