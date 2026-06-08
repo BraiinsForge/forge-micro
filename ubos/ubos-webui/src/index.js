@@ -4,6 +4,12 @@
 // shell, login, and logout live on the same port 80 we were served from.
 const API = `${location.protocol}//${location.hostname}:8080`;
 
+// Confirm-or-revert window for a live network change, in seconds. Must
+// match CONFIRM_WINDOW in ubos-api/src/network_apply.rs; the firmware
+// owns the real revert deadline, this only seeds the optimistic banner
+// shown right after POST before the GET status poll reconciles it.
+const NET_CONFIRM_WINDOW_SECONDS = 120;
+
 // Chart geometry. PAD_* are fixed pixel gutters reserved for axis
 // labels; the chart width and height are read from each SVG element's
 // rendered box at draw time so the coordinate space always matches the
@@ -128,6 +134,7 @@ const CFG_SECTIONS = {
   temperature: 'secTemp',
   mining: 'secMining',
   system: 'secSystem',
+  network: 'secNetwork',
 };
 
 const CFG_NAV = {
@@ -135,6 +142,7 @@ const CFG_NAV = {
   temperature: 'snTemp',
   mining: 'snMining',
   system: 'snSystem',
+  network: 'snNetwork',
 };
 
 function route() {
@@ -152,6 +160,7 @@ function route() {
     $(CFG_NAV[key]).classList.toggle('on', key === secKey);
   });
   if (!cfgLoaded && !cfgLoading) loadCfg();
+  if (secKey === 'network') loadNetworkStatus();
 }
 addEventListener('hashchange', route);
 route();
@@ -443,6 +452,66 @@ function hexToBytes(hex) {
   return bytes;
 }
 
+// Parse a dotted-quad IPv4 string into a 4-element byte array.
+// Returns null if the string is not a valid IPv4 address.
+function ipToBytes(str) {
+  const parts = str.trim().split('.');
+  if (parts.length !== 4) return null;
+  const bytes = parts.map(Number);
+  if (bytes.some(b => !Number.isInteger(b) || b < 0 || b > 255)) return null;
+  return bytes;
+}
+
+// Format a 4-element byte array as a dotted-quad IPv4 string.
+function bytesToIp(bytes) {
+  return bytes.join('.');
+}
+
+// Convert a prefix length (1–32) to a dotted-quad netmask string.
+function prefixToMask(prefix) {
+  const bits = prefix >>> 0;
+  const value = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff].join('.');
+}
+
+// Convert a dotted-quad netmask string to a prefix length (1–32).
+// Returns null when the string is not a valid contiguous netmask.
+function maskToPrefix(maskStr) {
+  const bytes = ipToBytes(maskStr);
+  if (!bytes) return null;
+  const value = ((bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]) >>> 0;
+  // A valid mask is a run of 1-bits followed by 0-bits with no gaps.
+  const inverted = (~value) >>> 0;
+  if ((inverted & (inverted + 1)) !== 0) return null;
+  // Count leading 1-bits to derive the prefix length.
+  const leading = Math.clz32(~value >>> 0);
+  if (leading < 1 || leading > 32) return null;
+  return leading;
+}
+
+// Reflect the current mode in the segmented button pair and set the
+// disabled state on the address/mask/gateway/DNS inputs. The address
+// block stays visible in both modes; fields are read-only in DHCP mode.
+function syncNetUi() {
+  const mode = $('netMode').value;
+  const isStatic = mode === 'Static';
+  $('netModeDhcp').classList.toggle('active', !isStatic);
+  $('netModeStatic').classList.toggle('active', isStatic);
+  for (const id of ['netAddr', 'netMask', 'netGw', 'netDns1', 'netDns2']) {
+    $(id).disabled = !isStatic;
+  }
+}
+
+$('netModeDhcp').addEventListener('click', function () {
+  $('netMode').value = this.dataset.mode;
+  syncNetUi();
+});
+$('netModeStatic').addEventListener('click', function () {
+  $('netMode').value = this.dataset.mode;
+  syncNetUi();
+});
+syncNetUi();
+
 function syncPoolUi(slot) {
   const root = $('pcfg' + slot);
   const form = $('cfgForm');
@@ -464,9 +533,9 @@ async function loadCfg() {
   // before reporting Load failed, so the operator does not have to
   // bounce out of the tab to recover from a transient race.
   // Each section has its own .msg status div. Mirror load status to
-  // all four so the operator sees the result on whichever section they
+  // all five so the operator sees the result on whichever section they
   // happen to be viewing when the load finishes.
-  const msgIds = ['msg', 'msgTemp', 'msgMining', 'msgSystem'];
+  const msgIds = ['msg', 'msgTemp', 'msgMining', 'msgSystem', 'msgNetwork'];
   const setMsg = (color, text) => msgIds.forEach(id => {
     const element = $(id);
     element.style.color = color;
@@ -526,6 +595,9 @@ async function loadCfg() {
         }
         if (data.api) {
           $('sysUser').value = data.api.username || '';
+        }
+        if (data.network) {
+          $('netHostname').value = data.network.hostname || '';
         }
         cfgLoaded = true;
         setMsg('', '');
@@ -601,9 +673,15 @@ charts.forEach(chart => {
   chartResizeObserver.observe(svg);
 });
 
+// Fetch a CSRF token by issuing a HEAD request to the document root.
+async function csrfToken() {
+  const response = await fetch('/', { method: 'HEAD', cache: 'no-store' });
+  return response.headers.get('X-CSRF-Token') || '';
+}
+
+// POST JSON to an arbitrary API path with the CSRF token.
 async function csrfPostTo(path, body) {
-  const tokenResponse = await fetch('/', { method: 'HEAD', cache: 'no-store' });
-  const csrf = tokenResponse.headers.get('X-CSRF-Token') || '';
+  const csrf = await csrfToken();
   return fetch(API + path, {
     method: 'POST',
     headers: {
@@ -615,7 +693,7 @@ async function csrfPostTo(path, body) {
   });
 }
 
-function csrfPost(body) {
+async function csrfPost(body) {
   return csrfPostTo('/api/config', body);
 }
 
@@ -813,5 +891,150 @@ $('btnResetConfirm').addEventListener('click', async () => {
   } catch (error) {
     msg.style.color = 'var(--red)';
     msg.textContent = 'Reset failed: ' + error.message;
+  }
+});
+
+// Interval handle for the confirm-window countdown; null when inactive.
+let netCountdownInterval = null;
+
+// Format seconds as M:SS for the confirm countdown display.
+function fmtCountdown(seconds) {
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  return minutes + ':' + String(remaining).padStart(2, '0');
+}
+
+// Show or hide the confirm banner and start/stop the countdown ticker.
+// Called with the seconds_remaining value from GET /api/system/network.
+function setNetConfirmBanner(secondsRemaining) {
+  const banner = $('netConfirm');
+  if (secondsRemaining > 0) {
+    banner.classList.remove('hide');
+    $('netCountdown').textContent = fmtCountdown(secondsRemaining);
+    if (netCountdownInterval !== null) clearInterval(netCountdownInterval);
+    let remaining = secondsRemaining;
+    netCountdownInterval = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(netCountdownInterval);
+        netCountdownInterval = null;
+        banner.classList.add('hide');
+        return;
+      }
+      $('netCountdown').textContent = fmtCountdown(remaining);
+    }, 1000);
+  } else {
+    banner.classList.add('hide');
+    if (netCountdownInterval !== null) {
+      clearInterval(netCountdownInterval);
+      netCountdownInterval = null;
+    }
+  }
+}
+
+// Fetch GET /api/system/network, update the confirm banner, and
+// populate the live address fields. Both DHCP and Static modes return
+// real values from the embassy-net stack (DHCP returns the lease).
+async function loadNetworkStatus() {
+  try {
+    const response = await fetch(API + '/api/system/network', { cache: 'no-store', credentials: 'include' });
+    if (!response.ok) return;
+    const data = await response.json();
+    setNetConfirmBanner(data.seconds_remaining || 0);
+    // Set the mode from the live status so the segmented buttons reflect
+    // the board's current mode even before loadCfg completes.
+    const modeVal = data.mode === 'static' ? 'Static' : 'Dhcp';
+    $('netMode').value = modeVal;
+    if (data.address) $('netAddr').value = bytesToIp(data.address);
+    if (data.prefix_len != null) $('netMask').value = prefixToMask(data.prefix_len);
+    if (data.gateway) $('netGw').value = bytesToIp(data.gateway);
+    const dns = data.dns || [];
+    $('netDns1').value = dns[0] ? bytesToIp(dns[0]) : '';
+    $('netDns2').value = dns[1] ? bytesToIp(dns[1]) : '';
+    syncNetUi();
+  } catch (_) {
+    // Non-fatal: fields and banner stay as-is if the fetch fails.
+  }
+}
+
+$('fmNetwork').addEventListener('submit', async event => {
+  event.preventDefault();
+  const msg = $('msgNetwork');
+  msg.style.color = '';
+  const modeVal = $('netMode').value;
+  const hostname = $('netHostname').value;
+  let mode;
+  if (modeVal === 'Dhcp') {
+    mode = 'Dhcp';
+  } else {
+    const addrStr = $('netAddr').value.trim();
+    const gwStr = $('netGw').value.trim();
+    const maskStr = $('netMask').value.trim();
+    const address = ipToBytes(addrStr);
+    if (!address) {
+      msg.style.color = 'var(--red)';
+      msg.textContent = 'Invalid address.';
+      return;
+    }
+    const gateway = ipToBytes(gwStr);
+    if (!gateway) {
+      msg.style.color = 'var(--red)';
+      msg.textContent = 'Invalid gateway.';
+      return;
+    }
+    const prefix_len = maskToPrefix(maskStr);
+    if (prefix_len === null) {
+      msg.style.color = 'var(--red)';
+      msg.textContent = 'Invalid mask.';
+      return;
+    }
+    const dns = [];
+    for (const id of ['netDns1', 'netDns2']) {
+      const val = $(id).value.trim();
+      if (!val) continue;
+      const parsed = ipToBytes(val);
+      if (!parsed) {
+        msg.style.color = 'var(--red)';
+        msg.textContent = 'Invalid DNS address in ' + id + '.';
+        return;
+      }
+      dns.push(parsed);
+    }
+    mode = { Static: { address, prefix_len, gateway, dns } };
+  }
+  try {
+    const response = await csrfPostTo('/api/system/network', { mode, hostname });
+    if (response.ok) {
+      msg.style.color = '';
+      msg.textContent = 'Applied. Reconnect at the new address and confirm within 2:00, or it reverts.';
+      setNetConfirmBanner(NET_CONFIRM_WINDOW_SECONDS);
+      return;
+    }
+    const errBody = await response.json().catch(() => ({}));
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Apply failed: ' + (errBody.message || ('HTTP ' + response.status));
+  } catch (error) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Apply failed: ' + error.message;
+  }
+});
+
+$('btnNetConfirm').addEventListener('click', async () => {
+  const msg = $('msgNetConfirm');
+  msg.style.color = '';
+  msg.textContent = '';
+  try {
+    const response = await csrfPostTo('/api/system/network/confirm', {});
+    if (response.ok) {
+      setNetConfirmBanner(0);
+      msg.style.color = '';
+      msg.textContent = 'Confirmed.';
+      return;
+    }
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Confirm failed: HTTP ' + response.status;
+  } catch (error) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Confirm failed: ' + error.message;
   }
 });

@@ -115,6 +115,7 @@
       <a href="#config/temperature" id="snTemp">Temperature</a>
       <a href="#config/mining" id="snMining">Mining</a>
       <a href="#config/system" id="snSystem">System</a>
+      <a href="#config/network" id="snNetwork">Network</a>
     </nav>
     <div class="cfgpanel">
       <div class="cfgsec" id="secPools">
@@ -217,6 +218,47 @@
             <div class="msg" id="msgReset"></div>
           </div>
         </div>
+      </div>
+
+      <div class="cfgsec" id="secNetwork">
+        <div class="psec hide" id="netConfirm">
+          <h3>Confirm network change</h3>
+          <div class="panel">
+            <p class="netNote">New address applied. Reconnect here and confirm within <span id="netCountdown">2:00</span>, or it reverts automatically.</p>
+            <button type="button" id="btnNetConfirm">Confirm</button>
+            <div class="msg" id="msgNetConfirm"></div>
+          </div>
+        </div>
+        <form id="fmNetwork">
+          <div class="psec">
+            <h3>Hostname</h3>
+            <div class="panel">
+              <label>Hostname (leave blank for default)<input id="netHostname" type="text" maxlength="32"></label>
+            </div>
+          </div>
+          <div class="psec">
+            <h3>Network</h3>
+            <div class="panel">
+              <input type="hidden" id="netMode" value="Dhcp">
+              <div class="seg" id="netModeSeg">
+                <button type="button" id="netModeDhcp" data-mode="Dhcp">DHCP</button>
+                <button type="button" id="netModeStatic" data-mode="Static">Static</button>
+              </div>
+            </div>
+          </div>
+          <div class="psec">
+            <h3>Address</h3>
+            <div class="panel">
+              <label>Address (e.g. 192.168.1.50)<input id="netAddr" type="text" placeholder="0.0.0.0"></label>
+              <label>Mask<input id="netMask" type="text" placeholder="255.255.255.0"></label>
+              <label>Gateway<input id="netGw" type="text" placeholder="0.0.0.0"></label>
+              <label>DNS Primary<input id="netDns1" type="text" placeholder="8.8.8.8"></label>
+              <label>DNS Backup<input id="netDns2" type="text" placeholder="1.1.1.1"></label>
+            </div>
+          </div>
+          <button type="submit">Apply</button>
+          <div class="msg" id="msgNetwork"></div>
+        </form>
       </div>
     </div>
   </section>

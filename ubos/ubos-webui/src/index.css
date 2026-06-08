@@ -669,3 +669,47 @@ main > * {
   color: var(--fg);
   border-color: var(--fg);
 }
+
+/* Network section: segmented mode picker and informational note.
+   The two buttons sit flush in a row; the active button uses the
+   accent colour so the selected mode reads at a glance. Disabled
+   address inputs use the browser's built-in muted appearance
+   (opacity + cursor: default) which is sufficient without extra rules. */
+.seg {
+  display: flex;
+  gap: 0;
+}
+
+.seg button {
+  flex: 1;
+  background: var(--field);
+  color: var(--mute);
+  border: 1px solid var(--border);
+  border-right-width: 0;
+  padding: 8px 16px;
+  font: var(--fw-emp) var(--fs-body) ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: var(--ls-cap);
+  cursor: pointer;
+  align-self: auto;
+}
+
+.seg button:last-child {
+  border-right-width: 1px;
+}
+
+.seg button:hover {
+  color: var(--fg);
+}
+
+.seg button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.netNote {
+  color: var(--mute);
+  font-size: var(--fs-label);
+  margin: 0;
+}
