@@ -127,8 +127,28 @@
           mkdir -p "$log_dir"
           echo "probe-rs-runner: logging to $log_file" >&2
           start=$(date +%s)
-          probe-rs "''${args[@]}" 2>&1 | tee "$log_file"
-          status=''${PIPESTATUS[0]}
+          # Run probe-rs as a tracked child rather than the tail of a
+          # `| tee` pipeline. In a pipeline probe-rs lives in a subshell,
+          # so the documented scripted detach `kill -INT <runner-pid>`
+          # reaches this shell but never probe-rs. Backgrounding it
+          # behind a tee process substitution keeps probe-rs's pid in
+          # hand; the INT trap forwards the signal so detach reaches the
+          # client (see boards/ubos-main/CLAUDE.md).
+          probe-rs "''${args[@]}" > >(tee "$log_file") 2>&1 &
+          probe_pid=$!
+          trap 'kill -INT "$probe_pid" 2>/dev/null' INT
+          while true; do
+            wait "$probe_pid"
+            status=$?
+            # A status >128 means a trapped signal interrupted the wait.
+            # If probe-rs is still alive it is mid-detach, so keep
+            # waiting; otherwise that status is probe-rs's own exit.
+            if [ "$status" -gt 128 ] && kill -0 "$probe_pid" 2>/dev/null; then
+              continue
+            fi
+            break
+          done
+          trap - INT
           elapsed=$(( $(date +%s) - start ))
           # A real flash plus attach of any of our targets takes longer
           # than this threshold. An exit-0 in under that with `run`
