@@ -26,9 +26,7 @@ use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5100S;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_sync::mutex::Mutex;
-use embassy_time::{Delay, Instant};
-#[cfg(feature = "display")]
-use embassy_time::{Duration, Timer};
+use embassy_time::{Delay, Duration, Instant, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_hal::dma::{DmaRxBuf, DmaTxBuf};
 use esp_hal::dma_buffers;
@@ -276,7 +274,6 @@ async fn rest_api_task(
 async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
     use defmt::warn;
     use embassy_futures::select::{select, Either};
-    use embassy_time::Timer;
     use static_cell::ConstStaticCell;
     use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
 
@@ -540,12 +537,53 @@ async fn boot(spawner: Spawner) {
     .expect("BUG: W5100S initialization failed");
     spawner.must_spawn(ethernet_task(runner));
 
+    let manager_handle = ubos_manager::handle();
+    let mining_handle = ubos_mining::handle();
+
+    let config_storage = FlashStorage::new(
+        SyncFlash(esp_storage::FlashStorage::new(hw.flash).multicore_auto_park()),
+        config::Flash::CONFIG_RANGE,
+    );
+    spawner.must_spawn(config_task(manager_handle, mining_handle, config_storage));
+
     let rng = Rng::new();
     let seed = u64::from(rng.random()) << 32 | u64::from(rng.random());
 
+    // The config task publishes the stored config on first boot. Wait
+    // for it, then derive the stack config and hostname. Only the small
+    // results escape the block, so this task's future never has to hold
+    // the full Config or load_initial's decode buffer.
+    static MDNS_HOSTNAME: StaticCell<heapless::String<32>> = StaticCell::new();
+    let (net_config, mdns_hostname) = {
+        let initial = ubos_config::handle().changed().await;
+        let net_config = match &initial.network.mode {
+            ubos_config::NetworkMode::Static {
+                address,
+                prefix_len,
+                gateway,
+                dns,
+            } => ubos_net::config::static_ipv4(*address, *prefix_len, *gateway, dns),
+            ubos_config::NetworkMode::Dhcp => {
+                embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default())
+            }
+        };
+        // Compose inside the block so only the &'static hostname escapes,
+        // not a 32-byte copy held across the rest of boot.
+        let mdns_hostname = ubos_mdns::compose_hostname_configured::<
+            32,
+            { config::Board::MDNS_HOSTNAME_BASE.len() },
+        >(
+            initial.network.hostname.as_str(),
+            config::Board::MDNS_HOSTNAME_BASE,
+            config::Board::MAC_ADDR[5],
+            &MDNS_HOSTNAME,
+        );
+        (net_config, mdns_hostname)
+    };
+
     let (stack, runner) = embassy_net::new(
         device,
-        embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default()),
+        net_config,
         RESOURCES.init(StackResources::new()),
         seed,
     );
@@ -565,13 +603,6 @@ async fn boot(spawner: Spawner) {
     spawner.must_spawn(ntp_sync_task(stack));
     spawner.must_spawn(metrics_task(stack));
 
-    static MDNS_HOSTNAME: StaticCell<heapless::String<16>> = StaticCell::new();
-    let mdns_hostname =
-        ubos_mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
-            config::Board::MDNS_HOSTNAME_BASE,
-            config::Board::MAC_ADDR[5],
-            &MDNS_HOSTNAME,
-        );
     spawner.must_spawn(mdns_task(stack, mdns_hostname));
 
     spawner.must_spawn(cpu_load_task());
@@ -626,9 +657,6 @@ async fn boot(spawner: Spawner) {
 
     let thermal = ubos_thermal::handle();
 
-    let manager_handle = ubos_manager::handle();
-
-    let mining_handle = ubos_mining::handle();
     spawner.must_spawn(miner_metrics_task(mining_handle));
 
     // BMM100 hashboard PSU on I2C0 (GPIO8 SDA, GPIO9 SCL).
@@ -661,12 +689,6 @@ async fn boot(spawner: Spawner) {
         spawner.must_spawn(cooling_task(board_fan, thermal));
         spawner.must_spawn(tach_task(tach_hardware));
     }
-
-    let config_storage = FlashStorage::new(
-        SyncFlash(esp_storage::FlashStorage::new(hw.flash).multicore_auto_park()),
-        config::Flash::CONFIG_RANGE,
-    );
-    spawner.must_spawn(config_task(manager_handle, mining_handle, config_storage));
 
     // Plug-detect input; hold the peripheral so it is not reclaimed.
     let _hb_plug = Input::new(hw.hb_plug, InputConfig::default().with_pull(Pull::Up));

@@ -31,7 +31,6 @@ use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartCon
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{bind_interrupts, dma, i2c};
 use embassy_time::Delay;
-#[cfg(feature = "display")]
 use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::{ConstStaticCell, StaticCell};
@@ -514,6 +513,38 @@ async fn boot(spawner: Spawner) {
 
     let seed = rng.next_u64();
 
+    // The config task publishes the stored config on first boot. Wait
+    // for it, then derive the stack config and hostname. Only the small
+    // results escape the block, so this task's future never has to hold
+    // the full Config or load_initial's decode buffer.
+    static MDNS_HOSTNAME: StaticCell<heapless::String<32>> = StaticCell::new();
+    let (net_config, mdns_hostname) = {
+        let initial = ubos_config::handle().changed().await;
+        let net_config = match &initial.network.mode {
+            ubos_config::NetworkMode::Static {
+                address,
+                prefix_len,
+                gateway,
+                dns,
+            } => ubos_net::config::static_ipv4(*address, *prefix_len, *gateway, dns),
+            ubos_config::NetworkMode::Dhcp => {
+                embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default())
+            }
+        };
+        // Compose inside the block so only the &'static hostname escapes,
+        // not a 32-byte copy held across the rest of boot.
+        let mdns_hostname = ubos_mdns::compose_hostname_configured::<
+            32,
+            { config::Board::MDNS_HOSTNAME_BASE.len() },
+        >(
+            initial.network.hostname.as_str(),
+            config::Board::MDNS_HOSTNAME_BASE,
+            mac_addr[5],
+            &MDNS_HOSTNAME,
+        );
+        (net_config, mdns_hostname)
+    };
+
     // Socket-set capacity for the embassy-net stack. Seven sockets are
     // held continuously: DHCPv4, DNS, the stratum client, the mDNS
     // responder, and the three HTTP listeners on :80, :8080, and :8081
@@ -523,7 +554,7 @@ async fn boot(spawner: Spawner) {
     static RESOURCES: StaticCell<StackResources<16>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
-        embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default()),
+        net_config,
         RESOURCES.init(StackResources::new()),
         seed,
     );
@@ -552,13 +583,6 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_task(stack)));
 
-    static MDNS_HOSTNAME: StaticCell<heapless::String<16>> = StaticCell::new();
-    let mdns_hostname =
-        ubos_mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
-            config::Board::MDNS_HOSTNAME_BASE,
-            mac_addr[5],
-            &MDNS_HOSTNAME,
-        );
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
     spawner.spawn(unwrap!(tach_task(fan::TachHardware {
