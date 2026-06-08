@@ -71,8 +71,39 @@
           ];
         });
 
+      # The bench's probe-rs server additionally needs the serve-side TCP
+      # keepalive fix so a client that dies abruptly does not pin the probe
+      # Session. Keep it off the dev-facing probe-rs-tools-remote so developer
+      # shells keep the same client derivation and never rebuild probe-rs.
+      #
+      # The keepalive patch adds a socket2 dependency, which only edits
+      # Cargo.lock's probe-rs-tools entry — socket2 is already vendored
+      # transitively via tokio, so the crate set is unchanged. Rather than
+      # re-vendor (a full re-download), reuse the upstream vendor and swap in
+      # the patched lockfile so the cargo setup hook's lock check passes.
+      mkServerProbeRsTools =
+        pkgs: base:
+        let
+          serverPatch = ./patches/probe-rs-serve-tcp-keepalive.patch;
+        in
+        (mkRemoteProbeRsTools base).overrideAttrs (old: {
+          patches = (old.patches or [ ]) ++ [ serverPatch ];
+          cargoDeps =
+            let
+              patchedSrc = pkgs.applyPatches {
+                inherit (old) src;
+                patches = (old.patches or [ ]) ++ [ serverPatch ];
+              };
+            in
+            pkgs.runCommandLocal "probe-rs-tools-server-vendor" { } ''
+              cp -r --no-preserve=mode,ownership ${old.cargoDeps} $out
+              cp ${patchedSrc}/Cargo.lock $out/Cargo.lock
+            '';
+        });
+
       probeRsOverlay = final: prev: {
         probe-rs-tools-remote = mkRemoteProbeRsTools prev.probe-rs-tools;
+        probe-rs-tools-server = mkServerProbeRsTools prev prev.probe-rs-tools;
         probe-rs-runner = prev.writeShellScriptBin "probe-rs-runner" ''
           args=()
           for arg in "$@"; do
@@ -209,6 +240,7 @@
                   # probeRsOverlay above still applies unchanged.
                   (final: _prev: {
                     probe-rs-tools-remote = mkRemoteProbeRsTools aarch64Pkgs.probe-rs-tools;
+                    probe-rs-tools-server = mkServerProbeRsTools aarch64Pkgs aarch64Pkgs.probe-rs-tools;
                   })
                   (final: _prev: {
                     load-test = aarch64Pkgs.callPackage ./nuc/pkgs/load-test.nix { };
