@@ -167,6 +167,13 @@ Each supported MCU family should have at least one board in the smoke matrix.
 Use `cargo-llvm-cov` from the Nix devshell for host-testable crates only.
 Report per-crate coverage instead of one global threshold.
 
+Run coverage from the host devshell and keep the same per-package isolation as
+the fast host layer:
+
+```sh
+nix develop .#host -c cargo llvm-cov -p ubos-config --html
+```
+
 Suggested policy:
 
 - high threshold for protocol, config, auth, API, control, and parser crates;

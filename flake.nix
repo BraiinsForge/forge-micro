@@ -1614,6 +1614,7 @@
           host = pkgs.mkShell {
             buildInputs = [
               hostRustToolchain
+              pkgs.cargo-llvm-cov
               # Used by ubos-webui's build.rs to minify the dashboard
               # CSS/JS before gzipping into OUT_DIR.
               pkgs.esbuild
