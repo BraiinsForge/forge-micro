@@ -483,6 +483,10 @@ async fn boot(spawner: Spawner) {
             &chip_id.to_be_bytes(),
         )
     };
+    info!(
+        "mac {=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}",
+        mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5],
+    );
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     let state = STATE.init(State::<8, 8>::new());
     let (device, runner) = embassy_net_wiznet::new(

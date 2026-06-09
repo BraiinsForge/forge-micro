@@ -458,6 +458,10 @@ async fn boot(spawner: Spawner) {
         }
         ubos_net::mac::derive_mac(ubos_net::mac::DUMMY_OUI, config::Board::MAC_FAMILY, &uid)
     };
+    info!(
+        "mac {=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}",
+        mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5],
+    );
     let config_storage = FlashStorage::new(SyncFlash(flash), config::Flash::CONFIG_RANGE);
     spawner.spawn(unwrap!(config_task(
         manager_handle,
