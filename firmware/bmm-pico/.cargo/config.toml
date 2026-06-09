@@ -12,13 +12,13 @@ POOL_USER = "braiinstest.dumb_worker"
 target = "thumbv8m.main-none-eabihf"
 
 # `cargo run-N` flashes one of the six bmm-pico boards. Each alias sets
-# $PROBE_SERIAL so scripts/run.sh picks the matching `--probe`, and
-# $MAC_SUFFIX so the firmware's MAC_ADDR last octet differs per board (all
-# six are on the same switch). The bare `cargo run` leaves both unset, so
-# probe-rs auto-selects when only one probe is attached and MAC defaults
-# to 0x01. The env table is used instead of overriding the runner from the
-# alias because cargo's --config merges arrays rather than replacing them,
-# so a runner override would have concatenated arg lists.
+# $PROBE_SERIAL so scripts/run.sh picks the matching `--probe`. The bare
+# `cargo run` leaves it unset, so probe-rs auto-selects when only one
+# probe is attached. Each board derives its own MAC from the RP2350 OTP
+# chip id at boot, so no per-board build flag is needed. The env table is
+# used instead of overriding the runner from the alias because cargo's
+# --config merges arrays rather than replacing them, so a runner override
+# would have concatenated arg lists.
 #
 # `cargo attach-N` connects to a board that is already running and streams
 # its defmt logs without flashing or resetting it; it sets the same
@@ -27,15 +27,15 @@ target = "thumbv8m.main-none-eabihf"
 # decode the RTT stream; set $PROBE_RS_ELF to decode against a different
 # binary when the board carries firmware other than the current source.
 [alias]
-run-1 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:FA67CE4A27C3E7EF\"", "--config", "env.MAC_SUFFIX=\"1\""]
-run-2 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:88BB90F0F41E72CA\"", "--config", "env.MAC_SUFFIX=\"2\""]
-run-3 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:B6E765A6D8F55506\"", "--config", "env.MAC_SUFFIX=\"3\""]
-run-4 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:330584C1CAFB25E0\"", "--config", "env.MAC_SUFFIX=\"4\""]
-run-5 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:D6116FA12FA4716C\"", "--config", "env.MAC_SUFFIX=\"5\""]
-run-6 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E4A10693F025DCA6\"", "--config", "env.MAC_SUFFIX=\"6\""]
-attach-1 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:FA67CE4A27C3E7EF\"", "--config", "env.MAC_SUFFIX=\"1\""]
-attach-2 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:88BB90F0F41E72CA\"", "--config", "env.MAC_SUFFIX=\"2\""]
-attach-3 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:B6E765A6D8F55506\"", "--config", "env.MAC_SUFFIX=\"3\""]
-attach-4 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:330584C1CAFB25E0\"", "--config", "env.MAC_SUFFIX=\"4\""]
-attach-5 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:D6116FA12FA4716C\"", "--config", "env.MAC_SUFFIX=\"5\""]
-attach-6 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E4A10693F025DCA6\"", "--config", "env.MAC_SUFFIX=\"6\""]
+run-1 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:FA67CE4A27C3E7EF\""]
+run-2 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:88BB90F0F41E72CA\""]
+run-3 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:B6E765A6D8F55506\""]
+run-4 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:330584C1CAFB25E0\""]
+run-5 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:D6116FA12FA4716C\""]
+run-6 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E4A10693F025DCA6\""]
+attach-1 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:FA67CE4A27C3E7EF\""]
+attach-2 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:88BB90F0F41E72CA\""]
+attach-3 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:B6E765A6D8F55506\""]
+attach-4 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:330584C1CAFB25E0\""]
+attach-5 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:D6116FA12FA4716C\""]
+attach-6 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E4A10693F025DCA6\""]

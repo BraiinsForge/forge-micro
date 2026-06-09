@@ -104,12 +104,14 @@
           #
           # Named <firmware>[-<suffix>]-<timestamp>.log. The firmware
           # name is the crate directory we run from (rp2350, bmm-pico,
-          # ...). MAC_SUFFIX is the only varying byte of any board's
-          # MAC: the cargo run-N aliases set it to distinguish the six
-          # bmm-pico units, so it is appended when present. The
-          # timestamp keeps one file per flash rather than overwriting.
+          # ...). The suffix is the probe serial of the flashed board,
+          # taken from $PROBE_SERIAL, which the cargo run-N aliases set
+          # to distinguish the six bmm-pico units; it is appended when
+          # present. The timestamp keeps one file per flash rather than
+          # overwriting.
           fw="$(basename "$PWD")"
-          suffix="''${MAC_SUFFIX:-}"
+          serial="''${PROBE_SERIAL:-}"
+          suffix="''${serial##*:}"
           stamp="$(date +%Y%m%dT%H%M%S)"
           log_dir="''${PROBE_RS_LOG_DIR:-}"
           if [ -z "$log_dir" ]; then
