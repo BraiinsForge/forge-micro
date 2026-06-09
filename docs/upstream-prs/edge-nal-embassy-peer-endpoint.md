@@ -37,7 +37,14 @@ therefore returns the same bound address regardless of which client connected.
 +        // Return the peer's address so callers can inspect the remote IP.
 +        // The original code called local_endpoint(), which returns the bound
 +        // server address and defeats any IP-based filtering at the handler.
-+        let remote_endpoint = unwrap!(socket.socket.remote_endpoint());
++        // A peer that completes the handshake and then immediately resets,
++        // as a port scanner does, can leave the socket without a remote
++        // endpoint by the time we read it; surface that as a reset so the
++        // accept loop drops the connection instead of panicking.
++        let remote_endpoint = socket
++            .socket
++            .remote_endpoint()
++            .ok_or(TcpError::General(Error::ConnectionReset))?;
  
 -        Ok((to_net_socket(local_endpoint), socket))
 +        Ok((to_net_socket(remote_endpoint), socket))
@@ -46,9 +53,12 @@ therefore returns the same bound address regardless of which client connected.
 ```
 
 `embassy_net::tcp::TcpSocket::remote_endpoint()` returns `Option<IpEndpoint>` just like
-`local_endpoint()`, so the `unwrap!` wrapper and `to_net_socket` call are unchanged.
-After `accept()` succeeds the socket is in ESTABLISHED state and `remote_endpoint()` is
-guaranteed to return `Some`.
+`local_endpoint()`, so `to_net_socket` is unchanged. The endpoint cannot be unwrapped:
+a peer that completes the handshake and then immediately resets, as a port scanner does,
+can leave `remote_endpoint()` returning `None` by the time `accept()` reads it.
+Unwrapping panicked, which on the firmware rebooted the board through the watchdog.
+Mapping `None` to `TcpError::General(Error::ConnectionReset)` lets the accept loop log
+the reset and carry on.
 
 ## Risk
 
@@ -70,7 +80,9 @@ the remote peer's address. The current implementation passes `local_endpoint()` 
 filtering checks the server's own address on every request; the filter is effectively
 disabled.
 
-**Fix:** call `remote_endpoint()` instead. After a successful `accept()` the socket is
-in ESTABLISHED state so `remote_endpoint()` is always `Some`.
+**Fix:** call `remote_endpoint()` instead. It returns `Option<IpEndpoint>`, and a peer
+that completes the handshake then immediately resets, as a port scanner does, can leave
+it `None` by the time `accept()` reads it. Map that `None` to a connection-reset error
+rather than unwrapping, so the accept loop drops the connection instead of panicking.
 
-One-line change, no API break.
+Small change, no API break.

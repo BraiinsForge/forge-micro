@@ -108,7 +108,14 @@ impl edge_nal::TcpAccept for TcpAccept<'_> {
         // Return the peer's address so callers can inspect the remote IP.
         // The original code called local_endpoint(), which returns the bound
         // server address and defeats any IP-based filtering at the handler.
-        let remote_endpoint = unwrap!(socket.socket.remote_endpoint());
+        // A peer that completes the handshake and then immediately resets,
+        // as a port scanner does, can leave the socket without a remote
+        // endpoint by the time we read it; surface that as a reset so the
+        // accept loop drops the connection instead of panicking.
+        let remote_endpoint = socket
+            .socket
+            .remote_endpoint()
+            .ok_or(TcpError::General(Error::ConnectionReset))?;
 
         Ok((to_net_socket(remote_endpoint), socket))
     }
