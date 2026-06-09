@@ -117,6 +117,12 @@ The flake exposes this as `build-<board>` for the default feature set and
 `build-<board>-no-display` for the `--no-default-features` variant. The ESP32-S3
 entries use the same naming pattern with the Xtensa toolchain derivation.
 
+Run this layer through the aggregate flake check:
+
+```sh
+nix build .#checks.x86_64-linux.firmware-builds --no-link
+```
+
 ## Web and host-runner tests
 
 `ubos-webui` requires `esbuild` in `PATH`; run it only in a devshell that

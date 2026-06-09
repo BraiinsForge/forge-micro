@@ -1406,6 +1406,34 @@
                   > "$out/README"
               '';
 
+          firmware-builds =
+            pkgs.runCommand "ubos-main-firmware-builds"
+              {
+                nativeBuildInputs = [
+                  build-bmm-pico
+                  build-bmm-pico-no-display
+                  build-rp2040
+                  build-rp2040-no-display
+                  build-rp2350
+                  build-rp2350-no-display
+                  build-stm32f407
+                  build-stm32f407-no-display
+                  build-stm32f439
+                  build-stm32f439-no-display
+                  build-esp32s3
+                  build-esp32s3-no-display
+                ];
+              }
+              ''
+                mkdir -p "$out"
+                printf '%s\n' \
+                  "ubos-main firmware build aggregate" \
+                  "" \
+                  "Building this check forces all firmware release build checks to build." \
+                  "It covers default features and --no-default-features for each board." \
+                  > "$out/README"
+              '';
+
           drc-bmm-adapter =
             pkgs.runCommand "drc-bmm-adapter"
               {
