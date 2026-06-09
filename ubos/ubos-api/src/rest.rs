@@ -88,6 +88,7 @@ pub struct RestApiService {
     pub(crate) thermal: ThermalHandle,
     pub(crate) manager: ManagerHandle,
     pub(crate) psu: ubos_psu::Handle,
+    pub(crate) stack: Stack<'static>,
 }
 
 /// Build the CORS header slice for a response.
@@ -269,6 +270,7 @@ impl Service for RestApiService {
                 self.board_name,
                 self.thermal,
                 self.manager,
+                self.stack,
                 cors_slice,
             )
             .await?;
@@ -513,6 +515,7 @@ pub async fn run_rest_api(
             thermal,
             manager,
             psu,
+            stack,
         },
         REST_TCP_BUFFERS.take(),
         REST_WORK_BUFFER.take(),

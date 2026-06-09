@@ -28,7 +28,7 @@ use core::fmt::Write as _;
 use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
 use edge_nal::TcpSplit;
-use embassy_net::Ipv4Address;
+use embassy_net::{Ipv4Address, Stack};
 use embassy_time::Instant;
 use embedded_io_async::{Read, Write};
 use heapless::String;
@@ -499,26 +499,54 @@ where
 
 /// Handle `GET /api/system/network`.
 ///
-/// Serializes the current network mode, pending-change flag, and confirm
-/// countdown as a [`SystemNetwork`] JSON body. `extra_headers` carries
-/// caller-supplied headers such as CORS headers from the REST listener.
+/// Serializes the current network mode, pending-change flag, confirm
+/// countdown, and live address fields as a [`SystemNetwork`] JSON body.
+/// `stack` is the live embassy-net stack; `config_v4()` reads the current
+/// address without any global state or unsafe code.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener.
 async fn handle_network_get<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
+    stack: Stack<'static>,
     extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     let seconds_remaining = crate::network_apply::pending_seconds_remaining();
-    let mode = match ubos_config::handle().current().network.mode {
-        ubos_config::NetworkMode::Dhcp => "dhcp",
-        ubos_config::NetworkMode::Static { .. } => "static",
+    // While a change is pending the persisted mode still reflects the old
+    // config, but the live address already reflects the preview. Report the
+    // previewed mode so the two agree until the operator confirms or it
+    // reverts.
+    let mode = match crate::network_apply::pending_mode_is_static() {
+        Some(true) => "static",
+        Some(false) => "dhcp",
+        None => match ubos_config::handle().current().network.mode {
+            ubos_config::NetworkMode::Dhcp => "dhcp",
+            ubos_config::NetworkMode::Static { .. } => "static",
+        },
     };
+    let live = stack.config_v4();
+    let address = live.as_ref().map(|c| c.address.address().octets());
+    let prefix_len = live.as_ref().map(|c| c.address.prefix_len());
+    let gateway = live.as_ref().and_then(|c| c.gateway.map(|gw| gw.octets()));
+    let mut dns = heapless::Vec::new();
+    if let Some(ref config) = live {
+        for server in &config.dns_servers {
+            // dns has the same capacity as dns_servers, so this never
+            // overflows; the discarded result reflects that invariant.
+            let _ = dns.push(server.octets());
+        }
+    }
     let status = SystemNetwork {
         mode,
         pending: seconds_remaining > 0,
         seconds_remaining,
+        address,
+        prefix_len,
+        gateway,
+        dns,
     };
     serialize_and_respond(connection, scratch, &status, extra_headers).await
 }
@@ -870,9 +898,9 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
 /// Crate-private because the auth/CSRF/allow-list gates live in
 /// `RestApiService::handle`; exposing this directly would let an
 /// outside caller bypass those checks.
-// The argument count comes from threading `extra_headers` through the
-// existing board_name/thermal/manager set. A context struct would
-// reduce the count but add indirection without simplifying the callers.
+// The argument count comes from threading `extra_headers` and `stack`
+// through the existing board_name/thermal/manager set. A context struct
+// would reduce the count but add indirection without simplifying the callers.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
@@ -882,6 +910,7 @@ pub(crate) async fn dispatch<T, const N: usize>(
     board_name: &str,
     thermal: ThermalHandle,
     manager: ManagerHandle,
+    stack: Stack<'static>,
     extra_headers: &[(&str, &str)],
 ) -> Result<bool, HttpError<T::Error>>
 where
@@ -956,7 +985,7 @@ where
             handle_factory_reset(connection, scratch, extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::NetworkGet) => {
-            handle_network_get(connection, scratch, extra_headers).await?;
+            handle_network_get(connection, scratch, stack, extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::NetworkPost) => {
             handle_network_post(connection, scratch, body, extra_headers).await?;

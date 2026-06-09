@@ -12,14 +12,14 @@ use embassy_net::{ConfigV4, DhcpConfig, Stack};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Instant, Timer};
-use portable_atomic::{AtomicU64, Ordering};
+use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 use ubos_config::{Message, NetworkConfig, NetworkMode};
 use ubos_logging::{info, warn};
 
+type CSMutex = CriticalSectionRawMutex;
+
 /// How long an unconfirmed live network change stays applied before revert.
 const CONFIRM_WINDOW: Duration = Duration::from_secs(120);
-
-type CSMutex = CriticalSectionRawMutex;
 
 /// Commands from the REST handlers to the apply task.
 enum Command {
@@ -34,6 +34,12 @@ static COMMANDS: Channel<CSMutex, Command, 2> = Channel::new();
 
 /// Uptime-seconds deadline of the pending change, or 0 when none is pending.
 static PENDING_DEADLINE_SECS: AtomicU64 = AtomicU64::new(0);
+
+/// Whether the pending preview selects static addressing. Only meaningful
+/// while a change is pending; it lets the GET status report the previewed
+/// mode instead of the still-persisted one, so mode agrees with the live
+/// address during the confirm window.
+static PENDING_IS_STATIC: AtomicBool = AtomicBool::new(false);
 
 /// Submit a network change to apply live and hold pending.
 ///
@@ -60,6 +66,19 @@ pub fn pending_seconds_remaining() -> u64 {
         return 0;
     }
     deadline.saturating_sub(Instant::now().as_secs())
+}
+
+/// Mode of the pending preview, or `None` when nothing is pending.
+///
+/// `Some(true)` while a static preview awaits confirmation, `Some(false)`
+/// for a DHCP preview. Lets the GET status report the previewed mode so it
+/// agrees with the live address during the confirm window.
+#[must_use]
+pub fn pending_mode_is_static() -> Option<bool> {
+    if pending_seconds_remaining() == 0 {
+        return None;
+    }
+    Some(PENDING_IS_STATIC.load(Ordering::Relaxed))
 }
 
 /// Translate a [`NetworkConfig`] into the stack's [`ConfigV4`].
@@ -107,6 +126,10 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                     applied = to_config_v4(&network);
                     stack.set_config_v4(applied.clone());
                     let deadline = Instant::now() + CONFIRM_WINDOW;
+                    PENDING_IS_STATIC.store(
+                        matches!(network.mode, NetworkMode::Static { .. }),
+                        Ordering::Relaxed,
+                    );
                     PENDING_DEADLINE_SECS.store(deadline.as_secs(), Ordering::Relaxed);
                     info!("network: preview applied, awaiting confirm");
                     pending = Some(Pending {
@@ -137,6 +160,10 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                             applied = to_config_v4(&network);
                             stack.set_config_v4(applied.clone());
                             let deadline = Instant::now() + CONFIRM_WINDOW;
+                            PENDING_IS_STATIC.store(
+                                matches!(network.mode, NetworkMode::Static { .. }),
+                                Ordering::Relaxed,
+                            );
                             PENDING_DEADLINE_SECS.store(deadline.as_secs(), Ordering::Relaxed);
                             pending = Some(Pending {
                                 network,
