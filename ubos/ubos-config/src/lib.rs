@@ -449,15 +449,20 @@ impl Config {
 /// the new value before publishing it, and fires [`STRATUM_RESTART`] so
 /// the stratum client tears down its session.
 pub async fn run<S: Storage>(manager: ManagerHandle, mining: MiningHandle, mut storage: S) -> ! {
-    let initial = load_initial(&mut storage).await;
-    STATE_WATCH.sender().send(initial);
+    let mut current = load_initial(&mut storage).await;
+    STATE_WATCH.sender().send(current.clone());
     info!("config: started");
 
     loop {
         let message = COMMAND_CHANNEL.receive().await;
         match message {
             Message::Update(new) => {
-                apply_update(new, manager, mining, &mut storage).await;
+                apply_update(&new, manager, mining, &mut storage).await;
+                current = new;
+            }
+            Message::SetNetwork(network) => {
+                current.network = network;
+                set_network(&current, &mut storage).await;
             }
             Message::FactoryReset => {
                 factory_reset(&mut storage).await;
@@ -522,18 +527,33 @@ fn log_decode_error<E>(error: &LoadError<E>) {
 /// but does not abort the publish: an in-memory update with no flash
 /// record is preferable to leaving mining paused.
 async fn apply_update<S: Storage>(
-    new: Config,
+    new: &Config,
     manager: ManagerHandle,
     mining: MiningHandle,
     storage: &mut S,
 ) {
     manager.send(ManagerMessage::Reconfiguring(true)).await;
     wait_until_mining_halted(mining).await;
-    persist(&new, storage).await;
-    STATE_WATCH.sender().send(new);
+    persist(new, storage).await;
+    STATE_WATCH.sender().send(new.clone());
     STRATUM_RESTART.signal(());
     info!("config: applied update");
     manager.send(ManagerMessage::Reconfiguring(false)).await;
+}
+
+/// Persist a network-only change and publish it without halting mining.
+///
+/// Network settings (IP mode, hostname) are not on the hashing path, so
+/// unlike [`apply_update`] this skips the `Reconfiguring` bracket and the
+/// stratum restart. The live network apply flow has already switched the
+/// stack to the new address by the time this runs; the stratum client
+/// reconnects on its own when its socket drops, so all this needs to do
+/// is persist the confirmed record and refresh [`STATE_WATCH`] so
+/// `GET /api/config` reflects it.
+async fn set_network<S: Storage>(config: &Config, storage: &mut S) {
+    persist(config, storage).await;
+    STATE_WATCH.sender().send(config.clone());
+    info!("config: applied network update");
 }
 
 /// Reset the stored config to [`Config::default`] and publish it.

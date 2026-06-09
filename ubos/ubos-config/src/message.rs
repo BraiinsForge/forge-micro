@@ -4,11 +4,12 @@
 //! `Update(Config)` after validating the POST body; `run` performs
 //! the reconfigure bracket against the manager.
 
-use crate::Config;
+use crate::{Config, NetworkConfig};
 
 /// Wire-level command sent to the config module via `Handle::send`.
 ///
-/// `Update` carries a full `Config` and dwarfs `FactoryReset`; the enum is
+/// `Update` carries a full `Config` and dwarfs the `SetNetwork` and
+/// `FactoryReset` variants; the enum is
 /// already `Config`-sized regardless, and this crate is `no_std` without
 /// `alloc`, so boxing a variant is not an option.
 #[allow(clippy::large_enum_variant)]
@@ -20,6 +21,13 @@ pub enum Message {
     /// for mining to halt, publish on `STATE_WATCH`, then
     /// `Reconfiguring(false)`.
     Update(Config),
+    /// Replace only the network section and persist it. Network settings
+    /// do not affect the hashing path, so this skips the reconfigure
+    /// bracket: mining keeps running while the change is persisted and
+    /// published. Used by the live network apply/confirm flow, where the
+    /// IP was already switched at the stack and only the persisted record
+    /// needs updating once the operator confirms reachability.
+    SetNetwork(NetworkConfig),
     /// Wipe the persisted config back to [`Config::default`] and publish
     /// the defaults on [`STATE_WATCH`]. Does not trigger the reconfigure
     /// bracket because the API layer requests a reboot immediately after
