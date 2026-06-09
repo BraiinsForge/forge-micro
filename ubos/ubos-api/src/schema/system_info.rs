@@ -21,10 +21,9 @@ pub struct SystemInfo<'response> {
     pub api_variant: &'static str,
     /// Human-readable board identifier, e.g. `"rp2350-001"`.
     pub board_name: &'response str,
-    /// Network hostname; currently equals `board_name`. The mDNS
-    /// responder composes a MAC-suffixed hostname for its own use,
-    /// but this field stays on the board identifier until a caller
-    /// needs the resolved form.
+    /// Network hostname. Set to the operator-configured hostname from
+    /// `Config.network.hostname` when one has been saved; falls back
+    /// to `board_name` when the stored hostname is empty.
     pub hostname: &'response str,
     /// EWMA-smoothed mining rate in hashes per second.
     pub hashrate: u64,

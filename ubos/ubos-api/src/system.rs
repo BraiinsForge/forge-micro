@@ -260,11 +260,20 @@ where
     let shares_accepted = SHARES_ACCEPTED.load(Ordering::Relaxed);
     let shares_rejected = SHARES_REJECTED.load(Ordering::Relaxed);
     let shares_total = SHARE_COUNT.load(Ordering::Relaxed);
+    // Extract the configured hostname before building SystemInfo so the
+    // full Config snapshot is dropped before the serialize_and_respond
+    // await, keeping the response future small.
+    let configured_hostname = ubos_config::handle().current().network.hostname;
+    let hostname = if configured_hostname.is_empty() {
+        board_name
+    } else {
+        configured_hostname.as_str()
+    };
 
     let info = SystemInfo {
         api_variant: API_VARIANT,
         board_name,
-        hostname: board_name,
+        hostname,
         hashrate: hashrate_hps,
         uptime_seconds,
         temperature_celsius,
