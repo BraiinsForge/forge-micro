@@ -38,7 +38,7 @@ The migration phasing lives in **Appendix A**; the crate inventory in
 | API reaches into atomics of 5+ crates directly | `ubos/ubos-api/src/system.rs:25-36` | HTTP layer pinned to every subsystem's internals |
 | No tuner — `INIT: &[Step]` is a captured trace replayed verbatim, voltage hardcoded `1400 mV` | `ubos/ubos-mining/src/replay.rs` | Cannot set frequency or voltage at runtime |
 | No config persistence — `POST /api/config` returns 200 and does nothing | `ubos/ubos-api/src/rest.rs:379` | Web UI changes are placebo |
-| `ubos-net` exposes `pub static`s for `LOCAL_IPV4`, `BTC_PRICE_CENTS`, `POOL_ALIVE_BITMAP`, … | `ubos/ubos-net/src/net.rs:129-152` | Shared mutable state crosses every boundary |
+| `ubos-net` exposes `pub static`s for `LOCAL_IPV4`, `BTC_PRICE_CENTS`, `POOL_ALIVE_BITMAP`, … | `BTC_PRICE_CENTS` resolved by removing the BTC ticker and its static; the rest remain (`ubos/ubos-net/src/net.rs:131,139`) | Shared mutable state crosses every boundary |
 | Multi-pool wiring planned but bit 0 hardcoded | `ubos/stratum-client/src/run.rs:66` | Single point of failure |
 | Watchdog feeds unconditionally | `ubos/ubos-core/src/watchdog.rs` | A hung task never reboots the system |
 
@@ -470,7 +470,8 @@ holds three handles and never bypasses them.
 
 ### `ubos-net` (slim)
 
-Keep DHCP, NTP, TLS, `connect_stratum`, BTC price. Remove the grab-bag
+Keep DHCP, NTP, and `connect_stratum`. (TLS and the BTC price
+ticker were removed with the `ubos-pool` crate.) Remove the grab-bag
 of `pub static` atomics; values move to `ubos-metrics` or a narrow
 `NetHandle` if a non-metrics consumer needs them.
 
@@ -1036,11 +1037,13 @@ proposal the sampling task moves into `ubos-thermal` and this crate
 stays as the pure driver layer.
 
 ### `ubos-net`
-Network framework — DHCP/smoltcp glue, NTP, BTC price ticker, TLS
-plumbing, `connect_stratum` helper.
+Network framework — DHCP/smoltcp glue, NTP, and the `connect_stratum`
+helper. (The BTC price ticker and its TLS plumbing were removed with
+the `ubos-pool` crate.)
 
 - **Module `net`** — Tasks: DHCP loop. Today exposes `pub static`s
-  for IP, BTC price, pool bitmap; Step 7 removes them.
+  for IP and pool bitmap; Step 7 removes them. (The BTC price static
+  was already removed with the ticker.)
 - **Module `ntp`** — Task: periodic NTP poll.
 - After Step 7: a narrow `NetSource` trait + `NetHandle` impl
   carries the few values a non-metrics consumer needs (dotted-quad
@@ -1096,10 +1099,10 @@ OLED render task + SH1106 SPI driver.
 - **Module `sh1106`** — driver, no task.
 - **Module `display`** — Task: periodic render loop, taking the
   concrete handles of the subsystems it shows (`MiningHandle`,
-  `ThermalHandle`, `NetHandle`, plus a metrics reader for BTC price).
-  Today reads cross-board atomics for IP, BTC price, fan PWM/RPM,
-  hashrate; under the new model those reads go through inherent
-  methods on the handles.
+  `ThermalHandle`, `NetHandle`). Today reads cross-board atomics for
+  IP, fan PWM/RPM, hashrate; under the new model those reads go through
+  inherent methods on the handles. (The BTC price line was removed with
+  the ticker.)
 
 ### `ubos-logging`
 defmt ↔ log macro facade switched by feature flag. Library only.
@@ -1116,12 +1119,13 @@ CCM RAM helpers, and (after Step 1) typed units (`Frequency`,
 - **Module `fan_state`** — today's `FAN_PWM_PERCENT` / `FAN_RPM`
   atomics; deleted in Step 2 when cooling owns this state.
 
-### `ubos-pool`
+### `ubos-pool` (removed)
 Binance BTC ticker JSON parser. (Step 5 moved pool config into
 `ubos-config`'s on-flash record store and the `pool_config` module
-was removed.)
+was removed.) The crate was later deleted with the BTC ticker;
+`ubos-net` no longer runs a BTC fetch task.
 
-- **Module `btc`** — Binance ticker JSON extractor, used by
+- **Module `btc`** — Binance ticker JSON extractor, formerly used by
   `ubos-net`'s BTC fetch task.
 
 ### `esp32s3-tsens`
