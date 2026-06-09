@@ -10,6 +10,10 @@
 
 use mining_protocol::JobId;
 
+#[cfg(test)]
+#[path = "tests/state.rs"]
+mod tests;
+
 /// Maximum extranonce prefix size returned by an
 /// `OpenStandardMiningChannelSuccess`. The wire type `Bytes0_32`
 /// caps the value at 32 bytes.

@@ -1161,6 +1161,13 @@
             doInstallCargoArtifacts = false;
           };
 
+          test-stratum-v2 = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p stratum-v2";
+            doInstallCargoArtifacts = false;
+          };
+
           clippy-ubos-thermal = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = ubosThermalArtifacts;
@@ -1362,6 +1369,7 @@
                   test-mining-protocol
                   test-stratum-client
                   test-stratum-v1
+                  test-stratum-v2
                   test-ubos-api
                   test-ubos-auth
                   test-ubos-config

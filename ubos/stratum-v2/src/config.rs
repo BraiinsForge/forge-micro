@@ -4,6 +4,10 @@
 
 use heapless::String;
 
+#[cfg(test)]
+#[path = "tests/config.rs"]
+mod tests;
+
 /// Maximum byte length of the `user_identity` field. A typical V2
 /// worker identity is `<bech32 address>.<worker name>`; a P2TR
 /// address tops out at 62 chars, plus `.<workername>` of up to ~16

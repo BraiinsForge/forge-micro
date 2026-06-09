@@ -63,13 +63,11 @@ logic and regressions can break all boards.
 
 - `stratum-v1` already has parser, wire, state, target, and async client tests.
 - `mining-protocol` covers hashing, difficulty, hex parsing, and merkle logic.
-- `stratum-v2` should match the `stratum-v1` standard before it is treated as
-  production-covered.
+- `stratum-v2` has state-ring tests; it still needs frame and error-path tests
+  before it matches the `stratum-v1` standard.
 
-Minimum `stratum-v2` coverage:
+Remaining `stratum-v2` coverage:
 
-- `V2SessionState` defaults, job-id ring rotation, stale lookup expiry, and
-  sequence-number wrapping.
 - Future-job storage and activation around `NewMiningJob` /
   `SetNewPrevHash`.
 - Fake async-stream tests for partial reads, partial writes, oversized frames,
@@ -197,11 +195,13 @@ Completed:
   with `esbuild` supplied by the flake.
 - `cargo-llvm-cov` is available in the host devshell for per-crate coverage
   reporting.
+- `stratum-v2` has pure `V2SessionState` tests for defaults, job-id ring
+  rotation, unknown job-id lookup, sequence wrapping, and pending future jobs.
 
 Deferred:
 
-- Add initial `stratum-v2` state and frame/error tests when protocol coverage
-  becomes the next focus area.
+- Add `stratum-v2` frame and error-path tests when protocol coverage becomes
+  the next focus area.
 
 Remaining:
 
