@@ -63,17 +63,14 @@ logic and regressions can break all boards.
 
 - `stratum-v1` already has parser, wire, state, target, and async client tests.
 - `mining-protocol` covers hashing, difficulty, hex parsing, and merkle logic.
-- `stratum-v2` has state-ring tests; it still needs frame and error-path tests
-  before it matches the `stratum-v1` standard.
+- `stratum-v2` has state-ring, frame, and error-path tests matching the
+  `stratum-v1` standard.
 
 Remaining `stratum-v2` coverage:
 
-- Future-job storage and activation around `NewMiningJob` /
-  `SetNewPrevHash`.
-- Fake async-stream tests for partial reads, partial writes, oversized frames,
-  decode failure, rejected sessions, and submit-before-channel-open.
 - Golden transcript replay for at least one successful pool handshake/channel
-  open and one rejection path.
+  open and one rejection path. The current suite drives a live in-memory
+  responder instead.
 
 ## Driver and control tests
 
@@ -197,11 +194,9 @@ Completed:
   reporting.
 - `stratum-v2` has pure `V2SessionState` tests for defaults, job-id ring
   rotation, unknown job-id lookup, sequence wrapping, and pending future jobs.
-
-Deferred:
-
-- Add `stratum-v2` frame and error-path tests when protocol coverage becomes
-  the next focus area.
+- `stratum-v2` has frame and error-path integration tests covering future-job
+  activation, partial reads/writes, mid-frame cancellation and resume, decode
+  failure, rejected sessions, and submit-before-channel-open.
 
 Remaining:
 
