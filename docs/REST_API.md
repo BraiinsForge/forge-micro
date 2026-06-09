@@ -113,6 +113,9 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 | GET    | `/api/system/cooling`             | any       | 200    | `CoolingInfo`; accepted ranges as `bounds: { targetTempC }` |
 | GET    | `/api/system/statistics`          | any       | 200    | `SystemStatistics`; label set + (currently empty) ring of samples        |
 | GET    | `/api/system/scoreboard`          | any       | 200    | `SystemScoreboardEntry[]`; currently empty                               |
+| GET    | `/api/system/network`             | any       | 200    | `SystemNetwork`; current mode, pending-change flag, confirm window seconds |
+| POST   | `/api/system/network`             | any +CSRF | 200    | `{"ok":true}`; validates and previews the change live (confirm-or-revert). 400 on parse or validation error |
+| POST   | `/api/system/network/confirm`     | any +CSRF | 200    | Confirms a pending preview so it is no longer reverted; returns `{"message":"ack"}` |
 | GET    | `/api/system/logs`                | any       | 501    | `{"message":"not implemented"}`                                          |
 | GET    | `/api/system/wifi/scan`           | any       | 501    | `{"message":"unsupported on this platform"}`                             |
 | POST   | `/api/system/OTA`                 | any       | 501    | `{"message":"unsupported on this platform"}`                             |

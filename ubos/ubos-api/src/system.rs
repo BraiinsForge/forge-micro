@@ -42,7 +42,7 @@ use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP};
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::schema::{
-    system_statistics::LABELS, GenericResponse, SystemInfo, SystemScoreboardEntry,
+    system_statistics::LABELS, GenericResponse, SystemInfo, SystemNetwork, SystemScoreboardEntry,
     SystemStatistics, API_VARIANT,
 };
 
@@ -497,6 +497,143 @@ where
     }
 }
 
+/// Handle `GET /api/system/network`.
+///
+/// Serializes the current network mode, pending-change flag, and confirm
+/// countdown as a [`SystemNetwork`] JSON body. `extra_headers` carries
+/// caller-supplied headers such as CORS headers from the REST listener.
+async fn handle_network_get<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    scratch: &mut [u8],
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    let seconds_remaining = crate::network_apply::pending_seconds_remaining();
+    let mode = match ubos_config::handle().current().network.mode {
+        ubos_config::NetworkMode::Dhcp => "dhcp",
+        ubos_config::NetworkMode::Static { .. } => "static",
+    };
+    let status = SystemNetwork {
+        mode,
+        pending: seconds_remaining > 0,
+        seconds_remaining,
+    };
+    serialize_and_respond(connection, scratch, &status, extra_headers).await
+}
+
+/// Write a 400 Bad Request whose JSON body is `message`.
+///
+/// Serializes a [`GenericResponse`] into `scratch`; if it does not fit,
+/// `fallback` supplies pre-encoded bytes so the client still gets a
+/// well-formed error.
+async fn write_bad_request<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    scratch: &mut [u8],
+    message: &str,
+    fallback: &[u8],
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    let error = GenericResponse { message };
+    let Ok(length) = serde_json_core::to_slice(&error, scratch) else {
+        return write_json_response(connection, 400, "Bad Request", fallback, extra_headers).await;
+    };
+    write_json_response(
+        connection,
+        400,
+        "Bad Request",
+        &scratch[..length],
+        extra_headers,
+    )
+    .await
+}
+
+/// Handle `POST /api/system/network`.
+///
+/// Deserializes the body as a [`ubos_config::NetworkConfig`], validates
+/// it, and submits it to [`crate::network_apply::preview`] for live
+/// application. Returns 400 on parse or validation error, 200 on
+/// success. `extra_headers` carries caller-supplied headers such as
+/// CORS headers from the REST listener.
+async fn handle_network_post<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    scratch: &mut [u8],
+    body: &[u8],
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    let Ok((network, _)) = serde_json_core::de::from_slice::<ubos_config::NetworkConfig>(body)
+    else {
+        return write_bad_request(
+            connection,
+            scratch,
+            "invalid JSON",
+            b"{\"message\":\"invalid JSON\"}",
+            extra_headers,
+        )
+        .await;
+    };
+    if let Err(message) = network.validate() {
+        return write_bad_request(
+            connection,
+            scratch,
+            message,
+            b"{\"message\":\"validation error\"}",
+            extra_headers,
+        )
+        .await;
+    }
+    crate::network_apply::preview(network);
+    write_json_response(connection, 200, "OK", b"{\"ok\":true}", extra_headers).await
+}
+
+/// Write a 503 Service Unavailable when the apply queue is full.
+///
+/// The apply task drains a bounded channel; a burst can momentarily fill
+/// it. Reporting 503 lets the operator retry instead of seeing a success
+/// that never took effect.
+async fn write_busy<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    write_json_response(
+        connection,
+        503,
+        "Service Unavailable",
+        b"{\"message\":\"busy, retry\"}",
+        extra_headers,
+    )
+    .await
+}
+
+/// Handle `POST /api/system/network/confirm`.
+///
+/// Calls [`crate::network_apply::confirm`] and returns 200 ack.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener.
+async fn handle_network_confirm<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    scratch: &mut [u8],
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    if !crate::network_apply::confirm() {
+        return write_busy(connection, extra_headers).await;
+    }
+    write_ack_response(connection, scratch, extra_headers).await
+}
+
 /// Handle a POST action endpoint (restart, identify,
 /// blockFound/dismiss).
 ///
@@ -603,6 +740,12 @@ pub(crate) enum Route {
     PatchSystem,
     /// `POST /api/system/factory_reset`
     FactoryReset,
+    /// `GET /api/system/network`
+    NetworkGet,
+    /// `POST /api/system/network`
+    NetworkPost,
+    /// `POST /api/system/network/confirm`
+    NetworkConfirm,
 }
 
 /// Outcome of `route()` for a single method+path pair.
@@ -693,6 +836,17 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
         "/api/system" => match method {
             "PATCH" => DispatchOutcome::Handled(Route::PatchSystem),
             _ => DispatchOutcome::MethodNotAllowed { allowed: "PATCH" },
+        },
+        "/api/system/network/confirm" => match method {
+            "POST" => DispatchOutcome::Handled(Route::NetworkConfirm),
+            _ => DispatchOutcome::MethodNotAllowed { allowed: "POST" },
+        },
+        "/api/system/network" => match method {
+            "GET" => DispatchOutcome::Handled(Route::NetworkGet),
+            "POST" => DispatchOutcome::Handled(Route::NetworkPost),
+            _ => DispatchOutcome::MethodNotAllowed {
+                allowed: "GET, POST",
+            },
         },
         _ => DispatchOutcome::NotFound,
     }
@@ -800,6 +954,15 @@ where
         }
         DispatchOutcome::Handled(Route::FactoryReset) => {
             handle_factory_reset(connection, scratch, extra_headers).await?;
+        }
+        DispatchOutcome::Handled(Route::NetworkGet) => {
+            handle_network_get(connection, scratch, extra_headers).await?;
+        }
+        DispatchOutcome::Handled(Route::NetworkPost) => {
+            handle_network_post(connection, scratch, body, extra_headers).await?;
+        }
+        DispatchOutcome::Handled(Route::NetworkConfirm) => {
+            handle_network_confirm(connection, scratch, extra_headers).await?;
         }
     }
 

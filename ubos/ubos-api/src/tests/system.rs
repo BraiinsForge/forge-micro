@@ -37,6 +37,7 @@ const ROUTES: &[(&str, &str, Route)] = &[
     ),
     ("POST", "/api/system/factory_reset", Route::FactoryReset),
     ("PATCH", "/api/system", Route::PatchSystem),
+    ("POST", "/api/system/network/confirm", Route::NetworkConfirm),
 ];
 
 #[test]
@@ -62,6 +63,27 @@ fn route_table_handles_matching_method_and_rejects_others() {
             "{wrong} {path} should be MethodNotAllowed (allowed={allowed})",
         );
     }
+}
+
+#[test]
+fn route_network_dispatches_both_methods() {
+    // The `/api/system/network` path accepts two methods, so it cannot
+    // live in the single-method ROUTES table: there the wrong-method
+    // probe expects a 405, but here both verbs are Handled.
+    assert_eq!(
+        route("GET", "/api/system/network"),
+        DispatchOutcome::Handled(Route::NetworkGet),
+    );
+    assert_eq!(
+        route("POST", "/api/system/network"),
+        DispatchOutcome::Handled(Route::NetworkPost),
+    );
+    assert_eq!(
+        route("PATCH", "/api/system/network"),
+        DispatchOutcome::MethodNotAllowed {
+            allowed: "GET, POST",
+        },
+    );
 }
 
 #[test]

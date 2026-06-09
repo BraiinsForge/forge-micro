@@ -18,10 +18,12 @@ ubos_mdns::declare_service!(
     }
 );
 
+pub mod network_apply;
 pub mod rest;
 pub mod schema;
 pub mod system;
 
+pub use network_apply::run_network_apply;
 pub use rest::run_rest_api;
 
 #[cfg(test)]
