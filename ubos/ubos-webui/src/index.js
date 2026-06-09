@@ -173,6 +173,41 @@ function fmtUp(seconds) {
   return `${minutes}m ${seconds % 60 | 0}s`;
 }
 
+// Round a positive number up to the next 1, 2, or 5 times a power of
+// ten so gridline intervals stay readable at any scale.
+function niceStep(raw) {
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / pow;
+  const mult = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  return mult * pow;
+}
+
+// Auto-range the Y axis top. The configured max is only a starting
+// point: find the peak sample across the window and, when it leaves the
+// 30% to 95% band of the current range, rescale so the peak sits near
+// mid-axis. min stays fixed at the configured baseline. The band keeps
+// the axis steady at steady state, and centering lands the trace inside
+// the 1/3 to 2/3 sweet spot so it does not oscillate.
+function autoRange(chart) {
+  let peak = null;
+  for (const line of chart.lines) {
+    for (let index = 0; index < SAMPLE_COUNT; index++) {
+      const value = line.buf[index];
+      if (value == null) continue;
+      if (peak == null || value > peak) peak = value;
+    }
+  }
+  if (peak == null) return;
+  const frac = (peak - chart.min) / (chart.max - chart.min);
+  if (frac >= 0.30 && frac <= 0.95) return;
+  const desiredSpan = Math.max((peak - chart.min) * 2, chart.minSpan);
+  const majStep = niceStep(desiredSpan / 4);
+  const divs = Math.max(2, Math.ceil(desiredSpan / majStep));
+  chart.max = chart.min + majStep * divs;
+  chart.maj = majStep;
+  chart.minTick = majStep / 2;
+}
+
 const charts = [
   {
     id: 'cHr',
@@ -180,7 +215,8 @@ const charts = [
     max: 2e12,
     maj: 1e12,
     minTick: 5e11,
-    axis: value => (value / 1e12).toFixed(0) + 'T',
+    minSpan: 2e11,
+    axis: value => { const t = value / 1e12; return (Number.isInteger(t) ? t.toFixed(0) : t.toFixed(1)) + 'T'; },
     val: fmtHr,
     lines: [{ cls: 'hrL', buf: hrBuf, lbl: 'Hashrate' }],
   },
@@ -190,6 +226,7 @@ const charts = [
     max: 100,
     maj: 20,
     minTick: 10,
+    minSpan: 20,
     axis: value => value + '°C',
     val: value => value + '°C',
     lines: [{ cls: 'tpL', buf: tpBuf, lbl: 'Temperature' }],
@@ -200,6 +237,7 @@ const charts = [
     max: 60,
     maj: 20,
     minTick: 10,
+    minSpan: 10,
     axis: value => value + 'W',
     val: value => value.toFixed(0) + ' W',
     lines: [
@@ -215,6 +253,7 @@ function drawChart(chart) {
   const dims = chartDims(svg);
   if (!dims) return;
   svg.setAttribute('viewBox', `0 0 ${dims.width} ${dims.height}`);
+  autoRange(chart);
   const { width, height, plotLeft, plotTop, plotWidth, plotHeight } = dims;
   const span = chart.max - chart.min;
   const steps = Math.round(span / chart.minTick);
