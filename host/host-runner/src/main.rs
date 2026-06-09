@@ -126,6 +126,11 @@ async fn rest_api_task(
 }
 
 #[embassy_executor::task]
+async fn network_apply_task(stack: Stack<'static>) -> ! {
+    ubos_api::run_network_apply(stack).await
+}
+
+#[embassy_executor::task]
 async fn webui_task(stack: Stack<'static>) -> ! {
     ubos_webui::run(stack).await
 }
@@ -345,6 +350,9 @@ fn main() {
         spawner.spawn(
             rest_api_task(stack, thermal, manager_handle, ubos_psu::handle())
                 .expect("BUG: rest_api_task token"),
+        );
+        spawner.spawn(
+            network_apply_task(stack).expect("BUG: network_apply_task token"),
         );
         spawner.spawn(webui_task(stack).expect("BUG: webui_task token"));
         match fan::FanHwmonController::open() {

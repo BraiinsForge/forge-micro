@@ -270,6 +270,11 @@ async fn rest_api_task(
 }
 
 #[embassy_executor::task]
+async fn network_apply_task(stack: embassy_net::Stack<'static>) -> ! {
+    ubos_api::run_network_apply(stack).await
+}
+
+#[embassy_executor::task]
 #[allow(clippy::too_many_lines)]
 async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
     use defmt::warn;
@@ -705,5 +710,6 @@ async fn boot(spawner: Spawner) {
         manager_handle,
         ubos_psu::handle(),
     ));
+    spawner.must_spawn(network_apply_task(stack));
     ubos_webui::run(stack).await;
 }
