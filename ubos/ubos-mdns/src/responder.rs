@@ -82,12 +82,13 @@ static UDP_BUFFERS: ConstStaticCell<
 /// RFC 6762 §8.1 requires a random delay before sending probes to reduce
 /// multicast collisions. Cryptographic quality is not required; a simple
 /// LCG seeded from boot time plus the per-board hostname is sufficient
-/// and avoids pulling in an entropy source on the no-std target. The
-/// hostname carries the MAC suffix (`compose_hostname` appends one
-/// byte from the MAC), so two same-family boards no longer seed the
-/// same LCG even when their boot ticks line up — their probe-jitter
-/// delays are statistically independent and the conflict-resolution
-/// path in `edge-mdns` does not see a deterministic collision.
+/// and avoids pulling in an entropy source on the no-std target.
+/// `compose_hostname` folds one MAC byte into the hostname. On the
+/// boards whose MAC is derived per unit that byte differs between
+/// same-family boards, so they seed distinct LCGs even when their boot
+/// ticks line up. On boards with a const family MAC the byte is shared,
+/// so same-family units rely instead on differing boot ticks and the
+/// `edge-mdns` conflict-resolution path.
 struct CounterRng(u64);
 
 impl CounterRng {
@@ -388,13 +389,14 @@ impl<const CAP: usize, const BASE_LEN: usize> AssertCap<CAP, BASE_LEN> {
 /// future enlargement of `base` into a build failure rather than a
 /// boot-time panic.
 ///
-/// `base` is hardcoded per board family, and callers pass `MAC_ADDR[5]`
-/// as `suffix` — itself a per-family constant — so two units of the
-/// same family on the same LAN share the resulting hostname across
-/// every advertised service and rely on RFC 6762 §9
-/// conflict-resolution renames every boot. `Board::NAME` is
-/// human-readable and contains spaces, so it cannot be used as a DNS
-/// label.
+/// `base` is hardcoded per board family. Callers pass the low MAC byte
+/// as `suffix`: on boards whose MAC is derived per unit it differs
+/// between units, so same-family units get distinct hostnames; on
+/// boards with a const family MAC it is `MAC_ADDR[5]`, a per-family
+/// constant, so same-family units share the hostname across every
+/// advertised service and rely on RFC 6762 §9 conflict-resolution
+/// renames every boot. `Board::NAME` is human-readable and contains
+/// spaces, so it cannot be used as a DNS label.
 ///
 /// # Panics
 ///
