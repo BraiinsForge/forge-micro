@@ -447,10 +447,18 @@ async fn boot(spawner: Spawner) {
         spawner.spawn(unwrap!(cooling_task(board_fan, thermal)));
     }
 
-    let config_storage = FlashStorage::new(
-        SyncFlash(Flash::<_, FlashBlocking, { config::Flash::SIZE }>::new_blocking(hw.flash)),
-        config::Flash::CONFIG_RANGE,
-    );
+    // Read the flash unique id before handing the peripheral to the
+    // config store, then fold it into a stable per-board MAC. The WIZnet
+    // chip has no factory address, so the firmware supplies one.
+    let mut flash = Flash::<_, FlashBlocking, { config::Flash::SIZE }>::new_blocking(hw.flash);
+    let mac_addr = {
+        let mut uid = [0u8; 8];
+        if flash.blocking_unique_id(&mut uid).is_err() {
+            defmt::warn!("flash unique id read failed; MAC hash falls back to zero");
+        }
+        ubos_net::mac::derive_mac(ubos_net::mac::DUMMY_OUI, config::Board::MAC_FAMILY, &uid)
+    };
+    let config_storage = FlashStorage::new(SyncFlash(flash), config::Flash::CONFIG_RANGE);
     spawner.spawn(unwrap!(config_task(
         manager_handle,
         mining_handle,
@@ -466,7 +474,6 @@ async fn boot(spawner: Spawner) {
     let w5500_int = Input::new(hw.w5500_int, Pull::Up);
     let w5500_reset = Output::new(hw.w5500_reset, Level::High);
 
-    let mac_addr = config::Board::MAC_ADDR;
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     let state = STATE.init(State::<8, 8>::new());
     let (device, runner) = embassy_net_wiznet::new(
@@ -514,7 +521,7 @@ async fn boot(spawner: Spawner) {
     let mdns_hostname =
         ubos_mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
             config::Board::MDNS_HOSTNAME_BASE,
-            config::Board::MAC_ADDR[5],
+            mac_addr[5],
             &MDNS_HOSTNAME,
         );
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));

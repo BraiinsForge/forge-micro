@@ -79,8 +79,11 @@ impl Board {
     pub const MDNS_HOSTNAME_BASE: &str = "rp2350";
     /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
     pub const MCU: &str = "rp2350";
-    /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
-    pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
+    /// Board-family byte placed in the derived MAC address. The runtime
+    /// folds the RP2350 OTP chip id into the remaining octets via
+    /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
+    /// distinct MAC.
+    pub const MAC_FAMILY: u8 = 0x02;
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {

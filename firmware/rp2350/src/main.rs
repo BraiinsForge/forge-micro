@@ -470,7 +470,19 @@ async fn boot(spawner: Spawner) {
     let w6100_int = Input::new(hw.w6100_int, Pull::Up);
     let w6100_reset = Output::new(hw.w6100_reset, Level::High);
 
-    let mac_addr = config::Board::MAC_ADDR;
+    // Fold the RP2350 OTP chip id into a stable per-board MAC. The WIZnet
+    // chip has no factory address, so the firmware supplies one.
+    let mac_addr = {
+        let chip_id = embassy_rp::otp::get_chipid().unwrap_or_else(|_| {
+            defmt::warn!("OTP chip id read failed; MAC hash falls back to zero");
+            0
+        });
+        ubos_net::mac::derive_mac(
+            ubos_net::mac::DUMMY_OUI,
+            config::Board::MAC_FAMILY,
+            &chip_id.to_be_bytes(),
+        )
+    };
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     let state = STATE.init(State::<8, 8>::new());
     let (device, runner) = embassy_net_wiznet::new(
@@ -529,7 +541,7 @@ async fn boot(spawner: Spawner) {
     let mdns_hostname =
         ubos_mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
             config::Board::MDNS_HOSTNAME_BASE,
-            config::Board::MAC_ADDR[5],
+            mac_addr[5],
             &MDNS_HOSTNAME,
         );
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));

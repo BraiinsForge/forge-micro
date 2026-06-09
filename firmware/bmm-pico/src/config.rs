@@ -69,41 +69,6 @@ pub struct Board {
     pub trng: Peri<'static, TRNG>,
 }
 
-/// Compile-time parser used by `Board::MAC_ADDR` to read the `MAC_SUFFIX` env
-/// var. Panics during the build if the value is not a decimal integer in
-/// `0..=255`, so a typo in a `cargo run-N` alias surfaces before flashing.
-const fn parse_mac_suffix(text: &str) -> u8 {
-    let bytes = text.as_bytes();
-    assert!(!bytes.is_empty(), "MAC_SUFFIX must not be empty");
-    let mut value: u8 = 0;
-    let mut index = 0;
-    while index < bytes.len() {
-        let digit = bytes[index];
-        assert!(
-            digit.is_ascii_digit(),
-            "MAC_SUFFIX must be a decimal integer 0..=255",
-        );
-        let Some(scaled) = value.checked_mul(10) else {
-            panic!("MAC_SUFFIX overflows u8 (must be 0..=255)")
-        };
-        let Some(next) = scaled.checked_add(digit - b'0') else {
-            panic!("MAC_SUFFIX overflows u8 (must be 0..=255)")
-        };
-        value = next;
-        index += 1;
-    }
-    value
-}
-
-/// Per-board MAC suffix. `cargo run-1` through `cargo run-6` set
-/// `MAC_SUFFIX=N` via `.cargo/config.toml` so each of the six BMM boards
-/// plugged into the same switch DHCPs under a distinct address. Defaults to
-/// `0x01` to keep the historical single-board build behaving the same.
-const MAC_SUFFIX: u8 = match option_env!("MAC_SUFFIX") {
-    Some(value) => parse_mac_suffix(value),
-    None => 0x01,
-};
-
 impl Board {
     pub const NAME: &str = "BMM Adapter W5500";
     /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
@@ -111,11 +76,11 @@ impl Board {
     pub const MDNS_HOSTNAME_BASE: &str = "bmm-pico";
     /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
     pub const MCU: &str = "rp2350";
-    /// Locally-administered MAC address. The LAA bit (mask 0x02 in the
-    /// first octet) marks it as local. `MAC_ADDR[4]` is a board-family
-    /// identifier set to 0x01 for BMM. `MAC_ADDR[5]` is the per-unit
-    /// suffix; override at compile time with `MAC_SUFFIX=N`.
-    pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x01, MAC_SUFFIX];
+    /// Board-family byte placed in the derived MAC address. The runtime
+    /// folds the RP2350 OTP chip id into the remaining octets via
+    /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
+    /// distinct MAC with no per-board build flag.
+    pub const MAC_FAMILY: u8 = 0x03;
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {

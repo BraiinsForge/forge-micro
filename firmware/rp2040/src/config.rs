@@ -71,16 +71,20 @@ pub struct Board {
 impl Board {
     pub const NAME: &str = "W5500-EVB-Pico";
     /// DNS-safe base hostname for mDNS. The runtime appends a per-unit
-    /// suffix derived from `MAC_ADDR[5]` so multiple rp2040 boards
-    /// on the same LAN do not collide on `_prometheus._tcp.local.` and
-    /// trigger RFC 6762 §9 conflict-resolution renames on every boot.
-    /// `Board::NAME` is human-readable and contains spaces, so it cannot
-    /// be used directly in a DNS label.
+    /// suffix derived from the last octet of the derived MAC so multiple
+    /// rp2040 boards on the same LAN do not collide on
+    /// `_prometheus._tcp.local.` and trigger RFC 6762 §9
+    /// conflict-resolution renames on every boot. `Board::NAME` is
+    /// human-readable and contains spaces, so it cannot be used directly
+    /// in a DNS label.
     pub const MDNS_HOSTNAME_BASE: &str = "rp2040";
     /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
     pub const MCU: &str = "rp2040";
-    /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
-    pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x04];
+    /// Board-family byte placed in the derived MAC address. The runtime
+    /// folds the flash unique id into the remaining octets via
+    /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
+    /// distinct MAC.
+    pub const MAC_FAMILY: u8 = 0x01;
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {
