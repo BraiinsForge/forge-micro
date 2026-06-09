@@ -185,11 +185,25 @@ Suggested policy:
 Coverage should fail only when it points to missing meaningful behavior tests,
 not because generated or board-only wiring code drags down a global percentage.
 
-## Implementation order
+## Roadmap
 
-1. Ensure the fast host crates are covered by individual `test-*` flake checks.
-2. Add firmware build-matrix checks per board and feature variant.
-3. Add the initial `stratum-v2` state and frame/error tests.
-4. Add a devshell web/host-runner check for `ubos-webui` and `host-runner`.
-5. Add hardware smoke checks once board availability and probe mapping are
-   stable.
+Completed:
+
+- Fast host crates are covered by isolated `test-*` flake checks and the
+  `fast-host` aggregate.
+- Firmware default and no-display release builds are covered by per-board
+  checks and the `firmware-builds` aggregate.
+- Web UI and native host-runner tests are covered by the `web-host` aggregate
+  with `esbuild` supplied by the flake.
+- `cargo-llvm-cov` is available in the host devshell for per-crate coverage
+  reporting.
+
+Deferred:
+
+- Add initial `stratum-v2` state and frame/error tests when protocol coverage
+  becomes the next focus area.
+
+Remaining:
+
+- Define hardware-in-loop smoke checks once board availability, probe mapping,
+  expected network identities, and result collection are stable.
