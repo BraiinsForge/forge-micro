@@ -11,6 +11,7 @@
 //! RMII MAC through `embassy-stm32::eth`.
 #![no_std]
 
+pub mod mac;
 pub mod net;
 pub mod ntp;
 
