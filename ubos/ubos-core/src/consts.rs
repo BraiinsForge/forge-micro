@@ -38,16 +38,6 @@ impl Api {
     pub const REQUEST_BUFFER_SIZE: usize = 2048;
 }
 
-/// NTP time synchronization parameters.
-pub struct Ntp;
-impl Ntp {
-    pub const HOST: &str = "pool.ntp.org";
-    pub const PORT: u16 = 123;
-    pub const SYNC_INTERVAL: Duration = Duration::from_secs(60);
-    /// SNTP packet size: 48 bytes for both request and response.
-    pub const PACKET_SIZE: usize = 48;
-}
-
 /// Hardware watchdog feed timing.
 pub struct Watchdog;
 impl Watchdog {

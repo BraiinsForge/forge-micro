@@ -11,7 +11,9 @@ use embassy_time::{with_timeout, Duration, Instant, Timer};
 use portable_atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use ubos_logging::{info, warn, Debug2Format};
 
-use ubos_core::consts::{Net, Ntp};
+use ubos_core::consts::Net;
+
+use crate::ntp::Ntp;
 
 /// Maximum number of DNS A-record results retained for connect attempts.
 /// Pool DNS responses are typically two or three addresses; four covers the

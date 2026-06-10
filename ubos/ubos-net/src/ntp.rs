@@ -1,6 +1,17 @@
-//! SNTP response parser and UTC formatter.
+//! SNTP response parser and UTC formatter, plus the NTP protocol and
+//! sync-timing parameters.
 
-use ubos_core::consts::Ntp;
+use embassy_time::Duration;
+
+/// NTP time synchronization parameters.
+pub struct Ntp;
+impl Ntp {
+    pub const HOST: &str = "pool.ntp.org";
+    pub const PORT: u16 = 123;
+    pub const SYNC_INTERVAL: Duration = Duration::from_secs(60);
+    /// SNTP packet size: 48 bytes for both request and response.
+    pub const PACKET_SIZE: usize = 48;
+}
 
 /// NTP epoch (1900-01-01) to Unix epoch (1970-01-01) offset in seconds.
 const NTP_TO_UNIX_OFFSET: u64 = 2_208_988_800;
