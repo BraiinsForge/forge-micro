@@ -99,13 +99,15 @@ body {
   filter: invert(var(--logo-invert));
 }
 
+/* The "micro" suffix to the Braiins OS wordmark. Inherits the
+   wordmark's label font size and uppercase tracking from .logo,
+   tinted with the accent and a soft glow so it reads as a brand
+   flourish rather than a fourth nav word. */
 .logo .mu {
   display: inline-block;
-  font: var(--fw-emp) var(--fs-head)/1 ui-serif, Georgia, serif;
+  font-weight: var(--fw-emp);
   color: var(--accent-hi);
   text-shadow: 0 0 4px var(--accent), 0 0 10px var(--accent);
-  letter-spacing: 0;
-  text-transform: none;
 }
 
 /* Sticky top header and bottom footer. The dashboard puts its
