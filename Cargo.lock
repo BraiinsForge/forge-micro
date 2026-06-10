@@ -4151,7 +4151,9 @@ name = "ubos-config"
 version = "0.1.0"
 dependencies = [
  "bs58",
+ "critical-section",
  "defmt 1.0.1",
+ "embassy-futures",
  "embassy-sync 0.8.0",
  "embedded-storage",
  "embedded-storage-async",

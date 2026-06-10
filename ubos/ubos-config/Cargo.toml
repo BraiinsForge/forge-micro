@@ -38,3 +38,11 @@ embedded-storage-async = { workspace = true }
 # hardcoded bytes. `alloc` is required by `with_check` on top of
 # `check`. The lib build never sees the dev-dep.
 bs58                   = { version = "0.5", default-features = false, features = ["check", "alloc"] }
+# `block_on` drives `async fn` tests against `FileStorage`, whose
+# methods have no real suspend points, so the future resolves on the
+# first poll. Pattern mirrors the ubos-auth test suite.
+embassy-futures        = { workspace = true }
+# Driving `factory_reset` publishes on the `CriticalSectionRawMutex`-backed
+# `STATE_WATCH`, so the host test binary needs a linkable critical-section
+# implementation. The std impl is host-only and never reaches firmware.
+critical-section       = { version = "1.2", features = ["std"] }
