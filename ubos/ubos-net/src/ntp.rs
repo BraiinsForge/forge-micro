@@ -9,6 +9,9 @@ impl Ntp {
     pub const HOST: &str = "pool.ntp.org";
     pub const PORT: u16 = 123;
     pub const SYNC_INTERVAL: Duration = Duration::from_secs(60);
+    /// Delay between the DHCP lease landing and the first NTP fetch, giving
+    /// ARP, the gateway, and routing a moment to settle before the DNS query.
+    pub const INITIAL_DELAY: Duration = Duration::from_secs(5);
     /// SNTP packet size: 48 bytes for both request and response.
     pub const PACKET_SIZE: usize = 48;
 }

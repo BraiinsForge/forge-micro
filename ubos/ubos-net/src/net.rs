@@ -228,6 +228,7 @@ pub async fn fetch_ntp_time(stack: Stack<'static>) -> Result<(), &'static str> {
 /// Periodically sync NTP time. Runs forever.
 pub async fn run_ntp_sync(stack: Stack<'static>) -> ! {
     wait_for_config(stack).await;
+    Timer::after(Ntp::INITIAL_DELAY).await;
 
     loop {
         if let Err(error) = fetch_ntp_time(stack).await {
