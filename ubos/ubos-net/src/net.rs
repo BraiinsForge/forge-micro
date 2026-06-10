@@ -1,5 +1,5 @@
-//! Network tasks shared across all boards: DHCP wait, NTP, BTC price
-//! fetch, and the HTTP server loop.
+//! Network tasks shared across all boards: DHCP wait, NTP sync, stratum
+//! TCP connect, and cross-board atomic state.
 //!
 //! Architecture: `../../../docs/OVERVIEW.md`.
 
@@ -8,14 +8,10 @@ use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, Stack};
 use embassy_time::{with_timeout, Duration, Instant, Timer};
-use embedded_io_async::Write;
-use embedded_tls::{Aes128GcmSha256, TlsConfig, TlsConnection, TlsContext, UnsecureProvider};
 use portable_atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
-use rand_core::{CryptoRng, RngCore};
-use static_cell::ConstStaticCell;
 use ubos_logging::{info, warn, Debug2Format};
 
-use ubos_core::consts::{Btc, Net, Ntp, Tls};
+use ubos_core::consts::{Net, Ntp};
 
 /// Maximum number of DNS A-record results retained for connect attempts.
 /// Pool DNS responses are typically two or three addresses; four covers the
@@ -127,10 +123,7 @@ pub async fn connect_stratum<'b>(
 /// Count of accepted HTTP requests since boot, incremented by the
 /// dashboard HTTP server in `ubos-api::dashboard`.
 pub static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
-pub static BTC_PRICE_CENTS: AtomicU32 = AtomicU32::new(0);
 pub static NTP_EPOCH_OFFSET: AtomicU64 = AtomicU64::new(0);
-/// Uptime seconds of the last successful BTC price fetch, or zero if none.
-pub static LAST_BTC_FETCH_UPTIME_SECS: AtomicU64 = AtomicU64::new(0);
 /// DHCP-assigned IPv4 address encoded via `Ipv4Address::to_bits()`. Zero
 /// until the address is assigned; downstream readers treat zero as "no ip".
 /// `0.0.0.0` round-trips through this encoding, but `DHCPv4` unicast leases
@@ -159,25 +152,6 @@ pub fn set_pool_alive(pool_index: u8, alive: bool) {
     }
 }
 
-static TCP_RX: ConstStaticCell<[u8; Tls::TCP_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Tls::TCP_BUFFER_SIZE]);
-static TCP_TX: ConstStaticCell<[u8; Tls::TCP_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Tls::TCP_BUFFER_SIZE]);
-// `TLS_READ` is CPU-only scratch filled by the embedded-tls record parser.
-// `TlsConnection::read()` decrypts into this buffer using CPU memcpy paths
-// inside embedded-tls; the MAC DMA only ever touches the smoltcp socket
-// RX ring (the `TCP_RX` buffer handed to `TcpSocket::new`), which is a
-// separate allocation. `TLS_READ` is never passed to any DMA descriptor, so
-// it is safe to place in CCM on stm32f4.
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
-static TLS_READ: ConstStaticCell<[u8; Tls::READ_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Tls::READ_BUFFER_SIZE]);
-// `TLS_WRITE` is CPU-only scratch for the embedded-tls record builder;
-// the bytes are copied to the TCP TX buffer before DMA touches them,
-// so it can live in CCM on stm32f4.
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
-static TLS_WRITE: ConstStaticCell<[u8; Tls::WRITE_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Tls::WRITE_BUFFER_SIZE]);
 /// Wait until the network stack receives a DHCP lease.
 ///
 /// Polls `stack.config_v4()` at a 100 ms cadence rather than yielding
@@ -249,79 +223,6 @@ pub async fn fetch_ntp_time(stack: Stack<'static>) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Perform a single BTC price fetch over TLS.
-///
-/// # Errors
-///
-/// Returns a TLS error if DNS resolution, TCP connection, TLS handshake,
-/// or HTTP request/response fails.
-pub async fn fetch_btc_price<R: CryptoRng + RngCore>(
-    stack: Stack<'static>,
-    rng: &mut R,
-    tcp_rx: &mut [u8],
-    tcp_tx: &mut [u8],
-    tls_read: &mut [u8],
-    tls_write: &mut [u8],
-) -> Result<(), embedded_tls::TlsError> {
-    let addresses = with_timeout(
-        DNS_QUERY_TIMEOUT,
-        stack.dns_query(Btc::HOST, DnsQueryType::A),
-    )
-    .await
-    .map_err(|_| embedded_tls::TlsError::InternalError)?
-    .map_err(|_| embedded_tls::TlsError::InternalError)?;
-    let address = *addresses
-        .first()
-        .ok_or(embedded_tls::TlsError::InternalError)?;
-
-    let mut socket = TcpSocket::new(stack, tcp_rx, tcp_tx);
-    socket.set_timeout(Some(Net::SOCKET_TIMEOUT));
-    socket
-        .connect((address, Btc::PORT))
-        .await
-        .map_err(|_| embedded_tls::TlsError::InternalError)?;
-
-    let mut tls = TlsConnection::new(&mut socket, tls_read, tls_write);
-
-    let config = TlsConfig::new()
-        .with_server_name(Btc::HOST)
-        .enable_rsa_signatures();
-    tls.open(TlsContext::new(
-        &config,
-        UnsecureProvider::new::<Aes128GcmSha256>(rng),
-    ))
-    .await?;
-
-    tls.write_all(Btc::REQUEST).await?;
-    tls.flush().await?;
-
-    let mut response_buffer = [0; Tls::RESPONSE_BUFFER_SIZE];
-    let mut total = 0;
-    loop {
-        match tls.read(&mut response_buffer[total..]).await {
-            Ok(0) | Err(embedded_tls::TlsError::ConnectionClosed) => break,
-            Ok(count) => total += count,
-            Err(error) => return Err(error),
-        }
-        if total >= response_buffer.len() {
-            break;
-        }
-    }
-
-    if let Some(cents) = ubos_pool::btc::parse_price_cents(&response_buffer[..total]) {
-        let dollars = cents / 100;
-        let remainder = cents % 100;
-        info!("btc price updated: ${}.{:02}", dollars, remainder);
-        BTC_PRICE_CENTS.store(cents, Ordering::Relaxed);
-        LAST_BTC_FETCH_UPTIME_SECS.store(Instant::now().as_secs(), Ordering::Relaxed);
-    }
-
-    // Ignore close errors since we already have the data.
-    let _ = tls.close().await;
-
-    Ok(())
-}
-
 /// Periodically sync NTP time. Runs forever.
 pub async fn run_ntp_sync(stack: Stack<'static>) -> ! {
     wait_for_config(stack).await;
@@ -331,25 +232,5 @@ pub async fn run_ntp_sync(stack: Stack<'static>) -> ! {
             warn!("ntp sync failed: {}", error);
         }
         Timer::after(Ntp::SYNC_INTERVAL).await;
-    }
-}
-
-/// Periodically fetch BTC price over TLS. Runs forever.
-pub async fn run_bitcoin_price<R: CryptoRng + RngCore>(stack: Stack<'static>, mut rng: R) -> ! {
-    wait_for_config(stack).await;
-
-    let tcp_rx = TCP_RX.take();
-    let tcp_tx = TCP_TX.take();
-    let tls_read = TLS_READ.take();
-    let tls_write = TLS_WRITE.take();
-
-    loop {
-        if fetch_btc_price(stack, &mut rng, tcp_rx, tcp_tx, tls_read, tls_write)
-            .await
-            .is_err()
-        {
-            warn!("btc fetch failed");
-        }
-        Timer::after(Btc::FETCH_INTERVAL).await;
     }
 }

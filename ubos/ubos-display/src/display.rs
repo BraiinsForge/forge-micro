@@ -14,20 +14,23 @@ use profont::PROFONT_12_POINT;
 
 use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
 use ubos_metrics::hashrate;
-use ubos_net::net::{BTC_PRICE_CENTS, LOCAL_IPV4};
+use ubos_net::net::LOCAL_IPV4;
 use ubos_net::ntp;
 
 use crate::sh1106::Sh1106;
 
-/// Render IP, UTC time, BTC price or fan PWM/RPM, and hashrate onto
-/// the display.
+/// Render IP, UTC time, fan PWM and RPM where a fan is present, and
+/// hashrate onto the display.
 ///
 /// The caller must call `display.flush()` afterwards to push the
 /// framebuffer to the hardware. `time_buffer` is scratch space for
 /// formatting the UTC time string. All values are read from shared
-/// atomics; the first three render a short placeholder when the
-/// underlying atomic is still at its zero sentinel (`no ip`, `no sync`,
-/// `BTC ---`). Hashrate has no sentinel — zero is rendered as `0 H/s`.
+/// atomics; the first two render a short placeholder when the
+/// underlying atomic is still at its zero sentinel (`no ip`, `no sync`).
+/// Hashrate has no sentinel — zero is rendered as `0 H/s`.
+///
+/// Line 3 shows fan PWM and RPM when the board has a fan; boards
+/// without a fan leave line 3 blank.
 ///
 /// The 16-pixel line pitch fits four baselines in the SH1106's
 /// 64-pixel height; any larger pitch clips the last line.
@@ -73,26 +76,12 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
         }
     }
 
-    // Line 3: fan PWM and RPM when the board publishes them, BTC
-    // price otherwise. `FAN_PWM_PERCENT == u8::MAX` is the "no fan"
-    // sentinel; any board with a fan task clears it on startup. The
-    // raw atomic is read deliberately: `fan_state::load_pwm()` collapses
-    // the sentinel to `FanPwm::ZERO` and would erase this branch.
+    // Line 3: fan PWM and RPM when the board publishes them. `FAN_PWM_PERCENT
+    // == u8::MAX` is the "no fan" sentinel; any board with a fan task clears
+    // it on startup. The raw atomic is read deliberately: `fan_state::load_pwm()`
+    // collapses the sentinel to `FanPwm::ZERO` and would erase this branch.
     let pwm_percent = FAN_PWM_PERCENT.load(Ordering::Relaxed);
-    if pwm_percent == u8::MAX {
-        let cents = BTC_PRICE_CENTS.load(Ordering::Relaxed);
-        if cents == 0 {
-            Text::new("BTC ---", Point::new(0, 45), style).draw(display)?;
-        } else {
-            let dollars = cents / 100;
-            // "BTC $" prefix plus up to 8 digits; 18 bytes covers u32 cents.
-            let mut price_buffer = [0u8; 18];
-            if let Ok(text) = format_no_std::show(&mut price_buffer, format_args!("BTC ${dollars}"))
-            {
-                Text::new(text, Point::new(0, 45), style).draw(display)?;
-            }
-        }
-    } else {
+    if pwm_percent != u8::MAX {
         let rpm = FAN_RPM.load(Ordering::Relaxed);
         let mut fan_buffer = [0u8; 24];
         if let Ok(text) =

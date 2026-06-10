@@ -46,9 +46,9 @@ gives the framework's table of contents.
 | `esp32s3-`, `rp235x-`, `serial-`      | hardware-specific drivers |
 
 The firmware framework is split along domain lines. `ubos-core`,
-`ubos-pool`, `ubos-logging`, and `ubos-config` are leaf crates with no
+`ubos-logging`, and `ubos-config` are leaf crates with no
 `ubos-*` dependencies above the logging facade; the chain
-`(core + pool + logging + config) ← ubos-net ← ubos-metrics ← ubos-display`
+`(core + logging + config) ← ubos-net ← ubos-metrics ← ubos-display`
 runs strictly one-way above them. `ubos-manager` sits beside the chain
 and supervises the thermal/cooling/mining handles via watch channels;
 hardware and protocol crates sit beside the chain without participating
@@ -65,7 +65,7 @@ on the other.
 | `ubos-core`        | shared constants, watchdog feed loop, status LED, typed units |
 | `ubos-config`      | runtime `Config` watch, `ConfigHandle`, flash-backed `sequential-storage` persistence |
 | `ubos-manager`     | supervisor crate: routes `Message::Halt`/`Resume` to mining/cooling/thermal handles |
-| `ubos-net`         | DHCP, NTP sync, BTC fetch; owns the cross-board atomics (IP, BTC price, NTP offset, request count) and `wall_clock_secs` |
+| `ubos-net`         | DHCP, NTP sync; owns the cross-board atomics (IP, NTP offset, request count) and `wall_clock_secs` |
 | `ubos-http`        | HTTP/1.0 transport primitives: TCP accept loop, request parser, `Service` trait; generic response helpers (`read_body`, `write_json_response`, `MAX_RESPONSE_HEADERS`) |
 | `ubos-auth`        | shared HTTP middleware: IP allow-list, credential store, session table, CSRF tokens, CSPRNG |
 | `ubos-api`         | REST handlers, `REST_API_SERVICE` mDNS entry, schema types; serves `/api/*` on port 8080 |
@@ -73,7 +73,6 @@ on the other.
 | `ubos-mdns`        | DNS-SD responder; per-service `declare_service!` macro composed by firmware |
 | `ubos-metrics`     | Prometheus exporter task, hashrate EWMA, CPU-load gauge, shared metric map |
 | `ubos-display`     | SH1106 OLED driver and render task                 |
-| `ubos-pool`        | Binance BTC ticker JSON parser                     |
 | `ubos-logging`     | `defmt`/`log` macro facade                         |
 | `ubos-thermal`     | sensor poll, `ThermalHandle` publisher, thermal guard |
 | `ubos-cooling`     | fan PID controller and `FanOutput` HAL trait        |
@@ -271,7 +270,7 @@ Kashitsyn, *Rust at scale: packages, crates, and modules*
 
 Applied here: `metrics.rs` and `net.rs` are dependency hubs;
 isolating them into their own crates keeps the hubs small and
-stable. `display.rs` and `btc.rs` are leaves with their own change
+stable. `display.rs` is a leaf with its own change
 cadence. The split groups modules by change frequency, which matches
 corrode.dev's pragmatic rule
 (<https://corrode.dev/blog/tips-for-faster-rust-compile-times/>):
@@ -312,7 +311,7 @@ keeping `cargo check` green for every affected crate:
 4. Every existing host crate moves into `host/`.
 5. Root `Cargo.toml` converts to a virtual manifest; the old root
    library crate moves to `ubos/ubos-main/` as an intermediate step.
-6. `ubos-main` splits into five crates along domain lines: `ubos-pool`,
+6. `ubos-main` splits into four crates along domain lines:
    `ubos-display`, `ubos-core`, and finally `ubos-net` plus
    `ubos-metrics` together. The `run_http_server` task moves out of
    `net.rs` into `http.rs` during the final split to break the

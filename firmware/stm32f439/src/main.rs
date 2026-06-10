@@ -2,9 +2,9 @@
 //! with the BMM100/BM1362 ubos-mining backend.
 //!
 //! Starts the built-in MAC with an auto-probed PHY, runs the embassy-net
-//! stack with DHCP, and spawns the watchdog, LED blink, NTP, BTC,
-//! ubos-mining mining, and HTTP tasks. Built with `cargo build` from this
-//! crate inside `nix develop .#arm`.
+//! stack with DHCP, and spawns the watchdog, LED blink, NTP, ubos-mining
+//! mining, and HTTP tasks. Built with `cargo build` from this crate
+//! inside `nix develop .#arm`.
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
 //! Wiring/build: `../../../docs/SETUP.md`
@@ -72,10 +72,9 @@ static SECP_CTX: StaticCell<
     ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
 > = StaticCell::new();
 
-// The stm32 RNG peripheral is single-owner and already claimed by
-// the bitcoin-price TLS task. Seed a ChaCha20 PRNG once at boot
-// from the hardware RNG; the SV2 client uses this PRNG for ephemeral
-// keys and nonces across reconnects.
+// The stm32 RNG peripheral is single-owner. Seed a ChaCha20 PRNG once
+// at boot from the hardware RNG; the SV2 client uses this PRNG for
+// ephemeral keys and nonces across reconnects.
 static SV2_PRNG: StaticCell<rand_chacha::ChaCha20Rng> = StaticCell::new();
 
 struct Sv2BoardRng<'a>(&'a mut rand_chacha::ChaCha20Rng);
@@ -162,14 +161,6 @@ async fn watchdog_task(watchdog: BoardWatchdog) -> ! {
 #[embassy_executor::task]
 async fn led_blink_task(led: Output<'static>) -> ! {
     ubos_core::led::run_led_blink(led).await
-}
-
-#[embassy_executor::task]
-async fn bitcoin_price_task(
-    stack: embassy_net::Stack<'static>,
-    rng: Rng<'static, peripherals::RNG>,
-) -> ! {
-    net::run_bitcoin_price(stack, rng).await
 }
 
 #[embassy_executor::task]
@@ -439,9 +430,9 @@ async fn boot(spawner: Spawner) {
         .expect("BUG: RNG fill failed");
     let seed = u64::from_le_bytes(seed_bytes);
 
-    // Seed the SV2 ChaCha20 PRNG before the hardware RNG is moved into
-    // the bitcoin-price TLS task; the stratum-v2 noise handshake then
-    // has its own entropy stream that does not contend with TLS.
+    // Seed the SV2 ChaCha20 PRNG from the hardware RNG; the stratum-v2
+    // noise handshake gets its own entropy stream independent of the
+    // session CSPRNG seeded below.
     let sv2_prng = {
         let mut sv2_seed = [0u8; 32];
         rng.async_fill_bytes(&mut sv2_seed)
@@ -474,13 +465,9 @@ async fn boot(spawner: Spawner) {
     // Socket-set capacity for the embassy-net stack. Seven sockets are
     // held continuously: DHCPv4, DNS, the stratum client, the mDNS
     // responder, and the three HTTP listeners on :80, :8080, and :8081
-    // (each serves one connection at a time). On top of that the NTP
-    // sync (every 60 s) and BTC price fetch (every 300 s) each open a
-    // transient socket, and every closed TCP connection lingers in
-    // TIME_WAIT holding a slot until smoltcp reaps it. At 8 a coincident
-    // NTP+BTC plus one TIME_WAIT socket overran the set and panicked in
-    // SocketSet::add after a few hours; 16 leaves headroom for the
-    // transients and TIME_WAIT churn.
+    // (each serves one connection at a time). NTP opens a transient UDP
+    // socket every 60 s, and closed TCP connections linger in TIME_WAIT
+    // until smoltcp reaps them. 16 provides headroom.
     static RESOURCES: StaticCell<StackResources<16>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
@@ -490,14 +477,13 @@ async fn boot(spawner: Spawner) {
     );
     spawner.spawn(unwrap!(net_task(runner)));
 
-    // Seed the session CSPRNG before rng is moved into the bitcoin-price TLS task.
+    // Seed the session CSPRNG from the hardware RNG.
     let mut csprng_seed = [0u8; 32];
     rng.async_fill_bytes(&mut csprng_seed)
         .await
         .expect("BUG: RNG fill failed");
     ubos_auth::csprng::seed_csprng(csprng_seed).await;
 
-    spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_task(stack)));
 

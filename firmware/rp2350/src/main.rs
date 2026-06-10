@@ -3,9 +3,9 @@
 //!
 //! Initialises SPI at 33 MHz, brings the W6100 up via `embassy-net-wiznet`,
 //! starts the embassy-net stack with DHCP, and spawns the watchdog, LED
-//! blink, ethernet runner, NTP sync, BTC price, and ubos-mining mining tasks
-//! before entering the HTTP server loop. Built with `cargo build` from
-//! this crate inside `nix develop .#arm`.
+//! blink, ethernet runner, NTP sync, and ubos-mining mining tasks before
+//! entering the HTTP server loop. Built with `cargo build` from this
+//! crate inside `nix develop .#arm`.
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
 //! Wiring/build: `../../../docs/SETUP.md`
@@ -139,11 +139,6 @@ async fn watchdog_task(watchdog: BoardWatchdog) -> ! {
 #[embassy_executor::task]
 async fn led_blink_task(led: Output<'static>) -> ! {
     ubos_core::led::run_led_blink(led).await
-}
-
-#[embassy_executor::task]
-async fn bitcoin_price_task(stack: embassy_net::Stack<'static>, rng: RoscRng) -> ! {
-    net::run_bitcoin_price(stack, rng).await
 }
 
 #[embassy_executor::task]
@@ -495,13 +490,9 @@ async fn boot(spawner: Spawner) {
     // Socket-set capacity for the embassy-net stack. Seven sockets are
     // held continuously: DHCPv4, DNS, the stratum client, the mDNS
     // responder, and the three HTTP listeners on :80, :8080, and :8081
-    // (each serves one connection at a time). On top of that the NTP
-    // sync (every 60 s) and BTC price fetch (every 300 s) each open a
-    // transient socket, and every closed TCP connection lingers in
-    // TIME_WAIT holding a slot until smoltcp reaps it. At 8 a coincident
-    // NTP+BTC plus one TIME_WAIT socket overran the set and panicked in
-    // SocketSet::add after a few hours; 16 leaves headroom for the
-    // transients and TIME_WAIT churn.
+    // (each serves one connection at a time). NTP opens a transient UDP
+    // socket every 60 s, and closed TCP connections linger in TIME_WAIT
+    // until smoltcp reaps them. 16 provides headroom.
     static RESOURCES: StaticCell<StackResources<16>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
@@ -516,9 +507,7 @@ async fn boot(spawner: Spawner) {
     // entropy health checks per draw and is NIST-aligned; `RoscRng`
     // takes one ROSC randombit per read with no oracle. The TRNG is
     // only used at boot, so the peripheral is dropped right after the
-    // seed is taken — `bitcoin_price_task` continues to use `RoscRng`
-    // for its TLS nonces because the RP2040 sister firmware has no
-    // TRNG and we keep that code path uniform.
+    // seed is taken.
     let mut csprng_seed = [0u8; 32];
     {
         // Datasheet § 12.12.2: sample counts of 20-25 minimise generation
@@ -533,7 +522,6 @@ async fn boot(spawner: Spawner) {
     }
     ubos_auth::csprng::seed_csprng(csprng_seed).await;
 
-    spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_task(stack)));
 

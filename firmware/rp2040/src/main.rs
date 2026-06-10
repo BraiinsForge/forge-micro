@@ -3,9 +3,9 @@
 //!
 //! Initialises SPI at 33 MHz, brings the W5500 up via `embassy-net-wiznet`,
 //! starts the embassy-net stack with DHCP, and spawns the watchdog, LED
-//! blink, ethernet runner, NTP sync, BTC price, and ubos-mining mining tasks
-//! before entering the HTTP server loop. Built with `cargo build` from
-//! this crate inside `nix develop .#arm`.
+//! blink, ethernet runner, NTP sync, and ubos-mining mining tasks before
+//! entering the HTTP server loop. Built with `cargo build` from this
+//! crate inside `nix develop .#arm`.
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
 //! Wiring/build: `../../../docs/SETUP.md`
@@ -136,11 +136,6 @@ async fn watchdog_task(watchdog: BoardWatchdog) -> ! {
 #[embassy_executor::task]
 async fn led_blink_task(led: Output<'static>) -> ! {
     ubos_core::led::run_led_blink(led).await
-}
-
-#[embassy_executor::task]
-async fn bitcoin_price_task(stack: embassy_net::Stack<'static>, rng: RoscRng) -> ! {
-    net::run_bitcoin_price(stack, rng).await
 }
 
 #[embassy_executor::task]
@@ -491,18 +486,12 @@ async fn boot(spawner: Spawner) {
     // Socket-set capacity for the embassy-net stack. Seven sockets are
     // held continuously: DHCPv4, DNS, the stratum client, the mDNS
     // responder, and the three HTTP listeners on :80, :8080, and :8081
-    // (each serves one connection at a time). On top of that the NTP
-    // sync (every 60 s) and BTC price fetch (every 300 s) each open a
-    // transient socket, and every closed TCP connection lingers in
-    // TIME_WAIT holding a slot until smoltcp reaps it. At 8 a coincident
-    // NTP+BTC plus one TIME_WAIT socket overran the set and panicked in
-    // SocketSet::add after a few hours. The sibling boards use 16, but
-    // the RP2040's 256K RAM is already near-full from the W5500 stack,
-    // the secp256k1 context, and the UART ring buffers, so 16 fails to
-    // link. 10 is the most this board fits: it covers the seven
-    // continuous sockets plus NTP, BTC, and one TIME_WAIT slot, with no
-    // margin for a second coincident TIME_WAIT.
-    static RESOURCES: StaticCell<StackResources<10>> = StaticCell::new();
+    // (each serves one connection at a time). NTP opens a transient UDP
+    // socket every 60 s, and closed TCP connections linger in TIME_WAIT
+    // until smoltcp reaps them. 16 matches the sibling boards; it did
+    // not link before, but removing the BTC ticker's ~20 KiB TLS buffer
+    // freed enough SRAM on the RP2040 to fit it.
+    static RESOURCES: StaticCell<StackResources<16>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
         embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default()),
@@ -511,17 +500,13 @@ async fn boot(spawner: Spawner) {
     );
     spawner.spawn(unwrap!(net_task(runner)));
 
-    // Seed the session CSPRNG before rng is moved into the bitcoin-price TLS task.
-    // RP2040 has no hardware TRNG, so the seed comes from RoscRng (ring-oscillator
-    // bits with no health checks). The bmm-pico and rp2350 firmware seed from the
-    // RP2350 TRNG; for rp2040 the boot-time ROSC state is the only entropy source
-    // available, so session-token unpredictability is weaker on this board. These
-    // boards are demonstration hardware per CLAUDE.md and not used in production.
+    // Seed the session CSPRNG. RP2040 has no hardware TRNG, so the seed
+    // comes from RoscRng (ring-oscillator bits with no health checks).
+    // These boards are demonstration hardware per CLAUDE.md.
     let mut csprng_seed = [0u8; 32];
     rng.fill_bytes(&mut csprng_seed);
     ubos_auth::csprng::seed_csprng(csprng_seed).await;
 
-    spawner.spawn(unwrap!(bitcoin_price_task(stack, rng)));
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_task(stack)));
 

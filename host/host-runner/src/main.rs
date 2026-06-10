@@ -6,8 +6,8 @@
 //! `HOST_NET_AFPACKET=<ifname>` switches to the `embassy-net-afpacket`
 //! raw-socket driver bound to that real NIC. Either way, the static IPv4
 //! config, the `net_task` runner, plus the stratum client, CPU solver,
-//! hashrate publisher, NTP, BTC price, metrics, and HTTP server are
-//! identical across the firmware and host paths.
+//! hashrate publisher, NTP, metrics, and HTTP server are identical
+//! across the firmware and host paths.
 //!
 //! Pool config matches the firmware: the stratum task reads
 //! `ubos_config::Config::pool[0]` on each reconnect, so an operator
@@ -95,11 +95,6 @@ async fn heartbeat_task(stack: Stack<'static>) {
 #[embassy_executor::task]
 async fn ntp_sync_task(stack: Stack<'static>) -> ! {
     net::run_ntp_sync(stack).await
-}
-
-#[embassy_executor::task]
-async fn bitcoin_price_task(stack: Stack<'static>) -> ! {
-    net::run_bitcoin_price(stack, OsRng).await
 }
 
 #[embassy_executor::task]
@@ -321,7 +316,6 @@ fn main() {
         spawner.spawn(heartbeat_task(stack).expect("BUG: heartbeat_task token"));
         spawner.spawn(stratum_client_task(stack).expect("BUG: stratum_client_task token"));
         spawner.spawn(ntp_sync_task(stack).expect("BUG: ntp_sync_task token"));
-        spawner.spawn(bitcoin_price_task(stack).expect("BUG: bitcoin_price_task token"));
         spawner.spawn(metrics_task(stack).expect("BUG: metrics_task token"));
         spawner.spawn(mdns_task(stack).expect("BUG: mdns_task token"));
         spawner.spawn(miner_metrics_task(mining_handle).expect("BUG: miner_metrics_task token"));

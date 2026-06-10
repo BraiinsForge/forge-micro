@@ -23,7 +23,6 @@ that point every board runs the same above-the-link-layer tasks:
 
 - DHCP wait and bring-up orchestration
 - NTP sync loop
-- BTC price fetch loop (Binance ticker over TLS)
 - Prometheus metrics HTTP endpoint
 - Watchdog
 - Display (where present)
@@ -47,8 +46,8 @@ Code: `ubos/ubos-display/src/display.rs`.
 Line 3 of the 4-line display layout shows fan PWM percentage and RPM on boards
 that have cleared the `FAN_PWM_PERCENT` sentinel (i.e. boards where `BoardFan`
 was constructed, which stores `0` to signal that a fan is present). On boards
-without a fan, `FAN_PWM_PERCENT` retains its sentinel value and line 3 falls
-back to the BTC price.
+without a fan, `FAN_PWM_PERCENT` retains its sentinel value and line 3 is
+left blank.
 
 ## Mining backend
 
@@ -72,11 +71,10 @@ baud-rate switch; see [MINING.md](MINING.md).
 - `ubos/ubos-manager/` -- supervisor that routes `Message::Halt` and
   `Message::Resume` to the mining, cooling, and thermal handles when
   pause reasons arrive (thermal trip, fan fault, operator pause, reconfigure).
-- `ubos/ubos-net/` -- network bring-up, NTP, BTC price, mDNS.
+- `ubos/ubos-net/` -- network bring-up, NTP, stratum connect, atomic state.
 - `ubos/ubos-metrics/` -- HTTP server, metrics, CPU-load accounting,
   EWMA hashrate accounting.
 - `ubos/ubos-display/` -- SH1106 driver and render task.
-- `ubos/ubos-pool/` -- Binance BTC ticker JSON parser.
 - `ubos/ubos-thermal/` -- sensor poll, `ThermalHandle` publisher,
   safety trip asserted as `PauseReason::DangerousTemperature` on
   `ManagerHandle`.

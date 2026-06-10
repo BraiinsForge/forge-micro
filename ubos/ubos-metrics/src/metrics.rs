@@ -24,7 +24,7 @@ use ubos_logging::{warn, Debug2Format};
 
 use ubos_core::consts::{Metrics, Net};
 use ubos_http::{format_content_length, BufferWriter, CONTENT_LENGTH_DECIMAL_DIGITS};
-use ubos_net::net::{BTC_PRICE_CENTS, LAST_BTC_FETCH_UPTIME_SECS, NTP_EPOCH_OFFSET, REQUEST_COUNT};
+use ubos_net::net::{NTP_EPOCH_OFFSET, REQUEST_COUNT};
 
 /// Maximum number of HTTP headers parsed per metrics request.
 ///
@@ -532,44 +532,6 @@ fn build_prometheus_body(
         request_count,
         ts_ms,
     );
-
-    let btc_cents = BTC_PRICE_CENTS.load(Ordering::Relaxed);
-    if btc_cents != 0 {
-        let _ = writeln!(
-            writer,
-            "# HELP board_btc_price_usd Last successful BTC/USDT price from Binance in USD."
-        );
-        let _ = writeln!(writer, "# TYPE board_btc_price_usd gauge");
-        let dollars = btc_cents / 100;
-        let cents = btc_cents % 100;
-        let _ = write!(
-            writer,
-            "board_btc_price_usd{{source=\"binance\"}} {dollars}.{cents:02}"
-        );
-        if let Some(ts_ms) = ts_ms {
-            let _ = write!(writer, " {ts_ms}");
-        }
-        let _ = writeln!(writer);
-    }
-
-    let last_fetch = LAST_BTC_FETCH_UPTIME_SECS.load(Ordering::Relaxed);
-    if last_fetch != 0 {
-        let _ = writeln!(
-            writer,
-            "# HELP board_btc_price_age_seconds Seconds since the last successful BTC price fetch."
-        );
-        let _ = writeln!(writer, "# TYPE board_btc_price_age_seconds gauge");
-        // Age is uptime-based so NTP sync shifts don't produce phantom gaps.
-        let age = Instant::now().as_secs().saturating_sub(last_fetch);
-        let _ = write!(
-            writer,
-            "board_btc_price_age_seconds{{source=\"binance\"}} {age}"
-        );
-        if let Some(ts_ms) = ts_ms {
-            let _ = write!(writer, " {ts_ms}");
-        }
-        let _ = writeln!(writer);
-    }
 
     let _ = writeln!(
         writer,

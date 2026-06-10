@@ -1,7 +1,7 @@
 //! Network framework for the firmware: DHCP/smoltcp glue, periodic
-//! NTP and BTC fetch loops, and the cross-board atomic state
-//! (assigned IP, NTP offset, BTC price, request count) read by the
-//! dashboard and the Prometheus exposition layer.
+//! NTP sync loop, stratum TCP connect helper, and the cross-board
+//! atomic state (assigned IP, NTP offset, request count) read by
+//! the dashboard and the Prometheus exposition layer.
 //!
 //! The mDNS responder and compile-time service registry have moved to
 //! `ubos-mdns`. All boards run embassy-net with smoltcp for TCP/IP;

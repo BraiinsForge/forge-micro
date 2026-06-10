@@ -12,7 +12,7 @@ Any async context pushes a `Metric` value into a static `Channel` via
 `push`. The `run` task owns a local `FnvIndexMap` and drains the channel,
 upserting by name + label set. On each TCP connection it drains any
 pending pushes first, then renders the full map plus a fixed set of
-derived metrics (uptime, request count, BTC price, NTP sync state) in
+derived metrics (uptime, request count, NTP sync state) in
 Prometheus exposition format 0.0.4.
 
 ## CPU busy ratio
@@ -59,15 +59,6 @@ The technique of driving `raw::Executor::poll()` manually and bracketing
 CPU usage with Rust Embassy"
 (<https://www.giacomocaironi.dev/posts/measuring-cpu-usage-with-rust-embassy/>,
 reference impl at <https://gitlab.com/giacomocaironi/embassy-cpu-usage>).
-
-## BTC price
-
-Code: `ubos/ubos-pool/src/btc.rs`.
-
-The Binance ticker response contains the price as a `"dollar.cents"` string.
-The parser extracts dollar and cent parts as integers and returns
-`dollars * 100 + cents` as a `u32`, avoiding software float emulation on
-MCUs without an FPU.
 
 ## Hashrate
 

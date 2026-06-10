@@ -3,7 +3,7 @@
 //!
 //! Configures SPI with DMA, brings up the W5100S via `embassy-net-wiznet`,
 //! starts the embassy-net stack with DHCP, and spawns the watchdog,
-//! ethernet runner, NTP, BTC, ubos-mining mining, and HTTP tasks.
+//! ethernet runner, NTP, ubos-mining mining, and HTTP tasks.
 //! Built with `cargo build` from this crate inside `nix develop .#esp`.
 //!
 //! The ESP32-S3 has two cores (`PRO_CPU` + `APP_CPU`). Embassy-net, the
@@ -44,7 +44,6 @@ use esp_hal::timer::timg::{MwdtStage, TimerGroup, Wdt};
 use esp_hal::uart::{Config as UartConfig, Uart};
 use esp_rtos::embassy::Callbacks;
 use portable_atomic::Ordering;
-use rand_core::{CryptoRng, RngCore};
 use static_cell::StaticCell;
 use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
@@ -108,37 +107,6 @@ type EthernetRunner = Runner<
     Output<'static>,
 >;
 
-/// Wrapper that bridges esp-hal `Rng` to `rand_core` 0.6 `CryptoRng`. The esp-hal
-/// `Rng` only implements `CryptoRng` for `rand_core` 0.9, but `embedded-tls` 0.18
-/// requires 0.6. Certificate verification is already skipped via `UnsecureProvider`.
-struct TlsRng(Rng);
-
-impl RngCore for TlsRng {
-    fn next_u32(&mut self) -> u32 {
-        self.0.random()
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        (u64::from(self.0.random()) << 32) | u64::from(self.0.random())
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        for chunk in dest.chunks_mut(4) {
-            let bytes = self.0.random().to_le_bytes();
-            chunk.copy_from_slice(&bytes[..chunk.len()]);
-        }
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
-}
-
-// SAFETY: Not used for real certificate verification. UnsecureProvider skips
-// all certificate checks, so this CryptoRng marker is a formality.
-impl CryptoRng for TlsRng {}
-
 struct BoardWatchdog(Wdt<TIMG1<'static>>);
 
 impl ubos_core::watchdog::Watchdog for BoardWatchdog {
@@ -166,11 +134,6 @@ async fn ethernet_task(runner: EthernetRunner) -> ! {
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
     runner.run().await
-}
-
-#[embassy_executor::task]
-async fn bitcoin_price_task(stack: embassy_net::Stack<'static>, rng: TlsRng) -> ! {
-    net::run_bitcoin_price(stack, rng).await
 }
 
 #[embassy_executor::task]
@@ -469,13 +432,9 @@ async fn boot(spawner: Spawner) {
     // Socket-set capacity for the embassy-net stack. Seven sockets are
     // held continuously: DHCPv4, DNS, the stratum client, the mDNS
     // responder, and the three HTTP listeners on :80, :8080, and :8081
-    // (each serves one connection at a time). On top of that the NTP
-    // sync (every 60 s) and BTC price fetch (every 300 s) each open a
-    // transient socket, and every closed TCP connection lingers in
-    // TIME_WAIT holding a slot until smoltcp reaps it. At 8 a coincident
-    // NTP+BTC plus one TIME_WAIT socket overran the set and panicked in
-    // SocketSet::add after a few hours; 16 leaves headroom for the
-    // transients and TIME_WAIT churn.
+    // (each serves one connection at a time). NTP opens a transient UDP
+    // socket every 60 s, and closed TCP connections linger in TIME_WAIT
+    // until smoltcp reaps them. 16 provides headroom.
     static RESOURCES: StaticCell<StackResources<16>> = StaticCell::new();
 
     let peripherals = esp_hal::init(esp_hal::Config::default());
@@ -581,8 +540,8 @@ async fn boot(spawner: Spawner) {
     );
     spawner.must_spawn(net_task(runner));
 
-    // Seed the session CSPRNG before rng is moved into the bitcoin-price TLS task.
-    // esp-hal Rng produces one u32 per call; 8 calls fill the 32-byte seed.
+    // Seed the session CSPRNG. esp-hal Rng produces one u32 per call;
+    // 8 calls fill the 32-byte seed.
     let csprng_seed = {
         let mut seed = [0u8; 32];
         for chunk in seed.chunks_exact_mut(4) {
@@ -592,7 +551,6 @@ async fn boot(spawner: Spawner) {
     };
     ubos_auth::csprng::seed_csprng(csprng_seed).await;
 
-    spawner.must_spawn(bitcoin_price_task(stack, TlsRng(rng)));
     spawner.must_spawn(ntp_sync_task(stack));
     spawner.must_spawn(metrics_task(stack));
 

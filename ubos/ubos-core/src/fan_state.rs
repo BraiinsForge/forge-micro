@@ -14,9 +14,9 @@ pub static FAN_RPM: AtomicU32 = AtomicU32::new(0);
 
 /// Current fan PWM duty as an integer percent in the range 0 to 100
 /// inclusive. `u8::MAX` is the sentinel for "this board has no fan";
-/// consumers use it to decide whether to show fan info or fall back
-/// to the BTC price. Boards without a fan leave the atomic at its
-/// initial value, so no explicit sentinel write is needed.
+/// consumers use it to decide whether to show fan info, leaving the
+/// line blank on fanless boards. Boards without a fan leave the atomic
+/// at its initial value, so no explicit sentinel write is needed.
 pub static FAN_PWM_PERCENT: AtomicU8 = AtomicU8::new(u8::MAX);
 
 /// Read the current PWM duty cycle. Returns [`FanPwm::ZERO`] when the
