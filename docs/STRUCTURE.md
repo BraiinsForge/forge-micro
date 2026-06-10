@@ -199,8 +199,8 @@ Reproduce with:
 ```sh
 nix develop .#arm -c bash -c 'cd firmware/<board> && cargo build --release && cargo size --release -- -A'
 nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo build --release'
-nix develop .#esp -c bash -c 'xtensa-esp-elf-size -A \
-  /home/jkr/projects/rusty-boards-api/build/target/xtensa-esp32s3-none-elf/release/esp32s3'
+nix develop .#esp -c bash -c 'cd firmware/esp32s3 && xtensa-esp-elf-size -A \
+  target/xtensa-esp32s3-none-elf/release/esp32s3'
 ```
 
 ## Rationale
