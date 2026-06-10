@@ -230,6 +230,13 @@ async fn display_task(mut display: OledDisplay) -> ! {
     ubos_display::display::run(&mut display).await
 }
 
+/// Resets the MCU once a reboot has been requested through the HTTP API.
+#[embassy_executor::task]
+async fn reset_task() -> ! {
+    ubos_core::reboot::wait_for_reboot_request().await;
+    cortex_m::peripheral::SCB::sys_reset()
+}
+
 #[embassy_executor::task]
 async fn rest_api_task(
     stack: embassy_net::Stack<'static>,
@@ -406,6 +413,7 @@ async fn main(spawner: Spawner) {
         None => info!("last reset: power-on or external"),
     }
     spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(watchdog))));
+    spawner.spawn(unwrap!(reset_task()));
 
     let led = Output::new(hw.led, Level::Low);
     spawner.spawn(unwrap!(led_blink_task(led)));

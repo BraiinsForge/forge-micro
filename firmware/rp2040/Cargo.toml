@@ -52,7 +52,8 @@ embassy-embedded-hal = { version = "0.6.0", default-features = false, features =
 embassy-futures      = { workspace = true }
 embassy-sync         = { workspace = true, features = ["defmt"] }
 
-# cortex-m and cortex-m-rt are pulled in by `#[cortex_m_rt::entry]` and
-# the linker scripts; no direct source references, so machete can't see them.
+# cortex-m-rt is pulled in by `#[cortex_m_rt::entry]` and the linker
+# scripts; no direct source references, so machete can't see it. cortex-m
+# is referenced directly by the reset task.
 [package.metadata.cargo-machete]
-ignored = ["cortex-m", "cortex-m-rt"]
+ignored = ["cortex-m-rt"]

@@ -52,8 +52,3 @@ embassy-futures     = { workspace = true }
 embassy-sync        = { workspace = true, features = ["defmt"] }
 heapless            = { workspace = true }
 critical-section    = { version = "1" }
-
-# cortex-m is pulled in for the `critical-section-single-core`
-# feature; no direct source references, so machete cannot see it.
-[package.metadata.cargo-machete]
-ignored = ["cortex-m"]
