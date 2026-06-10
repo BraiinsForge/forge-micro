@@ -203,6 +203,20 @@
           <button type="submit">Save</button>
           <div class="msg" id="msgSystem"></div>
         </form>
+        <div class="psec sep">
+          <h3>Factory reset</h3>
+          <div class="panel">
+            <div id="resetStep1">
+              <button type="button" class="btnDanger" id="btnResetStart">Factory reset…</button>
+            </div>
+            <div class="hide" id="resetStep2">
+              <p class="warn">All settings erased; board reboots to DHCP with default credentials.</p>
+              <button type="button" class="btnDanger" id="btnResetConfirm">Confirm reset</button>
+              <button type="button" class="btnSecondary" id="btnResetCancel">Cancel</button>
+            </div>
+            <div class="msg" id="msgReset"></div>
+          </div>
+        </div>
       </div>
     </div>
   </section>

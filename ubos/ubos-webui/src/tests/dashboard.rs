@@ -106,10 +106,12 @@ fn index_payload_logout_is_post_form() {
 /// uncompressed bytes. The bound sits well under a typical Linux
 /// TCP initcwnd of ~14 KiB so the index still fits in one RTT.
 /// Bump deliberately when intentionally adding features, not as a
-/// reflexive update.
+/// reflexive update. The factory-reset UI consumed the prior 10 KiB
+/// margin, so the bound moved to 11 KiB while staying under the RTT
+/// ceiling.
 #[test]
 fn index_payload_size_within_budget() {
-    const MAX_GZ_BYTES: usize = 10 * 1024;
+    const MAX_GZ_BYTES: usize = 11 * 1024;
     assert!(
         crate::INDEX_HTML_GZ.len() <= MAX_GZ_BYTES,
         "gz payload {} exceeds budget {}",

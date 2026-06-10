@@ -638,3 +638,34 @@ main > * {
 .hide {
   display: none;
 }
+
+.psec.sep {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.warn {
+  color: var(--red);
+  font-size: var(--fs-label);
+  margin: 0 0 12px;
+}
+
+.btnDanger {
+  background: var(--red);
+}
+
+.btnDanger:hover {
+  background: #b91c25;
+}
+
+.btnSecondary {
+  background: transparent;
+  color: var(--mute);
+  border: 1px solid var(--border);
+}
+
+.btnSecondary:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+}

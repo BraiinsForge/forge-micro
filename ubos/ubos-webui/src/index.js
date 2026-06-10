@@ -601,10 +601,10 @@ charts.forEach(chart => {
   chartResizeObserver.observe(svg);
 });
 
-async function csrfPost(body) {
+async function csrfPostTo(path, body) {
   const tokenResponse = await fetch('/', { method: 'HEAD', cache: 'no-store' });
   const csrf = tokenResponse.headers.get('X-CSRF-Token') || '';
-  return fetch(API + '/api/config', {
+  return fetch(API + path, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -613,6 +613,10 @@ async function csrfPost(body) {
     body: JSON.stringify(body),
     credentials: 'include',
   });
+}
+
+function csrfPost(body) {
+  return csrfPostTo('/api/config', body);
 }
 
 $('cfgForm').addEventListener('submit', async event => {
@@ -755,5 +759,59 @@ $('fmSystem').addEventListener('submit', async event => {
   } catch (error) {
     msg.style.color = 'var(--red)';
     msg.textContent = 'Save failed: ' + error.message;
+  }
+});
+
+$('btnResetStart').addEventListener('click', () => {
+  $('resetStep1').classList.add('hide');
+  $('resetStep2').classList.remove('hide');
+  $('msgReset').textContent = '';
+});
+
+$('btnResetCancel').addEventListener('click', () => {
+  $('resetStep2').classList.add('hide');
+  $('resetStep1').classList.remove('hide');
+});
+
+$('btnResetConfirm').addEventListener('click', async () => {
+  const msg = $('msgReset');
+  msg.style.color = '';
+  msg.textContent = '';
+  // The reset reboots the board: the in-RAM session is cleared and the
+  // default credentials are restored, so this tab's session is dead and
+  // its loaded config is stale. Wait until the port-80 shell drops and
+  // comes back, then navigate to `/`, which redirects to `/login`. The
+  // full navigation discards all in-memory config state, so the stale
+  // settings cannot linger. Requiring a failed poll first avoids
+  // navigating against the still-up server during the flush delay.
+  async function rebootThenLogin() {
+    $('resetStep2').classList.add('hide');
+    $('resetStep1').classList.remove('hide');
+    msg.textContent = 'Resetting — board rebooting…';
+    let wentDown = false;
+    for (;;) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      try {
+        const response = await fetch('/login', { cache: 'no-store' });
+        if (wentDown && response.ok) {
+          location.href = '/';
+          return;
+        }
+      } catch (_) {
+        wentDown = true;
+      }
+    }
+  }
+  try {
+    const response = await csrfPostTo('/api/system/factory_reset', {});
+    if (response.ok) {
+      rebootThenLogin();
+      return;
+    }
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Reset failed: HTTP ' + response.status;
+  } catch (error) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Reset failed: ' + error.message;
   }
 });
