@@ -580,13 +580,32 @@ where
     .await
 }
 
+/// Request body for `POST /api/system/network`.
+///
+/// Mirrors [`ubos_config::NetworkConfig`] field by field (`serde_json_core`
+/// does not support `#[serde(flatten)]`) and adds `confirm_after_switch`.
+/// The caller always sends this field; it is not optional.
+#[derive(serde::Deserialize)]
+struct NetworkPostRequest {
+    /// Network mode to apply (DHCP or static).
+    mode: ubos_config::NetworkMode,
+    /// Desired hostname for the device on the network.
+    hostname: heapless::String<{ ubos_config::network::HOSTNAME_MAX }>,
+    /// When `true`, arm the 120 s confirm-or-revert window. When `false`,
+    /// apply the change live and persist it immediately with no revert.
+    confirm_after_switch: bool,
+}
+
 /// Handle `POST /api/system/network`.
 ///
-/// Deserializes the body as a [`ubos_config::NetworkConfig`], validates
-/// it, and submits it to [`crate::network_apply::preview`] for live
-/// application. Returns 400 on parse or validation error, 200 on
-/// success. `extra_headers` carries caller-supplied headers such as
-/// CORS headers from the REST listener.
+/// Deserializes the body as a [`NetworkPostRequest`], validates the
+/// embedded [`ubos_config::NetworkConfig`], and submits it to
+/// [`crate::network_apply::apply`] for live application. When
+/// `confirm_after_switch` is `true`, a 120 s confirm-or-revert window
+/// is armed; when `false`, the change is persisted immediately with no
+/// window. Returns 400 on parse or validation error, 200 on success.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener.
 async fn handle_network_post<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -596,8 +615,7 @@ async fn handle_network_post<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    let Ok((network, _)) = serde_json_core::de::from_slice::<ubos_config::NetworkConfig>(body)
-    else {
+    let Ok((request, _)) = serde_json_core::de::from_slice::<NetworkPostRequest>(body) else {
         return write_bad_request(
             connection,
             scratch,
@@ -606,6 +624,10 @@ where
             extra_headers,
         )
         .await;
+    };
+    let network = ubos_config::NetworkConfig {
+        mode: request.mode,
+        hostname: request.hostname,
     };
     if let Err(message) = network.validate() {
         return write_bad_request(
@@ -617,7 +639,25 @@ where
         )
         .await;
     }
-    crate::network_apply::preview(network);
+    // A wrong or unreachable static address strands the board, and applying
+    // with no confirm window persists it immediately, so a reboot cannot
+    // recover. Require the confirm-or-revert window for static changes; DHCP
+    // self-heals on reboot, so it may still opt out.
+    if matches!(network.mode, ubos_config::NetworkMode::Static { .. })
+        && !request.confirm_after_switch
+    {
+        return write_bad_request(
+            connection,
+            scratch,
+            "static address changes require the confirm window",
+            b"{\"message\":\"static address changes require the confirm window\"}",
+            extra_headers,
+        )
+        .await;
+    }
+    if !crate::network_apply::apply(network, request.confirm_after_switch) {
+        return write_busy(connection, extra_headers).await;
+    }
     write_json_response(connection, 200, "OK", b"{\"ok\":true}", extra_headers).await
 }
 

@@ -6,6 +6,9 @@
 //! address. Unconfirmed changes revert after [`CONFIRM_WINDOW`]; the
 //! pending state lives only in RAM, so a reboot reverts too (boot uses
 //! the persisted config, which is only updated on confirm).
+//!
+//! When a request sets `confirm_after_switch` to `false`, the change is
+//! applied live and persisted immediately with no revert window.
 
 use embassy_futures::select::{select, Either};
 use embassy_net::{ConfigV4, DhcpConfig, Stack};
@@ -23,8 +26,16 @@ const CONFIRM_WINDOW: Duration = Duration::from_secs(120);
 
 /// Commands from the REST handlers to the apply task.
 enum Command {
-    /// Apply a new network config live and start the confirm window.
-    Preview(NetworkConfig),
+    /// Apply a new network config live. When `confirm_after_switch` is true,
+    /// arm the confirm-or-revert window; otherwise persist immediately with
+    /// no revert.
+    Apply {
+        /// The new network configuration to apply.
+        network: NetworkConfig,
+        /// When `true`, arm the 120 s confirm-or-revert window. When
+        /// `false`, apply and persist immediately without a revert window.
+        confirm_after_switch: bool,
+    },
     /// Confirm the pending change, committing it to flash.
     Confirm,
 }
@@ -41,12 +52,19 @@ static PENDING_DEADLINE_SECS: AtomicU64 = AtomicU64::new(0);
 /// address during the confirm window.
 static PENDING_IS_STATIC: AtomicBool = AtomicBool::new(false);
 
-/// Submit a network change to apply live and hold pending.
+/// Submit a network change. With `confirm_after_switch`, arm the
+/// confirm-or-revert window; otherwise apply and persist immediately.
 ///
-/// Non-blocking; drops the request when the queue is full. The operator
-/// can retry if the drop happens.
-pub fn preview(network: NetworkConfig) {
-    let _ = COMMANDS.try_send(Command::Preview(network));
+/// Non-blocking; returns `false` when the queue is full so the caller can
+/// surface the failure instead of silently dropping the request.
+#[must_use]
+pub fn apply(network: NetworkConfig, confirm_after_switch: bool) -> bool {
+    COMMANDS
+        .try_send(Command::Apply {
+            network,
+            confirm_after_switch,
+        })
+        .is_ok()
 }
 
 /// Confirm the pending change, committing it to flash.
@@ -110,68 +128,23 @@ struct Pending {
 /// Drive live network apply with confirm-or-revert.
 ///
 /// Spawn once per board after the stack is created; never returns. The
-/// task waits for [`preview`] commands from the REST handler, applies
-/// them to the live stack, and holds a [`Pending`] state until either
-/// [`confirm`] arrives or the [`CONFIRM_WINDOW`] expires.
+/// task waits for [`apply`] commands from the REST handler, applies
+/// them to the live stack, and either holds a [`Pending`] state until
+/// [`confirm`] arrives or the [`CONFIRM_WINDOW`] expires
+/// (`confirm_after_switch = true`), or persists immediately with no
+/// revert window (`confirm_after_switch = false`).
 pub async fn run_network_apply(stack: Stack<'static>) -> ! {
     // The stack was already configured at boot from the persisted config.
     let mut applied = to_config_v4(&ubos_config::handle().current().network);
     let mut pending: Option<Pending> = None;
 
     loop {
-        match &pending {
-            None => match COMMANDS.receive().await {
-                Command::Preview(network) => {
-                    let fallback = applied.clone();
-                    applied = to_config_v4(&network);
-                    stack.set_config_v4(applied.clone());
-                    let deadline = Instant::now() + CONFIRM_WINDOW;
-                    PENDING_IS_STATIC.store(
-                        matches!(network.mode, NetworkMode::Static { .. }),
-                        Ordering::Relaxed,
-                    );
-                    PENDING_DEADLINE_SECS.store(deadline.as_secs(), Ordering::Relaxed);
-                    info!("network: preview applied, awaiting confirm");
-                    pending = Some(Pending {
-                        network,
-                        fallback,
-                        deadline,
-                    });
-                }
-                Command::Confirm => {
-                    info!("network: confirm with nothing pending");
-                }
-            },
+        let command = match &pending {
+            None => COMMANDS.receive().await,
             Some(state) => {
-                match select(COMMANDS.receive(), Timer::at(state.deadline)).await {
-                    Either::First(Command::Confirm) => {
-                        if let Some(confirmed) = pending.take() {
-                            ubos_config::handle()
-                                .send(Message::SetNetwork(confirmed.network))
-                                .await;
-                            PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
-                            info!("network: change confirmed");
-                        }
-                    }
-                    Either::First(Command::Preview(network)) => {
-                        // A newer preview supersedes the current one; keep
-                        // the original fallback so revert goes all the way back.
-                        if let Some(previous) = pending.take() {
-                            applied = to_config_v4(&network);
-                            stack.set_config_v4(applied.clone());
-                            let deadline = Instant::now() + CONFIRM_WINDOW;
-                            PENDING_IS_STATIC.store(
-                                matches!(network.mode, NetworkMode::Static { .. }),
-                                Ordering::Relaxed,
-                            );
-                            PENDING_DEADLINE_SECS.store(deadline.as_secs(), Ordering::Relaxed);
-                            pending = Some(Pending {
-                                network,
-                                fallback: previous.fallback,
-                                deadline,
-                            });
-                        }
-                    }
+                let deadline = state.deadline;
+                match select(COMMANDS.receive(), Timer::at(deadline)).await {
+                    Either::First(command) => command,
                     Either::Second(()) => {
                         if let Some(expired) = pending.take() {
                             stack.set_config_v4(expired.fallback.clone());
@@ -179,7 +152,64 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                             PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
                             warn!("network: change not confirmed, reverted");
                         }
+                        continue;
                     }
+                }
+            }
+        };
+
+        match command {
+            Command::Apply {
+                network,
+                confirm_after_switch: true,
+            } => {
+                // Keep the original fallback when superseding a pending change
+                // so revert goes all the way back.
+                let fallback = pending
+                    .take()
+                    .map_or_else(|| applied.clone(), |previous| previous.fallback);
+                applied = to_config_v4(&network);
+                stack.set_config_v4(applied.clone());
+                let deadline = Instant::now() + CONFIRM_WINDOW;
+                PENDING_IS_STATIC.store(
+                    matches!(network.mode, NetworkMode::Static { .. }),
+                    Ordering::Relaxed,
+                );
+                // Round the deadline up so the reported seconds stay
+                // positive until the full-precision timer actually fires.
+                PENDING_DEADLINE_SECS.store(deadline.as_millis().div_ceil(1000), Ordering::Relaxed);
+                info!("network: preview applied, awaiting confirm");
+                pending = Some(Pending {
+                    network,
+                    fallback,
+                    deadline,
+                });
+            }
+            Command::Apply {
+                network,
+                confirm_after_switch: false,
+            } => {
+                // Apply live and persist immediately; no revert window.
+                pending = None;
+                applied = to_config_v4(&network);
+                stack.set_config_v4(applied.clone());
+                PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
+                PENDING_IS_STATIC.store(false, Ordering::Relaxed);
+                ubos_config::handle()
+                    .send(Message::SetNetwork(network))
+                    .await;
+                info!("network: change applied and persisted");
+            }
+            Command::Confirm => {
+                if let Some(confirmed) = pending.take() {
+                    ubos_config::handle()
+                        .send(Message::SetNetwork(confirmed.network))
+                        .await;
+                    PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
+                    PENDING_IS_STATIC.store(false, Ordering::Relaxed);
+                    info!("network: change confirmed");
+                } else {
+                    info!("network: confirm with nothing pending");
                 }
             }
         }
