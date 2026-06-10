@@ -9,6 +9,9 @@
 //! blockFound/dismiss,factory_reset}` and `PATCH /api/system`) are
 //! handled as follows:
 //!
+//! - `restart` — writes a 200 ack, then calls
+//!   [`ubos_core::reboot::request_reboot`] so the board's reset task
+//!   performs the actual MCU reset after the socket drains.
 //! - `factory_reset` — sends [`ubos_config::Message::FactoryReset`] to
 //!   the config task, which wipes persisted config back to defaults and
 //!   then requests the reboot once the wipe is persisted; the handler
@@ -775,6 +778,7 @@ where
         }
         DispatchOutcome::Handled(Route::RestartAck) => {
             handle_action(connection, scratch, "restart", extra_headers).await?;
+            ubos_core::reboot::request_reboot();
         }
         DispatchOutcome::Handled(Route::IdentifyAck) => {
             handle_action(connection, scratch, "identify", extra_headers).await?;

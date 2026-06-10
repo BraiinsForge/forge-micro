@@ -119,7 +119,7 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 | POST   | `/api/system/OTAWWW`              | any       | 501    | `{"message":"unsupported on this platform"}`                             |
 | POST   | `/api/system/pause`               | any +CSRF | 200    | Stub: logs + sends `Manager::Stop`; returns `{"message":"ack"}`          |
 | POST   | `/api/system/resume`              | any +CSRF | 200    | Stub: logs + sends `Manager::Start`; returns `{"message":"ack"}`         |
-| POST   | `/api/system/restart`             | any +CSRF | 200    | Stub: logs only; returns `{"message":"ack"}`                             |
+| POST   | `/api/system/restart`             | any +CSRF | 200    | Writes the ack, then calls `request_reboot` to reset the MCU once the socket drains |
 | POST   | `/api/system/factory_reset`       | any +CSRF | 200    | Sends `FactoryReset` to the config task; writes the ack, then the config task wipes persisted config to defaults and requests the reboot once persisted |
 | POST   | `/api/system/identify`            | any +CSRF | 200    | Stub: logs only; returns `{"message":"ack"}`                             |
 | POST   | `/api/system/blockFound/dismiss`  | any +CSRF | 200    | Stub: logs only; returns `{"message":"ack"}`                             |
