@@ -4,12 +4,6 @@
 // shell, login, and logout live on the same port 80 we were served from.
 const API = `${location.protocol}//${location.hostname}:8080`;
 
-// Confirm-or-revert window for a live network change, in seconds. Must
-// match CONFIRM_WINDOW in ubos-api/src/network_apply.rs; the firmware
-// owns the real revert deadline, this only seeds the optimistic banner
-// shown right after POST before the GET status poll reconciles it.
-const NET_CONFIRM_WINDOW_SECONDS = 120;
-
 // Chart geometry. PAD_* are fixed pixel gutters reserved for axis
 // labels; the chart width and height are read from each SVG element's
 // rendered box at draw time so the coordinate space always matches the
@@ -62,6 +56,7 @@ const $$ = (parent, selector) => parent.querySelector(selector);
 
 let cfgLoaded = false;
 let cfgLoading = false;
+let networkStatusLoading = false;
 let asicLoaded = false;
 let thermalLoaded = false;
 let coolingLoaded = false;
@@ -332,6 +327,27 @@ function setLk(alive) {
 const LINK_FAIL_THRESHOLD = 3;
 let linkFailures = 0;
 
+// Open the network confirm modal. Called with no args for the review
+// step before a switch, or with (ip, seconds) to show the pending
+// confirm-or-revert state with a live countdown driven by the poll.
+function showModal(ip, seconds) {
+  const pending = seconds != null;
+  if (pending) {
+    const minutes = Math.floor(seconds / 60);
+    const remaining = String(seconds % 60).padStart(2, '0');
+    $('netModalPendingText').textContent =
+      'Applied ' + ip + '. Confirm within ' + minutes + ':' + remaining + ' or it reverts.';
+  }
+  $('netModalReview').classList.toggle('hide', pending);
+  $('netModalPending').classList.toggle('hide', !pending);
+  $('netModal').classList.remove('hide');
+}
+
+let pendingNetSwitch = null;
+// True while an apply POST is in flight, so reopening the form mid-apply
+// cannot fire a second concurrent POST /api/system/network.
+let applyInFlight = false;
+
 async function tick() {
   // Skip the poll while the Configuration page is loading. The REST
   // listener serves one connection at a time, so this 2 s poll and the
@@ -377,6 +393,17 @@ async function tick() {
     inBuf.shift(); inBuf.push(data.power_in_mw == null ? null : data.power_in_mw / 1000);
     outBuf.shift(); outBuf.push(data.power_out_mw == null ? null : data.power_out_mw / 1000);
     draw();
+    // Drive the global confirm modal from the poll so it reappears on any
+    // page after a reload while a network change awaits confirmation.
+    const modal = $('netModal');
+    if (modal) {
+      const confirmedSeconds = (data.net_confirm_seconds | 0);
+      if (confirmedSeconds > 0 && !pendingNetSwitch) {
+        showModal(data.ip || '', confirmedSeconds);
+      } else if (!$('netModalPending').classList.contains('hide')) {
+        $('netModal').classList.add('hide');
+      }
+    }
   } catch (error) {
     // Only flip to Dead after several consecutive misses so a single
     // dropped poll does not flash Dead on an otherwise healthy board.
@@ -679,9 +706,11 @@ async function csrfToken() {
   return response.headers.get('X-CSRF-Token') || '';
 }
 
-// POST JSON to an arbitrary API path with the CSRF token.
-async function csrfPostTo(path, body) {
-  const csrf = await csrfToken();
+// POST JSON to an arbitrary API path with the CSRF token. Pass a
+// pre-fetched token to keep the token request separate from the POST,
+// so a caller can tell a token failure apart from a dropped POST.
+async function csrfPostTo(path, body, token) {
+  const csrf = token === undefined ? await csrfToken() : token;
   return fetch(API + path, {
     method: 'POST',
     headers: {
@@ -840,137 +869,47 @@ $('fmSystem').addEventListener('submit', async event => {
   }
 });
 
-$('btnResetStart').addEventListener('click', () => {
-  $('resetStep1').classList.add('hide');
-  $('resetStep2').classList.remove('hide');
-  $('msgReset').textContent = '';
-});
-
-$('btnResetCancel').addEventListener('click', () => {
-  $('resetStep2').classList.add('hide');
-  $('resetStep1').classList.remove('hide');
-});
-
-$('btnResetConfirm').addEventListener('click', async () => {
-  const msg = $('msgReset');
-  msg.style.color = '';
-  msg.textContent = '';
-  // The reset reboots the board: the in-RAM session is cleared and the
-  // default credentials are restored, so this tab's session is dead and
-  // its loaded config is stale. Wait until the port-80 shell drops and
-  // comes back, then navigate to `/`, which redirects to `/login`. The
-  // full navigation discards all in-memory config state, so the stale
-  // settings cannot linger. Requiring a failed poll first avoids
-  // navigating against the still-up server during the flush delay.
-  async function rebootThenLogin() {
-    $('resetStep2').classList.add('hide');
-    $('resetStep1').classList.remove('hide');
-    msg.textContent = 'Resetting — board rebooting…';
-    let wentDown = false;
-    for (;;) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      try {
-        const response = await fetch('/login', { cache: 'no-store' });
-        if (wentDown && response.ok) {
-          location.href = '/';
-          return;
-        }
-      } catch (_) {
-        wentDown = true;
-      }
-    }
-  }
-  try {
-    const response = await csrfPostTo('/api/system/factory_reset', {});
-    if (response.ok) {
-      rebootThenLogin();
-      return;
-    }
-    msg.style.color = 'var(--red)';
-    msg.textContent = 'Reset failed: HTTP ' + response.status;
-  } catch (error) {
-    msg.style.color = 'var(--red)';
-    msg.textContent = 'Reset failed: ' + error.message;
-  }
-});
-
-// Interval handle for the confirm-window countdown; null when inactive.
-let netCountdownInterval = null;
-
-// Format seconds as M:SS for the confirm countdown display.
-function fmtCountdown(seconds) {
-  const minutes = Math.floor(seconds / 60);
-  const remaining = seconds % 60;
-  return minutes + ':' + String(remaining).padStart(2, '0');
-}
-
-// Show or hide the confirm banner and start/stop the countdown ticker.
-// Called with the seconds_remaining value from GET /api/system/network.
-function setNetConfirmBanner(secondsRemaining) {
-  const banner = $('netConfirm');
-  if (secondsRemaining > 0) {
-    banner.classList.remove('hide');
-    $('netCountdown').textContent = fmtCountdown(secondsRemaining);
-    if (netCountdownInterval !== null) clearInterval(netCountdownInterval);
-    let remaining = secondsRemaining;
-    netCountdownInterval = setInterval(() => {
-      remaining -= 1;
-      if (remaining <= 0) {
-        clearInterval(netCountdownInterval);
-        netCountdownInterval = null;
-        banner.classList.add('hide');
-        return;
-      }
-      $('netCountdown').textContent = fmtCountdown(remaining);
-    }, 1000);
-  } else {
-    banner.classList.add('hide');
-    if (netCountdownInterval !== null) {
-      clearInterval(netCountdownInterval);
-      netCountdownInterval = null;
-    }
-  }
-}
-
-// Fetch GET /api/system/network, update the confirm banner, and
-// populate the live address fields. Both DHCP and Static modes return
-// real values from the embassy-net stack (DHCP returns the lease).
-// Retries with backoff to tolerate transient failures (e.g. a
-// concurrent /api/info poll occupying the single REST listener slot).
+// Fetch GET /api/system/network to populate the live address fields.
+// Both DHCP and Static modes return real values from the embassy-net
+// stack (DHCP returns the lease). Retries with backoff to tolerate a
+// concurrent /api/info poll occupying the single REST listener slot.
 async function loadNetworkStatus() {
+  // Skip if a load is already in flight so rapid tab switches cannot race
+  // two runs and apply stale responses out of order.
+  if (networkStatusLoading) return;
+  networkStatusLoading = true;
   const delays = [0, 250, 500, 1000];
   let lastError;
-  for (const wait of delays) {
-    if (wait) await new Promise(resolve => setTimeout(resolve, wait));
-    try {
-      const response = await fetch(API + '/api/system/network', { cache: 'no-store', credentials: 'include' });
-      if (!response.ok) throw new Error('HTTP ' + response.status);
-      const data = await response.json();
-      setNetConfirmBanner(data.seconds_remaining || 0);
-      // Set the mode from the live status so the segmented buttons reflect
-      // the board's current mode even before loadCfg completes.
-      const modeVal = data.mode === 'static' ? 'Static' : 'Dhcp';
-      $('netMode').value = modeVal;
-      if (data.address) $('netAddr').value = bytesToIp(data.address);
-      if (data.prefix_len != null) $('netMask').value = prefixToMask(data.prefix_len);
-      if (data.gateway) $('netGw').value = bytesToIp(data.gateway);
-      const dns = data.dns || [];
-      $('netDns1').value = dns[0] ? bytesToIp(dns[0]) : '';
-      $('netDns2').value = dns[1] ? bytesToIp(dns[1]) : '';
-      syncNetUi();
-      return;
-    } catch (error) {
-      lastError = error;
-      console.warn('loadNetworkStatus attempt failed:', error);
+  try {
+    for (const wait of delays) {
+      if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+      try {
+        const response = await fetch(API + '/api/system/network', { cache: 'no-store', credentials: 'include' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        // Set the mode from the live status so the segmented buttons reflect
+        // the board's current mode even before loadCfg completes.
+        const modeVal = data.mode === 'static' ? 'Static' : 'Dhcp';
+        $('netMode').value = modeVal;
+        if (data.address) $('netAddr').value = bytesToIp(data.address);
+        if (data.prefix_len != null) $('netMask').value = prefixToMask(data.prefix_len);
+        if (data.gateway) $('netGw').value = bytesToIp(data.gateway);
+        const dns = data.dns || [];
+        $('netDns1').value = dns[0] ? bytesToIp(dns[0]) : '';
+        $('netDns2').value = dns[1] ? bytesToIp(dns[1]) : '';
+        syncNetUi();
+        return;
+      } catch (error) {
+        lastError = error;
+        console.warn('loadNetworkStatus attempt failed:', error);
+      }
     }
+    // Non-fatal: fields stay as-is after all retries fail.
+    console.warn('loadNetworkStatus: all retries exhausted:', lastError);
+  } finally {
+    networkStatusLoading = false;
   }
-  // Non-fatal: fields and banner stay as-is after all retries fail.
-  console.warn('loadNetworkStatus: all retries exhausted:', lastError);
 }
-
-// Pending switch payload set by the fmNetwork submit handler and
-// consumed by the btnNetSwitchConfirm click handler.
-let pendingNetSwitch = null;
 
 $('fmNetwork').addEventListener('submit', event => {
   event.preventDefault();
@@ -1021,88 +960,135 @@ $('fmNetwork').addEventListener('submit', event => {
     mode = { Static: { address, prefix_len, gateway, dns } };
     summary = 'Switch to static ' + addrStr + '/' + prefix_len + ' gw ' + gwStr;
   }
-  // Validation passed: show the pre-switch confirm panel on the current
-  // (still-alive) connection before sending the switch POST.
   pendingNetSwitch = { mode, hostname };
-  $('netSwitchSummary').textContent = summary;
-  $('netConfirmAfter').checked = true;
-  $('netConfirmAfterWarn').classList.add('hide');
-  $('msgNetSwitch').style.color = '';
-  $('msgNetSwitch').textContent = '';
-  $('netSwitchConfirm').classList.remove('hide');
+  $('netModalSummary').textContent = summary;
+  $('netModalConfirmAfter').checked = true;
+  $('netModalWarn').classList.add('hide');
+  $('msgNetModal').textContent = '';
+  showModal();
 });
 
-$('netConfirmAfter').addEventListener('change', function () {
-  $('netConfirmAfterWarn').classList.toggle('hide', this.checked);
+$('netModalConfirmAfter').addEventListener('change', function () {
+  $('netModalWarn').classList.toggle('hide', this.checked);
 });
 
-$('btnNetSwitchCancel').addEventListener('click', () => {
-  $('netSwitchConfirm').classList.add('hide');
+$('btnNetModalCancel').addEventListener('click', () => {
+  $('netModal').classList.add('hide');
   pendingNetSwitch = null;
 });
 
-$('btnNetSwitchConfirm').addEventListener('click', async () => {
-  const msgSwitch = $('msgNetSwitch');
-  msgSwitch.style.color = '';
-  msgSwitch.textContent = '';
-  if (!pendingNetSwitch) return;
+$('btnNetModalConfirm').addEventListener('click', async () => {
+  if (!pendingNetSwitch || applyInFlight) return;
   const { mode, hostname } = pendingNetSwitch;
-  const confirmAfterSwitch = $('netConfirmAfter').checked;
-  // Hide the panel immediately — the connection will drop on success
-  // and we cannot interact with it anyway.
-  $('netSwitchConfirm').classList.add('hide');
+  const confirmAfterSwitch = $('netModalConfirmAfter').checked;
+  $('netModal').classList.add('hide');
   pendingNetSwitch = null;
+  applyInFlight = true;
   const msg = $('msgNetwork');
-  const switchedText = 'Switched. Reconnect to the board at its new address'
-    + (confirmAfterSwitch ? ', then confirm within 2:00, or it reverts.' : '.');
-  // Do NOT retry this POST: a network error means the switch already
-  // dropped our connection, so retrying against the old address is futile.
+  // The 2:00 mirrors the server's 120 s confirm window; the live
+  // countdown comes from net_confirm_seconds once polling resumes.
+  const switchedText = confirmAfterSwitch
+    ? 'Switched. Reconnect and confirm within 2:00, or it reverts.'
+    : 'Switched. Reconnect to the board at its new address.';
+  // Fetch the CSRF token before the apply POST. The link is still up at
+  // this point, so a failure here is a real error, not the address
+  // change dropping the connection; only the POST below may drop.
+  let csrf;
   try {
-    const response = await csrfPostTo('/api/system/network', { mode, hostname, confirm_after_switch: confirmAfterSwitch });
+    csrf = await csrfToken();
+  } catch (error) {
+    applyInFlight = false;
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Could not get CSRF token: ' + ((error && error.message) || 'network error');
+    return;
+  }
+  try {
+    const response = await csrfPostTo('/api/system/network', { mode, hostname, confirm_after_switch: confirmAfterSwitch }, csrf);
     if (response.ok) {
       msg.style.color = '';
       msg.textContent = switchedText;
-      if (confirmAfterSwitch) setNetConfirmBanner(NET_CONFIRM_WINDOW_SECONDS);
       return;
     }
-    // 4xx: the connection did not drop; show the validation error in the
-    // form so the user can fix the config and apply again.
     const errBody = await response.json().catch(() => ({}));
     msg.style.color = 'var(--red)';
     msg.textContent = errBody.message || ('HTTP ' + response.status);
   } catch (_) {
-    // NetworkError: the switch dropped our connection as expected.
-    // Treat this the same as a successful response.
     msg.style.color = '';
     msg.textContent = switchedText;
-    if (confirmAfterSwitch) setNetConfirmBanner(NET_CONFIRM_WINDOW_SECONDS);
+  } finally {
+    applyInFlight = false;
   }
 });
 
-$('btnNetConfirm').addEventListener('click', async () => {
-  const msg = $('msgNetConfirm');
+// Confirm or revert the pending change from the modal. Neither POST
+// changes the IP, so retry with backoff against a transient failure on
+// the freshly reconnected link. Closes the modal on success.
+async function netModalPost(path, errPrefix) {
+  const msg = $('msgNetModal');
   msg.style.color = '';
   msg.textContent = '';
-  // This POST does not change the IP address, so retrying is safe and
-  // helpful against a transient failure on the new connection.
+  // Guard against a double-click spawning a second concurrent POST that
+  // would also mutate the message and close the modal.
+  const buttons = [$('btnNetModalPersist'), $('btnNetModalRevert')];
+  buttons.forEach(button => { button.disabled = true; });
   const delays = [0, 250, 500, 1000];
   let lastError;
-  for (const wait of delays) {
-    if (wait) await new Promise(resolve => setTimeout(resolve, wait));
-    try {
-      const response = await csrfPostTo('/api/system/network/confirm', {});
-      if (response.ok) {
-        setNetConfirmBanner(0);
-        msg.style.color = '';
-        msg.textContent = 'Confirmed.';
-        return;
+  try {
+    for (const wait of delays) {
+      if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+      try {
+        const response = await csrfPostTo(path, {});
+        if (response.ok) {
+          $('netModal').classList.add('hide');
+          return;
+        }
+        lastError = new Error('HTTP ' + response.status);
+        // A 4xx is a client error the board will reject identically on
+        // retry, so stop and surface it instead of burning the backoff.
+        if (response.status >= 400 && response.status < 500) break;
+      } catch (error) {
+        lastError = error;
       }
-      lastError = new Error('HTTP ' + response.status);
-    } catch (error) {
-      lastError = error;
-      console.warn('btnNetConfirm attempt failed:', error);
     }
+    msg.style.color = 'var(--red)';
+    msg.textContent = errPrefix + ': ' + ((lastError && lastError.message) || 'unknown');
+  } finally {
+    buttons.forEach(button => { button.disabled = false; });
   }
-  msg.style.color = 'var(--red)';
-  msg.textContent = 'Confirm failed: ' + ((lastError && lastError.message) || 'unknown');
+}
+
+$('btnNetModalPersist').addEventListener('click', () => netModalPost('/api/system/network/confirm', 'Confirm failed'));
+$('btnNetModalRevert').addEventListener('click', () => netModalPost('/api/system/network/revert', 'Revert failed'));
+
+$('btnResetStart').addEventListener('click', () => {
+  $('resetStep1').classList.add('hide');
+  $('resetStep2').classList.remove('hide');
+  $('msgReset').textContent = '';
+});
+
+$('btnResetCancel').addEventListener('click', () => {
+  $('resetStep2').classList.add('hide');
+  $('resetStep1').classList.remove('hide');
+});
+
+$('btnResetConfirm').addEventListener('click', async () => {
+  const msg = $('msgReset');
+  msg.style.color = '';
+  msg.textContent = '';
+  function done() {
+    msg.textContent = 'Resetting — board rebooting, connection will drop.';
+    $('resetStep2').classList.add('hide');
+    $('resetStep1').classList.remove('hide');
+  }
+  try {
+    const response = await csrfPostTo('/api/system/factory_reset', {});
+    if (response.ok) {
+      done();
+      return;
+    }
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Reset failed: HTTP ' + response.status;
+  } catch (_) {
+    done();
+  }
 });

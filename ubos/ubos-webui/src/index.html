@@ -211,7 +211,7 @@
               <button type="button" class="btnDanger" id="btnResetStart">Factory reset…</button>
             </div>
             <div class="hide" id="resetStep2">
-              <p class="warn">All settings erased; board reboots to DHCP with default credentials.</p>
+              <p class="modalWarn">All settings erased; board reboots to DHCP with default credentials.</p>
               <button type="button" class="btnDanger" id="btnResetConfirm">Confirm reset</button>
               <button type="button" class="btnSecondary" id="btnResetCancel">Cancel</button>
             </div>
@@ -221,25 +221,6 @@
       </div>
 
       <div class="cfgsec" id="secNetwork">
-        <div class="psec hide" id="netConfirm">
-          <h3>Confirm network change</h3>
-          <div class="panel">
-            <p class="netNote">New address applied. Reconnect here and confirm within <span id="netCountdown">2:00</span>, or it reverts automatically.</p>
-            <button type="button" id="btnNetConfirm">Confirm</button>
-            <div class="msg" id="msgNetConfirm"></div>
-          </div>
-        </div>
-        <div class="psec hide" id="netSwitchConfirm">
-          <h3>Confirm switch</h3>
-          <div class="panel">
-            <p id="netSwitchSummary"></p>
-            <label><input type="checkbox" id="netConfirmAfter" checked> Require confirmation after switch</label>
-            <p class="msg hide" id="netConfirmAfterWarn" style="color:var(--red)">Warning: an unreachable config will not auto-revert and will need serial recovery.</p>
-            <button type="button" id="btnNetSwitchConfirm">Confirm switch</button>
-            <button type="button" id="btnNetSwitchCancel">Cancel</button>
-            <div class="msg" id="msgNetSwitch"></div>
-          </div>
-        </div>
         <form id="fmNetwork">
           <div class="psec">
             <h3>Hostname</h3>
@@ -273,6 +254,28 @@
       </div>
     </div>
   </section>
+
+  <div class="modal hide" id="netModal" role="dialog" aria-modal="true">
+    <div>
+      <div class="hide" id="netModalReview">
+        <p id="netModalSummary"></p>
+        <label class="modalCheck"><input type="checkbox" id="netModalConfirmAfter" checked> Confirm after switch</label>
+        <p class="modalWarn hide" id="netModalWarn">Warning: unreachable config will not auto-revert; serial recovery needed.</p>
+        <div class="modalBtns">
+          <button type="button" id="btnNetModalConfirm">Apply</button>
+          <button type="button" class="btnSecondary" id="btnNetModalCancel">Cancel</button>
+        </div>
+      </div>
+      <div class="hide" id="netModalPending">
+        <p id="netModalPendingText"></p>
+        <div class="modalBtns">
+          <button type="button" id="btnNetModalPersist">Confirm</button>
+          <button type="button" class="btnDanger" id="btnNetModalRevert">Revert</button>
+        </div>
+        <div class="msg" id="msgNetModal"></div>
+      </div>
+    </div>
+  </div>
 
   <footer class="bar ft">
     <span class="bi">{{BUILD_REV}} · {{BUILD_TIME}}</span>

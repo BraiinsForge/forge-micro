@@ -541,6 +541,12 @@ main > * {
   margin: 0;
 }
 
+.psec.sep {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
 .cfgsec label {
   display: block;
   color: var(--mute);
@@ -610,8 +616,7 @@ main > * {
 }
 
 /* Save button sits outside the panels on the body bg as a deliberate
-   submit affordance. align-self: flex-start sizes it to its content
-   instead of stretching to the full panel column width. */
+   submit affordance. align-self: flex-start sizes it to content width. */
 .cfgsec button {
   align-self: flex-start;
   background: var(--accent);
@@ -637,37 +642,6 @@ main > * {
 
 .hide {
   display: none;
-}
-
-.psec.sep {
-  margin-top: 24px;
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
-}
-
-.warn {
-  color: var(--red);
-  font-size: var(--fs-label);
-  margin: 0 0 12px;
-}
-
-.btnDanger {
-  background: var(--red);
-}
-
-.btnDanger:hover {
-  background: #b91c25;
-}
-
-.btnSecondary {
-  background: transparent;
-  color: var(--mute);
-  border: 1px solid var(--border);
-}
-
-.btnSecondary:hover {
-  color: var(--fg);
-  border-color: var(--fg);
 }
 
 /* Network section: segmented mode picker and informational note.
@@ -708,8 +682,70 @@ main > * {
   border-color: var(--accent);
 }
 
-.netNote {
-  color: var(--mute);
+/* ---------- Network confirm modal ---------- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal.hide {
+  display: none;
+}
+
+.modal > div {
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 24px 28px;
+  max-width: 480px;
+  width: 90%;
+}
+
+.modal p {
+  margin: 0 0 12px;
+  font-size: var(--fs-body);
+}
+
+.modalWarn {
+  color: var(--red);
   font-size: var(--fs-label);
-  margin: 0;
+  margin: 0 0 12px;
+}
+
+.modalCheck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.modalBtns {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.btnDanger {
+  background: var(--red);
+}
+
+.btnDanger:hover {
+  background: #b91c25;
+}
+
+.btnSecondary {
+  background: transparent;
+  color: var(--mute);
+  border: 1px solid var(--border);
+}
+
+.btnSecondary:hover {
+  color: var(--fg);
+  border-color: var(--fg);
 }
