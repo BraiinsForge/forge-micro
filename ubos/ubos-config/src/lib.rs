@@ -83,6 +83,10 @@ const COMMAND_CHANNEL_DEPTH: usize = 4;
 
 /// Stack buffer size for encode and decode of stored config blobs.
 ///
+/// Holds the 8-byte schema-hash prefix plus the postcard-encoded
+/// [`Config`]. The factory-default blob is ~111 bytes (see the golden
+/// snapshot in `src/tests/storage.rs`); 512 leaves room for the pool list
+/// and network section to grow without re-tuning.
 /// [`flash_storage::SCRATCH_SIZE`] is a const alias for this value, so
 /// raising it here raises the flash scratch budget in lockstep.
 pub(crate) const LOAD_BUFFER_SIZE: usize = 512;
