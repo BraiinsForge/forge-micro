@@ -26,6 +26,10 @@ mod tests_storage;
 #[path = "tests/validation.rs"]
 mod tests_validation;
 
+#[cfg(all(test, feature = "std"))]
+#[path = "tests/factory_reset.rs"]
+mod tests_factory_reset;
+
 pub mod api;
 pub mod cooling;
 pub mod mining;
@@ -439,6 +443,10 @@ pub async fn run<S: Storage>(manager: ManagerHandle, mining: MiningHandle, mut s
             Message::Update(new) => {
                 apply_update(new, manager, mining, &mut storage).await;
             }
+            Message::FactoryReset => {
+                factory_reset(&mut storage).await;
+                ubos_core::reboot::request_reboot();
+            }
         }
     }
 }
@@ -510,6 +518,20 @@ async fn apply_update<S: Storage>(
     STRATUM_RESTART.signal(());
     info!("config: applied update");
     manager.send(ManagerMessage::Reconfiguring(false)).await;
+}
+
+/// Reset the stored config to [`Config::default`] and publish it.
+///
+/// Persists the defaults, refreshes [`STATE_WATCH`], and returns the
+/// new value. Returning the config keeps the persisted, published, and
+/// in-memory values provably identical and lets tests drive the real
+/// reset path.
+async fn factory_reset<S: Storage>(storage: &mut S) -> Config {
+    let config = Config::default();
+    persist(&config, storage).await;
+    STATE_WATCH.sender().send(config.clone());
+    info!("config: factory reset to defaults");
+    config
 }
 
 /// Persist `config` to `storage`. A failure is logged and swallowed:
