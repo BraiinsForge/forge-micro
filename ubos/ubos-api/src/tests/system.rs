@@ -35,6 +35,7 @@ const ROUTES: &[(&str, &str, Route)] = &[
         "/api/system/blockFound/dismiss",
         Route::BlockFoundDismissAck,
     ),
+    ("POST", "/api/system/factory_reset", Route::FactoryReset),
     ("PATCH", "/api/system", Route::PatchSystem),
 ];
 

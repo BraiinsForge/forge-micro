@@ -6,10 +6,19 @@
 //! in a JSON response via `write_json_response`.
 //!
 //! Action endpoints (`POST /api/system/{pause,resume,restart,identify,
-//! blockFound/dismiss}` and `PATCH /api/system`) are stubs today: each
-//! returns 200 with `{"message":"ack"}` after emitting one `info!` log
-//! line and changes no firmware state. Method enforcement is strict:
-//! every known path responds with 405 when the wrong method is used.
+//! blockFound/dismiss,factory_reset}` and `PATCH /api/system`) are
+//! handled as follows:
+//!
+//! - `factory_reset` — sends [`ubos_config::Message::FactoryReset`] to
+//!   the config task, which wipes persisted config back to defaults and
+//!   then requests the reboot once the wipe is persisted; the handler
+//!   only writes the 200 ack.
+//! - `identify`, `blockFound/dismiss`, and `PATCH /api/system` — stubs
+//!   that return 200 with `{"message":"ack"}` and change no firmware
+//!   state; full implementations are planned for later phases.
+//!
+//! Method enforcement is strict: every known path responds with 405
+//! when the wrong method is used.
 
 use core::fmt::Write as _;
 
@@ -497,6 +506,29 @@ where
     write_ack_response(connection, scratch, extra_headers).await
 }
 
+/// Handle `POST /api/system/factory_reset`.
+///
+/// Sends [`ubos_config::Message::FactoryReset`] to the config task and
+/// writes the 200 ack. The config task wipes persisted config back to
+/// defaults and only then requests the reboot, so the flash erase and
+/// write always complete before the reset task's flush delay elapses and
+/// the MCU resets. The ack reaches the wire well ahead of that reset.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener.
+async fn handle_factory_reset<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    scratch: &mut [u8],
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    ubos_config::handle()
+        .send(ubos_config::Message::FactoryReset)
+        .await;
+    write_ack_response(connection, scratch, extra_headers).await
+}
+
 /// Handle `PATCH /api/system`.
 ///
 /// Logs the body byte count and returns 200 with `{"message":"ack"}`.
@@ -557,6 +589,8 @@ pub(crate) enum Route {
     BlockFoundDismissAck,
     /// `PATCH /api/system`
     PatchSystem,
+    /// `POST /api/system/factory_reset`
+    FactoryReset,
 }
 
 /// Outcome of `route()` for a single method+path pair.
@@ -638,6 +672,10 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
         },
         "/api/system/blockFound/dismiss" => match method {
             "POST" => DispatchOutcome::Handled(Route::BlockFoundDismissAck),
+            _ => DispatchOutcome::MethodNotAllowed { allowed: "POST" },
+        },
+        "/api/system/factory_reset" => match method {
+            "POST" => DispatchOutcome::Handled(Route::FactoryReset),
             _ => DispatchOutcome::MethodNotAllowed { allowed: "POST" },
         },
         "/api/system" => match method {
@@ -746,6 +784,9 @@ where
         }
         DispatchOutcome::Handled(Route::PatchSystem) => {
             handle_patch_system(connection, scratch, body.len(), extra_headers).await?;
+        }
+        DispatchOutcome::Handled(Route::FactoryReset) => {
+            handle_factory_reset(connection, scratch, extra_headers).await?;
         }
     }
 
