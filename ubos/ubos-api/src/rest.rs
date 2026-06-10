@@ -307,6 +307,9 @@ impl Service for RestApiService {
                 let voltage_measured_mv =
                     psu_reading.map_or(0u32, |r| r.output_voltage_measured.mv());
                 let psu_fault = psu_reading.is_some_and(|r| r.sensor_fault);
+                // Seconds left in the network confirm window, or 0 when nothing is pending.
+                // Serialized as `net_confirm_seconds` in the JSON body.
+                let net_confirm_seconds = crate::network_apply::pending_seconds_remaining();
 
                 let mut body_buf = [0u8; API_INFO_BODY_BUFFER_SIZE];
                 let mut writer = ubos_http::BufferWriter::new(&mut body_buf);
@@ -329,6 +332,7 @@ impl Service for RestApiService {
                      \"voltage_measured_mv\":{voltage_measured_mv},\
                      \"psu_fault\":{psu_fault},\
                      \"pools\":{pools},\
+                     \"net_confirm_seconds\":{net_confirm_seconds},\
                      \"ip\":\"",
                     self.board_name
                 );
