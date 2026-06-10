@@ -33,7 +33,6 @@ members = [
     "ubos/ubos-thermal",
     "ubos/ubos-config",
     "ubos/ubos-net",
-    "ubos/ubos-pool",
     "ubos/ubos-psu",
     "ubos/ubos-temperature",
     "ubos/ubos-webui",
@@ -66,12 +65,11 @@ embedded-hal      = "1.0"
 embedded-hal-async = "1.0"
 embedded-hal-bus  = { version = "0.1", default-features = false }
 embedded-io-async = "0.7"
-embedded-tls      = { version = "0.18", default-features = false }
 rand_core         = { version = "0.6", default-features = false }
 # Used by firmware crates whose hardware RNG is a single-owner
 # peripheral (stm32f407, stm32f439) to give the stratum-v2 noise
-# handshake an entropy source independent of the bitcoin-price TLS
-# task. Seeded once at boot from the hardware RNG.
+# handshake an entropy source independent of the session CSPRNG.
+# Seeded once at boot from the hardware RNG.
 rand_chacha       = { version = "0.3", default-features = false }
 embedded-graphics = { version = "0.8", default-features = false }
 profont           = { version = "0.7.0", default-features = false }
@@ -106,7 +104,6 @@ ubos-thermal      = { path = "ubos/ubos-thermal", default-features = false }
 ubos-config       = { path = "ubos/ubos-config", default-features = false }
 ubos-mdns         = { path = "ubos/ubos-mdns", default-features = false }
 ubos-net          = { path = "ubos/ubos-net", default-features = false }
-ubos-pool         = { path = "ubos/ubos-pool" }
 ubos-psu          = { path = "ubos/ubos-psu", default-features = false }
 ubos-temperature  = { path = "ubos/ubos-temperature", default-features = false }
 ubos-webui        = { path = "ubos/ubos-webui", default-features = false }

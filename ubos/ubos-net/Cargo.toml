@@ -14,13 +14,8 @@ ccmram-bss = []
 [dependencies]
 embassy-net       = { workspace = true, features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "auto-icmp-echo-reply"] }
 embassy-time      = { workspace = true }
-embedded-io-async = { workspace = true }
-embedded-tls      = { workspace = true }
 heapless          = { workspace = true }
 portable-atomic   = { workspace = true }
-rand_core         = { workspace = true }
-static_cell       = { workspace = true }
 defmt             = { workspace = true, optional = true }
 ubos-core         = { workspace = true }
 ubos-logging      = { workspace = true }
-ubos-pool         = { workspace = true }
