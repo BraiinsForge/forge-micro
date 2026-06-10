@@ -160,7 +160,12 @@ impl Fan {
 
 pub struct Core1;
 impl Core1 {
-    /// Stack size for the Core 1 executor, sized for the ubos-mining backend.
+    /// Stack for the Core 1 executor, which runs only the ubos-mining
+    /// BM1362 serial worker: the `BufferedUart` driver frames, the
+    /// `ASIC_SESSION` critical sections, and `defmt` formatting on the
+    /// send/receive path. 32 KiB is a generous default, not a measured
+    /// high-water mark; trimming it safely would need on-target stack
+    /// painting to find the true peak.
     pub const STACK_BYTES: usize = 32_768;
 }
 
