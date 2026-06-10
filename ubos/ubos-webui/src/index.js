@@ -935,37 +935,55 @@ function setNetConfirmBanner(secondsRemaining) {
 // Fetch GET /api/system/network, update the confirm banner, and
 // populate the live address fields. Both DHCP and Static modes return
 // real values from the embassy-net stack (DHCP returns the lease).
+// Retries with backoff to tolerate transient failures (e.g. a
+// concurrent /api/info poll occupying the single REST listener slot).
 async function loadNetworkStatus() {
-  try {
-    const response = await fetch(API + '/api/system/network', { cache: 'no-store', credentials: 'include' });
-    if (!response.ok) return;
-    const data = await response.json();
-    setNetConfirmBanner(data.seconds_remaining || 0);
-    // Set the mode from the live status so the segmented buttons reflect
-    // the board's current mode even before loadCfg completes.
-    const modeVal = data.mode === 'static' ? 'Static' : 'Dhcp';
-    $('netMode').value = modeVal;
-    if (data.address) $('netAddr').value = bytesToIp(data.address);
-    if (data.prefix_len != null) $('netMask').value = prefixToMask(data.prefix_len);
-    if (data.gateway) $('netGw').value = bytesToIp(data.gateway);
-    const dns = data.dns || [];
-    $('netDns1').value = dns[0] ? bytesToIp(dns[0]) : '';
-    $('netDns2').value = dns[1] ? bytesToIp(dns[1]) : '';
-    syncNetUi();
-  } catch (_) {
-    // Non-fatal: fields and banner stay as-is if the fetch fails.
+  const delays = [0, 250, 500, 1000];
+  let lastError;
+  for (const wait of delays) {
+    if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+    try {
+      const response = await fetch(API + '/api/system/network', { cache: 'no-store', credentials: 'include' });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const data = await response.json();
+      setNetConfirmBanner(data.seconds_remaining || 0);
+      // Set the mode from the live status so the segmented buttons reflect
+      // the board's current mode even before loadCfg completes.
+      const modeVal = data.mode === 'static' ? 'Static' : 'Dhcp';
+      $('netMode').value = modeVal;
+      if (data.address) $('netAddr').value = bytesToIp(data.address);
+      if (data.prefix_len != null) $('netMask').value = prefixToMask(data.prefix_len);
+      if (data.gateway) $('netGw').value = bytesToIp(data.gateway);
+      const dns = data.dns || [];
+      $('netDns1').value = dns[0] ? bytesToIp(dns[0]) : '';
+      $('netDns2').value = dns[1] ? bytesToIp(dns[1]) : '';
+      syncNetUi();
+      return;
+    } catch (error) {
+      lastError = error;
+      console.warn('loadNetworkStatus attempt failed:', error);
+    }
   }
+  // Non-fatal: fields and banner stay as-is after all retries fail.
+  console.warn('loadNetworkStatus: all retries exhausted:', lastError);
 }
 
-$('fmNetwork').addEventListener('submit', async event => {
+// Pending switch payload set by the fmNetwork submit handler and
+// consumed by the btnNetSwitchConfirm click handler.
+let pendingNetSwitch = null;
+
+$('fmNetwork').addEventListener('submit', event => {
   event.preventDefault();
   const msg = $('msgNetwork');
   msg.style.color = '';
+  msg.textContent = '';
   const modeVal = $('netMode').value;
   const hostname = $('netHostname').value;
   let mode;
+  let summary;
   if (modeVal === 'Dhcp') {
     mode = 'Dhcp';
+    summary = 'Switch to DHCP';
   } else {
     const addrStr = $('netAddr').value.trim();
     const gwStr = $('netGw').value.trim();
@@ -990,9 +1008,9 @@ $('fmNetwork').addEventListener('submit', async event => {
     }
     const dns = [];
     for (const id of ['netDns1', 'netDns2']) {
-      const val = $(id).value.trim();
-      if (!val) continue;
-      const parsed = ipToBytes(val);
+      const value = $(id).value.trim();
+      if (!value) continue;
+      const parsed = ipToBytes(value);
       if (!parsed) {
         msg.style.color = 'var(--red)';
         msg.textContent = 'Invalid DNS address in ' + id + '.';
@@ -1001,21 +1019,63 @@ $('fmNetwork').addEventListener('submit', async event => {
       dns.push(parsed);
     }
     mode = { Static: { address, prefix_len, gateway, dns } };
+    summary = 'Switch to static ' + addrStr + '/' + prefix_len + ' gw ' + gwStr;
   }
+  // Validation passed: show the pre-switch confirm panel on the current
+  // (still-alive) connection before sending the switch POST.
+  pendingNetSwitch = { mode, hostname };
+  $('netSwitchSummary').textContent = summary;
+  $('netConfirmAfter').checked = true;
+  $('netConfirmAfterWarn').classList.add('hide');
+  $('msgNetSwitch').style.color = '';
+  $('msgNetSwitch').textContent = '';
+  $('netSwitchConfirm').classList.remove('hide');
+});
+
+$('netConfirmAfter').addEventListener('change', function () {
+  $('netConfirmAfterWarn').classList.toggle('hide', this.checked);
+});
+
+$('btnNetSwitchCancel').addEventListener('click', () => {
+  $('netSwitchConfirm').classList.add('hide');
+  pendingNetSwitch = null;
+});
+
+$('btnNetSwitchConfirm').addEventListener('click', async () => {
+  const msgSwitch = $('msgNetSwitch');
+  msgSwitch.style.color = '';
+  msgSwitch.textContent = '';
+  if (!pendingNetSwitch) return;
+  const { mode, hostname } = pendingNetSwitch;
+  const confirmAfterSwitch = $('netConfirmAfter').checked;
+  // Hide the panel immediately — the connection will drop on success
+  // and we cannot interact with it anyway.
+  $('netSwitchConfirm').classList.add('hide');
+  pendingNetSwitch = null;
+  const msg = $('msgNetwork');
+  const switchedText = 'Switched. Reconnect to the board at its new address'
+    + (confirmAfterSwitch ? ', then confirm within 2:00, or it reverts.' : '.');
+  // Do NOT retry this POST: a network error means the switch already
+  // dropped our connection, so retrying against the old address is futile.
   try {
-    const response = await csrfPostTo('/api/system/network', { mode, hostname });
+    const response = await csrfPostTo('/api/system/network', { mode, hostname, confirm_after_switch: confirmAfterSwitch });
     if (response.ok) {
       msg.style.color = '';
-      msg.textContent = 'Applied. Reconnect at the new address and confirm within 2:00, or it reverts.';
-      setNetConfirmBanner(NET_CONFIRM_WINDOW_SECONDS);
+      msg.textContent = switchedText;
+      if (confirmAfterSwitch) setNetConfirmBanner(NET_CONFIRM_WINDOW_SECONDS);
       return;
     }
+    // 4xx: the connection did not drop; show the validation error in the
+    // form so the user can fix the config and apply again.
     const errBody = await response.json().catch(() => ({}));
     msg.style.color = 'var(--red)';
-    msg.textContent = 'Apply failed: ' + (errBody.message || ('HTTP ' + response.status));
-  } catch (error) {
-    msg.style.color = 'var(--red)';
-    msg.textContent = 'Apply failed: ' + error.message;
+    msg.textContent = errBody.message || ('HTTP ' + response.status);
+  } catch (_) {
+    // NetworkError: the switch dropped our connection as expected.
+    // Treat this the same as a successful response.
+    msg.style.color = '';
+    msg.textContent = switchedText;
+    if (confirmAfterSwitch) setNetConfirmBanner(NET_CONFIRM_WINDOW_SECONDS);
   }
 });
 
@@ -1023,18 +1083,26 @@ $('btnNetConfirm').addEventListener('click', async () => {
   const msg = $('msgNetConfirm');
   msg.style.color = '';
   msg.textContent = '';
-  try {
-    const response = await csrfPostTo('/api/system/network/confirm', {});
-    if (response.ok) {
-      setNetConfirmBanner(0);
-      msg.style.color = '';
-      msg.textContent = 'Confirmed.';
-      return;
+  // This POST does not change the IP address, so retrying is safe and
+  // helpful against a transient failure on the new connection.
+  const delays = [0, 250, 500, 1000];
+  let lastError;
+  for (const wait of delays) {
+    if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+    try {
+      const response = await csrfPostTo('/api/system/network/confirm', {});
+      if (response.ok) {
+        setNetConfirmBanner(0);
+        msg.style.color = '';
+        msg.textContent = 'Confirmed.';
+        return;
+      }
+      lastError = new Error('HTTP ' + response.status);
+    } catch (error) {
+      lastError = error;
+      console.warn('btnNetConfirm attempt failed:', error);
     }
-    msg.style.color = 'var(--red)';
-    msg.textContent = 'Confirm failed: HTTP ' + response.status;
-  } catch (error) {
-    msg.style.color = 'var(--red)';
-    msg.textContent = 'Confirm failed: ' + error.message;
   }
+  msg.style.color = 'var(--red)';
+  msg.textContent = 'Confirm failed: ' + ((lastError && lastError.message) || 'unknown');
 });

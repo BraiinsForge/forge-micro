@@ -229,6 +229,17 @@
             <div class="msg" id="msgNetConfirm"></div>
           </div>
         </div>
+        <div class="psec hide" id="netSwitchConfirm">
+          <h3>Confirm switch</h3>
+          <div class="panel">
+            <p id="netSwitchSummary"></p>
+            <label><input type="checkbox" id="netConfirmAfter" checked> Require confirmation after switch</label>
+            <p class="msg hide" id="netConfirmAfterWarn" style="color:var(--red)">Warning: an unreachable config will not auto-revert and will need serial recovery.</p>
+            <button type="button" id="btnNetSwitchConfirm">Confirm switch</button>
+            <button type="button" id="btnNetSwitchCancel">Cancel</button>
+            <div class="msg" id="msgNetSwitch"></div>
+          </div>
+        </div>
         <form id="fmNetwork">
           <div class="psec">
             <h3>Hostname</h3>
