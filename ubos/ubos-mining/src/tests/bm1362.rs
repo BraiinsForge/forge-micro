@@ -1,4 +1,5 @@
 use super::*;
+use mining_protocol::bm1362_regs::ControlCommand;
 use portable_atomic::Ordering as AtomicOrdering;
 
 #[test]
@@ -73,6 +74,45 @@ fn build_unicast_write() {
     );
 }
 
+#[test]
+fn build_command_chain_inactive_matches_trace_payload() {
+    // The captured wire trace issues the chain-inactive command as
+    // raw bytes [0x53, 0x05, 0x00, 0x00] (broadcast vil-ctl, code 3,
+    // length 5, addr 0, reserved 0); the helper must produce the
+    // same payload, CRC included.
+    let frame = build_command(ControlCommand::chain_inactive());
+    let trace_raw = [0x53u8, 0x05, 0x00, 0x00];
+    let expected_crc = crc5(&trace_raw, 0x1F, true);
+    let mut expected = [0u8; 7];
+    expected[0] = 0x55;
+    expected[1] = 0xAA;
+    expected[2..6].copy_from_slice(&trace_raw);
+    expected[6] = expected_crc;
+    assert_eq!(frame.as_slice(), expected);
+}
+
+#[test]
+fn build_command_set_chip_address_matches_trace_payload() {
+    // The captured trace assigns addresses 0x00..0x03 with raw bytes
+    // [0x40, 0x05, addr, 0x00]; verify the helper packs the same
+    // wire payload for each captured chip slot.
+    for hw_addr in [0x00u8, 0x01, 0x02, 0x03] {
+        let frame = build_command(ControlCommand::set_chip_address(hw_addr));
+        let trace_raw = [0x40u8, 0x05, hw_addr, 0x00];
+        let expected_crc = crc5(&trace_raw, 0x1F, true);
+        let mut expected = [0u8; 7];
+        expected[0] = 0x55;
+        expected[1] = 0xAA;
+        expected[2..6].copy_from_slice(&trace_raw);
+        expected[6] = expected_crc;
+        assert_eq!(
+            frame.as_slice(),
+            expected,
+            "set_chip_address({hw_addr:#x}) mismatch"
+        );
+    }
+}
+
 fn feed(parser: &mut ResponseParser, data: &[u8]) {
     parser.free()[..data.len()].copy_from_slice(data);
     parser.commit(data.len());
@@ -135,11 +175,13 @@ fn parse_with_junk() {
 fn compute_hash_matches_mining_protocol_reference() {
     let mut stratum_prev = [0u8; 32];
     for (index, byte) in stratum_prev.iter_mut().enumerate() {
-        *byte = index as u8;
+        // `enumerate` over a 32-byte array yields 0..32.
+        *byte = u8::try_from(index).expect("BUG: index < 32");
     }
     let mut merkle = [0u8; 32];
     for (index, byte) in merkle.iter_mut().enumerate() {
-        *byte = (32 - index) as u8;
+        // `enumerate` over a 32-byte array yields 0..32.
+        *byte = u8::try_from(32 - index).expect("BUG: 32 - index in 1..=32");
     }
     let version: u32 = 0x2000_0000;
     let ntime: u32 = 0x6700_0000;

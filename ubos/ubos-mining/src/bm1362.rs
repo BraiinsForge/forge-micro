@@ -7,6 +7,7 @@
 //! ([`ResponseParser`]).
 
 use heapless::Vec as HVec;
+use mining_protocol::bm1362_regs::ControlCommand;
 use portable_atomic::{AtomicU32, Ordering};
 use sha2::{Digest, Sha256};
 
@@ -231,8 +232,10 @@ impl Frame {
 const CMD_TYPE: u8 = 0x02 << 5; // = 0x40
 const TO_ALL: u8 = 0x10;
 
-// Command codes
-const _CODE_SET_CHIP_ADDRESS: u8 = 0;
+// Command codes used by the register builders below. The
+// register-less control codes (SetChipAddress, ChainInactive) are
+// owned by `mining_protocol::bm1362_regs::ControlCode` and reach the wire
+// via `build_command`.
 const CODE_SET_CONFIG: u8 = 1;
 const CODE_GET_STATUS: u8 = 2;
 
@@ -303,6 +306,22 @@ pub fn build_read_register(addr: RawChipAddress, reg: u8) -> Frame {
     let hw_addr = addr.hw_addr();
 
     let payload = [cmd, len, hw_addr, reg];
+    let crc = crc5(&payload, 0x1F, true);
+
+    let mut frame = Frame::new();
+    push_frame(&mut frame, &HEADER_TX, &payload, crc);
+    frame
+}
+
+/// Wire-encode a typed [`ControlCommand`] into a 7-byte frame
+/// (`[55 AA] [cmd, 5, hw_addr, 0x00] [CRC5]`). The protocol code,
+/// broadcast flag, and hw-addr come from the typed value; this
+/// function owns only the framing constants (`CMD_TYPE`, `TO_ALL`)
+/// and the CRC.
+#[must_use]
+pub fn build_command(cmd: ControlCommand) -> Frame {
+    let cmd_byte = CMD_TYPE | if cmd.is_broadcast() { TO_ALL } else { 0 } | cmd.code().as_u8();
+    let payload = [cmd_byte, 5, cmd.hw_addr(), 0x00];
     let crc = crc5(&payload, 0x1F, true);
 
     let mut frame = Frame::new();
