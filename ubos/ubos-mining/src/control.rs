@@ -11,7 +11,7 @@ use embassy_sync::watch::{Receiver, Watch};
 use ubos_core::units::{Frequency, Voltage};
 
 #[cfg(feature = "legacy-replay")]
-use crate::bmm100_trace::Step;
+use crate::tuner::replay::trace::Step;
 
 type CSMutex = CriticalSectionRawMutex;
 

@@ -19,16 +19,20 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use embedded_io::ErrorKind;
+use heapless::Vec as HVec;
+use mining_protocol::bm1362_regs::{ChipIdReg, ControlCommand};
 use ubos_core::consts::Mining;
-use ubos_core::units::Voltage;
+use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, error, info, warn};
 use ubos_psu::{Error as PsuError, Psu};
 
-use crate::bmm100_trace::{DEINIT, INIT};
+use crate::bm1362::{RawChipAddress, RegisterResponse};
+use crate::consts::MAX_CHIPS;
 use crate::control::{COMMAND_CHANNEL, Message, MiningState, STATE_WATCH};
 use crate::replay::replay;
 use crate::reset::ResetPin;
 use crate::serial::SERIAL;
+use crate::tuner::replay::trace::{DEINIT, INIT};
 
 /// Default ASIC core voltage that the firmware programs at boot.
 /// Aliased from `ubos_core::consts::Mining::DEFAULT_VOLTAGE` so the
@@ -109,6 +113,71 @@ impl defmt::Format for MinerError {
             }
         }
     }
+}
+
+/// Chip-control surface used by `Tuner` implementations. Implemented
+/// by [`Miner`]; defined as a trait so tuner implementations do not
+/// need to be generic over the `(P, R)` parameters of `Miner`.
+///
+/// Each method is `async` to allow the underlying serial actor to
+/// drive the bus without blocking.
+// The async-fn-in-trait pattern matches the project-wide convention
+// established by `ubos_psu::Psu`. Send bounds are not required on
+// this embedded target; the trait is only called from a single-task
+// context.
+#[allow(async_fn_in_trait)]
+pub trait MinerControl {
+    /// Program both PLL registers for `chip` to achieve `frequency`.
+    async fn set_frequency(
+        &self,
+        chip: RawChipAddress,
+        frequency: Frequency,
+    ) -> Result<(), MinerError>;
+
+    /// Set the core voltage through the PSU driver.
+    async fn set_voltage(&self, voltage: Voltage) -> Result<(), MinerError>;
+
+    /// Write the ticket-mask register to all chips.
+    async fn set_ticket_mask(&self, mask: u32) -> Result<(), MinerError>;
+
+    /// Read the chip-identity register from a single chip.
+    async fn get_chip_version(&self, chip: u8) -> Result<ChipIdReg, MinerError>;
+
+    /// Broadcast-read `ChipIdReg` and return the number of responding chips.
+    async fn enumerate_chips(&self) -> Result<u8, MinerError>;
+
+    // Byte-level escape hatches below this point exist because the
+    // captured wire trace replayed by `ReplayTuner` is byte-level
+    // and cannot be expressed as semantic ops. Semantic tuners must
+    // not call them.
+
+    /// Write a raw `u32` to an arbitrary register without packing
+    /// through a typed layout. Used by trace replay.
+    async fn write_register_raw(&self, addr: RawChipAddress, reg: u8, value: u32);
+
+    /// Broadcast-read a raw register and return every chip's response.
+    /// Used by trace replay for chip-ID liveness checks.
+    async fn read_register_raw(
+        &self,
+        addr: RawChipAddress,
+        reg: u8,
+    ) -> HVec<RegisterResponse, MAX_CHIPS>;
+
+    /// Send an arbitrary command frame built from raw bytes. Used by
+    /// trace replay for chain-inactive and addressing setup.
+    async fn send_raw_command(&self, payload: &[u8]);
+
+    /// Send a typed control command (chain-inactive, set-chip-address).
+    /// Semantic tuners use this in preference to `send_raw_command`.
+    async fn send_command(&self, command: ControlCommand);
+
+    /// Switch the UART line rate to `rate`. Used by trace replay
+    /// during the post-init baud bump.
+    async fn set_baud_rate(&self, rate: u32) -> Result<(), MinerError>;
+
+    /// Start the periodic work-send loop in the serial actor. Used
+    /// by trace replay at the end of bring-up.
+    async fn start_sending_work(&self, period: Duration) -> Result<(), MinerError>;
 }
 
 /// Idle counterpart to [`run`] for deployments without a real chip.

@@ -9,8 +9,8 @@ use embedded_io::ErrorKind;
 use ubos_logging::{info, warn};
 
 use crate::bm1362::{RawChipAddress, RegisterResponse, build_raw_command};
-use crate::bmm100_trace::Step;
 use crate::serial::Serial;
+use crate::tuner::replay::trace::Step;
 
 /// Register that returns the 32-bit chip ID. The boot trace probes
 /// this both unconditionally and after every baud-rate change.

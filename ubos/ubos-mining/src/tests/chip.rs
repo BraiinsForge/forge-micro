@@ -7,7 +7,7 @@ use ubos_asic::{
     HashCountingNumberReg, MISC_CTRL_DEFAULT_BRINGUP, MiscCtrlReg, PllParameterReg, Register,
 };
 
-use crate::bmm100_trace::{INIT, Step};
+use crate::tuner::replay::trace::{INIT, Step};
 
 #[test]
 fn misc_ctrl_baseline_constant_matches_wire_capture() {

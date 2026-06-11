@@ -10,7 +10,6 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod bm1362;
-pub mod bmm100_trace;
 pub mod chip;
 pub mod consts;
 mod control;
@@ -19,5 +18,6 @@ pub mod publishers;
 pub mod replay;
 pub mod reset;
 pub mod serial;
+pub mod tuner;
 
 pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
