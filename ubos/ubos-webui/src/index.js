@@ -347,6 +347,11 @@ let pendingNetSwitch = null;
 // True while an apply POST is in flight, so reopening the form mid-apply
 // cannot fire a second concurrent POST /api/system/network.
 let applyInFlight = false;
+// The hostname currently persisted, captured on config load. A hostname
+// change is applied to the stack live but the mDNS responder only reads it
+// at boot, so the apply notice tells the operator a reboot is needed for the
+// new .local name to take effect.
+let appliedHostname = '';
 
 async function tick() {
   // Skip the poll while the Configuration page is loading. The REST
@@ -413,7 +418,7 @@ async function tick() {
   }
 }
 tick().then(loadPoolMeta);
-setInterval(tick, 2000);
+let pollTimer = setInterval(tick, 2000);
 
 function renderPoolMeta() {
   for (let slot = 0; slot < 3; slot++) {
@@ -624,7 +629,8 @@ async function loadCfg() {
           $('sysUser').value = data.api.username || '';
         }
         if (data.network) {
-          $('netHostname').value = data.network.hostname || '';
+          appliedHostname = data.network.hostname || '';
+          $('netHostname').value = appliedHostname;
         }
         cfgLoaded = true;
         setMsg('', '');
@@ -918,6 +924,14 @@ $('fmNetwork').addEventListener('submit', event => {
   msg.textContent = '';
   const modeVal = $('netMode').value;
   const hostname = $('netHostname').value;
+  // Mirror the server's hostname rule so the apply, which is fired without
+  // awaiting a response, cannot be silently rejected: letters, digits, and
+  // hyphens only, with no leading or trailing hyphen. Empty is allowed.
+  if (hostname && (!/^[a-zA-Z0-9-]+$/.test(hostname) || hostname.startsWith('-') || hostname.endsWith('-'))) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Hostname may use only letters, digits, and hyphens, not at the ends.';
+    return;
+  }
   let mode;
   let summary;
   if (modeVal === 'Dhcp') {
@@ -962,7 +976,15 @@ $('fmNetwork').addEventListener('submit', event => {
   }
   pendingNetSwitch = { mode, hostname };
   $('netModalSummary').textContent = summary;
+  // Default the confirm-or-revert window on for every mode: it is the safe
+  // choice (a change that strands the board auto-reverts). Static changes
+  // must keep it: a wrong static address strands the board and persists
+  // immediately with no window, and a reboot cannot recover, so lock the box
+  // on for static. DHCP self-heals on reboot, so it stays optional there and
+  // the reconnect-and-confirm step still reaches the board over its mDNS
+  // hostname even when the new lease address is unknown.
   $('netModalConfirmAfter').checked = true;
+  $('netModalConfirmAfter').disabled = modeVal === 'Static';
   $('netModalWarn').classList.add('hide');
   $('msgNetModal').textContent = '';
   showModal();
@@ -977,47 +999,81 @@ $('btnNetModalCancel').addEventListener('click', () => {
   pendingNetSwitch = null;
 });
 
+// Show the terminal "configuration changed" notice after a network apply.
+// The change drops this connection and the firmware has already
+// invalidated the session, so navigating anywhere just chases an address
+// that is mid-reconfigure (or, for DHCP, unknown) and lands on a browser
+// error. Instead, stop polling and show a static notice telling the
+// operator to reconnect and log in once the board is back; for a static
+// address the new location is known, so offer it as a link.
+function showSwitchedNotice(mode, hostname, confirmAfterSwitch) {
+  clearInterval(pollTimer);
+  $('netModal').classList.add('hide');
+  const text = $('netChangedText');
+  if (mode.Static) {
+    const url = location.protocol + '//' + bytesToIp(mode.Static.address) + '/';
+    text.innerHTML = 'The board is now at <a href="' + url + '">' + url + '</a>.';
+  } else {
+    text.textContent = 'The board is switching to a new DHCP address.';
+  }
+  // The inbound HTTP listener takes up to ~30 s to start accepting again
+  // after the live reconfiguration, so set that expectation rather than
+  // letting an early reconnect look like a failure. See docs/HTTP_LISTENERS.md.
+  text.append(' It can take up to 30 seconds to become reachable, then log in again.');
+  if (confirmAfterSwitch) {
+    text.append(' Log in and confirm within 2 minutes, or the change reverts.');
+  }
+  // The IP change is live, but the mDNS responder only reads the hostname at
+  // boot, so a renamed board keeps answering at its old .local name until a
+  // reboot. Say so rather than let the new name look broken.
+  if (hostname && hostname !== appliedHostname) {
+    text.append(' The new name ' + hostname + '.local takes effect after a reboot.');
+  }
+  $('netChanged').classList.remove('hide');
+}
+
 $('btnNetModalConfirm').addEventListener('click', async () => {
   if (!pendingNetSwitch || applyInFlight) return;
   const { mode, hostname } = pendingNetSwitch;
   const confirmAfterSwitch = $('netModalConfirmAfter').checked;
-  $('netModal').classList.add('hide');
   pendingNetSwitch = null;
   applyInFlight = true;
   const msg = $('msgNetwork');
-  // The 2:00 mirrors the server's 120 s confirm window; the live
-  // countdown comes from net_confirm_seconds once polling resumes.
-  const switchedText = confirmAfterSwitch
-    ? 'Switched. Reconnect and confirm within 2:00, or it reverts.'
-    : 'Switched. Reconnect to the board at its new address.';
-  // Fetch the CSRF token before the apply POST. The link is still up at
-  // this point, so a failure here is a real error, not the address
-  // change dropping the connection; only the POST below may drop.
+  // Pause the 2 s poll so it does not steal the single-connection :8080
+  // listener slot from the apply request; resume it if the apply fails.
+  clearInterval(pollTimer);
+  const fail = text => {
+    applyInFlight = false;
+    pollTimer = setInterval(tick, 2000);
+    $('netModal').classList.add('hide');
+    msg.style.color = 'var(--red)';
+    msg.textContent = text;
+  };
   let csrf;
   try {
     csrf = await csrfToken();
   } catch (error) {
-    applyInFlight = false;
-    msg.style.color = 'var(--red)';
-    msg.textContent = 'Could not get CSRF token: ' + ((error && error.message) || 'network error');
+    fail('Could not get CSRF token: ' + ((error && error.message) || 'network error'));
     return;
   }
+  // Wait for the 200 ack that confirms the command reached the board. The
+  // firmware holds off the switch so this ack flushes before the
+  // connection drops, so a thrown fetch means the command did not arrive
+  // (not that the switch happened); report it and let the operator retry
+  // rather than show a false success. See docs/HTTP_LISTENERS.md.
+  let response;
   try {
-    const response = await csrfPostTo('/api/system/network', { mode, hostname, confirm_after_switch: confirmAfterSwitch }, csrf);
-    if (response.ok) {
-      msg.style.color = '';
-      msg.textContent = switchedText;
-      return;
-    }
-    const errBody = await response.json().catch(() => ({}));
-    msg.style.color = 'var(--red)';
-    msg.textContent = errBody.message || ('HTTP ' + response.status);
+    response = await csrfPostTo('/api/system/network', { mode, hostname, confirm_after_switch: confirmAfterSwitch }, csrf);
   } catch (_) {
-    msg.style.color = '';
-    msg.textContent = switchedText;
-  } finally {
-    applyInFlight = false;
+    fail('Could not reach the board to apply the change. Try again.');
+    return;
   }
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({}));
+    fail(errBody.message || ('HTTP ' + response.status));
+    return;
+  }
+  showSwitchedNotice(mode, hostname, confirmAfterSwitch);
 });
 
 // Confirm or revert the pending change from the modal. Neither POST

@@ -644,11 +644,19 @@ main > * {
   display: none;
 }
 
+/* In DHCP mode the address fields show the live lease but are not
+   editable. The browser's default disabled styling is too subtle on the
+   dark panel, so grey them explicitly: muted text on the page background
+   reads as clearly inactive while the real values stay visible. */
+.cfgsec input:disabled {
+  background: var(--bg);
+  color: var(--mute);
+  cursor: not-allowed;
+}
+
 /* Network section: segmented mode picker and informational note.
    The two buttons sit flush in a row; the active button uses the
-   accent colour so the selected mode reads at a glance. Disabled
-   address inputs use the browser's built-in muted appearance
-   (opacity + cursor: default) which is sufficient without extra rules. */
+   accent colour so the selected mode reads at a glance. */
 .seg {
   display: flex;
   gap: 0;
@@ -680,6 +688,39 @@ main > * {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+}
+
+/* Full-screen takeover shown after a network change is applied. The
+   board's address and this session are gone, so the SPA is dead; an
+   opaque page-filling notice makes that unmistakable and tells the
+   operator where to reconnect, rather than a small box over a stale UI. */
+.fullNotice {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+}
+
+.fullNotice.hide {
+  display: none;
+}
+
+.fullNotice h1 {
+  font-size: 1.8rem;
+  margin: 0 0 16px;
+  color: var(--fg);
+}
+
+.fullNotice p {
+  font-size: var(--fs-body);
+  color: var(--mute);
+  max-width: 540px;
+  margin: 0 auto;
 }
 
 /* ---------- Network confirm modal ---------- */
