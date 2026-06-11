@@ -1116,6 +1116,20 @@ async function netModalPost(path, errPrefix) {
 $('btnNetModalPersist').addEventListener('click', () => netModalPost('/api/system/network/confirm', 'Confirm failed'));
 $('btnNetModalRevert').addEventListener('click', () => netModalPost('/api/system/network/revert', 'Revert failed'));
 
+// Factory reset reboots the board to DHCP, so the address is unknown and a
+// poll would land on an error. Stop polling and show a static notice telling
+// the operator to reconnect once the board is back, mirroring the network
+// switch notice.
+function showResetDoneNotice() {
+  clearInterval(pollTimer);
+  $('resetStep2').classList.add('hide');
+  $('resetStep1').classList.remove('hide');
+  $('resetDoneText').textContent =
+    'The board has been reset and is rebooting to DHCP with default credentials.'
+    + ' It can take up to 30 seconds to become reachable, then log in again.';
+  $('resetDone').classList.remove('hide');
+}
+
 $('btnResetStart').addEventListener('click', () => {
   $('resetStep1').classList.add('hide');
   $('resetStep2').classList.remove('hide');
@@ -1131,20 +1145,28 @@ $('btnResetConfirm').addEventListener('click', async () => {
   const msg = $('msgReset');
   msg.style.color = '';
   msg.textContent = '';
-  function done() {
-    msg.textContent = 'Resetting — board rebooting, connection will drop.';
-    $('resetStep2').classList.add('hide');
-    $('resetStep1').classList.remove('hide');
-  }
-  try {
-    const response = await csrfPostTo('/api/system/factory_reset', {});
-    if (response.ok) {
-      done();
-      return;
-    }
+  // Pause the 2 s poll so it does not steal the single-connection :8080
+  // listener slot from the reset request; resume it if the reset fails.
+  clearInterval(pollTimer);
+  const fail = text => {
+    pollTimer = setInterval(tick, 2000);
     msg.style.color = 'var(--red)';
-    msg.textContent = 'Reset failed: HTTP ' + response.status;
+    msg.textContent = text;
+  };
+  // Wait for the 200 ack that confirms the command reached the board. The
+  // firmware flushes this ack before the wipe and reboot, so a thrown fetch
+  // means the command did not arrive (not that the reset happened); report
+  // it and let the operator retry rather than show a false success.
+  let response;
+  try {
+    response = await csrfPostTo('/api/system/factory_reset', {});
   } catch (_) {
-    done();
+    fail('Could not reach the board to reset. Try again.');
+    return;
   }
+  if (!response.ok) {
+    fail('Reset failed: HTTP ' + response.status);
+    return;
+  }
+  showResetDoneNotice();
 });
