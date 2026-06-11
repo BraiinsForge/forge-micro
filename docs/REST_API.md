@@ -116,6 +116,7 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 | GET    | `/api/system/network`             | any       | 200    | `SystemNetwork`; current mode, pending-change flag, confirm window seconds |
 | POST   | `/api/system/network`             | any +CSRF | 200    | `{"ok":true}`; validates and previews the change live (confirm-or-revert). 400 on parse or validation error |
 | POST   | `/api/system/network/confirm`     | any +CSRF | 200    | Confirms a pending preview so it is no longer reverted; returns `{"message":"ack"}` |
+| POST   | `/api/system/network/revert`      | any +CSRF | 200    | Reverts a pending preview immediately, restoring the prior config; returns `{"message":"ack"}` |
 | GET    | `/api/system/logs`                | any       | 501    | `{"message":"not implemented"}`                                          |
 | GET    | `/api/system/wifi/scan`           | any       | 501    | `{"message":"unsupported on this platform"}`                             |
 | POST   | `/api/system/OTA`                 | any       | 501    | `{"message":"unsupported on this platform"}`                             |

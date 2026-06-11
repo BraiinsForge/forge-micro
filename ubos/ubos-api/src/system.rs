@@ -20,6 +20,16 @@
 //!   that return 200 with `{"message":"ack"}` and change no firmware
 //!   state; full implementations are planned for later phases.
 //!
+//! Network endpoints under `/api/system/network`:
+//!
+//! - `GET /api/system/network` — reports the current network mode,
+//!   pending-change flag, confirm countdown, and live address.
+//! - `POST /api/system/network` — applies a new
+//!   [`ubos_config::NetworkConfig`] live, optionally arming a
+//!   confirm-or-revert window.
+//! - `POST /api/system/network/{confirm,revert}` — commit or roll back
+//!   a pending network change.
+//!
 //! Method enforcement is strict: every known path responds with 405
 //! when the wrong method is used.
 
@@ -702,6 +712,25 @@ where
     write_ack_response(connection, scratch, extra_headers).await
 }
 
+/// Handle `POST /api/system/network/revert`.
+///
+/// Calls [`crate::network_apply::revert`] and returns 200 ack.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener.
+async fn handle_network_revert<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    scratch: &mut [u8],
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    if !crate::network_apply::revert() {
+        return write_busy(connection, extra_headers).await;
+    }
+    write_ack_response(connection, scratch, extra_headers).await
+}
+
 /// Handle a POST action endpoint (restart, identify,
 /// blockFound/dismiss).
 ///
@@ -814,6 +843,8 @@ pub(crate) enum Route {
     NetworkPost,
     /// `POST /api/system/network/confirm`
     NetworkConfirm,
+    /// `POST /api/system/network/revert`
+    NetworkRevert,
 }
 
 /// Outcome of `route()` for a single method+path pair.
@@ -907,6 +938,10 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
         },
         "/api/system/network/confirm" => match method {
             "POST" => DispatchOutcome::Handled(Route::NetworkConfirm),
+            _ => DispatchOutcome::MethodNotAllowed { allowed: "POST" },
+        },
+        "/api/system/network/revert" => match method {
+            "POST" => DispatchOutcome::Handled(Route::NetworkRevert),
             _ => DispatchOutcome::MethodNotAllowed { allowed: "POST" },
         },
         "/api/system/network" => match method {
@@ -1032,6 +1067,9 @@ where
         }
         DispatchOutcome::Handled(Route::NetworkConfirm) => {
             handle_network_confirm(connection, scratch, extra_headers).await?;
+        }
+        DispatchOutcome::Handled(Route::NetworkRevert) => {
+            handle_network_revert(connection, scratch, extra_headers).await?;
         }
     }
 

@@ -38,6 +38,10 @@ enum Command {
     },
     /// Confirm the pending change, committing it to flash.
     Confirm,
+    /// Operator-requested immediate revert of a pending preview, as opposed
+    /// to the 120 s timeout. Rolls the live stack back to the fallback
+    /// address and clears the pending state without persisting anything.
+    Revert,
 }
 
 /// Channel from REST handlers to the apply task.
@@ -74,6 +78,15 @@ pub fn apply(network: NetworkConfig, confirm_after_switch: bool) -> bool {
 #[must_use]
 pub fn confirm() -> bool {
     COMMANDS.try_send(Command::Confirm).is_ok()
+}
+
+/// Revert the pending change immediately, rolling back the live stack to
+/// the pre-preview address. Non-blocking; returns `false` when the queue
+/// is full so the caller can surface the failure. No-op when nothing is
+/// pending.
+#[must_use]
+pub fn revert() -> bool {
+    COMMANDS.try_send(Command::Revert).is_ok()
 }
 
 /// Seconds left in the confirm window, or 0 when nothing is pending.
@@ -125,6 +138,26 @@ struct Pending {
     deadline: Instant,
 }
 
+/// Roll back the live stack to the fallback address and clear pending state.
+///
+/// Called both on [`CONFIRM_WINDOW`] timeout and on an explicit
+/// [`Command::Revert`] from the operator. `log_message` distinguishes the
+/// two call sites in the log.
+fn do_revert(
+    stack: Stack<'static>,
+    pending: &mut Option<Pending>,
+    applied: &mut ConfigV4,
+    log_message: &str,
+) {
+    if let Some(expired) = pending.take() {
+        stack.set_config_v4(expired.fallback.clone());
+        *applied = expired.fallback;
+        PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
+        PENDING_IS_STATIC.store(false, Ordering::Relaxed);
+        warn!("network: {}", log_message);
+    }
+}
+
 /// Drive live network apply with confirm-or-revert.
 ///
 /// Spawn once per board after the stack is created; never returns. The
@@ -146,12 +179,12 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                 match select(COMMANDS.receive(), Timer::at(deadline)).await {
                     Either::First(command) => command,
                     Either::Second(()) => {
-                        if let Some(expired) = pending.take() {
-                            stack.set_config_v4(expired.fallback.clone());
-                            applied = expired.fallback;
-                            PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
-                            warn!("network: change not confirmed, reverted");
-                        }
+                        do_revert(
+                            stack,
+                            &mut pending,
+                            &mut applied,
+                            "change not confirmed, reverted",
+                        );
                         continue;
                     }
                 }
@@ -210,6 +243,18 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                     info!("network: change confirmed");
                 } else {
                     info!("network: confirm with nothing pending");
+                }
+            }
+            Command::Revert => {
+                if pending.is_some() {
+                    do_revert(
+                        stack,
+                        &mut pending,
+                        &mut applied,
+                        "change reverted by operator",
+                    );
+                } else {
+                    info!("network: revert with nothing pending");
                 }
             }
         }

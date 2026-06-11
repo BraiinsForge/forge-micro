@@ -38,6 +38,7 @@ const ROUTES: &[(&str, &str, Route)] = &[
     ("POST", "/api/system/factory_reset", Route::FactoryReset),
     ("PATCH", "/api/system", Route::PatchSystem),
     ("POST", "/api/system/network/confirm", Route::NetworkConfirm),
+    ("POST", "/api/system/network/revert", Route::NetworkRevert),
 ];
 
 #[test]
