@@ -37,7 +37,7 @@ impl TuningConfig {
     /// Returns `Err` when either field falls outside its accepted range.
     pub fn validate(&self) -> Result<(), &'static str> {
         if !BOUNDS.frequency_mhz.contains(&self.frequency_mhz) {
-            return Err("tuning.frequency_mhz must be between 400 and 600");
+            return Err("tuning.frequency_mhz must be between 50 and 700");
         }
         if !BOUNDS.voltage_mv.contains(&self.voltage_mv) {
             return Err("tuning.voltage_mv must be between 1100 and 1500");
@@ -62,7 +62,7 @@ pub struct MiningBounds {
 
 /// Accepted value ranges for [`TuningConfig`] fields.
 pub const BOUNDS: MiningBounds = MiningBounds {
-    frequency_mhz: 400..=600,
+    frequency_mhz: 50..=700,
     voltage_mv: 1100..=1500,
 };
 

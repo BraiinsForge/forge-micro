@@ -368,18 +368,16 @@ fn tuning_valid_passes() {
 
 /// Frequency outside the accepted range is rejected.
 ///
-/// 501 MHz is between two old discrete values (500, 525) but still
-/// within the new 400..=600 range, so it now passes.
-/// Use 601 to test the out-of-range path.
+/// 701 MHz is above the chip's validated ceiling of 700 MHz.
 #[test]
 fn tuning_frequency_out_of_range() {
     let mut update = empty_update();
     let mut tuning = valid_tuning();
-    tuning.frequency_mhz = 601;
+    tuning.frequency_mhz = 701;
     update.tuning = Some(tuning);
     assert_eq!(
         update.validate(&Config::default()),
-        Err("tuning.frequency_mhz must be between 400 and 600")
+        Err("tuning.frequency_mhz must be between 50 and 700")
     );
 }
 
@@ -418,15 +416,15 @@ fn thermal_only_update_rejected_when_current_target_above_new_dangerous() {
     );
 }
 
-/// A value inside the range that was not in the old discrete set passes.
+/// A value inside the expanded range passes.
 ///
-/// 501 MHz was previously rejected as "not in the list"; with range
-/// semantics it is accepted.
+/// 100 MHz is within the new `50..=700` window and exercises the
+/// low-frequency end of the chip's validated range.
 #[test]
 fn tuning_frequency_in_range_non_discrete_passes() {
     let mut update = empty_update();
     let mut tuning = valid_tuning();
-    tuning.frequency_mhz = 501;
+    tuning.frequency_mhz = 100;
     update.tuning = Some(tuning);
     assert!(update.validate(&Config::default()).is_ok());
 }
