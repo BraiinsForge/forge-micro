@@ -65,12 +65,9 @@ logic and regressions can break all boards.
 - `mining-protocol` covers hashing, difficulty, hex parsing, and merkle logic.
 - `stratum-v2` has state-ring, frame, and error-path tests matching the
   `stratum-v1` standard.
-
-Remaining `stratum-v2` coverage:
-
-- Golden transcript replay for at least one successful pool handshake/channel
-  open and one rejection path. The current suite drives a live in-memory
-  responder instead.
+- `stratum-v2` has golden-transcript replay tests for a successful
+  handshake/channel-open and a rejection path, anchoring the encrypted wire
+  format against committed byte fixtures.
 
 ## Driver and control tests
 
@@ -197,6 +194,10 @@ Completed:
 - `stratum-v2` has frame and error-path integration tests covering future-job
   activation, partial reads/writes, mid-frame cancellation and resume, decode
   failure, rejected sessions, and submit-before-channel-open.
+- `stratum-v2` has known-answer golden-transcript replay tests: a seeded RNG
+  pins all handshake randomness so the encrypted wire bytes are reproducible,
+  committed as fixtures, and replayed through the real client transport for
+  both a success and a rejection path.
 
 Remaining:
 
