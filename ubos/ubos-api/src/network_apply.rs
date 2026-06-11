@@ -25,6 +25,15 @@ type CSMutex = CriticalSectionRawMutex;
 /// How long an unconfirmed live network change stays applied before revert.
 const CONFIRM_WINDOW: Duration = Duration::from_secs(120);
 
+/// Delay between queuing a live change and applying it to the stack.
+///
+/// `set_config_v4` tears down the connection the request arrived on, so
+/// without this the HTTP ack races the teardown and the SPA cannot tell
+/// whether the command reached the board. Holding off briefly lets the
+/// handler's `200` (or the revert ack) flush first, making the ack a
+/// reliable "command arrived" signal. See `docs/HTTP_LISTENERS.md`.
+const REPLY_FLUSH_DELAY: Duration = Duration::from_millis(1000);
+
 /// How often the apply task republishes the live IPv4 address into the
 /// shared `LOCAL_IPV4` cache, bounding how stale `/api/info` and the
 /// display can be after a live address change.
@@ -153,6 +162,9 @@ struct Pending {
 /// is the only unambiguous signal to the operator that the change took
 /// effect. See [`ubos_auth::session::clear_all_sessions`].
 async fn apply_live(stack: Stack<'static>, config: ConfigV4) {
+    // Let the HTTP handler's response flush before the switch drops the
+    // connection it arrived on, so the ack reliably reaches the client.
+    Timer::after(REPLY_FLUSH_DELAY).await;
     stack.set_config_v4(config);
     ubos_auth::session::clear_all_sessions().await;
 }
