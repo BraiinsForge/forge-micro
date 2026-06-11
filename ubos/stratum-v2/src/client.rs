@@ -54,7 +54,12 @@ const PERMISSIVE_MAX_TARGET: [u8; 32] = [0xFF; 32];
 /// log them but don't gate on the values.
 const DEVICE_VENDOR: &str = "braiins";
 const DEVICE_HW_REV: &str = "rusty-boards";
-const DEVICE_FW_VER: &str = env!("CARGO_PKG_VERSION");
+/// Hand-maintained firmware identity, intentionally decoupled from
+/// `CARGO_PKG_VERSION`. The field is advisory, and deriving it from the
+/// crate semver churned the on-wire bytes and the golden transcript
+/// fixtures on every patch bump. Bump it deliberately when advertising a
+/// new firmware identity to pools.
+const DEVICE_FW_VER: &str = "0.1.0";
 const DEVICE_ID: &str = "";
 
 /// Initial `request_id` for `OpenStandardMiningChannel`. The pool
