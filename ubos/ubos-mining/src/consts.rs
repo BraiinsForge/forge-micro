@@ -23,11 +23,12 @@ pub const REGISTRY_SIZE: usize = 256 / NUM_MIDSTATES;
 /// Boot baud rate the chip listens on out of reset.
 pub const INITIAL_BAUDRATE: u32 = 115_200;
 
-/// Nominal baud the host requests after PLL programming. The chip's
-/// PLL cannot hit this exactly; the actual line rate is
-/// [`FAST_BAUDRATE_ACTUAL`].
+/// Nominal fast baud requested after PLL programming. The chip's `0x28`
+/// divider produces 3.125 Mbaud (`25 MHz / 8`) for this request; the
+/// host UART is programmed to [`FAST_BAUDRATE_ACTUAL`] instead.
 pub const FAST_BAUDRATE: u32 = 3_125_000;
 
-/// Real line rate the chip's divider produces when [`FAST_BAUDRATE`] is
-/// requested. Matches what the host UART must be programmed to.
+/// Host-side UART rate the serial controller is programmed to when
+/// [`FAST_BAUDRATE`] is requested. This is a host compatibility value,
+/// not the chip's divider output (which is 3.125 Mbaud).
 pub const FAST_BAUDRATE_ACTUAL: u32 = 3_000_000;
