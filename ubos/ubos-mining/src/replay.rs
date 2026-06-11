@@ -23,10 +23,10 @@ pub async fn replay(serial: &Serial, steps: &[Step]) -> Result<(), ErrorKind> {
     for (index, step) in steps.iter().enumerate() {
         match step {
             Step::WriteRegister { addr, reg, value } => {
-                serial.write_register(*addr, *reg, *value).await;
+                serial.write_register_raw(*addr, *reg, *value).await;
             }
             Step::ReadRegister { addr, reg } => {
-                let responses = serial.read_register(*addr, *reg).await;
+                let responses = serial.read_register_raw(*addr, *reg).await;
                 if *reg == CHIP_ID_REG {
                     verify_chip_ids(&responses);
                 }
@@ -39,7 +39,9 @@ pub async fn replay(serial: &Serial, steps: &[Step]) -> Result<(), ErrorKind> {
                 // Liveness check at the new line rate; the chip going
                 // silent here means the rest of the init sequence is
                 // moot, so abort and let the caller recover.
-                let responses = serial.read_register(RawChipAddress::All, CHIP_ID_REG).await;
+                let responses = serial
+                    .read_register_raw(RawChipAddress::All, CHIP_ID_REG)
+                    .await;
                 if responses.is_empty() {
                     warn!(
                         "replay[{}]: no chip responses after baud change to {}",

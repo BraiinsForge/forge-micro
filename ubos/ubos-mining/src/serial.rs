@@ -49,7 +49,7 @@ const CMD_QUEUE_DEPTH: usize = 16;
 /// configure call so in-flight bytes don't get garbled.
 const BAUD_CHANGE_DRAIN: Duration = Duration::from_secs(1);
 
-/// Per-response wait inside `read_register`. The chip answers a
+/// Per-response wait inside `read_register_raw`. The chip answers a
 /// register read within a few hundred microseconds at fast baud; 50 ms
 /// is generous enough to absorb startup-rate dribble while bounding
 /// the worst-case stall on a missing chip.
@@ -129,7 +129,7 @@ pub struct Serial {
     /// cannot race on this single signal.
     reply: Signal<CriticalSectionRawMutex, Result<(), ErrorKind>>,
     /// Queue of register-read responses produced by the parser. Owned by
-    /// `read_register` for the duration of a session; the session mutex
+    /// `read_register_raw` for the duration of a session; the session mutex
     /// keeps concurrent callers from stealing each other's replies.
     /// Capacity matches the broadcast read fan-in (one reply per chip).
     register_replies: Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
@@ -138,7 +138,7 @@ pub struct Serial {
     /// than `NoopRawMutex` so `Serial` is `Sync` and can live as a
     /// workspace `static`.
     caller: Mutex<CriticalSectionRawMutex, ()>,
-    /// Held for the full drain-send-receive cycle of `read_register` so
+    /// Held for the full drain-send-receive cycle of `read_register_raw` so
     /// two concurrent reads cannot interleave on the shared reply
     /// queue. Independent of `caller` because register reads and reply-
     /// bearing commands take different actor paths.
@@ -196,10 +196,20 @@ impl Serial {
     }
 
     /// Build and dispatch a register-write frame. Fire-and-forget; the
-    /// chip does not acknowledge writes.
-    pub async fn write_register(&self, addr: RawChipAddress, reg: u8, value: u32) {
+    /// chip does not acknowledge writes. Byte-level callers (the replay
+    /// path, byte-frame tests) use this directly; consumers that hold a
+    /// typed [`Register`] go through [`Self::write_register`].
+    pub async fn write_register_raw(&self, addr: RawChipAddress, reg: u8, value: u32) {
         self.send_frame(build_write_register(addr, reg, value))
             .await;
+    }
+
+    /// Typed register-write wrapper. Serialises `reg` to its 4-byte
+    /// wire payload and delegates to [`Self::write_register_raw`].
+    /// Infallible because the bitfield storage is a plain `u32`.
+    pub async fn write_register<R: Register>(&self, addr: RawChipAddress, reg: &R) {
+        let value = u32::from_be_bytes(reg.to_be_bytes());
+        self.write_register_raw(addr, R::REG_NUM, value).await;
     }
 
     /// Build and dispatch a register-read, then collect up to one reply
@@ -208,7 +218,7 @@ impl Serial {
     /// other's replies. Stops early on the first per-reply timeout, so
     /// a missing chip caps the total stall at one
     /// [`READ_REPLY_TIMEOUT`] window rather than `expected ×` it.
-    pub async fn read_register(
+    pub async fn read_register_raw(
         &self,
         addr: RawChipAddress,
         reg: u8,
@@ -235,6 +245,21 @@ impl Serial {
             }
         }
         responses
+    }
+
+    /// Typed single-chip register-read wrapper. Issues a read at
+    /// `RawChipAddress::Chip(chip)`, waits for the one expected reply,
+    /// and decodes it into `R`. Returns `TimedOut` if the chip stays
+    /// silent past [`READ_REPLY_TIMEOUT`]. Broadcast reads stay on the
+    /// raw path because the typed wrapper would have to drop chip-
+    /// address pairing or wrap every entry, neither of which the
+    /// `Tuner` / `Miner` callers need.
+    pub async fn read_register<R: Register>(&self, chip: u8) -> Result<R, ErrorKind> {
+        let raw = self
+            .read_register_raw(RawChipAddress::Chip(chip), R::REG_NUM)
+            .await;
+        let response = raw.first().ok_or(ErrorKind::TimedOut)?;
+        Ok(R::from_be_bytes(response.value.to_be_bytes()))
     }
 
     /// Server entry point. Owns the byte stream and the work registry;
