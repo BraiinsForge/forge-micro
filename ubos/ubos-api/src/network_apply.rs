@@ -10,19 +10,25 @@
 //! When a request sets `confirm_after_switch` to `false`, the change is
 //! applied live and persisted immediately with no revert window.
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{select, select3, Either, Either3};
 use embassy_net::{ConfigV4, DhcpConfig, Stack};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 use ubos_config::{Message, NetworkConfig, NetworkMode};
 use ubos_logging::{info, warn};
+use ubos_net::net::LOCAL_IPV4;
 
 type CSMutex = CriticalSectionRawMutex;
 
 /// How long an unconfirmed live network change stays applied before revert.
 const CONFIRM_WINDOW: Duration = Duration::from_secs(120);
+
+/// How often the apply task republishes the live IPv4 address into the
+/// shared `LOCAL_IPV4` cache, bounding how stale `/api/info` and the
+/// display can be after a live address change.
+const RECONCILE_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Commands from the REST handlers to the apply task.
 enum Command {
@@ -158,6 +164,21 @@ fn do_revert(
     }
 }
 
+/// Publish the live IPv4 address into the shared `LOCAL_IPV4` cache.
+///
+/// `LOCAL_IPV4` is otherwise written only by `wait_for_config` at boot,
+/// so a live `set_config_v4` would leave `/api/info` and the display
+/// reporting the pre-change address until the next reboot. Reading the
+/// stack each pass keeps the cache current across static applies,
+/// reverts, and DHCP lease changes alike. The last value is left in
+/// place while the stack holds no address, so the brief DHCP
+/// re-acquisition window does not blank the reported IP.
+fn reconcile_local_ipv4(stack: Stack<'static>) {
+    if let Some(config) = stack.config_v4() {
+        LOCAL_IPV4.store(config.address.address().to_bits(), Ordering::Relaxed);
+    }
+}
+
 /// Drive live network apply with confirm-or-revert.
 ///
 /// Spawn once per board after the stack is created; never returns. The
@@ -170,15 +191,20 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
     // The stack was already configured at boot from the persisted config.
     let mut applied = to_config_v4(&ubos_config::handle().current().network);
     let mut pending: Option<Pending> = None;
+    let mut reconcile = Ticker::every(RECONCILE_INTERVAL);
 
     loop {
+        reconcile_local_ipv4(stack);
         let command = match &pending {
-            None => COMMANDS.receive().await,
+            None => match select(COMMANDS.receive(), reconcile.next()).await {
+                Either::First(command) => command,
+                Either::Second(()) => continue,
+            },
             Some(state) => {
                 let deadline = state.deadline;
-                match select(COMMANDS.receive(), Timer::at(deadline)).await {
-                    Either::First(command) => command,
-                    Either::Second(()) => {
+                match select3(COMMANDS.receive(), Timer::at(deadline), reconcile.next()).await {
+                    Either3::First(command) => command,
+                    Either3::Second(()) => {
                         do_revert(
                             stack,
                             &mut pending,
@@ -187,6 +213,7 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                         );
                         continue;
                     }
+                    Either3::Third(()) => continue,
                 }
             }
         };
