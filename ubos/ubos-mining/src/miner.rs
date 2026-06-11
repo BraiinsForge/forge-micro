@@ -18,10 +18,11 @@ use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
+use embedded_io::ErrorKind;
 use ubos_core::consts::Mining;
 use ubos_core::units::Voltage;
 use ubos_logging::{Debug2Format, error, info, warn};
-use ubos_psu::Psu;
+use ubos_psu::{Error as PsuError, Psu};
 
 use crate::bmm100_trace::{DEINIT, INIT};
 use crate::control::{COMMAND_CHANNEL, Message, MiningState, STATE_WATCH};
@@ -48,6 +49,67 @@ const RETRY_DELAY: Duration = Duration::from_secs(5);
 /// and deinit; signalling it triggers the teardown sequence and the
 /// outer loop returns.
 pub static STOP_MINING: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Error type for chip-control operations.
+///
+/// Each variant represents a distinct failure mode the caller can
+/// observe and dispatch on. `Serial` wraps the `embedded_io` error
+/// kind so the miner can surface a consistent error surface without
+/// coupling callers to the specific serial actor types.
+#[derive(Debug)]
+pub enum MinerError {
+    /// The requested frequency is outside the chip's supported range
+    /// (`BM1362.frequency_range`). The `u32` carries the rejected
+    /// kHz value.
+    UnsupportedFrequency(u32),
+    /// The serial actor returned an error on a register read or write.
+    Serial(ErrorKind),
+    /// The PSU rejected a voltage or enable/disable command. The
+    /// payload narrows the failure to a discriminant the caller can
+    /// dispatch on without taking on the PSU's `BusError` generic.
+    Psu(PsuErrorKind),
+}
+
+/// Classification of [`ubos_psu::Error`] surfaces stripped of the
+/// generic bus-error payload so [`MinerError`] does not have to be
+/// parameterized over the PSU's `BusError` type.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PsuErrorKind {
+    Bus,
+    InitFailed,
+    OutOfRange,
+    Fault,
+    Terminated,
+}
+
+impl<E> From<PsuError<E>> for PsuErrorKind {
+    fn from(error: PsuError<E>) -> Self {
+        match error {
+            PsuError::Bus(_) => PsuErrorKind::Bus,
+            PsuError::InitFailed(_) => PsuErrorKind::InitFailed,
+            PsuError::OutOfRange => PsuErrorKind::OutOfRange,
+            PsuError::Fault(_) => PsuErrorKind::Fault,
+            PsuError::Terminated => PsuErrorKind::Terminated,
+        }
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for MinerError {
+    fn format(&self, f: defmt::Formatter) {
+        match self {
+            MinerError::UnsupportedFrequency(khz) => {
+                defmt::write!(f, "UnsupportedFrequency({} kHz)", khz);
+            }
+            MinerError::Serial(kind) => {
+                defmt::write!(f, "Serial({:?})", defmt::Debug2Format(kind));
+            }
+            MinerError::Psu(kind) => {
+                defmt::write!(f, "Psu({:?})", defmt::Debug2Format(kind));
+            }
+        }
+    }
+}
 
 /// Idle counterpart to [`run`] for deployments without a real chip.
 ///

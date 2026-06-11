@@ -11,6 +11,7 @@
 
 pub mod bm1362;
 pub mod bmm100_trace;
+pub mod chip;
 pub mod consts;
 mod control;
 pub mod miner;
