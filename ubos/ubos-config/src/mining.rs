@@ -96,7 +96,7 @@ pub const INFO: MiningInfo = MiningInfo {
     asic_model: "BM1362",
     device_model: "miniminer",
     swarm_color: "blue",
-    asic_count: ubos_mining::consts::NUM_CHIPS,
+    asic_count: ubos_core::consts::Mining::NUM_CHIPS,
     default_frequency_mhz: ubos_core::consts::Mining::DEFAULT_FREQUENCY.mhz(),
     default_voltage_mv: ubos_core::consts::Mining::DEFAULT_VOLTAGE.mv(),
     bounds: &BOUNDS,

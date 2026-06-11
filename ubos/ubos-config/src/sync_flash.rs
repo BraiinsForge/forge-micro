@@ -20,9 +20,10 @@ use embedded_storage_async::nor_flash::{
 /// Wraps a synchronous [`SyncNorFlash`] as an async [`AsyncNorFlash`].
 ///
 /// The async methods on the wrapper await no futures; each one delegates
-/// straight to the inner sync method. Acceptable for boot-load (a single
-/// read) and reconfigure (mining is already halted) because the executor
-/// has no concurrent work that would benefit from yielding mid-flash-op.
+/// straight to the inner sync method. The blocking erase/write briefly
+/// stalls the issuing executor, including mining on single-core boards,
+/// which is no longer halted for the write. Config writes are infrequent
+/// and each op is short, so the stall is acceptable.
 pub struct SyncFlash<F>(pub F);
 
 impl<F: SyncErrorType> SyncErrorType for SyncFlash<F> {

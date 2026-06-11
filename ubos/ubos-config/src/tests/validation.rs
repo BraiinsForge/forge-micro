@@ -1,8 +1,8 @@
 //! Tests for [`crate::ConfigUpdate::validate`].
 
 use crate::{
-    ApiConfig, Config, ConfigUpdate, NetworkConfig, NetworkMode, PoolEntry, ProtocolKind,
-    ThermalConfig, TuningConfig,
+    ApiConfig, Config, ConfigUpdate, MinerConfig, NetworkConfig, NetworkMode, PoolEntry,
+    ProtocolKind, ThermalConfig, TuningConfig,
 };
 
 /// Builds a minimal valid [`ConfigUpdate`] with no fields set.
@@ -11,6 +11,7 @@ fn empty_update() -> ConfigUpdate {
         pool: None,
         thermal: None,
         cooling_target_temp_c: None,
+        miner: None,
         tuning: None,
         api: None,
         network: None,
@@ -322,6 +323,37 @@ fn cooling_target_too_high() {
         update.validate(&Config::default()),
         Err("cooling_target_temp_c must be between 30 and 85")
     );
+}
+
+// --- Miner ---
+
+/// Default `MinerConfig` passes validation.
+#[test]
+fn miner_default_passes() {
+    let mut update = empty_update();
+    update.miner = Some(MinerConfig::default());
+    assert!(update.validate(&Config::default()).is_ok());
+}
+
+/// `ConfigUpdate::from_config` includes the miner field.
+#[test]
+fn miner_roundtrip_via_from_config() {
+    let config = Config::default();
+    let update = ConfigUpdate::from_config(&config);
+    assert_eq!(update.miner, Some(config.miner));
+}
+
+/// Applying a `miner` update overwrites `Config::miner`.
+#[test]
+fn miner_apply_updates_field() {
+    let mut config = Config::default();
+    let new_miner = MinerConfig::default();
+    let update = ConfigUpdate {
+        miner: Some(new_miner.clone()),
+        ..empty_update()
+    };
+    update.apply(&mut config);
+    assert_eq!(config.miner, new_miner);
 }
 
 // --- Tuning ---

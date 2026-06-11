@@ -4186,8 +4186,6 @@ dependencies = [
  "serde",
  "ubos-core",
  "ubos-logging",
- "ubos-manager",
- "ubos-mining",
 ]
 
 [[package]]

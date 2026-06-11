@@ -218,12 +218,8 @@ async fn manager_task(mining: MiningHandle) -> ! {
 type BoardConfigStorage = FlashStorage<SyncFlash<esp_storage::FlashStorage<'static>>>;
 
 #[embassy_executor::task]
-async fn config_task(
-    manager: ManagerHandle,
-    mining: MiningHandle,
-    storage: BoardConfigStorage,
-) -> ! {
-    ubos_config::run(manager, mining, storage).await
+async fn config_task(storage: BoardConfigStorage) -> ! {
+    ubos_config::run(storage).await
 }
 
 #[embassy_executor::task]
@@ -549,7 +545,7 @@ async fn boot(spawner: Spawner) {
         SyncFlash(esp_storage::FlashStorage::new(hw.flash).multicore_auto_park()),
         config::Flash::CONFIG_RANGE,
     );
-    spawner.must_spawn(config_task(manager_handle, mining_handle, config_storage));
+    spawner.must_spawn(config_task(config_storage));
 
     let rng = Rng::new();
     let seed = u64::from(rng.random()) << 32 | u64::from(rng.random());

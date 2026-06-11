@@ -1,7 +1,11 @@
 //! Tunables for the BMM100 BM1362 mining backend.
 
 /// Number of BM1362 chips on a BMM100 hashboard.
-pub const NUM_CHIPS: u8 = 4;
+///
+/// Matches `ubos_core::consts::Mining::NUM_CHIPS`; the value is
+/// reproduced here so callers inside `ubos-mining` do not need to
+/// reference the core crate for this single constant.
+pub const NUM_CHIPS: u8 = ubos_core::consts::Mining::NUM_CHIPS;
 
 /// Maximum chips the registry can address. Sized for the worst-case
 /// chain length the protocol allows.

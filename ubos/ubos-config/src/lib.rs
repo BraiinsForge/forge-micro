@@ -1,5 +1,4 @@
-//! Mining firmware configuration schema, distribution handle, and
-//! the reconfigure path.
+//! Mining firmware configuration schema and distribution handle.
 //!
 //! Defines the [`Config`] type that carries all runtime-tunable
 //! parameters and the [`Handle`] consumers use to read the current
@@ -7,9 +6,8 @@
 //!
 //! Firmware spawns [`run`], which publishes [`Config::default`] once
 //! at boot and then drains [`COMMAND_CHANNEL`] forever. On each
-//! [`Message::Update`] it brackets the new value with
-//! `Reconfiguring(true)` / `Reconfiguring(false)` on the manager,
-//! waiting for mining to halt before publishing on [`STATE_WATCH`].
+//! [`Message::Update`] it persists and publishes the new value on
+//! [`STATE_WATCH`].
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::missing_errors_doc)]
@@ -32,6 +30,7 @@ mod tests_factory_reset;
 
 pub mod api;
 pub mod cooling;
+pub mod miner;
 pub mod mining;
 pub mod network;
 pub mod pool;
@@ -42,6 +41,7 @@ pub use cooling::{
     CoolingBounds, CoolingConfig, CoolingInfo, PidConfig, BOUNDS as COOLING_BOUNDS,
     INFO as COOLING_INFO,
 };
+pub use miner::{MinerConfig, TuningAlgorithm};
 pub use mining::{
     MiningBounds, MiningInfo, TuningConfig, BOUNDS as MINING_BOUNDS, INFO as MINING_INFO,
 };
@@ -75,8 +75,6 @@ use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver, Watch};
 use ubos_logging::{info, warn};
-use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_mining::Handle as MiningHandle;
 
 /// Subscriber capacity for the config watch.
 ///
@@ -164,10 +162,8 @@ impl Handle {
         subscription.changed().await
     }
 
-    /// Submit a config update. The reconfigure task running in [`run`]
-    /// brackets the new value with `Reconfiguring(true)`/`(false)` on
-    /// the manager, then publishes on `STATE_WATCH` once mining has
-    /// halted.
+    /// Submit a config update. The task running in [`run`] persists the
+    /// new value then publishes it on `STATE_WATCH`.
     pub async fn send(&self, message: Message) {
         COMMAND_CHANNEL.send(message).await;
     }
@@ -207,6 +203,9 @@ pub struct ConfigUpdate {
     /// at the factory and must not be overwritten from the UI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cooling_target_temp_c: Option<f32>,
+    /// Replacement value for [`Config::miner`]; `None` means leave unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub miner: Option<MinerConfig>,
     /// Replacement value for [`Config::tuning`]; `None` means leave unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tuning: Option<TuningConfig>,
@@ -237,6 +236,9 @@ impl ConfigUpdate {
         if let Some(temp) = self.cooling_target_temp_c {
             target.cooling.target_temp_c = temp;
         }
+        if let Some(miner) = self.miner {
+            target.miner = miner;
+        }
         if let Some(tuning) = self.tuning {
             target.tuning = tuning;
         }
@@ -260,6 +262,7 @@ impl ConfigUpdate {
             pool: Some(config.pool.clone()),
             thermal: Some(config.thermal.clone()),
             cooling_target_temp_c: Some(config.cooling.target_temp_c),
+            miner: Some(config.miner.clone()),
             tuning: Some(config.tuning.clone()),
             api: Some(api),
             network: Some(config.network.clone()),
@@ -301,6 +304,9 @@ impl ConfigUpdate {
         }
         if let Some(thermal) = &self.thermal {
             thermal.validate()?;
+        }
+        if let Some(miner) = &self.miner {
+            miner.validate()?;
         }
         if let Some(tuning) = &self.tuning {
             tuning.validate()?;
@@ -345,6 +351,8 @@ pub struct Config {
     pub thermal: ThermalConfig,
     /// Cooling loop parameters.
     pub cooling: CoolingConfig,
+    /// Miner orchestration (tuner algorithm selection).
+    pub miner: MinerConfig,
     /// ASIC tuning parameters.
     pub tuning: TuningConfig,
     /// HTTP API credentials.
@@ -384,6 +392,7 @@ impl Default for Config {
             pool,
             thermal: ThermalConfig::default(),
             cooling: CoolingConfig::default(),
+            miner: MinerConfig::default(),
             tuning: TuningConfig::default(),
             api: ApiConfig::default(),
             network: NetworkConfig::default(),
@@ -405,13 +414,13 @@ impl Config {
 
     /// Validate operator-tunable fields against their per-domain bounds.
     ///
-    /// Runs the pool, thermal, tuning, and api sub-validators and enforces
-    /// the cross-field rule `cooling.target_temp_c < thermal.dangerous_temp_c`.
-    /// Stored blobs pass through serde and can carry out-of-range or
-    /// non-finite floats in those fields; [`load_initial`] calls this after
-    /// [`decode_blob`] so a corrupted blob falls back to defaults instead
-    /// of feeding `Reconfiguring` consumers values that bypass per-update
-    /// validation.
+    /// Runs the pool, thermal, miner, tuning, and api sub-validators and
+    /// enforces the cross-field rule
+    /// `cooling.target_temp_c < thermal.dangerous_temp_c`. Stored blobs
+    /// pass through serde and can carry out-of-range or non-finite floats
+    /// in those fields; [`load_initial`] calls this after [`decode_blob`]
+    /// so a corrupted blob falls back to defaults instead of feeding
+    /// consumers values that bypass per-update validation.
     ///
     /// The `cooling.pid` gains are not user-tunable through [`ConfigUpdate`]
     /// and therefore only enter flash via [`Config::default`]; they are not
@@ -425,6 +434,7 @@ impl Config {
             entry.validate(slot)?;
         }
         self.thermal.validate()?;
+        self.miner.validate()?;
         self.tuning.validate()?;
         self.api.validate()?;
         self.network.validate()?;
@@ -445,10 +455,11 @@ impl Config {
 /// logs the reason. `Ok(None)` means the key was never written and is
 /// treated as a clean first-boot — defaults, no warning.
 ///
-/// Each [`Message::Update`] then runs the reconfigure bracket, persists
-/// the new value before publishing it, and fires [`STRATUM_RESTART`] so
-/// the stratum client tears down its session.
-pub async fn run<S: Storage>(manager: ManagerHandle, mining: MiningHandle, mut storage: S) -> ! {
+/// Each [`Message::Update`] persists the new value before publishing
+/// it and fires [`STRATUM_RESTART`] so the stratum client tears down
+/// its session. [`Message::SetNetwork`] persists only the network
+/// section without restarting stratum.
+pub async fn run<S: Storage>(mut storage: S) -> ! {
     let mut current = load_initial(&mut storage).await;
     STATE_WATCH.sender().send(current.clone());
     info!("config: started");
@@ -457,7 +468,7 @@ pub async fn run<S: Storage>(manager: ManagerHandle, mining: MiningHandle, mut s
         let message = COMMAND_CHANNEL.receive().await;
         match message {
             Message::Update(new) => {
-                apply_update(&new, manager, mining, &mut storage).await;
+                apply_update(&new, &mut storage).await;
                 current = new;
             }
             Message::SetNetwork(network) => {
@@ -521,31 +532,22 @@ fn log_decode_error<E>(error: &LoadError<E>) {
 
 /// Apply a config update with persistence and stratum restart.
 ///
-/// `Reconfiguring(true)` halts mining; we wait for the halt, persist
-/// the new value, publish it on [`STATE_WATCH`], signal stratum to
-/// reconnect, then clear `Reconfiguring`. A store failure is logged
-/// but does not abort the publish: an in-memory update with no flash
-/// record is preferable to leaving mining paused.
-async fn apply_update<S: Storage>(
-    new: &Config,
-    manager: ManagerHandle,
-    mining: MiningHandle,
-    storage: &mut S,
-) {
-    manager.send(ManagerMessage::Reconfiguring(true)).await;
-    wait_until_mining_halted(mining).await;
+/// Persists the new value, publishes it on [`STATE_WATCH`], and
+/// signals stratum to reconnect. A store failure is logged but does
+/// not abort the publish: an in-memory update with no flash record
+/// is preferable to a stale config.
+async fn apply_update<S: Storage>(new: &Config, storage: &mut S) {
     persist(new, storage).await;
     STATE_WATCH.sender().send(new.clone());
     STRATUM_RESTART.signal(());
     info!("config: applied update");
-    manager.send(ManagerMessage::Reconfiguring(false)).await;
 }
 
 /// Persist a network-only change and publish it without halting mining.
 ///
 /// Network settings (IP mode, hostname) are not on the hashing path, so
-/// unlike [`apply_update`] this skips the `Reconfiguring` bracket and the
-/// stratum restart. The live network apply flow has already switched the
+/// unlike [`apply_update`] this skips the stratum restart. The live
+/// network apply flow has already switched the
 /// stack to the new address by the time this runs; the stratum client
 /// reconnects on its own when its socket drops, so all this needs to do
 /// is persist the confirmed record and refresh [`STATE_WATCH`] so
@@ -580,25 +582,5 @@ async fn persist<S: Storage>(config: &Config, storage: &mut S) {
     };
     if storage.store(CONFIG_KEY, &buffer[..length]).await.is_err() {
         warn!("config: store failed, publishing in-memory only");
-    }
-}
-
-/// Wait until the mining subsystem reports `running == false`.
-///
-/// Checks the current value first so no await is needed when mining is
-/// already halted. A fresh `Watch::receiver()` is initialised "unread",
-/// so if `running` flips to `false` between the `state()` check and the
-/// `subscribe()` call, the first `changed().await` resolves with the
-/// already-published value rather than waiting for the next edge.
-async fn wait_until_mining_halted(mining: MiningHandle) {
-    if mining.state().is_some_and(|state| !state.running) {
-        return;
-    }
-    let mut subscription = mining.subscribe();
-    loop {
-        let state = subscription.changed().await;
-        if !state.running {
-            return;
-        }
     }
 }

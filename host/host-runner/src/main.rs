@@ -146,8 +146,8 @@ async fn manager_task(mining: MiningHandle) -> ! {
 }
 
 #[embassy_executor::task]
-async fn config_task(manager: ManagerHandle, mining: MiningHandle, storage: FileStorage) -> ! {
-    ubos_config::run(manager, mining, storage).await
+async fn config_task(storage: FileStorage) -> ! {
+    ubos_config::run(storage).await
 }
 
 /// CPU-side ASIC mock; spawned when no BM1362 hashboard is wired.
@@ -330,10 +330,7 @@ fn main() {
             std::env::var_os("UBOS_CONFIG_DIR")
                 .map_or_else(|| std::path::PathBuf::from(".ubos-config"), Into::into),
         );
-        spawner.spawn(
-            config_task(manager_handle, mining_handle, config_storage)
-                .expect("BUG: config_task token"),
-        );
+        spawner.spawn(config_task(config_storage).expect("BUG: config_task token"));
         // Spawned unconditionally because the manager drains its
         // command channel independent of any hardware: the HTTP server
         // below issues `manager.assert/clear` for the pause/resume

@@ -12,8 +12,6 @@ defmt    = [
     "dep:defmt",
     "heapless/defmt",
     "ubos-logging/defmt",
-    "ubos-manager/defmt",
-    "ubos-mining/defmt",
 ]
 std = ["postcard/use-std"]
 
@@ -24,8 +22,6 @@ heapless               = { workspace = true, features = ["serde"] }
 serde                  = { version = "1", default-features = false, features = ["derive"] }
 ubos-core              = { workspace = true }
 ubos-logging           = { workspace = true }
-ubos-manager           = { workspace = true, default-features = false }
-ubos-mining            = { workspace = true, default-features = false }
 postcard               = { workspace = true }
 postcard-schema        = { workspace = true }
 sequential-storage     = { workspace = true }

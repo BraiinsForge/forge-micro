@@ -185,12 +185,8 @@ type BoardConfigStorage =
     FlashStorage<SyncFlash<Flash<'static, FLASH, FlashBlocking, { config::Flash::SIZE }>>>;
 
 #[embassy_executor::task]
-async fn config_task(
-    manager: ManagerHandle,
-    mining: MiningHandle,
-    storage: BoardConfigStorage,
-) -> ! {
-    ubos_config::run(manager, mining, storage).await
+async fn config_task(storage: BoardConfigStorage) -> ! {
+    ubos_config::run(storage).await
 }
 
 #[embassy_executor::task]
@@ -463,11 +459,7 @@ async fn main(spawner: Spawner) {
         SyncFlash(Flash::<_, FlashBlocking, { config::Flash::SIZE }>::new_blocking(hw.flash)),
         config::Flash::CONFIG_RANGE,
     );
-    spawner.spawn(unwrap!(config_task(
-        manager_handle,
-        mining_handle,
-        config_storage
-    )));
+    spawner.spawn(unwrap!(config_task(config_storage)));
 
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = config::Spi::FREQUENCY;

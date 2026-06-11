@@ -234,12 +234,8 @@ async fn manager_task(mining: MiningHandle) -> ! {
 type BoardConfigStorage = FlashStorage<SyncFlash<Flash<'static, FlashBlocking>>>;
 
 #[embassy_executor::task]
-async fn config_task(
-    manager: ManagerHandle,
-    mining: MiningHandle,
-    storage: BoardConfigStorage,
-) -> ! {
-    ubos_config::run(manager, mining, storage).await
+async fn config_task(storage: BoardConfigStorage) -> ! {
+    ubos_config::run(storage).await
 }
 
 #[embassy_executor::task]
@@ -488,11 +484,7 @@ async fn boot(spawner: Spawner) {
         SyncFlash(Flash::new_blocking(hw.flash)),
         config::Flash::CONFIG_RANGE,
     );
-    spawner.spawn(unwrap!(config_task(
-        manager_handle,
-        mining_handle,
-        config_storage
-    )));
+    spawner.spawn(unwrap!(config_task(config_storage)));
 
     // The config task publishes the stored config on first boot. Wait
     // for it, then derive the stack config and hostname. Only the small
