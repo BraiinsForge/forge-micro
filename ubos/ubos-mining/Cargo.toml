@@ -30,6 +30,7 @@ heapless          = { workspace = true }
 portable-atomic   = { workspace = true }
 serial-baudrate   = { workspace = true }
 sha2              = { workspace = true }
+ubos-config       = { workspace = true, default-features = false }
 ubos-core         = { workspace = true }
 # Pulled in for the hashrate metric only; the `default-features =
 # false` flavor keeps ubos-metrics no-defmt for ubos-mining consumers
