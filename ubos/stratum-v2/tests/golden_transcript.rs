@@ -25,29 +25,22 @@ use ii_sv2::messages::{
     SetupConnectionSuccess,
 };
 use ii_sv2::security::{
-    accept, new_keypair, secp256k1, CertificateHeader, CertificateSigningRequest,
-    CertificateWithPrivateKey, CryptoCtx, EncryptedCodec, EstablishedSession, PublicKey,
-    Rng as Sv2Rng, SecretKey,
+    accept, CertificateWithPrivateKey, EncryptedCodec, EstablishedSession, Rng as Sv2Rng,
 };
 use ii_sv2::types::{Bytes0_32, Str0_255, Uint256};
-use mining_protocol::{
-    Error, MiningClient, MiningClientVisitor, MiningJob, SessionRejection, SessionUpdate,
-    SubmitResult,
-};
+use mining_protocol::{Error, MiningClient, SessionRejection};
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use std::sync::OnceLock;
 use stratum_v2::{StratumV2Client, Sv2Config};
 use tokio::io::AsyncReadExt as _;
 
-// ── Crypto context ──────────────────────────────────────────────────────────────
+mod common;
 
-/// Shared secp256k1 context initialised once per test binary.
-static CRYPTO_CTX: OnceLock<CryptoCtx<secp256k1::All>> = OnceLock::new();
-
-fn crypto_ctx() -> &'static CryptoCtx<secp256k1::All> {
-    CRYPTO_CTX.get_or_init(CryptoCtx::new)
-}
+use common::{
+    crypto_ctx, make_cert, pool_send, RecordedUpdate, RecordingVisitor, FAKE_CHANNEL_ID,
+    FAKE_EXTRANONCE_PREFIX, FAKE_JOB_ID, FAKE_MERKLE_ROOT, FAKE_NBITS, FAKE_NTIME, FAKE_PREV_HASH,
+    FAKE_TARGET,
+};
 
 // ── Seeded RNG ──────────────────────────────────────────────────────────────────
 
@@ -79,22 +72,10 @@ const CERT_AUTHORITY_SEED: u64 = 0xDEAD_BEEF_0002;
 /// from fixed seeds. Identical to `make_server_cert` in `client.rs` except
 /// that `SeededRng` replaces `OsRng`, making the output deterministic.
 fn make_seeded_server_cert() -> CertificateWithPrivateKey {
-    let ctx = crypto_ctx();
-    let server_keypair = new_keypair(&mut SeededRng::new(CERT_SERVER_SEED), ctx);
-    let authority_keypair = new_keypair(&mut SeededRng::new(CERT_AUTHORITY_SEED), ctx);
-    let header = CertificateHeader {
-        version: 0,
-        valid_from: 0,
-        not_valid_after: u32::MAX,
-        remote_static_public_key: PublicKey::from(&server_keypair),
-    };
-    let signed = CertificateSigningRequest { header }.sign(&authority_keypair, ctx.as_secp256k1());
-    CertificateWithPrivateKey {
-        header: signed.header,
-        authority_public_key: signed.authority_public_key,
-        server_static_private_key: SecretKey::from(&server_keypair),
-        signature: signed.signature,
-    }
+    make_cert(
+        &mut SeededRng::new(CERT_SERVER_SEED),
+        &mut SeededRng::new(CERT_AUTHORITY_SEED),
+    )
 }
 
 // ── Fixture paths and embedded fixtures ────────────────────────────────────────
@@ -114,58 +95,6 @@ static GOLDEN_REJECT_POOL_TO_CLIENT: &[u8] =
 /// Committed client→pool byte recording for the reject scenario.
 static GOLDEN_REJECT_CLIENT_TO_POOL: &[u8] =
     include_bytes!("fixtures/golden_reject_client_to_pool.bin");
-
-// ── Fake-pool wire helpers ──────────────────────────────────────────────────────
-
-/// Wire buffer for a single encoded pool→client frame.
-const POOL_WIRE_BUFFER_SIZE: usize = 512;
-
-/// Encode `message` with `codec` and write the bytes to `writer`.
-async fn pool_send<F>(codec: &mut EncryptedCodec, message: &F, writer: &mut tokio::io::DuplexStream)
-where
-    F: ii_sv2::framing::IntoFrame,
-{
-    use tokio::io::AsyncWriteExt as _;
-    let mut wire = [0u8; POOL_WIRE_BUFFER_SIZE];
-    let wire_len = codec
-        .encode(message, &mut wire)
-        // BUG: pool_send encode must succeed with a correctly sized message
-        .expect("BUG: pool_send encode failed");
-    writer
-        .write_all(&wire[..wire_len])
-        .await
-        // BUG: pool_send write_all must succeed over an in-memory duplex
-        .expect("BUG: pool_send write_all failed");
-}
-
-// ── Fake pool constants (mirrored from client.rs) ───────────────────────────────
-
-/// Channel ID sent by the fake pool in `OpenStandardMiningChannelSuccess`.
-const FAKE_CHANNEL_ID: u32 = 42;
-
-/// Wire job id sent by the fake pool in `NewMiningJob` / `SetNewPrevHash`.
-const FAKE_JOB_ID: u32 = 7;
-
-/// `nbits` used in fake `SetNewPrevHash` frames.
-const FAKE_NBITS: u32 = 0x1700_e9bd;
-
-/// `min_ntime` used in `SetNewPrevHash` frames.
-const FAKE_NTIME: u32 = 1_700_000_000;
-
-/// 32-byte target pattern used in `OpenStandardMiningChannelSuccess`.
-const FAKE_TARGET: [u8; 32] = [
-    0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-];
-
-/// Extranonce prefix in `OpenStandardMiningChannelSuccess`.
-const FAKE_EXTRANONCE_PREFIX: [u8; 4] = [0xAA, 0xBB, 0xCC, 0xDD];
-
-/// 32-byte prev-hash pattern used in `SetNewPrevHash`.
-const FAKE_PREV_HASH: [u8; 32] = [0x01; 32];
-
-/// 32-byte merkle root used in `NewMiningJob`.
-const FAKE_MERKLE_ROOT: [u8; 32] = [0xDE; 32];
 
 // ── Seeds for deterministic exchange ───────────────────────────────────────────
 
@@ -274,57 +203,6 @@ impl Write for ReplayTransport {
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
-    }
-}
-
-// ── RecordingVisitor (local copy, not shared with client.rs) ───────────────────
-
-/// Recorded `SessionUpdate` variant for golden-test assertions.
-/// Variant names do not carry a common prefix to satisfy `clippy::enum_variant_names`.
-#[derive(Debug, Clone)]
-enum RecordedUpdate {
-    /// Pool-provided share target as a little-endian 256-bit value.
-    Target([u8; 32]),
-    /// Pool-provided extranonce assignment.
-    Extranonce { prefix: Vec<u8>, en2_size: u8 },
-    /// Pool-provided version-rolling mask.
-    VersionMask(u32),
-}
-
-/// Recorded `MiningJob` as an owned copy of the borrowed fields.
-#[derive(Debug, Clone)]
-struct RecordedJob {
-    clean_jobs: bool,
-}
-
-/// `MiningClientVisitor` that appends every callback into owned `Vec`s.
-/// Tests inspect the vecs after `accept` returns.
-#[derive(Default)]
-struct RecordingVisitor {
-    session_updates: Vec<RecordedUpdate>,
-    jobs: Vec<RecordedJob>,
-}
-
-impl MiningClientVisitor for RecordingVisitor {
-    fn visit_new_job(&mut self, job: MiningJob<'_>) {
-        self.jobs.push(RecordedJob {
-            clean_jobs: job.clean_jobs,
-        });
-    }
-
-    fn visit_submit_result(&mut self, _result: SubmitResult<'_>) {}
-
-    fn visit_session_update(&mut self, update: SessionUpdate<'_>) {
-        let recorded = match update {
-            SessionUpdate::SetTarget(target) => RecordedUpdate::Target(*target),
-            SessionUpdate::SetExtranonce { prefix, en2_size } => RecordedUpdate::Extranonce {
-                prefix: prefix.to_vec(),
-                en2_size,
-            },
-            SessionUpdate::SetVersionMask(mask) => RecordedUpdate::VersionMask(mask),
-            SessionUpdate::Reconnect { .. } => return,
-        };
-        self.session_updates.push(recorded);
     }
 }
 

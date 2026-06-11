@@ -25,27 +25,20 @@ use ii_sv2::messages::{
     SubmitSharesSuccess,
 };
 use ii_sv2::security::{
-    accept, new_keypair, secp256k1, CertificateHeader, CertificateSigningRequest,
-    CertificateWithPrivateKey, CryptoCtx, EncryptedCodec, EstablishedSession, PublicKey,
-    Rng as Sv2Rng, SecretKey,
+    accept, secp256k1, CertificateWithPrivateKey, EncryptedCodec, EstablishedSession, Rng as Sv2Rng,
 };
 use ii_sv2::types::{Bytes0_32, Str0_255, Uint256};
-use mining_protocol::{
-    Error, JobId, MiningClient, MiningClientVisitor, MiningJob, SessionRejection, SessionUpdate,
-    Share, SubmitResult,
-};
+use mining_protocol::{Error, JobId, MiningClient, SessionRejection, Share};
 use rand::RngCore;
-use std::sync::OnceLock;
 use stratum_v2::{StratumV2Client, Sv2Config};
 
-// ── Crypto context ──────────────────────────────────────────────────────────────
+mod common;
 
-/// Shared secp256k1 context initialised once per test binary.
-static CRYPTO_CTX: OnceLock<CryptoCtx<secp256k1::All>> = OnceLock::new();
-
-fn crypto_ctx() -> &'static CryptoCtx<secp256k1::All> {
-    CRYPTO_CTX.get_or_init(CryptoCtx::new)
-}
+use common::{
+    crypto_ctx, make_cert, pool_send, RecordedSubmitResult, RecordedUpdate, RecordingVisitor,
+    FAKE_CHANNEL_ID, FAKE_EXTRANONCE_PREFIX, FAKE_JOB_ID, FAKE_MERKLE_ROOT, FAKE_NBITS, FAKE_NTIME,
+    FAKE_PREV_HASH, FAKE_TARGET, POOL_WIRE_BUFFER_SIZE,
+};
 
 // ── Rng impl ────────────────────────────────────────────────────────────────────
 
@@ -62,47 +55,12 @@ impl Sv2Rng for OsRng {
 // ── Self-signed certificate ──────────────────────────────────────────────────────
 
 /// Build a fresh self-signed `CertificateWithPrivateKey` for the fake pool.
-/// Each call generates a new keypair so tests are independent.
+/// Each call draws new OS-random keypairs so tests are independent.
 fn make_server_cert() -> CertificateWithPrivateKey {
-    let ctx = crypto_ctx();
-    let server_keypair = new_keypair(&mut OsRng, ctx);
-    let authority_keypair = new_keypair(&mut OsRng, ctx);
-    let header = CertificateHeader {
-        version: 0,
-        valid_from: 0,
-        not_valid_after: u32::MAX,
-        remote_static_public_key: PublicKey::from(&server_keypair),
-    };
-    let signed = CertificateSigningRequest { header }.sign(&authority_keypair, ctx.as_secp256k1());
-    CertificateWithPrivateKey {
-        header: signed.header,
-        authority_public_key: signed.authority_public_key,
-        server_static_private_key: SecretKey::from(&server_keypair),
-        signature: signed.signature,
-    }
+    make_cert(&mut OsRng, &mut OsRng)
 }
 
 // ── Fake-pool wire helpers ───────────────────────────────────────────────────────
-
-/// Wire buffer for a single encoded frame. Every standard-channel
-/// pool→client message encodes to well under 512 bytes.
-const POOL_WIRE_BUFFER_SIZE: usize = 512;
-
-/// Encode `message` with `codec` and write the bytes to `writer`.
-async fn pool_send<F>(codec: &mut EncryptedCodec, message: &F, writer: &mut tokio::io::DuplexStream)
-where
-    F: ii_sv2::framing::IntoFrame,
-{
-    use tokio::io::AsyncWriteExt as _;
-    let mut wire = [0u8; POOL_WIRE_BUFFER_SIZE];
-    let wire_len = codec
-        .encode(message, &mut wire)
-        .expect("BUG: pool_send encode failed");
-    writer
-        .write_all(&wire[..wire_len])
-        .await
-        .expect("BUG: pool_send write_all failed");
-}
 
 /// Read one SV2 frame from `reader` and decode it with `codec`.
 /// Returns a `MiningMessages<'static>` variant by leaking the payload bytes.
@@ -141,77 +99,6 @@ async fn pool_recv(
     let frame_view = ii_sv2::framing::FrameView::try_new(header, &slice_ref[..plaintext_len])
         .expect("BUG: pool_recv FrameView::try_new failed");
     MiningMessages::dispatch(frame_view).expect("BUG: pool_recv dispatch failed")
-}
-
-// ── Recorded visitor callbacks ────────────────────────────────────────────────────
-
-/// Recorded `SessionUpdate` variant, used for assertions in tests.
-/// Variant names do not carry a common prefix to satisfy `clippy::enum_variant_names`.
-#[derive(Debug, Clone)]
-enum RecordedUpdate {
-    /// Pool-provided share target as a little-endian 256-bit value.
-    Target([u8; 32]),
-    /// Pool-provided extranonce assignment.
-    Extranonce { prefix: Vec<u8>, en2_size: u8 },
-    /// Pool-provided version-rolling mask.
-    VersionMask(u32),
-}
-
-/// Recorded `SubmitResult` for assertion in tests.
-#[derive(Debug, Clone)]
-enum RecordedSubmitResult {
-    Accepted { count: u32, work: u64 },
-    Rejected { error_message: Option<String> },
-}
-
-/// Recorded `MiningJob` as an owned copy of the borrowed fields.
-#[derive(Debug, Clone)]
-struct RecordedJob {
-    id: JobId,
-    clean_jobs: bool,
-}
-
-/// `MiningClientVisitor` that appends every callback into owned `Vec`s.
-/// Tests inspect the vecs after `accept` returns.
-#[derive(Default)]
-struct RecordingVisitor {
-    session_updates: Vec<RecordedUpdate>,
-    submit_results: Vec<RecordedSubmitResult>,
-    jobs: Vec<RecordedJob>,
-}
-
-impl MiningClientVisitor for RecordingVisitor {
-    fn visit_new_job(&mut self, job: MiningJob<'_>) {
-        self.jobs.push(RecordedJob {
-            id: job.id,
-            clean_jobs: job.clean_jobs,
-        });
-    }
-
-    fn visit_submit_result(&mut self, result: SubmitResult<'_>) {
-        let recorded = match result {
-            SubmitResult::Accepted { count, work } => {
-                RecordedSubmitResult::Accepted { count, work }
-            }
-            SubmitResult::Rejected { error_message, .. } => RecordedSubmitResult::Rejected {
-                error_message: error_message.map(str::to_owned),
-            },
-        };
-        self.submit_results.push(recorded);
-    }
-
-    fn visit_session_update(&mut self, update: SessionUpdate<'_>) {
-        let recorded = match update {
-            SessionUpdate::SetTarget(target) => RecordedUpdate::Target(*target),
-            SessionUpdate::SetExtranonce { prefix, en2_size } => RecordedUpdate::Extranonce {
-                prefix: prefix.to_vec(),
-                en2_size,
-            },
-            SessionUpdate::SetVersionMask(mask) => RecordedUpdate::VersionMask(mask),
-            SessionUpdate::Reconnect { .. } => return,
-        };
-        self.session_updates.push(recorded);
-    }
 }
 
 // ── Slow / broken transports for Group 3 tests ───────────────────────────────────
@@ -380,33 +267,6 @@ fn default_config() -> Sv2Config {
 }
 
 // ── Fake-pool session fixture ─────────────────────────────────────────────────────
-
-/// Channel ID sent by the fake pool in every `OpenStandardMiningChannelSuccess`.
-const FAKE_CHANNEL_ID: u32 = 42;
-
-/// Wire job id sent by the fake pool in `NewMiningJob` / `SetNewPrevHash`.
-const FAKE_JOB_ID: u32 = 7;
-
-/// `nbits` used in all fake `SetNewPrevHash` frames.
-const FAKE_NBITS: u32 = 0x1700_e9bd;
-
-/// `min_ntime` used in `SetNewPrevHash` frames.
-const FAKE_NTIME: u32 = 1_700_000_000;
-
-/// A 32-byte target pattern used in `OpenStandardMiningChannelSuccess`.
-const FAKE_TARGET: [u8; 32] = [
-    0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-];
-
-/// Extranonce prefix sent in `OpenStandardMiningChannelSuccess`.
-const FAKE_EXTRANONCE_PREFIX: [u8; 4] = [0xAA, 0xBB, 0xCC, 0xDD];
-
-/// A 32-byte prev-hash pattern used in `SetNewPrevHash`.
-const FAKE_PREV_HASH: [u8; 32] = [0x01; 32];
-
-/// A 32-byte merkle root used in `NewMiningJob`.
-const FAKE_MERKLE_ROOT: [u8; 32] = [0xDE; 32];
 
 /// Accepted share count used in `SubmitSharesSuccess`.
 const FAKE_ACCEPTED_COUNT: u32 = 3;
