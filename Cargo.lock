@@ -3820,6 +3820,7 @@ dependencies = [
  "ii-sv2",
  "mining-protocol",
  "rand",
+ "rand_chacha",
  "tokio",
  "ubos-logging",
 ]
