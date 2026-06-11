@@ -754,13 +754,15 @@ where
 
 /// Handle `POST /api/system/factory_reset`.
 ///
-/// Sends [`ubos_config::Message::FactoryReset`] to the config task and
-/// writes the 200 ack. The config task wipes persisted config back to
-/// defaults and only then requests the reboot, so the flash erase and
-/// write always complete before the reset task's flush delay elapses and
-/// the MCU resets. The ack reaches the wire well ahead of that reset.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
+/// Clears all sessions, sends [`ubos_config::Message::FactoryReset`] to the
+/// config task, and writes the 200 ack. The config task wipes persisted
+/// config back to defaults and only then requests the reboot, so the flash
+/// erase and write always complete before the reset task's flush delay
+/// elapses and the MCU resets. The ack reaches the wire well ahead of that
+/// reset. Sessions are cleared up front so the operator's cookie cannot
+/// authenticate during the brief window before the reset fires, matching
+/// the live network apply. `extra_headers` carries caller-supplied headers
+/// such as CORS headers from the REST listener.
 async fn handle_factory_reset<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -769,6 +771,7 @@ async fn handle_factory_reset<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
+    ubos_auth::session::clear_all_sessions().await;
     ubos_config::handle()
         .send(ubos_config::Message::FactoryReset)
         .await;
