@@ -3,7 +3,7 @@
 //!
 //! `serial_task` owns the UART halves and drives `ubos_mining::serial::SERIAL` for
 //! the lifetime of the firmware; `miner_task` runs the bring-up / teardown
-//! state machine in `ubos_mining::miner::run`. Neither ever returns under normal
+//! state machine in `ubos_mining::Miner::run`. Neither ever returns under normal
 //! operation.
 //!
 //! The ubos-mining `serial_task` runs on Core 1 (the `APP_CPU` embassy executor)
@@ -60,8 +60,9 @@ pub async fn serial_task(rx: MinerUartRx, tx: MinerUartTx) -> ! {
 }
 
 #[embassy_executor::task]
-pub async fn miner_task(psu: &'static BoardPsu, mut reset: BoardResetPin) -> ! {
-    ubos_mining::miner::run(psu, &mut reset).await;
+pub async fn miner_task(psu: &'static BoardPsu, reset: BoardResetPin) -> ! {
+    let mut miner = ubos_mining::Miner::new(psu, reset);
+    miner.run().await;
     info!("ubos-mining miner exited");
     loop {
         Timer::after(PARK_INTERVAL).await;

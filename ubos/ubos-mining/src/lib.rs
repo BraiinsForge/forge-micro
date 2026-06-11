@@ -2,7 +2,10 @@
 //!
 //! Owns the chip-side serial protocol and the work-dispatch loop.
 //! [`Handle`] is the public surface every other crate uses to
-//! observe state and issue commands.
+//! observe state and issue commands. [`Miner`] is the typed state
+//! machine that firmware constructs and drives; [`MinerControl`]
+//! is the trait the tuner consumes. [`tuner`] hosts the `Tuner`
+//! trait and its implementations.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -10,7 +13,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod bm1362;
-pub mod chip;
+pub(crate) mod chip;
 pub mod consts;
 mod control;
 pub mod miner;
@@ -21,3 +24,4 @@ pub mod serial;
 pub mod tuner;
 
 pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
+pub use miner::{Miner, MinerControl, MinerError, PsuErrorKind};

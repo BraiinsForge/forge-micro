@@ -2,7 +2,7 @@
 //!
 //! The module owns its primitives as private statics with const
 //! constructors. Firmware obtains a [`Handle`] via [`handle`];
-//! [`crate::miner::run`] is the sole writer of `STATE_WATCH` and the
+//! [`crate::Miner::run`] is the sole writer of `STATE_WATCH` and the
 //! sole consumer of `COMMAND_CHANNEL`.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -25,12 +25,12 @@ const WATCH_CAPACITY: usize = 4;
 /// `send()` once full.
 const CMD_CHANNEL_DEPTH: usize = 4;
 
-/// Module-internal state watch. Single writer is [`crate::miner::run`];
+/// Module-internal state watch. Single writer is [`crate::Miner::run`];
 /// readers are obtained via [`Handle::subscribe`].
 pub(crate) static STATE_WATCH: Watch<CSMutex, MiningState, WATCH_CAPACITY> = Watch::new();
 
 /// Module-internal command channel. Single consumer is
-/// [`crate::miner::run`]; producers send via the [`Handle`]
+/// [`crate::Miner::run`]; producers send via the [`Handle`]
 /// inherent methods.
 pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, CMD_CHANNEL_DEPTH> = Channel::new();
 

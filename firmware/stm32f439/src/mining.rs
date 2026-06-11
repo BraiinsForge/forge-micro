@@ -3,9 +3,9 @@
 //!
 //! `serial_task` owns the UART halves and drives `ubos_mining::serial::SERIAL` for
 //! the lifetime of the firmware; `miner_task` runs the bring-up / teardown
-//! state machine in `ubos_mining::miner::run`. Neither ever returns under normal
+//! state machine in `ubos_mining::Miner::run`. Neither ever returns under normal
 //! operation: there is no SIGINT on bare metal, so `STOP_MINING` is never
-//! raised and `ubos_mining::miner::run` parks inside its bring-up loop.
+//! raised and `ubos_mining::Miner::run` parks inside its bring-up loop.
 //!
 //! The STM32F439 is single-core so `serial_task` runs on the same executor
 //! as embassy-net. USART3 uses DMA so ETH-ISR jitter only races at the DMA
@@ -62,8 +62,9 @@ pub async fn serial_task(rx: MinerUartRx, tx: MinerUartTx) -> ! {
 }
 
 #[embassy_executor::task]
-pub async fn miner_task(psu: &'static BoardPsu, mut reset: BoardResetPin) -> ! {
-    ubos_mining::miner::run(psu, &mut reset).await;
+pub async fn miner_task(psu: &'static BoardPsu, reset: BoardResetPin) -> ! {
+    let mut miner = ubos_mining::Miner::new(psu, reset);
+    miner.run().await;
     info!("ubos-mining miner exited");
     loop {
         Timer::after(PARK_INTERVAL).await;

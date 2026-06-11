@@ -26,7 +26,7 @@ use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, error, info, warn};
 use ubos_psu::{Error as PsuError, Psu};
 
-use crate::bm1362::{RawChipAddress, RegisterResponse};
+use crate::chip;
 use crate::consts::MAX_CHIPS;
 use crate::control::{COMMAND_CHANNEL, Message, MiningState, STATE_WATCH};
 use crate::replay::replay;
@@ -195,105 +195,198 @@ pub async fn run_idle() -> ! {
     }
 }
 
-/// Drive the BMM100 mining work loop.
+/// The BM1362 mining state machine.
 ///
-/// Brings the chip up via the PSU and reset sequencing, mines until a
-/// halt or stop is observed, tears down on `Message::Resume`, and
-/// retries on transient init failures. Returns when `STOP_MINING`
-/// fires; on bare metal that never happens, so the loop runs forever.
-pub async fn run<P, R>(psu: &P, reset_pin: &mut R)
+/// Owns the PSU reference and the reset pin. Firmware constructs this
+/// with [`Miner::new`] and calls [`Miner::run`] to enter the bring-up
+/// loop. The `'a` lifetime covers the PSU reference which today is
+/// always `'static` at the firmware call site.
+pub struct Miner<'a, P, R>
 where
     P: Psu,
     R: ResetPin,
 {
-    // Publish the initial state so a fan task that started before us
-    // sees `false` instead of waiting forever for the first edge.
-    publish_running(false);
-    let mut halted = false;
+    psu: &'a P,
+    reset_pin: R,
+    halted: bool,
+}
 
-    loop {
-        if halted {
-            info!("mining: halt active; awaiting clear");
-            match wait_halt_clear_or_stop().await {
-                Resumed::Cleared => {
-                    info!("mining: halt cleared; restarting bring-up");
-                    halted = false;
+impl<'a, P, R> Miner<'a, P, R>
+where
+    P: Psu,
+    R: ResetPin,
+{
+    /// Construct a `Miner` from a PSU reference and a reset pin.
+    ///
+    /// The PSU is borrowed for lifetime `'a`; on all current firmware
+    /// targets `'a` is `'static` because the PSU lives in a static.
+    pub fn new(psu: &'a P, reset_pin: R) -> Self {
+        Self {
+            psu,
+            reset_pin,
+            halted: false,
+        }
+    }
+
+    /// Drive the BM1362 mining work loop.
+    ///
+    /// Brings the chip up via the PSU and reset sequencing, mines until a
+    /// halt or stop is observed, tears down on `Message::Resume`, and
+    /// retries on transient init failures. Returns when `STOP_MINING`
+    /// fires; on bare metal that never happens, so the loop runs forever.
+    pub async fn run(&mut self) {
+        // Publish the initial state so a fan task that started before us
+        // sees `false` instead of waiting forever for the first edge.
+        publish_running(false);
+
+        loop {
+            if self.halted {
+                info!("mining: halt active; awaiting clear");
+                match wait_halt_clear_or_stop().await {
+                    Resumed::Cleared => {
+                        info!("mining: halt cleared; restarting bring-up");
+                        self.halted = false;
+                    }
+                    Resumed::Stopped => return,
                 }
-                Resumed::Stopped => return,
+            }
+
+            // -- bring-up --
+            info!("mining: setting voltage to {} mV", VOLTAGE.mv());
+            let _ = self.psu.set_voltage(VOLTAGE).await;
+
+            info!("mining: entering reset");
+            self.reset_pin.enter_reset();
+            match settle_or_abort(RESET_HOLD, self.psu, &mut self.reset_pin).await {
+                Settled::Continue => {}
+                Settled::Stop => return,
+                Settled::Halt(value) => {
+                    self.halted = value;
+                    continue;
+                }
+            }
+
+            info!("mining: enabling PSU");
+            let _ = self.psu.enable().await;
+            // Fans follow the rail, not the init-replay completion: the
+            // chip is dissipating power as soon as the PSU is on, and
+            // init replay can take long enough for thermals to climb.
+            publish_running(true);
+            match settle_or_abort(RESET_HOLD, self.psu, &mut self.reset_pin).await {
+                Settled::Continue => {}
+                Settled::Stop => return,
+                Settled::Halt(value) => {
+                    self.halted = value;
+                    continue;
+                }
+            }
+
+            info!("mining: exiting reset");
+            self.reset_pin.exit_reset();
+            match settle_or_abort(RESET_HOLD, self.psu, &mut self.reset_pin).await {
+                Settled::Continue => {}
+                Settled::Stop => return,
+                Settled::Halt(value) => {
+                    self.halted = value;
+                    continue;
+                }
+            }
+
+            match init_replay_phase(self.psu, &mut self.reset_pin).await {
+                InitPhase::Done => {}
+                InitPhase::Stop => return,
+                InitPhase::Halt(value) => {
+                    self.halted = value;
+                    continue;
+                }
+                InitPhase::Retry => continue,
+            }
+
+            // -- mine --
+            info!("mining: mining; awaiting STOP_MINING or Message");
+            match select(STOP_MINING.wait(), next_halt_change()).await {
+                Either::First(()) => {
+                    // -- teardown (orderly stop) --
+                    info!("mining: replaying deinit ({} steps)", DEINIT.len());
+                    let _ = replay(&SERIAL, DEINIT).await;
+                    let _ = SERIAL.stop_sending_work().await;
+                    let _ = SERIAL.reset().await;
+                    cut_rail(self.psu, &mut self.reset_pin).await;
+                    info!("mining: stopped");
+                    return;
+                }
+                Either::Second(true) => {
+                    warn!("mining: halt asserted while mining; cutting rail");
+                    cut_rail(self.psu, &mut self.reset_pin).await;
+                    self.halted = true;
+                }
+                Either::Second(false) => {}
             }
         }
+    }
+}
 
-        // -- bring-up --
-        info!("mining: setting voltage to {} mV", VOLTAGE.mv());
-        let _ = psu.set_voltage(VOLTAGE).await;
+impl<P, R> MinerControl for Miner<'_, P, R>
+where
+    P: Psu,
+    R: ResetPin,
+{
+    async fn set_frequency(
+        &self,
+        chip_addr: RawChipAddress,
+        frequency: Frequency,
+    ) -> Result<(), MinerError> {
+        chip::set_frequency(chip_addr, frequency.khz()).await
+    }
 
-        info!("mining: entering reset");
-        reset_pin.enter_reset();
-        match settle_or_abort(RESET_HOLD, psu, reset_pin).await {
-            Settled::Continue => {}
-            Settled::Stop => return,
-            Settled::Halt(value) => {
-                halted = value;
-                continue;
-            }
-        }
+    async fn set_voltage(&self, voltage: Voltage) -> Result<(), MinerError> {
+        self.psu
+            .set_voltage(voltage)
+            .await
+            .map_err(|error| MinerError::Psu(error.into()))
+    }
 
-        info!("mining: enabling PSU");
-        let _ = psu.enable().await;
-        // Fans follow the rail, not the init-replay completion: the
-        // chip is dissipating power as soon as the PSU is on, and
-        // init replay can take long enough for thermals to climb.
-        publish_running(true);
-        match settle_or_abort(RESET_HOLD, psu, reset_pin).await {
-            Settled::Continue => {}
-            Settled::Stop => return,
-            Settled::Halt(value) => {
-                halted = value;
-                continue;
-            }
-        }
+    async fn set_ticket_mask(&self, mask: u32) -> Result<(), MinerError> {
+        chip::set_ticket_mask(mask).await
+    }
 
-        info!("mining: exiting reset");
-        reset_pin.exit_reset();
-        match settle_or_abort(RESET_HOLD, psu, reset_pin).await {
-            Settled::Continue => {}
-            Settled::Stop => return,
-            Settled::Halt(value) => {
-                halted = value;
-                continue;
-            }
-        }
+    async fn get_chip_version(&self, chip: u8) -> Result<ChipIdReg, MinerError> {
+        chip::get_chip_version(chip).await
+    }
 
-        match init_replay_phase(psu, reset_pin).await {
-            InitPhase::Done => {}
-            InitPhase::Stop => return,
-            InitPhase::Halt(value) => {
-                halted = value;
-                continue;
-            }
-            InitPhase::Retry => continue,
-        }
+    async fn enumerate_chips(&self) -> Result<u8, MinerError> {
+        chip::enumerate_chips().await
+    }
 
-        // -- mine --
-        info!("mining: mining; awaiting STOP_MINING or Message");
-        match select(STOP_MINING.wait(), next_halt_change()).await {
-            Either::First(()) => {
-                // -- teardown (orderly stop) --
-                info!("mining: replaying deinit ({} steps)", DEINIT.len());
-                let _ = replay(&SERIAL, DEINIT).await;
-                let _ = SERIAL.stop_sending_work().await;
-                let _ = SERIAL.reset().await;
-                cut_rail(psu, reset_pin).await;
-                info!("mining: stopped");
-                return;
-            }
-            Either::Second(true) => {
-                warn!("mining: halt asserted while mining; cutting rail");
-                cut_rail(psu, reset_pin).await;
-                halted = true;
-            }
-            Either::Second(false) => {}
-        }
+    async fn write_register_raw(&self, addr: RawChipAddress, reg: u8, value: u32) {
+        SERIAL.write_register_raw(addr, reg, value).await;
+    }
+
+    async fn read_register_raw(
+        &self,
+        addr: RawChipAddress,
+        reg: u8,
+    ) -> HVec<RegisterResponse, MAX_CHIPS> {
+        SERIAL.read_register_raw(addr, reg).await
+    }
+
+    async fn send_raw_command(&self, payload: &[u8]) {
+        SERIAL.send_frame(build_raw_command(payload)).await;
+    }
+
+    async fn send_command(&self, command: ControlCommand) {
+        SERIAL.send_frame(build_command(command)).await;
+    }
+
+    async fn set_baud_rate(&self, rate: u32) -> Result<(), MinerError> {
+        SERIAL.set_baud_rate(rate).await.map_err(MinerError::Serial)
+    }
+
+    async fn start_sending_work(&self, period: Duration) -> Result<(), MinerError> {
+        SERIAL
+            .start_sending_work(period)
+            .await
+            .map_err(MinerError::Serial)
     }
 }
 

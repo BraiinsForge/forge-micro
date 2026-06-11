@@ -53,8 +53,9 @@ pub async fn serial_task(rx: MinerUartRx, tx: MinerUartTx) -> ! {
 }
 
 #[embassy_executor::task]
-pub async fn miner_task(psu: &'static BoardPsu, mut reset: BoardResetPin) -> ! {
-    ubos_mining::miner::run(psu, &mut reset).await;
+pub async fn miner_task(psu: &'static BoardPsu, reset: BoardResetPin) -> ! {
+    let mut miner = ubos_mining::Miner::new(psu, reset);
+    miner.run().await;
     info!("ubos-mining miner exited");
     loop {
         Timer::after(PARK_INTERVAL).await;
