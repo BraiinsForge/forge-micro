@@ -21,9 +21,9 @@ use crate::{COMMAND_CHANNEL, STATE_WATCH};
 /// thermal halts originate inside the manager from a sensor
 /// reading; the operator has no other surface to see them. The
 /// other reasons (`BrokenFan`, `PoolUnreachable`, `TunerFault`,
-/// `Reconfiguring`, `UserRequest`) are asserted by callers that
-/// already log their own context, and the resulting halt/resume
-/// edge is visible in `mining.halt()` / `resume()` traffic.
+/// `UserRequest`) are asserted by callers that already log their
+/// own context, and the resulting halt/resume edge is visible in
+/// `mining.halt()` / `resume()` traffic.
 fn log_transition(was_halted: bool, now_halted: bool) {
     if !was_halted && now_halted {
         info!("manager: halt (DangerousTemperature)");
@@ -43,8 +43,6 @@ fn apply(reasons: PauseReasons, message: Message) -> PauseReasons {
         Message::PoolReachable => reasons.clear(PauseReason::PoolUnreachable),
         Message::TunerFault => reasons.assert(PauseReason::TunerFault),
         Message::TunerRecovered => reasons.clear(PauseReason::TunerFault),
-        Message::Reconfiguring(true) => reasons.assert(PauseReason::Reconfiguring),
-        Message::Reconfiguring(false) => reasons.clear(PauseReason::Reconfiguring),
         Message::Stop => reasons.assert(PauseReason::UserRequest),
         Message::Start => reasons.clear(PauseReason::UserRequest),
     }

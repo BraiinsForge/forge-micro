@@ -10,6 +10,10 @@
 /// Each variant maps to one bit in `PauseReasons`. Any non-empty
 /// mask means mining must be halted; there is no observation-only
 /// pause reason.
+///
+/// Discriminants are wire-format bit positions: bit 4 is intentionally
+/// vacant (formerly `Reconfiguring`) so the remaining variants keep
+/// their existing positions. Do not renumber to close the gap.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -22,9 +26,6 @@ pub enum PauseReason {
     UserRequest = 2,
     /// All configured pool entries are unreachable.
     PoolUnreachable = 3,
-    /// A reconfiguration is in progress; mining held while flash
-    /// writes and stratum restart complete.
-    Reconfiguring = 4,
     /// The tuner reported a fault it cannot recover from.
     TunerFault = 5,
 }

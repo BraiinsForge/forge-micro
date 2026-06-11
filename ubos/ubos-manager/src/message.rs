@@ -33,10 +33,6 @@ pub enum Message {
     TunerFault,
     /// Tuner: recovered.
     TunerRecovered,
-    /// `ubos-config`: `true` entering reconfiguration, `false` leaving.
-    /// Used by config to hold mining halted across flash writes and
-    /// stratum restart.
-    Reconfiguring(bool),
     /// API: operator-issued resume via `POST /api/system/resume`.
     Start,
     /// API: operator-issued pause via `POST /api/system/pause`.

@@ -76,12 +76,10 @@ fn all_variants_occupy_distinct_bits() {
         .assert(PauseReason::BrokenFan)
         .assert(PauseReason::UserRequest)
         .assert(PauseReason::PoolUnreachable)
-        .assert(PauseReason::Reconfiguring)
         .assert(PauseReason::TunerFault);
     assert!(all.contains(PauseReason::DangerousTemperature));
     assert!(all.contains(PauseReason::BrokenFan));
     assert!(all.contains(PauseReason::UserRequest));
     assert!(all.contains(PauseReason::PoolUnreachable));
-    assert!(all.contains(PauseReason::Reconfiguring));
     assert!(all.contains(PauseReason::TunerFault));
 }
