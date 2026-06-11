@@ -1,0 +1,4 @@
+# Golden transcript fixtures are raw encrypted wire bytes. They contain
+# CR and LF bytes and must never be line-ending normalized, or the
+# byte-exact replay tests break on checkout.
+tests/fixtures/*.bin binary

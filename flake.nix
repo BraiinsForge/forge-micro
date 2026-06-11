@@ -417,8 +417,9 @@
             # scripts (.x), the vendored embassy-net-wiznet patches directory,
             # the dashboard HTML/CSS/JS that ubos-webui's build.rs composes and
             # gzips into OUT_DIR, the Braiins wordmark served at /logo.svg via
-            # include_bytes!, and the build.rs sibling at the ubos-webui crate
-            # root.
+            # include_bytes!, the build.rs sibling at the ubos-webui crate
+            # root, and the stratum-v2 golden transcript fixtures that the
+            # replay tests pull in via include_bytes!.
             customFilter =
               path: _type:
               (builtins.match ".*\\.cargo/config\\.toml$" path != null)
@@ -428,6 +429,7 @@
               || (builtins.match ".*\\.css$" path != null)
               || (builtins.match ".*\\.js$" path != null)
               || (builtins.match ".*\\.svg$" path != null)
+              || (builtins.match ".*/tests/fixtures/.*\\.bin$" path != null)
               || (baseNameOf path == "build.rs");
           in
           pkgs.lib.cleanSourceWith {
