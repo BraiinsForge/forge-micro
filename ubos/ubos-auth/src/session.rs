@@ -84,6 +84,20 @@ pub async fn create_session(token: String<32>) {
     .ok();
 }
 
+/// Drop every session in the table.
+///
+/// Called when the live network address changes: the change tears down
+/// the TCP connection every browser session was established over and
+/// invalidates each session's CSRF token, so leaving the entries in place
+/// would only let a reconnecting tab skip the login it must now perform.
+/// Clearing them forces every browser back to `/login`, which is the only
+/// unambiguous signal to the operator that the address change took effect.
+/// Orphaned CSRF tokens are left to age out: a request whose session is
+/// gone fails auth before the CSRF check is ever reached.
+pub async fn clear_all_sessions() {
+    SESSIONS.lock().await.clear();
+}
+
 /// Return `true` if `token` exists in the table and has not expired.
 ///
 /// Uses `constant_time_eq` on each candidate so a LAN attacker submitting

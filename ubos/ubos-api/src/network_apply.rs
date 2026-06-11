@@ -144,19 +144,32 @@ struct Pending {
     deadline: Instant,
 }
 
+/// Apply `config` to the live stack and drop every browser session.
+///
+/// A live address change tears down the TCP connection each browser
+/// session was established over and invalidates its CSRF token, so the
+/// sessions are cleared on every address change. The SPA then lands on
+/// `/login` on its next request even when the address is unchanged, which
+/// is the only unambiguous signal to the operator that the change took
+/// effect. See [`ubos_auth::session::clear_all_sessions`].
+async fn apply_live(stack: Stack<'static>, config: ConfigV4) {
+    stack.set_config_v4(config);
+    ubos_auth::session::clear_all_sessions().await;
+}
+
 /// Roll back the live stack to the fallback address and clear pending state.
 ///
 /// Called both on [`CONFIRM_WINDOW`] timeout and on an explicit
 /// [`Command::Revert`] from the operator. `log_message` distinguishes the
 /// two call sites in the log.
-fn do_revert(
+async fn do_revert(
     stack: Stack<'static>,
     pending: &mut Option<Pending>,
     applied: &mut ConfigV4,
     log_message: &str,
 ) {
     if let Some(expired) = pending.take() {
-        stack.set_config_v4(expired.fallback.clone());
+        apply_live(stack, expired.fallback.clone()).await;
         *applied = expired.fallback;
         PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
         PENDING_IS_STATIC.store(false, Ordering::Relaxed);
@@ -210,7 +223,8 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                             &mut pending,
                             &mut applied,
                             "change not confirmed, reverted",
-                        );
+                        )
+                        .await;
                         continue;
                     }
                     Either3::Third(()) => continue,
@@ -229,7 +243,7 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                     .take()
                     .map_or_else(|| applied.clone(), |previous| previous.fallback);
                 applied = to_config_v4(&network);
-                stack.set_config_v4(applied.clone());
+                apply_live(stack, applied.clone()).await;
                 let deadline = Instant::now() + CONFIRM_WINDOW;
                 PENDING_IS_STATIC.store(
                     matches!(network.mode, NetworkMode::Static { .. }),
@@ -252,7 +266,7 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                 // Apply live and persist immediately; no revert window.
                 pending = None;
                 applied = to_config_v4(&network);
-                stack.set_config_v4(applied.clone());
+                apply_live(stack, applied.clone()).await;
                 PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
                 PENDING_IS_STATIC.store(false, Ordering::Relaxed);
                 ubos_config::handle()
@@ -279,7 +293,8 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                         &mut pending,
                         &mut applied,
                         "change reverted by operator",
-                    );
+                    )
+                    .await;
                 } else {
                     info!("network: revert with nothing pending");
                 }
