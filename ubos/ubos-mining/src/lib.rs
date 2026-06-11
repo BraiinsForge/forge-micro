@@ -18,7 +18,6 @@ pub mod consts;
 mod control;
 pub mod miner;
 pub mod publishers;
-pub mod replay;
 pub mod reset;
 pub mod serial;
 pub mod tuner;

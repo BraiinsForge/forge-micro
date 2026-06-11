@@ -2,11 +2,12 @@
 //!
 //! [`Tuner`] is the trait every tuner implementation satisfies.
 //! [`TuningConfig`] is the tuner-facing snapshot of the configured
-//! target; the miner translates the storage-side
-//! `ubos_config::TuningConfig` into this type before each call so
-//! `ubos-mining` does not depend on `ubos-config`; the reverse edge
-//! runs transitively through `ubos-manager`, so a direct
-//! `ubos-mining → ubos-config` link would cycle.
+//! target; the miner converts the storage-side
+//! `ubos_config::TuningConfig` from raw `u32` kHz / mV into this
+//! type's `Frequency` / `Voltage` units before each call.
+//! `ubos-mining` depends on `ubos-config` directly; the edge does
+//! not cycle because `ubos-config` no longer depends on
+//! `ubos-mining` or `ubos-manager`.
 //!
 //! Tuner implementations live in submodules: `replay::ReplayTuner`
 //! walks the captured BMM100 trace through `MinerControl`'s

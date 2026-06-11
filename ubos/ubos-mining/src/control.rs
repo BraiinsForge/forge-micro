@@ -8,10 +8,6 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::{Receiver, Watch};
-use ubos_core::units::{Frequency, Voltage};
-
-#[cfg(feature = "legacy-replay")]
-use crate::tuner::replay::trace::Step;
 
 type CSMutex = CriticalSectionRawMutex;
 
@@ -44,9 +40,6 @@ pub struct MiningState {
     /// Chips detected on the serial bus during the most recent
     /// bring-up. Zero before the first bring-up completes.
     pub chip_count: u8,
-    /// Tuner's intended PLL frequency and rail voltage. `None`
-    /// before the first `set_target`.
-    pub target: Option<(Frequency, Voltage)>,
 }
 
 /// Internal command enum carried by the command channel. `pub` so
@@ -55,14 +48,8 @@ pub struct MiningState {
 /// methods, never by spelling variants directly.
 #[derive(Clone)]
 pub enum Message {
-    SetTarget {
-        freq: Frequency,
-        voltage: Voltage,
-    },
     Halt,
     Resume,
-    #[cfg(feature = "legacy-replay")]
-    ExecuteStep(Step),
 }
 
 /// Per-task subscription returned by [`Handle::subscribe`].
@@ -110,13 +97,6 @@ impl Handle {
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
 
-    /// Queue a new tuner target. Applied on the next chip bring-up.
-    pub async fn set_target(&self, freq: Frequency, voltage: Voltage) {
-        self.commands
-            .send(Message::SetTarget { freq, voltage })
-            .await;
-    }
-
     /// Queue a halt of the work loop. Idempotent.
     pub async fn halt(&self) {
         self.commands.send(Message::Halt).await;
@@ -125,13 +105,5 @@ impl Handle {
     /// Queue a resume from a previous halt. Idempotent.
     pub async fn resume(&self) {
         self.commands.send(Message::Resume).await;
-    }
-
-    /// Queue a raw bring-up step. Only the legacy `ReplayTuner` of
-    /// Step 6 calls this; the gate, the method, and the tuner
-    /// delete together one release after Step 6's gates pass.
-    #[cfg(feature = "legacy-replay")]
-    pub async fn execute_step(&self, step: Step) {
-        self.commands.send(Message::ExecuteStep(step)).await;
     }
 }

@@ -4,17 +4,12 @@ name    = "ubos-mining"
 version = "0.1.0"
 
 [features]
-default       = ["defmt", "legacy-replay"]
-defmt         = [
+default = ["defmt"]
+defmt   = [
     "dep:defmt",
     "ubos-logging/defmt",
     "ubos-psu/defmt",
 ]
-# Step 6 of the migration plan introduces a typed `FlatTuner` and
-# demotes the recorded `bmm100_trace` bring-up to a regression
-# fallback gated behind this feature. Until then the trace is the
-# only working bring-up path, so the feature defaults on.
-legacy-replay = []
 
 [lints]
 workspace = true
