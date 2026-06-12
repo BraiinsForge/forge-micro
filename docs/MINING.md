@@ -29,21 +29,20 @@ adds two more:
 | Task | Owner | Role |
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives `ubos_mining::serial::SERIAL.run(rx, tx)`. Single actor for chip-side serial: command dispatch, parser, in-flight work registry, baud-rate switch. |
-| `miner_task` | `mining.rs` | Drives `ubos_mining::miner::run(psu, reset)`. Bring-up / teardown state machine: PSU up, reset sequence, init replay, mine, deinit, PSU off. |
+| `miner_task` | `mining.rs` | Drives `Miner::new(psu, reset).run()` against the tuner selected by `MinerConfig::algorithm` (`FixedTuner` by default; see `TuningAlgorithm`). Bring-up / teardown state machine: PSU up, reset sequence, tuner init, mine, tuner deinit, PSU off. |
 | `watchdog_task` | `psu.rs` | Drives `ubos_psu::run_watchdog`. Keeps the BMM100 in its active state by re-asserting the protection-defeat sequence. |
 | `power_stats_task` | `psu.rs` | Polls the INA230 input/output power readings every two seconds and logs them. Same cadence as the host-runner so prometheus rates are comparable. |
 
 `serial_task` and `miner_task` never return under normal operation.
-`ubos_mining::miner::run` waits on either `STOP_MINING` (orderly shutdown
-path; runs the deinit replay before powering down) or a `Message::Halt`
-edge from the manager (thermal trip, fan fault, operator pause, or a
-reconfigure bracket; cuts the rail immediately without deinit). After a
-halt, the loop blocks in `wait_halt_clear_or_stop()` until either a
-`Message::Resume` arrives and bring-up is retried, or `STOP_MINING`
-fires and the task tears down. If either task's main loop ever does
-return, the task idles for 60 s between log lines so the rest of the
-firmware (network, metrics, watchdog) keeps running and logs can be
-pulled.
+`Miner::run` waits on either `STOP_MINING` (orderly shutdown path; runs
+`tuner.deinit` before powering down) or a `Message::Halt` edge from the
+manager (thermal trip, fan fault, or operator pause; cuts the rail
+immediately without deinit). After a halt, the loop blocks in
+`wait_halt_clear_or_stop()` until either a `Message::Resume` arrives and
+bring-up is retried, or `STOP_MINING` fires and the task tears down. If
+either task's main loop ever does return, the task idles for 60 s between
+log lines so the rest of the firmware (network, metrics, watchdog) keeps
+running and logs can be pulled.
 
 ## Halt/resume edges via `ubos-manager`
 
@@ -57,7 +56,6 @@ on `STATE_WATCH` and flips edges on the empty/non-empty boundary:
 | cooling/fan     | `BrokenFan`                         | `BrokenFan`                |
 | stratum client  | `PoolUnreachable`                   | `PoolUnreachable`          |
 | tuner           | `TunerFault`                        | `TunerFault`               |
-| config writer   | `Reconfiguring(true)`               | `Reconfiguring`            |
 | operator        | `Stop`                              | `UserRequest`              |
 
 Domain producers raise typed messages; they never name a `PauseReason`.
@@ -66,23 +64,30 @@ sees one logical halted-state regardless of how many pause reasons are
 active concurrently.
 
 `ubos_mining::miner::next_halt_change()` reads `Message::Halt` /
-`Message::Resume` off the mining command channel; `Message::SetTarget`
-is logged and dropped today (tuner lands in a later step) and the
-`legacy-replay` feature flag gates an additional `Message::ExecuteStep`
-variant used by the host-side legacy-replay tuner harness.
+`Message::Resume` off the mining command channel; those are the only two
+variants. Frequency, voltage, and algorithm edits do not travel the
+command channel: `Miner::run` subscribes to `ubos_config::handle()`
+directly and reads the live snapshot at the top of each bring-up. An
+algorithm change tears down the active tuner (`tuner.deinit` + rail cut)
+and rebuilds it; other tuning edits apply on the next bring-up.
 
 ## Mining state machine
 
-`ubos_mining::miner::run` repeats:
+`Miner::run` repeats:
 
-1. Bring the BMM100 rails up via `ubos_psu::Psu`.
-2. Sequence the BM1362 reset pin (low to assert, high to release).
-3. Replay the canned init trace against the chip chain (cancellable
-   by `STOP_MINING` or `Message::Halt`).
-4. Mine until `STOP_MINING` fires or a `Message::Halt` edge arrives.
-5. On `Message::Halt`: cut the rail immediately, then block on
+1. Read the live `ubos-config` snapshot and select the tuner by
+   `miner.algorithm`.
+2. Bring the BMM100 rails up via `ubos_psu::Psu`.
+3. Sequence the BM1362 reset pin (low to assert, high to release).
+4. Run `tuner.init` against the chip chain (cancellable by `STOP_MINING`
+   or `Message::Halt`).
+5. Mine until `STOP_MINING` fires, a `Message::Halt` edge arrives, or the
+   configured algorithm changes.
+6. On `Message::Halt`: cut the rail immediately, then block on
    `wait_halt_clear_or_stop` until `Message::Resume`.
-6. On `STOP_MINING`: replay the deinit trace and power down the BMM100.
+7. On an algorithm change: run `tuner.deinit`, cut the rail, and rebuild
+   the tuner on the next iteration.
+8. On `STOP_MINING`: run `tuner.deinit` and power down the BMM100.
 
 A fatal init failure -- chip silent at the new line rate, register
 mismatch, etc. -- cuts the rail, sleeps, and restarts. The chip is never
@@ -140,10 +145,9 @@ Code: `ubos/ubos-temperature/src/lm75a.rs` (four-sensor logic);
 The BMM101 hashboard carries four LM75A sensors at I2C addresses
 `0x49`-`0x4c` (IC12D, IC12C, IC12B, IC12A) on the shared I2C1 bus. Each
 raw reading is offset by `+7 °C` (`OFFSET_MILLICELSIUS = 7000`) to
-approximate chip junction temperature from the board-mounted sensor; this
-matches the `BRAIINS_MINI_BMM101_BM1362_4X1` descriptor in bos-main. The
-controller exposes the maximum across all four sensors so that a single hot
-spot drives the thermal limit.
+approximate chip junction temperature from the board-mounted sensor.
+The controller exposes the maximum across all four sensors so that a
+single hot spot drives the thermal limit.
 
 ## Host parity
 

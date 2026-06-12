@@ -123,12 +123,13 @@ that endpoint.
     contract.
 14. **Concern separation is by module.** Configuration is a
     `ubos-config` concern; pause aggregation is a `ubos-manager`
-    concern; tuning is a `ubos-mining` concern. Cross-module work
-    flows through handles in one direction: `ubos-config::run` takes a
-    `ManagerHandle` to assert `Reconfiguring` while persisting, but
-    the manager never imports `ubos-config`.
+    concern; tuning is a `ubos-mining` concern. Control flows in one
+    direction: `ubos-config` does not depend on `ubos-manager` or
+    `ubos-mining`; mining subscribes directly to `ubos_config::handle()`
+    and reads the live snapshot, so the manager never imports
+    `ubos-config` and config never imports the manager.
 15. **Ack default is Signal + serialising Mutex.** Where a handle
-    method must return a `Result` (e.g. a `set_target` that can fail),
+    method must return a `Result` (e.g. a config update that can fail),
     the handle carries an internal `Signal<Result>` and `Mutex<()>`
     alongside its public `Channel<Cmd>`. The method takes the mutex,
     sends the command, awaits the signal, releases. Single in-flight
@@ -250,17 +251,13 @@ static STATE_WATCH:     Watch<CSMutex, MiningState, N> = Watch::new();
 static COMMAND_CHANNEL: Channel<CSMutex, MiningCmd, M> = Channel::new();
 
 pub enum MiningCmd {
-    SetTarget { freq: Frequency, voltage: Voltage },
     Halt,
     Resume,
-    #[cfg(feature = "legacy-replay")]
-    ExecuteStep(Step),
 }
 
 pub struct MiningState {
     pub running:    bool,
     pub chip_count: u8,
-    pub target:     Option<(Frequency, Voltage)>,
 }
 
 #[derive(Clone, Copy)]
@@ -269,32 +266,38 @@ pub struct MiningHandle {
     commands: &'static Channel<CSMutex, MiningCmd, M>,
 }
 
-pub async fn run<P: Psu, R: ResetPin>(psu: P, reset_pin: R) -> !;
+// Miner::new(psu, reset_pin).run().await  — entry point
+pub fn new<P: Psu, R: ResetPin>(psu: P, reset_pin: R) -> Miner<P, R>;
+pub async fn run(self) -> !;
 ```
 
-All inherent methods on `MiningHandle` (`set_target`, `halt`,
-`resume`, `execute_step`) are fire-and-forget: they queue a
+`MiningHandle::halt` and `resume` are fire-and-forget: they queue a
 `MiningCmd` variant and return as soon as the channel slot is taken.
 Callers that need to observe completion subscribe to `STATE_WATCH`
-and wait for the relevant field (`running`, `target`) to change — the
-"command ack is opt-in" rule classifies them as fire-and-forget,
-so no Signal+Mutex ceremony is needed here.
+and wait for the `running` field to change — the "command ack is
+opt-in" rule classifies them as fire-and-forget, so no Signal+Mutex
+ceremony is needed here.
 
 `MiningState` is slow-changing operational state only. Share counters
 and hashrate live in `ubos-metrics`; putting them here would wake every
 `STATE_WATCH` subscriber on every share.
 
-`MiningCmd::SetTarget` updates the tuner's intent and takes effect on
-the next chip bringup. It is not a hot retarget: PLL and voltage are
-reprogrammed through the boot-init sequence, not mid-job. The
-config task's halt → write → resume cycle is the only path that
-applies a new target to a running chip.
+Frequency, voltage, and algorithm are not carried over the mining
+command channel. The mining loop subscribes directly to
+`ubos_config::handle()` and reads the live config snapshot at the top
+of each bring-up. An algorithm change tears down the active tuner
+(`tuner.deinit` + rail cut) and rebuilds it; other tuning edits apply
+on the next bring-up.
 
-Tuner lives at `ubos_mining::tuner` — `Tuner` trait plus `FlatTuner`
-and (behind `legacy-replay`) `ReplayTuner`. Constructors take
+Tuner lives at `ubos_mining::tuner` — `Tuner` trait with `init` /
+`deinit` phases, plus `FixedTuner` (the current default, walks a
+`V^2 * f` curve to the target frequency and voltage) and `ReplayTuner`
+(walks the captured BMM100 trace through `MinerControl`'s byte-level
+escape hatches). Constructors take
 `&'static ChipDescriptor` and `&'static BoardDescriptor`. The trait
-returns `Result<Infallible, TunerError>`; `tuner::run_supervised`
-surfaces `Err` to the manager as `PauseReason::TunerFault`.
+returns `Result<(), TunerError>`. Surfacing tuner faults to the
+manager as `PauseReason::TunerFault` is a planned follow-up; the
+landed `Miner` loop cuts the rail and retries on an `init` error.
 
 PLL targets are computed by a calculator (integer-N PLL math), not a
 baked table. Validation: assert equality against factory dividers in a
@@ -322,7 +325,8 @@ pub struct Config {
 
 pub enum ConfigCmd {
     Update(Config),
-    // Save / Restore / Reset added when callers exist
+    SetNetwork(NetworkConfig),
+    FactoryReset,
 }
 
 #[derive(Clone, Copy)]
@@ -339,25 +343,22 @@ pub trait Storage {
         -> Result<(), Self::Error>;
 }
 
-pub async fn run<S: Storage>(storage: S, manager: ManagerHandle) -> !;
+pub async fn run<S: Storage>(storage: S) -> !;
 ```
 
-`run` loads from `storage` on boot (or publishes `Config::default()`
-on absent/mismatched version), publishes on `STATE_WATCH`, then drains
+`run` is decoupled — it takes no `ManagerHandle` or `MiningHandle`.
+It loads from `storage` on boot (or publishes `Config::default()` on
+absent/mismatched version), publishes on `STATE_WATCH`, then drains
 `COMMAND_CHANNEL`. For each `Update(new)`:
 
-1. `manager.commands.send(ManagerMessage::Reconfiguring(true))`.
-2. Wait for `MiningState.running == false` (subscribe to mining state).
-3. `storage.store("config", &postcard::to_bytes(&new))`.
-4. Publish `new` on `STATE_WATCH`.
-5. Signal stratum restart (sibling `Signal<()>` exposed via the handle).
-6. `manager.commands.send(ManagerMessage::Reconfiguring(false))`.
+1. `storage.store("config", &postcard::to_bytes(&new))`.
+2. Publish `new` on `STATE_WATCH`.
+3. Signal stratum restart (sibling `Signal<()>` exposed via the handle).
 
-The slow flash work runs inside `run` — there is exactly one consumer
-of `COMMAND_CHANNEL`. If the thermal trip fires mid-write, manager has
-already received the event on its own channel and asserts
-`DangerousTemperature`; mining stays halted past
-`Reconfiguring(false)` because the mask is non-empty.
+Mining subscribes directly to `ubos_config::handle()` and reads the
+live snapshot at the top of each bring-up; `ubos-config` does not
+reach into the manager or mining at all. The slow flash work runs
+inside `run` — there is exactly one consumer of `COMMAND_CHANNEL`.
 
 ### `ubos-manager`
 
@@ -383,7 +384,6 @@ pub enum ManagerMessage {
     PoolReachable,
     TunerFault,
     TunerRecovered,
-    Reconfiguring(bool),   // true=entering, false=leaving — set by ubos-config
 
     // Operator intent from the API.
     Start,
@@ -392,12 +392,12 @@ pub enum ManagerMessage {
 
 #[repr(u8)]
 pub enum PauseReason {
-    DangerousTemperature,
-    BrokenFan,
-    UserRequest,
-    PoolUnreachable,
-    Reconfiguring,
-    TunerFault,
+    DangerousTemperature = 0,
+    BrokenFan            = 1,
+    UserRequest          = 2,
+    PoolUnreachable      = 3,
+    // 4 is deliberately vacant (formerly Reconfiguring; wire positions preserved)
+    TunerFault           = 5,
 }
 
 pub struct PauseReasons(u16);   // bitmask storage; positions hidden
@@ -497,14 +497,13 @@ module-private implementation; consumers never name them.
 | Cooling `run` | Manager | `ManagerHandle::send` | `BrokenFan` / `FanRestored` |
 | Pool client | Manager | `ManagerHandle::send` | `PoolUnreachable` / `PoolReachable` |
 | Tuner (mining module) | Manager | `ManagerHandle::send` | `TunerFault` / `TunerRecovered` |
-| Config `run` | Manager | `ManagerHandle::send` | `Reconfiguring(true/false)` |
 | API | Manager | `ManagerHandle::send` | `Start` / `Stop` |
 | Manager `run` | All readers | `ManagerHandle::pause_reasons` / `changed` | live `PauseReasons` |
 | Manager `run` | Mining | `MiningHandle::halt` / `resume` | edge transitions only |
 | API | Config | `ConfigHandle::update` | `Config` |
 | Config `run` | All readers | `ConfigHandle::current` / `changed` | latest `Config` |
 | Config `run` | Stratum | `ConfigHandle::stratum_restart` (`Signal<()>` wrapper) | restart nudge |
-| Tuner (mining module) | Mining (work loop) | `MiningHandle::set_target` / `execute_step` (`legacy-replay`) | typed cmds |
+| Config `run` | Mining (via handle) | `ubos_config::handle()` subscription | live `Config` snapshot |
 | API | Mining | (none today) | future operator-driven tuning |
 | Mining `run` | All readers | `MiningHandle::state` / `subscribe` | `MiningState` |
 | Mining `run` | PSU | direct method calls (owned by mining) | enable/disable |
@@ -532,9 +531,8 @@ Rules:
 - **`PauseReasons` is intent; `MiningState.running` is ground truth.**
   They can disagree transiently. Manager publishes the new mask the
   moment it issues `mining.halt()` and does not wait for confirmation.
-  Config `run` waits for `MiningState.running == false` before
-  proceeding with flash. Readers treat the two values as orthogonal —
-  the asymmetry is load-bearing because thermal cannot afford to wait.
+  Readers treat the two values as orthogonal — the asymmetry is
+  load-bearing because thermal cannot afford to wait.
 - **Command ack is opt-in.** Where an inherent handle method needs a
   `Result` it follows the Signal+Mutex pattern from §2 principle 15.
   Fire-and-forget methods skip the Mutex and return `()`.
@@ -618,23 +616,20 @@ halt/resume" rule from §5.
 ```
 api:          POST /api/config → ConfigHandle::update(new)   → 200 OK
 config run:   receive Update
-              ManagerHandle::send(Reconfiguring(true))
-              manager run sets Reconfiguring bit → MiningHandle::halt()
-              wait until MiningHandle observes running=false
               storage.store(...)  [flash — slow]
-              ConfigHandle: publish new Config
+              ConfigHandle: publish new Config on STATE_WATCH
               ConfigHandle: signal stratum restart
-              ManagerHandle::send(Reconfiguring(false))
-              manager run clears bit; if mask empty → MiningHandle::resume()
+mining:       next bring-up reads live config snapshot via
+              ubos_config::handle(); applies new freq/voltage/algorithm
 stratum:      select! drops inner future; re-iterates with new pool
 ```
 
-If chip temperature spikes during the save, thermal sends
-`DangerousTemperature` to the manager directly — mining is already
-halted, so the edge call is a no-op, and the bit stays in
-`PauseReasons` so `Reconfiguring(false)` does not prematurely resume.
-Config does not need to subscribe to thermal; the manager owns the
-mask transitions.
+Config `run` does not reach into the manager or mining command channel.
+Mining subscribes directly to `ubos_config::handle()` and picks up the
+new config on its next bring-up. If a temperature trip fires
+concurrently, thermal sends `DangerousTemperature` to the manager
+independently — the manager owns the halt/resume edges, and config
+does not need to participate in or observe that path.
 
 ---
 
@@ -659,7 +654,7 @@ mask transitions.
 //      spawner.spawn(ubos_cooling::run_task(fan, tach, thermal, manager));
 //      spawner.spawn(ubos_mining::run_task(psu, reset));
 //      spawner.spawn(ubos_manager::run_task(mining));
-//      spawner.spawn(ubos_config::run_task(storage, manager));
+//      spawner.spawn(ubos_config::run_task(storage));
 //      spawner.spawn(ubos_api::run_task(stack, manager, mining,
 //                                       thermal, config, board_name));
 //      plus stratum_client, metrics, net, mdns, display, wdt.
@@ -758,31 +753,26 @@ stays in place temporarily (moves in Step 4). Delete `ubos-monitor`.
 `MiningControl` trait + embassy-backed `MiningHandle` impl; the impl
 funnels trait calls through an internal `MiningCmd` channel to the
 work loop and exposes a `Watch<MiningState>` reader. `MiningState`
-holds only slow-changing operational state (running, chip_count,
-current target); share counters and hashrate remain in `ubos-metrics`.
-Boot init still inside mining temporarily — moves to the tuner module
-in Step 6. Wire `HALT_MINING` to a trait `halt` call temporarily;
-behaviour preserved. `STOP_MINING` (orderly shutdown with DEINIT
-replay) defers to Step 4: the trait exposes only `halt`, the
-orderly-stop semantic has no trait surface, and the manager will own
-shutdown once it lands. A legacy `execute_step` method appears on the
-trait behind `#[cfg(feature = "legacy-replay")]`. The feature defaults
-on in Step 3 because the recorded trace is still the only working
-chip bringup path; Step 6 introduces `FlatTuner` and flips the default
-off, and one release after Step 6's gates pass the cfg, the method,
-and `ReplayTuner` delete together. Tagging from the start makes
-the eventual cleanup a single cfg flip plus one delete, rather than
-two breaking trait-signature edits.
+holds only slow-changing operational state (`running`, `chip_count`);
+share counters and hashrate remain in `ubos-metrics`. Frequency,
+voltage, and algorithm are not carried over the command channel —
+mining subscribes directly to `ubos_config::handle()` and reads the
+live snapshot at the top of each bring-up. Boot init still inside
+mining temporarily — moves to the tuner module in Step 6. Wire
+`HALT_MINING` to a trait `halt` call temporarily; behaviour preserved.
+`STOP_MINING` (orderly shutdown with DEINIT replay) defers to Step 4:
+the trait exposes only `halt`, the orderly-stop semantic has no trait
+surface, and the manager will own shutdown once it lands.
 
 Land in five sub-steps to keep the legacy `STOP_MINING`/`HALT_MINING`
 signals operational at every commit:
 
-- **3a — Rename.** `ubos-miner` → `ubos-mining`. `legacy-replay`
-  feature on. No behaviour change.
+- **3a — Rename.** `ubos-miner` → `ubos-mining`. No behaviour change.
 - **3b — Trait + handle scaffolding.** `MiningControl` trait,
   `MiningHandle` impl, `MiningCmd` enum, `MiningStateChannel` /
   `MiningCmdChannel` aliases. No consumers wired.
-- **3c — Publisher wiring.** `miner::run` takes the `MiningPublisher`
+- **3c — Publisher wiring.** `miner::run` (since restructured into
+  `Miner::new(psu, reset).run()`) takes the `MiningPublisher`
   and the `MiningCmdChannel` reference. Every rail transition
   publishes `MiningState`; the work loop selects across `STOP_MINING`,
   `HALT_MINING`, and the cmd channel. Reader half is constructed but
@@ -930,15 +920,15 @@ until consumers exist.
   hash, which keeps the change reviewable rather than silent. No
   firmware wiring yet.
 - **5d — `run` becomes authoritative.** Reads storage on boot; on
-  load error or `version` mismatch publishes `Config::default()` and
-  logs. Drains `COMMAND_CHANNEL`: on `Update(new)` sends
-  `ManagerMessage::Reconfiguring(true)`, waits for
-  `MiningState.running == false`, writes flash, publishes on
-  `STATE_WATCH`, signals stratum restart (sibling `Signal<()>` exposed
-  via the handle), sends `Reconfiguring(false)`. Firmware mains wire
-  the per-board storage backend through. Manager's `Reconfiguring`
-  pause reason is set/cleared by the manager in response to the events
-  — `ubos-config` never touches the pause mask directly.
+  load error or version mismatch publishes `Config::default()` and
+  logs. `run(storage)` takes no `ManagerHandle` or `MiningHandle`.
+  Drains `COMMAND_CHANNEL`: on `Update(new)` writes flash, publishes
+  on `STATE_WATCH`, signals stratum restart (sibling `Signal<()>`
+  exposed via the handle). On `SetNetwork` persists network config
+  only. On `FactoryReset` resets to defaults. Mining picks up the new
+  config via its direct `ubos_config::handle()` subscription on the
+  next bring-up. Firmware mains wire the per-board storage backend
+  through.
 - **5e — Consumer migration + API + env removal.** `ubos-thermal`,
   `ubos-cooling`, `ubos-mining` and stratum subscribe to
   `ConfigHandle::state` and recompute on `changed()`. Pool config
@@ -951,16 +941,17 @@ until consumers exist.
 
 ### Step 6* — Fold tuner into `ubos-mining`
 
-`FlatTuner` and `ReplayTuner` (the latter behind `legacy-replay`) of
-the async `Tuner` trait, returning `Result<Infallible, TunerError>`.
-Land as `ubos_mining::tuner`. `tuner::run_supervised` turns `Err` into
-`manager.assert(PauseReason::TunerFault)`. Typed boot init lands in
-`mining-protocol::bm1362`. Gates for deleting `bmm100_trace.rs`:
-(a) byte + `Sleep(d)` equivalence test green, (b) hardware loopback
-green on at least one board. The trace stays behind `legacy-replay` for
-one release as a regression fallback. PLL calculator replaces lookup
-table; factory-divider validation test asserts equality for known
-entries.
+`Tuner` trait with `init` / `deinit` phases, returning
+`Result<(), TunerError>`. Land as `ubos_mining::tuner`. Surfacing an
+`Err` to the manager as `PauseReason::TunerFault` is a planned
+follow-up; the landed `Miner` loop cuts the rail and retries on an
+`init` error. `FixedTuner` (the current
+default) walks a `V^2 * f` curve to the target operating point.
+`ReplayTuner` walks the captured BMM100 trace through `MinerControl`'s
+byte-level escape hatches unconditionally — no feature gate. Typed
+boot init lands in `mining-protocol::bm1362`. PLL
+calculator replaces lookup table; factory-divider validation test
+asserts equality for known entries.
 
 ### Step 7 — Slim `ubos-net` and refactor `ubos-api`
 
@@ -1175,10 +1166,12 @@ Config schema, persistence, and broadcast.
   flash impl (firmware) + file-backed host impl (tests). `postcard`
   on flash; `serde_json_core` stays on the HTTP boundary only.
 - **Module `run`** — Task: `run<S: Storage>(storage, manager)`.
+  Task: `run(storage)` — no `ManagerHandle` or `MiningHandle` params.
   Loads on boot, publishes initial `Config` on the private
-  `STATE_WATCH`, then drains the private `COMMAND_CHANNEL<ConfigCmd>`
-  and persists each `Update`. Asserts `Reconfiguring` via the manager
-  while writing.
+  `STATE_WATCH`, then drains the private `COMMAND_CHANNEL<ConfigCmd>`.
+  Handles `Update` (persist + publish + stratum restart), `SetNetwork`
+  (persist network only), `FactoryReset`. Mining subscribes directly
+  to `ubos_config::handle()` and reads the live snapshot.
 - Public handle: `ConfigHandle: Copy` (state + commands +
   `stratum_restart` signal).
 
@@ -1204,25 +1197,28 @@ Chip driver, serial actor, work-dispatch loop, and tuner — in one
 crate because the boundary between "what the work loop does" and
 "what the tuner does" is module-level, not crate-level.
 
-- **Module `work_loop`** — Task: `run<P: Psu, R: ResetPin>(psu,
-  reset)`. Drives the chip serial actor, dispatches `WorkAssignment`
-  from `AsicSession`, returns nonce `Solution`s back through
-  `AsicSession`. Drains the private `COMMAND_CHANNEL<MiningCmd>`
-  (`SetTarget`, `Halt`, `Resume`, plus `ExecuteStep` under
-  `legacy-replay`).
-- **Module `tuner`** — Task: `tuner::run_supervised(mining, thermal,
-  manager)`. Runs the chosen tuner; on `Err(TunerError)` emits
-  `ManagerMessage::TunerFault` on the manager channel.
-  - `Tuner` trait + `FlatTuner` impl + (under `legacy-replay`)
-    `ReplayTuner` impl.
+- **Module `work_loop`** — Task: `Miner::new(psu, reset).run()`.
+  Subscribes to `ubos_config::handle()` and reads the live config
+  snapshot at the top of each bring-up. Drives the chip serial actor,
+  dispatches `WorkAssignment` from `AsicSession`, returns nonce
+  `Solution`s back through `AsicSession`. Drains the private
+  `COMMAND_CHANNEL<MiningCmd>` (`Halt`, `Resume`).
+- **Module `tuner`** — Driven by `Miner::run`, which calls
+  `tuner.init` / `tuner.deinit` imperatively; an `init` error cuts the
+  rail and retries. Surfacing tuner faults to the manager as
+  `ManagerMessage::TunerFault` is a planned follow-up.
+  - `Tuner` trait with `init` / `deinit` phases.
+  - `FixedTuner` impl (current default, walks a `V^2 * f` curve).
+    `ReplayTuner` replays the captured BMM100 trace, unconditional — no
+    feature gate.
   - PLL calculator (integer-N math, no baked table).
   - Boot-init sequencing.
 - **Module `serial`** — Chip-side UART actor, BM1362 frame
   encoding/decoding. No task of its own; runs inside `work_loop`.
 - Public handle: `MiningHandle: Copy` over `&'static` references to
   the private `STATE_WATCH<MiningState>` and
-  `COMMAND_CHANNEL<MiningCmd>`. Inherent methods (`set_target`,
-  `halt`, `resume`, `execute_step`) wrap channel sends; no trait.
+  `COMMAND_CHANNEL<MiningCmd>`. Inherent methods (`halt`, `resume`)
+  wrap channel sends; no trait.
 
 ## Deleted
 
