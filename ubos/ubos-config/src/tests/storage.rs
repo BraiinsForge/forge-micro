@@ -34,15 +34,17 @@ fn round_trip_static_network() {
     let mut dns = heapless::Vec::new();
     dns.push([1, 1, 1, 1]).expect("dns slot available");
     dns.push([8, 8, 8, 8]).expect("dns slot available");
-    let mut config = Config::default();
-    config.network = NetworkConfig {
-        mode: NetworkMode::Static {
-            address: [192, 168, 1, 50],
-            prefix_len: 24,
-            gateway: [192, 168, 1, 1],
-            dns,
+    let config = Config {
+        network: NetworkConfig {
+            mode: NetworkMode::Static {
+                address: [192, 168, 1, 50],
+                prefix_len: 24,
+                gateway: [192, 168, 1, 1],
+                dns,
+            },
+            hostname: heapless::String::try_from("miner-1").expect("BUG: hostname fits"),
         },
-        hostname: heapless::String::try_from("miner-1").expect("hostname fits"),
+        ..Default::default()
     };
     let mut buffer = [0u8; 512];
     let length = encode_blob(&config, &mut buffer).expect("encode must succeed");
