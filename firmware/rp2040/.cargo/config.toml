@@ -1,10 +1,5 @@
 [target.thumbv6m-none-eabi]
-runner = [
-  "probe-rs-runner", "run",
-  "--chip", "RP2040",
-  "--probe", "2e8a:000c:E66118604B5EBE26",
-  "--log-format", "{t:>10} {f:<14} [{L}] {s}",
-]
+runner = "./scripts/run.sh"
 
 # POOL_* defaults live in the workspace .cargo/config.toml.
 [env]
@@ -12,3 +7,14 @@ DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
 
 [build]
 target = "thumbv6m-none-eabi"
+
+# `cargo run` flashes the single attached rp2040 board; scripts/run.sh
+# leaves $PROBE_SERIAL unset so probe-rs auto-selects the only probe.
+# Export PROBE_SERIAL to pin a specific probe when several are plugged
+# in. `cargo attach` connects to a board already running and streams its
+# defmt logs without flashing or resetting it, setting $PROBE_RS_ACTION
+# so scripts/run.sh issues `probe-rs attach`. It still builds so the local
+# ELF can decode the RTT stream; set $PROBE_RS_ELF to decode against a
+# different binary when the board carries other firmware.
+[alias]
+attach = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\""]

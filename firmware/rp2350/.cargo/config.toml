@@ -1,10 +1,5 @@
 [target.thumbv8m.main-none-eabihf]
-runner = [
-  "probe-rs-runner", "run",
-  "--chip", "RP235x",
-  "--probe", "2e8a:000c:6EAA91A84C2043F5",
-  "--log-format", "{t:>10} {f:<14} [{L}] {s}",
-]
+runner = "./scripts/run.sh"
 
 # POOL_* defaults live in the workspace .cargo/config.toml.
 [env]
@@ -12,3 +7,14 @@ DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
 
 [build]
 target = "thumbv8m.main-none-eabihf"
+
+# `cargo run` flashes the single attached rp2350 board; scripts/run.sh
+# leaves $PROBE_SERIAL unset so probe-rs auto-selects the only probe.
+# Export PROBE_SERIAL to pin a specific probe when several are plugged
+# in. `cargo attach` connects to a board already running and streams its
+# defmt logs without flashing or resetting it, setting $PROBE_RS_ACTION
+# so scripts/run.sh issues `probe-rs attach`. It still builds so the local
+# ELF can decode the RTT stream; set $PROBE_RS_ELF to decode against a
+# different binary when the board carries other firmware.
+[alias]
+attach = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\""]
