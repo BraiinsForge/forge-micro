@@ -116,6 +116,10 @@ async fn mdns_task(stack: Stack<'static>) -> ! {
 }
 
 #[embassy_executor::task]
+// run_rest_api's future crosses clippy's large_futures threshold on this
+// 64-bit host; the allow inside ubos-api does not reach this await site. See
+// run_rest_api for why the size is acceptable for a spawned-once task.
+#[allow(clippy::large_futures)]
 async fn rest_api_task(
     stack: Stack<'static>,
     thermal: ThermalHandle,

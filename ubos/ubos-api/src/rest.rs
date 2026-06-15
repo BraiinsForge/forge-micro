@@ -493,13 +493,39 @@ static REST_TCP_BUFFERS: ConstStaticCell<
 static REST_WORK_BUFFER: ConstStaticCell<[u8; Api::REQUEST_BUFFER_SIZE]> =
     ConstStaticCell::new([0; Api::REQUEST_BUFFER_SIZE]);
 
+/// Keep `CREDENTIALS` in sync with the config watch.
+///
+/// Subscribes to config changes and calls [`ubos_auth::auth::set_credentials`]
+/// on each publish so a `POST /api/config` credential update takes effect
+/// at runtime without a reboot.
+async fn sync_credentials(config: ubos_config::Handle) -> ! {
+    let mut subscription = config.subscribe();
+    loop {
+        // Hold only the two credential strings across the set_credentials
+        // await, not the whole Config snapshot, so this future stays small
+        // inside run_rest_api's select and keeps it under clippy's
+        // large_futures threshold.
+        let credentials = {
+            let snapshot = subscription.changed().await;
+            snapshot.api
+        };
+        ubos_auth::auth::set_credentials(&credentials.username, &credentials.password).await;
+    }
+}
+
 /// Accept connections on `Api::PORT` (8080) and serve the REST API.
 ///
-/// Runs forever. A second call to `ubos_auth::auth::init_credentials`
-/// is a no-op when the webui listener has already populated the
-/// store.
-// The future is large because `handle` carries all per-request state on
-// the stack; Box::pin is unavailable in a no_std context.
+/// Seeds `CREDENTIALS` from the persisted `config.api` section before
+/// entering the accept loop, then runs [`sync_credentials`] concurrently
+/// so any subsequent `POST /api/config` credential change takes effect
+/// immediately.
+// `serve` carries all per-request state on the stack, so on 64-bit hosts
+// the select future clears clippy's 16 KiB large_futures threshold by a
+// few dozen bytes. This is a forever-running task spawned once into static
+// storage, so the size is acceptable and Box::pin would only move the same
+// bytes to a heap the firmware targets lack. The 32-bit firmware builds
+// stay under the threshold on their own. The await at each board's call
+// site needs the same allow, since this one does not cross crate bounds.
 #[allow(clippy::large_futures)]
 pub async fn run_rest_api(
     stack: Stack<'static>,
@@ -508,21 +534,25 @@ pub async fn run_rest_api(
     manager: ManagerHandle,
     psu: ubos_psu::Handle,
 ) -> ! {
-    // Credential store init also happens in `ubos_webui::dashboard::run`;
-    // this is a no-op when already populated (init_credentials is idempotent).
-    ubos_auth::auth::init_credentials().await;
-    ubos_http::serve(
-        stack,
-        Api::PORT,
-        RestApiService {
-            board_name,
-            thermal,
-            manager,
-            psu,
+    let config = ubos_config::handle();
+    let api = config.current().api;
+    ubos_auth::auth::set_credentials(&api.username, &api.password).await;
+    ubos_auth::auth::warn_if_default_credentials().await;
+    match embassy_futures::select::select(
+        ubos_http::serve(
             stack,
-        },
-        REST_TCP_BUFFERS.take(),
-        REST_WORK_BUFFER.take(),
+            Api::PORT,
+            RestApiService {
+                board_name,
+                thermal,
+                manager,
+                psu,
+                stack,
+            },
+            REST_TCP_BUFFERS.take(),
+            REST_WORK_BUFFER.take(),
+        ),
+        sync_credentials(config),
     )
-    .await
+    .await {}
 }
