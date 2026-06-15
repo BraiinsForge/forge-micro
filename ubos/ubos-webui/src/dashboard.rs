@@ -601,11 +601,15 @@ impl Service for DashboardService {
 /// Braiins wordmark. Wrong-method requests on known paths return 405.
 /// Anything else gets a 404. The transport loop lives in `ubos-http`.
 pub async fn run(stack: Stack<'static>) -> ! {
-    // Populate the credential store before the accept loop so the very
-    // first request finds the defaults in place and the operator sees
-    // the default-credentials warning at boot rather than on first
-    // login attempt.
-    ubos_auth::auth::init_credentials().await;
+    // Seed the credential store from persisted config before the accept
+    // loop so the first request authenticates against the operator's
+    // configured credentials and the default-credentials warning fires
+    // at boot rather than on first login. The REST listener owns the
+    // config watch that keeps the shared store in sync on later changes.
+    let config = ubos_config::handle();
+    let api = config.current().api;
+    ubos_auth::auth::set_credentials(&api.username, &api.password).await;
+    ubos_auth::auth::warn_if_default_credentials().await;
     ubos_http::serve(
         stack,
         Http::PORT,
