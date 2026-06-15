@@ -755,6 +755,28 @@ async function csrfPost(body) {
   return csrfPostTo('/api/config', body);
 }
 
+// POST with backoff against the single-connection REST listener, which
+// refuses a request that loses the race with the 2 s status poll. Takes
+// a thunk so the caller owns the path and body; returns the ok response
+// or throws the last error. Stops early on a 4xx, which the board
+// rejects identically on retry, so retrying would only burn the backoff.
+async function postWithRetry(send) {
+  const delays = [0, 250, 500, 1000];
+  let lastError;
+  for (const wait of delays) {
+    if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+    try {
+      const response = await send();
+      if (response.ok) return response;
+      lastError = new Error('HTTP ' + response.status);
+      if (response.status >= 400 && response.status < 500) break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('unknown');
+}
+
 $('cfgForm').addEventListener('submit', async event => {
   event.preventDefault();
   const msg = $('msg');
@@ -794,15 +816,10 @@ $('cfgForm').addEventListener('submit', async event => {
     pool.push({ host, port, user, protocol });
   }
   try {
-    const response = await csrfPost({ pool });
-    if (response.ok) {
-      msg.style.color = '';
-      msg.textContent = 'Saved.';
-      loadPoolMeta();
-      return;
-    }
-    msg.style.color = 'var(--red)';
-    msg.textContent = 'Save failed: HTTP ' + response.status;
+    await postWithRetry(() => csrfPost({ pool }));
+    msg.style.color = '';
+    msg.textContent = 'Saved.';
+    loadPoolMeta();
   } catch (error) {
     msg.style.color = 'var(--red)';
     msg.textContent = 'Save failed: ' + error.message;
@@ -835,15 +852,10 @@ $('fmTemp').addEventListener('submit', async event => {
     return;
   }
   try {
-    const response = await csrfPost(body);
-    if (response.ok) {
-      msg.style.color = '';
-      msg.textContent = 'Saved.';
-      tempInit = { sampleMs: tempInit ? tempInit.sampleMs : null, dangerC, cooldownC, targetC };
-      return;
-    }
-    msg.style.color = 'var(--red)';
-    msg.textContent = 'Save failed: HTTP ' + response.status;
+    await postWithRetry(() => csrfPost(body));
+    msg.style.color = '';
+    msg.textContent = 'Saved.';
+    tempInit = { sampleMs: tempInit ? tempInit.sampleMs : null, dangerC, cooldownC, targetC };
   } catch (error) {
     msg.style.color = 'var(--red)';
     msg.textContent = 'Save failed: ' + error.message;
@@ -855,7 +867,7 @@ $('fmMining').addEventListener('submit', async event => {
   const msg = $('msgMining');
   msg.style.color = '';
   try {
-    const response = await csrfPost({
+    await postWithRetry(() => csrfPost({
       tuning: {
         frequency_mhz: +$('freqMhz').value,
         voltage_mv: +$('voltMv').value,
@@ -863,14 +875,9 @@ $('fmMining').addEventListener('submit', async event => {
       miner: {
         algorithm: $('tunerAlgo').value,
       },
-    });
-    if (response.ok) {
-      msg.style.color = '';
-      msg.textContent = 'Saved.';
-      return;
-    }
-    msg.style.color = 'var(--red)';
-    msg.textContent = 'Save failed: HTTP ' + response.status;
+    }));
+    msg.style.color = '';
+    msg.textContent = 'Saved.';
   } catch (error) {
     msg.style.color = 'var(--red)';
     msg.textContent = 'Save failed: ' + error.message;
@@ -882,19 +889,14 @@ $('fmSystem').addEventListener('submit', async event => {
   const msg = $('msgSystem');
   msg.style.color = '';
   try {
-    const response = await csrfPost({
+    await postWithRetry(() => csrfPost({
       api: {
         username: $('sysUser').value,
         password: $('sysPass').value,
       },
-    });
-    if (response.ok) {
-      msg.style.color = '';
-      msg.textContent = 'Saved.';
-      return;
-    }
-    msg.style.color = 'var(--red)';
-    msg.textContent = 'Save failed: HTTP ' + response.status;
+    }));
+    msg.style.color = '';
+    msg.textContent = 'Saved.';
   } catch (error) {
     msg.style.color = 'var(--red)';
     msg.textContent = 'Save failed: ' + error.message;
@@ -1113,27 +1115,12 @@ async function netModalPost(path, errPrefix) {
   // would also mutate the message and close the modal.
   const buttons = [$('btnNetModalPersist'), $('btnNetModalRevert')];
   buttons.forEach(button => { button.disabled = true; });
-  const delays = [0, 250, 500, 1000];
-  let lastError;
   try {
-    for (const wait of delays) {
-      if (wait) await new Promise(resolve => setTimeout(resolve, wait));
-      try {
-        const response = await csrfPostTo(path, {});
-        if (response.ok) {
-          $('netModal').classList.add('hide');
-          return;
-        }
-        lastError = new Error('HTTP ' + response.status);
-        // A 4xx is a client error the board will reject identically on
-        // retry, so stop and surface it instead of burning the backoff.
-        if (response.status >= 400 && response.status < 500) break;
-      } catch (error) {
-        lastError = error;
-      }
-    }
+    await postWithRetry(() => csrfPostTo(path, {}));
+    $('netModal').classList.add('hide');
+  } catch (error) {
     msg.style.color = 'var(--red)';
-    msg.textContent = errPrefix + ': ' + ((lastError && lastError.message) || 'unknown');
+    msg.textContent = errPrefix + ': ' + (error.message || 'unknown');
   } finally {
     buttons.forEach(button => { button.disabled = false; });
   }
