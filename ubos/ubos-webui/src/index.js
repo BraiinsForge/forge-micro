@@ -544,6 +544,25 @@ $('netModeStatic').addEventListener('click', function () {
 });
 syncNetUi();
 
+// Reflect the selected tuner algorithm in the segmented button pair.
+// The hidden tunerAlgo input holds the serde variant name the POST
+// /api/config body carries under miner.algorithm.
+function syncTunerUi() {
+  const algorithm = $('tunerAlgo').value;
+  $('tunerFixed').classList.toggle('active', algorithm === 'Fixed');
+  $('tunerReplay').classList.toggle('active', algorithm === 'Replay');
+}
+
+$('tunerFixed').addEventListener('click', function () {
+  $('tunerAlgo').value = this.dataset.algo;
+  syncTunerUi();
+});
+$('tunerReplay').addEventListener('click', function () {
+  $('tunerAlgo').value = this.dataset.algo;
+  syncTunerUi();
+});
+syncTunerUi();
+
 function syncPoolUi(slot) {
   const root = $('pcfg' + slot);
   const form = $('cfgForm');
@@ -624,6 +643,10 @@ async function loadCfg() {
         if (data.tuning) {
           $('freqMhz').value = data.tuning.frequency_mhz;
           $('voltMv').value = data.tuning.voltage_mv;
+        }
+        if (data.miner) {
+          $('tunerAlgo').value = data.miner.algorithm;
+          syncTunerUi();
         }
         if (data.api) {
           $('sysUser').value = data.api.username || '';
@@ -836,6 +859,9 @@ $('fmMining').addEventListener('submit', async event => {
       tuning: {
         frequency_mhz: +$('freqMhz').value,
         voltage_mv: +$('voltMv').value,
+      },
+      miner: {
+        algorithm: $('tunerAlgo').value,
       },
     });
     if (response.ok) {
