@@ -13,14 +13,16 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, unwrap};
+use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
+use embassy_futures::select::{select, Either};
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::i2c::{Config as I2cConfig, I2c};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, FLASH, I2C1, SPI0, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
@@ -28,10 +30,12 @@ use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{bind_interrupts, dma, i2c};
+use embassy_sync::mutex::Mutex;
 use embassy_time::Delay;
 use embassy_time::{Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::{ConstStaticCell, StaticCell};
+use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
 use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
@@ -256,10 +260,6 @@ async fn network_apply_task(stack: embassy_net::Stack<'static>) -> ! {
 #[embassy_executor::task]
 #[allow(clippy::too_many_lines)]
 async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
-    use defmt::warn;
-    use embassy_futures::select::{select, Either};
-    use embassy_time::Timer;
-    use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
     static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
         ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
     static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
@@ -437,9 +437,6 @@ async fn boot(spawner: Spawner) {
     let mining_handle = ubos_mining::handle();
 
     {
-        use embassy_rp::i2c::{Config as I2cConfig, I2c};
-        use embassy_sync::mutex::Mutex;
-
         static I2C1_BUS: StaticCell<psu::Bus> = StaticCell::new();
         let i2c = I2c::new_async(hw.i2c1, hw.scl, hw.sda, Irqs, I2cConfig::default());
         let bus: &'static psu::Bus = I2C1_BUS.init(Mutex::new(i2c));

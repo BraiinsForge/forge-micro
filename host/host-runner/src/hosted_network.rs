@@ -1,5 +1,8 @@
 #[cfg(target_arch = "arm")]
 mod imp {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
     use embassy_net::{Config, DhcpConfig};
     use embassy_net_afpacket::AfPacketDevice;
     use log::{info, warn};
@@ -48,8 +51,6 @@ mod imp {
     /// persist across runs of the runner on the same host while still
     /// distinguishing different hosts on the same LAN.
     fn derive_synthetic_mac(seed: [u8; 6]) -> [u8; 6] {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
         seed.hash(&mut hasher);
         let mixed = hasher.finish().to_le_bytes();

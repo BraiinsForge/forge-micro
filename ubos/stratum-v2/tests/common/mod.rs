@@ -17,6 +17,7 @@ use ii_sv2::security::{
     CertificateWithPrivateKey, CryptoCtx, EncryptedCodec, PublicKey, Rng as Sv2Rng, SecretKey,
 };
 use mining_protocol::{JobId, MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
+use tokio::io::AsyncWriteExt as _;
 
 // ── Crypto context ──────────────────────────────────────────────────────────────
 
@@ -69,7 +70,6 @@ pub async fn pool_send<F>(
 ) where
     F: ii_sv2::framing::IntoFrame,
 {
-    use tokio::io::AsyncWriteExt as _;
     let mut wire = [0u8; POOL_WIRE_BUFFER_SIZE];
     let wire_len = codec
         .encode(message, &mut wire)

@@ -23,6 +23,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use embassy_executor::{Executor, Spawner};
+use embassy_futures::select::{select, Either};
 use embassy_net::{Runner, Stack, StackResources};
 use embassy_time::{Duration, Timer};
 use log::{info, warn};
@@ -170,8 +171,6 @@ async fn asic_cpu_task() -> ! {
 #[embassy_executor::task]
 #[allow(clippy::too_many_lines)]
 async fn stratum_client_task(stack: Stack<'static>) -> ! {
-    use embassy_futures::select::{select, Either};
-
     static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
         ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
     static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =

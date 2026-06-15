@@ -37,6 +37,10 @@ use portable_atomic::{AtomicBool, Ordering};
 
 use ubos_logging::warn;
 
+#[cfg(test)]
+#[path = "tests/auth.rs"]
+mod tests;
+
 /// Default username applied at boot.
 pub const DEFAULT_USERNAME: &str = "root";
 /// Default password applied at boot.
@@ -479,7 +483,3 @@ fn base64_decode(input: &[u8], output: &mut [u8]) -> Option<usize> {
     }
     Some(decoded_len)
 }
-
-#[cfg(test)]
-#[path = "tests/auth.rs"]
-mod tests;

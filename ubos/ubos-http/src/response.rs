@@ -13,6 +13,10 @@ use heapless::Vec;
 
 use edge_nal::TcpSplit;
 
+#[cfg(test)]
+#[path = "tests/response.rs"]
+mod tests;
+
 /// Maximum number of ASCII decimal digits needed for any `usize` value.
 ///
 /// A 64-bit `usize` has at most 20 decimal digits. All targets in this
@@ -267,7 +271,3 @@ where
 
     Some(&buffer[..total])
 }
-
-#[cfg(test)]
-#[path = "tests/response.rs"]
-mod tests;

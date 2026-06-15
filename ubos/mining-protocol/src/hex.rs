@@ -6,6 +6,10 @@
 //! crates need the same thing. Centralising means one set of tests
 //! and no drift between hand-rolled copies.
 
+#[cfg(test)]
+#[path = "tests/hex.rs"]
+mod tests;
+
 /// Decode hex `input` into `output`, byte-for-byte. Accepts both
 /// upper- and lower-case digits.
 ///
@@ -71,7 +75,3 @@ fn decode_nibble(byte: u8) -> Option<u8> {
         _ => None,
     }
 }
-
-#[cfg(test)]
-#[path = "tests/hex.rs"]
-mod tests;

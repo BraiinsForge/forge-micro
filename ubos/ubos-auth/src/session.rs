@@ -18,6 +18,10 @@ use heapless::String;
 
 use crate::auth::constant_time_eq;
 
+#[cfg(test)]
+#[path = "tests/session.rs"]
+mod tests;
+
 /// Maximum number of concurrent active sessions.
 const MAX_SESSIONS: usize = 8;
 
@@ -158,7 +162,3 @@ pub async fn invalidate_session(token: &str) {
         .expect("BUG: matched_index is within map bounds set during scan");
     map.remove(&key);
 }
-
-#[cfg(test)]
-#[path = "tests/session.rs"]
-mod tests;

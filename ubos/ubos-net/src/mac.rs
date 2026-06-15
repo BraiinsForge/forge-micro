@@ -21,6 +21,10 @@
 //! family. The last two bytes are a 16-bit hash of the chip-unique ID,
 //! which disambiguates units within a family.
 
+#[cfg(test)]
+#[path = "tests/mac.rs"]
+mod tests;
+
 /// Placeholder organisationally-unique identifier for lab builds: the
 /// ASCII bytes `JKR`.
 ///
@@ -64,7 +68,3 @@ pub fn derive_mac(oui: [u8; 3], family: u8, uid: &[u8]) -> [u8; 6] {
     let [hash_hi, hash_lo] = fnv1a_16(uid);
     [oui[0], oui[1], oui[2], family, hash_hi, hash_lo]
 }
-
-#[cfg(test)]
-#[path = "tests/mac.rs"]
-mod tests;

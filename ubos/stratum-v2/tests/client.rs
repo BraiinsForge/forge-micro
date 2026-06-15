@@ -31,6 +31,7 @@ use ii_sv2::types::{Bytes0_32, Str0_255, Uint256};
 use mining_protocol::{Error, JobId, MiningClient, SessionRejection, Share};
 use rand::RngCore;
 use stratum_v2::{StratumV2Client, Sv2Config};
+use tokio::io::AsyncReadExt as _;
 
 mod common;
 
@@ -68,8 +69,6 @@ async fn pool_recv(
     codec: &mut EncryptedCodec,
     reader: &mut tokio::io::DuplexStream,
 ) -> MiningMessages<'static> {
-    use tokio::io::AsyncReadExt as _;
-
     let mut header_bytes = [0u8; EncryptedCodec::HEADER_WIRE_SIZE];
     reader
         .read_exact(&mut header_bytes)

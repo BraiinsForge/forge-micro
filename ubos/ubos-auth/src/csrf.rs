@@ -28,6 +28,10 @@ use heapless::String;
 
 use crate::auth::constant_time_eq;
 
+#[cfg(test)]
+#[path = "tests/csrf.rs"]
+mod tests;
+
 /// Maximum number of concurrent CSRF tokens.
 const MAX_TOKENS: usize = 16;
 
@@ -154,7 +158,3 @@ pub async fn consume_csrf_token(session_id: &str, token: &str) -> bool {
     map.remove(&key);
     matched_valid
 }
-
-#[cfg(test)]
-#[path = "tests/csrf.rs"]
-mod tests;

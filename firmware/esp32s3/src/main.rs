@@ -20,8 +20,9 @@
 #![no_std]
 #![no_main]
 
-use defmt::info;
+use defmt::{info, warn};
 use embassy_executor::Spawner;
+use embassy_futures::select::{select, Either};
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5100S;
 use embassy_net_wiznet::{Device, Runner, State};
@@ -42,7 +43,8 @@ use esp_hal::timer::timg::{MwdtStage, TimerGroup, Wdt};
 use esp_hal::uart::{Config as UartConfig, Uart};
 use esp_rtos::embassy::Callbacks;
 use portable_atomic::Ordering;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
+use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
 use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
@@ -273,11 +275,6 @@ async fn network_apply_task(stack: embassy_net::Stack<'static>) -> ! {
 #[embassy_executor::task]
 #[allow(clippy::too_many_lines)]
 async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
-    use defmt::warn;
-    use embassy_futures::select::{select, Either};
-    use static_cell::ConstStaticCell;
-    use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
-
     static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
         ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
     static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =

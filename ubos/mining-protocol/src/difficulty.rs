@@ -17,6 +17,10 @@ use core::fmt::Write as _;
 
 use heapless::String;
 
+#[cfg(test)]
+#[path = "tests/difficulty.rs"]
+mod tests;
+
 /// Maximum byte length of an [`approx_string`] result. Sized for
 /// `"4294901760"` (10 chars) plus the longest sentinel `">MAX"`.
 pub const APPROX_STRING_CAP: usize = 12;
@@ -102,7 +106,3 @@ pub fn approx_value(target_le: &[u8; 32]) -> u64 {
         ApproxDifficulty::Value(diff) => u64::from(diff),
     }
 }
-
-#[cfg(test)]
-#[path = "tests/difficulty.rs"]
-mod tests;

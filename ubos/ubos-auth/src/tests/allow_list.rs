@@ -2,9 +2,9 @@
 
 extern crate std;
 
-use core::net::{IpAddr, Ipv4Addr};
+use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use crate::allow_list::{is_allowed, DEFAULT_ALLOW_LIST};
+use crate::allow_list::{is_allowed, Cidr, DEFAULT_ALLOW_LIST};
 
 fn ipv4(a: u8, b: u8, c: u8, d: u8) -> IpAddr {
     IpAddr::V4(Ipv4Addr::new(a, b, c, d))
@@ -56,14 +56,12 @@ fn just_outside_172_range_is_denied() {
 
 #[test]
 fn native_ipv6_is_denied() {
-    use core::net::Ipv6Addr;
     let ipv6 = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
     assert!(!is_allowed(ipv6, DEFAULT_ALLOW_LIST));
 }
 
 #[test]
 fn ipv4_mapped_ipv6_is_screened_as_ipv4() {
-    use core::net::Ipv6Addr;
     // ::ffff:192.168.1.1 unwraps to 192.168.1.1 and is allowed.
     let mapped_private = IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc0a8, 0x0101));
     assert!(is_allowed(mapped_private, DEFAULT_ALLOW_LIST));
@@ -77,7 +75,6 @@ fn ipv4_mapped_ipv6_is_screened_as_ipv4() {
 
 #[test]
 fn prefix_zero_block_matches_every_ipv4() {
-    use crate::allow_list::Cidr;
     let block_zero = &[Cidr {
         base: Ipv4Addr::UNSPECIFIED,
         prefix: 0,
@@ -89,7 +86,6 @@ fn prefix_zero_block_matches_every_ipv4() {
 
 #[test]
 fn prefix_thirty_two_block_matches_single_host() {
-    use crate::allow_list::Cidr;
     let host_only = &[Cidr {
         base: Ipv4Addr::new(10, 0, 0, 42),
         prefix: 32,

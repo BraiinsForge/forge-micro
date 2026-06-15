@@ -2,8 +2,10 @@
 //!
 //! Metrics: `../../../docs/METRICS.md`.
 
-use embassy_time::Instant;
+use embassy_time::{Duration, Instant, Ticker};
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
+
+use crate::metrics::{push, Metric, Value};
 
 #[cfg(test)]
 #[path = "tests/hashrate.rs"]
@@ -161,10 +163,6 @@ pub fn hashrate() -> u64 {
 /// spawn this from their own `#[embassy_executor::task]` wrapper so the
 /// pool/stack/cap configuration stays per-target.
 pub async fn run_hashrate_publisher() -> ! {
-    use embassy_time::{Duration, Ticker};
-
-    use crate::metrics::{push, Metric, Value};
-
     let mut ticker = Ticker::every(Duration::from_secs(2));
     loop {
         ticker.next().await;

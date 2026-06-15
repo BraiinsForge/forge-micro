@@ -4,6 +4,10 @@ use embedded_hal_async::i2c::{ErrorKind, I2c};
 
 use crate::{ina230, tps6287x, watchdog, Error, MiniminerPsuConfig};
 
+#[cfg(test)]
+#[path = "tests/state.rs"]
+mod tests;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InitStatus {
     NotInit,
@@ -144,7 +148,3 @@ pub(crate) mod test_support {
         ]
     }
 }
-
-#[cfg(test)]
-#[path = "tests/state.rs"]
-mod tests;

@@ -56,6 +56,10 @@ use crate::schema::{
     SystemStatistics, API_VARIANT,
 };
 
+#[cfg(test)]
+#[path = "tests/system.rs"]
+mod tests;
+
 /// Serialization scratch buffer size in bytes.
 ///
 /// The largest schema struct is `SystemInfo`, which serializes to roughly
@@ -1078,7 +1082,3 @@ where
 
     Ok(true)
 }
-
-#[cfg(test)]
-#[path = "tests/system.rs"]
-mod tests;

@@ -60,6 +60,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
 use portable_atomic::{AtomicU32, Ordering as AtomicOrdering};
 use ubos_core::units::{Power, Voltage};
+use ubos_metrics::metrics::{push, Metric, Value};
 
 type CSMutex = CriticalSectionRawMutex;
 
@@ -177,8 +178,6 @@ pub async fn run_power_stats<P>(psu: &P) -> !
 where
     P: Psu,
 {
-    use ubos_metrics::metrics::{push, Metric, Value};
-
     let publisher = STATE_WATCH.sender();
     let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
     let mut last_known: Option<(Power, Power, Voltage)> = None;

@@ -2,7 +2,9 @@
 
 extern crate std;
 
-use crate::auth::{authenticate, AuthCtx, AuthError};
+use crate::auth::{
+    authenticate, constant_time_eq, extract_session_cookie_from_str, AuthCtx, AuthError,
+};
 
 // --- basic auth via Authorization header ---
 
@@ -108,7 +110,6 @@ fn basic_header_non_multiple_of_four_rejected() {
 
 #[test]
 fn session_cookie_extracted_when_alone() {
-    use crate::auth::extract_session_cookie_from_str;
     assert_eq!(
         extract_session_cookie_from_str(Some("session=abc123def")),
         Some("abc123def")
@@ -117,7 +118,6 @@ fn session_cookie_extracted_when_alone() {
 
 #[test]
 fn session_cookie_extracted_with_other_cookies() {
-    use crate::auth::extract_session_cookie_from_str;
     assert_eq!(
         extract_session_cookie_from_str(Some("pref=dark; session=xyz789; tracker=on")),
         Some("xyz789")
@@ -126,13 +126,11 @@ fn session_cookie_extracted_with_other_cookies() {
 
 #[test]
 fn missing_cookie_header_returns_none() {
-    use crate::auth::extract_session_cookie_from_str;
     assert_eq!(extract_session_cookie_from_str(None), None);
 }
 
 #[test]
 fn cookie_header_without_session_returns_none() {
-    use crate::auth::extract_session_cookie_from_str;
     assert_eq!(
         extract_session_cookie_from_str(Some("pref=dark; tracker=on")),
         None
@@ -141,7 +139,6 @@ fn cookie_header_without_session_returns_none() {
 
 #[test]
 fn cookie_with_empty_session_value_returns_empty_string() {
-    use crate::auth::extract_session_cookie_from_str;
     assert_eq!(extract_session_cookie_from_str(Some("session=")), Some(""));
 }
 
@@ -149,7 +146,6 @@ fn cookie_with_empty_session_value_returns_empty_string() {
 
 #[test]
 fn constant_time_eq_rejects_length_mismatch() {
-    use crate::auth::constant_time_eq;
     assert!(!constant_time_eq("abc", "abcd"));
     assert!(!constant_time_eq("", "x"));
     assert!(!constant_time_eq(
@@ -160,14 +156,12 @@ fn constant_time_eq_rejects_length_mismatch() {
 
 #[test]
 fn constant_time_eq_rejects_final_byte_mismatch() {
-    use crate::auth::constant_time_eq;
     assert!(!constant_time_eq("rootrootroot1", "rootrootroot2"));
     assert!(!constant_time_eq("a", "b"));
 }
 
 #[test]
 fn constant_time_eq_accepts_equal_strings() {
-    use crate::auth::constant_time_eq;
     assert!(constant_time_eq("", ""));
     assert!(constant_time_eq("root", "root"));
     assert!(constant_time_eq(
@@ -178,7 +172,6 @@ fn constant_time_eq_accepts_equal_strings() {
 
 #[test]
 fn constant_time_eq_rejects_oversize_inputs() {
-    use crate::auth::constant_time_eq;
     // A 33-byte string exceeds SECRET_MAX_LEN (32). Even when both sides
     // are identical and would compare equal after truncation, the oversize
     // guard must return false to prevent prefix-collision attacks.

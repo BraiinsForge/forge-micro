@@ -14,6 +14,7 @@
 //! restart.
 
 use core::convert::Infallible;
+use core::fmt::Write;
 use core::net::{Ipv4Addr, Ipv6Addr};
 
 use edge_mdns::buf::VecBufAccess;
@@ -33,6 +34,10 @@ use static_cell::{ConstStaticCell, StaticCell};
 use ubos_logging::{info, warn, Debug2Format};
 
 use crate::registry::ServiceEntry;
+
+#[cfg(test)]
+#[path = "tests/responder.rs"]
+mod tests;
 
 /// Transport protocol used by every service the responder advertises.
 const TCP_PROTOCOL: &str = "_tcp";
@@ -408,7 +413,6 @@ pub fn compose_hostname<const CAP: usize, const BASE_LEN: usize>(
     suffix: u8,
     cell: &'static StaticCell<heapless::String<CAP>>,
 ) -> &'static str {
-    use core::fmt::Write;
     // Referencing AssertCap::OK triggers the compile-time assertion.
     let _: () = AssertCap::<CAP, BASE_LEN>::OK;
     assert_eq!(
@@ -459,7 +463,3 @@ pub fn compose_hostname_configured<const CAP: usize, const BASE_LEN: usize>(
     };
     cell.init(buffer).as_str()
 }
-
-#[cfg(test)]
-#[path = "tests/responder.rs"]
-mod tests;

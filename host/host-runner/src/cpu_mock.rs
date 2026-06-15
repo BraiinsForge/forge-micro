@@ -11,6 +11,10 @@ use stratum_client::{AsicSession, Solution};
 use hash::{hash_meets_target, sha256d};
 use header::build_header;
 
+#[cfg(test)]
+#[path = "tests/cpu_mock.rs"]
+mod tests;
+
 mod hash {
     //! SHA-256d primitive and hash-vs-target comparison.
 
@@ -127,7 +131,3 @@ pub async fn run_asic_cpu(asic: &'static AsicSession) -> ! {
         yield_now().await;
     }
 }
-
-#[cfg(test)]
-#[path = "tests/cpu_mock.rs"]
-mod tests;

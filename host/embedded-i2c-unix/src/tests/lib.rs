@@ -1,3 +1,5 @@
+use embedded_hal_async::i2c::Error as _;
+
 use super::*;
 
 #[test]
@@ -8,7 +10,6 @@ fn open_nonexistent_returns_error() {
 
 #[test]
 fn error_kind_maps_io_to_other() {
-    use embedded_hal_async::i2c::Error as _;
     let error = Error::Io(io::Error::from(io::ErrorKind::PermissionDenied));
     assert!(matches!(
         error.kind(),

@@ -18,6 +18,10 @@ use std::ffi::CString;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 
+#[cfg(test)]
+#[path = "tests/lib.rs"]
+mod tests;
+
 const I2C_M_RD: u16 = 0x0001;
 /// `libc::Ioctl` is `c_ulong` on glibc and `c_int` on musl, so use the
 /// type alias rather than a fixed integer width.
@@ -188,7 +192,3 @@ impl embedded_hal_async::i2c::I2c for I2c {
         Ok(())
     }
 }
-
-#[cfg(test)]
-#[path = "tests/lib.rs"]
-mod tests;

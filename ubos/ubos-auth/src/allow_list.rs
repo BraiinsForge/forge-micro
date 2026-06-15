@@ -9,6 +9,10 @@
 
 use core::net::{IpAddr, Ipv4Addr};
 
+#[cfg(test)]
+#[path = "tests/allow_list.rs"]
+mod tests;
+
 /// A single IPv4 CIDR range.
 pub struct Cidr {
     /// The network address (host bits must be zero).
@@ -73,7 +77,3 @@ pub fn is_allowed(ip: IpAddr, allow_list: &[Cidr]) -> bool {
     };
     allow_list.iter().any(|cidr| cidr.contains(ipv4))
 }
-
-#[cfg(test)]
-#[path = "tests/allow_list.rs"]
-mod tests;

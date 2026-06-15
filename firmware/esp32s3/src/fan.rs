@@ -24,6 +24,7 @@ use esp_hal::pcnt::channel::{CtrlMode, EdgeMode};
 use esp_hal::pcnt::Pcnt;
 use esp_hal::peripherals::{GPIO10, GPIO11, LEDC, PCNT};
 use esp_hal::time::Rate;
+use static_cell::StaticCell;
 use ubos_cooling::FanOutput;
 use ubos_core::fan_state;
 use ubos_core::units::{FanPwm, FanRpm};
@@ -56,7 +57,6 @@ impl BoardFan {
     /// `Board::take` so it is not double-claimed.
     #[must_use]
     pub fn new(ledc: LEDC<'static>, gpio10: GPIO10<'static>) -> Self {
-        use static_cell::StaticCell;
         static LEDC_CELL: StaticCell<Ledc<'static>> = StaticCell::new();
         static TIMER_CELL: StaticCell<esp_hal::ledc::timer::Timer<'static, LowSpeed>> =
             StaticCell::new();

@@ -12,8 +12,9 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, unwrap};
+use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
+use embassy_futures::select::{select, Either};
 use embassy_net::StackResources;
 use embassy_stm32::adc::{Adc, AdcChannel, Exten, RingBufferedAdc, SampleTime};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
@@ -38,7 +39,8 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 #[cfg(feature = "display")]
 use embedded_hal_bus::spi::ExclusiveDevice;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
+use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
 use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
@@ -292,12 +294,6 @@ async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
     sv2_prng: &'static mut rand_chacha::ChaCha20Rng,
 ) -> ! {
-    use defmt::{info, warn};
-    use embassy_futures::select::{select, Either};
-    use embassy_time::Timer;
-    use static_cell::ConstStaticCell;
-    use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
-
     static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
         ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
     static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =

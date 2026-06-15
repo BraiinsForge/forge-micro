@@ -20,6 +20,10 @@ use ubos_metrics::metrics::{push, Label, LabelValue, Labels, Metric, Value};
 
 use crate::TemperatureSensor;
 
+#[cfg(test)]
+#[path = "tests/lm75a.rs"]
+mod tests;
+
 const REG_TEMPERATURE: u8 = 0x00;
 
 /// Datasheet supported range, exclusive of garbage readings on bus
@@ -158,7 +162,3 @@ fn raw_to_millicelsius(buffer: [u8; 2]) -> i32 {
     let raw = i16::from_be_bytes(masked) >> 5;
     i32::from(raw) * 125
 }
-
-#[cfg(test)]
-#[path = "tests/lm75a.rs"]
-mod tests;

@@ -12,6 +12,10 @@ use ubos_core::units::{Power, Voltage};
 use crate::state::{ensure_initialized, InitStatus, State};
 use crate::{ina230, tps6287x, watchdog, Error, Psu};
 
+#[cfg(test)]
+#[path = "tests/miniminer.rs"]
+mod tests;
+
 /// `RawMutex` choice exposed for callers that need to declare the
 /// `'static` mutex storage cell.
 pub type RawMutex = CriticalSectionRawMutex;
@@ -185,7 +189,3 @@ where
         }
     }
 }
-
-#[cfg(test)]
-#[path = "tests/miniminer.rs"]
-mod tests;

@@ -3,6 +3,10 @@
 
 use embassy_time::Duration;
 
+#[cfg(test)]
+#[path = "tests/ntp.rs"]
+mod tests;
+
 /// NTP time synchronization parameters.
 pub struct Ntp;
 impl Ntp {
@@ -82,7 +86,3 @@ pub fn format_utc_time(buffer: &mut [u8], unix_secs: u64) -> usize {
 
     needed
 }
-
-#[cfg(test)]
-#[path = "tests/ntp.rs"]
-mod tests;

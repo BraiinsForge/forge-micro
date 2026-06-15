@@ -11,6 +11,10 @@ use sha2::{Digest, Sha256};
 
 use crate::registers::ControlCommand;
 
+#[cfg(test)]
+#[path = "tests/framing.rs"]
+mod tests;
+
 // ---------------------------------------------------------------------------
 // CRC
 // ---------------------------------------------------------------------------
@@ -488,7 +492,3 @@ impl Default for ResponseParser {
         Self::new()
     }
 }
-
-#[cfg(test)]
-#[path = "tests/framing.rs"]
-mod tests;

@@ -27,6 +27,10 @@ use ubos_http::{
     Service, CONTENT_LENGTH_DECIMAL_DIGITS, MAX_RESPONSE_HEADERS,
 };
 
+#[cfg(test)]
+#[path = "tests/rest.rs"]
+mod tests;
+
 /// Body buffer size for JSON responses built by `/api/info`.
 ///
 /// The largest `/api/info` JSON body with all fields populated is
@@ -72,10 +76,6 @@ const fn validate_board_name(name: &str) -> bool {
     }
     true
 }
-
-#[cfg(test)]
-#[path = "tests/rest.rs"]
-mod tests;
 
 /// REST API handler implementing `ubos_http::Service`.
 ///
