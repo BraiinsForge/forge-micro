@@ -36,6 +36,15 @@ impl Frequency {
     pub const fn khz(self) -> u32 {
         self.0
     }
+
+    /// Convert to megahertz as `f32`. The tuner's V^2*f curve walk
+    /// needs fractional MHz to compute the next step's voltage from
+    /// the constant-power invariant; the integer `mhz()` rounds.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn as_mhz(self) -> f32 {
+        self.0 as f32 / 1000.0
+    }
 }
 
 /// Voltage in millivolts. Used for ASIC core voltage targets and PSU
@@ -54,6 +63,16 @@ impl Voltage {
     #[must_use]
     pub const fn mv(self) -> u32 {
         self.0
+    }
+
+    /// Convert to volts as `f32`. The tuner's V^2*f curve walk needs
+    /// fractional volts to compute the next voltage step from the
+    /// constant-power invariant; integer millivolts cannot represent
+    /// the square-root output without truncation.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn as_volts(self) -> f32 {
+        self.0 as f32 / 1000.0
     }
 }
 
