@@ -7,7 +7,7 @@
 //! See `docs/REGISTERS.md` for a per-register reference.
 
 use bitfield_struct::bitfield;
-use ubos_core::units::Voltage;
+use ubos_core::units::{Frequency, Voltage};
 
 /// Identifies a chip register by its protocol-level address and pins
 /// its wire payload to a big-endian 4-byte payload.
@@ -963,6 +963,27 @@ impl Register for MidstateCalReg {
 /// [`MidstateCalReg::factory_default`] byte-exact.
 pub const MIDSTATE_CAL_BRINGUP_BASELINE: u32 = 0x9000_FFFF;
 
+/// Soft-reset selector nibble (low 4 bits of
+/// [`SoftResetControlReg`]). Each bit nominally selects one of the
+/// four reset domains, plus the all / none combinations; the chip's
+/// exact per-domain semantics are not verified here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum DomainSelect {
+    None = 0x0,
+    Domain0 = 0x1,
+    Domain1 = 0x2,
+    Domain2 = 0x4,
+    Domain3 = 0x8,
+    All = 0xF,
+}
+
+impl DomainSelect {
+    const fn into_bits(self) -> u8 {
+        self as u8
+    }
+}
+
 /// Soft-reset control (`0xa8`).
 ///
 /// Carries the raw reset selector fields. The register is treated as
@@ -1005,6 +1026,16 @@ impl SoftResetControlReg {
     pub const fn quiescent() -> Self {
         Self::from_bits(SOFT_RESET_QUIESCENT)
     }
+
+    /// Pulse the slow soft-reset on the requested domain; every other
+    /// field zero. Per-chip post-PLL bring-up writes this to each
+    /// chip in turn to clear residual core state before work dispatch
+    /// begins. Encodes byte-exact to [`SOFT_RESET_SRST_B1`] when
+    /// called with [`DomainSelect::Domain1`].
+    #[must_use]
+    pub const fn reset_core_domain(domain: DomainSelect) -> Self {
+        Self::new().with_b3_0(domain.into_bits())
+    }
 }
 
 impl Register for SoftResetControlReg {
@@ -1038,6 +1069,14 @@ pub struct ChipDescriptor {
     /// ceiling consumed by the tuner is this value scaled by the
     /// hashboard's `num_voltage_domains`.
     pub max_core_voltage: Voltage,
+    /// PLL hash-clock resolution: the frequency grid every programmed
+    /// operating point lands on. 6.25 MHz is the BM1362's natural
+    /// resolution. At the `(POSTDIV1+1)*(POSTDIV2+1) = 2` divider pair
+    /// `freq = 6.25 * FBDIV` MHz, so every integer FBDIV step sits on a
+    /// 6.25 MHz boundary the PLL calculator resolves exactly. The tuner
+    /// ramps on and floors targets to this grid so the requested
+    /// frequency equals the realized hash clock.
+    pub frequency_step: Frequency,
 }
 
 /// Per-chip capability constants for the BM1362. `max_core_voltage`
@@ -1045,6 +1084,7 @@ pub struct ChipDescriptor {
 /// chip-spec value.
 pub static BM1362: ChipDescriptor = ChipDescriptor {
     max_core_voltage: Voltage::from_mv(422),
+    frequency_step: Frequency::from_khz(6_250),
 };
 
 /// Hashboard-level descriptor. References a `ChipDescriptor` so the

@@ -443,6 +443,10 @@ fn soft_reset_quiescent_and_srst_b1_match_constants() {
         u32::from_be_bytes(srst_b1.to_be_bytes()),
         SOFT_RESET_SRST_B1
     );
+    // The public bring-up constructor must encode byte-exact to the
+    // documented constant when targeting Domain1.
+    let domain1 = SoftResetControlReg::reset_core_domain(DomainSelect::Domain1);
+    assert_eq!(domain1.to_be_bytes(), SOFT_RESET_SRST_B1.to_be_bytes());
 }
 
 #[test]
