@@ -781,8 +781,8 @@ where
 /// Handle `PATCH /api/system`.
 ///
 /// Logs the body byte count and returns 200 with `{"message":"ack"}`.
-/// No fields are applied; the audit doc places credential and config
-/// persistence out of scope for this phase. The body itself is not
+/// No fields are applied; credential and config persistence is handled
+/// by `POST /api/config`. The body itself is not
 /// logged because legitimate clients may include credentials in the
 /// JSON payload, and the stub has no operational use for the contents.
 /// `extra_headers` carries caller-supplied headers such as CORS headers
