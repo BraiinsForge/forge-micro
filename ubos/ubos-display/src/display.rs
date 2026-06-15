@@ -23,8 +23,7 @@ use crate::sh1106::Sh1106;
 /// hashrate onto the display.
 ///
 /// The caller must call `display.flush()` afterwards to push the
-/// framebuffer to the hardware. `time_buffer` is scratch space for
-/// formatting the UTC time string. All values are read from shared
+/// framebuffer to the hardware. All values are read from shared
 /// atomics; the first two render a short placeholder when the
 /// underlying atomic is still at its zero sentinel (`no ip`, `no sync`).
 /// Hashrate has no sentinel — zero is rendered as `0 H/s`.
@@ -38,10 +37,7 @@ use crate::sh1106::Sh1106;
 /// # Errors
 ///
 /// Returns the display's draw error if any drawing operation fails.
-pub fn render<D: DrawTarget<Color = BinaryColor>>(
-    display: &mut D,
-    time_buffer: &mut [u8; 16],
-) -> Result<(), D::Error> {
+pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(), D::Error> {
     display.clear(BinaryColor::Off)?;
 
     let style = MonoTextStyle::new(&PROFONT_12_POINT, BinaryColor::On);
@@ -67,7 +63,8 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
         Text::new("no sync", Point::new(0, 29), style).draw(display)?;
     } else {
         let unix_secs = ubos_net::wall_clock_secs();
-        let length = ntp::format_utc_time(time_buffer, unix_secs);
+        let mut time_buffer = [0u8; 16];
+        let length = ntp::format_utc_time(&mut time_buffer, unix_secs);
         if length > 0 {
             // format_utc_time writes valid ASCII into the buffer.
             if let Ok(text) = core::str::from_utf8(&time_buffer[..length]) {
@@ -111,9 +108,8 @@ where
     SPI: embedded_hal_async::spi::SpiDevice,
     DC: OutputPin,
 {
-    let mut time_buffer = [0u8; 16];
     loop {
-        let _ = render(display, &mut time_buffer);
+        let _ = render(display);
         let _ = display.flush_async().await;
         Timer::after(Duration::from_secs(1)).await;
     }
