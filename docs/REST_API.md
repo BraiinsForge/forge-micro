@@ -177,8 +177,10 @@ change while pre-1.0.
 ## Authentication
 
 Two paths share a single credential store
-(`pub static CREDENTIALS` at `ubos-auth/src/auth.rs:112`, initialised
-to `root` / `root` by `init_credentials`).
+(`pub static CREDENTIALS` at `ubos-auth/src/auth.rs:113`, seeded from
+the persisted `config.api` section at boot via `set_credentials` and
+refreshed on each config watch publish; `init_credentials` supplies the
+`root` / `root` fallback only when the store is empty).
 
 **HTTP Basic** — `Authorization: Basic <base64>`. Stateless,
 re-validated per request, exempt from CSRF. Use this for machine
@@ -191,8 +193,10 @@ SameSite=Strict; Path=/`. The token is looked up in a fixed
 overflow so a tab refresh cannot lock out parallel tabs. See
 `ubos-auth/src/session.rs`.
 
-Credentials are plaintext, not hashed, and not persisted across reboot.
-`PATCH /api/system` is a stub; the defaults reapply on every boot.
+Credentials are plaintext, not hashed. They are seeded from the
+persisted `config.api` section at boot and refreshed whenever the
+config watch publishes, so a `POST /api/config` change takes effect at
+runtime and persists across reboots.
 
 ## CSRF
 
@@ -312,6 +316,6 @@ stack budget multiplier.
 
 ## Out of scope
 
-No TLS on either server. No persistent credentials. No OTA, WiFi, or
-NVS. No log streaming. Time-series ring buffer behind
-`/api/system/statistics` is wired but not yet populated.
+No TLS on either server. No OTA, WiFi, or NVS. No log streaming.
+Time-series ring buffer behind `/api/system/statistics` is wired but
+not yet populated.

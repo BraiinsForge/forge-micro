@@ -11,10 +11,11 @@
 //! - **Anonymous**: no credentials present. Routes that require auth
 //!   return a `401 WWW-Authenticate: Basic realm="ubos"` response.
 //!
-//! The single credential store (`CREDENTIALS`) is shared by both auth
-//! paths. Default is `root`/`root`; the value can be replaced at
-//! runtime via `PATCH /api/system` (not persisted across reboots per
-//! the scope rule).
+//! The single credential store (`CREDENTIALS`) is seeded from the
+//! persisted `config.api` section at boot via [`set_credentials`] and
+//! refreshed whenever the config watch publishes a new value. A
+//! `POST /api/config` change therefore takes effect at runtime and
+//! persists across reboots.
 //!
 //! ## Known limitations
 //!
@@ -89,8 +90,8 @@ impl Credentials {
     /// Construct an empty credential pair for const initialization.
     ///
     /// Empty `username` is the in-band marker for "not yet populated";
-    /// `init_credentials` replaces it with the default `root`/`root`
-    /// pair on first access.
+    /// the HTTP listeners replace it with the persisted `config.api`
+    /// credentials before serving.
     const fn const_empty() -> Self {
         Self {
             username: String::new(),
@@ -116,15 +117,32 @@ pub static CREDENTIALS: Mutex<CriticalSectionRawMutex, Credentials> =
 /// emitted so the log is not spammed on every request.
 static DEFAULT_CREDS_WARNED: AtomicBool = AtomicBool::new(false);
 
-/// Populate `CREDENTIALS` with the default `root`/`root` pair and warn
-/// when the defaults are still in use.
+/// Populate `CREDENTIALS` with the persisted `config.api` credentials.
 ///
-/// Called from each listener task at boot (`ubos_webui::dashboard::run`
-/// and `ubos_api::rest::run_rest_api`) before the HTTP accept loop so the
-/// store is ready before the first request arrives and the warning fires
-/// at boot rather than on first login attempt. Repeated calls are
-/// idempotent: a populated store is left untouched and the warning is
-/// gated by `DEFAULT_CREDS_WARNED` so it only emits once per boot.
+/// Clears both fields and replaces them with the supplied values.
+/// `ApiConfig` bounds both fields to `CREDENTIAL_MAX_LEN` at the
+/// update site, so `push_str` cannot overflow.
+///
+/// Called once at boot with the loaded config and again on each config
+/// watch publish so `POST /api/config` credential changes take effect
+/// at runtime and persist across reboots.
+pub async fn set_credentials(username: &str, password: &str) {
+    let mut guard = CREDENTIALS.lock().await;
+    guard.username.clear();
+    guard.password.clear();
+    // ApiConfig bounds both fields to CREDENTIAL_MAX_LEN, so push_str
+    // cannot return Err here.
+    let _ = guard.username.push_str(username);
+    let _ = guard.password.push_str(password);
+}
+
+/// Populate `CREDENTIALS` with the default `root`/`root` pair if the
+/// store is empty.
+///
+/// Seeds the default pair into an empty store and leaves a populated
+/// store untouched. Retained for the auth test suite and as the
+/// empty-store fallback; the production listeners seed from
+/// `config.api` via `set_credentials`.
 ///
 /// # Panics
 ///
@@ -144,21 +162,33 @@ pub async fn init_credentials() {
             .push_str(DEFAULT_PASSWORD)
             .expect("BUG: DEFAULT_PASSWORD exceeds CREDENTIAL_MAX_LEN");
     }
+}
+
+/// Emit a boot warning when the credential store still holds the default
+/// `root`/`root` pair.
+///
+/// The warning is gated by `DEFAULT_CREDS_WARNED` so it fires at most
+/// once per boot regardless of how many times this function is called.
+/// Call this after `set_credentials` or `init_credentials` so the check
+/// sees the credentials that will actually be used.
+pub async fn warn_if_default_credentials() {
+    let guard = CREDENTIALS.lock().await;
     if guard.username.as_str() == DEFAULT_USERNAME
         && guard.password.as_str() == DEFAULT_PASSWORD
         && !DEFAULT_CREDS_WARNED.swap(true, Ordering::Relaxed)
     {
         warn!(
             "default credentials root/root are in use; \
-             change them via PATCH /api/system"
+             change them via POST /api/config"
         );
     }
 }
 
 /// Snapshot of the current credential pair.
 ///
-/// Callers must `init_credentials` before the first request, so the
-/// store is guaranteed populated by the time this runs.
+/// Both HTTP listeners seed the store via `set_credentials` before
+/// their accept loop, so it is guaranteed populated by the time this
+/// runs.
 pub async fn current_credentials() -> Credentials {
     CREDENTIALS.lock().await.clone()
 }
