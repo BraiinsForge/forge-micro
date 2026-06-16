@@ -124,9 +124,10 @@ fn walk_visits_every_25mhz_grid_point_with_pll_table_match() {
         voltage: BMM100.max_rail_voltage(),
     };
     let steps = walk_steps(open_core_at_safe_boot(), target, BMM100.chip.frequency_step);
+    let range = BMM100.chip.frequency_range;
     for (f_khz, _) in steps.iter().copied() {
         assert!(
-            PllParameterReg::from_freq(f_khz).is_some(),
+            PllParameterReg::from_freq(f_khz, range).is_some(),
             "walk emits {f_khz} kHz but calculator rejects it",
         );
     }
@@ -139,7 +140,7 @@ fn calculator_matches_trace_dedup_at_25mhz_grid() {
     for (index, &expected_bits) in dedup.iter().enumerate() {
         let index_u32 = u32::try_from(index).expect("BUG: dedup index fits in u32");
         let target_khz = SAFE_BOOT_KHZ + index_u32 * TRACE_GRID_STEP_KHZ;
-        let emitted = PllParameterReg::from_freq(target_khz)
+        let emitted = PllParameterReg::from_freq(target_khz, BMM100.chip.frequency_range)
             .expect("BUG: trace grid point must resolve in calculator")
             .into_bits();
         assert_eq!(

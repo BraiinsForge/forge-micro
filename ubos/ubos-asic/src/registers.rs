@@ -247,8 +247,8 @@ pub struct HashCountingNumberReg {
 
 impl HashCountingNumberReg {
     /// Returns the hash-counting-number for `target_khz`, or `None`
-    /// outside `[MIN_FREQ_KHZ, MAX_FREQ_KHZ]`. The value scales
-    /// inversely with the target clock:
+    /// outside the passed `range`. The value scales inversely with the
+    /// target clock:
     ///
     /// `hcn = HCN_NUMERATOR_KHZ / freq_khz`
     ///
@@ -256,12 +256,12 @@ impl HashCountingNumberReg {
     /// (floor) division performed in `u64` since the numerator
     /// exceeds `u32::MAX`.
     #[must_use]
-    pub const fn from_freq(target_khz: u32) -> Option<Self> {
-        if target_khz < MIN_FREQ_KHZ || target_khz > MAX_FREQ_KHZ {
+    pub const fn from_freq(target_khz: u32, range: FrequencyRange) -> Option<Self> {
+        if target_khz < range.min().khz() || target_khz > range.max().khz() {
             return None;
         }
         // The division result is bounded by
-        // HCN_NUMERATOR_KHZ / MIN_FREQ_KHZ = 83_886_080_000 / 50_000
+        // HCN_NUMERATOR_KHZ / range.min().khz() = 83_886_080_000 / 50_000
         // = 1_677_721, well inside u32. The truncation cannot lose
         // bits within the calculator's safe range.
         #[allow(clippy::cast_possible_truncation)]
@@ -1062,6 +1062,35 @@ pub const SOFT_RESET_SRST_B1: u32 = 0x0000_0002;
 /// chain.
 pub const BASE_CLOCK: u64 = 25_000_000;
 
+/// Inclusive operating-frequency envelope of a chip. The tuner ramps
+/// inside this range and the register calculators reject targets outside
+/// it.
+#[derive(Clone, Copy)]
+pub struct FrequencyRange {
+    min: Frequency,
+    max: Frequency,
+}
+
+impl FrequencyRange {
+    /// Constructs the range from an inclusive lower and upper bound.
+    #[must_use]
+    pub const fn new(min: Frequency, max: Frequency) -> Self {
+        Self { min, max }
+    }
+
+    /// Inclusive lower bound of the operating-frequency range.
+    #[must_use]
+    pub const fn min(self) -> Frequency {
+        self.min
+    }
+
+    /// Inclusive upper bound of the operating-frequency range.
+    #[must_use]
+    pub const fn max(self) -> Frequency {
+        self.max
+    }
+}
+
 /// Capability bounds for a single ASIC, consumed by the tuner.
 #[derive(Clone, Copy)]
 pub struct ChipDescriptor {
@@ -1077,6 +1106,10 @@ pub struct ChipDescriptor {
     /// ramps on and floors targets to this grid so the requested
     /// frequency equals the realized hash clock.
     pub frequency_step: Frequency,
+    /// Inclusive hash-clock frequency envelope the chip operates within.
+    /// The tuner ramps inside it and the register calculators reject
+    /// targets outside it.
+    pub frequency_range: FrequencyRange,
 }
 
 /// Per-chip capability constants for the BM1362. `max_core_voltage`
@@ -1085,6 +1118,7 @@ pub struct ChipDescriptor {
 pub static BM1362: ChipDescriptor = ChipDescriptor {
     max_core_voltage: Voltage::from_mv(422),
     frequency_step: Frequency::from_khz(6_250),
+    frequency_range: FrequencyRange::new(Frequency::from_khz(50_000), Frequency::from_khz(700_000)),
 };
 
 /// Hashboard-level descriptor. References a `ChipDescriptor` so the
@@ -1143,20 +1177,6 @@ pub const BMM100: BoardDescriptor = BoardDescriptor {
     max_psu_voltage: Voltage::from_mv(1675),
 };
 
-/// Output frequency lower bound enforced at the calculator entry
-/// points. This is local policy: the floor the local FBDIV range
-/// reaches, not a hard chip limit. Shared by the PLL search and the
-/// hash-counting-number derivation.
-const MIN_FREQ_KHZ: u32 = 50_000;
-
-/// Output frequency upper bound enforced at the calculator entry
-/// points. The PLL search space (FBDIV 160..=237 across the divider
-/// matrix) can reach well past 700 MHz; this upper bound is local
-/// policy, a chosen operating window for the BM1362 rather than a hard
-/// chip ceiling. Shared by the PLL search and the hash-counting-number
-/// derivation.
-const MAX_FREQ_KHZ: u32 = 700_000;
-
 impl PllParameterReg {
     /// REFDIV value the BM1362 PLL is programmed with; the PLL search
     /// collapses to a constant REFDIV.
@@ -1195,7 +1215,7 @@ impl PllParameterReg {
 
     /// Returns the PLL parameter register value that drives the chip
     /// closest to `target_khz`, or `None` if `target_khz` is outside
-    /// the calculator's safe range `[MIN_FREQ_KHZ, MAX_FREQ_KHZ]`.
+    /// the passed `range`.
     ///
     /// Exhaustive search over `(POSTDIV2_stored, POSTDIV1_stored,
     /// FBDIV)` with sort key `(distance_to_target, POSTDIV2, FBDIV,
@@ -1205,8 +1225,8 @@ impl PllParameterReg {
     /// policy, not chip-recovered requirements. The chosen FBDIV also
     /// sets [`Self::vco_high`] via [`PLL_VCO_HIGH_THRESHOLD_HZ`].
     #[must_use]
-    pub fn from_freq(target_khz: u32) -> Option<Self> {
-        if !(MIN_FREQ_KHZ..=MAX_FREQ_KHZ).contains(&target_khz) {
+    pub fn from_freq(target_khz: u32, range: FrequencyRange) -> Option<Self> {
+        if !(range.min().khz()..=range.max().khz()).contains(&target_khz) {
             return None;
         }
         let goal_hz = u64::from(target_khz) * 1_000;

@@ -9,8 +9,8 @@
 use crate::miner::MinerError;
 use crate::serial::SERIAL;
 use ubos_asic::{
-    ChipIdReg, HashCountingNumberReg, Pll0DividerReg, PllParameterReg, RawChipAddress, Register,
-    TicketMaskReg,
+    BM1362, ChipIdReg, HashCountingNumberReg, Pll0DividerReg, PllParameterReg, RawChipAddress,
+    Register, TicketMaskReg,
 };
 
 /// Program a frequency change on `chip` using the captured wire
@@ -20,9 +20,10 @@ use ubos_asic::{
 /// itself shifted mid-reception. `target_khz` granularity matches
 /// a sub-MHz frequency ramp without truncation.
 pub async fn set_frequency(chip: RawChipAddress, target_khz: u32) -> Result<(), MinerError> {
-    let pll = PllParameterReg::from_freq(target_khz)
+    let range = BM1362.frequency_range;
+    let pll = PllParameterReg::from_freq(target_khz, range)
         .ok_or(MinerError::UnsupportedFrequency(target_khz))?;
-    let hcn = HashCountingNumberReg::from_freq(target_khz)
+    let hcn = HashCountingNumberReg::from_freq(target_khz, range)
         .ok_or(MinerError::UnsupportedFrequency(target_khz))?;
     let divider_fence = Pll0DividerReg::zeroed();
     SERIAL.write_register(chip, &hcn).await;

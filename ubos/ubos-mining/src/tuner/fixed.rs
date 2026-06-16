@@ -212,9 +212,11 @@ impl FixedTuner {
     }
 
     async fn write_initial_hcn<M: MinerControl>(&self, miner: &M) -> Result<(), TunerError> {
-        let hcn = HashCountingNumberReg::from_freq(SAFE_BOOT.khz()).ok_or(TunerError::Miner(
-            crate::miner::MinerError::UnsupportedFrequency(SAFE_BOOT.khz()),
-        ))?;
+        let hcn =
+            HashCountingNumberReg::from_freq(SAFE_BOOT.khz(), self.board.chip.frequency_range)
+                .ok_or(TunerError::Miner(
+                    crate::miner::MinerError::UnsupportedFrequency(SAFE_BOOT.khz()),
+                ))?;
         write_register(miner, RawChipAddress::All, hcn).await;
         Ok(())
     }
@@ -456,9 +458,9 @@ async fn write_pll_only<M: MinerControl>(
     addr: RawChipAddress,
     target_khz: u32,
 ) -> Result<(), TunerError> {
-    let pll = PllParameterReg::from_freq(target_khz).ok_or(TunerError::Miner(
-        crate::miner::MinerError::UnsupportedFrequency(target_khz),
-    ))?;
+    let pll = PllParameterReg::from_freq(target_khz, BMM100.chip.frequency_range).ok_or(
+        TunerError::Miner(crate::miner::MinerError::UnsupportedFrequency(target_khz)),
+    )?;
     let fence = Pll0DividerReg::zeroed();
     write_register(miner, addr, fence).await;
     write_register(miner, addr, pll).await;
