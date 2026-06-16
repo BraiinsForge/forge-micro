@@ -6,16 +6,13 @@ use crate::state::{PendingFutureJob, V2SessionState, JOBID_MAP_DEPTH};
 
 #[test]
 fn default_matches_new() {
-    let from_default = V2SessionState::default();
-    let from_new = V2SessionState::new();
+    assert_eq!(V2SessionState::default(), V2SessionState::new());
+}
 
-    assert_eq!(from_default.channel_id, from_new.channel_id);
-    assert_eq!(from_default.target, from_new.target);
-    assert_eq!(from_default.next_job_id, from_new.next_job_id);
-    assert_eq!(
-        from_default.next_sequence_number,
-        from_new.next_sequence_number
-    );
+#[test]
+fn new_uses_accept_all_target() {
+    // 0xFF..FF is the accept-everything sentinel until SetTarget arrives.
+    assert_eq!(V2SessionState::new().target, [0xFF; 32]);
 }
 
 #[test]
@@ -104,20 +101,13 @@ fn sequence_number_counter_wraps() {
 #[test]
 fn pending_future_job_can_be_stored() {
     let mut state = V2SessionState::new();
-    let merkle_root = [0xA5; 32];
-
-    state.pending_future_job = Some(PendingFutureJob {
+    let expected = PendingFutureJob {
         wire_job_id: 77,
         version: 0x2000_0000,
-        merkle_root,
-    });
+        merkle_root: [0xA5; 32],
+    };
 
-    match state.pending_future_job {
-        Some(pending) => {
-            assert_eq!(pending.wire_job_id, 77);
-            assert_eq!(pending.version, 0x2000_0000);
-            assert_eq!(pending.merkle_root, merkle_root);
-        }
-        None => panic!("future job should be stored"),
-    }
+    state.pending_future_job = Some(expected);
+
+    assert_eq!(state.pending_future_job, Some(expected));
 }

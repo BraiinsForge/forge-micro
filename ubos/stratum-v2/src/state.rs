@@ -27,7 +27,7 @@ pub const JOBID_MAP_DEPTH: usize = 2;
 /// pool sends future jobs ahead of the matching `SetNewPrevHash`;
 /// activation copies these fields into a `MiningJob` once a
 /// `SetNewPrevHash` arrives whose `job_id` matches `wire_job_id`.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PendingFutureJob {
     pub wire_job_id: u32,
     pub version: u32,
@@ -35,13 +35,14 @@ pub struct PendingFutureJob {
 }
 
 /// One row of the `JobId`-to-wire-id translation ring.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct JobIdSlot {
     pub generic: JobId,
     pub wire: u32,
 }
 
 /// Adapter session state for a V2 standard channel.
+#[derive(PartialEq, Eq, Debug)]
 pub struct V2SessionState {
     /// `channel_id` from `OpenStandardMiningChannelSuccess`. `None`
     /// until the channel-open response arrives. `submit` errors
