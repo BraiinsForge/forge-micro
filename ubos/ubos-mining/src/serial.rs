@@ -35,32 +35,10 @@ use ubos_logging::{Debug2Format, error, info, trace, warn};
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
 
-/// Difficulty-1 target in 256-bit little-endian byte order: `0xFFFF * 2^208`.
-/// Matches Bitcoin's `bnPowLimit` for mainnet/regtest. Used to reject
-/// chip-emitted nonces that don't even meet the easiest possible target.
-const DIFF_1_TARGET: [u8; 32] = {
-    let mut bytes = [0u8; 32];
-    bytes[26] = 0xFF;
-    bytes[27] = 0xFF;
-    bytes
-};
-
 use crate::consts::{
     FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS, NUM_CHIPS, NUM_MIDSTATES,
     REGISTRY_SIZE,
 };
-
-const CMD_QUEUE_DEPTH: usize = 16;
-
-/// Settling window the chip's UART needs on either side of a baud-rate
-/// configure call so in-flight bytes don't get garbled.
-const BAUD_CHANGE_DRAIN: Duration = Duration::from_secs(1);
-
-/// Per-response wait inside `read_register_raw`. The chip answers a
-/// register read within a few hundred microseconds at fast baud; 50 ms
-/// is generous enough to absorb startup-rate dribble while bounding
-/// the worst-case stall on a missing chip.
-const READ_REPLY_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Hex pretty-printer for trace logs. Wraps a byte slice and formats it
 /// as `"AA BB CC"` under both `core::fmt::Display` and `defmt::Format`,
@@ -124,6 +102,11 @@ struct WorkSlot {
     assignment: WorkAssignment,
 }
 
+/// Depth of the command channel feeding the serial actor. A const
+/// generic on the channel field, so it cannot be an associated const of
+/// `Serial`.
+const CMD_QUEUE_DEPTH: usize = 16;
+
 /// The chip-side serial actor.
 ///
 /// Construct as a `static`: every primitive inside is `const`-initialisable.
@@ -153,6 +136,26 @@ pub struct Serial {
 }
 
 impl Serial {
+    /// Settling window the chip's UART needs on either side of a baud-rate
+    /// configure call so in-flight bytes don't get garbled.
+    const BAUD_CHANGE_DRAIN: Duration = Duration::from_secs(1);
+
+    /// Per-response wait inside `read_register_raw`. The chip answers a
+    /// register read within a few hundred microseconds at fast baud; 50 ms
+    /// is generous enough to absorb startup-rate dribble while bounding
+    /// the worst-case stall on a missing chip.
+    const READ_REPLY_TIMEOUT: Duration = Duration::from_millis(50);
+
+    /// Difficulty-1 target in 256-bit little-endian byte order: `0xFFFF * 2^208`.
+    /// Matches Bitcoin's `bnPowLimit` for mainnet/regtest. Used to reject
+    /// chip-emitted nonces that don't even meet the easiest possible target.
+    const DIFF_1_TARGET: [u8; 32] = {
+        let mut bytes = [0u8; 32];
+        bytes[26] = 0xFF;
+        bytes[27] = 0xFF;
+        bytes
+    };
+
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -224,7 +227,7 @@ impl Serial {
     /// drain-send-receive cycle so concurrent callers can't steal each
     /// other's replies. Stops early on the first per-reply timeout, so
     /// a missing chip caps the total stall at one
-    /// [`READ_REPLY_TIMEOUT`] window rather than `expected ×` it.
+    /// [`Self::READ_REPLY_TIMEOUT`] window rather than `expected ×` it.
     pub async fn read_register_raw(
         &self,
         addr: RawChipAddress,
@@ -244,7 +247,7 @@ impl Serial {
 
         let mut responses: HVec<RegisterResponse, MAX_CHIPS> = HVec::new();
         for _ in 0..expected {
-            match with_timeout(READ_REPLY_TIMEOUT, self.register_replies.receive()).await {
+            match with_timeout(Self::READ_REPLY_TIMEOUT, self.register_replies.receive()).await {
                 Ok(resp) => {
                     let _ = responses.push(resp);
                 }
@@ -257,7 +260,7 @@ impl Serial {
     /// Typed single-chip register-read wrapper. Issues a read at
     /// `RawChipAddress::Chip(chip)`, waits for the one expected reply,
     /// and decodes it into `R`. Returns `TimedOut` if the chip stays
-    /// silent past [`READ_REPLY_TIMEOUT`]. Broadcast reads stay on the
+    /// silent past [`Self::READ_REPLY_TIMEOUT`]. Broadcast reads stay on the
     /// raw path because the typed wrapper would have to drop chip-
     /// address pairing or wrap every entry, neither of which the
     /// `Tuner` / `Miner` callers need.
@@ -450,7 +453,7 @@ impl Serial {
                 };
                 let hash = slot.hw_work.compute_hash(wr);
 
-                if !hash_meets_target(&hash, &DIFF_1_TARGET) {
+                if !hash_meets_target(&hash, &Self::DIFF_1_TARGET) {
                     warn!(
                         "nonce=0x{:08X} work_id={} ver_idx={} below diff 1 (hash={:?})",
                         wr.nonce,
@@ -465,7 +468,7 @@ impl Serial {
                 // scanning to so the shared hashrate EWMA reflects
                 // the actual chip work rather than only pool-passing
                 // shares. The estimator already weights by target.
-                ubos_metrics::hashrate::record_share(&DIFF_1_TARGET);
+                ubos_metrics::hashrate::record_share(&Self::DIFF_1_TARGET);
 
                 if !hash_meets_target(&hash, &slot.assignment.target) {
                     trace!(
@@ -537,10 +540,10 @@ impl Serial {
                     rate
                 };
                 info!("Serial baud rate changing to {}, draining 1s...", rate);
-                Timer::after(BAUD_CHANGE_DRAIN).await;
+                Timer::after(Self::BAUD_CHANGE_DRAIN).await;
                 let result = tx.set_baudrate(actual);
                 info!("Serial baud rate changed to {}, settling 1s...", rate);
-                Timer::after(BAUD_CHANGE_DRAIN).await;
+                Timer::after(Self::BAUD_CHANGE_DRAIN).await;
                 self.reply.signal(result);
             }
             SerialMessage::StartSendingWork(period) => {

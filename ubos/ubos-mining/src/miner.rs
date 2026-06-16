@@ -36,15 +36,6 @@ use crate::tuner::replay::ReplayTuner;
 use crate::tuner::{Tuner, TuningConfig};
 use ubos_asic::{RawChipAddress, RegisterResponse, build_command, build_raw_command};
 
-/// Settling time held between each reset / PSU transition during
-/// the bring-up sequence.
-const RESET_HOLD: Duration = Duration::from_secs(5);
-
-/// Pause between a failed bring-up and the next attempt. Long enough
-/// for the chip's rail to fully discharge and any transient cable /
-/// board glitch to clear.
-const RETRY_DELAY: Duration = Duration::from_secs(5);
-
 /// Raise once to stop the miner. The run loop awaits this between init
 /// and deinit; signalling it triggers the teardown sequence and the
 /// outer loop returns.
@@ -198,6 +189,15 @@ where
     P: Psu,
     R: ResetPin,
 {
+    /// Settling time held between each reset / PSU transition during
+    /// the bring-up sequence.
+    const RESET_HOLD: Duration = Duration::from_secs(5);
+
+    /// Pause between a failed bring-up and the next attempt. Long enough
+    /// for the chip's rail to fully discharge and any transient cable /
+    /// board glitch to clear.
+    const RETRY_DELAY: Duration = Duration::from_secs(5);
+
     /// Construct a `Miner` from a PSU reference and a reset pin.
     ///
     /// The PSU is borrowed for lifetime `'a`; on all current firmware
@@ -273,7 +273,7 @@ where
     ///
     /// Resets the serial link before calling `tuner.init` because the chip
     /// must be at the baseline baud rate on entry. Any `tuner.init` error
-    /// cuts the rail and applies a `RETRY_DELAY` settle (cancellable) before
+    /// cuts the rail and applies a `Self::RETRY_DELAY` settle (cancellable) before
     /// reporting `Retry`. The live config subscription means an off-grid
     /// frequency or transient PSU fault can recover once the operator edits
     /// the target rather than permanently disabling mining. STOP and HALT
@@ -303,7 +303,7 @@ where
                 );
                 cut_rail(self.psu, &mut self.reset_pin).await;
                 match select3(
-                    Timer::after(RETRY_DELAY),
+                    Timer::after(Self::RETRY_DELAY),
                     STOP_MINING.wait(),
                     next_halt_change(),
                 )
@@ -363,7 +363,7 @@ where
 
         info!("mining: entering reset");
         self.reset_pin.enter_reset();
-        match settle_or_abort(RESET_HOLD, self.psu, &mut self.reset_pin).await {
+        match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.reset_pin).await {
             Settled::Continue => {}
             Settled::Stop => return CycleOutcome::Stop,
             Settled::Halt(value) => {
@@ -378,7 +378,7 @@ where
         // chip is dissipating power as soon as the PSU is on, and
         // init can take long enough for thermals to climb.
         publish_running(true);
-        match settle_or_abort(RESET_HOLD, self.psu, &mut self.reset_pin).await {
+        match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.reset_pin).await {
             Settled::Continue => {}
             Settled::Stop => return CycleOutcome::Stop,
             Settled::Halt(value) => {
@@ -389,7 +389,7 @@ where
 
         info!("mining: exiting reset");
         self.reset_pin.exit_reset();
-        match settle_or_abort(RESET_HOLD, self.psu, &mut self.reset_pin).await {
+        match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.reset_pin).await {
             Settled::Continue => {}
             Settled::Stop => return CycleOutcome::Stop,
             Settled::Halt(value) => {
