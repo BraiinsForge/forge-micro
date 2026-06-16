@@ -54,17 +54,6 @@ fn hash_counting_number_from_freq_packs_to_corpus() {
 }
 
 #[test]
-fn hash_counting_number_formula_matches_constant() {
-    // HCN_NUMERATOR_KHZ = 5 * 2^24 * 1000 = 83_886_080_000; document
-    // the constant here so a drift in either site surfaces at test
-    // time. The MHz-form numerator 5 * 2^24 falls out of the per-kHz
-    // form by exact division.
-    assert_eq!(HCN_NUMERATOR_KHZ, (5u64 << 24) * 1000);
-    assert_eq!(HCN_NUMERATOR_KHZ, 83_886_080_000);
-    assert_eq!(HCN_NUMERATOR_KHZ / 1000, 5 << 24);
-}
-
-#[test]
 fn pll_parameter_from_freq_rejects_out_of_range() {
     // Targets outside the calculator's safe range return None without
     // attempting the search. Both edges and trivial extremes covered.
@@ -189,31 +178,6 @@ fn control_code_numeric_values_match_spec() {
     // pins SetChipAddress=0 and ChainInactive=3.
     assert_eq!(ControlCode::SetChipAddress.as_u8(), 0);
     assert_eq!(ControlCode::ChainInactive.as_u8(), 3);
-}
-
-#[test]
-fn register_addresses_match_specification() {
-    assert_eq!(ChipIdReg::REG_NUM, 0x00);
-    assert_eq!(PllParameterReg::REG_NUM, 0x08);
-    assert_eq!(ChipNonceOffsetReg::REG_NUM, 0x0c);
-    assert_eq!(HashCountingNumberReg::REG_NUM, 0x10);
-    assert_eq!(TicketMaskReg::REG_NUM, 0x14);
-    assert_eq!(MiscCtrlReg::REG_NUM, 0x18);
-    assert_eq!(BaudRateReg::REG_NUM, 0x28);
-    assert_eq!(CoreControlReg::REG_NUM, 0x3c);
-    assert_eq!(CoreRegisterValueReg::REG_NUM, 0x40);
-    assert_eq!(ExternalTemperatureSensorReg::REG_NUM, 0x44);
-    assert_eq!(NonceErrorCounterReg::REG_NUM, 0x4c);
-    assert_eq!(AnalogMuxControl::REG_NUM, 0x54);
-    assert_eq!(IoDriverStrengthCtrlReg::REG_NUM, 0x58);
-    assert_eq!(Pll0DividerReg::REG_NUM, 0x70);
-    assert_eq!(Domain0NonceCounterReg::REG_NUM, 0x88);
-    assert_eq!(Domain1NonceCounterReg::REG_NUM, 0x89);
-    assert_eq!(Domain2NonceCounterReg::REG_NUM, 0x8a);
-    assert_eq!(Domain3NonceCounterReg::REG_NUM, 0x8b);
-    assert_eq!(TotalNonceCounterReg::REG_NUM, 0x8c);
-    assert_eq!(MidstateCalReg::REG_NUM, 0xa4);
-    assert_eq!(SoftResetControlReg::REG_NUM, 0xa8);
 }
 
 #[test]

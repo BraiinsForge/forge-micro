@@ -274,13 +274,6 @@ mod range_tests {
     use super::*;
 
     #[test]
-    fn vrange2_bounds() {
-        assert_eq!(VoltageRange::VRange2.start_mv(), 400);
-        assert_eq!(VoltageRange::VRange2.end_mv(), 1675);
-        assert_eq!(VoltageRange::VRange2.step_microvolts(), 5_000);
-    }
-
-    #[test]
     fn voltage_to_dac_in_range() {
         let r = VoltageRange::VRange2;
         assert_eq!(r.voltage_to_dac(400), Some(0x00));

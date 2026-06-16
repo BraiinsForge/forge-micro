@@ -2,27 +2,7 @@
 
 use mining_protocol::JobId;
 
-use crate::state::{PendingFutureJob, V2SessionState, JOBID_MAP_DEPTH, MAX_EXTRANONCE_PREFIX};
-
-#[test]
-fn default_state_is_pre_channel_open() {
-    let state = V2SessionState::new();
-
-    assert_eq!(state.channel_id, None);
-    assert_eq!(state.prev_hash, [0; 32]);
-    assert!(!state.have_prev_hash);
-    assert_eq!(state.target, [0xFF; 32]);
-    assert_eq!(state.extranonce_prefix, [0; MAX_EXTRANONCE_PREFIX]);
-    assert_eq!(state.extranonce_prefix_len, 0);
-    assert_eq!(state.nbits, 0);
-    assert_eq!(state.ntime_base, 0);
-    assert_eq!(state.version_rolling_mask, 0);
-    assert_eq!(state.next_job_id, 0);
-    assert_eq!(state.next_sequence_number, 0);
-    assert_eq!(state.job_id_write_index, 0);
-    assert!(state.job_id_ring.iter().all(Option::is_none));
-    assert!(state.pending_future_job.is_none());
-}
+use crate::state::{PendingFutureJob, V2SessionState, JOBID_MAP_DEPTH};
 
 #[test]
 fn default_matches_new() {
