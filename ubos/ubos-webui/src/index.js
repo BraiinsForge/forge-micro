@@ -587,20 +587,6 @@ $('netModeStatic').addEventListener('click', function () {
 });
 syncNetUi();
 
-// Reflect the selected tuner algorithm in the segmented button pair.
-// The hidden tunerAlgo input holds the serde variant name the POST
-// /api/config body carries under miner.algorithm.
-function syncTunerUi() {
-  const algorithm = $('tunerAlgo').value;
-  $('tunerFixed').classList.toggle('active', algorithm === 'Fixed');
-}
-
-$('tunerFixed').addEventListener('click', function () {
-  $('tunerAlgo').value = this.dataset.algo;
-  syncTunerUi();
-});
-syncTunerUi();
-
 function syncPoolUi(slot) {
   const root = $('pcfg' + slot);
   const form = $('cfgForm');
@@ -672,19 +658,20 @@ async function loadCfg() {
         if (data.cooling_target_temp_c != null) {
           $('targetC').value = data.cooling_target_temp_c;
         }
+        if (data.cooling_min_fan_pwm != null) {
+          $('minFanPwm').value = data.cooling_min_fan_pwm;
+        }
         tempInit = {
           sampleMs: data.thermal ? data.thermal.sample_interval_ms : null,
           dangerC: data.thermal ? data.thermal.dangerous_temp_c : null,
           cooldownC: data.thermal ? data.thermal.cooldown_temp_c : null,
+          chipC: data.thermal ? data.thermal.dangerous_chip_temp_c : null,
           targetC: data.cooling_target_temp_c != null ? data.cooling_target_temp_c : null,
+          minFanPwm: data.cooling_min_fan_pwm != null ? data.cooling_min_fan_pwm : null,
         };
         if (data.tuning) {
           $('freqMhz').value = data.tuning.frequency_mhz;
           $('voltMv').value = data.tuning.voltage_mv;
-        }
-        if (data.miner) {
-          $('tunerAlgo').value = data.miner.algorithm;
-          syncTunerUi();
         }
         if (data.api) {
           $('sysUser').value = data.api.username || '';
@@ -872,6 +859,7 @@ $('fmTemp').addEventListener('submit', async event => {
   const dangerC = +$('dangerC').value;
   const cooldownC = +$('cooldownC').value;
   const targetC = +$('targetC').value;
+  const minFanPwm = +$('minFanPwm').value;
   const body = {};
   // sample_interval_ms is not user-editable but the API expects a
   // complete thermal object, so replay the loaded value alongside any
@@ -881,10 +869,14 @@ $('fmTemp').addEventListener('submit', async event => {
       sample_interval_ms: tempInit ? tempInit.sampleMs : null,
       dangerous_temp_c: dangerC,
       cooldown_temp_c: cooldownC,
+      dangerous_chip_temp_c: tempInit ? tempInit.chipC : null,
     };
   }
   if (!tempInit || targetC !== tempInit.targetC) {
     body.cooling_target_temp_c = targetC;
+  }
+  if (!tempInit || minFanPwm !== tempInit.minFanPwm) {
+    body.cooling_min_fan_pwm = minFanPwm;
   }
   if (!Object.keys(body).length) {
     msg.textContent = 'No changes.';
@@ -894,7 +886,7 @@ $('fmTemp').addEventListener('submit', async event => {
     await postWithRetry(() => csrfPost(body));
     msg.style.color = '';
     msg.textContent = 'Saved.';
-    tempInit = { sampleMs: tempInit ? tempInit.sampleMs : null, dangerC, cooldownC, targetC };
+    tempInit = { sampleMs: tempInit ? tempInit.sampleMs : null, dangerC, cooldownC, chipC: tempInit ? tempInit.chipC : null, targetC, minFanPwm };
   } catch (error) {
     msg.style.color = 'var(--red)';
     msg.textContent = 'Save failed: ' + error.message;
@@ -905,16 +897,14 @@ $('fmMining').addEventListener('submit', async event => {
   event.preventDefault();
   const msg = $('msgMining');
   msg.style.color = '';
+  const body = {
+    tuning: {
+      frequency_mhz: +$('freqMhz').value,
+      voltage_mv: +$('voltMv').value,
+    },
+  };
   try {
-    await postWithRetry(() => csrfPost({
-      tuning: {
-        frequency_mhz: +$('freqMhz').value,
-        voltage_mv: +$('voltMv').value,
-      },
-      miner: {
-        algorithm: $('tunerAlgo').value,
-      },
-    }));
+    await postWithRetry(() => csrfPost(body));
     msg.style.color = '';
     msg.textContent = 'Saved.';
   } catch (error) {
