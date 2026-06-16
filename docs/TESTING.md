@@ -9,6 +9,34 @@ tests rather than host line coverage.
 Use layered checks instead. Each layer should have a clear owner, runtime, and
 failure meaning.
 
+## Test quality
+
+A test should exercise behavior, not restate the source. Do not write tests
+that only confirm:
+
+- a constructor stored the arguments it was handed;
+- a `new` or `default` value has its fields zeroed or set to the obvious
+  literal;
+- a `const` equals its own defining expression or literal;
+- an enum variant carries the payload it was constructed with.
+
+These pass by construction and break only when the source is edited to match,
+so they catch nothing. Delete them. A boundary that a constructor enforces (a
+length limit, a range check) is behavior and stays; test the accept and reject
+edges, not the trivial store.
+
+When a test asserts the contents of a struct, compare the whole value against
+one expected literal in a single `assert_eq!`, not field by field. Field-by-
+field assertions silently skip fields and drift as the struct grows, and a
+whole-value comparison reads as the one fact the test is pinning. Derive
+`PartialEq` and `Debug` on the struct when a test needs them; that is a fair
+cost for an honest assertion.
+
+The exception is a packed register or bitfield type with no public named
+fields to write in a literal. There, assert the packed value against the known
+constant and let the decoded-field assertions document the bit layout, which is
+the unit actually under test.
+
 ## Fast host tests
 
 Run host-testable crates package by package. This avoids Cargo feature
