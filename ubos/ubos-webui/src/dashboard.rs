@@ -40,7 +40,7 @@ use ubos_net::net::REQUEST_COUNT;
 use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG};
 use ubos_http::{
     extract_request_parts, format_content_length, read_body, write_status_only, RequestParts,
-    Service, CONTENT_LENGTH_DECIMAL_DIGITS, MAX_RESPONSE_HEADERS,
+    Service, MAX_RESPONSE_HEADERS,
 };
 
 #[cfg(test)]
@@ -171,8 +171,7 @@ async fn write_asset<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    let mut length_buffer = [0u8; CONTENT_LENGTH_DECIMAL_DIGITS];
-    let content_length = format_content_length(&mut length_buffer, body.len());
+    let content_length = format_content_length(body.len());
 
     // Assemble headers on the stack. The capacity is
     // MAX_RESPONSE_HEADERS; each push is infallible within that budget
@@ -190,7 +189,7 @@ where
         .push(("Connection", "close"))
         .expect("BUG: response header vec sized for max headers");
     headers
-        .push(("Content-Length", content_length))
+        .push(("Content-Length", content_length.as_str()))
         .expect("BUG: response header vec sized for max headers");
     if let Some(enc) = encoding {
         headers

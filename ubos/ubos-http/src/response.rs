@@ -6,10 +6,12 @@
 //! Handler crates import these to avoid duplicating the same header
 //! assembly logic.
 
+use core::fmt::Write as _;
+
 use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
 use embedded_io_async::{Read, Write};
-use heapless::Vec;
+use heapless::{String, Vec};
 
 use edge_nal::TcpSplit;
 
@@ -77,8 +79,7 @@ where
         "BUG: extra_headers exceeds MAX_EXTRA_STATUS_HEADERS"
     );
 
-    let mut length_buffer = [0u8; CONTENT_LENGTH_DECIMAL_DIGITS];
-    let content_length = format_content_length(&mut length_buffer, body.len());
+    let content_length = format_content_length(body.len());
 
     let mut headers: [(&str, &str); MAX_EXTRA_STATUS_HEADERS + 3] =
         [("", ""); MAX_EXTRA_STATUS_HEADERS + 3];
@@ -89,7 +90,7 @@ where
     }
     headers[cursor] = ("Content-Type", content_type);
     cursor += 1;
-    headers[cursor] = ("Content-Length", content_length);
+    headers[cursor] = ("Content-Length", content_length.as_str());
     cursor += 1;
     headers[cursor] = ("Connection", "close");
     cursor += 1;
@@ -103,55 +104,17 @@ where
     Ok(())
 }
 
-/// Format `value` as ASCII decimal into `buffer` and return a `&str`
-/// slice of the written bytes.
+/// Format `value` as an ASCII-decimal `Content-Length` string.
 ///
-/// The returned slice is borrowed from `buffer` and is valid for as
-/// long as the borrow on `buffer` lasts. `N` must be at least
-/// `CONTENT_LENGTH_DECIMAL_DIGITS` (20) to hold any possible `usize`;
-/// passing a smaller buffer is a caller error. If a value requires
-/// more decimal digits than `N`, the function panics on cursor
-/// underflow rather than producing a truncated string.
-///
-/// # Panics
-///
-/// Panics when `N` is smaller than the number of decimal digits
-/// needed to format `value`; the right-to-left cursor underflows.
-/// Callers must size the buffer with `CONTENT_LENGTH_DECIMAL_DIGITS`
-/// or a value derived from `value`'s upper bound.
-pub fn format_content_length<const N: usize>(buffer: &mut [u8; N], value: usize) -> &str {
-    // Write the decimal digits right-to-left into the tail of the
-    // buffer, then return a borrow of just that tail. The most
-    // significant digit naturally ends up at the lowest written index.
-    let mut remaining = value;
-    let mut cursor = N;
-
-    loop {
-        // Each iteration places one digit. The loop always executes at
-        // least once so that zero formats as "0".
-        cursor -= 1;
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "remainder of division by 10 is always in 0..=9"
-        )]
-        let digit = (remaining % 10) as u8;
-        buffer[cursor] = b'0' + digit;
-        remaining /= 10;
-        if remaining == 0 {
-            break;
-        }
-    }
-
-    let slice = &buffer[cursor..];
-
-    // Safety: the buffer contains only ASCII digit bytes written above.
-    #[expect(
-        clippy::expect_used,
-        reason = "BUG: buffer contains only ASCII digit bytes; UTF-8 validity is guaranteed"
-    )]
-    core::str::from_utf8(slice)
-        // BUG: slice contains only b'0'..=b'9', which are valid UTF-8
-        .expect("BUG: digit bytes are valid UTF-8")
+/// A 64-bit `usize` formats to at most `CONTENT_LENGTH_DECIMAL_DIGITS`
+/// digits, so the result always fits the returned `String` and the
+/// formatting write never fails.
+#[must_use]
+pub fn format_content_length(value: usize) -> String<CONTENT_LENGTH_DECIMAL_DIGITS> {
+    let mut text = String::new();
+    let _ = write!(text, "{value}");
+    debug_assert_eq!(text.parse::<usize>(), Ok(value), "Content-Length truncated");
+    text
 }
 
 /// Write a JSON response with `body` bytes and optional extra headers.
@@ -180,8 +143,7 @@ pub async fn write_json_response<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    let mut length_buffer = [0u8; CONTENT_LENGTH_DECIMAL_DIGITS];
-    let content_length = format_content_length(&mut length_buffer, body.len());
+    let content_length = format_content_length(body.len());
 
     let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
     headers
@@ -194,7 +156,7 @@ where
         .push(("Connection", "close"))
         .expect("BUG: response header vec sized for max headers");
     headers
-        .push(("Content-Length", content_length))
+        .push(("Content-Length", content_length.as_str()))
         .expect("BUG: response header vec sized for max headers");
     for &header in extra_headers {
         headers

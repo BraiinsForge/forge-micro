@@ -24,7 +24,7 @@ use ubos_thermal::Handle as ThermalHandle;
 
 use ubos_http::{
     extract_request_parts, read_body, write_json_response, write_status_only, RequestParts,
-    Service, CONTENT_LENGTH_DECIMAL_DIGITS, MAX_RESPONSE_HEADERS,
+    Service, MAX_RESPONSE_HEADERS,
 };
 
 #[cfg(test)]
@@ -168,8 +168,7 @@ impl Service for RestApiService {
             // Five CORS headers exceed the `MAX_EXTRA_STATUS_HEADERS`
             // limit of `write_status_only`, so the response is built
             // directly through `initiate_response`.
-            let mut length_buffer = [0u8; CONTENT_LENGTH_DECIMAL_DIGITS];
-            let content_length_str = ubos_http::format_content_length(&mut length_buffer, 0);
+            let content_length_str = ubos_http::format_content_length(0);
             let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
             // The preflight response carries CORS headers only when an
             // Origin was present; machine clients do not preflight.
@@ -183,7 +182,7 @@ impl Service for RestApiService {
                 ));
                 let _ = headers.push(("Access-Control-Max-Age", "86400"));
             }
-            let _ = headers.push(("Content-Length", content_length_str));
+            let _ = headers.push(("Content-Length", content_length_str.as_str()));
             let _ = headers.push(("Connection", "close"));
             connection
                 .initiate_response(204, Some("No Content"), &headers)

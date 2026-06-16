@@ -23,7 +23,7 @@ use static_cell::ConstStaticCell;
 use ubos_logging::{warn, Debug2Format};
 
 use ubos_core::consts::{Metrics, Net};
-use ubos_http::{format_content_length, BufferWriter, CONTENT_LENGTH_DECIMAL_DIGITS};
+use ubos_http::{format_content_length, BufferWriter};
 use ubos_net::net::{NTP_EPOCH_OFFSET, REQUEST_COUNT};
 
 /// Maximum number of HTTP headers parsed per metrics request.
@@ -438,8 +438,7 @@ impl MetricsHandler<'_> {
         let mut body_buffer = self.body_buffer.lock().await;
         let body_len = build_prometheus_body(&mut body_buffer, self.map);
 
-        let mut length_buffer = [0u8; CONTENT_LENGTH_DECIMAL_DIGITS];
-        let content_length = format_content_length(&mut length_buffer, body_len);
+        let content_length = format_content_length(body_len);
 
         connection
             .initiate_response(
@@ -447,7 +446,7 @@ impl MetricsHandler<'_> {
                 Some("OK"),
                 &[
                     ("Content-Type", "text/plain; version=0.0.4"),
-                    ("Content-Length", content_length),
+                    ("Content-Length", content_length.as_str()),
                     ("Connection", "close"),
                 ],
             )

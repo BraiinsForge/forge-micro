@@ -10,39 +10,32 @@ use crate::response::format_content_length;
 
 #[test]
 fn formats_zero() {
-    let mut buffer = [0u8; 20];
-    assert_eq!(format_content_length(&mut buffer, 0), "0");
+    assert_eq!(format_content_length(0).as_str(), "0");
 }
 
 #[test]
 fn formats_single_digit() {
-    let mut buffer = [0u8; 20];
-    assert_eq!(format_content_length(&mut buffer, 1), "1");
-    let mut buffer = [0u8; 20];
-    assert_eq!(format_content_length(&mut buffer, 9), "9");
+    assert_eq!(format_content_length(1).as_str(), "1");
+    assert_eq!(format_content_length(9).as_str(), "9");
 }
 
 #[test]
 fn formats_two_digits() {
-    let mut buffer = [0u8; 20];
-    assert_eq!(format_content_length(&mut buffer, 10), "10");
+    assert_eq!(format_content_length(10).as_str(), "10");
 }
 
 #[test]
 fn formats_three_digits() {
-    let mut buffer = [0u8; 20];
-    assert_eq!(format_content_length(&mut buffer, 100), "100");
+    assert_eq!(format_content_length(100).as_str(), "100");
 }
 
 #[test]
 fn formats_five_digits() {
-    let mut buffer = [0u8; 20];
-    assert_eq!(format_content_length(&mut buffer, 12345), "12345");
+    assert_eq!(format_content_length(12345).as_str(), "12345");
 }
 
 #[test]
 fn formats_usize_max() {
-    let mut buffer = [0u8; 20];
     let expected = std::format!("{}", usize::MAX);
-    assert_eq!(format_content_length(&mut buffer, usize::MAX), expected);
+    assert_eq!(format_content_length(usize::MAX).as_str(), expected);
 }

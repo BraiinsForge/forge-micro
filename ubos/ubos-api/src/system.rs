@@ -130,8 +130,7 @@ async fn write_json_response<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    let mut length_buffer = [0u8; ubos_http::CONTENT_LENGTH_DECIMAL_DIGITS];
-    let content_length = ubos_http::format_content_length(&mut length_buffer, body.len());
+    let content_length = ubos_http::format_content_length(body.len());
 
     let mut headers: heapless::Vec<(&str, &str), MAX_SYSTEM_RESPONSE_HEADERS> =
         heapless::Vec::new();
@@ -145,7 +144,7 @@ where
         .push(("Connection", "close"))
         .expect("BUG: response header vec sized for max headers");
     headers
-        .push(("Content-Length", content_length))
+        .push(("Content-Length", content_length.as_str()))
         .expect("BUG: response header vec sized for max headers");
     for &header in extra_headers {
         headers
@@ -178,8 +177,7 @@ where
     T: Read + Write + TcpSplit,
 {
     let body = b"method not allowed";
-    let mut length_buffer = [0u8; ubos_http::CONTENT_LENGTH_DECIMAL_DIGITS];
-    let content_length = ubos_http::format_content_length(&mut length_buffer, body.len());
+    let content_length = ubos_http::format_content_length(body.len());
 
     let mut headers: heapless::Vec<(&str, &str), MAX_SYSTEM_RESPONSE_HEADERS> =
         heapless::Vec::new();
@@ -190,7 +188,7 @@ where
         .push(("Content-Type", "text/plain"))
         .expect("BUG: response header vec sized for max headers");
     headers
-        .push(("Content-Length", content_length))
+        .push(("Content-Length", content_length.as_str()))
         .expect("BUG: response header vec sized for max headers");
     headers
         .push(("Connection", "close"))
