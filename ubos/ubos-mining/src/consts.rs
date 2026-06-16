@@ -1,14 +1,8 @@
-//! Tunables for the BMM100 BM1362 mining backend.
+//! Tunables for the BM1362 and BM1370 mining backends.
 
-use ubos_asic::{BMM100, BoardDescriptor};
+pub use ubos_asic::ACTIVE_BOARD;
 
-/// The board this firmware build drives. All chip-model selection flows
-/// from this single point of definition: the chip model, topology
-/// counts, and per-chip capability bounds are read from this descriptor
-/// rather than replicated as separate constants.
-pub const ACTIVE_BOARD: BoardDescriptor = BMM100;
-
-/// Number of BM1362 chips on a BMM100 hashboard.
+/// Number of ASIC chips on the hashboard.
 ///
 /// Matches `ubos_core::consts::Mining::NUM_CHIPS`; the value is
 /// reproduced here so callers inside `ubos-mining` do not need to
@@ -34,6 +28,13 @@ pub const DIFFICULTY: u32 = 1;
 /// Sized for the smallest supported per-job work-id count (8), i.e.
 /// `256 / 8`; chips with a larger count use fewer of these slots.
 pub const WORK_REGISTRY_SLOTS: usize = 256 / 8;
+
+/// Per-chip nonce-space offsets written to `ChipNonceOffsetReg`, one per
+/// chip, so each of the four chips scans a distinct quarter of the 32-bit
+/// nonce range. The host both programs these (the `FixedTuner` for BM1362,
+/// the captured trace for BM1370) and decodes them to attribute a returned
+/// nonce back to its chip, so the partitioning has a single home here.
+pub const CHIP_NONCE_OFFSETS: [u16; NUM_CHIPS as usize] = [0x0000, 0x3fff, 0x7ffe, 0xbffd];
 
 /// Boot baud rate the chip listens on out of reset.
 pub const INITIAL_BAUDRATE: u32 = 115_200;

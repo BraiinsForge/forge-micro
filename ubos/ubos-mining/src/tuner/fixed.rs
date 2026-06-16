@@ -45,7 +45,7 @@ pub struct FixedTuner {
 impl Default for FixedTuner {
     fn default() -> Self {
         Self {
-            board: &ACTIVE_BOARD,
+            board: ACTIVE_BOARD,
             target: TuningConfig {
                 frequency: ACTIVE_BOARD.chip.descriptor().frequency_range.min(),
                 voltage: ACTIVE_BOARD.max_rail_voltage(),
