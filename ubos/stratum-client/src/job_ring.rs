@@ -14,7 +14,7 @@ use mining_protocol::JobId;
 pub const JOB_RING_DEPTH: usize = 2;
 
 /// One pool-side job snapshot, owned.
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JobSlot {
     pub job_id: JobId,
     pub valid: bool,

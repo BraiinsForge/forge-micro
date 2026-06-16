@@ -2,6 +2,7 @@
 
 use super::*;
 
+use crate::job_ring::JobSlot;
 use mining_protocol::{JobId, LazyMerkle, MiningJob, SessionUpdate};
 
 const SAMPLE_PREV_HASH: [u8; 32] = [0x11; 32];
@@ -32,11 +33,23 @@ fn visit_new_job_populates_slot() {
     state.visit_new_job(sample_job(1, false));
 
     let current = state.job_ring.current().expect("slot populated");
-    assert_eq!(current.job_id, JobId(1));
-    assert_eq!(current.merkle_root, SAMPLE_ROOT);
-    assert_eq!(current.prev_hash, SAMPLE_PREV_HASH);
-    assert_eq!(current.version, 0x2000_0000);
-    assert!(current.valid);
+    assert_eq!(
+        *current,
+        JobSlot {
+            job_id: JobId(1),
+            valid: true,
+            prev_hash: SAMPLE_PREV_HASH,
+            target: SAMPLE_TARGET,
+            merkle_root: SAMPLE_ROOT,
+            version: 0x2000_0000,
+            version_rolling_mask: 0,
+            nbits: 0x1705_c739,
+            ntime_base: 0x6044_9522,
+            ntime_offset: 0,
+            extranonce_2_size: 0,
+            clean_jobs: false,
+        }
+    );
 }
 
 #[test]
