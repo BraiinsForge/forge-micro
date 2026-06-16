@@ -21,14 +21,10 @@ fn final_variant_is_a_memcpy_and_ignores_extranonce_2() {
     ];
     let merkle = LazyMerkle::Final(&pattern);
 
-    let mut root = [0u8; 32];
-    merkle.compute(&[], &mut root);
-    assert_eq!(root, pattern);
+    assert_eq!(merkle.compute(&[]), pattern);
 
     // Non-empty extranonce_2 must not influence the result.
-    let mut root_with_en2 = [0u8; 32];
-    merkle.compute(b"\xff\xee\xdd\xcc", &mut root_with_en2);
-    assert_eq!(root_with_en2, pattern);
+    assert_eq!(merkle.compute(b"\xff\xee\xdd\xcc"), pattern);
 }
 
 #[test]
@@ -51,10 +47,7 @@ fn prepared_variant_no_branches_matches_direct_sha256d() {
         coinbase_suffix,
         branches: &[],
     };
-    let mut root = [0u8; 32];
-    merkle.compute(extranonce_2, &mut root);
-
-    assert_eq!(root, expected);
+    assert_eq!(merkle.compute(extranonce_2), expected);
 }
 
 #[test]
@@ -84,10 +77,7 @@ fn prepared_variant_one_branch_matches_two_step_sha256d() {
         coinbase_suffix,
         branches: &branches,
     };
-    let mut root = [0u8; 32];
-    merkle.compute(extranonce_2, &mut root);
-
-    assert_eq!(root, expected);
+    assert_eq!(merkle.compute(extranonce_2), expected);
 }
 
 #[test]
@@ -104,11 +94,8 @@ fn prepared_variant_extranonce_2_changes_root() {
         branches: &branches,
     };
 
-    let mut root_a = [0u8; 32];
-    merkle.compute(b"\x00\x00\x00\x00", &mut root_a);
-
-    let mut root_b = [0u8; 32];
-    merkle.compute(b"\x00\x00\x00\x01", &mut root_b);
+    let root_a = merkle.compute(b"\x00\x00\x00\x00");
+    let root_b = merkle.compute(b"\x00\x00\x00\x01");
 
     assert_ne!(root_a, root_b, "rolling extranonce_2 must change the root");
 }

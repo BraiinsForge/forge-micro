@@ -7,7 +7,7 @@
 //!
 //! `LazyMerkle::compute` hides the difference behind one method —
 //! both adapters yield a `LazyMerkle<'_>` to the visitor; consumers
-//! call `compute(en2, &mut root)` regardless of protocol.
+//! call `compute(en2)` to get the root regardless of protocol.
 
 use sha2::{Digest, Sha256};
 
@@ -47,37 +47,34 @@ impl LazyMerkle<'_> {
     /// `Prepared` builds `coinbase_prefix || extranonce_prefix ||
     /// extranonce_2 || coinbase_suffix`, takes its double SHA-256,
     /// then folds in each branch via `double_sha256(node || branch)`.
-    /// Result goes into `out` in canonical block-header byte order —
+    /// The returned root is in canonical block-header byte order — a
     /// direct memcpy into `header[36..68]`.
     ///
     /// `Final` ignores `extranonce_2` (the wire form already absorbed
-    /// it pool-side) and copies the precomputed root.
-    pub fn compute(&self, extranonce_2: &[u8], out: &mut [u8; 32]) {
+    /// it pool-side) and returns the precomputed root.
+    #[must_use]
+    pub fn compute(&self, extranonce_2: &[u8]) -> [u8; 32] {
         match self {
-            LazyMerkle::Final(root) => {
-                *out = **root;
-            }
+            LazyMerkle::Final(root) => **root,
             LazyMerkle::Prepared {
                 extranonce_prefix,
                 coinbase_prefix,
                 coinbase_suffix,
                 branches,
             } => {
-                let mut node = [0u8; 32];
-                hash_coinbase_streamed(
+                let mut node = hash_coinbase_streamed(
                     coinbase_prefix,
                     extranonce_prefix,
                     extranonce_2,
                     coinbase_suffix,
-                    &mut node,
                 );
                 let mut concat = [0u8; 64];
                 for branch in *branches {
                     concat[..32].copy_from_slice(&node);
                     concat[32..].copy_from_slice(branch);
-                    double_sha256(&concat, &mut node);
+                    node = double_sha256(&concat);
                 }
-                *out = node;
+                node
             }
         }
     }
@@ -93,8 +90,7 @@ fn hash_coinbase_streamed(
     extranonce_prefix: &[u8],
     extranonce_2: &[u8],
     coinbase_suffix: &[u8],
-    out: &mut [u8; 32],
-) {
+) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(coinbase_prefix);
     hasher.update(extranonce_prefix);
@@ -103,5 +99,5 @@ fn hash_coinbase_streamed(
     let first = hasher.finalize();
     let mut hasher2 = Sha256::new();
     hasher2.update(first);
-    out.copy_from_slice(&hasher2.finalize());
+    hasher2.finalize().into()
 }

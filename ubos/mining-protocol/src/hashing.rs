@@ -59,9 +59,7 @@ pub fn header_hash(
     nonce: u32,
 ) -> [u8; 32] {
     let header = build_header(version, prev_hash, merkle_root, ntime, nbits, nonce);
-    let mut out = [0u8; 32];
-    double_sha256(&header, &mut out);
-    out
+    double_sha256(&header)
 }
 
 /// Return `true` when `hash` (little-endian 256-bit integer) is less
@@ -79,12 +77,12 @@ pub fn hash_meets_target(hash: &[u8; 32], target: &[u8; 32]) -> bool {
     true
 }
 
-pub(crate) fn double_sha256(data: &[u8], out: &mut [u8; 32]) {
+pub(crate) fn double_sha256(data: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(data);
     let first = hasher.finalize();
 
     let mut hasher2 = Sha256::new();
     hasher2.update(first);
-    out.copy_from_slice(&hasher2.finalize());
+    hasher2.finalize().into()
 }

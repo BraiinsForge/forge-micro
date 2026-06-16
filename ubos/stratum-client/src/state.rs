@@ -82,7 +82,7 @@ impl MiningClientVisitor for StratumState {
         // refinement extends OwnedJob to keep them).
         let zeros = [0u8; MAX_EXTRANONCE_2];
         let en2 = &zeros[..en2_size];
-        job.merkle.compute(en2, &mut slot.merkle_root);
+        slot.merkle_root = job.merkle.compute(en2);
         slot.version = job.version;
         slot.version_rolling_mask = job.version_rolling_mask;
         slot.nbits = job.nbits;
