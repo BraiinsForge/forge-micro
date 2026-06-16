@@ -22,7 +22,7 @@ use ubos_config::ThermalConfig;
 use ubos_core::units::Temperature;
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_temperature::{TemperatureSensor, publish_board_temperature};
+use ubos_temperature::{CHIP_SOURCE, TemperatureSensor, publish_board_temperature_with_source};
 
 use crate::threshold::{Action, evaluate};
 
@@ -50,8 +50,12 @@ type CSMutex = CriticalSectionRawMutex;
 /// sensor-fault transition. Consumers read it through `Handle`.
 #[derive(Clone)]
 pub struct ThermalReading {
-    /// Maximum chip temperature observed in this sample.
+    /// Maximum chip temperature observed in this sample. The real die
+    /// reading where the board provides one; gates thermal shutdown.
     pub chip_max: Temperature,
+    /// Temperature that drives the cooling PID. PCB-plus-
+    /// offset estimate rather than the real die reading.
+    pub pid_temp: Temperature,
     /// Monotonic timestamp of this reading in milliseconds since boot.
     pub timestamp_ms: u64,
     /// True when the sensor has been unreadable for `SENSOR_FAULT_TICKS`
@@ -119,6 +123,25 @@ impl Handle {
 /// successful reading clears it.
 const SENSOR_FAULT_TICKS: u32 = 5;
 
+/// Publish the safety reading, and the cooling-PID estimate too when the
+/// board exposes a distinct one, each tagged with its source label. Returns
+/// the value the cooling PID should track: the estimate when present, else
+/// the safety reading.
+async fn publish_chip_temperatures<S: TemperatureSensor>(
+    sensor: &S,
+    safety: Temperature,
+) -> Temperature {
+    publish_board_temperature_with_source(safety, sensor.temperature_source()).await;
+    match sensor.pid_temperature() {
+        Some(approximated) => {
+            publish_board_temperature_with_source(approximated, sensor.pid_temperature_source())
+                .await;
+            approximated
+        }
+        None => safety,
+    }
+}
+
 /// Run the thermal monitoring loop forever.
 ///
 /// Spawned once per board firmware. `sensor` is the board-specific
@@ -145,6 +168,7 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
     // `current()` between fault ticks see the last known temperature
     // alongside `sensor_fault: true`, not a synthetic 0.
     let mut last_chip_max: Option<Temperature> = None;
+    let mut last_pid_temp: Option<Temperature> = None;
 
     info!("thermal: started");
 
@@ -185,6 +209,7 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
             if sensor_misses >= SENSOR_FAULT_TICKS {
                 publisher.send(ThermalReading {
                     chip_max: last_chip_max.unwrap_or(Temperature::from_millicelsius(0)),
+                    pid_temp: last_pid_temp.unwrap_or(Temperature::from_millicelsius(0)),
                     timestamp_ms: now.as_millis(),
                     sensor_fault: true,
                 });
@@ -203,40 +228,58 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
         }
         sensor_misses = 0;
         last_chip_max = Some(temp);
+        let pid_temp = publish_chip_temperatures(&sensor, temp).await;
+        last_pid_temp = Some(pid_temp);
 
-        publish_board_temperature(temp).await;
-
-        match evaluate(
+        let dangerous = if sensor.temperature_source() == Some(CHIP_SOURCE) {
+            config.dangerous_chip_temp_c
+        } else {
+            config.dangerous_temp_c
+        };
+        let action = evaluate(
             temp.celsius_f32(),
             halted,
-            config.dangerous_temp_c,
+            dangerous,
             config.cooldown_temp_c,
-        ) {
-            Action::Ok => {}
-            Action::EnterHalt => {
-                halted = true;
-                manager.send(ManagerMessage::DangerousTemperature).await;
-                error!(
-                    "thermal: dangerous temperature {}°C, halting mining",
-                    temp.celsius_f32()
-                );
-                crate::events::critical_temperature(temp_celsius_i16(temp));
-            }
-            Action::Resume => {
-                halted = false;
-                manager.send(ManagerMessage::TemperatureNormal).await;
-                warn!(
-                    "thermal: cooled to {}°C, resuming mining",
-                    temp.celsius_f32()
-                );
-                crate::events::temperature_recovered(temp_celsius_i16(temp));
-            }
-        }
+        );
+        apply_action(action, &mut halted, temp, &manager).await;
 
         publisher.send(ThermalReading {
             chip_max: temp,
+            pid_temp,
             timestamp_ms: now.as_millis(),
             sensor_fault: false,
         });
+    }
+}
+
+/// Toggle the halt state and notify the manager based on the threshold
+/// decision. `celsius` is used only for the log lines.
+async fn apply_action(
+    action: Action,
+    halted: &mut bool,
+    temp: Temperature,
+    manager: &ManagerHandle,
+) {
+    match action {
+        Action::Ok => {}
+        Action::EnterHalt => {
+            *halted = true;
+            manager.send(ManagerMessage::DangerousTemperature).await;
+            error!(
+                "thermal: dangerous temperature {}°C, halting mining",
+                temp.celsius_f32()
+            );
+            crate::events::critical_temperature(temp_celsius_i16(temp));
+        }
+        Action::Resume => {
+            *halted = false;
+            manager.send(ManagerMessage::TemperatureNormal).await;
+            warn!(
+                "thermal: cooled to {}°C, resuming mining",
+                temp.celsius_f32()
+            );
+            crate::events::temperature_recovered(temp_celsius_i16(temp));
+        }
     }
 }

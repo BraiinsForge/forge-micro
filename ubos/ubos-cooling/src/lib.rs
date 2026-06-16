@@ -156,7 +156,7 @@ pub async fn run_cooling<F: FanOutput, T: TachReader>(
         let pwm = if reading.sensor_fault {
             FanPwm::FULL
         } else {
-            let raw = control.update(reading.chip_max.celsius_f32());
+            let raw = control.update(reading.pid_temp.celsius_f32());
             FanPwm::from_percent(raw)
         };
 

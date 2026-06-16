@@ -48,3 +48,12 @@ fn boundary_at_cooldown_resumes() {
     // Inclusive: 45.0 must already clear the halt, not stay Ok.
     assert_eq!(evaluate(45.0, true, DANGEROUS, COOLDOWN), Action::Resume);
 }
+
+#[test]
+fn halts_at_the_configured_threshold() {
+    // The evaluator trusts `dangerous_temp_c` straight from the config
+    // (the config layer bounds it); there is no separate hard ceiling.
+    const HIGH: f32 = 105.0;
+    assert_eq!(evaluate(HIGH, false, HIGH, COOLDOWN), Action::EnterHalt);
+    assert_eq!(evaluate(HIGH - 1.0, false, HIGH, COOLDOWN), Action::Ok);
+}

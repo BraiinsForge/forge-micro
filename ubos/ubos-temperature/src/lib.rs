@@ -7,11 +7,16 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 
+pub mod hashnode;
 pub mod lm75a;
+pub mod tmp102;
+pub mod tmp461;
+
+pub use hashnode::HashnodeTemperature;
 
 use embassy_time::{Duration, Ticker};
 use ubos_core::units::Temperature;
-use ubos_metrics::metrics::{Metric, Value, push};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 
 /// Internal chip temperature sampling parameters.
 pub struct TemperatureParams;
@@ -31,18 +36,64 @@ impl TemperatureParams {
 #[allow(async_fn_in_trait)]
 pub trait TemperatureSensor {
     /// Read the current die temperature, or `None` if the reading
-    /// failed. Implementations may await on the underlying hardware
-    /// conversion.
+    /// failed. This is the value that gates thermal shutdown. Implementations
+    /// may await on the underlying hardware conversion.
     async fn read(&mut self) -> Option<Temperature>;
+
+    /// Temperature that should drive the cooling PID when it differs from
+    /// the safety reading returned by [`read`](Self::read), cached from the
+    /// most recent `read`. `None` means the PID uses the safety reading, so
+    /// single-sensor boards need not implement it.
+    fn pid_temperature(&self) -> Option<Temperature> {
+        None
+    }
+
+    /// Source label for the safety reading, or `None` to publish the
+    /// canonical gauge without a `source` label. Boards that report more
+    /// than one chip-temperature estimate distinguish them this way.
+    fn temperature_source(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Source label for [`pid_temperature`](Self::pid_temperature).
+    fn pid_temperature_source(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Push a temperature reading as the canonical board-temperature gauge.
 /// Callers that already have a value in hand (e.g. `ubos-thermal`
 /// inside its sample loop) use this instead of running a second sampler.
 pub async fn publish_board_temperature(temp: Temperature) {
-    push(Metric::with_no_labels(
+    publish_board_temperature_with_source(temp, None).await;
+}
+
+/// Push a board-temperature reading, optionally tagged with a `source`
+/// label so a board that reports more than one chip-temperature estimate
+/// (real die versus approximated) keeps them as distinct series under one
+/// metric name.
+pub async fn publish_board_temperature_with_source(
+    temp: Temperature,
+    source: Option<&'static str>,
+) {
+    let value = Value::Int(i64::from(temp.millicelsius()));
+    let Some(source) = source else {
+        push(Metric::with_no_labels(
+            TemperatureParams::METRIC_NAME,
+            value,
+        ))
+        .await;
+        return;
+    };
+    let mut labels = Labels::new();
+    let _ = labels.push(Label {
+        name: "source",
+        value: LabelValue::Static(source),
+    });
+    push(Metric::with_labels(
         TemperatureParams::METRIC_NAME,
-        Value::Int(i64::from(temp.millicelsius())),
+        labels,
+        value,
     ))
     .await;
 }
