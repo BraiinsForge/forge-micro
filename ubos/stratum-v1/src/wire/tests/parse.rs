@@ -92,19 +92,43 @@ fn parse_mining_notify_field_extraction() {
     let line = build_notify_line("1d2e0c4d3d", "false");
     let rpc = parse_incoming(line.as_bytes()).expect("BUG: valid notify must parse");
     let notify = expect_notify(&rpc);
-    assert_eq!(notify.job_id, "1d2e0c4d3d");
-    assert_eq!(notify.prev_hash, PREV_HASH);
-    assert_eq!(notify.coin_base_1, COINBASE_1);
-    assert_eq!(notify.coin_base_2, COINBASE_2);
-    assert_eq!(notify.version, "20000004");
-    assert_eq!(notify.bits, "1705c739");
-    assert_eq!(notify.time, "64495522");
-    assert_eq!(notify.merkle_branch.len(), 12);
+
+    let mut expected_merkle_branch =
+        heapless::Vec::<&str, { crate::wire::messages::MAX_MERKLE_BRANCH_LEN }>::new();
+    for hash in [
+        "ae23055e00f0f697cc3640124812d96d4fe8bdfa03484c1c638ce5a1c0e9aa81",
+        "980fb87cb61021dd7afd314fcb0dabd096f3d56a7377f6f320684652e7410a21",
+        "a52e9868343c55ce405be8971ff340f562ae9ab6353f07140d01666180e19b52",
+        "7435bdfa004e603953b2ed39f118803934d9cf17b06d979ceb682f2251bafac2",
+        "2a91f061a22d27cb8f44eea79938fb241ebeb359891aa907f05ffde7ed44e52e",
+        "302401f80eb5e958155135e25200bb8ea181ad2d05e804a531c7314d86403cdc",
+        "318ecb6161eb9b4cfd802bd730e2d36c167ddf102e70aa7b4158e2870dd47392",
+        "1114332a9858e0cf84b2425bb1e59eaabf91dd102d114aa443d57fc1b3beb0c9",
+        "f43f38095c810613ed795a44d9fab02ff25269706f454885db9be05cdf9c06e1",
+        "3e2fc26b27fddc39668b59099cd9635761bb72ed92404204e12bdff08b16fb75",
+        "463c19427286342120039a83218fa87ce45448e246895abac11fff0036076758",
+        "03d287f655813e540ddb9c4e7aeb922478662b0f5d8e9d0cbd564b20146bab76",
+    ] {
+        expected_merkle_branch
+            .push(hash)
+            // BUG: fixture has exactly 12 branches, which is within MAX_MERKLE_BRANCH_LEN.
+            .expect("BUG: fixture branch count is within MAX_MERKLE_BRANCH_LEN");
+    }
+
     assert_eq!(
-        notify.merkle_branch[0],
-        "ae23055e00f0f697cc3640124812d96d4fe8bdfa03484c1c638ce5a1c0e9aa81"
+        notify,
+        &Notify {
+            job_id: "1d2e0c4d3d",
+            prev_hash: PREV_HASH,
+            coin_base_1: COINBASE_1,
+            coin_base_2: COINBASE_2,
+            merkle_branch: expected_merkle_branch,
+            version: "20000004",
+            bits: "1705c739",
+            time: "64495522",
+            clean_jobs: false,
+        }
     );
-    assert!(!notify.clean_jobs);
 }
 
 #[test]

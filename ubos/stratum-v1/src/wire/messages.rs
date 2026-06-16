@@ -14,6 +14,7 @@ mod tests;
 // heights well beyond current chain tip (2^32 txs per block).
 pub const MAX_MERKLE_BRANCH_LEN: usize = 32;
 
+#[derive(PartialEq)]
 pub struct Notify<'a> {
     pub job_id: &'a str,
     pub prev_hash: &'a str,
