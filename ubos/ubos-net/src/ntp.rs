@@ -1,7 +1,10 @@
 //! SNTP response parser and UTC formatter, plus the NTP protocol and
 //! sync-timing parameters.
 
+use core::fmt::Write as _;
+
 use embassy_time::Duration;
+use heapless::String;
 
 #[cfg(test)]
 #[path = "tests/ntp.rs"]
@@ -52,37 +55,20 @@ pub fn parse_timestamp_secs(response: &[u8]) -> Option<u64> {
     Some(unix_secs)
 }
 
-/// Format a Unix timestamp as `HH:MM:SS UTC` into the provided buffer.
+/// Format a Unix timestamp as the `HH:MM:SS UTC` wall-clock string.
 ///
-/// Returns the number of bytes written. The buffer must be at least 12
-/// bytes to hold the full formatted string; a shorter buffer trips the
-/// debug assertion in debug builds and panics on the slice write in
-/// release. Callers must size at compile time.
-pub fn format_utc_time(buffer: &mut [u8], unix_secs: u64) -> usize {
-    // "HH:MM:SS UTC" = 12 bytes. Callers must size the buffer for the
-    // full string; the assertion catches regressions in debug, and the
-    // slice write below panics in release rather than silently writing
-    // a partial string.
-    debug_assert!(buffer.len() >= 12, "format_utc_time needs >=12 bytes");
-
+/// The result is always exactly 12 ASCII characters, so it fits a
+/// `String<12>` with no spare capacity and the formatting write never
+/// fails.
+#[must_use]
+pub fn format_utc_time(unix_secs: u64) -> String<12> {
     let day_secs = unix_secs % SECONDS_PER_DAY;
     let hours = day_secs / SECONDS_PER_HOUR;
     let minutes = (day_secs % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE;
     let seconds = day_secs % SECONDS_PER_MINUTE;
 
-    let output = b" UTC";
-    let needed = 8 + output.len();
-
-    // hours < 24, minutes < 60, seconds < 60, so every digit fits in u8.
-    buffer[0] = b'0' + (hours / 10) as u8;
-    buffer[1] = b'0' + (hours % 10) as u8;
-    buffer[2] = b':';
-    buffer[3] = b'0' + (minutes / 10) as u8;
-    buffer[4] = b'0' + (minutes % 10) as u8;
-    buffer[5] = b':';
-    buffer[6] = b'0' + (seconds / 10) as u8;
-    buffer[7] = b'0' + (seconds % 10) as u8;
-    buffer[8..needed].copy_from_slice(output);
-
-    needed
+    let mut text = String::new();
+    let _ = write!(text, "{hours:02}:{minutes:02}:{seconds:02} UTC");
+    debug_assert_eq!(text.len(), 12, "formatted time must be exactly 12 chars");
+    text
 }

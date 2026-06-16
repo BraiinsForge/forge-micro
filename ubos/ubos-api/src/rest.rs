@@ -354,11 +354,8 @@ impl Service for RestApiService {
                 let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
                 if ntp_offset != 0 {
                     let unix_secs = ubos_net::wall_clock_secs();
-                    let mut time_buffer = [0u8; 16];
-                    let length = ubos_net::ntp::format_utc_time(&mut time_buffer, unix_secs);
-                    if let Ok(time_str) = core::str::from_utf8(&time_buffer[..length]) {
-                        let _ = writer.write_str(time_str);
-                    }
+                    let time = ubos_net::ntp::format_utc_time(unix_secs);
+                    let _ = writer.write_str(time.as_str());
                 }
                 let _ = writer.write_str("\"}");
                 let json_len = writer.len();

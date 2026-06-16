@@ -31,30 +31,25 @@ fn parse_ntp_seconds_before_unix_epoch() {
 
 #[test]
 fn format_midnight() {
-    let mut buffer = [0u8; 16];
-    let length = format_utc_time(&mut buffer, 0);
-    assert_eq!(&buffer[..length], b"00:00:00 UTC");
+    assert_eq!(format_utc_time(0).as_str(), "00:00:00 UTC");
 }
 
 #[test]
 fn format_end_of_day() {
-    let mut buffer = [0u8; 16];
-    let length = format_utc_time(&mut buffer, 86_399);
-    assert_eq!(&buffer[..length], b"23:59:59 UTC");
+    assert_eq!(format_utc_time(86_399).as_str(), "23:59:59 UTC");
 }
 
 #[test]
 fn format_midday() {
-    let mut buffer = [0u8; 16];
     // 12:30:45 = 12*3600 + 30*60 + 45 = 45045.
-    let length = format_utc_time(&mut buffer, 45_045);
-    assert_eq!(&buffer[..length], b"12:30:45 UTC");
+    assert_eq!(format_utc_time(45_045).as_str(), "12:30:45 UTC");
 }
 
 #[test]
 fn format_wraps_past_midnight() {
-    let mut buffer = [0u8; 16];
     // One full day + 3661 seconds = 01:01:01.
-    let length = format_utc_time(&mut buffer, SECONDS_PER_DAY + 3661);
-    assert_eq!(&buffer[..length], b"01:01:01 UTC");
+    assert_eq!(
+        format_utc_time(SECONDS_PER_DAY + 3661).as_str(),
+        "01:01:01 UTC"
+    );
 }

@@ -63,14 +63,8 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(),
         Text::new("no sync", Point::new(0, 29), style).draw(display)?;
     } else {
         let unix_secs = ubos_net::wall_clock_secs();
-        let mut time_buffer = [0u8; 16];
-        let length = ntp::format_utc_time(&mut time_buffer, unix_secs);
-        if length > 0 {
-            // format_utc_time writes valid ASCII into the buffer.
-            if let Ok(text) = core::str::from_utf8(&time_buffer[..length]) {
-                Text::new(text, Point::new(0, 29), style).draw(display)?;
-            }
-        }
+        let time = ntp::format_utc_time(unix_secs);
+        Text::new(time.as_str(), Point::new(0, 29), style).draw(display)?;
     }
 
     // Line 3: fan PWM and RPM when the board publishes them. `FAN_PWM_PERCENT
