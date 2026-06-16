@@ -10,8 +10,7 @@ use stratum_client::WorkAssignment;
 #[must_use]
 fn nonce_meets_target(work: &WorkAssignment, nonce: u32) -> bool {
     let header = build_header(work, nonce);
-    let mut hash = [0u8; 32];
-    sha256d(&header, &mut hash);
+    let hash = sha256d(&header);
     hash_meets_target(&hash, &work.target)
 }
 

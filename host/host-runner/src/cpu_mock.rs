@@ -20,11 +20,11 @@ mod hash {
 
     use sha2::{Digest, Sha256};
 
-    /// Compute `sha256(sha256(input))` into `out`.
-    pub fn sha256d(input: &[u8], out: &mut [u8; 32]) {
+    /// Compute `sha256(sha256(input))`.
+    #[must_use]
+    pub fn sha256d(input: &[u8]) -> [u8; 32] {
         let first = Sha256::digest(input);
-        let second = Sha256::digest(first);
-        out.copy_from_slice(&second);
+        Sha256::digest(first).into()
     }
 
     /// Return `true` when `hash` (256-bit little-endian) is less than
@@ -108,10 +108,9 @@ pub async fn run_asic_cpu(asic: &'static AsicSession) -> ! {
         }
 
         let chunk_end = nonce.saturating_add(HASHES_PER_CHUNK);
-        let mut hash = [0u8; 32];
         while nonce < chunk_end {
             let header = build_header(&current, nonce);
-            sha256d(&header, &mut hash);
+            let hash = sha256d(&header);
             if hash_meets_target(&hash, &current.target) {
                 let solution = Solution {
                     work_id: current.work_id,

@@ -62,8 +62,7 @@ impl FanHwmonController {
             return None;
         }
 
-        let mut device_dirs = Vec::new();
-        find_pwmfan_devices(root, 0, &mut device_dirs);
+        let device_dirs = find_pwmfan_devices(root, 0);
 
         let pwm_paths: Vec<PathBuf> = device_dirs
             .iter()
@@ -114,15 +113,16 @@ impl FanHwmonController {
 
 /// Recursive walker mirroring `SysFsPath::enumerate_platform_devices`
 /// from the upstream `ii-sysfs` crate, sized down to `std::fs` so we
-/// don't take a dependency on `walkdir` for one call site. Pushes the
+/// don't take a dependency on `walkdir` for one call site. Returns the
 /// parent directory of every `name` file whose contents trim to
 /// [`PWMFAN_DRIVER_NAME`].
-fn find_pwmfan_devices(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+fn find_pwmfan_devices(dir: &Path, depth: usize) -> Vec<PathBuf> {
+    let mut devices = Vec::new();
     if depth > MAX_SEARCH_DEPTH {
-        return;
+        return devices;
     }
     let Ok(entries) = fs::read_dir(dir) else {
-        return;
+        return devices;
     };
     for entry in entries.flatten() {
         // sysfs sprays symlinks (subsystem, driver, ...) that loop back
@@ -137,11 +137,12 @@ fn find_pwmfan_devices(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         let name_file = path.join("name");
         if let Ok(content) = fs::read_to_string(&name_file) {
             if content.trim() == PWMFAN_DRIVER_NAME {
-                out.push(path.clone());
+                devices.push(path.clone());
             }
         }
-        find_pwmfan_devices(&path, depth + 1, out);
+        devices.extend(find_pwmfan_devices(&path, depth + 1));
     }
+    devices
 }
 
 impl FanOutput for FanHwmonController {
