@@ -171,6 +171,15 @@ const BMM_TEST_MULTI_DOMAIN: BoardDescriptor = BoardDescriptor {
     num_voltage_domains: 2,
     num_chips: 8,
     max_psu_voltage: ubos_core::units::Voltage::from_mv(5000),
+    tuning_voltage_min_mv: 0,
+    tuning_voltage_max_mv: 0,
+    default_voltage_mv: 0,
+    default_frequency_mhz: 0,
+    cooling: crate::board::BoardCooling {
+        target_temp_c: 0.0,
+        min_fan_pwm: 0,
+    },
+    model: "test",
 };
 
 /// Single-chip BM1370 board used in the `MiscSettings` bring-up test.
@@ -181,6 +190,15 @@ const BM1370_TEST_BOARD: BoardDescriptor = BoardDescriptor {
     num_voltage_domains: 1,
     num_chips: 1,
     max_psu_voltage: ubos_core::units::Voltage::from_mv(5000),
+    tuning_voltage_min_mv: 0,
+    tuning_voltage_max_mv: 0,
+    default_voltage_mv: 0,
+    default_frequency_mhz: 0,
+    cooling: crate::board::BoardCooling {
+        target_temp_c: 0.0,
+        min_fan_pwm: 0,
+    },
+    model: "test",
 };
 
 /// Runs the full BM1366 bring-up against the multi-domain test board.

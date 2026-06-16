@@ -17,7 +17,7 @@ use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{debug, error, warn};
 
 use crate::bus::SerialBus;
-use crate::consts::{ACTIVE_BOARD, DIFFICULTY, FAST_BAUDRATE};
+use crate::consts::{ACTIVE_BOARD, DIFFICULTY};
 use crate::control::publish_tuner_step;
 use crate::miner::MinerControl;
 
@@ -237,8 +237,10 @@ impl<M: MinerControl> Tuner<M> for FixedTuner {
             .expect("BUG: DIFFICULTY must be a power of two");
         bus.write_register(ChipAddress::All, ticket).await;
         // Baud switch last: program the chip side, then the host UART.
+        // The rate comes from the chip so a BM1370 uses its SI-safe
+        // 520 833 Hz instead of the generic 3.125 Mbaud.
         chip.enable_fast_uart(&mut bus).await;
-        miner.set_baud_rate(FAST_BAUDRATE).await?;
+        miner.set_baud_rate(chip.fast_uart_host_rate()).await?;
         // Counting number on the fast UART, after the baud switch.
         chip.set_hcn(&mut bus, safe_boot).await?;
         miner

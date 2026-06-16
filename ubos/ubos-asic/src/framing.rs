@@ -530,10 +530,11 @@ impl ResponseParser {
                 continue;
             }
             let response = if is_work {
+                let work_id = frame[7];
                 Response::HwSolution(HwSolution {
                     nonce: u32::from_le_bytes([frame[2], frame[3], frame[4], frame[5]]),
                     _extra_diff: frame[6],
-                    work_id: frame[7],
+                    work_id,
                     version_idx: u16::from_be_bytes([frame[8], frame[9]]),
                 })
             } else {

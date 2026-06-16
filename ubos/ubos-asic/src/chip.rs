@@ -337,12 +337,21 @@ pub trait ChipProtocol {
 
     /// Program the chip side of the fast-UART switch. Run this last in
     /// bring-up: the fast UART is crystal-clocked, so it needs no PLL
-    /// configured first. The consumer switches the host UART afterwards.
+    /// configured first. The consumer switches the host UART afterwards
+    /// to the rate returned by [`Self::fast_uart_host_rate`].
     async fn enable_fast_uart(&self, bus: &mut impl ChipBus) {
         // The fast UART is crystal-clocked at a single rate; the consumer
         // switches the host controller to match afterwards.
         bus.write_register(ChipAddress::All, BaudRateReg::fast_3mbaud())
             .await;
+    }
+
+    /// Host UART rate, in Hz, that matches the chip register written by
+    /// [`Self::enable_fast_uart`]. The default is 3 125 000 Hz (bt8d=0,
+    /// crystal-clocked). Chips whose serial pair cannot sustain 3 Mbaud
+    /// override this to return a slower rate derived from their own bt8d.
+    fn fast_uart_host_rate(&self) -> u32 {
+        3_125_000
     }
 
     /// Program the hash-clock PLL to `freq`, leaving the counting number
@@ -496,6 +505,20 @@ pub enum Chip {
     Bm1370,
 }
 
+impl Chip {
+    /// Model string reported to the REST API and dashboard. `const` so
+    /// `ubos-config`'s static `MiningInfo` can read it without invoking the
+    /// non-const `ChipProtocol::descriptor`.
+    #[must_use]
+    pub const fn asic_model(self) -> &'static str {
+        match self {
+            Chip::Bm1362 => "BM1362",
+            Chip::Bm1366 => "BM1366",
+            Chip::Bm1370 => "BM1370",
+        }
+    }
+}
+
 impl ChipProtocol for Chip {
     fn descriptor(&self) -> &'static ChipDescriptor {
         match self {
@@ -514,6 +537,22 @@ impl ChipProtocol for Chip {
             Chip::Bm1362 => Bm1362.write_misc_settings(bus).await,
             Chip::Bm1366 => Bm1366.write_misc_settings(bus).await,
             Chip::Bm1370 => Bm1370.write_misc_settings(bus).await,
+        }
+    }
+
+    async fn enable_fast_uart(&self, bus: &mut impl ChipBus) {
+        match self {
+            Chip::Bm1362 => Bm1362.enable_fast_uart(bus).await,
+            Chip::Bm1366 => Bm1366.enable_fast_uart(bus).await,
+            Chip::Bm1370 => Bm1370.enable_fast_uart(bus).await,
+        }
+    }
+
+    fn fast_uart_host_rate(&self) -> u32 {
+        match self {
+            Chip::Bm1362 => Bm1362.fast_uart_host_rate(),
+            Chip::Bm1366 => Bm1366.fast_uart_host_rate(),
+            Chip::Bm1370 => Bm1370.fast_uart_host_rate(),
         }
     }
 }
@@ -567,5 +606,17 @@ impl ChipProtocol for Bm1370 {
             bus.write_register(ChipAddress::All, MiscSettingsReg::bm1370_bringup())
                 .await;
         }
+    }
+
+    async fn enable_fast_uart(&self, bus: &mut impl ChipBus) {
+        // The BM1370 hashnode serial pair cannot sustain 3 Mbaud; use the
+        // SI-safe rate (520 833 Hz default, bt8d=5) instead. The host
+        // switches to the matching rate via fast_uart_host_rate().
+        bus.write_register(ChipAddress::All, BaudRateReg::bm1370_fast())
+            .await;
+    }
+
+    fn fast_uart_host_rate(&self) -> u32 {
+        crate::baud::BM1370_FAST_UART_HOST_HZ
     }
 }

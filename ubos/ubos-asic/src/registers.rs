@@ -390,6 +390,15 @@ impl BaudRateReg {
     pub const fn fast_3mbaud() -> Self {
         Self::from_bits(BAUDRATE_FAST_3MBAUD)
     }
+
+    /// Fast-UART preset for the BM1370 hashnode SI-safe rate. Encodes
+    /// bt8d=5 (520 833 Hz) by default, overridable via `MINING_BAUDRATE`
+    /// at build time. Use this instead of [`Self::fast_3mbaud`] when
+    /// bringing up a BM1370 chain whose serial pair cannot sustain 3 Mbaud.
+    #[must_use]
+    pub const fn bm1370_fast() -> Self {
+        Self::fast_3mbaud().with_bt8d(crate::baud::BM1370_FAST_UART_BT8D)
+    }
 }
 
 impl Register for BaudRateReg {
