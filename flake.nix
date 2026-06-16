@@ -478,6 +478,7 @@
             "-p stratum-client"
             "-p stratum-v1"
             "-p stratum-v2"
+            "-p ubos-asic"
             "-p ubos-auth"
             "-p ubos-core"
             "-p ubos-display"
@@ -1080,6 +1081,14 @@
             doInstallCargoArtifacts = false;
           };
 
+          clippy-ubos-asic = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p ubos-asic";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+          };
+
           clippy-stratum-v1 = craneLib.cargoClippy {
             inherit src;
             cargoArtifacts = hostArtifacts;
@@ -1167,6 +1176,13 @@
             inherit src;
             cargoArtifacts = hostArtifacts;
             cargoExtraArgs = "-p mining-protocol";
+            doInstallCargoArtifacts = false;
+          };
+
+          test-ubos-asic = craneLib.cargoTest {
+            inherit src;
+            cargoArtifacts = hostArtifacts;
+            cargoExtraArgs = "-p ubos-asic";
             doInstallCargoArtifacts = false;
           };
 
@@ -1383,6 +1399,7 @@
                 nativeBuildInputs = [
                   test-embedded-i2c-unix
                   test-mining-protocol
+                  test-ubos-asic
                   test-stratum-client
                   test-stratum-v1
                   test-stratum-v2
