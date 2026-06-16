@@ -13,6 +13,7 @@ covers ARM targets; the `esp` shell covers the Xtensa target.
 nix develop .#arm -c bash -c 'cd firmware/bmm-pico    && cargo check'
 nix develop .#arm -c bash -c 'cd firmware/rp2040      && cargo check'
 nix develop .#arm -c bash -c 'cd firmware/rp2350      && cargo check'
+nix develop .#arm -c bash -c 'cd firmware/hashnode    && cargo check'
 nix develop .#arm -c bash -c 'cd firmware/stm32f407   && cargo check'
 nix develop .#arm -c bash -c 'cd firmware/stm32f439   && cargo check'
 nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo check'
@@ -28,14 +29,16 @@ so `cargo run --release` flashes the right board without any
 nix develop .#arm -c bash -c 'cd firmware/bmm-pico  && cargo run --release'
 nix develop .#arm -c bash -c 'cd firmware/rp2040    && cargo run --release'
 nix develop .#arm -c bash -c 'cd firmware/rp2350    && cargo run --release'
+nix develop .#arm -c bash -c 'cd firmware/hashnode  && cargo run --release'
 nix develop .#arm -c bash -c 'cd firmware/stm32f407 && cargo run --release'
 nix develop .#arm -c bash -c 'cd firmware/stm32f439 && cargo run --release'
 nix develop .#esp -c bash -c 'cd firmware/esp32s3   && cargo run --release'
 ```
 
-Every board drives a BM1362 hashboard via `ubos-mining` unconditionally.
-The `display` feature is always in defaults and SV2 is always built on
-all boards.
+Every board drives a BM1362 hashboard via `ubos-mining` unconditionally,
+except `hashnode`, which enables the `bm1370` feature to replay a BM1370
+bring-up sequence instead. The `display` feature is always in defaults
+and SV2 is always built on all boards.
 
 The bmm-pico crate also has multiple boards attached (six). Aliases
 `cargo run-1` through `cargo run-6` pin the probe serial of each.
@@ -71,6 +74,7 @@ probe.
 | bmm-pico | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
 | rp2040 | thumbv6m-none-eabi | RP2040 (Cortex-M0+) |
 | rp2350 | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
+| hashnode | thumbv8m.main-none-eabihf | RP2350B (Cortex-M33, 48 GPIO) |
 | stm32f407 | thumbv7em-none-eabihf | STM32F407VGT6 (Cortex-M4F) |
 | stm32f439 | thumbv7em-none-eabihf | STM32F439ZIT6 (Cortex-M4F) |
 | esp32s3 | xtensa-esp32s3-none-elf | ESP32-S3 (Xtensa LX7) |

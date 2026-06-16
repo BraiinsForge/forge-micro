@@ -1,0 +1,16 @@
+[target.thumbv8m.main-none-eabihf]
+runner = [
+  "probe-rs-runner", "run",
+  "--chip", "RP235x",
+  "--log-format", "{t:>10} {f:<14} [{L}] {s}",
+]
+
+# POOL_* defaults live in the workspace .cargo/config.toml. Operating
+# point, cooling profile, and chip baud all come from the board descriptor
+# and config defaults now, not build-time env.
+[env]
+DEFMT_LOG = "info,embassy_net=info,smoltcp=info"
+POOL_USER = "braiinstest.hashnode"
+
+[build]
+target = "thumbv8m.main-none-eabihf"

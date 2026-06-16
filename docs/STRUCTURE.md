@@ -120,6 +120,7 @@ firmware/
 ├── bmm-pico/      thumbv8m.main-none-eabihf  (RP2350)
 ├── rp2040/        thumbv6m-none-eabi         (RP2040)
 ├── rp2350/        thumbv8m.main-none-eabihf  (RP2350)
+├── hashnode/      thumbv8m.main-none-eabihf  (RP2350B)
 ├── stm32f407/     thumbv7em-none-eabihf      (STM32F407)
 ├── stm32f439/     thumbv7em-none-eabihf      (STM32F439)
 └── esp32s3/       xtensa-esp32s3-none-elf    (ESP32-S3)
@@ -191,6 +192,7 @@ the `cargo size` recipe below.
 | bmm-pico  | 564 / 2048 KiB | 174 / 512 KiB | —          | comfortable                                    |
 | rp2040    | 582 / 2048 KiB | 171 / 256 KiB (67%) | —    | comfortable; ~85 KiB free                      |
 | rp2350    | 566 / 2048 KiB | 175 / 512 KiB | —          | comfortable                                    |
+| hashnode  | 595 / 2048 KiB | 261 / 512 KiB | —          | comfortable                                    |
 | stm32f407 | 568 / 1024 KiB | 107 / 128 KiB (84%) | 23 / 64 KiB CCM | tight; ~21 KiB free, route new statics to CCM |
 | stm32f439 | 568 / 2048 KiB | 107 / 192 KiB | 23 / 64 KiB CCM | comfortable                                |
 | esp32s3   | 739 / 8192 KiB | 172 / 320 KiB DRAM | — | comfortable                                    |

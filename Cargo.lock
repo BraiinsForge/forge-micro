@@ -2201,6 +2201,52 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
 
 [[package]]
+name = "hashnode"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt 1.0.1",
+ "defmt-rtt",
+ "embassy-embedded-hal 0.6.0",
+ "embassy-executor 0.10.0",
+ "embassy-futures",
+ "embassy-net",
+ "embassy-net-wiznet",
+ "embassy-rp",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "embedded-hal-bus",
+ "embedded-io-async 0.7.0",
+ "heapless 0.9.2",
+ "ii-sv2",
+ "portable-atomic",
+ "serial-baudrate",
+ "static_cell",
+ "stratum-client",
+ "stratum-v1",
+ "stratum-v2",
+ "ubos-api",
+ "ubos-asic",
+ "ubos-auth",
+ "ubos-config",
+ "ubos-cooling",
+ "ubos-core",
+ "ubos-display",
+ "ubos-http",
+ "ubos-manager",
+ "ubos-mdns",
+ "ubos-metrics",
+ "ubos-mining",
+ "ubos-net",
+ "ubos-ota",
+ "ubos-psu",
+ "ubos-temperature",
+ "ubos-thermal",
+ "ubos-webui",
+]
+
+[[package]]
 name = "heapless"
 version = "0.7.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"

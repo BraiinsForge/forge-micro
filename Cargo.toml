@@ -6,6 +6,7 @@ members = [
     "firmware/rp2040-bootloader",
     "firmware/rp2350",
     "firmware/rp2350-bootloader",
+    "firmware/hashnode",
     "firmware/stm32f407",
     "firmware/stm32f439",
     "firmware/esp32s3",

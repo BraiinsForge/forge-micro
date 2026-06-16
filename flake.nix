@@ -1404,6 +1404,33 @@
               inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
             };
 
+            clippy-hashnode = craneLib.cargoClippy {
+              inherit src;
+              cargoArtifacts = thumbv8mArtifacts;
+              cargoExtraArgs = "-p hashnode --target thumbv8m.main-none-eabihf";
+              cargoClippyExtraArgs = "-- -D warnings";
+              doInstallCargoArtifacts = false;
+              nativeBuildInputs = [
+                pkgs.gcc-arm-embedded
+                pkgs.esbuild
+              ];
+              CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+              inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            };
+
+            build-hashnode = craneLib.cargoBuild {
+              inherit src;
+              cargoArtifacts = null;
+              cargoBuildCommand = "cargo build --release";
+              cargoExtraArgs = "-p hashnode --target thumbv8m.main-none-eabihf";
+              nativeBuildInputs = [
+                pkgs.gcc-arm-embedded
+                pkgs.esbuild
+              ];
+              CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+              inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            };
+
             clippy-rp2350-bootloader = craneLib.cargoClippy {
               inherit src;
               cargoArtifacts = thumbv8mBootloaderArtifacts;
@@ -2260,6 +2287,7 @@
                     build-rp2040-no-display
                     build-rp2350
                     build-rp2350-no-display
+                    build-hashnode
                     build-stm32f407
                     build-stm32f407-no-display
                     build-stm32f439
