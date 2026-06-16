@@ -20,9 +20,20 @@ use embedded_io::ErrorKind;
 use embedded_io_async::{Error as _, Read, Write};
 use heapless::Vec as HVec;
 use mining_protocol::hashing::hash_meets_target;
+use portable_atomic::{AtomicU32, Ordering};
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
+use ubos_asic::{
+    Frame, HwWork, RawChipAddress, Register, RegisterResponse, Response, ResponseParser,
+    build_read_register, build_write_register,
+};
 use ubos_logging::{Debug2Format, error, info, trace, warn};
+
+/// Lifetime-monotonic count of bytes discarded while scanning for the
+/// `0xAA 0x55` frame preamble in the UART byte stream. Survives serial-
+/// actor recoveries; useful for detecting sustained desync or noise.
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
+pub static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
 
 /// Difficulty-1 target in 256-bit little-endian byte order: `0xFFFF * 2^208`.
 /// Matches Bitcoin's `bnPowLimit` for mainnet/regtest. Used to reject
@@ -34,10 +45,6 @@ const DIFF_1_TARGET: [u8; 32] = {
     bytes
 };
 
-use crate::bm1362::{
-    Frame, HwWork, RawChipAddress, RegisterResponse, Response, ResponseParser, build_read_register,
-    build_write_register,
-};
 use crate::consts::{
     FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS, NUM_CHIPS, NUM_MIDSTATES,
     REGISTRY_SIZE,
@@ -411,6 +418,7 @@ impl Serial {
                 while let Some(resp) = parser.pop() {
                     Self::dispatch_response(&resp, registry, register_replies, session);
                 }
+                UART_DESYNC_BYTES.fetch_add(parser.take_desync(), Ordering::Relaxed);
                 Ok(())
             }
             Err(e) => {

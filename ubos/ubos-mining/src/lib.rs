@@ -12,7 +12,6 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 
-pub mod bm1362;
 pub(crate) mod chip;
 pub mod consts;
 mod control;

@@ -13,4 +13,9 @@ defmt   = ["dep:defmt"]
 [dependencies]
 bitfield-struct = { workspace = true }
 defmt           = { workspace = true, optional = true }
+heapless        = { workspace = true }
+sha2            = { workspace = true }
 ubos-core       = { workspace = true }
+
+[dev-dependencies]
+mining-protocol = { workspace = true }

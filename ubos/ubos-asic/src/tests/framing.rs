@@ -1,6 +1,5 @@
 use super::*;
-use mining_protocol::bm1362_regs::ControlCommand;
-use portable_atomic::Ordering as AtomicOrdering;
+use crate::registers::ControlCommand;
 
 #[test]
 fn crc5_broadcast_write_0x58() {
@@ -28,13 +27,13 @@ fn crc5_register_response() {
 
 #[test]
 fn work_response_rolled_version() {
-    let resp = HwSolution {
+    let response = HwSolution {
         nonce: 0x1ABA_825A,
         _extra_diff: 0,
         work_id: 0xB8,
         version_idx: 312,
     };
-    assert_eq!(resp.rolled_version(0x2000_0000), 0x2027_0000);
+    assert_eq!(response.rolled_version(0x2000_0000), 0x2027_0000);
 }
 
 #[test]
@@ -57,9 +56,7 @@ fn build_broadcast_write() {
     let frame = build_write_register(RawChipAddress::All, 0x58, 0x0001_1111);
     assert_eq!(
         frame.as_slice(),
-        [
-            0x55, 0xAA, 0x51, 0x09, 0x00, 0x58, 0x00, 0x01, 0x11, 0x11, 0x0D
-        ]
+        [0x55, 0xAA, 0x51, 0x09, 0x00, 0x58, 0x00, 0x01, 0x11, 0x11, 0x0D]
     );
 }
 
@@ -68,9 +65,7 @@ fn build_unicast_write() {
     let frame = build_write_register(RawChipAddress::Chip(3), 0x58, 0x0001_1111);
     assert_eq!(
         frame.as_slice(),
-        [
-            0x55, 0xAA, 0x41, 0x09, 0x03, 0x58, 0x00, 0x01, 0x11, 0x11, 0x07
-        ]
+        [0x55, 0xAA, 0x41, 0x09, 0x03, 0x58, 0x00, 0x01, 0x11, 0x11, 0x07]
     );
 }
 
@@ -127,12 +122,12 @@ fn parse_register_response() {
             0xAA, 0x55, 0x13, 0x62, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1E,
         ],
     );
-    let resp = parser.pop().expect("should parse");
-    match resp {
-        Response::RegisterResponse(r) => {
-            assert_eq!(r.value, 0x1362_0300);
-            assert_eq!(r.chip_addr, 0x00);
-            assert_eq!(r.reg, 0x00);
+    let response = parser.pop().expect("should parse");
+    match response {
+        Response::RegisterResponse(register) => {
+            assert_eq!(register.value, 0x1362_0300);
+            assert_eq!(register.chip_addr, 0x00);
+            assert_eq!(register.reg, 0x00);
         }
         Response::HwSolution(_) => panic!("expected register response"),
     }
@@ -140,15 +135,9 @@ fn parse_register_response() {
 
 #[test]
 fn parse_with_junk() {
-    // `UART_DESYNC_BYTES` is process-global, so record the baseline
-    // before feeding two junk bytes and assert the post-feed counter
-    // is exactly two higher. The absolute value is not asserted
-    // because other tests in the same binary may have already bumped
-    // the counter. The delta assertion assumes this is the only test
-    // that feeds desync bytes; cargo runs tests concurrently by
-    // default, so a future test that also exercises the desync path
-    // must either gate on `serial_test` or stop reading this counter.
-    let before = crate::bm1362::UART_DESYNC_BYTES.load(AtomicOrdering::SeqCst);
+    // Assert the parser's local desync counter increments by exactly two
+    // for the two junk bytes preceding a valid frame. The counter is
+    // local to the parser, so there is no race with other tests.
     let mut parser = ResponseParser::new();
     feed(
         &mut parser,
@@ -156,13 +145,12 @@ fn parse_with_junk() {
             0xFF, 0xFF, 0xAA, 0x55, 0x13, 0x62, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1E,
         ],
     );
-    let resp = parser.pop().expect("should parse despite junk");
-    assert!(matches!(resp, Response::RegisterResponse(_)));
-    let after = crate::bm1362::UART_DESYNC_BYTES.load(AtomicOrdering::SeqCst);
+    let response = parser.pop().expect("should parse despite junk");
+    assert!(matches!(response, Response::RegisterResponse(_)));
+    let desync = parser.take_desync();
     assert_eq!(
-        after.wrapping_sub(before),
-        2,
-        "expected exactly two desync bytes accounted (got {before} → {after})",
+        desync, 2,
+        "expected exactly two desync bytes (got {desync})",
     );
 }
 
@@ -201,14 +189,14 @@ fn compute_hash_matches_mining_protocol_reference() {
         prev_hash: word_swap_prev_hash(&stratum_prev),
         version,
     };
-    let resp = HwSolution {
+    let response = HwSolution {
         nonce,
         _extra_diff: 0,
         work_id: 0,
         version_idx: 0,
     };
 
-    let actual_hash = hw_work.compute_hash(&resp);
+    let actual_hash = hw_work.compute_hash(&response);
     let reference =
         mining_protocol::hashing::header_hash(version, stratum_prev, merkle, ntime, nbits, nonce);
     assert_eq!(actual_hash, reference);

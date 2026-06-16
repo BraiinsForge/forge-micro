@@ -4150,6 +4150,9 @@ version = "0.1.0"
 dependencies = [
  "bitfield-struct",
  "defmt 1.0.1",
+ "heapless 0.9.2",
+ "mining-protocol",
+ "sha2 0.10.9",
  "ubos-core",
 ]
 
@@ -4329,6 +4332,7 @@ dependencies = [
  "serial-baudrate",
  "sha2 0.10.9",
  "stratum-client",
+ "ubos-asic",
  "ubos-config",
  "ubos-core",
  "ubos-logging",

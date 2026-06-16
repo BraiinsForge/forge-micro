@@ -10,7 +10,7 @@ use portable_atomic::Ordering;
 use ubos_metrics::metrics::{Metric, Value, push};
 
 use crate::Handle as MiningHandle;
-use crate::bm1362::UART_DESYNC_BYTES;
+use crate::serial::UART_DESYNC_BYTES;
 
 /// Periodically push `board_uart_desync_bytes_total`,
 /// `board_miner_running`, `board_miner_frequency_khz`, and

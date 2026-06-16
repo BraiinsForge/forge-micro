@@ -7,15 +7,9 @@
 //! ([`ResponseParser`]).
 
 use heapless::Vec as HVec;
-use mining_protocol::bm1362_regs::ControlCommand;
-use portable_atomic::{AtomicU32, Ordering};
 use sha2::{Digest, Sha256};
 
-/// Lifetime-monotonic count of bytes discarded while scanning for the
-/// `0xAA 0x55` frame preamble in the UART byte stream. Survives serial-
-/// actor recoveries; useful for detecting sustained desync or noise.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-pub static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
+use crate::registers::ControlCommand;
 
 // ---------------------------------------------------------------------------
 // CRC
@@ -26,10 +20,10 @@ pub static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
 /// - `standard=true, initial=0x1F`: request commands (host -> chip)
 /// - `standard=false, initial=0x03`: register responses
 /// - `standard=false, initial=0x06`: work responses
-fn crc5(msg: &[u8], initial: u8, standard: bool) -> u8 {
+fn crc5(message: &[u8], initial: u8, standard: bool) -> u8 {
     const POLY: u8 = 0x05;
     let mut crc = initial & 0x1F;
-    for &orig_byte in msg {
+    for &orig_byte in message {
         let mut byte = orig_byte;
         for _ in 0..8 {
             if ((byte >> 3) ^ crc) & 0x10 != 0 {
@@ -66,25 +60,35 @@ fn crc16_ccitt(data: &[u8]) -> u16 {
 // HwSolution / HwWork
 // ---------------------------------------------------------------------------
 
-const BIP320_VERSION_MASK: u32 = 0x1FFF_E000;
-const BIP320_VERSION_SHIFT: u32 = 13;
-
+/// A hardware solution returned by the chip for an outstanding work item.
 #[derive(Debug, Clone)]
 pub struct HwSolution {
+    /// Nonce value found by the chip.
     pub nonce: u32,
     /// Byte 6 of the response frame. The chip's meaning for this byte is
     /// undocumented and unused, so it stays underscore-prefixed to
     /// acknowledge the slot without tripping dead-code lints.
     _extra_diff: u8,
+    /// Work-item identifier matching the dispatched `HwWork::work_id`.
     pub work_id: u8,
+    /// BIP320 version-rolling index.
     pub version_idx: u16,
 }
 
 impl HwSolution {
+    /// Bitmask selecting the version-rolling bits in the block version
+    /// field per BIP320. Bits 29:13 carry the rolled value.
+    const BIP320_VERSION_MASK: u32 = 0x1FFF_E000;
+
+    /// Bit offset of the BIP320 version-rolling field within the 32-bit
+    /// block version.
+    const BIP320_VERSION_SHIFT: u32 = 13;
+
     /// Compute the rolled block version given a base version.
     fn rolled_version(&self, base_version: u32) -> u32 {
-        let base = base_version & !BIP320_VERSION_MASK;
-        base | ((u32::from(self.version_idx) << BIP320_VERSION_SHIFT) & BIP320_VERSION_MASK)
+        let base = base_version & !Self::BIP320_VERSION_MASK;
+        base | ((u32::from(self.version_idx) << Self::BIP320_VERSION_SHIFT)
+            & Self::BIP320_VERSION_MASK)
     }
 }
 
@@ -117,12 +121,19 @@ fn word_swap_prev_hash(input: &[u8; 32]) -> [u8; 32] {
 /// `WorkAssignment` without any additional transformation.
 #[derive(Debug, Clone)]
 pub struct HwWork {
+    /// Work-item identifier sent to the chip and echoed back in `HwSolution`.
     pub work_id: u8,
+    /// Starting nonce value for this work item.
     pub nonce_start: u32,
+    /// Encoded difficulty target (`nBits` field).
     pub nbits: u32,
+    /// Block timestamp.
     pub ntime: u32,
+    /// Merkle root in canonical Bitcoin internal byte order.
     pub merkle_root: [u8; 32],
+    /// Previous block hash in canonical Bitcoin internal byte order.
     pub prev_hash: [u8; 32],
+    /// Block version field, may be rolled by the chip.
     pub version: u32,
 }
 
@@ -142,9 +153,9 @@ impl HwWork {
     /// Compute double-SHA256 hash for a work response. Returns the 32-byte
     /// digest in native (little-endian) byte order.
     #[must_use]
-    pub fn compute_hash(&self, resp: &HwSolution) -> [u8; 32] {
-        let version = resp.rolled_version(self.version);
-        let header = self.block_header(resp.nonce, version);
+    pub fn compute_hash(&self, response: &HwSolution) -> [u8; 32] {
+        let version = response.rolled_version(self.version);
+        let header = self.block_header(response.nonce, version);
         let first = Sha256::digest(header);
         let second = Sha256::digest(first);
         second.into()
@@ -153,33 +164,33 @@ impl HwWork {
     /// Serialize into the 88-byte on-wire frame.
     #[must_use]
     pub fn serialize(&self) -> [u8; 88] {
-        let mut buf = [0u8; 88];
-        buf[0] = 0x55;
-        buf[1] = 0xAA;
-        buf[2] = 0x21; // work command
-        buf[3] = 0x36; // length = 54
-        buf[4] = self.work_id;
-        buf[5] = 0x01; // multiversion = 1
+        let mut buffer = [0u8; 88];
+        buffer[0] = 0x55;
+        buffer[1] = 0xAA;
+        buffer[2] = 0x21; // work command
+        buffer[3] = 0x36; // length = 54
+        buffer[4] = self.work_id;
+        buffer[5] = 0x01; // multiversion = 1
 
-        buf[6..10].copy_from_slice(&self.nonce_start.to_le_bytes());
-        buf[10..14].copy_from_slice(&self.nbits.to_le_bytes());
-        buf[14..18].copy_from_slice(&self.ntime.to_le_bytes());
+        buffer[6..10].copy_from_slice(&self.nonce_start.to_le_bytes());
+        buffer[10..14].copy_from_slice(&self.nbits.to_le_bytes());
+        buffer[14..18].copy_from_slice(&self.ntime.to_le_bytes());
 
         // merkle_root: reverse 32 bytes then swap each 4-byte chunk to LE
         let transformed_merkle = transform_hash(&self.merkle_root);
-        buf[18..50].copy_from_slice(&transformed_merkle);
+        buffer[18..50].copy_from_slice(&transformed_merkle);
 
         // prev_hash: same transformation
         let transformed_prev = transform_hash(&self.prev_hash);
-        buf[50..82].copy_from_slice(&transformed_prev);
+        buffer[50..82].copy_from_slice(&transformed_prev);
 
-        buf[82..86].copy_from_slice(&self.version.to_le_bytes());
+        buffer[82..86].copy_from_slice(&self.version.to_le_bytes());
 
         // CRC16-CCITT over bytes 2..86
-        let crc = crc16_ccitt(&buf[2..86]);
-        buf[86..88].copy_from_slice(&crc.to_be_bytes());
+        let crc = crc16_ccitt(&buffer[2..86]);
+        buffer[86..88].copy_from_slice(&crc.to_be_bytes());
 
-        buf
+        buffer
     }
 }
 
@@ -191,9 +202,9 @@ fn transform_hash(hash: &[u8; 32]) -> [u8; 32] {
     reversed.reverse();
 
     let mut result = [0u8; 32];
-    for i in 0..8 {
-        let offset = i * 4;
-        // Swap bytes within each 4-byte chunk (to LE)
+    for index in 0..8 {
+        let offset = index * 4;
+        // Swap bytes within each 4-byte chunk (to LE).
         result[offset] = reversed[offset + 3];
         result[offset + 1] = reversed[offset + 2];
         result[offset + 2] = reversed[offset + 1];
@@ -213,8 +224,8 @@ const CRC5_INIT_WORK_RESPONSE: u8 = 0x06;
 
 /// An outbound command frame on the wire. Fits the three non-work command
 /// shapes the host ever sends: read register (7), write register (11), and
-/// raw command with ≤10 payload bytes (≤13). The fixed 16-byte cap keeps
-/// the buffer on the stack.
+/// raw command with at most 10 payload bytes (at most 13). The fixed 16-byte
+/// cap keeps the buffer on the stack.
 #[derive(Debug, Clone)]
 pub struct Frame(HVec<u8, 16>);
 
@@ -223,26 +234,30 @@ impl Frame {
         Frame(HVec::new())
     }
 
+    /// Return the serialized frame bytes.
     #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         &self.0
     }
 }
 
-// Command type field: VilCtlCmd = 0x02, shifted to bits [7:5]
+// Command type field: VilCtlCmd = 0x02, shifted to bits [7:5].
 const CMD_TYPE: u8 = 0x02 << 5; // = 0x40
 const TO_ALL: u8 = 0x10;
 
-// Command codes used by the register builders below. The
-// register-less control codes (SetChipAddress, ChainInactive) are
-// owned by `mining_protocol::bm1362_regs::ControlCode` and reach the wire
-// via `build_command`.
+// Command codes used by the register builders. The register-less control
+// codes (SetChipAddress, ChainInactive) are owned by `crate::registers::ControlCode`
+// and reach the wire via `build_command`.
 const CODE_SET_CONFIG: u8 = 1;
 const CODE_GET_STATUS: u8 = 2;
 
+/// A chip address on the serial chain: either broadcast to all chips or
+/// unicast to the chip at the given hardware address.
 #[derive(Debug, Clone, Copy)]
 pub enum RawChipAddress {
+    /// Address all chips on the chain simultaneously.
     All,
+    /// Address the chip at the given hardware address byte.
     Chip(u8),
 }
 
@@ -250,7 +265,7 @@ impl RawChipAddress {
     fn hw_addr(self) -> u8 {
         match self {
             RawChipAddress::All => 0x00,
-            RawChipAddress::Chip(idx) => idx,
+            RawChipAddress::Chip(index) => index,
         }
     }
 
@@ -266,12 +281,12 @@ fn push_frame(frame: &mut Frame, header: &[u8], payload: &[u8], crc: u8) {
     frame
         .0
         .extend_from_slice(header)
-        .expect("BUG: Frame capacity");
+        .expect("BUG: Frame capacity exceeded");
     frame
         .0
         .extend_from_slice(payload)
-        .expect("BUG: Frame capacity");
-    frame.0.push(crc).expect("BUG: Frame capacity");
+        .expect("BUG: Frame capacity exceeded");
+    frame.0.push(crc).expect("BUG: Frame capacity exceeded");
 }
 
 /// Build a write register command (`SetConfig`) — 11 bytes on wire.
@@ -320,9 +335,10 @@ pub fn build_read_register(addr: RawChipAddress, reg: u8) -> Frame {
 /// function owns only the framing constants (`CMD_TYPE`, `TO_ALL`)
 /// and the CRC.
 #[must_use]
-pub fn build_command(cmd: ControlCommand) -> Frame {
-    let cmd_byte = CMD_TYPE | if cmd.is_broadcast() { TO_ALL } else { 0 } | cmd.code().as_u8();
-    let payload = [cmd_byte, 5, cmd.hw_addr(), 0x00];
+pub fn build_command(command: ControlCommand) -> Frame {
+    let cmd_byte =
+        CMD_TYPE | if command.is_broadcast() { TO_ALL } else { 0 } | command.code().as_u8();
+    let payload = [cmd_byte, 5, command.hw_addr(), 0x00];
     let crc = crc5(&payload, 0x1F, true);
 
     let mut frame = Frame::new();
@@ -345,91 +361,125 @@ pub fn build_raw_command(raw_bytes: &[u8]) -> Frame {
 // Response + parser
 // ---------------------------------------------------------------------------
 
+/// A register read-response from the chip.
 #[derive(Debug, Clone)]
 pub struct RegisterResponse {
+    /// Register value returned by the chip.
     pub value: u32,
+    /// On-chain address of the responding chip.
     pub chip_addr: u8,
+    /// Register address that was read.
     pub reg: u8,
 }
 
+/// A parsed chip-to-host response: either a register read-response or a
+/// found hardware solution.
 #[derive(Debug, Clone)]
 pub enum Response {
+    /// A register read-back frame.
     RegisterResponse(RegisterResponse),
+    /// A found nonce frame.
     HwSolution(HwSolution),
 }
 
 /// Parses 11-byte response frames from a byte stream. Caller writes bytes
 /// into [`Self::free`] and calls [`Self::commit`] with how many were
-/// written. `no_std`-friendly.
+/// written. `no_std`-friendly; no global state.
+///
+/// Desync bytes (bytes discarded while scanning for the `0xAA 0x55` preamble
+/// or on CRC5 failure) accumulate in an internal counter. The caller drains
+/// it via [`Self::take_desync`] and may forward the count to a global metric.
 pub struct ResponseParser {
-    buf: [u8; 256],
+    buffer: [u8; 256],
     len: usize,
+    /// Count of bytes discarded while resyncing to the `0xAA 0x55` preamble
+    /// or on CRC5 failure. Drained by [`Self::take_desync`].
+    desync_bytes: u32,
 }
 
 impl ResponseParser {
+    /// Create a new parser with an empty buffer and zero desync count.
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            buf: [0; 256],
+            buffer: [0; 256],
             len: 0,
+            desync_bytes: 0,
         }
     }
 
+    /// Return the portion of the buffer not yet filled.
     pub fn free(&mut self) -> &mut [u8] {
-        &mut self.buf[self.len..]
+        &mut self.buffer[self.len..]
     }
 
+    /// Advance the filled length by `n` bytes written into [`Self::free`].
     pub fn commit(&mut self, n: usize) {
         self.len += n;
     }
 
+    /// Discard all buffered bytes. The desync counter is untouched;
+    /// it is drained only by [`Self::take_desync`] so recovery paths
+    /// do not lose counts still owed to the metric.
     pub fn clear(&mut self) {
         self.len = 0;
     }
 
+    /// Drain and return the accumulated desync byte count, resetting it to
+    /// zero. The caller is responsible for forwarding this count to any
+    /// global metric (such as a `portable_atomic::AtomicU32`).
+    pub fn take_desync(&mut self) -> u32 {
+        let count = self.desync_bytes;
+        self.desync_bytes = 0;
+        count
+    }
+
+    /// Attempt to pop the next complete response frame. Returns `None` when
+    /// fewer than `RESPONSE_LEN` bytes are buffered or when the buffer
+    /// contains only partial / invalid frames.
     pub fn pop(&mut self) -> Option<Response> {
         loop {
-            while self.len >= 2 && (self.buf[0] != 0xAA || self.buf[1] != 0x55) {
+            while self.len >= 2 && (self.buffer[0] != 0xAA || self.buffer[1] != 0x55) {
                 self.drop_first();
             }
             if self.len < RESPONSE_LEN {
                 return None;
             }
-            let f = &self.buf[..RESPONSE_LEN];
-            let is_work = f[10] & 0x80 != 0;
+            let frame = &self.buffer[..RESPONSE_LEN];
+            let is_work = frame[10] & 0x80 != 0;
             let init = if is_work {
                 CRC5_INIT_WORK_RESPONSE
             } else {
                 CRC5_INIT_REG_RESPONSE
             };
-            if crc5(&f[2..10], init, false) != f[10] & 0x1F {
+            if crc5(&frame[2..10], init, false) != frame[10] & 0x1F {
                 self.drop_first();
                 continue;
             }
-            let resp = if is_work {
+            let response = if is_work {
                 Response::HwSolution(HwSolution {
-                    nonce: u32::from_le_bytes([f[2], f[3], f[4], f[5]]),
-                    _extra_diff: f[6],
-                    work_id: f[7],
-                    version_idx: u16::from_be_bytes([f[8], f[9]]),
+                    nonce: u32::from_le_bytes([frame[2], frame[3], frame[4], frame[5]]),
+                    _extra_diff: frame[6],
+                    work_id: frame[7],
+                    version_idx: u16::from_be_bytes([frame[8], frame[9]]),
                 })
             } else {
                 Response::RegisterResponse(RegisterResponse {
-                    value: u32::from_be_bytes([f[2], f[3], f[4], f[5]]),
-                    chip_addr: f[6],
-                    reg: f[7],
+                    value: u32::from_be_bytes([frame[2], frame[3], frame[4], frame[5]]),
+                    chip_addr: frame[6],
+                    reg: frame[7],
                 })
             };
-            self.buf.copy_within(RESPONSE_LEN..self.len, 0);
+            self.buffer.copy_within(RESPONSE_LEN..self.len, 0);
             self.len -= RESPONSE_LEN;
-            return Some(resp);
+            return Some(response);
         }
     }
 
     fn drop_first(&mut self) {
-        self.buf.copy_within(1..self.len, 0);
+        self.buffer.copy_within(1..self.len, 0);
         self.len -= 1;
-        UART_DESYNC_BYTES.fetch_add(1, Ordering::Relaxed);
+        self.desync_bytes += 1;
     }
 }
 
@@ -440,5 +490,5 @@ impl Default for ResponseParser {
 }
 
 #[cfg(test)]
-#[path = "tests/bm1362.rs"]
+#[path = "tests/framing.rs"]
 mod tests;
