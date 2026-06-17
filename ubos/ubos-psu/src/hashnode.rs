@@ -224,6 +224,35 @@ where
             .map(Voltage::from_mv)
     }
 
+    async fn read_secondary_voltage(&self) -> Option<Result<Voltage, Error<E>>> {
+        // Cross-check the SIC's READ_VOUT against the INA230's own bus-voltage
+        // measurement of the same output rail. The INA is powered off that
+        // rail, so this errors until the rail is up, and the caller drops the
+        // series for that tick.
+        if self.terminated.load(Ordering::Acquire) {
+            return Some(Err(Error::Terminated));
+        }
+        let mut guard = self.state.lock().await;
+        if let Err(error) = ensure_initialized(&mut guard).await {
+            return Some(Err(error));
+        }
+        let HashnodeState { i2c, config, .. } = &mut *guard;
+        Some(
+            ina230::read_bus_voltage_mv(i2c, config.ina_address)
+                .await
+                .map(Voltage::from_mv)
+                .map_err(Error::Bus),
+        )
+    }
+
+    fn voltage_source(&self) -> Option<&'static str> {
+        Some("sic450")
+    }
+
+    fn secondary_voltage_source(&self) -> Option<&'static str> {
+        Some("ina230")
+    }
+
     async fn read_status(&self) -> Result<crate::StatusFlags, Error<E>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);

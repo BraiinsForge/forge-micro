@@ -89,6 +89,18 @@ impl Psu for BoardPsu {
         self.inner.read_output_voltage().await
     }
 
+    async fn read_secondary_voltage(&self) -> Option<Result<Voltage, Error<BusError>>> {
+        self.inner.read_secondary_voltage().await
+    }
+
+    fn voltage_source(&self) -> Option<&'static str> {
+        self.inner.voltage_source()
+    }
+
+    fn secondary_voltage_source(&self) -> Option<&'static str> {
+        self.inner.secondary_voltage_source()
+    }
+
     async fn read_status(&self) -> Result<StatusFlags, Error<BusError>> {
         self.inner.read_status().await
     }

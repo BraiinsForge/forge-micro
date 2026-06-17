@@ -91,9 +91,8 @@ pub struct PsuReading {
     /// Voltage last commanded via [`Psu::set_voltage`]. Zero before
     /// the first successful command.
     pub output_voltage_set: Voltage,
-    /// Voltage observed by the INA230 bus-voltage register on the
-    /// output rail. Comparing against `output_voltage_set` exposes
-    /// droop or sense-line loss.
+    /// Voltage observed on the output rail. Comparing against
+    /// `output_voltage_set` exposes droop or sense-line loss.
     pub output_voltage_measured: Voltage,
     /// Monotonic timestamp of this reading in milliseconds since boot.
     pub timestamp_ms: u64,
@@ -166,10 +165,38 @@ impl Handle {
     }
 }
 
-/// Cadence at which [`run_power_stats`] reads INA230 input/output power.
+/// Cadence at which [`run_power_stats`] reads PSU input/output power.
 /// Matches the host-runner cadence so the prometheus series rates are
 /// comparable across firmware targets.
 pub const POWER_STATS_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(2);
+
+/// Publish a measured output-rail voltage, optionally tagged with a `source`
+/// label so a board that reads the rail from more than one sensor (e.g. the
+/// SIC's `READ_VOUT` and a separate INA230) keeps them as distinct series
+/// under one metric name.
+async fn publish_measured_voltage(voltage: Voltage, source: Option<&'static str>) {
+    use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
+    let value = Value::Uint(u64::from(voltage.mv()));
+    let Some(source) = source else {
+        push(Metric::with_no_labels(
+            "board_psu_output_voltage_measured_mv",
+            value,
+        ))
+        .await;
+        return;
+    };
+    let mut labels = Labels::new();
+    let _ = labels.push(Label {
+        name: "source",
+        value: LabelValue::Static(source),
+    });
+    push(Metric::with_labels(
+        "board_psu_output_voltage_measured_mv",
+        labels,
+        value,
+    ))
+    .await;
+}
 
 /// Periodic publisher for INA230 power and voltage readings. Runs forever.
 ///
@@ -237,18 +264,25 @@ where
         }
 
         match &voltage_result {
-            Ok(voltage) => {
-                push(Metric::with_no_labels(
-                    "board_psu_output_voltage_measured_mv",
-                    Value::Uint(u64::from(voltage.mv())),
-                ))
-                .await;
-            }
+            Ok(voltage) => publish_measured_voltage(*voltage, psu.voltage_source()).await,
             Err(error) => {
                 ubos_logging::error!(
                     "psu voltage read failed: {:?}",
                     ubos_logging::Debug2Format(error),
                 );
+            }
+        }
+        if let Some(secondary) = psu.read_secondary_voltage().await {
+            match secondary {
+                Ok(voltage) => {
+                    publish_measured_voltage(voltage, psu.secondary_voltage_source()).await;
+                }
+                Err(error) => {
+                    ubos_logging::error!(
+                        "psu secondary voltage read failed: {:?}",
+                        ubos_logging::Debug2Format(&error),
+                    );
+                }
             }
         }
         if set_voltage.mv() != 0 {
@@ -360,7 +394,22 @@ pub trait Psu {
     /// register is implementation-defined (e.g. `SIC READ_VOUT` for
     /// `HashnodePsu`).
     async fn read_output_voltage(&self) -> Result<Voltage, Error<Self::BusError>>;
-    /// Read the `TPS6287x` STATUS register and decode the four fault flags.
+    /// Optional second sensor measuring the same output rail, for
+    /// cross-checking [`read_output_voltage`]. `None` (the default) means the
+    /// board exposes only one source.
+    async fn read_secondary_voltage(&self) -> Option<Result<Voltage, Error<Self::BusError>>> {
+        None
+    }
+    /// Source label for [`read_output_voltage`], or `None` to publish the
+    /// measured-voltage gauge without a `source` label.
+    fn voltage_source(&self) -> Option<&'static str> {
+        None
+    }
+    /// Source label for [`read_secondary_voltage`].
+    fn secondary_voltage_source(&self) -> Option<&'static str> {
+        None
+    }
+    /// Read the PSU STATUS register and decode the four fault flags.
     async fn read_status(&self) -> Result<StatusFlags, Error<Self::BusError>>;
     async fn terminate(&self);
 }
