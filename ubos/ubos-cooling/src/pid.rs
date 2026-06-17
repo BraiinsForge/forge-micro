@@ -194,9 +194,15 @@ impl TempControl {
         smoother_half_decay_secs: f32,
         min_fan_pwm: u8,
     ) -> Self {
-        // PWM is reported as a percent, so a min above 100 would
-        // invert the clamp range and panic in `update`.
+        // PWM is reported as a percent, so a min above 100 would invert
+        // the clamp range and panic in `update`. The debug_assert traps a
+        // bad value in tests; in release the warn surfaces the corrupt
+        // persisted config and the clamp keeps the firmware panic-free.
         debug_assert!(min_fan_pwm <= 100, "min_fan_pwm must be <= 100");
+        if min_fan_pwm > 100 {
+            ubos_logging::warn!("min_fan_pwm {} exceeds 100, clamping to 100", min_fan_pwm);
+        }
+        let min_fan_pwm = min_fan_pwm.min(100);
         let mut pid = PidController::new(p_gain, i_gain, d_gain, smoother_half_decay_secs);
         pid.set_limits(f32::from(min_fan_pwm), 100.0);
         Self {
