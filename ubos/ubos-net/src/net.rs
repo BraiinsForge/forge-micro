@@ -145,7 +145,12 @@ pub static POOL_ALIVE_BITMAP: AtomicU8 = AtomicU8::new(0);
 /// Thread-safe; uses a relaxed RMW so the bitmap stays coherent even
 /// when multiple tasks race on separate pool indexes.
 pub fn set_pool_alive(pool_index: u8, alive: bool) {
+    // The debug_assert traps a bad index in tests; the guard keeps an
+    // out-of-range shift from writing a bogus bit in release firmware.
     debug_assert!(pool_index < 8, "pool_index must fit in the u8 bitmap");
+    if pool_index >= 8 {
+        return;
+    }
     let bit = 1u8 << pool_index;
     if alive {
         POOL_ALIVE_BITMAP.fetch_or(bit, Ordering::Relaxed);
