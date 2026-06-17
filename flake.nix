@@ -455,6 +455,9 @@
           src = loadTestSrc;
           strictDeps = true;
         };
+        loadTestArtifactsDev = loadTestArtifacts.overrideAttrs (_: {
+          CARGO_PROFILE = "";
+        });
 
         # Shared dependency artifacts for clippy checks. Flake checks are
         # per-crate; without reused artifacts each check recompiles the full
@@ -465,6 +468,13 @@
         # mutually exclusive ones such as `embassy-time/defmt` versus
         # `embassy-time/log`. Firmware bags also split per target, since
         # crane keys deps-only artifacts by `--target`.
+        #
+        # Host unit tests run under the dev profile so that `debug_assert!`
+        # and overflow-checks fire in CI. Each release bag therefore has a
+        # `-Dev` sibling built with `CARGO_PROFILE = ""`, which makes
+        # crane's `cargoWithProfile` emit no `--profile` flag so cargo
+        # selects its built-in test profile. Clippy and firmware builds
+        # stay on the release profile and keep their original bags.
         hostArtifacts = craneLib.buildDepsOnly {
           inherit src;
           doCheck = false;
@@ -491,6 +501,9 @@
             "-p ubos-temperature"
           ];
         };
+        hostArtifactsDev = hostArtifacts.overrideAttrs (_: {
+          CARGO_PROFILE = "";
+        });
 
         hostRunnerArtifacts = craneLib.buildDepsOnly {
           inherit src;
@@ -503,6 +516,9 @@
           # must be on PATH here too.
           nativeBuildInputs = [ pkgs.esbuild ];
         };
+        hostRunnerArtifactsDev = hostRunnerArtifacts.overrideAttrs (_: {
+          CARGO_PROFILE = "";
+        });
 
         ubosThermalArtifacts = craneLib.buildDepsOnly {
           inherit src;
@@ -510,6 +526,9 @@
           cargoBuildCommand = "true";
           cargoExtraArgs = "-p ubos-thermal";
         };
+        ubosThermalArtifactsDev = ubosThermalArtifacts.overrideAttrs (_: {
+          CARGO_PROFILE = "";
+        });
 
         ubosConfigArtifacts = craneLib.buildDepsOnly {
           inherit src;
@@ -517,6 +536,9 @@
           cargoBuildCommand = "true";
           cargoExtraArgs = "-p ubos-config";
         };
+        ubosConfigArtifactsDev = ubosConfigArtifacts.overrideAttrs (_: {
+          CARGO_PROFILE = "";
+        });
 
         ubosConfigStdArtifacts = craneLib.buildDepsOnly {
           inherit src;
@@ -524,6 +546,9 @@
           cargoBuildCommand = "true";
           cargoExtraArgs = "-p ubos-config --features std";
         };
+        ubosConfigStdArtifactsDev = ubosConfigStdArtifacts.overrideAttrs (_: {
+          CARGO_PROFILE = "";
+        });
 
         ubosCoolingArtifacts = craneLib.buildDepsOnly {
           inherit src;
@@ -531,6 +556,9 @@
           cargoBuildCommand = "true";
           cargoExtraArgs = "-p ubos-cooling";
         };
+        ubosCoolingArtifactsDev = ubosCoolingArtifacts.overrideAttrs (_: {
+          CARGO_PROFILE = "";
+        });
 
         ubosManagerArtifacts = craneLib.buildDepsOnly {
           inherit src;
@@ -538,6 +566,29 @@
           cargoBuildCommand = "true";
           cargoExtraArgs = "-p ubos-manager";
         };
+        ubosManagerArtifactsDev = ubosManagerArtifacts.overrideAttrs (_: {
+          CARGO_PROFILE = "";
+        });
+
+        ubosHttpArtifacts = craneLib.buildDepsOnly {
+          inherit src;
+          doCheck = false;
+          cargoBuildCommand = "true";
+          cargoExtraArgs = "-p ubos-http";
+        };
+        ubosHttpArtifactsDev = ubosHttpArtifacts.overrideAttrs (_: {
+          CARGO_PROFILE = "";
+        });
+
+        ubosApiArtifacts = craneLib.buildDepsOnly {
+          inherit src;
+          doCheck = false;
+          cargoBuildCommand = "true";
+          cargoExtraArgs = "-p ubos-api";
+        };
+        ubosApiArtifactsDev = ubosApiArtifacts.overrideAttrs (_: {
+          CARGO_PROFILE = "";
+        });
 
         thumbv6mArtifacts = craneLib.buildDepsOnly {
           inherit src;
@@ -873,7 +924,8 @@
 
           test-ubos-core = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-core";
             doInstallCargoArtifacts = false;
           };
@@ -940,7 +992,8 @@
 
           test-ubos-mdns = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-mdns";
             doInstallCargoArtifacts = false;
           };
@@ -955,7 +1008,8 @@
 
           test-ubos-net = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-net";
             doInstallCargoArtifacts = false;
           };
@@ -982,7 +1036,8 @@
 
           test-host-runner = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostRunnerArtifacts;
+            cargoArtifacts = hostRunnerArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p host-runner";
             doInstallCargoArtifacts = false;
             # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
@@ -1037,7 +1092,8 @@
 
           test-ubos-psu = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-psu";
             doInstallCargoArtifacts = false;
           };
@@ -1052,7 +1108,8 @@
 
           test-embedded-i2c-unix = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p embedded-i2c-unix";
             doInstallCargoArtifacts = false;
           };
@@ -1123,19 +1180,22 @@
 
           test-ubos-http = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = null;
+            cargoArtifacts = ubosHttpArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-http";
           };
 
           test-ubos-api = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = null;
+            cargoArtifacts = ubosApiArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-api";
           };
 
           test-ubos-webui = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-webui";
             doInstallCargoArtifacts = false;
             # build.rs runs `esbuild --minify` on the dashboard CSS/JS
@@ -1146,56 +1206,64 @@
 
           test-ubos-auth = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-auth";
             doInstallCargoArtifacts = false;
           };
 
           test-ubos-metrics = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-metrics";
             doInstallCargoArtifacts = false;
           };
 
           test-ubos-mining = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-mining";
             doInstallCargoArtifacts = false;
           };
 
           test-stratum-v1 = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p stratum-v1";
             doInstallCargoArtifacts = false;
           };
 
           test-mining-protocol = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p mining-protocol";
             doInstallCargoArtifacts = false;
           };
 
           test-ubos-asic = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-asic";
             doInstallCargoArtifacts = false;
           };
 
           test-stratum-client = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p stratum-client";
             doInstallCargoArtifacts = false;
           };
 
           test-stratum-v2 = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p stratum-v2";
             doInstallCargoArtifacts = false;
           };
@@ -1210,7 +1278,8 @@
 
           test-ubos-thermal = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = ubosThermalArtifacts;
+            cargoArtifacts = ubosThermalArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-thermal";
             doInstallCargoArtifacts = false;
           };
@@ -1225,7 +1294,8 @@
 
           test-ubos-cooling = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = ubosCoolingArtifacts;
+            cargoArtifacts = ubosCoolingArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-cooling";
             doInstallCargoArtifacts = false;
           };
@@ -1240,7 +1310,8 @@
 
           test-ubos-manager = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = ubosManagerArtifacts;
+            cargoArtifacts = ubosManagerArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-manager";
             doInstallCargoArtifacts = false;
           };
@@ -1255,7 +1326,8 @@
 
           test-ubos-config = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = ubosConfigArtifacts;
+            cargoArtifacts = ubosConfigArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-config";
             doInstallCargoArtifacts = false;
           };
@@ -1270,7 +1342,8 @@
 
           test-ubos-config-std = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = ubosConfigStdArtifacts;
+            cargoArtifacts = ubosConfigStdArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-config --features std";
             doInstallCargoArtifacts = false;
           };
@@ -1285,7 +1358,8 @@
 
           test-ubos-temperature = craneLib.cargoTest {
             inherit src;
-            cargoArtifacts = hostArtifacts;
+            cargoArtifacts = hostArtifactsDev;
+            CARGO_PROFILE = "";
             cargoExtraArgs = "-p ubos-temperature";
             doInstallCargoArtifacts = false;
           };
@@ -1388,7 +1462,8 @@
 
           test-load-test = craneLib.cargoTest {
             src = loadTestSrc;
-            cargoArtifacts = loadTestArtifacts;
+            cargoArtifacts = loadTestArtifactsDev;
+            CARGO_PROFILE = "";
             strictDeps = true;
             doInstallCargoArtifacts = false;
           };
