@@ -123,7 +123,7 @@ where
         match remote {
             Ok(millicelsius) => {
                 self.pid_temp = synthetic;
-                self.safety_source = Some("chip");
+                self.safety_source = Some(crate::CHIP_SOURCE);
                 Some(Temperature::from_millicelsius(millicelsius))
             }
             Err(error) => {

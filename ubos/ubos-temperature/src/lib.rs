@@ -32,6 +32,11 @@ impl TemperatureParams {
     pub const METRIC_NAME: &str = "board_chip_temperature_millicelsius";
 }
 
+/// Source label marking a safety reading as the real die temperature rather
+/// than a PCB-derived approximation. The thermal layer keys the die-specific
+/// danger threshold off this exact label, so producer and consumer share it.
+pub const CHIP_SOURCE: &str = "chip";
+
 /// Internal die temperature sensor exposed by a board HAL.
 #[allow(async_fn_in_trait)]
 pub trait TemperatureSensor {
