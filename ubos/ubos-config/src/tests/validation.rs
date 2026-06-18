@@ -368,16 +368,16 @@ fn tuning_valid_passes() {
 
 /// Frequency outside the accepted range is rejected.
 ///
-/// 701 MHz is above the chip's validated ceiling of 700 MHz.
+/// 1001 MHz is above the chip's validated ceiling of 1000 MHz.
 #[test]
 fn tuning_frequency_out_of_range() {
     let mut update = empty_update();
     let mut tuning = valid_tuning();
-    tuning.frequency_mhz = 701;
+    tuning.frequency_mhz = 1001;
     update.tuning = Some(tuning);
     assert_eq!(
         update.validate(&Config::default()),
-        Err("tuning.frequency_mhz must be between 50 and 700")
+        Err("tuning.frequency_mhz must be between 50 and 1000")
     );
 }
 
