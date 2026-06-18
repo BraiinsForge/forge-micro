@@ -160,6 +160,18 @@ impl<'d> TcpSocket<'d> {
         })
     }
 
+    /// Sets the socket's inactivity timeout.
+    ///
+    /// Passes through to the underlying embassy-net socket, whose smoltcp
+    /// timeout aborts the connection only after `duration` elapses with no
+    /// traffic, resetting on each packet. This is an idle timeout, not a
+    /// whole-connection cap: a long but actively streaming request stays
+    /// alive while a silent client is still reaped. `ubos-http`'s accept
+    /// loop relies on this so a large OTA upload is not killed mid-transfer.
+    pub fn set_timeout(&mut self, duration: Option<embassy_time::Duration>) {
+        self.socket.set_timeout(duration);
+    }
+
     async fn close(&mut self, what: Close) -> Result<(), TcpError> {
         async fn discard_all_data(rx: &mut TcpReader<'_>) -> Result<(), TcpError> {
             let mut buf = [0; 32];
