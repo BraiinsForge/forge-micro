@@ -64,14 +64,14 @@ This file is the picture; the plan is the rationale.
    │     slot.prev_hash = *job.ph     if !job_ring.is_valid(             │
    │     slot.target = *job.target          work.job_id):                │
    │     slot.{ntime_base, version,     drop_stale; return               │
-   │            mask, nbits} = ...    else:                              │
+   │            nbits} = ...          else:                              │
    │     slot.valid = true              share = Share {                  │
    │     if clean_jobs:                   id: work.job_id,               │
    │       job_ring.invalidate_prev()     nonce: sol.nonce,              │
    │     latest_job.send(snapshot)        ntime: sol.ntime,              │
    │                                      extranonce_2: work.en2,        │
    │   visit_session_update:              version_bits: work.vb,         │
-   │     update target/mask/...         }                                │
+   │     log only (no mutation)         }                                │
    │                                    client.submit(&share)            │
    │   visit_submit_result:                                              │
    │     log + metrics                                                   │
@@ -87,7 +87,7 @@ This file is the picture; the plan is the rationale.
    │   │   target[32]         │    │   }                          │      │
    │   │   merkle_root[32]    │    └──────────────────▲───────────┘      │
    │   │   {ntime_base,       │                       │                  │
-   │   │    version, mask,    │            record_outstanding()          │
+   │   │    version,          │            record_outstanding()          │
    │   │    nbits}            │                       │                  │
    │   │   en2_size: u8       │                       │                  │
    │   └──────┬───────────────┘                       │                  │

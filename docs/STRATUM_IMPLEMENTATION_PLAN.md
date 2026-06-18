@@ -624,10 +624,9 @@ Pending count derives in prometheus as `sent - accepted - rejected`.
   now carries the real `JobId` (after the pending-id-map work in
   `c0331b1`), `visit_submit_result` can look up the originating
   `JobSlot` and read its `target` directly. The earlier sketch
-  needed a FIFO only because `JobSlot.target` was being rewritten
-  mid-job by `SetTarget` updates (see prerequisite below) — that's
-  a real bug in current code, not the protocol's intended
-  behaviour.
+  needed a FIFO only if `JobSlot.target` could change mid-job; the
+  visitor does no mid-job mutation (see below), so the slot's target
+  is stable and a direct lookup suffices.
 - **`JobRing::lookup(JobId) -> Option<&JobSlot>`** — small API
   addition next to the existing `is_valid`. Cheap; depth is 2.
 - **Exposition:** `ubos-metrics` gains a regular workspace dep on
@@ -635,37 +634,35 @@ Pending count derives in prometheus as `sent - accepted - rejected`.
   reads the four atomics and emits prometheus counter lines next
   to the existing `board_uptime_seconds` block.
 
-### Prerequisite: drop mid-job retarget in `StratumState`
+### Resolved: the visitor does no mid-job retarget
 
-`stratum-client::state.rs`'s visitor currently overwrites the
-**current** `JobSlot.target` (and `version_rolling_mask`) when
-`SetTarget` / `SetVersionMask` arrives mid-job:
+`stratum-client::state.rs`'s visitor performs no mid-job state
+mutation. `SetTarget`, `SetExtranonce`, and `SetVersionMask` are
+operator-visibility log lines only; each `MiningJob` already carries
+its own `target`, `extranonce_2_size`, and `version`, stamped by the
+adapter when the job arrives and frozen into the `JobSlot` at
+`visit_new_job`:
 
 ```rust
 SessionUpdate::SetTarget(target) => {
-    self.target = *target;
-    if let Some(latest) = self.job_ring.current_mut() {
-        latest.target = *target;     // <-- BUG: retroactive retarget
-    }
+    // No state mutation: the next `MiningJob` carries the updated
+    // target stamped by the adapter.
+    info!("stratum-client: set target ...");
 }
 ```
 
-Per the stratum spec, `set_difficulty` / `SetTarget` configures the
-difficulty for the **next** job, not the in-flight one. The current
-slot's target must stay frozen at whatever was set when
-`visit_new_job` captured `state.target` into the slot. Same rule
-for `version_rolling_mask`.
-
-The mid-job rewrite is the only thing that made the FIFO sketch
-necessary; fix it first and the metrics design simplifies.
+This matches the stratum spec: `set_difficulty` / `SetTarget`
+configures the difficulty for the **next** job, not the in-flight
+one. Because the slot's `target` is captured once at `visit_new_job`
+and never rewritten, `visit_submit_result` can look the slot back up
+by `JobId` and read a stable `target` — no FIFO needed.
 
 ### Checklist
 
-- [ ] **Prerequisite:** remove the `current_mut()` retarget for
-      `SessionUpdate::SetTarget` and `SessionUpdate::SetVersionMask`
-      in `stratum-client::state.rs`. Just update `self.target` /
-      `self.version_mask`; let `visit_new_job` pick them up for the
-      next slot.
+- [x] **Prerequisite (done):** the `state.rs` visitor performs no
+      mid-job mutation; `SetTarget` / `SetExtranonce` /
+      `SetVersionMask` are log-only and each `MiningJob` carries its
+      own values, frozen into the slot at `visit_new_job`.
 - [ ] Audit V1's `SetExtranonce` notification handler in
       `stratum-v1::client.rs` for the same kind of mid-stream
       rewrite; document or fix to match the agreed semantics.
