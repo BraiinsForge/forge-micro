@@ -79,6 +79,12 @@ fn index_payload_contains_semantic_anchors() {
     // JS: string literals are not mangled.
     assert!(html.contains("/api/info"), "missing /api/info literal");
     assert!(html.contains("/api/config"), "missing /api/config literal");
+    // OTA card: id attribute and endpoint path must be present.
+    assert!(html.contains(r#"id="fwCard""#), "missing firmware card id");
+    assert!(
+        html.contains("/api/system/OTA"),
+        "missing OTA endpoint path"
+    );
 }
 
 /// Logout must ship as a navigation form, not a JS-driven anchor. The
@@ -103,13 +109,14 @@ fn index_payload_logout_is_post_form() {
 /// Loose upper bound on the gzipped dashboard payload. Catches a
 /// minifier regression that silently no-ops, a source addition that
 /// crosses the budget we care about, or a build.rs change that ships
-/// uncompressed bytes. The bound sits well under a typical Linux
-/// TCP initcwnd of ~14 KiB so the index still fits in one RTT.
-/// Bump deliberately when intentionally adding features, not as a
-/// reflexive update.
+/// uncompressed bytes. The bound sits somewhat above the 14 KiB TCP
+/// initcwnd, so the index now takes two RTTs on first load; the OTA
+/// card is hidden on boards without an OTA partition so the extra
+/// bytes are always loaded but not always displayed. Bump deliberately
+/// when intentionally adding features, not as a reflexive update.
 #[test]
 fn index_payload_size_within_budget() {
-    const MAX_GZ_BYTES: usize = 13 * 1024;
+    const MAX_GZ_BYTES: usize = 15 * 1024;
     assert!(
         crate::INDEX_HTML_GZ.len() <= MAX_GZ_BYTES,
         "gz payload {} exceeds budget {}",

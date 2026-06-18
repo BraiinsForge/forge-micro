@@ -213,6 +213,24 @@
           <button type="submit">Save</button>
           <div class="msg" id="msgSystem"></div>
         </form>
+        <div class="psec sep hide" id="fwCard">
+          <h3>Firmware update</h3>
+          <div class="panel">
+            <div>
+              <span class="fwLabel">Running slot:</span> <span id="fwSlot">–</span>
+              <span class="fwLabel fwLabelGap">Version:</span> <span id="fwVer">–</span>
+            </div>
+            <div class="fwRow">
+              <label for="fwFile">Firmware image</label>
+              <input type="file" id="fwFile" accept=".bin">
+              <button type="button" id="btnFwUpdate">Update…</button>
+            </div>
+            <div class="hide" id="fwProgWrap">
+              <div id="fwProgBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+            </div>
+            <div class="msg" id="msgFw"></div>
+          </div>
+        </div>
         <div class="psec sep">
           <h3>Factory reset</h3>
           <div class="panel">
@@ -297,6 +315,13 @@
     <div>
       <h1>Factory reset complete</h1>
       <p id="resetDoneText"></p>
+    </div>
+  </div>
+
+  <div class="fullNotice hide" id="otaUpdating">
+    <div>
+      <h1>Updating firmware</h1>
+      <p id="otaNoticeText"></p>
     </div>
   </div>
 

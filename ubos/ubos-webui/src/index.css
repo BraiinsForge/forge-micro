@@ -790,3 +790,46 @@ main > * {
   color: var(--fg);
   border-color: var(--fg);
 }
+
+/* ---------- Firmware update card ---------- */
+
+/* Slot + version line: small muted labels keep the row compact without
+   a full label/input layout. */
+.fwLabel {
+  color: var(--mute);
+  font-size: var(--fs-label);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-cap);
+}
+
+.fwLabelGap {
+  margin-left: 16px;
+}
+
+/* File picker and update button on one row with a gap between them. */
+.fwRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* Progress track: full-width bar below the file row. The fill width is
+   updated from the acked upload offset by the chunk-ack loop in index.js
+   so the transition animates smoothly across each chunk rather than
+   jumping. */
+#fwProgWrap {
+  margin-top: 10px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--field);
+  overflow: hidden;
+}
+
+#fwProgBar {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.2s linear;
+  border-radius: 3px;
+}

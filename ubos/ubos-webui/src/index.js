@@ -4,6 +4,12 @@
 // shell, login, and logout live on the same port 80 we were served from.
 const API = `${location.protocol}//${location.hostname}:8080`;
 
+// Maximum OTA image size the UI will accept. Mirrors the flash slot
+// budget; reject oversized files client-side before starting the upload.
+// Keep in sync with OTA_MAX_IMAGE_BYTES in ubos/ubos-api/src/system.rs and
+// slotMaxBytes in flake.nix.
+const OTA_MAX_BYTES = 952 * 1024;
+
 // Chart geometry. PAD_* are fixed pixel gutters reserved for axis
 // labels; the chart width and height are read from each SVG element's
 // rendered box at draw time so the coordinate space always matches the
@@ -399,6 +405,17 @@ async function tick() {
     inBuf.shift(); inBuf.push(data.power_in_mw == null ? null : data.power_in_mw / 1000);
     outBuf.shift(); outBuf.push(data.power_out_mw == null ? null : data.power_out_mw / 1000);
     draw();
+    // Show the firmware-update card only on boards that report OTA info;
+    // boards without an OTA partition omit the field entirely.
+    const ota = data.ota;
+    const fwCard = $('fwCard');
+    if (ota) {
+      fwCard.classList.remove('hide');
+      $('fwSlot').textContent = ota.runningSlot || '?';
+      $('fwVer').textContent = ota.runningVersion != null ? ota.runningVersion : '?';
+    } else {
+      fwCard.classList.add('hide');
+    }
     // Drive the global confirm modal from the poll so it reappears on any
     // page after a reload while a network change awaits confirmation.
     const modal = $('netModal');
@@ -1181,3 +1198,136 @@ $('btnResetConfirm').addEventListener('click', async () => {
   }
   showResetDoneNotice();
 });
+
+// Show the full-page OTA notice and poll until the board comes back.
+// After the board reboots into the new image the /api/info endpoint
+// becomes reachable again; reload to pick up the updated state.
+function showOtaNotice(text) {
+  $('otaNoticeText').textContent = text;
+  $('otaUpdating').classList.remove('hide');
+  // Cap the wait so a board that never returns (wrong image, brick) stops
+  // polling instead of hammering the connection forever.
+  const maxAttempts = 150; // ~5 minutes at the 2 s poll interval
+  let attempts = 0;
+  const poll = setInterval(async () => {
+    attempts += 1;
+    if (attempts > maxAttempts) {
+      clearInterval(poll);
+      $('otaNoticeText').textContent =
+        'The board did not come back online. Check it and reload this page manually.';
+      return;
+    }
+    try {
+      await fetch(API + '/api/info', { cache: 'no-store', credentials: 'include' });
+      // Any HTTP response means the API is back up. The reboot wiped the
+      // in-RAM session table, so the old session cookie now yields 401 —
+      // reload regardless of status so the SPA re-runs its auth check and
+      // shows the login screen on the freshly booted firmware.
+      clearInterval(poll);
+      location.reload();
+    } catch (_) {
+      // Connection refused / network error: board still rebooting, keep polling.
+    }
+  }, 2000);
+}
+
+// cfg-section nav items to disable while an OTA operation is in flight
+// so the operator cannot navigate away and leave orphaned controls.
+const CFG_NAV_LINKS = ['snPools', 'snTemp', 'snMining', 'snSystem', 'snNetwork'];
+
+$('btnFwUpdate').addEventListener('click', async () => {
+  const msg = $('msgFw');
+  msg.style.color = '';
+  msg.textContent = '';
+  const file = $('fwFile').files[0];
+  if (!file) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Select a firmware image first.';
+    return;
+  }
+  if (file.size > OTA_MAX_BYTES) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'File too large at ' + (file.size / 1024).toFixed(0) + ' KiB. The maximum is ' + (OTA_MAX_BYTES / 1024) + ' KiB.';
+    return;
+  }
+  // Pause the 2 s poll so it does not occupy the single-connection :8080
+  // listener slot while the upload is streaming. The upload can take
+  // many seconds because the firmware writes flash in-band with TCP
+  // receipt; backpressure from flash write speed propagates through
+  // the TCP send buffer and throttles the upload rate.
+  clearInterval(pollTimer);
+  $('fwFile').disabled = true;
+  $('btnFwUpdate').disabled = true;
+  CFG_NAV_LINKS.forEach(id => { $(id).style.pointerEvents = 'none'; $(id).style.opacity = '0.4'; });
+  const beforeUnload = event => { event.preventDefault(); };
+  addEventListener('beforeunload', beforeUnload);
+  $('fwProgWrap').classList.remove('hide');
+  const initBar = $('fwProgBar');
+  initBar.style.width = '0';
+  initBar.setAttribute('aria-valuenow', '0');
+  let csrf;
+  try {
+    csrf = await csrfToken();
+  } catch (error) {
+    resumeAfterOtaError('Could not get CSRF token: ' + ((error && error.message) || 'network error'), beforeUnload);
+    return;
+  }
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', API + '/api/system/OTA');
+  xhr.withCredentials = true;
+  xhr.setRequestHeader('X-CSRF-Token', csrf);
+  // Set to true by xhr.upload.onload when the last byte has been sent,
+  // so onerror can distinguish a mid-upload network failure from a reboot
+  // that races the server response after a complete upload.
+  let uploadComplete = false;
+  xhr.upload.onprogress = event => {
+    if (!event.lengthComputable) return;
+    const percent = Math.round(event.loaded / event.total * 100);
+    const bar = $('fwProgBar');
+    bar.style.width = percent + '%';
+    bar.setAttribute('aria-valuenow', String(percent));
+    $('msgFw').style.color = '';
+    $('msgFw').textContent = 'Uploading… ' + percent + '%';
+  };
+  xhr.upload.onload = () => {
+    uploadComplete = true;
+  };
+  xhr.onload = () => {
+    removeEventListener('beforeunload', beforeUnload);
+    if (xhr.status >= 200 && xhr.status < 300) {
+      // The board reboots immediately after the upload completes.
+      // Treat a connection drop after a completed upload as success:
+      // the reboot races the response, matching the network-apply pattern.
+      showOtaNotice('Firmware uploaded; the board is rebooting into the new image…');
+      return;
+    }
+    let detail = 'HTTP ' + xhr.status;
+    try { detail = JSON.parse(xhr.responseText).message || detail; } catch (_) { }
+    resumeAfterOtaError(detail, beforeUnload);
+  };
+  xhr.onerror = () => {
+    // A network error after all bytes were sent means the board reboot
+    // won the race against the server response; treat it as success.
+    if (uploadComplete) {
+      removeEventListener('beforeunload', beforeUnload);
+      showOtaNotice('Firmware uploaded; the board is rebooting into the new image…');
+      return;
+    }
+    resumeAfterOtaError('Upload failed: network error.', beforeUnload);
+  };
+  xhr.onabort = () => {
+    resumeAfterOtaError('Upload cancelled.', beforeUnload);
+  };
+  xhr.send(file);
+});
+
+function resumeAfterOtaError(text, beforeUnload) {
+  if (beforeUnload) removeEventListener('beforeunload', beforeUnload);
+  $('fwFile').disabled = false;
+  $('btnFwUpdate').disabled = false;
+  CFG_NAV_LINKS.forEach(id => { $(id).style.pointerEvents = ''; $(id).style.opacity = ''; });
+  $('fwProgWrap').classList.add('hide');
+  $('msgFw').style.color = 'var(--red)';
+  $('msgFw').textContent = text;
+  pollTimer = setInterval(tick, 2000);
+}
