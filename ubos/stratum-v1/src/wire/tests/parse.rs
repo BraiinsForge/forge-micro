@@ -51,7 +51,7 @@ fn build_notify_line(job_id: &str, clean_jobs: &str) -> heapless::String<4096> {
 fn expect_notify<'a>(rpc: &'a Rpc<'a>) -> &'a Notify<'a> {
     match rpc {
         Rpc::Notification(Notification::Notify(notify)) => notify,
-        other => panic!("expected Notify, got {:?}", other),
+        other => panic!("expected Notify, got {other:?}"),
     }
 }
 
@@ -139,7 +139,7 @@ fn parse_set_difficulty_integer() {
         Rpc::Notification(Notification::SetDifficulty(msg)) => {
             assert!((msg.0 - 1638.0).abs() < f64::EPSILON);
         }
-        other => panic!("expected SetDifficulty, got {:?}", other),
+        other => panic!("expected SetDifficulty, got {other:?}"),
     }
 }
 
@@ -151,7 +151,7 @@ fn parse_set_difficulty_fractional() {
         Rpc::Notification(Notification::SetDifficulty(msg)) => {
             assert!((msg.0 - 100.5).abs() < f64::EPSILON);
         }
-        other => panic!("expected SetDifficulty, got {:?}", other),
+        other => panic!("expected SetDifficulty, got {other:?}"),
     }
 }
 
@@ -180,7 +180,7 @@ fn parse_set_version_mask() {
         Rpc::Notification(Notification::SetVersionMask(msg)) => {
             assert_eq!(msg.mask, 0x1fff_e000);
         }
-        other => panic!("expected SetVersionMask, got {:?}", other),
+        other => panic!("expected SetVersionMask, got {other:?}"),
     }
 }
 
@@ -307,7 +307,7 @@ fn unknown_server_method_is_error() {
     let line = br#"{"id":null,"method":"mining.bogus","params":[]}"#;
     match parse_incoming(line) {
         Err(ParseError::UnknownMethod("mining.bogus")) => {}
-        other => panic!("expected UnknownMethod, got {:?}", other),
+        other => panic!("expected UnknownMethod, got {other:?}"),
     }
 }
 
