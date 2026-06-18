@@ -61,7 +61,7 @@ fn pll_parameter_from_freq_rejects_out_of_range() {
     assert!(PllParameterReg::from_freq(0, range).is_none());
     assert!(PllParameterReg::from_freq(25_000, range).is_none());
     assert!(PllParameterReg::from_freq(49_999, range).is_none());
-    assert!(PllParameterReg::from_freq(700_001, range).is_none());
+    assert!(PllParameterReg::from_freq(1_000_001, range).is_none());
     assert!(PllParameterReg::from_freq(u32::MAX, range).is_none());
 }
 
@@ -70,7 +70,7 @@ fn hash_counting_number_from_freq_rejects_out_of_range() {
     let range = BM1362.frequency_range;
     assert!(HashCountingNumberReg::from_freq(0, range).is_none());
     assert!(HashCountingNumberReg::from_freq(49_999, range).is_none());
-    assert!(HashCountingNumberReg::from_freq(700_001, range).is_none());
+    assert!(HashCountingNumberReg::from_freq(1_000_001, range).is_none());
     assert!(HashCountingNumberReg::from_freq(u32::MAX, range).is_none());
 }
 
@@ -576,6 +576,17 @@ fn core_register_unmapped_id_preserves_bits() {
         assert_eq!(decoded, CoreRegister::Unknown(unmapped));
         assert_eq!(decoded.into_bits(), unmapped);
     }
+}
+
+#[test]
+fn chip_descriptor_midstate_counts_match_silicon() {
+    // BM1362 and BM1366 tag returned work-ids with a 3-bit variant index
+    // (8 values); BM1370 tags with a 4-bit index (16 values). The host
+    // strides work-ids by this count and divides to recover the originating
+    // job, so the values are correctness-critical.
+    assert_eq!(BM1362.midstate_count, 8);
+    assert_eq!(BM1366.midstate_count, 8);
+    assert_eq!(BM1370.midstate_count, 16);
 }
 
 #[test]

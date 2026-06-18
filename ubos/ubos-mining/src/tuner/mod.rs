@@ -57,15 +57,33 @@ pub trait Tuner<M: MinerControl> {
 ///
 /// `Miner` wraps every serial-bus error into [`MinerError::Serial`]
 /// before it reaches the tuner, so `TunerError::Miner` covers every
-/// chip-side failure with a single variant.
+/// chip-side failure. `ChipCountMismatch` is terminal: the miner stops
+/// rather than retrying when the chain does not match the board.
 #[derive(Debug)]
 pub enum TunerError {
     Miner(MinerError),
+    /// The PLL calculator rejected the requested frequency as outside
+    /// the chip's supported range.
+    UnsupportedFrequency(Frequency),
+    /// Enumeration kept finding a chip count other than the board's
+    /// expected `num_chips` after every retry.
+    ChipCountMismatch {
+        found: u8,
+        expected: u8,
+    },
 }
 
 impl From<MinerError> for TunerError {
     fn from(error: MinerError) -> Self {
         Self::Miner(error)
+    }
+}
+
+impl From<ubos_asic::ChipError> for TunerError {
+    fn from(error: ubos_asic::ChipError) -> Self {
+        match error {
+            ubos_asic::ChipError::UnsupportedFrequency(freq) => Self::UnsupportedFrequency(freq),
+        }
     }
 }
 

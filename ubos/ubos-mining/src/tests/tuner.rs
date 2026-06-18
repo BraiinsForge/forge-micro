@@ -4,7 +4,7 @@
 //! V^2 * f preservation rule.
 
 use heapless::Vec as HVec;
-use ubos_asic::{BMM100, PllParameterReg, Register};
+use ubos_asic::{BMM100, ChipProtocol, PllParameterReg, Register};
 use ubos_core::units::{Frequency, Voltage};
 use ubos_psu::MiniminerPsuConfig;
 
@@ -12,7 +12,6 @@ use super::TuningConfig;
 use super::walk_steps;
 use crate::tuner::replay::trace::{INIT, Step};
 
-const SAFE_BOOT_KHZ: u32 = 50_000;
 const TRACE_DEDUP_CAP: usize = 19;
 
 fn dedup_pll_writes() -> HVec<u32, TRACE_DEDUP_CAP> {
@@ -27,13 +26,6 @@ fn dedup_pll_writes() -> HVec<u32, TRACE_DEDUP_CAP> {
         }
     }
     out
-}
-
-fn open_core_at_safe_boot() -> TuningConfig {
-    TuningConfig {
-        frequency: Frequency::from_khz(SAFE_BOOT_KHZ),
-        voltage: BMM100.max_rail_voltage(),
-    }
 }
 
 #[test]
@@ -55,8 +47,19 @@ fn open_core_voltage_fits_default_psu_range() {
 
 #[test]
 fn walk_to_same_state_is_empty() {
-    let from = open_core_at_safe_boot();
-    assert!(walk_steps(from, from, BMM100.chip.frequency_step).is_empty());
+    let from = TuningConfig {
+        frequency: BMM100.chip.descriptor().frequency_range.min(),
+        voltage: BMM100.max_rail_voltage(),
+    };
+    assert!(
+        walk_steps(
+            from,
+            from,
+            BMM100.chip.descriptor().frequency_step,
+            BMM100.chip.descriptor().frequency_range.min()
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -65,7 +68,15 @@ fn walk_emits_target_as_final_step() {
         frequency: Frequency::from_mhz(550),
         voltage: Voltage::from_mv(1100),
     };
-    let steps = walk_steps(open_core_at_safe_boot(), target, BMM100.chip.frequency_step);
+    let steps = walk_steps(
+        TuningConfig {
+            frequency: BMM100.chip.descriptor().frequency_range.min(),
+            voltage: BMM100.max_rail_voltage(),
+        },
+        target,
+        BMM100.chip.descriptor().frequency_step,
+        BMM100.chip.descriptor().frequency_range.min(),
+    );
     let (last_f, last_v) = *steps.last().expect("BUG: walk must emit at least one step");
     assert_eq!(last_f, target.frequency.khz());
     assert_eq!(last_v, target.voltage.mv());
@@ -81,7 +92,15 @@ fn walk_converges_for_float_lossy_voltage() {
         frequency: Frequency::from_mhz(550),
         voltage: Voltage::from_mv(1012),
     };
-    let steps = walk_steps(open_core_at_safe_boot(), target, BMM100.chip.frequency_step);
+    let steps = walk_steps(
+        TuningConfig {
+            frequency: BMM100.chip.descriptor().frequency_range.min(),
+            voltage: BMM100.max_rail_voltage(),
+        },
+        target,
+        BMM100.chip.descriptor().frequency_step,
+        BMM100.chip.descriptor().frequency_range.min(),
+    );
     let (last_f, last_v) = *steps.last().expect("BUG: walk must emit at least one step");
     assert_eq!(last_f, target.frequency.khz());
     assert_eq!(last_v, target.voltage.mv());
@@ -99,7 +118,15 @@ fn walk_preserves_power_ceiling_after_phase_a() {
     };
     let v_target = target.voltage.as_volts();
     let p_target = v_target * v_target * target.frequency.as_mhz();
-    let steps = walk_steps(open_core_at_safe_boot(), target, BMM100.chip.frequency_step);
+    let steps = walk_steps(
+        TuningConfig {
+            frequency: BMM100.chip.descriptor().frequency_range.min(),
+            voltage: BMM100.max_rail_voltage(),
+        },
+        target,
+        BMM100.chip.descriptor().frequency_step,
+        BMM100.chip.descriptor().frequency_range.min(),
+    );
     let mut in_phase_b = false;
     for (f_khz, v_mv) in steps.iter().copied() {
         let volts = Voltage::from_mv(v_mv).as_volts();
@@ -123,8 +150,16 @@ fn walk_visits_every_25mhz_grid_point_with_pll_table_match() {
         frequency: Frequency::from_khz(500_000),
         voltage: BMM100.max_rail_voltage(),
     };
-    let steps = walk_steps(open_core_at_safe_boot(), target, BMM100.chip.frequency_step);
-    let range = BMM100.chip.frequency_range;
+    let steps = walk_steps(
+        TuningConfig {
+            frequency: BMM100.chip.descriptor().frequency_range.min(),
+            voltage: BMM100.max_rail_voltage(),
+        },
+        target,
+        BMM100.chip.descriptor().frequency_step,
+        BMM100.chip.descriptor().frequency_range.min(),
+    );
+    let range = BMM100.chip.descriptor().frequency_range;
     for (f_khz, _) in steps.iter().copied() {
         assert!(
             PllParameterReg::from_freq(f_khz, range).is_some(),
@@ -136,13 +171,29 @@ fn walk_visits_every_25mhz_grid_point_with_pll_table_match() {
 #[test]
 fn calculator_matches_trace_dedup_at_25mhz_grid() {
     const TRACE_GRID_STEP_KHZ: u32 = 25_000;
+    const TRACE_GRID_MAX_KHZ: u32 = 500_000;
     let dedup = dedup_pll_writes();
+    // Pin the grid size before mapping index to frequency: the loop
+    // below assumes every 25 MHz point from safe-boot to max appears
+    // exactly once, so a trace edit that drops or adds a unique PLL
+    // write must fail here rather than slip through a shortened loop.
+    let expected_points = (TRACE_GRID_MAX_KHZ
+        - BMM100.chip.descriptor().frequency_range.min().khz())
+        / TRACE_GRID_STEP_KHZ
+        + 1;
+    assert_eq!(
+        u32::try_from(dedup.len()).expect("BUG: dedup length fits in u32"),
+        expected_points,
+        "trace PLL-write count drifted from the 25 MHz grid",
+    );
     for (index, &expected_bits) in dedup.iter().enumerate() {
         let index_u32 = u32::try_from(index).expect("BUG: dedup index fits in u32");
-        let target_khz = SAFE_BOOT_KHZ + index_u32 * TRACE_GRID_STEP_KHZ;
-        let emitted = PllParameterReg::from_freq(target_khz, BMM100.chip.frequency_range)
-            .expect("BUG: trace grid point must resolve in calculator")
-            .into_bits();
+        let target_khz =
+            BMM100.chip.descriptor().frequency_range.min().khz() + index_u32 * TRACE_GRID_STEP_KHZ;
+        let emitted =
+            PllParameterReg::from_freq(target_khz, BMM100.chip.descriptor().frequency_range)
+                .expect("BUG: trace grid point must resolve in calculator")
+                .into_bits();
         assert_eq!(
             emitted, expected_bits,
             "calculator at {target_khz} kHz does not match trace PLL write",
@@ -158,7 +209,15 @@ fn walk_floors_off_grid_target_onto_step_grid() {
         frequency: Frequency::from_khz(551_000),
         voltage: Voltage::from_mv(1100),
     };
-    let steps = walk_steps(open_core_at_safe_boot(), target, BMM100.chip.frequency_step);
+    let steps = walk_steps(
+        TuningConfig {
+            frequency: BMM100.chip.descriptor().frequency_range.min(),
+            voltage: BMM100.max_rail_voltage(),
+        },
+        target,
+        BMM100.chip.descriptor().frequency_step,
+        BMM100.chip.descriptor().frequency_range.min(),
+    );
     let (last_frequency, _) = *steps.last().expect("BUG: walk must emit at least one step");
     assert_eq!(
         last_frequency, 550_000,

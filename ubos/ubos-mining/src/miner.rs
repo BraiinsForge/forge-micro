@@ -20,21 +20,19 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use embedded_io::ErrorKind;
 use heapless::Vec as HVec;
-use ubos_asic::{ChipIdReg, ControlCommand};
 use ubos_config::{ConfigSubscription, TuningAlgorithm};
 use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, error, info, warn};
 use ubos_psu::{Error as PsuError, Psu};
 
-use crate::chip;
 use crate::consts::MAX_CHIPS;
 use crate::control::{COMMAND_CHANNEL, Message, MiningState, STATE_WATCH};
 use crate::reset::ResetPin;
 use crate::serial::SERIAL;
 use crate::tuner::fixed::FixedTuner;
 use crate::tuner::replay::ReplayTuner;
-use crate::tuner::{Tuner, TuningConfig};
-use ubos_asic::{ChipAddress, RegisterResponse, build_command, build_raw_command};
+use crate::tuner::{Tuner, TunerError, TuningConfig};
+use ubos_asic::{ChipAddress, RegisterResponse, build_raw_command};
 
 /// Raise once to stop the miner. The run loop awaits this between init
 /// and deinit; signalling it triggers the teardown sequence and the
@@ -50,10 +48,6 @@ pub static STOP_MINING: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 /// coupling callers to the specific serial actor types.
 #[derive(Debug)]
 pub enum MinerError {
-    /// The requested frequency is outside the chip's supported range
-    /// (`BM1362.frequency_range`). The `u32` carries the rejected
-    /// kHz value.
-    UnsupportedFrequency(u32),
     /// The serial actor returned an error on a register read or write.
     Serial(ErrorKind),
     /// The PSU rejected a voltage or enable/disable command. The
@@ -90,9 +84,6 @@ impl<E> From<PsuError<E>> for PsuErrorKind {
 impl defmt::Format for MinerError {
     fn format(&self, f: defmt::Formatter) {
         match self {
-            MinerError::UnsupportedFrequency(khz) => {
-                defmt::write!(f, "UnsupportedFrequency({} kHz)", khz);
-            }
             MinerError::Serial(kind) => {
                 defmt::write!(f, "Serial({:?})", defmt::Debug2Format(kind));
             }
@@ -115,24 +106,8 @@ impl defmt::Format for MinerError {
 // context.
 #[allow(async_fn_in_trait)]
 pub trait MinerControl {
-    /// Program both PLL registers for `chip` to achieve `frequency`.
-    async fn set_frequency(
-        &self,
-        chip: ChipAddress,
-        frequency: Frequency,
-    ) -> Result<(), MinerError>;
-
     /// Set the core voltage through the PSU driver.
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), MinerError>;
-
-    /// Write the ticket-mask register to all chips.
-    async fn set_ticket_mask(&self, mask: u32) -> Result<(), MinerError>;
-
-    /// Read the chip-identity register from a single chip.
-    async fn get_chip_version(&self, chip: u8) -> Result<ChipIdReg, MinerError>;
-
-    /// Broadcast-read `ChipIdReg` and return the number of responding chips.
-    async fn enumerate_chips(&self) -> Result<u8, MinerError>;
 
     // Byte-level escape hatches below this point exist because the
     // captured wire trace replayed by `ReplayTuner` is byte-level
@@ -155,10 +130,6 @@ pub trait MinerControl {
     /// trace replay for chain-inactive and addressing setup.
     async fn send_raw_command(&self, payload: &[u8]);
 
-    /// Send a typed control command (chain-inactive, set-chip-address).
-    /// Semantic tuners use this in preference to `send_raw_command`.
-    async fn send_command(&self, command: ControlCommand);
-
     /// Switch the UART line rate to `rate`. Used by trace replay
     /// during the post-init baud bump.
     async fn set_baud_rate(&self, rate: u32) -> Result<(), MinerError>;
@@ -168,7 +139,7 @@ pub trait MinerControl {
     async fn start_sending_work(&self, period: Duration) -> Result<(), MinerError>;
 }
 
-/// The BM1362 mining state machine.
+/// The `BM13xx` mining state machine.
 ///
 /// Owns the PSU reference and the reset pin. Firmware constructs this
 /// with [`Miner::new`] and calls [`Miner::run`] to enter the bring-up
@@ -296,6 +267,14 @@ where
         .await;
         match init_result {
             Either3::First(Ok(())) => InitPhase::Done,
+            Either3::First(Err(TunerError::ChipCountMismatch { found, expected })) => {
+                error!(
+                    "mining: chain has {} chips, expected {}; stopping (not retrying)",
+                    found, expected
+                );
+                cut_rail(self.psu, &mut self.reset_pin).await;
+                InitPhase::Stop
+            }
             Either3::First(Err(error)) => {
                 error!(
                     "mining: tuner init error ({:?}); cutting rail and retrying",
@@ -481,31 +460,11 @@ where
     P: Psu,
     R: ResetPin,
 {
-    async fn set_frequency(
-        &self,
-        chip_addr: ChipAddress,
-        frequency: Frequency,
-    ) -> Result<(), MinerError> {
-        chip::set_frequency(chip_addr, frequency.khz()).await
-    }
-
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), MinerError> {
         self.psu
             .set_voltage(voltage)
             .await
             .map_err(|error| MinerError::Psu(error.into()))
-    }
-
-    async fn set_ticket_mask(&self, mask: u32) -> Result<(), MinerError> {
-        chip::set_ticket_mask(mask).await
-    }
-
-    async fn get_chip_version(&self, chip: u8) -> Result<ChipIdReg, MinerError> {
-        chip::get_chip_version(chip).await
-    }
-
-    async fn enumerate_chips(&self) -> Result<u8, MinerError> {
-        chip::enumerate_chips().await
     }
 
     async fn write_register_raw(&self, addr: ChipAddress, reg: u8, value: u32) {
@@ -517,15 +476,11 @@ where
         addr: ChipAddress,
         reg: u8,
     ) -> HVec<RegisterResponse, MAX_CHIPS> {
-        SERIAL.read_register_raw(addr, reg).await
+        SERIAL.read_register(addr, reg).await
     }
 
     async fn send_raw_command(&self, payload: &[u8]) {
         SERIAL.send_frame(build_raw_command(payload)).await;
-    }
-
-    async fn send_command(&self, command: ControlCommand) {
-        SERIAL.send_frame(build_command(command)).await;
     }
 
     async fn set_baud_rate(&self, rate: u32) -> Result<(), MinerError> {

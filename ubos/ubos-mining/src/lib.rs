@@ -12,7 +12,7 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 
-pub(crate) mod chip;
+pub mod bus;
 pub mod consts;
 mod control;
 pub mod miner;

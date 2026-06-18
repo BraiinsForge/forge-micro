@@ -1,4 +1,4 @@
-//! Single-task actor for the BM1362 chip serial line.
+//! Single-task actor for the `BM13xx` chip serial line.
 //!
 //! One task owns the serial halves and the in-flight work registry;
 //! outside callers go through [`Serial`]'s typed methods to reset the
@@ -24,7 +24,7 @@ use portable_atomic::{AtomicU32, Ordering};
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_asic::{
-    Frame, HwWork, ChipAddress, Register, RegisterResponse, Response, ResponseParser,
+    ChipAddress, ChipProtocol, Frame, HwWork, RegisterResponse, Response, ResponseParser,
     build_read_register, build_write_register,
 };
 use ubos_logging::{Debug2Format, error, info, trace, warn};
@@ -35,9 +35,15 @@ use ubos_logging::{Debug2Format, error, info, trace, warn};
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
 
+/// Lifetime-monotonic count of register replies dropped because their
+/// register address did not match the read that was issued. A non-zero
+/// value points to corruption or a stray/late reply on the chain.
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
+pub static REGISTER_REPLY_MISMATCH: AtomicU32 = AtomicU32::new(0);
+
 use crate::consts::{
-    FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS, NUM_CHIPS, NUM_MIDSTATES,
-    REGISTRY_SIZE,
+    ACTIVE_BOARD, FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS,
+    WORK_REGISTRY_SLOTS,
 };
 
 /// Hex pretty-printer for trace logs. Wraps a byte slice and formats it
@@ -119,7 +125,7 @@ pub struct Serial {
     /// cannot race on this single signal.
     reply: Signal<CriticalSectionRawMutex, Result<(), ErrorKind>>,
     /// Queue of register-read responses produced by the parser. Owned by
-    /// `read_register_raw` for the duration of a session; the session mutex
+    /// `read_register` for the duration of a session; the session mutex
     /// keeps concurrent callers from stealing each other's replies.
     /// Capacity matches the broadcast read fan-in (one reply per chip).
     register_replies: Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
@@ -128,11 +134,22 @@ pub struct Serial {
     /// than `NoopRawMutex` so `Serial` is `Sync` and can live as a
     /// workspace `static`.
     caller: Mutex<CriticalSectionRawMutex, ()>,
-    /// Held for the full drain-send-receive cycle of `read_register_raw` so
+    /// Held for the full drain-send-receive cycle of `read_register` so
     /// two concurrent reads cannot interleave on the shared reply
     /// queue. Independent of `caller` because register reads and reply-
     /// bearing commands take different actor paths.
     register_session: Mutex<CriticalSectionRawMutex, ()>,
+}
+
+/// Record and log a register reply whose register address did not match
+/// the issued read. Dropping it keeps a stray or corrupt reply from being
+/// misattributed to the query, and the metric makes the rate observable.
+fn drop_mismatched_reply(reply: &RegisterResponse, expected_reg: u8) {
+    REGISTER_REPLY_MISMATCH.fetch_add(1, Ordering::Relaxed);
+    trace!(
+        "Dropping register reply: got reg 0x{:02X}, asked 0x{:02X}",
+        reply.reg, expected_reg
+    );
 }
 
 impl Serial {
@@ -140,7 +157,7 @@ impl Serial {
     /// configure call so in-flight bytes don't get garbled.
     const BAUD_CHANGE_DRAIN: Duration = Duration::from_secs(1);
 
-    /// Per-response wait inside `read_register_raw`. The chip answers a
+    /// Per-response wait inside `read_register`. The chip answers a
     /// register read within a few hundred microseconds at fast baud; 50 ms
     /// is generous enough to absorb startup-rate dribble while bounding
     /// the worst-case stall on a missing chip.
@@ -206,70 +223,57 @@ impl Serial {
     }
 
     /// Build and dispatch a register-write frame. Fire-and-forget; the
-    /// chip does not acknowledge writes. Byte-level callers (the replay
-    /// path, byte-frame tests) use this directly; consumers that hold a
-    /// typed [`Register`] go through [`Self::write_register`].
+    /// chip does not acknowledge writes. Used by the replay path and by
+    /// [`crate::MinerControl::write_register_raw`].
     pub async fn write_register_raw(&self, addr: ChipAddress, reg: u8, value: u32) {
         self.send_frame(build_write_register(addr, reg, value))
             .await;
     }
 
-    /// Typed register-write wrapper. Serialises `reg` to its 4-byte
-    /// wire payload and delegates to [`Self::write_register_raw`].
-    /// Infallible because the bitfield storage is a plain `u32`.
-    pub async fn write_register<R: Register>(&self, addr: ChipAddress, reg: &R) {
-        let value = u32::from_be_bytes(reg.to_be_bytes());
-        self.write_register_raw(addr, R::REG_NUM, value).await;
-    }
-
-    /// Build and dispatch a register-read, then collect up to one reply
-    /// per addressed chip. Holds [`Self::register_session`] across the
-    /// drain-send-receive cycle so concurrent callers can't steal each
-    /// other's replies. Stops early on the first per-reply timeout, so
-    /// a missing chip caps the total stall at one
-    /// [`Self::READ_REPLY_TIMEOUT`] window rather than `expected ×` it.
-    pub async fn read_register_raw(
+    /// Build and dispatch a register-read, then collect replies. Holds
+    /// `Self::register_session` across the drain-send-receive cycle so
+    /// concurrent callers can't steal each other's replies.
+    ///
+    /// A single-chip read (`ChipAddress::Chip`) expects exactly one reply
+    /// and returns as soon as it arrives. A broadcast read
+    /// (`ChipAddress::All`) discovers the chain: it has no known count, so
+    /// it collects every responder until the reply window goes quiet or
+    /// the buffer (`MAX_CHIPS`) fills. Both stop on the first per-reply
+    /// timeout, so a missing chip caps the stall at one
+    /// `Self::READ_REPLY_TIMEOUT` window. A reply whose register address
+    /// does not match is dropped without counting toward the limit; the
+    /// count is bounded by the finite reply channel.
+    pub async fn read_register(
         &self,
-        addr: ChipAddress,
-        reg: u8,
+        chip_address: ChipAddress,
+        register: u8,
     ) -> HVec<RegisterResponse, MAX_CHIPS> {
         let _guard = self.register_session.lock().await;
 
         // Drop any stale replies that landed before we owned the session.
         while self.register_replies.try_receive().is_ok() {}
 
-        self.send_frame(build_read_register(addr, reg)).await;
+        self.send_frame(build_read_register(chip_address, register))
+            .await;
 
-        let expected = match addr {
-            ChipAddress::All => usize::from(NUM_CHIPS),
+        // A single-chip read expects one reply; a broadcast read has no
+        // known count, so it drains the chain up to the buffer cap.
+        let limit = match chip_address {
             ChipAddress::Chip(_) => 1,
+            ChipAddress::All => MAX_CHIPS,
         };
 
         let mut responses: HVec<RegisterResponse, MAX_CHIPS> = HVec::new();
-        for _ in 0..expected {
+        while responses.len() < limit {
             match with_timeout(Self::READ_REPLY_TIMEOUT, self.register_replies.receive()).await {
-                Ok(resp) => {
-                    let _ = responses.push(resp);
+                Ok(response) if response.reg == register => {
+                    let _ = responses.push(response);
                 }
+                Ok(response) => drop_mismatched_reply(&response, register),
                 Err(_) => break,
             }
         }
         responses
-    }
-
-    /// Typed single-chip register-read wrapper. Issues a read at
-    /// `ChipAddress::Chip(chip)`, waits for the one expected reply,
-    /// and decodes it into `R`. Returns `TimedOut` if the chip stays
-    /// silent past [`Self::READ_REPLY_TIMEOUT`]. Broadcast reads stay on the
-    /// raw path because the typed wrapper would have to drop chip-
-    /// address pairing or wrap every entry, neither of which the
-    /// `Tuner` / `Miner` callers need.
-    pub async fn read_register<R: Register>(&self, chip: u8) -> Result<R, ErrorKind> {
-        let raw = self
-            .read_register_raw(ChipAddress::Chip(chip), R::REG_NUM)
-            .await;
-        let response = raw.first().ok_or(ErrorKind::TimedOut)?;
-        Ok(R::from_be_bytes(response.value.to_be_bytes()))
     }
 
     /// Server entry point. Owns the byte stream and the work registry;
@@ -298,7 +302,11 @@ impl Serial {
         let mut parser = ResponseParser::new();
         let mut work_ticker: Option<Ticker> = None;
         let mut work_id: u8 = 0;
-        let mut registry: [Option<WorkSlot>; REGISTRY_SIZE] = [const { None }; REGISTRY_SIZE];
+        let mut registry: [Option<WorkSlot>; WORK_REGISTRY_SLOTS] =
+            [const { None }; WORK_REGISTRY_SLOTS];
+        // Per-chip work-id variant count; the host strides work-ids by this
+        // value and divides a returned work-id by it to recover the job.
+        let midstate_count = ACTIVE_BOARD.chip.descriptor().midstate_count;
 
         loop {
             // Build the work-tick arm fresh each iteration. When work is
@@ -316,13 +324,20 @@ impl Serial {
 
             match select3(tick_arm, read_arm, cmd_arm).await {
                 Either3::First(()) => {
-                    self.dispatch_work(&mut tx, &mut work_id, &mut registry, &mut work_receiver)
-                        .await;
+                    self.dispatch_work(
+                        &mut tx,
+                        &mut work_id,
+                        midstate_count,
+                        &mut registry,
+                        &mut work_receiver,
+                    )
+                    .await;
                 }
                 Either3::Second(read_result) => {
                     Self::handle_read(
                         read_result,
                         &mut parser,
+                        midstate_count,
                         &registry,
                         &self.register_replies,
                         session,
@@ -351,7 +366,8 @@ impl Serial {
         &self,
         tx: &mut T,
         work_id: &mut u8,
-        registry: &mut [Option<WorkSlot>; REGISTRY_SIZE],
+        midstate_count: u8,
+        registry: &mut [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         work_receiver: &mut DynReceiver<'_, WorkAssignment>,
     ) where
         T: Write + BaudRate,
@@ -378,15 +394,17 @@ impl Serial {
             HexBytes(frame.as_slice())
         );
 
-        let slot_idx = usize::from(*work_id) / NUM_MIDSTATES;
-        registry[slot_idx] = Some(WorkSlot {
+        // `midstate_count` is the per-chip work-id variant count; the slot
+        // index divides by it so returned work-ids map back to the same slot
+        // regardless of which variant the chip selected. The invariant
+        // `256 / midstate_count <= WORK_REGISTRY_SLOTS` holds because
+        // midstate_count >= 8.
+        let slot_index = usize::from(*work_id) / usize::from(midstate_count);
+        registry[slot_index] = Some(WorkSlot {
             hw_work,
             assignment,
         });
-        // `NUM_MIDSTATES` is 8; the cast is exact and fits well within u8.
-        #[allow(clippy::cast_possible_truncation)]
-        let stride = NUM_MIDSTATES as u8;
-        *work_id = work_id.wrapping_add(stride);
+        *work_id = work_id.wrapping_add(midstate_count);
 
         if let Err(e) = tx.write_all(&frame).await {
             error!("Failed to send work: {:?}", Debug2Format(&e.kind()));
@@ -406,7 +424,8 @@ impl Serial {
     fn handle_read<E: embedded_io::Error>(
         result: Result<usize, E>,
         parser: &mut ResponseParser,
-        registry: &[Option<WorkSlot>; REGISTRY_SIZE],
+        midstate_count: u8,
+        registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
         session: &'static AsicSession,
     ) -> Result<(), ErrorKind> {
@@ -419,7 +438,13 @@ impl Serial {
                 trace!("RX ({} bytes): {}", n, HexBytes(&parser.free()[..n]));
                 parser.commit(n);
                 while let Some(resp) = parser.pop() {
-                    Self::dispatch_response(&resp, registry, register_replies, session);
+                    Self::dispatch_response(
+                        &resp,
+                        midstate_count,
+                        registry,
+                        register_replies,
+                        session,
+                    );
                 }
                 UART_DESYNC_BYTES.fetch_add(parser.take_desync(), Ordering::Relaxed);
                 Ok(())
@@ -435,16 +460,21 @@ impl Serial {
 
     fn dispatch_response(
         resp: &Response,
-        registry: &[Option<WorkSlot>; REGISTRY_SIZE],
+        midstate_count: u8,
+        registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
         session: &'static AsicSession,
     ) {
         match resp {
             Response::HwSolution(wr) => {
-                let registry_id = usize::from(wr.work_id) / NUM_MIDSTATES;
+                let registry_id = usize::from(wr.work_id) / usize::from(midstate_count);
                 let version_bits = (u32::from(wr.version_idx) << 13) & 0x1FFF_E000;
 
-                let Some(slot) = registry[registry_id].as_ref() else {
+                // `registry_id` derives from the chip-returned `work_id`, so
+                // a stray reply can land past the registry. `get` keeps that
+                // off the wire from panicking; it folds into the same
+                // missing-assignment path as an unknown id.
+                let Some(slot) = registry.get(registry_id).and_then(Option::as_ref) else {
                     warn!(
                         "No WorkAssignment for work_id={} (registry_id {})",
                         wr.work_id, registry_id
@@ -515,7 +545,7 @@ impl Serial {
         parser: &mut ResponseParser,
         work_ticker: &mut Option<Ticker>,
         work_id: &mut u8,
-        registry: &mut [Option<WorkSlot>; REGISTRY_SIZE],
+        registry: &mut [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
     ) -> ControlFlow<()>
     where
         T: Write + BaudRate,
