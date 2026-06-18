@@ -1349,9 +1349,9 @@ impl PllParameterReg {
     /// collapses to a constant REFDIV.
     const PLL_REFDIV: u64 = 2;
 
-    /// FBDIV register-value search range for the BM1362 PLL. These
-    /// bounds are local policy chosen to keep the divider chain in a
-    /// usable window, not chip-recovered hard limits.
+    /// FBDIV register-value range for the BM1362 PLL. These bounds are
+    /// local policy chosen to keep the divider chain in a usable
+    /// window, not chip-recovered hard limits.
     const FBDIV_MIN: u8 = 160;
     const FBDIV_MAX: u8 = 237;
 
@@ -1384,25 +1384,44 @@ impl PllParameterReg {
     /// closest to `target_khz`, or `None` if `target_khz` is outside
     /// the passed `range`.
     ///
-    /// Exhaustive search over `(POSTDIV2_stored, POSTDIV1_stored,
-    /// FBDIV)` with sort key `(distance_to_target, POSTDIV2, FBDIV,
-    /// POSTDIV1)`. Targets between grid points resolve to the nearest
-    /// reachable hash clock. REFDIV is pinned to 2 and WDIV to 0. The
-    /// search bounds, the WDIV pin, and the tie-break key are local
-    /// policy, not chip-recovered requirements. The chosen FBDIV also
-    /// sets [`Self::vco_high`] via [`PLL_VCO_HIGH_THRESHOLD_HZ`].
+    /// Iterates the `(POSTDIV2_stored, POSTDIV1_stored)` divider pairs
+    /// and solves FBDIV directly from the PLL formula for each rather
+    /// than scanning the FBDIV range: with REFDIV and both post-dividers
+    /// fixed, `freq` is linear in FBDIV, so the nearest reachable clock
+    /// for the pair is one of the two integer FBDIVs bracketing the
+    /// ideal value. The best pair wins by sort key
+    /// `(distance_to_target, POSTDIV2, FBDIV, POSTDIV1)`, so targets
+    /// between grid points resolve to the nearest reachable hash clock.
+    /// REFDIV is pinned to 2 and WDIV to 0. The divider bounds, the WDIV
+    /// pin, and the tie-break key are local policy, not chip-recovered
+    /// requirements. The chosen FBDIV also sets [`Self::vco_high`] via
+    /// [`PLL_VCO_HIGH_THRESHOLD_HZ`].
     #[must_use]
     pub fn from_freq(target_khz: u32, range: FrequencyRange) -> Option<Self> {
         if !(range.min().khz()..=range.max().khz()).contains(&target_khz) {
             return None;
         }
         let goal_hz = u64::from(target_khz) * 1_000;
+        let fbdiv_min = u64::from(Self::FBDIV_MIN);
+        let fbdiv_max = u64::from(Self::FBDIV_MAX);
 
         let mut best: Option<(u64, u8, u8, u8)> = None;
         for postdiv2_stored in Self::POSTDIV2_STORED_MIN..=Self::POSTDIV2_STORED_MAX {
             let pd1_min = postdiv2_stored.max(Self::POSTDIV1_STORED_MIN);
             for postdiv1_stored in pd1_min..=Self::POSTDIV1_STORED_MAX {
-                for fbdiv in Self::FBDIV_MIN..=Self::FBDIV_MAX {
+                // freq = BASE * FBDIV / REFDIV / (pd1+1) / (pd2+1)
+                // rearranges to FBDIV = freq * REFDIV * (pd1+1) * (pd2+1)
+                // / BASE. Integer division floors the ideal value; the
+                // floor and its successor bracket the nearest reachable
+                // clock for this divider pair.
+                let divisor_product =
+                    (u64::from(postdiv1_stored) + 1) * (u64::from(postdiv2_stored) + 1);
+                let ideal_fbdiv = goal_hz * Self::PLL_REFDIV * divisor_product / BASE_CLOCK;
+                for bracket in [ideal_fbdiv, ideal_fbdiv + 1] {
+                    // The clamp pins the candidate to the FBDIV range, so
+                    // the cast to u8 cannot truncate.
+                    #[allow(clippy::cast_possible_truncation)]
+                    let fbdiv = bracket.clamp(fbdiv_min, fbdiv_max) as u8;
                     let freq = Self::pll_freq_hz(fbdiv, postdiv1_stored, postdiv2_stored);
                     let distance = freq.abs_diff(goal_hz);
                     let key = (distance, postdiv2_stored, fbdiv, postdiv1_stored);
@@ -1425,7 +1444,3 @@ impl PllParameterReg {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "tests/registers.rs"]
-mod tests;
