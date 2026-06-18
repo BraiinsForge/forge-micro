@@ -33,6 +33,11 @@ pub enum Message {
     TunerFault,
     /// Tuner: recovered.
     TunerRecovered,
+    /// OTA pre-flight: asserts the OTA-update pause before erasing flash.
+    OtaBegin,
+    /// OTA pre-flight: clears the OTA-update pause after the update completes
+    /// or is aborted.
+    OtaEnd,
     /// API: operator-issued resume via `POST /api/system/resume`.
     Start,
     /// API: operator-issued pause via `POST /api/system/pause`.

@@ -23,3 +23,4 @@ pub mod tuner;
 
 pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
 pub use miner::{Miner, MinerControl, MinerError, PsuErrorKind};
+pub use serial::{core1_is_parked, release_core1_park, request_core1_park};

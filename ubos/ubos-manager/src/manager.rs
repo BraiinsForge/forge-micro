@@ -43,6 +43,8 @@ fn apply(reasons: PauseReasons, message: Message) -> PauseReasons {
         Message::PoolReachable => reasons.clear(PauseReason::PoolUnreachable),
         Message::TunerFault => reasons.assert(PauseReason::TunerFault),
         Message::TunerRecovered => reasons.clear(PauseReason::TunerFault),
+        Message::OtaBegin => reasons.assert(PauseReason::OtaUpdate),
+        Message::OtaEnd => reasons.clear(PauseReason::OtaUpdate),
         Message::Stop => reasons.assert(PauseReason::UserRequest),
         Message::Start => reasons.clear(PauseReason::UserRequest),
     }

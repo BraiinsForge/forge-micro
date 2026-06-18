@@ -9,7 +9,7 @@
 use core::fmt;
 use core::ops::ControlFlow;
 
-use embassy_futures::select::{Either3, select3};
+use embassy_futures::select::{Either4, select4};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
@@ -20,7 +20,7 @@ use embedded_io::ErrorKind;
 use embedded_io_async::{Error as _, Read, Write};
 use heapless::Vec as HVec;
 use mining_protocol::hashing::hash_meets_target;
-use portable_atomic::{AtomicU32, Ordering};
+use portable_atomic::{AtomicBool, AtomicU32, Ordering};
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_asic::{
@@ -40,6 +40,74 @@ pub static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
 /// value points to corruption or a stray/late reply on the chain.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub static REGISTER_REPLY_MISMATCH: AtomicU32 = AtomicU32::new(0);
+
+// ---------------------------------------------------------------------------
+// Core-1 park primitives
+//
+// These three items coordinate a cooperative pause of the serial worker
+// so a different core can run flash operations safely. The park loop uses
+// a plain busy-spin so the code is portable across ARM (rp2350) and
+// Xtensa (esp32s3) targets. `wfe` is only a power optimisation and is
+// not needed for correctness; omitting it keeps `cortex_m` out of the
+// ubos-mining dependency graph, satisfying the esp32s3 build constraint.
+// On non-RP boards the request functions are never called, so the park
+// loop is dormant for the full lifetime of those firmware images.
+// ---------------------------------------------------------------------------
+
+/// Level flag: `true` means the serial worker should enter the park loop.
+///
+/// Set to `true` by [`request_core1_park`] and back to `false` by
+/// [`release_core1_park`]. The serial worker polls this inside the park
+/// loop and exits the spin when it returns `false`.
+pub(crate) static PARK_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Ack flag: `true` means the serial worker is currently spinning in the
+/// park loop and will not attempt any flash or UART access.
+///
+/// Set to `true` immediately before the worker enters the busy-spin and
+/// back to `false` after it exits. Callers that need exclusive flash
+/// access should poll this with [`core1_is_parked`] after calling
+/// [`request_core1_park`].
+pub(crate) static PARKED: AtomicBool = AtomicBool::new(false);
+
+/// Wakes the serial worker's `select` loop when a park is requested.
+///
+/// The worker may be blocked inside `rx.read` waiting for UART data when
+/// a park request arrives. Signalling this wakes the `select4` so the
+/// park arm fires promptly rather than waiting for the next UART byte.
+pub static PARK_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Requests that the core-1 serial worker enter its park loop.
+///
+/// Sets [`PARK_REQUESTED`] to `true` with `Release` ordering and signals
+/// [`PARK_SIGNAL`] to wake the worker's `select` loop immediately. After
+/// this call, poll [`core1_is_parked`] to wait for the ack; flash
+/// operations must not begin until the ack is observed.
+pub fn request_core1_park() {
+    PARK_REQUESTED.store(true, Ordering::Release);
+    PARK_SIGNAL.signal(());
+}
+
+/// Releases the core-1 serial worker from its park loop.
+///
+/// Sets [`PARK_REQUESTED`] to `false` with `Release` ordering. The worker
+/// exits its busy-spin on the next poll of [`PARK_REQUESTED`] and resumes
+/// normal operation. Safe to call when the worker is not parked (the store
+/// is idempotent).
+pub fn release_core1_park() {
+    PARK_REQUESTED.store(false, Ordering::Release);
+}
+
+/// Returns `true` while the core-1 serial worker is spinning in the park
+/// loop.
+///
+/// Loads [`PARKED`] with `Acquire` ordering. Flash operations may proceed
+/// once this returns `true`; the worker will not leave the park loop until
+/// [`release_core1_park`] is called.
+#[must_use]
+pub fn core1_is_parked() -> bool {
+    PARKED.load(Ordering::Acquire)
+}
 
 use crate::consts::{
     ACTIVE_BOARD, FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS,
@@ -308,9 +376,29 @@ impl Serial {
         let midstate_count = ACTIVE_BOARD.chip.descriptor().midstate_count;
 
         loop {
+            // Honor a park request at the top of every iteration, before the
+            // select. `select4` is biased by arm order, so when the UART RX
+            // buffer is continuously ready (e.g. the chip floods or browns out
+            // right after a rail cut) the read arm starves the park arm and the
+            // worker never parks within the requesting core's timeout. Checking
+            // here first guarantees the park is taken after at most one read is
+            // processed. The select's park arm still wakes the worker promptly
+            // when it is otherwise idle-blocked. The busy-spin uses
+            // `core::hint::spin_loop()` only so it compiles for esp32s3 (Xtensa)
+            // and keeps interrupts enabled, leaving the SIO FIFO ISR responsive
+            // on RP boards.
+            if PARK_REQUESTED.load(Ordering::Acquire) {
+                PARKED.store(true, Ordering::Release);
+                while PARK_REQUESTED.load(Ordering::Acquire) {
+                    core::hint::spin_loop();
+                }
+                PARKED.store(false, Ordering::Release);
+                continue;
+            }
+
             // Build the work-tick arm fresh each iteration. When work is
             // not enabled, this is a `Pending` future so the select only
-            // waits on the other two arms.
+            // waits on the other arms.
             let tick_arm = async {
                 if let Some(t) = work_ticker.as_mut() {
                     t.next().await;
@@ -320,9 +408,16 @@ impl Serial {
             };
             let read_arm = rx.read(parser.free());
             let cmd_arm = self.cmd.receive();
+            // Park arm: fires when another core requests a cooperative pause
+            // so it can perform flash operations safely. The busy-spin uses
+            // `core::hint::spin_loop()` only — no `wfe` or `cortex_m` calls —
+            // so this code compiles unchanged for esp32s3 (Xtensa LX7).
+            // Interrupts remain active during the spin, keeping the SIO FIFO
+            // ISR responsive on RP boards.
+            let park_arm = PARK_SIGNAL.wait();
 
-            match select3(tick_arm, read_arm, cmd_arm).await {
-                Either3::First(()) => {
+            match select4(tick_arm, read_arm, cmd_arm, park_arm).await {
+                Either4::First(()) => {
                     self.dispatch_work(
                         &mut tx,
                         &mut work_id,
@@ -332,7 +427,7 @@ impl Serial {
                     )
                     .await;
                 }
-                Either3::Second(read_result) => {
+                Either4::Second(read_result) => {
                     Self::handle_read(
                         read_result,
                         &mut parser,
@@ -342,7 +437,7 @@ impl Serial {
                         session,
                     )?;
                 }
-                Either3::Third(msg) => {
+                Either4::Third(msg) => {
                     if let ControlFlow::Break(()) = self
                         .handle_command(
                             msg,
@@ -356,6 +451,13 @@ impl Serial {
                     {
                         return Ok(());
                     }
+                }
+                Either4::Fourth(()) => {
+                    // A park was requested while the worker was idle-blocked in
+                    // the select. Just loop: the top-of-loop check performs the
+                    // actual park, keeping the spin logic in one place. `rx.read`
+                    // is cancel-safe, so dropping it here loses no data (the UART
+                    // driver buffers incoming bytes in its ring buffer).
                 }
             }
         }

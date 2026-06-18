@@ -12,10 +12,12 @@ use ubos_core::units::{Frequency, Voltage};
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// Subscriber capacity for the mining state watch. Four receivers
-/// covers api, the Step-4 manager, display, and one reference loop
-/// without enlarging the watch further.
-const WATCH_CAPACITY: usize = 4;
+/// Subscriber capacity for the mining state watch. The sole subscriber
+/// today is the transient receiver `Handle::stop_mining_and_wait` takes
+/// while it waits for mining to confirm it has stopped and dropped the
+/// PSU rail before erasing flash. The extra slots are headroom for
+/// future consumers and cost only unused `Watch` storage.
+const WATCH_CAPACITY: usize = 5;
 
 /// Command queue depth. Fire-and-forget callers may overlap; the
 /// channel buffers ahead of the work loop and back-pressures

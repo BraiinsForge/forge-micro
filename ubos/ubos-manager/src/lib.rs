@@ -23,9 +23,18 @@ pub use manager::run_manager;
 pub use message::Message;
 pub use pause::{PauseReason, PauseReasons};
 
+use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::{Receiver, Watch};
+use embassy_time::{Duration, Timer};
+
+/// Upper bound on how long [`Handle::stop_mining_and_wait`] waits for the
+/// mining loop to confirm it has stopped before giving up. The manager
+/// halts mining within one scheduler round-trip; five seconds is well
+/// above any observed latency and stops a wedged miner from hanging the
+/// OTA request indefinitely.
+const MINING_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Subscriber capacity for the pause-reasons watch. Four receivers
 /// covers API, display, and two future consumers without widening
@@ -100,5 +109,38 @@ impl Handle {
     pub async fn changed(&self) -> PauseReasons {
         let mut subscription = self.subscribe();
         subscription.changed().await
+    }
+
+    /// Stop mining and wait until it confirms it has fully stopped.
+    ///
+    /// Asserts the OTA-update pause (`PauseReason::OtaUpdate`, which the
+    /// manager turns into `mining.halt()`), then waits for the mining loop
+    /// to publish `running == false`. Mining publishes that only after
+    /// `cut_rail` has driven the chip into reset and disabled the PSU, so a
+    /// `true` return means the hashboard is de-energised and core 1 is back
+    /// at an await point — the preconditions for the OTA handler to safely
+    /// pause core 1 and erase flash.
+    ///
+    /// This is the single entry point the API uses for the OTA pre-flight,
+    /// so the API never depends on `ubos-mining` directly: the command
+    /// chain is API → manager → mining → PSU.
+    ///
+    /// Returns `false` if mining does not confirm stopped within
+    /// [`MINING_STOP_TIMEOUT`], so the caller can refuse the update rather
+    /// than flash a live board.
+    pub async fn stop_mining_and_wait(&self) -> bool {
+        self.send(Message::OtaBegin).await;
+        let mining = ubos_mining::handle();
+        // Fast path: a `None` state means mining never started, which is
+        // already stopped, so there is nothing to await.
+        if mining.state().is_none_or(|state| !state.running) {
+            return true;
+        }
+        let mut subscription = mining.subscribe();
+        let stopped = async { while subscription.changed().await.running {} };
+        matches!(
+            select(stopped, Timer::after(MINING_STOP_TIMEOUT)).await,
+            Either::First(()),
+        )
     }
 }

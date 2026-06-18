@@ -11,8 +11,8 @@
 /// mask means mining must be halted; there is no observation-only
 /// pause reason.
 ///
-/// Discriminants are wire-format bit positions: bit 4 is intentionally
-/// vacant (formerly `Reconfiguring`) so the remaining variants keep
+/// Discriminants are wire-format bit positions: `OtaUpdate` now occupies
+/// the formerly-`Reconfiguring` bit 4 so the remaining variants keep
 /// their existing positions. Do not renumber to close the gap.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +26,8 @@ pub enum PauseReason {
     UserRequest = 2,
     /// All configured pool entries are unreachable.
     PoolUnreachable = 3,
+    /// An over-the-air firmware update is in progress and is erasing flash.
+    OtaUpdate = 4,
     /// The tuner reported a fault it cannot recover from.
     TunerFault = 5,
 }
