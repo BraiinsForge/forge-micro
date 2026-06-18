@@ -76,8 +76,7 @@ pub enum Error<E> {
 /// Four LM75A sensors on the BMM101 hashboard wired to one shared I2C
 /// bus. Returns the hottest of the four readings each sample, offset by
 /// [`Lm75aHashboard::OFFSET_MILLICELSIUS`] to approximate chip junction
-/// temperature. Mirrors the `BRAIINS_MINI_BMM101_BM1362_4X1` descriptor
-/// in bos-main.
+/// temperature.
 pub struct Lm75aHashboard<Bus> {
     bus: Bus,
     sensors: [Lm75a; 4],
