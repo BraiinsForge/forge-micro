@@ -258,23 +258,23 @@ const CODE_GET_STATUS: u8 = 2;
 /// A chip address on the serial chain: either broadcast to all chips or
 /// unicast to the chip at the given hardware address.
 #[derive(Debug, Clone, Copy)]
-pub enum RawChipAddress {
+pub enum ChipAddress {
     /// Address all chips on the chain simultaneously.
     All,
     /// Address the chip at the given hardware address byte.
     Chip(u8),
 }
 
-impl RawChipAddress {
+impl ChipAddress {
     fn hw_addr(self) -> u8 {
         match self {
-            RawChipAddress::All => 0x00,
-            RawChipAddress::Chip(index) => index,
+            ChipAddress::All => 0x00,
+            ChipAddress::Chip(index) => index,
         }
     }
 
     fn is_broadcast(self) -> bool {
-        matches!(self, RawChipAddress::All)
+        matches!(self, ChipAddress::All)
     }
 }
 
@@ -295,7 +295,7 @@ fn push_frame(frame: &mut Frame, header: &[u8], payload: &[u8], crc: u8) {
 
 /// Build a write register command (`SetConfig`) — 11 bytes on wire.
 #[must_use]
-pub fn build_write_register(addr: RawChipAddress, reg: u8, value: u32) -> Frame {
+pub fn build_write_register(addr: ChipAddress, reg: u8, value: u32) -> Frame {
     let cmd = CMD_TYPE | if addr.is_broadcast() { TO_ALL } else { 0 } | CODE_SET_CONFIG;
     let len = 9u8; // packed_size=8 + 1 CRC
     let hw_addr = addr.hw_addr();
@@ -320,7 +320,7 @@ pub fn build_write_register(addr: RawChipAddress, reg: u8, value: u32) -> Frame 
 
 /// Build a read register command (`GetStatus`) — 7 bytes on wire.
 #[must_use]
-pub fn build_read_register(addr: RawChipAddress, reg: u8) -> Frame {
+pub fn build_read_register(addr: ChipAddress, reg: u8) -> Frame {
     let cmd = CMD_TYPE | if addr.is_broadcast() { TO_ALL } else { 0 } | CODE_GET_STATUS;
     let len = 5u8; // packed_size=4 + 1 CRC
     let hw_addr = addr.hw_addr();

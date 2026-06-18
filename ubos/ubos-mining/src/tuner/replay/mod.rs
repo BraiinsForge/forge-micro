@@ -57,7 +57,7 @@ impl ReplayTuner {
                     // Liveness check at the new line rate; the chip going
                     // silent here means the rest of the trace is moot.
                     let responses = miner
-                        .read_register_raw(ubos_asic::RawChipAddress::All, Self::CHIP_ID_REG)
+                        .read_register_raw(ubos_asic::ChipAddress::All, Self::CHIP_ID_REG)
                         .await;
                     if responses.is_empty() {
                         warn!(

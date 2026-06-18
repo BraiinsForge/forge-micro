@@ -34,7 +34,7 @@ use crate::serial::SERIAL;
 use crate::tuner::fixed::FixedTuner;
 use crate::tuner::replay::ReplayTuner;
 use crate::tuner::{Tuner, TuningConfig};
-use ubos_asic::{RawChipAddress, RegisterResponse, build_command, build_raw_command};
+use ubos_asic::{ChipAddress, RegisterResponse, build_command, build_raw_command};
 
 /// Raise once to stop the miner. The run loop awaits this between init
 /// and deinit; signalling it triggers the teardown sequence and the
@@ -118,7 +118,7 @@ pub trait MinerControl {
     /// Program both PLL registers for `chip` to achieve `frequency`.
     async fn set_frequency(
         &self,
-        chip: RawChipAddress,
+        chip: ChipAddress,
         frequency: Frequency,
     ) -> Result<(), MinerError>;
 
@@ -141,13 +141,13 @@ pub trait MinerControl {
 
     /// Write a raw `u32` to an arbitrary register without packing
     /// through a typed layout. Used by trace replay.
-    async fn write_register_raw(&self, addr: RawChipAddress, reg: u8, value: u32);
+    async fn write_register_raw(&self, addr: ChipAddress, reg: u8, value: u32);
 
     /// Broadcast-read a raw register and return every chip's response.
     /// Used by trace replay for chip-ID liveness checks.
     async fn read_register_raw(
         &self,
-        addr: RawChipAddress,
+        addr: ChipAddress,
         reg: u8,
     ) -> HVec<RegisterResponse, MAX_CHIPS>;
 
@@ -483,7 +483,7 @@ where
 {
     async fn set_frequency(
         &self,
-        chip_addr: RawChipAddress,
+        chip_addr: ChipAddress,
         frequency: Frequency,
     ) -> Result<(), MinerError> {
         chip::set_frequency(chip_addr, frequency.khz()).await
@@ -508,13 +508,13 @@ where
         chip::enumerate_chips().await
     }
 
-    async fn write_register_raw(&self, addr: RawChipAddress, reg: u8, value: u32) {
+    async fn write_register_raw(&self, addr: ChipAddress, reg: u8, value: u32) {
         SERIAL.write_register_raw(addr, reg, value).await;
     }
 
     async fn read_register_raw(
         &self,
-        addr: RawChipAddress,
+        addr: ChipAddress,
         reg: u8,
     ) -> HVec<RegisterResponse, MAX_CHIPS> {
         SERIAL.read_register_raw(addr, reg).await

@@ -9,7 +9,7 @@
 use crate::miner::MinerError;
 use crate::serial::SERIAL;
 use ubos_asic::{
-    BM1362, ChipIdReg, HashCountingNumberReg, Pll0DividerReg, PllParameterReg, RawChipAddress,
+    BM1362, ChipIdReg, HashCountingNumberReg, Pll0DividerReg, PllParameterReg, ChipAddress,
     Register, TicketMaskReg,
 };
 
@@ -19,7 +19,7 @@ use ubos_asic::{
 /// case where the first PLL write arrives garbled because the PLL
 /// itself shifted mid-reception. `target_khz` granularity matches
 /// a sub-MHz frequency ramp without truncation.
-pub async fn set_frequency(chip: RawChipAddress, target_khz: u32) -> Result<(), MinerError> {
+pub async fn set_frequency(chip: ChipAddress, target_khz: u32) -> Result<(), MinerError> {
     let range = BM1362.frequency_range;
     let pll = PllParameterReg::from_freq(target_khz, range)
         .ok_or(MinerError::UnsupportedFrequency(target_khz))?;
@@ -39,7 +39,7 @@ pub async fn set_frequency(chip: RawChipAddress, target_khz: u32) -> Result<(), 
 /// site to derive it from a share difficulty.
 pub async fn set_ticket_mask(mask: u32) -> Result<(), MinerError> {
     let reg = TicketMaskReg::new().with_ticket_mask(mask);
-    SERIAL.write_register(RawChipAddress::All, &reg).await;
+    SERIAL.write_register(ChipAddress::All, &reg).await;
     Ok(())
 }
 
@@ -59,7 +59,7 @@ pub async fn get_chip_version(chip: u8) -> Result<ChipIdReg, MinerError> {
 /// window rather than probing the true chain length.
 pub async fn enumerate_chips() -> Result<u8, MinerError> {
     let responses = SERIAL
-        .read_register_raw(RawChipAddress::All, ChipIdReg::REG_NUM)
+        .read_register_raw(ChipAddress::All, ChipIdReg::REG_NUM)
         .await;
     // Truncating cast: response count is bounded by the `NUM_CHIPS` reply slots above.
     #[allow(clippy::cast_possible_truncation)]

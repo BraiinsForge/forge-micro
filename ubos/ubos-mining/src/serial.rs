@@ -24,7 +24,7 @@ use portable_atomic::{AtomicU32, Ordering};
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_asic::{
-    Frame, HwWork, RawChipAddress, Register, RegisterResponse, Response, ResponseParser,
+    Frame, HwWork, ChipAddress, Register, RegisterResponse, Response, ResponseParser,
     build_read_register, build_write_register,
 };
 use ubos_logging::{Debug2Format, error, info, trace, warn};
@@ -209,7 +209,7 @@ impl Serial {
     /// chip does not acknowledge writes. Byte-level callers (the replay
     /// path, byte-frame tests) use this directly; consumers that hold a
     /// typed [`Register`] go through [`Self::write_register`].
-    pub async fn write_register_raw(&self, addr: RawChipAddress, reg: u8, value: u32) {
+    pub async fn write_register_raw(&self, addr: ChipAddress, reg: u8, value: u32) {
         self.send_frame(build_write_register(addr, reg, value))
             .await;
     }
@@ -217,7 +217,7 @@ impl Serial {
     /// Typed register-write wrapper. Serialises `reg` to its 4-byte
     /// wire payload and delegates to [`Self::write_register_raw`].
     /// Infallible because the bitfield storage is a plain `u32`.
-    pub async fn write_register<R: Register>(&self, addr: RawChipAddress, reg: &R) {
+    pub async fn write_register<R: Register>(&self, addr: ChipAddress, reg: &R) {
         let value = u32::from_be_bytes(reg.to_be_bytes());
         self.write_register_raw(addr, R::REG_NUM, value).await;
     }
@@ -230,7 +230,7 @@ impl Serial {
     /// [`Self::READ_REPLY_TIMEOUT`] window rather than `expected ×` it.
     pub async fn read_register_raw(
         &self,
-        addr: RawChipAddress,
+        addr: ChipAddress,
         reg: u8,
     ) -> HVec<RegisterResponse, MAX_CHIPS> {
         let _guard = self.register_session.lock().await;
@@ -241,8 +241,8 @@ impl Serial {
         self.send_frame(build_read_register(addr, reg)).await;
 
         let expected = match addr {
-            RawChipAddress::All => usize::from(NUM_CHIPS),
-            RawChipAddress::Chip(_) => 1,
+            ChipAddress::All => usize::from(NUM_CHIPS),
+            ChipAddress::Chip(_) => 1,
         };
 
         let mut responses: HVec<RegisterResponse, MAX_CHIPS> = HVec::new();
@@ -258,7 +258,7 @@ impl Serial {
     }
 
     /// Typed single-chip register-read wrapper. Issues a read at
-    /// `RawChipAddress::Chip(chip)`, waits for the one expected reply,
+    /// `ChipAddress::Chip(chip)`, waits for the one expected reply,
     /// and decodes it into `R`. Returns `TimedOut` if the chip stays
     /// silent past [`Self::READ_REPLY_TIMEOUT`]. Broadcast reads stay on the
     /// raw path because the typed wrapper would have to drop chip-
@@ -266,7 +266,7 @@ impl Serial {
     /// `Tuner` / `Miner` callers need.
     pub async fn read_register<R: Register>(&self, chip: u8) -> Result<R, ErrorKind> {
         let raw = self
-            .read_register_raw(RawChipAddress::Chip(chip), R::REG_NUM)
+            .read_register_raw(ChipAddress::Chip(chip), R::REG_NUM)
             .await;
         let response = raw.first().ok_or(ErrorKind::TimedOut)?;
         Ok(R::from_be_bytes(response.value.to_be_bytes()))

@@ -14,7 +14,7 @@ use libm::sqrtf;
 use ubos_asic::{
     AnalogMuxControl, BMM100, BaudRateReg, BoardDescriptor, ChipNonceOffsetReg, ControlCommand,
     CoreControlReg, CoreRegister, DomainSelect, HashCountingNumberReg, IoDriverStrengthCtrlReg,
-    MidstateCalReg, MiscCtrlReg, Pll0DividerReg, PllParameterReg, RawChipAddress, Register,
+    MidstateCalReg, MiscCtrlReg, Pll0DividerReg, PllParameterReg, ChipAddress, Register,
     SoftResetControlReg, TicketMaskReg,
 };
 use ubos_core::units::{Frequency, Voltage};
@@ -97,18 +97,18 @@ impl FixedTuner {
     const PRE_PLL_CLOCK_DELAY: u8 = 0x34;
 
     async fn pre_enumerate<M: MinerControl>(&self, miner: &M) -> Result<(), TunerError> {
-        write_register(miner, RawChipAddress::All, SoftResetControlReg::quiescent()).await;
+        write_register(miner, ChipAddress::All, SoftResetControlReg::quiescent()).await;
         Timer::after(Self::PRE_ENUMERATE_GAP).await;
         write_register(
             miner,
-            RawChipAddress::All,
+            ChipAddress::All,
             MiscCtrlReg::default_bringup_config(),
         )
         .await;
         Timer::after(Self::PRE_ENUMERATE_GAP).await;
         write_register(
             miner,
-            RawChipAddress::All,
+            ChipAddress::All,
             MidstateCalReg::factory_default(),
         )
         .await;
@@ -137,14 +137,14 @@ impl FixedTuner {
     async fn post_address_assign<M: MinerControl>(&self, miner: &M) -> Result<(), TunerError> {
         write_register(
             miner,
-            RawChipAddress::All,
+            ChipAddress::All,
             CoreControlReg::default_hash_clock_config(),
         )
         .await;
         Timer::after(Self::POST_ADDRESS_GAP).await;
         write_register(
             miner,
-            RawChipAddress::All,
+            ChipAddress::All,
             CoreControlReg::for_core_write(CoreRegister::ClockDelayCtrl, Self::PRE_PLL_CLOCK_DELAY),
         )
         .await;
@@ -153,10 +153,10 @@ impl FixedTuner {
     }
 
     async fn pre_pll_configure<M: MinerControl>(&self, miner: &M) -> Result<(), TunerError> {
-        write_register(miner, RawChipAddress::All, AnalogMuxControl::disabled()).await;
+        write_register(miner, ChipAddress::All, AnalogMuxControl::disabled()).await;
         write_register(
             miner,
-            RawChipAddress::All,
+            ChipAddress::All,
             IoDriverStrengthCtrlReg::default_drive_strengths(),
         )
         .await;
@@ -164,7 +164,7 @@ impl FixedTuner {
     }
 
     async fn switch_fast_baud<M: MinerControl>(&self, miner: &M) -> Result<(), TunerError> {
-        write_register(miner, RawChipAddress::All, BaudRateReg::fast_3mbaud()).await;
+        write_register(miner, ChipAddress::All, BaudRateReg::fast_3mbaud()).await;
         // The chip is now listening at 3.125 Mbaud; switch the host
         // controller to match. `set_baud_rate` translates the
         // requested rate to the actual chip line rate internally.
@@ -177,7 +177,7 @@ impl FixedTuner {
 
     async fn post_pll_configure<M: MinerControl>(&self, miner: &M) -> Result<(), TunerError> {
         for index in 0..Self::CHIP_COUNT {
-            let chip = RawChipAddress::Chip(index * Self::ADDRESS_STRIDE);
+            let chip = ChipAddress::Chip(index * Self::ADDRESS_STRIDE);
             write_register(
                 miner,
                 chip,
@@ -205,7 +205,7 @@ impl FixedTuner {
             // Safe to cast: CHIP_COUNT fits in u8 and the index
             // is bounded by the array length.
             #[allow(clippy::cast_possible_truncation)]
-            let chip = RawChipAddress::Chip(index as u8 * Self::ADDRESS_STRIDE);
+            let chip = ChipAddress::Chip(index as u8 * Self::ADDRESS_STRIDE);
             write_register(miner, chip, ChipNonceOffsetReg::from_offset(offset)).await;
         }
         Ok(())
@@ -217,7 +217,7 @@ impl FixedTuner {
                 .ok_or(TunerError::Miner(
                     crate::miner::MinerError::UnsupportedFrequency(SAFE_BOOT.khz()),
                 ))?;
-        write_register(miner, RawChipAddress::All, hcn).await;
+        write_register(miner, ChipAddress::All, hcn).await;
         Ok(())
     }
 
@@ -280,7 +280,7 @@ impl FixedTuner {
                 next.khz(),
                 voltage_now.mv()
             );
-            miner.set_frequency(RawChipAddress::All, next).await?;
+            miner.set_frequency(ChipAddress::All, next).await?;
             publish_tuner_step(next, voltage_now);
             frequency_now = next;
             Timer::after(Self::RAMP_SETTLE).await;
@@ -311,7 +311,7 @@ impl FixedTuner {
             );
             miner.set_voltage(next_voltage).await?;
             miner
-                .set_frequency(RawChipAddress::All, next_frequency)
+                .set_frequency(ChipAddress::All, next_frequency)
                 .await?;
             publish_tuner_step(next_frequency, next_voltage);
             voltage_now = next_voltage;
@@ -348,7 +348,7 @@ impl<M: MinerControl> Tuner<M> for FixedTuner {
         self.post_address_assign(miner).await?;
         self.pre_pll_configure(miner).await?;
         // Initial PLL at SAFE_BOOT, still 115_200 baud.
-        write_pll_only(miner, RawChipAddress::All, SAFE_BOOT.khz()).await?;
+        write_pll_only(miner, ChipAddress::All, SAFE_BOOT.khz()).await?;
         self.switch_fast_baud(miner).await?;
         self.post_pll_configure(miner).await?;
         self.assign_chip_nonce_offsets(miner).await?;
@@ -439,7 +439,7 @@ fn curve_voltage(power_target: f32, frequency: Frequency, target_voltage: Voltag
 /// callable the tuner has for register writes; the trait deliberately
 /// does not generalize over `Register` to keep
 /// `async_fn_in_trait` free of generic parameters.
-async fn write_register<M, R>(miner: &M, addr: RawChipAddress, reg: R)
+async fn write_register<M, R>(miner: &M, addr: ChipAddress, reg: R)
 where
     M: MinerControl,
     R: Register,
@@ -455,7 +455,7 @@ where
 /// `INITIAL_BAUDRATE`; the HCN write comes later (post-baud).
 async fn write_pll_only<M: MinerControl>(
     miner: &M,
-    addr: RawChipAddress,
+    addr: ChipAddress,
     target_khz: u32,
 ) -> Result<(), TunerError> {
     let pll = PllParameterReg::from_freq(target_khz, BMM100.chip.frequency_range).ok_or(
