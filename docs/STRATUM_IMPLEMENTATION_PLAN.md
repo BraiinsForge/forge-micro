@@ -228,7 +228,7 @@ form requires.
 
 | Field | Trait form | V1 wire | V2 wire |
 |---|---|---|---|
-| `prev_hash` | block-header byte order — direct memcpy into `header[4..36]` | hex, with **per-u32 byte swap** (see bos-main `v1.rs:127`) | binary, natural order |
+| `prev_hash` | block-header byte order — direct memcpy into `header[4..36]` | hex, with **per-u32 byte swap** | binary, natural order |
 | `merkle_root` (in `LazyMerkle::Final` / computed from `Prepared`) | block-header byte order | wire is hex, no swap | binary, natural order |
 | `target` | little-endian 256-bit integer — `target[0]` is LSB, `target[31]` is MSB | derived from float diff via `target_from_diff` | binary, per SV2 spec |
 | `version`, `ntime`, `nbits` | native `u32` | hex (big-endian text) parsed to `u32` | wire `u32` |

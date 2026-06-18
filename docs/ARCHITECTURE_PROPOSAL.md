@@ -710,10 +710,6 @@ the tuner module.
   *Unit and Integration Tests* (2022).
 - scattered-thoughts, *Reflections on a Decade of Coding* — tree-shaped
   state; one source of truth; explicit event loops.
-- Braiins OS (`~/projects/bos-main`) — `PauseState` bitmask, two-phase
-  halt, config-version chain, three-layer chip/board descriptor pattern
-  are worth copying; tarpc process split, file-polling reload, and
-  `OnceLock` metrics singleton are not.
 - Jack Ganssle, watchdog timer design articles. Elecia White, *Making
   Embedded Systems*, §5 (watchdog patterns).
 

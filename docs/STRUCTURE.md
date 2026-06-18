@@ -235,12 +235,10 @@ collapses that question into "where is the file?" — and prevents the
 accidental dep that would, say, pull `host-runner` into a firmware
 build.
 
-The upstream `bos-main` mining stack (~70 crates) uses subsystem
-grouping (`open/bosminer/`, `open/boser/`, `open/utils-rs/`);
 `embassy-rs` ships each HAL family and each subsystem as a separately
-versioned crate at the top of the namespace. Both diverge from matklad's flat advice and both succeed.
-For a multi-target embedded workspace the categorical split pays for
-itself in build-config clarity.
+versioned crate at the top of the namespace, diverging from matklad's
+flat advice and succeeding. For a multi-target embedded workspace the
+categorical split pays for itself in build-config clarity.
 
 ### Virtual manifest at root
 
@@ -285,13 +283,6 @@ Embassy (<https://embassy.dev/book/>) splits per-concern
 `embassy-boot`) and per-MCU-family (`embassy-stm32`, `embassy-rp`,
 `embassy-nrf`). The same instinct shapes the `ubos-*` namespace
 here.
-
-reference-miner (<https://github.com/example/reference-miner>) splits its C
-codebase into `components/` (6 reusable libraries) and `main/` (6
-app-layer subdirectories plus 30+ source files). The Rust analogue
-maps cleanly: their `components/` is our `ubos/` + `host/`, their
-`main/` is each firmware crate's `src/`. Their granularity is
-similar to what this project targets at growth.
 
 ## Migration plan
 
