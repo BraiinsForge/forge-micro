@@ -33,6 +33,12 @@ impl Http {
 pub struct Api;
 impl Api {
     pub const PORT: u16 = 8080;
+    // Kept at or below the W6100's 4 KiB on-chip RX buffer on purpose. Each
+    // 4 KiB DFU sector write during an OTA upload pauses both cores, and the
+    // W6100 cannot be drained while frozen; a window larger than the chip
+    // buffer lets more data arrive than the chip can hold, so frames are
+    // dropped and TCP backs off. A 2 KiB window keeps in-flight data under the
+    // chip buffer so a single flash freeze cannot overflow it.
     pub const RX_BUFFER_SIZE: usize = 2048;
     pub const TX_BUFFER_SIZE: usize = 2048;
     pub const REQUEST_BUFFER_SIZE: usize = 2048;
