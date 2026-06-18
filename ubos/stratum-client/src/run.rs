@@ -242,7 +242,6 @@ fn publish_work(state: &mut StratumState, asic: &AsicSession) {
         merkle_root: slot.merkle_root,
         target: slot.target,
         version: slot.version,
-        version_mask: slot.version_rolling_mask,
         nbits: slot.nbits,
         ntime: slot.ntime_base.wrapping_add(slot.ntime_offset),
     };

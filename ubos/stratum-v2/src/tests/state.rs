@@ -19,8 +19,8 @@ fn new_uses_accept_all_target() {
 fn allocate_job_id_returns_monotonic_generic_ids() {
     let mut state = V2SessionState::new();
 
-    let first = state.allocate_job_id(100);
-    let second = state.allocate_job_id(101);
+    let first = state.allocate_job_id(100, 0x2000_0000);
+    let second = state.allocate_job_id(101, 0x2000_0000);
 
     assert_eq!(first, JobId(0));
     assert_eq!(second, JobId(1));
@@ -31,28 +31,39 @@ fn allocate_job_id_returns_monotonic_generic_ids() {
 fn allocated_job_id_maps_to_wire_id() {
     let mut state = V2SessionState::new();
 
-    let generic = state.allocate_job_id(42);
+    let generic = state.allocate_job_id(42, 0x2000_0000);
 
-    assert_eq!(state.lookup_wire_job_id(generic), Some(42));
+    assert_eq!(state.lookup_job(generic).map(|slot| slot.wire), Some(42));
+}
+
+#[test]
+fn allocated_job_id_retains_base_version() {
+    let mut state = V2SessionState::new();
+
+    let generic = state.allocate_job_id(42, 0x2000_0010);
+
+    let slot = state.lookup_job(generic).expect("slot present");
+    assert_eq!(slot.wire, 42);
+    assert_eq!(slot.version, 0x2000_0010);
 }
 
 #[test]
 fn job_id_ring_rotates_after_depth() {
     let mut state = V2SessionState::new();
 
-    let first = state.allocate_job_id(10);
-    let second = state.allocate_job_id(11);
+    let first = state.allocate_job_id(10, 0x2000_0000);
+    let second = state.allocate_job_id(11, 0x2000_0000);
 
-    assert_eq!(state.lookup_wire_job_id(first), Some(10));
-    assert_eq!(state.lookup_wire_job_id(second), Some(11));
+    assert_eq!(state.lookup_job(first).map(|slot| slot.wire), Some(10));
+    assert_eq!(state.lookup_job(second).map(|slot| slot.wire), Some(11));
     assert_eq!(state.job_id_write_index, 0);
 
-    let third = state.allocate_job_id(12);
+    let third = state.allocate_job_id(12, 0x2000_0000);
 
     assert_eq!(JOBID_MAP_DEPTH, 2);
-    assert_eq!(state.lookup_wire_job_id(first), None);
-    assert_eq!(state.lookup_wire_job_id(second), Some(11));
-    assert_eq!(state.lookup_wire_job_id(third), Some(12));
+    assert_eq!(state.lookup_job(first).map(|slot| slot.wire), None);
+    assert_eq!(state.lookup_job(second).map(|slot| slot.wire), Some(11));
+    assert_eq!(state.lookup_job(third).map(|slot| slot.wire), Some(12));
     assert_eq!(state.job_id_write_index, 1);
 }
 
@@ -60,9 +71,9 @@ fn job_id_ring_rotates_after_depth() {
 fn lookup_unknown_job_id_returns_none() {
     let mut state = V2SessionState::new();
 
-    state.allocate_job_id(10);
+    state.allocate_job_id(10, 0x2000_0000);
 
-    assert_eq!(state.lookup_wire_job_id(JobId(999)), None);
+    assert_eq!(state.lookup_job(JobId(999)).map(|slot| slot.wire), None);
 }
 
 #[test]
@@ -70,8 +81,8 @@ fn job_id_counter_wraps() {
     let mut state = V2SessionState::new();
     state.next_job_id = u32::MAX;
 
-    let last = state.allocate_job_id(10);
-    let wrapped = state.allocate_job_id(11);
+    let last = state.allocate_job_id(10, 0x2000_0000);
+    let wrapped = state.allocate_job_id(11, 0x2000_0000);
 
     assert_eq!(last, JobId(u32::MAX));
     assert_eq!(wrapped, JobId(0));

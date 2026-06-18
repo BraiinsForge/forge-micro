@@ -250,7 +250,6 @@ pub struct MiningJob<'a> {
     pub id: JobId,
     pub prev_hash: &'a [u8; 32],
     pub version: u32,
-    pub version_rolling_mask: u32,
     pub nbits: u32,
     pub ntime: u32,
     pub target: &'a [u8; 32],
@@ -359,7 +358,6 @@ struct JobSlot {
     target: [u8; 32],
     merkle_root: [u8; 32],   // precomputed at visit_new_job
     version: u32,
-    version_mask: u32,
     nbits: u32,
     ntime_base: u32,
     ntime_set_at: Instant,
@@ -441,7 +439,6 @@ Ticker::every(1s):
         merkle_root: job.merkle_root,           // precomputed; en2=0 today
         target: job.target,
         version: job.version,
-        version_mask: job.version_mask,
         nbits: job.nbits,
         ntime,
     });

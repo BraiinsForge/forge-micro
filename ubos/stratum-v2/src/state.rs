@@ -39,6 +39,12 @@ pub struct PendingFutureJob {
 pub struct JobIdSlot {
     pub generic: JobId,
     pub wire: u32,
+    /// Base block `version` the pool published for this job. The
+    /// submit path ORs the chip's rolled BIP320 bits into this base
+    /// to recover the full `nVersion` the chip actually hashed, since
+    /// `SubmitSharesStandard.version` carries the full field, not just
+    /// the rolled bits.
+    pub version: u32,
 }
 
 /// Adapter session state for a V2 standard channel.
@@ -71,10 +77,6 @@ pub struct V2SessionState {
     /// after the `JobId`-to-wire-id ring lands with V2 submit.
     #[allow(dead_code)]
     pub ntime_base: u32,
-    /// Negotiated version-rolling mask. Stays at `0` until the
-    /// firmware requests rolling via `SetupConnection.flags` and
-    /// the pool agrees.
-    pub version_rolling_mask: u32,
     /// `JobId` counter; increments on each `visit_new_job`.
     pub next_job_id: u32,
     /// Per-channel `sequence_number` for outbound
@@ -105,7 +107,6 @@ impl V2SessionState {
             extranonce_prefix_len: 0,
             nbits: 0,
             ntime_base: 0,
-            version_rolling_mask: 0,
             next_job_id: 0,
             next_sequence_number: 0,
             job_id_ring: [const { None }; JOBID_MAP_DEPTH],
@@ -114,30 +115,32 @@ impl V2SessionState {
         }
     }
 
-    /// Allocate the next `JobId` and stash the `(JobId, wire_id)`
-    /// pair into the ring at the current write index.
-    pub fn allocate_job_id(&mut self, wire_id: u32) -> JobId {
+    /// Allocate the next `JobId` and stash the `(JobId, wire_id,
+    /// version)` triple into the ring at the current write index.
+    pub fn allocate_job_id(&mut self, wire_id: u32, version: u32) -> JobId {
         let generic = JobId(self.next_job_id);
         self.next_job_id = self.next_job_id.wrapping_add(1);
         let index = self.job_id_write_index;
         self.job_id_ring[index] = Some(JobIdSlot {
             generic,
             wire: wire_id,
+            version,
         });
         self.job_id_write_index = (index + 1) % JOBID_MAP_DEPTH;
         generic
     }
 
-    /// Look up the V2 wire `job_id` for a previously emitted
-    /// `JobId`. Returns `None` if the slot has rotated out of the
+    /// Look up the ring slot for a previously emitted `JobId`. The
+    /// submit path reads both the wire `job_id` and the base `version`
+    /// from it. Returns `None` if the slot has rotated out of the
     /// depth-`JOBID_MAP_DEPTH` ring.
     #[must_use]
-    pub fn lookup_wire_job_id(&self, generic: JobId) -> Option<u32> {
+    pub fn lookup_job(&self, generic: JobId) -> Option<JobIdSlot> {
         self.job_id_ring
             .iter()
             .filter_map(Option::as_ref)
             .find(|slot| slot.generic == generic)
-            .map(|slot| slot.wire)
+            .copied()
     }
 
     /// Reserve and return the next per-channel `sequence_number`.

@@ -939,6 +939,58 @@ async fn submit_after_channel_open_flushes_on_drive() {
                 message.job_id, FAKE_JOB_ID,
                 "submitted job_id must match the wire job_id",
             );
+            assert_eq!(
+                message.version, 0x2000_0000,
+                "with no rolled bits the wire version is the job base version",
+            );
+        }
+        other => panic!("expected SubmitSharesStandard, got {other:?}"),
+    }
+}
+
+/// A share carrying rolled BIP320 bits must reach the wire as the full
+/// `nVersion`: the job's base version with the rolled bits OR'd into the
+/// BIP320 field. The chip hashes this full version, so the pool can only
+/// reproduce the share's hash when the submit carries it whole.
+#[tokio::test]
+async fn submit_reconstructs_full_version_from_rolled_bits() {
+    let mut session = Session::new().await;
+    let mut visitor = RecordingVisitor::default();
+
+    session.open_channel(&mut visitor).await;
+    visitor.session_updates.clear();
+
+    let job_id = session.set_up_job(&mut visitor).await;
+
+    // 0x48 << 13 = 0x0009_0000 — only the BIP320 rolled bits, exactly
+    // what the chip reports as `version_bits`.
+    let share = Share {
+        id: job_id,
+        nonce: 0xDEAD_BEEF,
+        ntime: FAKE_NTIME,
+        version_bits: 0x0009_0000,
+        extranonce_2: &[],
+    };
+    session
+        .client
+        .submit(&share)
+        .expect("BUG: submit must succeed with valid job_id and open channel");
+
+    let success = SubmitSharesSuccess {
+        channel_id: FAKE_CHANNEL_ID,
+        last_sequence_number: 0,
+        new_submits_accepted_count: 1,
+        new_shares_sum: 1,
+    };
+    session.pool_send_msg(&success).await;
+    session.drive_and_accept(&mut visitor).await;
+
+    match session.pool_recv_msg().await {
+        MiningMessages::SubmitSharesStandard(message) => {
+            assert_eq!(
+                message.version, 0x2009_0000,
+                "wire version must be job base (0x2000_0000) OR rolled bits (0x0009_0000)",
+            );
         }
         other => panic!("expected SubmitSharesStandard, got {other:?}"),
     }

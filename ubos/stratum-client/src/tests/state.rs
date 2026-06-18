@@ -18,7 +18,6 @@ fn sample_job(id: u32, clean_jobs: bool) -> MiningJob<'static> {
         prev_hash: &PREV_HASH,
         target: &TARGET,
         version: 0x2000_0000,
-        version_rolling_mask: 0,
         nbits: 0x1705_c739,
         ntime: 0x6044_9522,
         clean_jobs,
@@ -42,7 +41,6 @@ fn visit_new_job_populates_slot() {
             target: SAMPLE_TARGET,
             merkle_root: SAMPLE_ROOT,
             version: 0x2000_0000,
-            version_rolling_mask: 0,
             nbits: 0x1705_c739,
             ntime_base: 0x6044_9522,
             ntime_offset: 0,
@@ -72,15 +70,12 @@ fn clean_jobs_invalidates_previous_slot() {
 }
 
 #[test]
-fn slot_target_and_mask_come_from_job() {
+fn slot_target_comes_from_job() {
     let mut state = StratumState::new();
-    let mut job = sample_job(1, false);
-    job.version_rolling_mask = 0x1fff_e000;
-    state.visit_new_job(job);
+    state.visit_new_job(sample_job(1, false));
 
     let current = state.job_ring.current().expect("slot present");
     assert_eq!(current.target, SAMPLE_TARGET);
-    assert_eq!(current.version_rolling_mask, 0x1fff_e000);
 }
 
 #[test]
@@ -93,17 +88,4 @@ fn set_target_does_not_patch_current_slot() {
 
     let current = state.job_ring.current().expect("slot present");
     assert_eq!(current.target, SAMPLE_TARGET);
-}
-
-#[test]
-fn set_version_mask_does_not_patch_current_slot() {
-    let mut state = StratumState::new();
-    let mut job = sample_job(1, false);
-    job.version_rolling_mask = 0x0000_4000;
-    state.visit_new_job(job);
-
-    state.visit_session_update(SessionUpdate::SetVersionMask(0x1fff_e000));
-
-    let current = state.job_ring.current().expect("slot present");
-    assert_eq!(current.version_rolling_mask, 0x0000_4000);
 }

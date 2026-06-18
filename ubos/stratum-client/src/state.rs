@@ -84,7 +84,6 @@ impl MiningClientVisitor for StratumState {
         let en2 = &zeros[..en2_size];
         slot.merkle_root = job.merkle.compute(en2);
         slot.version = job.version;
-        slot.version_rolling_mask = job.version_rolling_mask;
         slot.nbits = job.nbits;
         slot.ntime_base = job.ntime;
         slot.ntime_offset = 0;

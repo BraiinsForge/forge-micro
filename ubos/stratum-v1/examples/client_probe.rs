@@ -43,15 +43,9 @@ struct PrintVisitor {
 impl MiningClientVisitor for PrintVisitor {
     fn visit_new_job(&mut self, job: MiningJob<'_>) {
         println!(
-            "[job] id={:?} version={:#010x} mask={:#010x} nbits={:#010x} ntime={:#010x} \
+            "[job] id={:?} version={:#010x} nbits={:#010x} ntime={:#010x} \
              clean_jobs={} en2_size={}",
-            job.id,
-            job.version,
-            job.version_rolling_mask,
-            job.nbits,
-            job.ntime,
-            job.clean_jobs,
-            job.extranonce_2_size,
+            job.id, job.version, job.nbits, job.ntime, job.clean_jobs, job.extranonce_2_size,
         );
         if !self.saw_first_job {
             self.saw_first_job = true;

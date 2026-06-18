@@ -361,7 +361,6 @@ impl MiningClient for StratumV1Client<'_> {
                     visitor.visit_session_update(SessionUpdate::SetTarget(&self.session.target));
                 }
                 Rpc::Notification(Notification::SetVersionMask(set_mask)) => {
-                    self.session.version_rolling_mask = set_mask.mask;
                     info!("stratum-v1: set-version-mask {:#010x}", set_mask.mask,);
                     visitor.visit_session_update(SessionUpdate::SetVersionMask(set_mask.mask));
                 }
@@ -492,7 +491,6 @@ fn dispatch_notify<V: MiningClientVisitor>(
         prev_hash: &decode_scratch.prev_hash,
         target: &session.target,
         version,
-        version_rolling_mask: session.version_rolling_mask,
         nbits,
         ntime,
         clean_jobs: notify.clean_jobs,
@@ -675,7 +673,6 @@ fn dispatch_response<V: MiningClientVisitor>(
         PendingRequestKind::Configure => {
             if let Some(result) = response.stratum_result {
                 if let Some(mask) = parse_version_rolling_mask(result) {
-                    session.version_rolling_mask = mask;
                     visitor.visit_session_update(SessionUpdate::SetVersionMask(mask));
                 }
             }

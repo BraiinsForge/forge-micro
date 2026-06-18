@@ -104,7 +104,7 @@ This file is the picture; the plan is the rationale.
    │   │     work_ring.put(work_id, job.id, en2, ntime, vb)       │      │
    │   │     asic.write_work(WorkAssignment {                     │      │
    │   │       work_id, prev_hash, merkle_root, target,           │      │
-   │   │       version, version_mask, nbits, ntime,               │      │
+   │   │       version, nbits, ntime,                             │      │
    │   │     })                                                   │      │
    │   └─────────────────┬────────────────────────────────────────┘      │
    └─────────────────────┼────────────────────────────────────────┬──────┘

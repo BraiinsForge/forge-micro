@@ -134,9 +134,6 @@ pub struct SessionState {
     /// `extranonce_2` size assigned by the pool. Stamped into every
     /// `MiningJob::extranonce_2_size`.
     pub extranonce_2_size: u8,
-    /// Negotiated version-rolling mask. `0` until the configure
-    /// response lands.
-    pub version_rolling_mask: u32,
     /// Latest target advertised by the pool. Initial value is the
     /// most-permissive target; `mining.set_difficulty` overwrites.
     pub target: [u8; 32],
@@ -160,7 +157,6 @@ impl SessionState {
             extranonce_1: [0; MAX_EXTRANONCE_1],
             extranonce_1_len: 0,
             extranonce_2_size: 0,
-            version_rolling_mask: 0,
             target: PERMISSIVE_TARGET,
             pending: PendingRequests::new(),
             next_job_id: 0,

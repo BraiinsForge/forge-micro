@@ -21,7 +21,6 @@ fn fixture(target: [u8; 32]) -> WorkAssignment {
         merkle_root: [0; 32],
         target,
         version: 0x2000_0000,
-        version_mask: 0,
         nbits: 0x1d00_ffff,
         ntime: 0x6044_9522,
     }
@@ -51,7 +50,6 @@ fn build_header_layout_is_canonical() {
         merkle_root: [0xBB; 32],
         target: [0; 32],
         version: 0x1234_5678,
-        version_mask: 0,
         nbits: 0x9ABC_DEF0,
         ntime: 0x6112_3456,
     };

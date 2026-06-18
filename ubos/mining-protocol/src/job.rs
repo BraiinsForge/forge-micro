@@ -28,9 +28,6 @@ pub struct MiningJob<'a> {
     pub target: &'a [u8; 32],
     /// Block version field.
     pub version: u32,
-    /// Bits permitted for version-rolling (V1 negotiated mask, V2
-    /// `SetupConnection.flags`-derived). `0` means no rolling.
-    pub version_rolling_mask: u32,
     /// Compact difficulty target.
     pub nbits: u32,
     /// Pool-supplied `ntime` base; the work generator rolls forward

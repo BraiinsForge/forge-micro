@@ -333,7 +333,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
             warn!("stratum-v2: submit dropped, channel not yet opened");
             return Err(Error::Adapter);
         };
-        let Some(wire_job_id) = session.lookup_wire_job_id(share.id) else {
+        let Some(job) = session.lookup_job(share.id) else {
             warn!(
                 "stratum-v2: submit dropped, JobId({}) not in ring",
                 share.id.0,
@@ -342,13 +342,20 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         };
         let sequence_number = session.allocate_sequence_number();
 
+        // `SubmitSharesStandard.version` is the full nVersion the chip
+        // hashed, not just the rolled bits. The chip rolls the BIP320
+        // field; restore the pool's base version in the remaining bits
+        // so the pool recomputes the same header hash.
+        let full_version =
+            (job.version & !BIP320_VERSION_MASK) | (share.version_bits & BIP320_VERSION_MASK);
+
         let message = SubmitSharesStandard {
             channel_id,
             sequence_number,
-            job_id: wire_job_id,
+            job_id: job.wire,
             nonce: share.nonce,
             ntime: share.ntime,
-            version: share.version_bits,
+            version: full_version,
         };
         let length = codec
             .encode(&message, self.encode_buffer.as_mut_slice())
@@ -358,7 +365,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         info!(
             "stratum-v2: submit queued channel={} seq={} job={} \
              nonce={:#010x} ntime={:#010x} version={:#010x}",
-            channel_id, sequence_number, wire_job_id, share.nonce, share.ntime, share.version_bits,
+            channel_id, sequence_number, job.wire, share.nonce, share.ntime, full_version,
         );
         Ok(())
     }
@@ -549,7 +556,6 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 } else {
                     0
                 };
-                session.version_rolling_mask = mask;
                 visitor.visit_session_update(SessionUpdate::SetVersionMask(mask));
             }
             MiningMessages::SetupConnectionError(error) => {
@@ -786,13 +792,12 @@ fn emit_mining_job<V: MiningClientVisitor>(
     clean_jobs: bool,
     visitor: &mut V,
 ) {
-    let job_id = session.allocate_job_id(wire_job_id);
+    let job_id = session.allocate_job_id(wire_job_id, version);
     let mining_job = MiningJob {
         id: job_id,
         prev_hash: &session.prev_hash,
         target: &session.target,
         version,
-        version_rolling_mask: session.version_rolling_mask,
         nbits: session.nbits,
         ntime,
         clean_jobs,

@@ -24,7 +24,6 @@ pub struct WorkAssignment {
     pub merkle_root: [u8; 32],
     pub target: [u8; 32],
     pub version: u32,
-    pub version_mask: u32,
     pub nbits: u32,
     pub ntime: u32,
 }

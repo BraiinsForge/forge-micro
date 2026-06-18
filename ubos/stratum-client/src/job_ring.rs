@@ -22,7 +22,6 @@ pub struct JobSlot {
     pub target: [u8; 32],
     pub merkle_root: [u8; 32],
     pub version: u32,
-    pub version_rolling_mask: u32,
     pub nbits: u32,
     /// Pool-supplied `ntime` base. The published `WorkAssignment`
     /// carries `ntime_base + ntime_offset`, with the offset
@@ -45,7 +44,6 @@ impl JobSlot {
             target: [0; 32],
             merkle_root: [0; 32],
             version: 0,
-            version_rolling_mask: 0,
             nbits: 0,
             ntime_base: 0,
             ntime_offset: 0,
@@ -112,9 +110,8 @@ impl<const N: usize> JobRing<N> {
     }
 
     /// Mutable view of the most recently written valid slot.
-    /// Used by mid-session `SetTarget` / `SetVersionMask` updates
-    /// so the in-flight job inherits the new value without
-    /// waiting for the next notify.
+    /// Used by the ntime-offset roller so each published work bumps
+    /// the in-flight job's `ntime` within the consensus-allowed window.
     pub fn current_mut(&mut self) -> Option<&mut JobSlot> {
         let latest = (self.write_index + N - 1) % N;
         let slot = &mut self.slots[latest];
