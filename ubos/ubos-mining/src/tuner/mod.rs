@@ -9,11 +9,9 @@
 //! not cycle because `ubos-config` no longer depends on
 //! `ubos-mining` or `ubos-manager`.
 //!
-//! Tuner implementations live in submodules: `replay::ReplayTuner`
-//! walks the captured wire trace through `MinerControl`'s
-//! byte-level escape hatches; `fixed::FixedTuner` is the typed
-//! open-loop ramp that reaches arbitrary targets via the BM1362
-//! PLL calculator. The active tuner is runtime-selectable via
+//! Tuner implementations live in submodules: `fixed::FixedTuner` is
+//! the typed open-loop ramp that reaches arbitrary targets via the
+//! BM1362 PLL calculator. The active tuner is runtime-selectable via
 //! `MinerConfig::algorithm`.
 
 use ubos_core::units::{Frequency, Voltage};
@@ -88,4 +86,3 @@ impl From<ubos_asic::ChipError> for TunerError {
 }
 
 pub mod fixed;
-pub mod replay;

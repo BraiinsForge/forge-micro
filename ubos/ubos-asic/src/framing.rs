@@ -350,17 +350,6 @@ pub fn build_command(command: ControlCommand) -> Frame {
     frame
 }
 
-/// Build a raw command — `[55 AA] [raw_bytes] [CRC5]`. `raw_bytes` must be
-/// at most 10 bytes; anything longer overflows the `Frame` buffer and the
-/// `expect` in `push_frame` trips.
-#[must_use]
-pub fn build_raw_command(raw_bytes: &[u8]) -> Frame {
-    let crc = crc5(raw_bytes, 0x1F, true);
-    let mut frame = Frame::new();
-    push_frame(&mut frame, &HEADER_TX, raw_bytes, crc);
-    frame
-}
-
 // ---------------------------------------------------------------------------
 // Response + parser
 // ---------------------------------------------------------------------------

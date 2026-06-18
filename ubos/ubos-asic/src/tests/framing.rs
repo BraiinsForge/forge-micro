@@ -70,35 +70,35 @@ fn build_unicast_write() {
 }
 
 #[test]
-fn build_command_chain_inactive_matches_trace_payload() {
-    // The captured wire trace issues the chain-inactive command as
-    // raw bytes [0x53, 0x05, 0x00, 0x00] (broadcast vil-ctl, code 3,
-    // length 5, addr 0, reserved 0); the helper must produce the
-    // same payload, CRC included.
+fn build_command_chain_inactive_matches_bm1362_payload() {
+    // The BM1362 chain-inactive command is the broadcast vil-ctl op
+    // (code 3) encoded as raw bytes [0x53, 0x05, 0x00, 0x00] (cmd,
+    // length 5, addr 0, reserved 0); the helper must produce the same
+    // payload, CRC included.
     let frame = build_command(ControlCommand::chain_inactive());
-    let trace_raw = [0x53u8, 0x05, 0x00, 0x00];
-    let expected_crc = crc5(&trace_raw, 0x1F, true);
+    let payload = [0x53u8, 0x05, 0x00, 0x00];
+    let expected_crc = crc5(&payload, 0x1F, true);
     let mut expected = [0u8; 7];
     expected[0] = 0x55;
     expected[1] = 0xAA;
-    expected[2..6].copy_from_slice(&trace_raw);
+    expected[2..6].copy_from_slice(&payload);
     expected[6] = expected_crc;
     assert_eq!(frame.as_slice(), expected);
 }
 
 #[test]
-fn build_command_set_chip_address_matches_trace_payload() {
-    // The captured trace assigns addresses 0x00..0x03 with raw bytes
-    // [0x40, 0x05, addr, 0x00]; verify the helper packs the same
-    // wire payload for each captured chip slot.
+fn build_command_set_chip_address_matches_bm1362_payload() {
+    // The BM1362 set-chip-address command encodes each address as raw
+    // bytes [0x40, 0x05, addr, 0x00]; verify the helper packs the same
+    // wire payload for each chip slot.
     for hw_addr in [0x00u8, 0x01, 0x02, 0x03] {
         let frame = build_command(ControlCommand::set_chip_address(hw_addr));
-        let trace_raw = [0x40u8, 0x05, hw_addr, 0x00];
-        let expected_crc = crc5(&trace_raw, 0x1F, true);
+        let payload = [0x40u8, 0x05, hw_addr, 0x00];
+        let expected_crc = crc5(&payload, 0x1F, true);
         let mut expected = [0u8; 7];
         expected[0] = 0x55;
         expected[1] = 0xAA;
-        expected[2..6].copy_from_slice(&trace_raw);
+        expected[2..6].copy_from_slice(&payload);
         expected[6] = expected_crc;
         assert_eq!(
             frame.as_slice(),

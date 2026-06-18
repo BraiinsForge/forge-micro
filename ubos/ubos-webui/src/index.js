@@ -550,14 +550,9 @@ syncNetUi();
 function syncTunerUi() {
   const algorithm = $('tunerAlgo').value;
   $('tunerFixed').classList.toggle('active', algorithm === 'Fixed');
-  $('tunerReplay').classList.toggle('active', algorithm === 'Replay');
 }
 
 $('tunerFixed').addEventListener('click', function () {
-  $('tunerAlgo').value = this.dataset.algo;
-  syncTunerUi();
-});
-$('tunerReplay').addEventListener('click', function () {
   $('tunerAlgo').value = this.dataset.algo;
   syncTunerUi();
 });

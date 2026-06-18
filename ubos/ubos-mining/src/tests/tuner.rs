@@ -1,32 +1,14 @@
 //! Equivalence and invariant tests for `FixedTuner`'s constant-power
 //! curve walk. Gates the (frequency, voltage) sequence the tuner
-//! would emit against the captured wire trace's PLL grid and the
+//! would emit against the BM1362 PLL factory table grid and the
 //! V^2 * f preservation rule.
 
-use heapless::Vec as HVec;
-use ubos_asic::{BMM100, ChipProtocol, PllParameterReg, Register};
+use ubos_asic::{BMM100, ChipProtocol, PllParameterReg};
 use ubos_core::units::{Frequency, Voltage};
 use ubos_psu::MiniminerPsuConfig;
 
 use super::TuningConfig;
 use super::walk_steps;
-use crate::tuner::replay::trace::{INIT, Step};
-
-const TRACE_DEDUP_CAP: usize = 19;
-
-fn dedup_pll_writes() -> HVec<u32, TRACE_DEDUP_CAP> {
-    let mut out: HVec<u32, TRACE_DEDUP_CAP> = HVec::new();
-    for step in INIT {
-        if let Step::WriteRegister { reg, value, .. } = step
-            && *reg == PllParameterReg::REG_NUM
-            && !out.contains(value)
-        {
-            out.push(*value)
-                .expect("BUG: dedup PLL set exceeds factory table size");
-        }
-    }
-    out
-}
 
 #[test]
 fn open_core_voltage_fits_default_psu_range() {
@@ -164,39 +146,6 @@ fn walk_visits_every_25mhz_grid_point_with_pll_table_match() {
         assert!(
             PllParameterReg::from_freq(f_khz, range).is_some(),
             "walk emits {f_khz} kHz but calculator rejects it",
-        );
-    }
-}
-
-#[test]
-fn calculator_matches_trace_dedup_at_25mhz_grid() {
-    const TRACE_GRID_STEP_KHZ: u32 = 25_000;
-    const TRACE_GRID_MAX_KHZ: u32 = 500_000;
-    let dedup = dedup_pll_writes();
-    // Pin the grid size before mapping index to frequency: the loop
-    // below assumes every 25 MHz point from safe-boot to max appears
-    // exactly once, so a trace edit that drops or adds a unique PLL
-    // write must fail here rather than slip through a shortened loop.
-    let expected_points = (TRACE_GRID_MAX_KHZ
-        - BMM100.chip.descriptor().frequency_range.min().khz())
-        / TRACE_GRID_STEP_KHZ
-        + 1;
-    assert_eq!(
-        u32::try_from(dedup.len()).expect("BUG: dedup length fits in u32"),
-        expected_points,
-        "trace PLL-write count drifted from the 25 MHz grid",
-    );
-    for (index, &expected_bits) in dedup.iter().enumerate() {
-        let index_u32 = u32::try_from(index).expect("BUG: dedup index fits in u32");
-        let target_khz =
-            BMM100.chip.descriptor().frequency_range.min().khz() + index_u32 * TRACE_GRID_STEP_KHZ;
-        let emitted =
-            PllParameterReg::from_freq(target_khz, BMM100.chip.descriptor().frequency_range)
-                .expect("BUG: trace grid point must resolve in calculator")
-                .into_bits();
-        assert_eq!(
-            emitted, expected_bits,
-            "calculator at {target_khz} kHz does not match trace PLL write",
         );
     }
 }

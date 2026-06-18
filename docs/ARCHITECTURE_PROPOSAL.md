@@ -36,7 +36,7 @@ The migration phasing lives in **Appendix A**; the crate inventory in
 | No manager/supervisor | resolved by introducing `ubos-manager` (`run_manager` aggregates `PauseReasons` and drives `MiningHandle::halt`/`resume` on the empty/non-empty edge) | No central pause/resume, no way to act on config changes |
 | `STOP_MINING`, `MINER_IS_RUNNING` signals have no producer/consumer | resolved by deleting `MINER_IS_RUNNING` in favor of `MiningHandle::state()` and wiring `STOP_MINING` to host-runner's SIGINT handler and the work-loop selects | Pause API is a logging stub |
 | API reaches into atomics of 5+ crates directly | `ubos/ubos-api/src/system.rs:25-36` | HTTP layer pinned to every subsystem's internals |
-| No tuner — `INIT: &[Step]` is a captured trace replayed verbatim, voltage hardcoded `1400 mV` | `ubos/ubos-mining/src/replay.rs` | Cannot set frequency or voltage at runtime |
+| No tuner — `INIT: &[Step]` is a captured trace replayed verbatim, voltage hardcoded `1400 mV` | resolved by the `Tuner` trait with `FixedTuner` walking a `V^2 * f` curve to the target operating point; the replayed-trace bring-up was dropped | Cannot set frequency or voltage at runtime |
 | No config persistence — `POST /api/config` returns 200 and does nothing | `ubos/ubos-api/src/rest.rs:379` | Web UI changes are placebo |
 | `ubos-net` exposes `pub static`s for `LOCAL_IPV4`, `BTC_PRICE_CENTS`, `POOL_ALIVE_BITMAP`, … | `BTC_PRICE_CENTS` resolved by removing the BTC ticker and its static; the rest remain (`ubos/ubos-net/src/net.rs:131,139`) | Shared mutable state crosses every boundary |
 | Multi-pool wiring planned but bit 0 hardcoded | `ubos/stratum-client/src/run.rs:66` | Single point of failure |
@@ -291,9 +291,7 @@ on the next bring-up.
 
 Tuner lives at `ubos_mining::tuner` — `Tuner` trait with `init` /
 `deinit` phases, plus `FixedTuner` (the current default, walks a
-`V^2 * f` curve to the target frequency and voltage) and `ReplayTuner`
-(walks the captured BMM100 trace through `MinerControl`'s byte-level
-escape hatches). Constructors take
+`V^2 * f` curve to the target frequency and voltage). Constructors take
 `&'static ChipDescriptor` and `&'static BoardDescriptor`. The trait
 returns `Result<(), TunerError>`. Surfacing tuner faults to the
 manager as `PauseReason::TunerFault` is a planned follow-up; the
@@ -942,9 +940,7 @@ until consumers exist.
 `Err` to the manager as `PauseReason::TunerFault` is a planned
 follow-up; the landed `Miner` loop cuts the rail and retries on an
 `init` error. `FixedTuner` (the current
-default) walks a `V^2 * f` curve to the target operating point.
-`ReplayTuner` walks the captured BMM100 trace through `MinerControl`'s
-byte-level escape hatches unconditionally — no feature gate. Typed
+default) walks a `V^2 * f` curve to the target operating point. Typed
 boot init lands in `mining-protocol::bm1362`. PLL
 calculator replaces lookup table; factory-divider validation test
 asserts equality for known entries.
@@ -1205,8 +1201,6 @@ crate because the boundary between "what the work loop does" and
   `ManagerMessage::TunerFault` is a planned follow-up.
   - `Tuner` trait with `init` / `deinit` phases.
   - `FixedTuner` impl (current default, walks a `V^2 * f` curve).
-    `ReplayTuner` replays the captured BMM100 trace, unconditional — no
-    feature gate.
   - PLL calculator (integer-N math, no baked table).
   - Boot-init sequencing.
 - **Module `serial`** — Chip-side UART actor, BM1362 frame

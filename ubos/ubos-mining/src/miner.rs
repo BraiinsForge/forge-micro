@@ -19,20 +19,16 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use embedded_io::ErrorKind;
-use heapless::Vec as HVec;
 use ubos_config::{ConfigSubscription, TuningAlgorithm};
 use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, error, info, warn};
 use ubos_psu::{Error as PsuError, Psu};
 
-use crate::consts::MAX_CHIPS;
 use crate::control::{COMMAND_CHANNEL, Message, MiningState, STATE_WATCH};
 use crate::reset::ResetPin;
 use crate::serial::SERIAL;
 use crate::tuner::fixed::FixedTuner;
-use crate::tuner::replay::ReplayTuner;
 use crate::tuner::{Tuner, TunerError, TuningConfig};
-use ubos_asic::{ChipAddress, RegisterResponse, build_raw_command};
 
 /// Raise once to stop the miner. The run loop awaits this between init
 /// and deinit; signalling it triggers the teardown sequence and the
@@ -109,33 +105,15 @@ pub trait MinerControl {
     /// Set the core voltage through the PSU driver.
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), MinerError>;
 
-    // Byte-level escape hatches below this point exist because the
-    // captured wire trace replayed by `ReplayTuner` is byte-level
-    // and cannot be expressed as semantic ops. Semantic tuners must
-    // not call them.
+    // `set_baud_rate` and `start_sending_work` are semantic operations
+    // that tuner implementations legitimately need: the baud bump is
+    // part of the bring-up protocol, and work-send must start before
+    // the chip begins hashing.
 
-    /// Write a raw `u32` to an arbitrary register without packing
-    /// through a typed layout. Used by trace replay.
-    async fn write_register_raw(&self, addr: ChipAddress, reg: u8, value: u32);
-
-    /// Broadcast-read a raw register and return every chip's response.
-    /// Used by trace replay for chip-ID liveness checks.
-    async fn read_register_raw(
-        &self,
-        addr: ChipAddress,
-        reg: u8,
-    ) -> HVec<RegisterResponse, MAX_CHIPS>;
-
-    /// Send an arbitrary command frame built from raw bytes. Used by
-    /// trace replay for chain-inactive and addressing setup.
-    async fn send_raw_command(&self, payload: &[u8]);
-
-    /// Switch the UART line rate to `rate`. Used by trace replay
-    /// during the post-init baud bump.
+    /// Switch the UART line rate to `rate`.
     async fn set_baud_rate(&self, rate: u32) -> Result<(), MinerError>;
 
-    /// Start the periodic work-send loop in the serial actor. Used
-    /// by trace replay at the end of bring-up.
+    /// Start the periodic work-send loop in the serial actor.
     async fn start_sending_work(&self, period: Duration) -> Result<(), MinerError>;
 }
 
@@ -213,16 +191,6 @@ where
             };
 
             let outcome = match snapshot.miner.algorithm {
-                TuningAlgorithm::Replay => {
-                    let mut tuner = ReplayTuner;
-                    self.bring_up_cycle(
-                        target,
-                        snapshot.miner.algorithm,
-                        &mut tuner,
-                        &mut config_subscription,
-                    )
-                    .await
-                }
                 TuningAlgorithm::Fixed => {
                     let mut tuner = FixedTuner::default();
                     self.bring_up_cycle(
@@ -335,10 +303,10 @@ where
         }
 
         // -- bring-up --
-        // Voltage programming moved into the Tuner trait so a tuner
+        // Voltage programming lives in the Tuner trait so a tuner
         // that ramps voltage can anchor at the chip's open-core
         // voltage and walk down to `target.voltage` as the PLL
-        // climbs. ReplayTuner sets voltage from its trace as before.
+        // climbs.
 
         info!("mining: entering reset");
         self.reset_pin.enter_reset();
@@ -465,22 +433,6 @@ where
             .set_voltage(voltage)
             .await
             .map_err(|error| MinerError::Psu(error.into()))
-    }
-
-    async fn write_register_raw(&self, addr: ChipAddress, reg: u8, value: u32) {
-        SERIAL.write_register_raw(addr, reg, value).await;
-    }
-
-    async fn read_register_raw(
-        &self,
-        addr: ChipAddress,
-        reg: u8,
-    ) -> HVec<RegisterResponse, MAX_CHIPS> {
-        SERIAL.read_register(addr, reg).await
-    }
-
-    async fn send_raw_command(&self, payload: &[u8]) {
-        SERIAL.send_frame(build_raw_command(payload)).await;
     }
 
     async fn set_baud_rate(&self, rate: u32) -> Result<(), MinerError> {

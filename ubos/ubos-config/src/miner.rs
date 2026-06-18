@@ -1,10 +1,10 @@
 //! Miner orchestration configuration.
 //!
-//! Defines [`TuningAlgorithm`] and [`MinerConfig`], which let the
-//! operator select which bring-up strategy the mining task constructs
-//! at each chip bring-up cycle.
+//! Defines [`TuningAlgorithm`] and [`MinerConfig`], which name the
+//! bring-up strategy the mining task constructs at each chip bring-up
+//! cycle.
 
-/// Selectable tuner algorithm.
+/// Tuner algorithm the miner constructs at bring-up.
 ///
 /// `ubos-mining` reads this to decide which `Tuner` implementation
 /// to construct at bring-up. A live change tears down the chip and
@@ -23,12 +23,9 @@
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TuningAlgorithm {
-    /// Captured wire trace replayed verbatim; the bring-up fallback
-    /// while `FixedTuner` accumulates bench hours.
-    Replay,
     /// Open-loop frequency ramp built on the BM1362 PLL calculator
     /// and the `HashCountingNumber` formula. Reaches arbitrary targets
-    /// without relying on the captured trace and is the default tuner.
+    /// and is the default tuner.
     #[default]
     Fixed,
 }

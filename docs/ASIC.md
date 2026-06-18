@@ -254,10 +254,6 @@ tuning-policy envelope, not a chip limit.
 - **`FixedTuner`** — the default. Drives the `ChipProtocol` bring-up
   through `board.chip`, anchors the open-core voltage, and walks the
   V²·f curve to the configured target on a 6.25 MHz grid.
-- **`ReplayTuner`** — replays a recorded boot/teardown byte sequence
-  verbatim through the byte-level escape hatches on `MinerControl`. The
-  byte-level path it needs is why those raw escape hatches exist on
-  `MinerControl`.
 
 ## Verification
 

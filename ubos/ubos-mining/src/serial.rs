@@ -223,8 +223,7 @@ impl Serial {
     }
 
     /// Build and dispatch a register-write frame. Fire-and-forget; the
-    /// chip does not acknowledge writes. Used by the replay path and by
-    /// [`crate::MinerControl::write_register_raw`].
+    /// chip does not acknowledge writes. Used by [`crate::bus::SerialBus`].
     pub async fn write_register_raw(&self, addr: ChipAddress, reg: u8, value: u32) {
         self.send_frame(build_write_register(addr, reg, value))
             .await;
