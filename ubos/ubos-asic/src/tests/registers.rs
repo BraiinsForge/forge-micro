@@ -181,6 +181,80 @@ fn control_code_numeric_values_match_spec() {
 }
 
 #[test]
+fn register_addresses_match_specification() {
+    assert_eq!(ChipIdReg::REG_NUM, 0x00);
+    assert_eq!(PllParameterReg::REG_NUM, 0x08);
+    assert_eq!(ChipNonceOffsetReg::REG_NUM, 0x0c);
+    assert_eq!(HashCountingNumberReg::REG_NUM, 0x10);
+    assert_eq!(TicketMaskReg::REG_NUM, 0x14);
+    assert_eq!(MiscCtrlReg::REG_NUM, 0x18);
+    assert_eq!(BaudRateReg::REG_NUM, 0x28);
+    assert_eq!(CoreControlReg::REG_NUM, 0x3c);
+    assert_eq!(CoreRegisterValueReg::REG_NUM, 0x40);
+    assert_eq!(ExternalTemperatureSensorReg::REG_NUM, 0x44);
+    assert_eq!(NonceErrorCounterReg::REG_NUM, 0x4c);
+    assert_eq!(AnalogMuxControl::REG_NUM, 0x54);
+    assert_eq!(IoDriverStrengthCtrlReg::REG_NUM, 0x58);
+    assert_eq!(Pll0DividerReg::REG_NUM, 0x70);
+    assert_eq!(Domain0NonceCounterReg::REG_NUM, 0x88);
+    assert_eq!(Domain1NonceCounterReg::REG_NUM, 0x89);
+    assert_eq!(Domain2NonceCounterReg::REG_NUM, 0x8a);
+    assert_eq!(Domain3NonceCounterReg::REG_NUM, 0x8b);
+    assert_eq!(TotalNonceCounterReg::REG_NUM, 0x8c);
+    assert_eq!(UartRelayReg::REG_NUM, 0x2c);
+    assert_eq!(MidstateCalReg::REG_NUM, 0xa4);
+    assert_eq!(SoftResetControlReg::REG_NUM, 0xa8);
+    assert_eq!(MiscSettingsReg::REG_NUM, 0xb9);
+}
+
+#[test]
+fn uart_clock_pll_instance_addresses_match_specification() {
+    // PLL1 drives the UART clock on BM1366, PLL3 on BM1370. The
+    // parameter and divider layouts are the PLL0 layouts written to
+    // these instance addresses.
+    assert_eq!(Pll1ParameterReg::REG_NUM, 0x60);
+    assert_eq!(Pll3ParameterReg::REG_NUM, 0x68);
+    assert_eq!(Pll1DividerReg::REG_NUM, 0x74);
+    assert_eq!(Pll3DividerReg::REG_NUM, 0x7c);
+}
+
+#[test]
+fn uart_relay_relays_enabled_packs_known_layout() {
+    // Both relay enables sit in the low two bits and the gap count
+    // occupies the high half-word: gap_cnt=0x0102 with both relays
+    // enabled packs to 0x0102_0003.
+    let reg = UartRelayReg::relays_enabled(0x0102);
+    assert!(reg.co_rel_en());
+    assert!(reg.ro_rel_en());
+    assert_eq!(reg.gap_cnt(), 0x0102);
+    assert_eq!(u32::from_be_bytes(reg.to_be_bytes()), 0x0102_0003);
+}
+
+#[test]
+fn uart_relay_round_trips() {
+    let reg = UartRelayReg::relays_enabled(0xfffe);
+    let decoded = UartRelayReg::from_be_bytes(reg.to_be_bytes());
+    assert_eq!(decoded.gap_cnt(), 0xfffe);
+    assert!(decoded.co_rel_en());
+    assert!(decoded.ro_rel_en());
+    assert_eq!(decoded.to_be_bytes(), reg.to_be_bytes());
+}
+
+#[test]
+fn misc_settings_bm1370_bringup_round_trips() {
+    let reg = MiscSettingsReg::bm1370_bringup();
+    let value = u32::from_be_bytes(reg.to_be_bytes());
+    assert_eq!(value, MISC_SETTINGS_BM1370_BRINGUP);
+    assert_eq!(value, 0x0000_4480);
+    // Opaque payload preserves all 32 bits through a round trip.
+    let payload: u32 = 0xdead_beef;
+    assert_eq!(
+        MiscSettingsReg::from_be_bytes(payload.to_be_bytes()).value(),
+        payload
+    );
+}
+
+#[test]
 fn ticket_mask_from_difficulty_encodes_diff_one_as_zero() {
     // Difficulty 1 accepts every share; mask must be zero so no hash
     // bits are required to match.
@@ -389,6 +463,23 @@ fn io_driver_strength_default_round_trips() {
     assert!(!reg.d3rs_en());
     assert_eq!(reg.rf_ds(), 0);
     assert_eq!(reg.reserved_high(), 0);
+}
+
+#[test]
+fn io_driver_strength_domain_boundary_boosts_clko() {
+    // domain_boundary() must encode byte-exact to the published constant
+    // and differ from the default only in the clko_ds field.
+    let reg = IoDriverStrengthCtrlReg::domain_boundary();
+    assert_eq!(
+        reg.to_be_bytes(),
+        IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY.to_be_bytes()
+    );
+    assert_eq!(reg.co_ds(), 1);
+    assert_eq!(reg.bo_ds(), 1);
+    assert_eq!(reg.nrsto_ds(), 1);
+    assert_eq!(reg.clko_ds(), 0xF);
+    assert_eq!(reg.ro_ds(), 1);
+    assert_eq!(u32::from_be_bytes(reg.to_be_bytes()), 0x0001_F111);
 }
 
 #[test]

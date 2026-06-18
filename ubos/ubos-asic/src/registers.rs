@@ -192,6 +192,36 @@ pub const PLL_REFDIV_VALUE: u8 = 0x02;
 /// keys on.
 pub const PLL_VCO_HIGH_THRESHOLD_HZ: u64 = 2_400_000_000;
 
+/// PLL1 parameter register (`0x60`). PLL1 drives the UART clock on
+/// BM1366; the payload is the [`PllParameterReg`] layout written to
+/// this instance address.
+pub struct Pll1ParameterReg(pub PllParameterReg);
+
+impl Register for Pll1ParameterReg {
+    const REG_NUM: u8 = 0x60;
+    fn from_be_bytes(bytes: [u8; 4]) -> Self {
+        Self(PllParameterReg::from_be_bytes(bytes))
+    }
+    fn to_be_bytes(&self) -> [u8; 4] {
+        self.0.to_be_bytes()
+    }
+}
+
+/// PLL3 parameter register (`0x68`). PLL3 drives the UART clock on
+/// BM1370; the payload is the [`PllParameterReg`] layout written to
+/// this instance address.
+pub struct Pll3ParameterReg(pub PllParameterReg);
+
+impl Register for Pll3ParameterReg {
+    const REG_NUM: u8 = 0x68;
+    fn from_be_bytes(bytes: [u8; 4]) -> Self {
+        Self(PllParameterReg::from_be_bytes(bytes))
+    }
+    fn to_be_bytes(&self) -> [u8; 4] {
+        self.0.to_be_bytes()
+    }
+}
+
 /// Per-chip nonce-offset register (`0x0c`).
 ///
 /// Splits the 32-bit nonce space across the chain so each chip
@@ -455,6 +485,56 @@ impl Register for BaudRateReg {
 /// actual line rate is `25 MHz / 8 = 3.125 Mbaud`. The host UART is
 /// programmed to a nominal 3 Mbaud, which the chip tolerates.
 pub const BAUDRATE_FAST_3MBAUD: u32 = 0x1130_0000;
+
+/// UART relay register (`0x2c`).
+///
+/// Configures per-domain UART relaying for multi-chip chains. When a
+/// chain spans more than one domain boundary, the host programs the
+/// first and last chip of each domain: `co_rel_en` enables relaying of
+/// the command-out signal and `ro_rel_en` enables relaying of the
+/// response-out signal. `gap_cnt` sets the inter-byte gap count the
+/// relay inserts when forwarding the UART signal across the domain
+/// boundary.
+#[bitfield(u32)]
+#[derive(PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct UartRelayReg {
+    /// Command-out relay enable. Set on the domain boundary chips to
+    /// forward the command-out signal across the boundary.
+    pub co_rel_en: bool,
+    /// Response-out relay enable. Set on the domain boundary chips to
+    /// forward the response-out signal across the boundary.
+    pub ro_rel_en: bool,
+    /// Opaque bits at positions 15:2; preserved but not characterized.
+    #[bits(14)]
+    pub unknown_bits_15_2: u16,
+    /// Inter-byte gap count inserted by the relay when forwarding the
+    /// UART signal across a chain domain boundary.
+    pub gap_cnt: u16,
+}
+
+impl UartRelayReg {
+    /// Builds a relay configuration with both command-out and
+    /// response-out relay enabled and the given inter-byte gap count.
+    /// Use this to program the boundary chips of each chain domain.
+    #[must_use]
+    pub const fn relays_enabled(gap_cnt: u16) -> Self {
+        Self::new()
+            .with_co_rel_en(true)
+            .with_ro_rel_en(true)
+            .with_gap_cnt(gap_cnt)
+    }
+}
+
+impl Register for UartRelayReg {
+    const REG_NUM: u8 = 0x2c;
+    fn from_be_bytes(bytes: [u8; 4]) -> Self {
+        Self::from_bits(u32::from_be_bytes(bytes))
+    }
+    fn to_be_bytes(&self) -> [u8; 4] {
+        self.into_bits().to_be_bytes()
+    }
+}
 
 /// Per-core register addresses used by `CoreControlReg::reg_addr`.
 /// Only the IDs the firmware programs are typed; values the chip
@@ -747,6 +827,20 @@ impl IoDriverStrengthCtrlReg {
             .with_clko_ds(1)
             .with_ro_ds(1)
     }
+
+    /// Drive-strength preset for a chain domain-boundary chip: identical
+    /// to [`Self::default_drive_strengths`] except `clko_ds` is raised to
+    /// `0xF` to boost the clock-out driver across the domain gap. Encodes
+    /// byte-exact to [`IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY`].
+    #[must_use]
+    pub const fn domain_boundary() -> Self {
+        Self::new()
+            .with_co_ds(1)
+            .with_bo_ds(1)
+            .with_nrsto_ds(1)
+            .with_clko_ds(0xF)
+            .with_ro_ds(1)
+    }
 }
 
 impl Register for IoDriverStrengthCtrlReg {
@@ -762,6 +856,12 @@ impl Register for IoDriverStrengthCtrlReg {
 /// Default I/O driver-strength preset for the BM1362. Encodes
 /// [`IoDriverStrengthCtrlReg::default_drive_strengths`].
 pub const IO_DRIVER_STRENGTH_DEFAULT: u32 = 0x0001_1111;
+
+/// Domain-boundary I/O driver-strength preset. Identical to
+/// [`IO_DRIVER_STRENGTH_DEFAULT`] except `clko_ds` is `0xF` (clock-out
+/// drive boost for chips that sit on a chain domain boundary). Encodes
+/// [`IoDriverStrengthCtrlReg::domain_boundary`].
+pub const IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY: u32 = 0x0001_F111;
 
 /// PLL0 divider register (`0x70`).
 ///
@@ -807,6 +907,36 @@ impl Register for Pll0DividerReg {
 /// PLL0 divider value written before each PLL parameter update; all
 /// bits zero (lane-0 divisor of 1, no extra divide).
 pub const PLL0_DIVIDER_RESET: u32 = 0x0000_0000;
+
+/// PLL1 divider register (`0x74`). Pairs with [`Pll1ParameterReg`] for
+/// the BM1366 UART clock; the payload is the [`Pll0DividerReg`] layout
+/// written to this instance address.
+pub struct Pll1DividerReg(pub Pll0DividerReg);
+
+impl Register for Pll1DividerReg {
+    const REG_NUM: u8 = 0x74;
+    fn from_be_bytes(bytes: [u8; 4]) -> Self {
+        Self(Pll0DividerReg::from_be_bytes(bytes))
+    }
+    fn to_be_bytes(&self) -> [u8; 4] {
+        self.0.to_be_bytes()
+    }
+}
+
+/// PLL3 divider register (`0x7c`). Pairs with [`Pll3ParameterReg`] for
+/// the BM1370 UART clock; the payload is the [`Pll0DividerReg`] layout
+/// written to this instance address.
+pub struct Pll3DividerReg(pub Pll0DividerReg);
+
+impl Register for Pll3DividerReg {
+    const REG_NUM: u8 = 0x7c;
+    fn from_be_bytes(bytes: [u8; 4]) -> Self {
+        Self(Pll0DividerReg::from_be_bytes(bytes))
+    }
+    fn to_be_bytes(&self) -> [u8; 4] {
+        self.0.to_be_bytes()
+    }
+}
 
 /// Per-domain nonce / share counter for power domain 0 (`0x88`).
 ///
@@ -1056,6 +1186,43 @@ pub const SOFT_RESET_QUIESCENT: u32 = 0x0000_0000;
 /// set (`b3_0 = 0x2`), every other field zero. Equivalent to
 /// `SoftResetControlReg::new().with_b3_0(0x2)`.
 pub const SOFT_RESET_SRST_B1: u32 = 0x0000_0002;
+
+/// Misc settings register (`0xb9`).
+///
+/// Opaque 32-bit register whose field semantics are not characterized.
+/// The BM1370 bring-up writes a fixed constant to it; the BM1362 does
+/// not require it. Exposed as a raw value so a bring-up recipe can
+/// write the known constant without claiming a field layout it cannot
+/// verify.
+#[bitfield(u32)]
+#[derive(PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct MiscSettingsReg {
+    /// Opaque misc-settings payload.
+    pub value: u32,
+}
+
+impl MiscSettingsReg {
+    /// Value the BM1370 bring-up writes to this register. Encodes
+    /// byte-exact to [`MISC_SETTINGS_BM1370_BRINGUP`].
+    #[must_use]
+    pub const fn bm1370_bringup() -> Self {
+        Self::from_bits(MISC_SETTINGS_BM1370_BRINGUP)
+    }
+}
+
+impl Register for MiscSettingsReg {
+    const REG_NUM: u8 = 0xb9;
+    fn from_be_bytes(bytes: [u8; 4]) -> Self {
+        Self::from_bits(u32::from_be_bytes(bytes))
+    }
+    fn to_be_bytes(&self) -> [u8; 4] {
+        self.into_bits().to_be_bytes()
+    }
+}
+
+/// Value the BM1370 bring-up writes to [`MiscSettingsReg`].
+pub const MISC_SETTINGS_BM1370_BRINGUP: u32 = 0x0000_4480;
 
 /// Crystal frequency driving the BM1362 PLL reference input. All
 /// hash-clock targets derive from this constant via the PLL divider

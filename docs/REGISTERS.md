@@ -7,7 +7,7 @@ semantic name is established for the bits.
 
 ## Register inventory
 
-21 registers are typed today. Nine are reads (chip → host) and the
+27 registers are typed today. Nine are reads (chip → host) and the
 rest are writes (host → chip). Address order:
 
 | Addr | Struct | Direction |
@@ -19,13 +19,18 @@ rest are writes (host → chip). Address order:
 | `0x14` | `TicketMaskReg` | write |
 | `0x18` | `MiscCtrlReg` | write |
 | `0x28` | `BaudRateReg` | write |
+| `0x2c` | `UartRelayReg` | write |
 | `0x3c` | `CoreControlReg` | write |
 | `0x40` | `CoreRegisterValueReg` | read |
 | `0x44` | `ExternalTemperatureSensorReg` | read |
 | `0x4c` | `NonceErrorCounterReg` | read |
 | `0x54` | `AnalogMuxControl` | write |
 | `0x58` | `IoDriverStrengthCtrlReg` | write |
+| `0x60` | `Pll1ParameterReg` | write |
+| `0x68` | `Pll3ParameterReg` | write |
 | `0x70` | `Pll0DividerReg` | write |
+| `0x74` | `Pll1DividerReg` | write |
+| `0x7c` | `Pll3DividerReg` | write |
 | `0x88` | `Domain0NonceCounterReg` | read |
 | `0x89` | `Domain1NonceCounterReg` | read |
 | `0x8a` | `Domain2NonceCounterReg` | read |
@@ -33,6 +38,7 @@ rest are writes (host → chip). Address order:
 | `0x8c` | `TotalNonceCounterReg` | read |
 | `0xa4` | `MidstateCalReg` | write |
 | `0xa8` | `SoftResetControlReg` | write |
+| `0xb9` | `MiscSettingsReg` | write |
 
 ---
 
@@ -176,6 +182,23 @@ Fields without a known name are intentionally raw.
 | 29 | `raw_bit_29` | Raw preserved bit |
 | 30 | `raw_bit_30` | Raw preserved bit |
 | 31 | `raw_bit_31` | Raw preserved bit |
+
+---
+
+### `0x2c` — `UartRelayReg`
+
+UART relay configuration for multi-chip chains. When a chain spans
+more than one domain boundary, the host programs the first and last
+chip of each domain so the UART signal is relayed across the boundary.
+`relays_enabled(gap_cnt)` sets `gap_cnt` and enables both relays.
+Single-chip deployments leave this register unprogrammed.
+
+| Bits | Field | Purpose |
+|------|-------|---------|
+| 0 | `co_rel_en` | Command-out relay enable |
+| 1 | `ro_rel_en` | Response-out relay enable |
+| 2..16 | `unknown_bits_15_2` | Opaque |
+| 16..32 | `gap_cnt` | Inter-byte gap count inserted across the boundary |
 
 ---
 
@@ -358,6 +381,20 @@ no per-core or per-domain reset semantics are asserted.
 
 ---
 
+### `0xb9` — `MiscSettingsReg`
+
+Opaque misc-settings register whose field semantics are not
+characterized. The BM1370 bring-up writes the fixed constant
+`MISC_SETTINGS_BM1370_BRINGUP = 0x0000_4480`; the BM1362 does not
+require it. Exposed as a raw `u32` so a bring-up recipe can write the
+known constant without claiming a field layout it cannot verify.
+
+| Bits | Field | Purpose |
+|------|-------|---------|
+| 0..32 | `value` | Opaque misc-settings payload |
+
+---
+
 ## Shared field structures
 
 Several field structures repeat across multiple register addresses on
@@ -369,18 +406,22 @@ The 8-bit `fbdiv`, 3-bit `postdiv1_minus_1`, 3-bit `postdiv2_minus_1`,
 `refdiv`, and enable/lock bits documented for
 `PllParameterReg` (`0x08`) repeat verbatim at:
 
-- `0x60` PLL1 Parameter
+- `0x60` PLL1 Parameter (`Pll1ParameterReg`)
 - `0x64` PLL2 Parameter
-- `0x68` PLL3 Parameter
+- `0x68` PLL3 Parameter (`Pll3ParameterReg`)
+
+PLL1 drives the UART clock on BM1366 and PLL3 on BM1370; each is a thin
+newtype wrapping `PllParameterReg` with its own `REG_NUM`, so a bring-up
+recipe writes them through the typed `write_register` seam.
 
 ### PLL divider — repeats at four addresses
 
 The 4×4-bit W-divider lane layout documented for `Pll0DividerReg`
 (`0x70`) repeats at:
 
-- `0x74` PLL1 Divider
+- `0x74` PLL1 Divider (`Pll1DividerReg`)
 - `0x78` PLL2 Divider
-- `0x7c` PLL3 Divider
+- `0x7c` PLL3 Divider (`Pll3DividerReg`)
 
 ### Ticket-mask encoding — repeats at two addresses
 
@@ -416,18 +457,20 @@ applied once at bring-up, or read-only counters not needed yet:
 
 - `0x04` HashRate / Time1sCounter
 - `0x1c` I2CControl — family docs exist; not used by the current board
-- `0x20` OrderedClockEnable
-- `0x2c` UARTRelay — relay control for multi-chip-chain bring-up;
-  not needed for single-chip deployments
+- `0x20` OrderedClockEnable — not written by the BM1366/BM1370 bring-up
 - `0x38` TicketMask2 — second-stage share filter; layout shared with
   `TicketMaskReg`
 - `0x48` ErrorFlag — opaque error status register
 - `0x5c` TimeOut — chip-internal work-timeout
-- `0x60` / `0x64` / `0x68` PLL1 / PLL2 / PLL3 Parameter — layout
-  shared with `PllParameterReg`
-- `0x74` / `0x78` / `0x7c` PLL1 / PLL2 / PLL3 Divider — layout shared
-  with `Pll0DividerReg`
+- `0x64` PLL2 Parameter / `0x78` PLL2 Divider — layout shared with
+  `PllParameterReg` / `Pll0DividerReg`; no instance constant defined
+  (PLL2 is not used for the hash or UART clock)
 - `0x80` / `0x84` ClockOrderControl0 / ClockOrderControl1
+
+The PLL1 / PLL3 parameter and divider instances (`0x60` / `0x68` /
+`0x74` / `0x7c`) are typed: `Pll1ParameterReg` / `Pll3ParameterReg` wrap
+`PllParameterReg` and `Pll1DividerReg` / `Pll3DividerReg` wrap
+`Pll0DividerReg`, each with its own `REG_NUM`.
 
 Adding any of these is a mechanical port of the relevant register
 layout.
