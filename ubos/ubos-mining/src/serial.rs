@@ -506,6 +506,15 @@ impl Serial {
             assignment,
         });
         *work_id = work_id.wrapping_add(midstate_count);
+        // A chip with midstate_count 16 (the BM1370) echoes the work-id in the
+        // high nibble of the response byte as `(work_id << 1) | small_core`, so
+        // the dispatched id must stay below 128: above it the `<< 1` overflows
+        // the byte and the reply decodes to a different slot, stranding that
+        // work and dropping its nonces. Chips that carry the id directly use
+        // the full u8 range.
+        if midstate_count == 16 {
+            *work_id %= 128;
+        }
 
         if let Err(e) = tx.write_all(&frame).await {
             error!("Failed to send work: {:?}", Debug2Format(&e.kind()));
