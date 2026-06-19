@@ -372,6 +372,14 @@ pub trait ChipProtocol {
         Ok(())
     }
 
+    /// Per-chip core re-arm run immediately after [`Self::set_pll`]. Some
+    /// chips latch their core-clock configuration against the running hash
+    /// clock, so the core-clock-enable writes only take once the PLL is up;
+    /// doing them earlier (against the boot clock) leaves cores idle and
+    /// roughly halves the hashrate. The default is a no-op for chips that
+    /// configure their cores entirely before the PLL.
+    async fn post_pll_rearm(&self, _bus: &mut impl ChipBus, _board: &BoardDescriptor) {}
+
     /// Program the hash-counting number derived from `freq`. The capture
     /// only ever sends it on the fast UART, so bring-up programs it after
     /// the baud switch, never at the boot baud.
@@ -555,6 +563,14 @@ impl ChipProtocol for Chip {
             Chip::Bm1370 => Bm1370.fast_uart_host_rate(),
         }
     }
+
+    async fn post_pll_rearm(&self, bus: &mut impl ChipBus, board: &BoardDescriptor) {
+        match self {
+            Chip::Bm1362 => Bm1362.post_pll_rearm(bus, board).await,
+            Chip::Bm1366 => Bm1366.post_pll_rearm(bus, board).await,
+            Chip::Bm1370 => Bm1370.post_pll_rearm(bus, board).await,
+        }
+    }
 }
 
 /// BM1362 bring-up recipe. A single internal voltage domain; the
@@ -618,5 +634,46 @@ impl ChipProtocol for Bm1370 {
 
     fn fast_uart_host_rate(&self) -> u32 {
         crate::baud::BM1370_FAST_UART_HOST_HZ
+    }
+
+    async fn post_pll_rearm(&self, bus: &mut impl ChipBus, _board: &BoardDescriptor) {
+        // The S21 Pro capture re-arms the cores against the running hash
+        // clock after the PLL is up: a domain soft-reset, MiscCtrl, then the
+        // three CoreControl writes whose last value enables the core clocks —
+        // without this the cores stay idle and the hashrate halves. The tail
+        // re-asserts the MiscSettings bring-up preset, enables the on-die
+        // thermal-diode mux (else the board runs die-temp blind), and sets one
+        // more CoreControl. The capture issues these per chip; broadcast is
+        // tried here since the same registers are broadcast-written pre-PLL.
+        //
+        // Each write goes through its typed register. Where the value matches
+        // a named preset it uses that; the remaining opaque payloads, whose
+        // individual fields are not yet decoded, are loaded byte-exact to the
+        // capture via `from_bits`.
+        bus.write_register(
+            ChipAddress::All,
+            SoftResetControlReg::from_bits(0x0007_01f0),
+        )
+        .await;
+        bus.write_register(ChipAddress::All, MiscCtrlReg::from_bits(0xf000_c100))
+            .await;
+        bus.write_register(ChipAddress::All, CoreControlReg::from_bits(0x8000_8b00))
+            .await;
+        bus.write_register(ChipAddress::All, CoreControlReg::from_bits(0x8000_800c))
+            .await;
+        bus.write_register(ChipAddress::All, CoreControlReg::default_core_reg2_config())
+            .await;
+        bus.write_register(ChipAddress::All, MiscSettingsReg::bm1370_bringup())
+            .await;
+        // ana_mux_sel = 2 routes the on-die thermal diode to the sensor.
+        bus.write_register(
+            ChipAddress::All,
+            AnalogMuxControl::new().with_ana_mux_sel(0x02),
+        )
+        .await;
+        bus.write_register(ChipAddress::All, MiscSettingsReg::bm1370_bringup())
+            .await;
+        bus.write_register(ChipAddress::All, CoreControlReg::from_bits(0x8000_8dee))
+            .await;
     }
 }

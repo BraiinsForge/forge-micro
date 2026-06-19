@@ -232,6 +232,9 @@ impl<M: MinerControl> Tuner<M> for FixedTuner {
         // counting number follows on the fast UART after the baud switch,
         // matching the capture, which never sends it at the boot baud.
         chip.set_pll(&mut bus, safe_boot).await?;
+        // Re-arm the cores against the now-running hash clock; without it the
+        // cores stay configured against the boot clock and the hashrate halves.
+        chip.post_pll_rearm(&mut bus, self.board).await;
         // Initial share filter accepts every share (difficulty 1).
         let ticket = TicketMaskReg::from_difficulty(DIFFICULTY)
             .expect("BUG: DIFFICULTY must be a power of two");
