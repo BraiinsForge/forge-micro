@@ -18,7 +18,11 @@ impl Metrics {
     /// Send side. Kept at 1024 so the 2 KiB exposition response leaves in
     /// two segments rather than four; only the receive side was trimmed.
     pub const TX_BUFFER_SIZE: usize = 1024;
-    pub const RESPONSE_BUFFER_SIZE: usize = 2048;
+    /// Metrics exposition body buffer. 4096 holds the richer metric sets
+    /// (dual voltage sources, build info) that overflow 2048. The smallest
+    /// board, the rp2040, still has ~75 KiB of SRAM free at this size, so
+    /// every board uses it; no per-board feature gate.
+    pub const RESPONSE_BUFFER_SIZE: usize = 4096;
     /// Buffer for parsing one scraper request. `edge-http` needs the whole
     /// request line plus header block to fit here at once, not just the
     /// `GET /metrics` line. A Prometheus 3.x scrape negotiates `OpenMetrics`
