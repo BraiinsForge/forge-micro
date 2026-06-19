@@ -394,8 +394,8 @@ fn build_prometheus_body(
 ) -> usize {
     let mut writer = BufferWriter::new(buffer);
 
-    // Render map-stored metrics. HELP/TYPE lines are omitted — they are
-    // optional in the Prometheus text format.
+    // HELP/TYPE lines are omitted throughout — they are optional in the
+    // Prometheus text format and the buffer is tight.
     for (key, stored) in map {
         render_metric(&mut writer, key.0.as_str(), stored);
     }
@@ -409,16 +409,9 @@ fn build_prometheus_body(
         Some((uptime_secs + ntp_offset) * 1000)
     };
 
-    let _ = writeln!(writer, "# HELP board_uptime_seconds Seconds since boot.");
-    let _ = writeln!(writer, "# TYPE board_uptime_seconds gauge");
     render_scalar(&mut writer, "board_uptime_seconds", uptime_secs, ts_ms);
 
     let request_count = ubos_net::net::handle().request_count();
-    let _ = writeln!(
-        writer,
-        "# HELP board_http_requests_total Requests handled on the dashboard and API ports, regardless of response status."
-    );
-    let _ = writeln!(writer, "# TYPE board_http_requests_total counter");
     render_scalar(
         &mut writer,
         "board_http_requests_total",
@@ -426,11 +419,6 @@ fn build_prometheus_body(
         ts_ms,
     );
 
-    let _ = writeln!(
-        writer,
-        "# HELP board_ntp_synced 1 if NTP has synced, 0 otherwise."
-    );
-    let _ = writeln!(writer, "# TYPE board_ntp_synced gauge");
     let synced = u8::from(ntp_offset != 0);
     render_scalar(&mut writer, "board_ntp_synced", synced, ts_ms);
 
