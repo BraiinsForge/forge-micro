@@ -36,7 +36,6 @@ use ubos_config::FileStorage;
 use ubos_manager::Handle as ManagerHandle;
 use ubos_mining::Handle as MiningHandle;
 use ubos_net::net;
-use ubos_thermal::Handle as ThermalHandle;
 
 mod cpu_mock;
 mod fan;
@@ -49,8 +48,35 @@ mod temperature;
 
 use hosted_network::HostDevice;
 
-const SOCKET_COUNT: usize = 9;
+// Nineteen sockets are held continuously: DHCPv4, DNS, the stratum
+// client, the mDNS responder, 5 webui listener sockets on :80, 5 REST
+// API listener sockets on :8080, and 5 metrics listener sockets on
+// :8081. NTP opens a transient UDP socket, and closed TCP connections
+// linger in TIME_WAIT until smoltcp reaps them. 24 provides headroom
+// for concurrent connections and TIME_WAIT, matching the firmware boards.
+const SOCKET_COUNT: usize = 24;
 const BOARD_NAME: &str = "host-runner";
+
+/// Concurrent TCP connections the web-UI server (:80) accepts.
+const WEBUI_HTTP_POOL: usize = 5;
+/// Concurrent TCP connections the REST API server (:8080) accepts.
+const API_HTTP_POOL: usize = 5;
+/// Concurrent TCP connections the Prometheus metrics server (:8081)
+/// accepts. Matches the webui and api pools so a scrape fan-in is
+/// served concurrently.
+const METRICS_HTTP_POOL: usize = 5;
+
+ubos_http::http_worker_task!(api_worker_task, ubos_api::RestApiService, API_HTTP_POOL);
+ubos_http::http_worker_task!(
+    webui_worker_task,
+    ubos_webui::DashboardService,
+    WEBUI_HTTP_POOL
+);
+ubos_http::http_worker_task!(
+    metrics_worker_task,
+    ubos_metrics::metrics::PrometheusMetricsService,
+    METRICS_HTTP_POOL
+);
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 static RESOURCES: StaticCell<StackResources<SOCKET_COUNT>> = StaticCell::new();
@@ -99,8 +125,8 @@ async fn ntp_sync_task(stack: Stack<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn metrics_task(stack: Stack<'static>) -> ! {
-    ubos_metrics::metrics::run(stack).await
+async fn metrics_ingest_task() -> ! {
+    ubos_metrics::metrics::run_ingest().await
 }
 
 const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
@@ -116,28 +142,15 @@ async fn mdns_task(stack: Stack<'static>) -> ! {
     ubos_mdns::run_mdns(stack, BOARD_NAME, BOARD_NAME, "host", MDNS_SERVICES).await
 }
 
+/// Keeps the credential store in sync with config changes at runtime.
 #[embassy_executor::task]
-// run_rest_api's future crosses clippy's large_futures threshold on this
-// 64-bit host; the allow inside ubos-api does not reach this await site. See
-// run_rest_api for why the size is acceptable for a spawned-once task.
-#[allow(clippy::large_futures)]
-async fn rest_api_task(
-    stack: Stack<'static>,
-    thermal: ThermalHandle,
-    manager: ManagerHandle,
-    psu: ubos_psu::Handle,
-) -> ! {
-    ubos_api::run_rest_api(stack, BOARD_NAME, thermal, manager, psu).await
+async fn sync_credentials_task() -> ! {
+    ubos_api::run_sync_credentials().await
 }
 
 #[embassy_executor::task]
 async fn network_apply_task(stack: Stack<'static>) -> ! {
     ubos_api::run_network_apply(stack).await
-}
-
-#[embassy_executor::task]
-async fn webui_task(stack: Stack<'static>) -> ! {
-    ubos_webui::run(stack).await
 }
 
 #[embassy_executor::task]
@@ -324,7 +337,7 @@ fn main() {
         spawner.spawn(heartbeat_task(stack).expect("BUG: heartbeat_task token"));
         spawner.spawn(stratum_client_task(stack).expect("BUG: stratum_client_task token"));
         spawner.spawn(ntp_sync_task(stack).expect("BUG: ntp_sync_task token"));
-        spawner.spawn(metrics_task(stack).expect("BUG: metrics_task token"));
+        spawner.spawn(metrics_ingest_task().expect("BUG: metrics_ingest_task token"));
         spawner.spawn(mdns_task(stack).expect("BUG: mdns_task token"));
         spawner.spawn(miner_metrics_task(mining_handle).expect("BUG: miner_metrics_task token"));
         spawner.spawn(stratum_metrics_task().expect("BUG: stratum_metrics_task token"));
@@ -347,14 +360,116 @@ fn main() {
         let mut csprng_seed = [0u8; 32];
         OsRng.fill_bytes(&mut csprng_seed);
         embassy_futures::block_on(ubos_auth::csprng::seed_csprng(csprng_seed));
-        spawner.spawn(
-            rest_api_task(stack, thermal, manager_handle, ubos_psu::handle())
-                .expect("BUG: rest_api_task token"),
+
+        // REST API on :8080 — seed credentials once, then spawn one worker
+        // task per pool slot so each has its own static TaskStorage. The
+        // executor closure is not async, so `block_on` drives the seed and
+        // the infallible bind to match the firmware's boot-time ordering.
+        // This block and the webui/metrics ones below hand-expand
+        // `serve_http_pool!`, which assumes an async context; keep them in
+        // sync if that macro changes.
+        embassy_futures::block_on(ubos_api::seed_api_credentials());
+        static API_TCP_BUFFERS: ConstStaticCell<
+            edge_nal_embassy::TcpBuffers<
+                API_HTTP_POOL,
+                { ubos_core::consts::Api::TX_BUFFER_SIZE },
+                { ubos_core::consts::Api::RX_BUFFER_SIZE },
+            >,
+        > = ConstStaticCell::new(edge_nal_embassy::TcpBuffers::new());
+        static API_TCP_NAL: StaticCell<edge_nal_embassy::Tcp<'static>> = StaticCell::new();
+        static API_WORK: ConstStaticCell<
+            [u8; ubos_core::consts::Api::REQUEST_BUFFER_SIZE * API_HTTP_POOL],
+        > = ConstStaticCell::new([0; ubos_core::consts::Api::REQUEST_BUFFER_SIZE * API_HTTP_POOL]);
+        static API_SERVICE: StaticCell<ubos_api::RestApiService> = StaticCell::new();
+        let api_tcp: &'static edge_nal_embassy::Tcp<'static> =
+            API_TCP_NAL.init(edge_nal_embassy::Tcp::new(stack, API_TCP_BUFFERS.take()));
+        let api_acceptor =
+            embassy_futures::block_on(ubos_http::bind_tcp(api_tcp, ubos_core::consts::Api::PORT));
+        let api_service: &'static ubos_api::RestApiService =
+            API_SERVICE.init(ubos_api::RestApiService::new(
+                BOARD_NAME,
+                thermal,
+                manager_handle,
+                ubos_psu::handle(),
+                stack,
+            ));
+        let api_buffers = ubos_http::split_work_buffer::<API_HTTP_POOL>(
+            API_WORK.take(),
+            ubos_core::consts::Api::REQUEST_BUFFER_SIZE,
         );
-        spawner.spawn(
-            network_apply_task(stack).expect("BUG: network_apply_task token"),
+        for buffer in api_buffers {
+            spawner.spawn(
+                api_worker_task(api_acceptor, buffer, api_service)
+                    .expect("BUG: api_worker_task token"),
+            );
+        }
+        spawner.spawn(sync_credentials_task().expect("BUG: sync_credentials_task token"));
+
+        spawner.spawn(network_apply_task(stack).expect("BUG: network_apply_task token"));
+
+        // Web UI on :80 — seed credentials once; sync_credentials_task
+        // keeps the shared credential store current after first boot.
+        embassy_futures::block_on(ubos_webui::seed_webui_credentials());
+        static WEBUI_TCP_BUFFERS: ConstStaticCell<
+            edge_nal_embassy::TcpBuffers<
+                WEBUI_HTTP_POOL,
+                { ubos_core::consts::Http::TX_BUFFER_SIZE },
+                { ubos_core::consts::Http::RX_BUFFER_SIZE },
+            >,
+        > = ConstStaticCell::new(edge_nal_embassy::TcpBuffers::new());
+        static WEBUI_TCP_NAL: StaticCell<edge_nal_embassy::Tcp<'static>> = StaticCell::new();
+        static WEBUI_WORK: ConstStaticCell<
+            [u8; ubos_core::consts::Http::REQUEST_BUFFER_SIZE * WEBUI_HTTP_POOL],
+        > = ConstStaticCell::new([0; ubos_core::consts::Http::REQUEST_BUFFER_SIZE * WEBUI_HTTP_POOL]);
+        static WEBUI_SERVICE: ubos_webui::DashboardService = ubos_webui::DashboardService;
+        let webui_tcp: &'static edge_nal_embassy::Tcp<'static> =
+            WEBUI_TCP_NAL.init(edge_nal_embassy::Tcp::new(stack, WEBUI_TCP_BUFFERS.take()));
+        let webui_acceptor =
+            embassy_futures::block_on(ubos_http::bind_tcp(webui_tcp, ubos_core::consts::Http::PORT));
+        let webui_buffers = ubos_http::split_work_buffer::<WEBUI_HTTP_POOL>(
+            WEBUI_WORK.take(),
+            ubos_core::consts::Http::REQUEST_BUFFER_SIZE,
         );
-        spawner.spawn(webui_task(stack).expect("BUG: webui_task token"));
+        for buffer in webui_buffers {
+            spawner.spawn(
+                webui_worker_task(webui_acceptor, buffer, &WEBUI_SERVICE)
+                    .expect("BUG: webui_worker_task token"),
+            );
+        }
+
+        // Prometheus metrics on :8081.
+        static METRICS_TCP_BUFFERS: ConstStaticCell<
+            edge_nal_embassy::TcpBuffers<
+                METRICS_HTTP_POOL,
+                { ubos_core::consts::Metrics::TX_BUFFER_SIZE },
+                { ubos_core::consts::Metrics::RX_BUFFER_SIZE },
+            >,
+        > = ConstStaticCell::new(edge_nal_embassy::TcpBuffers::new());
+        static METRICS_TCP_NAL: StaticCell<edge_nal_embassy::Tcp<'static>> = StaticCell::new();
+        static METRICS_WORK: ConstStaticCell<
+            [u8; ubos_core::consts::Metrics::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
+        > = ConstStaticCell::new(
+            [0; ubos_core::consts::Metrics::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
+        );
+        static METRICS_SERVICE: ubos_metrics::metrics::PrometheusMetricsService =
+            ubos_metrics::metrics::PrometheusMetricsService;
+        let metrics_tcp: &'static edge_nal_embassy::Tcp<'static> =
+            METRICS_TCP_NAL.init(edge_nal_embassy::Tcp::new(stack, METRICS_TCP_BUFFERS.take()));
+        let metrics_acceptor = embassy_futures::block_on(ubos_http::bind_tcp(
+            metrics_tcp,
+            ubos_core::consts::Metrics::PORT,
+        ));
+        let metrics_buffers = ubos_http::split_work_buffer::<METRICS_HTTP_POOL>(
+            METRICS_WORK.take(),
+            ubos_core::consts::Metrics::REQUEST_BUFFER_SIZE,
+        );
+        for buffer in metrics_buffers {
+            spawner.spawn(
+                metrics_worker_task(metrics_acceptor, buffer, &METRICS_SERVICE)
+                    .expect("BUG: metrics_worker_task token"),
+            );
+        }
+
         match fan::FanHwmonController::open() {
             Some(controller) => match temperature::HashboardTemperature::open() {
                 Some(sensor) => {
