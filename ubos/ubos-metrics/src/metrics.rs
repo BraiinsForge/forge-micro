@@ -418,7 +418,7 @@ fn build_prometheus_body(
     let request_count = REQUEST_COUNT.load(Ordering::Relaxed);
     let _ = writeln!(
         writer,
-        "# HELP board_http_requests_total Accepted connections on the HTTP port, regardless of response status."
+        "# HELP board_http_requests_total Requests handled on the dashboard and API ports, regardless of response status."
     );
     let _ = writeln!(writer, "# TYPE board_http_requests_total counter");
     render_scalar(

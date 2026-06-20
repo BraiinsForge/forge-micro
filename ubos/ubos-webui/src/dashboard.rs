@@ -293,9 +293,9 @@ fn percent_decode(input: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
 ///
 /// Serves the web-UI shell on port 80 (HTML, login, logout, logo).
 /// Methods are enforced: wrong-method requests on known paths return
-/// 405. `REQUEST_COUNT` increments on every accepted connection
-/// regardless of response status, so the metric reflects accept-level
-/// traffic rather than success rate.
+/// 405. `REQUEST_COUNT` increments on every request that reaches this
+/// handler regardless of response status, so the metric reflects
+/// handled-request volume rather than success rate.
 pub struct DashboardService;
 
 impl Service for DashboardService {
@@ -312,8 +312,10 @@ impl Service for DashboardService {
     where
         TcpSocket: Read + Write + TcpSplit,
     {
-        // Count every accepted connection so `board_http_requests_total`
-        // reflects total traffic on the HTML/API port.
+        // Count each request that reaches this handler so
+        // `board_http_requests_total` reflects dashboard and API traffic.
+        // The metrics port does not increment it, and a connection
+        // dropped before its request is parsed is never counted.
         REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
 
         // The allow-list is the compile-time default for now.

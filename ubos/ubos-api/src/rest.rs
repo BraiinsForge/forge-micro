@@ -145,8 +145,10 @@ impl Service for RestApiService {
     where
         TcpSocket: Read + Write + TcpSplit,
     {
-        // Count every accepted connection so `board_http_requests_total`
-        // reflects combined traffic across both listeners.
+        // Count each request that reaches this handler so
+        // `board_http_requests_total` reflects dashboard and API traffic.
+        // The metrics port does not increment it, and a connection
+        // dropped before its request is parsed is never counted.
         REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
 
         // The allow-list is the compile-time default for now.
