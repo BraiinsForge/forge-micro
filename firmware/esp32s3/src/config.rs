@@ -109,6 +109,18 @@ impl Board<'static> {
     pub const MCU: &str = "esp32s3";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
     pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x02];
+    /// Concurrent TCP connections the web-UI server (:80) accepts. A browser
+    /// opens several parallel connections per page load; this sizes the
+    /// worker/buffer pool.
+    pub const WEBUI_HTTP_POOL: usize = 5;
+    /// Concurrent TCP connections the REST API server (:8080) accepts.
+    pub const API_HTTP_POOL: usize = 5;
+    /// Accepted-connection pool depth for the Prometheus metrics
+    /// listener. All workers share one exposition body buffer held
+    /// across the socket write, so depth is accept-queue slack for a
+    /// second concurrent scraper, not parallel rendering; scrapes still
+    /// serialize on that buffer. Matches the webui and api pools.
+    pub const METRICS_HTTP_POOL: usize = 5;
 
     pub fn take(peripherals: esp_hal::peripherals::Peripherals) -> Self {
         Self {

@@ -142,6 +142,16 @@ impl Board {
     pub const MCU: &str = "stm32f407";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
     pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x03];
+    /// Concurrent TCP connections the web-UI server (:80) accepts. A browser
+    /// opens several parallel connections per page load; this sizes the
+    /// worker/buffer pool. Tuned down on RAM-constrained boards.
+    pub const WEBUI_HTTP_POOL: usize = 1;
+    /// Concurrent TCP connections the REST API server (:8080) accepts.
+    pub const API_HTTP_POOL: usize = 1;
+    /// Accepted-connection pool depth for the Prometheus metrics
+    /// listener. One slot on this board, matching the webui and api
+    /// pools.
+    pub const METRICS_HTTP_POOL: usize = 1;
 
     pub fn take(peripherals: embassy_stm32::Peripherals) -> Self {
         Self {

@@ -85,6 +85,16 @@ impl Board {
     /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
     /// distinct MAC.
     pub const MAC_FAMILY: u8 = 0x01;
+    /// Concurrent TCP connections the web-UI server (:80) accepts. A browser
+    /// opens several parallel connections per page load; this sizes the
+    /// worker/buffer pool. Tuned down on RAM-constrained boards.
+    pub const WEBUI_HTTP_POOL: usize = 1;
+    /// Concurrent TCP connections the REST API server (:8080) accepts.
+    pub const API_HTTP_POOL: usize = 1;
+    /// Accepted-connection pool depth for the Prometheus metrics
+    /// listener. One slot on this RAM-tight board, matching the webui
+    /// and api pools.
+    pub const METRICS_HTTP_POOL: usize = 1;
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {

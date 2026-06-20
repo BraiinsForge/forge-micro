@@ -151,8 +151,8 @@ async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn metrics_task(stack: embassy_net::Stack<'static>) -> ! {
-    ubos_metrics::metrics::run(stack).await
+async fn metrics_ingest_task() -> ! {
+    ubos_metrics::metrics::run_ingest().await
 }
 
 const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
@@ -225,9 +225,15 @@ type OledDisplay = Sh1106<
     Output<'static>,
 >;
 
+/// The reset pin is moved in and held for the task's lifetime so the SH1106
+/// RESET line stays driven high; dropping it would release the pad and blank
+/// the panel.
 #[cfg(feature = "display")]
 #[embassy_executor::task]
-async fn display_task(mut display: OledDisplay) -> ! {
+async fn display_task(
+    mut display: OledDisplay,
+    #[allow(clippy::used_underscore_binding)] _reset_pin: Output<'static>,
+) -> ! {
     ubos_display::display::run(&mut display).await
 }
 
@@ -238,15 +244,29 @@ async fn reset_task() -> ! {
     cortex_m::peripheral::SCB::sys_reset()
 }
 
+/// Keeps the credential store in sync with config changes at runtime.
 #[embassy_executor::task]
-async fn rest_api_task(
-    stack: embassy_net::Stack<'static>,
-    thermal: ThermalHandle,
-    manager: ManagerHandle,
-    psu: ubos_psu::Handle,
-) -> ! {
-    ubos_api::run_rest_api(stack, config::Board::NAME, thermal, manager, psu).await
+async fn sync_credentials_task() -> ! {
+    ubos_api::run_sync_credentials().await
 }
+
+ubos_http::http_worker_task!(
+    api_worker_task,
+    ubos_api::RestApiService,
+    config::Board::API_HTTP_POOL
+);
+
+ubos_http::http_worker_task!(
+    webui_worker_task,
+    ubos_webui::DashboardService,
+    config::Board::WEBUI_HTTP_POOL
+);
+
+ubos_http::http_worker_task!(
+    metrics_worker_task,
+    ubos_metrics::metrics::PrometheusMetricsService,
+    config::Board::METRICS_HTTP_POOL
+);
 
 #[embassy_executor::task]
 async fn network_apply_task(stack: embassy_net::Stack<'static>) -> ! {
@@ -361,6 +381,7 @@ async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
 }
 
 #[embassy_executor::main]
+#[allow(clippy::too_many_lines, clippy::items_after_statements)]
 async fn main(spawner: Spawner) {
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
     let hw = config::Board::take(peripherals);
@@ -533,13 +554,14 @@ async fn main(spawner: Spawner) {
         (net_config, mdns_hostname)
     };
 
-    // Socket-set capacity for the embassy-net stack. Seven sockets are
+    // Socket-set capacity for the embassy-net stack. Nineteen sockets are
     // held continuously: DHCPv4, DNS, the stratum client, the mDNS
-    // responder, and the three HTTP listeners on :80, :8080, and :8081
-    // (each serves one connection at a time). NTP sync opens a transient
-    // UDP socket every 60 s, and closed TCP connections linger in
-    // TIME_WAIT until smoltcp reaps them. 16 provides headroom.
-    static RESOURCES: StaticCell<StackResources<16>> = StaticCell::new();
+    // responder, 5 webui listener sockets on :80, 5 REST API listener
+    // sockets on :8080, and 5 metrics listener sockets on :8081.
+    // NTP sync opens a transient UDP socket every 60 s, and closed TCP
+    // connections linger in TIME_WAIT until smoltcp reaps them.
+    // 24 provides headroom for concurrent connections and TIME_WAIT.
+    static RESOURCES: StaticCell<StackResources<24>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
         net_config,
@@ -569,7 +591,7 @@ async fn main(spawner: Spawner) {
     ubos_auth::csprng::seed_csprng(csprng_seed).await;
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
-    spawner.spawn(unwrap!(metrics_task(stack)));
+    spawner.spawn(unwrap!(metrics_ingest_task()));
 
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
@@ -582,9 +604,9 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(hashrate_metrics_task()));
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
-    // Binding must stay alive so the reset pin remains driven high.
+    // The reset pin is moved into display_task so it stays driven high for the display's lifetime.
     #[cfg(feature = "display")]
-    let (_rst, display) = {
+    let (reset, display) = {
         let rst = {
             let mut pin = Output::new(hw.display_rst, Level::Low);
             Timer::after(Duration::from_millis(10)).await;
@@ -612,7 +634,7 @@ async fn main(spawner: Spawner) {
     };
 
     #[cfg(feature = "display")]
-    spawner.spawn(unwrap!(display_task(display)));
+    spawner.spawn(unwrap!(display_task(display, reset)));
 
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;
@@ -621,12 +643,51 @@ async fn main(spawner: Spawner) {
     // Core 1 hosts serial_task (ubos-mining backend); see spawn_core1 above.
     spawner.spawn(unwrap!(stratum_client_task(stack)));
 
-    spawner.spawn(unwrap!(rest_api_task(
-        stack,
-        thermal,
-        manager_handle,
-        ubos_psu::handle()
-    )));
     spawner.spawn(unwrap!(network_apply_task(stack)));
-    ubos_webui::run(stack).await;
+
+    // REST API on :8080 — seed credentials once, then spawn one worker
+    // task per pool slot so each has its own static TaskStorage.
+    ubos_api::seed_api_credentials().await;
+    static API_SERVICE: StaticCell<ubos_api::RestApiService> = StaticCell::new();
+    let api_service: &'static ubos_api::RestApiService =
+        API_SERVICE.init(ubos_api::RestApiService::new(
+            config::Board::NAME,
+            thermal,
+            manager_handle,
+            ubos_psu::handle(),
+            stack,
+        ));
+    ubos_http::serve_http_pool!(
+        spawner,
+        stack,
+        api_worker_task,
+        api_service,
+        config::Board::API_HTTP_POOL,
+        ubos_core::consts::Api
+    );
+    spawner.spawn(unwrap!(sync_credentials_task()));
+
+    // Web UI on :80 — seed credentials once (the API listener's
+    // sync_credentials_task keeps them current after first boot).
+    ubos_webui::seed_webui_credentials().await;
+    static WEBUI_SERVICE: ubos_webui::DashboardService = ubos_webui::DashboardService;
+    ubos_http::serve_http_pool!(
+        spawner,
+        stack,
+        webui_worker_task,
+        &WEBUI_SERVICE,
+        config::Board::WEBUI_HTTP_POOL,
+        ubos_core::consts::Http
+    );
+
+    static METRICS_SERVICE: ubos_metrics::metrics::PrometheusMetricsService =
+        ubos_metrics::metrics::PrometheusMetricsService;
+    ubos_http::serve_http_pool!(
+        spawner,
+        stack,
+        metrics_worker_task,
+        &METRICS_SERVICE,
+        config::Board::METRICS_HTTP_POOL,
+        ubos_core::consts::Metrics
+    );
 }

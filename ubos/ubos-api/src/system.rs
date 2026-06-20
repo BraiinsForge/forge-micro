@@ -68,8 +68,8 @@ mod tests;
 /// without revisiting this constant.
 ///
 /// Per-connection stack cost is `SCRATCH_SIZE` bytes; this multiplies by
-/// `TCP_POOL` for concurrent connections. If you increase this constant,
-/// audit task-stack sizing for all ubos-api consumers.
+/// `API_HTTP_POOL` for concurrent connections. If you increase this
+/// constant, audit task-stack sizing for all ubos-api consumers.
 const SCRATCH_SIZE: usize = 2048;
 
 /// Build the dotted-quad IPv4 string from the shared atomic.

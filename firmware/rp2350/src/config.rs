@@ -84,6 +84,18 @@ impl Board {
     /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
     /// distinct MAC.
     pub const MAC_FAMILY: u8 = 0x02;
+    /// Concurrent TCP connections the web-UI server (:80) accepts. A browser
+    /// opens several parallel connections per page load; this sizes the
+    /// worker/buffer pool.
+    pub const WEBUI_HTTP_POOL: usize = 5;
+    /// Concurrent TCP connections the REST API server (:8080) accepts.
+    pub const API_HTTP_POOL: usize = 5;
+    /// Accepted-connection pool depth for the Prometheus metrics
+    /// listener. All workers share one exposition body buffer held
+    /// across the socket write, so depth is accept-queue slack for a
+    /// second concurrent scraper, not parallel rendering; scrapes still
+    /// serialize on that buffer. Matches the webui and api pools.
+    pub const METRICS_HTTP_POOL: usize = 5;
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {
