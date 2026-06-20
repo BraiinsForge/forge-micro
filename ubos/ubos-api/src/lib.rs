@@ -24,7 +24,7 @@ pub mod schema;
 pub mod system;
 
 pub use network_apply::run_network_apply;
-pub use rest::run_rest_api;
+pub use rest::{run_sync_credentials, seed_api_credentials, RestApiService};
 
 #[cfg(test)]
 mod test_time_stubs {

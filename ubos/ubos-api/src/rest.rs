@@ -15,7 +15,6 @@ use embassy_time::Instant;
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
 use portable_atomic::Ordering;
-use static_cell::ConstStaticCell;
 use ubos_core::consts::Api;
 use ubos_logging::{info, warn};
 use ubos_manager::Handle as ManagerHandle;
@@ -89,6 +88,30 @@ pub struct RestApiService {
     pub(crate) manager: ManagerHandle,
     pub(crate) psu: ubos_psu::Handle,
     pub(crate) stack: Stack<'static>,
+}
+
+impl RestApiService {
+    /// Construct the REST API service value.
+    ///
+    /// Pass the returned value to a `StaticCell::init` so its address
+    /// is fixed for the firmware lifetime, then hand the `&'static`
+    /// reference to each worker task spawned with `http_worker_task!`.
+    #[must_use]
+    pub fn new(
+        board_name: &'static str,
+        thermal: ThermalHandle,
+        manager: ManagerHandle,
+        psu: ubos_psu::Handle,
+        stack: Stack<'static>,
+    ) -> Self {
+        Self {
+            board_name,
+            thermal,
+            manager,
+            psu,
+            stack,
+        }
+    }
 }
 
 /// Build the CORS header slice for a response.
@@ -481,74 +504,35 @@ impl Service for RestApiService {
     }
 }
 
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
-static REST_TCP_BUFFERS: ConstStaticCell<
-    edge_nal_embassy::TcpBuffers<1, { Api::TX_BUFFER_SIZE }, { Api::RX_BUFFER_SIZE }>,
-> = ConstStaticCell::new(edge_nal_embassy::TcpBuffers::new());
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
-static REST_WORK_BUFFER: ConstStaticCell<[u8; Api::REQUEST_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Api::REQUEST_BUFFER_SIZE]);
-
 /// Keep `CREDENTIALS` in sync with the config watch.
 ///
-/// Subscribes to config changes and calls [`ubos_auth::auth::set_credentials`]
-/// on each publish so a `POST /api/config` credential update takes effect
-/// at runtime without a reboot.
-async fn sync_credentials(config: ubos_config::Handle) -> ! {
+/// Seed the credential store from the persisted config before the accept loop.
+///
+/// Call once before spawning worker tasks so the first request
+/// authenticates against the operator's configured credentials. Warn
+/// when default credentials are still in place.
+pub async fn seed_api_credentials() {
+    let config = ubos_config::handle();
+    let api = config.current().api;
+    ubos_auth::auth::set_credentials(&api.username, &api.password).await;
+    ubos_auth::auth::warn_if_default_credentials().await;
+}
+
+/// Subscribe to config changes and update the credential store on each
+/// publish so a `POST /api/config` credential change takes effect at
+/// runtime without a reboot.
+///
+/// Run as a dedicated embassy task alongside the REST API worker tasks.
+/// The future holds only the two credential strings across each
+/// `set_credentials` await, not the full `Config` snapshot.
+pub async fn run_sync_credentials() -> ! {
+    let config = ubos_config::handle();
     let mut subscription = config.subscribe();
     loop {
-        // Hold only the two credential strings across the set_credentials
-        // await, not the whole Config snapshot, so this future stays small
-        // inside run_rest_api's select and keeps it under clippy's
-        // large_futures threshold.
         let credentials = {
             let snapshot = subscription.changed().await;
             snapshot.api
         };
         ubos_auth::auth::set_credentials(&credentials.username, &credentials.password).await;
     }
-}
-
-/// Accept connections on `Api::PORT` (8080) and serve the REST API.
-///
-/// Seeds `CREDENTIALS` from the persisted `config.api` section before
-/// entering the accept loop, then runs [`sync_credentials`] concurrently
-/// so any subsequent `POST /api/config` credential change takes effect
-/// immediately.
-// `serve` carries all per-request state on the stack, so on 64-bit hosts
-// the select future clears clippy's 16 KiB large_futures threshold by a
-// few dozen bytes. This is a forever-running task spawned once into static
-// storage, so the size is acceptable and Box::pin would only move the same
-// bytes to a heap the firmware targets lack. The 32-bit firmware builds
-// stay under the threshold on their own. The await at each board's call
-// site needs the same allow, since this one does not cross crate bounds.
-#[allow(clippy::large_futures)]
-pub async fn run_rest_api(
-    stack: Stack<'static>,
-    board_name: &'static str,
-    thermal: ThermalHandle,
-    manager: ManagerHandle,
-    psu: ubos_psu::Handle,
-) -> ! {
-    let config = ubos_config::handle();
-    let api = config.current().api;
-    ubos_auth::auth::set_credentials(&api.username, &api.password).await;
-    ubos_auth::auth::warn_if_default_credentials().await;
-    match embassy_futures::select::select(
-        ubos_http::serve(
-            stack,
-            Api::PORT,
-            RestApiService {
-                board_name,
-                thermal,
-                manager,
-                psu,
-                stack,
-            },
-            REST_TCP_BUFFERS.take(),
-            REST_WORK_BUFFER.take(),
-        ),
-        sync_credentials(config),
-    )
-    .await {}
 }
