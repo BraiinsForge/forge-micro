@@ -1,36 +1,53 @@
 # HTTP listener concurrency
 
-Status: design note for a future branch. Scope: the `ubos-http` accept
-loop and its consumers (`ubos-webui` :80, `ubos-api` :8080,
-`ubos-metrics` :8081).
+Status: implemented. Scope: the `ubos-http` accept loop and its consumers
+(`ubos-webui` :80, `ubos-api` :8080, `ubos-metrics` :8081).
 
-The firmware HTTP servers currently handle **one connection at a time**
-per listener. This note records why, the two problems it causes, the
-target capacity, and what an implementation has to change. An interim
-UX mitigation (option C below) already shipped; the real fix is deferred
-to its own branch because it is extensive.
+The firmware HTTP servers serve several connections at once through a
+fixed pool of accept-loop workers, sized per board. This note records the
+shipped design, how to reason about the viable client count, the measured
+numbers on hardware, why the pool cannot simply be cranked up, and how to
+reproduce the measurement.
 
 ## Current design
 
-`ubos_http::serve` (`ubos/ubos-http/src/serve.rs`) runs a sequential
-accept loop:
+`ubos_http::serve_worker` (`ubos/ubos-http/src/serve.rs`) is the
+per-connection accept loop. Each board spawns a pool of independent
+worker tasks per listener via the `http_worker_task!` macro — one embassy
+task per worker:
 
-```
-loop {
-    let (peer, socket) = acceptor.accept().await;
-    with_timeout(Net::SOCKET_TIMEOUT, handle_connection(socket, work_buffer, ...)).await;
-}
-```
+- `bind_tcp` binds the listener once and returns a `'static` acceptor that
+  every worker shares (it is `Copy`).
+- `split_work_buffer` hands each worker a non-overlapping `'static` slice
+  of the parse buffer.
+- each worker owns one socket from a `TcpBuffers<POOL, TX, RX>` pool,
+  accepts a connection, serves it, and loops back to accept.
 
-It is hard-wired to a single connection:
+The depth is a per-board constant (`WEBUI_HTTP_POOL` / `API_HTTP_POOL` /
+`METRICS_HTTP_POOL` in each `config.rs`) that sizes the `TcpBuffers`, the
+parse buffer, and the worker task pool. Because each worker is its own task with its own static
+future, the whole per-listener footprint is fixed and linker-checked; it
+does not depend on how deeply any single future is polled. An earlier
+design folded the whole worker pool into one `join_array` future, which
+grew with the pool and overflowed the stack at boot for large pools — the
+per-task structure removes that failure mode (see below).
 
-- The socket pool is `TcpBuffers<1, TX, RX>` — one socket buffer.
-- A single `work_buffer` (the request-parse buffer) is reused across the
-  loop. `serve` asserts `TCP_POOL <= 1` precisely because that buffer
-  would be raced by concurrent connections.
+Two properties matter for capacity:
 
-So a connection is accepted, fully served (request → response → close),
-and only then is the next one accepted.
+- **Every response sends `Connection: close`.** There is no HTTP
+  keep-alive on any listener (confirmed on hardware: the authenticated
+  `200` to `GET /api/info` closes just like the `401`). So a worker is not
+  pinned to a client across polls — each poll is a fresh, short-lived
+  connection (~20 ms on the LAN), and the worker returns to `accept`
+  immediately after closing.
+- **Teardown is bounded.** A worker waits at most `IDLE_TIMEOUT` (5 s) for a
+  request to start arriving, and at most `REQUEST_TIMEOUT`
+  (`Net::SOCKET_TIMEOUT`, 10 s) for one exchange to complete. A completed
+  exchange that asked to close gets a bounded graceful close; every other
+  exit (idle past `IDLE_TIMEOUT`, a vanished peer, a timed-out request)
+  aborts with a reset. This is what
+  removed the earlier ~30 s unreachable window after a live network apply,
+  where a single graceful-closing socket blocked all new connections.
 
 Buffer sizes (`ubos/ubos-core/src/consts.rs`):
 
@@ -40,110 +57,172 @@ Buffer sizes (`ubos/ubos-core/src/consts.rs`):
 | :8080 `Api` | 2 KiB | 2 KiB | 2 KiB | **6 KiB** |
 | :8081 `Metrics` | 512 B | 1 KiB | 512 B | **2 KiB** |
 
-## Problem 1 — concurrent clients serialize
+Shipped pool depths are uniform per board and uniform across all three
+listeners: `WEBUI_HTTP_POOL`, `API_HTTP_POOL`, and `METRICS_HTTP_POOL` are
+each `5` on the ~512 KiB boards (bmm-pico, rp2350, esp32s3) and `1` on the
+RAM-constrained boards (rp2040, stm32f407, stm32f439). Each board takes the
+largest depth its RAM links: the tight boards do not link at `5` per
+listener (see "bounded at link time" below), so they drop to `1` rather
+than to an intermediate depth. The web UI gets the same depth as the API
+because a browser fans out several parallel connections to fetch the page
+assets on load; the REST API depth sets the live-watcher capacity (below).
+The metrics listener uses the same pool so a Prometheus scrape draws its
+own worker instead of contending for a single accept slot; a dedicated
+ingest task, not the accept loop, now drains the push channel into the
+shared metric map.
 
-Two browsers on the dashboard do not fail, but their requests are
-serialized: while one connection is being handled, the other waits in
-the TCP backlog. Requests are short and HTTP closes after each, so they
-interleave and mostly work — but under load the dashboard's 2 s poll
-"loses a race against another fetch" (already noted in `index.js`), which
-is why the SPA carries retry/backoff. More clients means more races.
+## Capacity model
 
-## Problem 2 — ~30 s unreachable after a live network apply
+Because there is no keep-alive, the right metric is **peak simultaneous
+in-flight connections**, not the number of viewers. For `B` browsers each
+polling one endpoint every `P` seconds with request duration `D`:
 
-Measured on bmm-pico: after `POST /api/system/network`, the inbound
-listeners (:80, :8080) are unreachable for a **constant ~32 s**, while
-the stack stays healthy the whole time (the stratum client keeps
-submitting shares and receiving jobs across the apply; no reboot, no link
-drop, the change applies and persists correctly).
+- **Pool size** must cover the peak in-flight, which ranges from
+  `B × D/P` when clients are desynchronized up to `B` when they poll in
+  lockstep. A connection that cannot get a socket is refused, and the
+  client retries on its next poll.
+- **`StackResources<N>`** must cover the continuously held sockets plus the
+  TIME_WAIT backlog. The server is the active closer, so it holds the
+  TIME_WAIT; the close rate is about `B / P` per second, each lingering
+  until smoltcp reaps it.
 
-Cause: applying the config severs the inbound TCP connection at the IP
-layer with no FIN/RST exchanged — the peer simply vanishes. When the
-handler ends, smoltcp does a **graceful close**: it sends a FIN and waits
-for an ACK that never comes, retransmits, and only frees the socket after
-the close timeout (~30 s). With `TCP_POOL = 1` that lone socket is the
-only one, so no new connection — including the operator's re-login — can
-be accepted until it frees.
+The dashboard polls `/api/info` every 2 s (`ubos-webui/src/index.js`), so
+`P = 2 s` and `D ≈ 20 ms`. The web UI assets are fetched once at page load
+and not again, so in steady state a viewer exercises only the API
+listener.
 
-The single-socket limit is the common root of both problems: a dead
-socket is not just *a* socket, it is *the* socket.
+## Measured on bmm-pico (RP2350)
+
+Using `scripts/http-load-test.sh` (see below), with clients desynchronized
+by ±0.8 s of jitter:
+
+| `API_HTTP_POOL` | clean viewers (≥99%) | above the pool |
+|-----------------|----------------------|----------------|
+| 2 | 2 | degrades gracefully to ~85% |
+| 5 | 5 | degrades gracefully to ~91% at 8 |
+
+The clean concurrency ceiling tracks the pool size one-to-one. Above it,
+desynchronized clients degrade gracefully (a fraction of polls are refused
+and retried, ~5 ms median latency throughout) rather than collapsing, and
+the board stays up — an overloaded listener drops connections, it does not
+crash. Only perfectly synchronized clients hit the hard
+`success ≈ pool / clients` worst case.
+
+**Shipped target: 5 concurrent watchers** on the 512 KiB boards, verified
+on bmm-pico: boots, serves 5 clients at 100 %, and survives an 8-client
+overload with only dropped polls.
+
+## Pool size is bounded at link time
+
+Each worker is its own task with its own static future, so the entire
+per-listener footprint — `TcpBuffers`, the parse buffer, and the worker
+task pool — is static and **linker-checked**. An over-sized pool is a
+build error, not a runtime fault, and `cargo build --release` is what
+discovers each board's ceiling. Measured with the web UI and API pools at
+`5` each (ten worker futures), before the metrics listener joined the pool
+design:
+
+- **rp2040** overflows `.bss` by ~50 KiB (264 KiB SRAM, no CCM).
+- **stm32f407** overflows main `.bss` by ~64 KiB *and* `.ccmram.bss` by
+  ~8 KiB — too small at 128 KiB main + 64 KiB CCM even with the buffers in
+  CCM.
+- **stm32f439** overflows `.ccmram.bss` by ~7 KiB and the stack by a few
+  hundred bytes: ten worker futures plus the 5/5 buffers do not fit in its
+  combined RAM.
+
+The dominant cost is the per-listener worker `TaskStorage` futures, which
+live in main SRAM regardless of where the buffers sit. That is why the
+three tight boards ship at `1` per listener and only the ~512 KiB boards
+(bmm-pico, rp2350, esp32s3) link at `5`; with the metrics listener on the
+same pool those boards now carry fifteen worker futures across the three
+listeners and still link. On stm32f407 and stm32f439 the TCP and parse
+buffers are placed in CCM (`.ccmram.bss`) so the depth-1 buffers stay off
+the tight main SRAM.
+
+This is a deliberate change from an earlier design that folded the
+whole worker pool into one `join_array` future. That future grew with the
+pool, and **constructing** it on the first poll consumed call stack
+proportional to the pool — which is not linker-checked (cortex-m-rt parks
+the stack at the top of RAM and lets it grow down toward `.bss`, with no
+guard). Large pools silently overran the stack and hard-faulted at boot
+(`8` crash-looped, `10` was dead on arrival) with meaningless backtraces.
+Moving each worker to its own task moves the whole footprint into the
+statically verified column: if it links, it fits.
+
+The general rule: **data** is statically allocated and linker-checked; the
+**call stack** is not. The per-task structure keeps each worker's state in
+its own static future and each `poll` stack small and independent of the
+pool count, so the only thing that scales with the pool is linker-checked
+static data.
+
+## Optional: stack-overflow guard
+
+A stack guard is not required to bound the pool footprint (that is now
+linker-checked), but it would still catch a regression in handler code that
+deepens a single `poll` past the available stack, turning a silent
+corruption into an immediate, labelled fault:
+
+- **`flip-link`** relocates the stack below `.bss`/`.data`, so an overflow
+  runs off the bottom into the boundary and faults at once.
+- The **Cortex-M33 `MSPLIM` stack-limit register** (present on the RP2350)
+  faults the instant the stack pointer crosses `_stack_limit`.
+
+## Further headroom
+
+- **Raise a pool where the board links it.** With the footprint
+  linker-checked, bumping `API_HTTP_POOL` is safe to try: it either links
+  (and fits) or fails the build. Validate with a release build and the load
+  test.
+- **Share one pool across :80 and :8080.** The web UI (bursty at page load)
+  and the API (steady low-rate polling) are largely used at different
+  times, so two separately sized pools reserve RAM for peaks that do not
+  coincide. A shared pool drawn from one `TcpBuffers` would serve more total
+  clients with less reserved RAM; the constraint is that `edge-nal-embassy`
+  binds an acceptor per port, so the two acceptors would have to draw from
+  one shared buffer pool.
 
 ## Can the buffers be shared?
 
-Question that comes up: can multiple clients share these buffers?
-
 - **Socket RX/TX buffers: no, not while connections are concurrently
   live.** Each open connection holds in-flight bytes in its own RX/TX
-  buffer; sharing would corrupt streams. `TcpBuffers<N>` is a *reuse
-  pool* across time, not concurrent sharing — N simultaneous connections
-  genuinely need N buffer pairs.
-- **Request-parse (`work_buffer`): partially.** It is only needed during
-  the brief header-parse phase, not for the whole connection. A small
-  pool of K parse buffers could be borrowed during parse and released, so
-  K < N buffers serve N connections if they do not all parse at the same
-  instant. This trades RAM for borrow/release bookkeeping and a
-  contention fallback. Simplest correct design is still one parse buffer
-  per concurrent connection.
+  buffer. `TcpBuffers<N>` is a reuse pool across time, not concurrent
+  sharing — `N` simultaneous connections need `N` buffer pairs.
+- **Request-parse buffer: partially.** It is needed only during the brief
+  header-parse phase. A pool of `K < N` parse buffers borrowed during parse
+  and released would serve `N` connections that do not all parse at the
+  same instant, trading RAM for borrow bookkeeping and a contention
+  fallback. The shipped design keeps one parse slice per worker for
+  simplicity.
 - **Right-sizing is independent of count.** Per-listener buffers can be
-  trimmed (e.g. :80 mostly serves small gzipped shells) to claw back RAM
-  regardless of how many connections each allows.
-
-## Target capacity
-
-- :8080 (API) — **4** clients
-- :80 (web UI shell + login) — **2** clients
-- :8081 (metrics) — **2** clients
-
-RAM delta over today (one connection each), at current buffer sizes:
-
-| Listener | now | target | added |
-|----------|-----|--------|-------|
-| :8080 | 6 KiB | 4 × 6 = 24 KiB | +18 KiB |
-| :80 | 6 KiB | 2 × 6 = 12 KiB | +6 KiB |
-| :8081 | 2 KiB | 2 × 2 = 4 KiB | +2 KiB |
-| **total** | | | **+26 KiB** |
+  trimmed (the :80 shell is a small gzipped asset) to reclaim RAM
+  regardless of the connection count.
 
 ## Per-board constraint
 
-The buffer sizes and the socket count are shared constants across all
-firmware. The RAM budget is not shared:
+The buffer sizes and pool depths are per board, because the RAM budget is
+not shared:
 
-- **bmm-pico / rp2350 (RP2350):** ample SRAM; +26 KiB is comfortable.
-- **rp2040 (256 KiB):** ran with ~240 bytes of free SRAM (see the
-  `Metrics::RX_BUFFER_SIZE` comment) — cannot absorb even one extra
-  socket without trimming elsewhere.
-- **stm32f407 (128 KiB):** the tightest; same problem.
+- **bmm-pico / rp2350 (RP2350) / esp32s3:** ample SRAM; the 5-watcher
+  target fits at `5` per listener.
+- **rp2040 / stm32f407 / stm32f439:** the tight boards, which is why their
+  pools stay at `1` per listener. Raising them needs a buffer trim
+  elsewhere first, and the per-board `StackResources` must be re-checked.
 
-So the connection count must be **per-board**, not a global bump: higher
-on rp2350/bmm-pico, left at 1 on rp2040 and stm32f407. A const-generic or
-per-board const threaded into `serve` and the `TcpBuffers`/`work_buffer`
-statics is the natural mechanism.
+## How to measure
 
-## What an implementation must change
+`scripts/http-load-test.sh` drives `N` independent clients, each polling one
+endpoint on a jittered interval, and sweeps the concurrency from 1 to a
+ceiling, reporting success rate and latency per level. The jitter
+desynchronizes the clients so the result reflects real browsers rather than
+a lockstep worst case.
 
-1. **Make `serve` concurrent.** Drop the shared `work_buffer` and the
-   `TCP_POOL <= 1` assert. Give each in-flight connection its own
-   parse buffer (or a borrowed-pool slot), and service connections in
-   parallel — either spawn a task per accepted connection or run a small
-   fixed pool of handler futures. `handle_connection` already takes the
-   socket and a buffer per call, so the change is in the loop and the
-   static buffer wiring.
-2. **Parameterize the connection count per board** and size the
-   `TcpBuffers<N>` / parse-buffer statics from it.
-3. **Check `StackResources<16>`.** Each listener socket draws from the
-   board's embassy-net socket pool, shared with stratum, NTP, DHCP, and
-   mDNS. Confirm the added sockets fit under 16 (or raise it, which also
-   costs RAM).
-4. **Abort instead of graceful-close on a severed connection.** Even with
-   a spare socket, a dead one should not idle for ~30 s. Either set a
-   short `set_timeout` on accepted sockets so smoltcp resets them quickly,
-   or restructure so the loop owns the socket and can `abort()` (RST) it
-   when a connection breaks. This is the same fix that would address
-   Problem 2 on its own.
+```sh
+# Sweep 1..8 concurrent API pollers against a board, 8 polls each.
+scripts/http-load-test.sh redacted50.151 --max 8 --rounds 8 --jitter 0.8
+```
 
-## Interim mitigation (shipped)
-
-Option C: the post-apply "Network configuration changed" notice tells the
-operator the board can take up to ~30 s to become reachable, so the delay
-reads as expected rather than as a failure. The single-connection limit
-and the ~30 s stall remain until the work above lands.
+Defaults: `root:root` credentials, port 8080, path `/api/info`, 2 s poll
+interval, ±0.5 s jitter, and a viability threshold of 99 % success. The
+"viable concurrency" line reports the highest `N` that stayed at or above
+the threshold. Find the board's address from its boot log
+(`ip address: …`) or over mDNS.

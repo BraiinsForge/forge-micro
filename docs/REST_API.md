@@ -27,12 +27,16 @@ Discoverable via mDNS: `_http._tcp.local.` (port 80),
 | `ubos-mdns`    | DNS-SD responder; per-service registration via `declare_service!`         |
 | `ubos-metrics` | Prometheus exporter task and metric storage                               |
 
-`ubos_webui::run` (`ubos-webui/src/dashboard.rs`) is the firmware
-entry point for port 80. `ubos_api::run_rest_api`
-(`ubos-api/src/rest.rs`) is the entry point for port 8080.
-`ubos_metrics::run` (`ubos-metrics/src/metrics.rs`) is the entry point
-for port 8081. The old `ubos-api::run` / `dashboard::run` no longer
-exists as a public name; it moved to `ubos-webui`.
+Each listener is served by a fixed pool of accept-loop workers spawned
+through `ubos_http::http_worker_task!` (see `docs/HTTP_LISTENERS.md`).
+Port 80 serves `ubos_webui::DashboardService`
+(`ubos-webui/src/dashboard.rs`); `ubos_webui::seed_webui_credentials`
+seeds its credentials at boot. Port 8080 serves
+`ubos_api::RestApiService` (`ubos-api/src/rest.rs`), constructed with
+`RestApiService::new`. Port 8081 serves
+`ubos_metrics::PrometheusMetricsService` (`ubos-metrics/src/metrics.rs`);
+a separate `ubos_metrics::run_ingest` task drains the push channel into
+the shared metric map the service renders.
 
 ## Request lifecycle
 
@@ -307,12 +311,15 @@ via `include_bytes!`; no runtime compression cost.
 | `SESSION_TTL_SECS`                | 86 400     | `ubos-auth/src/session.rs:26`         |
 | `MAX_TOKENS` (CSRF)               | 16         | `ubos-auth/src/csrf.rs:32`            |
 | `CSRF_TTL_SECS`                   | 3 600      | `ubos-auth/src/csrf.rs:35`            |
-| TCP pool size (both servers)      | 1          | `ubos-http/src/serve.rs`              |
+| HTTP pool depth (per listener)    | 1 or 5     | `firmware/<board>/src/config.rs`      |
 
-Each server accepts one connection at a time. Concurrent scrapers or
-browser tabs serialize on the accept loop; this matches the firmware's
-single-threaded async model and keeps per-connection scratch off the
-stack budget multiplier.
+Each listener is served by a fixed pool of accept-loop workers
+(`WEBUI_HTTP_POOL` / `API_HTTP_POOL` / `METRICS_HTTP_POOL`): `5` on the
+~512 KiB boards (bmm-pico, rp2350, esp32s3) and `1` on the
+RAM-constrained boards (rp2040, stm32f407, stm32f439). Concurrent
+scrapers or browser tabs are served in parallel up to the pool depth
+and serialize only beyond it. See `docs/HTTP_LISTENERS.md` for the
+capacity model and the RAM bound that caps the depth.
 
 ## Out of scope
 
