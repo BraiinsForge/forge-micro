@@ -28,12 +28,12 @@ ubos_mdns::declare_service!(
 );
 
 pub mod dashboard;
-pub use dashboard::run;
+pub use dashboard::{seed_webui_credentials, DashboardService};
 
 #[cfg(test)]
 mod test_time_stubs {
     // `ubos_auth::session` and `ubos_auth::csrf` call
-    // `embassy_time::Instant::now()` transitively via `dashboard::run`.
+    // `embassy_time::Instant::now()` transitively via `DashboardService::handle`.
     // `embassy-time-driver` declares the hook as `extern "Rust"`; no
     // hardware driver is linked into the host test binary, so satisfy
     // the linker with stubs that return a fixed tick of zero.

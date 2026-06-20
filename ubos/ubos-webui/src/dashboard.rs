@@ -29,11 +29,9 @@ use core::fmt::Write as _;
 use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
 use edge_nal::TcpSplit;
-use embassy_net::Stack;
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
 use portable_atomic::Ordering;
-use static_cell::ConstStaticCell;
 use ubos_core::consts::Http;
 use ubos_net::net::REQUEST_COUNT;
 
@@ -290,14 +288,6 @@ fn percent_decode(input: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
     result.push_str(text).ok()?;
     Some(result)
 }
-
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
-static HTTP_TCP_BUFFERS: ConstStaticCell<
-    edge_nal_embassy::TcpBuffers<1, { Http::TX_BUFFER_SIZE }, { Http::RX_BUFFER_SIZE }>,
-> = ConstStaticCell::new(edge_nal_embassy::TcpBuffers::new());
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
-static HTTP_WORK_BUFFER: ConstStaticCell<[u8; Http::REQUEST_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Http::REQUEST_BUFFER_SIZE]);
 
 /// Dashboard handler implementing `ubos_http::Service`.
 ///
@@ -592,29 +582,15 @@ impl Service for DashboardService {
     }
 }
 
-/// Accept HTTP connections and serve the web-UI shell. Runs forever.
+/// Seed the credential store from the persisted config before the accept loop.
 ///
-/// Routes `GET /` to the inlined HTML dashboard, `HEAD /` to the
-/// body-less CSRF token refresh, `GET /login`/`POST /login`/`POST
-/// /logout` to the session flow, and `GET /logo.svg` to the cacheable
-/// Braiins wordmark. Wrong-method requests on known paths return 405.
-/// Anything else gets a 404. The transport loop lives in `ubos-http`.
-pub async fn run(stack: Stack<'static>) -> ! {
-    // Seed the credential store from persisted config before the accept
-    // loop so the first request authenticates against the operator's
-    // configured credentials and the default-credentials warning fires
-    // at boot rather than on first login. The REST listener owns the
-    // config watch that keeps the shared store in sync on later changes.
+/// Call once before spawning web-UI worker tasks so the first request
+/// authenticates against the operator's configured credentials. The REST
+/// API listener owns the config watch that keeps the shared credential
+/// store in sync on later changes.
+pub async fn seed_webui_credentials() {
     let config = ubos_config::handle();
     let api = config.current().api;
     ubos_auth::auth::set_credentials(&api.username, &api.password).await;
     ubos_auth::auth::warn_if_default_credentials().await;
-    ubos_http::serve(
-        stack,
-        Http::PORT,
-        DashboardService,
-        HTTP_TCP_BUFFERS.take(),
-        HTTP_WORK_BUFFER.take(),
-    )
-    .await
 }

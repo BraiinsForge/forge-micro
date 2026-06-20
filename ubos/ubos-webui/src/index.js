@@ -355,9 +355,10 @@ let appliedHostname = '';
 
 async function tick() {
   // Skip the poll while the Configuration page is loading. The REST
-  // listener serves one connection at a time, so this 2 s poll and the
-  // config page's fetches knock each other over; pausing here is the
-  // main fix for the transient Configuration "Load failed" races.
+  // listener pool is shallow (one connection deep on the tight boards),
+  // so this 2 s poll and the config page's fetches knock each other over;
+  // pausing here is the main fix for the transient Configuration "Load
+  // failed" races.
   if (cfgLoading) return;
   try {
     const response = await fetch(API + '/api/info', { cache: 'no-store', credentials: 'include' });
@@ -437,10 +438,11 @@ function renderPoolMeta() {
 }
 
 async function loadPoolMeta() {
-  // Same retry budget as loadCfg: the REST listener serves one
-  // connection at a time, so a /api/info tick in flight can knock
-  // this fetch over. A short backoff keeps the dashboard labels
-  // populated without spinning when the board is genuinely offline.
+  // Same retry budget as loadCfg: the REST listener's worker pool is
+  // finite (one worker on the smallest boards), so a /api/info tick in
+  // flight can still knock this fetch over. A short backoff keeps the
+  // dashboard labels populated without spinning when the board is
+  // genuinely offline.
   const delays = [0, 250, 500, 1000];
   for (const wait of delays) {
     if (wait) await new Promise(resolve => setTimeout(resolve, wait));
@@ -750,11 +752,12 @@ async function csrfPost(body) {
   return csrfPostTo('/api/config', body);
 }
 
-// POST with backoff against the single-connection REST listener, which
-// refuses a request that loses the race with the 2 s status poll. Takes
-// a thunk so the caller owns the path and body; returns the ok response
-// or throws the last error. Stops early on a 4xx, which the board
-// rejects identically on retry, so retrying would only burn the backoff.
+// POST with backoff against the shallow REST listener pool, which refuses
+// a request that loses the race with the 2 s status poll when every
+// worker is busy. Takes a thunk so the caller owns the path and body;
+// returns the ok response or throws the last error. Stops early on a 4xx,
+// which the board rejects identically on retry, so retrying would only
+// burn the backoff.
 async function postWithRetry(send) {
   const delays = [0, 250, 500, 1000];
   let lastError;
@@ -901,7 +904,7 @@ $('fmSystem').addEventListener('submit', async event => {
 // Fetch GET /api/system/network to populate the live address fields.
 // Both DHCP and Static modes return real values from the embassy-net
 // stack (DHCP returns the lease). Retries with backoff to tolerate a
-// concurrent /api/info poll occupying the single REST listener slot.
+// concurrent /api/info poll occupying the REST listener's workers.
 async function loadNetworkStatus() {
   // Skip if a load is already in flight so rapid tab switches cannot race
   // two runs and apply stale responses out of order.
@@ -1062,8 +1065,8 @@ $('btnNetModalConfirm').addEventListener('click', async () => {
   pendingNetSwitch = null;
   applyInFlight = true;
   const msg = $('msgNetwork');
-  // Pause the 2 s poll so it does not steal the single-connection :8080
-  // listener slot from the apply request; resume it if the apply fails.
+  // Pause the 2 s poll so it does not contend for an :8080 listener
+  // worker with the apply request; resume it if the apply fails.
   clearInterval(pollTimer);
   const fail = text => {
     applyInFlight = false;
@@ -1153,8 +1156,8 @@ $('btnResetConfirm').addEventListener('click', async () => {
   const msg = $('msgReset');
   msg.style.color = '';
   msg.textContent = '';
-  // Pause the 2 s poll so it does not steal the single-connection :8080
-  // listener slot from the reset request; resume it if the reset fails.
+  // Pause the 2 s poll so it does not contend for an :8080 listener
+  // worker with the reset request; resume it if the reset fails.
   clearInterval(pollTimer);
   const fail = text => {
     pollTimer = setInterval(tick, 2000);
