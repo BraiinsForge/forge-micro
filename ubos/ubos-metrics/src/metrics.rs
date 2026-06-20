@@ -3,42 +3,24 @@
 //! Endpoint model: `../../../docs/METRICS.md`.
 
 use core::fmt::Write as _;
+use core::net::IpAddr;
 
-use edge_http::io::server::{handle_connection, Connection, Handler};
+use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
 use edge_http::Method;
 use edge_nal::TcpSplit;
-use edge_nal::{TcpAccept as _, TcpBind as _};
-use edge_nal_embassy::{Tcp, TcpBuffers};
 
-use embassy_futures::select::{select, Either};
-use embassy_net::Stack;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
-use embassy_time::{with_timeout, Instant};
+use embassy_time::Instant;
 use embedded_io_async::{Read, Write};
 use portable_atomic::Ordering;
-use static_cell::ConstStaticCell;
-use ubos_logging::{warn, Debug2Format};
+use ubos_logging::warn;
 
-use ubos_core::consts::{Metrics, Net};
-use ubos_http::{format_content_length, BufferWriter};
+use ubos_core::consts::Metrics;
+use ubos_http::{format_content_length, BufferWriter, Service};
 use ubos_net::net::{NTP_EPOCH_OFFSET, REQUEST_COUNT};
-
-/// Maximum number of HTTP headers parsed per metrics request.
-///
-/// Prometheus scrapers send roughly six headers (Host, User-Agent,
-/// Accept, Accept-Encoding, X-Prometheus-Scrape-Timeout-Seconds, and
-/// Connection); sixteen slots fit all observed headers with room for
-/// future additions without inflating the per-connection stack frame.
-const MAX_HEADERS: usize = 16;
-
-/// Logging task identifier passed to `edge_http::io::server::handle_connection`.
-///
-/// The accept loop serves one connection at a time; edge-http only
-/// uses this value to tag log lines.
-const TASK_ID: usize = 0;
 
 /// A metric value.
 #[derive(Clone, Copy)]
@@ -228,126 +210,48 @@ fn push_escaped_label_value(key: &mut heapless::String<KEY_CAPACITY>, value: &st
 static METRICS: Channel<CriticalSectionRawMutex, Metric, { Metrics::CHANNEL_DEPTH }> =
     Channel::new();
 
-/// Accepted-connection pool depth for the metrics server. Raising this
-/// breaks the `METRICS_BODY_BUFFER` single-writer assumption below; the
-/// `const _` assertion next to that buffer enforces the coupling at
-/// compile time.
-const METRICS_TCP_POOL_DEPTH: usize = 1;
-
-static METRICS_TCP_BUFFERS: ConstStaticCell<
-    TcpBuffers<METRICS_TCP_POOL_DEPTH, { Metrics::TX_BUFFER_SIZE }, { Metrics::RX_BUFFER_SIZE }>,
-> = ConstStaticCell::new(TcpBuffers::new());
-
+/// Current metric values, shared between [`run_ingest`] (the sole
+/// writer) and the exposition workers (readers).
+///
+/// Hoisted into a `static` so it can be placed in CCM RAM on boards that
+/// enable the `ccmram-bss` feature; embedding the map in a task future
+/// would force it into `.bss`, which is what blew the stm32f4 main SRAM
+/// during the api refactor.
 #[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
-static METRICS_REQUEST: ConstStaticCell<[u8; Metrics::REQUEST_BUFFER_SIZE]> =
-    ConstStaticCell::new([0; Metrics::REQUEST_BUFFER_SIZE]);
-
-/// Hoisted `FnvIndexMap` so it can be placed in CCM RAM on boards that
-/// enable the `ccmram-bss` feature. Embedding the map inside the
-/// async `run` future would force it into the standard `.bss` along
-/// with the rest of the task state, which is exactly what blew the
-/// stm32f4 main SRAM during the api refactor.
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
-static METRIC_MAP: ConstStaticCell<
+static METRIC_MAP: Mutex<
+    CriticalSectionRawMutex,
     heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
-> = ConstStaticCell::new(heapless::index_map::FnvIndexMap::new());
+> = Mutex::new(heapless::index_map::FnvIndexMap::new());
 
 /// Hoisted exposition body buffer. Lives next to `METRIC_MAP` so the
-/// 2 KiB scratch does not ride on the metrics-task async frame.
+/// 2 KiB scratch does not ride on a worker's async frame.
 ///
-/// Wrapped in `Mutex` rather than `ConstStaticCell`+`RefCell` so the
-/// lock guard can be held across `await` points during the response
-/// write. Sound only because the `TcpBuffers` pool depth is 1, so
-/// `serve_metrics` cannot be re-entered concurrently; if pool depth is
-/// ever raised, scrapes will serialize on this lock.
+/// A single `Mutex` shared across all exposition workers: with a pool
+/// depth above one, concurrent scrapes serialize on this lock while
+/// rendering. `serve_metrics` drops the `METRIC_MAP` guard before the
+/// socket write, so a slow scrape blocks only other scrapes, never the
+/// ingestion task.
 #[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
 static METRICS_BODY_BUFFER: Mutex<CriticalSectionRawMutex, [u8; Metrics::RESPONSE_BUFFER_SIZE]> =
     Mutex::new([0; Metrics::RESPONSE_BUFFER_SIZE]);
-
-const _: () = assert!(
-    METRICS_TCP_POOL_DEPTH == 1,
-    "METRICS_BODY_BUFFER is a single Mutex shared across all accepted \
-     connections; raising the pool depth requires either making the buffer \
-     per-slot or accepting that concurrent scrapes will serialize on this \
-     lock."
-);
 
 /// Push a metric into the exposition channel. Awaits if the channel is full.
 pub async fn push(metric: Metric) {
     METRICS.send(metric).await;
 }
 
-/// Serve Prometheus exposition on [`Metrics::PORT`] and consume pushed metrics.
+/// Consume pushed metrics into the shared map.
 ///
-/// Call this from a firmware `#[embassy_executor::task]`.
-///
-/// # Panics
-///
-/// Panics if `TcpBind::bind` returns an error. The current
-/// `edge-nal-embassy` implementation of `bind` is infallible and
-/// only stores the address; a panic here would indicate a library
-/// contract violation.
-pub async fn run(stack: Stack<'static>) -> ! {
-    let tcp_buffers = METRICS_TCP_BUFFERS.take();
-    let work_buffer = METRICS_REQUEST.take();
-    let map = METRIC_MAP.take();
-
-    let tcp = Tcp::new(stack, tcp_buffers);
-
-    let bind_addr = core::net::SocketAddr::new(
-        core::net::IpAddr::V4(core::net::Ipv4Addr::UNSPECIFIED),
-        Metrics::PORT,
-    );
-
-    #[expect(
-        clippy::expect_used,
-        reason = "TcpBind::bind on edge-nal-embassy is infallible"
-    )]
-    // edge-nal-embassy TcpBind::bind() is documented infallible;
-    // a failure here is a library contract violation.
-    let acceptor = tcp
-        .bind(bind_addr)
-        .await
-        .expect("BUG: metrics TCP bind failed");
-
+/// The sole writer of [`struct@METRIC_MAP`]. Call this from a firmware
+/// `#[embassy_executor::task]`; the exposition workers spawned via
+/// `serve_http_pool!` with [`PrometheusMetricsService`] read the map this
+/// task keeps current, so the exposition always reflects the latest
+/// pushed values without a drain step on the serve path.
+pub async fn run_ingest() -> ! {
     loop {
-        match select(acceptor.accept(), METRICS.receive()).await {
-            Either::Second(metric) => {
-                upsert_metric(map, &metric);
-            }
-            Either::First(Err(error)) => {
-                warn!("metrics tcp accept error: {:?}", Debug2Format(&error));
-            }
-            Either::First(Ok((_peer_addr, socket))) => {
-                // Drain pending metrics so the response reflects the latest values.
-                while let Ok(metric) = METRICS.try_receive() {
-                    upsert_metric(map, &metric);
-                }
-                let handler = MetricsHandler {
-                    map,
-                    body_buffer: &METRICS_BODY_BUFFER,
-                };
-                // Cap per-connection lifetime so a stalled scraper
-                // cannot hold the single accept slot indefinitely,
-                // which would starve subsequent scrapes and the
-                // metric upserts driven from this select loop.
-                if with_timeout(
-                    Net::SOCKET_TIMEOUT,
-                    handle_connection::<_, _, MAX_HEADERS>(
-                        socket,
-                        work_buffer,
-                        None,
-                        TASK_ID,
-                        handler,
-                    ),
-                )
-                .await
-                .is_err()
-                {
-                    warn!("metrics connection timed out");
-                }
-            }
-        }
+        let metric = METRICS.receive().await;
+        let mut map = METRIC_MAP.lock().await;
+        upsert_metric(&mut map, &metric);
     }
 }
 
@@ -372,31 +276,21 @@ fn upsert_metric(
     }
 }
 
-/// edge-http handler for the Prometheus `/metrics` endpoint.
+/// Prometheus `/metrics` exposition handler.
 ///
-/// Holds a mutable reference to the metric map and a reference to the
-/// hoisted exposition body buffer. One `MetricsHandler` is constructed
-/// per accepted connection and dropped when `handle_connection`
-/// returns. The body buffer is reached through a `Mutex` so its guard
-/// can be held across `await` points during the response write.
-struct MetricsHandler<'a> {
-    map: &'a mut heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
-    body_buffer: &'a Mutex<CriticalSectionRawMutex, [u8; Metrics::RESPONSE_BUFFER_SIZE]>,
-}
+/// A unit [`Service`] shared across all exposition workers. It reads the
+/// shared [`struct@METRIC_MAP`] kept current by [`run_ingest`] and
+/// renders into the shared [`struct@METRICS_BODY_BUFFER`].
+pub struct PrometheusMetricsService;
 
-impl Handler for MetricsHandler<'_> {
-    type Error<E>
-        = HttpError<E>
-    where
-        E: core::fmt::Debug;
-
-    async fn handle<T, const N: usize>(
+impl Service for PrometheusMetricsService {
+    async fn handle<TcpSocket, const N: usize>(
         &self,
-        _task_id: impl core::fmt::Display + Copy,
-        connection: &mut Connection<'_, T, N>,
-    ) -> Result<(), Self::Error<T::Error>>
+        _peer_ip: IpAddr,
+        connection: &mut Connection<'_, TcpSocket, N>,
+    ) -> Result<(), HttpError<TcpSocket::Error>>
     where
-        T: Read + Write + TcpSplit,
+        TcpSocket: Read + Write + TcpSplit,
     {
         let (is_get, path) = {
             let headers = connection.headers().map_err(|_| HttpError::InvalidState)?;
@@ -419,43 +313,45 @@ impl Handler for MetricsHandler<'_> {
         };
 
         match (is_get, path.as_str()) {
-            (true, "/metrics") => self.serve_metrics(connection).await,
+            (true, "/metrics") => serve_metrics(connection).await,
             (false, "/metrics") => serve_method_not_allowed(connection).await,
             _ => serve_not_found(connection).await,
         }
     }
 }
 
-impl MetricsHandler<'_> {
-    /// Build the Prometheus body and send it with an accurate `Content-Length`.
-    async fn serve_metrics<T, const N: usize>(
-        &self,
-        connection: &mut Connection<'_, T, N>,
-    ) -> Result<(), HttpError<T::Error>>
-    where
-        T: Read + Write + TcpSplit,
-    {
-        let mut body_buffer = self.body_buffer.lock().await;
-        let body_len = build_prometheus_body(&mut body_buffer, self.map);
+/// Build the Prometheus body and send it with an accurate `Content-Length`.
+async fn serve_metrics<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    let mut body_buffer = METRICS_BODY_BUFFER.lock().await;
+    // Render under the map lock, then release it before the socket write
+    // so a slow scrape blocks only other scrapes, never ingestion.
+    let body_len = {
+        let map = METRIC_MAP.lock().await;
+        build_prometheus_body(&mut body_buffer, &map)
+    };
 
-        let content_length = format_content_length(body_len);
+    let content_length = format_content_length(body_len);
 
-        connection
-            .initiate_response(
-                200,
-                Some("OK"),
-                &[
-                    ("Content-Type", "text/plain; version=0.0.4"),
-                    ("Content-Length", content_length.as_str()),
-                    ("Connection", "close"),
-                ],
-            )
-            .await?;
+    connection
+        .initiate_response(
+            200,
+            Some("OK"),
+            &[
+                ("Content-Type", "text/plain; version=0.0.4"),
+                ("Content-Length", content_length.as_str()),
+                ("Connection", "close"),
+            ],
+        )
+        .await?;
 
-        embedded_io_async::Write::write_all(connection, &body_buffer[..body_len]).await?;
+    embedded_io_async::Write::write_all(connection, &body_buffer[..body_len]).await?;
 
-        Ok(())
-    }
+    Ok(())
 }
 
 /// Write the 404 response.
