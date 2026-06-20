@@ -1,9 +1,11 @@
 //! Edge-http accept-loop wrapper, HTTP response helpers, and the
 //! `BufferWriter` slice-into-`Write` adapter.
 //!
-//! Handler crates implement `Service` and pass it to `serve`; the
-//! accept loop takes care of binding, accepting, and driving the
-//! edge-http state machine for each connection.
+//! Handler crates implement `Service`. Board firmware calls `bind_tcp`
+//! once to get a `'static` `TcpAccept`, then spawns one `serve_worker`
+//! task per pool slot using the `http_worker_task!` macro. Per-worker
+//! state lives in each task's own `TaskStorage` so a pool that cannot
+//! fit fails the link step rather than crashing the board at runtime.
 //!
 //! `BufferWriter` is a `core::fmt::Write` adapter over a `&mut [u8]`
 //! slice that tracks the write position and records overflow. All
@@ -19,9 +21,10 @@ pub mod serve;
 
 pub use buffer::BufferWriter;
 pub use core::net::IpAddr;
+pub use edge_nal_embassy::TcpAccept;
 pub use request::{extract_request_parts, RequestParts};
 pub use response::{
     format_content_length, read_body, write_json_response, write_status_only,
     CONTENT_LENGTH_DECIMAL_DIGITS, MAX_EXTRA_STATUS_HEADERS, MAX_RESPONSE_HEADERS,
 };
-pub use serve::{serve, Service};
+pub use serve::{bind_tcp, serve_worker, split_work_buffer, Service};

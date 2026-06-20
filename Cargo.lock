@@ -893,6 +893,7 @@ dependencies = [
 name = "edge-nal-embassy"
 version = "0.8.1"
 dependencies = [
+ "defmt 1.0.1",
  "edge-nal",
  "embassy-futures",
  "embassy-net",
@@ -4254,7 +4255,6 @@ dependencies = [
  "edge-http",
  "edge-nal",
  "edge-nal-embassy",
- "embassy-net",
  "embassy-time",
  "embedded-io-async 0.7.0",
  "heapless 0.9.2",
