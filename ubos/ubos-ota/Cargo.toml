@@ -1,0 +1,23 @@
+[package]
+name = "ubos-ota"
+edition = "2021"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[features]
+default = ["defmt"]
+defmt = ["dep:defmt", "embassy-rp/defmt", "embassy-boot/defmt", "embassy-boot-rp/defmt", "embassy-embedded-hal/defmt", "ubos-api/defmt", "ubos-mining/defmt"]
+
+[dependencies]
+ubos-api = { workspace = true, default-features = false }
+ubos-mining = { workspace = true, default-features = false }
+embassy-rp = { version = "0.10.0", default-features = false, features = ["unstable-pac"] }
+embassy-boot = { version = "0.7.0", default-features = false }
+embassy-boot-rp = { version = "0.10.0", default-features = false }
+embassy-embedded-hal = { version = "0.6.0", default-features = false }
+embassy-sync = { workspace = true }
+embedded-storage = { workspace = true }
+cortex-m = { version = "0.7", features = ["inline-asm"] }
+defmt = { workspace = true, optional = true }

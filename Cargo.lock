@@ -4371,6 +4371,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubos-ota"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "defmt 1.0.1",
+ "embassy-boot",
+ "embassy-boot-rp",
+ "embassy-embedded-hal 0.6.0",
+ "embassy-rp",
+ "embassy-sync 0.8.0",
+ "embedded-storage",
+ "ubos-api",
+ "ubos-mining",
+]
+
+[[package]]
 name = "ubos-psu"
 version = "0.1.0"
 dependencies = [
