@@ -12,7 +12,7 @@ use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use edge_http::io::server::{handle_request, Connection};
 use edge_http::io::Error as HttpError;
-use edge_nal::{Close, Readable as _, TcpAccept as _, TcpBind as _, TcpShutdown as _};
+use edge_nal::{Close, TcpAccept as _, TcpBind as _, TcpShutdown as _};
 use edge_nal_embassy::{Tcp, TcpAccept};
 use embassy_time::{with_timeout, Duration};
 use embedded_io_async::{Read, Write};
@@ -27,29 +27,14 @@ use edge_nal::TcpSplit;
 /// browsers without inflating the per-connection stack frame.
 const MAX_HEADERS: usize = 16;
 
-/// How long a worker waits for a request to arrive on a freshly
-/// accepted connection before abandoning it and returning to accept.
+/// Per-socket inactivity timeout installed on every accepted connection.
 ///
-/// Every response sends `Connection: close`, so a connection is never
-/// reused: a worker serves exactly one request and then closes. This
-/// timeout therefore bounds only the gap between accepting a connection
-/// and its request arriving. A peer that opens a connection but never
-/// sends a request would otherwise pin a worker; the dashboard and
-/// Prometheus both send immediately, so five seconds only ever trips on
-/// an abandoned or stalled opener.
-const IDLE_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// How long a single request/response exchange may take before the
-/// worker abandons the connection.
-///
-/// `IDLE_TIMEOUT` bounds the wait for a request to start arriving, but
-/// cannot bound a client that opens a connection and then trickles a
-/// request slowly, which would otherwise pin a worker for the whole
-/// exchange. This caps one exchange so such a client (a slow-loris, or
-/// simply a stalled one) frees its worker. A request/response on the LAN
-/// completes in milliseconds, so the cap only ever trips on a genuinely
-/// stuck peer.
-const REQUEST_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
+/// Smoltcp aborts a connection only after this duration elapses with no
+/// traffic, and resets the timer on each packet. A long but
+/// actively-streaming request such as an OTA upload therefore stays
+/// alive as long as it keeps making progress, while a silent or stalled
+/// peer is still reaped.
+const SOCKET_IDLE_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
 
 /// Logging task identifier passed to `edge_http::io::server::handle_request`.
 ///
@@ -131,13 +116,11 @@ pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'stati
 /// `#[embassy_executor::task]` wrappers that call this function.
 ///
 /// The exchange is driven here rather than via edge-http's
-/// `handle_connection` so it can carry its own `REQUEST_TIMEOUT`.
-/// `handle_connection` only offers an idle timeout between requests,
-/// which cannot bound a client that trickles a single request slowly;
-/// with a small worker pool such a client would pin a worker
-/// indefinitely. The two timeouts together keep a worker available:
-/// `IDLE_TIMEOUT` reclaims a connection that opens but never sends a
-/// request, `REQUEST_TIMEOUT` reclaims one stuck mid-exchange.
+/// `handle_connection` so the worker can install a per-socket idle
+/// timeout via `set_timeout`. That single inactivity timeout reclaims
+/// both a connection that opens but never sends a request and one that
+/// stalls mid-exchange, while still allowing an actively-streaming
+/// upload to run as long as it keeps making progress.
 pub async fn serve_worker<S>(
     acceptor: TcpAccept<'static>,
     parse_buffer: &'static mut [u8],
@@ -155,38 +138,31 @@ where
             }
         };
 
+        // Install the idle timeout so smoltcp reaps a stalled peer while
+        // letting an OTA upload stream as long as it keeps making progress.
+        socket.set_timeout(Some(SOCKET_IDLE_TIMEOUT));
+
         let handler = AdaptedHandler::new(service, peer_addr.ip());
 
-        // Wait for the request to start arriving. `readable` also wakes on
-        // the peer's FIN, so a client that closes is handled promptly. A
-        // connection that never speaks is reset once `IDLE_TIMEOUT` fires.
-        let Ok(Ok(())) = with_timeout(IDLE_TIMEOUT, socket.readable()).await else {
-            let _ = socket.abort().await;
-            continue;
-        };
-
-        // Serve exactly one request/response, bounded so a slow peer
-        // cannot hold the worker. The close flag `handle_request` returns
-        // is ignored: every response sends `Connection: close`, so the
-        // connection is never reused regardless.
-        let outcome = with_timeout(
-            REQUEST_TIMEOUT,
-            handle_request::<_, _, MAX_HEADERS>(&mut *parse_buffer, &mut socket, TASK_ID, &handler),
-        )
-        .await;
+        // Serve exactly one request/response. The close flag `handle_request`
+        // returns is ignored: every response sends `Connection: close`, so
+        // the connection is never reused regardless.
+        let outcome =
+            handle_request::<_, _, MAX_HEADERS>(&mut *parse_buffer, &mut socket, TASK_ID, &handler)
+                .await;
 
         match outcome {
             // A completed exchange gets a graceful FIN so the client
             // receives the final response cleanly. Bound the close too: a
             // client should ack promptly, but the worker must not block if
             // it vanishes.
-            Ok(Ok(_)) => {
-                let _ = with_timeout(REQUEST_TIMEOUT, socket.close(Close::Both)).await;
+            Ok(_) => {
+                let _ = with_timeout(SOCKET_IDLE_TIMEOUT, socket.close(Close::Both)).await;
             }
-            // A protocol error or a request that blew `REQUEST_TIMEOUT` is
-            // reset, because a graceful close drains until the peer's FIN
-            // and would itself block on an unresponsive or absent peer.
-            Ok(Err(_)) | Err(_) => {
+            // A protocol error is reset, because a graceful close drains
+            // until the peer's FIN and would itself block on an
+            // unresponsive or absent peer.
+            Err(_) => {
                 let _ = socket.abort().await;
             }
         }
