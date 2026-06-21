@@ -22,6 +22,11 @@ use ubos_logging::warn;
 /// Oversize `Authorization`, `Cookie`, and `X-CSRF-Token` values are
 /// reported as `None` so the route falls through to its anonymous or
 /// unauthenticated branch.
+///
+/// `ota_offset` and `ota_final` carry the `X-OTA-Offset` and
+/// `X-OTA-Final` headers. They are populated whenever those headers are
+/// present and `None` otherwise; only `POST /api/system/OTA/chunk`
+/// reads them.
 pub struct RequestParts {
     pub method: String<16>,
     pub path: String<128>,
@@ -30,6 +35,10 @@ pub struct RequestParts {
     pub csrf: Option<String<64>>,
     pub origin: String<128>,
     pub content_length: Option<u64>,
+    /// Decimal byte offset from `X-OTA-Offset`, or `None` when absent.
+    pub ota_offset: Option<String<20>>,
+    /// Raw value of `X-OTA-Final`, or `None` when absent.
+    pub ota_final: Option<String<4>>,
 }
 
 /// Copy the method, path, and tracked headers out of `connection`
@@ -99,6 +108,18 @@ where
             owned
         });
 
+    let ota_offset = headers.headers.get("X-OTA-Offset").and_then(|value| {
+        let mut owned = String::<20>::new();
+        owned.push_str(value).ok()?;
+        Some(owned)
+    });
+
+    let ota_final = headers.headers.get("X-OTA-Final").and_then(|value| {
+        let mut owned = String::<4>::new();
+        owned.push_str(value).ok()?;
+        Some(owned)
+    });
+
     Ok(RequestParts {
         method,
         path,
@@ -107,5 +128,7 @@ where
         csrf,
         origin,
         content_length,
+        ota_offset,
+        ota_final,
     })
 }
