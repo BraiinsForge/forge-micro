@@ -13,7 +13,10 @@
 #![no_std]
 #![no_main]
 
+use core::cell::RefCell;
+
 use defmt::{info, unwrap, warn};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
 use embassy_net::StackResources;
@@ -23,13 +26,14 @@ use embassy_rp::clocks::RoscRng;
 use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config as I2cConfig, I2c};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, FLASH, I2C1, SPI0, UART1};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{bind_interrupts, dma, i2c};
+use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Delay;
 use embassy_time::{Duration, Timer};
@@ -42,9 +46,65 @@ use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_manager::Handle as ManagerHandle;
 use ubos_mining::Handle as MiningHandle;
 use ubos_thermal::Handle as ThermalHandle;
-use {defmt_rtt as _, panic_probe as _};
+
+/// Custom panic handler: records a breadcrumb in SCRATCH2 and spins.
+///
+/// The breadcrumb distinguishes a panic-induced watchdog reset from a
+/// slow-flash watchdog timeout: both set the watchdog TIMER reason bit,
+/// but only a panic sets SCRATCH2 to `WRITE_PHASE_PANIC`. The probe is
+/// detached during OTA uploads so defmt output is not observed; the
+/// breadcrumb is the only durable record that survives the warm reset.
+/// Spinning without feeding the watchdog causes the 2 s hardware watchdog
+/// to fire, which resets the board with the TIMER reason bit set, and
+/// SCRATCH2 carries the panic marker to the next boot. This holds only
+/// once `watchdog_task` has armed the watchdog; a panic in early boot
+/// before arming spins forever, the same window the prior `panic_probe`
+/// handler had.
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    ubos_ota::record_panic_breadcrumb();
+    defmt::error!("firmware panic");
+    // Spin without feeding the watchdog so the hardware watchdog fires and
+    // resets the board, leaving SCRATCH2 set for the next boot to read.
+    loop {
+        cortex_m::asm::wfi();
+    }
+}
+
+/// `HardFault` handler: defmt-logs the stacked exception frame.
+///
+/// A `HardFault` is distinct from a Rust panic and from a watchdog
+/// timeout. cortex-m-rt's default handler executes `udf`, which probe-rs
+/// reports only as a bare "Exception" with an unreliable unwound
+/// backtrace. Logging the stacked PC and LR gives the true faulting
+/// address. The frame is emitted over defmt-rtt before the board is
+/// left to the hardware watchdog, so `cargo run` captures it even when
+/// the unwinder cannot.
+#[cortex_m_rt::exception]
+unsafe fn HardFault(frame: &cortex_m_rt::ExceptionFrame) -> ! {
+    defmt::error!(
+        "HardFault: pc={=u32:#x} lr={=u32:#x} xpsr={=u32:#x} r0={=u32:#x} r1={=u32:#x} r2={=u32:#x} r3={=u32:#x} r12={=u32:#x}",
+        frame.pc(),
+        frame.lr(),
+        frame.xpsr(),
+        frame.r0(),
+        frame.r1(),
+        frame.r2(),
+        frame.r3(),
+        frame.r12(),
+    );
+    // Spin without feeding the watchdog so the hardware watchdog resets the
+    // board after the frame has been emitted.
+    loop {
+        cortex_m::asm::wfi();
+    }
+}
 
 use ubos_net::net;
+
+/// CPU cycles per core-1 park poll: 12 500 cycles at 125 MHz `clk_sys` is
+/// 100 µs per iteration.
+const PARK_POLL_DELAY_CYCLES: u32 = 12_500;
 
 mod config;
 mod fan;
@@ -55,6 +115,10 @@ mod uart_baudrate;
 
 static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
     ConstStaticCell::new(embassy_rp::multicore::Stack::new());
+
+static OTA_TARGET: StaticCell<
+    ubos_ota::RpOtaTarget<{ config::Flash::SIZE }, PARK_POLL_DELAY_CYCLES>,
+> = StaticCell::new();
 
 /// Software ring buffer size per direction for the core-1 `BufferedUart`.
 /// The RP2040 HW FIFO is 32 bytes; 1 KiB gives slack for ETH-ISR jitter
@@ -154,6 +218,11 @@ async fn metrics_ingest_task() -> ! {
     ubos_metrics::metrics::run_ingest().await
 }
 
+#[embassy_executor::task]
+async fn ota_watchdog_task() -> ! {
+    ubos_api::run_ota_session_watchdog().await
+}
+
 const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
     &ubos_webui::WEBUI_SERVICE,
     &ubos_api::REST_API_SERVICE,
@@ -183,10 +252,11 @@ async fn manager_task(mining: MiningHandle) -> ! {
 }
 
 /// Storage backend type the [`config_task`] hands to
-/// [`ubos_config::run`]. The chain is
-/// `embassy-rp blocking Flash → SyncFlash → FlashStorage`.
+/// [`ubos_config::run`]. With OTA enabled, flash is shared through the
+/// `'static` mutex; the chain is `SharedBlockingFlash → SyncFlash →
+/// FlashStorage`.
 type BoardConfigStorage =
-    FlashStorage<SyncFlash<Flash<'static, FLASH, FlashBlocking, { config::Flash::SIZE }>>>;
+    FlashStorage<SyncFlash<ubos_ota::SharedBlockingFlash<{ config::Flash::SIZE }>>>;
 
 #[embassy_executor::task]
 async fn config_task(storage: BoardConfigStorage) -> ! {
@@ -398,6 +468,97 @@ async fn boot(spawner: Spawner) {
     let hw = config::Board::take(peripherals);
     let mut rng = RoscRng;
 
+    // Read the flash unique id before moving the peripheral into the shared
+    // mutex; `blocking_unique_id` is an inherent method on `Flash` and is
+    // not reachable through the `NorFlash` trait exposed by
+    // `SharedBlockingFlash`. Derive the MAC from the id, then move the
+    // same `Flash` into the mutex so all later flash consumers (config
+    // store and OTA updater) share the one driver.
+    let mut flash = Flash::<_, FlashBlocking, { config::Flash::SIZE }>::new_blocking(hw.flash);
+    let mac_addr = {
+        let mut uid = [0u8; 8];
+        if flash.blocking_unique_id(&mut uid).is_err() {
+            defmt::warn!("flash unique id read failed; MAC hash falls back to zero");
+        }
+        ubos_net::mac::derive_mac(ubos_net::mac::DUMMY_OUI, config::Board::MAC_FAMILY, &uid)
+    };
+    info!(
+        "mac {=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}",
+        mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5],
+    );
+
+    // Place the flash driver in the shared mutex. Both the OTA target and
+    // the config store reference this mutex, serialising individual flash
+    // ops through the one FLASH peripheral.
+    static SHARED_FLASH: StaticCell<ubos_ota::SharedFlashMutex<{ config::Flash::SIZE }>> =
+        StaticCell::new();
+    let shared_flash: &'static ubos_ota::SharedFlashMutex<{ config::Flash::SIZE }> =
+        SHARED_FLASH.init(BlockingMutex::new(RefCell::new(flash)));
+
+    // Capture the watchdog reset reason and OTA breadcrumb before anything
+    // else touches the watchdog registers. This must happen before
+    // `mark_booted` because `mark_booted` performs a flash op that feeds
+    // the watchdog, and the reason register is read-once (a debugger warm
+    // reset clears it). Reading here guarantees the values reflect the
+    // most recent reset.
+    {
+        use embassy_rp::pac;
+        use ubos_api::{OtaWritePhase, ResetReason};
+
+        let watchdog = pac::WATCHDOG;
+        let reason_reg = watchdog.reason().read();
+        let scratch0 = watchdog.scratch0().read();
+        let scratch1 = watchdog.scratch1().read();
+        let scratch2 = watchdog.scratch2().read();
+
+        // Determine the reset reason from the hardware bits. A debugger
+        // warm reset also clears these bits, so the values are reliable
+        // in production but may read as Clean after probe-rs attaches;
+        // that is acceptable for diagnostic purposes.
+        let reason = if reason_reg.timer() {
+            ResetReason::WatchdogTimeout
+        } else if reason_reg.force() {
+            ResetReason::WatchdogForced
+        } else {
+            ResetReason::Clean
+        };
+
+        // The breadcrumb is active when SCRATCH0 holds the magic value.
+        let ota_was_active = scratch0 == ubos_ota::OTA_BREADCRUMB_MAGIC;
+        let ota_offset = if ota_was_active { scratch1 } else { 0 };
+
+        // SCRATCH2 holds the write-phase code written by `write_chunk` or
+        // the panic handler. Unknown values map to None.
+        let write_phase = OtaWritePhase::from_u32(scratch2);
+
+        info!(
+            "reset reason: {:?}, ota_active={}, ota_offset={}, write_phase={:?}",
+            reason as u8, ota_was_active, ota_offset, write_phase as u8,
+        );
+
+        ubos_api::publish_reset_diag(reason, ota_was_active, ota_offset, write_phase);
+
+        // Clear SCRATCH0 and SCRATCH2 so a subsequent clean reset does not
+        // re-report stale OTA state from this boot cycle.
+        watchdog.scratch0().write_value(0u32);
+        watchdog.scratch2().write_value(0u32);
+    }
+
+    // Log which image booted, so an OTA swap is observable on the defmt
+    // console: the new version appears here after a successful update.
+    info!("boot: firmware v{}", config::FIRMWARE_VERSION);
+
+    // Confirm the running image to the bootloader before core 1 starts and
+    // while flash is quiescent. A prior `Swap` state means the bootloader
+    // just swapped in an OTA image; marking it booted stops a revert on the
+    // next reset. The flash op pauses core 1, but core 1 is not up yet.
+    ubos_ota::mark_booted(shared_flash);
+
+    let ota_target = OTA_TARGET.init(ubos_ota::RpOtaTarget::new(
+        shared_flash,
+        config::FIRMWARE_VERSION,
+    ));
+
     // Pin the ubos-mining serial worker to core 1 so embassy-net on core 0 stays
     // responsive. BufferedUart must be constructed on the core that polls
     // it — `init_buffers` unmasks the UART IRQ on the calling core's NVIC,
@@ -475,22 +636,10 @@ async fn boot(spawner: Spawner) {
         spawner.spawn(unwrap!(cooling_task(board_fan, thermal)));
     }
 
-    // Read the flash unique id before handing the peripheral to the
-    // config store, then fold it into a stable per-board MAC. The WIZnet
-    // chip has no factory address, so the firmware supplies one.
-    let mut flash = Flash::<_, FlashBlocking, { config::Flash::SIZE }>::new_blocking(hw.flash);
-    let mac_addr = {
-        let mut uid = [0u8; 8];
-        if flash.blocking_unique_id(&mut uid).is_err() {
-            defmt::warn!("flash unique id read failed; MAC hash falls back to zero");
-        }
-        ubos_net::mac::derive_mac(ubos_net::mac::DUMMY_OUI, config::Board::MAC_FAMILY, &uid)
-    };
-    info!(
-        "mac {=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}",
-        mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5],
+    let config_storage = FlashStorage::new(
+        SyncFlash(ubos_ota::SharedBlockingFlash::new(shared_flash)),
+        config::Flash::CONFIG_RANGE,
     );
-    let config_storage = FlashStorage::new(SyncFlash(flash), config::Flash::CONFIG_RANGE);
     spawner.spawn(unwrap!(config_task(config_storage)));
 
     let mut spi_config = SpiConfig::default();
@@ -629,6 +778,13 @@ async fn boot(spawner: Spawner) {
     // Core 1 hosts serial_task (ubos-mining backend); see spawn_core1 above.
     spawner.spawn(unwrap!(stratum_client_task(stack)));
 
+    // Register the OTA target before spawning the REST API workers so the
+    // OTA endpoints are available from the first request.
+    ubos_api::register_ota_target(ota_target).await;
+
+    // Reclaim abandoned chunk-ack OTA sessions so a client that vanishes
+    // mid-upload does not strand the board with mining stopped.
+    spawner.spawn(unwrap!(ota_watchdog_task()));
     spawner.spawn(unwrap!(network_apply_task(stack)));
 
     // REST API on :8080 — seed credentials once, then spawn one worker

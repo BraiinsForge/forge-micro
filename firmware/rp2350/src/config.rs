@@ -157,6 +157,7 @@ impl DisplaySpi {
 
 pub struct Watchdog;
 impl Watchdog {
+    // The RP2350 hardware watchdog maxes out at 16_777_215 us (~16.7 s).
     pub const TIMEOUT: Duration = Duration::from_secs(2);
 }
 
@@ -181,13 +182,24 @@ impl Core1 {
     pub const STACK_BYTES: usize = 32_768;
 }
 
+/// Monotonic firmware version reported over the OTA API.
+///
+/// Sourced from the `UBOS_FW_VERSION` environment variable at build time,
+/// defaulting to `1` when unset. `embassy-boot` stores no version metadata
+/// in flash, so this const is the only version the running image exposes;
+/// the OTA endpoint surfaces it as `running_version`.
+pub const FIRMWARE_VERSION: u32 = match option_env!("UBOS_FW_VERSION") {
+    // `parse` is not const; the helper in ubos-ota folds the decimal digits
+    // at compile time so the value is fixed with no runtime cost.
+    Some(raw) => ubos_ota::parse_version(raw),
+    None => 1,
+};
+
 /// On-board QSPI flash parameters for the ubos-config record store.
 ///
 /// `SIZE` covers the full 2 MiB physical flash; the `CONFIG_RANGE`
-/// claims the final two 4 KiB erase sectors. The application binary
-/// must not grow past the start of the range — the linker script does
-/// not enforce this today, so a binary creeping past ~2040 KiB will
-/// silently overwrite the config region.
+/// claims the final two 4 KiB erase sectors at the end of flash,
+/// matching the CONFIG region in the partitioned memory layout.
 pub struct Flash;
 impl Flash {
     pub const SIZE: usize = 2 * 1024 * 1024;

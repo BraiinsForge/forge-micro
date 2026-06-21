@@ -3,9 +3,12 @@ use std::path::PathBuf;
 
 /// Build script that configures linker scripts and error handling.
 ///
-/// For RP2040, we need memory.x copied to the linker search path plus link.x,
-/// link-rp.x, and defmt.x linker scripts. The error handling script provides
-/// helpful diagnostics when the linker encounters undefined symbols.
+/// For RP2040 with embassy-boot, we need memory.x on the linker search path,
+/// plus link.x and defmt.x. The link-rp.x script (from embassy-rp) is omitted
+/// because it only places the `.boot2` section into the `BOOT2` memory region;
+/// the application lives in the ACTIVE partition at 0x10021000, has no BOOT2
+/// region, and the `boot2-none` cargo feature suppresses the symbol so the
+/// script's section is empty. The bootloader carries boot2.
 fn main() {
     linker_be_nice();
 
@@ -20,11 +23,15 @@ fn main() {
     println!("cargo:rustc-link-search={}", out_dir.display());
 
     println!("cargo:rustc-link-arg=-Tlink.x");
-    println!("cargo:rustc-link-arg=-Tlink-rp.x");
     println!("cargo:rustc-link-arg=-Tdefmt.x");
 
     println!("cargo:rerun-if-changed=memory.x");
     println!("cargo:rerun-if-changed=build.rs");
+
+    // `config.rs` reads `UBOS_FW_VERSION` through `option_env!`; cargo does
+    // not track that input, so without this an override silently reuses a
+    // stale version baked into the image.
+    println!("cargo:rerun-if-env-changed=UBOS_FW_VERSION");
 }
 
 // Duplicated in bmm-pico/build.rs, rp2350/build.rs, stm32f407/build.rs, and stm32f439/build.rs.

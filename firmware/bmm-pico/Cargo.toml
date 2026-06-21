@@ -24,11 +24,11 @@ ubos-core            = { workspace = true }
 embassy-executor     = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-net          = { workspace = true, features = ["defmt", "tcp", "udp", "dhcpv4", "medium-ethernet", "dns"] }
 embassy-net-wiznet   = { workspace = true, features = ["defmt"] }
-embassy-rp           = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa"] }
+embassy-rp           = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "imagedef-none"] }
+ubos-ota             = { workspace = true, features = ["defmt"] }
 embassy-time         = { workspace = true, features = ["defmt"] }
 defmt                = { workspace = true }
 defmt-rtt            = { workspace = true }
-panic-probe          = { workspace = true, features = ["print-defmt"] }
 static_cell          = { workspace = true }
 heapless             = { workspace = true }
 embedded-hal-bus     = { workspace = true, features = ["async"] }

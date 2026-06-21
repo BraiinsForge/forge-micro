@@ -4,9 +4,11 @@ use std::path::PathBuf;
 /// Build script that configures linker scripts and error handling.
 ///
 /// For RP2350, we need memory.x copied to the linker search path plus link.x
-/// and defmt.x linker scripts. The `IMAGE_DEF` block is provided by
-/// embassy-rp's default secure-exe imagedef instead of a BOOT2 section,
-/// so link-rp.x (which defines the .boot2 section) is not needed here.
+/// and defmt.x linker scripts. Embassy-rp is built with `imagedef-none`, and
+/// this application links into the ACTIVE partition rather than offset 0, so
+/// it emits no image-def of its own. The reused `rp2350-bootloader` owns the
+/// offset-0 image-def block the bootrom inspects and chains to ACTIVE.
+/// link-rp.x (which defines `.boot2`) is not needed for RP2350.
 fn main() {
     linker_be_nice();
 
@@ -25,6 +27,11 @@ fn main() {
 
     println!("cargo:rerun-if-changed=memory.x");
     println!("cargo:rerun-if-changed=build.rs");
+
+    // `config.rs` reads `UBOS_FW_VERSION` through `option_env!`; cargo does
+    // not track that input, so without this an override silently reuses a
+    // stale version baked into the image.
+    println!("cargo:rerun-if-env-changed=UBOS_FW_VERSION");
 }
 
 // Duplicated in rp2040/build.rs, rp2350/build.rs, stm32f407/build.rs, and stm32f439/build.rs.
