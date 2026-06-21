@@ -599,6 +599,20 @@
           CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
         };
 
+        # Separate dep bag for the rp2040 bootloader: it uses
+        # `cortex-m/critical-section-single-core` rather than
+        # `embassy-rp/critical-section-impl`, and cargo's per-invocation
+        # feature unification would produce duplicate `RawRestoreStateInner`
+        # definitions if both crate trees were mixed into one `buildDepsOnly`.
+        thumbv6mBootloaderArtifacts = craneLib.buildDepsOnly {
+          inherit src;
+          doCheck = false;
+          cargoBuildCommand = "true";
+          cargoExtraArgs = "-p rp2040-bootloader --target thumbv6m-none-eabi";
+          nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+          CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+        };
+
         # stm32f407 and stm32f439 cannot share a deps-only bag: each selects a
         # different chip feature on `stm32-metapac`, and cargo's per-invocation
         # feature unification activates both, which the metapac build script
@@ -635,6 +649,28 @@
           CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
         };
 
+        ubosOtaArtifacts = craneLib.buildDepsOnly {
+          inherit src;
+          doCheck = false;
+          cargoBuildCommand = "true";
+          cargoExtraArgs = "-p ubos-ota --target thumbv8m.main-none-eabihf --features embassy-rp/rp235xa,embassy-rp/imagedef-none";
+          CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+        };
+
+        # Separate dep bag for the bootloader: it uses
+        # `cortex-m/critical-section-single-core` rather than
+        # `embassy-rp/critical-section-impl`, and cargo's per-invocation
+        # feature unification would produce duplicate `RawRestoreStateInner`
+        # definitions if both crate trees are mixed in one `buildDepsOnly`.
+        thumbv8mBootloaderArtifacts = craneLib.buildDepsOnly {
+          inherit src;
+          doCheck = false;
+          cargoBuildCommand = "true";
+          cargoExtraArgs = "-p rp2350-bootloader --target thumbv8m.main-none-eabihf";
+          nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+          CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+        };
+
         bmmArtifacts = bmmCraneLib.buildDepsOnly {
           inherit src;
           doCheck = false;
@@ -666,6 +702,19 @@
           CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
           CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
         };
+
+        # Maximum flash bytes allowed before CI fails the size guard.
+        # The value is the embassy-boot ACTIVE partition budget. The 2 MiB
+        # flash is split into a 128 KiB bootloader, a 4 KiB state word, an
+        # 8 KiB config store at the tail, and the remaining 1908 KiB shared
+        # 50/50 between the ACTIVE and DFU slots (ACTIVE 952 KiB, DFU one
+        # page larger at 956 KiB; see firmware/rp2350/memory.x). rp2350 and
+        # bmm-pico reuse the rp2350-bootloader with this layout, and rp2040
+        # mirrors it, so an image over 952 KiB does not fit the slot.
+        # Keep this value in sync with OTA_MAX_IMAGE_BYTES in
+        # ubos/ubos-api/src/system.rs and OTA_MAX_BYTES in
+        # ubos/ubos-webui/src/index.js.
+        slotMaxBytes = 952 * 1024;
       in
       {
         # Each firmware crate is checked under its default feature set
@@ -715,6 +764,36 @@
             ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
             inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            # Slot-size guard plus pool-worker guard. See docs/OTA.md
+            # for the flash layout and slot budget.
+            postBuild = ''
+              elf=target/thumbv8m.main-none-eabihf/release/bmm-pico
+              bin=$(mktemp --suffix=.bin)
+              arm-none-eabi-objcopy -O binary "$elf" "$bin"
+              size=$(wc -c < "$bin")
+              echo "bmm-pico slot-size check: $size bytes / ${toString slotMaxBytes} bytes budget"
+              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
+                echo "ERROR: bmm-pico release image ($size bytes) exceeds the" \
+                     "${toString slotMaxBytes}-byte slot limit. See docs/OTA.md."
+                rm -f "$bin"; exit 1
+              fi
+              # No pool worker may be baked into a shipped image. POOL_USER
+              # overrides the empty default at build time; a developer uses
+              # POOL_USER=braiinstest to test mining. A pure nix build strips
+              # POOL_USER from the sandbox, so the default empty worker is
+              # always used and a worker cannot leak; these two guards only
+              # bite on an `--impure` build that forwarded POOL_USER, where
+              # they fail the build before such an artifact escapes.
+              if [ -n "''${POOL_USER:-}" ]; then
+                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
+                rm -f "$bin"; exit 1
+              fi
+              if grep -qa "braiinstest" "$bin"; then
+                echo "ERROR: bmm-pico image contains the test pool worker 'braiinstest'; it must not ship."
+                rm -f "$bin"; exit 1
+              fi
+              rm -f "$bin"
+            '';
           };
 
           build-bmm-pico-no-display = craneLib.cargoBuild {
@@ -759,6 +838,34 @@
             ];
             CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
             inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            postBuild = ''
+              elf=target/thumbv6m-none-eabi/release/rp2040
+              bin=$(mktemp --suffix=.bin)
+              arm-none-eabi-objcopy -O binary "$elf" "$bin"
+              size=$(wc -c < "$bin")
+              echo "rp2040 slot-size check: $size bytes / ${toString slotMaxBytes} bytes budget"
+              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
+                echo "ERROR: rp2040 release image ($size bytes) exceeds the" \
+                     "${toString slotMaxBytes}-byte slot limit. See docs/OTA.md."
+                rm -f "$bin"; exit 1
+              fi
+              # No pool worker may be baked into a shipped image. POOL_USER
+              # overrides the empty default at build time; a developer uses
+              # POOL_USER=braiinstest to test mining. A pure nix build strips
+              # POOL_USER from the sandbox, so the default empty worker is
+              # always used and a worker cannot leak; these two guards only
+              # bite on an `--impure` build that forwarded POOL_USER, where
+              # they fail the build before such an artifact escapes.
+              if [ -n "''${POOL_USER:-}" ]; then
+                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
+                rm -f "$bin"; exit 1
+              fi
+              if grep -qa "braiinstest" "$bin"; then
+                echo "ERROR: rp2040 image contains the test pool worker 'braiinstest'; it must not ship."
+                rm -f "$bin"; exit 1
+              fi
+              rm -f "$bin"
+            '';
           };
 
           build-rp2040-no-display = craneLib.cargoBuild {
@@ -803,6 +910,36 @@
             ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
             inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            # Slot-size guard plus pool-worker guard. See docs/OTA.md
+            # for the flash layout and slot budget.
+            postBuild = ''
+              elf=target/thumbv8m.main-none-eabihf/release/rp2350
+              bin=$(mktemp --suffix=.bin)
+              arm-none-eabi-objcopy -O binary "$elf" "$bin"
+              size=$(wc -c < "$bin")
+              echo "rp2350 slot-size check: $size bytes / ${toString slotMaxBytes} bytes budget"
+              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
+                echo "ERROR: rp2350 release image ($size bytes) exceeds the" \
+                     "${toString slotMaxBytes}-byte slot limit. See docs/OTA.md."
+                rm -f "$bin"; exit 1
+              fi
+              # No pool worker may be baked into a shipped image. POOL_USER
+              # overrides the empty default at build time; a developer uses
+              # POOL_USER=braiinstest to test mining. A pure nix build strips
+              # POOL_USER from the sandbox, so the default empty worker is
+              # always used and a worker cannot leak; these two guards only
+              # bite on an `--impure` build that forwarded POOL_USER, where
+              # they fail the build before such an artifact escapes.
+              if [ -n "''${POOL_USER:-}" ]; then
+                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
+                rm -f "$bin"; exit 1
+              fi
+              if grep -qa "braiinstest" "$bin"; then
+                echo "ERROR: rp2350 image contains the test pool worker 'braiinstest'; it must not ship."
+                rm -f "$bin"; exit 1
+              fi
+              rm -f "$bin"
+            '';
           };
 
           build-rp2350-no-display = craneLib.cargoBuild {
@@ -816,6 +953,44 @@
             ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
             inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+          };
+
+          clippy-rp2350-bootloader = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = thumbv8mBootloaderArtifacts;
+            cargoExtraArgs = "-p rp2350-bootloader --target thumbv8m.main-none-eabihf";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
+          build-rp2350-bootloader = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p rp2350-bootloader --target thumbv8m.main-none-eabihf";
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
+          clippy-rp2040-bootloader = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = thumbv6mBootloaderArtifacts;
+            cargoExtraArgs = "-p rp2040-bootloader --target thumbv6m-none-eabi";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
+          build-rp2040-bootloader = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p rp2040-bootloader --target thumbv6m-none-eabi";
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
           clippy-rp235x-sha256 = craneLib.cargoClippy {
@@ -855,6 +1030,21 @@
             ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
             inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            # Pool-worker guard. See the bmm-pico build for the full
+            # rationale. This board is not an OTA target and has no slot
+            # budget, so the guard greps the ELF directly rather than
+            # objcopying a slot-sized binary.
+            postBuild = ''
+              elf=target/thumbv7em-none-eabihf/release/stm32f407
+              if [ -n "''${POOL_USER:-}" ]; then
+                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
+                exit 1
+              fi
+              if grep -qa "braiinstest" "$elf"; then
+                echo "ERROR: stm32f407 image contains the test pool worker 'braiinstest'; it must not ship."
+                exit 1
+              fi
+            '';
           };
 
           build-stm32f407-no-display = craneLib.cargoBuild {
@@ -899,6 +1089,21 @@
             ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
             inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            # Pool-worker guard. See the bmm-pico build for the full
+            # rationale. This board is not an OTA target and has no slot
+            # budget, so the guard greps the ELF directly rather than
+            # objcopying a slot-sized binary.
+            postBuild = ''
+              elf=target/thumbv7em-none-eabihf/release/stm32f439
+              if [ -n "''${POOL_USER:-}" ]; then
+                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
+                exit 1
+              fi
+              if grep -qa "braiinstest" "$elf"; then
+                echo "ERROR: stm32f439 image contains the test pool worker 'braiinstest'; it must not ship."
+                exit 1
+              fi
+            '';
           };
 
           build-stm32f439-no-display = craneLib.cargoBuild {
@@ -944,6 +1149,15 @@
             cargoExtraArgs = "-p ubos-api";
             cargoClippyExtraArgs = "-- -D warnings";
             doInstallCargoArtifacts = false;
+          };
+
+          clippy-ubos-ota = craneLib.cargoClippy {
+            inherit src;
+            cargoArtifacts = ubosOtaArtifacts;
+            cargoExtraArgs = "-p ubos-ota --target thumbv8m.main-none-eabihf --features embassy-rp/rp235xa,embassy-rp/imagedef-none";
+            cargoClippyExtraArgs = "-- -D warnings";
+            doInstallCargoArtifacts = false;
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
           clippy-ubos-auth = craneLib.cargoClippy {
@@ -1413,6 +1627,21 @@
             # to memset/memcpy overflow the xtensa windowed-call range.
             CARGO_TARGET_XTENSA_ESP32S3_NONE_ELF_RUSTFLAGS = "-Clink-arg=-Tlinkall.x -Clink-arg=-Tdefmt.x -Clink-arg=-nostartfiles";
             inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            # Pool-worker guard. See the bmm-pico build for the full
+            # rationale. This board is not an OTA target and has no slot
+            # budget, so the guard greps the ELF directly rather than
+            # objcopying a slot-sized binary.
+            postBuild = ''
+              elf=target/xtensa-esp32s3-none-elf/release/esp32s3
+              if [ -n "''${POOL_USER:-}" ]; then
+                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
+                exit 1
+              fi
+              if grep -qa "braiinstest" "$elf"; then
+                echo "ERROR: esp32s3 image contains the test pool worker 'braiinstest'; it must not ship."
+                exit 1
+              fi
+            '';
           };
 
           build-esp32s3-no-display = espCraneLib.cargoBuild {
@@ -1543,6 +1772,8 @@
                   build-stm32f439-no-display
                   build-esp32s3
                   build-esp32s3-no-display
+                  build-rp2350-bootloader
+                  build-rp2040-bootloader
                 ];
               }
               ''
