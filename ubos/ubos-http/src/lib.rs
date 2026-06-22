@@ -21,10 +21,15 @@ pub mod serve;
 
 pub use buffer::BufferWriter;
 pub use core::net::IpAddr;
-pub use edge_nal_embassy::TcpAccept;
+// Re-exported so the `serve_http_pool!` and `http_worker_task!` macros can
+// name these through `$crate::`. This keeps `edge-nal-embassy` and
+// `static_cell` internal to this crate instead of forcing every board that
+// invokes the macros to declare them as direct dependencies.
+pub use edge_nal_embassy::{Tcp, TcpAccept, TcpBuffers};
 pub use request::{extract_request_parts, RequestParts};
 pub use response::{
     format_content_length, read_body, write_json_response, write_status_only,
     CONTENT_LENGTH_DECIMAL_DIGITS, MAX_EXTRA_STATUS_HEADERS, MAX_RESPONSE_HEADERS,
 };
 pub use serve::{bind_tcp, serve_worker, split_work_buffer, Service};
+pub use static_cell::{ConstStaticCell, StaticCell};

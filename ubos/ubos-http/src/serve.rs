@@ -328,21 +328,21 @@ macro_rules! serve_http_pool {
         $crate::serve_http_pool!(@setup must_spawn; $spawner, $stack, $worker, $service, $pool, $consts)
     };
     (@setup $mode:ident; $spawner:expr, $stack:expr, $worker:ident, $service:expr, $pool:expr, $consts:path) => {{
-        static TCP_BUFFERS: ::static_cell::ConstStaticCell<
-            ::edge_nal_embassy::TcpBuffers<
+        static TCP_BUFFERS: $crate::ConstStaticCell<
+            $crate::TcpBuffers<
                 { $pool },
                 { <$consts>::TX_BUFFER_SIZE },
                 { <$consts>::RX_BUFFER_SIZE },
             >,
-        > = ::static_cell::ConstStaticCell::new(::edge_nal_embassy::TcpBuffers::new());
-        static TCP_NAL: ::static_cell::StaticCell<::edge_nal_embassy::Tcp<'static>> =
-            ::static_cell::StaticCell::new();
-        static WORK: ::static_cell::ConstStaticCell<
+        > = $crate::ConstStaticCell::new($crate::TcpBuffers::new());
+        static TCP_NAL: $crate::StaticCell<$crate::Tcp<'static>> =
+            $crate::StaticCell::new();
+        static WORK: $crate::ConstStaticCell<
             [u8; <$consts>::REQUEST_BUFFER_SIZE * $pool],
-        > = ::static_cell::ConstStaticCell::new([0; <$consts>::REQUEST_BUFFER_SIZE * $pool]);
+        > = $crate::ConstStaticCell::new([0; <$consts>::REQUEST_BUFFER_SIZE * $pool]);
 
-        let tcp: &'static ::edge_nal_embassy::Tcp<'static> =
-            TCP_NAL.init(::edge_nal_embassy::Tcp::new($stack, TCP_BUFFERS.take()));
+        let tcp: &'static $crate::Tcp<'static> =
+            TCP_NAL.init($crate::Tcp::new($stack, TCP_BUFFERS.take()));
         let acceptor = $crate::bind_tcp(tcp, <$consts>::PORT).await;
         let buffers =
             $crate::split_work_buffer::<{ $pool }>(WORK.take(), <$consts>::REQUEST_BUFFER_SIZE);
