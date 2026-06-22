@@ -208,7 +208,7 @@ impl Service for RestApiService {
                 let _ = headers.push(("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS"));
                 let _ = headers.push((
                     "Access-Control-Allow-Headers",
-                    "Authorization, X-CSRF-Token, Content-Type",
+                    "Authorization, X-CSRF-Token, Content-Type, X-OTA-Offset, X-OTA-Final",
                 ));
                 let _ = headers.push(("Access-Control-Max-Age", "86400"));
             }
@@ -280,9 +280,23 @@ impl Service for RestApiService {
             &[]
         };
 
+        // OTA continuation chunks (offset > 0) are exempt from CSRF. Only the
+        // session-starting offset-0 chunk consumes a token. A continuation cannot
+        // start an upload — it is bound to the single in-progress session by the
+        // target mutex and the handler's offset-continuity check (409 on mismatch)
+        // — so requiring a single-use CSRF token per 4 KiB sector would force ~128
+        // tokens per image for no security gain. An attacker still cannot START an
+        // OTA without a token, and a forged continuation only corrupts an in-flight
+        // upload (fails validation -> auto-rollback), never installs firmware.
+        let is_ota_continuation = is_ota_chunk_upload
+            && ota_offset_buf
+                .as_deref()
+                .and_then(|value| value.parse::<u64>().ok())
+                .is_some_and(|offset| offset > 0);
+
         // Session-authenticated mutating requests require a valid CSRF
         // token. Basic-authenticated requests are exempt.
-        if is_mutating {
+        if is_mutating && !is_ota_continuation {
             if let ubos_auth::auth::AuthCtx::Session(ref session_id) = auth_ctx {
                 let token_str = csrf_buf.as_deref().unwrap_or("");
                 if token_str.is_empty()
@@ -313,9 +327,11 @@ impl Service for RestApiService {
         // Parse X-OTA-Offset and X-OTA-Final before dispatching. Auth and CSRF
         // have already been enforced above; Basic-auth requests are CSRF-exempt
         // so curl-driven uploads work without a session token. Session-auth
-        // callers must supply a CSRF token per chunk, which is impractical for
-        // a web-UI uploader. The web UI should use Basic auth for OTA uploads
-        // until a per-upload CSRF token scheme is added.
+        // callers supply one CSRF token on the offset-0 chunk (which starts the
+        // session); continuation chunks are CSRF-exempt because the single-session
+        // mutex and the offset-continuity check together prevent any attacker from
+        // injecting data into a live upload. The web UI therefore uploads with one
+        // CSRF token on the first chunk and bare credentials on the rest.
         if is_ota_chunk_upload {
             // Parse the decimal offset from X-OTA-Offset; missing or
             // unparseable offset is treated as a bad request.
