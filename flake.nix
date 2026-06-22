@@ -222,6 +222,7 @@
         };
       sdImageFor = buildSystem: (mkNuc buildSystem [ ./nuc/sd-image.nix ]).config.system.build.sdImage;
     in
+    nixpkgs.lib.recursiveUpdate
     (flake-utils.lib.eachDefaultSystem (
       system:
       let
@@ -2061,9 +2062,69 @@
             '';
           };
         };
+
+        # Production firmware images for flashing via the WebUI.
+        #
+        # Build with a version number:
+        #   UBOS_FW_VERSION=42 nix build --impure .#rp2350-image
+        # This produces result/rp2350-v42.bin.
+        #
+        # A pure build (no --impure) defaults to version 1 because
+        # builtins.getEnv returns "" in the Nix sandbox; the sandbox
+        # strips all caller environment variables.
+        packages =
+          let
+            fwVersion =
+              let
+                v = builtins.getEnv "UBOS_FW_VERSION";
+              in
+              if v == "" then "1" else v;
+          in
+          {
+            rp2350-image = craneLib.cargoBuild {
+              inherit src;
+              cargoArtifacts = null;
+              cargoBuildCommand = "cargo build --release";
+              cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf";
+              nativeBuildInputs = [
+                pkgs.gcc-arm-embedded
+                pkgs.esbuild
+              ];
+              CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+              inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+              UBOS_FW_VERSION = fwVersion;
+              # Do not copy the cargo target directory into $out; we only
+              # want the raw binary image.
+              doInstallCargoArtifacts = false;
+              # Slot-size and pool-worker guards match build-rp2350 in
+              # checks; the difference is that the bin is kept in $out
+              # instead of being deleted.
+              installPhaseCommand = ''
+                mkdir -p "$out"
+                arm-none-eabi-objcopy -O binary \
+                  target/thumbv8m.main-none-eabihf/release/rp2350 \
+                  "$out/rp2350-v${fwVersion}.bin"
+                size=$(wc -c < "$out/rp2350-v${fwVersion}.bin")
+                echo "rp2350 image: $size bytes / ${toString slotMaxBytes} bytes budget, version ${fwVersion}"
+                if [ "$size" -gt "${toString slotMaxBytes}" ]; then
+                  echo "ERROR: rp2350 release image ($size bytes) exceeds the" \
+                       "${toString slotMaxBytes}-byte slot limit. See docs/OTA.md."
+                  exit 1
+                fi
+                if [ -n "''${POOL_USER:-}" ]; then
+                  echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
+                  exit 1
+                fi
+                if grep -qa "braiinstest" "$out/rp2350-v${fwVersion}.bin"; then
+                  echo "ERROR: rp2350 image contains the test pool worker 'braiinstest'; it must not ship."
+                  exit 1
+                fi
+              '';
+            };
+          };
       }
     ))
-    // {
+    {
       # Raspberry Pi 4 support node that connects the target boards to the
       # nbvpn.braiins.cz mesh. See nuc/nuc.nix for the host definition.
       # Deployment runs from the developer workstation, always x86_64.
