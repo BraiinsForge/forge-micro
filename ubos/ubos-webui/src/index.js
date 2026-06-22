@@ -1265,60 +1265,198 @@ $('btnFwUpdate').addEventListener('click', async () => {
   const initBar = $('fwProgBar');
   initBar.style.width = '0';
   initBar.setAttribute('aria-valuenow', '0');
-  let csrf;
+  // Fetch a fresh CSRF token for the offset-0 chunk. Continuation chunks
+  // are CSRF-exempt on the firmware side (see rest.rs), so only one token
+  // fetch is needed per upload attempt.
+  async function freshCsrf() {
+    return csrfToken();
+  }
+
+  const CHUNK_SIZE = 4096;
+
+  // Read the entire file up front. Images are at most OTA_MAX_BYTES
+  // (~930 KiB), which fits comfortably in JS heap memory.
+  let bytes;
   try {
-    csrf = await csrfToken();
+    bytes = new Uint8Array(await file.arrayBuffer());
   } catch (error) {
-    resumeAfterOtaError('Could not get CSRF token: ' + ((error && error.message) || 'network error'), beforeUnload);
+    resumeAfterOtaError('Could not read file. ' + ((error && error.message) || 'Unknown error.'), beforeUnload);
     return;
   }
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', API + '/api/system/OTA');
-  xhr.withCredentials = true;
-  xhr.setRequestHeader('X-CSRF-Token', csrf);
-  // Set to true by xhr.upload.onload when the last byte has been sent,
-  // so onerror can distinguish a mid-upload network failure from a reboot
-  // that races the server response after a complete upload.
-  let uploadComplete = false;
-  xhr.upload.onprogress = event => {
-    if (!event.lengthComputable) return;
-    const percent = Math.round(event.loaded / event.total * 100);
+  const total = bytes.length;
+
+  // The upload loop may restart from offset 0 when the firmware signals a
+  // session reset (409) or reports mining did not stop in time (503). Each
+  // condition gets its own restart budget so a single 409 plus a single 503
+  // does not exhaust the loop. Cap each to avoid looping forever on a stuck
+  // board.
+  const MAX_RESTARTS = 2;
+  let sessionRestarts = 0;
+  let miningRestarts = 0;
+  let offset = 0;
+
+  while (offset < total) {
+    const end = Math.min(offset + CHUNK_SIZE, total);
+    const sector = bytes.subarray(offset, end);
+    const isFinal = end >= total;
+
+    // Build the per-chunk headers. Only the offset-0 chunk carries a CSRF
+    // token; the firmware exempts continuations from CSRF enforcement.
+    const headers = { 'X-OTA-Offset': String(offset) };
+    if (isFinal) {
+      headers['X-OTA-Final'] = '1';
+    }
+    // Show "Stopping mining…" while the offset-0 request is in flight:
+    // stop_mining_and_wait runs server-side and can take a couple of
+    // seconds. Subsequent chunks show a percentage based on acked bytes.
+    const msgFw = $('msgFw');
+    if (offset === 0) {
+      msgFw.style.color = '';
+      msgFw.textContent = 'Stopping mining.';
+    }
+
+    // Each chunk is its own TCP connection (server sends Connection: close).
+    // Retry transient network errors up to 3 times for non-final chunks.
+    const MAX_CHUNK_RETRIES = 3;
+    let response = null;
+
+    for (let attempt = 0; attempt <= MAX_CHUNK_RETRIES; attempt++) {
+      if (attempt > 0) {
+        // Brief pause before a retry to let transient conditions clear.
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      // The offset-0 chunk carries a CSRF token (continuations are exempt
+      // on the firmware side). Re-fetch it on every attempt: a prior attempt
+      // may have reached the server and consumed the single-use token before
+      // its response was lost, so a stale token would be rejected on retry.
+      if (offset === 0) {
+        let token;
+        try {
+          token = await freshCsrf();
+        } catch (error) {
+          resumeAfterOtaError('Could not get CSRF token. ' + ((error && error.message) || 'Network error.'), beforeUnload);
+          return;
+        }
+        headers['X-CSRF-Token'] = token;
+      }
+      // For the final chunk, bound the wait. The board writes its ack and
+      // then immediately reboots, so if no response arrives within a few
+      // seconds the reboot has won the race. Abort and treat it as success
+      // so the updating page appears promptly instead of waiting on the
+      // browser default timeout.
+      let finalTimer = null;
+      const controller = isFinal ? new AbortController() : null;
+      if (controller) {
+        finalTimer = setTimeout(() => controller.abort(), 3000);
+      }
+      try {
+        response = await fetch(API + '/api/system/OTA/chunk', {
+          method: 'POST',
+          credentials: 'include',
+          headers,
+          body: sector,
+          signal: controller ? controller.signal : undefined,
+        });
+        if (finalTimer) clearTimeout(finalTimer);
+        break; // Fetch completed, may still be a non-2xx status.
+      } catch (_) {
+        if (finalTimer) clearTimeout(finalTimer);
+        if (isFinal) {
+          // A thrown or aborted fetch on the final chunk means the board
+          // rebooted before responding, which is the expected success path.
+          removeEventListener('beforeunload', beforeUnload);
+          showOtaNotice('Firmware uploaded. The board is rebooting into the new image.');
+          return;
+        }
+        if (attempt === MAX_CHUNK_RETRIES) {
+          // Exhausted retries on a non-final chunk. The 30 s session
+          // watchdog will abort the upload server-side and resume mining.
+          resumeAfterOtaError('Upload failed because of a network error. The board will resume mining shortly.', beforeUnload);
+          return;
+        }
+        // Retry the same chunk.
+      }
+    }
+
+    // isFinal: a 2xx response (or a thrown fetch handled above) is success.
+    if (isFinal) {
+      if (response && response.ok) {
+        removeEventListener('beforeunload', beforeUnload);
+        showOtaNotice('Firmware uploaded. The board is rebooting into the new image.');
+        return;
+      }
+      // An explicit non-2xx response on the final chunk is a real failure
+      // (e.g. 500 finish failed, 400 image too small).
+      let detail = 'HTTP ' + (response ? response.status : 'unknown');
+      try {
+        const body = await response.json();
+        detail = (body && body.message) || detail;
+      } catch (_) { }
+      resumeAfterOtaError(detail, beforeUnload);
+      return;
+    }
+
+    // Non-final chunk: handle error status codes before reading the ack.
+    if (response.status === 409) {
+      // Session reset: the firmware saw an offset mismatch, most likely
+      // because the 30 s watchdog reclaimed an earlier stalled session.
+      // Restart from offset 0 if we have restarts remaining.
+      sessionRestarts += 1;
+      if (sessionRestarts > MAX_RESTARTS) {
+        resumeAfterOtaError('Upload failed because the session reset repeatedly.', beforeUnload);
+        return;
+      }
+      offset = 0;
+      continue;
+    }
+
+    if (response.status === 503 && offset === 0) {
+      // Mining did not stop in time. Retry offset 0 a few times (each
+      // attempt fetches a fresh CSRF token from the loop header above).
+      miningRestarts += 1;
+      if (miningRestarts > MAX_RESTARTS) {
+        let detail503 = 'Upload failed because the board could not stop mining.';
+        try {
+          const body = await response.json();
+          detail503 = (body && body.message) || detail503;
+        } catch (_) { }
+        resumeAfterOtaError(detail503, beforeUnload);
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      offset = 0;
+      continue;
+    }
+
+    if (!response.ok) {
+      let detail = 'HTTP ' + response.status;
+      try {
+        const body = await response.json();
+        detail = (body && body.message) || detail;
+      } catch (_) { }
+      resumeAfterOtaError(detail, beforeUnload);
+      return;
+    }
+
+    // Good non-final ack: advance to the next offset reported by the board.
+    // The board echoes back {"ok":true,"next":<next_offset>}.
+    let ack;
+    try {
+      ack = await response.json();
+    } catch (_) {
+      ack = {};
+    }
+    offset = (typeof ack.next === 'number') ? ack.next : end;
+
+    // Update progress bar from the acked offset so it reflects bytes
+    // actually written to flash, not just bytes sent over the wire.
+    const percent = Math.round(offset / total * 100);
     const bar = $('fwProgBar');
     bar.style.width = percent + '%';
     bar.setAttribute('aria-valuenow', String(percent));
-    $('msgFw').style.color = '';
-    $('msgFw').textContent = 'Uploading… ' + percent + '%';
-  };
-  xhr.upload.onload = () => {
-    uploadComplete = true;
-  };
-  xhr.onload = () => {
-    removeEventListener('beforeunload', beforeUnload);
-    if (xhr.status >= 200 && xhr.status < 300) {
-      // The board reboots immediately after the upload completes.
-      // Treat a connection drop after a completed upload as success:
-      // the reboot races the response, matching the network-apply pattern.
-      showOtaNotice('Firmware uploaded; the board is rebooting into the new image…');
-      return;
-    }
-    let detail = 'HTTP ' + xhr.status;
-    try { detail = JSON.parse(xhr.responseText).message || detail; } catch (_) { }
-    resumeAfterOtaError(detail, beforeUnload);
-  };
-  xhr.onerror = () => {
-    // A network error after all bytes were sent means the board reboot
-    // won the race against the server response; treat it as success.
-    if (uploadComplete) {
-      removeEventListener('beforeunload', beforeUnload);
-      showOtaNotice('Firmware uploaded; the board is rebooting into the new image…');
-      return;
-    }
-    resumeAfterOtaError('Upload failed: network error.', beforeUnload);
-  };
-  xhr.onabort = () => {
-    resumeAfterOtaError('Upload cancelled.', beforeUnload);
-  };
-  xhr.send(file);
+    msgFw.style.color = '';
+    msgFw.textContent = 'Uploading ' + percent + '%';
+  }
 });
 
 function resumeAfterOtaError(text, beforeUnload) {
