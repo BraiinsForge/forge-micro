@@ -444,7 +444,18 @@ async fn boot(spawner: Spawner) {
     let w5500_int = Input::new(hw.w5500_int, InputConfig::default().with_pull(Pull::Up));
     let w5500_reset = Output::new(hw.w5500_reset, Level::High, OutputConfig::default());
 
-    let mac_addr = config::Board::MAC_ADDR;
+    // Fold the ESP32-S3 factory eFuse MAC into a stable per-unit MAC.
+    // The WIZnet chip has no factory address; derive_mac keeps the fleet
+    // MAC scheme consistent across all board families.
+    let mac_addr = ubos_net::mac::derive_mac(
+        ubos_net::mac::DUMMY_OUI,
+        config::Board::MAC_FAMILY,
+        &esp_hal::efuse::Efuse::mac_address(),
+    );
+    info!(
+        "mac {=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}",
+        mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5],
+    );
     ubos_net::net::handle().set_mac(mac_addr);
     let state = STATE.init(State::<8, 8>::new());
     let (device, runner) = embassy_net_wiznet::new(
@@ -497,7 +508,7 @@ async fn boot(spawner: Spawner) {
         >(
             initial.network.hostname.as_str(),
             config::Board::MDNS_HOSTNAME_BASE,
-            config::Board::MAC_ADDR[5],
+            mac_addr[5],
             &MDNS_HOSTNAME,
         );
         (net_config, mdns_hostname)

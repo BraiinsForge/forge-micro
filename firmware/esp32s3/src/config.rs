@@ -119,8 +119,12 @@ impl Board<'static> {
     pub const MDNS_HOSTNAME_BASE: &str = "esp32s3";
     /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
     pub const MCU: &str = "esp32s3";
-    /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
-    pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x02];
+    /// Board-family byte placed in the derived MAC address. The runtime
+    /// folds the ESP32-S3 factory eFuse MAC into the remaining octets via
+    /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
+    /// distinct MAC with no per-board build flag. Families 0x01/0x02/0x03
+    /// are taken by rp2040/rp2350/bmm-pico; esp32s3 uses 0x04.
+    pub const MAC_FAMILY: u8 = 0x04;
     /// Concurrent TCP connections the web-UI server (:80) accepts. A browser
     /// opens several parallel connections per page load; this sizes the
     /// worker/buffer pool. Held at 3 rather than the 5 the RP boards use:
