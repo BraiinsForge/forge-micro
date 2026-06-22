@@ -85,12 +85,50 @@ sector per ack would overflow the chip buffer. The `OTA_DRAIN_DELAY_MS = 5 ms`
 pause after each write gives the network task time to drain the buffer, send
 ACKs, and reopen the TCP window.
 
-There is also a `POST /api/system/OTA` streaming endpoint that accepts the
-entire image body in one request and writes it to flash sector by sector as the
-bytes arrive, without per-chunk acks. The WebUI firmware-update card currently
-uploads through this endpoint; migrating it to the chunk-ack endpoint is tracked
-under Planned follow-up. Streaming self-heals mining on a dropped connection but
-is not resumable: a drop loses all progress and the upload restarts from byte 0.
+The `POST /api/system/OTA` streaming endpoint also exists. It accepts the entire
+image body in one request and writes it to flash sector by sector as the bytes
+arrive, without per-chunk acks. It is kept for curl and Basic-auth clients that
+prefer a single-shot upload. Streaming self-heals mining on a dropped connection
+but is not resumable: a drop loses all progress and the upload restarts from
+byte 0. The WebUI firmware-update card uses the chunk-ack endpoint; it no longer
+uses the streaming endpoint.
+
+### WebUI client behavior
+
+The WebUI drives uploads through the chunk-ack endpoint. Progress is driven by
+the acked `next` offset, so the progress bar reflects bytes actually written to
+flash, not bytes sent over the network.
+
+After the final chunk is acked (or the connection drops after the final chunk),
+the WebUI treats the upload as complete and shows the full-page
+"updating / rebooting" notice, which polls the board until it returns — the same
+screen pattern used after a factory reset. Transient errors on any chunk cause
+the client to retry that chunk. A `409` response means the session was reset
+(for example by the 30 s idle watchdog) and the client restarts from offset 0,
+re-triggering `begin()`.
+
+### CSRF for chunked uploads
+
+The chunk endpoint applies CSRF protection selectively based on the chunk
+position and authentication method:
+
+- Session-cookie callers (the WebUI) must supply a CSRF token **only on the
+  offset-0 chunk** — the request that starts the session, stops mining, cuts the
+  PSU rail, and calls `begin()`.
+- Continuation chunks (`X-OTA-Offset > 0`) are CSRF-exempt. They cannot start a
+  session; they are bound to the single in-progress upload by the target mutex
+  (one active session at a time) and the handler's offset-continuity check (a
+  `409` is returned on mismatch). An attacker without a valid CSRF token cannot
+  initiate an OTA session. A forged continuation could at worst corrupt bytes in
+  an already-started upload, which fails image validation and triggers automatic
+  rollback — it cannot install firmware.
+- Basic-auth requests are fully CSRF-exempt, so curl-driven chunk uploads require
+  no token.
+
+CORS preflight responses include `X-OTA-Offset` and `X-OTA-Final` in
+`Access-Control-Allow-Headers` so the WebUI's chunk POSTs pass preflight. The
+WebUI is served from a different port than the API's `:8080`, so the requests
+are cross-origin and the browser preflights them.
 
 ### Session lifecycle
 
@@ -279,36 +317,9 @@ flashing.
 ## Planned follow-up (next branch)
 
 The chunk-ack endpoint and the rp2350 firmware path described above are in
-place, but two pieces of the robust-upload story are deferred to a follow-up
-branch because they span the WebUI and the board crates. They are recorded
-here so the design decisions reached during review are not lost.
+place. One piece of the robust-upload story is deferred to a follow-up branch.
 
-### 1. Migrate the WebUI card to the chunk-ack endpoint
-
-Today the firmware-update card in `ubos-webui` (`src/index.js`) uploads via the
-streaming endpoint (`POST /api/system/OTA`) in a single `XMLHttpRequest`, even
-though this document presents `POST /api/system/OTA/chunk` as the primary path.
-The streaming path was kept for now because a mid-upload connection drop lands
-in the handler's read-error path, which restarts mining automatically, so a
-failed upload never strands the board. Its weakness is that it is **not
-resumable**: any drop loses all progress and the operator must re-upload from
-byte 0.
-
-The migration replaces the single POST with a chunk loop: slice the image into
-`OTA_CHUNK_SIZE` (4096-byte) sectors, POST each with `X-OTA-Offset` and
-`X-OTA-Final` on the last, await the `{"ok":true,"next":<offset>}` ack, and
-advance the progress bar per acked chunk. On a network error the client retries
-the current chunk, then reconnects and resumes from the last acked `next`; a
-`409` (offset mismatch) means the session was reset and the client restarts from
-offset 0. The post-final reboot-race handling (treat a dropped connection after
-the final chunk as success) carries over from the streaming client.
-
-This is strictly more resilient to a flaky network than streaming: because the
-client withholds the next sector until the prior ack arrives, no bytes are in
-flight during a flash write, and a dropped connection costs at most one 4 KiB
-sector rather than the whole image.
-
-### 2. End-to-end validation on rp2040 and bmm-pico
+### 1. End-to-end validation on rp2040 and bmm-pico
 
 This branch brings rp2040 and bmm-pico to flash-write parity with rp2350 — the
 core-1 park across `begin`/`write_chunk`/`finish`/`reboot_into_new` and an
