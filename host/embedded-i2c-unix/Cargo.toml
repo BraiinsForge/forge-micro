@@ -8,8 +8,10 @@ description = "Async embedded-hal-async I2C adapter over Linux /dev/i2c-N."
 workspace = true
 
 [dependencies]
-async-io           = "1.6"
 embedded-hal       = { workspace = true }
 embedded-hal-async = { workspace = true }
 libc               = "0.2"
-log                = { version = "0.4", default-features = false }
+
+# embedded-hal is used for trait bounds; machete does not see trait-only usage.
+[package.metadata.cargo-machete]
+ignored = ["embedded-hal"]

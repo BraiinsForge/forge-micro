@@ -24,3 +24,6 @@ ubos-metrics = { workspace = true, default-features = false }
 ubos-logging = { workspace = true }
 libm         = "0.2"
 heapless     = { workspace = true }
+
+[package.metadata.cargo-machete]
+ignored = ["defmt"]

@@ -56,3 +56,9 @@ defmt-rtt              = "1.1.0"
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32s3"] }
 esp-storage            = { version = "0.8.1", default-features = false, features = ["esp32s3", "critical-section"] }
 heapless               = { workspace = true }
+
+# critical-section is pulled in by esp-storage and esp-hal feature unification;
+# rand_core is required by secp256k1 / ii-sv2 but not directly imported.
+# Both are real transitive requirements that machete flags as unused.
+[package.metadata.cargo-machete]
+ignored = ["critical-section", "rand_core"]

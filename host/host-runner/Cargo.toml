@@ -9,12 +9,9 @@ workspace = true
 [dependencies]
 embassy-executor     = { workspace = true, features = ["platform-std", "executor-thread", "log"] }
 embassy-net          = { workspace = true, features = ["log", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "proto-ipv4", "auto-icmp-echo-reply"] }
-embassy-net-driver   = "0.2"
 embassy-time         = { workspace = true, features = ["std", "log"] }
-embedded-io-async    = { workspace = true }
 embedded-i2c-unix    = { path = "../embedded-i2c-unix" }
 embedded-serial-unix = { path = "../embedded-serial-unix" }
-critical-section   = { version = "1.2", features = ["std"] }
 ctrlc              = "3"
 env_logger         = "0.11"
 gpiocdev           = "0.8"
@@ -33,7 +30,6 @@ ubos-net           = { workspace = true, default-features = false }
 rand               = "0.8"
 sha2               = { workspace = true }
 embassy-futures    = { workspace = true }
-mining-protocol    = { workspace = true }
 stratum-client     = { workspace = true }
 stratum-v1         = { workspace = true }
 stratum-v2         = { workspace = true }
@@ -43,7 +39,6 @@ stratum-v2         = { workspace = true }
 # applies, so prefer the simpler allocating path.
 ii-sv2             = { workspace = true, features = ["alloc"] }
 rand_core          = { workspace = true }
-ubos-logging       = { workspace = true }
 ubos-core          = { workspace = true }
 ubos-thermal       = { workspace = true, default-features = false }
 ubos-manager       = { workspace = true, default-features = false }

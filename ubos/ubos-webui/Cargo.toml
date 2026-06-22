@@ -40,3 +40,9 @@ ubos-net          = { workspace = true, default-features = false }
 [dev-dependencies]
 flate2           = { version = "1", default-features = false, features = ["rust_backend"] }
 critical-section = { version = "1.2", features = ["std"] }
+
+# defmt is gated behind the defmt feature; ubos-logging is pulled only to
+# wire its defmt feature and provide the global logger, never referenced by
+# name in source. machete cannot see either use, so both are ignored.
+[package.metadata.cargo-machete]
+ignored = ["defmt", "ubos-logging"]

@@ -1437,11 +1437,9 @@ dependencies = [
 name = "embedded-i2c-unix"
 version = "0.1.0"
 dependencies = [
- "async-io",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "libc",
- "log",
 ]
 
 [[package]]
@@ -2275,26 +2273,22 @@ dependencies = [
 name = "host-runner"
 version = "0.1.0"
 dependencies = [
- "critical-section",
  "ctrlc",
  "edge-nal-embassy",
  "embassy-executor 0.10.0",
  "embassy-futures",
  "embassy-net",
  "embassy-net-afpacket",
- "embassy-net-driver",
  "embassy-net-tuntap",
  "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-i2c-unix",
- "embedded-io-async 0.7.0",
  "embedded-serial-unix",
  "env_logger",
  "gpiocdev",
  "heapless 0.9.2",
  "ii-sv2",
  "log",
- "mining-protocol",
  "portable-atomic",
  "rand",
  "rand_core 0.6.4",
@@ -2309,7 +2303,6 @@ dependencies = [
  "ubos-cooling",
  "ubos-core",
  "ubos-http",
- "ubos-logging",
  "ubos-manager",
  "ubos-mdns",
  "ubos-metrics",
@@ -4405,7 +4398,6 @@ dependencies = [
  "mining-protocol",
  "portable-atomic",
  "serial-baudrate",
- "sha2 0.10.9",
  "stratum-client",
  "ubos-asic",
  "ubos-config",
@@ -4455,7 +4447,6 @@ dependencies = [
  "embassy-time",
  "embedded-hal-async",
  "embedded-hal-mock",
- "heapless 0.9.2",
  "portable-atomic",
  "static_cell",
  "ubos-core",

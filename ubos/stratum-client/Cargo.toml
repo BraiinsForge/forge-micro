@@ -22,3 +22,6 @@ portable-atomic = { workspace = true }
 ubos-logging    = { workspace = true }
 ubos-metrics    = { workspace = true, default-features = false }
 ubos-net        = { workspace = true, default-features = false }
+
+[package.metadata.cargo-machete]
+ignored = ["defmt"]

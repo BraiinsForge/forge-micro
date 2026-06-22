@@ -28,3 +28,6 @@ tokio                = { version = "1", features = ["rt", "macros", "io-util", "
 [features]
 default = []
 defmt   = ["dep:defmt", "mining-protocol/defmt", "ubos-logging/defmt"]
+
+[package.metadata.cargo-machete]
+ignored = ["defmt"]

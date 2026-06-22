@@ -37,3 +37,8 @@ ubos-net          = { workspace = true, default-features = false }
 [target.'cfg(target_arch = "arm")'.dependencies]
 cortex-m          = "0.7"
 embassy-executor  = { workspace = true }
+
+# defmt is an optional dep gated behind the defmt feature flag; machete
+# does not follow feature-gated paths.
+[package.metadata.cargo-machete]
+ignored = ["defmt"]
