@@ -1581,6 +1581,22 @@
                   --output $out \
                   ${./pcb/bmm-adapter/bmm-adapter.kicad_sch}
               '';
+
+          # Fail the build on an unused dependency so dead deps cannot
+          # accumulate. Runs over the cleaned source in default mode, which
+          # parses every Cargo.toml and greps its source, so it needs no
+          # network and no Cargo.lock resolution. Optional deps wired only
+          # into a feature are exempted per crate via the
+          # [package.metadata.cargo-machete] ignored list.
+          cargo-machete =
+            pkgs.runCommand "cargo-machete"
+              {
+                nativeBuildInputs = [ pkgs.cargo-machete ];
+              }
+              ''
+                cargo-machete ${src}
+                touch $out
+              '';
         };
 
         devShells = {
@@ -1606,6 +1622,8 @@
                 # Used by ubos-webui's build.rs to minify the dashboard
                 # CSS/JS before gzipping into OUT_DIR.
                 esbuild
+                # Unused-dependency lint, matching the cargo-machete check.
+                cargo-machete
               ]
               ++ [ deploy-rs.packages.${system}.default ];
 
@@ -1739,6 +1757,8 @@
               # Used by ubos-webui's build.rs to minify the dashboard
               # CSS/JS before gzipping into OUT_DIR.
               pkgs.esbuild
+              # Unused-dependency lint, matching the cargo-machete check.
+              pkgs.cargo-machete
             ];
 
             RUST_ANALYZER_SERVER_PATH = "${hostRustToolchain}/bin/rust-analyzer";
