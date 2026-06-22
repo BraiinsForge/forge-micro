@@ -20,7 +20,7 @@
 #![no_std]
 #![no_main]
 
-use defmt::info;
+use defmt::{info, warn};
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5100S;
@@ -409,6 +409,36 @@ async fn boot(spawner: Spawner) {
             );
         },
     );
+
+    // Report why the chip last reset before arming the watchdog again.
+    // A watchdog reason means the previous run stalled the executor past
+    // config::Watchdog::TIMEOUT; a power-on or external reset reads as None.
+    use esp_hal::rtc_cntl::SocResetReason;
+    match esp_hal::system::reset_reason() {
+        Some(
+            SocResetReason::CoreMwdt0
+            | SocResetReason::CoreMwdt1
+            | SocResetReason::CpuMwdt0
+            | SocResetReason::CpuMwdt1
+            | SocResetReason::CoreRtcWdt
+            | SocResetReason::CpuRtcWdt
+            | SocResetReason::SysRtcWdt
+            | SocResetReason::SysSuperWdt,
+        ) => warn!("last reset: watchdog"),
+        Some(SocResetReason::SysBrownOut) => warn!("last reset: brownout"),
+        Some(SocResetReason::CoreSw | SocResetReason::CpuSw) => {
+            info!("last reset: software");
+        }
+        Some(SocResetReason::ChipPowerOn) | None => info!("last reset: power-on or external"),
+        Some(
+            SocResetReason::CoreDeepSleep
+            | SocResetReason::SysClkGlitch
+            | SocResetReason::CoreEfuseCrc
+            | SocResetReason::CoreUsbUart
+            | SocResetReason::CoreUsbJtag
+            | SocResetReason::CorePwrGlitch,
+        ) => info!("last reset: other"),
+    }
 
     let timg1 = TimerGroup::new(hw.timg1);
     spawner.must_spawn(watchdog_task(BoardWatchdog(timg1.wdt)));
