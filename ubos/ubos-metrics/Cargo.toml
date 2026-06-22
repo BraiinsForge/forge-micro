@@ -8,7 +8,7 @@ workspace = true
 
 [features]
 default = ["defmt"]
-defmt   = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt", "ubos-http/defmt", "edge-http/defmt"]
+defmt   = ["dep:defmt", "ubos-logging/defmt", "ubos-mdns/defmt", "ubos-net/defmt", "ubos-http/defmt", "edge-http/defmt"]
 # Opt-in for cortex-m boards whose linker exposes a `.ccmram.bss`
 # section. Moves the metric map and the scrape scratch buffers off
 # main SRAM so the stm32f4 boards fit; no effect on boards that do
@@ -18,9 +18,6 @@ ccmram-bss = []
 [dependencies]
 edge-http         = { workspace = true, features = ["io"] }
 edge-nal          = { workspace = true }
-edge-nal-embassy  = { workspace = true, features = ["tcp", "proto-ipv4", "medium-ethernet"] }
-embassy-futures   = { workspace = true }
-embassy-net       = { workspace = true, features = ["tcp"] }
 embassy-sync      = { workspace = true }
 embassy-time      = { workspace = true }
 embedded-io-async = { workspace = true }

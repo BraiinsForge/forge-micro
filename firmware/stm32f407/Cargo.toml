@@ -11,7 +11,6 @@ default = ["display"]
 display = []
 
 [dependencies]
-edge-nal-embassy     = { workspace = true, features = ["tcp", "proto-ipv4", "medium-ethernet"] }
 ubos-http            = { workspace = true, features = ["defmt"] }
 ubos-api             = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-webui           = { workspace = true, features = ["defmt", "ccmram-bss"] }

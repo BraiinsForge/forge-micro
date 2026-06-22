@@ -22,7 +22,6 @@ ccmram-bss = ["ubos-auth/ccmram-bss", "ubos-core/ccmram-bss", "ubos-metrics/ccmr
 [dependencies]
 edge-http         = { workspace = true, features = ["io"] }
 edge-nal          = { workspace = true }
-edge-nal-embassy  = { workspace = true, features = ["tcp", "proto-ipv4", "medium-ethernet"] }
 embassy-futures   = { workspace = true }
 embassy-net       = { workspace = true, features = ["tcp"] }
 embassy-sync      = { workspace = true }
@@ -33,7 +32,6 @@ heapless          = { workspace = true, features = ["serde"] }
 portable-atomic   = { workspace = true }
 serde             = { workspace = true }
 serde-json-core   = { workspace = true }
-static_cell       = { workspace = true }
 defmt             = { workspace = true, optional = true }
 stratum-client    = { workspace = true }
 ubos-config       = { workspace = true, default-features = false }
