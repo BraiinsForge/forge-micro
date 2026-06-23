@@ -29,14 +29,14 @@ impl DisplaySpi {
 
 /// On-board flash parameters for the ubos-config record store.
 ///
-/// Claims the last two 4 KiB sectors of the 4 MiB flash, which sits
-/// above the default ESP-IDF factory app partition (`0x3F_0000` end).
-/// No `partitions.csv` is checked in, so this assumes the stock layout
-/// the bootloader uses by default; if a custom table is introduced the
-/// range must move below the new app-partition boundary.
+/// The board runs the OTA partition layout in `partitions.csv`. The store
+/// takes the first two 4 KiB sectors of the `config` data partition, which
+/// begins at `0x61_0000` above the `ota_1` app slot. Keep this in sync with
+/// `partitions.csv`; the offset is absolute from the flash base, not relative
+/// to the partition.
 pub struct Flash;
 impl Flash {
-    pub const CONFIG_RANGE: core::ops::Range<u32> = 0x003F_E000..0x0040_0000;
+    pub const CONFIG_RANGE: core::ops::Range<u32> = 0x0061_0000..0x0061_2000;
 }
 
 pub struct Watchdog;

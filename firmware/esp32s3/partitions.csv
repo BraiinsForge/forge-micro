@@ -1,0 +1,15 @@
+# OTA partition table for the 8 MiB esp32s3 board. Flashed at 0x8000; the
+# rollback-enabled bootloader (firmware/esp32s3-bootloader) reads it at boot
+# and selects the active app slot from `otadata`.
+#
+# Two equal 3 MiB app slots back the A/B OTA scheme; the running image is
+# written to the inactive slot, `otadata` is flipped, and rollback reverts on
+# the next reset if the new image does not confirm itself. No `factory` slot:
+# an empty `otadata` boots `ota_0`. No `nvs`/`phy_init`: the board has no
+# esp-wifi, and ubos-config keeps its own store in the `config` partition.
+#
+# Name,     Type, SubType, Offset,    Size
+otadata,    data, ota,     0x9000,    0x2000
+ota_0,      app,  ota_0,   0x10000,   0x300000
+ota_1,      app,  ota_1,   0x310000,  0x300000
+config,     data, 0x40,    0x610000,  0x1F0000
