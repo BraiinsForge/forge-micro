@@ -1,11 +1,19 @@
 # OTA Firmware Update
 
-The rp2350 board supports over-the-network firmware updates via the REST API.
-A raw `.bin` image is uploaded in 4 KiB sectors; the bootloader swaps it into
-the active partition on the next boot. If the new image does not confirm itself
-within the bootloader's watchdog window, the bootloader automatically reverts
-to the previous image on the following boot. No debug probe is required for
-normal updates.
+The rp2350, rp2040, bmm-pico, and esp32s3 boards support over-the-network
+firmware updates via the REST API. An image is uploaded in 4 KiB chunks, written
+to a staging slot, and activated on the next boot. If the new image does not
+confirm itself, the bootloader automatically reverts to the previous image on
+the following boot. No debug probe is required for normal updates.
+
+The upload flow, WebUI behaviour, CSRF handling, session lifecycle, and HTTP
+diagnostics are board-agnostic and described once below. The flash mechanism is
+board-specific and lives behind the `ubos_ota::OtaBackend` trait: the RP boards
+use an `embassy-boot` swap bootloader (the sections immediately following), and
+the esp32s3 uses the ESP-IDF bootloader's `otadata` two-slot scheme (see
+[ESP32-S3](#esp32-s3)). The board-agnostic `ubos_ota::OtaEngine` drives either
+backend and implements `ubos_api::OtaTarget`, so the REST and WebUI layers never
+know which board they are talking to.
 
 ## Flash layout
 
@@ -55,11 +63,15 @@ reverts by performing the inverse swap, restoring the previous image.
 
 ### Application
 
-The application implements `OtaTarget` in `ubos/ubos-ota/src/target.rs`
-via `RpOtaTarget`, which wraps an `embassy-boot` `BlockingFirmwareUpdater` over
-the DFU and STATE partitions. The partitions are `BlockingPartition` slices over
-the single shared flash mutex (`ubos_ota::SharedFlashMutex`) that is also
-used by the ubos-config store.
+The board-agnostic upload orchestration lives in `ubos/ubos-ota/src/engine.rs`:
+`OtaEngine<B>` implements `ubos_api::OtaTarget` and owns the write-offset
+tracking, breadcrumb-phase ordering, and core-1 park lifecycle. The RP flash
+mechanism is the `OtaBackend` implementation `RpBackend` in
+`ubos/ubos-ota/src/rp.rs` (feature `rp`), which wraps an `embassy-boot`
+`BlockingFirmwareUpdater` over the DFU and STATE partitions. The partitions are
+`BlockingPartition` slices over the single shared flash mutex
+(`ubos_ota::SharedFlashMutex`) that the ubos-config store also uses.
+`RpOtaTarget` is the type alias `OtaEngine<RpBackend<…>>`.
 
 ## Upload flow
 
@@ -314,6 +326,119 @@ chains directly to `ACTIVE`. STATE must hold the confirmed boot magic before an
 OTA upload is accepted; `mark_booted` writes this on the first run after
 flashing.
 
+## ESP32-S3
+
+The esp32s3 reaches the same OTA behaviour through a different mechanism. There
+is no Rust second-stage bootloader for Xtensa (embassy-boot targets ARM and
+RISC-V only), so the swap and rollback live in the ESP-IDF C bootloader, and the
+firmware drives it through the `otadata` partition via `esp-bootloader-esp-idf`.
+The shared upload flow, WebUI, CSRF, session lifecycle, and `/api/info`
+diagnostics sections above apply unchanged; only the flash layout, bootloader,
+and per-board specifics below differ.
+
+### Flash layout
+
+The 8 MiB flash uses an ESP-IDF partition table (`firmware/esp32s3/partitions.csv`,
+flashed at `0x8000`):
+
+| Name      | Type | SubType | Offset     | Size   | Purpose |
+|-----------|------|---------|------------|--------|---------|
+| `otadata` | data | ota     | `0x9000`   | 8 KiB  | Selects the active app slot; two redundant copies |
+| `ota_0`   | app  | ota_0   | `0x10000`  | 3 MiB  | App slot A |
+| `ota_1`   | app  | ota_1   | `0x310000` | 3 MiB  | App slot B |
+| `config`  | data | `0x40`  | `0x610000` | 1.9 MiB| ubos-config store (uses the first 8 KiB) |
+
+There is no `factory` slot: an empty `otadata` boots `ota_0`. There is no `nvs`
+or `phy_init` partition because the board has no esp-wifi. The running image is
+~760 KiB, well under the 952 KiB OTA upload limit and a fraction of the 3 MiB
+slot. `config::Flash::CONFIG_RANGE` (`0x610000..0x612000`) must stay in sync with
+the `config` partition offset.
+
+Provisioning this table rewrites the flash layout, so a board carrying config
+from an earlier layout loses it and boots from defaults. This only happens
+during the one-time probe-rs provision below, not across an OTA update.
+
+### Bootloader
+
+The ESP-IDF second-stage bootloader is built by the `esp32s3-bootloader` flake
+package from the minimal stub project in `firmware/esp32s3-bootloader/`. Its only
+non-default setting is `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`: the bootloader
+that espflash and probe-rs bundle has rollback **disabled**, so the
+`PendingVerify` auto-revert would never fire. The build uses ESP-IDF from the
+`nixpkgs-esp-dev` flake input and is gated in CI by `build-esp32s3-bootloader`.
+
+### Backend and boot
+
+`EspBackend` (`ubos/ubos-ota/src/esp.rs`, feature `esp`) implements `OtaBackend`
+over `esp-bootloader-esp-idf`'s `OtaUpdater`:
+
+1. `write` streams chunks into the inactive slot. `esp-storage`'s `Storage::write`
+   does read-modify-erase-write per 4 KiB sector, so no per-sector updater dance
+   is needed (unlike the RP backend).
+2. `activate` flips `otadata` to the freshly written slot and marks it
+   `OtaImageState::New`. The rollback-enabled bootloader boots a `New` slot once
+   as `PendingVerify` and reverts on the next reset unless it is confirmed.
+3. `reboot` calls `esp_hal::system::software_reset()`.
+
+At boot, `ubos_ota::confirm_running` marks a `PendingVerify` slot `Valid`,
+cancelling the pending revert — the analogue of the RP `mark_booted`. A crash or
+hang before that call leaves the slot unconfirmed, so the next reset reverts to
+the previous slot.
+
+The single `esp-storage` flash driver is shared between the config store and the
+OTA writer through `ubos_ota::EspFlashMutex`; `multicore_auto_park` halts core 1
+around each flash op so a write never races the mining serial worker. The
+core-1 park that the engine performs before an upload still applies.
+
+### Build and flashing
+
+Build the OTA image (the esp-idf app image the upload endpoint expects):
+
+```sh
+UBOS_FW_VERSION=42 nix run --impure .#esp32s3-image   # -> build/esp32s3-v42.bin
+```
+
+`espflash save-image` produces the app-image format; the `esp32s3-image`
+package rejects an image over the 952 KiB upload limit.
+
+A fresh board needs the rollback bootloader and partition table flashed
+alongside the app; the plain `cargo run` runner does **not** pass the esp-idf
+flags, so it would flash the app on top of whatever bootloader is already
+present (espflash's default has rollback **disabled**). Provision in one shot
+with the idf flags — the `esp32s3-bootloader` package supplies the rollback
+bootloader and the partition table is `partitions.csv`:
+
+```sh
+bl="$(nix build --print-out-paths .#esp32s3-bootloader)/bootloader.bin"
+nix develop .#esp -c bash -c "cd firmware/esp32s3 && \
+  cargo build --release && \
+  probe-rs run --chip esp32s3 \
+    --idf-bootloader \"$bl\" \
+    --idf-partition-table partitions.csv \
+    --idf-target-app-partition ota_0 \
+    target/xtensa-esp32s3-none-elf/release/esp32s3"
+```
+
+Once provisioned, the bootloader and partition table persist, so the day-to-day
+dev loop reflashes only the app:
+
+```sh
+nix develop .#esp -c bash -c "cd firmware/esp32s3 && cargo run --release"
+```
+
+Day-to-day OTA needs no probe at all: upload `esp32s3-vN.bin` through the WebUI
+or `POST /api/system/OTA`.
+
+### ESP-specific diagnostics
+
+The esp32s3 has no reset-surviving scratch registers like the RP watchdog block,
+so the OTA breadcrumb is not recorded: `resetOtaActive` is always `false`,
+`resetOtaOffset` is `0`, and `resetWritePhase` is `"none"`. `resetReason` is
+still populated from the chip's reset reason. `hasPreviousImage` is `false` and
+`previousVersion` is `null` — rollback is bootloader-driven, not app-reported.
+The two-slot `otadata` scheme is self-healing: a reset mid-upload simply leaves
+`otadata` pointing at the old slot, so no breadcrumb is needed to recover.
+
 ## Planned follow-up (next branch)
 
 The chunk-ack endpoint and the rp2350 firmware path described above are in
@@ -344,3 +469,10 @@ end-to-end hardware validation.
   `OtaTarget` with the same core-1 park and flash-write safety as the rp2350,
   but the end-to-end OTA path has been validated only on the rp2350. See Planned
   follow-up.
+- **esp32s3 not yet hardware-validated.** The esp32s3 OTA path (rollback
+  bootloader, partition table, `EspBackend`, firmware wiring) is code-complete
+  and gated in CI, but the upload → activate → rollback cycle has not yet been
+  run on hardware. Two interactions need on-board confirmation: the engine's
+  `ubos_mining` core-1 park composed with `esp-storage`'s `multicore_auto_park`
+  during a flash write, and whether the nix-built rollback bootloader reverts a
+  broken image as expected.

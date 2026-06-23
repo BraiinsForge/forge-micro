@@ -184,6 +184,14 @@ nix develop .#esp
 cd firmware/esp32s3 && cargo run --release
 ```
 
+The esp32s3 boots through the ESP-IDF second-stage bootloader and an OTA
+partition table. A board that has never been provisioned needs the
+rollback-enabled bootloader and the partition table flashed alongside the app;
+`probe-rs run` takes them via `--idf-bootloader`, `--idf-partition-table`, and
+`--idf-target-app-partition`. See `docs/OTA.md` (ESP32-S3 → Build and flashing)
+for the full provisioning command and the `nix run .#esp32s3-image` OTA image
+build.
+
 Each crate's `.cargo/config.toml` pins the probe serial, so `cargo run`
 flashes the right board without a `--probe` flag.
 
