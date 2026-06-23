@@ -1,2 +1,19 @@
+[target.thumbv8m.main-none-eabihf]
+runner = "./scripts/run.sh"
+
 [build]
 target = "thumbv8m.main-none-eabihf"
+
+# `cargo run-N` flashes the bootloader to one of the six bmm-pico boards.
+# Each alias sets $PROBE_SERIAL so scripts/run.sh picks the matching
+# --probe. Bare `cargo run` leaves it unset and auto-selects when only one
+# probe is attached, which covers the single rp2350 board. The serials are
+# the same six probes as firmware/bmm-pico, since the bootloader is flashed
+# to those same boards.
+[alias]
+run-1 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:FA67CE4A27C3E7EF\""]
+run-2 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:88BB90F0F41E72CA\""]
+run-3 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:B6E765A6D8F55506\""]
+run-4 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:330584C1CAFB25E0\""]
+run-5 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:D6116FA12FA4716C\""]
+run-6 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E4A10693F025DCA6\""]
