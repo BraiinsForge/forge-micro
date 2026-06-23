@@ -1,0 +1,14 @@
+# Build the second-stage bootloader for the ESP32-S3 target.
+CONFIG_IDF_TARGET="esp32s3"
+
+# Enable application rollback. With this set, the bootloader transitions a
+# freshly activated OTA slot from ESP_OTA_IMG_NEW to ESP_OTA_IMG_PENDING_VERIFY
+# on its first boot and reverts to the previous slot on the next reset unless
+# the firmware confirms the image (esp-bootloader-esp-idf OtaImageState::Valid).
+# The pre-compiled bootloader shipped by espflash/probe-rs has this disabled,
+# which is why we build our own.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# The board carries 8 MiB of flash; bake the size into the bootloader image
+# header so the second-stage bootloader maps the full chip.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y

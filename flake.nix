@@ -450,6 +450,38 @@
             '';
           };
 
+          # Second-stage bootloader for the esp32s3 board, compiled from the
+          # minimal ESP-IDF stub in firmware/esp32s3-bootloader. ESP-IDF ships
+          # no Rust bootloader for Xtensa, and the bootloader bundled by
+          # espflash/probe-rs has CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE off, so
+          # the OTA PendingVerify auto-revert never fires. We build our own with
+          # rollback on and flash it via `probe-rs run --idf-bootloader`.
+          esp32s3Bootloader = pkgs.stdenv.mkDerivation {
+            pname = "esp32s3-bootloader";
+            version = "5.5.2";
+            src = ./firmware/esp32s3-bootloader;
+            # esp-idf-esp32s3 carries a setup-hook that exports IDF_PATH and
+            # puts idf.py plus the xtensa toolchain on PATH.
+            nativeBuildInputs = [ nixpkgs-esp-dev.packages.${system}.esp-idf-esp32s3 ];
+            dontConfigure = true;
+            buildPhase = ''
+              runHook preBuild
+              export HOME="$TMPDIR"
+              cp -r "$src" project
+              chmod -R u+w project
+              cd project
+              idf.py set-target esp32s3
+              idf.py bootloader
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              mkdir -p "$out"
+              cp build/bootloader/bootloader.bin "$out/"
+              runHook postInstall
+            '';
+          };
+
           src =
             let
               # Crane's default filter keeps Cargo.toml, Cargo.lock, and .rs files.
@@ -2737,6 +2769,8 @@
             # Headless redacted Logic 2 capture lifecycle wrapper. Also the
             # entry point of the `logic` devShell.
             redacted-run = redactedRun;
+
+            esp32s3-bootloader = esp32s3Bootloader;
           }
           //
             # CI stage groups. Each is a linkFarm over a slice of the
