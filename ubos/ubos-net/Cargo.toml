@@ -8,7 +8,7 @@ workspace = true
 
 [features]
 default    = ["defmt"]
-defmt      = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt"]
+defmt      = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt", "ubos-events/defmt"]
 ccmram-bss = []
 
 [dependencies]
@@ -19,4 +19,5 @@ heapless          = { workspace = true }
 portable-atomic   = { workspace = true }
 defmt             = { workspace = true, optional = true }
 ubos-core         = { workspace = true }
+ubos-events       = { workspace = true, default-features = false }
 ubos-logging      = { workspace = true }

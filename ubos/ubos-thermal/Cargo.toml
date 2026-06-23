@@ -12,6 +12,7 @@ defmt   = [
     "dep:defmt",
     "embassy-time/defmt",
     "ubos-config/defmt",
+    "ubos-events/defmt",
     "ubos-logging/defmt",
     "ubos-manager/defmt",
     "ubos-temperature/defmt",
@@ -23,6 +24,7 @@ embassy-time     = { workspace = true }
 defmt            = { workspace = true, optional = true }
 ubos-config      = { workspace = true, default-features = false }
 ubos-core        = { workspace = true }
+ubos-events      = { workspace = true, default-features = false }
 ubos-manager     = { workspace = true, default-features = false }
 ubos-temperature = { workspace = true, default-features = false }
 ubos-logging     = { workspace = true }

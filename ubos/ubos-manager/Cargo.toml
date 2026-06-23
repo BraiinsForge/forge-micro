@@ -12,6 +12,7 @@ defmt   = [
     "dep:defmt",
     "ubos-logging/defmt",
     "ubos-mining/defmt",
+    "ubos-events/defmt",
 ]
 
 [dependencies]
@@ -21,3 +22,4 @@ embassy-futures = { workspace = true }
 defmt           = { workspace = true, optional = true }
 ubos-mining     = { workspace = true, default-features = false }
 ubos-logging    = { workspace = true }
+ubos-events     = { workspace = true, default-features = false }

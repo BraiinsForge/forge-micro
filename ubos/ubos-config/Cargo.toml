@@ -11,6 +11,7 @@ default  = ["defmt"]
 defmt    = [
     "dep:defmt",
     "heapless/defmt",
+    "ubos-events/defmt",
     "ubos-logging/defmt",
 ]
 std = ["postcard/use-std"]
@@ -21,6 +22,7 @@ defmt                  = { workspace = true, optional = true }
 heapless               = { workspace = true, features = ["serde"] }
 serde                  = { version = "1", default-features = false, features = ["derive"] }
 ubos-core              = { workspace = true }
+ubos-events            = { workspace = true, default-features = false }
 ubos-logging           = { workspace = true }
 postcard               = { workspace = true }
 postcard-schema        = { workspace = true }

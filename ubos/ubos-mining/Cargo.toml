@@ -7,6 +7,7 @@ version = "0.1.0"
 default = ["defmt"]
 defmt   = [
     "dep:defmt",
+    "ubos-events/defmt",
     "ubos-logging/defmt",
     "ubos-psu/defmt",
 ]
@@ -33,6 +34,7 @@ portable-atomic   = { workspace = true }
 serial-baudrate   = { workspace = true }
 ubos-config       = { workspace = true, default-features = false }
 ubos-core         = { workspace = true }
+ubos-events       = { workspace = true, default-features = false }
 # Pulled in for the hashrate metric only; the `default-features =
 # false` flavor keeps ubos-metrics no-defmt for ubos-mining consumers
 # that don't already enable defmt themselves.
