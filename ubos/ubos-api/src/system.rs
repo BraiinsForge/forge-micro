@@ -34,10 +34,13 @@
 //!
 //! - `POST /api/system/OTA` — stream a firmware image into the
 //!   inactive slot; reboots into the new slot on success.
+//! - `POST /api/system/OTA/chunk` — upload one sector per request,
+//!   acknowledged individually, using the `X-OTA-Offset` and
+//!   `X-OTA-Final` headers to order and terminate the transfer.
 //!
-//! The OTA endpoint is intercepted in `rest.rs` ahead of [`dispatch`]
-//! because it streams its body straight from the connection. It
-//! requires an [`crate::ota::OtaTarget`] registered via
+//! Both OTA endpoints are intercepted in `rest.rs` ahead of [`dispatch`]
+//! because they stream their body straight from the connection. They
+//! require an [`crate::ota::OtaTarget`] registered via
 //! [`crate::ota::register_ota_target`]; boards that never register one
 //! receive a 501.
 //!
@@ -1118,6 +1121,356 @@ where
     ota.reboot_into_new()
 }
 
+/// Handle `POST /api/system/OTA/chunk` — single-chunk firmware upload.
+///
+/// Receives one sector-sized body (at most [`OTA_CHUNK_SIZE`] bytes) and
+/// writes it to the inactive slot. The client sends chunks one at a time,
+/// waiting for the 200 ack before sending the next, so no bytes are
+/// in-flight during the flash write and the W6100's 4 KiB RX buffer
+/// cannot overflow.
+///
+/// Required headers:
+/// - `X-OTA-Offset` — decimal byte offset where this chunk begins.
+/// - `X-OTA-Final` — present and equal to `"1"` on the last chunk only.
+/// - `Content-Length` — body byte count (required, max [`OTA_CHUNK_SIZE`]).
+///
+/// Session management:
+/// - `X-OTA-Offset: 0` starts a new session: mining is stopped and
+///   `begin()` is called. Any in-progress session is implicitly abandoned
+///   (the target's `begin()` re-arms at offset 0).
+/// - Any other offset continues an existing session. The offset must equal
+///   the number of bytes already written; a mismatch returns 409.
+///
+/// Mining stays stopped between chunks and is resumed only on an error or
+/// via the reboot triggered by the final chunk.
+///
+/// Error responses:
+/// - 501 — no `OtaTarget` supplied (board not capable).
+/// - 409 — target locked by a concurrent upload, or offset mismatch.
+/// - 411 — `Content-Length` absent.
+/// - 413 — chunk larger than [`OTA_CHUNK_SIZE`].
+/// - 503 — mining did not stop within the timeout (offset-0 only).
+/// - 400 — premature EOF, read error, or total image smaller than [`OTA_MIN_IMAGE_BYTES`] on final chunk.
+/// - 500 — `begin`, `write_chunk`, or `finish` error.
+///
+/// Success responses:
+/// - Mid-stream: 200 `{"ok":true,"next":<offset+n>}`.
+/// - Final chunk: 200 `{"ok":true}` then the board reboots.
+///
+/// `ota_offset` is the parsed value of `X-OTA-Offset`.
+/// `ota_final` is `true` when `X-OTA-Final` equals `"1"`.
+/// `extra_headers` carries caller-supplied CORS headers.
+#[allow(clippy::too_many_lines)]
+pub(crate) async fn handle_ota_chunk<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    content_length: Option<u64>,
+    ota_offset: u64,
+    ota_final: bool,
+    manager: ManagerHandle,
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    // Validate input before acquiring the mutex so a request rejected on
+    // bad headers never holds the upload lock.
+    let Some(chunk_bytes) = content_length else {
+        return write_json_response(
+            connection,
+            411,
+            "Length Required",
+            b"{\"message\":\"Content-Length required for OTA chunk\"}",
+            extra_headers,
+        )
+        .await;
+    };
+
+    if chunk_bytes > OTA_CHUNK_SIZE as u64 {
+        return write_json_response(
+            connection,
+            413,
+            "Payload Too Large",
+            b"{\"message\":\"chunk exceeds maximum sector size\"}",
+            extra_headers,
+        )
+        .await;
+    }
+
+    if chunk_bytes == 0 {
+        return write_json_response(
+            connection,
+            400,
+            "Bad Request",
+            b"{\"message\":\"empty chunk\"}",
+            extra_headers,
+        )
+        .await;
+    }
+
+    if ota_offset.saturating_add(chunk_bytes) > OTA_MAX_IMAGE_BYTES {
+        return write_json_response(
+            connection,
+            413,
+            "Payload Too Large",
+            b"{\"message\":\"image exceeds maximum slot size\"}",
+            extra_headers,
+        )
+        .await;
+    }
+
+    // Reject concurrent uploads: a second connection finds the mutex held
+    // and is refused rather than queued behind a write that ends in a reboot.
+    let Ok(mut guard) = crate::ota::target_mutex().try_lock() else {
+        return write_json_response(
+            connection,
+            409,
+            "Conflict",
+            b"{\"message\":\"an update is already in progress\"}",
+            extra_headers,
+        )
+        .await;
+    };
+    let Some(ota) = guard.as_deref_mut() else {
+        return write_json_response(
+            connection,
+            501,
+            "Not Implemented",
+            b"{\"message\":\"OTA not available on this board\"}",
+            extra_headers,
+        )
+        .await;
+    };
+
+    // `chunk_bytes` is at most OTA_CHUNK_SIZE which fits in usize on all targets.
+    #[allow(clippy::cast_possible_truncation)]
+    let chunk_size = chunk_bytes as usize;
+
+    if ota_offset == 0 {
+        // A fresh offset-0 chunk restarts the session. If a prior session was
+        // still active, abort it first so its core-1 park, breadcrumb, and
+        // write offset are reset before re-arming the slot writer.
+        if ota.bytes_written().is_some() {
+            warn!("OTA chunk: offset 0 with active session; aborting prior session");
+            ota.abort();
+        }
+        // Start of a new upload session: quiesce mining, then arm the slot writer.
+        if !manager.stop_mining_and_wait().await {
+            warn!("OTA chunk: mining did not stop within timeout; aborting");
+            // Mining may still stop after the timeout, so clear the pause.
+            manager.send(ManagerMessage::OtaEnd).await;
+            return write_json_response(
+                connection,
+                503,
+                "Service Unavailable",
+                b"{\"message\":\"mining did not stop in time; retry\"}",
+                extra_headers,
+            )
+            .await;
+        }
+
+        match ota.begin() {
+            Ok(()) => {
+                record_session_begin();
+            }
+            Err(OtaError::NoPartitionTable) => {
+                manager.send(ManagerMessage::OtaEnd).await;
+                return write_json_response(
+                    connection,
+                    409,
+                    "Conflict",
+                    b"{\"message\":\"device not provisioned for OTA\"}",
+                    extra_headers,
+                )
+                .await;
+            }
+            Err(error) => {
+                warn!("OTA chunk begin failed: {:?}", error);
+                record_error(error);
+                manager.send(ManagerMessage::OtaEnd).await;
+                return write_json_response(
+                    connection,
+                    500,
+                    "Internal Server Error",
+                    b"{\"message\":\"OTA begin failed\"}",
+                    extra_headers,
+                )
+                .await;
+            }
+        }
+    } else {
+        // Continuation: the incoming offset must equal the bytes already written.
+        // A mismatch means an out-of-order or replayed request.
+        let expected = ota.bytes_written().unwrap_or(0);
+        // `ota_offset` is a u64 header value; the target write position fits in
+        // usize on all supported targets (max image is ~1 MiB << 4 GiB).
+        #[allow(clippy::cast_possible_truncation)]
+        let ota_offset_usize = ota_offset as usize;
+        if ota_offset_usize != expected {
+            warn!(
+                "OTA chunk: offset mismatch: got {} expected {}",
+                ota_offset_usize, expected,
+            );
+            ota.abort();
+            manager.send(ManagerMessage::OtaEnd).await;
+            return write_json_response(
+                connection,
+                409,
+                "Conflict",
+                b"{\"message\":\"chunk offset does not match write position; restart from offset 0\"}",
+                extra_headers,
+            )
+            .await;
+        }
+    }
+
+    // Every chunk but the last must cover exactly one erase sector.
+    // write_chunk rebuilds a fresh updater per call and assumes one chunk
+    // maps to one sector; a short non-final chunk would leave write_offset
+    // off a sector boundary and let the next chunk re-erase a written sector.
+    // The session is armed by this point, so abort it before rejecting.
+    if !ota_final && chunk_size != OTA_CHUNK_SIZE {
+        warn!(
+            "OTA chunk: non-final chunk is {} bytes, not a full sector",
+            chunk_size,
+        );
+        ota.abort();
+        manager.send(ManagerMessage::OtaEnd).await;
+        return write_json_response(
+            connection,
+            400,
+            "Bad Request",
+            b"{\"message\":\"non-final chunk must be exactly one sector\"}",
+            extra_headers,
+        )
+        .await;
+    }
+
+    // Read the chunk body fully before calling write_chunk. The buffer is
+    // sized to OTA_CHUNK_SIZE so the largest legal chunk fits without
+    // reallocation.
+    let mut chunk_buffer = [0u8; OTA_CHUNK_SIZE];
+    let mut chunk_read = 0usize;
+
+    while chunk_read < chunk_size {
+        match embedded_io_async::Read::read(connection, &mut chunk_buffer[chunk_read..chunk_size])
+            .await
+        {
+            Ok(0) => {
+                warn!(
+                    "OTA chunk: premature EOF at {}/{} bytes",
+                    chunk_read, chunk_size,
+                );
+                record_error(OtaError::ShortUpload);
+                ota.abort();
+                manager.send(ManagerMessage::OtaEnd).await;
+                return write_json_response(
+                    connection,
+                    400,
+                    "Bad Request",
+                    b"{\"message\":\"chunk upload truncated\"}",
+                    extra_headers,
+                )
+                .await;
+            }
+            Ok(read) => chunk_read += read,
+            Err(_) => {
+                warn!("OTA chunk: read error after {} bytes", chunk_read);
+                record_error(OtaError::Flash);
+                ota.abort();
+                manager.send(ManagerMessage::OtaEnd).await;
+                return write_json_response(
+                    connection,
+                    400,
+                    "Bad Request",
+                    b"{\"message\":\"read error during chunk upload\"}",
+                    extra_headers,
+                )
+                .await;
+            }
+        }
+    }
+
+    if let Err(error) = ota.write_chunk(&chunk_buffer[..chunk_read]) {
+        warn!("OTA chunk write_chunk failed: {:?}", error);
+        record_error(error);
+        ota.abort();
+        manager.send(ManagerMessage::OtaEnd).await;
+        return write_json_response(
+            connection,
+            500,
+            "Internal Server Error",
+            b"{\"message\":\"OTA write failed\"}",
+            extra_headers,
+        )
+        .await;
+    }
+
+    // `ota_offset` + `chunk_read` is the number of bytes written so far.
+    // Both are bounded by OTA_MAX_IMAGE_BYTES (fits in u32 on all targets).
+    #[allow(clippy::cast_possible_truncation)]
+    record_chunk_written((ota_offset as u32).saturating_add(chunk_read as u32));
+
+    if ota_final {
+        // `ota_offset` + `chunk_read` is the total image size delivered.
+        // Both are bounded by OTA_MAX_IMAGE_BYTES (fits in u64 on all targets).
+        let total_image_bytes = ota_offset.saturating_add(chunk_read as u64);
+        if total_image_bytes < OTA_MIN_IMAGE_BYTES {
+            record_error(OtaError::ShortUpload);
+            ota.abort();
+            manager.send(ManagerMessage::OtaEnd).await;
+            return write_json_response(
+                connection,
+                400,
+                "Bad Request",
+                b"{\"message\":\"image too small\"}",
+                extra_headers,
+            )
+            .await;
+        }
+
+        if let Err(error) = ota.finish() {
+            warn!("OTA chunk finish failed: {:?}", error);
+            record_error(error);
+            ota.abort();
+            manager.send(ManagerMessage::OtaEnd).await;
+            return write_json_response(
+                connection,
+                500,
+                "Internal Server Error",
+                b"{\"message\":\"OTA finish failed\"}",
+                extra_headers,
+            )
+            .await;
+        }
+
+        // `ota_offset` is bounded by OTA_MAX_IMAGE_BYTES (fits in usize on all targets).
+        #[allow(clippy::cast_possible_truncation)]
+        let total_bytes = ota_offset as usize + chunk_read;
+        info!(
+            "OTA chunk upload complete ({} bytes); rebooting into new slot",
+            total_bytes,
+        );
+        record_rebooting();
+        // The image is staged and finish() marked the swap. Commit it by
+        // rebooting regardless of whether the ack reaches the client; a
+        // lost ack matches the expected connection drop on reset, and a
+        // failed ack must not skip the reboot or leave mining stopped.
+        let _ = write_json_response(connection, 200, "OK", b"{\"ok\":true}", extra_headers).await;
+        ota.reboot_into_new()
+    } else {
+        // Acknowledge the chunk and tell the client the next expected offset.
+        // `ota_offset` is bounded by OTA_MAX_IMAGE_BYTES (fits in usize on all targets).
+        #[allow(clippy::cast_possible_truncation)]
+        let next_offset = ota_offset as usize + chunk_read;
+        let mut ack_buf = [0u8; 40];
+        let mut writer = ubos_http::BufferWriter::new(&mut ack_buf);
+        // Safety: the format args are plain integers, so write! cannot fail.
+        let _ = core::write!(writer, "{{\"ok\":true,\"next\":{next_offset}}}");
+        let ack_len = writer.len();
+        write_json_response(connection, 200, "OK", &ack_buf[..ack_len], extra_headers).await
+    }
+}
+
 /// A known route on the `/api/system/*` surface.
 ///
 /// Returned by `route()` when the method and path both match a handled
@@ -1142,6 +1495,8 @@ pub(crate) enum Route {
     SystemWifiScan,
     /// `POST /api/system/OTA`
     SystemOta,
+    /// `POST /api/system/OTA/chunk`
+    SystemOtaChunk,
     /// `POST /api/system/OTAWWW`
     SystemOtaWww,
     /// `POST /api/system/pause`
@@ -1223,6 +1578,10 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
         },
         "/api/system/OTA" => match method {
             "POST" => DispatchOutcome::Handled(Route::SystemOta),
+            _ => DispatchOutcome::MethodNotAllowed { allowed: "POST" },
+        },
+        "/api/system/OTA/chunk" => match method {
+            "POST" => DispatchOutcome::Handled(Route::SystemOtaChunk),
             _ => DispatchOutcome::MethodNotAllowed { allowed: "POST" },
         },
         "/api/system/OTAWWW" => match method {
@@ -1362,6 +1721,18 @@ where
                 connection,
                 scratch,
                 "OTA upload must use the streaming path",
+                extra_headers,
+            )
+            .await?;
+        }
+        DispatchOutcome::Handled(Route::SystemOtaChunk) => {
+            // The chunk upload is intercepted in rest.rs before the body is
+            // pre-read (same as SystemOta), so this arm is not reached in
+            // normal operation; respond defensively.
+            handle_not_implemented(
+                connection,
+                scratch,
+                "OTA chunk upload must use the streaming path",
                 extra_headers,
             )
             .await?;

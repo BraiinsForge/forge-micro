@@ -252,10 +252,16 @@ impl Service for RestApiService {
         // in sector-sized chunks, so its body is not pre-read here.
         let is_ota_upload = is_mutating && method == "POST" && path == "/api/system/OTA";
 
+        // The chunk upload body is at most OTA_CHUNK_SIZE (4096 bytes), which
+        // exceeds BODY_READ_BUFFER_SIZE (2048 bytes), so it is also not
+        // pre-read; `handle_ota_chunk` reads the connection directly.
+        let is_ota_chunk_upload =
+            is_mutating && method == "POST" && path == "/api/system/OTA/chunk";
+
         // Read mutating request bodies before the CSRF check so an
         // oversized payload returns 413 without consuming the token.
         let mut body_buffer = [0u8; BODY_READ_BUFFER_SIZE];
-        let body: &[u8] = if is_mutating && !is_ota_upload {
+        let body: &[u8] = if is_mutating && !is_ota_upload && !is_ota_chunk_upload {
             match read_body(connection, &mut body_buffer, content_length).await {
                 Some(bytes) => bytes,
                 None => {
@@ -301,6 +307,45 @@ impl Service for RestApiService {
         if is_ota_upload {
             return crate::system::handle_ota(connection, content_length, self.manager, cors_slice)
                 .await;
+        }
+
+        // The OTA chunk upload also streams its body (one sector at a time).
+        // Parse X-OTA-Offset and X-OTA-Final before dispatching. Auth and CSRF
+        // have already been enforced above; Basic-auth requests are CSRF-exempt
+        // so curl-driven uploads work without a session token. Session-auth
+        // callers must supply a CSRF token per chunk, which is impractical for
+        // a web-UI uploader. The web UI should use Basic auth for OTA uploads
+        // until a per-upload CSRF token scheme is added.
+        if is_ota_chunk_upload {
+            // Parse the decimal offset from X-OTA-Offset; missing or
+            // unparseable offset is treated as a bad request.
+            let ota_offset: u64 = match ota_offset_buf
+                .as_deref()
+                .and_then(|value| value.parse().ok())
+            {
+                Some(offset) => offset,
+                None => {
+                    return write_status_only(
+                        connection,
+                        400,
+                        "Bad Request",
+                        "application/json",
+                        cors_slice,
+                        b"{\"message\":\"X-OTA-Offset header missing or invalid\"}",
+                    )
+                    .await;
+                }
+            };
+            let ota_final = ota_final_buf.as_deref() == Some("1");
+            return crate::system::handle_ota_chunk(
+                connection,
+                content_length,
+                ota_offset,
+                ota_final,
+                self.manager,
+                cors_slice,
+            )
+            .await;
         }
 
         // Route dispatch: only /api/* paths are served here.
@@ -636,5 +681,68 @@ pub async fn run_sync_credentials() -> ! {
             snapshot.api
         };
         ubos_auth::auth::set_credentials(&credentials.username, &credentials.password).await;
+    }
+}
+
+/// Idle window before a chunk-ack upload session is treated as abandoned.
+///
+/// A chunk-ack upload that makes no progress for this long is treated as
+/// abandoned; the watcher aborts it and resumes mining so a client that
+/// vanished mid-stream does not strand the board stopped.
+const OTA_SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Reclaim abandoned chunk-ack upload sessions.
+///
+/// Spawned as a standalone task by OTA-capable boards alongside the pool
+/// workers. Every [`OTA_SESSION_IDLE_TIMEOUT`] it checks whether a
+/// chunk-ack upload is in progress and whether any new chunks have arrived
+/// since the last tick. If the session is still in `Uploading` phase but
+/// the chunk count has not advanced, the watcher tries to reclaim the
+/// session: it takes the target mutex and — after re-checking under the
+/// lock to avoid a race — aborts the target and resumes mining.
+pub async fn run_ota_session_watchdog() -> ! {
+    let mut last_seen_chunks: u32 = 0;
+    loop {
+        Timer::after(OTA_SESSION_IDLE_TIMEOUT).await;
+
+        let snapshot = crate::ota::ota_session_snapshot();
+
+        // Session is alive if it is not uploading or if new chunks arrived.
+        if snapshot.phase != crate::ota::OtaPhase::Uploading || snapshot.chunks != last_seen_chunks
+        {
+            last_seen_chunks = snapshot.chunks;
+            continue;
+        }
+
+        // Phase is Uploading and no progress was made for a full window.
+        // Try to reclaim the session without blocking a live handler.
+        let Ok(mut guard) = crate::ota::target_mutex().try_lock() else {
+            // A handler currently owns the session and will clean up on its
+            // own error path; leave it alone.
+            continue;
+        };
+
+        // Re-check under the lock to avoid racing a chunk that was just acked.
+        let snapshot = crate::ota::ota_session_snapshot();
+        if snapshot.phase == crate::ota::OtaPhase::Uploading && snapshot.chunks == last_seen_chunks
+        {
+            if let Some(ota) = guard.as_deref_mut() {
+                ota.abort();
+            }
+            crate::ota::record_session_timeout();
+            // Resume mining while still holding the target mutex. A fresh
+            // offset-0 chunk arriving between this abort and the resume would
+            // otherwise take the mutex, stop mining, and then be resumed by
+            // this stale `Start`. Holding the guard until after the send
+            // serializes the new session behind the resume.
+            ubos_manager::handle().send(ManagerMessage::OtaEnd).await;
+            drop(guard);
+            warn!(
+                "OTA: chunk session idle for {}s; aborting and resuming mining",
+                OTA_SESSION_IDLE_TIMEOUT.as_secs(),
+            );
+        }
+
+        last_seen_chunks = snapshot.chunks;
     }
 }

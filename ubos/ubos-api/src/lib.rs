@@ -28,7 +28,9 @@ pub use network_apply::run_network_apply;
 pub use ota::{
     publish_reset_diag, register_ota_target, OtaError, OtaTarget, OtaWritePhase, ResetReason,
 };
-pub use rest::{run_sync_credentials, seed_api_credentials, RestApiService};
+pub use rest::{
+    run_ota_session_watchdog, run_sync_credentials, seed_api_credentials, RestApiService,
+};
 
 #[cfg(test)]
 mod test_time_stubs {
