@@ -1637,6 +1637,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02a56964ab5479ac20c9cf76fa3b0d3f2233b20b5d8554e81ef5d65f63c20567"
 dependencies = [
  "cfg-if",
+ "defmt 1.0.1",
  "document-features",
  "embedded-storage",
  "esp-config",
@@ -4516,6 +4517,9 @@ dependencies = [
  "embassy-rp",
  "embassy-sync 0.8.0",
  "embedded-storage",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-storage",
  "ubos-api",
  "ubos-mining",
 ]

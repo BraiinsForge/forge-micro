@@ -18,6 +18,8 @@ defmt = [
     "embassy-boot?/defmt",
     "embassy-boot-rp?/defmt",
     "embassy-embedded-hal?/defmt",
+    "esp-hal?/defmt",
+    "esp-bootloader-esp-idf?/defmt",
 ]
 # RP boards (rp2040, rp2350, bmm-pico): embassy-boot swap-based OTA backend.
 rp = [
@@ -26,6 +28,14 @@ rp = [
     "dep:embassy-boot-rp",
     "dep:embassy-embedded-hal",
     "dep:cortex-m",
+]
+# esp32s3: esp-idf otadata two-slot OTA backend. The chip feature
+# (esp-hal/esp32s3 etc.) is supplied by the consumer or the flake check on the
+# CLI, matching the rp backend's embassy-rp chip-feature handling.
+esp = [
+    "dep:esp-hal",
+    "dep:esp-storage",
+    "dep:esp-bootloader-esp-idf",
 ]
 
 [dependencies]
@@ -41,3 +51,9 @@ embassy-boot = { version = "0.7.0", default-features = false, optional = true }
 embassy-boot-rp = { version = "0.10.0", default-features = false, optional = true }
 embassy-embedded-hal = { version = "0.6.0", default-features = false, optional = true }
 cortex-m = { version = "0.7", features = ["inline-asm"], optional = true }
+
+# ESP backend only (feature `esp`). No chip feature declared here; the consumer
+# or flake check supplies esp-hal/esp32s3 etc. on the CLI.
+esp-hal = { version = "1.0.0", default-features = false, optional = true }
+esp-storage = { version = "0.8.1", default-features = false, optional = true }
+esp-bootloader-esp-idf = { version = "0.4.0", default-features = false, optional = true }
