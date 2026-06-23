@@ -29,6 +29,12 @@
     # cachix entry locally. Revisit once the PR is released upstream.
     nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/remove-options-compat";
     deploy-rs.url = "github:serokell/deploy-rs";
+    # ESP-IDF packaged for Nix; used only to build the esp32s3 second-stage
+    # bootloader with rollback enabled. No esp-rs prebuilt rollback bootloader
+    # exists, so we compile our own. It intentionally does NOT follow our
+    # nixpkgs: its esp-idf derivation pins python310, which nixos-unstable has
+    # dropped, so it must keep its own locked nixpkgs.
+    nixpkgs-esp-dev.url = "github:mirrexagon/nixpkgs-esp-dev";
   };
 
   outputs =
@@ -40,6 +46,7 @@
       crane,
       nixos-raspberrypi,
       deploy-rs,
+      nixpkgs-esp-dev,
     }@inputs:
     let
       nucHost = "redacted.redacted";
