@@ -217,7 +217,7 @@ pub enum ResetReason {
 /// from a panic (the panic handler ran before the reset fired).
 ///
 /// Discriminant values must match the `WRITE_PHASE_*` constants in
-/// `ubos/ubos-ota/src/target.rs`.
+/// `ubos/ubos-ota/src/rp.rs`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]

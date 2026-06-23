@@ -1,12 +1,32 @@
 #![no_std]
-//! Deduplicated RP OTA flash-write target shared by the rp2350, rp2040, and
-//! bmm-pico firmware crates. Implements `ubos_api::OtaTarget` on
-//! `embassy-boot`; generic over flash size and the core-1 park poll delay.
+//! OTA flash-write targets for the ubos board firmware.
+//!
+//! The board-agnostic [`OtaEngine`] implements [`ubos_api::OtaTarget`] by
+//! driving an [`OtaBackend`]; each board supplies a backend. The RP backend
+//! ([`RpBackend`], feature `rp`) drives `embassy-boot`'s swap-based updater;
+//! the ESP backend (feature `esp`) drives the esp-idf OTA partitions. The
+//! engine owns the shared orchestration — write-offset tracking, breadcrumb
+//! phase ordering, and the core-1 park lifecycle — so no board can diverge
+//! from it.
 
+mod engine;
+pub use engine::{OtaBackend, OtaEngine};
+
+#[cfg(feature = "rp")]
+mod rp;
+#[cfg(feature = "rp")]
 mod shared_flash;
-mod target;
+#[cfg(feature = "rp")]
+pub use rp::{OTA_BREADCRUMB_MAGIC, RpBackend, mark_booted, record_panic_breadcrumb};
+#[cfg(feature = "rp")]
 pub use shared_flash::{SharedBlockingFlash, SharedFlashMutex};
-pub use target::{OTA_BREADCRUMB_MAGIC, RpOtaTarget, mark_booted, record_panic_breadcrumb};
+
+/// The RP OTA target: the board-agnostic [`OtaEngine`] over the RP
+/// `embassy-boot` [`RpBackend`]. Generic over flash size and the core-1 park
+/// poll delay, matching the backend.
+#[cfg(feature = "rp")]
+pub type RpOtaTarget<const FLASH_SIZE: usize, const PARK_POLL_DELAY_CYCLES: u32> =
+    OtaEngine<RpBackend<FLASH_SIZE, PARK_POLL_DELAY_CYCLES>>;
 
 /// Parses a decimal `u32` from a build-time version string at compile time.
 ///

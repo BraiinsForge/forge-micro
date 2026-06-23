@@ -418,8 +418,8 @@ async fn main(spawner: Spawner) {
     // next reset. The flash op pauses core 1, but core 1 is not up yet.
     ubos_ota::mark_booted(shared_flash);
 
-    let ota_target = OTA_TARGET.init(ubos_ota::RpOtaTarget::new(
-        shared_flash,
+    let ota_target = OTA_TARGET.init(ubos_ota::OtaEngine::new(
+        ubos_ota::RpBackend::new(shared_flash),
         config::FIRMWARE_VERSION,
     ));
 

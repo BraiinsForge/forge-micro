@@ -741,7 +741,7 @@
             inherit src;
             doCheck = false;
             cargoBuildCommand = "true";
-            cargoExtraArgs = "-p ubos-ota --target thumbv8m.main-none-eabihf --features embassy-rp/rp235xa,embassy-rp/imagedef-none";
+            cargoExtraArgs = "-p ubos-ota --target thumbv8m.main-none-eabihf --features rp,embassy-rp/rp235xa,embassy-rp/imagedef-none";
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
@@ -1675,7 +1675,7 @@
             clippy-ubos-ota = craneLib.cargoClippy {
               inherit src;
               cargoArtifacts = ubosOtaArtifacts;
-              cargoExtraArgs = "-p ubos-ota --target thumbv8m.main-none-eabihf --features embassy-rp/rp235xa,embassy-rp/imagedef-none";
+              cargoExtraArgs = "-p ubos-ota --target thumbv8m.main-none-eabihf --features rp,embassy-rp/rp235xa,embassy-rp/imagedef-none";
               cargoClippyExtraArgs = "-- -D warnings";
               doInstallCargoArtifacts = false;
               CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
