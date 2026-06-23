@@ -44,6 +44,14 @@ impl Watchdog {
     pub const TIMEOUT: esp_hal::time::Duration = esp_hal::time::Duration::from_millis(2000);
 }
 
+/// Firmware version compiled into the running image, reported over the OTA
+/// API and used to label updates. Set at build time via `UBOS_FW_VERSION`
+/// (the flake image build passes it); defaults to 1 for local builds.
+pub const FIRMWARE_VERSION: u32 = match option_env!("UBOS_FW_VERSION") {
+    Some(raw) => ubos_ota::parse_version(raw),
+    None => 1,
+};
+
 /// Every peripheral singleton the board consumes, extracted in one place.
 pub struct Board<'d> {
     pub timg0: TIMG0<'d>,

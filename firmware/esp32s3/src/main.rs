@@ -200,7 +200,7 @@ async fn manager_task(mining: MiningHandle) -> ! {
 /// Storage backend type the [`config_task`] hands to
 /// [`ubos_config::run`]. The chain is
 /// `esp-storage FlashStorage → SyncFlash → ubos-config FlashStorage`.
-type BoardConfigStorage = FlashStorage<SyncFlash<esp_storage::FlashStorage<'static>>>;
+type BoardConfigStorage = FlashStorage<SyncFlash<ubos_ota::EspSharedFlash>>;
 
 #[embassy_executor::task]
 async fn config_task(storage: BoardConfigStorage) -> ! {
@@ -272,6 +272,11 @@ ubos_http::http_worker_task!(
 #[embassy_executor::task]
 async fn network_control_task(stack: embassy_net::Stack<'static>) -> ! {
     net::run_network_control(stack).await
+}
+
+#[embassy_executor::task]
+async fn ota_watchdog_task() -> ! {
+    ubos_api::run_ota_session_watchdog().await
 }
 
 /// Board task shell around the shared stratum session loop. The loop body
@@ -410,11 +415,15 @@ async fn boot(spawner: Spawner) {
         },
     );
 
-    // Report why the chip last reset before arming the watchdog again.
-    // A watchdog reason means the previous run stalled the executor past
-    // config::Watchdog::TIMEOUT; a power-on or external reset reads as None.
+    // Report why the chip last reset and publish it for the OTA reset
+    // diagnostics. A watchdog reason means the previous run stalled the
+    // executor past config::Watchdog::TIMEOUT; a power-on or external reset
+    // reads as None. Unlike the RP boards there is no reset-surviving scratch
+    // register, so the OTA breadcrumb fields are absent: the two-slot otadata
+    // scheme is self-healing, so a reset is never an in-progress OTA write.
     use esp_hal::rtc_cntl::SocResetReason;
-    match esp_hal::system::reset_reason() {
+    use ubos_api::{OtaWritePhase, ResetReason};
+    let reset_reason = match esp_hal::system::reset_reason() {
         Some(
             SocResetReason::CoreMwdt0
             | SocResetReason::CoreMwdt1
@@ -424,12 +433,22 @@ async fn boot(spawner: Spawner) {
             | SocResetReason::CpuRtcWdt
             | SocResetReason::SysRtcWdt
             | SocResetReason::SysSuperWdt,
-        ) => warn!("last reset: watchdog"),
-        Some(SocResetReason::SysBrownOut) => warn!("last reset: brownout"),
+        ) => {
+            warn!("last reset: watchdog");
+            ResetReason::WatchdogTimeout
+        }
+        Some(SocResetReason::SysBrownOut) => {
+            warn!("last reset: brownout");
+            ResetReason::Unknown
+        }
         Some(SocResetReason::CoreSw | SocResetReason::CpuSw) => {
             info!("last reset: software");
+            ResetReason::Clean
         }
-        Some(SocResetReason::ChipPowerOn) | None => info!("last reset: power-on or external"),
+        Some(SocResetReason::ChipPowerOn) | None => {
+            info!("last reset: power-on or external");
+            ResetReason::Clean
+        }
         Some(
             SocResetReason::CoreDeepSleep
             | SocResetReason::SysClkGlitch
@@ -437,8 +456,30 @@ async fn boot(spawner: Spawner) {
             | SocResetReason::CoreUsbUart
             | SocResetReason::CoreUsbJtag
             | SocResetReason::CorePwrGlitch,
-        ) => info!("last reset: other"),
-    }
+        ) => {
+            info!("last reset: other");
+            ResetReason::Unknown
+        }
+    };
+    ubos_api::publish_reset_diag(reset_reason, false, 0, OtaWritePhase::None);
+
+    // One esp-storage driver behind a mutex, shared by the config store and
+    // the OTA writer: the chip has a single flash peripheral. The mutex
+    // serialises individual flash ops between the two consumers, and
+    // `multicore_auto_park` parks core 1 around each op so a flash write never
+    // races the mining serial worker.
+    static SHARED_FLASH: StaticCell<ubos_ota::EspFlashMutex> = StaticCell::new();
+    let shared_flash: &'static ubos_ota::EspFlashMutex =
+        SHARED_FLASH.init(ubos_ota::EspFlashMutex::new(core::cell::RefCell::new(
+            esp_storage::FlashStorage::new(hw.flash).multicore_auto_park(),
+        )));
+
+    // Confirm the running image before the watchdog is armed so the
+    // rollback-enabled bootloader stops arming a revert on the next reset. A
+    // freshly OTA-activated slot boots as PendingVerify; this marks it Valid.
+    // Running it pre-yield, before the feeder task can enable the 2 s window,
+    // keeps the synchronous otadata write off the watchdog's clock.
+    ubos_ota::confirm_running(ubos_ota::EspSharedFlash::new(shared_flash));
 
     let timg1 = TimerGroup::new(hw.timg1);
     spawner.must_spawn(watchdog_task(BoardWatchdog(timg1.wdt)));
@@ -504,10 +545,16 @@ async fn boot(spawner: Spawner) {
     let mining_handle = ubos_mining::handle();
 
     let config_storage = FlashStorage::new(
-        SyncFlash(esp_storage::FlashStorage::new(hw.flash).multicore_auto_park()),
+        SyncFlash(ubos_ota::EspSharedFlash::new(shared_flash)),
         config::Flash::CONFIG_RANGE,
     );
     spawner.must_spawn(config_task(config_storage));
+
+    static OTA_TARGET: StaticCell<ubos_ota::EspOtaTarget> = StaticCell::new();
+    let ota_target = OTA_TARGET.init(ubos_ota::OtaEngine::new(
+        ubos_ota::EspBackend::new(ubos_ota::EspSharedFlash::new(shared_flash)),
+        config::FIRMWARE_VERSION,
+    ));
 
     let rng = Rng::new();
     let seed = u64::from(rng.random()) << 32 | u64::from(rng.random());
@@ -673,6 +720,11 @@ async fn boot(spawner: Spawner) {
     spawner.must_spawn(stratum_client_task(stack, sv2_prng));
 
     spawner.must_spawn(network_control_task(stack));
+
+    // Register the OTA target now that the network is up, then spawn the
+    // session watchdog that aborts a stalled upload and resumes mining.
+    ubos_api::register_ota_target(ota_target).await;
+    spawner.must_spawn(ota_watchdog_task());
 
     // REST API on :8080 — seed credentials once, then spawn one worker
     // task per pool slot so each has its own static TaskStorage.
