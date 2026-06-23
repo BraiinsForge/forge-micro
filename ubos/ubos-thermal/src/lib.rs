@@ -26,6 +26,22 @@ use ubos_temperature::{publish_board_temperature, TemperatureSensor};
 
 use crate::threshold::{evaluate, Action};
 
+ubos_events::events! {
+    critical_temperature(temp_c: i16)   error = "Critical temperature {} °C, mining halted",
+    temperature_recovered(temp_c: i16)  info  = "Temperature recovered to {} °C, resuming",
+    sensor_fault(misses: u32)           error = "Temperature sensor fault after {} misses",
+    sensor_recovered(misses: u32)       info  = "Temperature sensor recovered after {} misses",
+}
+
+/// Converts a [`Temperature`] to whole degrees Celsius as [`i16`].
+///
+/// Mining temperatures are well within the i16 range (-32768..=32767 °C),
+/// so the truncating cast from i32 is safe at any physically meaningful value.
+#[allow(clippy::cast_possible_truncation)]
+fn temp_celsius_i16(temperature: Temperature) -> i16 {
+    (temperature.millicelsius() / 1000) as i16
+}
+
 type CSMutex = CriticalSectionRawMutex;
 
 /// A single thermal sample from the board sensor.
@@ -162,6 +178,7 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
                     "thermal: sensor unreadable for {} ticks; halting + forcing fan to 100%",
                     sensor_misses
                 );
+                crate::events::sensor_fault(sensor_misses);
                 halted = true;
                 manager.send(ManagerMessage::DangerousTemperature).await;
             }
@@ -180,6 +197,7 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
                 "thermal: sensor recovered after {} misses; releasing halt for re-evaluation",
                 sensor_misses
             );
+            crate::events::sensor_recovered(sensor_misses);
             halted = false;
             manager.send(ManagerMessage::TemperatureNormal).await;
         }
@@ -202,6 +220,7 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
                     "thermal: dangerous temperature {}°C, halting mining",
                     temp.celsius_f32()
                 );
+                crate::events::critical_temperature(temp_celsius_i16(temp));
             }
             Action::Resume => {
                 halted = false;
@@ -210,6 +229,7 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
                     "thermal: cooled to {}°C, resuming mining",
                     temp.celsius_f32()
                 );
+                crate::events::temperature_recovered(temp_celsius_i16(temp));
             }
         }
 
