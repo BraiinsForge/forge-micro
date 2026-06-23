@@ -30,6 +30,17 @@
 //! - `POST /api/system/network/{confirm,revert}` — commit or roll back
 //!   a pending network change.
 //!
+//! OTA endpoints:
+//!
+//! - `POST /api/system/OTA` — stream a firmware image into the
+//!   inactive slot; reboots into the new slot on success.
+//!
+//! The OTA endpoint is intercepted in `rest.rs` ahead of [`dispatch`]
+//! because it streams its body straight from the connection. It
+//! requires an [`crate::ota::OtaTarget`] registered via
+//! [`crate::ota::register_ota_target`]; boards that never register one
+//! receive a 501.
+//!
 //! Method enforcement is strict: every known path responds with 405
 //! when the wrong method is used.
 
@@ -39,18 +50,21 @@ use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
 use edge_nal::TcpSplit;
 use embassy_net::{Ipv4Address, Stack};
-use embassy_time::Instant;
+use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use heapless::String;
 use portable_atomic::Ordering;
 use stratum_client::{SHARES_ACCEPTED, SHARES_REJECTED};
 use ubos_core::fan_state;
-use ubos_logging::info;
+use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_metrics::hashrate::{hashrate, SHARE_COUNT};
 use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP};
 use ubos_thermal::Handle as ThermalHandle;
 
+use crate::ota::{
+    record_chunk_written, record_error, record_rebooting, record_session_begin, OtaError,
+};
 use crate::schema::{
     system_statistics::LABELS, GenericResponse, SystemInfo, SystemNetwork, SystemScoreboardEntry,
     SystemStatistics, API_VARIANT,
@@ -71,6 +85,44 @@ mod tests;
 /// `API_HTTP_POOL` for concurrent connections. If you increase this
 /// constant, audit task-stack sizing for all ubos-api consumers.
 const SCRATCH_SIZE: usize = 2048;
+
+/// OTA upload chunk size in bytes.
+///
+/// Each `write_chunk` call receives at most this many bytes. Sized to
+/// one RP2350 flash sector (4096 bytes) so the implementation can flush
+/// aligned sectors without buffering. Between chunks the handler pauses
+/// briefly to drain the network and feed the watchdog.
+///
+/// Public so the RP flash target can statically assert it equals the
+/// flash erase size, the invariant its per-chunk updater relies on.
+pub const OTA_CHUNK_SIZE: usize = 4096;
+
+/// Delay between sector writes during an OTA upload, in milliseconds.
+///
+/// The flash write pauses both cores; this pause afterwards gives the
+/// network task time to drain the W6100's 4 KiB RX buffer, send ACKs, and
+/// reopen the TCP window before the next read, so the chip buffer does not
+/// overflow across freezes. Small enough to add negligible total time over
+/// the ~150 sectors of a full image.
+const OTA_DRAIN_DELAY_MS: u64 = 5;
+
+/// Maximum firmware image size accepted by the OTA upload handler.
+///
+/// Corresponds to the ACTIVE slot capacity the image must swap into:
+/// the bootloader splits the flash into a 952 KiB ACTIVE slot and a
+/// slightly larger DFU slot. An image larger than this is rejected up
+/// front because it could never swap into ACTIVE even though the larger
+/// DFU slot might hold it during upload.
+///
+/// Must stay in sync with `OTA_MAX_BYTES` in `ubos-webui/src/index.js`
+/// and the `slotMaxBytes` guard in `flake.nix`.
+const OTA_MAX_IMAGE_BYTES: u64 = 952 * 1024;
+
+/// Minimum firmware image size accepted by the OTA upload handler.
+///
+/// A Cortex-M vector table occupies the first 512 bytes of a valid
+/// firmware image. Any image smaller than this cannot be valid firmware.
+const OTA_MIN_IMAGE_BYTES: u64 = 512;
 
 /// Build the dotted-quad IPv4 string from the shared atomic.
 ///
@@ -244,7 +296,8 @@ where
 /// Handle `GET /api/system/info`.
 ///
 /// Populates all fields from the shared atomics and the thermal handle.
-/// Fields that depend on future phases are zeroed or empty per the plan.
+/// When `ota` is `Some`, the `ota` field in the response carries the
+/// running-slot label, running version, and previous-image information.
 /// `extra_headers` carries caller-supplied headers such as CORS headers
 /// from the REST listener.
 async fn handle_info<T, const N: usize>(
@@ -279,6 +332,10 @@ where
         configured_hostname.as_str()
     };
 
+    // Lock-free read of the published OTA snapshot. Unlike taking the
+    // upload mutex, this stays readable while an upload is in progress.
+    let ota_info = crate::ota::ota_info();
+
     let info = SystemInfo {
         api_variant: API_VARIANT,
         board_name,
@@ -300,6 +357,7 @@ where
         shares_total,
         best_nonce_diff: 0,
         best_session_nonce_diff: 0,
+        ota: ota_info,
     };
 
     serialize_and_respond(connection, scratch, &info, extra_headers).await
@@ -799,6 +857,267 @@ where
     write_ack_response(connection, scratch, extra_headers).await
 }
 
+/// Handle `POST /api/system/OTA` — streaming firmware upload.
+///
+/// Streams the request body directly from the TCP connection into the
+/// inactive OTA slot via `ota.write_chunk()`. The read loop consumes
+/// exactly `content_length` bytes in [`OTA_CHUNK_SIZE`]-byte chunks; a
+/// short [`OTA_DRAIN_DELAY_MS`] delay between sector writes lets the
+/// network task drain the chip buffer and feed the watchdog. On success
+/// the handler writes a 200 ack and then calls `ota.reboot_into_new()`,
+/// which never returns.
+///
+/// Error responses:
+/// - 501 — no `OtaTarget` supplied (board not capable).
+/// - 411 — no `Content-Length` header.
+/// - 413 — image larger than [`OTA_MAX_IMAGE_BYTES`].
+/// - 400 — image smaller than [`OTA_MIN_IMAGE_BYTES`].
+/// - 409 — `begin()` returned [`OtaError::NoPartitionTable`].
+/// - 503 — mining failed to stop within the timeout.
+/// - 400 — premature EOF before `content_length` bytes were received.
+/// - 500 — `write_chunk` or `finish` error.
+///
+/// `extra_headers` carries caller-supplied CORS headers.
+#[allow(clippy::too_many_lines)]
+pub(crate) async fn handle_ota<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    content_length: Option<u64>,
+    manager: ManagerHandle,
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    // Validate input before acquiring the mutex so a request rejected on
+    // bad headers never holds the upload lock.
+    let Some(image_bytes) = content_length else {
+        return write_json_response(
+            connection,
+            411,
+            "Length Required",
+            b"{\"message\":\"Content-Length required for OTA upload\"}",
+            extra_headers,
+        )
+        .await;
+    };
+
+    if image_bytes > OTA_MAX_IMAGE_BYTES {
+        return write_json_response(
+            connection,
+            413,
+            "Payload Too Large",
+            b"{\"message\":\"image exceeds maximum slot size\"}",
+            extra_headers,
+        )
+        .await;
+    }
+
+    if image_bytes < OTA_MIN_IMAGE_BYTES {
+        // No session has started yet, so this is a client input rejection,
+        // not a device error. Leaving the phase at Idle keeps /api/info from
+        // reporting a stale Error until the next attempt or a reboot.
+        return write_json_response(
+            connection,
+            400,
+            "Bad Request",
+            b"{\"message\":\"image too small\"}",
+            extra_headers,
+        )
+        .await;
+    }
+
+    // Acquire the registered target. `try_lock` (not `lock`) so a second
+    // concurrent upload is rejected rather than queued behind a write that
+    // ends in a reboot.
+    let Ok(mut guard) = crate::ota::target_mutex().try_lock() else {
+        return write_json_response(
+            connection,
+            409,
+            "Conflict",
+            b"{\"message\":\"an update is already in progress\"}",
+            extra_headers,
+        )
+        .await;
+    };
+    let Some(ota) = guard.as_deref_mut() else {
+        return write_json_response(
+            connection,
+            501,
+            "Not Implemented",
+            b"{\"message\":\"OTA not available on this board\"}",
+            extra_headers,
+        )
+        .await;
+    };
+
+    // `image_bytes` is now at most OTA_MAX_IMAGE_BYTES which fits in usize
+    // on all targets (952 KiB << 4 GiB).
+    #[allow(clippy::cast_possible_truncation)]
+    let total_bytes = image_bytes as usize;
+
+    // Mining must be quiesced before any flash access: the flash bus is
+    // shared and the mining serial task runs on core 1, so an in-flight
+    // UART DMA transfer can race a flash write if mining is still active.
+    if !manager.stop_mining_and_wait().await {
+        warn!("OTA: mining did not stop within timeout; aborting");
+        // Mining may still stop after the timeout, so clear the pause.
+        manager.send(ManagerMessage::OtaEnd).await;
+        return write_json_response(
+            connection,
+            503,
+            "Service Unavailable",
+            b"{\"message\":\"mining did not stop in time; retry\"}",
+            extra_headers,
+        )
+        .await;
+    }
+
+    match ota.begin() {
+        Ok(()) => {
+            record_session_begin();
+        }
+        Err(OtaError::NoPartitionTable) => {
+            // Resume mining so the board keeps hashing after a failed update.
+            manager.send(ManagerMessage::OtaEnd).await;
+            return write_json_response(
+                connection,
+                409,
+                "Conflict",
+                b"{\"message\":\"device not provisioned for OTA\"}",
+                extra_headers,
+            )
+            .await;
+        }
+        Err(error) => {
+            warn!("OTA begin failed: {:?}", error);
+            record_error(error);
+            // Resume mining so the board keeps hashing after a failed update.
+            manager.send(ManagerMessage::OtaEnd).await;
+            return write_json_response(
+                connection,
+                500,
+                "Internal Server Error",
+                b"{\"message\":\"OTA begin failed\"}",
+                extra_headers,
+            )
+            .await;
+        }
+    }
+
+    // This 4096-byte buffer contributes to the task future size; see the
+    // SCRATCH_SIZE note for guidance on auditing stack costs when adjusting.
+    let mut chunk_buffer = [0u8; OTA_CHUNK_SIZE];
+    let mut bytes_written = 0usize;
+
+    while bytes_written < total_bytes {
+        let want = (total_bytes - bytes_written).min(OTA_CHUNK_SIZE);
+        let mut chunk_read = 0usize;
+
+        // Fill the chunk buffer before calling write_chunk. Chunks are
+        // OTA_CHUNK_SIZE bytes except the final chunk, which carries the
+        // remainder; the target accepts a sub-sector final write.
+        while chunk_read < want {
+            match embedded_io_async::Read::read(connection, &mut chunk_buffer[chunk_read..want])
+                .await
+            {
+                Ok(0) => {
+                    // Premature EOF: the client closed before sending all bytes.
+                    warn!(
+                        "OTA: premature EOF at {}/{} bytes",
+                        bytes_written + chunk_read,
+                        total_bytes,
+                    );
+                    record_error(OtaError::ShortUpload);
+                    ota.abort();
+                    // Resume mining so the board keeps hashing after a failed update.
+                    manager.send(ManagerMessage::OtaEnd).await;
+                    return write_json_response(
+                        connection,
+                        400,
+                        "Bad Request",
+                        b"{\"message\":\"upload truncated\"}",
+                        extra_headers,
+                    )
+                    .await;
+                }
+                Ok(read) => chunk_read += read,
+                Err(_) => {
+                    warn!("OTA: read error after {} bytes", bytes_written);
+                    record_error(OtaError::Flash);
+                    ota.abort();
+                    // Resume mining so the board keeps hashing after a failed update.
+                    manager.send(ManagerMessage::OtaEnd).await;
+                    return write_json_response(
+                        connection,
+                        400,
+                        "Bad Request",
+                        b"{\"message\":\"read error during upload\"}",
+                        extra_headers,
+                    )
+                    .await;
+                }
+            }
+        }
+
+        if let Err(error) = ota.write_chunk(&chunk_buffer[..chunk_read]) {
+            warn!("OTA write_chunk failed: {:?}", error);
+            record_error(error);
+            ota.abort();
+            // Resume mining so the board keeps hashing after a failed update.
+            manager.send(ManagerMessage::OtaEnd).await;
+            return write_json_response(
+                connection,
+                500,
+                "Internal Server Error",
+                b"{\"message\":\"OTA write failed\"}",
+                extra_headers,
+            )
+            .await;
+        }
+        bytes_written += chunk_read;
+        #[allow(clippy::cast_possible_truncation)]
+        record_chunk_written(bytes_written as u32);
+        // Pause briefly between sector writes rather than yielding once. The
+        // flash write pauses both cores, and the W6100 cannot be drained while
+        // frozen, so a single yield is not enough for the network task to empty
+        // the chip's RX buffer, send ACKs, and reopen the TCP window before the
+        // next read. A short delay gives the executor several poll rounds to
+        // drain the W6100 and feed the watchdog, keeping the chip's 4 KiB
+        // buffer from accumulating across freezes.
+        Timer::after(Duration::from_millis(OTA_DRAIN_DELAY_MS)).await;
+    }
+
+    if let Err(error) = ota.finish() {
+        warn!("OTA finish failed: {:?}", error);
+        record_error(error);
+        ota.abort();
+        // Resume mining so the board keeps hashing after a failed update.
+        manager.send(ManagerMessage::OtaEnd).await;
+        return write_json_response(
+            connection,
+            500,
+            "Internal Server Error",
+            b"{\"message\":\"OTA finish failed\"}",
+            extra_headers,
+        )
+        .await;
+    }
+
+    info!(
+        "OTA upload complete ({} bytes); rebooting into new slot",
+        total_bytes
+    );
+    record_rebooting();
+    // The image is staged and finish() marked the swap, so commit it by
+    // rebooting regardless of whether the ack reaches the client. A failed
+    // ack write must not skip the reboot: that would leave mining stopped and
+    // the swap pending. The reboot restarts mining on the new image, so a lost
+    // ack is harmless and matches the client's expected connection drop.
+    let _ = write_json_response(connection, 200, "OK", b"{\"ok\":true}", extra_headers).await;
+
+    ota.reboot_into_new()
+}
+
 /// A known route on the `/api/system/*` surface.
 ///
 /// Returned by `route()` when the method and path both match a handled
@@ -1026,13 +1345,23 @@ where
         DispatchOutcome::Handled(Route::SystemLogs) => {
             handle_not_implemented(connection, scratch, "not implemented", extra_headers).await?;
         }
-        DispatchOutcome::Handled(
-            Route::SystemWifiScan | Route::SystemOta | Route::SystemOtaWww,
-        ) => {
+        DispatchOutcome::Handled(Route::SystemWifiScan | Route::SystemOtaWww) => {
             handle_not_implemented(
                 connection,
                 scratch,
                 "unsupported on this platform",
+                extra_headers,
+            )
+            .await?;
+        }
+        DispatchOutcome::Handled(Route::SystemOta) => {
+            // The streaming upload is intercepted in rest.rs before the body
+            // is pre-read, so this arm is not reached in normal operation;
+            // respond defensively rather than mishandle the unread body.
+            handle_not_implemented(
+                connection,
+                scratch,
+                "OTA upload must use the streaming path",
                 extra_headers,
             )
             .await?;

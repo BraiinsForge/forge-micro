@@ -11,13 +11,13 @@ use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
 use edge_nal::TcpSplit;
 use embassy_net::{Ipv4Address, Stack};
-use embassy_time::Instant;
+use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
 use portable_atomic::Ordering;
 use ubos_core::consts::Api;
 use ubos_logging::{info, warn};
-use ubos_manager::Handle as ManagerHandle;
+use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, REQUEST_COUNT};
 use ubos_thermal::Handle as ThermalHandle;
 
@@ -33,10 +33,13 @@ mod tests;
 /// Body buffer size for JSON responses built by `/api/info`.
 ///
 /// The largest `/api/info` JSON body with all fields populated is
-/// roughly 200 bytes (name≤32 + numeric fields + 16-byte IPv4 + 16-byte
-/// time string + JSON framing). 512 bytes leaves room for future field
-/// additions while staying on the stack.
-const API_INFO_BODY_BUFFER_SIZE: usize = 512;
+/// roughly 520 bytes (name≤32 + numeric fields + 16-byte IPv4 + 16-byte
+/// time string + OTA static fields + OTA diagnostic fields including the
+/// `resetWritePhase` string + JSON framing). 512 bytes overflowed once the
+/// OTA diagnostic fields were added, silently truncating the tail; 768
+/// bytes covers the worst case and leaves room for future fields while
+/// staying on the stack.
+const API_INFO_BODY_BUFFER_SIZE: usize = 768;
 
 /// Body buffer for the POST /api/config acknowledgement.
 const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
@@ -174,6 +177,8 @@ impl Service for RestApiService {
             csrf: csrf_buf,
             origin: origin_buf,
             content_length,
+            ota_offset: ota_offset_buf,
+            ota_final: ota_final_buf,
         } = extract_request_parts(connection)?;
 
         let method = method_buf.as_str();
@@ -241,10 +246,16 @@ impl Service for RestApiService {
 
         let is_mutating = matches!(method, "POST" | "PATCH" | "DELETE");
 
+        // The OTA firmware upload is the one body too large to pre-read into
+        // `body_buffer` (it is ~1 MiB against a 2 KiB buffer). It is streamed
+        // straight to flash by `handle_ota`, which reads the connection itself
+        // in sector-sized chunks, so its body is not pre-read here.
+        let is_ota_upload = is_mutating && method == "POST" && path == "/api/system/OTA";
+
         // Read mutating request bodies before the CSRF check so an
         // oversized payload returns 413 without consuming the token.
         let mut body_buffer = [0u8; BODY_READ_BUFFER_SIZE];
-        let body: &[u8] = if is_mutating {
+        let body: &[u8] = if is_mutating && !is_ota_upload {
             match read_body(connection, &mut body_buffer, content_length).await {
                 Some(bytes) => bytes,
                 None => {
@@ -282,6 +293,14 @@ impl Service for RestApiService {
                     .await;
                 }
             }
+        }
+
+        // The OTA upload streams its body from the connection rather than a
+        // pre-read buffer, so it is dispatched here directly with the parsed
+        // content length. Auth and CSRF have already been enforced above.
+        if is_ota_upload {
+            return crate::system::handle_ota(connection, content_length, self.manager, cors_slice)
+                .await;
         }
 
         // Route dispatch: only /api/* paths are served here.
@@ -381,7 +400,88 @@ impl Service for RestApiService {
                     let time = ubos_net::ntp::format_utc_time(unix_secs);
                     let _ = writer.write_str(time.as_str());
                 }
-                let _ = writer.write_str("\"}");
+                let _ = writer.write_str("\"");
+
+                // OTA block: the dashboard polls /api/info and only renders
+                // the firmware card when this field is present. Read from
+                // the lock-free published snapshot, never the upload mutex.
+                if let Some(ota) = crate::ota::ota_info() {
+                    let _ = core::write!(
+                        writer,
+                        ",\"ota\":{{\"runningSlot\":\"{}\",\
+                         \"runningVersion\":{},\
+                         \"hasPreviousImage\":{},\
+                         \"previousVersion\":",
+                        ota.running_slot,
+                        ota.running_version,
+                        ota.has_previous_image,
+                    );
+                    match ota.previous_version {
+                        Some(version) => {
+                            let _ = core::write!(writer, "{version}");
+                        }
+                        None => {
+                            let _ = writer.write_str("null");
+                        }
+                    }
+
+                    // Live upload session state: readable lock-free even
+                    // while an upload holds the target mutex.
+                    let session = crate::ota::ota_session_snapshot();
+                    let phase_str = match session.phase {
+                        crate::ota::OtaPhase::Idle => "idle",
+                        crate::ota::OtaPhase::Uploading => "uploading",
+                        crate::ota::OtaPhase::Error => "error",
+                        crate::ota::OtaPhase::Rebooting => "rebooting",
+                    };
+                    let _ = core::write!(
+                        writer,
+                        ",\"phase\":\"{phase_str}\",\
+                         \"bytesWritten\":{},\
+                         \"chunks\":{},\
+                         \"lastError\":{}",
+                        session.bytes_written,
+                        session.chunks,
+                        session.last_error,
+                    );
+
+                    // Reset diagnostics: captured at boot from the watchdog
+                    // reason register and the OTA breadcrumb.
+                    let (
+                        reset_reason_str,
+                        reset_ota_active,
+                        reset_ota_offset,
+                        reset_write_phase_str,
+                    ) = match crate::ota::reset_diag() {
+                        Some(diag) => {
+                            let reason_str = match diag.reason {
+                                crate::ota::ResetReason::Unknown => "unknown",
+                                crate::ota::ResetReason::Clean => "clean",
+                                crate::ota::ResetReason::WatchdogTimeout => "watchdogTimeout",
+                                crate::ota::ResetReason::WatchdogForced => "watchdogForced",
+                            };
+                            let phase_str = match diag.write_phase {
+                                crate::ota::OtaWritePhase::None => "none",
+                                crate::ota::OtaWritePhase::InFlash => "inFlash",
+                                crate::ota::OtaWritePhase::FlashDone => "flashDone",
+                                crate::ota::OtaWritePhase::Panic => "panic",
+                            };
+                            (reason_str, diag.ota_was_active, diag.ota_offset, phase_str)
+                        }
+                        None => ("unknown", false, 0u32, "none"),
+                    };
+                    let _ = core::write!(
+                        writer,
+                        ",\"resetReason\":\"{reset_reason_str}\",\
+                         \"resetOtaActive\":{reset_ota_active},\
+                         \"resetOtaOffset\":{reset_ota_offset},\
+                         \"resetWritePhase\":\"{reset_write_phase_str}\"",
+                    );
+
+                    let _ = writer.write_str("}");
+                }
+
+                let _ = writer.write_str("}");
                 let json_len = writer.len();
 
                 write_json_response(connection, &body_buf[..json_len], cors_slice).await

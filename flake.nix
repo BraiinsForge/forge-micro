@@ -1185,11 +1185,16 @@
             cargoExtraArgs = "-p ubos-http";
           };
 
+          # Host tests build with defmt off. ubos-api's default `defmt`
+          # feature routes its `ubos_logging` calls through `defmt::*`
+          # macros, which reference `_defmt_acquire`/`_defmt_timestamp` and
+          # friends. A host test binary links no `defmt::global_logger`, so
+          # those symbols are undefined and the test fails to link.
           test-ubos-api = craneLib.cargoTest {
             inherit src;
             cargoArtifacts = ubosApiArtifactsDev;
             CARGO_PROFILE = "";
-            cargoExtraArgs = "-p ubos-api";
+            cargoExtraArgs = "-p ubos-api --no-default-features";
           };
 
           test-ubos-webui = craneLib.cargoTest {

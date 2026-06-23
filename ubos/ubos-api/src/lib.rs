@@ -19,11 +19,15 @@ ubos_mdns::declare_service!(
 );
 
 pub mod network_apply;
+pub mod ota;
 pub mod rest;
 pub mod schema;
 pub mod system;
 
 pub use network_apply::run_network_apply;
+pub use ota::{
+    publish_reset_diag, register_ota_target, OtaError, OtaTarget, OtaWritePhase, ResetReason,
+};
 pub use rest::{run_sync_credentials, seed_api_credentials, RestApiService};
 
 #[cfg(test)]

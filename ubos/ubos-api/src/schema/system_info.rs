@@ -4,10 +4,29 @@
 //! plus an `apiVariant` discriminator so machine clients can dispatch
 //! on our schema without pretending to talk to a reference-device. Fields the
 //! reference-miner spec lists but our Ethernet stack cannot supply (`WiFi`
-//! status, ESP-IDF version, OTA partition) are simply absent.
+//! status, ESP-IDF version) are simply absent.
 
 use heapless::String;
 use serde::Serialize;
+
+/// OTA-related fields embedded in the system-info response.
+///
+/// Present when the board supplies an [`crate::ota::OtaTarget`]
+/// implementation. Absent (the enclosing `Option` is `None`) on
+/// boards without a dual-partition layout.
+#[derive(Serialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct OtaInfo {
+    /// Label of the currently-running firmware slot, e.g. `"ACTIVE"`.
+    pub running_slot: &'static str,
+    /// Version number embedded in the currently-running firmware image.
+    pub running_version: u32,
+    /// `true` when a previous image is present in the inactive slot.
+    pub has_previous_image: bool,
+    /// Version number of the image in the inactive slot, or `null`
+    /// when no previous image exists.
+    pub previous_version: Option<u32>,
+}
 
 /// Full system-info snapshot for `GET /api/system/info`.
 ///
@@ -67,4 +86,7 @@ pub struct SystemInfo<'response> {
     /// Best difficulty nonce found in the current stratum session;
     /// zero until the scoreboard ring buffer is wired.
     pub best_session_nonce_diff: u64,
+    /// OTA partition information. `None` on boards without a
+    /// dual-partition layout or when no `OtaTarget` was supplied.
+    pub ota: Option<OtaInfo>,
 }
