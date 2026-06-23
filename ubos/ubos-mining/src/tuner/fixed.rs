@@ -106,6 +106,8 @@ impl FixedTuner {
         let mut voltage_now = self.target.voltage;
         let mut frequency_now = self.target.frequency;
 
+        crate::events::frequency_ramp_started(target.frequency.khz());
+
         // Phase A: hold V_now, step f toward f_target until V_now^2 * f
         // crosses P_target. If V_now <= V_target, V_now^2 * f_target is
         // already <= P_target, so this loop walks straight to
@@ -166,6 +168,7 @@ impl FixedTuner {
         }
 
         self.target = target;
+        crate::events::frequency_ramp_complete(target.frequency.khz());
         Ok(())
     }
 }

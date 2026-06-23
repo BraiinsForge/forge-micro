@@ -24,3 +24,13 @@ pub mod tuner;
 pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
 pub use miner::{Miner, MinerControl, MinerError, PsuErrorKind};
 pub use serial::{core1_is_parked, release_core1_park, request_core1_park};
+
+ubos_events::events! {
+    miner_reset()                                 info  = "Miner reset",
+    psu_enabled()                                 info  = "PSU enabled",
+    tuner_initialised()                           info  = "Tuner initialised",
+    tuner_fault()                                 error = "Tuner fault",
+    chip_count_mismatch(found: u8, expected: u8)  error = "Chip count {} differs from expected {}",
+    frequency_ramp_started(freq_khz: u32)         info  = "Frequency ramp started to {} kHz",
+    frequency_ramp_complete(freq_khz: u32)        info  = "Frequency ramp complete at {} kHz",
+}

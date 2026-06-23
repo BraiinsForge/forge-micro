@@ -234,12 +234,16 @@ where
         )
         .await;
         match init_result {
-            Either3::First(Ok(())) => InitPhase::Done,
+            Either3::First(Ok(())) => {
+                crate::events::tuner_initialised();
+                InitPhase::Done
+            }
             Either3::First(Err(TunerError::ChipCountMismatch { found, expected })) => {
                 error!(
                     "mining: chain has {} chips, expected {}; stopping (not retrying)",
                     found, expected
                 );
+                crate::events::chip_count_mismatch(found, expected);
                 cut_rail(self.psu, &mut self.reset_pin).await;
                 InitPhase::Stop
             }
@@ -248,6 +252,7 @@ where
                     "mining: tuner init error ({:?}); cutting rail and retrying",
                     Debug2Format(&error)
                 );
+                crate::events::tuner_fault();
                 cut_rail(self.psu, &mut self.reset_pin).await;
                 match select3(
                     Timer::after(Self::RETRY_DELAY),
@@ -309,6 +314,7 @@ where
         // climbs.
 
         info!("mining: entering reset");
+        crate::events::miner_reset();
         self.reset_pin.enter_reset();
         match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.reset_pin).await {
             Settled::Continue => {}
@@ -320,6 +326,7 @@ where
         }
 
         info!("mining: enabling PSU");
+        crate::events::psu_enabled();
         let _ = self.psu.enable().await;
         // Fans follow the rail, not the tuner init completion: the
         // chip is dissipating power as soon as the PSU is on, and
