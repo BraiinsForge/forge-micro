@@ -18,6 +18,7 @@ ubos-auth            = { workspace = true, features = ["defmt"] }
 ubos-metrics         = { workspace = true, features = ["defmt"] }
 ubos-mdns            = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt"] }
+ubos-events          = { workspace = true, features = ["defmt"] }
 ubos-display         = { workspace = true }
 ubos-core            = { workspace = true }
 esp32s3-tsens          = { workspace = true }
