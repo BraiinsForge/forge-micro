@@ -2225,6 +2225,11 @@
               inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
             };
 
+            # Gate the OTA bootloader so a broken sdkconfig fails CI. This
+            # pulls the esp-idf closure on first build; it is cached until the
+            # nixpkgs-esp-dev input or the stub project changes.
+            build-esp32s3-bootloader = esp32s3Bootloader;
+
             clippy-esp32s3-tsens = espCraneLib.cargoClippy {
               inherit src;
               cargoArtifacts = espArtifacts;
@@ -2335,6 +2340,7 @@
                     build-esp32s3-no-display
                     build-rp2350-bootloader
                     build-rp2040-bootloader
+                    build-esp32s3-bootloader
                   ];
                 }
                 ''
