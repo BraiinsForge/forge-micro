@@ -958,3 +958,122 @@ main > * {
   transition: width 0.2s linear;
   border-radius: 3px;
 }
+
+/* ---------- Events page ---------- */
+
+.events {
+  flex: 1;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.evhead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* Reload is an icon-only button so it stays out of the way; it repeats
+   the muted nav-icon treatment and sits at the row's right edge with the
+   record count to its left. */
+#evReload {
+  margin-left: auto;
+  background: none;
+  border: 0;
+  color: var(--mute);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+}
+
+#evReload:hover {
+  color: var(--fg);
+}
+
+.evReloadIcon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  display: block;
+}
+
+/* Spin the glyph while a fetch is in flight; the icon is the button's
+   only feedback since the status text only settles once the load ends. */
+#evReload.loading .evReloadIcon {
+  animation: evSpin 0.8s linear infinite;
+}
+
+@keyframes evSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+#evStatus {
+  font-size: var(--fs-label);
+  color: var(--mute);
+}
+
+.evtab {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border-radius: 4px;
+}
+
+.evtab th {
+  color: var(--mute);
+  font-size: var(--fs-label);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-cap);
+  font-weight: var(--fw-emp);
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.evtab td {
+  padding: 7px 12px;
+  font-size: var(--fs-body);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.evtab tr:last-child td {
+  border-bottom: 0;
+}
+
+.sev-warn td {
+  background: rgba(254, 132, 49, 0.06);
+}
+
+.sev-error td {
+  background: rgba(217, 34, 44, 0.08);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-emp);
+  letter-spacing: var(--ls-cap);
+  text-transform: uppercase;
+  color: #fff;
+}
+
+.badge.info {
+  background: var(--green);
+}
+
+.badge.warn {
+  background: var(--orange);
+}
+
+.badge.error {
+  background: var(--red);
+}

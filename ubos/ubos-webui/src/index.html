@@ -17,6 +17,7 @@
     </span>
     <a href="#" id="nDash">Dashboard</a>
     <a href="#config" id="nCfg">Configuration</a>
+    <a href="#events" id="nEvents">Events</a>
     <span class="sp"></span>
     <div class="actWrap" id="actWrap">
       <button type="button" class="actBtn" id="actBtn" aria-haspopup="true" aria-expanded="false" aria-label="Miner action menu" title="Miner actions">
@@ -305,6 +306,19 @@
         </form>
       </div>
     </div>
+  </section>
+
+  <section class="events hide" id="events">
+    <div class="evhead">
+      <span id="evStatus"></span>
+      <button type="button" id="evReload" aria-label="Reload events" title="Reload"><svg class="evReloadIcon" aria-hidden="true"><use href="#iRenew"/></svg></button>
+    </div>
+    <table class="evtab">
+      <thead>
+        <tr><th>Time</th><th>Severity</th><th>Message</th></tr>
+      </thead>
+      <tbody id="evRows"></tbody>
+    </table>
   </section>
 
   <div class="modal hide" id="netModal" role="dialog" aria-modal="true">

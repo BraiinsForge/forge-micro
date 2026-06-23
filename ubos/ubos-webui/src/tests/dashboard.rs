@@ -85,6 +85,16 @@ fn index_payload_contains_semantic_anchors() {
         html.contains("/api/system/OTA"),
         "missing OTA endpoint path"
     );
+    // Events tab: section id, nav link id, and API path must be present.
+    assert!(html.contains(r#"id="events""#), "missing events section id");
+    assert!(
+        html.contains(r#"id="nEvents""#),
+        "missing events nav link id"
+    );
+    assert!(
+        html.contains("/api/system/events"),
+        "missing /api/system/events path"
+    );
 }
 
 /// Logout must ship as a navigation form, not a JS-driven anchor. The
@@ -112,11 +122,12 @@ fn index_payload_logout_is_post_form() {
 /// uncompressed bytes. The bound sits above the 14 KiB TCP
 /// initcwnd, so the index takes two RTTs on first load; the OTA
 /// card is hidden on boards without an OTA partition so the extra
-/// bytes are always loaded but not always displayed. Bump deliberately
-/// when intentionally adding features, not as a reflexive update.
+/// bytes are always loaded but not always displayed, and the Events
+/// tab adds further markup on top. Bump deliberately when
+/// intentionally adding features, not as a reflexive update.
 #[test]
 fn index_payload_size_within_budget() {
-    const MAX_GZ_BYTES: usize = 17 * 1024;
+    const MAX_GZ_BYTES: usize = 18 * 1024;
     assert!(
         crate::INDEX_HTML_GZ.len() <= MAX_GZ_BYTES,
         "gz payload {} exceeds budget {}",

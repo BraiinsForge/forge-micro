@@ -4,6 +4,18 @@
 // shell, login, and logout live on the same port 80 we were served from.
 const API = `${location.protocol}//${location.hostname}:8080`;
 
+// Event log state. eventDefs is a Map from code (number) to {fmt, args}.
+// eventRecords holds the accumulated sorted records; eventsLoaded tracks
+// whether the first full fetch completed; eventsLoading guards against
+// concurrent fetches.
+let eventDefs = null;
+let eventRecords = [];
+let eventsLoaded = false;
+let eventsLoading = false;
+// Latches once the ring wraps past our cursor between polls, so an incremental
+// fetch skips events that are now overwritten and gone for good.
+let eventsDropped = false;
+
 // Maximum OTA image size the UI will accept. Mirrors the flash slot
 // budget; reject oversized files client-side before starting the upload.
 // Keep in sync with OTA_MAX_IMAGE_BYTES in ubos/ubos-api/src/system.rs and
@@ -149,10 +161,17 @@ const CFG_NAV = {
 function route() {
   const hash = location.hash;
   const isCfg = hash === '#config' || hash.startsWith('#config/');
-  $('dash').classList.toggle('hide', isCfg);
+  const isEvents = hash === '#events';
+  $('dash').classList.toggle('hide', isCfg || isEvents);
   $('cfg').classList.toggle('hide', !isCfg);
-  $('nDash').classList.toggle('on', !isCfg);
+  $('events').classList.toggle('hide', !isEvents);
+  $('nDash').classList.toggle('on', !isCfg && !isEvents);
   $('nCfg').classList.toggle('on', isCfg);
+  $('nEvents').classList.toggle('on', isEvents);
+  if (isEvents) {
+    if (!eventsLoaded && !eventsLoading) loadEvents(false);
+    return;
+  }
   if (!isCfg) return;
   const sub = (hash.startsWith('#config/') ? hash.slice(8) : '') || 'pools';
   const secKey = CFG_SECTIONS[sub] ? sub : 'pools';
@@ -1466,6 +1485,152 @@ $('btnFwUpdate').addEventListener('click', async () => {
     msgFw.textContent = 'Uploading ' + percent + '%';
   }
 });
+
+// Fetch the event definition table once and build a Map for O(1) lookup.
+async function loadEventDefs() {
+  if (eventDefs) return;
+  const response = await fetch(API + '/api/system/events/catalog', { cache: 'no-store', credentials: 'include' });
+  if (!response.ok) throw new Error('HTTP ' + response.status);
+  const list = await response.json();
+  eventDefs = new Map();
+  for (const entry of list) {
+    eventDefs.set(entry.code, { fmt: entry.fmt, args: entry.args });
+  }
+}
+
+// Decode the 11-byte little-endian argument payload for a single event.
+// `hex` is a 22-char lowercase hex string; `widths` is an array of
+// width strings ('u8', 'u16', 'u32', 'i8', 'i16', 'i32').
+function decodeArgs(hex, widths) {
+  let offset = 0;
+  const values = [];
+  for (const width of widths) {
+    const byteCount = width.endsWith('8') ? 1 : width.endsWith('16') ? 2 : 4;
+    let value = 0;
+    for (let index = 0; index < byteCount; index++) {
+      value |= parseInt(hex.slice((offset + index) * 2, (offset + index) * 2 + 2), 16) << (index * 8);
+    }
+    value = value >>> 0;
+    if (width.startsWith('i')) {
+      // Use 2 ** bits, not 1 << bits: a 32-bit shift wraps in JS and would
+      // break i32 sign extension.
+      const bits = byteCount * 8;
+      if (value >= 2 ** (bits - 1)) value -= 2 ** bits;
+    }
+    values.push(value);
+    offset += byteCount;
+  }
+  return values;
+}
+
+// Replace each `{}` placeholder in `fmt` with the corresponding value.
+function formatMessage(fmt, values) {
+  let index = 0;
+  return fmt.replace(/\{\}/g, () => {
+    const value = values[index];
+    index += 1;
+    return value != null ? String(value) : '';
+  });
+}
+
+// Format a unix timestamp. Pre-sync values (below 1e9) show as elapsed
+// seconds since boot rather than a calendar date.
+function formatTime(ts) {
+  return ts >= 1000000000 ? new Date(ts * 1000).toLocaleString() : ts + 's (pre-sync)';
+}
+
+// Map a severity string to its badge CSS class.
+function severityClass(sev) {
+  if (sev === 'warn') return 'warn';
+  if (sev === 'error') return 'error';
+  return 'info';
+}
+
+// Fetch events (full or incremental) and render the table. `incremental`
+// requests only records newer than the highest known seq.
+async function loadEvents(incremental) {
+  if (eventsLoading) return;
+  eventsLoading = true;
+  $('evReload').classList.add('loading');
+  // A full reload re-syncs to the ring's current contents, so any prior
+  // gap in our cursor is gone; clear the latch so the dropped notice does
+  // not persist past a recovery.
+  if (!incremental) eventsDropped = false;
+  const statusEl = $('evStatus');
+  try {
+    await loadEventDefs();
+    const lastSeq = eventRecords.length > 0 ? eventRecords[0].seq : null;
+    const url = API + '/api/system/events' + (incremental && lastSeq != null ? '?since=' + lastSeq : '');
+    const response = await fetch(url, { cache: 'no-store', credentials: 'include' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const data = await response.json();
+    const incoming = data.events || [];
+    // The server returns records oldest-first. On an incremental poll the first
+    // record should be lastSeq + 1; a higher seq means the ring overwrote the
+    // gap before we fetched it, so those events are lost.
+    if (incremental && lastSeq != null && incoming.length > 0 && incoming[0].seq > lastSeq + 1) {
+      eventsDropped = true;
+    }
+    // Merge: build a Map of existing records by seq, overlay new ones.
+    const bySeq = new Map(eventRecords.map(record => [record.seq, record]));
+    for (const record of incoming) {
+      bySeq.set(record.seq, record);
+    }
+    // Sort descending so newest events appear first.
+    eventRecords = Array.from(bySeq.values()).sort((a, b) => b.seq - a.seq);
+    // Render all rows into the table body.
+    const tbody = $('evRows');
+    // Build rows without innerHTML so record data never reaches the parser.
+    const fragment = document.createDocumentFragment();
+    for (const record of eventRecords) {
+      const def = eventDefs ? eventDefs.get(record.code) : null;
+      let message;
+      if (def) {
+        const values = decodeArgs(record.args, def.args);
+        message = formatMessage(def.fmt, values);
+      } else {
+        message = 'event ' + record.code;
+      }
+      const level = severityClass(record.sev);
+      const tr = document.createElement('tr');
+      tr.className = 'sev-' + level;
+      const tdTime = document.createElement('td');
+      tdTime.textContent = formatTime(record.ts);
+      const tdSev = document.createElement('td');
+      const badge = document.createElement('span');
+      badge.className = 'badge ' + level;
+      badge.textContent = record.sev.toUpperCase();
+      tdSev.appendChild(badge);
+      const tdMsg = document.createElement('td');
+      tdMsg.textContent = message;
+      tr.appendChild(tdTime);
+      tr.appendChild(tdSev);
+      tr.appendChild(tdMsg);
+      fragment.appendChild(tr);
+    }
+    tbody.textContent = '';
+    tbody.appendChild(fragment);
+    statusEl.style.color = '';
+    statusEl.textContent = eventRecords.length + ' events' + (eventsDropped ? ' · older events dropped' : '');
+    eventsLoaded = true;
+  } catch (error) {
+    console.warn('loadEvents failed:', error);
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = 'Load failed: ' + ((error && error.message) || 'unknown');
+  } finally {
+    eventsLoading = false;
+    $('evReload').classList.remove('loading');
+  }
+}
+
+$('evReload').addEventListener('click', () => loadEvents(true));
+
+// Auto-refresh the events view once a minute. The poll is incremental and
+// only runs while the tab is showing, so it stays cheap and never fights a
+// manual reload thanks to the eventsLoading guard.
+setInterval(() => {
+  if (location.hash === '#events' && eventsLoaded) loadEvents(true);
+}, 60000);
 
 function resumeAfterOtaError(text, beforeUnload) {
   if (beforeUnload) removeEventListener('beforeunload', beforeUnload);
