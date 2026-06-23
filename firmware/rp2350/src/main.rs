@@ -157,6 +157,34 @@ impl ii_sv2::security::Rng for Sv2BoardRng {
 
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
+/// Backing storage for the user-facing event ring, owned here so its size
+/// follows this board's `EVENT_LOG_CAPACITY`. Placed in `.uninit`, which the
+/// startup code does not zero, so the ring survives a warm reset; the validity
+/// header in `RetainedRing` discards it after a cold boot leaves garbage.
+#[unsafe(link_section = ".uninit")]
+static mut EVENT_LOG_BACKING: ubos_events::RetainedRing<{ config::Board::EVENT_LOG_CAPACITY }> =
+    ubos_events::RetainedRing::new();
+
+/// Per-crate event catalogs assembled into the registry the events `/catalog`
+/// endpoint serves, so the browser can decode records into text.
+const EVENT_CATALOGS: &[&[ubos_events::EventDef]] = &[
+    ubos_config::events::CATALOG,
+    ubos_thermal::events::CATALOG,
+    ubos_mining::events::CATALOG,
+    ubos_psu::events::CATALOG,
+    ubos_manager::events::CATALOG,
+    ubos_api::events::CATALOG,
+    ubos_net::events::CATALOG,
+    stratum_client::events::CATALOG,
+];
+
+// FNV-1a slug hashes must not collide across crates, or the decode table would
+// silently merge two events. Checked here, where the full registry is visible.
+const _: () = assert!(
+    ubos_events::codes_unique(EVENT_CATALOGS),
+    "duplicate event code across catalogs"
+);
+
 defmt::timestamp!("{=u64:iso8601s}", ubos_net::wall_clock_secs());
 
 bind_interrupts!(struct Irqs {
@@ -465,6 +493,18 @@ fn main() -> ! {
 async fn boot(spawner: Spawner) {
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
     let hw = config::Board::take(peripherals);
+
+    // Install the event ring and its decode-table registry before any task
+    // that records events runs. wall_clock_secs returns uptime before NTP
+    // sync and Unix time after; the ring stores it unconditionally.
+    ubos_events::set_catalogs(EVENT_CATALOGS);
+    // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
+    // in .uninit, so the startup code does not zero it and a warm reset
+    // preserves its contents.
+    ubos_events::init(
+        unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) },
+        ubos_net::wall_clock_secs,
+    );
     let mut rng = RoscRng;
 
     // Build the single blocking FLASH driver and place it in a `'static`

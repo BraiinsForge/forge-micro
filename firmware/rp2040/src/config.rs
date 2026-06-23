@@ -95,6 +95,8 @@ impl Board {
     /// listener. One slot on this RAM-tight board, matching the webui
     /// and api pools.
     pub const METRICS_HTTP_POOL: usize = 1;
+    /// Capacity of the user-facing event ring served by `ubos-events`.
+    pub const EVENT_LOG_CAPACITY: usize = 32;
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {

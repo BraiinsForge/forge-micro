@@ -96,6 +96,8 @@ impl Board {
     /// second concurrent scraper, not parallel rendering; scrapes still
     /// serialize on that buffer. Matches the webui and api pools.
     pub const METRICS_HTTP_POOL: usize = 5;
+    /// Capacity of the user-facing event ring served by `ubos-events`.
+    pub const EVENT_LOG_CAPACITY: usize = 128;
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {

@@ -87,6 +87,44 @@ impl ii_sv2::security::Rng for Sv2BoardRng {
 
 static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
 
+/// Wraps the event-ring backing so it can carry the esp-hal `Persistable`
+/// marker that `#[ram(persistent)]` requires. `RetainedRing` is `repr(C)` over
+/// `u32` and `u8` fields, so every bit pattern is a valid value.
+#[repr(transparent)]
+struct PersistentRing(ubos_events::RetainedRing<{ config::Board::EVENT_LOG_CAPACITY }>);
+
+// Safety: every bit pattern of `PersistentRing` is a valid value and it needs
+// no initialisation beyond the validity header `init` checks, so persisting it
+// uninitialised across a reset is sound.
+unsafe impl esp_hal::Persistable for PersistentRing {}
+
+/// Backing storage for the user-facing event ring, owned here so its size
+/// follows this board's `EVENT_LOG_CAPACITY`. Placed in RTC fast RAM, which
+/// retains across a warm reset; the validity header in `RetainedRing` discards
+/// it after a cold boot leaves garbage.
+#[esp_hal::ram(unstable(rtc_fast, persistent))]
+static mut EVENT_LOG_BACKING: PersistentRing = PersistentRing(ubos_events::RetainedRing::new());
+
+/// Per-crate event catalogs assembled into the registry the events `/catalog`
+/// endpoint serves, so the browser can decode records into text.
+const EVENT_CATALOGS: &[&[ubos_events::EventDef]] = &[
+    ubos_config::events::CATALOG,
+    ubos_thermal::events::CATALOG,
+    ubos_mining::events::CATALOG,
+    ubos_psu::events::CATALOG,
+    ubos_manager::events::CATALOG,
+    ubos_api::events::CATALOG,
+    ubos_net::events::CATALOG,
+    stratum_client::events::CATALOG,
+];
+
+// FNV-1a slug hashes must not collide across crates, or the decode table would
+// silently merge two events. Checked here, where the full registry is visible.
+const _: () = assert!(
+    ubos_events::codes_unique(EVENT_CATALOGS),
+    "duplicate event code across catalogs"
+);
+
 mod config;
 mod fan;
 mod mining;
@@ -464,6 +502,17 @@ async fn boot(spawner: Spawner) {
 
     let peripherals = esp_hal::init(esp_hal::Config::default());
     let hw = config::Board::take(peripherals);
+
+    // Install the event ring and its decode-table registry before any task
+    // that records events runs. wall_clock_secs returns uptime before NTP
+    // sync and Unix time after; the ring stores it unconditionally.
+    ubos_events::set_catalogs(EVENT_CATALOGS);
+    // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
+    // in RTC fast RAM (persistent), so a warm reset preserves its contents.
+    ubos_events::init(
+        unsafe { &mut (*core::ptr::addr_of_mut!(EVENT_LOG_BACKING)).0 },
+        ubos_net::wall_clock_secs,
+    );
 
     let timg0 = TimerGroup::new(hw.timg0);
     esp_rtos::start(timg0.timer0);
