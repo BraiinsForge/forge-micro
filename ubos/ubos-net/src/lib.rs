@@ -16,6 +16,10 @@ pub mod mac;
 pub mod net;
 pub mod ntp;
 
+ubos_events::events! {
+    ip_assigned(octet0: u8, octet1: u8, octet2: u8, octet3: u8) info = "IP assigned {}.{}.{}.{}",
+}
+
 /// Seconds since Unix epoch if NTP has synced, or seconds since boot otherwise.
 #[inline]
 #[must_use]

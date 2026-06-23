@@ -3,6 +3,8 @@
 //!
 //! Architecture: `../../../docs/OVERVIEW.md`.
 
+use core::cell::Cell;
+
 use embassy_net::dns::DnsQueryType;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
@@ -203,10 +205,23 @@ impl Handle {
     }
 
     /// Publish the live IPv4 address, leaving the MAC field untouched.
+    ///
+    /// Records `ip_assigned` exactly once on a genuine address change. The
+    /// compare-and-set runs inside `send_modify` under the Watch mutex, so
+    /// concurrent publishers cannot fire the event twice for one transition.
+    /// The event itself is recorded after the closure returns to avoid
+    /// nesting the ring's critical section inside the Watch's.
     pub fn set_ipv4(&self, ipv4: Ipv4Address) {
-        self.state
-            .sender()
-            .send_modify(|state| state.get_or_insert_with(NetState::default).ipv4 = Some(ipv4));
+        let changed = Cell::new(false);
+        self.state.sender().send_modify(|state| {
+            let state = state.get_or_insert_with(NetState::default);
+            changed.set(state.ipv4 != Some(ipv4));
+            state.ipv4 = Some(ipv4);
+        });
+        if changed.get() {
+            let [octet0, octet1, octet2, octet3] = ipv4.octets();
+            crate::events::ip_assigned(octet0, octet1, octet2, octet3);
+        }
     }
 
     /// Publish the board MAC, leaving the IPv4 field untouched.
@@ -259,6 +274,9 @@ impl Handle {
 pub async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
     loop {
         if let Some(config) = stack.config_v4() {
+            // wait_for_config is awaited on both the boot path and by
+            // run_ntp_sync; set_ipv4 records ip_assigned only on a genuine
+            // address change, so calling it on every poll is safe.
             handle().set_ipv4(config.address.address());
             return config.clone();
         }
