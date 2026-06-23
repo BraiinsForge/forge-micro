@@ -50,6 +50,27 @@ fn apply(reasons: PauseReasons, message: Message) -> PauseReasons {
     }
 }
 
+/// Map an asserting `Message` to the `PauseReason` it sets, or `None` for clearing messages.
+///
+/// Used to capture the triggering reason before `apply` consumes the message,
+/// so the halt event can carry the discriminant of the newly-active reason.
+fn halt_reason(message: Message) -> Option<PauseReason> {
+    match message {
+        Message::DangerousTemperature => Some(PauseReason::DangerousTemperature),
+        Message::BrokenFan => Some(PauseReason::BrokenFan),
+        Message::PoolUnreachable => Some(PauseReason::PoolUnreachable),
+        Message::TunerFault => Some(PauseReason::TunerFault),
+        Message::OtaBegin => Some(PauseReason::OtaUpdate),
+        Message::Stop => Some(PauseReason::UserRequest),
+        Message::TemperatureNormal
+        | Message::FanRestored
+        | Message::PoolReachable
+        | Message::TunerRecovered
+        | Message::OtaEnd
+        | Message::Start => None,
+    }
+}
+
 /// Run the manager loop forever.
 ///
 /// Drains [`COMMAND_CHANNEL`] fed by `Handle::send`, interprets
@@ -69,6 +90,7 @@ pub async fn run_manager(mining: MiningHandle) -> ! {
         let message = COMMAND_CHANNEL.receive().await;
         let was_empty = reasons.is_empty();
         let was_danger = reasons.contains(PauseReason::DangerousTemperature);
+        let triggering_reason = halt_reason(message);
         reasons = apply(reasons, message);
         log_transition(
             was_danger,
@@ -77,8 +99,21 @@ pub async fn run_manager(mining: MiningHandle) -> ! {
         publisher.send(reasons);
         let is_empty = reasons.is_empty();
         if was_empty && !is_empty {
+            if let Some(reason) = triggering_reason {
+                match reason {
+                    PauseReason::DangerousTemperature => {
+                        crate::events::mining_halted_dangerous_temperature();
+                    }
+                    PauseReason::BrokenFan => crate::events::mining_halted_broken_fan(),
+                    PauseReason::UserRequest => crate::events::mining_halted_user_request(),
+                    PauseReason::PoolUnreachable => crate::events::mining_halted_pool_unreachable(),
+                    PauseReason::OtaUpdate => crate::events::mining_halted_ota_update(),
+                    PauseReason::TunerFault => crate::events::mining_halted_tuner_fault(),
+                }
+            }
             mining.halt().await;
         } else if !was_empty && is_empty {
+            crate::events::mining_resumed();
             mining.resume().await;
         }
     }

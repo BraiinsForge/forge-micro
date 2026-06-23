@@ -15,6 +15,16 @@ pub(crate) mod manager;
 pub(crate) mod message;
 pub mod pause;
 
+ubos_events::events! {
+    mining_halted_dangerous_temperature() warn = "Mining halted: dangerous temperature",
+    mining_halted_broken_fan()            warn = "Mining halted: broken fan",
+    mining_halted_user_request()          warn = "Mining halted: user request",
+    mining_halted_pool_unreachable()      warn = "Mining halted: pool unreachable",
+    mining_halted_ota_update()            warn = "Mining halted: OTA update",
+    mining_halted_tuner_fault()           warn = "Mining halted: tuner fault",
+    mining_resumed()                      info = "Mining resumed",
+}
+
 #[cfg(test)]
 #[path = "tests/pause.rs"]
 mod tests_pause;
