@@ -1197,6 +1197,55 @@
               "$@"
             '';
           };
+
+          # Production esp32s3 firmware image. Shared by packages.esp32s3-image
+          # (nix build) and apps.esp32s3-image (nix run). espflash converts the
+          # linked ELF into the esp-idf app-image format the OTA endpoint writes
+          # into an ota_N slot. The size guard uses the OTA upload limit
+          # (slotMaxBytes), not the larger 3 MiB slot, because that limit is
+          # what the REST handler enforces on the upload.
+          esp32s3Image = espCraneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoVendorDir = espCargoVendorDir;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
+            CARGO_TARGET_XTENSA_ESP32S3_NONE_ELF_RUSTFLAGS = "-Clink-arg=-Tlinkall.x -Clink-arg=-Tdefmt.x -Clink-arg=-nostartfiles";
+            RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
+            nativeBuildInputs = [
+              xtensaEspToolchain
+              pkgs.esbuild
+              pkgs.espflash
+            ];
+            CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
+            CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            UBOS_FW_VERSION = fwVersion;
+            doInstallCargoArtifacts = false;
+            installPhaseCommand = ''
+              mkdir -p "$out"
+              # espflash reads/writes a user cache dir; keep it in the sandbox.
+              export HOME="$TMPDIR"
+              espflash save-image --chip esp32s3 --flash-size 8mb \
+                target/xtensa-esp32s3-none-elf/release/esp32s3 \
+                "$out/esp32s3-v${fwVersion}.bin"
+              size=$(wc -c < "$out/esp32s3-v${fwVersion}.bin")
+              echo "esp32s3 image: $size bytes / ${toString slotMaxBytes} bytes OTA upload limit, version ${fwVersion}"
+              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
+                echo "ERROR: esp32s3 release image ($size bytes) exceeds the" \
+                     "${toString slotMaxBytes}-byte OTA upload limit. See docs/OTA.md."
+                exit 1
+              fi
+              if [ -n "''${POOL_USER:-}" ]; then
+                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
+                exit 1
+              fi
+              if grep -qa "braiinstest" "$out/esp32s3-v${fwVersion}.bin"; then
+                echo "ERROR: esp32s3 image contains the test pool worker 'braiinstest'; it must not ship."
+                exit 1
+              fi
+            '';
+          };
         in
         {
           # Each firmware crate is checked under its default feature set
@@ -2175,6 +2224,7 @@
               nativeBuildInputs = [
                 xtensaEspToolchain
                 pkgs.esbuild
+                pkgs.espflash
               ];
               CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
               CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
@@ -2185,20 +2235,36 @@
               # to memset/memcpy overflow the xtensa windowed-call range.
               CARGO_TARGET_XTENSA_ESP32S3_NONE_ELF_RUSTFLAGS = "-Clink-arg=-Tlinkall.x -Clink-arg=-Tdefmt.x -Clink-arg=-nostartfiles";
               inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-              # Pool-worker guard. See the bmm-pico build for the full
-              # rationale. This board is not an OTA target and has no slot
-              # budget, so the guard greps the ELF directly rather than
-              # objcopying a slot-sized binary.
+              # Slot-size and pool-worker guards. The esp32s3 is an OTA target
+              # with the shared 952 KiB upload budget, so this runs espflash
+              # save-image to produce the esp-idf app image the OTA endpoint
+              # writes into a slot and checks its size, mirroring the rp board
+              # checks. The size guard must live here, not only in
+              # packages.esp32s3-image: `nix flake check` builds checks.* but
+              # merely evaluates packages.*, so a guard in the image package
+              # alone would never gate an oversized image in CI.
               postBuild = ''
                 elf=target/xtensa-esp32s3-none-elf/release/esp32s3
+                bin=$(mktemp --suffix=.bin)
+                # espflash reads/writes a user cache dir; keep it in the sandbox.
+                export HOME="$TMPDIR"
+                espflash save-image --chip esp32s3 --flash-size 8mb "$elf" "$bin"
+                size=$(wc -c < "$bin")
+                echo "esp32s3 slot-size check: $size bytes / ${toString slotMaxBytes} bytes OTA upload limit"
+                if [ "$size" -gt "${toString slotMaxBytes}" ]; then
+                  echo "ERROR: esp32s3 release image ($size bytes) exceeds the" \
+                       "${toString slotMaxBytes}-byte OTA upload limit. See docs/OTA.md."
+                  rm -f "$bin"; exit 1
+                fi
                 if [ -n "''${POOL_USER:-}" ]; then
                   echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
-                  exit 1
+                  rm -f "$bin"; exit 1
                 fi
-                if grep -qa "braiinstest" "$elf"; then
+                if grep -qa "braiinstest" "$bin"; then
                   echo "ERROR: esp32s3 image contains the test pool worker 'braiinstest'; it must not ship."
-                  exit 1
+                  rm -f "$bin"; exit 1
                 fi
+                rm -f "$bin"
               '';
             };
 
@@ -2800,6 +2866,7 @@
             # entry point of the `logic` devShell.
             redacted-run = redactedRun;
 
+            esp32s3-image = esp32s3Image;
             esp32s3-bootloader = esp32s3Bootloader;
           }
           //
@@ -2958,6 +3025,23 @@
                   name="$(basename "$src_uf2")"
                   install -m644 "$src_uf2" "$dest/$name"
                   echo "rp2040 UF2 v${fwVersion} written to:" >&2
+                  echo "$dest/$name"
+                ''
+              );
+            };
+            esp32s3-image = {
+              type = "app";
+              program = toString (
+                pkgs.writeShellScript "esp32s3-image-to-build" ''
+                  set -euo pipefail
+                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
+                  dest="$root/build"
+                  mkdir -p "$dest"
+                  # The package $out holds exactly one esp32s3-v<N>.bin.
+                  src_bin="$(echo ${esp32s3Image}/*.bin)"
+                  name="$(basename "$src_bin")"
+                  install -m644 "$src_bin" "$dest/$name"
+                  echo "esp32s3 image v${fwVersion} written to:" >&2
                   echo "$dest/$name"
                 ''
               );
