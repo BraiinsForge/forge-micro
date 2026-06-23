@@ -19,13 +19,14 @@
 //! events::sensor_fault();
 //! ```
 //!
-//! Firmware initialises the ring once at boot:
+//! Firmware owns the backing [`RetainedRing`] and initialises the ring once at
+//! boot. Placing the backing in retained RAM (a `.uninit` section on cortex-m,
+//! RTC fast RAM on esp32s3) lets the ring survive a warm reset:
 //!
 //! ```rust,ignore
-//! static mut BACKING: [ubos_events::EventRecord; 128] =
-//!     [ubos_events::EventRecord::EMPTY; 128];
+//! static mut BACKING: ubos_events::RetainedRing<128> = ubos_events::RetainedRing::new();
 //! // Safety: called once at boot before any task is spawned.
-//! ubos_events::init(unsafe { &mut BACKING }, ubos_net::wall_clock_secs);
+//! ubos_events::init(unsafe { &mut *core::ptr::addr_of_mut!(BACKING) }, ubos_net::wall_clock_secs);
 //! ```
 //!
 //! Before [`init`] is called, [`record`] is a no-op and [`snapshot`]
@@ -209,80 +210,187 @@ pub(crate) fn encode_args(args: &[Arg]) -> [u8; 11] {
     payload
 }
 
-// ── Ring ──────────────────────────────────────────────────────────────────────
+/// Sentinel marking a header written by this firmware. A mismatch means cold
+/// boot (uninitialised retained RAM) or garbage, so the boot path starts fresh.
+const MAGIC: u32 = 0x5542_4556;
 
-/// Fixed-capacity event ring operating on a borrowed static slice.
+/// Binary-layout stamp. Bump when [`RetainedHeader`] or [`EventRecord`] changes
+/// shape so a post-OTA build never adopts a stale-layout ring.
+const LAYOUT_VERSION: u32 = 1;
+
+/// The ring's mutable header, kept beside the entries in retained RAM so the
+/// write position and sequence survive a warm reset.
 ///
-/// Factored out of the global so its logic can be exercised in host unit
-/// tests without touching the global `RING` state.
-pub(crate) struct Ring {
-    /// Backing storage, borrowed from a `'static` array owned by firmware.
-    buf: &'static mut [EventRecord],
-    /// Index of the next write slot (wraps modulo `buf.len()`).
-    head: usize,
-    /// Number of valid entries, at most `buf.len()`.
-    len: usize,
-    /// Sequence number of the last assigned record; first record gets 1.
+/// `head` and `len` share one `packed` word so the boot path can never observe
+/// a torn pair: a reset can land between two stores but not mid-store, and the
+/// push path updates `packed` in a single write after the entry is in place.
+#[repr(C)]
+pub struct RetainedHeader {
+    magic: u32,
+    layout: u32,
     seq: u32,
+    packed: u32,
+}
+
+impl RetainedHeader {
+    /// A valid empty header, the state a fresh or reset ring starts from.
+    const FRESH: RetainedHeader = RetainedHeader {
+        magic: MAGIC,
+        layout: LAYOUT_VERSION,
+        seq: 0,
+        packed: 0,
+    };
+
+    const fn head(&self) -> usize {
+        (self.packed & 0xFFFF) as usize
+    }
+
+    const fn len(&self) -> usize {
+        (self.packed >> 16) as usize
+    }
+
+    fn set_head_len(&mut self, head: usize, len: usize) {
+        // Single store keeps the pair torn-free across a reset. head and len
+        // are bounded by the ring capacity (at most 65535), so the casts to
+        // u32 cannot lose data.
+        #[allow(clippy::cast_possible_truncation)]
+        let packed = ((len as u32) << 16) | (head as u32 & 0xFFFF);
+        self.packed = packed;
+    }
+
+    /// True when this header was written by a matching-layout build and its
+    /// indices fit the backing of `capacity` entries.
+    fn is_valid(&self, capacity: usize) -> bool {
+        self.magic == MAGIC
+            && self.layout == LAYOUT_VERSION
+            && self.len() <= capacity
+            && self.head() < capacity
+    }
+}
+
+/// Firmware-owned ring backing: the header plus a fixed entry array. Placed in
+/// retained RAM on boards that support it (see the firmware `EVENT_LOG_BACKING`
+/// statics) so the ring survives warm resets; plain RAM elsewhere.
+#[repr(C)]
+pub struct RetainedRing<const N: usize> {
+    header: RetainedHeader,
+    entries: [EventRecord; N],
+}
+
+impl<const N: usize> RetainedRing<N> {
+    /// All-zero backing. The zero header has `magic == 0`, so the boot path
+    /// treats it as invalid and resets it; this is also what cold-boot
+    /// retained RAM and a freshly zeroed volatile static look like.
+    /// Compile-time bound: head and len each pack into 16 bits of the header
+    /// word, so the capacity must be non-zero and fit in 16 bits. Referenced
+    /// from `new` so every backing forces the check at monomorphisation.
+    const CAPACITY_VALID: () = assert!(
+        N > 0 && N <= 0xFFFF,
+        "RetainedRing capacity must be 1..=65535"
+    );
+
+    #[must_use]
+    pub const fn new() -> Self {
+        let () = Self::CAPACITY_VALID;
+        Self {
+            header: RetainedHeader {
+                magic: 0,
+                layout: 0,
+                seq: 0,
+                packed: 0,
+            },
+            entries: [EventRecord::EMPTY; N],
+        }
+    }
+
+    /// Discards any prior contents and starts an empty, valid ring.
+    ///
+    /// Only the header is rewritten; stale entry bytes are left in place
+    /// because every read gates on the validated `len`, so no caller can
+    /// observe an entry past the live region.
+    fn reset(&mut self) {
+        self.header = RetainedHeader::FRESH;
+    }
+}
+
+impl<const N: usize> Default for RetainedRing<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Operating view over a [`RetainedRing`]: borrows the retained header and
+/// entries plus the volatile clock.
+///
+/// Factored out of the global so its logic can be exercised in host unit tests
+/// without touching the global `RING` state. `head`/`len`/`seq` live in the
+/// borrowed header, so a ring rebuilt over retained memory after a warm reset
+/// resumes where it left off.
+pub(crate) struct Ring {
+    /// Retained header carrying the write position and sequence.
+    header: &'static mut RetainedHeader,
+    /// Retained entry storage owned by firmware.
+    entries: &'static mut [EventRecord],
     /// Clock returning seconds since boot or Unix epoch. Matches
     /// `ubos_net::wall_clock_secs`, so firmware passes it directly.
     clock: fn() -> u64,
 }
 
 impl Ring {
-    /// Constructs a ring over `buf` using `clock` for timestamps.
-    pub(crate) fn new(buf: &'static mut [EventRecord], clock: fn() -> u64) -> Self {
-        Self {
-            buf,
-            head: 0,
-            len: 0,
-            seq: 0,
-            clock,
-        }
-    }
-
     /// Pushes a new event into the ring, overwriting the oldest on overflow.
     pub(crate) fn push(&mut self, code: u32, severity: Severity, args: &[Arg]) {
-        let capacity = self.buf.len();
+        let capacity = self.entries.len();
         if capacity == 0 {
             return;
         }
-        self.seq = self.seq.saturating_add(1);
+        let head = self.header.head();
+        let len = self.header.len();
+        // Wrapping is intentional: at u32::MAX the next seq returns to a small
+        // value, briefly ambiguous for a streaming cursor only once every ~4
+        // billion events. Saturating would instead freeze every later record at
+        // u32::MAX and stall the cursor permanently.
+        self.header.seq = self.header.seq.wrapping_add(1);
         // Unix seconds fit in u32 until 2106; truncating the wall clock is intended.
         #[allow(clippy::cast_possible_truncation)]
         let ts = (self.clock)() as u32;
         let payload = encode_args(args);
 
-        self.buf[self.head] = EventRecord {
-            seq: self.seq,
+        self.entries[head] = EventRecord {
+            seq: self.header.seq,
             ts,
             code,
             severity: severity as u8,
             args: payload,
         };
 
-        self.head = (self.head + 1) % capacity;
-        if self.len < capacity {
-            self.len += 1;
-        }
+        // Publish the new position last, in one store, so a reset before this
+        // point only drops the in-flight entry rather than corrupting the ring.
+        let new_head = (head + 1) % capacity;
+        let new_len = if len < capacity { len + 1 } else { len };
+        self.header.set_head_len(new_head, new_len);
     }
 
     /// Copies live records oldest-first into `out`, returning the count copied.
     ///
-    /// At most `min(self.len, out.len())` records are written. When the ring
-    /// has wrapped, the oldest record is at `self.head`.
+    /// At most `min(len, out.len())` records are written. When the ring has
+    /// wrapped, the oldest record is at `head`.
     pub(crate) fn snapshot(&self, out: &mut [EventRecord]) -> usize {
-        let capacity = self.buf.len();
-        if capacity == 0 || self.len == 0 {
+        let capacity = self.entries.len();
+        let len = self.header.len();
+        if capacity == 0 || len == 0 {
             return 0;
         }
-        let count = self.len.min(out.len());
+        let count = len.min(out.len());
         // When len < capacity the ring has not wrapped and oldest is at index 0.
-        // When len == capacity the ring has wrapped and oldest is at self.head.
-        let oldest = if self.len < capacity { 0 } else { self.head };
+        // When len == capacity the ring has wrapped and oldest is at head.
+        let oldest = if len < capacity {
+            0
+        } else {
+            self.header.head()
+        };
 
         for (index, slot) in out.iter_mut().enumerate().take(count) {
-            *slot = self.buf[(oldest + index) % capacity];
+            *slot = self.entries[(oldest + index) % capacity];
         }
         count
     }
@@ -294,15 +402,20 @@ impl Ring {
     /// stream the whole ring without a large buffer by passing the highest
     /// `seq` they have seen as `after_seq` on each call.
     pub(crate) fn snapshot_after(&self, out: &mut [EventRecord], after_seq: u32) -> usize {
-        let capacity = self.buf.len();
-        if capacity == 0 || self.len == 0 {
+        let capacity = self.entries.len();
+        let len = self.header.len();
+        if capacity == 0 || len == 0 {
             return 0;
         }
-        let oldest = if self.len < capacity { 0 } else { self.head };
+        let oldest = if len < capacity {
+            0
+        } else {
+            self.header.head()
+        };
         let mut written = 0;
         let mut index = 0;
-        while index < self.len && written < out.len() {
-            let record = self.buf[(oldest + index) % capacity];
+        while index < len && written < out.len() {
+            let record = self.entries[(oldest + index) % capacity];
             if record.seq > after_seq {
                 out[written] = record;
                 written += 1;
@@ -315,7 +428,7 @@ impl Ring {
     /// Returns the sequence number of the most recently recorded event, or
     /// zero when the ring is empty.
     pub(crate) fn latest_seq(&self) -> u32 {
-        self.seq
+        self.header.seq
     }
 }
 
@@ -328,15 +441,34 @@ impl Ring {
 /// cores via the critical-section implementation.
 static RING: Mutex<CriticalSectionRawMutex, RefCell<Option<Ring>>> = Mutex::new(RefCell::new(None));
 
-/// Initialises the event ring with a firmware-owned backing buffer and clock.
+/// Initialises the event ring from a firmware-owned [`RetainedRing`] and clock.
 ///
-/// Must be called once at boot, before any task is spawned, so that
-/// subsequent calls to [`record`] have a ring to write into. Calling
-/// [`record`] or [`snapshot`] before `init` is safe and produces a no-op
-/// or zero respectively.
-pub fn init(buf: &'static mut [EventRecord], clock: fn() -> u64) {
+/// Must be called once at boot, before any task is spawned, so that subsequent
+/// calls to [`record`] have a ring to write into. Calling [`record`] or
+/// [`snapshot`] before `init` is safe and produces a no-op or zero respectively.
+///
+/// If `ring` holds a valid header from a prior session on this build (matching
+/// `magic`/`layout`, in-range indices) it is adopted, so events that preceded a
+/// warm reset are kept; otherwise it is reset to empty. On boards whose backing
+/// is plain RAM the header is zeroed every boot, so this always resets.
+pub fn init<const N: usize>(ring: &'static mut RetainedRing<N>, clock: fn() -> u64) {
+    if !ring.header.is_valid(N) {
+        ring.reset();
+    }
+    let RetainedRing { header, entries } = ring;
+    let entries: &'static mut [EventRecord] = entries;
     RING.lock(|cell| {
-        *cell.borrow_mut() = Some(Ring::new(buf, clock));
+        let mut slot = cell.borrow_mut();
+        // Install once. A stray second call keeps the first ring rather than
+        // overwriting the global with a second borrow of the backing, so a
+        // double init cannot corrupt the live state.
+        if slot.is_none() {
+            *slot = Some(Ring {
+                header,
+                entries,
+                clock,
+            });
+        }
     });
 }
 
