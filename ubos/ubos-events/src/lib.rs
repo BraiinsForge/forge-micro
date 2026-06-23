@@ -286,6 +286,37 @@ impl Ring {
         }
         count
     }
+
+    /// Copies live records with `seq` greater than `after_seq` into `out`,
+    /// oldest-first, returning the count copied.
+    ///
+    /// Records carry monotonically increasing sequence numbers, so callers
+    /// stream the whole ring without a large buffer by passing the highest
+    /// `seq` they have seen as `after_seq` on each call.
+    pub(crate) fn snapshot_after(&self, out: &mut [EventRecord], after_seq: u32) -> usize {
+        let capacity = self.buf.len();
+        if capacity == 0 || self.len == 0 {
+            return 0;
+        }
+        let oldest = if self.len < capacity { 0 } else { self.head };
+        let mut written = 0;
+        let mut index = 0;
+        while index < self.len && written < out.len() {
+            let record = self.buf[(oldest + index) % capacity];
+            if record.seq > after_seq {
+                out[written] = record;
+                written += 1;
+            }
+            index += 1;
+        }
+        written
+    }
+
+    /// Returns the sequence number of the most recently recorded event, or
+    /// zero when the ring is empty.
+    pub(crate) fn latest_seq(&self) -> u32 {
+        self.seq
+    }
 }
 
 /// Global ring guarded by a critical-section blocking mutex.
@@ -329,7 +360,24 @@ pub fn snapshot(out: &mut [EventRecord]) -> usize {
     RING.lock(|cell| cell.borrow().as_ref().map_or(0, |ring| ring.snapshot(out)))
 }
 
-// ── Catalog registry ──────────────────────────────────────────────────────────
+/// Copies live records with `seq` greater than `after_seq` into `out`,
+/// oldest-first, returning the count copied. Zero before [`init`] or when no
+/// record is newer than `after_seq`.
+pub fn snapshot_after(out: &mut [EventRecord], after_seq: u32) -> usize {
+    RING.lock(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map_or(0, |ring| ring.snapshot_after(out, after_seq))
+    })
+}
+
+/// Returns the highest sequence number recorded so far, or zero before
+/// [`init`] or when the ring is empty. Used to bound a streamed read to the
+/// records that existed when the read began.
+#[must_use]
+pub fn latest_seq() -> u32 {
+    RING.lock(|cell| cell.borrow().as_ref().map_or(0, Ring::latest_seq))
+}
 
 /// The per-crate event catalogs, injected by firmware at boot.
 ///

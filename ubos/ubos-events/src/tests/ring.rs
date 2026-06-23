@@ -81,6 +81,49 @@ fn ring_snapshot_oldest_first() {
 }
 
 #[test]
+fn ring_snapshot_after_filters_by_seq() {
+    let mut ring = make_ring(8);
+    for code in 1u32..=5 {
+        ring.push(code, Severity::Info, &[]);
+    }
+    // Records have seq 1..=5. Asking for seq > 2 yields the last three.
+    let mut out = [EventRecord::EMPTY; 8];
+    let count = ring.snapshot_after(&mut out, 2);
+    assert_eq!(count, 3);
+    assert_eq!(out[0].seq, 3);
+    assert_eq!(out[1].seq, 4);
+    assert_eq!(out[2].seq, 5);
+    // A cursor at or past the latest seq yields nothing.
+    assert_eq!(ring.snapshot_after(&mut out, 5), 0);
+    assert_eq!(ring.latest_seq(), 5);
+}
+
+#[test]
+fn ring_snapshot_after_streams_in_batches() {
+    let mut ring = make_ring(16);
+    for code in 1u32..=10 {
+        ring.push(code, Severity::Info, &[]);
+    }
+    // Drain the whole ring two records at a time using a seq cursor, the
+    // pattern the HTTP handler uses to avoid a large buffer.
+    let latest = ring.latest_seq();
+    let mut cursor = 0u32;
+    let mut seen = Vec::new();
+    while cursor < latest {
+        let mut batch = [EventRecord::EMPTY; 2];
+        let count = ring.snapshot_after(&mut batch, cursor);
+        if count == 0 {
+            break;
+        }
+        for record in &batch[..count] {
+            seen.push(record.seq);
+            cursor = record.seq;
+        }
+    }
+    assert_eq!(seen, (1u32..=10).collect::<Vec<_>>());
+}
+
+#[test]
 fn ring_zero_capacity_is_safe() {
     let boxed: Box<[EventRecord]> = vec![].into_boxed_slice();
     let leaked: &'static mut [EventRecord] = Box::leak(boxed);
