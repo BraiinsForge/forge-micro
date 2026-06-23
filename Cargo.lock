@@ -1946,6 +1946,7 @@ dependencies = [
  "ubos-metrics",
  "ubos-mining",
  "ubos-net",
+ "ubos-ota",
  "ubos-psu",
  "ubos-temperature",
  "ubos-thermal",
