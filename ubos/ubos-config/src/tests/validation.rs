@@ -2,7 +2,7 @@
 
 use crate::{
     ApiConfig, Config, ConfigUpdate, MinerConfig, NetworkConfig, NetworkMode, PoolEntry,
-    ProtocolKind, ThermalConfig, TuningConfig,
+    ProtocolKind, ThermalConfig, TuningConfig, MINING_BOUNDS,
 };
 
 /// Builds a minimal valid [`ConfigUpdate`] with no fields set.
@@ -12,6 +12,7 @@ fn empty_update() -> ConfigUpdate {
         thermal: None,
         cooling_target_temp_c: None,
         miner: None,
+        cooling_min_fan_pwm: None,
         tuning: None,
         api: None,
         network: None,
@@ -39,15 +40,19 @@ fn valid_thermal() -> ThermalConfig {
     ThermalConfig {
         sample_interval_ms: 1000,
         dangerous_temp_c: 90.0,
+        dangerous_chip_temp_c: 110.0,
         cooldown_temp_c: 45.0,
     }
 }
 
 /// Builds a valid [`TuningConfig`] using values inside the accepted range.
+///
+/// Frequency and voltage are derived from [`MINING_BOUNDS`] so the helper
+/// remains valid regardless of which board is active at compile time.
 fn valid_tuning() -> TuningConfig {
     TuningConfig {
         frequency_mhz: 525,
-        voltage_mv: 1400,
+        voltage_mv: *MINING_BOUNDS.voltage_mv.start(),
     }
 }
 
@@ -327,11 +332,13 @@ fn cooling_target_too_high() {
 
 // --- Miner ---
 
-/// Default `MinerConfig` passes validation.
+/// The active board's default miner config passes validation. The type
+/// default is `Fixed`, which a replay-only board rejects, so validate the
+/// board-derived default instead.
 #[test]
 fn miner_default_passes() {
     let mut update = empty_update();
-    update.miner = Some(MinerConfig::default());
+    update.miner = Some(Config::default().miner.clone());
     assert!(update.validate(&Config::default()).is_ok());
 }
 
@@ -383,16 +390,17 @@ fn tuning_frequency_out_of_range() {
 
 /// Voltage outside the accepted range is rejected.
 ///
-/// 1099 is below 1100, the new lower bound.
+/// One below the board's lower bound exercises the exclusive rejection path
+/// without asserting a board-specific numeric value.
 #[test]
 fn tuning_voltage_out_of_range() {
     let mut update = empty_update();
     let mut tuning = valid_tuning();
-    tuning.voltage_mv = 1099;
+    tuning.voltage_mv = MINING_BOUNDS.voltage_mv.start() - 1;
     update.tuning = Some(tuning);
     assert_eq!(
         update.validate(&Config::default()),
-        Err("tuning.voltage_mv must be between 1100 and 1500")
+        Err("tuning.voltage_mv outside the accepted range")
     );
 }
 
@@ -429,17 +437,39 @@ fn tuning_frequency_in_range_non_discrete_passes() {
     assert!(update.validate(&Config::default()).is_ok());
 }
 
-/// A voltage inside the range that was not in the old discrete set passes.
+/// A non-round voltage inside the accepted range passes.
 ///
-/// 1111 mV was previously rejected as "not in the list"; with range
-/// semantics it is accepted.
+/// Eleven above the board's lower bound is non-round and within the range,
+/// confirming that range semantics replaced the old discrete-set check.
 #[test]
 fn tuning_voltage_in_range_non_discrete_passes() {
     let mut update = empty_update();
     let mut tuning = valid_tuning();
-    tuning.voltage_mv = 1111;
+    tuning.voltage_mv = MINING_BOUNDS.voltage_mv.start() + 11;
     update.tuning = Some(tuning);
     assert!(update.validate(&Config::default()).is_ok());
+}
+
+// --- Cooling fan PWM floor ---
+
+/// Fan PWM floor of 100 (the full-speed cap) passes validation.
+#[test]
+fn cooling_min_fan_pwm_100_passes() {
+    let mut update = empty_update();
+    update.cooling_min_fan_pwm = Some(100);
+    assert!(update.validate(&Config::default()).is_ok());
+}
+
+/// Fan PWM floor above 100 is rejected because the PID clamp range would be
+/// inverted (floor > ceiling).
+#[test]
+fn cooling_min_fan_pwm_101_rejected() {
+    let mut update = empty_update();
+    update.cooling_min_fan_pwm = Some(101);
+    assert_eq!(
+        update.validate(&Config::default()),
+        Err("cooling_min_fan_pwm must be between 0 and 100")
+    );
 }
 
 // --- API credentials ---

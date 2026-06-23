@@ -6,6 +6,7 @@
 //! [`BOUNDS`] and [`INFO`] constants.
 
 use core::ops::RangeInclusive;
+use ubos_asic::ACTIVE_BOARD as BOARD;
 
 /// ASIC frequency and voltage overrides.
 #[derive(
@@ -20,11 +21,12 @@ pub struct TuningConfig {
 }
 
 impl Default for TuningConfig {
-    /// Factory defaults derived from the ubos-core mining constants.
+    /// Factory defaults from the active board descriptor, so the values
+    /// always fall inside [`BOUNDS`] regardless of the selected board.
     fn default() -> Self {
         Self {
-            frequency_mhz: ubos_core::consts::Mining::DEFAULT_FREQUENCY.mhz(),
-            voltage_mv: ubos_core::consts::Mining::DEFAULT_VOLTAGE.mv(),
+            frequency_mhz: BOARD.default_frequency_mhz,
+            voltage_mv: BOARD.default_voltage_mv,
         }
     }
 }
@@ -40,7 +42,7 @@ impl TuningConfig {
             return Err("tuning.frequency_mhz must be between 50 and 1000");
         }
         if !BOUNDS.voltage_mv.contains(&self.voltage_mv) {
-            return Err("tuning.voltage_mv must be between 1100 and 1500");
+            return Err("tuning.voltage_mv outside the accepted range");
         }
         Ok(())
     }
@@ -61,9 +63,14 @@ pub struct MiningBounds {
 }
 
 /// Accepted value ranges for [`TuningConfig`] fields.
+///
+/// The voltage range is the active board's declared tuning policy
+/// (`BoardDescriptor::tuning_voltage_*` in `ubos-asic`); on the BM1370
+/// hashnode that is the full series-stacked rail span, not a per-chip
+/// value. The frequency range is the shared PLL-calculator span.
 pub const BOUNDS: MiningBounds = MiningBounds {
     frequency_mhz: 50..=1000,
-    voltage_mv: 1100..=1500,
+    voltage_mv: BOARD.tuning_voltage_min_mv..=BOARD.tuning_voltage_max_mv,
 };
 
 /// Static capability metadata for the ASIC and board.
@@ -91,13 +98,44 @@ pub struct MiningInfo {
     pub bounds: &'static MiningBounds,
 }
 
-/// Static capability metadata for the BM1362-based hashboard.
+/// Compile-time decimal parse of an `option_env!` value, with a fallback.
+/// Mirrors the build-time override `Config::default()` applies at runtime
+/// so the reported defaults match what the board actually boots with
+/// (e.g. the hashnode's 500 MHz / 4500 mV, not the per-chip baseline).
+const fn env_u32(value: Option<&str>, default: u32) -> u32 {
+    let Some(text) = value else {
+        return default;
+    };
+    let bytes = text.as_bytes();
+    let mut result: u32 = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        let digit = bytes[index];
+        assert!(
+            digit.is_ascii_digit(),
+            "env override must be decimal digits"
+        );
+        // Overflow here is a compile-time error because const evaluation catches
+        // wrapping arithmetic before the binary is produced.
+        result = result * 10 + (digit - b'0') as u32;
+        index += 1;
+    }
+    result
+}
+
+/// Static capability metadata for the active board. The chip model comes
+/// from the `ubos-asic` chip descriptor so it tracks the real silicon; the
+/// default frequency/voltage mirror the build-time env overrides so the
+/// dashboard reports the board's real operating point.
 pub const INFO: MiningInfo = MiningInfo {
-    asic_model: "BM1362",
-    device_model: "miniminer",
+    asic_model: BOARD.chip.asic_model(),
+    device_model: BOARD.model,
     swarm_color: "blue",
     asic_count: ubos_core::consts::Mining::NUM_CHIPS,
-    default_frequency_mhz: ubos_core::consts::Mining::DEFAULT_FREQUENCY.mhz(),
-    default_voltage_mv: ubos_core::consts::Mining::DEFAULT_VOLTAGE.mv(),
+    default_frequency_mhz: env_u32(
+        option_env!("MINING_FREQUENCY_MHZ"),
+        BOARD.default_frequency_mhz,
+    ),
+    default_voltage_mv: env_u32(option_env!("MINING_VOLTAGE_MV"), BOARD.default_voltage_mv),
     bounds: &BOUNDS,
 };

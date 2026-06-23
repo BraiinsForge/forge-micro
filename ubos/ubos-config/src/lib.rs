@@ -300,6 +300,11 @@ pub struct ConfigUpdate {
     /// Replacement value for [`Config::miner`]; `None` means leave unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub miner: Option<MinerConfig>,
+    /// Replacement value for [`PidConfig::min_fan_pwm`] (the fan floor, 0-100);
+    /// `None` means leave unchanged. The remaining PID gains stay factory-set
+    /// and are not exposed, same as the rest of [`CoolingConfig::pid`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cooling_min_fan_pwm: Option<u8>,
     /// Replacement value for [`Config::tuning`]; `None` means leave unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tuning: Option<TuningConfig>,
@@ -333,6 +338,9 @@ impl ConfigUpdate {
         if let Some(miner) = self.miner {
             target.miner = miner;
         }
+        if let Some(pwm) = self.cooling_min_fan_pwm {
+            target.cooling.pid.min_fan_pwm = pwm;
+        }
         if let Some(tuning) = self.tuning {
             target.tuning = tuning;
         }
@@ -357,6 +365,7 @@ impl ConfigUpdate {
             thermal: Some(config.thermal.clone()),
             cooling_target_temp_c: Some(config.cooling.target_temp_c),
             miner: Some(config.miner.clone()),
+            cooling_min_fan_pwm: Some(config.cooling.pid.min_fan_pwm),
             tuning: Some(config.tuning.clone()),
             api: Some(api),
             network: Some(config.network.clone()),
@@ -410,6 +419,13 @@ impl ConfigUpdate {
         }
         if let Some(network) = &self.network {
             network.validate()?;
+        }
+        if let Some(pwm) = self.cooling_min_fan_pwm {
+            // PID output clamps to [min_fan_pwm, 100]; a floor above 100 would
+            // invert the clamp range (see ubos-cooling::pid::set_limits).
+            if pwm > 100 {
+                return Err("cooling_min_fan_pwm must be between 0 and 100");
+            }
         }
 
         if self.thermal.is_some() || self.cooling_target_temp_c.is_some() {
@@ -485,9 +501,37 @@ impl Default for Config {
         Self {
             pool,
             thermal: ThermalConfig::default(),
-            cooling: CoolingConfig::default(),
-            miner: MinerConfig::default(),
-            tuning: TuningConfig::default(),
+            cooling: CoolingConfig {
+                // Board-supplied at build time; mirrors the MINING_* env
+                // overrides. Gates the PID setpoint (on the PCB-proxy temp,
+                // not true die). Runtime-editable via the UI afterwards.
+                target_temp_c: option_env!("TARGET_TEMP_C")
+                    .and_then(|raw| raw.parse().ok())
+                    .unwrap_or(CoolingConfig::default().target_temp_c),
+                pid: PidConfig {
+                    // Board-supplied at build time: hashnode runs die-temp
+                    // blind (synthetic pcb+offset), so it pins a high fan floor.
+                    min_fan_pwm: option_env!("MIN_FAN_PWM")
+                        .and_then(|value| value.parse::<u8>().ok())
+                        .unwrap_or(PidConfig::default().min_fan_pwm),
+                    ..PidConfig::default()
+                },
+            },
+            miner: MinerConfig {
+                // Fixed is the only available algorithm.
+                algorithm: TuningAlgorithm::Fixed,
+            },
+            tuning: TuningConfig {
+                // Falls back to the active board's boot operating point
+                // (`BoardDescriptor::default_*`), so a board comes up at its
+                // correct rail/clock with no env. The env merely overrides.
+                frequency_mhz: option_env!("MINING_FREQUENCY_MHZ")
+                    .and_then(|raw| raw.parse().ok())
+                    .unwrap_or(ubos_asic::ACTIVE_BOARD.default_frequency_mhz),
+                voltage_mv: option_env!("MINING_VOLTAGE_MV")
+                    .and_then(|raw| raw.parse().ok())
+                    .unwrap_or(ubos_asic::ACTIVE_BOARD.default_voltage_mv),
+            },
             api: ApiConfig::default(),
             network: NetworkConfig::default(),
         }
