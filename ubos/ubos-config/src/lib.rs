@@ -76,6 +76,11 @@ use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver, Watch};
 use ubos_logging::{info, warn};
 
+ubos_events::events! {
+    config_changed(freq_mhz: u32, voltage_mv: u32)  info = "Configuration changed: {} MHz, {} mV",
+    factory_reset()                                  warn = "Factory reset to defaults",
+}
+
 /// Subscriber capacity for the config watch.
 ///
 /// Covers thermal, cooling, mining/tuner, manager, API, and stratum
@@ -541,6 +546,7 @@ async fn apply_update<S: Storage>(new: &Config, storage: &mut S) {
     STATE_WATCH.sender().send(new.clone());
     STRATUM_RESTART.signal(());
     info!("config: applied update");
+    crate::events::config_changed(new.tuning.frequency_mhz, new.tuning.voltage_mv);
 }
 
 /// Persist a network-only change and publish it without halting mining.
@@ -569,6 +575,7 @@ async fn factory_reset<S: Storage>(storage: &mut S) -> Config {
     persist(&config, storage).await;
     STATE_WATCH.sender().send(config.clone());
     info!("config: factory reset to defaults");
+    crate::events::factory_reset();
     config
 }
 
