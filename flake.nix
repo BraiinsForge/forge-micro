@@ -135,7 +135,7 @@
           # reaches this shell but never probe-rs. Backgrounding it
           # behind a tee process substitution keeps probe-rs's pid in
           # hand; the INT trap forwards the signal so detach reaches the
-          # client (see boards/ubos-main/CLAUDE.md).
+          # client (see CLAUDE.md).
           probe-rs "''${args[@]}" > >(tee "$log_file") 2>&1 &
           probe_pid=$!
           trap 'kill -INT "$probe_pid" 2>/dev/null' INT
@@ -1950,6 +1950,21 @@
               done
               touch $out
             '';
+
+            # Nix formatting gate. In the monorepo this was owned by a
+            # repo-root treefmt; as a standalone repo the flake must
+            # gate its own .nix files so `nix flake check` stays the
+            # single source of truth. Uses nixfmt, the same RFC-style
+            # formatter treefmt drove.
+            nixfmt =
+              pkgs.runCommand "nixfmt-check"
+                {
+                  nativeBuildInputs = [ pkgs.nixfmt ];
+                }
+                ''
+                  find ${./.} -name '*.nix' -print0 | xargs -0 nixfmt --check
+                  touch $out
+                '';
           };
 
           devShells = {
@@ -2146,7 +2161,7 @@
               inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
               # Resolved at shell-entry time relative to the user's cwd, which
-              # by convention is boards/ubos-main (matches the existing
+              # by convention is the repository root (matches the existing
               # arm/esp shells using $PWD for state directories).
               shellHook = ''
                 export CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_RUNNER="$PWD/host/host-runner/scripts/runner.py"
@@ -2193,9 +2208,15 @@
           # A pure build (no --impure) defaults to version 1 because
           # builtins.getEnv returns "" in the Nix sandbox; the sandbox
           # strips all caller environment variables.
-          packages = {
+          packages = rec {
             rp2350-image = rp2350Image;
             bmm-pico-image = bmmPicoImage;
+
+            # KiCad automation for the bmm-adapter fabrication job
+            # (`nix run .#kibot`). DRC and ERC are gated separately by
+            # the kicad-cli checks; kibot only generates fab outputs.
+            kiauto = pkgs.callPackage ./kiauto.nix { };
+            kibot = pkgs.callPackage ./kibot.nix { inherit kiauto; };
           };
 
           # Copy the built image into the repo's build/ directory and print
