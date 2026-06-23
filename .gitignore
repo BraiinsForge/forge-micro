@@ -1,0 +1,57 @@
+# Temporary files
+*.000
+*.bak
+*.bck
+*.kicad_pcb-bak
+*.kicad_sch-bak
+*-backups
+*.kicad_prl
+*.sch-bak
+*~
+_autosave-*
+*.tmp
+*-save.pro
+*-save.kicad_pcb
+fp-info-cache
+~*.lck
+\#auto_saved_files#
+
+# Netlist files (exported from Eeschema)
+*.net
+
+# Autorouter files (exported from Pcbnew)
+*.dsn
+*.ses
+
+# Exported BOM files
+*.xml
+*.csv
+
+# Rust / Cargo build output directory
+target/
+
+# probe-rs-runner session logs, written to the project logs/ dir
+**/logs/*.log
+
+# Centralized build output (cargo target-dir, nix build apps)
+build/
+
+# Nix build output symlinks
+result
+result-*
+
+# Nix dev shell local toolchains (not root-anchored — applies at any
+# depth, e.g. .cargo/ created by espup/nix dev shells). Root
+# .cargo/config.toml is allowed for centralized target-dir setting.
+.cargo/
+!/.cargo/config.toml
+.rustup/
+
+# Python
+__pycache__/
+
+# VS Code Local History extension
+.history/
+
+# Claude Code runtime locks (per-session, not config)
+**/.claude/*.lock
