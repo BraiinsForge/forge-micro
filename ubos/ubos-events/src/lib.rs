@@ -329,7 +329,76 @@ pub fn snapshot(out: &mut [EventRecord]) -> usize {
     RING.lock(|cell| cell.borrow().as_ref().map_or(0, |ring| ring.snapshot(out)))
 }
 
-// ── events! macro ─────────────────────────────────────────────────────────────
+// ── Catalog registry ──────────────────────────────────────────────────────────
+
+/// The per-crate event catalogs, injected by firmware at boot.
+///
+/// Each subsystem crate's `events!` macro emits a `CATALOG`; firmware
+/// assembles those into one `&[&[EventDef]]` and installs it here so the
+/// `/catalog` HTTP endpoint can serve the decode table. It is an empty slice
+/// until `set_catalogs` is called, so the endpoint returns an empty list
+/// rather than failing before boot wires it up.
+static CATALOGS: Mutex<CriticalSectionRawMutex, RefCell<&'static [&'static [EventDef]]>> =
+    Mutex::new(RefCell::new(&[]));
+
+/// Installs the assembled per-crate catalogs. Called once at boot.
+///
+/// Installs once: a stray second call keeps the first catalogs rather than
+/// replacing them, mirroring [`init`]'s install-once discipline.
+pub fn set_catalogs(catalogs: &'static [&'static [EventDef]]) {
+    CATALOGS.lock(|cell| {
+        let mut slot = cell.borrow_mut();
+        if slot.is_empty() {
+            *slot = catalogs;
+        }
+    });
+}
+
+/// Returns the installed catalogs, or an empty slice before `set_catalogs`.
+#[must_use]
+pub fn catalogs() -> &'static [&'static [EventDef]] {
+    CATALOGS.lock(|cell| *cell.borrow())
+}
+
+/// Returns `true` if every event `code` across all catalogs in `registry` is
+/// unique. Event codes are 32-bit FNV-1a hashes of function-name slugs drawn
+/// from several crates and assembled at the firmware site; a collision would
+/// silently merge two events in the decode table. Being `const`, this is meant
+/// for a compile-time `assert!` where the assembled registry is visible.
+#[must_use]
+pub const fn codes_unique(registry: &[&[EventDef]]) -> bool {
+    let mut catalog = 0;
+    while catalog < registry.len() {
+        let events = registry[catalog];
+        let mut index = 0;
+        while index < events.len() {
+            if count_code(registry, events[index].code) > 1 {
+                return false;
+            }
+            index += 1;
+        }
+        catalog += 1;
+    }
+    true
+}
+
+/// Counts how many events across all catalogs in `registry` carry `code`.
+const fn count_code(registry: &[&[EventDef]], code: u32) -> usize {
+    let mut total = 0;
+    let mut catalog = 0;
+    while catalog < registry.len() {
+        let events = registry[catalog];
+        let mut index = 0;
+        while index < events.len() {
+            if events[index].code == code {
+                total += 1;
+            }
+            index += 1;
+        }
+        catalog += 1;
+    }
+    total
+}
 
 /// Maps a type token to the corresponding [`ArgWidth`] variant.
 ///
@@ -428,7 +497,7 @@ macro_rules! __log_sev {
 /// # Output
 ///
 /// Expands to `pub mod events { ... }` containing:
-/// - `pub static CATALOG: &[EventDef]` — one entry per declared event.
+/// - `pub const CATALOG: &[EventDef]` — one entry per declared event.
 /// - One `pub fn fn_name(arg0: ty0, ...)` per entry that calls [`record`]
 ///   and emits a paired `ubos_logging` line at the declared severity.
 ///
@@ -450,7 +519,11 @@ macro_rules! events {
             use super::*;
 
             /// Event definitions for the enclosing module, one entry per declared event.
-            pub static CATALOG: &[$crate::EventDef] = &[
+            ///
+            /// A `const`, not a `static`, so firmware can aggregate the
+            /// per-crate catalogs into one `&[&[EventDef]]` in a `const`
+            /// initialiser; a `static` referring to another `static` is rejected.
+            pub const CATALOG: &[$crate::EventDef] = &[
                 $(
                     $crate::EventDef {
                         code:     $crate::const_fnv1a(stringify!($fn_name)),

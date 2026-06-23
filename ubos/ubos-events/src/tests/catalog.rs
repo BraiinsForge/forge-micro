@@ -25,3 +25,26 @@ fn catalog_codes_are_unique() {
         "duplicate event codes in CATALOG"
     );
 }
+
+/// Firmware-style aggregation of per-crate catalogs into one registry,
+/// expressed in a `const` to prove `CATALOG` composes in a const context.
+const REGISTRY: &[&[crate::EventDef]] = &[inner::events::CATALOG];
+
+#[test]
+fn registry_codes_are_globally_unique() {
+    // Mirrors the compile-time assertion firmware applies to the assembled
+    // registry: codes must not collide across catalog boundaries.
+    assert!(crate::codes_unique(REGISTRY));
+
+    // A catalog repeated across the registry collides with itself.
+    let dup: &[&[crate::EventDef]] = &[inner::events::CATALOG, inner::events::CATALOG];
+    assert!(!crate::codes_unique(dup));
+}
+
+#[test]
+fn set_and_get_catalogs() {
+    crate::set_catalogs(REGISTRY);
+    let catalogs = crate::catalogs();
+    assert_eq!(catalogs.len(), 1);
+    assert_eq!(catalogs[0].len(), inner::events::CATALOG.len());
+}
