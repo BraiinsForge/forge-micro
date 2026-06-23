@@ -121,7 +121,8 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 | POST   | `/api/system/network`             | any +CSRF | 200    | `{"ok":true}`; validates and previews the change live (confirm-or-revert). 400 on parse or validation error |
 | POST   | `/api/system/network/confirm`     | any +CSRF | 200    | Confirms a pending preview so it is no longer reverted; returns `{"message":"ack"}` |
 | POST   | `/api/system/network/revert`      | any +CSRF | 200    | Reverts a pending preview immediately, restoring the prior config; returns `{"message":"ack"}` |
-| GET    | `/api/system/logs`                | any       | 501    | `{"message":"not implemented"}`                                          |
+| GET    | `/api/system/events`              | any       | 200    | `{"events":[...]}`; oldest-first ring snapshot streamed close-delimited. Each record is `{seq, ts, sev, code, args}` where `code` is an FNV-1a slug hash and `args` a raw hex blob. `?since=<seq>` returns only records with `seq` greater than the cursor for incremental polling |
+| GET    | `/api/system/events/catalog`      | any       | 200    | Event catalog as a JSON array of `{code, sev, fmt, args}` so clients decode records locally from `code` + `args` widths; `[]` until firmware installs catalogs |
 | GET    | `/api/system/wifi/scan`           | any       | 501    | `{"message":"unsupported on this platform"}`                             |
 | POST   | `/api/system/OTA`                 | any       | 501    | `{"message":"unsupported on this platform"}`                             |
 | POST   | `/api/system/OTAWWW`              | any       | 501    | `{"message":"unsupported on this platform"}`                             |

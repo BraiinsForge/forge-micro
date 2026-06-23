@@ -371,7 +371,12 @@ const ROUTES: &[(&str, &str, Route)] = &[
     ("GET", "/api/system/cooling", Route::SystemCooling),
     ("GET", "/api/system/statistics", Route::SystemStatistics),
     ("GET", "/api/system/scoreboard", Route::SystemScoreboard),
-    ("GET", "/api/system/logs", Route::SystemLogs),
+    ("GET", "/api/system/events", Route::SystemEvents),
+    (
+        "GET",
+        "/api/system/events/catalog",
+        Route::SystemEventsCatalog,
+    ),
     ("GET", "/api/system/wifi/scan", Route::SystemWifiScan),
     ("POST", "/api/system/OTA", Route::SystemOta),
     ("POST", "/api/system/OTA/chunk", Route::SystemOtaChunk),
@@ -458,6 +463,61 @@ fn route_root_not_found() {
 #[test]
 fn route_api_info_not_found() {
     assert_eq!(route("GET", "/api/info"), DispatchOutcome::NotFound);
+}
+
+#[test]
+fn route_query_string_stripped_before_matching() {
+    // A query string on a known path must not cause a 404: the router strips
+    // the query before matching, so `?since=5` falls through to the correct arm.
+    assert_eq!(
+        route("GET", "/api/system/events?since=5"),
+        DispatchOutcome::Handled(Route::SystemEvents),
+        "query string must be stripped before matching the events route",
+    );
+}
+
+#[test]
+fn parse_since_absent_query_is_zero() {
+    assert_eq!(crate::system::parse_since("/api/system/events"), 0);
+}
+
+#[test]
+fn parse_since_missing_key_is_zero() {
+    assert_eq!(crate::system::parse_since("/api/system/events?foo=1"), 0);
+}
+
+#[test]
+fn parse_since_reads_decimal_value() {
+    assert_eq!(
+        crate::system::parse_since("/api/system/events?since=42"),
+        42
+    );
+}
+
+#[test]
+fn parse_since_among_other_params() {
+    assert_eq!(
+        crate::system::parse_since("/api/system/events?foo=1&since=7&bar=2"),
+        7,
+    );
+}
+
+#[test]
+fn parse_since_non_decimal_is_zero() {
+    assert_eq!(
+        crate::system::parse_since("/api/system/events?since=abc"),
+        0
+    );
+}
+
+#[test]
+fn parse_since_overflow_is_max() {
+    // u32::MAX + 1 overflows, so the cursor clamps to u32::MAX and the
+    // response returns no records rather than the whole ring.
+    assert_eq!(
+        crate::system::parse_since("/api/system/events?since=4294967296"),
+        u32::MAX,
+    );
 }
 
 // ---------------------------------------------------------------------------

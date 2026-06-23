@@ -1478,6 +1478,253 @@ where
     }
 }
 
+/// Begin a streaming JSON response with no `Content-Length` header.
+///
+/// Because every response already sends `Connection: close`, omitting
+/// `Content-Length` makes edge-http use a raw close-delimited body that
+/// accepts multiple subsequent writes. Callers write the body in pieces
+/// after this function returns. `extra_headers` carries caller-supplied
+/// headers such as CORS headers from the REST listener.
+async fn begin_streamed_json<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    let mut headers: heapless::Vec<(&str, &str), MAX_SYSTEM_RESPONSE_HEADERS> =
+        heapless::Vec::new();
+    headers
+        .push(("Content-Type", "application/json"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Cache-Control", "no-store"))
+        .expect("BUG: response header vec sized for max headers");
+    headers
+        .push(("Connection", "close"))
+        .expect("BUG: response header vec sized for max headers");
+    for &header in extra_headers {
+        headers
+            .push(header)
+            .expect("BUG: response header vec sized for max headers");
+    }
+    connection
+        .initiate_response(200, Some("OK"), &headers)
+        .await
+}
+
+/// Map a severity byte to its JSON string representation.
+///
+/// Values follow the `Severity` repr: 1 is warn, 2 is error,
+/// all others (including 0) are info.
+fn severity_str(value: u8) -> &'static str {
+    match value {
+        1 => "warn",
+        2 => "error",
+        _ => "info",
+    }
+}
+
+/// Map an `ArgWidth` variant to its JSON string representation.
+fn argwidth_str(width: ubos_events::ArgWidth) -> &'static str {
+    match width {
+        ubos_events::ArgWidth::U8 => "u8",
+        ubos_events::ArgWidth::U16 => "u16",
+        ubos_events::ArgWidth::U32 => "u32",
+        ubos_events::ArgWidth::I8 => "i8",
+        ubos_events::ArgWidth::I16 => "i16",
+        ubos_events::ArgWidth::I32 => "i32",
+    }
+}
+
+/// Parse the `since` query parameter from a path+query string.
+///
+/// Returns the numeric value of `?since=<u32>`. A value that overflows
+/// `u32` clamps to `u32::MAX`, so an oversized cursor returns no records
+/// rather than the whole ring. An absent parameter or any other
+/// unparseable value returns zero.
+fn parse_since(path: &str) -> u32 {
+    let Some((_, query)) = path.split_once('?') else {
+        return 0;
+    };
+    for pair in query.split('&') {
+        if let Some(value) = pair.strip_prefix("since=") {
+            return match value.parse::<u32>() {
+                Ok(seq) => seq,
+                Err(error) if *error.kind() == core::num::IntErrorKind::PosOverflow => u32::MAX,
+                Err(_) => 0,
+            };
+        }
+    }
+    0
+}
+
+/// Handle `GET /api/system/events`.
+///
+/// Streams the event ring as a JSON object `{"events":[...]}` with records
+/// in oldest-first order. An optional `?since=<seq>` query parameter returns
+/// only records whose `seq` is greater than `since`, so callers poll for new
+/// records. `extra_headers` carries caller-supplied headers such as CORS
+/// headers from the REST listener.
+///
+/// The ring is read in small batches advanced by a `seq` cursor rather than
+/// copied whole, so no buffer scales with the ring capacity. The read is
+/// bounded to the records present when it began by capturing the latest `seq`
+/// up front; records recorded mid-stream are left for a later poll.
+///
+/// If the ring wraps past the caller's `since` between polls the skipped
+/// records are gone: the response resumes at the oldest live record, so the
+/// `seq` numbers jump and the browser detects the gap.
+async fn handle_events<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    path: &str,
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    let latest_seq = ubos_events::latest_seq();
+    let mut cursor = parse_since(path);
+
+    begin_streamed_json(connection, extra_headers).await?;
+    embedded_io_async::Write::write_all(connection, b"{\"events\":[").await?;
+
+    let mut first_emitted = true;
+    let mut batch = [ubos_events::EventRecord::EMPTY; EVENT_BATCH];
+    while cursor < latest_seq {
+        let count = ubos_events::snapshot_after(&mut batch, cursor);
+        if count == 0 {
+            break;
+        }
+        for record in &batch[..count] {
+            let mut buffer = [0u8; EVENT_JSON_MAX];
+            let written = {
+                let mut writer = ubos_http::BufferWriter::new(&mut buffer);
+                if !first_emitted {
+                    let _ = core::write!(writer, ",");
+                }
+                let _ = core::write!(
+                    writer,
+                    "{{\"seq\":{},\"ts\":{},\"sev\":\"{}\",\"code\":{},\"args\":\"",
+                    record.seq,
+                    record.ts,
+                    severity_str(record.severity),
+                    record.code,
+                );
+                for byte in record.args {
+                    let _ = core::write!(writer, "{byte:02x}");
+                }
+                let _ = core::write!(writer, "\"}}");
+                if writer.overflowed() {
+                    warn!(
+                        "events: record seq {} exceeded {}B buffer; emitting truncated JSON",
+                        record.seq, EVENT_JSON_MAX
+                    );
+                }
+                writer.len()
+            };
+            embedded_io_async::Write::write_all(connection, &buffer[..written]).await?;
+            first_emitted = false;
+            cursor = record.seq;
+        }
+    }
+
+    embedded_io_async::Write::write_all(connection, b"]}").await?;
+    Ok(())
+}
+
+/// Handle `GET /api/system/events/catalog`.
+///
+/// Streams the assembled event catalog as a JSON array. Each element
+/// carries the event `code`, `sev`, `fmt` string, and `args` width list.
+/// Returns `[]` until firmware installs the catalogs via `set_catalogs`.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener.
+async fn handle_events_catalog<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    extra_headers: &[(&str, &str)],
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    begin_streamed_json(connection, extra_headers).await?;
+    embedded_io_async::Write::write_all(connection, b"[").await?;
+
+    let mut first_def = true;
+    for catalog in ubos_events::catalogs() {
+        for def in *catalog {
+            let mut buffer = [0u8; DEF_JSON_MAX];
+            let written = {
+                let mut writer = ubos_http::BufferWriter::new(&mut buffer);
+                if !first_def {
+                    let _ = core::write!(writer, ",");
+                }
+                let _ = core::write!(
+                    writer,
+                    "{{\"code\":{},\"sev\":\"{}\",\"fmt\":\"",
+                    def.code,
+                    severity_str(def.severity as u8),
+                );
+                // Escape the format string: `"` becomes `\"`, `\` becomes `\\`.
+                for ch in def.fmt.chars() {
+                    match ch {
+                        '"' => {
+                            let _ = core::write!(writer, "\\\"");
+                        }
+                        '\\' => {
+                            let _ = core::write!(writer, "\\\\");
+                        }
+                        other => {
+                            let _ = core::write!(writer, "{other}");
+                        }
+                    }
+                }
+                let _ = core::write!(writer, "\",\"args\":[");
+                let mut first_arg = true;
+                for arg_width in def.args {
+                    if !first_arg {
+                        let _ = core::write!(writer, ",");
+                    }
+                    let _ = core::write!(writer, "\"{}\"", argwidth_str(*arg_width));
+                    first_arg = false;
+                }
+                let _ = core::write!(writer, "]}}");
+                if writer.overflowed() {
+                    warn!(
+                        "events: catalog def code {} exceeded {}B buffer; emitting truncated JSON",
+                        def.code, DEF_JSON_MAX
+                    );
+                }
+                writer.len()
+            };
+            embedded_io_async::Write::write_all(connection, &buffer[..written]).await?;
+            first_def = false;
+        }
+    }
+
+    embedded_io_async::Write::write_all(connection, b"]").await?;
+    Ok(())
+}
+
+/// Records copied from the ring per streaming batch. Sized for a small stack
+/// buffer rather than the full ring, so the events endpoint costs no RAM that
+/// scales with `EVENT_LOG_CAPACITY` on any board.
+const EVENT_BATCH: usize = 16;
+
+/// Maximum byte length of one serialised event record in the streaming JSON body.
+///
+/// The longest record serialises, with a leading comma, as
+/// `,{"seq":4294967295,"ts":4294967295,"sev":"error","code":4294967295,"args":"<22 hex chars>"}`,
+/// which is 99 bytes. 128 leaves conservative headroom.
+const EVENT_JSON_MAX: usize = 128;
+
+/// Maximum byte length of one serialised event definition in the streaming JSON body.
+///
+/// The layout accommodates a code (10 digits), severity string (5 chars), a
+/// format string of up to ~169 bytes after the fixed punctuation, and an args
+/// array of up to six quoted width strings, all within 256 bytes.
+const DEF_JSON_MAX: usize = 256;
+
 /// A known route on the `/api/system/*` surface.
 ///
 /// Returned by `route()` when the method and path both match a handled
@@ -1496,8 +1743,10 @@ pub(crate) enum Route {
     SystemStatistics,
     /// `GET /api/system/scoreboard`
     SystemScoreboard,
-    /// `GET /api/system/logs`
-    SystemLogs,
+    /// `GET /api/system/events`
+    SystemEvents,
+    /// `GET /api/system/events/catalog`
+    SystemEventsCatalog,
     /// `GET /api/system/wifi/scan`
     SystemWifiScan,
     /// `POST /api/system/OTA`
@@ -1550,6 +1799,8 @@ pub(crate) enum DispatchOutcome {
 /// from host unit tests. `dispatch()` calls this first and then drives
 /// the `Connection` based on the result.
 pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
+    // Strip any query string so routes always match on the path only.
+    let path = path.split_once('?').map_or(path, |(prefix, _)| prefix);
     match path {
         "/api/system/info" => match method {
             "GET" => DispatchOutcome::Handled(Route::SystemInfo),
@@ -1575,8 +1826,12 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
             "GET" => DispatchOutcome::Handled(Route::SystemScoreboard),
             _ => DispatchOutcome::MethodNotAllowed { allowed: "GET" },
         },
-        "/api/system/logs" => match method {
-            "GET" => DispatchOutcome::Handled(Route::SystemLogs),
+        "/api/system/events/catalog" => match method {
+            "GET" => DispatchOutcome::Handled(Route::SystemEventsCatalog),
+            _ => DispatchOutcome::MethodNotAllowed { allowed: "GET" },
+        },
+        "/api/system/events" => match method {
+            "GET" => DispatchOutcome::Handled(Route::SystemEvents),
             _ => DispatchOutcome::MethodNotAllowed { allowed: "GET" },
         },
         "/api/system/wifi/scan" => match method {
@@ -1708,8 +1963,11 @@ where
         DispatchOutcome::Handled(Route::SystemScoreboard) => {
             handle_scoreboard(connection, scratch, extra_headers).await?;
         }
-        DispatchOutcome::Handled(Route::SystemLogs) => {
-            handle_not_implemented(connection, scratch, "not implemented", extra_headers).await?;
+        DispatchOutcome::Handled(Route::SystemEvents) => {
+            handle_events(connection, path, extra_headers).await?;
+        }
+        DispatchOutcome::Handled(Route::SystemEventsCatalog) => {
+            handle_events_catalog(connection, extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::SystemWifiScan | Route::SystemOtaWww) => {
             handle_not_implemented(
