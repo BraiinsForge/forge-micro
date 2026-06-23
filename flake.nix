@@ -712,10 +712,12 @@
           # page larger at 956 KiB; see firmware/rp2350/memory.x). rp2350 and
           # bmm-pico reuse the rp2350-bootloader with this layout, and rp2040
           # mirrors it, so an image over 952 KiB does not fit the slot.
-          # Keep this value in sync with OTA_MAX_IMAGE_BYTES in
-          # ubos/ubos-api/src/system.rs and OTA_MAX_BYTES in
-          # ubos/ubos-webui/src/index.js.
-          slotMaxBytes = 952 * 1024;
+          # The kibibyte count is the source of truth. The ota-image-limit
+          # check greps both source files for "<slotMaxKiB> * 1024" so a drift
+          # in OTA_MAX_IMAGE_BYTES (ubos/ubos-api/src/system.rs) or
+          # OTA_MAX_BYTES (ubos/ubos-webui/src/index.js) fails CI.
+          slotMaxKiB = 952;
+          slotMaxBytes = slotMaxKiB * 1024;
 
           # Firmware version used by rp2350Image and the packages/apps outputs.
           # Pure builds default to "1" because the Nix sandbox strips all caller
@@ -1881,6 +1883,26 @@
                   cargo-machete ${src}
                   touch $out
                 '';
+
+            # The OTA image-size limit is hard-coded in three languages that
+            # cannot share a definition: slotMaxBytes here, OTA_MAX_IMAGE_BYTES
+            # in ubos-api, and OTA_MAX_BYTES in the webui. Grep both source
+            # files for the kibibyte literal derived from slotMaxKiB and fail
+            # if either drifts, so the slot-size build guards above and the
+            # client-side rejection always agree on one number.
+            ota-image-limit = pkgs.runCommand "ota-image-limit" { } ''
+              expected='${toString slotMaxKiB} * 1024'
+              for file in \
+                ${./ubos/ubos-api/src/system.rs} \
+                ${./ubos/ubos-webui/src/index.js}; do
+                if ! grep -qF "$expected" "$file"; then
+                  echo "OTA image limit drift: $file lacks '$expected'" >&2
+                  echo "expected to match slotMaxBytes (${toString slotMaxBytes}) in flake.nix" >&2
+                  exit 1
+                fi
+              done
+              touch $out
+            '';
           };
 
           devShells = {
