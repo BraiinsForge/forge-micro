@@ -583,6 +583,22 @@
             CARGO_PROFILE = "";
           });
 
+          ubosEventsArtifacts = craneLib.buildDepsOnly {
+            inherit src;
+            doCheck = false;
+            cargoBuildCommand = "true";
+            cargoExtraArgs = "-p ubos-events";
+          };
+          ubosEventsStdArtifacts = craneLib.buildDepsOnly {
+            inherit src;
+            doCheck = false;
+            cargoBuildCommand = "true";
+            cargoExtraArgs = "-p ubos-events --features std";
+          };
+          ubosEventsStdArtifactsDev = ubosEventsStdArtifacts.overrideAttrs (_: {
+            CARGO_PROFILE = "";
+          });
+
           ubosCoolingArtifacts = craneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
@@ -1711,6 +1727,22 @@
               doInstallCargoArtifacts = false;
             };
 
+            clippy-ubos-events = craneLib.cargoClippy {
+              inherit src;
+              cargoArtifacts = ubosEventsArtifacts;
+              cargoExtraArgs = "-p ubos-events";
+              cargoClippyExtraArgs = "-- -D warnings";
+              doInstallCargoArtifacts = false;
+            };
+
+            test-ubos-events = craneLib.cargoTest {
+              inherit src;
+              cargoArtifacts = ubosEventsStdArtifactsDev;
+              CARGO_PROFILE = "";
+              cargoExtraArgs = "-p ubos-events --features std";
+              doInstallCargoArtifacts = false;
+            };
+
             clippy-ubos-config-std = craneLib.cargoClippy {
               inherit src;
               cargoArtifacts = ubosConfigStdArtifacts;
@@ -1876,6 +1908,7 @@
                     test-ubos-auth
                     test-ubos-config
                     test-ubos-config-std
+                    test-ubos-events
                     test-ubos-cooling
                     test-ubos-http
                     test-ubos-manager

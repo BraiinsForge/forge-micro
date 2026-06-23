@@ -1,0 +1,19 @@
+[package]
+edition = "2021"
+name    = "ubos-events"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+defmt   = ["ubos-logging/defmt"]
+std     = []
+
+[dependencies]
+embassy-sync = { workspace = true }
+ubos-logging = { workspace = true }
+
+[dev-dependencies]
+critical-section = { version = "1.2", features = ["std"] }

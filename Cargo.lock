@@ -4300,6 +4300,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubos-events"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "embassy-sync 0.8.0",
+ "ubos-logging",
+]
+
+[[package]]
 name = "ubos-http"
 version = "0.1.0"
 dependencies = [
