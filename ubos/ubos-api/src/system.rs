@@ -107,11 +107,12 @@ const OTA_DRAIN_DELAY_MS: u64 = 5;
 
 /// Maximum firmware image size accepted by the OTA upload handler.
 ///
-/// Corresponds to the ACTIVE slot capacity the image must swap into:
-/// the bootloader splits the flash into a 952 KiB ACTIVE slot and a
-/// slightly larger DFU slot. An image larger than this is rejected up
-/// front because it could never swap into ACTIVE even though the larger
-/// DFU slot might hold it during upload.
+/// One cap shared by every board so a single release binary fits the
+/// tightest slot in the fleet. That floor is the rp2350/rp2040 952 KiB
+/// ACTIVE slot: the embassy-boot bootloader splits the flash into a 952 KiB
+/// ACTIVE slot and a slightly larger DFU staging slot, and an image larger
+/// than ACTIVE could never swap in even though the DFU slot might hold it
+/// during upload. The esp32s3 has 3 MiB OTA slots but honours the same cap.
 ///
 /// Must stay in sync with `OTA_MAX_BYTES` in `ubos-webui/src/index.js`
 /// and the `slotMaxBytes` guard in `flake.nix`.
