@@ -17,6 +17,10 @@
 // rejects out-of-range values explicitly.
 #![allow(clippy::cast_possible_truncation)]
 
+ubos_events::events! {
+    psu_fault() error = "PSU fault",
+}
+
 /// PSU status flags decoded from the `TPS6287x` STATUS register.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 // Mirrors a hardware status byte; collapsing the bits into a state
@@ -181,6 +185,9 @@ where
     let publisher = STATE_WATCH.sender();
     let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
     let mut last_known: Option<(Power, Power, Voltage)> = None;
+    // Tracks whether a fault was active on the previous poll so the event
+    // fires only on the false-to-true transition rather than every tick.
+    let mut psu_fault_active = false;
     loop {
         ticker.next().await;
         let input_result = psu.read_input_power().await;
@@ -293,6 +300,14 @@ where
                     Value::Uint(u64::from(flags.undervoltage)),
                 ))
                 .await;
+                let fault_now = flags.current_limit
+                    || flags.thermal_shutdown
+                    || flags.overvoltage
+                    || flags.undervoltage;
+                if fault_now && !psu_fault_active {
+                    crate::events::psu_fault();
+                }
+                psu_fault_active = fault_now;
             }
             // A terminated PSU will not recover; stop polling it so the
             // task does not spam warn logs on every tick indefinitely.
