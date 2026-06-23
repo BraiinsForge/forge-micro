@@ -1,0 +1,35 @@
+commits:
+  stage: lint
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - test -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" || { echo "CI_MERGE_REQUEST_DIFF_BASE_SHA is empty"; exit 1; }
+    - nix shell nixpkgs#gitlint --command gitlint --commits "$CI_MERGE_REQUEST_DIFF_BASE_SHA..HEAD"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# Single gate for the whole workspace. The flake aggregates every
+# check (clippy, firmware builds, tests, DRC, ERC, nixfmt) so
+# `nix flake check .` here is the exact command a developer runs
+# locally: a green local check matches CI by construction. Runs on
+# every pipeline rather than gated by paths so no check can be
+# skipped; unchanged derivations are nix cache hits, so the cost of
+# an unrelated change is an eval.
+#
+# The workspace pulls ii-sv2 from
+# ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git. The CI runner
+# image has no SSH key for gitlab.ii.zone, so rewrite SSH URLs on this
+# host to HTTPS-with-CI-token; cargo's git fetch then resolves over
+# HTTPS. Requires braiins-forge/mining/usv2 to allowlist this project
+# under CI/CD → Job token permissions.
+check:
+  stage: check
+  before_script:
+    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.ii.zone/".insteadOf "ssh://git@gitlab.ii.zone/"
+  script:
+    - nix flake check .
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - when: manual
+      allow_failure: true

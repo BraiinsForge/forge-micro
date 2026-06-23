@@ -1,0 +1,18 @@
+stages:
+  - lint
+  - check
+  - fabricate
+
+default:
+  # nix2 runner: gitlab-runner on nix0 with nix1/nix2 as remote nix
+  # builders feeding it, so the /nix/store cache stays warm across
+  # jobs. The runner pins its own docker image because its
+  # allowed_images is set, so we don't specify one here. Jobs that
+  # need a different image must override `tags` to `ci08` and set
+  # their own `image`.
+  tags:
+    - nix2
+
+include:
+  - local: .gitlab/ci/lint.yml
+  - local: .gitlab/ci/fabricate.yml
