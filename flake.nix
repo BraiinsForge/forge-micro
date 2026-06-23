@@ -770,6 +770,53 @@
               fi
             '';
           };
+
+          # Production bmm-pico firmware image derivation. Shared by
+          # packages.bmm-pico-image (nix build) and apps.bmm-pico-image
+          # (nix run). The bmm-pico crate bakes POOL_USER via its
+          # .cargo/config.toml, but cargo only reads that config when run
+          # from the crate directory; this crane build runs from the flake
+          # root, so POOL_USER stays unset and the test worker is not baked.
+          bmmPicoImage = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p bmm-pico --target thumbv8m.main-none-eabihf";
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            UBOS_FW_VERSION = fwVersion;
+            # Do not copy the cargo target directory into $out; we only
+            # want the raw binary image.
+            doInstallCargoArtifacts = false;
+            # Slot-size and pool-worker guards match build-bmm-pico in
+            # checks; the difference is that the bin is kept in $out
+            # instead of being deleted.
+            installPhaseCommand = ''
+              mkdir -p "$out"
+              arm-none-eabi-objcopy -O binary \
+                target/thumbv8m.main-none-eabihf/release/bmm-pico \
+                "$out/bmm-pico-v${fwVersion}.bin"
+              size=$(wc -c < "$out/bmm-pico-v${fwVersion}.bin")
+              echo "bmm-pico image: $size bytes / ${toString slotMaxBytes} bytes budget, version ${fwVersion}"
+              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
+                echo "ERROR: bmm-pico release image ($size bytes) exceeds the" \
+                     "${toString slotMaxBytes}-byte slot limit. See docs/OTA.md."
+                exit 1
+              fi
+              if [ -n "''${POOL_USER:-}" ]; then
+                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
+                exit 1
+              fi
+              if grep -qa "braiinstest" "$out/bmm-pico-v${fwVersion}.bin"; then
+                echo "ERROR: bmm-pico image contains the test pool worker 'braiinstest'; it must not ship."
+                exit 1
+              fi
+            '';
+          };
         in
         {
           # Each firmware crate is checked under its default feature set
@@ -2148,14 +2195,16 @@
           # strips all caller environment variables.
           packages = {
             rp2350-image = rp2350Image;
+            bmm-pico-image = bmmPicoImage;
           };
 
           # Copy the built image into the repo's build/ directory and print
           # the absolute path of the written file as the last stdout line.
           #
           # Usage:
-          #   nix run .#rp2350-image                              -> build/rp2350-v1.bin
-          #   UBOS_FW_VERSION=42 nix run --impure .#rp2350-image -> build/rp2350-v42.bin
+          #   nix run .#rp2350-image                                -> build/rp2350-v1.bin
+          #   UBOS_FW_VERSION=42 nix run --impure .#rp2350-image    -> build/rp2350-v42.bin
+          #   UBOS_FW_VERSION=42 nix run --impure .#bmm-pico-image  -> build/bmm-pico-v42.bin
           #
           # The final stdout line is the absolute path to the written image.
           apps = {
@@ -2172,6 +2221,23 @@
                   name="$(basename "$src_bin")"
                   install -m644 "$src_bin" "$dest/$name"
                   echo "rp2350 image v${fwVersion} written to:" >&2
+                  echo "$dest/$name"
+                ''
+              );
+            };
+            bmm-pico-image = {
+              type = "app";
+              program = toString (
+                pkgs.writeShellScript "bmm-pico-image-to-build" ''
+                  set -euo pipefail
+                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
+                  dest="$root/build"
+                  mkdir -p "$dest"
+                  # The package $out holds exactly one bmm-pico-v<N>.bin.
+                  src_bin="$(echo ${bmmPicoImage}/*.bin)"
+                  name="$(basename "$src_bin")"
+                  install -m644 "$src_bin" "$dest/$name"
+                  echo "bmm-pico image v${fwVersion} written to:" >&2
                   echo "$dest/$name"
                 ''
               );
