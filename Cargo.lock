@@ -4283,7 +4283,9 @@ name = "ubos-manager"
 version = "0.1.0"
 dependencies = [
  "defmt 1.0.1",
+ "embassy-futures",
  "embassy-sync 0.8.0",
+ "embassy-time",
  "ubos-logging",
  "ubos-mining",
 ]

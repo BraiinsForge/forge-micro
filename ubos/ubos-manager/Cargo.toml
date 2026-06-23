@@ -16,6 +16,8 @@ defmt   = [
 
 [dependencies]
 embassy-sync    = { workspace = true }
+embassy-time    = { workspace = true }
+embassy-futures = { workspace = true }
 defmt           = { workspace = true, optional = true }
 ubos-mining     = { workspace = true, default-features = false }
 ubos-logging    = { workspace = true }
