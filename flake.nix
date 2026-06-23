@@ -2230,6 +2230,30 @@
             # nixpkgs-esp-dev input or the stub project changes.
             build-esp32s3-bootloader = esp32s3Bootloader;
 
+            # Lint the ubos-ota esp backend. clippy only lints the top crate,
+            # so the esp32s3 firmware build compiles this code but does not
+            # lint it; this check does. The chip features are supplied on the
+            # CLI, matching clippy-ubos-ota for the rp backend.
+            clippy-ubos-ota-esp = espCraneLib.cargoClippy {
+              inherit src;
+              cargoArtifacts = espArtifacts;
+              cargoVendorDir = espCargoVendorDir;
+              cargoExtraArgs =
+                "-p ubos-ota --target xtensa-esp32s3-none-elf -Z build-std=core "
+                + "--features esp,esp-hal/esp32s3,esp-hal/unstable,esp-storage/esp32s3,"
+                + "esp-storage/critical-section,esp-bootloader-esp-idf/esp32s3";
+              cargoClippyExtraArgs = "-- -D warnings";
+              doInstallCargoArtifacts = false;
+              RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
+              nativeBuildInputs = [
+                xtensaEspToolchain
+                pkgs.esbuild
+              ];
+              CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
+              CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
+              inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            };
+
             clippy-esp32s3-tsens = espCraneLib.cargoClippy {
               inherit src;
               cargoArtifacts = espArtifacts;

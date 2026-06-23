@@ -28,6 +28,16 @@ pub use shared_flash::{SharedBlockingFlash, SharedFlashMutex};
 pub type RpOtaTarget<const FLASH_SIZE: usize, const PARK_POLL_DELAY_CYCLES: u32> =
     OtaEngine<RpBackend<FLASH_SIZE, PARK_POLL_DELAY_CYCLES>>;
 
+#[cfg(feature = "esp")]
+mod esp;
+#[cfg(feature = "esp")]
+pub use esp::{EspBackend, EspFlashMutex, EspSharedFlash, confirm_running};
+
+/// The ESP OTA target: the board-agnostic [`OtaEngine`] over the esp-idf
+/// [`EspBackend`].
+#[cfg(feature = "esp")]
+pub type EspOtaTarget = OtaEngine<EspBackend>;
+
 /// Parses a decimal `u32` from a build-time version string at compile time.
 ///
 /// # Panics
