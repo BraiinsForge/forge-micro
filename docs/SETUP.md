@@ -6,7 +6,7 @@ Debug probes need udev rules for non-root access. Copy the bundled rules
 file and reload:
 
 ```sh
-sudo cp ../../../assets/69-probe-rs.rules /etc/udev/rules.d/
+sudo cp ../assets/69-probe-rs.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
@@ -37,7 +37,7 @@ nix shell nixpkgs#jdk nixpkgs#libusb1 -c bash -c \
 
 A Raspberry Pi Pico 2 running the debugprobe firmware provides SWD and
 UART passthrough for the EVB-Pico boards. Flash `debugprobe_on_pico2.uf2`
-from `../../../assets/` via BOOTSEL mass storage.
+from `../assets/` via BOOTSEL mass storage.
 
 | Probe GPIO | EVB-Pico GPIO | Function |
 |------------|---------------|----------|

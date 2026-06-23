@@ -524,7 +524,7 @@ Mapping our trait API onto micro-sv2:
 
 The trait crate (`mining-protocol`) stays protocol-agnostic. Nothing
 above leaks into it. The V2 adapter is the only crate in the
-`boards/ubos-main` workspace that depends on `ii-sv2`.
+ubos-main workspace that depends on `ii-sv2`.
 
 ### V2 transport bound
 

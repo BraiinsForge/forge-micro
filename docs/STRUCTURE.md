@@ -1,6 +1,6 @@
 # Repository Structure
 
-Target layout for the `boards/ubos-main/` tree. This document is the
+Target layout for the repository tree. This document is the
 authoritative source for where new code, libraries, firmware crates,
 patches, and assets belong. It exists because the previous layout
 mixed workspace root, library crates, firmware binaries, host tools,
@@ -11,7 +11,7 @@ and which authoritative references it is based on.
 ## Layout
 
 ```
-boards/ubos-main/
+.
 ├── Cargo.toml              virtual workspace manifest, no [package]
 ├── Cargo.lock
 ├── rust-toolchain.toml     pinned toolchain for the workspace

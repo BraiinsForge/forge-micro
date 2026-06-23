@@ -69,7 +69,7 @@ Standalone host utilities:
 This is the default pull-request gate. It should stay quick and deterministic,
 with no hardware, web bundler, network service, or probe dependency.
 
-Run the layer through flake checks from `boards/ubos-main`:
+Run the layer through flake checks from the repository root:
 
 ```sh
 nix flake check
