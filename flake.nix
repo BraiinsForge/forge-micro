@@ -2059,6 +2059,18 @@
                   find ${./.} -name '*.nix' -print0 | xargs -0 nixfmt --check
                   touch $out
                 '';
+          }
+          # The SD image is a `packages` output, so no check covered it and
+          # an evaluation regression - a nixpkgs bump whose device-tree
+          # module the nixos-raspberrypi kernel cannot satisfy, say - passed
+          # CI while failing `nix flake check`. Force a full NixOS evaluation
+          # of the cross-built image here so that gap closes. The image
+          # itself is never built: unsafeDiscardOutputDependency keeps the
+          # evaluation but drops the multi-gigabyte build from the closure.
+          // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            sd-image-eval = pkgs.runCommand "sd-image-eval" { } ''
+              echo ${builtins.unsafeDiscardOutputDependency (sdImageFor system).drvPath} > $out
+            '';
           };
 
           devShells = {
