@@ -200,6 +200,9 @@ async fn do_revert(
 /// re-acquisition window does not blank the reported IP.
 fn reconcile_local_ipv4(stack: Stack<'static>) {
     if let Some(config) = stack.config_v4() {
+        // set_ipv4 records ip_assigned only on a genuine address change, so a
+        // live static apply or DHCP lease change fires it once on the
+        // transition without any compare here.
         net_handle().set_ipv4(config.address.address());
     }
 }
