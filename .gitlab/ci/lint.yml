@@ -1,3 +1,7 @@
+# Stage 1: commit-message and formatting gates. Both are cheap and
+# need no compiled dependencies, so they fail fast - a style or commit
+# slip is reported in seconds, before any crate is built.
+
 commits:
   stage: lint
   variables:
@@ -8,28 +12,15 @@ commits:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
-# Single gate for the whole workspace. The flake aggregates every
-# check (clippy, firmware builds, tests, DRC, ERC, nixfmt) so
-# `nix flake check .` here is the exact command a developer runs
-# locally: a green local check matches CI by construction. Runs on
-# every pipeline rather than gated by paths so no check can be
-# skipped; unchanged derivations are nix cache hits, so the cost of
-# an unrelated change is an eval.
-#
-# The workspace pulls ii-sv2 from
-# ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git. The CI runner
-# image has no SSH key for gitlab.ii.zone, so rewrite SSH URLs on this
-# host to HTTPS-with-CI-token; cargo's git fetch then resolves over
-# HTTPS. Requires braiins-forge/mining/usv2 to allowlist this project
-# under CI/CD → Job token permissions.
-check:
-  stage: check
-  before_script:
-    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.ii.zone/".insteadOf "ssh://git@gitlab.ii.zone/"
+# nixfmt over every .nix file plus `cargo fmt --check` over the
+# workspace and the out-of-tree load-test crate. `.#ci-format` is a
+# flake package that link-farms exactly the `fmt`, `fmt-load-test`, and
+# `nixfmt` checks, so this is the same build a developer runs locally.
+# Runs on every MR (it is fast and touches no dependency graph).
+format:
+  stage: lint
   script:
-    - nix flake check .
+    - nix build --no-link --print-build-logs .#ci-format
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - when: manual
-      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
