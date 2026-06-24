@@ -849,6 +849,32 @@
               fi
             '';
           };
+
+          # Resolve KiCad's stock symbol/footprint libraries for the
+          # headless DRC/ERC checks. Without a global library table the CLI
+          # cannot find the standard libraries the board references
+          # (Connector_*, MountingHole, power, ...), and both the parity
+          # check and ERC degrade to a flood of spurious "configuration
+          # does not include library X" warnings instead of real
+          # comparisons - the full `kicad` package (not `kicad-small`)
+          # ships those libraries, and its wrapper exports the
+          # `KICAD*_{FOOTPRINT,SYMBOL}_DIR` that the stock tables in
+          # `KICAD*_TEMPLATE_DIR` reference. We copy those tables into the
+          # per-version config dir the CLI reads. The config dir and the
+          # template-dir env var both encode the pinned major version, so
+          # both derive from the single `kicadMajor` literal that tracks
+          # the KiCad pinned in this flake; KiCad names the dir
+          # `<major>.0`. A cp failure on a version bump surfaces loudly
+          # here.
+          kicadMajor = "10";
+          kicadLibTableSetup = ''
+            export HOME=$(mktemp -d)
+            eval "$(grep '^export KICAD${kicadMajor}_TEMPLATE_DIR=' "$(command -v kicad-cli)")"
+            cfg="$HOME/.config/kicad/${kicadMajor}.0"
+            mkdir -p "$cfg"
+            cp "$KICAD${kicadMajor}_TEMPLATE_DIR"/fp-lib-table "$cfg/"
+            cp "$KICAD${kicadMajor}_TEMPLATE_DIR"/sym-lib-table "$cfg/"
+          '';
         in
         {
           # Each firmware crate is checked under its default feature set
@@ -1920,31 +1946,67 @@
                     > "$out/README"
                 '';
 
+            # Real DRC gate. `--schematic-parity` compares the PCB's
+            # footprints against the schematic's symbols (footprint/value/
+            # field/pad parity), so library or symbol drift can no longer
+            # slip through unchecked; with the stock libraries resolved
+            # above this is a true comparison, not a "library not found"
+            # no-op. `--severity-error --severity-warning` makes the gate
+            # warnings-as-errors: any warning (footprint/library drift,
+            # silkscreen-over-copper, ...) fails the build, not just
+            # error-severity faults. Excluded violations are deliberately
+            # not reported, so the board's reviewed DRC exclusions in
+            # `bmm-adapter.kicad_pro` stay dismissed - the whole project dir
+            # is staged in a writable copy so KiCad reads them exactly as it
+            # does interactively. `--exit-code-violations` turns any
+            # reported violation into a nonzero exit. The kibot fab job
+            # also runs DRC/ERC as a warnings-as-errors preflight; this
+            # check is an independent gate in the check stage that runs
+            # regardless of fabrication.
             drc-bmm-adapter =
               pkgs.runCommand "drc-bmm-adapter"
                 {
-                  nativeBuildInputs = [ pkgs.kicad-small ];
+                  nativeBuildInputs = [ pkgs.kicad ];
                 }
                 ''
-                  export HOME=$(mktemp -d)
+                  ${kicadLibTableSetup}
+                  work=$(mktemp -d)
+                  cp -r ${./pcb/bmm-adapter}/. "$work"/
+                  chmod -R +w "$work"
                   kicad-cli pcb drc \
+                    --schematic-parity \
+                    --severity-error \
+                    --severity-warning \
+                    --exit-code-violations \
                     --format json \
                     --output $out \
-                    ${./pcb/bmm-adapter/bmm-adapter.kicad_pcb}
+                    "$work/bmm-adapter.kicad_pcb"
                 '';
 
+            # Real ERC gate. With the stock symbol libraries resolved, ERC
+            # checks the actual schematic (power-input/no-connect/pin
+            # conflicts) instead of reporting every symbol as an unresolved
+            # library reference. `--severity-error --severity-warning` makes
+            # it warnings-as-errors, matching the DRC gate;
+            # `--exit-code-violations` fails the build on any reported
+            # violation while leaving reviewed exclusions dismissed.
             erc-bmm-adapter =
               pkgs.runCommand "erc-bmm-adapter"
                 {
-                  nativeBuildInputs = [ pkgs.kicad-small ];
+                  nativeBuildInputs = [ pkgs.kicad ];
                 }
                 ''
-                  export HOME=$(mktemp -d)
+                  ${kicadLibTableSetup}
+                  work=$(mktemp -d)
+                  cp -r ${./pcb/bmm-adapter}/. "$work"/
+                  chmod -R +w "$work"
                   kicad-cli sch erc \
                     --severity-error \
+                    --severity-warning \
+                    --exit-code-violations \
                     --format json \
                     --output $out \
-                    ${./pcb/bmm-adapter/bmm-adapter.kicad_sch}
+                    "$work/bmm-adapter.kicad_sch"
                 '';
 
             # Fail the build on an unused dependency so dead deps cannot
