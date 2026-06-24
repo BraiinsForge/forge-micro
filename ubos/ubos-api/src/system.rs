@@ -1918,7 +1918,7 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
 // The argument count comes from threading `extra_headers` and `stack`
 // through the existing board_name/thermal/manager set. A context struct
 // would reduce the count but add indirection without simplifying the callers.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub(crate) async fn dispatch<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     method: &str,
@@ -2003,14 +2003,17 @@ where
             .await?;
         }
         DispatchOutcome::Handled(Route::PauseAck) => {
+            crate::events::user_paused();
             manager.send(ManagerMessage::Stop).await;
             handle_action(connection, scratch, "pause", extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::ResumeAck) => {
+            crate::events::user_resumed();
             manager.send(ManagerMessage::Start).await;
             handle_action(connection, scratch, "resume", extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::RestartAck) => {
+            crate::events::user_restart();
             handle_action(connection, scratch, "restart", extra_headers).await?;
             ubos_core::reboot::request_reboot();
         }

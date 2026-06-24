@@ -186,6 +186,7 @@ async fn do_revert(
         PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
         PENDING_IS_STATIC.store(false, Ordering::Relaxed);
         warn!("network: {}", log_message);
+        crate::events::network_reverted();
     }
 }
 
@@ -288,6 +289,7 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                     .send(Message::SetNetwork(network))
                     .await;
                 info!("network: change applied and persisted");
+                crate::events::network_applied();
             }
             Command::Confirm => {
                 if let Some(confirmed) = pending.take() {
@@ -297,6 +299,7 @@ pub async fn run_network_apply(stack: Stack<'static>) -> ! {
                     PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
                     PENDING_IS_STATIC.store(false, Ordering::Relaxed);
                     info!("network: change confirmed");
+                    crate::events::network_applied();
                 } else {
                     info!("network: confirm with nothing pending");
                 }

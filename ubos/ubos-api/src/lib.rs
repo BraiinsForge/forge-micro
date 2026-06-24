@@ -24,6 +24,14 @@ pub mod rest;
 pub mod schema;
 pub mod system;
 
+ubos_events::events! {
+    user_paused()       info = "User paused mining",
+    user_resumed()      info = "User resumed mining",
+    user_restart()      warn = "User-requested restart",
+    network_applied()   info = "Network config applied",
+    network_reverted()  warn = "Network config reverted",
+}
+
 pub use network_apply::run_network_apply;
 pub use ota::{
     publish_reset_diag, register_ota_target, OtaError, OtaTarget, OtaWritePhase, ResetReason,
