@@ -2059,6 +2059,13 @@
                   find ${./.} -name '*.nix' -print0 | xargs -0 nixfmt --check
                   touch $out
                 '';
+
+            # The patched probe-rs-tools-server is consumed only by the
+            # NUC's nixosConfiguration, which nix flake check never builds,
+            # so a patch that no longer applies or a probe-rs build break
+            # would otherwise keep CI green. Realize the derivation here so
+            # the check stage is its gate.
+            probe-rs-tools-server = pkgs.probe-rs-tools-server;
           }
           # The SD image is a `packages` output, so no check covered it and
           # an evaluation regression - a nixpkgs bump whose device-tree
