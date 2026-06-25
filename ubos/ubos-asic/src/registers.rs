@@ -7,7 +7,7 @@
 //! See `docs/REGISTERS.md` for a per-register reference.
 
 use bitfield_struct::bitfield;
-use ubos_core::units::{Frequency, Voltage};
+use ubos_core::units::{Frequency, FrequencyRange, Voltage};
 
 use crate::chip::{Chip, ChipProtocol};
 
@@ -1234,35 +1234,6 @@ pub const MISC_SETTINGS_BM1370_BRINGUP: u32 = 0x0000_4480;
 /// hash-clock targets derive from this constant via the PLL divider
 /// chain.
 pub const BASE_CLOCK: u64 = 25_000_000;
-
-/// Inclusive operating-frequency envelope of a chip. The tuner ramps
-/// inside this range and the register calculators reject targets outside
-/// it.
-#[derive(Clone, Copy)]
-pub struct FrequencyRange {
-    min: Frequency,
-    max: Frequency,
-}
-
-impl FrequencyRange {
-    /// Constructs the range from an inclusive lower and upper bound.
-    #[must_use]
-    pub const fn new(min: Frequency, max: Frequency) -> Self {
-        Self { min, max }
-    }
-
-    /// Inclusive lower bound of the operating-frequency range.
-    #[must_use]
-    pub const fn min(self) -> Frequency {
-        self.min
-    }
-
-    /// Inclusive upper bound of the operating-frequency range.
-    #[must_use]
-    pub const fn max(self) -> Frequency {
-        self.max
-    }
-}
 
 /// Capability bounds for a single ASIC, consumed by the tuner.
 #[derive(Clone, Copy)]

@@ -47,6 +47,34 @@ impl Frequency {
     }
 }
 
+/// Inclusive operating-frequency envelope. A tuner ramps inside this
+/// range and register calculators reject targets outside it.
+#[derive(Clone, Copy)]
+pub struct FrequencyRange {
+    min: Frequency,
+    max: Frequency,
+}
+
+impl FrequencyRange {
+    /// Constructs the range from an inclusive lower and upper bound.
+    #[must_use]
+    pub const fn new(min: Frequency, max: Frequency) -> Self {
+        Self { min, max }
+    }
+
+    /// Inclusive lower bound of the operating-frequency range.
+    #[must_use]
+    pub const fn min(self) -> Frequency {
+        self.min
+    }
+
+    /// Inclusive upper bound of the operating-frequency range.
+    #[must_use]
+    pub const fn max(self) -> Frequency {
+        self.max
+    }
+}
+
 /// Voltage in millivolts. Used for ASIC core voltage targets and PSU
 /// DAC encoding. Negative values are not representable; the rails the
 /// miner controls are all single-ended positive supplies.
