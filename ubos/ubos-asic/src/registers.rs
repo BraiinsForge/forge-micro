@@ -7,7 +7,7 @@
 //! See `docs/REGISTERS.md` for a per-register reference.
 
 use bitfield_struct::bitfield;
-use ubos_core::units::{Frequency, FrequencyRange, Voltage};
+use ubos_core::units::{FrequencyRange, Voltage};
 
 use crate::chip::{Chip, ChipProtocol};
 
@@ -1234,100 +1234,6 @@ pub const MISC_SETTINGS_BM1370_BRINGUP: u32 = 0x0000_4480;
 /// hash-clock targets derive from this constant via the PLL divider
 /// chain.
 pub const BASE_CLOCK: u64 = 25_000_000;
-
-/// Capability bounds for a single ASIC, consumed by the tuner.
-#[derive(Clone, Copy)]
-pub struct ChipDescriptor {
-    /// Model identifier the chip reports in `ChipIdReg.chip_id`
-    /// (`0x1362`, `0x1366`, `0x1370`). Enumeration matches the value
-    /// read off the chain against this to select the chip.
-    pub chip_id: u16,
-    /// Total hashing cores on this chip model. Identity and capability
-    /// metadata; not a register value.
-    pub core_count: u32,
-    /// Maximum voltage a single whole chip tolerates. Board-local safety
-    /// policy, not a chip-spec value. The board-rail ceiling consumed by
-    /// the tuner is this value scaled by the hashboard's
-    /// `num_voltage_domains`.
-    pub max_chip_voltage: Voltage,
-    /// PLL hash-clock resolution: the frequency grid every programmed
-    /// operating point lands on. 6.25 MHz is the BM1362's natural
-    /// resolution. At the `(POSTDIV1+1)*(POSTDIV2+1) = 2` divider pair
-    /// `freq = 6.25 * FBDIV` MHz, so every integer FBDIV step sits on a
-    /// 6.25 MHz boundary the PLL calculator resolves exactly. The tuner
-    /// ramps on and floors targets to this grid so the requested
-    /// frequency equals the realized hash clock.
-    pub frequency_step: Frequency,
-    /// Inclusive hash-clock frequency envelope the chip operates within.
-    /// The tuner ramps inside it and the register calculators reject
-    /// targets outside it.
-    pub frequency_range: FrequencyRange,
-    /// Broadcast `ClockDelayCtrl` value loaded during core bring-up,
-    /// before the per-chip pass writes the final clock delay.
-    pub broadcast_clock_delay: u8,
-    /// Number of distinct work-id values the chip emits per dispatched
-    /// work item. The work frame sends a single header (multiversion 1);
-    /// the chip tags each returned solution with a variant index in the
-    /// low bits of the echoed work-id. The host strides work-ids by this
-    /// count and recovers the originating job by dividing a returned
-    /// work-id by it. Eight for the BM1362 and BM1366, sixteen for the
-    /// BM1370.
-    pub midstate_count: u8,
-}
-
-/// Per-chip capability constants for the BM1362. `max_chip_voltage`
-/// is board-local tuning and safety policy; the 422 mV figure is not a
-/// chip-spec value. The `frequency_range` upper bound is a uniform
-/// 1000 MHz local tuning-policy envelope; the chip has no hard limit
-/// there.
-pub static BM1362: ChipDescriptor = ChipDescriptor {
-    chip_id: 0x1362,
-    core_count: 514,
-    max_chip_voltage: Voltage::from_mv(422),
-    frequency_step: Frequency::from_khz(6_250),
-    frequency_range: FrequencyRange::new(
-        Frequency::from_khz(50_000),
-        Frequency::from_khz(1_000_000),
-    ),
-    broadcast_clock_delay: 0x34,
-    midstate_count: 8,
-};
-
-/// Per-chip capability constants for the BM1366. `max_chip_voltage` is
-/// the whole-chip ceiling, board-local safety policy rather than a
-/// chip-spec value. `frequency_step` is the shared 6.25 MHz grid; the
-/// `frequency_range` upper bound is a uniform 1000 MHz local
-/// tuning-policy envelope, not a chip limit.
-pub static BM1366: ChipDescriptor = ChipDescriptor {
-    chip_id: 0x1366,
-    core_count: 894,
-    max_chip_voltage: Voltage::from_mv(1382),
-    frequency_step: Frequency::from_khz(6_250),
-    frequency_range: FrequencyRange::new(
-        Frequency::from_khz(50_000),
-        Frequency::from_khz(1_000_000),
-    ),
-    broadcast_clock_delay: 0x34,
-    midstate_count: 8,
-};
-
-/// Per-chip capability constants for the BM1370. `max_chip_voltage` is
-/// the whole-chip ceiling, board-local safety policy rather than a
-/// chip-spec value. `frequency_step` is the shared 6.25 MHz grid; the
-/// `frequency_range` upper bound is a uniform 1000 MHz local
-/// tuning-policy envelope, not a chip limit.
-pub static BM1370: ChipDescriptor = ChipDescriptor {
-    chip_id: 0x1370,
-    core_count: 2040,
-    max_chip_voltage: Voltage::from_mv(1250),
-    frequency_step: Frequency::from_khz(6_250),
-    frequency_range: FrequencyRange::new(
-        Frequency::from_khz(250_000),
-        Frequency::from_khz(1_000_000),
-    ),
-    broadcast_clock_delay: 0x34,
-    midstate_count: 16,
-};
 
 /// Hashboard-level descriptor. Carries the chip model so the tuner
 /// can dispatch the bring-up recipe and read chip capabilities through

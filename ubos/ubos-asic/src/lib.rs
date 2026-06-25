@@ -12,6 +12,9 @@ pub mod chip;
 pub mod framing;
 pub mod registers;
 
-pub use chip::{Bm1362, Bm1366, Bm1370, Chip, ChipBus, ChipError, ChipProtocol, MAX_CHAIN_CHIPS};
+pub use chip::{
+    Bm1362, Bm1366, Bm1370, Chip, ChipBus, ChipDescriptor, ChipError, ChipProtocol, BM1362, BM1366,
+    BM1370, MAX_CHAIN_CHIPS,
+};
 pub use framing::*;
 pub use registers::*;

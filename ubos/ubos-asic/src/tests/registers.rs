@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::BM1362;
+
 /// Reference corpus covering 50..=500 MHz in 25 MHz steps, expressed
 /// in kHz so the calculator's kHz signature is exercised at the
 /// factory grid points. Pairs the target hash clock with the expected
@@ -576,17 +578,6 @@ fn core_register_unmapped_id_preserves_bits() {
         assert_eq!(decoded, CoreRegister::Unknown(unmapped));
         assert_eq!(decoded.into_bits(), unmapped);
     }
-}
-
-#[test]
-fn chip_descriptor_midstate_counts_match_silicon() {
-    // BM1362 and BM1366 tag returned work-ids with a 3-bit variant index
-    // (8 values); BM1370 tags with a 4-bit index (16 values). The host
-    // strides work-ids by this count and divides to recover the originating
-    // job, so the values are correctness-critical.
-    assert_eq!(BM1362.midstate_count, 8);
-    assert_eq!(BM1366.midstate_count, 8);
-    assert_eq!(BM1370.midstate_count, 16);
 }
 
 #[test]

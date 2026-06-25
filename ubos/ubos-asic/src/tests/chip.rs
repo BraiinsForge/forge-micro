@@ -550,3 +550,14 @@ fn chip_enum_dispatches_post_core_config() {
         "Chip::Bm1362 must not emit any MiscSettings writes"
     );
 }
+
+#[test]
+fn chip_descriptor_midstate_counts_match_silicon() {
+    // BM1362 and BM1366 tag returned work-ids with a 3-bit variant index
+    // (8 values); BM1370 tags with a 4-bit index (16 values). The host
+    // strides work-ids by this count and divides to recover the originating
+    // job, so the values are correctness-critical.
+    assert_eq!(BM1362.midstate_count, 8);
+    assert_eq!(BM1366.midstate_count, 8);
+    assert_eq!(BM1370.midstate_count, 16);
+}
