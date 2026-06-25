@@ -109,14 +109,14 @@ fn index_payload_logout_is_post_form() {
 /// Loose upper bound on the gzipped dashboard payload. Catches a
 /// minifier regression that silently no-ops, a source addition that
 /// crosses the budget we care about, or a build.rs change that ships
-/// uncompressed bytes. The bound sits somewhat above the 14 KiB TCP
-/// initcwnd, so the index now takes two RTTs on first load; the OTA
+/// uncompressed bytes. The bound sits above the 14 KiB TCP
+/// initcwnd, so the index takes two RTTs on first load; the OTA
 /// card is hidden on boards without an OTA partition so the extra
 /// bytes are always loaded but not always displayed. Bump deliberately
 /// when intentionally adding features, not as a reflexive update.
 #[test]
 fn index_payload_size_within_budget() {
-    const MAX_GZ_BYTES: usize = 15 * 1024;
+    const MAX_GZ_BYTES: usize = 17 * 1024;
     assert!(
         crate::INDEX_HTML_GZ.len() <= MAX_GZ_BYTES,
         "gz payload {} exceeds budget {}",

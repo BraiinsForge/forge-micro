@@ -18,6 +18,32 @@
     <a href="#" id="nDash">Dashboard</a>
     <a href="#config" id="nCfg">Configuration</a>
     <span class="sp"></span>
+    <div class="actWrap" id="actWrap">
+      <button type="button" class="actBtn" id="actBtn" aria-haspopup="true" aria-expanded="false" aria-label="Miner action menu" title="Miner actions">
+        <svg class="navIcon" aria-hidden="true"><use href="#iAction"/></svg>
+        <span class="actBadge" id="actBadge"></span>
+      </button>
+      <div class="actMenu hide" id="actMenu" role="menu">
+        <button type="button" class="actItem" id="actStart" role="menuitem">
+          <svg class="navIcon" aria-hidden="true"><use href="#iPlay"/></svg>
+          <span>Start</span>
+        </button>
+        <button type="button" class="actItem" id="actStop" role="menuitem">
+          <svg class="navIcon" aria-hidden="true"><use href="#iPause"/></svg>
+          <span>Stop</span>
+        </button>
+        <button type="button" class="actItem" id="actRestart" role="menuitem">
+          <svg class="navIcon" aria-hidden="true"><use href="#iRestart"/></svg>
+          <span>Restart…</span>
+        </button>
+        <div class="actConfirm hide" id="actConfirm">
+          <p class="actConfirmText" id="actConfirmText">Restarts the entire board. Mining stops until the board comes back (~30 s).</p>
+          <button type="button" class="actItem btnDanger" id="actRestartConfirm" role="menuitem">Confirm restart</button>
+          <button type="button" class="actItem btnSecondary" id="actRestartCancel" role="menuitem">Cancel</button>
+        </div>
+        <p class="actMsg hide" id="actMsg" role="status" aria-live="polite"></p>
+      </div>
+    </div>
     <button type="button" class="thm" id="thm" aria-label="Cycle theme: auto, light, dark">
       <svg class="thmIcon iAuto" aria-hidden="true"><use href="#iAuto"/></svg>
       <svg class="thmIcon iSun" aria-hidden="true"><use href="#iSun"/></svg>

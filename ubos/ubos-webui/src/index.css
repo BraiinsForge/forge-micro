@@ -791,6 +791,139 @@ main > * {
   border-color: var(--fg);
 }
 
+/* ---------- Miner action menu ----------
+   The action button lives in the nav bar immediately before the theme
+   toggle. Its dropdown floats below the bar in a positioned container
+   so the nav flex row stays unaffected. The menu closes on any item
+   click, on Escape, or on a click outside; `.hide` is the shared
+   visibility toggle used everywhere else on this page. */
+
+.actWrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.actBtn {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--mute);
+  cursor: pointer;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actBtn:hover {
+  color: var(--fg);
+}
+
+/* State badge: small uppercase label that reflects the current mining
+   state. The badge is empty on initial load until the first poll
+   resolves the state; it collapses to zero width when blank. */
+.actBadge {
+  font-size: var(--fs-label);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-cap);
+  white-space: nowrap;
+}
+
+.actBadge.running {
+  color: var(--green);
+}
+
+.actBadge.stopped {
+  color: var(--mute);
+}
+
+.actBadge.warn {
+  color: var(--orange);
+}
+
+.actMenu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  min-width: 160px;
+  z-index: 50;
+  padding: 4px 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.actMenu.hide {
+  display: none;
+}
+
+.actItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  font-size: var(--fs-body);
+  padding: 9px 16px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.actItem:hover:not(:disabled) {
+  background: var(--field);
+}
+
+.actItem:disabled {
+  color: var(--mute);
+  cursor: not-allowed;
+}
+
+.actConfirm {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.actConfirm.hide {
+  display: none;
+}
+
+.actConfirmText {
+  font-size: var(--fs-label);
+  color: var(--mute);
+  padding: 6px 16px 8px;
+  margin: 0;
+}
+
+.actMsg {
+  font-size: var(--fs-label);
+  color: var(--red);
+  padding: 6px 16px 8px;
+  margin: 0;
+}
+
+.actMsg.hide {
+  display: none;
+}
+
+/* Danger and secondary styles inside the menu reuse the config section
+   button tokens so the confirm step reads the same as the factory reset
+   confirmation in the Configuration page. Width is overridden to fill
+   the menu column rather than auto-sizing to content. */
+.actMenu .btnDanger {
+  color: #fff;
+  border-radius: 0;
+}
+
+.actMenu .btnSecondary {
+  border: 0;
+  border-radius: 0;
+}
+
 /* ---------- Firmware update card ---------- */
 
 /* Slot + version line: small muted labels keep the row compact without

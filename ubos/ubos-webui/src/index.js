@@ -405,6 +405,10 @@ async function tick() {
     inBuf.shift(); inBuf.push(data.power_in_mw == null ? null : data.power_in_mw / 1000);
     outBuf.shift(); outBuf.push(data.power_out_mw == null ? null : data.power_out_mw / 1000);
     draw();
+    // Update the miner action badge and disabled states from the paused
+    // field. Absent fields (older firmware) leave the badge blank and
+    // keep all items enabled so the operator can still act.
+    updateActionState(data.paused, data.pause_reason);
     // Show the firmware-update card only on boards that report OTA info;
     // boards without an OTA partition omit the field entirely.
     const ota = data.ota;
@@ -1469,3 +1473,207 @@ function resumeAfterOtaError(text, beforeUnload) {
   $('msgFw').textContent = text;
   pollTimer = setInterval(tick, 2000);
 }
+
+// Human-readable labels for each pause_reason value returned by the API.
+const PAUSE_REASON_LABEL = {
+  dangerousTemperature: 'Paused: overheating',
+  brokenFan:            'Paused: fan fault',
+  poolUnreachable:      'Paused: pools down',
+  otaUpdate:            'Updating…',
+  tunerFault:           'Paused: tuner fault',
+  userRequest:          'Stopped',
+};
+
+// Update the action button badge and Start/Stop disabled states.
+// Called from tick() on every successful poll with the current paused
+// flag and reason. When either field is absent (older firmware) the
+// badge is cleared and all items remain enabled.
+function updateActionState(paused, pauseReason) {
+  const badge = $('actBadge');
+  const startBtn = $('actStart');
+  const stopBtn = $('actStop');
+  if (paused === undefined || paused === null) {
+    badge.textContent = '';
+    badge.className = 'actBadge';
+    startBtn.disabled = false;
+    stopBtn.disabled = false;
+    return;
+  }
+  if (!paused) {
+    badge.textContent = 'Running';
+    badge.className = 'actBadge running';
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+  } else {
+    const label = PAUSE_REASON_LABEL[pauseReason] || 'Paused';
+    badge.textContent = label;
+    badge.className = 'actBadge ' + (pauseReason === 'userRequest' ? 'stopped' : 'warn');
+    // An OTA update is neither operator-resumable nor stoppable from
+    // this menu, so disable both rather than offering a resume that
+    // would race the update.
+    startBtn.disabled = pauseReason === 'otaUpdate';
+    stopBtn.disabled = true;
+  }
+}
+
+// True while a start/stop/restart request is in flight so the operator
+// cannot fire a second concurrent action.
+let actionInFlight = false;
+
+function openActMenu() {
+  $('actMenu').classList.remove('hide');
+  $('actBtn').setAttribute('aria-expanded', 'true');
+}
+
+function closeActMenu() {
+  $('actMenu').classList.add('hide');
+  $('actBtn').setAttribute('aria-expanded', 'false');
+  // Reset the restart confirm step every time the menu closes so the
+  // next open starts clean.
+  $('actConfirm').classList.add('hide');
+  $('actRestart').classList.remove('hide');
+  // Clear any stale Start/Stop error so the next open starts clean.
+  $('actMsg').classList.add('hide');
+}
+
+$('actBtn').addEventListener('click', function (event) {
+  event.stopPropagation();
+  if ($('actMenu').classList.contains('hide')) {
+    openActMenu();
+  } else {
+    closeActMenu();
+  }
+});
+
+// Close the menu when the operator clicks anywhere outside it.
+document.addEventListener('click', function (event) {
+  if (!$('actWrap').contains(event.target)) {
+    closeActMenu();
+  }
+});
+
+document.addEventListener('keydown', function (event) {
+  if (event.key === 'Escape') closeActMenu();
+});
+
+// Show the board-rebooting notice after a restart command succeeds.
+// The board reboots, so polling would error; stop the timer and show
+// the same full-page notice the OTA flow uses.
+function showRestartNotice() {
+  clearInterval(pollTimer);
+  closeActMenu();
+  $('otaNoticeText').textContent =
+    'The board is rebooting. It can take up to 30 seconds to become reachable, then log in again.';
+  $('otaUpdating').classList.remove('hide');
+  // Cap the wait at the same budget as showOtaNotice so a bricked board
+  // does not poll forever.
+  const maxAttempts = 150;
+  let attempts = 0;
+  const poll = setInterval(async function () {
+    attempts += 1;
+    if (attempts > maxAttempts) {
+      clearInterval(poll);
+      $('otaNoticeText').textContent =
+        'The board did not come back online. Check it and reload this page manually.';
+      return;
+    }
+    try {
+      await fetch(API + '/api/info', { cache: 'no-store', credentials: 'include' });
+      clearInterval(poll);
+      location.reload();
+    } catch (_) {
+      // Board still rebooting; keep polling.
+    }
+  }, 2000);
+}
+
+// Surface a Start/Stop failure inline in the menu, mirroring the restart
+// confirm step. The menu stays open on failure so the operator sees the
+// error and can retry; on success it closes and the 2 s poll reflects the
+// new state.
+function showActError(text) {
+  const msg = $('actMsg');
+  msg.textContent = text;
+  msg.classList.remove('hide');
+}
+
+$('actStart').addEventListener('click', async function () {
+  if (actionInFlight) return;
+  actionInFlight = true;
+  $('actMsg').classList.add('hide');
+  try {
+    await postWithRetry(() => csrfPostTo('/api/system/resume', {}));
+    closeActMenu();
+  } catch (_) {
+    showActError('Start failed. Try again.');
+  } finally {
+    actionInFlight = false;
+  }
+});
+
+$('actStop').addEventListener('click', async function () {
+  if (actionInFlight) return;
+  actionInFlight = true;
+  $('actMsg').classList.add('hide');
+  try {
+    await postWithRetry(() => csrfPostTo('/api/system/pause', {}));
+    closeActMenu();
+  } catch (_) {
+    showActError('Stop failed. Try again.');
+  } finally {
+    actionInFlight = false;
+  }
+});
+
+// First click on Restart shows the inline confirm step inside the menu.
+$('actRestart').addEventListener('click', function (event) {
+  event.stopPropagation();
+  // Restore the default prompt text in case a prior attempt left a red
+  // error in place.
+  const msg = $('actConfirmText');
+  msg.style.color = '';
+  msg.textContent = 'Restarts the entire board. Mining stops until the board comes back (~30 s).';
+  $('actRestart').classList.add('hide');
+  $('actConfirm').classList.remove('hide');
+});
+
+$('actRestartCancel').addEventListener('click', function (event) {
+  event.stopPropagation();
+  $('actConfirm').classList.add('hide');
+  $('actRestart').classList.remove('hide');
+});
+
+$('actRestartConfirm').addEventListener('click', async function (event) {
+  event.stopPropagation();
+  if (actionInFlight) return;
+  actionInFlight = true;
+  // Pause the poll before sending the restart command to avoid a race
+  // with the 2 s tick while the restart request is in flight.
+  clearInterval(pollTimer);
+  // Wait for the 200 ack that confirms the command reached the board.
+  // The firmware flushes this ack before the reset task drains the
+  // socket and resets, so a thrown fetch means the command did not
+  // arrive, not that the reboot happened. Report it and let the operator
+  // retry rather than show a false rebooting notice, mirroring the
+  // factory-reset flow.
+  const fail = text => {
+    actionInFlight = false;
+    pollTimer = setInterval(tick, 2000);
+    const msg = $('actConfirmText');
+    msg.style.color = 'var(--red)';
+    msg.textContent = text;
+  };
+  let response;
+  try {
+    response = await csrfPostTo('/api/system/restart', {});
+  } catch (_) {
+    fail('Could not reach the board to restart. Try again.');
+    return;
+  }
+  if (!response.ok) {
+    fail('Restart failed: HTTP ' + response.status);
+    return;
+  }
+  actionInFlight = false;
+  showRestartNotice();
+});
