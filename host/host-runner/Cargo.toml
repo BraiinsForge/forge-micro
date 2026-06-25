@@ -13,6 +13,11 @@ embassy-time         = { workspace = true, features = ["std", "log"] }
 embedded-i2c-unix    = { path = "../embedded-i2c-unix" }
 embedded-serial-unix = { path = "../embedded-serial-unix" }
 ctrlc              = "3"
+# Selects the std-backed critical-section impl for the host binary.
+# `CriticalSectionRawMutex` in the ubos-* libraries needs an impl
+# linked; firmware gets it from cortex-m/embassy-rp/esp-hal, the host
+# binary must pick the std backend explicitly.
+critical-section   = { version = "1.2", features = ["std"] }
 env_logger         = "0.11"
 gpiocdev           = "0.8"
 heapless           = { workspace = true }
@@ -56,3 +61,8 @@ embassy-net-afpacket = { path = "../embassy-net-afpacket" }
 
 [target.'cfg(not(target_arch = "arm"))'.dependencies]
 embassy-net-tuntap   = "0.1"
+
+# critical-section is depended on only for its std impl symbols, linked
+# but never named in source, so machete cannot see the use.
+[package.metadata.cargo-machete]
+ignored = ["critical-section"]
