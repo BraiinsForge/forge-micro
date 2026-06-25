@@ -59,12 +59,7 @@ impl BoardDescriptor {
             .mv()
             .saturating_mul(u32::from(self.num_voltage_domains));
         let psu_max = self.max_psu_voltage.mv();
-        let clamped = if chip_stack < psu_max {
-            chip_stack
-        } else {
-            psu_max
-        };
-        Voltage::from_mv(clamped)
+        Voltage::from_mv(chip_stack.min(psu_max))
     }
 }
 
