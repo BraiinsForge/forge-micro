@@ -680,12 +680,12 @@ async fn boot(spawner: Spawner) {
 
     spawner.must_spawn(miner_metrics_task(mining_handle));
 
-    // BMM100 hashboard PSU on I2C0 (GPIO8 SDA, GPIO9 SCL).
+    // BMM100 hashboard PSU on I2C0 (GPIO12 SDA, GPIO13 SCL).
     // All mining tasks run on Core 0 so the I2C bus mutex can stay
     // `NoopRawMutex`: every consumer is on the same executor.
     {
         static I2C0_BUS: StaticCell<psu::Bus> = StaticCell::new();
-        // Valid I2C0 peripheral with conventional GPIO8/9 pins; cannot fail.
+        // Valid I2C0 peripheral with GPIO12/13 routed via the GPIO matrix; cannot fail.
         let i2c = I2c::new(hw.i2c0, I2cConfig::default())
             .expect("BUG: I2C0 configuration failed")
             .with_sda(hw.i2c_sda)

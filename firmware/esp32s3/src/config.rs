@@ -5,12 +5,12 @@
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
 use esp_hal::peripherals::{
-    CPU_CTRL, FLASH, GPIO1, GPIO2, GPIO4, GPIO5, GPIO8, GPIO9, GPIO10, GPIO11, GPIO39, GPIO40,
+    CPU_CTRL, FLASH, GPIO1, GPIO2, GPIO4, GPIO5, GPIO7, GPIO10, GPIO11, GPIO15, GPIO39, GPIO40,
     GPIO41, GPIO42, GPIO43, GPIO44, I2C0, LEDC, PCNT, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1,
     UART0,
 };
 #[cfg(feature = "display")]
-use esp_hal::peripherals::{GPIO6, GPIO7, GPIO15, GPIO16, GPIO17, SPI3};
+use esp_hal::peripherals::{GPIO6, GPIO12, GPIO13, GPIO16, GPIO17, SPI3};
 use esp_hal::time::Rate;
 
 pub struct Spi;
@@ -75,10 +75,12 @@ pub struct Board<'d> {
     pub uart_rx: GPIO44<'d>,
     /// I2C0 peripheral for the BMM100 PSU and LM75A temperature sensors.
     pub i2c0: I2C0<'d>,
-    /// I2C0 SDA pin (GPIO8, conventional ESP32-S3 I2C0 SDA).
-    pub i2c_sda: GPIO8<'d>,
-    /// I2C0 SCL pin (GPIO9, conventional ESP32-S3 I2C0 SCL).
-    pub i2c_scl: GPIO9<'d>,
+    /// I2C0 SDA pin (GPIO15, routed via the GPIO matrix). Shares the bus
+    /// with the carrier's TCA9554 I/O expander and touch controller.
+    pub i2c_sda: GPIO15<'d>,
+    /// I2C0 SCL pin (GPIO7, routed via the GPIO matrix). Shares the bus
+    /// with the carrier's TCA9554 I/O expander and touch controller.
+    pub i2c_scl: GPIO7<'d>,
     /// Hashboard reset pin (GPIO4, active-low, held low until miner task releases).
     pub hb_rst: GPIO4<'d>,
     /// Hashboard plug-detect pin (GPIO5, input pull-up).
@@ -98,9 +100,9 @@ pub struct Board<'d> {
     #[cfg(feature = "display")]
     pub display_sck: GPIO6<'d>,
     #[cfg(feature = "display")]
-    pub display_mosi: GPIO7<'d>,
+    pub display_mosi: GPIO13<'d>,
     #[cfg(feature = "display")]
-    pub display_cs: GPIO15<'d>,
+    pub display_cs: GPIO12<'d>,
     #[cfg(feature = "display")]
     pub display_dc: GPIO16<'d>,
     #[cfg(feature = "display")]
@@ -171,8 +173,8 @@ impl Board<'static> {
             uart_tx: peripherals.GPIO43,
             uart_rx: peripherals.GPIO44,
             i2c0: peripherals.I2C0,
-            i2c_sda: peripherals.GPIO8,
-            i2c_scl: peripherals.GPIO9,
+            i2c_sda: peripherals.GPIO15,
+            i2c_scl: peripherals.GPIO7,
             hb_rst: peripherals.GPIO4,
             hb_plug: peripherals.GPIO5,
             ledc: peripherals.LEDC,
@@ -185,9 +187,9 @@ impl Board<'static> {
             #[cfg(feature = "display")]
             display_sck: peripherals.GPIO6,
             #[cfg(feature = "display")]
-            display_mosi: peripherals.GPIO7,
+            display_mosi: peripherals.GPIO13,
             #[cfg(feature = "display")]
-            display_cs: peripherals.GPIO15,
+            display_cs: peripherals.GPIO12,
             #[cfg(feature = "display")]
             display_dc: peripherals.GPIO16,
             #[cfg(feature = "display")]
