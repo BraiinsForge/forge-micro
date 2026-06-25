@@ -8,10 +8,12 @@
 
 #![no_std]
 
+pub mod board;
 pub mod chip;
 pub mod framing;
 pub mod registers;
 
+pub use board::*;
 pub use chip::{
     Bm1362, Bm1366, Bm1370, Chip, ChipBus, ChipDescriptor, ChipError, ChipProtocol, BM1362, BM1366,
     BM1370, MAX_CHAIN_CHIPS,
