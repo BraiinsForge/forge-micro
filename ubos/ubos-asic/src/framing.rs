@@ -9,8 +9,6 @@
 use heapless::Vec as HVec;
 use sha2::{Digest, Sha256};
 
-use crate::registers::ControlCommand;
-
 #[cfg(test)]
 #[path = "tests/framing.rs"]
 mod tests;
@@ -250,10 +248,92 @@ const CMD_TYPE: u8 = 0x02 << 5; // = 0x40
 const TO_ALL: u8 = 0x10;
 
 // Command codes used by the register builders. The register-less control
-// codes (SetChipAddress, ChainInactive) are owned by `crate::registers::ControlCode`
-// and reach the wire via `build_command`.
+// codes (SetChipAddress, ChainInactive) live in [`ControlCode`] below and
+// reach the wire via `build_command`.
 const CODE_SET_CONFIG: u8 = 1;
 const CODE_GET_STATUS: u8 = 2;
+
+/// VIL control command code (3-bit field in the cmd byte). Register
+/// reads and writes use `SetConfig`/`GetStatus` codes that have their
+/// own builders; this enum covers the register-less control commands
+/// the host issues during chain bring-up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum ControlCode {
+    /// Assign an address to the next chip on the chain that has not
+    /// claimed one yet.
+    SetChipAddress = 0,
+    /// Tell every chip on the chain to drop its assigned address.
+    ChainInactive = 3,
+}
+
+impl ControlCode {
+    /// Numeric code packed into the low bits of the cmd byte.
+    #[must_use]
+    pub const fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+/// Register-less VIL control command. Carries the protocol code,
+/// the broadcast flag, and the hw-addr the chip-side decoder
+/// consults. Construct via [`Self::chain_inactive`] or
+/// [`Self::set_chip_address`] and hand to the wire encoder; the
+/// encoder is the only place that knows the preamble + CRC framing.
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ControlCommand {
+    code: ControlCode,
+    broadcast: bool,
+    hw_addr: u8,
+}
+
+impl ControlCommand {
+    /// Broadcast command that tells every chip on the chain to drop
+    /// its assigned address. Issued three times at bring-up to
+    /// tolerate any single-frame loss before address re-assignment
+    /// begins.
+    #[must_use]
+    pub const fn chain_inactive() -> Self {
+        Self {
+            code: ControlCode::ChainInactive,
+            broadcast: true,
+            hw_addr: 0x00,
+        }
+    }
+
+    /// Unicast command that assigns `hw_addr` to the first chip on
+    /// the chain without a claimed address. Broadcasting would set
+    /// every chip to the same address; the caller walks one
+    /// `set_chip_address` per chip slot instead.
+    #[must_use]
+    pub const fn set_chip_address(hw_addr: u8) -> Self {
+        Self {
+            code: ControlCode::SetChipAddress,
+            broadcast: false,
+            hw_addr,
+        }
+    }
+
+    /// Protocol code carried in the low bits of the cmd byte.
+    #[must_use]
+    pub const fn code(&self) -> ControlCode {
+        self.code
+    }
+
+    /// `true` if the cmd byte must set the broadcast bit.
+    #[must_use]
+    pub const fn is_broadcast(&self) -> bool {
+        self.broadcast
+    }
+
+    /// hw-addr the chip-side decoder consults; `0x00` for broadcast.
+    #[must_use]
+    pub const fn hw_addr(&self) -> u8 {
+        self.hw_addr
+    }
+}
 
 /// A chip address on the serial chain: either broadcast to all chips or
 /// unicast to the chip at the given hardware address.

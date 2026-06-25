@@ -1,5 +1,34 @@
 use super::*;
-use crate::registers::ControlCommand;
+
+#[test]
+fn control_command_chain_inactive_packs_to_broadcast() {
+    // chain_inactive() is the broadcast preamble issued three times at
+    // bring-up to drop assigned addresses; the encoder reads code,
+    // broadcast, and hw_addr off the value, so accidental field churn
+    // surfaces here before it reaches the wire.
+    let cmd = ControlCommand::chain_inactive();
+    assert_eq!(cmd.code(), ControlCode::ChainInactive);
+    assert!(cmd.is_broadcast());
+    assert_eq!(cmd.hw_addr(), 0x00);
+}
+
+#[test]
+fn control_command_set_chip_address_packs_to_unicast() {
+    // set_chip_address(addr) is unicast (broadcasting would assign the
+    // same address to every chip); the caller walks one per slot.
+    let cmd = ControlCommand::set_chip_address(0x02);
+    assert_eq!(cmd.code(), ControlCode::SetChipAddress);
+    assert!(!cmd.is_broadcast());
+    assert_eq!(cmd.hw_addr(), 0x02);
+}
+
+#[test]
+fn control_code_numeric_values_match_spec() {
+    // The cmd byte's low 3 bits hold the control code; the protocol
+    // pins SetChipAddress=0 and ChainInactive=3.
+    assert_eq!(ControlCode::SetChipAddress.as_u8(), 0);
+    assert_eq!(ControlCode::ChainInactive.as_u8(), 3);
+}
 
 #[test]
 fn crc5_broadcast_write_0x58() {
