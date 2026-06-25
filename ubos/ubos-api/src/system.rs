@@ -339,6 +339,12 @@ where
     // upload mutex, this stays readable while an upload is in progress.
     let ota_info = crate::ota::ota_info();
 
+    let pause_reasons = ubos_manager::handle().pause_reasons();
+    let paused = !pause_reasons.is_empty();
+    let pause_reason = pause_reasons
+        .dominant()
+        .map(ubos_manager::PauseReason::as_api_str);
+
     let info = SystemInfo {
         api_variant: API_VARIANT,
         board_name,
@@ -361,6 +367,8 @@ where
         best_nonce_diff: 0,
         best_session_nonce_diff: 0,
         ota: ota_info,
+        paused,
+        pause_reason,
     };
 
     serialize_and_respond(connection, scratch, &info, extra_headers).await

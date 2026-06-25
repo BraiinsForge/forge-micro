@@ -60,6 +60,8 @@ fn validate_board_name_rejects_backslash() {
 /// - `resetReason`: `"watchdogTimeout"` (15 chars, longest variant).
 /// - `resetWritePhase`: `"flashDone"` (9 chars, longest variant).
 /// - `previousVersion`: `Some(u32::MAX)` (10 digits, longer than `null`).
+/// - `paused`: `true` (4 chars).
+/// - `pause_reason`: `"dangerousTemperature"` (20 chars, longest variant).
 #[test]
 fn api_info_body_fits_in_buffer() {
     // Build the body using the same `format!` calls that `rest.rs` uses,
@@ -77,6 +79,8 @@ fn api_info_body_fits_in_buffer() {
     let psu_fault = true;
     let pools = u8::MAX;
     let net_confirm_seconds = u64::MAX;
+    let paused = true;
+    let pause_reason = "dangerousTemperature";
 
     let mut body = std::format!(
         "{{\"name\":\"{board_name}\",\
@@ -92,6 +96,8 @@ fn api_info_body_fits_in_buffer() {
          \"psu_fault\":{psu_fault},\
          \"pools\":{pools},\
          \"net_confirm_seconds\":{net_confirm_seconds},\
+         \"paused\":{paused},\
+         \"pause_reason\":\"{pause_reason}\",\
          \"ip\":\"255.255.255.255\",\
          \"time\":\"23:59:59 UTC\""
     );

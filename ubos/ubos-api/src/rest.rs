@@ -33,9 +33,10 @@ mod tests;
 /// Body buffer size for JSON responses built by `/api/info`.
 ///
 /// The largest `/api/info` JSON body with all fields populated is
-/// roughly 520 bytes (name≤32 + numeric fields + 16-byte IPv4 + 16-byte
+/// roughly 570 bytes (name≤32 + numeric fields + 16-byte IPv4 + 16-byte
 /// time string + OTA static fields + OTA diagnostic fields including the
-/// `resetWritePhase` string + JSON framing). 512 bytes overflowed once the
+/// `resetWritePhase` string + `paused` bool + `pause_reason` string up to
+/// `"dangerousTemperature"` + JSON framing). 512 bytes overflowed once the
 /// OTA diagnostic fields were added, silently truncating the tail; 768
 /// bytes covers the worst case and leaves room for future fields while
 /// staying on the stack.
@@ -414,6 +415,8 @@ impl Service for RestApiService {
                 // Seconds left in the network confirm window, or 0 when nothing is pending.
                 // Serialized as `net_confirm_seconds` in the JSON body.
                 let net_confirm_seconds = crate::network_apply::pending_seconds_remaining();
+                let pause_reasons = self.manager.pause_reasons();
+                let paused = !pause_reasons.is_empty();
 
                 let mut body_buf = [0u8; API_INFO_BODY_BUFFER_SIZE];
                 let mut writer = ubos_http::BufferWriter::new(&mut body_buf);
@@ -437,9 +440,19 @@ impl Service for RestApiService {
                      \"psu_fault\":{psu_fault},\
                      \"pools\":{pools},\
                      \"net_confirm_seconds\":{net_confirm_seconds},\
-                     \"ip\":\"",
+                     \"paused\":{paused},\
+                     \"pause_reason\":",
                     self.board_name
                 );
+                match pause_reasons.dominant() {
+                    Some(reason) => {
+                        let _ = core::write!(writer, "\"{}\"", reason.as_api_str());
+                    }
+                    None => {
+                        let _ = writer.write_str("null");
+                    }
+                }
+                let _ = writer.write_str(",\"ip\":\"");
 
                 let ip_bits = LOCAL_IPV4.load(Ordering::Relaxed);
                 if ip_bits != 0 {

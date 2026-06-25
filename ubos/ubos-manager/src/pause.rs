@@ -32,6 +32,25 @@ pub enum PauseReason {
     TunerFault = 5,
 }
 
+impl PauseReason {
+    /// The camelCase wire string for this reason used in the REST API.
+    ///
+    /// This is the canonical API/wire representation of the reason.
+    /// The frontend treats these strings as an enum and must not be
+    /// changed without a corresponding schema version bump.
+    #[must_use]
+    pub fn as_api_str(self) -> &'static str {
+        match self {
+            Self::DangerousTemperature => "dangerousTemperature",
+            Self::BrokenFan => "brokenFan",
+            Self::UserRequest => "userRequest",
+            Self::PoolUnreachable => "poolUnreachable",
+            Self::OtaUpdate => "otaUpdate",
+            Self::TunerFault => "tunerFault",
+        }
+    }
+}
+
 /// Live bitmask of active pause reasons.
 ///
 /// Any non-empty mask means mining is halted. Positions are hidden
@@ -64,5 +83,22 @@ impl PauseReasons {
     #[must_use]
     pub fn contains(self, reason: PauseReason) -> bool {
         self.0 & (1u16 << reason as u8) != 0
+    }
+
+    /// The highest-priority active reason, or `None` when the mask is empty.
+    ///
+    /// Priority order (safety first): `DangerousTemperature`, `BrokenFan`,
+    /// `TunerFault`, `PoolUnreachable`, `OtaUpdate`, `UserRequest`.
+    #[must_use]
+    pub fn dominant(self) -> Option<PauseReason> {
+        const PRIORITY: [PauseReason; 6] = [
+            PauseReason::DangerousTemperature,
+            PauseReason::BrokenFan,
+            PauseReason::TunerFault,
+            PauseReason::PoolUnreachable,
+            PauseReason::OtaUpdate,
+            PauseReason::UserRequest,
+        ];
+        PRIORITY.into_iter().find(|&r| self.contains(r))
     }
 }

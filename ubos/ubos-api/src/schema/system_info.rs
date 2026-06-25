@@ -89,4 +89,11 @@ pub struct SystemInfo<'response> {
     /// OTA partition information. `None` on boards without a
     /// dual-partition layout or when no `OtaTarget` was supplied.
     pub ota: Option<OtaInfo>,
+    /// `true` when mining is halted because at least one pause reason is
+    /// active; `false` when mining is running normally.
+    pub paused: bool,
+    /// The highest-priority active pause reason as a camelCase string, or
+    /// `null` when `paused` is `false`. See `PauseReason::as_api_str` for
+    /// the canonical string values.
+    pub pause_reason: Option<&'static str>,
 }

@@ -575,3 +575,70 @@ fn ota_chunk_non_final_short_returns_400() {
         "non-final chunk smaller than one sector must be rejected with 400"
     );
 }
+
+// ---------------------------------------------------------------------------
+// SystemInfo paused / pause_reason serialization
+// ---------------------------------------------------------------------------
+
+/// Build a minimal `SystemInfo` with the given `paused` and `pause_reason`
+/// values, serialize it with `serde_json_core`, and return the JSON string.
+fn serialize_system_info(paused: bool, pause_reason: Option<&'static str>) -> std::string::String {
+    let info = crate::schema::SystemInfo {
+        api_variant: "ubos-0.1",
+        board_name: "test",
+        hostname: "test",
+        hashrate: 0,
+        uptime_seconds: 0,
+        temperature_celsius: 0,
+        fan_speed_rpm: 0,
+        fan_pwm_percent: 0,
+        pools_bitmap: 0,
+        ip: heapless::String::new(),
+        time: heapless::String::new(),
+        asic_count: 0,
+        asic_model: "BM1362",
+        default_frequency_mhz: 0,
+        default_voltage_mv: 0,
+        shares_accepted: 0,
+        shares_rejected: 0,
+        shares_total: 0,
+        best_nonce_diff: 0,
+        best_session_nonce_diff: 0,
+        ota: None,
+        paused,
+        pause_reason,
+    };
+    let mut buf = [0u8; 1024];
+    let len = serde_json_core::to_slice(&info, &mut buf).expect("BUG: SystemInfo serialize failed");
+    std::string::String::from_utf8(buf[..len].to_vec())
+        .expect("BUG: SystemInfo output is not UTF-8")
+}
+
+/// When no reason is active `paused` is `false` and `pauseReason` is `null`.
+#[test]
+fn system_info_running_serializes_paused_false_and_null_reason() {
+    let json = serialize_system_info(false, None);
+    assert!(
+        json.contains("\"paused\":false"),
+        "expected paused:false in {json}"
+    );
+    assert!(
+        json.contains("\"pauseReason\":null"),
+        "expected pauseReason:null in {json}"
+    );
+}
+
+/// When `UserRequest` is the active reason `paused` is `true` and
+/// `pauseReason` carries the camelCase wire string.
+#[test]
+fn system_info_user_request_serializes_paused_true_and_reason() {
+    let json = serialize_system_info(true, Some("userRequest"));
+    assert!(
+        json.contains("\"paused\":true"),
+        "expected paused:true in {json}"
+    );
+    assert!(
+        json.contains("\"pauseReason\":\"userRequest\""),
+        "expected pauseReason:\"userRequest\" in {json}"
+    );
+}

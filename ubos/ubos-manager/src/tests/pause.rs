@@ -83,3 +83,61 @@ fn all_variants_occupy_distinct_bits() {
     assert!(all.contains(PauseReason::PoolUnreachable));
     assert!(all.contains(PauseReason::TunerFault));
 }
+
+#[test]
+fn as_api_str_returns_camel_case() {
+    assert_eq!(
+        PauseReason::DangerousTemperature.as_api_str(),
+        "dangerousTemperature"
+    );
+    assert_eq!(PauseReason::BrokenFan.as_api_str(), "brokenFan");
+    assert_eq!(PauseReason::UserRequest.as_api_str(), "userRequest");
+    assert_eq!(PauseReason::PoolUnreachable.as_api_str(), "poolUnreachable");
+    assert_eq!(PauseReason::OtaUpdate.as_api_str(), "otaUpdate");
+    assert_eq!(PauseReason::TunerFault.as_api_str(), "tunerFault");
+}
+
+#[test]
+fn dominant_returns_none_when_empty() {
+    assert_eq!(PauseReasons::default().dominant(), None);
+}
+
+#[test]
+fn dominant_returns_single_active_reason() {
+    let reasons = PauseReasons::default().assert(PauseReason::UserRequest);
+    assert_eq!(reasons.dominant(), Some(PauseReason::UserRequest));
+}
+
+#[test]
+fn dominant_prefers_dangerous_temperature_over_all() {
+    let reasons = PauseReasons::default()
+        .assert(PauseReason::DangerousTemperature)
+        .assert(PauseReason::BrokenFan)
+        .assert(PauseReason::TunerFault)
+        .assert(PauseReason::PoolUnreachable)
+        .assert(PauseReason::OtaUpdate)
+        .assert(PauseReason::UserRequest);
+    assert_eq!(reasons.dominant(), Some(PauseReason::DangerousTemperature));
+}
+
+#[test]
+fn dominant_priority_order_without_dangerous_temperature() {
+    // BrokenFan beats TunerFault, PoolUnreachable, OtaUpdate, UserRequest.
+    let reasons = PauseReasons::default()
+        .assert(PauseReason::BrokenFan)
+        .assert(PauseReason::TunerFault)
+        .assert(PauseReason::UserRequest);
+    assert_eq!(reasons.dominant(), Some(PauseReason::BrokenFan));
+
+    // TunerFault beats PoolUnreachable, OtaUpdate, UserRequest.
+    let reasons = PauseReasons::default()
+        .assert(PauseReason::TunerFault)
+        .assert(PauseReason::PoolUnreachable)
+        .assert(PauseReason::OtaUpdate)
+        .assert(PauseReason::UserRequest);
+    assert_eq!(reasons.dominant(), Some(PauseReason::TunerFault));
+
+    // UserRequest is lowest priority.
+    let reasons = PauseReasons::default().assert(PauseReason::UserRequest);
+    assert_eq!(reasons.dominant(), Some(PauseReason::UserRequest));
+}
