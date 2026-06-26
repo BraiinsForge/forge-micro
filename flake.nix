@@ -866,6 +866,130 @@
             '';
           };
 
+          # Production rp2040 firmware image derivation. Shared by
+          # packages.rp2040-image (nix build) and apps.rp2040-image (nix run).
+          rp2040Image = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p rp2040 --target thumbv6m-none-eabi";
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
+            CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            UBOS_FW_VERSION = fwVersion;
+            # Do not copy the cargo target directory into $out; we only
+            # want the raw binary image.
+            doInstallCargoArtifacts = false;
+            # Slot-size and pool-worker guards match build-rp2040 in
+            # checks; the difference is that the bin is kept in $out
+            # instead of being deleted.
+            installPhaseCommand = ''
+              mkdir -p "$out"
+              arm-none-eabi-objcopy -O binary \
+                target/thumbv6m-none-eabi/release/rp2040 \
+                "$out/rp2040-v${fwVersion}.bin"
+              size=$(wc -c < "$out/rp2040-v${fwVersion}.bin")
+              echo "rp2040 image: $size bytes / ${toString slotMaxBytes} bytes budget, version ${fwVersion}"
+              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
+                echo "ERROR: rp2040 release image ($size bytes) exceeds the" \
+                     "${toString slotMaxBytes}-byte slot limit. See docs/OTA.md."
+                exit 1
+              fi
+              if [ -n "''${POOL_USER:-}" ]; then
+                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
+                exit 1
+              fi
+              if grep -qa "braiinstest" "$out/rp2040-v${fwVersion}.bin"; then
+                echo "ERROR: rp2040 image contains the test pool worker 'braiinstest'; it must not ship."
+                exit 1
+              fi
+            '';
+          };
+
+          # Bootloader ELF for the rp2350 and bmm-pico boards. Both boards
+          # use the rp2350-bootloader crate; it occupies flash offset 0x10000000
+          # and carries the image-def the bootrom validates. The combined UF2
+          # derivations bundle this ELF with the app binary so the image is
+          # drag-droppable via the BOOTSEL mass-storage interface.
+          rp2350Bootloader = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p rp2350-bootloader --target thumbv8m.main-none-eabihf";
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            doInstallCargoArtifacts = false;
+            installPhaseCommand = ''
+              mkdir -p "$out"
+              cp target/thumbv8m.main-none-eabihf/release/rp2350-bootloader "$out/boot.elf"
+            '';
+          };
+
+          # Bootloader ELF for the rp2040 board. It occupies flash offset
+          # 0x10000000 and carries the image-def the bootrom validates. The
+          # combined UF2 derivation bundles this ELF with the app binary so the
+          # image is drag-droppable via the BOOTSEL mass-storage interface.
+          rp2040Bootloader = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = null;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p rp2040-bootloader --target thumbv6m-none-eabi";
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            doInstallCargoArtifacts = false;
+            installPhaseCommand = ''
+              mkdir -p "$out"
+              cp target/thumbv6m-none-eabi/release/rp2040-bootloader "$out/boot.elf"
+            '';
+          };
+
+          # Build a combined BOOTSEL UF2 image from a raw app binary and a
+          # bootloader ELF. The bootloader covers offset 0x10000000 (the
+          # offset-0 region the bootrom validates); the app binary is placed at
+          # 0x10021000 (the ACTIVE partition). UF2 blocks carry individual
+          # flash addresses, so concatenating the two single-region UF2 files
+          # yields one drag-drop image spanning both flash regions.
+          mkCombinedUf2 =
+            {
+              name,
+              appBin,
+              bootElf,
+              family,
+            }:
+            pkgs.runCommand "${name}-uf2" { nativeBuildInputs = [ pkgs.picotool ]; } ''
+              mkdir -p "$out"
+              out_uf2="$out/${name}-v${fwVersion}.uf2"
+              picotool uf2 convert ${bootElf}/boot.elf boot.uf2
+              picotool uf2 convert ${appBin} -t bin app.uf2 -o 0x10021000 --family ${family}
+              cat boot.uf2 app.uf2 > "$out_uf2"
+              echo "${name} combined UF2 (bootloader + app v${fwVersion}):"
+              picotool info "$out_uf2" || true
+            '';
+
+          rp2350Uf2 = mkCombinedUf2 {
+            name = "rp2350";
+            appBin = "${rp2350Image}/rp2350-v${fwVersion}.bin";
+            bootElf = rp2350Bootloader;
+            family = "rp2350-arm-s";
+          };
+
+          bmmPicoUf2 = mkCombinedUf2 {
+            name = "bmm-pico";
+            appBin = "${bmmPicoImage}/bmm-pico-v${fwVersion}.bin";
+            bootElf = rp2350Bootloader;
+            family = "rp2350-arm-s";
+          };
+
+          rp2040Uf2 = mkCombinedUf2 {
+            name = "rp2040";
+            appBin = "${rp2040Image}/rp2040-v${fwVersion}.bin";
+            bootElf = rp2040Bootloader;
+            family = "rp2040";
+          };
+
           # Resolve KiCad's stock symbol/footprint libraries for the
           # headless DRC/ERC checks. Without a global library table the CLI
           # cannot find the standard libraries the board references
@@ -2138,6 +2262,8 @@
                   esbuild
                   # Unused-dependency lint, matching the cargo-machete check.
                   cargo-machete
+                  # Builds combined BOOTSEL UF2 images from app and bootloader.
+                  picotool
                 ]
                 ++ [ deploy-rs.packages.${system}.default ];
 
@@ -2345,11 +2471,15 @@
             };
           };
 
-          # Production firmware images for flashing via the WebUI.
+          # Production firmware images for flashing via the WebUI, and combined
+          # BOOTSEL UF2 images for drag-drop flashing via USB mass-storage.
           #
           # Build with a version number:
           #   UBOS_FW_VERSION=42 nix build --impure .#rp2350-image
           # This produces result/rp2350-v42.bin.
+          #
+          #   UBOS_FW_VERSION=42 nix build --impure .#rp2350-uf2
+          # This produces result/rp2350-v42.uf2.
           #
           # A pure build (no --impure) defaults to version 1 because
           # builtins.getEnv returns "" in the Nix sandbox; the sandbox
@@ -2357,6 +2487,10 @@
           packages = rec {
             rp2350-image = rp2350Image;
             bmm-pico-image = bmmPicoImage;
+            rp2040-image = rp2040Image;
+            rp2350-uf2 = rp2350Uf2;
+            bmm-pico-uf2 = bmmPicoUf2;
+            rp2040-uf2 = rp2040Uf2;
 
             # KiCad automation for the bmm-adapter fabrication job
             # (`nix run .#kibot`). DRC and ERC are gated separately by
@@ -2409,15 +2543,18 @@
               }
             );
 
-          # Copy the built image into the repo's build/ directory and print
-          # the absolute path of the written file as the last stdout line.
+          # Copy the built image or UF2 into the repo's build/ directory and
+          # print the absolute path of the written file as the last stdout line.
           #
           # Usage:
           #   nix run .#rp2350-image                                -> build/rp2350-v1.bin
           #   UBOS_FW_VERSION=42 nix run --impure .#rp2350-image    -> build/rp2350-v42.bin
           #   UBOS_FW_VERSION=42 nix run --impure .#bmm-pico-image  -> build/bmm-pico-v42.bin
+          #   nix run .#rp2350-uf2                                  -> build/rp2350-v1.uf2
+          #   nix run .#bmm-pico-uf2                                -> build/bmm-pico-v1.uf2
+          #   nix run .#rp2040-uf2                                  -> build/rp2040-v1.uf2
           #
-          # The final stdout line is the absolute path to the written image.
+          # The final stdout line is the absolute path to the written file.
           apps = {
             rp2350-image = {
               type = "app";
@@ -2449,6 +2586,74 @@
                   name="$(basename "$src_bin")"
                   install -m644 "$src_bin" "$dest/$name"
                   echo "bmm-pico image v${fwVersion} written to:" >&2
+                  echo "$dest/$name"
+                ''
+              );
+            };
+            rp2040-image = {
+              type = "app";
+              program = toString (
+                pkgs.writeShellScript "rp2040-image-to-build" ''
+                  set -euo pipefail
+                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
+                  dest="$root/build"
+                  mkdir -p "$dest"
+                  # The package $out holds exactly one rp2040-v<N>.bin.
+                  src_bin="$(echo ${rp2040Image}/*.bin)"
+                  name="$(basename "$src_bin")"
+                  install -m644 "$src_bin" "$dest/$name"
+                  echo "rp2040 image v${fwVersion} written to:" >&2
+                  echo "$dest/$name"
+                ''
+              );
+            };
+            rp2350-uf2 = {
+              type = "app";
+              program = toString (
+                pkgs.writeShellScript "rp2350-uf2-to-build" ''
+                  set -euo pipefail
+                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
+                  dest="$root/build"
+                  mkdir -p "$dest"
+                  # The package $out holds exactly one rp2350-v<N>.uf2.
+                  src_uf2="$(echo ${rp2350Uf2}/*.uf2)"
+                  name="$(basename "$src_uf2")"
+                  install -m644 "$src_uf2" "$dest/$name"
+                  echo "rp2350 UF2 v${fwVersion} written to:" >&2
+                  echo "$dest/$name"
+                ''
+              );
+            };
+            bmm-pico-uf2 = {
+              type = "app";
+              program = toString (
+                pkgs.writeShellScript "bmm-pico-uf2-to-build" ''
+                  set -euo pipefail
+                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
+                  dest="$root/build"
+                  mkdir -p "$dest"
+                  # The package $out holds exactly one bmm-pico-v<N>.uf2.
+                  src_uf2="$(echo ${bmmPicoUf2}/*.uf2)"
+                  name="$(basename "$src_uf2")"
+                  install -m644 "$src_uf2" "$dest/$name"
+                  echo "bmm-pico UF2 v${fwVersion} written to:" >&2
+                  echo "$dest/$name"
+                ''
+              );
+            };
+            rp2040-uf2 = {
+              type = "app";
+              program = toString (
+                pkgs.writeShellScript "rp2040-uf2-to-build" ''
+                  set -euo pipefail
+                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
+                  dest="$root/build"
+                  mkdir -p "$dest"
+                  # The package $out holds exactly one rp2040-v<N>.uf2.
+                  src_uf2="$(echo ${rp2040Uf2}/*.uf2)"
+                  name="$(basename "$src_uf2")"
+                  install -m644 "$src_uf2" "$dest/$name"
+                  echo "rp2040 UF2 v${fwVersion} written to:" >&2
                   echo "$dest/$name"
                 ''
               );
