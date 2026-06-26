@@ -57,11 +57,10 @@ use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use heapless::String;
 use portable_atomic::Ordering;
-use stratum_client::{SHARES_ACCEPTED, SHARES_REJECTED};
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_metrics::hashrate::{hashrate, SHARE_COUNT};
-use ubos_net::net::{NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP};
+use ubos_metrics::hashrate::hashrate;
+use ubos_net::net::NTP_EPOCH_OFFSET;
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::ota::{
@@ -323,10 +322,10 @@ where
     let fan = ubos_cooling::handle().current();
     let fan_speed_rpm = fan.map_or(0, |f| f.rpm.rpm());
     let fan_pwm_percent = fan.map_or(0, |f| f.pwm.percent());
-    let pools_bitmap = POOL_ALIVE_BITMAP.load(Ordering::Relaxed);
-    let shares_accepted = SHARES_ACCEPTED.load(Ordering::Relaxed);
-    let shares_rejected = SHARES_REJECTED.load(Ordering::Relaxed);
-    let shares_total = SHARE_COUNT.load(Ordering::Relaxed);
+    let pools_bitmap = stratum_client::pool_alive_bitmap();
+    let shares_accepted = stratum_client::shares_accepted();
+    let shares_rejected = stratum_client::shares_rejected();
+    let shares_total = ubos_metrics::hashrate::share_count();
     // Extract the configured hostname before building SystemInfo so the
     // full Config snapshot is dropped before the serialize_and_respond
     // await, keeping the response future small.

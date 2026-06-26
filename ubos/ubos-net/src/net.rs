@@ -10,7 +10,7 @@ use embassy_net::{IpAddress, Ipv4Address, Stack};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{with_timeout, Duration, Instant, Timer};
-use portable_atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
+use portable_atomic::{AtomicU32, AtomicU64, Ordering};
 use ubos_logging::{info, warn, Debug2Format};
 
 use ubos_core::consts::Net;
@@ -216,34 +216,6 @@ impl Handle {
         self.state
             .sender()
             .send_modify(|state| state.get_or_insert_with(NetState::default).mac = Some(mac));
-    }
-}
-
-/// Per-pool reachability bitmap, one bit per pool index. Set bits
-/// render as `Alive` on the dashboard; cleared bits as `Dead`.
-/// Written by the stratum task via [`set_pool_alive`].
-///
-/// Only bit 0 (primary pool) is driven today. The dashboard reserves
-/// rows for backup pools; their bits stay zero and render `Dead`
-/// until secondary/tertiary stratum clients are wired up.
-pub static POOL_ALIVE_BITMAP: AtomicU8 = AtomicU8::new(0);
-
-/// Set or clear the reachability bit for `pool_index` (0 = primary).
-///
-/// Thread-safe; uses a relaxed RMW so the bitmap stays coherent even
-/// when multiple tasks race on separate pool indexes.
-pub fn set_pool_alive(pool_index: u8, alive: bool) {
-    // The debug_assert traps a bad index in tests; the guard keeps an
-    // out-of-range shift from writing a bogus bit in release firmware.
-    debug_assert!(pool_index < 8, "pool_index must fit in the u8 bitmap");
-    if pool_index >= 8 {
-        return;
-    }
-    let bit = 1u8 << pool_index;
-    if alive {
-        POOL_ALIVE_BITMAP.fetch_or(bit, Ordering::Relaxed);
-    } else {
-        POOL_ALIVE_BITMAP.fetch_and(!bit, Ordering::Relaxed);
     }
 }
 

@@ -13,7 +13,14 @@ mod tests;
 
 /// Total shares observed by [`record_share`] since boot. Monotonic;
 /// rendered as inline text on the firmware HTTP status page.
-pub static SHARE_COUNT: AtomicU64 = AtomicU64::new(0);
+static SHARE_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Total shares observed since boot. The only path across the crate
+/// boundary; the backing counter stays private.
+#[must_use]
+pub fn share_count() -> u64 {
+    SHARE_COUNT.load(Ordering::Relaxed)
+}
 
 /// EWMA smoothing factor exponent: shift right by this many bits to
 /// scale the per-bucket delta. 3 → α = 1/8 → roughly an 8-bucket

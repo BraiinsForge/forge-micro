@@ -18,7 +18,7 @@ use portable_atomic::Ordering;
 use ubos_core::consts::Api;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_net::net::{NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, REQUEST_COUNT};
+use ubos_net::net::{NTP_EPOCH_OFFSET, REQUEST_COUNT};
 use ubos_thermal::Handle as ThermalHandle;
 
 use ubos_http::{
@@ -408,7 +408,7 @@ impl Service for RestApiService {
                 let fan = ubos_cooling::handle().current();
                 let fan_rpm = fan.map_or(0, |f| f.rpm.rpm());
                 let fan_pwm = fan.map_or(0, |f| f.pwm.percent());
-                let pools = POOL_ALIVE_BITMAP.load(Ordering::Relaxed);
+                let pools = stratum_client::pool_alive_bitmap();
                 let psu_reading = self.psu.current();
                 let power_in_mw = psu_reading.map_or(0u32, |r| r.input_power.mw());
                 let power_out_mw = psu_reading.map_or(0u32, |r| r.output_power.mw());

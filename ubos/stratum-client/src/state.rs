@@ -12,11 +12,24 @@ use ubos_logging::{info, warn};
 
 /// Lifetime-monotonic count of shares the pool accepted. Incremented
 /// in [`StratumState::visit_submit_result`] on the `Accepted` arm.
-pub static SHARES_ACCEPTED: AtomicU64 = AtomicU64::new(0);
+pub(crate) static SHARES_ACCEPTED: AtomicU64 = AtomicU64::new(0);
 
 /// Lifetime-monotonic count of shares the pool rejected. Incremented
 /// in [`StratumState::visit_submit_result`] on the `Rejected` arm.
-pub static SHARES_REJECTED: AtomicU64 = AtomicU64::new(0);
+pub(crate) static SHARES_REJECTED: AtomicU64 = AtomicU64::new(0);
+
+/// Shares the pool has accepted since boot. The only path across the
+/// crate boundary; the counter stays crate-private.
+#[must_use]
+pub fn shares_accepted() -> u64 {
+    SHARES_ACCEPTED.load(Ordering::Relaxed)
+}
+
+/// Shares the pool has rejected since boot.
+#[must_use]
+pub fn shares_rejected() -> u64 {
+    SHARES_REJECTED.load(Ordering::Relaxed)
+}
 
 use crate::job_ring::{JobRing, JOB_RING_DEPTH};
 use crate::work::MAX_EXTRANONCE_2;

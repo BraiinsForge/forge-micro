@@ -16,7 +16,7 @@ use embassy_time::{Duration, Ticker};
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
 use mining_protocol::{Error, MiningClient, Share};
-use portable_atomic::{AtomicBool, AtomicU32, Ordering};
+use portable_atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use ubos_logging::{info, trace, warn};
 
 /// Lifetime-monotonic count of times the stratum reconnect path has
@@ -29,7 +29,7 @@ use ubos_logging::{info, trace, warn};
 /// `AtomicU32` (rather than `AtomicU64` like the share counters) is
 /// sized for reconnect cadence: a continuous reconnect-once-per-second
 /// loop would take ~136 years to overflow 32 bits.
-pub static STRATUM_RECONNECTS: AtomicU32 = AtomicU32::new(0);
+pub(crate) static STRATUM_RECONNECTS: AtomicU32 = AtomicU32::new(0);
 
 /// Increment [`STRATUM_RECONNECTS`] on every call past the first.
 ///
@@ -64,6 +64,41 @@ use crate::work::{OutstandingWork, Solution, WorkAssignment, MAX_EXTRANONCE_2};
 /// backup pool is ever added, add a `pool_index` parameter to
 /// `run_stratum_client` and pass `PRIMARY_POOL_INDEX` from the call site.
 const PRIMARY_POOL_INDEX: u8 = 0;
+
+/// Per-pool reachability bitmap, one bit per pool index. Set bits render
+/// as `Alive` on the dashboard; cleared bits as `Dead`. Pool reachability
+/// is a stratum concern, so it is owned here rather than in `ubos-net`.
+///
+/// Only bit 0 (primary pool) is driven today. The dashboard reserves rows
+/// for backup pools; their bits stay zero and render `Dead` until
+/// secondary/tertiary stratum clients are wired up.
+static POOL_ALIVE_BITMAP: AtomicU8 = AtomicU8::new(0);
+
+/// Current per-pool reachability bitmap. The only path across the crate
+/// boundary; the backing atomic stays private.
+#[must_use]
+pub fn pool_alive_bitmap() -> u8 {
+    POOL_ALIVE_BITMAP.load(Ordering::Relaxed)
+}
+
+/// Set or clear the reachability bit for `pool_index` (0 = primary).
+///
+/// Thread-safe; uses a relaxed RMW so the bitmap stays coherent even when
+/// multiple tasks race on separate pool indexes.
+pub fn set_pool_alive(pool_index: u8, alive: bool) {
+    // The debug_assert traps a bad index in tests; the guard keeps an
+    // out-of-range shift from writing a bogus bit in release firmware.
+    debug_assert!(pool_index < 8, "pool_index must fit in the u8 bitmap");
+    if pool_index >= 8 {
+        return;
+    }
+    let bit = 1u8 << pool_index;
+    if alive {
+        POOL_ALIVE_BITMAP.fetch_or(bit, Ordering::Relaxed);
+    } else {
+        POOL_ALIVE_BITMAP.fetch_and(!bit, Ordering::Relaxed);
+    }
+}
 
 /// Cadence at which the work generator publishes a fresh
 /// `WorkAssignment`. Each tick advances `ntime` by one second.
@@ -106,7 +141,7 @@ where
     T: Read + Write,
 {
     let result = run_stratum_client_inner(client, transport, asic, state).await;
-    ubos_net::net::set_pool_alive(PRIMARY_POOL_INDEX, false);
+    set_pool_alive(PRIMARY_POOL_INDEX, false);
     result
 }
 
@@ -125,7 +160,7 @@ where
     // failed connect does not produce a transient "alive" blip in
     // `POOL_ALIVE_BITMAP` between this function's entry and the
     // `await?` returning Err.
-    ubos_net::net::set_pool_alive(PRIMARY_POOL_INDEX, true);
+    set_pool_alive(PRIMARY_POOL_INDEX, true);
 
     let mut work_ticker = Ticker::every(WORK_GENERATOR_PERIOD);
 

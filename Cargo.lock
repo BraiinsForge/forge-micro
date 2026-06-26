@@ -3871,7 +3871,6 @@ dependencies = [
  "portable-atomic",
  "ubos-logging",
  "ubos-metrics",
- "ubos-net",
 ]
 
 [[package]]
