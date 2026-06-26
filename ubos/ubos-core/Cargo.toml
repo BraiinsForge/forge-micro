@@ -13,4 +13,3 @@ ccmram-bss = []
 embassy-sync    = { workspace = true }
 embassy-time    = { workspace = true }
 embedded-hal    = { workspace = true }
-portable-atomic = { workspace = true }

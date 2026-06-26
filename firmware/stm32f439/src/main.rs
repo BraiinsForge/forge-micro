@@ -241,8 +241,8 @@ async fn config_task(storage: BoardConfigStorage) -> ! {
 }
 
 #[embassy_executor::task]
-async fn cooling_task(fan: fan::BoardFan, thermal: ThermalHandle) -> ! {
-    ubos_cooling::run_cooling(fan, thermal).await
+async fn cooling_task(fan: fan::BoardFan, tach: fan::Tach, thermal: ThermalHandle) -> ! {
+    ubos_cooling::run_cooling(fan, tach, thermal).await
 }
 
 #[embassy_executor::task]
@@ -626,9 +626,10 @@ async fn boot(spawner: Spawner) {
         let hashboard_temp = temperature::HashboardTemperature::new(temp_device);
         let board_fan = fan::BoardFan::new(hw.tim4, hw.fan_pwm_pin, hw.fan_tach_pin);
         let tach_hardware = fan::TachHardware::new(&board_fan);
+        let tach = fan::Tach;
         spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
         spawner.spawn(unwrap!(manager_task(mining_handle)));
-        spawner.spawn(unwrap!(cooling_task(board_fan, thermal)));
+        spawner.spawn(unwrap!(cooling_task(board_fan, tach, thermal)));
         spawner.spawn(unwrap!(tach_task(tach_hardware)));
     }
 

@@ -58,7 +58,6 @@ use embedded_io_async::{Read, Write};
 use heapless::String;
 use portable_atomic::Ordering;
 use stratum_client::{SHARES_ACCEPTED, SHARES_REJECTED};
-use ubos_core::fan_state;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_metrics::hashrate::{hashrate, SHARE_COUNT};
@@ -321,8 +320,9 @@ where
     let temperature_celsius = thermal
         .current()
         .map_or(0i32, |r| r.chip_max.celsius_f32() as i32);
-    let fan_speed_rpm = fan_state::load_rpm().rpm();
-    let fan_pwm_percent = fan_state::load_pwm().percent();
+    let fan = ubos_cooling::handle().current();
+    let fan_speed_rpm = fan.map_or(0, |f| f.rpm.rpm());
+    let fan_pwm_percent = fan.map_or(0, |f| f.pwm.percent());
     let pools_bitmap = POOL_ALIVE_BITMAP.load(Ordering::Relaxed);
     let shares_accepted = SHARES_ACCEPTED.load(Ordering::Relaxed);
     let shares_rejected = SHARES_REJECTED.load(Ordering::Relaxed);

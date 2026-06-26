@@ -14,8 +14,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use log::{error, info, warn};
-use ubos_cooling::FanOutput;
-use ubos_core::units::FanPwm;
+use ubos_cooling::{FanOutput, TachReader};
+use ubos_core::units::{FanPwm, FanRpm};
 use ubos_thermal::Handle as ThermalHandle;
 
 /// Root of the platform-device tree the kernel exposes for hwmon
@@ -151,9 +151,19 @@ impl FanOutput for FanHwmonController {
     }
 }
 
+/// Tachometer stub. The host runner omits RPM feedback (see module
+/// doc), so it reports zero and the cooling loop publishes PWM only.
+struct NoTach;
+
+impl TachReader for NoTach {
+    fn read_rpm(&mut self) -> FanRpm {
+        FanRpm::from_rpm(0)
+    }
+}
+
 /// PID-driven fan loop. Spawned by main once both the fan controller
 /// and the LM75A sensor array have opened.
 #[embassy_executor::task]
 pub async fn pid_fan_task(controller: FanHwmonController, thermal: ThermalHandle) -> ! {
-    ubos_cooling::run_cooling(controller, thermal).await
+    ubos_cooling::run_cooling(controller, NoTach, thermal).await
 }

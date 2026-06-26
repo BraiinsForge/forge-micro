@@ -166,7 +166,6 @@ impl Watchdog {
 pub struct Fan;
 impl Fan {
     pub const PWM_TOP: u16 = 4999;
-    pub const TACH_WINDOW: Duration = Duration::from_secs(1);
     pub const TACH_PULSES_PER_REV: u64 = 2;
 }
 

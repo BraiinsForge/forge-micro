@@ -14,20 +14,20 @@
 //!
 //! Slice 7 channel B on `PIN_15` runs in `RisingEdge` divmode and
 //! counts tach pulses. Standard 4-wire fans emit two pulses per
-//! revolution, so RPM is `pulses × 60 / 2` over the sample window.
-//! The tach output is open-collector, so the pad's internal pull-up
-//! is enabled to idle the line high between pulses.
+//! revolution, so RPM is `pulses × 60 / 2` over the elapsed interval.
+//! `BoardTach` exposes the count behind `ubos_cooling::TachReader`; the
+//! cooling task samples it once per control tick. The tach output is
+//! open-collector, so the pad's internal pull-up idles the line high
+//! between pulses.
 
 use defmt::info;
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::{PIN_15, PIN_8, PWM_SLICE4, PWM_SLICE7};
 use embassy_rp::pwm::{Config as PwmConfig, InputMode, Pwm};
 use embassy_rp::Peri;
-use embassy_time::Ticker;
-use ubos_cooling::FanOutput;
-use ubos_core::fan_state;
+use embassy_time::Instant;
+use ubos_cooling::{FanOutput, TachReader};
 use ubos_core::units::{FanPwm, FanRpm};
-use ubos_metrics::metrics::{push, Metric, Value};
 
 use crate::config::Fan;
 
@@ -44,8 +44,6 @@ impl BoardFan {
         let mut pwm_config = PwmConfig::default();
         pwm_config.top = Fan::PWM_TOP;
         let pwm = Pwm::new_output_a(slice, pin, pwm_config);
-        // Clear the display's no-fan sentinel so line 3 switches to PWM/RPM.
-        fan_state::store_pwm(FanPwm::ZERO);
         Self {
             pwm,
             top: Fan::PWM_TOP,
@@ -65,39 +63,48 @@ impl FanOutput for BoardFan {
             config.compare_a = compare as u16;
         }
         self.pwm.set_config(&config);
-        fan_state::store_pwm(pwm);
     }
 }
 
-/// Tach input peripherals consumed by [`run_tach`].
-pub struct TachHardware {
-    pub slice: Peri<'static, PWM_SLICE7>,
-    pub pin: Peri<'static, PIN_15>,
+/// Tachometer reader. Owns the PWM slice running as a rising-edge
+/// counter on the tach pin; `read_rpm` snapshots and resets the count,
+/// then converts it to RPM over the interval since the previous call.
+pub struct BoardTach {
+    tach: Pwm<'static>,
+    last: Instant,
 }
 
-/// Sample tach pulses and publish RPM as a gauge. Runs forever.
-pub async fn run_tach(hardware: TachHardware) -> ! {
-    let tach = Pwm::new_input(
-        hardware.slice,
-        hardware.pin,
-        Pull::Up,
-        InputMode::RisingEdge,
-        PwmConfig::default(),
-    );
+impl BoardTach {
+    #[must_use]
+    pub fn new(slice: Peri<'static, PWM_SLICE7>, pin: Peri<'static, PIN_15>) -> Self {
+        let tach = Pwm::new_input(
+            slice,
+            pin,
+            Pull::Up,
+            InputMode::RisingEdge,
+            PwmConfig::default(),
+        );
+        info!("fan tach: {} pulses/rev", Fan::TACH_PULSES_PER_REV);
+        Self {
+            tach,
+            last: Instant::now(),
+        }
+    }
+}
 
-    info!(
-        "fan tach: {} pulses/rev, window {} s",
-        Fan::TACH_PULSES_PER_REV,
-        Fan::TACH_WINDOW.as_secs(),
-    );
-
-    let mut ticker = Ticker::every(Fan::TACH_WINDOW);
-    loop {
-        tach.set_counter(0);
-        ticker.next().await;
-        let counts = u64::from(tach.counter());
-        let rpm = counts * 60 / Fan::TACH_PULSES_PER_REV / Fan::TACH_WINDOW.as_secs();
-        fan_state::store_rpm(FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX)));
-        push(Metric::with_no_labels("board_fan_rpm", Value::Uint(rpm))).await;
+impl TachReader for BoardTach {
+    fn read_rpm(&mut self) -> FanRpm {
+        let now = Instant::now();
+        let counts = u64::from(self.tach.counter());
+        self.tach.set_counter(0);
+        let elapsed_us = (now - self.last).as_micros();
+        self.last = now;
+        // `checked_div` yields 0 on the first call, when the interval can
+        // round to zero microseconds. The 16-bit counter cannot overflow
+        // at the control cadence: a 16 000 RPM fan emits ~533 edges/s.
+        let rpm = (counts * 60 * 1_000_000 / Fan::TACH_PULSES_PER_REV)
+            .checked_div(elapsed_us)
+            .unwrap_or(0);
+        FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))
     }
 }

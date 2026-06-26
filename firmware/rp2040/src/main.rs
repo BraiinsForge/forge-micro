@@ -264,13 +264,8 @@ async fn config_task(storage: BoardConfigStorage) -> ! {
 }
 
 #[embassy_executor::task]
-async fn cooling_task(fan: fan::BoardFan, thermal: ThermalHandle) -> ! {
-    ubos_cooling::run_cooling(fan, thermal).await
-}
-
-#[embassy_executor::task]
-async fn tach_task(hardware: fan::TachHardware) -> ! {
-    fan::run_tach(hardware).await
+async fn cooling_task(fan: fan::BoardFan, tach: fan::BoardTach, thermal: ThermalHandle) -> ! {
+    ubos_cooling::run_cooling(fan, tach, thermal).await
 }
 
 #[embassy_executor::task]
@@ -632,9 +627,10 @@ async fn boot(spawner: Spawner) {
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
         let hashboard_temp = temperature::HashboardTemperature::new(temp_device);
         let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin);
+        let board_tach = fan::BoardTach::new(hw.fan_tach_slice, hw.fan_tach_pin);
         spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
         spawner.spawn(unwrap!(manager_task(mining_handle)));
-        spawner.spawn(unwrap!(cooling_task(board_fan, thermal)));
+        spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
     }
 
     let config_storage = FlashStorage::new(
@@ -728,11 +724,6 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(metrics_ingest_task()));
 
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
-
-    spawner.spawn(unwrap!(tach_task(fan::TachHardware {
-        slice: hw.fan_tach_slice,
-        pin: hw.fan_tach_pin,
-    })));
 
     spawner.spawn(unwrap!(cpu_load_task()));
     spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));

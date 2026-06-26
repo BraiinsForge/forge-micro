@@ -1,6 +1,8 @@
-//! Fan PID controller task: subscribes to the thermal subsystem and
-//! drives the board fan via the `FanOutput` trait. Generic over the
-//! thermal source and fan output to stay portable across boards.
+//! Fan PID controller task: subscribes to the thermal subsystem, drives
+//! the board fan via the `FanOutput` trait, reads the tachometer via
+//! `TachReader`, and publishes the resulting `FanState` as the sole
+//! writer. Generic over the thermal source, fan output, and tach reader
+//! to stay portable across boards.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -13,14 +15,17 @@ mod pid;
 #[path = "tests/pid.rs"]
 mod tests_pid;
 
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::watch::Watch;
 use ubos_config::CoolingConfig;
-use ubos_core::fan_state;
-use ubos_core::units::FanPwm;
+use ubos_core::units::{FanPwm, FanRpm};
 use ubos_logging::info;
 use ubos_metrics::metrics::{push, Metric, Value};
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::pid::TempControl;
+
+type CSMutex = CriticalSectionRawMutex;
 
 /// Board-supplied fan PWM sink. Boards translate the [`FanPwm`] duty
 /// cycle to whatever counter top their PWM peripheral uses.
@@ -28,13 +33,64 @@ pub trait FanOutput {
     fn set_pwm(&mut self, pwm: FanPwm);
 }
 
-/// Tachometer reader. Declared here for Step 4; no implementations or
-/// callers exist yet.
+/// Board-supplied tachometer reader. `run_cooling` calls `read_rpm` once
+/// per control tick; the implementation returns the fan speed measured
+/// since the previous call.
 pub trait TachReader {
-    fn read_rpm(&mut self) -> ubos_core::units::FanRpm;
+    fn read_rpm(&mut self) -> FanRpm;
 }
 
 const METRIC_FAN_PWM: &str = "board_fan_pwm_percent";
+const METRIC_FAN_RPM: &str = "board_fan_rpm";
+
+/// Subscriber capacity for the fan watch. Every reader takes a
+/// point-in-time snapshot via [`Handle::current`]; none subscribe, so a
+/// single slot suffices.
+const WATCH_CAPACITY: usize = 1;
+
+/// Fan telemetry published by [`run_cooling`], the sole writer.
+///
+/// [`Handle::current`] returns `None` until the first control tick, and
+/// forever on boards that never spawn the cooling task; consumers render
+/// the fan line only once a value is present.
+#[derive(Clone, Copy)]
+pub struct FanState {
+    /// PWM duty the cooling loop last commanded.
+    pub pwm: FanPwm,
+    /// Fan speed read from the tachometer at the last control tick.
+    pub rpm: FanRpm,
+}
+
+/// Module-internal fan-telemetry watch. Single writer is [`run_cooling`];
+/// readers obtain a snapshot through [`Handle::current`].
+static STATE_WATCH: Watch<CSMutex, FanState, WATCH_CAPACITY> = Watch::new();
+
+/// Obtain a handle to the fan telemetry. `Copy`; callers freely pass it
+/// to multiple tasks.
+#[must_use]
+pub fn handle() -> Handle {
+    Handle {
+        state: &STATE_WATCH,
+    }
+}
+
+/// Consumer-side handle for fan telemetry.
+///
+/// `Copy` because it holds only a `'static` reference. Every consumer
+/// task takes its own value.
+#[derive(Clone, Copy)]
+pub struct Handle {
+    state: &'static Watch<CSMutex, FanState, WATCH_CAPACITY>,
+}
+
+impl Handle {
+    /// Most recently published fan telemetry, or `None` before the first
+    /// control tick and on boards without a cooling task.
+    #[must_use]
+    pub fn current(&self) -> Option<FanState> {
+        self.state.try_get()
+    }
+}
 
 fn build_control(config: &CoolingConfig) -> TempControl {
     let mut control = TempControl::new(
@@ -57,7 +113,16 @@ fn build_control(config: &CoolingConfig) -> TempControl {
 /// change adjusts the setpoint in place, a PID-gains change rebuilds
 /// the controller. If the reading carries `sensor_fault: true`, the
 /// fan is forced to 100% and the PID state is not advanced.
-pub async fn run_cooling<F: FanOutput>(mut fan: F, thermal: ThermalHandle) -> ! {
+///
+/// Each tick reads the tachometer and publishes the commanded PWM and
+/// measured RPM together as [`FanState`]; this task is the sole writer
+/// of the fan watch.
+pub async fn run_cooling<F: FanOutput, T: TachReader>(
+    mut fan: F,
+    mut tach: T,
+    thermal: ThermalHandle,
+) -> ! {
+    let publisher = STATE_WATCH.sender();
     let config_handle = ubos_config::handle();
     let mut config_subscription = config_handle.subscribe();
     let mut config: CoolingConfig = config_handle.current().cooling;
@@ -96,11 +161,17 @@ pub async fn run_cooling<F: FanOutput>(mut fan: F, thermal: ThermalHandle) -> ! 
         };
 
         fan.set_pwm(pwm);
-        fan_state::store_pwm(pwm);
+        let rpm = tach.read_rpm();
+        publisher.send(FanState { pwm, rpm });
 
         push(Metric::with_no_labels(
             METRIC_FAN_PWM,
             Value::Uint(u64::from(pwm.percent())),
+        ))
+        .await;
+        push(Metric::with_no_labels(
+            METRIC_FAN_RPM,
+            Value::Uint(u64::from(rpm.rpm())),
         ))
         .await;
     }

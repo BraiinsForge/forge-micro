@@ -11,7 +11,6 @@ use embedded_hal::digital::OutputPin;
 use portable_atomic::Ordering;
 use profont::PROFONT_12_POINT;
 
-use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
 use ubos_metrics::hashrate;
 use ubos_net::net::handle as net_handle;
 use ubos_net::ntp;
@@ -65,17 +64,14 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(),
         Text::new(time.as_str(), Point::new(0, 29), style).draw(display)?;
     }
 
-    // Line 3: fan PWM and RPM when the board publishes them. `FAN_PWM_PERCENT
-    // == u8::MAX` is the "no fan" sentinel; any board with a fan task clears
-    // it on startup. The raw atomic is read deliberately: `fan_state::load_pwm()`
-    // collapses the sentinel to `FanPwm::ZERO` and would erase this branch.
-    let pwm_percent = FAN_PWM_PERCENT.load(Ordering::Relaxed);
-    if pwm_percent != u8::MAX {
-        let rpm = FAN_RPM.load(Ordering::Relaxed);
+    // Line 3: fan PWM and RPM, published by the cooling task. `current()`
+    // is `None` on boards without a fan, so line 3 stays blank there.
+    if let Some(fan) = ubos_cooling::handle().current() {
         let mut fan_buffer = [0u8; 24];
-        if let Ok(text) =
-            format_no_std::show(&mut fan_buffer, format_args!("{pwm_percent}% {rpm} RPM"))
-        {
+        if let Ok(text) = format_no_std::show(
+            &mut fan_buffer,
+            format_args!("{}% {} RPM", fan.pwm.percent(), fan.rpm.rpm()),
+        ) {
             Text::new(text, Point::new(0, 45), style).draw(display)?;
         }
     }

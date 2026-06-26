@@ -16,6 +16,7 @@ defmt   = [
 ]
 
 [dependencies]
+embassy-sync = { workspace = true }
 defmt        = { workspace = true, optional = true }
 ubos-config  = { workspace = true, default-features = false }
 ubos-core    = { workspace = true }

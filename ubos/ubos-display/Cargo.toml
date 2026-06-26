@@ -12,8 +12,7 @@ embedded-graphics = { workspace = true }
 embedded-hal      = { workspace = true }
 embedded-hal-async = { workspace = true }
 format_no_std     = { workspace = true }
-portable-atomic   = { workspace = true }
 profont           = { workspace = true }
-ubos-core         = { workspace = true }
+ubos-cooling      = { workspace = true, default-features = false }
 ubos-metrics      = { workspace = true, default-features = false }
 ubos-net          = { workspace = true, default-features = false }

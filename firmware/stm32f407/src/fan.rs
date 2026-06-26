@@ -29,10 +29,12 @@ use embassy_stm32::timer::low_level::{
 use embassy_stm32::timer::Channel;
 use embassy_stm32::Peri;
 use embassy_time::{Duration, Instant, Timer as EmbassyTimer};
-use ubos_cooling::FanOutput;
-use ubos_core::fan_state;
+use portable_atomic::{AtomicU32, Ordering};
+use ubos_cooling::{FanOutput, TachReader};
 use ubos_core::units::{FanPwm, FanRpm};
-use ubos_metrics::metrics::{push, Metric, Value};
+
+/// Board-local RPM sample written by [`run_tach`] and read by [`Tach`].
+static FAN_RPM_SAMPLE: AtomicU32 = AtomicU32::new(0);
 
 /// Target PWM frequency per Intel 4-wire fan specification.
 const FAN_PWM_FREQ: Hertz = Hertz(25_000);
@@ -121,9 +123,6 @@ impl BoardFan {
         // Clear any stale capture flag before the tach task starts counting.
         timer.clear_input_interrupt(Channel::Ch4);
 
-        // Clear the display's no-fan sentinel so line 3 switches to PWM/RPM.
-        fan_state::store_pwm(FanPwm::ZERO);
-
         Self {
             timer,
             arr,
@@ -140,7 +139,6 @@ impl FanOutput for BoardFan {
         // compare ≤ arr ≤ 65 535 (TIM4 is a 16-bit timer); truncation is safe.
         #[allow(clippy::cast_possible_truncation)]
         self.timer.set_compare_value(Channel::Ch3, compare as u16);
-        fan_state::store_pwm(pwm);
     }
 }
 
@@ -193,7 +191,17 @@ pub async fn run_tach(_hardware: TachHardware) -> ! {
         }
 
         let rpm = pulses * 60 / TACH_PULSES_PER_REV / TACH_WINDOW.as_secs();
-        fan_state::store_rpm(FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX)));
-        push(Metric::with_no_labels("board_fan_rpm", Value::Uint(rpm))).await;
+        FAN_RPM_SAMPLE.store(u32::try_from(rpm).unwrap_or(u32::MAX), Ordering::Relaxed);
+    }
+}
+
+/// Tach reader passed to [`ubos_cooling::run_cooling`].
+///
+/// Reads the latest RPM sample written by [`run_tach`] into the cooling loop.
+pub struct Tach;
+
+impl TachReader for Tach {
+    fn read_rpm(&mut self) -> FanRpm {
+        FanRpm::from_rpm(FAN_RPM_SAMPLE.load(Ordering::Relaxed))
     }
 }

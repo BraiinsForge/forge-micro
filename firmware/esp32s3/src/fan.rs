@@ -11,11 +11,11 @@
 //! Tach readback: PCNT Unit0 is configured to increment on every rising
 //! edge of the tach signal with no control signal (counter always runs).
 //! The high-limit wrap is set to `i16::MAX` to defer overflow handling.
-//! `run_tach` snapshots and resets the counter every `TACH_WINDOW` second
-//! and converts pulse count to RPM (two pulses per revolution standard).
+//! `BoardTach` snapshots and resets the counter on each `read_rpm` call
+//! and converts pulse count to RPM over the elapsed interval.
 
 use defmt::info;
-use embassy_time::{Duration, Timer as EmbassyTimer};
+use embassy_time::Instant;
 use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::ledc::channel::ChannelIFace;
 use esp_hal::ledc::timer::TimerIFace;
@@ -25,19 +25,14 @@ use esp_hal::pcnt::Pcnt;
 use esp_hal::peripherals::{GPIO10, GPIO11, LEDC, PCNT};
 use esp_hal::time::Rate;
 use static_cell::StaticCell;
-use ubos_cooling::FanOutput;
-use ubos_core::fan_state;
+use ubos_cooling::{FanOutput, TachReader};
 use ubos_core::units::{FanPwm, FanRpm};
-use ubos_metrics::metrics::{push, Metric, Value};
 
 /// Target PWM frequency per Intel 4-wire fan specification.
 const FAN_PWM_FREQ: Rate = Rate::from_khz(25);
 
 /// Duty resolution: 10-bit gives 1024 steps at 25 kHz.
 const DUTY_BITS: esp_hal::ledc::timer::config::Duty = esp_hal::ledc::timer::config::Duty::Duty10Bit;
-
-/// Tach sample window: accumulate edges for one second then report RPM.
-const TACH_WINDOW: Duration = Duration::from_secs(1);
 
 /// Rising edges emitted by a 4-wire fan per revolution.
 const TACH_PULSES_PER_REV: u64 = 2;
@@ -89,9 +84,6 @@ impl BoardFan {
             })
             .expect("BUG: LEDC channel configuration failed");
 
-        // Clear the display's no-fan sentinel so line 3 shows PWM/RPM.
-        fan_state::store_pwm(FanPwm::ZERO);
-
         Self { channel: channel0 }
     }
 }
@@ -104,23 +96,25 @@ impl FanOutput for BoardFan {
         self.channel
             .set_duty(percent)
             .expect("BUG: LEDC set_duty failed");
-        fan_state::store_pwm(pwm);
     }
 }
 
-/// Tach hardware consumed by [`run_tach`].
+/// Tachometer reader backed by PCNT Unit0 counting rising tach edges.
 ///
-/// Holds the PCNT driver so Unit0 stays configured for the firmware lifetime,
-/// and a cloned `Counter` handle for reading edge counts.
-pub struct TachHardware {
-    /// Owned solely to keep PCNT Unit0 configured for the lifetime of
-    /// the task; `Pcnt` does not expose the running unit otherwise.
+/// Holds the PCNT driver so Unit0 stays configured for the firmware
+/// lifetime, and a cloned `Counter` handle for reading edge counts.
+/// `read_rpm` snapshots and resets the counter, then computes RPM over
+/// the elapsed time since the previous call.
+pub struct BoardTach {
+    /// Owned to keep PCNT Unit0 configured for the lifetime of the reader.
     pcnt: Pcnt<'static>,
     /// Edge-count handle into Unit0 used for the actual reads.
     counter: esp_hal::pcnt::unit::Counter<'static, 0>,
+    /// Wall time of the previous `read_rpm` call for elapsed-time RPM math.
+    last: Instant,
 }
 
-impl TachHardware {
+impl BoardTach {
     /// Configure PCNT Unit0 to count rising tach edges on `tach_pin`.
     ///
     /// PCNT peripheral ownership is consumed here; it must be obtained from
@@ -156,40 +150,33 @@ impl TachHardware {
         pcnt_driver.unit0.clear();
         pcnt_driver.unit0.resume();
 
-        // Counter clone for the tach task; the Unit itself stays here.
+        // Counter clone for reads; the Unit itself stays here.
         let counter = pcnt_driver.unit0.counter.clone();
 
+        info!("fan tach: {} pulses/rev", TACH_PULSES_PER_REV);
         Self {
             pcnt: pcnt_driver,
             counter,
+            last: Instant::now(),
         }
     }
 }
 
-/// Sample tach pulses and publish RPM as a gauge. Runs forever.
-///
-/// Snapshots the PCNT counter every `TACH_WINDOW`, resets it, and converts
-/// the pulse count to RPM (two pulses per revolution).
-pub async fn run_tach(hardware: TachHardware) -> ! {
-    info!(
-        "fan tach: {} pulses/rev, window {} s",
-        TACH_PULSES_PER_REV,
-        TACH_WINDOW.as_secs(),
-    );
-
-    loop {
-        EmbassyTimer::after(TACH_WINDOW).await;
-
-        // Snapshot and reset the counter. PCNT unit0 wraps at i16::MAX
-        // (~32767 edges); at 2 pulses/rev that is ~16 000 RPM per window,
-        // well above any realistic fan speed, so no wrap-around guard is needed.
-        let pulses = hardware.counter.get();
-        hardware.pcnt.unit0.clear();
+impl TachReader for BoardTach {
+    fn read_rpm(&mut self) -> FanRpm {
+        let now = Instant::now();
         // A negative value means a spurious decrement; treat as zero.
-        let pulses = u64::try_from(pulses.max(0)).unwrap_or(0);
-
-        let rpm = pulses * 60 / TACH_PULSES_PER_REV / TACH_WINDOW.as_secs();
-        fan_state::store_rpm(FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX)));
-        push(Metric::with_no_labels("board_fan_rpm", Value::Uint(rpm))).await;
+        let counts = u64::try_from(self.counter.get().max(0)).unwrap_or(0);
+        self.pcnt.unit0.clear();
+        let elapsed_us = (now - self.last).as_micros();
+        self.last = now;
+        // The first call may see a near-zero interval; report 0 rather
+        // than dividing by it.
+        let rpm = if elapsed_us == 0 {
+            0
+        } else {
+            counts * 60 * 1_000_000 / TACH_PULSES_PER_REV / elapsed_us
+        };
+        FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))
     }
 }

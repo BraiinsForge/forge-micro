@@ -405,8 +405,9 @@ impl Service for RestApiService {
                     .thermal
                     .current()
                     .map_or(0i32, |r| r.chip_max.celsius_f32() as i32);
-                let fan_rpm = ubos_core::fan_state::load_rpm().rpm();
-                let fan_pwm = ubos_core::fan_state::load_pwm().percent();
+                let fan = ubos_cooling::handle().current();
+                let fan_rpm = fan.map_or(0, |f| f.rpm.rpm());
+                let fan_pwm = fan.map_or(0, |f| f.pwm.percent());
                 let pools = POOL_ALIVE_BITMAP.load(Ordering::Relaxed);
                 let psu_reading = self.psu.current();
                 let power_in_mw = psu_reading.map_or(0u32, |r| r.input_power.mw());

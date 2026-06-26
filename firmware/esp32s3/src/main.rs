@@ -225,13 +225,12 @@ async fn config_task(storage: BoardConfigStorage) -> ! {
 }
 
 #[embassy_executor::task]
-async fn cooling_task(board_fan: fan::BoardFan, thermal: ThermalHandle) -> ! {
-    ubos_cooling::run_cooling(board_fan, thermal).await
-}
-
-#[embassy_executor::task]
-async fn tach_task(hardware: fan::TachHardware) -> ! {
-    fan::run_tach(hardware).await
+async fn cooling_task(
+    board_fan: fan::BoardFan,
+    board_tach: fan::BoardTach,
+    thermal: ThermalHandle,
+) -> ! {
+    ubos_cooling::run_cooling(board_fan, board_tach, thermal).await
 }
 
 #[cfg(feature = "display")]
@@ -703,11 +702,10 @@ async fn boot(spawner: Spawner) {
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
         let hashboard_temp = temperature::HashboardTemperature::new(temp_device);
         let board_fan = fan::BoardFan::new(hw.ledc, hw.fan_pwm_pin);
-        let tach_hardware = fan::TachHardware::new(hw.pcnt, hw.fan_tach_pin);
+        let board_tach = fan::BoardTach::new(hw.pcnt, hw.fan_tach_pin);
         spawner.must_spawn(thermal_task(hashboard_temp, manager_handle));
         spawner.must_spawn(manager_task(mining_handle));
-        spawner.must_spawn(cooling_task(board_fan, thermal));
-        spawner.must_spawn(tach_task(tach_hardware));
+        spawner.must_spawn(cooling_task(board_fan, board_tach, thermal));
     }
 
     // Plug-detect input; hold the peripheral so it is not reclaimed.
