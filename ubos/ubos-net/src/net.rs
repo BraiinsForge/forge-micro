@@ -6,7 +6,9 @@
 use embassy_net::dns::DnsQueryType;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
-use embassy_net::{IpAddress, Stack};
+use embassy_net::{IpAddress, Ipv4Address, Stack};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{with_timeout, Duration, Instant, Timer};
 use portable_atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use ubos_logging::{info, warn, Debug2Format};
@@ -126,11 +128,97 @@ pub async fn connect_stratum<'b>(
 /// dashboard HTTP server in `ubos-api::dashboard`.
 pub static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
 pub static NTP_EPOCH_OFFSET: AtomicU64 = AtomicU64::new(0);
-/// DHCP-assigned IPv4 address encoded via `Ipv4Address::to_bits()`. Zero
-/// until the address is assigned; downstream readers treat zero as "no ip".
-/// `0.0.0.0` round-trips through this encoding, but `DHCPv4` unicast leases
-/// never assign it, so the sentinel does not collide in practice.
-pub static LOCAL_IPV4: AtomicU32 = AtomicU32::new(0);
+type CSMutex = CriticalSectionRawMutex;
+
+/// Cross-module network identity published by `ubos-net`: the live IPv4
+/// address and the board MAC. Read by the display, the REST API, and the
+/// system endpoint through [`Handle`].
+///
+/// Each field is `None` until its producer runs, so a consumer reading the
+/// state before DHCP assigns an address still sees the MAC, and vice versa.
+#[derive(Clone, Copy, Default)]
+pub struct NetState {
+    /// Live IPv4 address, or `None` until DHCP or a static config assigns
+    /// one. Written at boot by [`wait_for_config`] and refreshed on live
+    /// applies by the network-apply task.
+    pub ipv4: Option<Ipv4Address>,
+    /// Board MAC, or `None` until [`Handle::set_mac`] runs at boot.
+    pub mac: Option<[u8; 6]>,
+}
+
+/// Subscriber capacity for the net-state watch. Every consumer today reads
+/// point-in-time via [`Handle::current`], which consumes no receiver slot,
+/// so one slot covers any future subscriber.
+const WATCH_CAPACITY: usize = 1;
+
+/// Module-internal state watch. Writers are [`wait_for_config`], the
+/// network-apply task, and the boot MAC publish; readers obtain values via
+/// [`Handle`].
+static STATE_WATCH: Watch<CSMutex, NetState, WATCH_CAPACITY> = Watch::new();
+
+/// Per-task subscription returned by [`Handle::subscribe`].
+pub type NetSubscription = Receiver<'static, CSMutex, NetState, WATCH_CAPACITY>;
+
+/// Obtain a handle to the network-identity state. `Copy`; callers freely
+/// pass it to multiple tasks.
+#[must_use]
+pub fn handle() -> Handle {
+    Handle {
+        state: &STATE_WATCH,
+    }
+}
+
+/// Consumer- and producer-side handle for the network-identity state.
+///
+/// `Copy` because it holds only a `&'static` reference. Every task takes
+/// its own value, mirroring the `handle()` accessors on the thermal and
+/// PSU watches.
+#[derive(Clone, Copy)]
+pub struct Handle {
+    state: &'static Watch<CSMutex, NetState, WATCH_CAPACITY>,
+}
+
+impl Handle {
+    /// Most recent published state, or `None` if neither the IP nor the MAC
+    /// has been published yet.
+    #[must_use]
+    pub fn current(&self) -> Option<NetState> {
+        self.state.try_get()
+    }
+
+    /// Per-task subscription. Call once per consumer task before entering
+    /// its loop.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying `Watch` has no free receiver slots.
+    #[must_use]
+    pub fn subscribe(&self) -> NetSubscription {
+        self.state
+            .receiver()
+            .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
+    }
+
+    /// Publish the live IPv4 address, leaving the MAC field untouched.
+    pub fn set_ipv4(&self, ipv4: Ipv4Address) {
+        self.state
+            .sender()
+            .send_modify(|state| state.get_or_insert_with(NetState::default).ipv4 = Some(ipv4));
+    }
+
+    /// Publish the board MAC, leaving the IPv4 field untouched.
+    ///
+    /// Each firmware supplies its own six octets, derived from the chip id
+    /// on the `WIZnet` boards or read from board config on the others.
+    /// Calling this once at boot lets `/api/info` report the address without
+    /// threading it through the network stack.
+    pub fn set_mac(&self, mac: [u8; 6]) {
+        self.state
+            .sender()
+            .send_modify(|state| state.get_or_insert_with(NetState::default).mac = Some(mac));
+    }
+}
+
 /// Per-pool reachability bitmap, one bit per pool index. Set bits
 /// render as `Alive` on the dashboard; cleared bits as `Dead`.
 /// Written by the stratum task via [`set_pool_alive`].
@@ -167,7 +255,7 @@ pub fn set_pool_alive(pool_index: u8, alive: bool) {
 pub async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
     loop {
         if let Some(config) = stack.config_v4() {
-            LOCAL_IPV4.store(config.address.address().to_bits(), Ordering::Relaxed);
+            handle().set_ipv4(config.address.address());
             return config.clone();
         }
         // 100 ms is short enough to keep DHCP re-acquisition responsive but

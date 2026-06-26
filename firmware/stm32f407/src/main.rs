@@ -492,6 +492,7 @@ async fn boot(spawner: Spawner) {
         hw.mdio,
         hw.mdc,
     );
+    ubos_net::net::handle().set_mac(config::Board::MAC_ADDR);
 
     let manager_handle = ubos_manager::handle();
     let mining_handle = ubos_mining::handle();

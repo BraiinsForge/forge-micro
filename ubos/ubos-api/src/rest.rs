@@ -10,7 +10,7 @@ use core::fmt::Write as _;
 use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
 use edge_nal::TcpSplit;
-use embassy_net::{Ipv4Address, Stack};
+use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
@@ -18,7 +18,7 @@ use portable_atomic::Ordering;
 use ubos_core::consts::Api;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, REQUEST_COUNT};
+use ubos_net::net::{NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP, REQUEST_COUNT};
 use ubos_thermal::Handle as ThermalHandle;
 
 use ubos_http::{
@@ -33,14 +33,17 @@ mod tests;
 /// Body buffer size for JSON responses built by `/api/info`.
 ///
 /// The largest `/api/info` JSON body with all fields populated is
-/// roughly 570 bytes (name≤32 + numeric fields + 16-byte IPv4 + 16-byte
-/// time string + OTA static fields + OTA diagnostic fields including the
-/// `resetWritePhase` string + `paused` bool + `pause_reason` string up to
-/// `"dangerousTemperature"` + JSON framing). 512 bytes overflowed once the
-/// OTA diagnostic fields were added, silently truncating the tail; 768
-/// bytes covers the worst case and leaves room for future fields while
-/// staying on the stack.
-const API_INFO_BODY_BUFFER_SIZE: usize = 768;
+/// roughly 600 bytes in practice (name≤32 + numeric fields + 16-byte
+/// IPv4 + 17-byte MAC string + 16-byte time string + OTA static fields +
+/// OTA diagnostic fields including the `resetWritePhase` string +
+/// `paused` bool + `pause_reason` string up to `"dangerousTemperature"` +
+/// JSON framing). The `api_info_body_fits_in_buffer` test builds the
+/// absolute worst case with every numeric field at its maximum decimal
+/// width and measures ~780 bytes. 512 bytes overflowed once the OTA
+/// diagnostic fields were added, silently truncating the tail; 896 bytes
+/// covers the synthetic worst case and leaves room for future fields
+/// while staying on the stack.
+const API_INFO_BODY_BUFFER_SIZE: usize = 896;
 
 /// Body buffer for the POST /api/config acknowledgement.
 const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
@@ -454,9 +457,8 @@ impl Service for RestApiService {
                 }
                 let _ = writer.write_str(",\"ip\":\"");
 
-                let ip_bits = LOCAL_IPV4.load(Ordering::Relaxed);
-                if ip_bits != 0 {
-                    let octets = Ipv4Address::from_bits(ip_bits).octets();
+                let net_state = ubos_net::net::handle().current();
+                if let Some(octets) = net_state.and_then(|state| state.ipv4).map(|ip| ip.octets()) {
                     let _ = core::write!(
                         writer,
                         "{}.{}.{}.{}",
@@ -464,6 +466,20 @@ impl Service for RestApiService {
                         octets[1],
                         octets[2],
                         octets[3]
+                    );
+                }
+
+                let _ = writer.write_str("\",\"mac\":\"");
+                if let Some(mac) = net_state.and_then(|state| state.mac) {
+                    let _ = core::write!(
+                        writer,
+                        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                        mac[0],
+                        mac[1],
+                        mac[2],
+                        mac[3],
+                        mac[4],
+                        mac[5]
                     );
                 }
 

@@ -486,6 +486,7 @@ async fn boot(spawner: Spawner) {
         "mac {=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}",
         mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5],
     );
+    ubos_net::net::handle().set_mac(mac_addr);
 
     // Place the flash driver in the shared mutex. Both the OTA target and
     // the config store reference this mutex, serialising individual flash

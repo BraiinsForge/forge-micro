@@ -7,7 +7,6 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-embassy-net       = { workspace = true }
 embassy-time      = { workspace = true }
 embedded-graphics = { workspace = true }
 embedded-hal      = { workspace = true }

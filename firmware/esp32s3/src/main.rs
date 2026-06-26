@@ -543,6 +543,7 @@ async fn boot(spawner: Spawner) {
     let w5500_reset = Output::new(hw.w5500_reset, Level::High, OutputConfig::default());
 
     let mac_addr = config::Board::MAC_ADDR;
+    ubos_net::net::handle().set_mac(mac_addr);
     let state = STATE.init(State::<8, 8>::new());
     let (device, runner) = embassy_net_wiznet::new(
         mac_addr,

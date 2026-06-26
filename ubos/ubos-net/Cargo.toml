@@ -14,6 +14,7 @@ ccmram-bss = []
 [dependencies]
 embassy-net       = { workspace = true, features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "auto-icmp-echo-reply"] }
 embassy-time      = { workspace = true }
+embassy-sync      = { workspace = true }
 heapless          = { workspace = true }
 portable-atomic   = { workspace = true }
 defmt             = { workspace = true, optional = true }

@@ -52,7 +52,7 @@ use core::fmt::Write as _;
 use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
 use edge_nal::TcpSplit;
-use embassy_net::{Ipv4Address, Stack};
+use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use heapless::String;
@@ -62,7 +62,7 @@ use ubos_core::fan_state;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_metrics::hashrate::{hashrate, SHARE_COUNT};
-use ubos_net::net::{LOCAL_IPV4, NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP};
+use ubos_net::net::{NTP_EPOCH_OFFSET, POOL_ALIVE_BITMAP};
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::ota::{
@@ -127,14 +127,16 @@ const OTA_MAX_IMAGE_BYTES: u64 = 952 * 1024;
 /// firmware image. Any image smaller than this cannot be valid firmware.
 const OTA_MIN_IMAGE_BYTES: u64 = 512;
 
-/// Build the dotted-quad IPv4 string from the shared atomic.
+/// Build the dotted-quad IPv4 string from the shared net state.
 ///
 /// Returns an empty string when DHCP has not yet assigned an address.
 fn build_ip_string() -> String<16> {
     let mut result = String::new();
-    let ip_bits = LOCAL_IPV4.load(Ordering::Relaxed);
-    if ip_bits != 0 {
-        let octets = Ipv4Address::from_bits(ip_bits).octets();
+    if let Some(octets) = ubos_net::net::handle()
+        .current()
+        .and_then(|state| state.ipv4)
+        .map(|ip| ip.octets())
+    {
         let _ = core::write!(
             result,
             "{}.{}.{}.{}",

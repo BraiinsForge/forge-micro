@@ -18,7 +18,7 @@ use embassy_time::{Duration, Instant, Ticker, Timer};
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 use ubos_config::{Message, NetworkConfig, NetworkMode};
 use ubos_logging::{info, warn};
-use ubos_net::net::LOCAL_IPV4;
+use ubos_net::net::handle as net_handle;
 
 type CSMutex = CriticalSectionRawMutex;
 
@@ -35,7 +35,7 @@ const CONFIRM_WINDOW: Duration = Duration::from_secs(120);
 const REPLY_FLUSH_DELAY: Duration = Duration::from_millis(1000);
 
 /// How often the apply task republishes the live IPv4 address into the
-/// shared `LOCAL_IPV4` cache, bounding how stale `/api/info` and the
+/// shared net-state watch, bounding how stale `/api/info` and the
 /// display can be after a live address change.
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(2);
 
@@ -189,18 +189,18 @@ async fn do_revert(
     }
 }
 
-/// Publish the live IPv4 address into the shared `LOCAL_IPV4` cache.
+/// Publish the live IPv4 address into the shared net-state watch.
 ///
-/// `LOCAL_IPV4` is otherwise written only by `wait_for_config` at boot,
+/// The net state is otherwise written only by `wait_for_config` at boot,
 /// so a live `set_config_v4` would leave `/api/info` and the display
 /// reporting the pre-change address until the next reboot. Reading the
-/// stack each pass keeps the cache current across static applies,
+/// stack each pass keeps the value current across static applies,
 /// reverts, and DHCP lease changes alike. The last value is left in
 /// place while the stack holds no address, so the brief DHCP
 /// re-acquisition window does not blank the reported IP.
 fn reconcile_local_ipv4(stack: Stack<'static>) {
     if let Some(config) = stack.config_v4() {
-        LOCAL_IPV4.store(config.address.address().to_bits(), Ordering::Relaxed);
+        net_handle().set_ipv4(config.address.address());
     }
 }
 

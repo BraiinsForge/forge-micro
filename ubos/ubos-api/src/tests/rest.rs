@@ -43,8 +43,8 @@ fn validate_board_name_rejects_backslash() {
 /// silently discards bytes past the end. This test constructs the
 /// worst-case body — every variable-width field at its maximum width —
 /// and asserts that the result fits. Any future field addition that
-/// pushes the total over 768 bytes will fail here rather than silently
-/// truncating the live response.
+/// pushes the total over the buffer size will fail here rather than
+/// silently truncating the live response.
 ///
 /// Worst-case assumptions (mirroring the exact `core::write!` calls in
 /// `rest.rs`):
@@ -55,6 +55,7 @@ fn validate_board_name_rejects_backslash() {
 /// - `fan_pwm`/`pools` (`u8`/`u8`): `u8::MAX` = 255 (3 digits).
 /// - `psu_fault`/`hasPreviousImage`/`resetOtaActive`: `true` (4 chars).
 /// - `ip`: `"255.255.255.255"` (15 chars).
+/// - `mac`: `"ff:ff:ff:ff:ff:ff"` (17 chars).
 /// - `time`: `"23:59:59 UTC"` (12 chars, the fixed `format_utc_time` width).
 /// - `phase`: `"rebooting"` (9 chars, longest variant).
 /// - `resetReason`: `"watchdogTimeout"` (15 chars, longest variant).
@@ -99,6 +100,7 @@ fn api_info_body_fits_in_buffer() {
          \"paused\":{paused},\
          \"pause_reason\":\"{pause_reason}\",\
          \"ip\":\"255.255.255.255\",\
+         \"mac\":\"ff:ff:ff:ff:ff:ff\",\
          \"time\":\"23:59:59 UTC\""
     );
 

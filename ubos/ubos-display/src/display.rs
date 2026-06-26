@@ -2,7 +2,6 @@
 //!
 //! Architecture: `../../../docs/OVERVIEW.md`.
 
-use embassy_net::Ipv4Address;
 use embassy_time::{Duration, Timer};
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::BinaryColor;
@@ -14,7 +13,7 @@ use profont::PROFONT_12_POINT;
 
 use ubos_core::fan_state::{FAN_PWM_PERCENT, FAN_RPM};
 use ubos_metrics::hashrate;
-use ubos_net::net::LOCAL_IPV4;
+use ubos_net::net::handle as net_handle;
 use ubos_net::ntp;
 
 use crate::sh1106::Sh1106;
@@ -43,11 +42,8 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(),
     let style = MonoTextStyle::new(&PROFONT_12_POINT, BinaryColor::On);
 
     // Line 1: IP address from DHCP, or "no ip" if DHCP has not assigned yet.
-    let ip_bits = LOCAL_IPV4.load(Ordering::Relaxed);
-    if ip_bits == 0 {
-        Text::new("no ip", Point::new(0, 13), style).draw(display)?;
-    } else {
-        let octets = Ipv4Address::from_bits(ip_bits).octets();
+    if let Some(ipv4) = net_handle().current().and_then(|state| state.ipv4) {
+        let octets = ipv4.octets();
         let mut ip_buffer = [0u8; 16];
         if let Ok(text) = format_no_std::show(
             &mut ip_buffer,
@@ -55,6 +51,8 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(),
         ) {
             Text::new(text, Point::new(0, 13), style).draw(display)?;
         }
+    } else {
+        Text::new("no ip", Point::new(0, 13), style).draw(display)?;
     }
 
     // Line 2: UTC time from NTP, or "no sync" if NTP has not completed.
