@@ -18,6 +18,9 @@ std = ["postcard/use-std"]
 
 [dependencies]
 embassy-sync           = { workspace = true }
+embassy-futures        = { workspace = true }
+embassy-time           = { workspace = true }
+portable-atomic        = { workspace = true }
 defmt                  = { workspace = true, optional = true }
 heapless               = { workspace = true, features = ["serde"] }
 serde                  = { version = "1", default-features = false, features = ["derive"] }
