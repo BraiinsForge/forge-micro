@@ -8,16 +8,19 @@ workspace = true
 
 [features]
 default    = ["defmt"]
-defmt      = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt", "ubos-events/defmt"]
+defmt      = ["dep:defmt", "embassy-net/defmt", "ubos-logging/defmt", "ubos-events/defmt", "ubos-config/defmt", "ubos-auth/defmt"]
 ccmram-bss = []
 
 [dependencies]
 embassy-net       = { workspace = true, features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "auto-icmp-echo-reply"] }
 embassy-time      = { workspace = true }
 embassy-sync      = { workspace = true }
+embassy-futures   = { workspace = true }
 heapless          = { workspace = true }
 portable-atomic   = { workspace = true }
 defmt             = { workspace = true, optional = true }
 ubos-core         = { workspace = true }
 ubos-events       = { workspace = true, default-features = false }
 ubos-logging      = { workspace = true }
+ubos-config       = { workspace = true, default-features = false }
+ubos-auth         = { workspace = true, default-features = false }
