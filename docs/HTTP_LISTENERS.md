@@ -91,6 +91,43 @@ The dashboard polls `/api/info` every 2 s (`ubos-webui/src/index.js`), so
 and not again, so in steady state a viewer exercises only the API
 listener.
 
+## Single-connection transfer is window-limited by the TX buffer
+
+The concurrency model above governs how many connections run at once; a
+separate limit governs how fast any one connection moves bytes. For the
+dashboard payload this is the dominant cost, and it is **not** the TCP
+initial congestion window the `ubos-webui` size-budget comments invoke.
+
+A connection can have at most `TX_BUFFER_SIZE` unacknowledged bytes in
+flight, because the server must retain unacked data for retransmission and
+that data lives in the socket TX buffer. With `Http::TX_BUFFER_SIZE =
+2048`, at most ~2 KiB is ever outstanding, so a single connection delivers
+about **2 KiB per round trip** regardless of how much the client will
+accept. The ~16 KiB gzipped dashboard therefore takes roughly **8 round
+trips**, not the one or two a 14 KiB initcwnd would imply.
+
+The client receive window is never the bottleneck: Windows and macOS
+default to ~64 KiB before window scaling, and Linux autotunes from ~64 KiB
+into the MiB range (`tcp_rmem` default 128 KiB, max 6 MiB on a current
+laptop). All are far above the server's 2 KiB.
+
+Consequences:
+
+- **The gzipped-size budget is essentially academic on a LAN.** At a
+  sub-millisecond LAN RTT, 8 round trips is a few milliseconds. Whether the
+  page is 14 KiB or 17 KiB changes the round-trip count by one or two, not
+  the user-visible load time. The "first paint must fit one 14 KiB
+  initcwnd" rationale in `ubos-webui`'s size test and `build.rs` does not
+  describe this firmware; the real wall is 2 KiB/RTT.
+- **Do not split assets to chase the budget.** Moving the dashboard JS into
+  a second request would add a full TCP handshake — every response is
+  `Connection: close`, so there is no warm connection to reuse — to save a
+  byte count that the TX buffer already makes irrelevant.
+- **The lever for load time, if it ever matters, is `TX_BUFFER_SIZE`, not
+  gz size.** Raising it (RAM permitting) widens the per-connection window;
+  shrinking the payload does not change the 2 KiB/RTT ceiling. Note this
+  trades against the concurrency footprint, since TX buffer is per worker.
+
 ## Measured on bmm-pico (RP2350)
 
 Using `scripts/http-load-test.sh` (see below), with clients desynchronized
