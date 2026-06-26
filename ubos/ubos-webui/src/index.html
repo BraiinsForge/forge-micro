@@ -21,7 +21,6 @@
     <div class="actWrap" id="actWrap">
       <button type="button" class="actBtn" id="actBtn" aria-haspopup="true" aria-expanded="false" aria-label="Miner action menu" title="Miner actions">
         <svg class="navIcon" aria-hidden="true"><use href="#iAction"/></svg>
-        <span class="actBadge" id="actBadge"></span>
       </button>
       <div class="actMenu hide" id="actMenu" role="menu">
         <button type="button" class="actItem" id="actStart" role="menuitem">
@@ -100,7 +99,7 @@
         <div class="ps"><svg class="dot"><use href="#serr"/></svg><span id="lk" class="pt">Dead</span></div>
       </div>
       <div class="card"><div class="k">Hashrate</div><div id="hr" class="v">–</div></div>
-      <div class="card"><div class="k">IP address</div><div id="ip" class="v">–</div></div>
+      <div class="card"><div class="k">Status</div><div id="st" class="v">–</div></div>
       <div class="card"><div class="k">Time UTC</div><div id="t" class="v">–</div></div>
       <div class="card"><div class="k">Uptime</div><div id="up" class="v">–</div></div>
       <div class="card"><div class="k">Temperature</div><div id="tp" class="v">–</div></div>
@@ -352,7 +351,7 @@
   </div>
 
   <footer class="bar ft">
-    <span class="bi">{{BUILD_REV}} · {{BUILD_TIME}}</span>
+    <span class="bi"><span id="ip">–</span> · <span id="mac">–</span> · {{BUILD_REV}} · {{BUILD_TIME}}</span>
   </footer>
 
   <!--JS-->

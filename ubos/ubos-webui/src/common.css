@@ -149,8 +149,6 @@ body {
 }
 
 .bi {
-  display: flex;
-  align-items: center;
   color: var(--mute);
   font-size: var(--fs-label);
   letter-spacing: var(--ls-cap);
@@ -159,6 +157,23 @@ body {
 
 .bar.ft .bi {
   grid-column: 2;
+}
+
+/* On a narrow phone the build-info line is wider than the bar. Drop
+   the three-column grid and the fixed 48px height so the footer
+   becomes a plain block that grows to fit the text, which then wraps
+   onto centered lines instead of spilling out of the strip. */
+@media (max-width: 480px) {
+  .bar.ft {
+    display: block;
+    height: auto;
+    padding: 8px 20px;
+  }
+
+  .bar.ft .bi {
+    display: block;
+    text-align: center;
+  }
 }
 
 /* Theme toggle. Cycles the operator's preference between auto,

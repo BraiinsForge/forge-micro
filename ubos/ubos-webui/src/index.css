@@ -411,6 +411,20 @@ main > * {
   color: var(--red);
 }
 
+/* Status card value: colored to match the mining state. Green while
+   running, orange for a safety pause, muted for an operator stop. */
+#st.running {
+  color: var(--green);
+}
+
+#st.warn {
+  color: var(--orange);
+}
+
+#st.stopped {
+  color: var(--mute);
+}
+
 /* ---------- Configuration page ----------
    Outer grid mirrors the dashboard `main` so a user toggling between
    Dashboard and Configuration sees no horizontal shift: same outer
@@ -818,28 +832,6 @@ main > * {
 
 .actBtn:hover {
   color: var(--fg);
-}
-
-/* State badge: small uppercase label that reflects the current mining
-   state. The badge is empty on initial load until the first poll
-   resolves the state; it collapses to zero width when blank. */
-.actBadge {
-  font-size: var(--fs-label);
-  text-transform: uppercase;
-  letter-spacing: var(--ls-cap);
-  white-space: nowrap;
-}
-
-.actBadge.running {
-  color: var(--green);
-}
-
-.actBadge.stopped {
-  color: var(--mute);
-}
-
-.actBadge.warn {
-  color: var(--orange);
 }
 
 .actMenu {

@@ -375,6 +375,7 @@ async function tick() {
     if (data.name && document.title !== data.name) document.title = data.name;
     $('hr').textContent = fmtHr(data.hashrate);
     $('ip').textContent = data.ip || '–';
+    $('mac').textContent = data.mac || '–';
     $('t').textContent = data.time || '–';
     $('up').textContent = fmtUp(data.uptime);
     $('tp').textContent = data.temperature ? data.temperature + ' °C' : '–';
@@ -405,9 +406,9 @@ async function tick() {
     inBuf.shift(); inBuf.push(data.power_in_mw == null ? null : data.power_in_mw / 1000);
     outBuf.shift(); outBuf.push(data.power_out_mw == null ? null : data.power_out_mw / 1000);
     draw();
-    // Update the miner action badge and disabled states from the paused
-    // field. Absent fields (older firmware) leave the badge blank and
-    // keep all items enabled so the operator can still act.
+    // Update the Status card and the menu's disabled states from the
+    // paused field. Absent fields (older firmware) leave the status blank
+    // and keep all items enabled so the operator can still act.
     updateActionState(data.paused, data.pause_reason);
     // Show the firmware-update card only on boards that report OTA info;
     // boards without an OTA partition omit the field entirely.
@@ -1477,38 +1478,38 @@ function resumeAfterOtaError(text, beforeUnload) {
 
 // Human-readable labels for each pause_reason value returned by the API.
 const PAUSE_REASON_LABEL = {
-  dangerousTemperature: 'Paused: overheating',
-  brokenFan:            'Paused: fan fault',
-  poolUnreachable:      'Paused: pools down',
-  otaUpdate:            'Updating…',
-  tunerFault:           'Paused: tuner fault',
-  userRequest:          'Stopped',
+  dangerousTemperature: 'Stopped - Overheating',
+  brokenFan:            'Stopped - Fan fault',
+  poolUnreachable:      'Stopped - Pools down',
+  otaUpdate:            'Stopped - Updating',
+  tunerFault:           'Stopped - Tuner fault',
+  userRequest:          'Stopped - User',
 };
 
-// Update the action button badge and Start/Stop disabled states.
-// Called from tick() on every successful poll with the current paused
-// flag and reason. When either field is absent (older firmware) the
-// badge is cleared and all items remain enabled.
+// Update the Status card and the Start/Stop disabled states. Called from
+// tick() on every successful poll with the current paused flag and
+// reason. The state text and color live in the sidebar Status card so
+// the nav action button stays icon-only. When either field is absent
+// (older firmware) the status is blank and all items remain enabled.
 function updateActionState(paused, pauseReason) {
-  const badge = $('actBadge');
+  const status = $('st');
   const startBtn = $('actStart');
   const stopBtn = $('actStop');
   if (paused === undefined || paused === null) {
-    badge.textContent = '';
-    badge.className = 'actBadge';
+    status.textContent = '–';
+    status.className = 'v';
     startBtn.disabled = false;
     stopBtn.disabled = false;
     return;
   }
   if (!paused) {
-    badge.textContent = 'Running';
-    badge.className = 'actBadge running';
+    status.textContent = 'Running';
+    status.className = 'v running';
     startBtn.disabled = true;
     stopBtn.disabled = false;
   } else {
-    const label = PAUSE_REASON_LABEL[pauseReason] || 'Paused';
-    badge.textContent = label;
-    badge.className = 'actBadge ' + (pauseReason === 'userRequest' ? 'stopped' : 'warn');
+    status.textContent = PAUSE_REASON_LABEL[pauseReason] || 'Stopped';
+    status.className = 'v ' + (pauseReason === 'userRequest' ? 'stopped' : 'warn');
     // An OTA update is neither operator-resumable nor stoppable from
     // this menu, so disable both rather than offering a resume that
     // would race the update.
