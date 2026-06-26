@@ -8,10 +8,9 @@ use crate::{Config, NetworkConfig};
 
 /// Wire-level command sent to the config module via `Handle::send`.
 ///
-/// `Update` carries a full `Config` and dwarfs the `SetNetwork` and
-/// `FactoryReset` variants; the enum is
-/// already `Config`-sized regardless, and this crate is `no_std` without
-/// `alloc`, so boxing a variant is not an option.
+/// `Update` carries a full `Config` and dwarfs the other variants;
+/// the enum is already `Config`-sized regardless, and this crate is
+/// `no_std` without `alloc`, so boxing a variant is not an option.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -20,12 +19,28 @@ pub enum Message {
     /// value, publishes it on `STATE_WATCH`, and signals stratum to
     /// reconnect.
     Update(Config),
-    /// Replace only the network section and persist it. Unlike `Update`,
-    /// which signals stratum to reconnect, a network change only persists
-    /// and publishes the new record without restarting stratum. Used by
-    /// the live network apply/confirm flow, where the IP was already
-    /// switched at the stack and only the persisted record needs updating
-    /// once the operator confirms reachability.
+    /// Apply a network change. With `confirm`, publish the change as a
+    /// preview and arm the confirm-or-revert window without persisting;
+    /// otherwise persist immediately. The live stack is switched by
+    /// `ubos-net` watching the published config, so this message manages
+    /// intent only and never touches the stack.
+    ApplyNetwork {
+        /// New network section to apply.
+        network: NetworkConfig,
+        /// When `true`, arm the confirm-or-revert window and persist only
+        /// on confirm. When `false`, persist immediately with no window.
+        confirm: bool,
+    },
+    /// Confirm a pending network preview, promoting it to the persisted
+    /// config. A no-op when nothing is pending, so a DHCP lease arriving
+    /// with no preview armed is harmless.
+    ConfirmNetwork,
+    /// Revert a pending network preview at once, republishing the
+    /// committed config. A no-op when nothing is pending.
+    RevertNetwork,
+    /// Replace only the network section and persist it without a confirm
+    /// window. Carries the legacy `ubos-api` apply path until the live
+    /// apply state machine moves out of the public interface.
     SetNetwork(NetworkConfig),
     /// Wipe the persisted config back to [`Config::default`] and publish
     /// the defaults on `STATE_WATCH`. The API layer requests a reboot

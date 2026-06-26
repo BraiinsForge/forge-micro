@@ -70,10 +70,13 @@ pub use file_storage::FileStorage;
 
 pub use message::Message;
 
+use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver, Watch};
+use embassy_time::{Duration, Instant, Timer};
+use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 use ubos_logging::{info, warn};
 
 ubos_events::events! {
@@ -102,9 +105,27 @@ pub(crate) const LOAD_BUFFER_SIZE: usize = 512;
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// Module-internal state watch carrying the live [`Config`]. Single
-/// writer is [`run`].
+/// Module-internal state watch carrying the committed [`Config`] —
+/// the persisted truth, never the unconfirmed network preview. Single
+/// writer is [`run`]. `current()` reads this, so an `/api/config`
+/// update built from `current()` never carries a pending preview into
+/// flash.
 pub(crate) static STATE_WATCH: Watch<CSMutex, Config, WATCH_CAPACITY> = Watch::new();
+
+/// Subscriber capacity for the effective-network watch. `ubos-net` is
+/// the sole subscriber; one spare slot covers a future consumer.
+const NETWORK_WATCH_CAPACITY: usize = 2;
+
+/// Module-internal watch carrying the effective network configuration —
+/// the value the live stack should hold, which is the unconfirmed
+/// preview while a confirm window is armed and the committed network
+/// otherwise. `ubos-net` subscribes and applies each change to the
+/// stack. Distinct from [`STATE_WATCH`] precisely so the preview reaches
+/// the stack without poisoning the persisted config. Published only on a
+/// network transition, never at boot — the boot stack config comes from
+/// firmware reading [`Config`] before the stack exists.
+pub(crate) static NETWORK_WATCH: Watch<CSMutex, NetworkConfig, NETWORK_WATCH_CAPACITY> =
+    Watch::new();
 
 /// Module-internal command channel. Single consumer is [`run`];
 /// producers send via [`Handle::send`].
@@ -117,8 +138,51 @@ pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, COMMAND_CHANNEL_DEP
 /// instead of waiting for the next session error.
 pub(crate) static STRATUM_RESTART: Signal<CSMutex, ()> = Signal::new();
 
+/// How long an unconfirmed network preview stays applied before it
+/// reverts to the committed config. A wrong static address strands the
+/// board, so the change holds only until the operator proves
+/// reachability by confirming from the new address.
+const CONFIRM_WINDOW: Duration = Duration::from_secs(120);
+
+/// Uptime-seconds deadline of the pending network preview, or 0 when
+/// none is pending. Written by [`run`], read synchronously by the API
+/// HTTP handlers, which cannot await the config task.
+static PENDING_DEADLINE_SECS: AtomicU64 = AtomicU64::new(0);
+
+/// Whether the pending preview selects static addressing. Only
+/// meaningful while a preview is armed; lets the network status report
+/// the previewed mode so it agrees with the live address during the
+/// window.
+static PENDING_IS_STATIC: AtomicBool = AtomicBool::new(false);
+
+/// Seconds left in the network confirm window, or 0 when nothing is
+/// pending.
+#[must_use]
+pub fn pending_seconds_remaining() -> u64 {
+    let deadline = PENDING_DEADLINE_SECS.load(Ordering::Relaxed);
+    if deadline == 0 {
+        return 0;
+    }
+    deadline.saturating_sub(Instant::now().as_secs())
+}
+
+/// Mode of the pending network preview, or `None` when nothing is
+/// pending. `Some(true)` while a static preview awaits confirmation,
+/// `Some(false)` for a DHCP preview.
+#[must_use]
+pub fn pending_mode_is_static() -> Option<bool> {
+    if pending_seconds_remaining() == 0 {
+        return None;
+    }
+    Some(PENDING_IS_STATIC.load(Ordering::Relaxed))
+}
+
 /// Per-task subscription returned by [`Handle::subscribe`].
 pub type ConfigSubscription = Receiver<'static, CSMutex, Config, WATCH_CAPACITY>;
+
+/// Per-task subscription to the effective-network watch, returned by
+/// [`Handle::subscribe_network`].
+pub type NetworkSubscription = Receiver<'static, CSMutex, NetworkConfig, NETWORK_WATCH_CAPACITY>;
 
 /// Obtain a handle to the config module. `Copy`; callers freely pass
 /// it to multiple tasks.
@@ -167,10 +231,33 @@ impl Handle {
         subscription.changed().await
     }
 
+    /// Subscription to the effective-network watch. `ubos-net` calls this
+    /// once and applies each published [`NetworkConfig`] to the live
+    /// stack. The watch publishes only on a network transition, so the
+    /// first `changed()` blocks until the first apply/confirm/revert.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying `Watch` has no free receiver slots.
+    #[must_use]
+    pub fn subscribe_network(&self) -> NetworkSubscription {
+        NETWORK_WATCH
+            .receiver()
+            .expect("BUG: NETWORK_WATCH receiver slots exhausted; raise NETWORK_WATCH_CAPACITY")
+    }
+
     /// Submit a config update. The task running in [`run`] persists the
     /// new value then publishes it on `STATE_WATCH`.
     pub async fn send(&self, message: Message) {
         COMMAND_CHANNEL.send(message).await;
+    }
+
+    /// Submit a command without awaiting queue space. Returns `false`
+    /// when the channel is full so a non-async caller, such as an HTTP
+    /// handler, can surface a busy response instead of blocking.
+    #[must_use]
+    pub fn try_send(&self, message: Message) -> bool {
+        COMMAND_CHANNEL.try_send(message).is_ok()
     }
 
     /// Signal fired after each successful config update has been
@@ -462,30 +549,117 @@ impl Config {
 ///
 /// Each [`Message::Update`] persists the new value before publishing
 /// it and fires [`STRATUM_RESTART`] so the stratum client tears down
-/// its session. [`Message::SetNetwork`] persists only the network
-/// section without restarting stratum.
+/// its session.
+///
+/// Network changes flow through [`Message::ApplyNetwork`]. With
+/// `confirm`, the new network is published on [`NETWORK_WATCH`] as a
+/// preview and a [`CONFIRM_WINDOW`] timer is armed, but nothing is
+/// persisted: `ubos-net` switches the live stack, and the change holds
+/// only until [`Message::ConfirmNetwork`] arrives or the window expires
+/// and the committed network is republished. Because the preview never
+/// touches flash, a reboot mid-window comes up on the committed config.
+/// `committed.network` is the revert target and is left untouched while
+/// a preview is pending, so a superseding apply still reverts all the
+/// way back.
 pub async fn run<S: Storage>(mut storage: S) -> ! {
-    let mut current = load_initial(&mut storage).await;
-    STATE_WATCH.sender().send(current.clone());
+    let mut committed = load_initial(&mut storage).await;
+    STATE_WATCH.sender().send(committed.clone());
+    let mut preview: Option<(NetworkConfig, Instant)> = None;
     info!("config: started");
 
     loop {
-        let message = COMMAND_CHANNEL.receive().await;
+        // While a preview is armed, race the next command against the
+        // revert deadline; otherwise just await the next command.
+        let message = if let Some(&(_, deadline)) = preview.as_ref() {
+            match select(COMMAND_CHANNEL.receive(), Timer::at(deadline)).await {
+                Either::First(message) => message,
+                Either::Second(()) => {
+                    preview = None;
+                    clear_pending_status();
+                    NETWORK_WATCH.sender().send(committed.network.clone());
+                    warn!("config: network change not confirmed, reverted");
+                    continue;
+                }
+            }
+        } else {
+            COMMAND_CHANNEL.receive().await
+        };
+
         match message {
             Message::Update(new) => {
+                // `new` was built from `current()`, which is the committed
+                // config, so it never carries the pending preview into flash.
                 apply_update(&new, &mut storage).await;
-                current = new;
+                committed = new;
+            }
+            Message::ApplyNetwork { network, confirm } => {
+                if confirm {
+                    let deadline = Instant::now() + CONFIRM_WINDOW;
+                    arm_pending_status(&network, deadline);
+                    NETWORK_WATCH.sender().send(network.clone());
+                    preview = Some((network, deadline));
+                    info!("config: network preview applied, awaiting confirm");
+                } else {
+                    preview = None;
+                    clear_pending_status();
+                    committed.network = network;
+                    set_network(&committed, &mut storage).await;
+                    NETWORK_WATCH.sender().send(committed.network.clone());
+                }
+            }
+            Message::ConfirmNetwork => {
+                if let Some((network, _)) = preview.take() {
+                    clear_pending_status();
+                    committed.network = network;
+                    // The stack already holds the preview; net dedups, so no
+                    // NETWORK_WATCH publish is needed, only the persisted record.
+                    set_network(&committed, &mut storage).await;
+                    info!("config: network change confirmed");
+                } else {
+                    info!("config: confirm network with nothing pending");
+                }
+            }
+            Message::RevertNetwork => {
+                if preview.take().is_some() {
+                    clear_pending_status();
+                    NETWORK_WATCH.sender().send(committed.network.clone());
+                    info!("config: network change reverted by operator");
+                } else {
+                    info!("config: revert network with nothing pending");
+                }
             }
             Message::SetNetwork(network) => {
-                current.network = network;
-                set_network(&current, &mut storage).await;
+                committed.network = network;
+                set_network(&committed, &mut storage).await;
             }
             Message::FactoryReset => {
-                factory_reset(&mut storage).await;
+                preview = None;
+                clear_pending_status();
+                committed = factory_reset(&mut storage).await;
+                NETWORK_WATCH.sender().send(committed.network.clone());
                 ubos_core::reboot::request_reboot();
             }
         }
     }
+}
+
+/// Arm the pending-window status counters read by the API handlers.
+fn arm_pending_status(network: &NetworkConfig, deadline: Instant) {
+    // Publish the mode before the deadline. A reader that observes a nonzero
+    // deadline then always sees the matching mode, never the prior preview's.
+    PENDING_IS_STATIC.store(
+        matches!(network.mode, NetworkMode::Static { .. }),
+        Ordering::Relaxed,
+    );
+    // Round the deadline up so the reported seconds stay positive until
+    // the full-precision timer actually fires.
+    PENDING_DEADLINE_SECS.store(deadline.as_millis().div_ceil(1000), Ordering::Relaxed);
+}
+
+/// Clear the pending-window status counters once no preview is armed.
+fn clear_pending_status() {
+    PENDING_DEADLINE_SECS.store(0, Ordering::Relaxed);
+    PENDING_IS_STATIC.store(false, Ordering::Relaxed);
 }
 
 /// Load the persisted [`Config`] or fall back to [`Config::default`].
