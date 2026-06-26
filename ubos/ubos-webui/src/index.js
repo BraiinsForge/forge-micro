@@ -1207,6 +1207,7 @@ $('btnResetConfirm').addEventListener('click', async () => {
 // After the board reboots into the new image the /api/info endpoint
 // becomes reachable again; reload to pick up the updated state.
 function showOtaNotice(text) {
+  $('otaNoticeTitle').textContent = 'Updating firmware';
   $('otaNoticeText').textContent = text;
   $('otaUpdating').classList.remove('hide');
   // Cap the wait so a board that never returns (wrong image, brick) stops
@@ -1562,6 +1563,7 @@ document.addEventListener('keydown', function (event) {
 function showRestartNotice() {
   clearInterval(pollTimer);
   closeActMenu();
+  $('otaNoticeTitle').textContent = 'Restarting';
   $('otaNoticeText').textContent =
     'The board is rebooting. It can take up to 30 seconds to become reachable, then log in again.';
   $('otaUpdating').classList.remove('hide');
