@@ -149,8 +149,8 @@ async fn sync_credentials_task() -> ! {
 }
 
 #[embassy_executor::task]
-async fn network_apply_task(stack: Stack<'static>) -> ! {
-    ubos_api::run_network_apply(stack).await
+async fn network_control_task(stack: Stack<'static>) -> ! {
+    net::run_network_control(stack).await
 }
 
 #[embassy_executor::task]
@@ -405,7 +405,7 @@ fn main() {
         }
         spawner.spawn(sync_credentials_task().expect("BUG: sync_credentials_task token"));
 
-        spawner.spawn(network_apply_task(stack).expect("BUG: network_apply_task token"));
+        spawner.spawn(network_control_task(stack).expect("BUG: network_control_task token"));
 
         // Web UI on :80 — seed credentials once; sync_credentials_task
         // keeps the shared credential store current after first boot.

@@ -332,8 +332,8 @@ ubos_http::http_worker_task!(
 );
 
 #[embassy_executor::task]
-async fn network_apply_task(stack: embassy_net::Stack<'static>) -> ! {
-    ubos_api::run_network_apply(stack).await
+async fn network_control_task(stack: embassy_net::Stack<'static>) -> ! {
+    net::run_network_control(stack).await
 }
 
 #[embassy_executor::task]
@@ -745,7 +745,7 @@ async fn boot(spawner: Spawner) {
 
     spawner.spawn(unwrap!(stratum_client_task(stack, sv2_prng)));
 
-    spawner.spawn(unwrap!(network_apply_task(stack)));
+    spawner.spawn(unwrap!(network_control_task(stack)));
 
     // REST API on :8080 — seed credentials once, then spawn worker tasks.
     ubos_api::seed_api_credentials().await;

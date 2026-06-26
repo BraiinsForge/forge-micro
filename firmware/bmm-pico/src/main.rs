@@ -361,8 +361,8 @@ ubos_http::http_worker_task!(
 );
 
 #[embassy_executor::task]
-async fn network_apply_task(stack: embassy_net::Stack<'static>) -> ! {
-    ubos_api::run_network_apply(stack).await
+async fn network_control_task(stack: embassy_net::Stack<'static>) -> ! {
+    net::run_network_control(stack).await
 }
 
 #[embassy_executor::task]
@@ -824,7 +824,7 @@ async fn main(spawner: Spawner) {
     // Reclaim abandoned chunk-ack OTA sessions so a client that vanishes
     // mid-upload does not strand the board with mining stopped.
     spawner.spawn(unwrap!(ota_watchdog_task()));
-    spawner.spawn(unwrap!(network_apply_task(stack)));
+    spawner.spawn(unwrap!(network_control_task(stack)));
 
     // REST API on :8080 — seed credentials once, then spawn one worker
     // task per pool slot so each has its own static TaskStorage.

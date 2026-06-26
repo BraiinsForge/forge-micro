@@ -82,6 +82,8 @@ use ubos_logging::{info, warn};
 ubos_events::events! {
     config_changed(freq_mhz: u32, voltage_mv: u32)  info = "Configuration changed: {} MHz, {} mV",
     factory_reset()                                  warn = "Factory reset to defaults",
+    network_applied()                                info = "Network config applied",
+    network_reverted()                               warn = "Network config reverted",
 }
 
 /// Subscriber capacity for the config watch.
@@ -578,6 +580,7 @@ pub async fn run<S: Storage>(mut storage: S) -> ! {
                     clear_pending_status();
                     NETWORK_WATCH.sender().send(committed.network.clone());
                     warn!("config: network change not confirmed, reverted");
+                    crate::events::network_reverted();
                     continue;
                 }
             }
@@ -605,6 +608,7 @@ pub async fn run<S: Storage>(mut storage: S) -> ! {
                     committed.network = network;
                     set_network(&committed, &mut storage).await;
                     NETWORK_WATCH.sender().send(committed.network.clone());
+                    crate::events::network_applied();
                 }
             }
             Message::ConfirmNetwork => {
@@ -615,6 +619,7 @@ pub async fn run<S: Storage>(mut storage: S) -> ! {
                     // NETWORK_WATCH publish is needed, only the persisted record.
                     set_network(&committed, &mut storage).await;
                     info!("config: network change confirmed");
+                    crate::events::network_applied();
                 } else {
                     info!("config: confirm network with nothing pending");
                 }
@@ -624,13 +629,10 @@ pub async fn run<S: Storage>(mut storage: S) -> ! {
                     clear_pending_status();
                     NETWORK_WATCH.sender().send(committed.network.clone());
                     info!("config: network change reverted by operator");
+                    crate::events::network_reverted();
                 } else {
                     info!("config: revert network with nothing pending");
                 }
-            }
-            Message::SetNetwork(network) => {
-                committed.network = network;
-                set_network(&committed, &mut storage).await;
             }
             Message::FactoryReset => {
                 preview = None;

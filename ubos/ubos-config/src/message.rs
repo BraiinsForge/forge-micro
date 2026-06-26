@@ -38,10 +38,6 @@ pub enum Message {
     /// Revert a pending network preview at once, republishing the
     /// committed config. A no-op when nothing is pending.
     RevertNetwork,
-    /// Replace only the network section and persist it without a confirm
-    /// window. Carries the legacy `ubos-api` apply path until the live
-    /// apply state machine moves out of the public interface.
-    SetNetwork(NetworkConfig),
     /// Wipe the persisted config back to [`Config::default`] and publish
     /// the defaults on `STATE_WATCH`. The API layer requests a reboot
     /// immediately after sending this message; the board never returns to

@@ -591,12 +591,12 @@ async fn handle_network_get<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    let seconds_remaining = crate::network_apply::pending_seconds_remaining();
+    let seconds_remaining = ubos_config::pending_seconds_remaining();
     // While a change is pending the persisted mode still reflects the old
     // config, but the live address already reflects the preview. Report the
     // previewed mode so the two agree until the operator confirms or it
     // reverts.
-    let mode = match crate::network_apply::pending_mode_is_static() {
+    let mode = match ubos_config::pending_mode_is_static() {
         Some(true) => "static",
         Some(false) => "dhcp",
         None => match ubos_config::handle().current().network.mode {
@@ -676,8 +676,9 @@ struct NetworkPostRequest {
 /// Handle `POST /api/system/network`.
 ///
 /// Deserializes the body as a [`NetworkPostRequest`], validates the
-/// embedded [`ubos_config::NetworkConfig`], and submits it to
-/// [`crate::network_apply::apply`] for live application. When
+/// embedded [`ubos_config::NetworkConfig`], and forwards it to
+/// `ubos-config` as a [`ubos_config::Message::ApplyNetwork`]; `ubos-net`
+/// switches the live stack on the resulting config change. When
 /// `confirm_after_switch` is `true`, a 120 s confirm-or-revert window
 /// is armed; when `false`, the change is persisted immediately with no
 /// window. Returns 400 on parse or validation error, 200 on success.
@@ -732,7 +733,10 @@ where
         )
         .await;
     }
-    if !crate::network_apply::apply(network, request.confirm_after_switch) {
+    if !ubos_config::handle().try_send(ubos_config::Message::ApplyNetwork {
+        network,
+        confirm: request.confirm_after_switch,
+    }) {
         return write_busy(connection, extra_headers).await;
     }
     write_json_response(connection, 200, "OK", b"{\"ok\":true}", extra_headers).await
@@ -762,7 +766,7 @@ where
 
 /// Handle `POST /api/system/network/confirm`.
 ///
-/// Calls [`crate::network_apply::confirm`] and returns 200 ack.
+/// Forwards [`ubos_config::Message::ConfirmNetwork`] and returns 200 ack.
 /// `extra_headers` carries caller-supplied headers such as CORS headers
 /// from the REST listener.
 async fn handle_network_confirm<T, const N: usize>(
@@ -773,7 +777,7 @@ async fn handle_network_confirm<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    if !crate::network_apply::confirm() {
+    if !ubos_config::handle().try_send(ubos_config::Message::ConfirmNetwork) {
         return write_busy(connection, extra_headers).await;
     }
     write_ack_response(connection, scratch, extra_headers).await
@@ -781,7 +785,7 @@ where
 
 /// Handle `POST /api/system/network/revert`.
 ///
-/// Calls [`crate::network_apply::revert`] and returns 200 ack.
+/// Forwards [`ubos_config::Message::RevertNetwork`] and returns 200 ack.
 /// `extra_headers` carries caller-supplied headers such as CORS headers
 /// from the REST listener.
 async fn handle_network_revert<T, const N: usize>(
@@ -792,7 +796,7 @@ async fn handle_network_revert<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    if !crate::network_apply::revert() {
+    if !ubos_config::handle().try_send(ubos_config::Message::RevertNetwork) {
         return write_busy(connection, extra_headers).await;
     }
     write_ack_response(connection, scratch, extra_headers).await

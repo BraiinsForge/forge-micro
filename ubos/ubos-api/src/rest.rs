@@ -416,7 +416,7 @@ impl Service for RestApiService {
                 let psu_fault = psu_reading.is_some_and(|r| r.sensor_fault);
                 // Seconds left in the network confirm window, or 0 when nothing is pending.
                 // Serialized as `net_confirm_seconds` in the JSON body.
-                let net_confirm_seconds = crate::network_apply::pending_seconds_remaining();
+                let net_confirm_seconds = ubos_config::pending_seconds_remaining();
                 let pause_reasons = self.manager.pause_reasons();
                 let paused = !pause_reasons.is_empty();
 
