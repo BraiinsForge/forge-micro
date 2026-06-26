@@ -1149,20 +1149,6 @@ async function netModalPost(path, errPrefix) {
 $('btnNetModalPersist').addEventListener('click', () => netModalPost('/api/system/network/confirm', 'Confirm failed'));
 $('btnNetModalRevert').addEventListener('click', () => netModalPost('/api/system/network/revert', 'Revert failed'));
 
-// Factory reset reboots the board to DHCP, so the address is unknown and a
-// poll would land on an error. Stop polling and show a static notice telling
-// the operator to reconnect once the board is back, mirroring the network
-// switch notice.
-function showResetDoneNotice() {
-  clearInterval(pollTimer);
-  $('resetStep2').classList.add('hide');
-  $('resetStep1').classList.remove('hide');
-  $('resetDoneText').textContent =
-    'The board has been reset and is rebooting to DHCP with default credentials.'
-    + ' It can take up to 30 seconds to become reachable, then log in again.';
-  $('resetDone').classList.remove('hide');
-}
-
 $('btnResetStart').addEventListener('click', () => {
   $('resetStep1').classList.add('hide');
   $('resetStep2').classList.remove('hide');
@@ -1201,25 +1187,41 @@ $('btnResetConfirm').addEventListener('click', async () => {
     fail('Reset failed: HTTP ' + response.status);
     return;
   }
-  showResetDoneNotice();
+  // Factory reset reboots the board to DHCP, so its address is unknown
+  // and a poll would land on an error. Pass poll=false and tell the
+  // operator to reconnect once the board is back. Reset the modal steps
+  // so the dashboard underneath the notice is left in a clean state.
+  $('resetStep2').classList.add('hide');
+  $('resetStep1').classList.remove('hide');
+  showBoardNotice(
+    'Factory reset complete',
+    'The board has been reset and is rebooting to DHCP with default credentials.'
+      + ' It can take up to 30 seconds to become reachable, then log in again.',
+    false
+  );
 });
 
-// Show the full-page OTA notice and poll until the board comes back.
-// After the board reboots into the new image the /api/info endpoint
-// becomes reachable again; reload to pick up the updated state.
-function showOtaNotice(text) {
-  $('otaNoticeTitle').textContent = 'Updating firmware';
-  $('otaNoticeText').textContent = text;
-  $('otaUpdating').classList.remove('hide');
+// Full-page "board unavailable" screen shared by the OTA, restart, and
+// factory-reset flows. Stops the dashboard poll and shows a title and
+// message over the whole viewport. When `poll` is true the board keeps
+// its address across the reboot, so poll /api/info and reload once it
+// answers; factory reset moves the board to DHCP under an unknown
+// address and passes poll=false instead.
+function showBoardNotice(title, text, poll) {
+  clearInterval(pollTimer);
+  $('noticeTitle').textContent = title;
+  $('noticeText').textContent = text;
+  $('boardNotice').classList.remove('hide');
+  if (!poll) return;
   // Cap the wait so a board that never returns (wrong image, brick) stops
   // polling instead of hammering the connection forever.
   const maxAttempts = 150; // ~5 minutes at the 2 s poll interval
   let attempts = 0;
-  const poll = setInterval(async () => {
+  const timer = setInterval(async () => {
     attempts += 1;
     if (attempts > maxAttempts) {
-      clearInterval(poll);
-      $('otaNoticeText').textContent =
+      clearInterval(timer);
+      $('noticeText').textContent =
         'The board did not come back online. Check it and reload this page manually.';
       return;
     }
@@ -1229,7 +1231,7 @@ function showOtaNotice(text) {
       // in-RAM session table, so the old session cookie now yields 401 —
       // reload regardless of status so the SPA re-runs its auth check and
       // shows the login screen on the freshly booted firmware.
-      clearInterval(poll);
+      clearInterval(timer);
       location.reload();
     } catch (_) {
       // Connection refused / network error: board still rebooting, keep polling.
@@ -1371,7 +1373,7 @@ $('btnFwUpdate').addEventListener('click', async () => {
           // A thrown or aborted fetch on the final chunk means the board
           // rebooted before responding, which is the expected success path.
           removeEventListener('beforeunload', beforeUnload);
-          showOtaNotice('Firmware uploaded. The board is rebooting into the new image.');
+          showBoardNotice('Updating firmware', 'Firmware uploaded. The board is rebooting into the new image.', true);
           return;
         }
         if (attempt === MAX_CHUNK_RETRIES) {
@@ -1388,7 +1390,7 @@ $('btnFwUpdate').addEventListener('click', async () => {
     if (isFinal) {
       if (response && response.ok) {
         removeEventListener('beforeunload', beforeUnload);
-        showOtaNotice('Firmware uploaded. The board is rebooting into the new image.');
+        showBoardNotice('Updating firmware', 'Firmware uploaded. The board is rebooting into the new image.', true);
         return;
       }
       // An explicit non-2xx response on the final chunk is a real failure
@@ -1558,38 +1560,6 @@ document.addEventListener('keydown', function (event) {
   if (event.key === 'Escape') closeActMenu();
 });
 
-// Show the board-rebooting notice after a restart command succeeds.
-// The board reboots, so polling would error; stop the timer and show
-// the same full-page notice the OTA flow uses.
-function showRestartNotice() {
-  clearInterval(pollTimer);
-  closeActMenu();
-  $('otaNoticeTitle').textContent = 'Restarting';
-  $('otaNoticeText').textContent =
-    'The board is rebooting. It can take up to 30 seconds to become reachable, then log in again.';
-  $('otaUpdating').classList.remove('hide');
-  // Cap the wait at the same budget as showOtaNotice so a bricked board
-  // does not poll forever.
-  const maxAttempts = 150;
-  let attempts = 0;
-  const poll = setInterval(async function () {
-    attempts += 1;
-    if (attempts > maxAttempts) {
-      clearInterval(poll);
-      $('otaNoticeText').textContent =
-        'The board did not come back online. Check it and reload this page manually.';
-      return;
-    }
-    try {
-      await fetch(API + '/api/info', { cache: 'no-store', credentials: 'include' });
-      clearInterval(poll);
-      location.reload();
-    } catch (_) {
-      // Board still rebooting; keep polling.
-    }
-  }, 2000);
-}
-
 // Surface a Start/Stop failure inline in the menu, mirroring the restart
 // confirm step. The menu stays open on failure so the operator sees the
 // error and can retry; on success it closes and the 2 s poll reflects the
@@ -1678,5 +1648,11 @@ $('actRestartConfirm').addEventListener('click', async function (event) {
     return;
   }
   actionInFlight = false;
-  showRestartNotice();
+  // The board keeps its address across a reboot, so poll until it answers.
+  closeActMenu();
+  showBoardNotice(
+    'Restarting',
+    'The board is rebooting. It can take up to 30 seconds to become reachable, then log in again.',
+    true
+  );
 });

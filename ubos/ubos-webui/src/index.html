@@ -336,17 +336,12 @@
     </div>
   </div>
 
-  <div class="fullNotice hide" id="resetDone">
+  <!-- Shared "board unavailable" screen for the OTA, restart, and
+       factory-reset flows. Title and message are set per flow in JS. -->
+  <div class="fullNotice hide" id="boardNotice">
     <div>
-      <h1>Factory reset complete</h1>
-      <p id="resetDoneText"></p>
-    </div>
-  </div>
-
-  <div class="fullNotice hide" id="otaUpdating">
-    <div>
-      <h1 id="otaNoticeTitle">Updating firmware</h1>
-      <p id="otaNoticeText"></p>
+      <h1 id="noticeTitle"></h1>
+      <p id="noticeText"></p>
     </div>
   </div>
 
