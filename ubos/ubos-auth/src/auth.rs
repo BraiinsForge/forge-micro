@@ -114,7 +114,7 @@ impl Credentials {
 /// cross-core access; `CriticalSectionRawMutex` is the portable safe
 /// default and the per-request overhead is negligible at HTTP rates.
 #[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
-pub static CREDENTIALS: Mutex<CriticalSectionRawMutex, Credentials> =
+pub(crate) static CREDENTIALS: Mutex<CriticalSectionRawMutex, Credentials> =
     Mutex::new(Credentials::const_empty());
 
 /// Tracks whether the default-credentials warning has already been
