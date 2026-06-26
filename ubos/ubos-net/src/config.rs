@@ -3,12 +3,14 @@
 //!
 //! The config layer stores addresses as raw octets to stay free of the
 //! link layer; this module converts them into the `embassy-net`/smoltcp
-//! types the stack constructor expects. It deliberately takes primitive
-//! octet inputs rather than a `ubos_config` type so `ubos-net` need not
-//! depend on `ubos-config`, which would close a dependency cycle through
-//! the manager, mining, and stratum-client chain. Board `main` functions
-//! match on the stored mode and call [`static_ipv4`] for a static
-//! profile, using `embassy_net::Config::dhcpv4` for the DHCP case.
+//! types the stack constructor expects. It takes primitive octet inputs
+//! so board `main` functions can build the boot stack config before the
+//! stack exists. `ubos-net` does now depend on `ubos-config` — the
+//! `net::run_network_control` task subscribes to the config network watch
+//! — which is acyclic as long as `ubos-config` stays the bottom store and
+//! never depends on the manager, mining, or stratum-client chain. Board
+//! `main` functions match on the stored mode and call [`static_ipv4`] for
+//! a static profile, using `embassy_net::Config::dhcpv4` for the DHCP case.
 
 use embassy_net::{Config, Ipv4Address, Ipv4Cidr, StaticConfigV4};
 

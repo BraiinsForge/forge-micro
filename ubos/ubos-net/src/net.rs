@@ -5,14 +5,16 @@
 
 use core::cell::Cell;
 
+use embassy_futures::select::{select, Either};
 use embassy_net::dns::DnsQueryType;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
-use embassy_net::{IpAddress, Ipv4Address, Stack};
+use embassy_net::{ConfigV4, DhcpConfig, IpAddress, Ipv4Address, Stack};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{with_timeout, Duration, Instant, Timer};
 use portable_atomic::{AtomicU32, Ordering};
+use ubos_config::{handle as config_handle, Message, NetworkConfig, NetworkMode};
 use ubos_logging::{info, warn, Debug2Format};
 
 use ubos_core::consts::Net;
@@ -141,7 +143,7 @@ type CSMutex = CriticalSectionRawMutex;
 pub struct NetState {
     /// Live IPv4 address, or `None` until DHCP or a static config assigns
     /// one. Written at boot by [`wait_for_config`] and refreshed on live
-    /// applies by the network-apply task.
+    /// applies by [`run_network_control`].
     pub ipv4: Option<Ipv4Address>,
     /// Board MAC, or `None` until [`Handle::set_mac`] runs at boot.
     pub mac: Option<[u8; 6]>,
@@ -156,9 +158,9 @@ pub struct NetState {
 /// so one slot covers any future subscriber.
 const WATCH_CAPACITY: usize = 1;
 
-/// Module-internal state watch. Writers are [`wait_for_config`], the
-/// network-apply task, and the boot MAC publish; readers obtain values via
-/// [`Handle`].
+/// Module-internal state watch. Writers are [`wait_for_config`],
+/// [`run_network_control`], and the boot MAC publish; readers obtain values
+/// via [`Handle`].
 static STATE_WATCH: Watch<CSMutex, NetState, WATCH_CAPACITY> = Watch::new();
 
 /// Per-task subscription returned by [`Handle::subscribe`].
@@ -350,5 +352,93 @@ pub async fn run_ntp_sync(stack: Stack<'static>) -> ! {
             warn!("ntp sync failed: {}", error);
         }
         Timer::after(Ntp::SYNC_INTERVAL).await;
+    }
+}
+
+/// Cadence at which the live IPv4 address is observed and republished,
+/// matching the prior reconcile loop. Long enough to stay well off the
+/// executor hot path; `/api/info` and the display tolerate up to this
+/// much lag after an address change.
+const OBSERVE_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Hold-off between a config publish and switching the live stack.
+///
+/// `set_config_v4` tears down the TCP connection the apply request
+/// arrived on, so this lets the API handler's HTTP ack flush first,
+/// keeping the ack a reliable "command arrived" signal for the SPA.
+/// See `docs/HTTP_LISTENERS.md`.
+const REPLY_FLUSH_DELAY: Duration = Duration::from_secs(1);
+
+/// Translate a stored [`NetworkConfig`] into the stack's [`ConfigV4`].
+fn to_config_v4(network: &NetworkConfig) -> ConfigV4 {
+    match &network.mode {
+        NetworkMode::Static {
+            address,
+            prefix_len,
+            gateway,
+            dns,
+        } => crate::config::static_ipv4(*address, *prefix_len, *gateway, dns).ipv4,
+        NetworkMode::Dhcp => embassy_net::Config::dhcpv4(DhcpConfig::default()).ipv4,
+    }
+}
+
+/// Own IP assignment: apply config-driven network changes to the live
+/// stack and publish the resulting address. Runs forever; spawn once per
+/// board beside the other net tasks.
+///
+/// Subscribes to the effective-network watch in `ubos-config`. On each
+/// change it switches the stack and clears every browser session, since a
+/// deliberate reconfiguration invalidates each session's CSRF token and
+/// lands the SPA on `/login` — the unambiguous "it took effect" signal.
+/// Between changes it polls the stack for the assigned address and
+/// publishes it via [`Handle::set_ipv4`], which records `ip_assigned` once
+/// per genuine change.
+///
+/// For a DHCP target a fresh lease is self-evident proof the change works,
+/// so the task confirms the pending change once a lease lands; `ubos-config`
+/// no-ops a confirm with nothing pending, so a boot lease is harmless. A
+/// static address is never auto-confirmed here: only an operator round-trip
+/// from the new address proves reachability.
+pub async fn run_network_control(stack: Stack<'static>) -> ! {
+    let mut network = config_handle().subscribe_network();
+    // Seed from the committed config the firmware already applied at boot,
+    // so only a genuine later transition triggers a switch.
+    let mut applied = config_handle().current().network;
+    let mut last_addr: Option<Ipv4Address> = None;
+    let mut confirm_pending = false;
+
+    loop {
+        match select(network.changed(), Timer::after(OBSERVE_INTERVAL)).await {
+            Either::First(new) => {
+                if new != applied {
+                    // Let the HTTP ack flush before the switch drops the
+                    // connection the apply request arrived on.
+                    Timer::after(REPLY_FLUSH_DELAY).await;
+                    stack.set_config_v4(to_config_v4(&new));
+                    ubos_auth::session::clear_all_sessions().await;
+                    applied = new;
+                    // Force the next poll to republish and, for DHCP, confirm
+                    // the freshly acquired lease.
+                    last_addr = None;
+                    confirm_pending = matches!(applied.mode, NetworkMode::Dhcp);
+                    info!("net: applied network change");
+                }
+            }
+            Either::Second(()) => {
+                if let Some(config) = stack.config_v4() {
+                    let address = config.address.address();
+                    if last_addr != Some(address) {
+                        last_addr = Some(address);
+                        handle().set_ipv4(address);
+                    }
+                    // A fresh DHCP lease confirms the pending change. Retry
+                    // until the send lands: a dropped confirm would let the
+                    // window expire and revert a working lease.
+                    if confirm_pending && config_handle().try_send(Message::ConfirmNetwork) {
+                        confirm_pending = false;
+                    }
+                }
+            }
+        }
     }
 }
