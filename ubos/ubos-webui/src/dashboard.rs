@@ -31,9 +31,7 @@ use edge_http::io::Error as HttpError;
 use edge_nal::TcpSplit;
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
-use portable_atomic::Ordering;
 use ubos_core::consts::Http;
-use ubos_net::net::REQUEST_COUNT;
 
 use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG};
 use ubos_http::{
@@ -293,9 +291,10 @@ fn percent_decode(input: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
 ///
 /// Serves the web-UI shell on port 80 (HTML, login, logout, logo).
 /// Methods are enforced: wrong-method requests on known paths return
-/// 405. `REQUEST_COUNT` increments on every request that reaches this
-/// handler regardless of response status, so the metric reflects
-/// handled-request volume rather than success rate.
+/// 405. Every request that reaches this handler increments the request
+/// counter via `ubos_net::net::handle().record_request` regardless of
+/// response status, so the metric reflects handled-request volume rather
+/// than success rate.
 pub struct DashboardService;
 
 impl Service for DashboardService {
@@ -316,7 +315,7 @@ impl Service for DashboardService {
         // `board_http_requests_total` reflects dashboard and API traffic.
         // The metrics port does not increment it, and a connection
         // dropped before its request is parsed is never counted.
-        REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
+        ubos_net::net::handle().record_request();
 
         // The allow-list is the compile-time default for now.
         if !ubos_auth::allow_list::is_allowed(peer_ip, ubos_auth::allow_list::DEFAULT_ALLOW_LIST) {

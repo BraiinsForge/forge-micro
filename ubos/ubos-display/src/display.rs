@@ -8,7 +8,6 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::Text;
 use embedded_hal::digital::OutputPin;
-use portable_atomic::Ordering;
 use profont::PROFONT_12_POINT;
 
 use ubos_metrics::hashrate;
@@ -55,7 +54,7 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(),
     }
 
     // Line 2: UTC time from NTP, or "no sync" if NTP has not completed.
-    let ntp_offset = ubos_net::net::NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
+    let ntp_offset = net_handle().ntp_epoch_offset();
     if ntp_offset == 0 {
         Text::new("no sync", Point::new(0, 29), style).draw(display)?;
     } else {

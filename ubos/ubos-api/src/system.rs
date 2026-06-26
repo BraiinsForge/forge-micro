@@ -56,11 +56,9 @@ use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use heapless::String;
-use portable_atomic::Ordering;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_metrics::hashrate::hashrate;
-use ubos_net::net::NTP_EPOCH_OFFSET;
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::ota::{
@@ -152,7 +150,7 @@ fn build_ip_string() -> String<16> {
 /// Returns an empty string when NTP has not yet synchronized.
 fn build_time_string() -> String<24> {
     let mut result = String::new();
-    let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
+    let ntp_offset = ubos_net::net::handle().ntp_epoch_offset();
     if ntp_offset != 0 {
         let unix_secs = ubos_net::wall_clock_secs();
         let time = ubos_net::ntp::format_utc_time(unix_secs);
@@ -461,7 +459,7 @@ async fn handle_statistics<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
+    let ntp_offset = ubos_net::net::handle().ntp_epoch_offset();
     let current_timestamp = if ntp_offset != 0 {
         ubos_net::wall_clock_secs().saturating_mul(1_000)
     } else {

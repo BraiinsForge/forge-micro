@@ -27,7 +27,6 @@ edge-http         = { workspace = true, features = ["io"] }
 edge-nal          = { workspace = true }
 embedded-io-async = { workspace = true }
 heapless          = { workspace = true }
-portable-atomic   = { workspace = true }
 defmt             = { workspace = true, optional = true }
 ubos-auth         = { workspace = true, default-features = false }
 ubos-config       = { workspace = true, default-features = false }

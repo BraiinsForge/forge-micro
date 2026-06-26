@@ -18,7 +18,7 @@ pub mod ntp;
 
 /// Seconds since Unix epoch if NTP has synced, or seconds since boot otherwise.
 #[inline]
+#[must_use]
 pub fn wall_clock_secs() -> u64 {
-    embassy_time::Instant::now().as_secs()
-        + net::NTP_EPOCH_OFFSET.load(portable_atomic::Ordering::Relaxed)
+    embassy_time::Instant::now().as_secs() + net::handle().ntp_epoch_offset()
 }

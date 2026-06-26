@@ -15,12 +15,10 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Instant;
 use embedded_io_async::{Read, Write};
-use portable_atomic::Ordering;
 use ubos_logging::warn;
 
 use ubos_core::consts::Metrics;
 use ubos_http::{format_content_length, BufferWriter, Service};
-use ubos_net::net::{NTP_EPOCH_OFFSET, REQUEST_COUNT};
 
 /// A metric value.
 #[derive(Clone, Copy)]
@@ -404,7 +402,7 @@ fn build_prometheus_body(
 
     // Render hardcoded derived metrics.
     let uptime_secs = Instant::now().as_secs();
-    let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
+    let ntp_offset = ubos_net::net::handle().ntp_epoch_offset();
     let ts_ms = if ntp_offset == 0 {
         None
     } else {
@@ -415,7 +413,7 @@ fn build_prometheus_body(
     let _ = writeln!(writer, "# TYPE board_uptime_seconds gauge");
     render_scalar(&mut writer, "board_uptime_seconds", uptime_secs, ts_ms);
 
-    let request_count = REQUEST_COUNT.load(Ordering::Relaxed);
+    let request_count = ubos_net::net::handle().request_count();
     let _ = writeln!(
         writer,
         "# HELP board_http_requests_total Requests handled on the dashboard and API ports, regardless of response status."
@@ -462,7 +460,7 @@ fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue)
     // offset to produce an absolute Unix-epoch timestamp. If NTP has
     // not synced yet, omit the timestamp so Prometheus stamps the
     // sample at scrape time.
-    let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
+    let ntp_offset = ubos_net::net::handle().ntp_epoch_offset();
     if ntp_offset != 0 {
         let ts_ms = stored.timestamp_ms + ntp_offset * 1000;
         let _ = write!(writer, " {ts_ms}");

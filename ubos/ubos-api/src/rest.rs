@@ -14,11 +14,9 @@ use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
-use portable_atomic::Ordering;
 use ubos_core::consts::Api;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_net::net::{NTP_EPOCH_OFFSET, REQUEST_COUNT};
 use ubos_thermal::Handle as ThermalHandle;
 
 use ubos_http::{
@@ -156,7 +154,7 @@ impl Service for RestApiService {
         // `board_http_requests_total` reflects dashboard and API traffic.
         // The metrics port does not increment it, and a connection
         // dropped before its request is parsed is never counted.
-        REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
+        ubos_net::net::handle().record_request();
 
         // The allow-list is the compile-time default for now.
         if !ubos_auth::allow_list::is_allowed(peer_ip, ubos_auth::allow_list::DEFAULT_ALLOW_LIST) {
@@ -485,7 +483,7 @@ impl Service for RestApiService {
                 }
 
                 let _ = writer.write_str("\",\"time\":\"");
-                let ntp_offset = NTP_EPOCH_OFFSET.load(Ordering::Relaxed);
+                let ntp_offset = ubos_net::net::handle().ntp_epoch_offset();
                 if ntp_offset != 0 {
                     let unix_secs = ubos_net::wall_clock_secs();
                     let time = ubos_net::ntp::format_utc_time(unix_secs);

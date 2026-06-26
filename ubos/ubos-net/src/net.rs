@@ -10,7 +10,7 @@ use embassy_net::{IpAddress, Ipv4Address, Stack};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{with_timeout, Duration, Instant, Timer};
-use portable_atomic::{AtomicU32, AtomicU64, Ordering};
+use portable_atomic::{AtomicU32, Ordering};
 use ubos_logging::{info, warn, Debug2Format};
 
 use ubos_core::consts::Net;
@@ -124,10 +124,9 @@ pub async fn connect_stratum<'b>(
     Err(StratumConnectError::AllConnectsFailed)
 }
 
-/// Count of accepted HTTP requests since boot, incremented by the
-/// dashboard HTTP server in `ubos-api::dashboard`.
-pub static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
-pub static NTP_EPOCH_OFFSET: AtomicU64 = AtomicU64::new(0);
+/// Count of accepted HTTP requests since boot. Incremented through
+/// [`Handle::record_request`] by the dashboard and API HTTP servers.
+static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
 type CSMutex = CriticalSectionRawMutex;
 
 /// Cross-module network identity published by `ubos-net`: the live IPv4
@@ -144,6 +143,10 @@ pub struct NetState {
     pub ipv4: Option<Ipv4Address>,
     /// Board MAC, or `None` until [`Handle::set_mac`] runs at boot.
     pub mac: Option<[u8; 6]>,
+    /// Seconds to add to the monotonic clock to reach Unix time, or `None`
+    /// until NTP first syncs. Written by [`sync_ntp`] via
+    /// [`Handle::set_ntp_offset`].
+    pub ntp_offset: Option<u64>,
 }
 
 /// Subscriber capacity for the net-state watch. Every consumer today reads
@@ -217,6 +220,35 @@ impl Handle {
             .sender()
             .send_modify(|state| state.get_or_insert_with(NetState::default).mac = Some(mac));
     }
+
+    /// Publish the NTP epoch offset after a successful sync, leaving the
+    /// IPv4 and MAC fields untouched.
+    pub fn set_ntp_offset(&self, offset: u64) {
+        self.state.sender().send_modify(|state| {
+            state.get_or_insert_with(NetState::default).ntp_offset = Some(offset);
+        });
+    }
+
+    /// Seconds to add to the monotonic clock to reach Unix time, or 0 if
+    /// NTP has not synced. The zero fallback matches the sentinel the bare
+    /// atomic used before this moved behind the handle.
+    #[must_use]
+    pub fn ntp_epoch_offset(&self) -> u64 {
+        self.current()
+            .and_then(|state| state.ntp_offset)
+            .unwrap_or(0)
+    }
+
+    /// Accepted HTTP requests since boot.
+    #[must_use]
+    pub fn request_count(&self) -> u32 {
+        REQUEST_COUNT.load(Ordering::Relaxed)
+    }
+
+    /// Record one accepted HTTP request.
+    pub fn record_request(&self) {
+        REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 /// Wait until the network stack receives a DHCP lease.
@@ -285,7 +317,7 @@ pub async fn fetch_ntp_time(stack: Stack<'static>) -> Result<(), &'static str> {
     let uptime_secs = Instant::now().as_secs();
     let offset = unix_secs.saturating_sub(uptime_secs);
     info!("ntp time synced: offset {}s", offset);
-    NTP_EPOCH_OFFSET.store(offset, Ordering::Relaxed);
+    handle().set_ntp_offset(offset);
 
     Ok(())
 }
