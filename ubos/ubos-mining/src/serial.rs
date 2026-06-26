@@ -33,13 +33,13 @@ use ubos_logging::{Debug2Format, error, info, trace, warn};
 /// `0xAA 0x55` frame preamble in the UART byte stream. Survives serial-
 /// actor recoveries; useful for detecting sustained desync or noise.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-pub static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
+pub(crate) static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
 
 /// Lifetime-monotonic count of register replies dropped because their
 /// register address did not match the read that was issued. A non-zero
 /// value points to corruption or a stray/late reply on the chain.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-pub static REGISTER_REPLY_MISMATCH: AtomicU32 = AtomicU32::new(0);
+pub(crate) static REGISTER_REPLY_MISMATCH: AtomicU32 = AtomicU32::new(0);
 
 // ---------------------------------------------------------------------------
 // Core-1 park primitives
