@@ -48,7 +48,7 @@ const PARK_INTERVAL: Duration = Duration::from_secs(60);
 #[embassy_executor::task]
 pub async fn serial_task(rx: MinerUartRx, tx: MinerUartTx) -> ! {
     match ubos_mining::serial::SERIAL
-        .run(rx, tx, &ubos_firmware::ASIC_SESSION)
+        .run(rx, tx, &ubos_firmware::ASIC_SESSION, crate::config::BOARD)
         .await
     {
         Ok(()) => info!("ubos-mining serial actor terminated cleanly"),
@@ -61,7 +61,7 @@ pub async fn serial_task(rx: MinerUartRx, tx: MinerUartTx) -> ! {
 
 #[embassy_executor::task]
 pub async fn miner_task(psu: &'static BoardPsu, reset: BoardResetPin) -> ! {
-    let mut miner = ubos_mining::Miner::new(psu, reset);
+    let mut miner = ubos_mining::Miner::new(psu, reset, crate::config::BOARD);
     miner.run().await;
     info!("ubos-mining miner exited");
     loop {

@@ -36,6 +36,8 @@ pub mod network;
 pub mod pool;
 pub mod thermal;
 
+use ubos_asic::BoardDescriptor;
+
 pub use api::ApiConfig;
 pub use cooling::{
     BOUNDS as COOLING_BOUNDS, CoolingBounds, CoolingConfig, CoolingInfo, INFO as COOLING_INFO,
@@ -43,7 +45,7 @@ pub use cooling::{
 };
 pub use miner::{MinerConfig, TuningAlgorithm};
 pub use mining::{
-    BOUNDS as MINING_BOUNDS, INFO as MINING_INFO, MiningBounds, MiningInfo, TuningConfig,
+    BOUNDS as MINING_BOUNDS, MiningBounds, MiningInfo, TuningConfig, bounds, mining_info,
 };
 pub use network::{NetworkConfig, NetworkMode};
 pub use pool::{
@@ -399,7 +401,7 @@ impl ConfigUpdate {
     /// # Errors
     ///
     /// Returns `Err` on the first field that fails its validation rule.
-    pub fn validate(&self, current: &Config) -> Result<(), &'static str> {
+    pub fn validate(&self, current: &Config, bounds: &MiningBounds) -> Result<(), &'static str> {
         if let Some(pool) = &self.pool {
             for (slot, entry) in pool.iter().enumerate() {
                 entry.validate(slot)?;
@@ -412,7 +414,7 @@ impl ConfigUpdate {
             miner.validate()?;
         }
         if let Some(tuning) = &self.tuning {
-            tuning.validate()?;
+            tuning.validate(bounds)?;
         }
         if let Some(api) = &self.api {
             api.validate()?;
@@ -472,12 +474,26 @@ pub struct Config {
 }
 
 impl Default for Config {
-    /// Factory defaults matching today's hardcoded BMM101 profile.
+    /// Factory defaults for the BMM100 board.
     ///
-    /// Not a `const` because [`ApiConfig`]'s default cannot be `const`
-    /// (heapless 0.9 `String::push_str` is not `const fn`). The value
-    /// is computed once at boot; it is cheap.
+    /// Provided so the test suite (and any caller without a specific
+    /// board) has a stable baseline; the firmware uses
+    /// [`Config::for_board`] with its own descriptor instead.
     fn default() -> Self {
+        Self::for_board(&ubos_asic::BMM100)
+    }
+}
+
+impl Config {
+    /// Factory defaults for `board`. The tuning operating point falls back
+    /// to the board's boot frequency/voltage when the `MINING_*` build env
+    /// is unset, so a board comes up at its correct rail/clock.
+    ///
+    /// Not a `const fn` because [`ApiConfig`]'s default cannot be `const`
+    /// (heapless 0.9 `String::push_str` is not `const fn`). The value is
+    /// computed once at boot; it is cheap.
+    #[must_use]
+    pub fn for_board(board: &'static BoardDescriptor) -> Self {
         let mut host = heapless::String::new();
         host.push_str(option_env!("POOL_HOST").unwrap_or(DEFAULT_POOL_HOST))
             .expect("BUG: POOL_HOST exceeds PoolEntry::host capacity");
@@ -502,18 +518,13 @@ impl Default for Config {
             pool,
             thermal: ThermalConfig::default(),
             cooling: CoolingConfig {
-                // Board-supplied at build time; mirrors the MINING_* env
-                // overrides. Gates the PID setpoint (on the PCB-proxy temp,
-                // not true die). Runtime-editable via the UI afterwards.
-                target_temp_c: option_env!("TARGET_TEMP_C")
-                    .and_then(|raw| raw.parse().ok())
-                    .unwrap_or(CoolingConfig::default().target_temp_c),
+                // The board's cooling profile lives on its descriptor: the
+                // hashnode runs die-temp blind (synthetic pcb+offset), so it
+                // carries a lower setpoint and a higher fan floor than the
+                // default board. Runtime-editable via the UI afterwards.
+                target_temp_c: board.cooling.target_temp_c,
                 pid: PidConfig {
-                    // Board-supplied at build time: hashnode runs die-temp
-                    // blind (synthetic pcb+offset), so it pins a high fan floor.
-                    min_fan_pwm: option_env!("MIN_FAN_PWM")
-                        .and_then(|value| value.parse::<u8>().ok())
-                        .unwrap_or(PidConfig::default().min_fan_pwm),
+                    min_fan_pwm: board.cooling.min_fan_pwm,
                     ..PidConfig::default()
                 },
             },
@@ -522,15 +533,10 @@ impl Default for Config {
                 algorithm: TuningAlgorithm::Fixed,
             },
             tuning: TuningConfig {
-                // Falls back to the active board's boot operating point
-                // (`BoardDescriptor::default_*`), so a board comes up at its
-                // correct rail/clock with no env. The env merely overrides.
-                frequency_mhz: option_env!("MINING_FREQUENCY_MHZ")
-                    .and_then(|raw| raw.parse().ok())
-                    .unwrap_or(ubos_asic::ACTIVE_BOARD.default_frequency_mhz),
-                voltage_mv: option_env!("MINING_VOLTAGE_MV")
-                    .and_then(|raw| raw.parse().ok())
-                    .unwrap_or(ubos_asic::ACTIVE_BOARD.default_voltage_mv),
+                // The board's boot operating point comes from its descriptor,
+                // so a board comes up at its correct rail/clock with no env.
+                frequency_mhz: board.default_frequency_mhz,
+                voltage_mv: board.default_voltage_mv,
             },
             api: ApiConfig::default(),
             network: NetworkConfig::default(),
@@ -567,13 +573,13 @@ impl Config {
     /// # Errors
     ///
     /// Returns the first failing field's static error string.
-    pub fn validate(&self) -> Result<(), &'static str> {
+    pub fn validate(&self, bounds: &MiningBounds) -> Result<(), &'static str> {
         for (slot, entry) in self.pool.iter().enumerate() {
             entry.validate(slot)?;
         }
         self.thermal.validate()?;
         self.miner.validate()?;
-        self.tuning.validate()?;
+        self.tuning.validate(bounds)?;
         self.api.validate()?;
         self.network.validate()?;
         CoolingConfig::validate_target_temp(
@@ -607,8 +613,8 @@ impl Config {
 /// `committed.network` is the revert target and is left untouched while
 /// a preview is pending, so a superseding apply still reverts all the
 /// way back.
-pub async fn run<S: Storage>(mut storage: S) -> ! {
-    let mut committed = load_initial(&mut storage).await;
+pub async fn run<S: Storage>(mut storage: S, board: &'static BoardDescriptor) -> ! {
+    let mut committed = load_initial(&mut storage, board).await;
     STATE_WATCH.sender().send(committed.clone());
     let mut preview: Option<(NetworkConfig, Instant)> = None;
     info!("config: started");
@@ -681,7 +687,7 @@ pub async fn run<S: Storage>(mut storage: S) -> ! {
             Message::FactoryReset => {
                 preview = None;
                 clear_pending_status();
-                committed = factory_reset(&mut storage).await;
+                committed = factory_reset(&mut storage, board).await;
                 NETWORK_WATCH.sender().send(committed.network.clone());
                 ubos_core::reboot::request_reboot();
             }
@@ -714,29 +720,29 @@ fn clear_pending_status() {
 /// that could have been stored fits without reallocation. All failure
 /// paths converge on defaults so the firmware always boots with a
 /// valid config.
-async fn load_initial<S: Storage>(storage: &mut S) -> Config {
+async fn load_initial<S: Storage>(storage: &mut S, board: &'static BoardDescriptor) -> Config {
     let mut buffer = [0u8; LOAD_BUFFER_SIZE];
     let blob = match storage.load(CONFIG_KEY, &mut buffer).await {
         Ok(Some(blob)) => blob,
         Ok(None) => {
             info!("config: no stored config, using defaults");
-            return Config::default();
+            return Config::for_board(board);
         }
         Err(_) => {
             warn!("config: load failed, using defaults");
-            return Config::default();
+            return Config::for_board(board);
         }
     };
     let config = match decode_blob::<S::Error>(blob) {
         Ok(config) => config,
         Err(error) => {
             log_decode_error(&error);
-            return Config::default();
+            return Config::for_board(board);
         }
     };
-    if config.validate().is_err() {
+    if config.validate(&mining::bounds(board)).is_err() {
         warn!("config: stored config failed validation, using defaults");
-        return Config::default();
+        return Config::for_board(board);
     }
     info!("config: loaded from storage");
     config
@@ -790,8 +796,8 @@ async fn set_network<S: Storage>(config: &Config, storage: &mut S) {
 /// new value. Returning the config keeps the persisted, published, and
 /// in-memory values provably identical and lets tests drive the real
 /// reset path.
-async fn factory_reset<S: Storage>(storage: &mut S) -> Config {
-    let config = Config::default();
+async fn factory_reset<S: Storage>(storage: &mut S, board: &'static BoardDescriptor) -> Config {
+    let config = Config::for_board(board);
     persist(&config, storage).await;
     STATE_WATCH.sender().send(config.clone());
     info!("config: factory reset to defaults");

@@ -19,6 +19,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use embedded_io::ErrorKind;
+use ubos_asic::BoardDescriptor;
 use ubos_config::{ConfigSubscription, TuningAlgorithm};
 use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, error, info, warn};
@@ -130,6 +131,7 @@ where
 {
     psu: &'a P,
     reset_pin: R,
+    board: &'static BoardDescriptor,
     halted: bool,
 }
 
@@ -147,14 +149,16 @@ where
     /// board glitch to clear.
     const RETRY_DELAY: Duration = Duration::from_secs(5);
 
-    /// Construct a `Miner` from a PSU reference and a reset pin.
+    /// Construct a `Miner` from a PSU reference, a reset pin, and the
+    /// board descriptor whose chip facts drive the tuner.
     ///
     /// The PSU is borrowed for lifetime `'a`; on all current firmware
     /// targets `'a` is `'static` because the PSU lives in a static.
-    pub fn new(psu: &'a P, reset_pin: R) -> Self {
+    pub fn new(psu: &'a P, reset_pin: R, board: &'static BoardDescriptor) -> Self {
         Self {
             psu,
             reset_pin,
+            board,
             halted: false,
         }
     }
@@ -192,7 +196,7 @@ where
 
             let outcome = match snapshot.miner.algorithm {
                 TuningAlgorithm::Fixed => {
-                    let mut tuner = FixedTuner::default();
+                    let mut tuner = FixedTuner::new(self.board);
                     self.bring_up_cycle(
                         target,
                         snapshot.miner.algorithm,

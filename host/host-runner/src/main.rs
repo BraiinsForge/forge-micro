@@ -57,6 +57,12 @@ use hosted_network::HostDevice;
 const SOCKET_COUNT: usize = 24;
 const BOARD_NAME: &str = "host-runner";
 
+/// The host runner simulates the BMM100 hashboard, so it threads that
+/// board descriptor through the mining, config, and API layers.
+pub const BOARD: &ubos_asic::BoardDescriptor = &ubos_asic::BMM100;
+pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
+pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
+
 /// Concurrent TCP connections the web-UI server (:80) accepts.
 const WEBUI_HTTP_POOL: usize = 5;
 /// Concurrent TCP connections the REST API server (:8080) accepts.
@@ -165,7 +171,7 @@ async fn manager_task(mining: MiningHandle) -> ! {
 
 #[embassy_executor::task]
 async fn config_task(storage: FileStorage) -> ! {
-    ubos_config::run(storage).await
+    ubos_config::run(storage, BOARD).await
 }
 
 /// CPU-side ASIC mock; spawned when no BM1362 hashboard is wired.
@@ -388,6 +394,8 @@ fn main() {
         let api_service: &'static ubos_api::RestApiService =
             API_SERVICE.init(ubos_api::RestApiService::new(
                 BOARD_NAME,
+                &MINING_INFO,
+                &BOUNDS,
                 thermal,
                 manager_handle,
                 ubos_psu::handle(),

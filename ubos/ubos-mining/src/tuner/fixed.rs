@@ -17,7 +17,7 @@ use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{debug, error, warn};
 
 use crate::bus::SerialBus;
-use crate::consts::{ACTIVE_BOARD, DIFFICULTY};
+use crate::consts::DIFFICULTY;
 use crate::control::publish_tuner_step;
 use crate::miner::MinerControl;
 
@@ -42,19 +42,21 @@ pub struct FixedTuner {
     target: TuningConfig,
 }
 
-impl Default for FixedTuner {
-    fn default() -> Self {
+impl FixedTuner {
+    /// Build a tuner for `board`, anchored at the chip's minimum operating
+    /// clock and the board's max rail voltage; the bring-up loop ramps from
+    /// there to the configured operating point.
+    #[must_use]
+    pub fn new(board: &'static BoardDescriptor) -> Self {
         Self {
-            board: ACTIVE_BOARD,
+            board,
             target: TuningConfig {
-                frequency: ACTIVE_BOARD.chip.descriptor().frequency_range.min(),
-                voltage: ACTIVE_BOARD.max_rail_voltage(),
+                frequency: board.chip.descriptor().frequency_range.min(),
+                voltage: board.max_rail_voltage(),
             },
         }
     }
-}
 
-impl FixedTuner {
     /// Settling delay held after each frequency programming write.
     const RAMP_SETTLE: Duration = Duration::from_secs(1);
 

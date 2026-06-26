@@ -24,8 +24,8 @@ use portable_atomic::{AtomicBool, AtomicU32, Ordering};
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_asic::{
-    ChipAddress, ChipProtocol, Frame, HwWork, RegisterResponse, Response, ResponseParser,
-    build_read_register, build_write_register,
+    BoardDescriptor, Chip, ChipAddress, ChipProtocol, Frame, HwWork, RegisterResponse, Response,
+    ResponseParser, build_read_register, build_write_register,
 };
 use ubos_logging::{Debug2Format, error, info, trace, warn};
 
@@ -110,8 +110,7 @@ pub fn core1_is_parked() -> bool {
 }
 
 use crate::consts::{
-    ACTIVE_BOARD, FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS,
-    WORK_REGISTRY_SLOTS,
+    FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS, WORK_REGISTRY_SLOTS,
 };
 
 /// Hex pretty-printer for trace logs. Wraps a byte slice and formats it
@@ -358,6 +357,7 @@ impl Serial {
         mut rx: R,
         mut tx: T,
         session: &'static AsicSession,
+        board: &'static BoardDescriptor,
     ) -> Result<(), ErrorKind>
     where
         R: Read + BaudRate,
@@ -371,9 +371,10 @@ impl Serial {
         let mut work_id: u8 = 0;
         let mut registry: [Option<WorkSlot>; WORK_REGISTRY_SLOTS] =
             [const { None }; WORK_REGISTRY_SLOTS];
+        let chip = board.chip;
         // Per-chip work-id variant count; the host strides work-ids by this
         // value and divides a returned work-id by it to recover the job.
-        let midstate_count = ACTIVE_BOARD.chip.descriptor().midstate_count;
+        let midstate_count = chip.descriptor().midstate_count;
 
         loop {
             // Honor a park request at the top of every iteration, before the
@@ -431,6 +432,7 @@ impl Serial {
                     Self::handle_read(
                         read_result,
                         &mut parser,
+                        chip,
                         midstate_count,
                         &registry,
                         &self.register_replies,
@@ -534,6 +536,7 @@ impl Serial {
     fn handle_read<E: embedded_io::Error>(
         result: Result<usize, E>,
         parser: &mut ResponseParser,
+        chip: Chip,
         midstate_count: u8,
         registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
@@ -547,7 +550,7 @@ impl Serial {
             Ok(n) => {
                 trace!("RX ({} bytes): {}", n, HexBytes(&parser.free()[..n]));
                 parser.commit(n);
-                while let Some(resp) = parser.pop() {
+                while let Some(resp) = parser.pop(chip) {
                     Self::dispatch_response(
                         &resp,
                         midstate_count,

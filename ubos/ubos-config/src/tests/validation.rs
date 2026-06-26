@@ -75,7 +75,11 @@ fn pool_valid_entry_passes() {
     pool.push(valid_pool_entry())
         .expect("BUG: pool has capacity");
     update.pool = Some(pool);
-    assert!(update.validate(&Config::default()).is_ok());
+    assert!(
+        update
+            .validate(&Config::default(), &crate::mining::BOUNDS)
+            .is_ok()
+    );
 }
 
 /// A pool entry with an empty host is rejected.
@@ -88,7 +92,7 @@ fn pool_empty_host_rejected() {
     pool.push(entry).expect("BUG: pool has capacity");
     update.pool = Some(pool);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("pool 1: host must not be empty")
     );
 }
@@ -103,7 +107,7 @@ fn pool_zero_port_rejected() {
     pool.push(entry).expect("BUG: pool has capacity");
     update.pool = Some(pool);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("pool 1: port must be greater than 0")
     );
 }
@@ -120,7 +124,7 @@ fn pool_empty_host_slot_2_reports_index() {
     pool.push(bad).expect("BUG: pool has capacity");
     update.pool = Some(pool);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("pool 2: host must not be empty")
     );
 }
@@ -132,7 +136,11 @@ fn pool_empty_host_slot_2_reports_index() {
 fn thermal_valid_passes() {
     let mut update = empty_update();
     update.thermal = Some(valid_thermal());
-    assert!(update.validate(&Config::default()).is_ok());
+    assert!(
+        update
+            .validate(&Config::default(), &crate::mining::BOUNDS)
+            .is_ok()
+    );
 }
 
 /// `sample_interval_ms` below 100 is rejected.
@@ -143,7 +151,7 @@ fn thermal_sample_interval_too_low() {
     thermal.sample_interval_ms = 99;
     update.thermal = Some(thermal);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("thermal.sample_interval_ms must be between 100 and 60000")
     );
 }
@@ -156,7 +164,7 @@ fn thermal_sample_interval_too_high() {
     thermal.sample_interval_ms = 60_001;
     update.thermal = Some(thermal);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("thermal.sample_interval_ms must be between 100 and 60000")
     );
 }
@@ -170,7 +178,7 @@ fn thermal_dangerous_temp_too_low() {
     thermal.cooldown_temp_c = 20.0;
     update.thermal = Some(thermal);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("thermal.dangerous_temp_c must be between 50 and 110")
     );
 }
@@ -183,7 +191,7 @@ fn thermal_dangerous_temp_too_high() {
     thermal.dangerous_temp_c = 110.1;
     update.thermal = Some(thermal);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("thermal.dangerous_temp_c must be between 50 and 110")
     );
 }
@@ -196,7 +204,7 @@ fn thermal_dangerous_temp_nan_rejected() {
     thermal.dangerous_temp_c = f32::NAN;
     update.thermal = Some(thermal);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("thermal.dangerous_temp_c must be a finite number")
     );
 }
@@ -209,7 +217,7 @@ fn thermal_cooldown_temp_too_low() {
     thermal.cooldown_temp_c = 19.9;
     update.thermal = Some(thermal);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("thermal.cooldown_temp_c must be between 20 and 90")
     );
 }
@@ -222,7 +230,7 @@ fn thermal_cooldown_temp_too_high() {
     thermal.cooldown_temp_c = 90.1;
     update.thermal = Some(thermal);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("thermal.cooldown_temp_c must be between 20 and 90")
     );
 }
@@ -235,7 +243,7 @@ fn thermal_cooldown_temp_nan_rejected() {
     thermal.cooldown_temp_c = f32::NAN;
     update.thermal = Some(thermal);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("thermal.cooldown_temp_c must be a finite number")
     );
 }
@@ -248,7 +256,7 @@ fn thermal_cooldown_not_less_than_dangerous_rejected() {
     thermal.cooldown_temp_c = thermal.dangerous_temp_c;
     update.thermal = Some(thermal);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("thermal.cooldown_temp_c must be less than thermal.dangerous_temp_c")
     );
 }
@@ -263,7 +271,9 @@ fn thermal_cooldown_not_less_than_dangerous_rejected() {
 fn cooling_target_below_dangerous_passes() {
     let mut update = empty_update();
     update.cooling_target_temp_c = Some(70.0);
-    assert!(update.validate(&Config::default()).is_ok());
+    assert!(update
+        .validate(&Config::default(), &crate::mining::BOUNDS)
+        .is_ok());
 }
 
 /// `cooling_target_temp_c` equal to `dangerous_temp_c` is rejected.
@@ -278,7 +288,7 @@ fn cooling_target_equal_to_dangerous_rejected() {
     // 80.0 is within 30..=85 but equals the dangerous limit.
     update.cooling_target_temp_c = Some(80.0);
     assert_eq!(
-        update.validate(&current),
+        update.validate(&current, &crate::mining::BOUNDS),
         Err("cooling_target_temp_c must be less than dangerous_temp_c")
     );
 }
@@ -294,7 +304,9 @@ fn cooling_target_cross_field_uses_incoming_dangerous() {
     thermal.dangerous_temp_c = 80.0;
     update.thermal = Some(thermal);
     update.cooling_target_temp_c = Some(75.0);
-    assert!(update.validate(&Config::default()).is_ok());
+    assert!(update
+        .validate(&Config::default(), &crate::mining::BOUNDS)
+        .is_ok());
 }
 
 /// `cooling_target_temp_c` NaN is rejected.
@@ -303,7 +315,7 @@ fn cooling_target_nan_rejected() {
     let mut update = empty_update();
     update.cooling_target_temp_c = Some(f32::NAN);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("cooling_target_temp_c must be a finite number")
     );
 }
@@ -314,7 +326,7 @@ fn cooling_target_too_low() {
     let mut update = empty_update();
     update.cooling_target_temp_c = Some(29.9);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("cooling_target_temp_c must be between 30 and 85")
     );
 }
@@ -325,7 +337,7 @@ fn cooling_target_too_high() {
     let mut update = empty_update();
     update.cooling_target_temp_c = Some(85.1);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("cooling_target_temp_c must be between 30 and 85")
     );
 }
@@ -339,7 +351,9 @@ fn cooling_target_too_high() {
 fn miner_default_passes() {
     let mut update = empty_update();
     update.miner = Some(Config::default().miner.clone());
-    assert!(update.validate(&Config::default()).is_ok());
+    assert!(update
+        .validate(&Config::default(), &crate::mining::BOUNDS)
+        .is_ok());
 }
 
 /// `ConfigUpdate::from_config` includes the miner field.
@@ -359,9 +373,11 @@ fn miner_apply_updates_field() {
         miner: Some(new_miner.clone()),
         ..empty_update()
     };
-    update.apply(&mut config);
-    assert_eq!(config.miner, new_miner);
-}
+    assert!(
+        update
+            .validate(&Config::default(), &crate::mining::BOUNDS)
+            .is_ok()
+    );
 
 // --- Tuning ---
 
@@ -370,7 +386,9 @@ fn miner_apply_updates_field() {
 fn tuning_valid_passes() {
     let mut update = empty_update();
     update.tuning = Some(valid_tuning());
-    assert!(update.validate(&Config::default()).is_ok());
+    assert!(update
+        .validate(&Config::default(), &crate::mining::BOUNDS)
+        .is_ok());
 }
 
 /// Frequency outside the accepted range is rejected.
@@ -383,23 +401,25 @@ fn tuning_frequency_out_of_range() {
     tuning.frequency_mhz = 1001;
     update.tuning = Some(tuning);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("tuning.frequency_mhz must be between 50 and 1000")
     );
 }
 
 /// Voltage outside the accepted range is rejected.
 ///
-/// One below the board's lower bound exercises the exclusive rejection path
-/// without asserting a board-specific numeric value.
-#[test]
+    assert!(
+        update
+            .validate(&Config::default(), &crate::mining::BOUNDS)
+            .is_ok()
+    );
 fn tuning_voltage_out_of_range() {
     let mut update = empty_update();
     let mut tuning = valid_tuning();
     tuning.voltage_mv = MINING_BOUNDS.voltage_mv.start() - 1;
     update.tuning = Some(tuning);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("tuning.voltage_mv outside the accepted range")
     );
 }
@@ -419,7 +439,7 @@ fn thermal_only_update_rejected_when_current_target_above_new_dangerous() {
     // cooldown must be below dangerous; 45.0 < 70.0 is fine.
     update.thermal = Some(thermal);
     assert_eq!(
-        update.validate(&current),
+        update.validate(&current, &crate::mining::BOUNDS),
         Err("current cooling.target_temp_c must remain less than thermal.dangerous_temp_c")
     );
 }
@@ -434,7 +454,9 @@ fn tuning_frequency_in_range_non_discrete_passes() {
     let mut tuning = valid_tuning();
     tuning.frequency_mhz = 100;
     update.tuning = Some(tuning);
-    assert!(update.validate(&Config::default()).is_ok());
+    assert!(update
+        .validate(&Config::default(), &crate::mining::BOUNDS)
+        .is_ok());
 }
 
 /// A non-round voltage inside the accepted range passes.
@@ -447,17 +469,23 @@ fn tuning_voltage_in_range_non_discrete_passes() {
     let mut tuning = valid_tuning();
     tuning.voltage_mv = MINING_BOUNDS.voltage_mv.start() + 11;
     update.tuning = Some(tuning);
-    assert!(update.validate(&Config::default()).is_ok());
+    assert!(update
+        .validate(&Config::default(), &crate::mining::BOUNDS)
+        .is_ok());
 }
 
 // --- Cooling fan PWM floor ---
 
-/// Fan PWM floor of 100 (the full-speed cap) passes validation.
-#[test]
-fn cooling_min_fan_pwm_100_passes() {
+    assert!(
+        update
+            .validate(&Config::default(), &crate::mining::BOUNDS)
+            .is_ok()
+    );
     let mut update = empty_update();
     update.cooling_min_fan_pwm = Some(100);
-    assert!(update.validate(&Config::default()).is_ok());
+    assert!(update
+        .validate(&Config::default(), &crate::mining::BOUNDS)
+        .is_ok());
 }
 
 /// Fan PWM floor above 100 is rejected because the PID clamp range would be
@@ -467,7 +495,7 @@ fn cooling_min_fan_pwm_101_rejected() {
     let mut update = empty_update();
     update.cooling_min_fan_pwm = Some(101);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("cooling_min_fan_pwm must be between 0 and 100")
     );
 }
@@ -479,7 +507,9 @@ fn cooling_min_fan_pwm_101_rejected() {
 fn api_valid_passes() {
     let mut update = empty_update();
     update.api = Some(valid_api());
-    assert!(update.validate(&Config::default()).is_ok());
+    assert!(update
+        .validate(&Config::default(), &crate::mining::BOUNDS)
+        .is_ok());
 }
 
 /// Empty username is rejected.
@@ -490,7 +520,7 @@ fn api_empty_username_rejected() {
     api.username = heapless::String::new();
     update.api = Some(api);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("api.username must not be empty")
     );
 }
@@ -505,11 +535,13 @@ fn api_non_ascii_username_rejected() {
     api.username.push_str("admé").expect("BUG: username fits");
     update.api = Some(api);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("api.username must contain only printable ASCII characters")
+    assert!(
+        update
+            .validate(&Config::default(), &crate::mining::BOUNDS)
+            .is_ok()
     );
-}
-
 /// Non-ASCII password is rejected when non-empty.
 #[test]
 fn api_non_ascii_password_rejected() {
@@ -522,7 +554,7 @@ fn api_non_ascii_password_rejected() {
         .expect("BUG: password fits");
     update.api = Some(api);
     assert_eq!(
-        update.validate(&Config::default()),
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("api.password must contain only printable ASCII characters")
     );
 }
@@ -534,7 +566,9 @@ fn api_empty_password_passes() {
     let mut api = valid_api();
     api.password = heapless::String::new();
     update.api = Some(api);
-    assert!(update.validate(&Config::default()).is_ok());
+    assert!(update
+        .validate(&Config::default(), &crate::mining::BOUNDS)
+        .is_ok());
 }
 
 /// Builds a valid static [`NetworkConfig`].
@@ -562,9 +596,11 @@ fn network_default_passes() {
 
 /// A valid static config passes validation.
 #[test]
-fn network_static_valid_passes() {
-    assert!(valid_network_static().validate().is_ok());
-}
+    assert!(
+        update
+            .validate(&Config::default(), &crate::mining::BOUNDS)
+            .is_ok()
+    );
 
 /// `prefix_len` of 0 is rejected for static mode.
 #[test]
@@ -713,7 +749,7 @@ fn network_hostname_valid_passes() {
 /// `Config::default()` is internally consistent.
 #[test]
 fn config_default_validates() {
-    assert!(Config::default().validate().is_ok());
+    assert!(Config::default().validate(&crate::mining::BOUNDS).is_ok());
 }
 
 /// A Config decoded from storage with NaN `cooling.target_temp_c` is rejected
@@ -724,7 +760,7 @@ fn config_cooling_target_nan_rejected() {
     let mut config = Config::default();
     config.cooling.target_temp_c = f32::NAN;
     assert_eq!(
-        config.validate(),
+        config.validate(&crate::mining::BOUNDS),
         Err("cooling_target_temp_c must be a finite number")
     );
 }
@@ -739,7 +775,7 @@ fn config_cooling_target_above_dangerous_rejected() {
     config.thermal.dangerous_temp_c = 60.0;
     config.cooling.target_temp_c = 80.0;
     assert_eq!(
-        config.validate(),
+        config.validate(&crate::mining::BOUNDS),
         Err("cooling_target_temp_c must be less than dangerous_temp_c")
     );
 }

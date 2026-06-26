@@ -44,6 +44,7 @@ ubos-config          = { workspace = true, features = ["defmt"] }
 ubos-cooling         = { workspace = true, features = ["defmt"] }
 ubos-temperature     = { workspace = true, features = ["defmt"] }
 ubos-mining          = { workspace = true, features = ["defmt"] }
+ubos-asic            = { workspace = true }
 ubos-psu             = { workspace = true, features = ["defmt"] }
 serial-baudrate      = { workspace = true }
 embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }

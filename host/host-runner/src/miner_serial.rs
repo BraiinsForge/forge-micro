@@ -35,7 +35,7 @@ pub async fn miner_serial_task() -> ! {
     };
     let (rx, tx) = serial.split();
     info!("host-runner: miner serial bringup on {MINER_SERIAL_PATH}");
-    match SERIAL.run(rx, tx, &ASIC_SESSION).await {
+    match SERIAL.run(rx, tx, &ASIC_SESSION, crate::BOARD).await {
         Ok(()) => info!("host-runner: miner serial actor terminated cleanly"),
         Err(kind) => error!("host-runner: miner serial actor exited: {kind:?}"),
     }

@@ -89,6 +89,8 @@ const fn validate_board_name(name: &str) -> bool {
 /// with CSRF enforcement on session-authenticated mutating requests.
 pub struct RestApiService {
     pub(crate) board_name: &'static str,
+    pub(crate) mining_info: &'static ubos_config::MiningInfo,
+    pub(crate) bounds: &'static ubos_config::MiningBounds,
     pub(crate) thermal: ThermalHandle,
     pub(crate) manager: ManagerHandle,
     pub(crate) psu: ubos_psu::Handle,
@@ -104,6 +106,8 @@ impl RestApiService {
     #[must_use]
     pub fn new(
         board_name: &'static str,
+        mining_info: &'static ubos_config::MiningInfo,
+        bounds: &'static ubos_config::MiningBounds,
         thermal: ThermalHandle,
         manager: ManagerHandle,
         psu: ubos_psu::Handle,
@@ -111,6 +115,8 @@ impl RestApiService {
     ) -> Self {
         Self {
             board_name,
+            mining_info,
+            bounds,
             thermal,
             manager,
             psu,
@@ -375,6 +381,7 @@ impl Service for RestApiService {
                 path,
                 body,
                 self.board_name,
+                self.mining_info,
                 self.thermal,
                 self.manager,
                 self.stack,
@@ -632,7 +639,7 @@ impl Service for RestApiService {
                     api.password = current.api.password.clone();
                 }
 
-                if let Err(reason) = update.validate(&current) {
+                if let Err(reason) = update.validate(&current, self.bounds) {
                     warn!("config: rejected POST /api/config: {}", reason);
                     // `reason` is always a `&'static str` literal from
                     // `ubos_config::ConfigUpdate::validate`; none contain

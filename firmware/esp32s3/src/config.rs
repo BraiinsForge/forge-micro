@@ -101,6 +101,17 @@ pub struct Board<'d> {
     pub display_dma: esp_hal::peripherals::DMA_CH1<'d>,
 }
 
+/// The board descriptor this firmware targets: the 4-chip BM1362 BMM100.
+/// Every crate that needs board facts takes this explicitly rather than
+/// selecting a board behind a cargo feature.
+pub const BOARD: &ubos_asic::BoardDescriptor = &ubos_asic::BMM100;
+
+/// Accepted tuning ranges for [`BOARD`]; the API validates against these.
+pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
+
+/// Static mining capability metadata, built from [`BOARD`].
+pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
+
 impl Board<'static> {
     pub const NAME: &str = "ESP32-S3 W5100S";
     /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`

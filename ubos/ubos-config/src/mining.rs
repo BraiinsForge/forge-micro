@@ -6,7 +6,7 @@
 //! [`BOUNDS`] and [`INFO`] constants.
 
 use core::ops::RangeInclusive;
-use ubos_asic::ACTIVE_BOARD as BOARD;
+use ubos_asic::BoardDescriptor;
 
 /// ASIC frequency and voltage overrides.
 #[derive(
@@ -21,27 +21,32 @@ pub struct TuningConfig {
 }
 
 impl Default for TuningConfig {
-    /// Factory defaults from the active board descriptor, so the values
-    /// always fall inside [`BOUNDS`] regardless of the selected board.
+    /// Factory defaults for the BMM100 board. The firmware builds its real
+    /// per-board defaults via [`crate::Config::for_board`]; this exists so
+    /// the test suite has a stable baseline.
     fn default() -> Self {
         Self {
-            frequency_mhz: BOARD.default_frequency_mhz,
-            voltage_mv: BOARD.default_voltage_mv,
+            frequency_mhz: ubos_asic::BMM100.default_frequency_mhz,
+            voltage_mv: ubos_asic::BMM100.default_voltage_mv,
         }
     }
 }
 
 impl TuningConfig {
-    /// Validate frequency and voltage against [`BOUNDS`].
+    /// Validate frequency and voltage against `bounds`.
+    ///
+    /// The caller passes the active board's bounds (the firmware sources
+    /// them from its `BoardDescriptor` via [`bounds`]) so a board only
+    /// accepts an operating point inside its own rail/clock range.
     ///
     /// # Errors
     ///
     /// Returns `Err` when either field falls outside its accepted range.
-    pub fn validate(&self) -> Result<(), &'static str> {
-        if !BOUNDS.frequency_mhz.contains(&self.frequency_mhz) {
+    pub fn validate(&self, bounds: &MiningBounds) -> Result<(), &'static str> {
+        if !bounds.frequency_mhz.contains(&self.frequency_mhz) {
             return Err("tuning.frequency_mhz must be between 50 and 1000");
         }
-        if !BOUNDS.voltage_mv.contains(&self.voltage_mv) {
+        if !bounds.voltage_mv.contains(&self.voltage_mv) {
             return Err("tuning.voltage_mv outside the accepted range");
         }
         Ok(())
@@ -62,16 +67,25 @@ pub struct MiningBounds {
     pub voltage_mv: RangeInclusive<u32>,
 }
 
-/// Accepted value ranges for [`TuningConfig`] fields.
+/// Accepted value ranges for [`TuningConfig`] on `board`.
 ///
-/// The voltage range is the active board's declared tuning policy
+/// The voltage range is the board's declared tuning policy
 /// (`BoardDescriptor::tuning_voltage_*` in `ubos-asic`); on the BM1370
 /// hashnode that is the full series-stacked rail span, not a per-chip
-/// value. The frequency range is the shared PLL-calculator span.
-pub const BOUNDS: MiningBounds = MiningBounds {
-    frequency_mhz: 50..=1000,
-    voltage_mv: BOARD.tuning_voltage_min_mv..=BOARD.tuning_voltage_max_mv,
-};
+/// value. The frequency range is the shared PLL-calculator span. Each
+/// firmware crate builds its own `BOUNDS` const from this with its
+/// explicit board descriptor.
+#[must_use]
+pub const fn bounds(board: &'static BoardDescriptor) -> MiningBounds {
+    MiningBounds {
+        frequency_mhz: 50..=1000,
+        voltage_mv: board.tuning_voltage_min_mv..=board.tuning_voltage_max_mv,
+    }
+}
+
+/// Bounds for the BMM100 board. The firmware uses [`bounds`] with its own
+/// descriptor; this exists so the test suite has a stable baseline.
+pub const BOUNDS: MiningBounds = bounds(&ubos_asic::BMM100);
 
 /// Static capability metadata for the ASIC and board.
 ///
@@ -98,44 +112,21 @@ pub struct MiningInfo {
     pub bounds: &'static MiningBounds,
 }
 
-/// Compile-time decimal parse of an `option_env!` value, with a fallback.
-/// Mirrors the build-time override `Config::default()` applies at runtime
-/// so the reported defaults match what the board actually boots with
-/// (e.g. the hashnode's 500 MHz / 4500 mV, not the per-chip baseline).
-const fn env_u32(value: Option<&str>, default: u32) -> u32 {
-    let Some(text) = value else {
-        return default;
-    };
-    let bytes = text.as_bytes();
-    let mut result: u32 = 0;
-    let mut index = 0;
-    while index < bytes.len() {
-        let digit = bytes[index];
-        assert!(
-            digit.is_ascii_digit(),
-            "env override must be decimal digits"
-        );
-        // Overflow here is a compile-time error because const evaluation catches
-        // wrapping arithmetic before the binary is produced.
-        result = result * 10 + (digit - b'0') as u32;
-        index += 1;
+/// Static capability metadata for `board`. The chip model comes from the
+/// `ubos-asic` chip descriptor. Each firmware crate builds its
+/// own `MINING_INFO` const from this with its explicit board descriptor.
+#[must_use]
+pub const fn mining_info(
+    board: &'static BoardDescriptor,
+    bounds: &'static MiningBounds,
+) -> MiningInfo {
+    MiningInfo {
+        asic_model: board.chip.asic_model(),
+        device_model: board.model,
+        swarm_color: "blue",
+        asic_count: ubos_core::consts::Mining::NUM_CHIPS,
+        default_frequency_mhz: board.default_frequency_mhz,
+        default_voltage_mv: board.default_voltage_mv,
+        bounds,
     }
-    result
 }
-
-/// Static capability metadata for the active board. The chip model comes
-/// from the `ubos-asic` chip descriptor so it tracks the real silicon; the
-/// default frequency/voltage mirror the build-time env overrides so the
-/// dashboard reports the board's real operating point.
-pub const INFO: MiningInfo = MiningInfo {
-    asic_model: BOARD.chip.asic_model(),
-    device_model: BOARD.model,
-    swarm_color: "blue",
-    asic_count: ubos_core::consts::Mining::NUM_CHIPS,
-    default_frequency_mhz: env_u32(
-        option_env!("MINING_FREQUENCY_MHZ"),
-        BOARD.default_frequency_mhz,
-    ),
-    default_voltage_mv: env_u32(option_env!("MINING_VOLTAGE_MV"), BOARD.default_voltage_mv),
-    bounds: &BOUNDS,
-};

@@ -9,6 +9,8 @@
 use heapless::Vec as HVec;
 use sha2::{Digest, Sha256};
 
+use crate::chip::Chip;
+
 #[cfg(test)]
 #[path = "tests/framing.rs"]
 mod tests;
@@ -510,7 +512,7 @@ impl ResponseParser {
     /// Attempt to pop the next complete response frame. Returns `None` when
     /// fewer than `RESPONSE_LEN` bytes are buffered or when the buffer
     /// contains only partial / invalid frames.
-    pub fn pop(&mut self) -> Option<Response> {
+    pub fn pop(&mut self, chip: Chip) -> Option<Response> {
         loop {
             while self.len >= 2 && (self.buffer[0] != 0xAA || self.buffer[1] != 0x55) {
                 self.drop_first();
@@ -530,7 +532,7 @@ impl ResponseParser {
                 continue;
             }
             let response = if is_work {
-                let work_id = frame[7];
+                let work_id = chip.decode_response_work_id(frame[7]);
                 Response::HwSolution(HwSolution {
                     nonce: u32::from_le_bytes([frame[2], frame[3], frame[4], frame[5]]),
                     _extra_diff: frame[6],

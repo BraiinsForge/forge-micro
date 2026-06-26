@@ -38,7 +38,7 @@ fn factory_reset_persists_and_reloads_default() {
 
     let mut storage = FileStorage::new(&dir);
 
-    let reset = block_on(factory_reset(&mut storage));
+    let reset = block_on(factory_reset(&mut storage, &ubos_asic::BMM100));
     assert_eq!(
         reset,
         Config::default(),
@@ -89,7 +89,7 @@ fn factory_reset_overwrites_existing_config() {
         .expect("BUG: FileStorage::store failed in test");
 
     // Apply factory reset over the stored non-default config.
-    let reset = block_on(factory_reset(&mut storage));
+    let reset = block_on(factory_reset(&mut storage, &ubos_asic::BMM100));
     assert_eq!(
         reset,
         Config::default(),

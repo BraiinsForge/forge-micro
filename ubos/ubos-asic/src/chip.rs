@@ -525,6 +525,21 @@ impl Chip {
             Chip::Bm1370 => "BM1370",
         }
     }
+
+    /// Recover the job's work-id from byte 7 of a work response.
+    ///
+    /// The BM1370 packs the id into the high nibble as
+    /// `(work_id << 1) | small_core_id`, so `(byte & 0xf0) >> 1` recovers
+    /// it; its `midstate_count` of 16 keeps the low 4 bits of the work-id
+    /// byte zero, so the shift loses nothing. The BM1362/BM1366 carry the
+    /// work-id directly in byte 7.
+    #[must_use]
+    pub const fn decode_response_work_id(self, byte: u8) -> u8 {
+        match self {
+            Chip::Bm1370 => (byte & 0xf0) >> 1,
+            Chip::Bm1362 | Chip::Bm1366 => byte,
+        }
+    }
 }
 
 impl ChipProtocol for Chip {

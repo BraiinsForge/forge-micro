@@ -305,6 +305,7 @@ async fn handle_info<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     board_name: &str,
+    mining_info: &'static ubos_config::MiningInfo,
     thermal: ThermalHandle,
     extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
@@ -356,10 +357,10 @@ where
         pools_bitmap,
         ip: build_ip_string(),
         time: build_time_string(),
-        asic_count: ubos_config::MINING_INFO.asic_count,
-        asic_model: ubos_config::MINING_INFO.asic_model,
-        default_frequency_mhz: ubos_config::MINING_INFO.default_frequency_mhz,
-        default_voltage_mv: ubos_config::MINING_INFO.default_voltage_mv,
+        asic_count: mining_info.asic_count,
+        asic_model: mining_info.asic_model,
+        default_frequency_mhz: mining_info.default_frequency_mhz,
+        default_voltage_mv: mining_info.default_voltage_mv,
         shares_accepted,
         shares_rejected,
         shares_total,
@@ -381,18 +382,13 @@ where
 async fn handle_asic<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
+    mining_info: &'static ubos_config::MiningInfo,
     extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    serialize_and_respond(
-        connection,
-        scratch,
-        &ubos_config::MINING_INFO,
-        extra_headers,
-    )
-    .await
+    serialize_and_respond(connection, scratch, mining_info, extra_headers).await
 }
 
 /// Handle `GET /api/system/thermal`.
@@ -1929,6 +1925,7 @@ pub(crate) async fn dispatch<T, const N: usize>(
     path: &str,
     body: &[u8],
     board_name: &str,
+    mining_info: &'static ubos_config::MiningInfo,
     thermal: ThermalHandle,
     manager: ManagerHandle,
     stack: Stack<'static>,
@@ -1950,10 +1947,18 @@ where
             write_method_not_allowed(connection, allowed, extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::SystemInfo) => {
-            handle_info(connection, scratch, board_name, thermal, extra_headers).await?;
+            handle_info(
+                connection,
+                scratch,
+                board_name,
+                mining_info,
+                thermal,
+                extra_headers,
+            )
+            .await?;
         }
         DispatchOutcome::Handled(Route::SystemAsic) => {
-            handle_asic(connection, scratch, extra_headers).await?;
+            handle_asic(connection, scratch, mining_info, extra_headers).await?;
         }
         DispatchOutcome::Handled(Route::SystemThermal) => {
             handle_thermal(connection, scratch, extra_headers).await?;

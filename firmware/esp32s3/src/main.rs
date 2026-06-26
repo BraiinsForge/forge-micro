@@ -204,7 +204,7 @@ type BoardConfigStorage = FlashStorage<SyncFlash<esp_storage::FlashStorage<'stat
 
 #[embassy_executor::task]
 async fn config_task(storage: BoardConfigStorage) -> ! {
-    ubos_config::run(storage).await
+    ubos_config::run(storage, config::BOARD).await
 }
 
 #[embassy_executor::task]
@@ -633,6 +633,8 @@ async fn boot(spawner: Spawner) {
     let api_service: &'static ubos_api::RestApiService =
         API_SERVICE.init(ubos_api::RestApiService::new(
             config::Board::NAME,
+            &config::MINING_INFO,
+            &config::BOUNDS,
             thermal,
             manager_handle,
             ubos_psu::handle(),

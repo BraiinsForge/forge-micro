@@ -39,6 +39,7 @@ stratum-client     = { workspace = true }
 stratum-v1         = { workspace = true }
 stratum-v2         = { workspace = true }
 ubos-api           = { workspace = true, default-features = false }
+ubos-asic          = { workspace = true }
 ubos-auth          = { workspace = true, default-features = false }
 ubos-config        = { workspace = true, default-features = false, features = ["std"] }
 ubos-cooling       = { workspace = true, default-features = false }
