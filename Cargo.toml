@@ -36,6 +36,7 @@ members = [
     "ubos/ubos-thermal",
     "ubos/ubos-config",
     "ubos/ubos-events",
+    "ubos/ubos-firmware",
     "ubos/ubos-net",
     "ubos/ubos-ota",
     "ubos/ubos-psu",
@@ -112,6 +113,7 @@ ubos-cooling      = { path = "ubos/ubos-cooling", default-features = false }
 ubos-thermal      = { path = "ubos/ubos-thermal", default-features = false }
 ubos-config       = { path = "ubos/ubos-config", default-features = false }
 ubos-events       = { path = "ubos/ubos-events", default-features = false }
+ubos-firmware     = { path = "ubos/ubos-firmware", default-features = false }
 ubos-mdns         = { path = "ubos/ubos-mdns", default-features = false }
 ubos-net          = { path = "ubos/ubos-net", default-features = false }
 ubos-ota          = { path = "ubos/ubos-ota", default-features = false }

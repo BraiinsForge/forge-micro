@@ -706,6 +706,19 @@
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
+          # ubos-firmware references the eight subsystem crates, which unify
+          # firmware-only embassy features; it is gated on one ARM target
+          # rather than the host bag for the same reason the firmware crates
+          # are. No host test: the crate is all `const`.
+          ubosFirmwareArtifacts = craneLib.buildDepsOnly {
+            inherit src;
+            doCheck = false;
+            cargoBuildCommand = "true";
+            cargoExtraArgs = "-p ubos-firmware --target thumbv8m.main-none-eabihf";
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
           # Separate dep bag for the bootloader: it uses
           # `cortex-m/critical-section-single-core` rather than
           # `embassy-rp/critical-section-impl`, and cargo's per-invocation
@@ -1457,6 +1470,26 @@
               cargoExtraArgs = "-p ubos-ota --target thumbv8m.main-none-eabihf --features embassy-rp/rp235xa,embassy-rp/imagedef-none";
               cargoClippyExtraArgs = "-- -D warnings";
               doInstallCargoArtifacts = false;
+              CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            };
+
+            build-ubos-firmware = craneLib.cargoBuild {
+              inherit src;
+              cargoArtifacts = ubosFirmwareArtifacts;
+              cargoBuildCommand = "cargo build --release";
+              cargoExtraArgs = "-p ubos-firmware --target thumbv8m.main-none-eabihf";
+              doInstallCargoArtifacts = false;
+              nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+              CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            };
+
+            clippy-ubos-firmware = craneLib.cargoClippy {
+              inherit src;
+              cargoArtifacts = ubosFirmwareArtifacts;
+              cargoExtraArgs = "-p ubos-firmware --target thumbv8m.main-none-eabihf";
+              cargoClippyExtraArgs = "-- -D warnings";
+              doInstallCargoArtifacts = false;
+              nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
               CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
             };
 
