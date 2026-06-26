@@ -19,6 +19,7 @@ ubos-metrics         = { workspace = true, features = ["defmt"] }
 ubos-mdns            = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt"] }
 ubos-events          = { workspace = true, features = ["defmt"] }
+ubos-firmware        = { workspace = true }
 ubos-display         = { workspace = true }
 ubos-core            = { workspace = true }
 esp32s3-tsens          = { workspace = true }
@@ -31,11 +32,6 @@ portable-atomic        = { workspace = true }
 static_cell            = { workspace = true }
 embedded-hal-bus       = { workspace = true, features = ["async"] }
 stratum-client         = { workspace = true, features = ["defmt"] }
-stratum-v1             = { workspace = true, features = ["defmt"] }
-stratum-v2             = { workspace = true, features = ["defmt"] }
-# Workspace dep is declared with default-features = false so the
-# firmware does not pull `alloc` via secp256k1's alloc feature.
-ii-sv2                 = { workspace = true, features = ["lowmemory"] }
 ubos-temperature       = { workspace = true, features = ["defmt"] }
 ubos-thermal           = { workspace = true, features = ["defmt"] }
 ubos-manager           = { workspace = true, features = ["defmt"] }
@@ -45,7 +41,6 @@ ubos-psu               = { workspace = true, features = ["defmt"] }
 ubos-mining            = { workspace = true, features = ["defmt"] }
 serial-baudrate        = { workspace = true }
 embassy-embedded-hal   = { version = "0.6.0", default-features = false, features = ["defmt"] }
-embassy-futures        = { workspace = true }
 embassy-sync           = { workspace = true, features = ["defmt"] }
 embedded-io-async      = { workspace = true }
 critical-section       = { version = "1" }

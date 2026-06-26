@@ -12,9 +12,8 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, unwrap, warn};
+use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_futures::select::{Either, select};
 use embassy_net::StackResources;
 use embassy_stm32::adc::{Adc, AdcChannel, Exten, RingBufferedAdc, SampleTime};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
@@ -39,8 +38,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 #[cfg(feature = "display")]
 use embedded_hal_bus::spi::ExclusiveDevice;
-use static_cell::{ConstStaticCell, StaticCell};
-use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
+use static_cell::StaticCell;
 use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
@@ -58,39 +56,6 @@ mod psu;
 mod temperature;
 mod uart_baudrate;
 
-// Preallocated buffer for the SV2 `secp256k1::AllPreallocated` context.
-// `CryptoCtx::preallocated` needs a `[AlignedType]` slice at least
-// `secp256k1_context_preallocated_size(All)` slots long. Modern
-// libsecp256k1 (secp256k1-sys 0.11) holds the ecmult and ecmult-gen
-// tables in static `.rodata`, so the runtime context is tiny: that size
-// is 13 `AlignedType` slots (208 B), measured against the compiled C
-// library. 64 slots (1 KiB) keep a ~5x margin, and
-// `CryptoCtx::preallocated` returns `NotEnoughMemory` (caught by the
-// boot `expect`) if ever undersized.
-const SECP_CTX_SLOTS: usize = 64;
-
-static SECP_CTX_BUF: static_cell::ConstStaticCell<[ii_sv2::security::AlignedType; SECP_CTX_SLOTS]> =
-    static_cell::ConstStaticCell::new([ii_sv2::security::AlignedType::ZERO; SECP_CTX_SLOTS]);
-
-static SECP_CTX: StaticCell<
-    ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
-> = StaticCell::new();
-
-// The stm32 RNG peripheral is single-owner. Seed a ChaCha20 PRNG once
-// at boot from the hardware RNG; the SV2 client uses this PRNG for
-// ephemeral keys and nonces across reconnects.
-static SV2_PRNG: StaticCell<rand_chacha::ChaCha20Rng> = StaticCell::new();
-
-struct Sv2BoardRng<'a>(&'a mut rand_chacha::ChaCha20Rng);
-
-impl ii_sv2::security::Rng for Sv2BoardRng<'_> {
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        rand_chacha::rand_core::RngCore::fill_bytes(self.0, dest);
-    }
-}
-
-static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
-
 /// Backing storage for the user-facing event ring, owned here so its size
 /// follows this board's `EVENT_LOG_CAPACITY`. Placed in `.uninit`, which the
 /// startup code does not zero, so the ring survives a warm reset; the validity
@@ -98,26 +63,6 @@ static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::
 #[unsafe(link_section = ".uninit")]
 static mut EVENT_LOG_BACKING: ubos_events::RetainedRing<{ config::Board::EVENT_LOG_CAPACITY }> =
     ubos_events::RetainedRing::new();
-
-/// Per-crate event catalogs assembled into the registry the events `/catalog`
-/// endpoint serves, so the browser can decode records into text.
-const EVENT_CATALOGS: &[&[ubos_events::EventDef]] = &[
-    ubos_config::events::CATALOG,
-    ubos_thermal::events::CATALOG,
-    ubos_mining::events::CATALOG,
-    ubos_psu::events::CATALOG,
-    ubos_manager::events::CATALOG,
-    ubos_api::events::CATALOG,
-    ubos_net::events::CATALOG,
-    stratum_client::events::CATALOG,
-];
-
-// FNV-1a slug hashes must not collide across crates, or the decode table would
-// silently merge two events. Checked here, where the full registry is visible.
-const _: () = assert!(
-    ubos_events::codes_unique(EVENT_CATALOGS),
-    "duplicate event code across catalogs"
-);
 
 defmt::timestamp!("{=u64:iso8601s}", ubos_net::wall_clock_secs());
 
@@ -336,117 +281,16 @@ async fn network_control_task(stack: embassy_net::Stack<'static>) -> ! {
     net::run_network_control(stack).await
 }
 
+/// Board task shell around the shared stratum session loop. The loop body
+/// lives in `ubos-firmware`; the `#[embassy_executor::task]` shell stays per
+/// board because esp32s3 pins a different `embassy-executor` version than the
+/// ARM boards, so the spawned task type must come from each board's executor.
 #[embassy_executor::task]
-#[allow(clippy::too_many_lines)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
-    sv2_prng: &'static mut rand_chacha::ChaCha20Rng,
+    sv2_prng: &'static mut ubos_firmware::ChaCha20Rng,
 ) -> ! {
-    static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
-        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
-    static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
-        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
-    let rx_buffer = TCP_RX.take();
-    let tx_buffer = TCP_TX.take();
-
-    // SV2 secp context — initialised once even if the first pool entry
-    // is Sv1, so a runtime protocol switch needs no late allocation.
-    let secp_buffer = SECP_CTX_BUF.take();
-    let secp_ctx = SECP_CTX.init(
-        ii_sv2::security::CryptoCtx::preallocated(secp_buffer)
-            .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
-    );
-
-    let config_handle = ubos_config::handle();
-    let restart = config_handle.stratum_restart();
-
-    loop {
-        let snapshot = config_handle.current();
-        let Some(entry) = snapshot.pool.first() else {
-            warn!("stratum-client: pool list empty, awaiting config update");
-            restart.wait().await;
-            continue;
-        };
-
-        let one_session = async {
-            stratum_client::record_reconnect_attempt();
-            let mut socket = match ubos_net::net::connect_stratum(
-                stack,
-                entry.host.as_str(),
-                entry.port,
-                SOCKET_TIMEOUT,
-                rx_buffer,
-                tx_buffer,
-            )
-            .await
-            {
-                Ok(socket) => socket,
-                Err(error) => {
-                    warn!(
-                        "stratum-client: connect failed: {}",
-                        defmt::Debug2Format(&error)
-                    );
-                    Timer::after(RECONNECT_DELAY).await;
-                    return;
-                }
-            };
-            let mut state = stratum_client::StratumState::new();
-
-            match &entry.protocol {
-                ubos_config::ProtocolKind::Sv1 { password } => {
-                    let sv1 = stratum_v1::Sv1Config::new(
-                        entry.user.as_str(),
-                        password.as_ref().map_or("", heapless::String::as_str),
-                    )
-                    .expect("BUG: PoolEntry user/password match Sv1Config buffer sizes");
-                    let mut client = stratum_v1::StratumV1Client::new(&sv1);
-                    if let Err(error) = stratum_client::run_stratum_client(
-                        &mut client,
-                        &mut socket,
-                        &ASIC_SESSION,
-                        &mut state,
-                    )
-                    .await
-                    {
-                        warn!(
-                            "stratum-client: session error {}",
-                            defmt::Debug2Format(&error)
-                        );
-                    }
-                }
-                ubos_config::ProtocolKind::Sv2 { pool_pubkey } => {
-                    let sv2 = stratum_v2::Sv2Config::new(entry.user.as_str(), *pool_pubkey)
-                        .expect("BUG: PoolEntry.user matches Sv2Config buffer size");
-                    let mut client = stratum_v2::StratumV2Client::new(
-                        &sv2,
-                        secp_ctx,
-                        Sv2BoardRng(&mut *sv2_prng),
-                    );
-                    if let Err(error) = stratum_client::run_stratum_client(
-                        &mut client,
-                        &mut socket,
-                        &ASIC_SESSION,
-                        &mut state,
-                    )
-                    .await
-                    {
-                        warn!(
-                            "stratum-client: session error {}",
-                            defmt::Debug2Format(&error)
-                        );
-                    }
-                }
-            }
-
-            Timer::after(RECONNECT_DELAY).await;
-        };
-        if matches!(
-            select(one_session, restart.wait()).await,
-            Either::Second(())
-        ) {
-            info!("stratum-client: pool config changed, reconnecting");
-        }
-    }
+    ubos_firmware::run_stratum_session(stack, sv2_prng).await
 }
 
 // cortex-m-rt's startup only zeroes the standard `.bss`; CCM is a
@@ -472,7 +316,7 @@ async fn boot(spawner: Spawner) {
     // Install the event ring and its decode-table registry before any task
     // that records events runs. wall_clock_secs returns uptime before NTP
     // sync and Unix time after; the ring stores it unconditionally.
-    ubos_events::set_catalogs(EVENT_CATALOGS);
+    ubos_events::set_catalogs(ubos_firmware::EVENT_REGISTRY);
     // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
     // in .uninit, so the startup code does not zero it and a warm reset
     // preserves its contents.
@@ -505,9 +349,7 @@ async fn boot(spawner: Spawner) {
         rng.async_fill_bytes(&mut sv2_seed)
             .await
             .expect("BUG: RNG fill failed");
-        SV2_PRNG.init(
-            <rand_chacha::ChaCha20Rng as rand_chacha::rand_core::SeedableRng>::from_seed(sv2_seed),
-        )
+        ubos_firmware::seed_sv2_prng(sv2_seed)
     };
 
     // RMII pin mapping for Nucleo-F439ZI onboard LAN8742A PHY.
