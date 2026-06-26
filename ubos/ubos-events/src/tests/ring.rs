@@ -1,7 +1,7 @@
 //! Tests for `Ring` push/snapshot behaviour and the global-ring pre-init
 //! safety guarantees.
 
-use crate::{record, snapshot, EventRecord, RetainedHeader, RetainedRing, Ring, Severity};
+use crate::{record, snapshot_after, EventRecord, RetainedHeader, RetainedRing, Ring, Severity};
 
 fn make_clock() -> fn() -> u64 {
     fn clock() -> u64 {
@@ -28,7 +28,7 @@ fn ring_push_and_snapshot_basic() {
     ring.push(2, Severity::Warn, &[]);
 
     let mut out = [EventRecord::EMPTY; 4];
-    let count = ring.snapshot(&mut out);
+    let count = ring.snapshot_after(&mut out, 0);
     assert_eq!(count, 2);
     assert_eq!(out[0].code, 1);
     assert_eq!(out[0].seq, 1);
@@ -47,7 +47,7 @@ fn ring_wrap_keeps_last_cap_records() {
     }
 
     let mut out = [EventRecord::EMPTY; CAPACITY];
-    let count = ring.snapshot(&mut out);
+    let count = ring.snapshot_after(&mut out, 0);
     assert_eq!(count, CAPACITY);
 
     // Oldest surviving record has code 3 (seq 4), newest has code 6 (seq 7).
@@ -77,7 +77,7 @@ fn ring_snapshot_oldest_first() {
     ring.push(40, Severity::Info, &[]);
 
     let mut out = [EventRecord::EMPTY; CAPACITY];
-    let count = ring.snapshot(&mut out);
+    let count = ring.snapshot_after(&mut out, 0);
     assert_eq!(count, CAPACITY);
     // Oldest first: 20, 30, 40.
     assert_eq!(out[0].code, 20);
@@ -228,7 +228,7 @@ fn retained_ring_adopts_a_valid_prior_session() {
         clock: make_clock(),
     };
     let mut out = [EventRecord::EMPTY; 8];
-    assert_eq!(ring.snapshot(&mut out), 3);
+    assert_eq!(ring.snapshot_after(&mut out, 0), 3);
     assert_eq!(out[0].seq, 1);
     assert_eq!(out[2].seq, 3);
     assert_eq!(ring.latest_seq(), 3);
@@ -254,7 +254,7 @@ fn ring_zero_capacity_is_safe() {
     // Push and snapshot must not panic.
     ring.push(1, Severity::Info, &[]);
     let mut out = [EventRecord::EMPTY; 4];
-    assert_eq!(ring.snapshot(&mut out), 0);
+    assert_eq!(ring.snapshot_after(&mut out, 0), 0);
 }
 
 #[test]
@@ -267,8 +267,8 @@ fn pre_init_record_does_not_panic() {
 
 #[test]
 fn pre_init_snapshot_returns_zero_or_valid() {
-    // snapshot must not panic; if RING is uninitialised it returns 0.
+    // snapshot_after must not panic; if RING is uninitialised it returns 0.
     // If init was called by another test, it returns a non-panic value.
     let mut out = [EventRecord::EMPTY; 4];
-    let _ = snapshot(&mut out);
+    let _ = snapshot_after(&mut out, 0);
 }

@@ -29,7 +29,7 @@
 //! ubos_events::init(unsafe { &mut *core::ptr::addr_of_mut!(BACKING) }, ubos_net::wall_clock_secs);
 //! ```
 //!
-//! Before [`init`] is called, [`record`] is a no-op and [`snapshot`]
+//! Before [`init`] is called, [`record`] is a no-op and [`snapshot_after`]
 //! returns zero.
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -370,31 +370,6 @@ impl Ring {
         self.header.set_head_len(new_head, new_len);
     }
 
-    /// Copies live records oldest-first into `out`, returning the count copied.
-    ///
-    /// At most `min(len, out.len())` records are written. When the ring has
-    /// wrapped, the oldest record is at `head`.
-    pub(crate) fn snapshot(&self, out: &mut [EventRecord]) -> usize {
-        let capacity = self.entries.len();
-        let len = self.header.len();
-        if capacity == 0 || len == 0 {
-            return 0;
-        }
-        let count = len.min(out.len());
-        // When len < capacity the ring has not wrapped and oldest is at index 0.
-        // When len == capacity the ring has wrapped and oldest is at head.
-        let oldest = if len < capacity {
-            0
-        } else {
-            self.header.head()
-        };
-
-        for (index, slot) in out.iter_mut().enumerate().take(count) {
-            *slot = self.entries[(oldest + index) % capacity];
-        }
-        count
-    }
-
     /// Copies live records with `seq` greater than `after_seq` into `out`,
     /// oldest-first, returning the count copied.
     ///
@@ -445,7 +420,8 @@ static RING: Mutex<CriticalSectionRawMutex, RefCell<Option<Ring>>> = Mutex::new(
 ///
 /// Must be called once at boot, before any task is spawned, so that subsequent
 /// calls to [`record`] have a ring to write into. Calling [`record`] or
-/// [`snapshot`] before `init` is safe and produces a no-op or zero respectively.
+/// [`snapshot_after`] before `init` is safe and produces a no-op or zero
+/// respectively.
 ///
 /// If `ring` holds a valid header from a prior session on this build (matching
 /// `magic`/`layout`, in-range indices) it is adopted, so events that preceded a
@@ -482,14 +458,6 @@ pub fn record(code: u32, severity: Severity, args: &[Arg]) {
             ring.push(code, severity, args);
         }
     });
-}
-
-/// Copies a snapshot of the live ring into `out`, oldest-first.
-///
-/// Returns the number of records written. Returns zero if [`init`] has not
-/// been called or the ring is empty.
-pub fn snapshot(out: &mut [EventRecord]) -> usize {
-    RING.lock(|cell| cell.borrow().as_ref().map_or(0, |ring| ring.snapshot(out)))
 }
 
 /// Copies live records with `seq` greater than `after_seq` into `out`,
