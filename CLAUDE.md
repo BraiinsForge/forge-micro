@@ -110,11 +110,15 @@ probe.
   calls at 921600 baud, and embassy-rp 0.10.0 ships no ring-buffered
   DMA RX. `BufferedUart` already implements `embedded_io_async::Read`
   and `Write` directly, so no newtype adapter is needed. The esp32s3
-  board firmware stays on the interrupt+FIFO `Uart::into_async()` path
-  because esp-hal 1.0.0 ships no UART DMA driver. The closed-after-1.0.0 issues
-  esp-rs/esp-hal#2642 (UART DMA support) and #4720 (circular UHCI RX)
-  track this gap; revisit when the next esp-hal release reaches this
-  workspace. All dual-core boards (rp2040, rp2350, bmm-pico, esp32s3) pin the
+  board firmware stays on the interrupt+FIFO `Uart::into_async()` path.
+  esp-hal 1.1.1 now ships the UHCI UART-over-DMA driver (`esp_hal::uart::uhci`,
+  behind the `unstable` feature, which this crate enables), closing the
+  esp-rs/esp-hal#2642 / #4720 gap that 1.0.0 had. UHCI RX supports idle-EOF
+  framing, so it suits the request/response chip protocol, but switching is
+  deferred: the 128-byte FIFO already wakes on a single RX byte, DMA only buys
+  high-baud jitter headroom we have no evidence of needing, and the RX path
+  must not be rewritten while it cannot be verified on hardware. All dual-core
+  boards (rp2040, rp2350, bmm-pico, esp32s3) pin the
   ubos-mining `serial_task` to Core 1 so embassy-net on Core 0 stays
   responsive; the shared `ASIC_SESSION` uses `CriticalSectionRawMutex`,
   so cross-core sharing is free. On esp32s3, Core 1's executor also runs
