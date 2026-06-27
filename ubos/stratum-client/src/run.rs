@@ -96,7 +96,15 @@ pub fn set_pool_alive(pool_index: u8, alive: bool) {
     if alive {
         POOL_ALIVE_BITMAP.fetch_or(bit, Ordering::Relaxed);
     } else {
-        POOL_ALIVE_BITMAP.fetch_and(!bit, Ordering::Relaxed);
+        // `fetch_and` returns the bitmap value before the clear. If the
+        // corresponding bit was set, this is a genuine alive→dead transition
+        // worth recording. Without this guard the event would fire on every
+        // call that already has the bit clear (e.g. the initial boot state
+        // before a first successful connect).
+        let previous = POOL_ALIVE_BITMAP.fetch_and(!bit, Ordering::Relaxed);
+        if previous & bit != 0 {
+            crate::events::pool_unreachable();
+        }
     }
 }
 

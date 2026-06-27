@@ -17,6 +17,10 @@ pub mod state;
 pub mod work;
 pub mod work_ring;
 
+ubos_events::events! {
+    pool_unreachable() warn = "Pool unreachable",
+}
+
 /// Delay between reconnect attempts when the TCP session drops or the
 /// stratum loop returns. Same cadence for every board; adjust this
 /// constant if a board needs a different one.
