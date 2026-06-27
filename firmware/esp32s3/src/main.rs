@@ -680,12 +680,13 @@ async fn boot(spawner: Spawner) {
 
     spawner.must_spawn(miner_metrics_task(mining_handle));
 
-    // BMM100 hashboard PSU on I2C0 (GPIO12 SDA, GPIO13 SCL).
-    // All mining tasks run on Core 0 so the I2C bus mutex can stay
+    // BMM100 hashboard PSU, LM75A temperature sensors and the carrier
+    // TCA9554 I/O expander all share I2C0 (GPIO15 SDA, GPIO7 SCL). All
+    // mining tasks run on Core 0 so the I2C bus mutex can stay
     // `NoopRawMutex`: every consumer is on the same executor.
     {
         static I2C0_BUS: StaticCell<psu::Bus> = StaticCell::new();
-        // Valid I2C0 peripheral with GPIO12/13 routed via the GPIO matrix; cannot fail.
+        // Valid I2C0 peripheral with GPIO15/7 routed via the GPIO matrix; cannot fail.
         let i2c = I2c::new(hw.i2c0, I2cConfig::default())
             .expect("BUG: I2C0 configuration failed")
             .with_sda(hw.i2c_sda)
@@ -696,8 +697,10 @@ async fn boot(spawner: Spawner) {
         spawner.must_spawn(psu::watchdog_task(psu_state, terminated));
         spawner.must_spawn(psu::power_stats_task(board_psu));
 
-        // Hashboard reset line (GPIO4, active-low).
-        let reset = mining::make_reset_pin(hw.hb_rst);
+        // Hashboard reset: active-low, driven through the carrier TCA9554
+        // expander on EXIO5. Asserted (held low) here until the miner
+        // task sequences the release during bring-up.
+        let reset = mining::BoardResetPin::new(bus).await;
         spawner.must_spawn(mining::miner_task(board_psu, reset));
 
         // Temperature and fan monitor via shared I2C0 bus.

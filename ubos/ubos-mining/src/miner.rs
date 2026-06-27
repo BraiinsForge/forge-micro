@@ -319,7 +319,7 @@ where
 
         info!("mining: entering reset");
         crate::events::miner_reset();
-        self.reset_pin.enter_reset();
+        self.reset_pin.enter_reset().await;
         match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.reset_pin).await {
             Settled::Continue => {}
             Settled::Stop => return CycleOutcome::Stop,
@@ -346,7 +346,7 @@ where
         }
 
         info!("mining: exiting reset");
-        self.reset_pin.exit_reset();
+        self.reset_pin.exit_reset().await;
         match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.reset_pin).await {
             Settled::Continue => {}
             Settled::Stop => return CycleOutcome::Stop,
@@ -503,7 +503,7 @@ where
     P: Psu,
     R: ResetPin,
 {
-    reset_pin.enter_reset();
+    reset_pin.enter_reset().await;
     let _ = psu.disable().await;
     publish_running(false);
 }

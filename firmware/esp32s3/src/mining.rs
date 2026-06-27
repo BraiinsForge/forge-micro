@@ -11,32 +11,63 @@
 //! the rp2350/bmm-pico dual-core split. `ASIC_SESSION` uses a
 //! `CriticalSectionRawMutex`, so the cross-core share needs no extra pipe.
 
-use defmt::{Debug2Format, error, info};
+use defmt::{Debug2Format, error, info, warn};
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::{Duration, Timer};
-use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::i2c::master::I2c;
+use tca9554::{Address, Tca9554};
 
-use crate::psu::BoardPsu;
+use crate::psu::{BoardPsu, Bus};
 use crate::uart_baudrate::{MinerUartRx, MinerUartTx};
 
-/// Drives the hashboard reset line through an esp-hal GPIO output.
+/// `embedded-hal-async` handle for one consumer of the shared I2C0 bus.
+type ExpanderDevice = I2cDevice<'static, NoopRawMutex, I2c<'static, esp_hal::Async>>;
+
+/// EXIO5 (P4) on the carrier's TCA9554 drives the hashboard reset line.
+/// The EXIO labels are 1-based on the carrier silkscreen while the TCA9554
+/// pins are 0-based, so EXIO5 maps to pin P4. Confirm this offset against
+/// the carrier schematic if the expander wiring ever changes.
+const RESET_BIT: u8 = 1 << 4;
+
+/// Drives the hashboard reset line through the carrier's TCA9554 I/O
+/// expander (0x20) on EXIO5. Active-low: low holds the chain in reset,
+/// high releases it.
 pub struct BoardResetPin {
-    pin: Output<'static>,
+    expander: Tca9554<ExpanderDevice>,
 }
 
 impl BoardResetPin {
-    #[must_use]
-    pub fn new(pin: Output<'static>) -> Self {
-        Self { pin }
+    /// Carve an expander handle from the shared I2C0 bus, configure EXIO5
+    /// as an output and assert reset (drive low) so the miner task
+    /// controls release timing. A failed expander write is logged and
+    /// ignored, per [`ubos_mining::reset::ResetPin`].
+    pub async fn new(bus: &'static Bus) -> Self {
+        let mut expander = Tca9554::new(I2cDevice::new(bus), Address::standard());
+        // Drive EXIO5 low before switching it to an output. The TCA9554 output
+        // latch powers up at 0xFF, so writing the direction first would briefly
+        // drive EXIO5 high and deassert reset before the output write lands.
+        // Output register: 0 = low on every pin. Direction register: 0 = output.
+        if expander.write_output(0).await.is_err()
+            || expander.write_direction(!RESET_BIT).await.is_err()
+        {
+            warn!("expander: TCA9554 0x20 reset-pin init failed");
+        }
+        Self { expander }
     }
 }
 
 impl ubos_mining::reset::ResetPin for BoardResetPin {
-    fn enter_reset(&mut self) {
-        self.pin.set_low();
+    async fn enter_reset(&mut self) {
+        if self.expander.write_output(0).await.is_err() {
+            warn!("expander: TCA9554 0x20 enter_reset write failed");
+        }
     }
 
-    fn exit_reset(&mut self) {
-        self.pin.set_high();
+    async fn exit_reset(&mut self) {
+        if self.expander.write_output(RESET_BIT).await.is_err() {
+            warn!("expander: TCA9554 0x20 exit_reset write failed");
+        }
     }
 }
 
@@ -67,14 +98,4 @@ pub async fn miner_task(psu: &'static BoardPsu, reset: BoardResetPin) -> ! {
     loop {
         Timer::after(PARK_INTERVAL).await;
     }
-}
-
-/// Construct a `BoardResetPin` from the GPIO4 peripheral taken from `hw`.
-///
-/// Starts low (hashboard held in reset) so the miner task controls the
-/// release timing.
-#[must_use]
-pub fn make_reset_pin(gpio4: esp_hal::peripherals::GPIO4<'static>) -> BoardResetPin {
-    let pin = Output::new(gpio4, Level::Low, OutputConfig::default());
-    BoardResetPin::new(pin)
 }

@@ -5,9 +5,8 @@
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
 use esp_hal::peripherals::{
-    CPU_CTRL, FLASH, GPIO1, GPIO2, GPIO4, GPIO5, GPIO7, GPIO10, GPIO11, GPIO15, GPIO39, GPIO40,
-    GPIO41, GPIO42, GPIO43, GPIO44, I2C0, LEDC, PCNT, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1,
-    UART0,
+    CPU_CTRL, FLASH, GPIO1, GPIO2, GPIO5, GPIO7, GPIO10, GPIO11, GPIO15, GPIO39, GPIO40, GPIO41,
+    GPIO42, GPIO43, GPIO44, I2C0, LEDC, PCNT, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1, UART0,
 };
 #[cfg(feature = "display")]
 use esp_hal::peripherals::{GPIO6, GPIO12, GPIO13, GPIO16, GPIO17, SPI3};
@@ -81,8 +80,6 @@ pub struct Board<'d> {
     /// I2C0 SCL pin (GPIO7, routed via the GPIO matrix). Shares the bus
     /// with the carrier's TCA9554 I/O expander and touch controller.
     pub i2c_scl: GPIO7<'d>,
-    /// Hashboard reset pin (GPIO4, active-low, held low until miner task releases).
-    pub hb_rst: GPIO4<'d>,
     /// Hashboard plug-detect pin (GPIO5, input pull-up).
     pub hb_plug: GPIO5<'d>,
     /// LEDC peripheral for 25 kHz fan PWM on GPIO10.
@@ -175,7 +172,6 @@ impl Board<'static> {
             i2c0: peripherals.I2C0,
             i2c_sda: peripherals.GPIO15,
             i2c_scl: peripherals.GPIO7,
-            hb_rst: peripherals.GPIO4,
             hb_plug: peripherals.GPIO5,
             ledc: peripherals.LEDC,
             fan_pwm_pin: peripherals.GPIO10,

@@ -23,11 +23,11 @@ impl BoardResetPin {
 }
 
 impl ubos_mining::reset::ResetPin for BoardResetPin {
-    fn enter_reset(&mut self) {
+    async fn enter_reset(&mut self) {
         self.pin.set_low();
     }
 
-    fn exit_reset(&mut self) {
+    async fn exit_reset(&mut self) {
         self.pin.set_high();
     }
 }

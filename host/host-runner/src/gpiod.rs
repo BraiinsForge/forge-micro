@@ -37,12 +37,12 @@ impl GpiodResetPin {
 }
 
 impl ResetPin for GpiodResetPin {
-    fn enter_reset(&mut self) {
+    async fn enter_reset(&mut self) {
         if let Err(e) = self.request.set_lone_value(Value::Inactive) {
             error!("gpiod enter_reset failed: {e}");
         }
     }
-    fn exit_reset(&mut self) {
+    async fn exit_reset(&mut self) {
         if let Err(e) = self.request.set_lone_value(Value::Active) {
             error!("gpiod exit_reset failed: {e}");
         }
