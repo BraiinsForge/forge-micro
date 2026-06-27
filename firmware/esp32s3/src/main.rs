@@ -343,10 +343,10 @@ fn main() -> ! {
 )]
 async fn boot(spawner: Spawner) {
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
-    // Socket-set capacity for the embassy-net stack. Nineteen sockets are
+    // Socket-set capacity for the embassy-net stack. Thirteen sockets are
     // held continuously: DHCPv4, DNS, the stratum client, the mDNS
-    // responder, 5 webui listener sockets on :80, 5 REST API listener
-    // sockets on :8080, and 5 metrics listener sockets on :8081.
+    // responder, 3 webui listener sockets on :80, 3 REST API listener
+    // sockets on :8080, and 3 metrics listener sockets on :8081.
     // NTP opens a transient UDP socket every 60 s, and closed TCP
     // connections linger in TIME_WAIT until smoltcp reaps them.
     // 24 provides headroom for concurrent connections and TIME_WAIT.
