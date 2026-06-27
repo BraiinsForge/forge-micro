@@ -567,6 +567,8 @@ parameterised event, so each carries no args.
 |----------------|---------------------------------------|----------|-------------------------|-----------------------------------------------|
 | `ubos-config`  | `config_changed`                      | info     | `u32, u32`              | `Configuration changed: {} MHz, {} mV`        |
 | `ubos-config`  | `factory_reset`                       | warn     | —                       | `Factory reset to defaults`                   |
+| `ubos-config`  | `network_applied`                     | info     | —                       | `Network config applied`                      |
+| `ubos-config`  | `network_reverted`                    | warn     | —                       | `Network config reverted`                     |
 | `ubos-thermal` | `critical_temperature`                | error    | `i16`                   | `Critical temperature {} °C, mining halted`   |
 | `ubos-thermal` | `temperature_recovered`               | info     | `i16`                   | `Temperature recovered to {} °C, resuming`    |
 | `ubos-thermal` | `sensor_fault`                        | error    | `u32`                   | `Temperature sensor fault after {} misses`    |
@@ -591,8 +593,6 @@ parameterised event, so each carries no args.
 | `ubos-api`     | `user_paused`                         | info     | —                       | `User paused mining`                          |
 | `ubos-api`     | `user_resumed`                        | info     | —                       | `User resumed mining`                         |
 | `ubos-api`     | `user_restart`                        | warn     | —                       | `User-requested restart`                      |
-| `ubos-api`     | `network_applied`                     | info     | —                       | `Network config applied`                      |
-| `ubos-api`     | `network_reverted`                    | warn     | —                       | `Network config reverted`                     |
 
 Per-hop frequency/voltage traces stay on `defmt::debug!` and never enter the
 ring.
