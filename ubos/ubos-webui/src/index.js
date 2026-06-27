@@ -433,7 +433,7 @@ async function tick() {
     // Update the Status card and the menu's disabled states from the
     // paused field. Absent fields (older firmware) leave the status blank
     // and keep all items enabled so the operator can still act.
-    updateActionState(data.paused, data.pause_reason);
+    updateActionState(data.paused, data.pause_reason, data.running);
     // Show the firmware-update card only on boards that report OTA info;
     // boards without an OTA partition omit the field entirely.
     const ota = data.ota;
@@ -1663,11 +1663,16 @@ const PAUSE_REASON_LABEL = {
 };
 
 // Update the Status card and the Start/Stop disabled states. Called from
-// tick() on every successful poll with the current paused flag and
-// reason. The state text and color live in the sidebar Status card so
-// the nav action button stays icon-only. When either field is absent
-// (older firmware) the status is blank and all items remain enabled.
-function updateActionState(paused, pauseReason) {
+// tick() on every successful poll with the current paused flag, pause
+// reason, and running flag. The state text and color live in the sidebar
+// Status card so the nav action button stays icon-only. When paused is
+// absent (older firmware) the status is blank and all items remain
+// enabled so the operator can still act. running was added to the
+// poll response alongside paused, so it is present whenever paused is;
+// the !running branch marks a board stopped without being paused.
+// Precedence: paused wins over running, so a paused miner never shows
+// "Running".
+function updateActionState(paused, pauseReason, running) {
   const status = $('st');
   const startBtn = $('actStart');
   const stopBtn = $('actStop');
@@ -1678,12 +1683,7 @@ function updateActionState(paused, pauseReason) {
     stopBtn.disabled = false;
     return;
   }
-  if (!paused) {
-    status.textContent = 'Running';
-    status.className = 'v running';
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-  } else {
+  if (paused) {
     status.textContent = PAUSE_REASON_LABEL[pauseReason] || 'Stopped';
     status.className = 'v ' + (pauseReason === 'userRequest' ? 'stopped' : 'warn');
     // An OTA update is neither operator-resumable nor stoppable from
@@ -1691,6 +1691,16 @@ function updateActionState(paused, pauseReason) {
     // would race the update.
     startBtn.disabled = pauseReason === 'otaUpdate';
     stopBtn.disabled = true;
+  } else if (!running) {
+    status.textContent = 'Stopped';
+    status.className = 'v stopped';
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  } else {
+    status.textContent = 'Running';
+    status.className = 'v running';
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
   }
 }
 

@@ -34,13 +34,14 @@ mod tests;
 /// roughly 600 bytes in practice (name≤32 + numeric fields + 16-byte
 /// IPv4 + 17-byte MAC string + 16-byte time string + OTA static fields +
 /// OTA diagnostic fields including the `resetWritePhase` string +
-/// `paused` bool + `pause_reason` string up to `"dangerousTemperature"` +
-/// JSON framing). The `api_info_body_fits_in_buffer` test builds the
-/// absolute worst case with every numeric field at its maximum decimal
-/// width and measures ~780 bytes. 512 bytes overflowed once the OTA
-/// diagnostic fields were added, silently truncating the tail; 896 bytes
-/// covers the synthetic worst case and leaves room for future fields
-/// while staying on the stack.
+/// `running` bool + `paused` bool + `pause_reason` string up to
+/// `"dangerousTemperature"` + JSON framing). The
+/// `api_info_body_fits_in_buffer` test builds the absolute worst case
+/// with every numeric field at its maximum decimal width and measures
+/// ~780 bytes. 512 bytes overflowed once the OTA diagnostic fields were
+/// added, silently truncating the tail; 896 bytes covers the synthetic
+/// worst case and leaves room for future fields while staying on the
+/// stack.
 const API_INFO_BODY_BUFFER_SIZE: usize = 896;
 
 /// Body buffer for the POST /api/config acknowledgement.
@@ -427,6 +428,7 @@ impl Service for RestApiService {
                 let net_confirm_seconds = ubos_config::pending_seconds_remaining();
                 let pause_reasons = self.manager.pause_reasons();
                 let paused = !pause_reasons.is_empty();
+                let running = ubos_mining::handle().state().is_some_and(|s| s.running);
 
                 let mut body_buf = [0u8; API_INFO_BODY_BUFFER_SIZE];
                 let mut writer = ubos_http::BufferWriter::new(&mut body_buf);
@@ -450,6 +452,7 @@ impl Service for RestApiService {
                      \"psu_fault\":{psu_fault},\
                      \"pools\":{pools},\
                      \"net_confirm_seconds\":{net_confirm_seconds},\
+                     \"running\":{running},\
                      \"paused\":{paused},\
                      \"pause_reason\":",
                     self.board_name

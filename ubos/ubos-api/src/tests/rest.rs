@@ -61,6 +61,7 @@ fn validate_board_name_rejects_backslash() {
 /// - `resetReason`: `"watchdogTimeout"` (15 chars, longest variant).
 /// - `resetWritePhase`: `"flashDone"` (9 chars, longest variant).
 /// - `previousVersion`: `Some(u32::MAX)` (10 digits, longer than `null`).
+/// - `running`: `true` (4 chars).
 /// - `paused`: `true` (4 chars).
 /// - `pause_reason`: `"dangerousTemperature"` (20 chars, longest variant).
 #[test]
@@ -80,6 +81,7 @@ fn api_info_body_fits_in_buffer() {
     let psu_fault = true;
     let pools = u8::MAX;
     let net_confirm_seconds = u64::MAX;
+    let running = true;
     let paused = true;
     let pause_reason = "dangerousTemperature";
 
@@ -97,6 +99,7 @@ fn api_info_body_fits_in_buffer() {
          \"psu_fault\":{psu_fault},\
          \"pools\":{pools},\
          \"net_confirm_seconds\":{net_confirm_seconds},\
+         \"running\":{running},\
          \"paused\":{paused},\
          \"pause_reason\":\"{pause_reason}\",\
          \"ip\":\"255.255.255.255\",\
