@@ -23,7 +23,7 @@ use std::env;
 use std::fmt::Write as _;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use embedded_io_adapters::tokio_1::FromTokio;
 use mining_protocol::{
     JobId, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share, SubmitResult,

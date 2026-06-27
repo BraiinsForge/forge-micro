@@ -6,8 +6,8 @@
 //! one enum that itself implements `Authenticator`.
 
 use ii_sv2::security::{
-    secp256k1, AuthenticationError, Authenticator, CertificateHeader, Signature, ValidateNothing,
-    ValidateSignature,
+    AuthenticationError, Authenticator, CertificateHeader, Signature, ValidateNothing,
+    ValidateSignature, secp256k1,
 };
 
 /// Either no validation (test pools) or signature validation against

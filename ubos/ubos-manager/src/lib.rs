@@ -33,7 +33,7 @@ pub use manager::run_manager;
 pub use message::Message;
 pub use pause::{PauseReason, PauseReasons};
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::{Receiver, Watch};

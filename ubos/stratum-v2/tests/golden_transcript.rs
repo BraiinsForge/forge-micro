@@ -25,7 +25,7 @@ use ii_sv2::messages::{
     SetupConnectionSuccess,
 };
 use ii_sv2::security::{
-    accept, CertificateWithPrivateKey, EncryptedCodec, EstablishedSession, Rng as Sv2Rng,
+    CertificateWithPrivateKey, EncryptedCodec, EstablishedSession, Rng as Sv2Rng, accept,
 };
 use ii_sv2::types::{Bytes0_32, Str0_255, Uint256};
 use mining_protocol::{Error, MiningClient, SessionRejection};
@@ -37,9 +37,9 @@ use tokio::io::AsyncReadExt as _;
 mod common;
 
 use common::{
-    crypto_ctx, make_cert, pool_send, RecordedUpdate, RecordingVisitor, FAKE_CHANNEL_ID,
-    FAKE_EXTRANONCE_PREFIX, FAKE_JOB_ID, FAKE_MERKLE_ROOT, FAKE_NBITS, FAKE_NTIME, FAKE_PREV_HASH,
-    FAKE_TARGET,
+    FAKE_CHANNEL_ID, FAKE_EXTRANONCE_PREFIX, FAKE_JOB_ID, FAKE_MERKLE_ROOT, FAKE_NBITS, FAKE_NTIME,
+    FAKE_PREV_HASH, FAKE_TARGET, RecordedUpdate, RecordingVisitor, crypto_ctx, make_cert,
+    pool_send,
 };
 
 // ── Seeded RNG ──────────────────────────────────────────────────────────────────

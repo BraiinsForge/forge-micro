@@ -22,9 +22,9 @@ use ubos_config::ThermalConfig;
 use ubos_core::units::Temperature;
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_temperature::{publish_board_temperature, TemperatureSensor};
+use ubos_temperature::{TemperatureSensor, publish_board_temperature};
 
-use crate::threshold::{evaluate, Action};
+use crate::threshold::{Action, evaluate};
 
 ubos_events::events! {
     critical_temperature(temp_c: i16)   error = "Critical temperature {} °C, mining halted",

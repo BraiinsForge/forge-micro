@@ -8,8 +8,8 @@
 //! the UART register block and re-implements the divisor math against the
 //! PAC, mirroring `embassy_rp::uart::Uart::set_baudrate_inner`.
 
-use embassy_rp::pac::uart::regs::{Uartfbrd, Uartibrd};
 use embassy_rp::pac::uart::Uart as UartRegs;
+use embassy_rp::pac::uart::regs::{Uartfbrd, Uartibrd};
 use embassy_rp::uart::{BufferedUart, BufferedUartRx, BufferedUartTx, Error as UartError};
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use serial_baudrate::BaudRate;

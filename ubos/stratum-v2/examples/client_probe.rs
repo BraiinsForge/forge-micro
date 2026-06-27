@@ -27,14 +27,14 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use embedded_io_adapters::tokio_1::FromTokio;
-use ii_sv2::security::{secp256k1, CryptoCtx, PublicKey, Rng as Sv2Rng};
+use ii_sv2::security::{CryptoCtx, PublicKey, Rng as Sv2Rng, secp256k1};
 use mining_protocol::{
     JobId, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share, SubmitResult,
 };
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 use stratum_v2::{StratumV2Client, Sv2Config};
 use tokio::net::TcpStream;
 

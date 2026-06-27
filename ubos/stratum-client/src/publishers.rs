@@ -7,7 +7,7 @@
 
 use embassy_time::{Duration, Ticker};
 use portable_atomic::Ordering;
-use ubos_metrics::metrics::{push, Metric, Value};
+use ubos_metrics::metrics::{Metric, Value, push};
 
 use crate::run::STRATUM_RECONNECTS;
 use crate::state::{SHARES_ACCEPTED, SHARES_REJECTED};

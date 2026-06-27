@@ -1,6 +1,6 @@
 [package]
 name        = "ubos-psu"
-edition     = "2021"
+edition.workspace = true
 version     = "0.1.0"
 description = "no_std async PSU driver, generic over embedded-hal-async I2C."
 

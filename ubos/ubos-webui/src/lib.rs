@@ -28,7 +28,7 @@ ubos_mdns::declare_service!(
 );
 
 pub mod dashboard;
-pub use dashboard::{seed_webui_credentials, DashboardService};
+pub use dashboard::{DashboardService, seed_webui_credentials};
 
 #[cfg(test)]
 mod test_time_stubs {

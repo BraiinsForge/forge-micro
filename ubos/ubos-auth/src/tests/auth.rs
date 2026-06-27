@@ -3,7 +3,7 @@
 extern crate std;
 
 use crate::auth::{
-    authenticate, constant_time_eq, extract_session_cookie_from_str, AuthCtx, AuthError,
+    AuthCtx, AuthError, authenticate, constant_time_eq, extract_session_cookie_from_str,
 };
 
 // --- basic auth via Authorization header ---

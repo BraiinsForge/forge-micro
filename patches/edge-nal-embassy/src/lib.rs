@@ -66,7 +66,7 @@ mod sealed {
         }
 
         unsafe fn free(&self, buffer_token: NonNull<u8>) {
-            (**self).free(buffer_token)
+            unsafe { (**self).free(buffer_token) }
         }
     }
 }
@@ -118,7 +118,7 @@ impl<T, const N: usize> Pool<T, N> {
     /// - `p`: A pointer to the object to free.
     unsafe fn free(&self, p: NonNull<T>) {
         let origin = self.data.as_ptr() as *mut T;
-        let n = p.as_ptr().offset_from(origin);
+        let n = unsafe { p.as_ptr().offset_from(origin) };
         assert!(n >= 0);
         assert!((n as usize) < N);
         self.used[n as usize].set(false);

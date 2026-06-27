@@ -14,7 +14,7 @@
 
 use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_net::StackResources;
 use embassy_stm32::adc::{Adc, AdcChannel, Exten, RingBufferedAdc, SampleTime};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};

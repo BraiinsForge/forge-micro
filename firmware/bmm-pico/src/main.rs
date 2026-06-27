@@ -12,7 +12,7 @@ use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Executor;
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};

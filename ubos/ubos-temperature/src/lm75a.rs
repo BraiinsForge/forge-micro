@@ -16,7 +16,7 @@ use core::fmt::Write as _;
 use embedded_hal_async::i2c::I2c;
 use ubos_core::units::Temperature;
 use ubos_logging::error;
-use ubos_metrics::metrics::{push, Label, LabelValue, Labels, Metric, Value};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 
 use crate::TemperatureSensor;
 

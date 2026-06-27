@@ -10,14 +10,14 @@
 
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use edge_http::io::server::{handle_request, Connection};
 use edge_http::io::Error as HttpError;
+use edge_http::io::server::{Connection, handle_request};
 use edge_nal::{Close, TcpAccept as _, TcpBind as _, TcpShutdown as _};
 use edge_nal_embassy::{Tcp, TcpAccept};
-use embassy_time::{with_timeout, Duration};
+use embassy_time::{Duration, with_timeout};
 use embedded_io_async::{Read, Write};
 use ubos_core::consts::Net;
-use ubos_logging::{warn, Debug2Format};
+use ubos_logging::{Debug2Format, warn};
 
 use edge_nal::TcpSplit;
 

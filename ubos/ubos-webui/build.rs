@@ -26,8 +26,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 
 const CSS_MARKER: &str = "<!--CSS-->";
 const JS_MARKER: &str = "<!--JS-->";
@@ -274,10 +274,10 @@ fn resolve_build_time() -> String {
 }
 
 fn epoch_seconds() -> u64 {
-    if let Ok(value) = env::var("UBOS_WEBUI_BUILD_TIME") {
-        if let Ok(parsed) = value.parse::<u64>() {
-            return parsed;
-        }
+    if let Ok(value) = env::var("UBOS_WEBUI_BUILD_TIME")
+        && let Ok(parsed) = value.parse::<u64>()
+    {
+        return parsed;
     }
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

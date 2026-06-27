@@ -26,8 +26,8 @@
 
 use core::fmt::Write as _;
 
-use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
+use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
@@ -35,8 +35,8 @@ use ubos_core::consts::Http;
 
 use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG};
 use ubos_http::{
-    extract_request_parts, format_content_length, read_body, write_status_only, RequestParts,
-    Service, MAX_RESPONSE_HEADERS,
+    MAX_RESPONSE_HEADERS, RequestParts, Service, extract_request_parts, format_content_length,
+    read_body, write_status_only,
 };
 
 #[cfg(test)]
@@ -411,22 +411,20 @@ impl Service for DashboardService {
         // X-CSRF-Token header, and a forced logout is a low-value CSRF
         // target that exposes no state and changes no credentials.
         let needs_csrf = path == "/login" && is_mutating;
-        if needs_csrf {
-            if let ubos_auth::auth::AuthCtx::Session(ref session_id) = auth_ctx {
-                let token_str = csrf_buf.as_deref().unwrap_or("");
-                if token_str.is_empty()
-                    || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str).await
-                {
-                    return write_status_only(
-                        connection,
-                        403,
-                        "Forbidden",
-                        "application/json",
-                        &[],
-                        b"{\"message\":\"CSRF token invalid or missing\"}",
-                    )
-                    .await;
-                }
+        if needs_csrf && let ubos_auth::auth::AuthCtx::Session(ref session_id) = auth_ctx {
+            let token_str = csrf_buf.as_deref().unwrap_or("");
+            if token_str.is_empty()
+                || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str).await
+            {
+                return write_status_only(
+                    connection,
+                    403,
+                    "Forbidden",
+                    "application/json",
+                    &[],
+                    b"{\"message\":\"CSRF token invalid or missing\"}",
+                )
+                .await;
             }
         }
 

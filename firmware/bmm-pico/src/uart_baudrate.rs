@@ -4,8 +4,8 @@
 //!
 //! Backend architecture: `../../../docs/MINING.md`.
 
-use embassy_rp::pac::uart::regs::{Uartfbrd, Uartibrd};
 use embassy_rp::pac::uart::Uart as UartRegs;
+use embassy_rp::pac::uart::regs::{Uartfbrd, Uartibrd};
 use embassy_rp::uart::{BufferedUart, BufferedUartRx, BufferedUartTx, Error as UartError};
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use serial_baudrate::BaudRate;

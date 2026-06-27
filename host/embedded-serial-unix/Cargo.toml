@@ -1,6 +1,6 @@
 [package]
 name        = "embedded-serial-unix"
-edition     = "2021"
+edition.workspace = true
 version     = "0.1.0"
 description = "Async serial driver for Linux character devices, exposing embedded-io-async traits."
 

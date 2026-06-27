@@ -102,11 +102,7 @@ impl<const N: usize> JobRing<N> {
     pub fn current(&self) -> Option<&JobSlot> {
         let latest = (self.write_index + N - 1) % N;
         let slot = &self.slots[latest];
-        if slot.valid {
-            Some(slot)
-        } else {
-            None
-        }
+        if slot.valid { Some(slot) } else { None }
     }
 
     /// Mutable view of the most recently written valid slot.
@@ -115,11 +111,7 @@ impl<const N: usize> JobRing<N> {
     pub fn current_mut(&mut self) -> Option<&mut JobSlot> {
         let latest = (self.write_index + N - 1) % N;
         let slot = &mut self.slots[latest];
-        if slot.valid {
-            Some(slot)
-        } else {
-            None
-        }
+        if slot.valid { Some(slot) } else { None }
     }
 }
 

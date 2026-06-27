@@ -1,9 +1,10 @@
 use super::*;
 
 use crate::{
-    BaudRateReg, BoardDescriptor, Chip, ChipAddress, ChipIdReg, ChipNonceOffsetReg, ControlCommand,
-    IoDriverStrengthCtrlReg, MidstateCalReg, MiscSettingsReg, PllParameterReg, Register,
-    UartRelayReg, BMM100, IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY, MISC_SETTINGS_BM1370_BRINGUP,
+    BMM100, BaudRateReg, BoardDescriptor, Chip, ChipAddress, ChipIdReg, ChipNonceOffsetReg,
+    ControlCommand, IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY, IoDriverStrengthCtrlReg,
+    MISC_SETTINGS_BM1370_BRINGUP, MidstateCalReg, MiscSettingsReg, PllParameterReg, Register,
+    UartRelayReg,
 };
 
 /// Drive an immediately-ready future to completion with a no-op waker.

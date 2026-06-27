@@ -11,12 +11,12 @@
 //! all multiplex through `embassy_futures::select3`. No mutex over
 //! `StratumState` because nothing else holds a borrow.
 
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{Either3, select3};
 use embassy_time::{Duration, Ticker};
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
 use mining_protocol::{Error, MiningClient, Share};
-use portable_atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use portable_atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use ubos_logging::{info, trace, warn};
 
 /// Lifetime-monotonic count of times the stratum reconnect path has
@@ -57,7 +57,7 @@ pub fn record_reconnect_attempt() {
 
 use crate::asic_session::AsicSession;
 use crate::state::StratumState;
-use crate::work::{OutstandingWork, Solution, WorkAssignment, MAX_EXTRANONCE_2};
+use crate::work::{MAX_EXTRANONCE_2, OutstandingWork, Solution, WorkAssignment};
 
 /// Index of the primary (and currently only) pool in `POOL_ALIVE_BITMAP`.
 /// Bit 0 is the primary pool; a backup-pool task would use bit 1. If a
@@ -247,10 +247,10 @@ fn publish_work(state: &mut StratumState, asic: &AsicSession) {
     };
 
     // Roll ntime within the consensus-allowed window.
-    if let Some(slot) = state.job_ring.current_mut() {
-        if slot.ntime_offset < NTIME_ROLL_MAX_SECS {
-            slot.ntime_offset = slot.ntime_offset.saturating_add(1);
-        }
+    if let Some(slot) = state.job_ring.current_mut()
+        && slot.ntime_offset < NTIME_ROLL_MAX_SECS
+    {
+        slot.ntime_offset = slot.ntime_offset.saturating_add(1);
     }
 
     let work_id = state.next_work_id;
@@ -290,9 +290,7 @@ fn publish_work(state: &mut StratumState, asic: &AsicSession) {
     };
     trace!(
         "stratum-client: publish work_id={} job={} ntime={:#010x}",
-        assignment.work_id,
-        slot.job_id.0,
-        assignment.ntime,
+        assignment.work_id, slot.job_id.0, assignment.ntime,
     );
     asic.publish_work(assignment);
 }

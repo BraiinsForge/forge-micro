@@ -20,7 +20,7 @@ use embassy_sync::watch::Watch;
 use ubos_config::CoolingConfig;
 use ubos_core::units::{FanPwm, FanRpm};
 use ubos_logging::info;
-use ubos_metrics::metrics::{push, Metric, Value};
+use ubos_metrics::metrics::{Metric, Value, push};
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::pid::TempControl;

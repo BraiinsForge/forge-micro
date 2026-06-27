@@ -8,8 +8,8 @@
 
 use core::fmt::Write as _;
 
-use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
+use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
 use embedded_io_async::{Read, Write};
 use heapless::String;

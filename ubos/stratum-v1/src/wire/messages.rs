@@ -1,8 +1,8 @@
 //! Stratum V1 wire message types and encoders.
 
+use serde::Serialize;
 use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use serde::ser::{SerializeSeq, Serializer};
-use serde::Serialize;
 
 use core::fmt;
 

@@ -1,6 +1,6 @@
 //! `Sv2Config` construction tests.
 
-use crate::config::{Sv2Config, UserTooLong, MAX_USER_LEN};
+use crate::config::{MAX_USER_LEN, Sv2Config, UserTooLong};
 
 #[test]
 fn new_accepts_max_length_user() {

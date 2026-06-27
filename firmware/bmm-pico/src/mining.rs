@@ -3,7 +3,7 @@
 //!
 //! Backend architecture: `../../../docs/MINING.md`.
 
-use defmt::{error, info, Debug2Format};
+use defmt::{Debug2Format, error, info};
 use embassy_rp::gpio::Output;
 use embassy_time::{Duration, Timer};
 

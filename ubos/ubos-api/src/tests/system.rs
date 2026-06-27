@@ -18,7 +18,7 @@ use edge_nal::TcpSplit;
 use embedded_io_async::{ErrorType, Read, Write};
 
 use crate::ota::OtaError;
-use crate::system::{route, DispatchOutcome, Route};
+use crate::system::{DispatchOutcome, Route, route};
 
 // ---------------------------------------------------------------------------
 // In-memory mock socket

@@ -9,8 +9,8 @@ use ubos_logging::{info, warn};
 
 use ubos_core::units::{Power, Voltage};
 
-use crate::state::{ensure_initialized, InitStatus, State};
-use crate::{ina230, tps6287x, watchdog, Error, Psu};
+use crate::state::{InitStatus, State, ensure_initialized};
+use crate::{Error, Psu, ina230, tps6287x, watchdog};
 
 #[cfg(test)]
 #[path = "tests/miniminer.rs"]

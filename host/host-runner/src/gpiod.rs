@@ -6,8 +6,8 @@
 
 use std::io;
 
-use gpiocdev::line::Value;
 use gpiocdev::Request;
+use gpiocdev::line::Value;
 use log::{error, info};
 
 use ubos_mining::reset::ResetPin;

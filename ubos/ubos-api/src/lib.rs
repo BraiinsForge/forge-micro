@@ -30,10 +30,10 @@ ubos_events::events! {
 }
 
 pub use ota::{
-    publish_reset_diag, register_ota_target, OtaError, OtaTarget, OtaWritePhase, ResetReason,
+    OtaError, OtaTarget, OtaWritePhase, ResetReason, publish_reset_diag, register_ota_target,
 };
 pub use rest::{
-    run_ota_session_watchdog, run_sync_credentials, seed_api_credentials, RestApiService,
+    RestApiService, run_ota_session_watchdog, run_sync_credentials, seed_api_credentials,
 };
 
 #[cfg(test)]

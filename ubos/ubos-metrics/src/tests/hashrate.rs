@@ -4,7 +4,7 @@
 //! `hashes_per_share` and `next_ewma` functions instead.
 
 use super::{
-    decay_silent, hashes_per_share, next_ewma, BUCKET_MS, EWMA_ALPHA_SHIFT, MAX_DECAY_STEPS,
+    BUCKET_MS, EWMA_ALPHA_SHIFT, MAX_DECAY_STEPS, decay_silent, hashes_per_share, next_ewma,
 };
 
 fn target_with_leading_zero_bytes(zero_bytes: usize) -> [u8; 32] {

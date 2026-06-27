@@ -1,7 +1,7 @@
 //! Tests for `Ring` push/snapshot behaviour and the global-ring pre-init
 //! safety guarantees.
 
-use crate::{record, snapshot_after, EventRecord, RetainedHeader, RetainedRing, Ring, Severity};
+use crate::{EventRecord, RetainedHeader, RetainedRing, Ring, Severity, record, snapshot_after};
 
 fn make_clock() -> fn() -> u64 {
     fn clock() -> u64 {

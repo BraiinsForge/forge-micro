@@ -11,7 +11,7 @@
 //! the rp2350/bmm-pico dual-core split. `ASIC_SESSION` uses a
 //! `CriticalSectionRawMutex`, so the cross-core share needs no extra pipe.
 
-use defmt::{error, info, Debug2Format};
+use defmt::{Debug2Format, error, info};
 use embassy_time::{Duration, Timer};
 use esp_hal::gpio::{Level, Output, OutputConfig};
 

@@ -1,7 +1,7 @@
 //! Tests for `const_fnv1a` hash stability and `encode_args` round-trip
 //! correctness across all six argument types.
 
-use crate::{encode_args, Arg};
+use crate::{Arg, encode_args};
 
 #[test]
 fn fnv1a_deterministic() {

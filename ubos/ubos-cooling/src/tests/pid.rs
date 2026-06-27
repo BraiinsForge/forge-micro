@@ -74,7 +74,7 @@ fn pid_freeze_dampens_integral() {
     assert!(frozen > free, "frozen integral term has smaller magnitude");
 }
 
-use super::pid::{exponential_smoother, half_time_decay, TempControl};
+use super::pid::{TempControl, exponential_smoother, half_time_decay};
 
 /// Match BOS `pid_control::util::test::decay`: lambda for a 30 s
 /// half-decay is ~0.9772, and the smoother crosses 0.5 between

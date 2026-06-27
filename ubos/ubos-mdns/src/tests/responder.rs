@@ -1,6 +1,6 @@
 use static_cell::StaticCell;
 
-use super::{compose_hostname_configured, HOSTNAME_SUFFIX_LEN};
+use super::{HOSTNAME_SUFFIX_LEN, compose_hostname_configured};
 
 // Minimum CAP for base "ab" (BASE_LEN=2): 2 + 3 = 5.
 const BASE: &str = "ab";

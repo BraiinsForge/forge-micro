@@ -27,8 +27,8 @@ use core::cell::RefCell;
 
 use embassy_rp::flash::{Blocking, Flash};
 use embassy_rp::peripherals::FLASH;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 /// Type of the `'static` mutex guarding the one blocking [`Flash`] driver.

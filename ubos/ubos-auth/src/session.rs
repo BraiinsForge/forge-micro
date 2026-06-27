@@ -13,8 +13,8 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Instant;
-use heapless::index_map::FnvIndexMap;
 use heapless::String;
+use heapless::index_map::FnvIndexMap;
 
 use crate::auth::constant_time_eq;
 

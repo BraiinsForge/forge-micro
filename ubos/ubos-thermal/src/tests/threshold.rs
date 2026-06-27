@@ -1,7 +1,7 @@
 //! Unit tests for the pure threshold evaluator. Plain values, no
 //! embassy executor, so boundary semantics are easy to nail down.
 
-use super::threshold::{evaluate, Action};
+use super::threshold::{Action, evaluate};
 
 const DANGEROUS: f32 = 90.0;
 const COOLDOWN: f32 = 45.0;

@@ -20,8 +20,8 @@ use std::fs;
 use embassy_futures::block_on;
 
 use crate::{
-    decode_blob, factory_reset, file_storage::FileStorage, storage::Storage, Config,
-    LOAD_BUFFER_SIZE,
+    Config, LOAD_BUFFER_SIZE, decode_blob, factory_reset, file_storage::FileStorage,
+    storage::Storage,
 };
 
 /// Drive `factory_reset` against empty storage, then reload and decode.

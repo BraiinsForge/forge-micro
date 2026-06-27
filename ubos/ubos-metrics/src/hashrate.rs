@@ -5,7 +5,7 @@
 use embassy_time::{Duration, Instant, Ticker};
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 
-use crate::metrics::{push, Metric, Value};
+use crate::metrics::{Metric, Value, push};
 
 #[cfg(test)]
 #[path = "tests/hashrate.rs"]

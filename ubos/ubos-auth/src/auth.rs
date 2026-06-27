@@ -251,21 +251,21 @@ pub async fn authenticate(
     if let Some(authorization_value) = authorization {
         return authenticate_basic(authorization_value).await;
     }
-    if let Some(token) = extract_session_cookie_from_str(cookie) {
-        if crate::session::validate_session(token).await {
-            let mut owned = String::new();
-            // `validate_session` only returns true for tokens already
-            // stored in the session table; stored tokens are exactly 32
-            // chars by `csprng::random_token`. A longer cookie value
-            // cannot have validated, so this push fits by construction.
-            owned
-                .push_str(token)
-                .expect("BUG: validated session token exceeds String<32>");
-            return Ok(AuthCtx::Session(owned));
-        }
-        // Session cookie present but expired or unknown — treat as
-        // anonymous so the caller redirects to /login.
+    if let Some(token) = extract_session_cookie_from_str(cookie)
+        && crate::session::validate_session(token).await
+    {
+        let mut owned = String::new();
+        // `validate_session` only returns true for tokens already
+        // stored in the session table; stored tokens are exactly 32
+        // chars by `csprng::random_token`. A longer cookie value
+        // cannot have validated, so this push fits by construction.
+        owned
+            .push_str(token)
+            .expect("BUG: validated session token exceeds String<32>");
+        return Ok(AuthCtx::Session(owned));
     }
+    // Session cookie present but expired or unknown — treat as
+    // anonymous so the caller redirects to /login.
     Ok(AuthCtx::Anonymous)
 }
 

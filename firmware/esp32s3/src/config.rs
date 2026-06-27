@@ -5,11 +5,12 @@
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
 use esp_hal::peripherals::{
-    CPU_CTRL, FLASH, GPIO1, GPIO10, GPIO11, GPIO2, GPIO39, GPIO4, GPIO40, GPIO41, GPIO42, GPIO43,
-    GPIO44, GPIO5, GPIO8, GPIO9, I2C0, LEDC, PCNT, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1, UART0,
+    CPU_CTRL, FLASH, GPIO1, GPIO2, GPIO4, GPIO5, GPIO8, GPIO9, GPIO10, GPIO11, GPIO39, GPIO40,
+    GPIO41, GPIO42, GPIO43, GPIO44, I2C0, LEDC, PCNT, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1,
+    UART0,
 };
 #[cfg(feature = "display")]
-use esp_hal::peripherals::{GPIO15, GPIO16, GPIO17, GPIO6, GPIO7, SPI3};
+use esp_hal::peripherals::{GPIO6, GPIO7, GPIO15, GPIO16, GPIO17, SPI3};
 use esp_hal::time::Rate;
 
 pub struct Spi;

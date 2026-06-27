@@ -18,16 +18,16 @@
 //! so no peripheral singleton needs to be shared.
 
 use defmt::info;
+use embassy_stm32::Peri;
 use embassy_stm32::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use embassy_stm32::pac;
 use embassy_stm32::peripherals::{PB8, PB9, TIM4};
 use embassy_stm32::time::Hertz;
+use embassy_stm32::timer::Channel;
 use embassy_stm32::timer::low_level::{
     CountingMode, FilterValue, InputCaptureMode, InputTISelection, OutputCompareMode, RoundTo,
     Timer,
 };
-use embassy_stm32::timer::Channel;
-use embassy_stm32::Peri;
 use embassy_time::{Duration, Instant, Timer as EmbassyTimer};
 use portable_atomic::{AtomicU32, Ordering};
 use ubos_cooling::{FanOutput, TachReader};

@@ -12,7 +12,7 @@
 //! transfer level; the embassy-stm32 ring-buffered RX driver absorbs most
 //! bursts. This is the same trade-off accepted on bmm-pico for Core 0 tasks.
 
-use defmt::{error, info, Debug2Format};
+use defmt::{Debug2Format, error, info};
 use embassy_stm32::gpio::Output;
 use embassy_time::{Duration, Timer};
 

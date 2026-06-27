@@ -5,10 +5,10 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use stratum_v1::{
-    encode_authorize, encode_submit, encode_subscribe, parse_incoming, parse_subscribe_result,
     Authorize, LineBuffer, Notification, Notify, Response, Rpc, Submit, Subscribe,
+    encode_authorize, encode_submit, encode_subscribe, parse_incoming, parse_subscribe_result,
 };
 
 // Use braiins pool

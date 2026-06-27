@@ -2,7 +2,7 @@
 
 use mining_protocol::JobId;
 
-use crate::state::{PendingFutureJob, V2SessionState, JOBID_MAP_DEPTH};
+use crate::state::{JOBID_MAP_DEPTH, PendingFutureJob, V2SessionState};
 
 #[test]
 fn default_matches_new() {

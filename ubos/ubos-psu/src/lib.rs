@@ -57,14 +57,14 @@ pub mod tps6287x;
 pub mod watchdog;
 
 pub use config::MiniminerPsuConfig;
-pub use miniminer::{run_watchdog, MiniminerPsu, RawMutex};
+pub use miniminer::{MiniminerPsu, RawMutex, run_watchdog};
 pub use state::State;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
 use portable_atomic::{AtomicU32, Ordering as AtomicOrdering};
 use ubos_core::units::{Power, Voltage};
-use ubos_metrics::metrics::{push, Metric, Value};
+use ubos_metrics::metrics::{Metric, Value, push};
 
 type CSMutex = CriticalSectionRawMutex;
 

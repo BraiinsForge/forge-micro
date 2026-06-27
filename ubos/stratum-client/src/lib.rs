@@ -35,12 +35,12 @@ pub const STRATUM_TCP_BUFFER_SIZE: usize = 2048;
 pub const SOCKET_TIMEOUT: Duration = Duration::from_secs(120);
 
 pub use asic_session::{AsicSession, SOLUTION_QUEUE_DEPTH};
-pub use job_ring::{JobRing, JobSlot, JOB_RING_DEPTH};
+pub use job_ring::{JOB_RING_DEPTH, JobRing, JobSlot};
 pub use run::{
-    pool_alive_bitmap, record_reconnect_attempt, run_stratum_client, set_pool_alive,
-    NTIME_ROLL_MAX_SECS, WORK_GENERATOR_PERIOD,
+    NTIME_ROLL_MAX_SECS, WORK_GENERATOR_PERIOD, pool_alive_bitmap, record_reconnect_attempt,
+    run_stratum_client, set_pool_alive,
 };
 pub use state::StratumState;
 pub use state::{shares_accepted, shares_rejected};
-pub use work::{OutstandingWork, Solution, WorkAssignment, MAX_EXTRANONCE_2};
-pub use work_ring::{WorkRing, WORK_RING_DEPTH};
+pub use work::{MAX_EXTRANONCE_2, OutstandingWork, Solution, WorkAssignment};
+pub use work_ring::{WORK_RING_DEPTH, WorkRing};

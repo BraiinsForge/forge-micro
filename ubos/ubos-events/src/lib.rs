@@ -36,8 +36,8 @@
 
 use core::cell::RefCell;
 
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 pub use ubos_logging;
 

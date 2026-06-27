@@ -38,24 +38,24 @@ pub mod thermal;
 
 pub use api::ApiConfig;
 pub use cooling::{
-    CoolingBounds, CoolingConfig, CoolingInfo, PidConfig, BOUNDS as COOLING_BOUNDS,
-    INFO as COOLING_INFO,
+    BOUNDS as COOLING_BOUNDS, CoolingBounds, CoolingConfig, CoolingInfo, INFO as COOLING_INFO,
+    PidConfig,
 };
 pub use miner::{MinerConfig, TuningAlgorithm};
 pub use mining::{
-    MiningBounds, MiningInfo, TuningConfig, BOUNDS as MINING_BOUNDS, INFO as MINING_INFO,
+    BOUNDS as MINING_BOUNDS, INFO as MINING_INFO, MiningBounds, MiningInfo, TuningConfig,
 };
 pub use network::{NetworkConfig, NetworkMode};
 pub use pool::{
-    PoolEntry, ProtocolKind, DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY,
-    DEFAULT_POOL_USER,
+    DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY, DEFAULT_POOL_USER, PoolEntry,
+    ProtocolKind,
 };
 pub use thermal::{
-    ThermalBounds, ThermalConfig, ThermalInfo, BOUNDS as THERMAL_BOUNDS, INFO as THERMAL_INFO,
+    BOUNDS as THERMAL_BOUNDS, INFO as THERMAL_INFO, ThermalBounds, ThermalConfig, ThermalInfo,
 };
 
 pub mod storage;
-pub use storage::{decode_blob, encode_blob, LoadError, Storage, CONFIG_KEY};
+pub use storage::{CONFIG_KEY, LoadError, Storage, decode_blob, encode_blob};
 
 pub mod flash_storage;
 pub use flash_storage::FlashStorage;
@@ -70,7 +70,7 @@ pub use file_storage::FileStorage;
 
 pub use message::Message;
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;

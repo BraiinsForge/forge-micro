@@ -135,10 +135,10 @@ fn find_pwmfan_devices(dir: &Path, depth: usize) -> Vec<PathBuf> {
         }
         let path = entry.path();
         let name_file = path.join("name");
-        if let Ok(content) = fs::read_to_string(&name_file) {
-            if content.trim() == PWMFAN_DRIVER_NAME {
-                devices.push(path.clone());
-            }
+        if let Ok(content) = fs::read_to_string(&name_file)
+            && content.trim() == PWMFAN_DRIVER_NAME
+        {
+            devices.push(path.clone());
         }
         devices.extend(find_pwmfan_devices(&path, depth + 1));
     }

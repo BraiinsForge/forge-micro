@@ -11,7 +11,7 @@ use embedded_i2c_unix::{Error as HostI2cError, I2c as HostI2c};
 use log::{error, info};
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
-use ubos_psu::{run_power_stats, run_watchdog, MiniminerPsu, MiniminerPsuConfig, State};
+use ubos_psu::{MiniminerPsu, MiniminerPsuConfig, State, run_power_stats, run_watchdog};
 
 /// Env var that points at the i2c-dev character device wired to the
 /// BMM100 PSU. Unset means no hashboard is attached and the runner

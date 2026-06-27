@@ -23,7 +23,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use embassy_executor::{Executor, Spawner};
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_net::{Runner, Stack, StackResources};
 use embassy_time::{Duration, Timer};
 use log::{info, warn};

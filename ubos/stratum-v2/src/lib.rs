@@ -11,5 +11,5 @@ mod client;
 mod config;
 mod state;
 
-pub use client::{StratumV2Client, ENCODE_BUFFER_BYTES, WIRE_BUFFER_BYTES};
+pub use client::{ENCODE_BUFFER_BYTES, StratumV2Client, WIRE_BUFFER_BYTES};
 pub use config::Sv2Config;

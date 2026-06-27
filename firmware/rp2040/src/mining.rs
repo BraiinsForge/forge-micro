@@ -7,7 +7,7 @@
 //! operation: there is no SIGINT on bare metal, so `STOP_MINING` is never
 //! raised and `ubos_mining::Miner::run` parks inside its bring-up loop.
 
-use defmt::{error, info, Debug2Format};
+use defmt::{Debug2Format, error, info};
 use embassy_rp::gpio::Output;
 use embassy_time::{Duration, Timer};
 

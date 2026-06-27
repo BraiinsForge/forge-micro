@@ -5,14 +5,14 @@
 //! consumers can take additional `I2cDevice` handles from the same mutex
 //! without going through this module.
 
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_embedded_hal::shared_bus::I2cDeviceError;
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::mutex::Mutex;
 use esp_hal::i2c::master::I2c;
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
-use ubos_psu::{run_watchdog, MiniminerPsu, MiniminerPsuConfig, State};
+use ubos_psu::{MiniminerPsu, MiniminerPsuConfig, State, run_watchdog};
 
 /// Bus mutex shared by every consumer on I2C0. `NoopRawMutex` is sufficient
 /// because every I2C consumer runs on the Core 0 executor. The chip-serial

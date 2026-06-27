@@ -26,7 +26,7 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::watch::Watch;
-use portable_atomic::{AtomicU32, AtomicU8, Ordering};
+use portable_atomic::{AtomicU8, AtomicU32, Ordering};
 
 use crate::schema::system_info::OtaInfo;
 
@@ -360,8 +360,8 @@ pub async fn register_ota_target(target: &'static mut dyn OtaTarget) {
 }
 
 /// Accessor for the OTA handlers to acquire the registered target.
-pub(crate) fn target_mutex(
-) -> &'static Mutex<CriticalSectionRawMutex, Option<&'static mut dyn OtaTarget>> {
+pub(crate) fn target_mutex()
+-> &'static Mutex<CriticalSectionRawMutex, Option<&'static mut dyn OtaTarget>> {
     &OTA_TARGET
 }
 

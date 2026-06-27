@@ -7,7 +7,7 @@ use core::num::NonZeroU64;
 use embassy_time::{Duration, Instant, Ticker};
 use portable_atomic::{AtomicU64, Ordering};
 
-use crate::metrics::{push, Label, LabelValue, Labels, Metric, Value};
+use crate::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 
 /// Maximum number of cores tracked by [`IDLE_TICKS`]. Each board
 /// declares how many of these slots it populates by passing `N_CPUS`

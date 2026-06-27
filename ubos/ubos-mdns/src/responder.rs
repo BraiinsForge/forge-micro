@@ -20,7 +20,7 @@ use core::net::{Ipv4Addr, Ipv6Addr};
 use edge_mdns::buf::VecBufAccess;
 use edge_mdns::domain::base::Ttl;
 use edge_mdns::host::{Host, Service, ServiceAnswers};
-use edge_mdns::io::{self, MdnsIoError, IPV4_DEFAULT_SOCKET};
+use edge_mdns::io::{self, IPV4_DEFAULT_SOCKET, MdnsIoError};
 use edge_mdns::{HostAnswer, HostAnswers, HostAnswersMdnsHandler, MdnsError};
 use edge_nal::UdpSplit;
 use edge_nal_embassy::{Udp, UdpBuffers, UdpError};
@@ -31,7 +31,7 @@ use embassy_time::{Duration, Instant, Timer};
 use heapless::Vec;
 use rand_core_v010::TryRng;
 use static_cell::{ConstStaticCell, StaticCell};
-use ubos_logging::{info, warn, Debug2Format};
+use ubos_logging::{Debug2Format, info, warn};
 
 use crate::registry::ServiceEntry;
 

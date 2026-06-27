@@ -15,8 +15,8 @@ pub mod registers;
 
 pub use board::*;
 pub use chip::{
-    Bm1362, Bm1366, Bm1370, Chip, ChipBus, ChipDescriptor, ChipError, ChipProtocol, BM1362, BM1366,
-    BM1370, MAX_CHAIN_CHIPS,
+    BM1362, BM1366, BM1370, Bm1362, Bm1366, Bm1370, Chip, ChipBus, ChipDescriptor, ChipError,
+    ChipProtocol, MAX_CHAIN_CHIPS,
 };
 pub use framing::*;
 pub use registers::*;

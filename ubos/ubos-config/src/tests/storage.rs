@@ -1,8 +1,8 @@
 //! Unit tests for blob framing and storage error paths.
 
 use crate::{
-    decode_blob, encode_blob, Config, LoadError, NetworkConfig, NetworkMode,
-    DEFAULT_POOL_SV2_PUBKEY,
+    Config, DEFAULT_POOL_SV2_PUBKEY, LoadError, NetworkConfig, NetworkMode, decode_blob,
+    encode_blob,
 };
 
 /// Base58check literal whose decoded 32-byte tail must equal

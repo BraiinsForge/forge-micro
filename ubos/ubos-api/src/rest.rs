@@ -7,8 +7,8 @@
 
 use core::fmt::Write as _;
 
-use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
+use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
 use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
@@ -20,8 +20,8 @@ use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
 
 use ubos_http::{
-    extract_request_parts, read_body, write_json_response, write_status_only, RequestParts,
-    Service, MAX_RESPONSE_HEADERS,
+    MAX_RESPONSE_HEADERS, RequestParts, Service, extract_request_parts, read_body,
+    write_json_response, write_status_only,
 };
 
 #[cfg(test)]
@@ -298,22 +298,23 @@ impl Service for RestApiService {
 
         // Session-authenticated mutating requests require a valid CSRF
         // token. Basic-authenticated requests are exempt.
-        if is_mutating && !is_ota_continuation {
-            if let ubos_auth::auth::AuthCtx::Session(ref session_id) = auth_ctx {
-                let token_str = csrf_buf.as_deref().unwrap_or("");
-                if token_str.is_empty()
-                    || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str).await
-                {
-                    return write_status_only(
-                        connection,
-                        403,
-                        "Forbidden",
-                        "application/json",
-                        cors_slice,
-                        b"{\"message\":\"CSRF token invalid or missing\"}",
-                    )
-                    .await;
-                }
+        if is_mutating
+            && !is_ota_continuation
+            && let ubos_auth::auth::AuthCtx::Session(ref session_id) = auth_ctx
+        {
+            let token_str = csrf_buf.as_deref().unwrap_or("");
+            if token_str.is_empty()
+                || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str).await
+            {
+                return write_status_only(
+                    connection,
+                    403,
+                    "Forbidden",
+                    "application/json",
+                    cors_slice,
+                    b"{\"message\":\"CSRF token invalid or missing\"}",
+                )
+                .await;
             }
         }
 
@@ -625,10 +626,10 @@ impl Service for RestApiService {
                 // value that will actually be applied. A password loaded
                 // from an older firmware build that bypassed validation
                 // must not slip through an empty-password round-trip.
-                if let Some(ref mut api) = update.api {
-                    if api.password.is_empty() {
-                        api.password = current.api.password.clone();
-                    }
+                if let Some(ref mut api) = update.api
+                    && api.password.is_empty()
+                {
+                    api.password = current.api.password.clone();
                 }
 
                 if let Err(reason) = update.validate(&current) {

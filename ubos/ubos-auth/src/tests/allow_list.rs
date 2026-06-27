@@ -4,7 +4,7 @@ extern crate std;
 
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use crate::allow_list::{is_allowed, Cidr, DEFAULT_ALLOW_LIST};
+use crate::allow_list::{Cidr, DEFAULT_ALLOW_LIST, is_allowed};
 
 fn ipv4(a: u8, b: u8, c: u8, d: u8) -> IpAddr {
     IpAddr::V4(Ipv4Addr::new(a, b, c, d))

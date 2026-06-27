@@ -13,8 +13,8 @@ use std::vec::Vec;
 
 use ii_sv2::framing::FrameCodec;
 use ii_sv2::security::{
-    new_keypair, secp256k1, CertificateHeader, CertificateSigningRequest,
-    CertificateWithPrivateKey, CryptoCtx, EncryptedCodec, PublicKey, Rng as Sv2Rng, SecretKey,
+    CertificateHeader, CertificateSigningRequest, CertificateWithPrivateKey, CryptoCtx,
+    EncryptedCodec, PublicKey, Rng as Sv2Rng, SecretKey, new_keypair, secp256k1,
 };
 use mining_protocol::{JobId, MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
 use tokio::io::AsyncWriteExt as _;

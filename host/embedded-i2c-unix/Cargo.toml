@@ -1,6 +1,6 @@
 [package]
 name        = "embedded-i2c-unix"
-edition     = "2021"
+edition.workspace = true
 version     = "0.1.0"
 description = "Async embedded-hal-async I2C adapter over Linux /dev/i2c-N."
 

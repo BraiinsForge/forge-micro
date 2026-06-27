@@ -31,10 +31,10 @@ pub use config::Sv1Config;
 pub use error::{EncodeError, ParseError};
 pub use wire::line_buffer::LineBuffer;
 pub use wire::messages::{
-    encode_authorize, encode_configure, encode_extranonce_subscribe, encode_ping,
-    encode_ping_response, encode_submit, encode_subscribe, Authorize, ClientReconnect, Configure,
-    ConfigureResult, Notify, SetDifficulty, SetExtranonce, SetVersionMask, Submit, Subscribe,
-    SubscribeResult,
+    Authorize, ClientReconnect, Configure, ConfigureResult, Notify, SetDifficulty, SetExtranonce,
+    SetVersionMask, Submit, Subscribe, SubscribeResult, encode_authorize, encode_configure,
+    encode_extranonce_subscribe, encode_ping, encode_ping_response, encode_submit,
+    encode_subscribe,
 };
 pub use wire::parse::{
     parse_boolean_result, parse_configure_result, parse_incoming, parse_subscribe_result,

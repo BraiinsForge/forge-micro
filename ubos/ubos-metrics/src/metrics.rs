@@ -5,9 +5,9 @@
 use core::fmt::Write as _;
 use core::net::IpAddr;
 
-use edge_http::io::server::Connection;
-use edge_http::io::Error as HttpError;
 use edge_http::Method;
+use edge_http::io::Error as HttpError;
+use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -18,7 +18,7 @@ use embedded_io_async::{Read, Write};
 use ubos_logging::warn;
 
 use ubos_core::consts::Metrics;
-use ubos_http::{format_content_length, BufferWriter, Service};
+use ubos_http::{BufferWriter, Service, format_content_length};
 
 /// A metric value.
 #[derive(Clone, Copy)]

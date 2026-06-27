@@ -7,7 +7,7 @@ extern crate std;
 
 use core::fmt::Write as _;
 
-use crate::rest::{validate_board_name, API_INFO_BODY_BUFFER_SIZE};
+use crate::rest::{API_INFO_BODY_BUFFER_SIZE, validate_board_name};
 
 // --- M7: validate_board_name ---
 

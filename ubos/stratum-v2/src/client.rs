@@ -17,8 +17,8 @@ use ii_sv2::messages::{
     SubmitSharesError, SubmitSharesStandard, SubmitSharesSuccess,
 };
 use ii_sv2::security::{
-    initiate, secp256k1, CryptoCtx, EncryptedCodec, EstablishedSession, PublicKey, Rng,
-    ValidateNothing, ValidateSignature,
+    CryptoCtx, EncryptedCodec, EstablishedSession, PublicKey, Rng, ValidateNothing,
+    ValidateSignature, initiate, secp256k1,
 };
 use ii_sv2::types::{Str0_255, Uint256};
 use mining_protocol::{
@@ -29,7 +29,7 @@ use ubos_logging::{info, warn};
 
 use crate::auth::AuthChoice;
 use crate::config::Sv2Config;
-use crate::state::{PendingFutureJob, V2SessionState, MAX_EXTRANONCE_PREFIX};
+use crate::state::{MAX_EXTRANONCE_PREFIX, PendingFutureJob, V2SessionState};
 
 /// AEAD MAC bytes appended to each encrypted chunk.
 const MAC_BYTES: usize = 16;
@@ -579,8 +579,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 if prefix_len > MAX_EXTRANONCE_PREFIX {
                     warn!(
                         "stratum-v2: open-channel-success extranonce_prefix={}B > MAX={}B; ending session",
-                        prefix_len,
-                        MAX_EXTRANONCE_PREFIX,
+                        prefix_len, MAX_EXTRANONCE_PREFIX,
                     );
                     self.state = V2State::Rejected(SessionRejection::ExtranonceTooLarge);
                 } else {

@@ -6,7 +6,7 @@
 mod shared_flash;
 mod target;
 pub use shared_flash::{SharedBlockingFlash, SharedFlashMutex};
-pub use target::{mark_booted, record_panic_breadcrumb, RpOtaTarget, OTA_BREADCRUMB_MAGIC};
+pub use target::{OTA_BREADCRUMB_MAGIC, RpOtaTarget, mark_booted, record_panic_breadcrumb};
 
 /// Parses a decimal `u32` from a build-time version string at compile time.
 ///

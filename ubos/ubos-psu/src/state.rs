@@ -2,7 +2,7 @@
 
 use embedded_hal_async::i2c::{ErrorKind, I2c};
 
-use crate::{ina230, tps6287x, watchdog, Error, MiniminerPsuConfig};
+use crate::{Error, MiniminerPsuConfig, ina230, tps6287x, watchdog};
 
 #[cfg(test)]
 #[path = "tests/state.rs"]

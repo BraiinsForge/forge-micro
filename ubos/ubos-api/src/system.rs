@@ -49,8 +49,8 @@
 
 use core::fmt::Write as _;
 
-use edge_http::io::server::Connection;
 use edge_http::io::Error as HttpError;
+use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
 use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
@@ -62,11 +62,11 @@ use ubos_metrics::hashrate::hashrate;
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::ota::{
-    record_chunk_written, record_error, record_rebooting, record_session_begin, OtaError,
+    OtaError, record_chunk_written, record_error, record_rebooting, record_session_begin,
 };
 use crate::schema::{
-    system_statistics::LABELS, GenericResponse, SystemInfo, SystemNetwork, SystemScoreboardEntry,
-    SystemStatistics, API_VARIANT,
+    API_VARIANT, GenericResponse, SystemInfo, SystemNetwork, SystemScoreboardEntry,
+    SystemStatistics, system_statistics::LABELS,
 };
 
 #[cfg(test)]

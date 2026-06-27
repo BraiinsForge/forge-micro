@@ -22,7 +22,7 @@
 
 use defmt::{info, warn};
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5100S;
 use embassy_net_wiznet::{Device, Runner, State};
@@ -36,8 +36,8 @@ use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::peripherals::TIMG1;
 use esp_hal::rng::Rng;
-use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::spi::Mode;
+use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::system::Stack;
 use esp_hal::timer::timg::{MwdtStage, TimerGroup, Wdt};
 use esp_hal::uart::{Config as UartConfig, Uart};

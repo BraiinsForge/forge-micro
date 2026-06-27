@@ -7,8 +7,8 @@ use std::vec::Vec;
 
 use super::*;
 
-use crate::state::PendingRequestKind;
 use crate::Sv1Config;
+use crate::state::PendingRequestKind;
 use embedded_io_adapters::tokio_1::FromTokio;
 use mining_protocol::{
     Error, JobId, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share, SubmitResult,

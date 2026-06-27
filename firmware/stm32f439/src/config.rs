@@ -10,15 +10,15 @@
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`.
 
+use embassy_stm32::Peri;
 use embassy_stm32::peripherals::{
     ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0, ETH, ETH_SMA, FLASH, I2C1, IWDG, PA1,
-    PA2, PA7, PB0, PB13, PB6, PB7, PB8, PB9, PC1, PC4, PC5, PD8, PD9, PE0, PE1, PG11, PG13, RNG,
+    PA2, PA7, PB0, PB6, PB7, PB8, PB9, PB13, PC1, PC4, PC5, PD8, PD9, PE0, PE1, PG11, PG13, RNG,
     TIM3, TIM4, USART3,
 };
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::{DMA2_CH3, PB3, PB5, PE7, PE8, PE9, SPI1};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::Peri;
 
 pub struct Watchdog;
 impl Watchdog {

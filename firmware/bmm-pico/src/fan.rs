@@ -22,10 +22,10 @@
 //! between pulses.
 
 use defmt::info;
-use embassy_rp::gpio::Pull;
-use embassy_rp::peripherals::{PIN_15, PIN_8, PWM_SLICE4, PWM_SLICE7};
-use embassy_rp::pwm::{Config as PwmConfig, InputMode, Pwm};
 use embassy_rp::Peri;
+use embassy_rp::gpio::Pull;
+use embassy_rp::peripherals::{PIN_8, PIN_15, PWM_SLICE4, PWM_SLICE7};
+use embassy_rp::pwm::{Config as PwmConfig, InputMode, Pwm};
 use embassy_time::Instant;
 use ubos_cooling::{FanOutput, TachReader};
 use ubos_core::units::{FanPwm, FanRpm};

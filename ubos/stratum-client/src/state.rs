@@ -31,9 +31,9 @@ pub fn shares_rejected() -> u64 {
     SHARES_REJECTED.load(Ordering::Relaxed)
 }
 
-use crate::job_ring::{JobRing, JOB_RING_DEPTH};
+use crate::job_ring::{JOB_RING_DEPTH, JobRing};
 use crate::work::MAX_EXTRANONCE_2;
-use crate::work_ring::{WorkRing, WORK_RING_DEPTH};
+use crate::work_ring::{WORK_RING_DEPTH, WorkRing};
 
 #[cfg(test)]
 #[path = "tests/state.rs"]

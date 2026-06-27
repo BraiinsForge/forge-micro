@@ -5,17 +5,17 @@
 
 use core::cell::Cell;
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_net::dns::DnsQueryType;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{ConfigV4, DhcpConfig, IpAddress, Ipv4Address, Stack};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
-use embassy_time::{with_timeout, Duration, Instant, Timer};
+use embassy_time::{Duration, Instant, Timer, with_timeout};
 use portable_atomic::{AtomicU32, Ordering};
-use ubos_config::{handle as config_handle, Message, NetworkConfig, NetworkMode};
-use ubos_logging::{info, warn, Debug2Format};
+use ubos_config::{Message, NetworkConfig, NetworkMode, handle as config_handle};
+use ubos_logging::{Debug2Format, info, warn};
 
 use ubos_core::consts::Net;
 

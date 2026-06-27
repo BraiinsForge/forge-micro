@@ -1,7 +1,7 @@
 [package]
 name = "edge-nal-embassy"
 version = "0.8.1"
-edition = "2021"
+edition = "2024"
 rust-version = "1.91"
 description = "An implementation of edge-nal based on `embassy-net`"
 repository = "https://github.com/ivmarkov/edge-net"

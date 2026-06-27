@@ -129,5 +129,5 @@ mod imp {
     }
 }
 
-pub use imp::open_host_device;
 pub use imp::HostDevice;
+pub use imp::open_host_device;

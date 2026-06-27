@@ -5,14 +5,14 @@
 //! consumers can take additional `I2cDevice` handles from the same mutex
 //! without going through this module.
 
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_embedded_hal::shared_bus::I2cDeviceError;
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_stm32::i2c::{Error as I2cError, I2c, Master};
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::mutex::Mutex;
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
-use ubos_psu::{run_watchdog, MiniminerPsu, MiniminerPsuConfig, State};
+use ubos_psu::{MiniminerPsu, MiniminerPsuConfig, State, run_watchdog};
 
 /// Bus mutex shared by every consumer on I2C1. `NoopRawMutex` is sufficient
 /// because the STM32F407 is single-core: every I2C consumer runs on the same

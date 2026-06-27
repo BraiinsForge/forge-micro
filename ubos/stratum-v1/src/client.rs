@@ -10,21 +10,21 @@ use embedded_io_async::{Read, Write};
 use heapless::String;
 
 use mining_protocol::{
-    Error, JobId, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionRejection,
-    SessionUpdate, Share, SubmitResult, MAX_EXTRANONCE_2,
+    Error, JobId, LazyMerkle, MAX_EXTRANONCE_2, MiningClient, MiningClientVisitor, MiningJob,
+    SessionRejection, SessionUpdate, Share, SubmitResult,
 };
 use ubos_logging::{info, warn};
 
 use crate::config::Sv1Config;
 use crate::scratch::{DecodeScratch, MAX_COINBASE_PART, MAX_MERKLE_BRANCHES};
 use crate::state::{
-    JobIdSlot, PendingRequestKind, SessionState, JOBID_MAP_DEPTH, MAX_JOB_ID_CHARS,
+    JOBID_MAP_DEPTH, JobIdSlot, MAX_JOB_ID_CHARS, PendingRequestKind, SessionState,
 };
 use crate::target::target_from_diff;
 use crate::wire::line_buffer::LineBuffer;
 use crate::wire::messages::{
-    encode_authorize, encode_configure, encode_submit, encode_subscribe, Authorize, Configure,
-    Notify, Submit, Subscribe,
+    Authorize, Configure, Notify, Submit, Subscribe, encode_authorize, encode_configure,
+    encode_submit, encode_subscribe,
 };
 use crate::wire::parse::{
     parse_boolean_result, parse_incoming, parse_subscribe_result, parse_version_rolling_mask,
@@ -368,8 +368,7 @@ impl MiningClient for StratumV1Client<'_> {
                     if usize::from(set_extranonce.extra_nonce_2_size) > MAX_EXTRANONCE_2 {
                         warn!(
                             "stratum-v1: set-extranonce en2_size={} > MAX_EXTRANONCE_2={}; ending session",
-                            set_extranonce.extra_nonce_2_size,
-                            MAX_EXTRANONCE_2,
+                            set_extranonce.extra_nonce_2_size, MAX_EXTRANONCE_2,
                         );
                         self.state = V1State::Rejected(SessionRejection::ExtranonceTooLarge);
                     } else if store_extranonce_1(&mut self.session, set_extranonce.extra_nonce_1)
@@ -671,10 +670,10 @@ fn dispatch_response<V: MiningClientVisitor>(
     };
     match kind {
         PendingRequestKind::Configure => {
-            if let Some(result) = response.stratum_result {
-                if let Some(mask) = parse_version_rolling_mask(result) {
-                    visitor.visit_session_update(SessionUpdate::SetVersionMask(mask));
-                }
+            if let Some(result) = response.stratum_result
+                && let Some(mask) = parse_version_rolling_mask(result)
+            {
+                visitor.visit_session_update(SessionUpdate::SetVersionMask(mask));
             }
             None
         }
