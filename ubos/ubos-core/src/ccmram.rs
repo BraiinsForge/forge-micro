@@ -80,7 +80,7 @@ macro_rules! pre_init_zero_ccmram_bss {
 /// The caller's linker script must define `__sccmram_bss` and
 /// `__eccmram_bss` boundary symbols around the section.
 pub unsafe fn zero_bss_section() {
-    extern "C" {
+    unsafe extern "C" {
         static mut __sccmram_bss: u32;
         static mut __eccmram_bss: u32;
     }

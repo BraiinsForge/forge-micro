@@ -51,7 +51,7 @@ struct CsrfMeta {
 /// CSRF token table.
 ///
 /// See `auth::CREDENTIALS` for the rationale on the mutex flavour.
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 static CSRF_TOKENS: Mutex<CriticalSectionRawMutex, FnvIndexMap<String<32>, CsrfMeta, MAX_TOKENS>> =
     Mutex::new(FnvIndexMap::new());
 

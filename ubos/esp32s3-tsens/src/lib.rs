@@ -20,7 +20,7 @@
 use embassy_time::{Duration, Timer};
 use esp_hal::peripherals::SENS;
 
-extern "C" {
+unsafe extern "C" {
     fn esp_rom_regi2c_read(block: u8, block_hostid: u8, reg_add: u8) -> u8;
     fn rom_i2c_writeReg(block: u8, block_hostid: u8, reg_add: u8, indata: u8);
 }

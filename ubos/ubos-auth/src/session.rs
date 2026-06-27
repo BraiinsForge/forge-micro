@@ -43,7 +43,7 @@ pub(crate) struct SessionMeta {
 /// See `auth::CREDENTIALS` for the rationale on the mutex flavour:
 /// `CriticalSectionRawMutex` is the portable choice across cortex-m and
 /// xtensa targets, and the per-call interrupt-mask cost is negligible.
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 static SESSIONS: Mutex<
     CriticalSectionRawMutex,
     FnvIndexMap<String<32>, SessionMeta, MAX_SESSIONS>,

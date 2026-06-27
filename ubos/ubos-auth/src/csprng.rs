@@ -22,7 +22,7 @@ use rand_chacha::ChaCha20Rng;
 /// that call. All `random_token` calls block until the mutex is
 /// released by the previous caller. See `auth::CREDENTIALS` for the
 /// rationale on the mutex flavour.
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 static CSPRNG: Mutex<CriticalSectionRawMutex, Option<ChaCha20Rng>> = Mutex::new(None);
 
 /// Seed the CSPRNG from 32 bytes of hardware entropy.

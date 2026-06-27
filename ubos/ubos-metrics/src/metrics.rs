@@ -215,7 +215,7 @@ static METRICS: Channel<CriticalSectionRawMutex, Metric, { Metrics::CHANNEL_DEPT
 /// enable the `ccmram-bss` feature; embedding the map in a task future
 /// would force it into `.bss`, which is what blew the stm32f4 main SRAM
 /// during the api refactor.
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 static METRIC_MAP: Mutex<
     CriticalSectionRawMutex,
     heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
@@ -229,7 +229,7 @@ static METRIC_MAP: Mutex<
 /// rendering. `serve_metrics` drops the `METRIC_MAP` guard before the
 /// socket write, so a slow scrape blocks only other scrapes, never the
 /// ingestion task.
-#[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 static METRICS_BODY_BUFFER: Mutex<CriticalSectionRawMutex, [u8; Metrics::RESPONSE_BUFFER_SIZE]> =
     Mutex::new([0; Metrics::RESPONSE_BUFFER_SIZE]);
 
