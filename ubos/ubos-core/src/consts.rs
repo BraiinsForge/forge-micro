@@ -23,6 +23,14 @@ impl Http {
     /// POST body alongside headers so the config form fits in a single
     /// read; the route line is parsed from the start of the same buffer.
     pub const REQUEST_BUFFER_SIZE: usize = 2048;
+    /// Per-socket inactivity timeout for the web-UI listener. Short on
+    /// purpose: every web-UI response is a small flash-backed asset served
+    /// in milliseconds, and the listener keeps connections alive, so a
+    /// browser that has finished loading the page must free its worker
+    /// quickly rather than pin one of the few pool slots for the full base
+    /// timeout. The timeout resets on each request, so a page's burst of
+    /// asset fetches keeps one connection alive throughout.
+    pub const SOCKET_TIMEOUT: Duration = Duration::from_secs(3);
 }
 
 /// REST API listener settings (port 8080).
@@ -42,6 +50,12 @@ impl Api {
     pub const RX_BUFFER_SIZE: usize = 2048;
     pub const TX_BUFFER_SIZE: usize = 2048;
     pub const REQUEST_BUFFER_SIZE: usize = 2048;
+    /// Per-socket inactivity timeout for the REST listener. Held at the base
+    /// `Net::SOCKET_TIMEOUT` because an OTA upload streams here and each
+    /// flash-write freeze stalls the socket; the timeout resets on progress,
+    /// so a slow link survives as long as bytes keep arriving. The listener
+    /// closes after every response, so keepalive reclaim does not apply.
+    pub const SOCKET_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
 }
 
 /// Hardware watchdog feed timing.
@@ -91,6 +105,10 @@ impl Metrics {
     /// headroom while staying within the rp2040 SRAM ceiling noted on
     /// `RX_BUFFER_SIZE`; 1024 overflowed that board by ~530 bytes.
     pub const REQUEST_BUFFER_SIZE: usize = 512;
+    /// Per-socket inactivity timeout for the scrape listener. The base
+    /// value; a scrape completes in one request and the listener closes, so
+    /// keepalive reclaim does not apply.
+    pub const SOCKET_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
     pub const CHANNEL_DEPTH: usize = 32;
     /// Maximum number of distinct metric series held in the exposition
     /// map. Must be a power of two (heapless `FnvIndexMap` invariant).

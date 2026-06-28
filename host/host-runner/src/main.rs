@@ -399,8 +399,13 @@ fn main() {
         );
         for buffer in api_buffers {
             spawner.spawn(
-                api_worker_task(api_acceptor, buffer, api_service)
-                    .expect("BUG: api_worker_task token"),
+                api_worker_task(
+                    api_acceptor,
+                    buffer,
+                    api_service,
+                    ubos_core::consts::Api::SOCKET_TIMEOUT,
+                )
+                .expect("BUG: api_worker_task token"),
             );
         }
         spawner.spawn(sync_credentials_task().expect("BUG: sync_credentials_task token"));
@@ -432,8 +437,13 @@ fn main() {
         );
         for buffer in webui_buffers {
             spawner.spawn(
-                webui_worker_task(webui_acceptor, buffer, &WEBUI_SERVICE)
-                    .expect("BUG: webui_worker_task token"),
+                webui_worker_task(
+                    webui_acceptor,
+                    buffer,
+                    &WEBUI_SERVICE,
+                    ubos_core::consts::Http::SOCKET_TIMEOUT,
+                )
+                .expect("BUG: webui_worker_task token"),
             );
         }
 
@@ -465,8 +475,13 @@ fn main() {
         );
         for buffer in metrics_buffers {
             spawner.spawn(
-                metrics_worker_task(metrics_acceptor, buffer, &METRICS_SERVICE)
-                    .expect("BUG: metrics_worker_task token"),
+                metrics_worker_task(
+                    metrics_acceptor,
+                    buffer,
+                    &METRICS_SERVICE,
+                    ubos_core::consts::Metrics::SOCKET_TIMEOUT,
+                )
+                .expect("BUG: metrics_worker_task token"),
             );
         }
 

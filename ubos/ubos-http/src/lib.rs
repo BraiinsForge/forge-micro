@@ -22,10 +22,12 @@ pub mod serve;
 pub use buffer::BufferWriter;
 pub use core::net::IpAddr;
 // Re-exported so the `serve_http_pool!` and `http_worker_task!` macros can
-// name these through `$crate::`. This keeps `edge-nal-embassy` and
-// `static_cell` internal to this crate instead of forcing every board that
-// invokes the macros to declare them as direct dependencies.
+// name these through `$crate::`. This keeps `edge-nal-embassy`,
+// `static_cell`, and `embassy-time` internal to this crate instead of
+// forcing every board that invokes the macros to declare them as direct
+// dependencies.
 pub use edge_nal_embassy::{Tcp, TcpAccept, TcpBuffers};
+pub use embassy_time::Duration;
 pub use request::{RequestParts, extract_request_parts};
 pub use response::{
     CONTENT_LENGTH_DECIMAL_DIGITS, MAX_EXTRA_STATUS_HEADERS, MAX_RESPONSE_HEADERS,

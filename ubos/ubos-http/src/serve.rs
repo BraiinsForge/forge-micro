@@ -16,7 +16,6 @@ use edge_nal::{Close, TcpAccept as _, TcpBind as _, TcpShutdown as _};
 use edge_nal_embassy::{Tcp, TcpAccept};
 use embassy_time::{Duration, with_timeout};
 use embedded_io_async::{Read, Write};
-use ubos_core::consts::Net;
 use ubos_logging::{Debug2Format, warn};
 
 use edge_nal::TcpSplit;
@@ -26,15 +25,6 @@ use edge_nal::TcpSplit;
 /// Sixteen headers cover all headers sent by Prometheus scrapers and
 /// browsers without inflating the per-connection stack frame.
 const MAX_HEADERS: usize = 16;
-
-/// Per-socket inactivity timeout installed on every accepted connection.
-///
-/// Smoltcp aborts a connection only after this duration elapses with no
-/// traffic, and resets the timer on each packet. A long but
-/// actively-streaming request such as an OTA upload therefore stays
-/// alive as long as it keeps making progress, while a silent or stalled
-/// peer is still reaped.
-const SOCKET_IDLE_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
 
 /// Logging task identifier passed to `edge_http::io::server::handle_request`.
 ///
@@ -122,16 +112,19 @@ pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'stati
 /// `#[embassy_executor::task]` wrappers that call this function.
 ///
 /// The exchange is driven here rather than via edge-http's
-/// `handle_connection` so the worker can install a per-socket idle
-/// timeout via `set_timeout`. That single inactivity timeout reclaims a
-/// connection that opens but never sends a request, one that stalls
-/// mid-exchange, and a kept-alive connection the peer leaves idle, while
-/// still allowing an actively-streaming upload to run as long as it keeps
-/// making progress.
+/// `handle_connection` so the worker can install the caller-provided
+/// `socket_timeout` via `set_timeout`. That single inactivity timeout
+/// reclaims a connection that opens but never sends a request, one that
+/// stalls mid-exchange, and a kept-alive connection the peer leaves idle,
+/// while still allowing an actively-streaming upload to run as long as it
+/// keeps making progress. Listeners tune it per port: short on the web UI
+/// so a kept-alive browser socket frees its worker quickly, longer on the
+/// REST API so an OTA upload tolerates a slow link.
 pub async fn serve_worker<S>(
     acceptor: TcpAccept<'static>,
     parse_buffer: &'static mut [u8],
     service: &'static S,
+    socket_timeout: Duration,
 ) -> !
 where
     S: Service,
@@ -145,11 +138,12 @@ where
             }
         };
 
-        // Install the idle timeout so smoltcp reaps a stalled peer while
-        // letting an OTA upload stream as long as it keeps making progress.
-        // On a kept-alive connection it also bounds the wait for the next
-        // request, so an idle web-UI socket cannot pin a worker forever.
-        socket.set_timeout(Some(SOCKET_IDLE_TIMEOUT));
+        // Install the per-listener timeout so smoltcp reaps a stalled peer
+        // while letting an OTA upload stream as long as it keeps making
+        // progress. On a kept-alive connection it also bounds the wait for
+        // the next request, so an idle web-UI socket frees its worker after
+        // the web UI's short timeout rather than the base ten seconds.
+        socket.set_timeout(Some(socket_timeout));
 
         let handler = AdaptedHandler::new(service, peer_addr.ip());
 
@@ -173,7 +167,7 @@ where
                 // read the final response cleanly; bound it so a vanished
                 // peer cannot block the worker.
                 Ok(true) => {
-                    let _ = with_timeout(SOCKET_IDLE_TIMEOUT, socket.close(Close::Both)).await;
+                    let _ = with_timeout(socket_timeout, socket.close(Close::Both)).await;
                     break;
                 }
                 // A protocol error, or a kept-alive connection the peer left
@@ -282,7 +276,9 @@ pub fn split_work_buffer<const N: usize>(
 ///
 /// // Then in async main:
 /// for chunk in work_chunks {
-///     spawner.spawn(unwrap!(webui_worker_task(acceptor, chunk, service)));
+///     spawner.spawn(unwrap!(webui_worker_task(
+///         acceptor, chunk, service, ubos_core::consts::Http::SOCKET_TIMEOUT,
+///     )));
 /// }
 /// ```
 #[macro_export]
@@ -293,8 +289,9 @@ macro_rules! http_worker_task {
             acceptor: $crate::TcpAccept<'static>,
             parse_buffer: &'static mut [u8],
             service: &'static $service_type,
+            socket_timeout: $crate::Duration,
         ) -> ! {
-            $crate::serve::serve_worker(acceptor, parse_buffer, service).await
+            $crate::serve::serve_worker(acceptor, parse_buffer, service, socket_timeout).await
         }
     };
 }
@@ -312,8 +309,9 @@ macro_rules! http_worker_task {
 /// and spawns `POOL_CONST` instances of `worker_task` (declared with
 /// [`http_worker_task!`]). `service` is a `&'static` reference to the
 /// listener's [`Service`] handler; `consts_path` is a type path exposing
-/// the `TX_BUFFER_SIZE`, `RX_BUFFER_SIZE`, `REQUEST_BUFFER_SIZE`, and
-/// `PORT` associated constants, such as `ubos_core::consts::Http`.
+/// the `TX_BUFFER_SIZE`, `RX_BUFFER_SIZE`, `REQUEST_BUFFER_SIZE`,
+/// `SOCKET_TIMEOUT`, and `PORT` associated constants, such as
+/// `ubos_core::consts::Http`.
 ///
 /// Each invocation expands to its own block, so the fixed static names do
 /// not collide when several listeners are set up in one function. The
@@ -366,13 +364,16 @@ macro_rules! serve_http_pool {
         let buffers =
             $crate::split_work_buffer::<{ $pool }>(WORK.take(), <$consts>::REQUEST_BUFFER_SIZE);
         for buffer in buffers {
-            $crate::serve_http_pool!(@spawn $mode; $spawner, $worker, acceptor, buffer, $service);
+            $crate::serve_http_pool!(
+                @spawn $mode; $spawner, $worker, acceptor, buffer, $service,
+                <$consts>::SOCKET_TIMEOUT
+            );
         }
     }};
-    (@spawn spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr) => {
-        $spawner.spawn(::defmt::unwrap!($worker($acceptor, $buffer, $service)))
+    (@spawn spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr, $timeout:expr) => {
+        $spawner.spawn(::defmt::unwrap!($worker($acceptor, $buffer, $service, $timeout)))
     };
-    (@spawn must_spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr) => {
-        $spawner.must_spawn($worker($acceptor, $buffer, $service))
+    (@spawn must_spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr, $timeout:expr) => {
+        $spawner.must_spawn($worker($acceptor, $buffer, $service, $timeout))
     };
 }
