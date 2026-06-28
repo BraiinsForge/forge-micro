@@ -15,6 +15,19 @@ On NixOS, use `services.udev.extraRules` instead of copying files. The
 rules file covers ST-Link, SEGGER J-Link, CMSIS-DAP, Espressif, and FTDI
 probes.
 
+A redacted logic analyzer (used for chip-side serial debugging) needs its own
+rules for non-root access. Copy the bundled file and reload the same way:
+
+```sh
+sudo cp ../assets/60-redacted.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+The file covers the original Cypress-FX2 Logic (`0925:3881`) and all modern
+redacted devices (vendor `21a9`, e.g. the Logic Pro 8 at `21a9:1005`). Replug
+the analyzer after reloading so the new rule applies.
+
 ## ST-Link V3 firmware
 
 `probe-rs` requires ST-Link firmware V3J3 or newer. Check with:
