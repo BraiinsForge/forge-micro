@@ -209,16 +209,19 @@ impl Handle {
     /// Publish the live IPv4 address, leaving the MAC field untouched.
     ///
     /// Records `ip_assigned` exactly once on a genuine address change. The
-    /// compare-and-set runs inside `send_modify` under the Watch mutex, so
-    /// concurrent publishers cannot fire the event twice for one transition.
-    /// The event itself is recorded after the closure returns to avoid
-    /// nesting the ring's critical section inside the Watch's.
+    /// compare-and-set runs inside `send_if_modified` under the Watch mutex, so
+    /// concurrent publishers cannot fire the event twice for one transition and
+    /// a re-publish of the same address wakes no receivers. The event itself is
+    /// recorded after the closure returns to avoid nesting the ring's critical
+    /// section inside the Watch's.
     pub fn set_ipv4(&self, ipv4: Ipv4Address) {
         let changed = Cell::new(false);
-        self.state.sender().send_modify(|state| {
+        self.state.sender().send_if_modified(|state| {
             let state = state.get_or_insert_with(NetState::default);
-            changed.set(state.ipv4 != Some(ipv4));
+            let modified = state.ipv4 != Some(ipv4);
+            changed.set(modified);
             state.ipv4 = Some(ipv4);
+            modified
         });
         if changed.get() {
             let [octet0, octet1, octet2, octet3] = ipv4.octets();
@@ -233,16 +236,28 @@ impl Handle {
     /// Calling this once at boot lets `/api/info` report the address without
     /// threading it through the network stack.
     pub fn set_mac(&self, mac: [u8; 6]) {
-        self.state
-            .sender()
-            .send_modify(|state| state.get_or_insert_with(NetState::default).mac = Some(mac));
+        self.state.sender().send_if_modified(|state| {
+            let state = state.get_or_insert_with(NetState::default);
+            if state.mac == Some(mac) {
+                false
+            } else {
+                state.mac = Some(mac);
+                true
+            }
+        });
     }
 
     /// Publish the NTP epoch offset after a successful sync, leaving the
     /// IPv4 and MAC fields untouched.
     pub fn set_ntp_offset(&self, offset: u64) {
-        self.state.sender().send_modify(|state| {
-            state.get_or_insert_with(NetState::default).ntp_offset = Some(offset);
+        self.state.sender().send_if_modified(|state| {
+            let state = state.get_or_insert_with(NetState::default);
+            if state.ntp_offset == Some(offset) {
+                false
+            } else {
+                state.ntp_offset = Some(offset);
+                true
+            }
         });
     }
 
