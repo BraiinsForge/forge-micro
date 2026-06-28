@@ -1028,6 +1028,129 @@
             cp "$KICAD${kicadMajor}_TEMPLATE_DIR"/fp-lib-table "$cfg/"
             cp "$KICAD${kicadMajor}_TEMPLATE_DIR"/sym-lib-table "$cfg/"
           '';
+
+          # redacted Logic 2 headless capture tooling.
+          #
+          # Logic 2's automation gRPC server is gated behind three things at
+          # once: `automationServerEnabled: true` in the Logic config.json,
+          # the ENABLE_AUTOMATION=1 env var, and a usable display (Xvfb, with
+          # the Electron renderer forced to --disable-gpu). Missing the
+          # config.json flag is why a bare ENABLE_AUTOMATION launch accepts
+          # the TCP connection but never finishes the gRPC handshake; the
+          # nixpkgs appimage (bwrap FHS) path is otherwise fine.
+          redactedPkgs = import nixpkgs {
+            inherit system;
+            config.allowUnfreePredicate = pkg: pkgs.lib.getName pkg == "redacted-logic-2";
+          };
+
+          # logic2-automation (PyPI), imported as `redacted.automation`. Not in
+          # nixpkgs, so it is built here against the packaged grpcio/protobuf.
+          # The sdist ships pre-generated protobuf stubs, so no protoc step is
+          # needed; the build backend is hatchling.
+          logic2Automation = pkgs.python3.pkgs.buildPythonPackage rec {
+            pname = "logic2-automation";
+            version = "1.0.11";
+            pyproject = true;
+            src = pkgs.fetchPypi {
+              pname = "logic2_automation";
+              inherit version;
+              hash = "sha256-gtFQm+5bdPP9YSly16bCuuuOIXbQJq9lBmO3neLJfAA=";
+            };
+            build-system = [ pkgs.python3.pkgs.hatchling ];
+            dependencies = with pkgs.python3.pkgs; [
+              grpcio
+              protobuf
+            ];
+            pythonImportsCheck = [ "redacted.automation" ];
+          };
+
+          # `python` with the redacted automation client on its path, used by
+          # tools/redacted_capture_uart.py.
+          redactedCapturePython = pkgs.python3.withPackages (_: [ logic2Automation ]);
+
+          # Reproducible Logic config that skips the first-run onboarding and
+          # telemetry so a fresh headless HOME comes up straight into a usable
+          # state. The automation server itself is enabled by the --automation
+          # flag, not this file. install(1) copies it into the throwaway HOME
+          # with write permission so Logic can rewrite it; the store original
+          # stays read-only.
+          redactedAutomationConfig = pkgs.writeText "redacted-logic-config.json" (
+            builtins.toJSON {
+              reportCrashes = false;
+              reportAnalytics = false;
+              isDisabledAutoUpdates = true;
+              renderSchemaVersion = 11;
+              onboardings.main = true;
+            }
+          );
+
+          # Bring Logic 2 up headless with the automation server enabled, wait
+          # for the gRPC port, run the given command against it, then tear the
+          # whole process group down. HOME is isolated to a throwaway dir so
+          # the user's real Logic config is never touched and every run starts
+          # from the same automation-enabled config.
+          redactedRun = pkgs.writeShellApplication {
+            name = "redacted-run";
+            runtimeInputs = [
+              redactedPkgs.redacted-logic-2
+              pkgs.xvfb-run
+              pkgs.coreutils
+            ];
+            text = ''
+              port="''${redacted_AUTOMATION_PORT:-10430}"
+              home="$(mktemp -d -t redacted-home.XXXXXX)"
+              install -Dm644 ${redactedAutomationConfig} "$home/.config/Logic/config.json"
+
+              logic_pgid=""
+              cleanup() {
+                if [ -n "$logic_pgid" ]; then
+                  kill -TERM "-$logic_pgid" 2>/dev/null || true
+                  for _ in $(seq 1 10); do
+                    kill -0 "-$logic_pgid" 2>/dev/null || break
+                    sleep 0.3
+                  done
+                  kill -KILL "-$logic_pgid" 2>/dev/null || true
+                fi
+                rm -rf "$home"
+              }
+              trap cleanup EXIT INT TERM
+
+              echo "redacted-run: launching Logic 2 headless (automation on :$port)" >&2
+              # The automation gRPC server is started by --automation; the
+              # default port is 10430 and --automationPort overrides it.
+              # --disable-gpu keeps the Electron renderer happy under Xvfb.
+              # setsid puts Logic, Xvfb, and xvfb-run in their own process
+              # group so cleanup can signal all of them at once.
+              setsid env HOME="$home" \
+                xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
+                redacted-logic-2 --disable-gpu --automation --automationPort "$port" \
+                >"$home/logic.log" 2>&1 &
+              logic_pgid=$!
+
+              ready=""
+              for _ in $(seq 1 120); do
+                if ! kill -0 "$logic_pgid" 2>/dev/null; then
+                  echo "redacted-run: Logic exited before the automation port opened:" >&2
+                  cat "$home/logic.log" >&2 || true
+                  exit 1
+                fi
+                if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+                  exec 3>&- 3<&-
+                  ready=1
+                  break
+                fi
+                sleep 1
+              done
+              if [ -z "$ready" ]; then
+                echo "redacted-run: automation port $port never opened; Logic log:" >&2
+                cat "$home/logic.log" >&2 || true
+                exit 1
+              fi
+
+              echo "redacted-run: automation ready; running: $*" >&2
+              "$@"
+            '';
+          };
         in
         {
           # Each firmware crate is checked under its default feature set
@@ -2423,6 +2546,30 @@
               packages = [ pkgs.kicad-small ];
             };
 
+            # redacted Logic 2 headless trace capture. `redacted-run` wraps the
+            # Logic lifecycle; the bundled python has the automation client.
+            logic = pkgs.mkShell {
+              buildInputs = [
+                redactedRun
+                redactedCapturePython
+                redactedPkgs.redacted-logic-2
+              ];
+              shellHook = ''
+                echo "ubos-main redacted Logic 2 headless capture environment"
+                echo ""
+                echo "  redacted-run python tools/redacted_capture_uart.py \\"
+                echo "      --seconds 20 --baud 115200 --out /tmp/redacted-cap"
+                echo ""
+                echo "redacted-run starts Logic 2 headless with the automation"
+                echo "server enabled, waits for the gRPC port, runs the given"
+                echo "command, then tears Logic down. Decoded frames land in"
+                echo "<out>/decoded.csv."
+                echo ""
+                echo "Install assets/60-redacted.rules first (see docs/SETUP.md)"
+                echo "or the device will be invisible to Logic."
+              '';
+            };
+
             host = pkgs.mkShell {
               buildInputs = [
                 hostRustToolchain
@@ -2530,6 +2677,10 @@
             # the kicad-cli checks; kibot only generates fab outputs.
             kiauto = pkgs.callPackage ./kiauto.nix { };
             kibot = pkgs.callPackage ./kibot.nix { inherit kiauto; };
+
+            # Headless redacted Logic 2 capture lifecycle wrapper. Also the
+            # entry point of the `logic` devShell.
+            redacted-run = redactedRun;
           }
           //
             # CI stage groups. Each is a linkFarm over a slice of the
