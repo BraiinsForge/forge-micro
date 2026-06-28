@@ -357,10 +357,12 @@ impl Ring {
         }
         let head = self.header.head();
         let len = self.header.len();
-        // Wrapping is intentional: at u32::MAX the next seq returns to a small
-        // value, briefly ambiguous for a streaming cursor only once every ~4
-        // billion events. Saturating would instead freeze every later record at
-        // u32::MAX and stall the cursor permanently.
+        // Wrapping is intentional. Saturating would instead freeze every later
+        // record at u32::MAX and stall every cursor permanently. The trade-off:
+        // once every ~4 billion events the seq returns to a small value, and a
+        // streaming client whose cursor sat near u32::MAX then receives nothing
+        // until it notices the backward jump and resets its cursor. At device
+        // event rates this wrap is never reached in practice.
         self.header.seq = self.header.seq.wrapping_add(1);
         // Unix seconds fit in u32 until 2106; truncating the wall clock is intended.
         #[allow(clippy::cast_possible_truncation)]
