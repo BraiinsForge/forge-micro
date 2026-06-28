@@ -62,7 +62,7 @@ where
         .initiate_response(
             302,
             Some("Found"),
-            &[("Location", location), ("Connection", "close")],
+            &[("Location", location), ("Content-Length", "0")],
         )
         .await
 }
@@ -84,7 +84,7 @@ where
                     "Set-Cookie",
                     "session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
                 ),
-                ("Connection", "close"),
+                ("Content-Length", "0"),
             ],
         )
         .await
@@ -105,7 +105,7 @@ where
             &[
                 ("Location", "/"),
                 ("Set-Cookie", cookie_header),
-                ("Connection", "close"),
+                ("Content-Length", "0"),
             ],
         )
         .await
@@ -125,8 +125,10 @@ where
     T: Read + Write + TcpSplit,
 {
     let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
-    // Four fixed slots plus caller-supplied extras. The .expect() calls
-    // assume the call site stays within MAX_RESPONSE_HEADERS=8.
+    // Three fixed slots plus caller-supplied extras. The .expect() calls
+    // assume the call site stays within MAX_RESPONSE_HEADERS=8. No
+    // Connection header is sent, so HTTP/1.1 keeps the connection alive for
+    // the next request.
     headers
         .push(("Content-Type", "text/html; charset=utf-8"))
         .expect("BUG: response header vec sized for max headers");
@@ -135,9 +137,6 @@ where
         .expect("BUG: response header vec sized for max headers");
     headers
         .push(("Cache-Control", "no-store"))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Connection", "close"))
         .expect("BUG: response header vec sized for max headers");
     for &header in extra_headers {
         headers
@@ -171,18 +170,16 @@ where
 
     // Assemble headers on the stack. The capacity is
     // MAX_RESPONSE_HEADERS; each push is infallible within that budget
-    // because the slots used here are counted statically: 4 fixed plus
+    // because the slots used here are counted statically: 3 fixed plus
     // 1 optional encoding plus extra_headers up to 2, totalling at most
-    // 6, within the 8-slot cap.
+    // 6, within the 8-slot cap. No Connection header is sent, so HTTP/1.1
+    // keeps the connection alive for the next asset request.
     let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
     headers
         .push(("Content-Type", content_type))
         .expect("BUG: response header vec sized for max headers");
     headers
         .push(("Cache-Control", cache_control))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Connection", "close"))
         .expect("BUG: response header vec sized for max headers");
     headers
         .push(("Content-Length", content_length.as_str()))

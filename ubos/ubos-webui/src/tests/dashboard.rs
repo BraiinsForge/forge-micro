@@ -100,9 +100,9 @@ fn index_payload_contains_semantic_anchors() {
 /// Logout must ship as a navigation form, not a JS-driven anchor. The
 /// form lets the browser follow the `302` to `/login` in one
 /// browser-paced request; the prior `fetch`-then-`location.href` anchor
-/// fired three back-to-back requests at the single-socket server and
-/// raced its `Connection: close` teardown. Asserting the markup guards
-/// against regressing to that pattern.
+/// fired three back-to-back requests at the server, which then served
+/// one at a time. Asserting the markup guards against regressing to
+/// that pattern.
 #[test]
 fn index_payload_logout_is_post_form() {
     let html = decompress(crate::INDEX_HTML_GZ);
