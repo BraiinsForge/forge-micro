@@ -8,7 +8,7 @@ use embassy_rp::gpio::Output;
 use embassy_time::{Duration, Timer};
 
 use crate::psu::BoardPsu;
-use crate::uart_baudrate::{MinerUartRx, MinerUartTx};
+use crate::uart_baudrate::MinerUart;
 
 /// Drives the hashboard reset line through an embassy-rp GPIO.
 pub struct BoardResetPin {
@@ -39,9 +39,9 @@ impl ubos_mining::reset::ResetPin for BoardResetPin {
 const PARK_INTERVAL: Duration = Duration::from_secs(60);
 
 #[embassy_executor::task]
-pub async fn serial_task(rx: MinerUartRx, tx: MinerUartTx) -> ! {
+pub async fn serial_task(serial: MinerUart) -> ! {
     match ubos_mining::serial::SERIAL
-        .run(rx, tx, &ubos_firmware::ASIC_SESSION, crate::config::BOARD)
+        .run(serial, &ubos_firmware::ASIC_SESSION, crate::config::BOARD)
         .await
     {
         Ok(()) => info!("ubos-mining serial actor terminated cleanly"),

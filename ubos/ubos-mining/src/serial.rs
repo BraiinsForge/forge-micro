@@ -1,6 +1,6 @@
 //! Single-task actor for the `BM13xx` chip serial line.
 //!
-//! One task owns the serial halves and the in-flight work registry;
+//! One task owns the full-duplex serial line and the in-flight work registry;
 //! outside callers go through [`Serial`]'s typed methods to reset the
 //! chip, retune the baud rate, gate work dispatch, or push a pre-built
 //! command frame. The actor reads work from a `&'static AsicSession`'s
@@ -72,7 +72,7 @@ pub(crate) static PARKED: AtomicBool = AtomicBool::new(false);
 
 /// Wakes the serial worker's `select` loop when a park is requested.
 ///
-/// The worker may be blocked inside `rx.read` waiting for UART data when
+/// The worker may be blocked inside `serial.read` waiting for UART data when
 /// a park request arrives. Signalling this wakes the `select4` so the
 /// park arm fires promptly rather than waiting for the next UART byte.
 pub static PARK_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -352,16 +352,14 @@ impl Serial {
     /// honoured, and `Err(BrokenPipe)` only on serial EOF. Line-level
     /// read errors are absorbed inside `handle_read` so a transient
     /// FIFO overrun does not kill mining for the rest of the run.
-    pub async fn run<R, T>(
+    pub async fn run<S>(
         &self,
-        mut rx: R,
-        mut tx: T,
+        mut serial: S,
         session: &'static AsicSession,
         board: &'static BoardDescriptor,
     ) -> Result<(), ErrorKind>
     where
-        R: Read + BaudRate,
-        T: Write + BaudRate,
+        S: Read + Write + BaudRate,
     {
         let mut work_receiver = session
             .work_receiver()
@@ -407,7 +405,7 @@ impl Serial {
                     core::future::pending::<()>().await;
                 }
             };
-            let read_arm = rx.read(parser.free());
+            let read_arm = serial.read(parser.free());
             let cmd_arm = self.cmd.receive();
             // Park arm: fires when another core requests a cooperative pause
             // so it can perform flash operations safely. The busy-spin uses
@@ -420,7 +418,7 @@ impl Serial {
             match select4(tick_arm, read_arm, cmd_arm, park_arm).await {
                 Either4::First(()) => {
                     self.dispatch_work(
-                        &mut tx,
+                        &mut serial,
                         &mut work_id,
                         midstate_count,
                         &mut registry,
@@ -443,7 +441,7 @@ impl Serial {
                     if let ControlFlow::Break(()) = self
                         .handle_command(
                             msg,
-                            &mut tx,
+                            &mut serial,
                             &mut parser,
                             &mut work_ticker,
                             &mut work_id,
@@ -457,23 +455,24 @@ impl Serial {
                 Either4::Fourth(()) => {
                     // A park was requested while the worker was idle-blocked in
                     // the select. Just loop: the top-of-loop check performs the
-                    // actual park, keeping the spin logic in one place. `rx.read`
-                    // is cancel-safe, so dropping it here loses no data (the UART
-                    // driver buffers incoming bytes in its ring buffer).
+                    // actual park, keeping the spin logic in one place.
+                    // `serial.read` is cancel-safe, so dropping it here loses
+                    // no data: the UART driver buffers incoming bytes in its
+                    // ring buffer.
                 }
             }
         }
     }
 
-    async fn dispatch_work<T>(
+    async fn dispatch_work<S>(
         &self,
-        tx: &mut T,
+        serial: &mut S,
         work_id: &mut u8,
         midstate_count: u8,
         registry: &mut [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         work_receiver: &mut DynReceiver<'_, WorkAssignment>,
     ) where
-        T: Write + BaudRate,
+        S: Write + BaudRate,
     {
         // Block until the stratum task publishes the first assignment;
         // afterwards `get` returns the latest immediately so subsequent
@@ -518,7 +517,7 @@ impl Serial {
             *work_id %= 128;
         }
 
-        if let Err(e) = tx.write_all(&frame).await {
+        if let Err(e) = serial.write_all(&frame).await {
             error!("Failed to send work: {:?}", Debug2Format(&e.kind()));
         }
     }
@@ -651,17 +650,17 @@ impl Serial {
         }
     }
 
-    async fn handle_command<T>(
+    async fn handle_command<S>(
         &self,
         msg: SerialMessage,
-        tx: &mut T,
+        serial: &mut S,
         parser: &mut ResponseParser,
         work_ticker: &mut Option<Ticker>,
         work_id: &mut u8,
         registry: &mut [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
     ) -> ControlFlow<()>
     where
-        T: Write + BaudRate,
+        S: Write + BaudRate,
     {
         match msg {
             SerialMessage::Reset => {
@@ -671,7 +670,7 @@ impl Serial {
                 for slot in registry.iter_mut() {
                     *slot = None;
                 }
-                let result = tx.set_baudrate(INITIAL_BAUDRATE);
+                let result = serial.set_baudrate(INITIAL_BAUDRATE);
                 info!("Serial reset to {} baud", INITIAL_BAUDRATE);
                 self.reply.signal(result);
             }
@@ -682,9 +681,17 @@ impl Serial {
                 } else {
                     rate
                 };
+                // The backend divisor math divides by the rate, so a zero would
+                // panic embassy-rp and embassy-stm32. Reject it here, the one
+                // path every backend's set_baudrate flows through, rather than
+                // guarding each impl.
+                if actual == 0 {
+                    self.reply.signal(Err(ErrorKind::InvalidInput));
+                    return ControlFlow::Continue(());
+                }
                 info!("Serial baud rate changing to {}, draining 1s...", rate);
                 Timer::after(Self::BAUD_CHANGE_DRAIN).await;
-                let result = tx.set_baudrate(actual);
+                let result = serial.set_baudrate(actual);
                 info!("Serial baud rate changed to {}, settling 1s...", rate);
                 Timer::after(Self::BAUD_CHANGE_DRAIN).await;
                 self.reply.signal(result);
@@ -700,7 +707,7 @@ impl Serial {
             SerialMessage::SendFrame(frame) => {
                 let data = frame.as_slice();
                 trace!("TX ({} bytes): {}", data.len(), HexBytes(data));
-                if let Err(e) = tx.write_all(data).await {
+                if let Err(e) = serial.write_all(data).await {
                     error!("Serial write error: {:?}", Debug2Format(&e.kind()));
                 }
             }

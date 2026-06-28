@@ -390,7 +390,7 @@ async fn boot(spawner: Spawner) {
         software_interrupts.software_interrupt1,
         APP_CORE_STACK.init(Stack::new()),
         move || {
-            let (miner_rx, miner_tx) = {
+            let miner_serial = {
                 let (peripheral, tx_pin, rx_pin) = uart_parts;
                 let uart_config = UartConfig::default()
                     // Valid baud rate for UART0; cannot fail.
@@ -402,12 +402,12 @@ async fn boot(spawner: Spawner) {
                     .with_rx(rx_pin)
                     .into_async();
                 let (uart_rx, uart_tx) = uart.split();
-                uart_baudrate::split_uart0(uart_rx, uart_tx)
+                uart_baudrate::MinerUart::new(uart_rx, uart_tx)
             };
             let executor = APP_EXECUTOR.init(esp_rtos::embassy::Executor::new());
             executor.run_with_callbacks(
                 |app_spawner| {
-                    app_spawner.spawn(unwrap!(mining::serial_task(miner_rx, miner_tx)));
+                    app_spawner.spawn(unwrap!(mining::serial_task(miner_serial)));
                 },
                 IdleAccounting::<1>::new(),
             );

@@ -1,7 +1,8 @@
-//! `serial_baudrate::BaudRate` wrappers for the ESP32-S3 `UART0` halves.
+//! `serial_baudrate::BaudRate` wrapper for the ESP32-S3 `UART0`.
 //!
-//! `ubos_mining::serial::SERIAL.run` takes split UART halves and requires each to
-//! implement `serial_baudrate::BaudRate`. The split `UartRx` / `UartTx`
+//! `ubos_mining::serial::Serial::run` drives a single full-duplex instance
+//! that implements `Read + Write + serial_baudrate::BaudRate`, so `MinerUart`
+//! holds both split `UART0` halves together. The split `UartRx` / `UartTx`
 //! halves expose `apply_config` but that method only resets the FIFO; it
 //! does not touch the clock divider. To change the baud rate without the
 //! unsplit `Uart` handle we write the `CLKDIV` register directly via the
@@ -29,9 +30,9 @@
 //! baud-rate change, so no in-flight character guard is needed before writing
 //! `CLKDIV`.
 
-use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
+use embedded_io_async::{Error, ErrorKind, ErrorType, Read, Write};
 use esp_hal::peripherals::UART0;
-use esp_hal::uart::{UartRx, UartTx};
+use esp_hal::uart::{RxError, TxError, UartRx, UartTx};
 use serial_baudrate::BaudRate;
 
 /// UART0 source-clock (`UART_SCLK`) frequency in Hz. esp-hal selects the
@@ -42,61 +43,79 @@ use serial_baudrate::BaudRate;
 /// the chips saw undecodable frames and never answered.
 const UART_SCLK_HZ: u32 = 40_000_000;
 
-/// Receiving half of `UART0` with `BaudRate` support.
-pub struct MinerUartRx {
-    inner: UartRx<'static, esp_hal::Async>,
+/// Unified `embedded_io` error for the single full-duplex `MinerUart`. The
+/// split `UartRx`/`UartTx` halves carry distinct error types, so this wraps
+/// both and forwards `kind()`.
+#[derive(Debug)]
+pub enum MinerUartError {
+    Rx(RxError),
+    Tx(TxError),
 }
 
-/// Transmitting half of `UART0` with `BaudRate` support.
-pub struct MinerUartTx {
-    inner: UartTx<'static, esp_hal::Async>,
-}
-
-/// Wrap the split `UART0` halves. The `UART0` PAC constant is captured
-/// implicitly; both sides write the same `CLKDIV` register.
-#[must_use]
-pub fn split_uart0(
-    rx: UartRx<'static, esp_hal::Async>,
-    tx: UartTx<'static, esp_hal::Async>,
-) -> (MinerUartRx, MinerUartTx) {
-    (MinerUartRx { inner: rx }, MinerUartTx { inner: tx })
-}
-
-impl ErrorType for MinerUartRx {
-    type Error = esp_hal::uart::RxError;
-}
-
-impl Read for MinerUartRx {
-    async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
-        embedded_io_async::Read::read(&mut self.inner, buffer).await
+impl core::fmt::Display for MinerUartError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            MinerUartError::Rx(e) => write!(f, "UART RX error: {e:?}"),
+            MinerUartError::Tx(e) => write!(f, "UART TX error: {e:?}"),
+        }
     }
 }
 
-impl ErrorType for MinerUartTx {
-    type Error = esp_hal::uart::TxError;
+// embedded-io 0.7's `Error` supertrait is `core::error::Error`, not `Debug`.
+impl core::error::Error for MinerUartError {}
+
+impl Error for MinerUartError {
+    fn kind(&self) -> ErrorKind {
+        match self {
+            MinerUartError::Rx(e) => e.kind(),
+            MinerUartError::Tx(e) => e.kind(),
+        }
+    }
 }
 
-impl Write for MinerUartTx {
+/// The BM1362 serial link over `UART0`. `ubos_mining::serial::Serial::run`
+/// drives a single full-duplex instance, so the two `UART0` halves are held
+/// together here; both `set_baudrate` calls retune the same `CLKDIV` register.
+pub struct MinerUart {
+    rx: UartRx<'static, esp_hal::Async>,
+    tx: UartTx<'static, esp_hal::Async>,
+}
+
+impl MinerUart {
+    /// Combine the split `UART0` halves into one full-duplex instance.
+    #[must_use]
+    pub fn new(rx: UartRx<'static, esp_hal::Async>, tx: UartTx<'static, esp_hal::Async>) -> Self {
+        Self { rx, tx }
+    }
+}
+
+impl ErrorType for MinerUart {
+    type Error = MinerUartError;
+}
+
+impl Read for MinerUart {
+    async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
+        embedded_io_async::Read::read(&mut self.rx, buffer)
+            .await
+            .map_err(MinerUartError::Rx)
+    }
+}
+
+impl Write for MinerUart {
     async fn write(&mut self, buffer: &[u8]) -> Result<usize, Self::Error> {
-        embedded_io_async::Write::write(&mut self.inner, buffer).await
+        embedded_io_async::Write::write(&mut self.tx, buffer)
+            .await
+            .map_err(MinerUartError::Tx)
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        embedded_io_async::Write::flush(&mut self.inner).await
+        embedded_io_async::Write::flush(&mut self.tx)
+            .await
+            .map_err(MinerUartError::Tx)
     }
 }
 
-impl BaudRate for MinerUartTx {
-    fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind> {
-        write_uart0_clkdiv(baud)
-    }
-
-    fn baudrate(&self) -> Result<u32, ErrorKind> {
-        read_uart0_clkdiv()
-    }
-}
-
-impl BaudRate for MinerUartRx {
+impl BaudRate for MinerUart {
     fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind> {
         write_uart0_clkdiv(baud)
     }

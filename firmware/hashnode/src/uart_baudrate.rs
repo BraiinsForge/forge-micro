@@ -1,16 +1,16 @@
-//! `serial_baudrate::BaudRate` wrapper for embassy-rp `BufferedUart` halves.
+//! `serial_baudrate::BaudRate` wrapper for an embassy-rp `BufferedUart`.
 //!
 //! embassy-rp 0.10 exposes runtime baud rate switching only on the unsplit
 //! `BufferedUart` via `&mut self`; the per-half `info: &'static Info` field
 //! that drives `set_baudrate_inner` is private. `ubos_mining::serial::Serial::run`
-//! takes two independent halves, each implementing
-//! `serial_baudrate::BaudRate(&self, ...)`. This module wraps each half with
-//! the UART register block and re-implements the divisor math against the
+//! drives a single full-duplex instance implementing
+//! `serial_baudrate::BaudRate(&self, ...)`. This module wraps the UART with
+//! the register block and re-implements the divisor math against the
 //! PAC, mirroring `embassy_rp::uart::Uart::set_baudrate_inner`.
 
 use embassy_rp::pac::uart::regs::{Uartfbrd, Uartibrd};
 use embassy_rp::pac::uart::Uart as UartRegs;
-use embassy_rp::uart::{BufferedUart, BufferedUartRx, BufferedUartTx, Error as UartError};
+use embassy_rp::uart::{BufferedUart, Error as UartError};
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use serial_baudrate::BaudRate;
 
@@ -18,52 +18,40 @@ use serial_baudrate::BaudRate;
 /// just like the reference implementation in embassy-rp.
 const MAX_INTEGER_DIVISOR: u32 = 65_535;
 
-/// Receiving half of a `BufferedUart` plus the underlying register block so
-/// `BaudRate::set_baudrate` can take `&self`.
-pub struct MinerUartRx {
-    inner: BufferedUartRx,
+/// The BM1370 serial link: a `BufferedUart` plus the underlying register block
+/// so `BaudRate::set_baudrate` can take `&self`. `BufferedUart` is full-duplex
+/// and already implements `Read` + `Write`, so the ubos-mining actor drives it
+/// as one instance rather than split halves.
+pub struct MinerUart {
+    inner: BufferedUart,
     regs: UartRegs,
 }
 
-/// Transmitting half of a `BufferedUart` plus the underlying register block
-/// so `BaudRate::set_baudrate` can take `&self`.
-pub struct MinerUartTx {
-    inner: BufferedUartTx,
-    regs: UartRegs,
+impl MinerUart {
+    /// Wrap a `BufferedUart` built from `UART1`, hard-coding
+    /// `embassy_rp::pac::UART1` as the register block so the baud divisor is
+    /// always written to the right peripheral. The only `BufferedUart` in this
+    /// firmware lives on `UART1`.
+    #[must_use]
+    pub fn new(uart: BufferedUart) -> Self {
+        Self {
+            inner: uart,
+            regs: embassy_rp::pac::UART1,
+        }
+    }
 }
 
-/// Split a `BufferedUart` built from `UART1` into the two wrapper halves,
-/// hard-coding `embassy_rp::pac::UART1` as the register block so either side
-/// can retune the line. Hard-coding closes the foot-gun that comes with
-/// taking the PAC handle as a separate argument: a `pac::UART0`/`UART1` mix-up
-/// would compile but write baud divisors to the wrong peripheral. The only
-/// `BufferedUart` in this firmware lives on `UART1`; if a future board adds a
-/// second instance, mint a `split_uart0` alongside this one.
-#[must_use]
-pub fn split_uart1(uart: BufferedUart) -> (MinerUartTx, MinerUartRx) {
-    let (tx, rx) = uart.split();
-    let regs = embassy_rp::pac::UART1;
-    (
-        MinerUartTx { inner: tx, regs },
-        MinerUartRx { inner: rx, regs },
-    )
-}
-
-impl ErrorType for MinerUartRx {
+impl ErrorType for MinerUart {
     type Error = UartError;
 }
 
-impl Read for MinerUartRx {
+impl Read for MinerUart {
     async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
         self.inner.read(buffer).await
     }
 }
 
-impl ErrorType for MinerUartTx {
-    type Error = UartError;
-}
-
-impl Write for MinerUartTx {
+impl Write for MinerUart {
     async fn write(&mut self, buffer: &[u8]) -> Result<usize, Self::Error> {
         self.inner.write(buffer).await
     }
@@ -73,17 +61,7 @@ impl Write for MinerUartTx {
     }
 }
 
-impl BaudRate for MinerUartTx {
-    fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind> {
-        write_baudrate(self.regs, baud)
-    }
-
-    fn baudrate(&self) -> Result<u32, ErrorKind> {
-        read_baudrate(self.regs)
-    }
-}
-
-impl BaudRate for MinerUartRx {
+impl BaudRate for MinerUart {
     fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind> {
         write_baudrate(self.regs, baud)
     }

@@ -1,7 +1,7 @@
 //! BM1370 chip-side wiring: hashboard reset pin and the two long-running
 //! tasks the ubos-mining backend needs.
 //!
-//! `serial_task` owns the UART halves and drives `ubos_mining::serial::SERIAL` for
+//! `serial_task` owns the UART and drives `ubos_mining::serial::SERIAL` for
 //! the lifetime of the firmware; `miner_task` runs the bring-up / teardown
 //! state machine in `ubos_mining::Miner::run`. Neither ever returns under normal
 //! operation: there is no SIGINT on bare metal, so `STOP_MINING` is never
@@ -12,7 +12,7 @@ use embassy_rp::gpio::Output;
 use embassy_time::{Duration, Timer};
 
 use crate::psu::BoardPsu;
-use crate::uart_baudrate::{MinerUartRx, MinerUartTx};
+use crate::uart_baudrate::MinerUart;
 
 /// Drives the hashboard reset line through an embassy-rp GPIO.
 pub struct BoardResetPin {
@@ -43,9 +43,9 @@ impl ubos_mining::reset::ResetPin for BoardResetPin {
 const PARK_INTERVAL: Duration = Duration::from_secs(60);
 
 #[embassy_executor::task]
-pub async fn serial_task(rx: MinerUartRx, tx: MinerUartTx) -> ! {
+pub async fn serial_task(serial: MinerUart) -> ! {
     match ubos_mining::serial::SERIAL
-        .run(rx, tx, &crate::ASIC_SESSION, crate::config::BOARD)
+        .run(serial, &crate::ASIC_SESSION, crate::config::BOARD)
         .await
     {
         Ok(()) => info!("ubos-mining serial actor terminated cleanly"),

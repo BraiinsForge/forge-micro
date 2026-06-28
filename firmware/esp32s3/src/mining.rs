@@ -1,7 +1,7 @@
 //! BM1362 chip-side wiring: hashboard reset pin and the two long-running
 //! tasks the ubos-mining backend needs.
 //!
-//! `serial_task` owns the UART halves and drives `ubos_mining::serial::SERIAL` for
+//! `serial_task` owns the UART and drives `ubos_mining::serial::SERIAL` for
 //! the lifetime of the firmware; `miner_task` runs the bring-up / teardown
 //! state machine in `ubos_mining::Miner::run`. Neither ever returns under normal
 //! operation.
@@ -19,7 +19,7 @@ use esp_hal::i2c::master::I2c;
 use tca9554::{Address, Tca9554};
 
 use crate::psu::{BoardPsu, Bus};
-use crate::uart_baudrate::{MinerUartRx, MinerUartTx};
+use crate::uart_baudrate::MinerUart;
 
 /// `embedded-hal-async` handle for one consumer of the shared I2C0 bus.
 type ExpanderDevice = I2cDevice<'static, NoopRawMutex, I2c<'static, esp_hal::Async>>;
@@ -77,9 +77,9 @@ impl ubos_mining::reset::ResetPin for BoardResetPin {
 const PARK_INTERVAL: Duration = Duration::from_secs(60);
 
 #[embassy_executor::task]
-pub async fn serial_task(rx: MinerUartRx, tx: MinerUartTx) -> ! {
+pub async fn serial_task(serial: MinerUart) -> ! {
     match ubos_mining::serial::SERIAL
-        .run(rx, tx, &ubos_firmware::ASIC_SESSION, crate::config::BOARD)
+        .run(serial, &ubos_firmware::ASIC_SESSION, crate::config::BOARD)
         .await
     {
         Ok(()) => info!("ubos-mining serial actor terminated cleanly"),

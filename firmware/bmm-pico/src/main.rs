@@ -434,7 +434,7 @@ async fn main(spawner: Spawner) {
     {
         let uart_parts = (hw.uart, hw.uart_tx, hw.uart_rx);
         embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
-            let (miner_tx, miner_rx) = {
+            let miner_serial = {
                 static TX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
                 static RX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
                 let (peripheral, tx_pin, rx_pin) = uart_parts;
@@ -451,11 +451,11 @@ async fn main(spawner: Spawner) {
                         config
                     },
                 );
-                uart_baudrate::split_uart1(uart)
+                uart_baudrate::MinerUart::new(uart)
             };
             let executor = CORE1_EXECUTOR.init(Executor::new());
             executor.run(|core1_spawner: Spawner| {
-                core1_spawner.spawn(unwrap!(mining::serial_task(miner_rx, miner_tx)));
+                core1_spawner.spawn(unwrap!(mining::serial_task(miner_serial)));
             })
         });
     }

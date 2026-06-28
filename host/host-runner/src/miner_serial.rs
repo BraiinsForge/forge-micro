@@ -1,7 +1,7 @@
 //! Brings up the ubos-mining BM1362 serial actor against a Linux tty.
 //!
 //! Opens `/dev/ttySTM1` at the chip's reset baud rate and runs the
-//! actor's server loop on the split halves. Failure to open the device
+//! actor's server loop on the serial port. Failure to open the device
 //! parks the task instead of crashing the runner so the rest of the
 //! tasks (network, stratum, metrics) keep working when no hashboard is
 //! wired in.
@@ -33,9 +33,8 @@ pub async fn miner_serial_task() -> ! {
             }
         }
     };
-    let (rx, tx) = serial.split();
     info!("host-runner: miner serial bringup on {MINER_SERIAL_PATH}");
-    match SERIAL.run(rx, tx, &ASIC_SESSION, crate::BOARD).await {
+    match SERIAL.run(serial, &ASIC_SESSION, crate::BOARD).await {
         Ok(()) => info!("host-runner: miner serial actor terminated cleanly"),
         Err(kind) => error!("host-runner: miner serial actor exited: {kind:?}"),
     }

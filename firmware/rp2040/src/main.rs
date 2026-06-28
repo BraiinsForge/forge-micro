@@ -456,7 +456,7 @@ async fn boot(spawner: Spawner) {
     // controllers and the FIFO is never written.
     let uart_parts = (hw.uart, hw.uart_tx, hw.uart_rx);
     embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
-        let (miner_tx, miner_rx) = {
+        let miner_serial = {
             static TX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
             static RX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
             let (peripheral, tx_pin, rx_pin) = uart_parts;
@@ -473,14 +473,14 @@ async fn boot(spawner: Spawner) {
                     config
                 },
             );
-            uart_baudrate::split_uart1(uart)
+            uart_baudrate::MinerUart::new(uart)
         };
         // Drive core 1 through `run_cortex_m_executor::<1, _>` so the
         // poll/wfe loop accumulates idle ticks into `IDLE_TICKS[1]`,
         // letting `run_cpu_load::<2>()` publish a real busy ratio for
         // this core instead of a constant 1.0.
         ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner: Spawner| {
-            core1_spawner.spawn(unwrap!(mining::serial_task(miner_rx, miner_tx)));
+            core1_spawner.spawn(unwrap!(mining::serial_task(miner_serial)));
         });
     });
 

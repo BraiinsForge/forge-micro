@@ -2,11 +2,9 @@
 //!
 //! Opens `/dev/tty*` or any tty-like character device in 8N1 raw mode
 //! at a caller-supplied baud rate, then exposes async I/O via the
-//! `embedded-io-async` traits. The duplex handle splits into
-//! independent [`Rx`]/[`Tx`] halves backed by the same shared file
-//! descriptor; [`serial_baudrate::BaudRate`] lets either half retune the line, with
-//! the change applying to both directions because the underlying tty
-//! is shared.
+//! `embedded-io-async` traits. [`serial_baudrate::BaudRate`] lets the
+//! handle retune the line, with the change applying to both directions
+//! because it acts on the underlying tty.
 //!
 //! The shape mirrors `embassy-net-afpacket`: open a non-blocking fd,
 //! wrap it in `async_io::Async`, and let the async-io reactor handle
@@ -24,14 +22,12 @@
 use std::ffi::CString;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::sync::Arc;
 
 use async_io::Async;
 
 /// Owned file descriptor that closes on drop. Read and write take
 /// `&self` because `libc::read`/`libc::write` do not require
-/// Rust-level exclusive access; this lets the split halves share the
-/// fd via `Arc<Async<Fd>>` without a mutex.
+/// Rust-level exclusive access.
 struct Fd(RawFd);
 
 impl Fd {
@@ -211,10 +207,9 @@ fn current_baud(fd: RawFd) -> io::Result<u32> {
 }
 
 /// Duplex handle over a Linux serial device. Construct with
-/// [`Serial::open`], then call [`Serial::split`] to get independent
-/// reader and writer halves.
+/// [`Serial::open`].
 pub struct Serial {
-    inner: Arc<Async<Fd>>,
+    inner: Async<Fd>,
 }
 
 impl Serial {
@@ -237,31 +232,9 @@ impl Serial {
         // closes it if any subsequent step fails.
         let owned = Fd(fd);
         configure(owned.as_raw_fd(), baud)?;
-        let inner = Arc::new(Async::new(owned)?);
+        let inner = Async::new(owned)?;
         Ok(Self { inner })
     }
-
-    /// Split into independent reader and writer halves. Both halves
-    /// share the same underlying fd, so [`serial_baudrate::BaudRate`] changes on
-    /// either side affect both.
-    #[must_use]
-    pub fn split(self) -> (Rx, Tx) {
-        let rx = Rx {
-            inner: Arc::clone(&self.inner),
-        };
-        let tx = Tx { inner: self.inner };
-        (rx, tx)
-    }
-}
-
-/// Read half of a [`Serial`]. Implements [`embedded_io_async::Read`].
-pub struct Rx {
-    inner: Arc<Async<Fd>>,
-}
-
-/// Write half of a [`Serial`]. Implements [`embedded_io_async::Write`].
-pub struct Tx {
-    inner: Arc<Async<Fd>>,
 }
 
 /// Map a tty `io::Error` to the public [`embedded_io::ErrorKind`] domain.
@@ -294,39 +267,17 @@ impl serial_baudrate::BaudRate for Serial {
     }
 }
 
-impl serial_baudrate::BaudRate for Rx {
-    fn set_baudrate(&self, baud: u32) -> Result<(), embedded_io::ErrorKind> {
-        apply_baud(self.inner.get_ref().as_raw_fd(), baud).map_err(|e| map_set_baud_err(&e, baud))
-    }
-    fn baudrate(&self) -> Result<u32, embedded_io::ErrorKind> {
-        current_baud(self.inner.get_ref().as_raw_fd()).map_err(|e| map_get_baud_err(&e))
-    }
-}
-
-impl serial_baudrate::BaudRate for Tx {
-    fn set_baudrate(&self, baud: u32) -> Result<(), embedded_io::ErrorKind> {
-        apply_baud(self.inner.get_ref().as_raw_fd(), baud).map_err(|e| map_set_baud_err(&e, baud))
-    }
-    fn baudrate(&self) -> Result<u32, embedded_io::ErrorKind> {
-        current_baud(self.inner.get_ref().as_raw_fd()).map_err(|e| map_get_baud_err(&e))
-    }
-}
-
-impl embedded_io_async::ErrorType for Rx {
+impl embedded_io_async::ErrorType for Serial {
     type Error = io::Error;
 }
 
-impl embedded_io_async::Read for Rx {
+impl embedded_io_async::Read for Serial {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.inner.read_with(|fd| fd.read(buf)).await
     }
 }
 
-impl embedded_io_async::ErrorType for Tx {
-    type Error = io::Error;
-}
-
-impl embedded_io_async::Write for Tx {
+impl embedded_io_async::Write for Serial {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.inner.write_with(|fd| fd.write(buf)).await
     }

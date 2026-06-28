@@ -551,8 +551,8 @@ async fn boot(spawner: Spawner) {
         .expect("BUG: USART3 configuration failed");
         let (uart_tx, uart_rx) = uart.split();
         let ring_rx = uart_rx.into_ring_buffered(DMA_RX_BUF.init([0; 1024]));
-        let (miner_tx, miner_rx) = uart_baudrate::split_usart3(uart_tx, ring_rx);
-        spawner.spawn(unwrap!(mining::serial_task(miner_rx, miner_tx)));
+        let miner_serial = uart_baudrate::MinerUart::new(uart_tx, ring_rx);
+        spawner.spawn(unwrap!(mining::serial_task(miner_serial)));
     }
 
     // SH1106 OLED on SPI3: reset pulse, then async TX-only SPI with DMA.

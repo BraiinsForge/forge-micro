@@ -1,11 +1,11 @@
-//! `serial_baudrate::BaudRate` wrappers for the STM32F439 USART3 halves.
+//! `serial_baudrate::BaudRate` wrapper for the STM32F439 USART3.
 //!
 //! embassy-stm32 0.6.0 exposes `Uart::set_baudrate` on the unsplit peripheral
 //! with `&self`, but the split `UartTx`/`RingBufferedUartRx` halves do not
-//! expose baud-rate control. `ubos_mining::serial::SERIAL.run` takes the two halves
-//! and requires each to implement `serial_baudrate::BaudRate`. This module
-//! wraps each half with a direct PAC write to USART3's BRR register so either
-//! side can retune the line.
+//! expose baud-rate control. `ubos_mining::serial::SERIAL.run` drives one
+//! full-duplex instance implementing `serial_baudrate::BaudRate`. This module
+//! combines the halves into a single `MinerUart` and retunes the line with a
+//! direct PAC write to USART3's BRR register.
 //!
 //! The STM32F439 USART3 is clocked from APB1. At the default clock tree
 //! (HSE 8 MHz bypass → PLL 180 MHz sys, APB1 /4) the APB1 clock is 45 MHz.
@@ -27,63 +27,47 @@ use serial_baudrate::BaudRate;
 /// F439 Nucleo: 180 MHz sysclk / 4 = 45 MHz APB1.
 const APB1_CLOCK_HZ: u32 = 45_000_000;
 
-/// Receiving half of USART3 with `BaudRate` support.
-pub struct MinerUartRx {
-    inner: RingBufferedUartRx<'static>,
-}
-
-/// Transmitting half of USART3 with `BaudRate` support.
-pub struct MinerUartTx {
-    inner: UartTx<'static, Async>,
-}
-
-/// Wrap the split USART3 halves. Hard-codes `pac::USART3` as the register
-/// block so either side can retune the line without a separate PAC argument.
-#[must_use]
-pub fn split_usart3(
-    tx: UartTx<'static, Async>,
+/// The BM1362 serial link over USART3: the DMA ring-buffered RX half and the
+/// TX half combined, so `ubos_mining::serial::Serial::run` drives one
+/// full-duplex instance. Both halves share `embassy_stm32::usart::Error`, and
+/// `BaudRate` writes USART3's BRR directly.
+pub struct MinerUart {
     rx: RingBufferedUartRx<'static>,
-) -> (MinerUartTx, MinerUartRx) {
-    (MinerUartTx { inner: tx }, MinerUartRx { inner: rx })
+    tx: UartTx<'static, Async>,
 }
 
-impl ErrorType for MinerUartRx {
-    type Error = embassy_stm32::usart::Error;
-}
-
-impl Read for MinerUartRx {
-    async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
-        self.inner.read(buffer).await
+impl MinerUart {
+    /// Combine the split USART3 halves. The baud path hard-codes `pac::USART3`,
+    /// so no PAC argument is needed.
+    #[must_use]
+    pub fn new(tx: UartTx<'static, Async>, rx: RingBufferedUartRx<'static>) -> Self {
+        Self { rx, tx }
     }
 }
 
-impl ErrorType for MinerUartTx {
+impl ErrorType for MinerUart {
     type Error = embassy_stm32::usart::Error;
 }
 
-impl Write for MinerUartTx {
+impl Read for MinerUart {
+    async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
+        self.rx.read(buffer).await
+    }
+}
+
+impl Write for MinerUart {
     async fn write(&mut self, buffer: &[u8]) -> Result<usize, Self::Error> {
         // `UartTx::write` inherent method returns `Result<(), Error>`.
-        self.inner.write(buffer).await?;
+        self.tx.write(buffer).await?;
         Ok(buffer.len())
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.inner.flush().await
+        self.tx.flush().await
     }
 }
 
-impl BaudRate for MinerUartTx {
-    fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind> {
-        write_usart3_brr(baud)
-    }
-
-    fn baudrate(&self) -> Result<u32, ErrorKind> {
-        read_usart3_brr()
-    }
-}
-
-impl BaudRate for MinerUartRx {
+impl BaudRate for MinerUart {
     fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind> {
         write_usart3_brr(baud)
     }
