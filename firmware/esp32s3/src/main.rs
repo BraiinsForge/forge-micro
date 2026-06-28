@@ -20,7 +20,7 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, warn};
+use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5100S;
@@ -330,7 +330,7 @@ fn main() -> ! {
     static EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
     let executor = EXECUTOR.init(esp_rtos::embassy::Executor::new());
     executor.run_with_callbacks(
-        |spawner| spawner.must_spawn(boot(spawner)),
+        |spawner| spawner.spawn(unwrap!(boot(spawner))),
         IdleAccounting::<0>::new(),
     )
 }
@@ -374,7 +374,8 @@ async fn boot(spawner: Spawner) {
     );
 
     let timg0 = TimerGroup::new(hw.timg0);
-    esp_rtos::start(timg0.timer0);
+    let software_interrupts = SoftwareInterruptControl::new(hw.sw_interrupt);
+    esp_rtos::start(timg0.timer0, software_interrupts.software_interrupt0);
 
     // Pin the ubos-mining serial worker to Core 1 so embassy-net on Core 0
     // stays responsive. Mirrors the rp2350/bmm-pico dual-core split.
@@ -383,11 +384,9 @@ async fn boot(spawner: Spawner) {
     // `IdleAccounting::<1>` to populate `IDLE_TICKS[1]` for cpu-load metrics.
     static APP_EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
     static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
-    let software_interrupts = SoftwareInterruptControl::new(hw.sw_interrupt);
     let uart_parts = (hw.uart0, hw.uart_tx, hw.uart_rx);
     esp_rtos::start_second_core(
         hw.cpu_ctrl,
-        software_interrupts.software_interrupt0,
         software_interrupts.software_interrupt1,
         APP_CORE_STACK.init(Stack::new()),
         move || {
@@ -408,7 +407,7 @@ async fn boot(spawner: Spawner) {
             let executor = APP_EXECUTOR.init(esp_rtos::embassy::Executor::new());
             executor.run_with_callbacks(
                 |app_spawner| {
-                    app_spawner.must_spawn(mining::serial_task(miner_rx, miner_tx));
+                    app_spawner.spawn(unwrap!(mining::serial_task(miner_rx, miner_tx)));
                 },
                 IdleAccounting::<1>::new(),
             );
@@ -482,8 +481,8 @@ async fn boot(spawner: Spawner) {
     ubos_ota::confirm_running(ubos_ota::EspSharedFlash::new(shared_flash));
 
     let timg1 = TimerGroup::new(hw.timg1);
-    spawner.must_spawn(watchdog_task(BoardWatchdog(timg1.wdt)));
-    spawner.must_spawn(reset_task());
+    spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(timg1.wdt))));
+    spawner.spawn(unwrap!(reset_task()));
 
     // SPI wiring via LCD header on Waveshare ESP32-S3-LCD-Driver-Board.
     // LCD_MOSI=GPIO2, LCD_MISO=GPIO42, LCD_SCLK=GPIO1,
@@ -521,7 +520,7 @@ async fn boot(spawner: Spawner) {
     let mac_addr = ubos_net::mac::derive_mac(
         ubos_net::mac::DUMMY_OUI,
         config::Board::MAC_FAMILY,
-        &esp_hal::efuse::Efuse::mac_address(),
+        esp_hal::efuse::base_mac_address().as_bytes(),
     );
     info!(
         "mac {=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}",
@@ -539,7 +538,7 @@ async fn boot(spawner: Spawner) {
     .await
     // Initialization succeeds when the chip is wired correctly and responds on SPI.
     .expect("BUG: W5100S initialization failed");
-    spawner.must_spawn(ethernet_task(runner));
+    spawner.spawn(unwrap!(ethernet_task(runner)));
 
     let manager_handle = ubos_manager::handle();
     let mining_handle = ubos_mining::handle();
@@ -548,7 +547,7 @@ async fn boot(spawner: Spawner) {
         SyncFlash(ubos_ota::EspSharedFlash::new(shared_flash)),
         config::Flash::CONFIG_RANGE,
     );
-    spawner.must_spawn(config_task(config_storage));
+    spawner.spawn(unwrap!(config_task(config_storage)));
 
     static OTA_TARGET: StaticCell<ubos_ota::EspOtaTarget> = StaticCell::new();
     let ota_target = OTA_TARGET.init(ubos_ota::OtaEngine::new(
@@ -597,7 +596,7 @@ async fn boot(spawner: Spawner) {
         RESOURCES.init(StackResources::new()),
         seed,
     );
-    spawner.must_spawn(net_task(runner));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     // Seed the session CSPRNG. esp-hal Rng produces one u32 per call;
     // 8 calls fill the 32-byte seed.
@@ -621,17 +620,17 @@ async fn boot(spawner: Spawner) {
     };
     let sv2_prng = ubos_firmware::seed_sv2_prng(sv2_seed);
 
-    spawner.must_spawn(ntp_sync_task(stack));
-    spawner.must_spawn(metrics_ingest_task());
+    spawner.spawn(unwrap!(ntp_sync_task(stack)));
+    spawner.spawn(unwrap!(metrics_ingest_task()));
 
-    spawner.must_spawn(mdns_task(stack, mdns_hostname));
+    spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
-    spawner.must_spawn(cpu_load_task());
-    spawner.must_spawn(stratum_metrics_task());
-    spawner.must_spawn(hashrate_metrics_task());
+    spawner.spawn(unwrap!(cpu_load_task()));
+    spawner.spawn(unwrap!(stratum_metrics_task()));
+    spawner.spawn(unwrap!(hashrate_metrics_task()));
     // No LED blink task: board wiring does not include an accessible LED.
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
-    spawner.must_spawn(temperature_task(BoardTempSensor(tsens)));
+    spawner.spawn(unwrap!(temperature_task(BoardTempSensor(tsens))));
 
     // SH1106 OLED on SPI3: reset pulse, then async DMA SPI.
     // The reset pin is moved into display_task so it stays driven high for the display's lifetime.
@@ -674,11 +673,11 @@ async fn boot(spawner: Spawner) {
     };
 
     #[cfg(feature = "display")]
-    spawner.must_spawn(display_task(display, reset));
+    spawner.spawn(unwrap!(display_task(display, reset)));
 
     let thermal = ubos_thermal::handle();
 
-    spawner.must_spawn(miner_metrics_task(mining_handle));
+    spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
 
     // BMM100 hashboard PSU, LM75A temperature sensors and the carrier
     // TCA9554 I/O expander all share I2C0 (GPIO15 SDA, GPIO7 SCL). All
@@ -694,23 +693,23 @@ async fn boot(spawner: Spawner) {
             .into_async();
         let bus: &'static psu::Bus = I2C0_BUS.init(Mutex::new(i2c));
         let (board_psu, psu_state, terminated) = psu::init(bus);
-        spawner.must_spawn(psu::watchdog_task(psu_state, terminated));
-        spawner.must_spawn(psu::power_stats_task(board_psu));
+        spawner.spawn(unwrap!(psu::watchdog_task(psu_state, terminated)));
+        spawner.spawn(unwrap!(psu::power_stats_task(board_psu)));
 
         // Hashboard reset: active-low, driven through the carrier TCA9554
         // expander on EXIO5. Asserted (held low) here until the miner
         // task sequences the release during bring-up.
         let reset = mining::BoardResetPin::new(bus).await;
-        spawner.must_spawn(mining::miner_task(board_psu, reset));
+        spawner.spawn(unwrap!(mining::miner_task(board_psu, reset)));
 
         // Temperature and fan monitor via shared I2C0 bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
         let hashboard_temp = temperature::HashboardTemperature::new(temp_device);
         let board_fan = fan::BoardFan::new(hw.ledc, hw.fan_pwm_pin);
         let board_tach = fan::BoardTach::new(hw.pcnt, hw.fan_tach_pin);
-        spawner.must_spawn(thermal_task(hashboard_temp, manager_handle));
-        spawner.must_spawn(manager_task(mining_handle));
-        spawner.must_spawn(cooling_task(board_fan, board_tach, thermal));
+        spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
+        spawner.spawn(unwrap!(manager_task(mining_handle)));
+        spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
     }
 
     // Plug-detect input; hold the peripheral so it is not reclaimed.
@@ -720,14 +719,14 @@ async fn boot(spawner: Spawner) {
     let dhcp_config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", dhcp_config.address.address());
 
-    spawner.must_spawn(stratum_client_task(stack, sv2_prng));
+    spawner.spawn(unwrap!(stratum_client_task(stack, sv2_prng)));
 
-    spawner.must_spawn(network_control_task(stack));
+    spawner.spawn(unwrap!(network_control_task(stack)));
 
     // Register the OTA target now that the network is up, then spawn the
     // session watchdog that aborts a stalled upload and resumes mining.
     ubos_api::register_ota_target(ota_target).await;
-    spawner.must_spawn(ota_watchdog_task());
+    spawner.spawn(unwrap!(ota_watchdog_task()));
 
     // REST API on :8080 — seed credentials once, then spawn one worker
     // task per pool slot so each has its own static TaskStorage.
@@ -743,19 +742,32 @@ async fn boot(spawner: Spawner) {
             ubos_psu::handle(),
             stack,
         ));
-    ubos_http::serve_http_pool!(must_spawn; spawner, stack, api_worker_task, api_service, config::Board::API_HTTP_POOL, ubos_api::consts::Api);
-    spawner.must_spawn(sync_credentials_task());
+    ubos_http::serve_http_pool!(
+        spawner,
+        stack,
+        api_worker_task,
+        api_service,
+        config::Board::API_HTTP_POOL,
+        ubos_api::consts::Api
+    );
+    spawner.spawn(unwrap!(sync_credentials_task()));
 
     // Web UI on :80 — seed credentials once (the API listener's
     // sync_credentials_task keeps them current after first boot).
     ubos_webui::seed_webui_credentials().await;
     static WEBUI_SERVICE: ubos_webui::DashboardService = ubos_webui::DashboardService;
-    ubos_http::serve_http_pool!(must_spawn; spawner, stack, webui_worker_task, &WEBUI_SERVICE, config::Board::WEBUI_HTTP_POOL, ubos_webui::consts::Http);
+    ubos_http::serve_http_pool!(
+        spawner,
+        stack,
+        webui_worker_task,
+        &WEBUI_SERVICE,
+        config::Board::WEBUI_HTTP_POOL,
+        ubos_webui::consts::Http
+    );
 
     static METRICS_SERVICE: ubos_metrics::metrics::PrometheusMetricsService =
         ubos_metrics::metrics::PrometheusMetricsService;
     ubos_http::serve_http_pool!(
-        must_spawn;
         spawner,
         stack,
         metrics_worker_task,

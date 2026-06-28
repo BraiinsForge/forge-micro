@@ -12,6 +12,10 @@ runner = [
 # top of the common embassy_net filter. POOL_* defaults inherit from
 # the workspace config.
 DEFMT_LOG = "debug,esp_hal=info,esp_rtos=info,embassy_net=info"
+# esp-rtos 0.3.0 adds per-CPU scheduler state that pushed the binary
+# over dram_seg. Moving interrupt switch tables back to flash recovers
+# enough room without affecting mining throughput.
+ESP_HAL_CONFIG_PLACE_SWITCH_TABLES_IN_RAM = { value = "false", force = true }
 
 [build]
 rustflags = [
