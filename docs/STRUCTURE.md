@@ -60,6 +60,19 @@ crates `ubos-webui` (port 80) and `ubos-api` (port 8080) depend on
 `ubos-auth`, `ubos-http`, `ubos-mdns`, and `ubos-net`; neither depends
 on the other.
 
+`ubos-firmware` sits above everything above: it is the single library
+the `firmware/<board>` binaries depend on, and the only crate that may
+name the whole subsystem tier at once. The event-catalog registry and
+the shared stratum session live there because each references all the
+subsystem crates, which downward-only dependency edges forbid lower in
+the graph. It is integration-level by nature — it pulls in
+hardware-coupled crates such as `ubos-mining`, so it does not host-build
+and carries no unit tests; anything worth testing stays in the
+subsystem crates below. What cannot be hoisted stays in each board
+`main.rs`: peripheral init and any `#[embassy_executor::task]` whose
+signature names a concrete HAL type, because that attribute expands a
+typed `TaskPool` static and so rejects generic task functions.
+
 | Crate              | Purpose                                            |
 |--------------------|----------------------------------------------------|
 | `ubos-core`        | shared constants, watchdog feed loop, status LED, typed units |
@@ -79,6 +92,7 @@ on the other.
 | `ubos-mining`      | BM1362 chip-serial actor, miner state machine, `MiningHandle` |
 | `ubos-psu`         | async PSU driver over I2C                          |
 | `ubos-temperature` | temperature sampling and LM75A driver              |
+| `ubos-firmware`    | top-of-graph assembly: `EVENT_REGISTRY`, shared stratum session; consumed only by the `firmware/<board>` binaries |
 
 ## `host/` — std crates
 
