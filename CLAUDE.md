@@ -97,8 +97,11 @@ probe.
   under `ubos/`.
 - Embassy task constructors return `Result<SpawnToken, SpawnError>`;
   `spawner.spawn()` returns `()`. The `unwrap!` wraps the constructor.
-- ESP32 crate pins `embassy-executor = "0.9.1"` to match `esp-rtos 0.2.0`
-  internal dependency (workspace `0.10.0` is incompatible).
+- ESP32 crate tracks `esp-rtos 0.3.0` / `esp-hal 1.1` and uses the
+  workspace `embassy-executor 0.10`. esp-rtos 0.3.0 added stack-overflow
+  detection (it panics `stack pointer out of range` instead of silently
+  corrupting) and fixed the multi-core task-switch interrupt nesting that
+  the 0.2.0 line corrupted under load.
 - UART for the BM1362 chip serial link uses DMA on cortex-m targets:
   `embassy-stm32` `RingBufferedUartRx` for stm32f407/stm32f439, and
   `embassy-rp` `BufferedUart` (interrupt-driven, 1 KiB software ring
