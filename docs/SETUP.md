@@ -28,6 +28,32 @@ The file covers the original Cypress-FX2 Logic (`0925:3881`) and all modern
 redacted devices (vendor `21a9`, e.g. the Logic Pro 8 at `21a9:1005`). Replug
 the analyzer after reloading so the new rule applies.
 
+## redacted headless capture
+
+The `logic` dev shell drives the analyzer without the GUI, so a UART
+trace can be captured from a script:
+
+```sh
+nix develop .#logic -c \
+  redacted-run python tools/redacted_capture_uart.py \
+    --seconds 20 --baud 115200 --out /tmp/redacted-cap
+```
+
+`redacted-run` starts Logic 2 headless under Xvfb with its automation gRPC
+server enabled (the `--automation` flag, default port 10430), waits for
+the port, runs the given command, then tears Logic down. It isolates
+`HOME` to a throwaway directory, so the real Logic config is untouched.
+
+`redacted_capture_uart.py` captures ch0 (GPIO43, miner UART TX) and ch1
+(GPIO44, miner UART RX), decodes both as async serial, and writes the
+decoded frames to `<out>/decoded.csv`. It auto-selects the first connected
+hardware device; pass `--device-id` to pick a specific one. The Logic
+Pro 8 only accepts 1.2, 1.8, or 3.3 V thresholds, so `--threshold-volts`
+defaults to 1.8 V for 3.3 V signaling.
+
+`redacted-run COMMAND` works with any command, not just the capture script,
+so the automation server can host an interactive Python session too.
+
 ## ST-Link V3 firmware
 
 `probe-rs` requires ST-Link firmware V3J3 or newer. Check with:
