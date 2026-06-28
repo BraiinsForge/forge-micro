@@ -105,6 +105,18 @@ pub enum ArgWidth {
     I32,
 }
 
+/// Maximum byte length of an event format string.
+///
+/// The `/api/system/events/catalog` route in `ubos-api` serialises each
+/// [`EventDef`] into a fixed `DEF_JSON_MAX`-byte (256) buffer. Roughly 88
+/// bytes of that budget is fixed punctuation plus the code, severity, and
+/// arg-width strings, leaving 168 bytes for the escaped `fmt`. A longer
+/// `fmt` would be silently truncated into invalid JSON, so the [`events!`]
+/// macro asserts every declared `fmt` against this bound at compile time.
+/// The ceiling sits below the raw 168-byte limit so a handful of escaped
+/// `"`/`\` characters cannot push the serialised form over budget.
+pub const MAX_FMT_LEN: usize = 160;
+
 /// Static descriptor for one event type, used by the HTTP `/catalog` endpoint.
 ///
 /// One `EventDef` is generated per entry by the [`events!`] macro and
@@ -681,6 +693,15 @@ macro_rules! events {
                     },
                 )*
             ];
+
+            // The `/catalog` route serialises each `fmt` into a fixed-size
+            // buffer; a string over budget would emit truncated, invalid JSON.
+            $(
+                const _: () = assert!(
+                    $fmt.len() <= $crate::MAX_FMT_LEN,
+                    "event fmt string exceeds MAX_FMT_LEN catalog JSON budget"
+                );
+            )*
 
             $(
                 #[doc = concat!("Records a `", stringify!($fn_name), "` event into the global ring and emits a paired log line.")]
