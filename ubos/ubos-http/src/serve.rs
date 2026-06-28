@@ -104,9 +104,15 @@ pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'stati
 
 /// One accept-loop worker, suitable for use as an embassy task body.
 ///
-/// Loops forever: accepts one TCP connection, serves exactly one
-/// request/response on it, closes it, then loops back to accept. Every
-/// response sends `Connection: close`, so a connection is never reused.
+/// Loops forever: accepts one TCP connection, then serves requests on it
+/// until the handler asks to close, the peer goes idle past the socket
+/// timeout, or a protocol error occurs, then loops back to accept. A
+/// response that sends `Connection: close` ends the connection after one
+/// request; a response that omits it keeps the connection alive for the
+/// next request. The REST and metrics handlers always close, so only the
+/// web UI reuses a connection across the burst of asset requests a browser
+/// issues per page load.
+///
 /// The `acceptor` is `Copy` so each spawned task holds its own copy and
 /// all workers compete on the same bound port. `parse_buffer` is the
 /// worker's private edge-http header parse area; `service` is the
@@ -117,10 +123,11 @@ pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'stati
 ///
 /// The exchange is driven here rather than via edge-http's
 /// `handle_connection` so the worker can install a per-socket idle
-/// timeout via `set_timeout`. That single inactivity timeout reclaims
-/// both a connection that opens but never sends a request and one that
-/// stalls mid-exchange, while still allowing an actively-streaming
-/// upload to run as long as it keeps making progress.
+/// timeout via `set_timeout`. That single inactivity timeout reclaims a
+/// connection that opens but never sends a request, one that stalls
+/// mid-exchange, and a kept-alive connection the peer leaves idle, while
+/// still allowing an actively-streaming upload to run as long as it keeps
+/// making progress.
 pub async fn serve_worker<S>(
     acceptor: TcpAccept<'static>,
     parse_buffer: &'static mut [u8],
@@ -140,30 +147,42 @@ where
 
         // Install the idle timeout so smoltcp reaps a stalled peer while
         // letting an OTA upload stream as long as it keeps making progress.
+        // On a kept-alive connection it also bounds the wait for the next
+        // request, so an idle web-UI socket cannot pin a worker forever.
         socket.set_timeout(Some(SOCKET_IDLE_TIMEOUT));
 
         let handler = AdaptedHandler::new(service, peer_addr.ip());
 
-        // Serve exactly one request/response. The close flag `handle_request`
-        // returns is ignored: every response sends `Connection: close`, so
-        // the connection is never reused regardless.
-        let outcome =
-            handle_request::<_, _, MAX_HEADERS>(&mut *parse_buffer, &mut socket, TASK_ID, &handler)
-                .await;
-
-        match outcome {
-            // A completed exchange gets a graceful FIN so the client
-            // receives the final response cleanly. Bound the close too: a
-            // client should ack promptly, but the worker must not block if
-            // it vanishes.
-            Ok(_) => {
-                let _ = with_timeout(SOCKET_IDLE_TIMEOUT, socket.close(Close::Both)).await;
-            }
-            // A protocol error is reset, because a graceful close drains
-            // until the peer's FIN and would itself block on an
-            // unresponsive or absent peer.
-            Err(_) => {
-                let _ = socket.abort().await;
+        // Serve requests on this connection until one asks to close. The
+        // REST and metrics handlers always send `Connection: close`, so
+        // `needs_close` is true after their first response; the web UI omits
+        // it, so its connection is reused for the next request.
+        loop {
+            match handle_request::<_, _, MAX_HEADERS>(
+                &mut *parse_buffer,
+                &mut socket,
+                TASK_ID,
+                &handler,
+            )
+            .await
+            {
+                // Keep-alive: the response did not ask to close, so loop and
+                // serve the next request on the same socket.
+                Ok(false) => {}
+                // The handler asked to close. A graceful FIN lets the client
+                // read the final response cleanly; bound it so a vanished
+                // peer cannot block the worker.
+                Ok(true) => {
+                    let _ = with_timeout(SOCKET_IDLE_TIMEOUT, socket.close(Close::Both)).await;
+                    break;
+                }
+                // A protocol error, or a kept-alive connection the peer left
+                // idle past the timeout, is reset: a graceful close would
+                // itself block draining toward an unresponsive peer.
+                Err(_) => {
+                    let _ = socket.abort().await;
+                    break;
+                }
             }
         }
     }
