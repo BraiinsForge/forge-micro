@@ -51,7 +51,14 @@ esp-rtos               = { version = "0.3.0", features = ["embassy", "esp32s3", 
 esp-backtrace          = { version = "0.19.0", features = ["defmt", "esp32s3", "panic-handler"] }
 rand_core              = { workspace = true }
 defmt-rtt              = "1.1.0"
-esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32s3"] }
+# default-features = false drops the `validation` feature. It is on by
+# default and, through feature unification, would re-enable the partition-table
+# MD5 check that `ubos-ota` deliberately disables: the crate's check rejects our
+# otherwise-valid table, so `OtaUpdater::new` returns `Invalid` and the OTA
+# parse fails at boot. The second-stage bootloader already MD5-validates the
+# table before booting, so the app re-validating it is redundant. Only
+# `esp_app_desc!` is used from here, which does not need the feature.
+esp-bootloader-esp-idf = { version = "0.5.0", default-features = false, features = ["esp32s3"] }
 esp-storage            = { version = "0.9.0", default-features = false, features = ["esp32s3", "critical-section"] }
 tca9554                = { workspace = true, features = ["defmt"] }
 heapless               = { workspace = true }
