@@ -8,18 +8,22 @@
 //! static `UART0::regs()` accessor.
 //!
 //! ESP32-S3 Technical Reference Manual §26.3.2: the UART baud-rate generator
-//! is driven by `UART_SCLK` (`APB_CLK` = 80 MHz by default). The divider is a
-//! 12-bit integer plus a 4-bit fractional field; the hardware computes:
+//! is driven by `UART_SCLK`. esp-hal selects the 40 MHz XTAL as that source by
+//! default (`CLK_CONF` `sclk_sel` = 3, SCLK pre-divider 1), not the 80 MHz APB.
+//! The divider is a 12-bit integer plus a 4-bit fractional field; the hardware
+//! computes:
 //!
-//!   `baud = UART_SCLK_CLK / ((CLKDIV << 4 | FRAG) / 16)`
+//!   `baud = UART_SCLK / ((CLKDIV << 4 | FRAG) / 16)`
 //!
 //! For the integer-only case (`FRAG` = 0):
 //!
-//!   `CLKDIV = (APB_CLK << 4) / (baud * clk_div)`
+//!   `CLKDIV = (UART_SCLK << 4) / (baud * clk_div)`
 //!
-//! where `clk_div` is 1 for `APB_CLK` < 31.25 MHz × baud. For the baud rates
-//! used here (115 200 – 3 000 000), `APB_CLK` = 80 MHz, so `clk_div` = 1 and
-//! `CLKDIV = (80_000_000 << 4) / baud` (with integer truncation).
+//! where `clk_div` is the SCLK pre-divider, 1 across the baud rates used here
+//! (115 200 – 3 000 000), so `CLKDIV = (40_000_000 << 4) / baud` (integer
+//! truncation). We leave `sclk_sel` and the pre-divider as esp-hal programmed
+//! them in `Uart::new` and only rewrite `CLKDIV`; matching the 40 MHz source
+//! is what makes that single-register rewrite reproduce esp-hal's own value.
 //!
 //! The `ubos-mining` serial actor drains for one second on each side of a
 //! baud-rate change, so no in-flight character guard is needed before writing
@@ -30,8 +34,13 @@ use esp_hal::peripherals::UART0;
 use esp_hal::uart::{UartRx, UartTx};
 use serial_baudrate::BaudRate;
 
-/// `APB_CLK` frequency in Hz. Default clock tree leaves `APB` at 80 MHz.
-const APB_CLOCK_HZ: u32 = 80_000_000;
+/// UART0 source-clock (`UART_SCLK`) frequency in Hz. esp-hal selects the
+/// 40 MHz XTAL as the UART function clock by default (`CLK_CONF` `sclk_sel` = 3,
+/// pre-divider 1), not the 80 MHz APB. Verified against the registers esp-hal
+/// programs for 115200: clkdiv = 5555 = (40 MHz << 4) / 115200. Using 80 MHz
+/// here doubled every divider and halved the real baud (115200 -> 57600), so
+/// the chips saw undecodable frames and never answered.
+const UART_SCLK_HZ: u32 = 40_000_000;
 
 /// Receiving half of `UART0` with `BaudRate` support.
 pub struct MinerUartRx {
@@ -99,8 +108,8 @@ impl BaudRate for MinerUartRx {
 
 /// Write a new baud rate divisor to `UART0 CLKDIV`.
 ///
-/// ESP32-S3 TRM §26.3.2: `CLKDIV = (APB_CLK << 4) / baud` (with `clk_div = 1`,
-/// `FRAG = 0`). The `ubos-mining` serial actor drains for one second on either
+/// ESP32-S3 TRM §26.3.2: `CLKDIV = (UART_SCLK << 4) / baud` (with the SCLK
+/// pre-divider 1). The `ubos-mining` serial actor drains for one second on either
 /// side of a baud-rate change, so no in-flight character guard is needed here.
 /// `UART0::regs()` is a static PAC accessor; the ubos-mining serial actor's internal
 /// mutex ensures only one task calls `set_baudrate` at a time.
@@ -108,8 +117,8 @@ fn write_uart0_clkdiv(baud: u32) -> Result<(), ErrorKind> {
     if baud == 0 {
         return Err(ErrorKind::InvalidInput);
     }
-    // (APB_CLK << 4) / baud gives the combined integer+frag field.
-    let divider = (u64::from(APB_CLOCK_HZ) << 4) / u64::from(baud);
+    // (UART_SCLK << 4) / baud gives the combined integer+frag field.
+    let divider = (u64::from(UART_SCLK_HZ) << 4) / u64::from(baud);
     let divider_integer = divider >> 4;
     let divider_frag = (divider & 0xf) as u8;
     if divider_integer == 0 || divider_integer > 0xFFF {
@@ -124,6 +133,15 @@ fn write_uart0_clkdiv(baud: u32) -> Result<(), ErrorKind> {
     let regs = UART0::regs();
     regs.clkdiv()
         .write(|w| unsafe { w.clkdiv().bits(divider_integer).frag().bits(divider_frag) });
+    // The ESP32-S3 latches CLKDIV (and other UART config) into the core only
+    // when the `reg_update` bit in the UART_ID register is pulsed; esp-hal does
+    // this in its `sync_regs`. Without it the divisor write never takes effect,
+    // so the first real baud change (115200 -> 3.125 Mbaud) leaves the line
+    // mis-clocked and the serial worker hangs (super-WDT reset). The boot baud
+    // worked only because `Uart::new` already synced 115200. The bit
+    // self-clears within a few core cycles, matching esp-hal's spin.
+    regs.id().modify(|_, w| w.reg_update().set_bit());
+    while regs.id().read().reg_update().bit_is_set() {}
     Ok(())
 }
 
@@ -138,6 +156,6 @@ fn read_uart0_clkdiv() -> Result<u32, ErrorKind> {
         return Err(ErrorKind::InvalidData);
     }
     // Inverse of the write formula; rounded.
-    let baud = (u64::from(APB_CLOCK_HZ) << 4) / combined;
+    let baud = (u64::from(UART_SCLK_HZ) << 4) / combined;
     u32::try_from(baud).map_err(|_| ErrorKind::InvalidData)
 }
