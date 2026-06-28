@@ -1571,8 +1571,9 @@ async function loadEvents(incremental) {
     if (incremental && lastSeq != null && incoming.length > 0 && incoming[0].seq > lastSeq + 1) {
       eventsDropped = true;
     }
-    // Merge: build a Map of existing records by seq, overlay new ones.
-    const bySeq = new Map(eventRecords.map(record => [record.seq, record]));
+    // Merge: build a Map of existing records by seq, overlay new ones. A full
+    // reload starts empty so rows that fell out of the ring are dropped.
+    const bySeq = new Map(incremental ? eventRecords.map(record => [record.seq, record]) : []);
     for (const record of incoming) {
       bySeq.set(record.seq, record);
     }
@@ -1623,7 +1624,7 @@ async function loadEvents(incremental) {
   }
 }
 
-$('evReload').addEventListener('click', () => loadEvents(true));
+$('evReload').addEventListener('click', () => loadEvents(false));
 
 // Auto-refresh the events view once a minute. The poll is incremental and
 // only runs while the tab is showing, so it stays cheap and never fights a
