@@ -21,12 +21,13 @@ pub const LOGO_SVG: &[u8] = include_bytes!("logo.svg");
 ubos_mdns::declare_service!(
     pub WEBUI_SERVICE = ubos_mdns::ServiceEntry {
         service: "_http",
-        port: ubos_core::consts::Http::PORT,
+        port: consts::Http::PORT,
         txt_keys: &["path"],
         txt_values: &["/"],
     }
 );
 
+pub mod consts;
 pub mod dashboard;
 pub use dashboard::{DashboardService, seed_webui_credentials};
 

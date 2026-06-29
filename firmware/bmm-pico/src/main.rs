@@ -699,7 +699,7 @@ async fn main(spawner: Spawner) {
         api_worker_task,
         api_service,
         config::Board::API_HTTP_POOL,
-        ubos_core::consts::Api
+        ubos_api::consts::Api
     );
     spawner.spawn(unwrap!(sync_credentials_task()));
 
@@ -713,7 +713,7 @@ async fn main(spawner: Spawner) {
         webui_worker_task,
         &WEBUI_SERVICE,
         config::Board::WEBUI_HTTP_POOL,
-        ubos_core::consts::Http
+        ubos_webui::consts::Http
     );
 
     static METRICS_SERVICE: ubos_metrics::metrics::PrometheusMetricsService =
@@ -724,6 +724,6 @@ async fn main(spawner: Spawner) {
         metrics_worker_task,
         &METRICS_SERVICE,
         config::Board::METRICS_HTTP_POOL,
-        ubos_core::consts::Metrics
+        ubos_metrics::consts::Metrics
     );
 }

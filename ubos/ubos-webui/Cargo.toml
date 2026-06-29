@@ -25,6 +25,7 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 [dependencies]
 edge-http         = { workspace = true, features = ["io"] }
 edge-nal          = { workspace = true }
+embassy-time      = { workspace = true }
 embedded-io-async = { workspace = true }
 heapless          = { workspace = true }
 defmt             = { workspace = true, optional = true }
@@ -42,6 +43,7 @@ critical-section = { version = "1.2", features = ["std"] }
 
 # defmt is gated behind the defmt feature; ubos-logging is pulled only to
 # wire its defmt feature and provide the global logger, never referenced by
-# name in source. machete cannot see either use, so both are ignored.
+# name in source; ubos-core is pulled only to wire its ccmram-bss feature.
+# machete cannot see any of these uses, so all three are ignored.
 [package.metadata.cargo-machete]
-ignored = ["defmt", "ubos-logging"]
+ignored = ["defmt", "ubos-core", "ubos-logging"]

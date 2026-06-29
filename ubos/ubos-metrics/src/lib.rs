@@ -15,12 +15,13 @@
 ubos_mdns::declare_service!(
     pub PROMETHEUS_SERVICE = ubos_mdns::ServiceEntry {
         service: "_prometheus",
-        port: ubos_core::consts::Metrics::PORT,
+        port: consts::Metrics::PORT,
         txt_keys: &["path"],
         txt_values: &["/metrics"],
     }
 );
 
+pub mod consts;
 pub mod cpu_load;
 pub mod hashrate;
 pub mod metrics;

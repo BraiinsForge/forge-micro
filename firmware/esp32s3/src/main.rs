@@ -638,14 +638,14 @@ async fn boot(spawner: Spawner) {
             ubos_psu::handle(),
             stack,
         ));
-    ubos_http::serve_http_pool!(must_spawn; spawner, stack, api_worker_task, api_service, config::Board::API_HTTP_POOL, ubos_core::consts::Api);
+    ubos_http::serve_http_pool!(must_spawn; spawner, stack, api_worker_task, api_service, config::Board::API_HTTP_POOL, ubos_api::consts::Api);
     spawner.must_spawn(sync_credentials_task());
 
     // Web UI on :80 — seed credentials once (the API listener's
     // sync_credentials_task keeps them current after first boot).
     ubos_webui::seed_webui_credentials().await;
     static WEBUI_SERVICE: ubos_webui::DashboardService = ubos_webui::DashboardService;
-    ubos_http::serve_http_pool!(must_spawn; spawner, stack, webui_worker_task, &WEBUI_SERVICE, config::Board::WEBUI_HTTP_POOL, ubos_core::consts::Http);
+    ubos_http::serve_http_pool!(must_spawn; spawner, stack, webui_worker_task, &WEBUI_SERVICE, config::Board::WEBUI_HTTP_POOL, ubos_webui::consts::Http);
 
     static METRICS_SERVICE: ubos_metrics::metrics::PrometheusMetricsService =
         ubos_metrics::metrics::PrometheusMetricsService;
@@ -656,6 +656,6 @@ async fn boot(spawner: Spawner) {
         metrics_worker_task,
         &METRICS_SERVICE,
         config::Board::METRICS_HTTP_POOL,
-        ubos_core::consts::Metrics
+        ubos_metrics::consts::Metrics
     );
 }

@@ -372,19 +372,19 @@ fn main() {
         static API_TCP_BUFFERS: ConstStaticCell<
             edge_nal_embassy::TcpBuffers<
                 API_HTTP_POOL,
-                { ubos_core::consts::Api::TX_BUFFER_SIZE },
-                { ubos_core::consts::Api::RX_BUFFER_SIZE },
+                { ubos_api::consts::Api::TX_BUFFER_SIZE },
+                { ubos_api::consts::Api::RX_BUFFER_SIZE },
             >,
         > = ConstStaticCell::new(edge_nal_embassy::TcpBuffers::new());
         static API_TCP_NAL: StaticCell<edge_nal_embassy::Tcp<'static>> = StaticCell::new();
         static API_WORK: ConstStaticCell<
-            [u8; ubos_core::consts::Api::REQUEST_BUFFER_SIZE * API_HTTP_POOL],
-        > = ConstStaticCell::new([0; ubos_core::consts::Api::REQUEST_BUFFER_SIZE * API_HTTP_POOL]);
+            [u8; ubos_api::consts::Api::REQUEST_BUFFER_SIZE * API_HTTP_POOL],
+        > = ConstStaticCell::new([0; ubos_api::consts::Api::REQUEST_BUFFER_SIZE * API_HTTP_POOL]);
         static API_SERVICE: StaticCell<ubos_api::RestApiService> = StaticCell::new();
         let api_tcp: &'static edge_nal_embassy::Tcp<'static> =
             API_TCP_NAL.init(edge_nal_embassy::Tcp::new(stack, API_TCP_BUFFERS.take()));
         let api_acceptor =
-            embassy_futures::block_on(ubos_http::bind_tcp(api_tcp, ubos_core::consts::Api::PORT));
+            embassy_futures::block_on(ubos_http::bind_tcp(api_tcp, ubos_api::consts::Api::PORT));
         let api_service: &'static ubos_api::RestApiService =
             API_SERVICE.init(ubos_api::RestApiService::new(
                 BOARD_NAME,
@@ -395,7 +395,7 @@ fn main() {
             ));
         let api_buffers = ubos_http::split_work_buffer::<API_HTTP_POOL>(
             API_WORK.take(),
-            ubos_core::consts::Api::REQUEST_BUFFER_SIZE,
+            ubos_api::consts::Api::REQUEST_BUFFER_SIZE,
         );
         for buffer in api_buffers {
             spawner.spawn(
@@ -403,7 +403,7 @@ fn main() {
                     api_acceptor,
                     buffer,
                     api_service,
-                    ubos_core::consts::Api::SOCKET_TIMEOUT,
+                    ubos_api::consts::Api::SOCKET_TIMEOUT,
                 )
                 .expect("BUG: api_worker_task token"),
             );
@@ -418,22 +418,22 @@ fn main() {
         static WEBUI_TCP_BUFFERS: ConstStaticCell<
             edge_nal_embassy::TcpBuffers<
                 WEBUI_HTTP_POOL,
-                { ubos_core::consts::Http::TX_BUFFER_SIZE },
-                { ubos_core::consts::Http::RX_BUFFER_SIZE },
+                { ubos_webui::consts::Http::TX_BUFFER_SIZE },
+                { ubos_webui::consts::Http::RX_BUFFER_SIZE },
             >,
         > = ConstStaticCell::new(edge_nal_embassy::TcpBuffers::new());
         static WEBUI_TCP_NAL: StaticCell<edge_nal_embassy::Tcp<'static>> = StaticCell::new();
         static WEBUI_WORK: ConstStaticCell<
-            [u8; ubos_core::consts::Http::REQUEST_BUFFER_SIZE * WEBUI_HTTP_POOL],
-        > = ConstStaticCell::new([0; ubos_core::consts::Http::REQUEST_BUFFER_SIZE * WEBUI_HTTP_POOL]);
+            [u8; ubos_webui::consts::Http::REQUEST_BUFFER_SIZE * WEBUI_HTTP_POOL],
+        > = ConstStaticCell::new([0; ubos_webui::consts::Http::REQUEST_BUFFER_SIZE * WEBUI_HTTP_POOL]);
         static WEBUI_SERVICE: ubos_webui::DashboardService = ubos_webui::DashboardService;
         let webui_tcp: &'static edge_nal_embassy::Tcp<'static> =
             WEBUI_TCP_NAL.init(edge_nal_embassy::Tcp::new(stack, WEBUI_TCP_BUFFERS.take()));
         let webui_acceptor =
-            embassy_futures::block_on(ubos_http::bind_tcp(webui_tcp, ubos_core::consts::Http::PORT));
+            embassy_futures::block_on(ubos_http::bind_tcp(webui_tcp, ubos_webui::consts::Http::PORT));
         let webui_buffers = ubos_http::split_work_buffer::<WEBUI_HTTP_POOL>(
             WEBUI_WORK.take(),
-            ubos_core::consts::Http::REQUEST_BUFFER_SIZE,
+            ubos_webui::consts::Http::REQUEST_BUFFER_SIZE,
         );
         for buffer in webui_buffers {
             spawner.spawn(
@@ -441,7 +441,7 @@ fn main() {
                     webui_acceptor,
                     buffer,
                     &WEBUI_SERVICE,
-                    ubos_core::consts::Http::SOCKET_TIMEOUT,
+                    ubos_webui::consts::Http::SOCKET_TIMEOUT,
                 )
                 .expect("BUG: webui_worker_task token"),
             );
@@ -451,15 +451,15 @@ fn main() {
         static METRICS_TCP_BUFFERS: ConstStaticCell<
             edge_nal_embassy::TcpBuffers<
                 METRICS_HTTP_POOL,
-                { ubos_core::consts::Metrics::TX_BUFFER_SIZE },
-                { ubos_core::consts::Metrics::RX_BUFFER_SIZE },
+                { ubos_metrics::consts::Metrics::TX_BUFFER_SIZE },
+                { ubos_metrics::consts::Metrics::RX_BUFFER_SIZE },
             >,
         > = ConstStaticCell::new(edge_nal_embassy::TcpBuffers::new());
         static METRICS_TCP_NAL: StaticCell<edge_nal_embassy::Tcp<'static>> = StaticCell::new();
         static METRICS_WORK: ConstStaticCell<
-            [u8; ubos_core::consts::Metrics::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
+            [u8; ubos_metrics::consts::Metrics::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
         > = ConstStaticCell::new(
-            [0; ubos_core::consts::Metrics::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
+            [0; ubos_metrics::consts::Metrics::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
         );
         static METRICS_SERVICE: ubos_metrics::metrics::PrometheusMetricsService =
             ubos_metrics::metrics::PrometheusMetricsService;
@@ -467,11 +467,11 @@ fn main() {
             METRICS_TCP_NAL.init(edge_nal_embassy::Tcp::new(stack, METRICS_TCP_BUFFERS.take()));
         let metrics_acceptor = embassy_futures::block_on(ubos_http::bind_tcp(
             metrics_tcp,
-            ubos_core::consts::Metrics::PORT,
+            ubos_metrics::consts::Metrics::PORT,
         ));
         let metrics_buffers = ubos_http::split_work_buffer::<METRICS_HTTP_POOL>(
             METRICS_WORK.take(),
-            ubos_core::consts::Metrics::REQUEST_BUFFER_SIZE,
+            ubos_metrics::consts::Metrics::REQUEST_BUFFER_SIZE,
         );
         for buffer in metrics_buffers {
             spawner.spawn(
@@ -479,7 +479,7 @@ fn main() {
                     metrics_acceptor,
                     buffer,
                     &METRICS_SERVICE,
-                    ubos_core::consts::Metrics::SOCKET_TIMEOUT,
+                    ubos_metrics::consts::Metrics::SOCKET_TIMEOUT,
                 )
                 .expect("BUG: metrics_worker_task token"),
             );

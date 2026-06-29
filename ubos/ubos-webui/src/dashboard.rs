@@ -31,8 +31,8 @@ use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
-use ubos_core::consts::Http;
 
+use crate::consts::Http;
 use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG};
 use ubos_http::{
     MAX_RESPONSE_HEADERS, RequestParts, Service, extract_request_parts, format_content_length,

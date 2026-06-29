@@ -14,11 +14,11 @@ use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
-use ubos_core::consts::Api;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
 
+use crate::consts::Api;
 use ubos_http::{
     MAX_RESPONSE_HEADERS, RequestParts, Service, extract_request_parts, read_body,
     write_json_response, write_status_only,

@@ -17,7 +17,7 @@ use embassy_time::Instant;
 use embedded_io_async::{Read, Write};
 use ubos_logging::warn;
 
-use ubos_core::consts::Metrics;
+use crate::consts::Metrics;
 use ubos_http::{BufferWriter, Service, format_content_length};
 
 /// A metric value.

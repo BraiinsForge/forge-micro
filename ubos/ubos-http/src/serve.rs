@@ -277,7 +277,7 @@ pub fn split_work_buffer<const N: usize>(
 /// // Then in async main:
 /// for chunk in work_chunks {
 ///     spawner.spawn(unwrap!(webui_worker_task(
-///         acceptor, chunk, service, ubos_core::consts::Http::SOCKET_TIMEOUT,
+///         acceptor, chunk, service, ubos_webui::consts::Http::SOCKET_TIMEOUT,
 ///     )));
 /// }
 /// ```
@@ -311,7 +311,7 @@ macro_rules! http_worker_task {
 /// listener's [`Service`] handler; `consts_path` is a type path exposing
 /// the `TX_BUFFER_SIZE`, `RX_BUFFER_SIZE`, `REQUEST_BUFFER_SIZE`,
 /// `SOCKET_TIMEOUT`, and `PORT` associated constants, such as
-/// `ubos_core::consts::Http`.
+/// `ubos_webui::consts::Http`.
 ///
 /// Each invocation expands to its own block, so the fixed static names do
 /// not collide when several listeners are set up in one function. The
@@ -326,7 +326,7 @@ macro_rules! http_worker_task {
 /// // In async main:
 /// ubos_http::serve_http_pool!(
 ///     spawner, stack, webui_worker_task, &WEBUI_SERVICE,
-///     config::Board::WEBUI_HTTP_POOL, ubos_core::consts::Http
+///     config::Board::WEBUI_HTTP_POOL, ubos_webui::consts::Http
 /// );
 /// ```
 ///
