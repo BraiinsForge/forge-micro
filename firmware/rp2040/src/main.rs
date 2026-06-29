@@ -596,7 +596,14 @@ async fn boot(spawner: Spawner) {
     // connections linger in TIME_WAIT until smoltcp reaps them. 16
     // provides headroom. The RP2040 is the tightest board: a 5/5 HTTP
     // pool overflows SRAM by ~50 KiB, so it stays at 1/1 listeners.
-    static RESOURCES: StaticCell<StackResources<16>> = StaticCell::new();
+    const STACK_SOCKETS: usize = 16;
+    ubos_net::assert_stack_sockets!(
+        STACK_SOCKETS,
+        config::Board::WEBUI_HTTP_POOL,
+        config::Board::API_HTTP_POOL,
+        config::Board::METRICS_HTTP_POOL,
+    );
+    static RESOURCES: StaticCell<StackResources<STACK_SOCKETS>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
         net_config,

@@ -426,7 +426,14 @@ async fn boot(spawner: Spawner) {
     // The STM32F407 has only 128 KiB main SRAM, and the TcpBuffers are
     // DMA-accessed so they cannot move to CCM; a 5/5 HTTP pool does not
     // fit, so it stays at 1/1.
-    static RESOURCES: StaticCell<StackResources<16>> = StaticCell::new();
+    const STACK_SOCKETS: usize = 16;
+    ubos_net::assert_stack_sockets!(
+        STACK_SOCKETS,
+        config::Board::WEBUI_HTTP_POOL,
+        config::Board::API_HTTP_POOL,
+        config::Board::METRICS_HTTP_POOL,
+    );
+    static RESOURCES: StaticCell<StackResources<STACK_SOCKETS>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
         net_config,

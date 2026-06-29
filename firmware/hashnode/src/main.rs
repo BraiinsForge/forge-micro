@@ -719,20 +719,15 @@ async fn boot(spawner: Spawner) {
 
     let seed = rng.next_u64();
 
-    // Must cover every concurrent socket or smoltcp panics ("adding a socket
-    // to a full SocketSet") as the last listener binds: the three HTTP pools
-    // hold 5 sockets each (webui + REST + metrics = 15) plus DHCP, DNS, mDNS,
-    // NTP, and the stratum client. 16 was one short of even a single pool
-    // generation; 24 matches the rp2350 board running the same pool sizes.
-    const FIXED_SOCKETS: usize = 5; // DHCP, DNS, mDNS, NTP, stratum
+    // 16 was one short of even a single pool generation; 24 matches the
+    // rp2350 board running the same pool sizes. The assert is shared so
+    // every board gets the same smoltcp socket-exhaustion guarantee.
     const STACK_SOCKETS: usize = 24;
-    const _: () = assert!(
-        STACK_SOCKETS
-            >= config::Board::WEBUI_HTTP_POOL
-                + config::Board::API_HTTP_POOL
-                + config::Board::METRICS_HTTP_POOL
-                + FIXED_SOCKETS,
-        "StackResources too small: raise STACK_SOCKETS to cover the HTTP pools plus the fixed DHCP/DNS/mDNS/NTP/stratum sockets",
+    ubos_net::assert_stack_sockets!(
+        STACK_SOCKETS,
+        config::Board::WEBUI_HTTP_POOL,
+        config::Board::API_HTTP_POOL,
+        config::Board::METRICS_HTTP_POOL,
     );
     static RESOURCES: StaticCell<StackResources<STACK_SOCKETS>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(

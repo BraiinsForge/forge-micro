@@ -590,7 +590,14 @@ async fn main(spawner: Spawner) {
     // NTP sync opens a transient UDP socket every 60 s, and closed TCP
     // connections linger in TIME_WAIT until smoltcp reaps them.
     // 24 provides headroom for concurrent connections and TIME_WAIT.
-    static RESOURCES: StaticCell<StackResources<24>> = StaticCell::new();
+    const STACK_SOCKETS: usize = 24;
+    ubos_net::assert_stack_sockets!(
+        STACK_SOCKETS,
+        config::Board::WEBUI_HTTP_POOL,
+        config::Board::API_HTTP_POOL,
+        config::Board::METRICS_HTTP_POOL,
+    );
+    static RESOURCES: StaticCell<StackResources<STACK_SOCKETS>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
         net_config,

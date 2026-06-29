@@ -16,6 +16,22 @@ pub mod mac;
 pub mod net;
 pub mod ntp;
 
+/// Assert at compile time that a board's `StackResources<N>` capacity
+/// covers its three HTTP pools plus the fixed net sockets
+/// ([`net::min_stack_sockets`]). Every board invokes this with its chosen
+/// capacity and pool sizes so the smoltcp socket-exhaustion check fires
+/// uniformly rather than only on the one board that hand-rolled it.
+#[macro_export]
+macro_rules! assert_stack_sockets {
+    ($capacity:expr, $webui_pool:expr, $api_pool:expr, $metrics_pool:expr $(,)?) => {
+        const _: () = assert!(
+            $capacity >= $crate::net::min_stack_sockets($webui_pool, $api_pool, $metrics_pool),
+            "StackResources too small: raise the capacity to cover the HTTP \
+             pools plus the fixed DHCP/DNS/mDNS/NTP/stratum sockets"
+        );
+    };
+}
+
 ubos_events::events! {
     ip_assigned(octet0: u8, octet1: u8, octet2: u8, octet3: u8) info = "IP assigned {}.{}.{}.{}",
 }

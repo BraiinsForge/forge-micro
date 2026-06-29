@@ -21,6 +21,21 @@ use ubos_core::consts::Net;
 
 use crate::ntp::Ntp;
 
+/// Sockets the shared net stack occupies beyond a board's HTTP pools:
+/// DHCP, DNS, mDNS, NTP, and the stratum client. A board sizes its
+/// `StackResources` to cover these plus its pools; see
+/// [`min_stack_sockets`] and the `assert_stack_sockets!` macro.
+pub const FIXED_SOCKETS: usize = 5;
+
+/// Minimum `StackResources` capacity for a board running the three HTTP
+/// pools plus the [`FIXED_SOCKETS`]. smoltcp panics ("adding a socket to a
+/// full `SocketSet`") when the stack is sized below the sockets bound at
+/// once, and the last HTTP listener to bind is what trips it.
+#[must_use]
+pub const fn min_stack_sockets(webui_pool: usize, api_pool: usize, metrics_pool: usize) -> usize {
+    webui_pool + api_pool + metrics_pool + FIXED_SOCKETS
+}
+
 /// Maximum number of DNS A-record results retained for connect attempts.
 /// Pool DNS responses are typically two or three addresses; four covers the
 /// largest observed Braiins record set with one slot to spare.
