@@ -81,18 +81,25 @@ pub struct HwSolution {
 
 impl HwSolution {
     /// Bitmask selecting the version-rolling bits in the block version
-    /// field per BIP320. Bits 29:13 carry the rolled value.
+    /// field per BIP320. Bits 28:13 carry the rolled value.
     const BIP320_VERSION_MASK: u32 = 0x1FFF_E000;
 
     /// Bit offset of the BIP320 version-rolling field within the 32-bit
     /// block version.
-    const BIP320_VERSION_SHIFT: u32 = 13;
+    const BIP320_VERSION_SHIFT: u32 = Self::BIP320_VERSION_MASK.trailing_zeros();
+
+    /// The rolled version bits this solution used, masked to the BIP320
+    /// field. This is the canonical share-submission form: the base
+    /// version is re-merged at submit time, so it is intentionally
+    /// absent here.
+    #[must_use]
+    pub fn version_bits(&self) -> u32 {
+        (u32::from(self.version_idx) << Self::BIP320_VERSION_SHIFT) & Self::BIP320_VERSION_MASK
+    }
 
     /// Compute the rolled block version given a base version.
     fn rolled_version(&self, base_version: u32) -> u32 {
-        let base = base_version & !Self::BIP320_VERSION_MASK;
-        base | ((u32::from(self.version_idx) << Self::BIP320_VERSION_SHIFT)
-            & Self::BIP320_VERSION_MASK)
+        (base_version & !Self::BIP320_VERSION_MASK) | self.version_bits()
     }
 }
 

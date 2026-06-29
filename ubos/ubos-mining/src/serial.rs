@@ -581,7 +581,7 @@ impl Serial {
         match resp {
             Response::HwSolution(wr) => {
                 let registry_id = usize::from(wr.work_id) / usize::from(midstate_count);
-                let version_bits = (u32::from(wr.version_idx) << 13) & 0x1FFF_E000;
+                let version_bits = wr.version_bits();
 
                 // `registry_id` derives from the chip-returned `work_id`, so
                 // a stray reply can land past the registry. `get` keeps that
