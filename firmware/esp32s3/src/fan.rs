@@ -162,8 +162,10 @@ impl BoardTach {
     }
 }
 
-impl TachReader for BoardTach {
-    fn read_rpm(&mut self) -> FanRpm {
+impl TachReader<1> for BoardTach {
+    const LABELS: [&'static str; 1] = [""];
+
+    fn read_rpms(&mut self) -> [FanRpm; 1] {
         let now = Instant::now();
         // A negative value means a spurious decrement; treat as zero.
         let counts = u64::try_from(self.counter.get().max(0)).unwrap_or(0);
@@ -177,6 +179,6 @@ impl TachReader for BoardTach {
         } else {
             counts * 60 * 1_000_000 / TACH_PULSES_PER_REV / elapsed_us
         };
-        FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))
+        [FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))]
     }
 }

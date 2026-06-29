@@ -155,9 +155,11 @@ impl FanOutput for FanHwmonController {
 /// doc), so it reports zero and the cooling loop publishes PWM only.
 struct NoTach;
 
-impl TachReader for NoTach {
-    fn read_rpm(&mut self) -> FanRpm {
-        FanRpm::from_rpm(0)
+impl TachReader<0> for NoTach {
+    const LABELS: [&'static str; 0] = [];
+
+    fn read_rpms(&mut self) -> [FanRpm; 0] {
+        []
     }
 }
 

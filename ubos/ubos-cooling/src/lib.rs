@@ -1,8 +1,9 @@
 //! Fan PID controller task: subscribes to the thermal subsystem, drives
-//! the board fan via the `FanOutput` trait, reads the tachometer via
+//! the board fan via the `FanOutput` trait, reads the tachometers via
 //! `TachReader`, and publishes the resulting `FanState` as the sole
 //! writer. Generic over the thermal source, fan output, and tach reader
-//! to stay portable across boards.
+//! to stay portable across boards. A board may carry several fans; each
+//! tachometer publishes its own labeled `board_fan_rpm` series.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -20,7 +21,7 @@ use embassy_sync::watch::Watch;
 use ubos_config::CoolingConfig;
 use ubos_core::units::{FanPwm, FanRpm};
 use ubos_logging::info;
-use ubos_metrics::metrics::{Metric, Value, push};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::pid::TempControl;
@@ -33,11 +34,16 @@ pub trait FanOutput {
     fn set_pwm(&mut self, pwm: FanPwm);
 }
 
-/// Board-supplied tachometer reader. `run_cooling` calls `read_rpm` once
-/// per control tick; the implementation returns the fan speed measured
-/// since the previous call.
-pub trait TachReader {
-    fn read_rpm(&mut self) -> FanRpm;
+/// Board-supplied tachometer reader for `N` fans. `run_cooling` calls
+/// `read_rpms` once per control tick; the implementation returns the
+/// speed of each fan measured since the previous call.
+///
+/// `LABELS[i]` is the `fan` label attached to fan `i`'s `board_fan_rpm`
+/// series. An empty string publishes that series with no label, which
+/// single-fan boards use to keep the historical unlabeled metric.
+pub trait TachReader<const N: usize> {
+    const LABELS: [&'static str; N];
+    fn read_rpms(&mut self) -> [FanRpm; N];
 }
 
 const METRIC_FAN_PWM: &str = "board_fan_pwm_percent";
@@ -57,7 +63,8 @@ const WATCH_CAPACITY: usize = 1;
 pub struct FanState {
     /// PWM duty the cooling loop last commanded.
     pub pwm: FanPwm,
-    /// Fan speed read from the tachometer at the last control tick.
+    /// Fastest tachometer reading at the last control tick. The display
+    /// shows one fan line; on multi-fan boards this is the busiest fan.
     pub rpm: FanRpm,
 }
 
@@ -117,11 +124,11 @@ fn build_control(config: &CoolingConfig) -> TempControl {
 /// Each tick reads the tachometer and publishes the commanded PWM and
 /// measured RPM together as [`FanState`]; this task is the sole writer
 /// of the fan watch.
-pub async fn run_cooling<F: FanOutput, T: TachReader>(
-    mut fan: F,
-    mut tach: T,
-    thermal: ThermalHandle,
-) -> ! {
+pub async fn run_cooling<F, T, const N: usize>(mut fan: F, mut tach: T, thermal: ThermalHandle) -> !
+where
+    F: FanOutput,
+    T: TachReader<N>,
+{
     let publisher = STATE_WATCH.sender();
     let config_handle = ubos_config::handle();
     let mut config_subscription = config_handle.subscribe();
@@ -161,18 +168,32 @@ pub async fn run_cooling<F: FanOutput, T: TachReader>(
         };
 
         fan.set_pwm(pwm);
-        let rpm = tach.read_rpm();
-        publisher.send(FanState { pwm, rpm });
+        let rpms = tach.read_rpms();
+        let fastest = rpms
+            .iter()
+            .copied()
+            .max_by_key(|reading| reading.rpm())
+            .unwrap_or(FanRpm::from_rpm(0));
+        publisher.send(FanState { pwm, rpm: fastest });
 
         push(Metric::with_no_labels(
             METRIC_FAN_PWM,
             Value::Uint(u64::from(pwm.percent())),
         ))
         .await;
-        push(Metric::with_no_labels(
-            METRIC_FAN_RPM,
-            Value::Uint(u64::from(rpm.rpm())),
-        ))
-        .await;
+        for (label, reading) in T::LABELS.iter().zip(rpms.iter()) {
+            let value = Value::Uint(u64::from(reading.rpm()));
+            let metric = if label.is_empty() {
+                Metric::with_no_labels(METRIC_FAN_RPM, value)
+            } else {
+                let mut labels = Labels::new();
+                let _ = labels.push(Label {
+                    name: "fan",
+                    value: LabelValue::Static(label),
+                });
+                Metric::with_labels(METRIC_FAN_RPM, labels, value)
+            };
+            push(metric).await;
+        }
     }
 }

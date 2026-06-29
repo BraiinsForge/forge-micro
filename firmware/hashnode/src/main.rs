@@ -248,13 +248,13 @@ async fn config_task(storage: BoardConfigStorage) -> ! {
 }
 
 #[embassy_executor::task]
-async fn cooling_task(fan: fan::BoardFan, thermal: ThermalHandle) -> ! {
-    ubos_cooling::run_cooling(fan, thermal).await
+async fn cooling_task(fan: fan::BoardFan, tach: fan::BoardTach, thermal: ThermalHandle) -> ! {
+    ubos_cooling::run_cooling(fan, tach, thermal).await
 }
 
 #[embassy_executor::task(pool_size = 3)]
-async fn tach_task(pin: Peri<'static, AnyPin>, fan: &'static str, drive_display: bool) -> ! {
-    fan::run_tach(pin, fan, drive_display).await
+async fn tach_task(pin: Peri<'static, AnyPin>, index: usize) -> ! {
+    fan::run_tach(pin, index).await
 }
 
 #[embassy_executor::task]
@@ -618,7 +618,7 @@ async fn boot(spawner: Spawner) {
     let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin, hw.fan_pwm_pin_b);
     spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
     spawner.spawn(unwrap!(manager_task(mining_handle)));
-    spawner.spawn(unwrap!(cooling_task(board_fan, thermal)));
+    spawner.spawn(unwrap!(cooling_task(board_fan, fan::BoardTach, thermal)));
 
     // --- 7. Config — always ---------------------------------------------------
     let config_storage = FlashStorage::new(
@@ -628,11 +628,11 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(config_task(config_storage)));
 
     // --- 8. Board health tasks — always (no net/psu deps) ---------------------
-    // Fan A drives the display's single RPM reading; B and C are
-    // metrics-only.
-    spawner.spawn(unwrap!(tach_task(hw.fan_tach_pin_a.into(), "a", true)));
-    spawner.spawn(unwrap!(tach_task(hw.fan_tach_pin_b.into(), "b", false)));
-    spawner.spawn(unwrap!(tach_task(hw.fan_tach_pin_c.into(), "c", false)));
+    // Each tach stores into its FAN_RPM_SAMPLE slot; the cooling loop reads
+    // all three and publishes one labeled board_fan_rpm series per fan.
+    spawner.spawn(unwrap!(tach_task(hw.fan_tach_pin_a.into(), 0)));
+    spawner.spawn(unwrap!(tach_task(hw.fan_tach_pin_b.into(), 1)));
+    spawner.spawn(unwrap!(tach_task(hw.fan_tach_pin_c.into(), 2)));
     spawner.spawn(unwrap!(cpu_load_task()));
 
     // --- 9. Display — feature-gated on the cargo `display` feature -----------

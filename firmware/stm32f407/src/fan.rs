@@ -200,8 +200,10 @@ pub async fn run_tach(_hardware: TachHardware) -> ! {
 /// Reads the latest RPM sample written by [`run_tach`] into the cooling loop.
 pub struct Tach;
 
-impl TachReader for Tach {
-    fn read_rpm(&mut self) -> FanRpm {
-        FanRpm::from_rpm(FAN_RPM_SAMPLE.load(Ordering::Relaxed))
+impl TachReader<1> for Tach {
+    const LABELS: [&'static str; 1] = [""];
+
+    fn read_rpms(&mut self) -> [FanRpm; 1] {
+        [FanRpm::from_rpm(FAN_RPM_SAMPLE.load(Ordering::Relaxed))]
     }
 }

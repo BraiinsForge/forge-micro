@@ -10,7 +10,9 @@
 //! of these map to a `PWM_SLICE` channel B, so embassy-rp's
 //! `Pwm::new_input` cannot be used; each tach runs its own [`run_tach`]
 //! task that counts rising edges via `Input::wait_for_rising_edge` in a
-//! tight loop and samples the count once per `Fan::TACH_WINDOW`.
+//! tight loop and stores the latest windowed RPM into `FAN_RPM_SAMPLE`.
+//! `BoardTach` reads all three samples each control tick behind
+//! `ubos_cooling::TachReader`, which publishes one labeled series per fan.
 
 use defmt::info;
 use embassy_futures::select::{select, Either};
@@ -19,12 +21,20 @@ use embassy_rp::peripherals::{PIN_10, PIN_11, PWM_SLICE5};
 use embassy_rp::pwm::{Config as PwmConfig, Pwm};
 use embassy_rp::Peri;
 use embassy_time::{Duration, Instant};
-use ubos_cooling::FanOutput;
-use ubos_core::fan_state;
+use portable_atomic::{AtomicU32, Ordering};
+use ubos_cooling::{FanOutput, TachReader};
 use ubos_core::units::{FanPwm, FanRpm};
-use ubos_metrics::metrics::{push, Label, LabelValue, Labels, Metric, Value};
 
 use crate::config::Fan;
+
+/// Number of fan connectors, each with its own tachometer.
+pub const TACH_COUNT: usize = 3;
+
+/// Latest windowed RPM per connector, written by [`run_tach`] and read by
+/// [`BoardTach`]. One slot per fan, indexed by the connector order in
+/// [`BoardTach::LABELS`].
+static FAN_RPM_SAMPLE: [AtomicU32; TACH_COUNT] =
+    [AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)];
 
 /// PWM output driving the fan input. Construct once and pass into the
 /// cooling task; the cooling loop sets duty via `FanOutput::set_pwm`.
@@ -45,8 +55,6 @@ impl BoardFan {
         // GPIO10 (PWM_A) and GPIO11 (PWM_B) are both channels of PWM_SLICE5;
         // driving both at one duty keeps all three fan connectors in step.
         let pwm = Pwm::new_output_ab(slice, pin_a, pin_b, pwm_config);
-        // Clear the display's no-fan sentinel so line 3 switches to PWM/RPM.
-        fan_state::store_pwm(FanPwm::ZERO);
         Self {
             pwm,
             top: Fan::PWM_TOP,
@@ -73,28 +81,41 @@ impl FanOutput for BoardFan {
             config.compare_b = compare as u16;
         }
         self.pwm.set_config(&config);
-        fan_state::store_pwm(pwm);
     }
 }
 
-/// Sample one fan's tach pulses and publish RPM as a gauge. Runs forever.
+/// Reads the latest windowed RPM samples for all three connectors into the
+/// cooling loop.
+pub struct BoardTach;
+
+impl TachReader<TACH_COUNT> for BoardTach {
+    const LABELS: [&'static str; TACH_COUNT] = ["a", "b", "c"];
+
+    fn read_rpms(&mut self) -> [FanRpm; TACH_COUNT] {
+        let mut rpms = [FanRpm::from_rpm(0); TACH_COUNT];
+        for (rpm, sample) in rpms.iter_mut().zip(FAN_RPM_SAMPLE.iter()) {
+            *rpm = FanRpm::from_rpm(sample.load(Ordering::Relaxed));
+        }
+        rpms
+    }
+}
+
+/// Sample one fan's tach pulses and store the windowed RPM. Runs forever.
 ///
-/// `fan` is the connector label emitted as the `fan` metric label so the
-/// three connectors are distinguishable in Prometheus. The display tracks
-/// a single RPM reading, so only the connector spawned with
-/// `drive_display` writes [`fan_state::store_rpm`].
+/// `index` selects this connector's [`FAN_RPM_SAMPLE`] slot, matching the
+/// order in [`BoardTach::LABELS`]; the cooling loop reads it each tick.
 ///
 /// Runs two concurrent branches inside `select`:
 /// - an edge-waiting branch that calls `wait_for_rising_edge` in a tight
 ///   loop and increments the window's pulse count;
 /// - a deadline branch that fires every `Fan::TACH_WINDOW`, derives RPM
 ///   from the count, and resets for the next window.
-pub async fn run_tach(pin: Peri<'static, AnyPin>, fan: &'static str, drive_display: bool) -> ! {
+pub async fn run_tach(pin: Peri<'static, AnyPin>, index: usize) -> ! {
     let mut tach = Input::new(pin, Pull::Up);
 
     info!(
         "fan tach {}: {} pulses/rev, window {} s",
-        fan,
+        index,
         Fan::TACH_PULSES_PER_REV,
         Fan::TACH_WINDOW.as_secs(),
     );
@@ -119,21 +140,8 @@ pub async fn run_tach(pin: Peri<'static, AnyPin>, fan: &'static str, drive_displ
                 let rpm = u64::from(pulse_count) * 60
                     / Fan::TACH_PULSES_PER_REV
                     / Fan::TACH_WINDOW.as_secs();
-                if drive_display {
-                    fan_state::store_rpm(FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX)));
-                }
-                let mut labels = Labels::new();
-                // One label, fixed capacity; the push cannot fail.
-                let _ = labels.push(Label {
-                    name: "fan",
-                    value: LabelValue::Static(fan),
-                });
-                push(Metric::with_labels(
-                    "board_fan_rpm",
-                    labels,
-                    Value::Uint(rpm),
-                ))
-                .await;
+                FAN_RPM_SAMPLE[index]
+                    .store(u32::try_from(rpm).unwrap_or(u32::MAX), Ordering::Relaxed);
                 pulse_count = 0;
                 deadline += Fan::TACH_WINDOW;
             }

@@ -93,8 +93,10 @@ impl BoardTach {
     }
 }
 
-impl TachReader for BoardTach {
-    fn read_rpm(&mut self) -> FanRpm {
+impl TachReader<1> for BoardTach {
+    const LABELS: [&'static str; 1] = [""];
+
+    fn read_rpms(&mut self) -> [FanRpm; 1] {
         let now = Instant::now();
         let counts = u64::from(self.tach.counter());
         self.tach.set_counter(0);
@@ -106,6 +108,6 @@ impl TachReader for BoardTach {
         let rpm = (counts * 60 * 1_000_000 / Fan::TACH_PULSES_PER_REV)
             .checked_div(elapsed_us)
             .unwrap_or(0);
-        FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))
+        [FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))]
     }
 }
