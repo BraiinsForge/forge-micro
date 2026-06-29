@@ -64,7 +64,7 @@ const outBuf = new Array(SAMPLE_COUNT).fill(null);
 const poolCfg = [undefined, undefined, undefined];
 
 // Snapshot of the Temperature form values as loaded from GET /api/config.
-// The submit handler sends `thermal` and `cooling_target_temp_c` only when
+// The submit handler sends `thermal` and `cooling` only when
 // they actually changed, so editing one threshold does not drag the others
 // through the cross-field validator.
 let tempInit = null;
@@ -655,19 +655,19 @@ async function loadCfg() {
           $('dangerC').value = data.thermal.dangerous_temp_c;
           $('cooldownC').value = data.thermal.cooldown_temp_c;
         }
-        if (data.cooling_target_temp_c != null) {
-          $('targetC').value = data.cooling_target_temp_c;
+        if (data.cooling && data.cooling.target_temp_c != null) {
+          $('targetC').value = data.cooling.target_temp_c;
         }
-        if (data.cooling_min_fan_pwm != null) {
-          $('minFanPwm').value = data.cooling_min_fan_pwm;
+        if (data.cooling && data.cooling.min_fan_pwm != null) {
+          $('minFanPwm').value = data.cooling.min_fan_pwm;
         }
         tempInit = {
           sampleMs: data.thermal ? data.thermal.sample_interval_ms : null,
           dangerC: data.thermal ? data.thermal.dangerous_temp_c : null,
           cooldownC: data.thermal ? data.thermal.cooldown_temp_c : null,
           chipC: data.thermal ? data.thermal.dangerous_chip_temp_c : null,
-          targetC: data.cooling_target_temp_c != null ? data.cooling_target_temp_c : null,
-          minFanPwm: data.cooling_min_fan_pwm != null ? data.cooling_min_fan_pwm : null,
+          targetC: data.cooling && data.cooling.target_temp_c != null ? data.cooling.target_temp_c : null,
+          minFanPwm: data.cooling && data.cooling.min_fan_pwm != null ? data.cooling.min_fan_pwm : null,
         };
         if (data.tuning) {
           $('freqMhz').value = data.tuning.frequency_mhz;
@@ -872,11 +872,15 @@ $('fmTemp').addEventListener('submit', async event => {
       dangerous_chip_temp_c: tempInit ? tempInit.chipC : null,
     };
   }
+  const cooling = {};
   if (!tempInit || targetC !== tempInit.targetC) {
-    body.cooling_target_temp_c = targetC;
+    cooling.target_temp_c = targetC;
   }
   if (!tempInit || minFanPwm !== tempInit.minFanPwm) {
-    body.cooling_min_fan_pwm = minFanPwm;
+    cooling.min_fan_pwm = minFanPwm;
+  }
+  if (Object.keys(cooling).length) {
+    body.cooling = cooling;
   }
   if (!Object.keys(body).length) {
     msg.textContent = 'No changes.';

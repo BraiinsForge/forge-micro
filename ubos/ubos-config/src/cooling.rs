@@ -75,13 +75,13 @@ impl CoolingConfig {
     /// `dangerous_temp_c`.
     pub fn validate_target_temp(target: f32, dangerous_temp_c: f32) -> Result<(), &'static str> {
         if !target.is_finite() {
-            return Err("cooling_target_temp_c must be a finite number");
+            return Err("cooling.target_temp_c must be a finite number");
         }
         if !BOUNDS.target_temp_c.contains(&target) {
-            return Err("cooling_target_temp_c must be between 30 and 85");
+            return Err("cooling.target_temp_c must be between 30 and 85");
         }
         if target >= dangerous_temp_c {
-            return Err("cooling_target_temp_c must be less than dangerous_temp_c");
+            return Err("cooling.target_temp_c must be less than dangerous_temp_c");
         }
         Ok(())
     }

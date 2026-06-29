@@ -51,7 +51,7 @@ const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
 /// A full [`ubos_config::ConfigUpdate`] snapshot breaks down as: three
 /// pool entries at up to ~580 bytes each in the SV1 worst case (three
 /// 128-byte heapless strings — host, user, password — plus JSON
-/// framing), plus `thermal` (~80 bytes), `cooling_target_temp_c`
+/// framing), plus `thermal` (~80 bytes), `cooling`
 /// (~30 bytes), `tuning` (~50 bytes), and `api` (~80 bytes), plus
 /// outer JSON framing — close to ~1900 bytes total. 2048 bytes
 /// covers this with margin while keeping the stack budget predictable.

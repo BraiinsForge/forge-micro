@@ -274,6 +274,23 @@ impl Handle {
     }
 }
 
+/// Partial-update cooling section of [`ConfigUpdate`].
+///
+/// Only the two operator-tunable cooling fields are exposed; the rest of
+/// [`CoolingConfig::pid`] (the PID gains) is factory-set and never patched
+/// from the UI. Each field is `Option` so one can be set without the other.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct CoolingUpdate {
+    /// Replacement for [`CoolingConfig::target_temp_c`]; `None` leaves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_temp_c: Option<f32>,
+    /// Replacement for [`PidConfig::min_fan_pwm`] (the fan floor, 0-100);
+    /// `None` leaves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_fan_pwm: Option<u8>,
+}
+
 /// Partial-update wire shape for `GET` and `POST /api/config`.
 ///
 /// All fields are `Option` so callers can patch one section at a time
@@ -293,20 +310,14 @@ pub struct ConfigUpdate {
     /// Replacement value for [`Config::thermal`]; `None` means leave unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thermal: Option<ThermalConfig>,
-    /// Replacement value for [`CoolingConfig::target_temp_c`]; `None` means leave unchanged.
-    ///
-    /// The full [`CoolingConfig`] is not exposed because PID gains are tuned
-    /// at the factory and must not be overwritten from the UI.
+    /// Partial cooling update (setpoint and fan floor); `None` means leave
+    /// unchanged. The full [`CoolingConfig`] is not exposed because the PID
+    /// gains are factory-tuned and must not be overwritten from the UI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cooling_target_temp_c: Option<f32>,
+    pub cooling: Option<CoolingUpdate>,
     /// Replacement value for [`Config::miner`]; `None` means leave unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub miner: Option<MinerConfig>,
-    /// Replacement value for [`PidConfig::min_fan_pwm`] (the fan floor, 0-100);
-    /// `None` means leave unchanged. The remaining PID gains stay factory-set
-    /// and are not exposed, same as the rest of [`CoolingConfig::pid`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cooling_min_fan_pwm: Option<u8>,
     /// Replacement value for [`Config::tuning`]; `None` means leave unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tuning: Option<TuningConfig>,
@@ -334,14 +345,16 @@ impl ConfigUpdate {
         if let Some(thermal) = self.thermal {
             target.thermal = thermal;
         }
-        if let Some(temp) = self.cooling_target_temp_c {
-            target.cooling.target_temp_c = temp;
+        if let Some(cooling) = self.cooling {
+            if let Some(temp) = cooling.target_temp_c {
+                target.cooling.target_temp_c = temp;
+            }
+            if let Some(pwm) = cooling.min_fan_pwm {
+                target.cooling.pid.min_fan_pwm = pwm;
+            }
         }
         if let Some(miner) = self.miner {
             target.miner = miner;
-        }
-        if let Some(pwm) = self.cooling_min_fan_pwm {
-            target.cooling.pid.min_fan_pwm = pwm;
         }
         if let Some(tuning) = self.tuning {
             target.tuning = tuning;
@@ -365,9 +378,11 @@ impl ConfigUpdate {
         Self {
             pool: Some(config.pool.clone()),
             thermal: Some(config.thermal.clone()),
-            cooling_target_temp_c: Some(config.cooling.target_temp_c),
+            cooling: Some(CoolingUpdate {
+                target_temp_c: Some(config.cooling.target_temp_c),
+                min_fan_pwm: Some(config.cooling.pid.min_fan_pwm),
+            }),
             miner: Some(config.miner.clone()),
-            cooling_min_fan_pwm: Some(config.cooling.pid.min_fan_pwm),
             tuning: Some(config.tuning.clone()),
             api: Some(api),
             network: Some(config.network.clone()),
@@ -380,12 +395,12 @@ impl ConfigUpdate {
     /// into; the caller is responsible for reading it once and passing it
     /// in so the function is pure and the read order is explicit.
     ///
-    /// For `cooling_target_temp_c`, the dangerous-temp limit is resolved
+    /// For `cooling.target_temp_c`, the dangerous-temp limit is resolved
     /// from the incoming `thermal` field when present, otherwise from
     /// `current.thermal.dangerous_temp_c`.
     ///
     /// The cross-field rule covers both directions:
-    /// - When `cooling_target_temp_c` is in the update, the incoming target
+    /// - When `cooling.target_temp_c` is in the update, the incoming target
     ///   must be strictly less than the incoming (or current) `dangerous_temp_c`.
     /// - When only `thermal` is in the update, the current `cooling.target_temp_c`
     ///   must still be strictly less than the incoming `dangerous_temp_c`.
@@ -422,15 +437,16 @@ impl ConfigUpdate {
         if let Some(network) = &self.network {
             network.validate()?;
         }
-        if let Some(pwm) = self.cooling_min_fan_pwm {
+        let cooling_target = self.cooling.as_ref().and_then(|c| c.target_temp_c);
+        if let Some(pwm) = self.cooling.as_ref().and_then(|c| c.min_fan_pwm) {
             // PID output clamps to [min_fan_pwm, 100]; a floor above 100 would
             // invert the clamp range (see ubos-cooling::pid::set_limits).
             if pwm > 100 {
-                return Err("cooling_min_fan_pwm must be between 0 and 100");
+                return Err("cooling.min_fan_pwm must be between 0 and 100");
             }
         }
 
-        if self.thermal.is_some() || self.cooling_target_temp_c.is_some() {
+        if self.thermal.is_some() || cooling_target.is_some() {
             let dangerous = self
                 .thermal
                 .as_ref()
@@ -438,7 +454,7 @@ impl ConfigUpdate {
                     thermal.dangerous_temp_c
                 });
 
-            if let Some(target) = self.cooling_target_temp_c {
+            if let Some(target) = cooling_target {
                 CoolingConfig::validate_target_temp(target, dangerous)?;
             } else if current.cooling.target_temp_c >= dangerous {
                 return Err(
