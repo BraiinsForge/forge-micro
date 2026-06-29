@@ -642,7 +642,7 @@
           thumbv6mArtifacts = craneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
-            cargoBuildCommand = "true";
+            cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p rp2040 --target thumbv6m-none-eabi";
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
             CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
@@ -656,7 +656,7 @@
           thumbv6mBootloaderArtifacts = craneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
-            cargoBuildCommand = "true";
+            cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p rp2040-bootloader --target thumbv6m-none-eabi";
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
             CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
@@ -669,7 +669,7 @@
           stm32f407Artifacts = craneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
-            cargoBuildCommand = "true";
+            cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p stm32f407 --target thumbv7em-none-eabihf";
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
@@ -678,7 +678,7 @@
           stm32f439Artifacts = craneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
-            cargoBuildCommand = "true";
+            cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p stm32f439 --target thumbv7em-none-eabihf";
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
             CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
@@ -687,7 +687,7 @@
           thumbv8mArtifacts = craneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
-            cargoBuildCommand = "true";
+            cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = builtins.concatStringsSep " " [
               "-p bmm-pico"
               "-p rp2350"
@@ -713,7 +713,7 @@
           ubosFirmwareArtifacts = craneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
-            cargoBuildCommand = "true";
+            cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p ubos-firmware --target thumbv8m.main-none-eabihf";
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
@@ -727,7 +727,7 @@
           thumbv8mBootloaderArtifacts = craneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
-            cargoBuildCommand = "true";
+            cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p rp2350-bootloader --target thumbv8m.main-none-eabihf";
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
@@ -748,6 +748,13 @@
             CC_arm_unknown_linux_musleabi = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
           };
 
+          # The esp deps bag stays check-only. crane's buildDepsOnly stubs the
+          # esp32s3 bin with a dummy `main`, and a real `cargo build` fails to
+          # link that stub under `-Z build-std=core`: the esp crt0 references
+          # `main` while the crate is `#![no_main]`. A `cargo check` never
+          # links, so it builds. The esp release builds below therefore keep
+          # `cargoArtifacts = null` and rebuild their dependency closure; the
+          # other targets' bags do codegen and the builds reuse them.
           espArtifacts = espCraneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
@@ -793,7 +800,7 @@
           # packages.rp2350-image (nix build) and apps.rp2350-image (nix run).
           rp2350Image = craneLib.cargoBuild {
             inherit src;
-            cargoArtifacts = null;
+            cargoArtifacts = thumbv8mArtifacts;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf";
             nativeBuildInputs = [
@@ -840,7 +847,7 @@
           # root, so POOL_USER stays unset and the test worker is not baked.
           bmmPicoImage = craneLib.cargoBuild {
             inherit src;
-            cargoArtifacts = null;
+            cargoArtifacts = thumbv8mArtifacts;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p bmm-pico --target thumbv8m.main-none-eabihf";
             nativeBuildInputs = [
@@ -883,7 +890,7 @@
           # packages.rp2040-image (nix build) and apps.rp2040-image (nix run).
           rp2040Image = craneLib.cargoBuild {
             inherit src;
-            cargoArtifacts = null;
+            cargoArtifacts = thumbv6mArtifacts;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p rp2040 --target thumbv6m-none-eabi";
             nativeBuildInputs = [
@@ -929,7 +936,7 @@
           # drag-droppable via the BOOTSEL mass-storage interface.
           rp2350Bootloader = craneLib.cargoBuild {
             inherit src;
-            cargoArtifacts = null;
+            cargoArtifacts = thumbv8mBootloaderArtifacts;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p rp2350-bootloader --target thumbv8m.main-none-eabihf";
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
@@ -947,7 +954,7 @@
           # image is drag-droppable via the BOOTSEL mass-storage interface.
           rp2040Bootloader = craneLib.cargoBuild {
             inherit src;
-            cargoArtifacts = null;
+            cargoArtifacts = thumbv6mBootloaderArtifacts;
             cargoBuildCommand = "cargo build --release";
             cargoExtraArgs = "-p rp2040-bootloader --target thumbv6m-none-eabi";
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
@@ -1191,7 +1198,8 @@
             # gate protects.
             build-bmm-pico = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = thumbv8mArtifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p bmm-pico --target thumbv8m.main-none-eabihf";
               nativeBuildInputs = [
@@ -1234,7 +1242,8 @@
 
             build-bmm-pico-no-display = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = thumbv8mArtifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p bmm-pico --target thumbv8m.main-none-eabihf --no-default-features";
               nativeBuildInputs = [
@@ -1265,7 +1274,8 @@
 
             build-rp2040 = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = thumbv6mArtifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p rp2040 --target thumbv6m-none-eabi";
               nativeBuildInputs = [
@@ -1306,7 +1316,8 @@
 
             build-rp2040-no-display = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = thumbv6mArtifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p rp2040 --target thumbv6m-none-eabi --no-default-features";
               nativeBuildInputs = [
@@ -1337,7 +1348,8 @@
 
             build-rp2350 = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = thumbv8mArtifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf";
               nativeBuildInputs = [
@@ -1380,7 +1392,8 @@
 
             build-rp2350-no-display = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = thumbv8mArtifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf --no-default-features";
               nativeBuildInputs = [
@@ -1403,7 +1416,8 @@
 
             build-rp2350-bootloader = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = thumbv8mBootloaderArtifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p rp2350-bootloader --target thumbv8m.main-none-eabihf";
               nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
@@ -1422,7 +1436,8 @@
 
             build-rp2040-bootloader = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = thumbv6mBootloaderArtifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p rp2040-bootloader --target thumbv6m-none-eabi";
               nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
@@ -1457,7 +1472,8 @@
 
             build-stm32f407 = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = stm32f407Artifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p stm32f407 --target thumbv7em-none-eabihf";
               nativeBuildInputs = [
@@ -1485,7 +1501,8 @@
 
             build-stm32f407-no-display = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = stm32f407Artifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p stm32f407 --target thumbv7em-none-eabihf --no-default-features";
               nativeBuildInputs = [
@@ -1516,7 +1533,8 @@
 
             build-stm32f439 = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = stm32f439Artifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p stm32f439 --target thumbv7em-none-eabihf";
               nativeBuildInputs = [
@@ -1544,7 +1562,8 @@
 
             build-stm32f439-no-display = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = stm32f439Artifacts;
+              doInstallCargoArtifacts = false;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p stm32f439 --target thumbv7em-none-eabihf --no-default-features";
               nativeBuildInputs = [
@@ -2081,6 +2100,7 @@
 
             build-esp32s3 = espCraneLib.cargoBuild {
               inherit src;
+              # No codegen bag to reuse; see espArtifacts above.
               cargoArtifacts = null;
               cargoVendorDir = espCargoVendorDir;
               cargoBuildCommand = "cargo build --release";
@@ -2118,6 +2138,7 @@
 
             build-esp32s3-no-display = espCraneLib.cargoBuild {
               inherit src;
+              # No codegen bag to reuse; see espArtifacts above.
               cargoArtifacts = null;
               cargoVendorDir = espCargoVendorDir;
               cargoBuildCommand = "cargo build --release";
