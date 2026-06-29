@@ -112,16 +112,20 @@ impl Board<'static> {
     pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x02];
     /// Concurrent TCP connections the web-UI server (:80) accepts. A browser
     /// opens several parallel connections per page load; this sizes the
-    /// worker/buffer pool.
-    pub const WEBUI_HTTP_POOL: usize = 5;
+    /// worker/buffer pool. Held at 3 rather than the 5 the RP boards use:
+    /// each worker's buffers land in `.bss`, and on this MCU `.bss` shares
+    /// `dram_seg` with the core-0 stack, so oversized pools starve the boot
+    /// stack and trip the esp-hal stack-guard during `embassy_net::new`. The
+    /// `build.rs` link-time ASSERT enforces the resulting stack floor.
+    pub const WEBUI_HTTP_POOL: usize = 3;
     /// Concurrent TCP connections the REST API server (:8080) accepts.
-    pub const API_HTTP_POOL: usize = 5;
+    pub const API_HTTP_POOL: usize = 3;
     /// Accepted-connection pool depth for the Prometheus metrics
     /// listener. All workers share one exposition body buffer held
     /// across the socket write, so depth is accept-queue slack for a
     /// second concurrent scraper, not parallel rendering; scrapes still
     /// serialize on that buffer. Matches the webui and api pools.
-    pub const METRICS_HTTP_POOL: usize = 5;
+    pub const METRICS_HTTP_POOL: usize = 3;
     /// Capacity of the user-facing event ring served by `ubos-events`.
     pub const EVENT_LOG_CAPACITY: usize = 128;
 
