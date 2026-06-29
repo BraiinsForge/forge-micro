@@ -2803,6 +2803,7 @@ dependencies = [
  "ubos-asic",
  "ubos-auth",
  "ubos-config",
+ "ubos-cooling",
  "ubos-core",
  "ubos-http",
  "ubos-manager",
@@ -2811,6 +2812,7 @@ dependencies = [
  "ubos-mining",
  "ubos-net",
  "ubos-psu",
+ "ubos-temperature",
  "ubos-thermal",
  "ubos-webui",
 ]
