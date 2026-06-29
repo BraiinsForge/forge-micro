@@ -452,7 +452,7 @@ pub struct ChipDescriptor {
 pub static BM1362: ChipDescriptor = ChipDescriptor {
     chip_id: 0x1362,
     core_count: 514,
-    max_chip_voltage: Voltage::from_mv(422),
+    max_chip_voltage: Chip::Bm1362.max_chip_voltage(),
     frequency_step: Frequency::from_khz(6_250),
     frequency_range: FrequencyRange::new(
         Frequency::from_khz(50_000),
@@ -470,7 +470,7 @@ pub static BM1362: ChipDescriptor = ChipDescriptor {
 pub static BM1366: ChipDescriptor = ChipDescriptor {
     chip_id: 0x1366,
     core_count: 894,
-    max_chip_voltage: Voltage::from_mv(1382),
+    max_chip_voltage: Chip::Bm1366.max_chip_voltage(),
     frequency_step: Frequency::from_khz(6_250),
     frequency_range: FrequencyRange::new(
         Frequency::from_khz(50_000),
@@ -488,7 +488,7 @@ pub static BM1366: ChipDescriptor = ChipDescriptor {
 pub static BM1370: ChipDescriptor = ChipDescriptor {
     chip_id: 0x1370,
     core_count: 2040,
-    max_chip_voltage: Voltage::from_mv(1250),
+    max_chip_voltage: Chip::Bm1370.max_chip_voltage(),
     frequency_step: Frequency::from_khz(6_250),
     frequency_range: FrequencyRange::new(
         Frequency::from_khz(250_000),
@@ -523,6 +523,19 @@ impl Chip {
             Chip::Bm1362 => "BM1362",
             Chip::Bm1366 => "BM1366",
             Chip::Bm1370 => "BM1370",
+        }
+    }
+
+    /// Per-chip voltage ceiling: board-local safety policy, not a chip-spec
+    /// value. `const` so the board descriptor's rail-voltage math and the
+    /// tuning bounds evaluate at compile time. Single source of truth: the
+    /// static `ChipDescriptor`s below initialise their field from here.
+    #[must_use]
+    pub const fn max_chip_voltage(self) -> Voltage {
+        match self {
+            Chip::Bm1362 => Voltage::from_mv(422),
+            Chip::Bm1366 => Voltage::from_mv(1382),
+            Chip::Bm1370 => Voltage::from_mv(1250),
         }
     }
 

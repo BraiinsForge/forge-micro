@@ -8,7 +8,7 @@
 
 use ubos_core::units::Voltage;
 
-use crate::chip::{Chip, ChipProtocol};
+use crate::chip::Chip;
 
 #[cfg(test)]
 #[path = "tests/board.rs"]
@@ -54,11 +54,6 @@ pub struct BoardDescriptor {
     // descriptor, which is acceptable for now, but should be split into
     // a dedicated PSU descriptor later.
     pub max_psu_voltage: Voltage,
-    /// Operator tuning-voltage policy (the rail span the UI/tuner may
-    /// request). On the series-stacked BM1370 board this is the full-rail
-    /// span, not a per-chip figure.
-    pub tuning_voltage_min_mv: u32,
-    pub tuning_voltage_max_mv: u32,
     /// Boot operating point, so a board comes up at its correct rail and
     /// clock from its descriptor alone, with no `.cargo/config.toml` env.
     pub default_voltage_mv: u32,
@@ -75,18 +70,23 @@ impl BoardDescriptor {
     /// number of series-stacked voltage domains, clamped against the
     /// PSU's configured upper bound. The tuner anchors the
     /// `V^2 * f` curve here before any clock is applied, and the
-    /// rail walks down V as f climbs. Not `const`: it reads
-    /// `Chip::descriptor`, a non-const trait method.
+    /// rail walks down V as f climbs. Doubles as the tuning ceiling
+    /// (`ubos-config` bounds), so there is no separate tuning-voltage
+    /// field on the descriptor.
     #[must_use]
-    pub fn max_rail_voltage(&self) -> Voltage {
+    pub const fn max_rail_voltage(&self) -> Voltage {
         let chip_stack = self
             .chip
-            .descriptor()
-            .max_chip_voltage
+            .max_chip_voltage()
             .mv()
-            .saturating_mul(u32::from(self.num_voltage_domains));
+            .saturating_mul(self.num_voltage_domains as u32);
         let psu_max = self.max_psu_voltage.mv();
-        Voltage::from_mv(chip_stack.min(psu_max))
+        let ceiling = if chip_stack < psu_max {
+            chip_stack
+        } else {
+            psu_max
+        };
+        Voltage::from_mv(ceiling)
     }
 }
 
@@ -98,9 +98,6 @@ pub const BMM100: BoardDescriptor = BoardDescriptor {
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(1675),
-    // Per-chip tuning policy, kept below the 1675 mV PSU ceiling.
-    tuning_voltage_min_mv: 1100,
-    tuning_voltage_max_mv: 1500,
     default_voltage_mv: ubos_core::consts::Mining::DEFAULT_VOLTAGE.mv(),
     default_frequency_mhz: ubos_core::consts::Mining::DEFAULT_FREQUENCY.mhz(),
     cooling: BoardCooling {
@@ -118,9 +115,6 @@ pub const HASHNODE: BoardDescriptor = BoardDescriptor {
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(4800),
-    // Full series-stacked rail tuning policy; ceiling matches the PSU limit.
-    tuning_voltage_min_mv: 4000,
-    tuning_voltage_max_mv: 4800,
     default_voltage_mv: 4550,
     default_frequency_mhz: 600,
     cooling: BoardCooling {

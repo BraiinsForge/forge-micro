@@ -431,13 +431,14 @@ fn tuning_frequency_out_of_range() {
 
 /// Voltage outside the accepted range is rejected.
 ///
-/// One below the board's lower bound exercises the exclusive rejection path
-/// without asserting a board-specific numeric value.
+/// There is no lower limit, so only the upper bound rejects: one above the
+/// board's rail ceiling exercises the path without asserting a
+/// board-specific numeric value.
 #[test]
 fn tuning_voltage_out_of_range() {
     let mut update = empty_update();
     let mut tuning = valid_tuning();
-    tuning.voltage_mv = MINING_BOUNDS.voltage_mv.start() - 1;
+    tuning.voltage_mv = MINING_BOUNDS.voltage_mv.end() + 1;
     update.tuning = Some(tuning);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),

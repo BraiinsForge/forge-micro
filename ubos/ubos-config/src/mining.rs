@@ -69,17 +69,17 @@ pub struct MiningBounds {
 
 /// Accepted value ranges for [`TuningConfig`] on `board`.
 ///
-/// The voltage range is the board's declared tuning policy
-/// (`BoardDescriptor::tuning_voltage_*` in `ubos-asic`); on the BM1370
-/// hashnode that is the full series-stacked rail span, not a per-chip
-/// value. The frequency range is the shared PLL-calculator span. Each
-/// firmware crate builds its own `BOUNDS` const from this with its
-/// explicit board descriptor.
+/// The voltage ceiling is the board's open-core rail voltage
+/// (`BoardDescriptor::max_rail_voltage`: max chip voltage times the
+/// number of series domains, capped by the PSU). There is no lower
+/// limit, so the range floor is zero. The frequency range is the shared
+/// PLL-calculator span. Each firmware crate builds its own `BOUNDS`
+/// const from this with its explicit board descriptor.
 #[must_use]
 pub const fn bounds(board: &'static BoardDescriptor) -> MiningBounds {
     MiningBounds {
         frequency_mhz: 50..=1000,
-        voltage_mv: board.tuning_voltage_min_mv..=board.tuning_voltage_max_mv,
+        voltage_mv: 0..=board.max_rail_voltage().mv(),
     }
 }
 

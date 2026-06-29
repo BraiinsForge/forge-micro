@@ -171,8 +171,6 @@ const BMM_TEST_MULTI_DOMAIN: BoardDescriptor = BoardDescriptor {
     num_voltage_domains: 2,
     num_chips: 8,
     max_psu_voltage: ubos_core::units::Voltage::from_mv(5000),
-    tuning_voltage_min_mv: 0,
-    tuning_voltage_max_mv: 0,
     default_voltage_mv: 0,
     default_frequency_mhz: 0,
     cooling: crate::board::BoardCooling {
@@ -190,8 +188,6 @@ const BM1370_TEST_BOARD: BoardDescriptor = BoardDescriptor {
     num_voltage_domains: 1,
     num_chips: 1,
     max_psu_voltage: ubos_core::units::Voltage::from_mv(5000),
-    tuning_voltage_min_mv: 0,
-    tuning_voltage_max_mv: 0,
     default_voltage_mv: 0,
     default_frequency_mhz: 0,
     cooling: crate::board::BoardCooling {
