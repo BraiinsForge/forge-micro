@@ -19,6 +19,20 @@ fn test_config() -> Sv1Config {
     Sv1Config::new("alice.worker1", "x").expect("test fixture: user/password fit Sv1Config buffer")
 }
 
+#[test]
+fn configure_request_mask_matches_protocol_constant() {
+    // The `mining.configure` request hard-codes the version-rolling
+    // mask as a JSON string rather than formatting it at runtime. It
+    // must stay equal to the protocol-wide BIP320 constant; this test
+    // fails loudly if either side drifts.
+    let expected = std::format!("\"mask\":\"{:08x}\"", mining_protocol::BIP320_VERSION_MASK);
+    let body = std::str::from_utf8(CONFIGURE_MAP).expect("CONFIGURE_MAP is ASCII JSON");
+    assert!(
+        body.contains(&expected),
+        "CONFIGURE_MAP {body} must embed {expected}"
+    );
+}
+
 /// Spy visitor that records observable parameters so tests can
 /// assert on what dispatch produced.
 #[derive(Default)]

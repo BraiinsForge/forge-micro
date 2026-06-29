@@ -6,6 +6,14 @@
 //! initial session setup (the visitor sees a sequence of
 //! `SessionUpdate` events before the first `visit_new_job`).
 
+/// BIP320 version-rolling mask: the 16 bits between bit 13 and bit 28
+/// (inclusive) that a miner may flip without invalidating consensus
+/// rules. This is the standard mask V1 requests in `mining.configure`
+/// and V2 grants when the upstream advertises version rolling. It is a
+/// protocol constant, distinct from any bitmask a specific ASIC backend
+/// happens to roll in hardware.
+pub const BIP320_VERSION_MASK: u32 = 0x1FFF_E000;
+
 /// Pool-driven session reconfiguration.
 ///
 /// Borrowed slices are valid only for the duration of the `accept()`

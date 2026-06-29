@@ -22,8 +22,8 @@ use ii_sv2::security::{
 };
 use ii_sv2::types::{Str0_255, Uint256};
 use mining_protocol::{
-    Error, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob, SessionRejection,
-    SessionUpdate, Share, SubmitResult,
+    BIP320_VERSION_MASK, Error, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob,
+    SessionRejection, SessionUpdate, Share, SubmitResult,
 };
 use ubos_logging::{info, warn};
 
@@ -67,12 +67,6 @@ const DEVICE_ID: &str = "";
 /// adapter only opens one channel per session, so a fixed `1`
 /// suffices.
 const OPEN_CHANNEL_REQUEST_ID: u32 = 1;
-
-/// BIP320 version-rolling mask. The 16 bits between bit 13 and bit 28
-/// that miners may flip without invalidating consensus rules. SV2
-/// standard channels grant this mask when the upstream advertises
-/// `REQUIRES_VERSION_ROLLING` in `SetupConnectionSuccess.flags`.
-const BIP320_VERSION_MASK: u32 = 0x1FFF_E000;
 
 /// Adapter state — `PreHandshake` until `connect` finishes the
 /// noise dance, `Connected { codec, session }` afterwards.
