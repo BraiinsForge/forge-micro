@@ -5,9 +5,8 @@
 //! consumers can take additional `I2cDevice` handles from the same mutex
 //! without going through this module.
 
-use embassy_embedded_hal::shared_bus::I2cDeviceError;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-use embassy_stm32::i2c::{Error as I2cError, I2c, Master};
+use embassy_stm32::i2c::{I2c, Master};
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::mutex::Mutex;
 use portable_atomic::AtomicBool;
@@ -26,7 +25,7 @@ type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, embassy_stm32::mode:
 type PsuState = Mutex<CriticalSectionRawMutex, State<Device>>;
 /// Concrete `MiniminerPsu` instantiation for the BMM Adapter. Public so the
 /// `mining` module can spell it in `miner_task`'s signature.
-pub type BoardPsu = MiniminerPsu<Device, I2cDeviceError<I2cError>>;
+pub type BoardPsu = MiniminerPsu<Device>;
 
 static STATE: StaticCell<PsuState> = StaticCell::new();
 static TERMINATED: StaticCell<AtomicBool> = StaticCell::new();

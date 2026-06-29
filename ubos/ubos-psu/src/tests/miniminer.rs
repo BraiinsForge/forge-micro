@@ -14,10 +14,7 @@ fn make_handle(
     bus: Mock,
     config: crate::MiniminerPsuConfig,
     terminated_value: bool,
-) -> (
-    MiniminerPsu<Mock, embedded_hal_async::i2c::ErrorKind>,
-    &'static Mutex<RawMutex, State<Mock>>,
-) {
+) -> (MiniminerPsu<Mock>, &'static Mutex<RawMutex, State<Mock>>) {
     let state: &'static _ = leak(Mutex::<RawMutex, _>::new(State::new(bus, config)));
     let terminated: &'static _ = leak(AtomicBool::new(terminated_value));
     (MiniminerPsu::new(state, terminated), state)

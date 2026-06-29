@@ -37,7 +37,7 @@ type PsuStateInner = Mutex<CriticalSectionRawMutex, HashnodeState<Device>>;
 type BusError = I2cDeviceError<I2cError>;
 
 /// The shared `SIC45x` `PMBus` driver instantiated for this board's bus.
-type InnerPsu = HashnodePsu<Device, BusError>;
+type InnerPsu = HashnodePsu<Device>;
 
 static STATE: StaticCell<PsuStateInner> = StaticCell::new();
 static TERMINATED: StaticCell<AtomicBool> = StaticCell::new();

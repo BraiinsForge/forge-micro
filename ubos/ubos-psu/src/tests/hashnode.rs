@@ -14,7 +14,7 @@ fn make_handle(
     config: HashnodePsuConfig,
     terminated_value: bool,
 ) -> (
-    HashnodePsu<Mock, embedded_hal_async::i2c::ErrorKind>,
+    HashnodePsu<Mock>,
     &'static Mutex<RawMutex, HashnodeState<Mock>>,
 ) {
     let state: &'static _ = leak(Mutex::<RawMutex, _>::new(HashnodeState::new(bus, config)));

@@ -4,7 +4,7 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-use embedded_hal_async::i2c::{ErrorKind, I2c};
+use embedded_hal_async::i2c::{Error as _, ErrorKind, I2c};
 use portable_atomic::{AtomicBool, Ordering};
 use ubos_core::units::{Power, Voltage};
 
@@ -61,11 +61,7 @@ impl<I> HashnodeState<I> {
     }
 }
 
-async fn ensure_initialized<I, E>(state: &mut HashnodeState<I>) -> Result<(), Error<E>>
-where
-    I: I2c<Error = E>,
-    E: embedded_hal_async::i2c::Error,
-{
+async fn ensure_initialized<I: I2c>(state: &mut HashnodeState<I>) -> Result<(), Error<I::Error>> {
     match state.init {
         InitStatus::Initialized => return Ok(()),
         InitStatus::Failed(kind) => return Err(Error::InitFailed(kind)),
@@ -87,11 +83,7 @@ where
     Ok(())
 }
 
-async fn run_init<I, E>(state: &mut HashnodeState<I>) -> Result<(), Error<E>>
-where
-    I: I2c<Error = E>,
-    E: embedded_hal_async::i2c::Error,
-{
+async fn run_init<I: I2c>(state: &mut HashnodeState<I>) -> Result<(), Error<I::Error>> {
     // Why: the INA230's VS pin is powered by the SIC output rail.
     // The rail is off during init, so the INA is below its operating
     // voltage (~2.7 V). We attempt init optimistically and continue on
@@ -115,20 +107,12 @@ where
 /// Handle to the Hashnode PSU. Cheap to clone-by-reference; the
 /// underlying state lives behind a `'static` mutex supplied by the
 /// caller.
-pub struct HashnodePsu<I, E>
-where
-    I: I2c<Error = E> + 'static,
-    E: embedded_hal_async::i2c::Error + 'static,
-{
+pub struct HashnodePsu<I: I2c + 'static> {
     state: &'static Mutex<RawMutex, HashnodeState<I>>,
     terminated: &'static AtomicBool,
 }
 
-impl<I, E> HashnodePsu<I, E>
-where
-    I: I2c<Error = E> + 'static,
-    E: embedded_hal_async::i2c::Error + 'static,
-{
+impl<I: I2c + 'static> HashnodePsu<I> {
     /// Construct a handle from `'static` state and terminated flag.
     pub fn new(
         state: &'static Mutex<RawMutex, HashnodeState<I>>,
@@ -138,14 +122,10 @@ where
     }
 }
 
-impl<I, E> Psu for HashnodePsu<I, E>
-where
-    I: I2c<Error = E> + 'static,
-    E: embedded_hal_async::i2c::Error + 'static,
-{
-    type BusError = E;
+impl<I: I2c + 'static> Psu for HashnodePsu<I> {
+    type BusError = I::Error;
 
-    async fn enable(&self) -> Result<(), Error<E>> {
+    async fn enable(&self) -> Result<(), Error<I::Error>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -155,7 +135,7 @@ where
         sic45x::enable(i2c, &config.sic).await
     }
 
-    async fn disable(&self) -> Result<(), Error<E>> {
+    async fn disable(&self) -> Result<(), Error<I::Error>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -165,7 +145,7 @@ where
         sic45x::disable(i2c, &config.sic).await
     }
 
-    async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<E>> {
+    async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<I::Error>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -182,7 +162,7 @@ where
         result
     }
 
-    async fn read_input_power(&self) -> Result<Power, Error<E>> {
+    async fn read_input_power(&self) -> Result<Power, Error<I::Error>> {
         // The Hashnode/Femto stage has no input-side power monitor: the
         // only sensor (INA230) sits on the output rail and is reported by
         // read_output_power. Report zero so consumers leave "input" blank
@@ -193,7 +173,7 @@ where
         Ok(Power::from_mw(0))
     }
 
-    async fn read_output_power(&self) -> Result<Power, Error<E>> {
+    async fn read_output_power(&self) -> Result<Power, Error<I::Error>> {
         // The INA230 measures the output (chip) rail directly and is the
         // accurate figure. The SIC's own READ_POUT is less accurate and
         // intentionally not reported.
@@ -209,7 +189,7 @@ where
             .map_err(Error::Bus)
     }
 
-    async fn read_output_voltage(&self) -> Result<Voltage, Error<E>> {
+    async fn read_output_voltage(&self) -> Result<Voltage, Error<I::Error>> {
         // Read from the SIC's own READ_VOUT, not the INA230: the INA is
         // powered off the output rail and is asleep until that rail
         // comes up, whereas the SIC reports VOUT as soon as VIN exists.
@@ -224,7 +204,7 @@ where
             .map(Voltage::from_mv)
     }
 
-    async fn read_secondary_voltage(&self) -> Option<Result<Voltage, Error<E>>> {
+    async fn read_secondary_voltage(&self) -> Option<Result<Voltage, Error<I::Error>>> {
         // Cross-check the SIC's READ_VOUT against the INA230's own bus-voltage
         // measurement of the same output rail. The INA is powered off that
         // rail, so this errors until the rail is up, and the caller drops the
@@ -253,7 +233,7 @@ where
         Some("ina230")
     }
 
-    async fn read_status(&self) -> Result<crate::StatusFlags, Error<E>> {
+    async fn read_status(&self) -> Result<crate::StatusFlags, Error<I::Error>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }

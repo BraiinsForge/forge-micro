@@ -7,7 +7,7 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-use embedded_i2c_unix::{Error as HostI2cError, I2c as HostI2c};
+use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
@@ -18,7 +18,7 @@ use ubos_psu::{MiniminerPsu, MiniminerPsuConfig, State, run_power_stats, run_wat
 /// skips the miner.
 pub const I2C_BUS_ENV: &str = "UBOS_I2C_BUS";
 
-pub type HostPsu = MiniminerPsu<HostI2c, HostI2cError>;
+pub type HostPsu = MiniminerPsu<HostI2c>;
 pub type HostState = Mutex<CriticalSectionRawMutex, State<HostI2c>>;
 
 static STATE: StaticCell<HostState> = StaticCell::new();

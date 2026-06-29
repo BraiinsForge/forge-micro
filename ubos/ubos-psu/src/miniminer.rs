@@ -23,20 +23,12 @@ pub type RawMutex = CriticalSectionRawMutex;
 /// Handle to the miniminer PSU. Cheap to clone-by-reference; the
 /// underlying state lives behind a `'static` mutex supplied by the
 /// caller.
-pub struct MiniminerPsu<I, E>
-where
-    I: I2c<Error = E> + 'static,
-    E: embedded_hal_async::i2c::Error + 'static,
-{
+pub struct MiniminerPsu<I: I2c + 'static> {
     state: &'static Mutex<RawMutex, State<I>>,
     terminated: &'static AtomicBool,
 }
 
-impl<I, E> MiniminerPsu<I, E>
-where
-    I: I2c<Error = E> + 'static,
-    E: embedded_hal_async::i2c::Error + 'static,
-{
+impl<I: I2c + 'static> MiniminerPsu<I> {
     /// Construct a handle. Spawn `run_watchdog` separately on the
     /// same `state` + `terminated` references to drive the
     /// SLG46826G heartbeat.
@@ -49,13 +41,10 @@ where
 /// `config.watchdog_interval`, sends a heartbeat to the
 /// `SLG46826G` if init has succeeded. Returns once `terminated`
 /// flips to `true`.
-pub async fn run_watchdog<I, E>(
+pub async fn run_watchdog<I: I2c>(
     state: &'static Mutex<RawMutex, State<I>>,
     terminated: &'static AtomicBool,
-) where
-    I: I2c<Error = E>,
-    E: embedded_hal_async::i2c::Error,
-{
+) {
     let interval = {
         let guard = state.lock().await;
         guard.config.watchdog_interval
@@ -77,14 +66,10 @@ pub async fn run_watchdog<I, E>(
     }
 }
 
-impl<I, E> Psu for MiniminerPsu<I, E>
-where
-    I: I2c<Error = E> + 'static,
-    E: embedded_hal_async::i2c::Error + 'static,
-{
-    type BusError = E;
+impl<I: I2c + 'static> Psu for MiniminerPsu<I> {
+    type BusError = I::Error;
 
-    async fn enable(&self) -> Result<(), Error<E>> {
+    async fn enable(&self) -> Result<(), Error<I::Error>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -94,7 +79,7 @@ where
         tps6287x::enable(i2c, config).await
     }
 
-    async fn disable(&self) -> Result<(), Error<E>> {
+    async fn disable(&self) -> Result<(), Error<I::Error>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -104,7 +89,7 @@ where
         tps6287x::disable(i2c, config).await
     }
 
-    async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<E>> {
+    async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<I::Error>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -121,7 +106,7 @@ where
         result
     }
 
-    async fn read_input_power(&self) -> Result<Power, Error<E>> {
+    async fn read_input_power(&self) -> Result<Power, Error<I::Error>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -138,7 +123,7 @@ where
         .map_err(Error::Bus)
     }
 
-    async fn read_output_power(&self) -> Result<Power, Error<E>> {
+    async fn read_output_power(&self) -> Result<Power, Error<I::Error>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -155,7 +140,7 @@ where
         .map_err(Error::Bus)
     }
 
-    async fn read_output_voltage(&self) -> Result<Voltage, Error<E>> {
+    async fn read_output_voltage(&self) -> Result<Voltage, Error<I::Error>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
@@ -168,7 +153,7 @@ where
             .map_err(Error::Bus)
     }
 
-    async fn read_status(&self) -> Result<crate::StatusFlags, Error<E>> {
+    async fn read_status(&self) -> Result<crate::StatusFlags, Error<I::Error>> {
         if self.terminated.load(Ordering::Acquire) {
             return Err(Error::Terminated);
         }
