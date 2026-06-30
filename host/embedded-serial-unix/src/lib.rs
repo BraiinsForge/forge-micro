@@ -111,51 +111,6 @@ fn baud_to_speed(baud: u32) -> io::Result<libc::speed_t> {
     Ok(speed)
 }
 
-/// Reverse of [`baud_to_speed`]. Returns `InvalidData` if the tty was
-/// configured by another process to a rate outside the standard
-/// table.
-fn speed_to_baud(speed: libc::speed_t) -> io::Result<u32> {
-    let baud = match speed {
-        libc::B50 => 50,
-        libc::B75 => 75,
-        libc::B110 => 110,
-        libc::B134 => 134,
-        libc::B150 => 150,
-        libc::B200 => 200,
-        libc::B300 => 300,
-        libc::B600 => 600,
-        libc::B1200 => 1200,
-        libc::B1800 => 1800,
-        libc::B2400 => 2400,
-        libc::B4800 => 4800,
-        libc::B9600 => 9600,
-        libc::B19200 => 19200,
-        libc::B38400 => 38400,
-        libc::B57600 => 57600,
-        libc::B115200 => 115_200,
-        libc::B230400 => 230_400,
-        libc::B460800 => 460_800,
-        libc::B500000 => 500_000,
-        libc::B576000 => 576_000,
-        libc::B921600 => 921_600,
-        libc::B1000000 => 1_000_000,
-        libc::B1152000 => 1_152_000,
-        libc::B1500000 => 1_500_000,
-        libc::B2000000 => 2_000_000,
-        libc::B2500000 => 2_500_000,
-        libc::B3000000 => 3_000_000,
-        libc::B3500000 => 3_500_000,
-        libc::B4000000 => 4_000_000,
-        _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "termios reports a baud rate not in the supported table",
-            ));
-        }
-    };
-    Ok(baud)
-}
-
 /// Initial termios setup: 8N1 raw mode at the requested baud.
 fn configure(fd: RawFd, baud: u32) -> io::Result<()> {
     let speed = baud_to_speed(baud)?;
@@ -195,15 +150,6 @@ fn apply_baud(fd: RawFd, baud: u32) -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     Ok(())
-}
-
-fn current_baud(fd: RawFd) -> io::Result<u32> {
-    let mut termios: libc::termios = unsafe { std::mem::zeroed() };
-    if unsafe { libc::tcgetattr(fd, std::ptr::from_mut(&mut termios)) } == -1 {
-        return Err(io::Error::last_os_error());
-    }
-    let speed = unsafe { libc::cfgetospeed(std::ptr::from_ref(&termios)) };
-    speed_to_baud(speed)
 }
 
 /// Duplex handle over a Linux serial device. Construct with
@@ -249,21 +195,9 @@ fn map_set_baud_err(error: &io::Error, baud: u32) -> embedded_io::ErrorKind {
     }
 }
 
-fn map_get_baud_err(error: &io::Error) -> embedded_io::ErrorKind {
-    log::error!("baudrate() failed: {error}");
-    if error.kind() == io::ErrorKind::InvalidData {
-        embedded_io::ErrorKind::InvalidData
-    } else {
-        embedded_io::ErrorKind::Other
-    }
-}
-
 impl serial_baudrate::BaudRate for Serial {
-    fn set_baudrate(&self, baud: u32) -> Result<(), embedded_io::ErrorKind> {
+    fn set_baudrate(&mut self, baud: u32) -> Result<(), embedded_io::ErrorKind> {
         apply_baud(self.inner.get_ref().as_raw_fd(), baud).map_err(|e| map_set_baud_err(&e, baud))
-    }
-    fn baudrate(&self) -> Result<u32, embedded_io::ErrorKind> {
-        current_baud(self.inner.get_ref().as_raw_fd()).map_err(|e| map_get_baud_err(&e))
     }
 }
 

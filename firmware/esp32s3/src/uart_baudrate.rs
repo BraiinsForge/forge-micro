@@ -1,180 +1,64 @@
 //! `serial_baudrate::BaudRate` wrapper for the ESP32-S3 `UART0`.
 //!
-//! `ubos_mining::serial::Serial::run` drives a single full-duplex instance
-//! that implements `Read + Write + serial_baudrate::BaudRate`, so `MinerUart`
-//! holds both split `UART0` halves together. The split `UartRx` / `UartTx`
-//! halves expose `apply_config` but that method only resets the FIFO; it
-//! does not touch the clock divider. To change the baud rate without the
-//! unsplit `Uart` handle we write the `CLKDIV` register directly via the
-//! static `UART0::regs()` accessor.
+//! `ubos_mining::serial::Serial::run` drives one full-duplex instance. esp-hal
+//! exposes runtime baud control only on the unsplit `Uart` (the split
+//! `UartRx`/`UartTx::apply_config` reset their FIFOs but never touch the clock
+//! divider), so `MinerUart` holds the unsplit `Uart<'static, Async>` and
+//! retunes via `Uart::apply_config`. That path reprograms `CLKDIV` from the
+//! configured source clock and pulses `reg_update` itself, replacing the
+//! hand-written register sequence this module used to carry.
 //!
-//! ESP32-S3 Technical Reference Manual §26.3.2: the UART baud-rate generator
-//! is driven by `UART_SCLK`. esp-hal selects the 40 MHz XTAL as that source by
-//! default (`CLK_CONF` `sclk_sel` = 3, SCLK pre-divider 1), not the 80 MHz APB.
-//! The divider is a 12-bit integer plus a 4-bit fractional field; the hardware
-//! computes:
-//!
-//!   `baud = UART_SCLK / ((CLKDIV << 4 | FRAG) / 16)`
-//!
-//! For the integer-only case (`FRAG` = 0):
-//!
-//!   `CLKDIV = (UART_SCLK << 4) / (baud * clk_div)`
-//!
-//! where `clk_div` is the SCLK pre-divider, 1 across the baud rates used here
-//! (115 200 – 3 000 000), so `CLKDIV = (40_000_000 << 4) / baud` (integer
-//! truncation). We leave `sclk_sel` and the pre-divider as esp-hal programmed
-//! them in `Uart::new` and only rewrite `CLKDIV`; matching the 40 MHz source
-//! is what makes that single-register rewrite reproduce esp-hal's own value.
-//!
-//! The `ubos-mining` serial actor drains for one second on each side of a
-//! baud-rate change, so no in-flight character guard is needed before writing
-//! `CLKDIV`.
+//! `Uart`'s `embedded_io` error type is `esp_hal::uart::IoError`, which already
+//! unifies the RX and TX error halves, so no local error enum is needed.
 
-use embedded_io_async::{Error, ErrorKind, ErrorType, Read, Write};
-use esp_hal::peripherals::UART0;
-use esp_hal::uart::{RxError, TxError, UartRx, UartTx};
+use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
+use esp_hal::uart::{Config as UartConfig, IoError, Uart};
 use serial_baudrate::BaudRate;
 
-/// UART0 source-clock (`UART_SCLK`) frequency in Hz. esp-hal selects the
-/// 40 MHz XTAL as the UART function clock by default (`CLK_CONF` `sclk_sel` = 3,
-/// pre-divider 1), not the 80 MHz APB. Verified against the registers esp-hal
-/// programs for 115200: clkdiv = 5555 = (40 MHz << 4) / 115200. Using 80 MHz
-/// here doubled every divider and halved the real baud (115200 -> 57600), so
-/// the chips saw undecodable frames and never answered.
-const UART_SCLK_HZ: u32 = 40_000_000;
-
-/// Unified `embedded_io` error for the single full-duplex `MinerUart`. The
-/// split `UartRx`/`UartTx` halves carry distinct error types, so this wraps
-/// both and forwards `kind()`.
-#[derive(Debug)]
-pub enum MinerUartError {
-    Rx(RxError),
-    Tx(TxError),
-}
-
-impl core::fmt::Display for MinerUartError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            MinerUartError::Rx(e) => write!(f, "UART RX error: {e:?}"),
-            MinerUartError::Tx(e) => write!(f, "UART TX error: {e:?}"),
-        }
-    }
-}
-
-// embedded-io 0.7's `Error` supertrait is `core::error::Error`, not `Debug`.
-impl core::error::Error for MinerUartError {}
-
-impl Error for MinerUartError {
-    fn kind(&self) -> ErrorKind {
-        match self {
-            MinerUartError::Rx(e) => e.kind(),
-            MinerUartError::Tx(e) => e.kind(),
-        }
-    }
-}
-
 /// The BM1362 serial link over `UART0`. `ubos_mining::serial::Serial::run`
-/// drives a single full-duplex instance, so the two `UART0` halves are held
-/// together here; both `set_baudrate` calls retune the same `CLKDIV` register.
+/// drives a single full-duplex instance, so `MinerUart` holds the unsplit
+/// `Uart` and delegates `Read`/`Write`/`set_baudrate` straight to it.
 pub struct MinerUart {
-    rx: UartRx<'static, esp_hal::Async>,
-    tx: UartTx<'static, esp_hal::Async>,
+    inner: Uart<'static, esp_hal::Async>,
 }
 
 impl MinerUart {
-    /// Combine the split `UART0` halves into one full-duplex instance.
+    /// Wrap the unsplit `UART0` for use as the BM1362 serial link.
     #[must_use]
-    pub fn new(rx: UartRx<'static, esp_hal::Async>, tx: UartTx<'static, esp_hal::Async>) -> Self {
-        Self { rx, tx }
+    pub fn new(uart: Uart<'static, esp_hal::Async>) -> Self {
+        Self { inner: uart }
     }
 }
 
 impl ErrorType for MinerUart {
-    type Error = MinerUartError;
+    type Error = IoError;
 }
 
+// `Uart`'s inherent methods shadow the async trait methods, so dispatch
+// through the traits explicitly.
 impl Read for MinerUart {
     async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
-        embedded_io_async::Read::read(&mut self.rx, buffer)
-            .await
-            .map_err(MinerUartError::Rx)
+        Read::read(&mut self.inner, buffer).await
     }
 }
 
 impl Write for MinerUart {
     async fn write(&mut self, buffer: &[u8]) -> Result<usize, Self::Error> {
-        embedded_io_async::Write::write(&mut self.tx, buffer)
-            .await
-            .map_err(MinerUartError::Tx)
+        Write::write(&mut self.inner, buffer).await
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        embedded_io_async::Write::flush(&mut self.tx)
-            .await
-            .map_err(MinerUartError::Tx)
+        Write::flush(&mut self.inner).await
     }
 }
 
 impl BaudRate for MinerUart {
-    fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind> {
-        write_uart0_clkdiv(baud)
+    fn set_baudrate(&mut self, baud: u32) -> Result<(), ErrorKind> {
+        // `Config::default()` is the 8N1 config `Uart::new` was built with, so
+        // re-applying it with the new baud reproduces the boot settings on the
+        // new rate. The ubos-mining actor drains 1 s on either side.
+        self.inner
+            .apply_config(&UartConfig::default().with_baudrate(baud))
+            .map_err(|_| ErrorKind::Unsupported)
     }
-
-    fn baudrate(&self) -> Result<u32, ErrorKind> {
-        read_uart0_clkdiv()
-    }
-}
-
-/// Write a new baud rate divisor to `UART0 CLKDIV`.
-///
-/// ESP32-S3 TRM §26.3.2: `CLKDIV = (UART_SCLK << 4) / baud` (with the SCLK
-/// pre-divider 1). The `ubos-mining` serial actor drains for one second on either
-/// side of a baud-rate change, so no in-flight character guard is needed here.
-/// `UART0::regs()` is a static PAC accessor; the ubos-mining serial actor's internal
-/// mutex ensures only one task calls `set_baudrate` at a time.
-fn write_uart0_clkdiv(baud: u32) -> Result<(), ErrorKind> {
-    if baud == 0 {
-        return Err(ErrorKind::InvalidInput);
-    }
-    // (UART_SCLK << 4) / baud gives the combined integer+frag field.
-    let divider = (u64::from(UART_SCLK_HZ) << 4) / u64::from(baud);
-    let divider_integer = divider >> 4;
-    let divider_frag = (divider & 0xf) as u8;
-    if divider_integer == 0 || divider_integer > 0xFFF {
-        return Err(ErrorKind::InvalidInput);
-    }
-    // CLKDIV is a 12-bit field; the range check above guarantees the value fits.
-    #[allow(clippy::cast_possible_truncation)]
-    let divider_integer = divider_integer as u16;
-    // Safety: UART0::regs() returns a stable static register-block pointer.
-    // The ubos-mining serial actor serialises set_baudrate calls so no concurrent
-    // write races are possible.
-    let regs = UART0::regs();
-    regs.clkdiv()
-        .write(|w| unsafe { w.clkdiv().bits(divider_integer).frag().bits(divider_frag) });
-    // The ESP32-S3 latches CLKDIV (and other UART config) into the core only
-    // when the `reg_update` bit in the UART_ID register is pulsed; esp-hal does
-    // this in its `sync_regs`. Without it the divisor write never takes effect,
-    // so the first real baud change (115200 -> 3.125 Mbaud) leaves the line
-    // mis-clocked and the serial worker hangs (super-WDT reset). The boot baud
-    // worked only because `Uart::new` already synced 115200. The bit
-    // self-clears within a few core cycles, matching esp-hal's spin.
-    regs.id().modify(|_, w| w.reg_update().set_bit());
-    while regs.id().read().reg_update().bit_is_set() {}
-    Ok(())
-}
-
-/// Read back the baud rate from `UART0 CLKDIV`.
-fn read_uart0_clkdiv() -> Result<u32, ErrorKind> {
-    let regs = UART0::regs();
-    let reg = regs.clkdiv().read();
-    let integer = u64::from(reg.clkdiv().bits());
-    let frag = u64::from(reg.frag().bits());
-    let combined = (integer << 4) | frag;
-    if combined == 0 {
-        return Err(ErrorKind::InvalidData);
-    }
-    // Inverse of the write formula; rounded.
-    let baud = (u64::from(UART_SCLK_HZ) << 4) / combined;
-    u32::try_from(baud).map_err(|_| ErrorKind::InvalidData)
 }

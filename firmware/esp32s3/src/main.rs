@@ -401,8 +401,7 @@ async fn boot(spawner: Spawner) {
                     .with_tx(tx_pin)
                     .with_rx(rx_pin)
                     .into_async();
-                let (uart_rx, uart_tx) = uart.split();
-                uart_baudrate::MinerUart::new(uart_rx, uart_tx)
+                uart_baudrate::MinerUart::new(uart)
             };
             let executor = APP_EXECUTOR.init(esp_rtos::embassy::Executor::new());
             executor.run_with_callbacks(

@@ -14,9 +14,10 @@
 
 use embedded_io::ErrorKind;
 
-/// Get or set the line rate of a serial port. Implementations are
-/// expected to be synchronous: changing the baud rate is a tty
-/// `tcsetattr`-shaped operation, not an async I/O call.
+/// Set the line rate of a serial port. Implementations are expected to be
+/// synchronous: changing the baud rate is a tty `tcsetattr`-shaped operation,
+/// not an async I/O call. The mining serial actor owns the port exclusively,
+/// so the method takes `&mut self` and can delegate straight to the HAL.
 pub trait BaudRate {
     /// Apply `baud` to the line. Effective immediately on success.
     ///
@@ -25,14 +26,5 @@ pub trait BaudRate {
     /// `Unsupported` if the rate is not in the backend's table; `Other`
     /// for backend-specific failures (the backend should log the real
     /// error before mapping).
-    fn set_baudrate(&self, baud: u32) -> Result<(), ErrorKind>;
-
-    /// Read back the current line rate.
-    ///
-    /// # Errors
-    ///
-    /// `Other` if the backend cannot read its own state; `InvalidData`
-    /// if the kernel reports a rate the backend cannot map back to a
-    /// numeric value.
-    fn baudrate(&self) -> Result<u32, ErrorKind>;
+    fn set_baudrate(&mut self, baud: u32) -> Result<(), ErrorKind>;
 }

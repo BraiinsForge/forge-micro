@@ -105,15 +105,21 @@ moves to Core 1, bump it to `CriticalSectionRawMutex`.
 ## UART baud-rate switching
 
 The BM1362 boots at one baud rate and the host bumps it after init.
-embassy-rp 0.10 exposes runtime baud-rate switching only on the unsplit
-`BufferedUart` via `&mut self`; the per-half `info: &'static Info` that
-drives `set_baudrate_inner` is private. `ubos_mining::serial::Serial::run` takes
-two independent halves, each implementing `serial_baudrate::BaudRate`
-with `&self`. The `firmware/bmm-pico/src/uart_baudrate.rs` wrapper
-re-implements the PL011 divisor math against the PAC, mirroring
-`embassy_rp::uart::Uart::set_baudrate_inner`, so each half can retune the
-line. The PL011 `ibrd` field is 16 bits, so the integer divisor
-saturates at 65 535 like the reference implementation.
+The actor owns one full-duplex instance, so
+`ubos_mining::serial::Serial::run` takes a single UART by `&mut self`
+and each board wraps its UART as one `MinerUart` implementing
+`serial_baudrate::BaudRate`. Each wrapper delegates to the HAL's own
+baud setter rather than poking divisor registers directly:
+`BufferedUart::set_baudrate` on the embassy-rp boards (bmm-pico,
+rp2040, rp2350, hashnode), `UartTx::set_baudrate` on embassy-stm32
+(stm32f407, stm32f439), and `Uart::apply_config` on esp-hal, which
+must hold the unsplit `Uart` because esp-hal exposes no baud setter on
+the split halves. The HAL paths run the full reconfigure dance the
+bare register write skipped: embassy-rp the PL011 disable and
+15-baud settle, embassy-stm32 the OVER8 auto-select from the captured
+kernel clock, esp-hal the `reg_update` pulse. A zero baud rate is
+rejected once in the actor, since the embassy-rp and embassy-stm32
+setters divide by the rate and would otherwise panic.
 
 ## Logging facade
 
