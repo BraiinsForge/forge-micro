@@ -36,7 +36,7 @@ pub struct HashnodePsuConfig {
 impl HashnodePsuConfig {
     /// Default configuration for the BOS Hashnode board.
     pub const DEFAULT: Self = Self {
-        sic: crate::sic45x::Sic45xConfig::FEMTO,
+        sic: crate::sic45x::Sic45xConfig::DEFAULT,
         ina_address: 0x53,
         ina_max_current_a: 30,
         ina_shunt_microohm: 2_000,

@@ -43,7 +43,7 @@ fn ina_init_transactions(address: u8, max_current_a: u32, shunt_microohm: u32) -
     ]
 }
 
-/// Build the full 21-transaction `SIC45x` init sequence from `Sic45xConfig::FEMTO`.
+/// Build the full 21-transaction `SIC45x` init sequence from `Sic45xConfig::DEFAULT`.
 fn sic_init_transactions() -> Vec<Transaction> {
     use crate::sic45x::{
         CLEAR_FAULTS, IOUT_OC_FAULT_LIMIT, IOUT_OC_FAULT_RESPONSE, IOUT_OC_WARN_LIMIT,
@@ -54,7 +54,7 @@ fn sic_init_transactions() -> Vec<Transaction> {
         encode_temp, encode_vout,
     };
 
-    let config = &Sic45xConfig::FEMTO;
+    let config = &Sic45xConfig::DEFAULT;
     let address = config.address;
 
     let scale = config.loop_scale.register().to_le_bytes();

@@ -188,8 +188,9 @@ pub struct Sic45xConfig {
 }
 
 impl Sic45xConfig {
-    /// BOS Femto board default configuration.
-    pub const FEMTO: Self = Self {
+    /// Default `SIC45x` configuration. The operating-point values are
+    /// taken from the Femto miner.
+    pub const DEFAULT: Self = Self {
         address: 0x10,
         initial_millivolts: 600,
         loop_scale: LoopScale::Scale0_5,

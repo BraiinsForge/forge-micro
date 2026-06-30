@@ -179,9 +179,9 @@ mod bus_tests {
         embassy_futures::block_on(future)
     }
 
-    /// Build the full 21-transaction init sequence for FEMTO config.
-    fn femto_init_expectations() -> Vec<Transaction> {
-        let config = &Sic45xConfig::FEMTO;
+    /// Build the full 21-transaction init sequence for the default config.
+    fn default_init_expectations() -> Vec<Transaction> {
+        let config = &Sic45xConfig::DEFAULT;
         let address = config.address;
 
         let scale = config.loop_scale.register().to_le_bytes();
@@ -257,16 +257,16 @@ mod bus_tests {
     }
 
     #[test]
-    fn init_writes_full_sequence_for_femto() {
-        let expectations = femto_init_expectations();
+    fn init_writes_full_sequence_for_default_config() {
+        let expectations = default_init_expectations();
         let mut bus = Mock::new(&expectations);
-        run(init(&mut bus, &Sic45xConfig::FEMTO)).expect("BUG: init failed");
+        run(init(&mut bus, &Sic45xConfig::DEFAULT)).expect("BUG: init failed");
         bus.done();
     }
 
     #[test]
     fn enable_reads_operation_then_sets_on_bit_then_clears_faults() {
-        let config = &Sic45xConfig::FEMTO;
+        let config = &Sic45xConfig::DEFAULT;
         let address = config.address;
 
         let expectations = [
@@ -282,7 +282,7 @@ mod bus_tests {
 
     #[test]
     fn disable_reads_operation_then_clears_on_bit() {
-        let config = &Sic45xConfig::FEMTO;
+        let config = &Sic45xConfig::DEFAULT;
         let address = config.address;
 
         let expectations = [
@@ -297,7 +297,7 @@ mod bus_tests {
 
     #[test]
     fn set_voltage_out_of_range_does_not_touch_bus() {
-        let config = &Sic45xConfig::FEMTO;
+        let config = &Sic45xConfig::DEFAULT;
         // Below minimum (400 mV).
         let mut bus = Mock::new(&[]);
         let result = run(set_voltage(&mut bus, config, 300));
@@ -313,7 +313,7 @@ mod bus_tests {
 
     #[test]
     fn set_voltage_in_range_writes_vout_command() {
-        let config = &Sic45xConfig::FEMTO;
+        let config = &Sic45xConfig::DEFAULT;
         let address = config.address;
         let bytes = encode_vout(1000).to_le_bytes();
 
@@ -329,7 +329,7 @@ mod bus_tests {
 
     #[test]
     fn read_status_decodes_status_byte() {
-        let config = &Sic45xConfig::FEMTO;
+        let config = &Sic45xConfig::DEFAULT;
         let address = config.address;
         // bit5 = VOUT_OV only.
         let expectations = [Transaction::write_read(
@@ -349,7 +349,7 @@ mod bus_tests {
 
     #[test]
     fn read_pout_mw_decodes_known_reading() {
-        let config = &Sic45xConfig::FEMTO;
+        let config = &Sic45xConfig::DEFAULT;
         let address = config.address;
         // 0xF81E encodes 15 W (15000 milli-units); LE wire = [0x1E, 0xF8].
         let expectations = [Transaction::write_read(
