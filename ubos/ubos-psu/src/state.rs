@@ -1,8 +1,9 @@
-//! Internal state held inside the `MiniminerPsu` mutex.
+//! Internal state container and initialization gating shared by all PSU
+//! drivers.
 
 use embedded_hal_async::i2c::{ErrorKind, I2c};
 
-use crate::{Error, MiniminerPsuConfig, ina230, tps6287x, watchdog};
+use crate::Error;
 
 #[cfg(test)]
 #[path = "tests/state.rs"]
@@ -15,15 +16,23 @@ pub(crate) enum InitStatus {
     Failed(ErrorKind),
 }
 
-/// State protected by the `MiniminerPsu` mutex.
-pub struct State<I> {
+/// Per-PSU initialization routine. Implemented by each config type so the
+/// shared [`ensure_initialized`] can call the right set of I2C transactions
+/// without knowing the concrete IC topology.
+pub(crate) trait PsuInit<I: I2c> {
+    async fn run_init(i2c: &mut I, config: &Self) -> Result<(), Error<I::Error>>;
+}
+
+/// State protected by a PSU mutex. Generic over the I2C bus `I` and the
+/// config type `C`, which supplies the per-PSU [`PsuInit`] logic.
+pub struct State<I, C> {
     pub(crate) i2c: I,
-    pub(crate) config: MiniminerPsuConfig,
+    pub(crate) config: C,
     pub(crate) init: InitStatus,
 }
 
-impl<I> State<I> {
-    pub fn new(i2c: I, config: MiniminerPsuConfig) -> Self {
+impl<I, C> State<I, C> {
+    pub fn new(i2c: I, config: C) -> Self {
         Self {
             i2c,
             config,
@@ -32,10 +41,11 @@ impl<I> State<I> {
     }
 }
 
-pub(crate) async fn ensure_initialized<I, E>(state: &mut State<I>) -> Result<(), Error<E>>
+pub(crate) async fn ensure_initialized<I, C, E>(state: &mut State<I, C>) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
+    C: PsuInit<I>,
 {
     match state.init {
         InitStatus::Initialized => return Ok(()),
@@ -43,7 +53,7 @@ where
         InitStatus::NotInit => {}
     }
 
-    if let Err(error) = run_init(state).await {
+    if let Err(error) = C::run_init(&mut state.i2c, &state.config).await {
         let kind = match &error {
             Error::Bus(bus) => bus.kind(),
             // Init only constructs Bus or OutOfRange (the latter
@@ -59,39 +69,9 @@ where
     Ok(())
 }
 
-async fn run_init<I, E>(state: &mut State<I>) -> Result<(), Error<E>>
-where
-    I: I2c<Error = E>,
-    E: embedded_hal_async::i2c::Error,
-{
-    watchdog::init(&mut state.i2c, state.config.watchdog_address)
-        .await
-        .map_err(Error::Bus)?;
-    ina230::init(
-        &mut state.i2c,
-        state.config.ina_input_address,
-        state.config.ina_input_max_current_a,
-        state.config.ina_input_shunt_microohm,
-    )
-    .await
-    .map_err(Error::Bus)?;
-    ina230::init(
-        &mut state.i2c,
-        state.config.ina_output_address,
-        state.config.ina_output_max_current_a,
-        state.config.ina_output_shunt_microohm,
-    )
-    .await
-    .map_err(Error::Bus)?;
-    tps6287x::init(&mut state.i2c, &state.config).await?;
-    watchdog::heartbeat(&mut state.i2c, state.config.watchdog_address)
-        .await
-        .map_err(Error::Bus)
-}
-
 #[cfg(test)]
 pub(crate) mod test_support {
-    use super::*;
+    use crate::MiniminerPsuConfig;
     use embedded_hal_mock::eh1::i2c::Transaction;
 
     /// Build the I2C transaction sequence that `run_init` produces
@@ -101,6 +81,8 @@ pub(crate) mod test_support {
     const INA_CONFIG: u16 = 0b0100_0001_0010_0111;
 
     pub fn init_transactions(config: &MiniminerPsuConfig) -> Vec<Transaction> {
+        use crate::{ina230, tps6287x};
+
         let dac = config
             .dcdc_voltage_range
             .voltage_to_dac(config.dcdc_initial.mv())

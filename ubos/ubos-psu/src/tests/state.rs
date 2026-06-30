@@ -1,4 +1,5 @@
 use super::*;
+use crate::MiniminerPsuConfig;
 use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
 
 fn run<F: core::future::Future>(future: F) -> F::Output {

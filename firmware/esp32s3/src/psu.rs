@@ -24,7 +24,7 @@ pub type Bus = Mutex<NoopRawMutex, I2c<'static, esp_hal::Async>>;
 type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, esp_hal::Async>>;
 
 /// PSU state guarded by the raw mutex `MiniminerPsu` requires.
-type PsuState = Mutex<CriticalSectionRawMutex, State<Device>>;
+type PsuState = Mutex<CriticalSectionRawMutex, State<Device, MiniminerPsuConfig>>;
 
 /// Concrete `MiniminerPsu` instantiation for the BMM Adapter. Public so the
 /// `mining` module can spell it in `miner_task`'s signature.

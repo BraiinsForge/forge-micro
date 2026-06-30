@@ -9,8 +9,8 @@ use ubos_logging::{info, warn};
 
 use ubos_core::units::{Power, Voltage};
 
-use crate::state::{InitStatus, State, ensure_initialized};
-use crate::{Error, Psu, ina230, tps6287x, watchdog};
+use crate::state::{InitStatus, PsuInit, State, ensure_initialized};
+use crate::{Error, MiniminerPsuConfig, Psu, ina230, tps6287x, watchdog};
 
 #[cfg(test)]
 #[path = "tests/miniminer.rs"]
@@ -20,11 +20,39 @@ mod tests;
 /// `'static` mutex storage cell.
 pub type RawMutex = CriticalSectionRawMutex;
 
+impl<I: I2c> PsuInit<I> for MiniminerPsuConfig {
+    async fn run_init(i2c: &mut I, config: &Self) -> Result<(), Error<I::Error>> {
+        watchdog::init(i2c, config.watchdog_address)
+            .await
+            .map_err(Error::Bus)?;
+        ina230::init(
+            i2c,
+            config.ina_input_address,
+            config.ina_input_max_current_a,
+            config.ina_input_shunt_microohm,
+        )
+        .await
+        .map_err(Error::Bus)?;
+        ina230::init(
+            i2c,
+            config.ina_output_address,
+            config.ina_output_max_current_a,
+            config.ina_output_shunt_microohm,
+        )
+        .await
+        .map_err(Error::Bus)?;
+        tps6287x::init(i2c, config).await?;
+        watchdog::heartbeat(i2c, config.watchdog_address)
+            .await
+            .map_err(Error::Bus)
+    }
+}
+
 /// Handle to the miniminer PSU. Cheap to clone-by-reference; the
 /// underlying state lives behind a `'static` mutex supplied by the
 /// caller.
 pub struct MiniminerPsu<I: I2c + 'static> {
-    state: &'static Mutex<RawMutex, State<I>>,
+    state: &'static Mutex<RawMutex, State<I, MiniminerPsuConfig>>,
     terminated: &'static AtomicBool,
 }
 
@@ -32,7 +60,10 @@ impl<I: I2c + 'static> MiniminerPsu<I> {
     /// Construct a handle. Spawn `run_watchdog` separately on the
     /// same `state` + `terminated` references to drive the
     /// SLG46826G heartbeat.
-    pub fn new(state: &'static Mutex<RawMutex, State<I>>, terminated: &'static AtomicBool) -> Self {
+    pub fn new(
+        state: &'static Mutex<RawMutex, State<I, MiniminerPsuConfig>>,
+        terminated: &'static AtomicBool,
+    ) -> Self {
         Self { state, terminated }
     }
 }
@@ -42,7 +73,7 @@ impl<I: I2c + 'static> MiniminerPsu<I> {
 /// `SLG46826G` if init has succeeded. Returns once `terminated`
 /// flips to `true`.
 pub async fn run_watchdog<I: I2c>(
-    state: &'static Mutex<RawMutex, State<I>>,
+    state: &'static Mutex<RawMutex, State<I, MiniminerPsuConfig>>,
     terminated: &'static AtomicBool,
 ) {
     let interval = {

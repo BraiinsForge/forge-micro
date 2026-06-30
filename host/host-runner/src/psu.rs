@@ -19,7 +19,7 @@ use ubos_psu::{MiniminerPsu, MiniminerPsuConfig, State, run_power_stats, run_wat
 pub const I2C_BUS_ENV: &str = "UBOS_I2C_BUS";
 
 pub type HostPsu = MiniminerPsu<HostI2c>;
-pub type HostState = Mutex<CriticalSectionRawMutex, State<HostI2c>>;
+pub type HostState = Mutex<CriticalSectionRawMutex, State<HostI2c, MiniminerPsuConfig>>;
 
 static STATE: StaticCell<HostState> = StaticCell::new();
 static TERMINATED: StaticCell<AtomicBool> = StaticCell::new();

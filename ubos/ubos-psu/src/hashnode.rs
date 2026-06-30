@@ -4,11 +4,11 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-use embedded_hal_async::i2c::{Error as _, ErrorKind, I2c};
+use embedded_hal_async::i2c::I2c;
 use portable_atomic::{AtomicBool, Ordering};
 use ubos_core::units::{Power, Voltage};
 
-use crate::state::InitStatus;
+use crate::state::{InitStatus, PsuInit, State, ensure_initialized};
 use crate::{Error, Psu, ina230, sic45x};
 
 /// `RawMutex` choice exposed for callers that need to declare the
@@ -43,66 +43,32 @@ impl HashnodePsuConfig {
     };
 }
 
-/// State protected by the `HashnodePsu` mutex.
-pub struct HashnodeState<I> {
-    pub(crate) i2c: I,
-    pub(crate) config: HashnodePsuConfig,
-    pub(crate) init: InitStatus,
-}
-
-impl<I> HashnodeState<I> {
-    /// Construct initial state with `InitStatus::NotInit`.
-    pub fn new(i2c: I, config: HashnodePsuConfig) -> Self {
-        Self {
+impl<I: I2c> PsuInit<I> for HashnodePsuConfig {
+    async fn run_init(i2c: &mut I, config: &Self) -> Result<(), Error<I::Error>> {
+        // Why: the INA230's VS pin is powered by the SIC output rail.
+        // The rail is off during init, so the INA is below its operating
+        // voltage (~2.7 V). We attempt init optimistically and continue on
+        // failure: a failure here does not indicate a hardware fault on this
+        // stage.
+        if ina230::init(
             i2c,
-            config,
-            init: InitStatus::NotInit,
+            config.ina_address,
+            config.ina_max_current_a,
+            config.ina_shunt_microohm,
+        )
+        .await
+        .is_err()
+        {
+            ubos_logging::warn!("Hashnode INA230 init failed (rail not up yet?)");
         }
+
+        sic45x::init(i2c, &config.sic).await
     }
 }
 
-async fn ensure_initialized<I: I2c>(state: &mut HashnodeState<I>) -> Result<(), Error<I::Error>> {
-    match state.init {
-        InitStatus::Initialized => return Ok(()),
-        InitStatus::Failed(kind) => return Err(Error::InitFailed(kind)),
-        InitStatus::NotInit => {}
-    }
-
-    if let Err(error) = run_init(state).await {
-        let kind = match &error {
-            Error::Bus(bus) => bus.kind(),
-            // sic45x::init only returns Bus errors; this arm handles any
-            // other Error variant that could reach here from future callers.
-            _ => ErrorKind::Other,
-        };
-        state.init = InitStatus::Failed(kind);
-        return Err(error);
-    }
-
-    state.init = InitStatus::Initialized;
-    Ok(())
-}
-
-async fn run_init<I: I2c>(state: &mut HashnodeState<I>) -> Result<(), Error<I::Error>> {
-    // Why: the INA230's VS pin is powered by the SIC output rail.
-    // The rail is off during init, so the INA is below its operating
-    // voltage (~2.7 V). We attempt init optimistically and continue on
-    // failure: a failure here does not indicate a hardware fault on this
-    // stage.
-    if ina230::init(
-        &mut state.i2c,
-        state.config.ina_address,
-        state.config.ina_max_current_a,
-        state.config.ina_shunt_microohm,
-    )
-    .await
-    .is_err()
-    {
-        ubos_logging::warn!("Hashnode INA230 init failed (rail not up yet?)");
-    }
-
-    sic45x::init(&mut state.i2c, &state.config.sic).await
-}
+/// State protected by the `HashnodePsu` mutex. Type alias over the shared
+/// [`State`] container; the generic parameter is `HashnodePsuConfig`.
+pub type HashnodeState<I> = State<I, HashnodePsuConfig>;
 
 /// Handle to the Hashnode PSU. Cheap to clone-by-reference; the
 /// underlying state lives behind a `'static` mutex supplied by the
@@ -131,7 +97,7 @@ impl<I: I2c + 'static> Psu for HashnodePsu<I> {
         }
         let mut guard = self.state.lock().await;
         ensure_initialized(&mut guard).await?;
-        let HashnodeState { i2c, config, .. } = &mut *guard;
+        let State { i2c, config, .. } = &mut *guard;
         sic45x::enable(i2c, &config.sic).await
     }
 
@@ -141,7 +107,7 @@ impl<I: I2c + 'static> Psu for HashnodePsu<I> {
         }
         let mut guard = self.state.lock().await;
         ensure_initialized(&mut guard).await?;
-        let HashnodeState { i2c, config, .. } = &mut *guard;
+        let State { i2c, config, .. } = &mut *guard;
         sic45x::disable(i2c, &config.sic).await
     }
 
@@ -151,7 +117,7 @@ impl<I: I2c + 'static> Psu for HashnodePsu<I> {
         }
         let mut guard = self.state.lock().await;
         ensure_initialized(&mut guard).await?;
-        let HashnodeState { i2c, config, .. } = &mut *guard;
+        let State { i2c, config, .. } = &mut *guard;
         let result = sic45x::set_voltage(i2c, &config.sic, voltage.mv()).await;
         // Record the commanded value so telemetry consumers can compare
         // it with the INA230 bus-voltage readback. Only on success: a
@@ -182,7 +148,7 @@ impl<I: I2c + 'static> Psu for HashnodePsu<I> {
         }
         let mut guard = self.state.lock().await;
         ensure_initialized(&mut guard).await?;
-        let HashnodeState { i2c, config, .. } = &mut *guard;
+        let State { i2c, config, .. } = &mut *guard;
         ina230::read_power_mw(i2c, config.ina_address, config.ina_max_current_a)
             .await
             .map(Power::from_mw)
@@ -198,7 +164,7 @@ impl<I: I2c + 'static> Psu for HashnodePsu<I> {
         }
         let mut guard = self.state.lock().await;
         ensure_initialized(&mut guard).await?;
-        let HashnodeState { i2c, config, .. } = &mut *guard;
+        let State { i2c, config, .. } = &mut *guard;
         sic45x::read_vout_mv(i2c, &config.sic)
             .await
             .map(Voltage::from_mv)
@@ -216,7 +182,7 @@ impl<I: I2c + 'static> Psu for HashnodePsu<I> {
         if let Err(error) = ensure_initialized(&mut guard).await {
             return Some(Err(error));
         }
-        let HashnodeState { i2c, config, .. } = &mut *guard;
+        let State { i2c, config, .. } = &mut *guard;
         Some(
             ina230::read_bus_voltage_mv(i2c, config.ina_address)
                 .await
@@ -239,7 +205,7 @@ impl<I: I2c + 'static> Psu for HashnodePsu<I> {
         }
         let mut guard = self.state.lock().await;
         ensure_initialized(&mut guard).await?;
-        let HashnodeState { i2c, config, .. } = &mut *guard;
+        let State { i2c, config, .. } = &mut *guard;
         sic45x::read_status(i2c, &config.sic).await
     }
 
@@ -249,7 +215,7 @@ impl<I: I2c + 'static> Psu for HashnodePsu<I> {
         }
         let mut guard = self.state.lock().await;
         if guard.init == InitStatus::Initialized {
-            let HashnodeState { i2c, config, .. } = &mut *guard;
+            let State { i2c, config, .. } = &mut *guard;
             let _ = sic45x::disable(i2c, &config.sic).await;
         }
     }
