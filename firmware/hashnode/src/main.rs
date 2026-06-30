@@ -112,30 +112,13 @@ static OTA_TARGET: StaticCell<
 /// at the BM1370 hashboard baud rate.
 const UART_RING_BUFFER_SIZE: usize = 1024;
 
-// `secp256k1::AllPreallocated<'static>` precomputation buffer. Each slot is
-// one `AlignedType`; `CryptoCtx::preallocated` returns
-// `Error::NotEnoughMemory` at runtime if the slot count is too small.
-const SECP_CTX_SLOTS: usize = 64;
-
-static SECP_CTX_BUF: ConstStaticCell<[ii_sv2::security::AlignedType; SECP_CTX_SLOTS]> =
-    ConstStaticCell::new([ii_sv2::security::AlignedType::ZERO; SECP_CTX_SLOTS]);
-
-static SECP_CTX: StaticCell<
-    ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
-> = StaticCell::new();
-
-struct Sv2BoardRng(embassy_rp::clocks::RoscRng);
-
-impl ii_sv2::security::Rng for Sv2BoardRng {
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        // RoscRng has an inherent `fill_bytes` that routes
-        // through the ROSC randombit-per-bit primitive — same
-        // entropy source the rand_core impls expose.
-        self.0.fill_bytes(dest);
-    }
-}
-
-static ASIC_SESSION: stratum_client::AsicSession = stratum_client::AsicSession::new();
+/// Backing storage for the user-facing event ring, owned here so its size
+/// follows this board's `EVENT_LOG_CAPACITY`. Placed in `.uninit`, which the
+/// startup code does not zero, so the ring survives a warm reset; the validity
+/// header in `RetainedRing` discards it after a cold boot leaves garbage.
+#[unsafe(link_section = ".uninit")]
+static mut EVENT_LOG_BACKING: ubos_events::RetainedRing<{ config::Board::EVENT_LOG_CAPACITY }> =
+    ubos_events::RetainedRing::new();
 
 defmt::timestamp!("{=u64:iso8601s}", ubos_net::wall_clock_secs());
 
@@ -283,9 +266,15 @@ type OledDisplay = Sh1106<
     Output<'static>,
 >;
 
+/// The reset pin is moved in and held for the task's lifetime so the SH1106
+/// RESET line stays driven high; dropping it would release the pad and blank
+/// the panel.
 #[cfg(feature = "display")]
 #[embassy_executor::task]
-async fn display_task(mut display: OledDisplay) -> ! {
+async fn display_task(
+    mut display: OledDisplay,
+    #[allow(clippy::used_underscore_binding)] _reset_pin: Output<'static>,
+) -> ! {
     ubos_display::display::run(&mut display).await
 }
 
@@ -325,115 +314,16 @@ ubos_http::http_worker_task!(
     config::Board::METRICS_HTTP_POOL
 );
 
+/// Board task shell around the shared stratum session loop. The loop body
+/// lives in `ubos-firmware`; the `#[embassy_executor::task]` shell stays per
+/// board because esp32s3 pins a different `embassy-executor` version than the
+/// ARM boards, so the spawned task type must come from each board's executor.
 #[embassy_executor::task]
-#[allow(clippy::too_many_lines)]
-async fn stratum_client_task(stack: embassy_net::Stack<'static>) -> ! {
-    use defmt::warn;
-    use embassy_futures::select::{select, Either};
-    use embassy_time::Timer;
-    use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
-    static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
-        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
-    static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
-        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
-    let rx_buffer = TCP_RX.take();
-    let tx_buffer = TCP_TX.take();
-
-    // SV2 secp context — initialised once even if the first pool entry
-    // is Sv1, so a runtime protocol switch needs no late allocation.
-    let secp_buffer = SECP_CTX_BUF.take();
-    let secp_ctx = SECP_CTX.init(
-        ii_sv2::security::CryptoCtx::preallocated(secp_buffer)
-            .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
-    );
-
-    let config_handle = ubos_config::handle();
-    let restart = config_handle.stratum_restart();
-
-    loop {
-        let snapshot = config_handle.current();
-        let Some(entry) = snapshot.pool.first() else {
-            warn!("stratum-client: pool list empty, awaiting config update");
-            restart.wait().await;
-            continue;
-        };
-
-        let one_session = async {
-            stratum_client::record_reconnect_attempt();
-            let mut socket = match ubos_net::net::connect_stratum(
-                stack,
-                entry.host.as_str(),
-                entry.port,
-                SOCKET_TIMEOUT,
-                rx_buffer,
-                tx_buffer,
-            )
-            .await
-            {
-                Ok(socket) => socket,
-                Err(error) => {
-                    warn!(
-                        "stratum-client: connect failed: {}",
-                        defmt::Debug2Format(&error)
-                    );
-                    Timer::after(RECONNECT_DELAY).await;
-                    return;
-                }
-            };
-            let mut state = stratum_client::StratumState::new();
-
-            match &entry.protocol {
-                ubos_config::ProtocolKind::Sv1 { password } => {
-                    let sv1 = stratum_v1::Sv1Config::new(
-                        entry.user.as_str(),
-                        password.as_ref().map_or("", heapless::String::as_str),
-                    )
-                    .expect("BUG: PoolEntry user/password match Sv1Config buffer sizes");
-                    let mut client = stratum_v1::StratumV1Client::new(&sv1);
-                    if let Err(error) = stratum_client::run_stratum_client(
-                        &mut client,
-                        &mut socket,
-                        &ASIC_SESSION,
-                        &mut state,
-                    )
-                    .await
-                    {
-                        warn!(
-                            "stratum-client: session error {}",
-                            defmt::Debug2Format(&error)
-                        );
-                    }
-                }
-                ubos_config::ProtocolKind::Sv2 { pool_pubkey } => {
-                    let sv2 = stratum_v2::Sv2Config::new(entry.user.as_str(), *pool_pubkey)
-                        .expect("BUG: PoolEntry.user matches Sv2Config buffer size");
-                    let mut client =
-                        stratum_v2::StratumV2Client::new(&sv2, secp_ctx, Sv2BoardRng(RoscRng));
-                    if let Err(error) = stratum_client::run_stratum_client(
-                        &mut client,
-                        &mut socket,
-                        &ASIC_SESSION,
-                        &mut state,
-                    )
-                    .await
-                    {
-                        warn!(
-                            "stratum-client: session error {}",
-                            defmt::Debug2Format(&error)
-                        );
-                    }
-                }
-            }
-
-            Timer::after(RECONNECT_DELAY).await;
-        };
-        if matches!(
-            select(one_session, restart.wait()).await,
-            Either::Second(())
-        ) {
-            info!("stratum-client: pool config changed, reconnecting");
-        }
-    }
+async fn stratum_client_task(
+    stack: embassy_net::Stack<'static>,
+    sv2_prng: &'static mut ubos_firmware::ChaCha20Rng,
+) -> ! {
+    ubos_firmware::run_stratum_session(stack, sv2_prng).await
 }
 
 #[cortex_m_rt::entry]
@@ -452,6 +342,19 @@ async fn boot(spawner: Spawner) {
     // --- 1. Core peripherals — always ----------------------------------------
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
     let hw = config::Board::take(peripherals);
+
+    // Install the event ring and its decode-table registry before any task
+    // that records events runs. wall_clock_secs returns uptime before NTP
+    // sync and Unix time after; the ring stores it unconditionally.
+    ubos_events::set_catalogs(ubos_firmware::EVENT_REGISTRY);
+    // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
+    // in .uninit, so the startup code does not zero it and a warm reset
+    // preserves its contents.
+    ubos_events::init(
+        unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) },
+        ubos_net::wall_clock_secs,
+    );
+
     // `rng` seeds the embassy-net stack. Declared here so it lives for the
     // full boot scope regardless of gating.
     let mut rng = RoscRng;
@@ -638,9 +541,10 @@ async fn boot(spawner: Spawner) {
     // --- 9. Display — feature-gated on the cargo `display` feature -----------
     // Positioned before the network block so the display comes up early.
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
-    // Binding must stay alive so the reset pin remains driven high.
+    // The reset pin moves into display_task so it stays driven high for
+    // the display's lifetime.
     #[cfg(feature = "display")]
-    let (_rst, display) = {
+    let (reset, display) = {
         let rst = {
             let mut pin = Output::new(hw.display_rst, Level::Low);
             Timer::after(Duration::from_millis(10)).await;
@@ -668,7 +572,7 @@ async fn boot(spawner: Spawner) {
     };
 
     #[cfg(feature = "display")]
-    spawner.spawn(unwrap!(display_task(display)));
+    spawner.spawn(unwrap!(display_task(display, reset)));
 
     // --- 10. Network -----------------------------------------------------------
     let mut spi_config = SpiConfig::default();
@@ -680,17 +584,24 @@ async fn boot(spawner: Spawner) {
     let w5500_int = Input::new(hw.w5500_int, Pull::Up);
     let w5500_reset = Output::new(hw.w5500_reset, Level::High);
 
-    // Derive a per-board MAC from the RP2350 OTP chip id so multiple
-    // hashnodes do not collide on the hardcoded MAC (same MAC → same
-    // DHCP lease + same mDNS hostname). Keep the locally-administered
-    // prefix `0x02`; fall back to the static MAC if the OTP read fails.
-    let mac_addr = match embassy_rp::otp::get_chipid() {
-        Ok(chipid) => {
-            let bytes = chipid.to_le_bytes();
-            [0x02, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]]
-        }
-        Err(_) => config::Board::MAC_ADDR,
+    // Fold the RP2350 OTP chip id into a stable per-board MAC. The WIZnet
+    // chip has no factory address, so the firmware supplies one.
+    let mac_addr = {
+        let chip_id = embassy_rp::otp::get_chipid().unwrap_or_else(|_| {
+            defmt::warn!("OTP chip id read failed; MAC hash falls back to zero");
+            0
+        });
+        ubos_net::mac::derive_mac(
+            ubos_net::mac::DUMMY_OUI,
+            config::Board::MAC_FAMILY,
+            &chip_id.to_be_bytes(),
+        )
     };
+    info!(
+        "mac {=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}",
+        mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5],
+    );
+    ubos_net::net::handle().set_mac(mac_addr);
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     let state = STATE.init(State::<8, 8>::new());
     let (device, runner) = match embassy_net_wiznet::new(
@@ -729,45 +640,72 @@ async fn boot(spawner: Spawner) {
         config::Board::API_HTTP_POOL,
         config::Board::METRICS_HTTP_POOL,
     );
+    // The config task publishes the stored config on first boot. Wait
+    // for it, then derive the stack config and hostname. Only the small
+    // results escape the block, so this task's future never has to hold
+    // the full Config or load_initial's decode buffer.
+    static MDNS_HOSTNAME: StaticCell<heapless::String<32>> = StaticCell::new();
+    let (net_config, mdns_hostname) = {
+        let initial = ubos_config::handle().changed().await;
+        let net_config = match &initial.network.mode {
+            ubos_config::NetworkMode::Static {
+                address,
+                prefix_len,
+                gateway,
+                dns,
+            } => ubos_net::config::static_ipv4(*address, *prefix_len, *gateway, dns),
+            ubos_config::NetworkMode::Dhcp => {
+                embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default())
+            }
+        };
+        // Compose inside the block so only the &'static hostname escapes,
+        // not a 32-byte copy held across the rest of boot.
+        let mdns_hostname = ubos_mdns::compose_hostname_configured::<
+            32,
+            { config::Board::MDNS_HOSTNAME_BASE.len() },
+        >(
+            initial.network.hostname.as_str(),
+            config::Board::MDNS_HOSTNAME_BASE,
+            mac_addr[5],
+            &MDNS_HOSTNAME,
+        );
+        (net_config, mdns_hostname)
+    };
+
     static RESOURCES: StaticCell<StackResources<STACK_SOCKETS>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
-        embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default()),
+        net_config,
         RESOURCES.init(StackResources::new()),
         seed,
     );
     spawner.spawn(unwrap!(net_task(runner)));
 
-    // Seed the session CSPRNG from the RP2350 hardware TRNG, not the
-    // ring-oscillator-bit `RoscRng`. The TRNG runs three built-in
-    // entropy health checks per draw and is NIST-aligned; `RoscRng`
-    // takes one ROSC randombit per read with no oracle. The TRNG is
-    // only used at boot, so the peripheral is dropped right after the
-    // seed is taken.
+    // Seed the session CSPRNG and the SV2 noise-handshake PRNG from the
+    // RP2350 hardware TRNG, not the ring-oscillator-bit `RoscRng`. The TRNG
+    // runs three built-in entropy health checks per draw and is NIST-aligned;
+    // `RoscRng` takes one ROSC randombit per read with no oracle. The TRNG is
+    // only used at boot, so the peripheral is dropped right after the seeds
+    // are taken.
     let mut csprng_seed = [0u8; 32];
+    let mut sv2_seed = [0u8; 32];
     {
         // Datasheet § 12.12.2: sample counts of 20-25 minimise generation
         // time but fail the on-die NIST entropy checks often enough to
         // log every boot. 100 trades a few hundred extra microseconds for
-        // a quiet boot; the TRNG is only sampled once for the 32-byte
-        // CSPRNG seed.
+        // a quiet boot; the TRNG is only sampled at boot for the two seeds.
         let mut trng_config = trng::Config::default();
         trng_config.sample_count = 100;
         let mut trng = Trng::new(hw.trng, Irqs, trng_config);
         trng.fill_bytes(&mut csprng_seed).await;
+        trng.fill_bytes(&mut sv2_seed).await;
     }
     ubos_auth::csprng::seed_csprng(csprng_seed).await;
+    let sv2_prng = ubos_firmware::seed_sv2_prng(sv2_seed);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_ingest_task()));
 
-    static MDNS_HOSTNAME: StaticCell<heapless::String<16>> = StaticCell::new();
-    let mdns_hostname =
-        ubos_mdns::compose_hostname::<16, { config::Board::MDNS_HOSTNAME_BASE.len() }>(
-            config::Board::MDNS_HOSTNAME_BASE,
-            mac_addr[5],
-            &MDNS_HOSTNAME,
-        );
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
     spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
@@ -779,7 +717,7 @@ async fn boot(spawner: Spawner) {
     info!("ip address: {:?}", config.address.address());
 
     // Core 1 hosts serial_task (ubos-mining backend); see spawn_core1 above.
-    spawner.spawn(unwrap!(stratum_client_task(stack)));
+    spawner.spawn(unwrap!(stratum_client_task(stack, sv2_prng)));
 
     // Register the OTA target before spawning the REST API workers so the
     // OTA endpoints are available from the first request. The &'static mut

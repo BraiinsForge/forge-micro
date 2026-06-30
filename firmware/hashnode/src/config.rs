@@ -116,17 +116,20 @@ impl Board {
     pub const MDNS_HOSTNAME_BASE: &str = "hashnode";
     /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
     pub const MCU: &str = "rp2350";
-    /// Locally-administered MAC address. The LAA bit, bit 1 of the first
-    /// octet, marks it as local. Octet [4] is 0x00 for the non-BMM family;
-    /// octet [5] is 0x06, the next free value after rp2350=01, esp32s3=02,
-    /// stm32f407=03, rp2040=04, stm32f439=05.
-    pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x06];
+    /// Board-family byte placed in the derived MAC address. The runtime
+    /// folds the RP2350 OTP chip id into the remaining octets via
+    /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
+    /// distinct MAC. Each board owns a distinct `MAC_FAMILY`: rp2040=0x01,
+    /// rp2350=0x02, bmm-pico=0x03, hashnode=0x04, esp32s3=0x05.
+    pub const MAC_FAMILY: u8 = 0x04;
     /// Concurrent TCP connections the web-UI server (:80) accepts.
     pub const WEBUI_HTTP_POOL: usize = 5;
     /// Concurrent TCP connections the REST API server (:8080) accepts.
     pub const API_HTTP_POOL: usize = 5;
     /// Accepted-connection pool depth for the Prometheus metrics listener.
     pub const METRICS_HTTP_POOL: usize = 5;
+    /// Capacity of the user-facing event ring served by `ubos-events`.
+    pub const EVENT_LOG_CAPACITY: usize = 128;
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {

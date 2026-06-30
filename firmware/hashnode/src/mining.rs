@@ -45,7 +45,7 @@ const PARK_INTERVAL: Duration = Duration::from_secs(60);
 #[embassy_executor::task]
 pub async fn serial_task(serial: MinerUart) -> ! {
     match ubos_mining::serial::SERIAL
-        .run(serial, &crate::ASIC_SESSION, crate::config::BOARD)
+        .run(serial, &ubos_firmware::ASIC_SESSION, crate::config::BOARD)
         .await
     {
         Ok(()) => info!("ubos-mining serial actor terminated cleanly"),
