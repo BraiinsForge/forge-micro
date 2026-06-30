@@ -24,6 +24,15 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     crane.url = "github:ipetkov/crane";
+    # probe-rs fork adding redacted redacted (RISC-V debug spec 0.11) support on
+    # top of upstream 0.31.0. Fetched as a non-flake source at eval time so the
+    # private gitlab.ii.zone SSH access uses the developer's git config rather
+    # than the sandbox, which carries no ssh binary. mkForkProbeRsTools swaps
+    # this into nixpkgs' probe-rs-tools build.
+    probe-rs-redacted = {
+      url = "git+ssh://git@gitlab.ii.zone/bos/ubos/probe-rs.git?ref=riscv-debug-0.11-redacted&rev=dd0a1fbad7eda422145a58ea930583f74d26ca38";
+      flake = false;
+    };
     # Pinned to PR#131 branch to avoid the nvmd/nixpkgs fork rebuild penalty
     # and to match cache paths for users who opt into the nixos-raspberrypi
     # cachix entry locally. Revisit once the PR is released upstream.
@@ -47,6 +56,7 @@
       nixos-raspberrypi,
       deploy-rs,
       nixpkgs-esp-dev,
+      probe-rs-redacted,
     }@inputs:
     let
       nucHost = "redacted.redacted";
@@ -65,6 +75,45 @@
         UBOS_WEBUI_BUILD_TIME = toString self.lastModified;
       };
 
+      # probe-rs fork carrying redacted redacted (RISC-V debug spec 0.11) support:
+      # upstream 0.31.0 plus one commit adding the redacted target. The dependency
+      # closure still matches nixpkgs' own 0.31.0 probe-rs-tools, so the whole
+      # nixpkgs build recipe is reused and only the source and the re-vendored
+      # cargo deps are swapped. Every probe-rs consumer (each dev shell and the
+      # NUC serve service) builds from this one base, so redacted flashing and RTT
+      # work across the fleet without a second probe-rs version. cargoHash is
+      # baked into nixpkgs' derivation before overrideAttrs runs, so the vendor
+      # must be rethreaded through cargoDeps rather than by setting cargoHash.
+      # The fork source arrives through the probe-rs-redacted flake input, fetched
+      # at eval time so the gitlab.ii.zone SSH access uses the developer's git
+      # config; the sandbox carries no ssh.
+      #
+      # cargoDeps uses importCargoLock rather than fetchCargoVendor: this vendor
+      # is a binary-cache miss, and fetchCargoVendor's parallel download pool
+      # trips crates.io's rate limit on the /download API endpoint (HTTP 403)
+      # while fetching the full closure fresh. importCargoLock fetches each
+      # crate as its own cache-backed fetchurl, so most come from cache.nixos.org
+      # and the rest go through nix's throttled, retrying fetcher. The fork's
+      # lock has no git sources, so no outputHashes are required.
+      mkForkProbeRsTools =
+        pkgs:
+        let
+          forkSrc = inputs.probe-rs-redacted;
+        in
+        pkgs.probe-rs-tools.overrideAttrs (old: {
+          src = forkSrc;
+          cargoDeps = pkgs.rustPlatform.importCargoLock {
+            lockFile = "${forkSrc}/Cargo.lock";
+          };
+          # The fork renames the DAP test `test_initalize_request` (a nixpkgs
+          # typo) to `test_initialize_request`, so nixpkgs' existing --skip no
+          # longer matches and the probe-requiring test runs and fails. Skip it
+          # under its corrected name.
+          checkFlags = (old.checkFlags or [ ]) ++ [
+            "--skip=cmd::dap_server::server::debugger::test::test_initialize_request"
+          ];
+        });
+
       # `serve` panics on `ConnectionClosed` when the client disconnects
       # mid-RPC, leaving the probe Session held but the worker dead.
       # systemd does not restart because the panic is tokio-contained,
@@ -80,14 +129,8 @@
 
       # The bench's probe-rs server additionally needs the serve-side TCP
       # keepalive fix so a client that dies abruptly does not pin the probe
-      # Session. Keep it off the dev-facing probe-rs-tools-remote so developer
-      # shells keep the same client derivation and never rebuild probe-rs.
-      #
-      # The keepalive patch adds a socket2 dependency, which only edits
-      # Cargo.lock's probe-rs-tools entry — socket2 is already vendored
-      # transitively via tokio, so the crate set is unchanged. Rather than
-      # re-vendor (a full re-download), reuse the upstream vendor and swap in
-      # the patched lockfile so the cargo setup hook's lock check passes.
+      # Session. That patch is server-only, so it stays off the dev-facing
+      # probe-rs-tools-remote, which gains nothing from it.
       mkServerProbeRsTools =
         pkgs: base:
         let
@@ -95,22 +138,34 @@
         in
         (mkRemoteProbeRsTools base).overrideAttrs (old: {
           patches = (old.patches or [ ]) ++ [ serverPatch ];
+          # The server patch adds socket2 to probe-rs-tools' Cargo.toml and
+          # Cargo.lock, so the vendor must list it under probe-rs-tools too.
+          # Re-vendor from the patched source's lock rather than reusing the
+          # remote vendor: importCargoLock produces a self-referential vendor
+          # directory that cannot be copied to a new path, so the old in-place
+          # lock swap no longer applies. socket2 is already in the closure via
+          # tokio, so this re-vendor is a set of cache hits. Reading the lock
+          # from the applyPatches output is import-from-derivation and relies on
+          # IFD being enabled (the default here), unlike the fork base above
+          # whose lock comes from the already-fetched flake input.
           cargoDeps =
             let
               patchedSrc = pkgs.applyPatches {
+                # The fork src is a flake-input store path with no name to
+                # derive a default from, so name the patched source explicitly.
+                name = "probe-rs-server-src";
                 inherit (old) src;
                 patches = (old.patches or [ ]) ++ [ serverPatch ];
               };
             in
-            pkgs.runCommandLocal "probe-rs-tools-server-vendor" { } ''
-              cp -r --no-preserve=mode,ownership ${old.cargoDeps} $out
-              cp ${patchedSrc}/Cargo.lock $out/Cargo.lock
-            '';
+            pkgs.rustPlatform.importCargoLock {
+              lockFile = "${patchedSrc}/Cargo.lock";
+            };
         });
 
       probeRsOverlay = final: prev: {
-        probe-rs-tools-remote = mkRemoteProbeRsTools prev.probe-rs-tools;
-        probe-rs-tools-server = mkServerProbeRsTools prev prev.probe-rs-tools;
+        probe-rs-tools-remote = mkRemoteProbeRsTools (mkForkProbeRsTools prev);
+        probe-rs-tools-server = mkServerProbeRsTools prev (mkForkProbeRsTools prev);
         probe-rs-runner = prev.writeShellScriptBin "probe-rs-runner" ''
           args=()
           for arg in "$@"; do
@@ -246,8 +301,8 @@
                   # of under QEMU. The probe-rs-runner shell wrapper from
                   # probeRsOverlay above still applies unchanged.
                   (final: _prev: {
-                    probe-rs-tools-remote = mkRemoteProbeRsTools aarch64Pkgs.probe-rs-tools;
-                    probe-rs-tools-server = mkServerProbeRsTools aarch64Pkgs aarch64Pkgs.probe-rs-tools;
+                    probe-rs-tools-remote = mkRemoteProbeRsTools (mkForkProbeRsTools aarch64Pkgs);
+                    probe-rs-tools-server = mkServerProbeRsTools aarch64Pkgs (mkForkProbeRsTools aarch64Pkgs);
                   })
                   (final: _prev: {
                     load-test = aarch64Pkgs.callPackage ./nuc/pkgs/load-test.nix { };
@@ -2820,28 +2875,37 @@
             # for firmware/redacted; the crate is gated in `checks` (clippy-redacted and
             # build-redacted, built with riscvCraneLib).
             #
-            # NOTE: `cargo run --release` packages the firmware into an redacted
-            # Upgrade Package (.redacted) via scripts/run.sh + scripts/redacted.py
-            # (rust-objcopy from cargo-binutils, python3 below). The .redacted is
-            # uploaded through the device web UI / redacted API. A raw-kflash /
-            # JTAG dev loop (sysprogs OpenOCD fork, packaged in the redacted
-            # flake) is still a follow-up — wiring that flake in as an input to
-            # expose `kflash` / `openocd-sysprogs` here.
+            # NOTE: `cargo run --release` flashes the firmware into SRAM over
+            # the probe-rs redacted fork and streams the RTT log; `cargo attach`
+            # reconnects to a running board. `cargo pack --release` still
+            # packages the firmware into an redacted Upgrade Package (.redacted) via
+            # scripts/run.sh + scripts/redacted.py (rust-objcopy from
+            # cargo-binutils, python3 below), uploaded as the OTA artifact
+            # through the device web UI / redacted API.
             riscv = pkgs.mkShell {
               buildInputs = with pkgs; [
                 riscvRustToolchain
                 cargo-binutils
                 cargo-bloat
+                # The redacted now flashes and streams its `log` output over RTT
+                # (plain text via rtt-target, no defmt) through the probe-rs
+                # fork; the runner forwards to the NUC probe-rs-server exactly
+                # as the arm/esp shells do.
+                probe-rs-tools-remote
+                probe-rs-runner
+                pkg-config
+                libudev-zero
                 # ubos-webui's build.rs minifies the dashboard CSS/JS.
                 esbuild
                 cargo-machete
-                # scripts/redacted.py builds the .redacted (SHA-256 + CRC-32).
+                # scripts/redacted.py builds the .redacted (SHA-256 + CRC-32) for OTA.
                 python3
-                # Serial console for the redacted debug UART (UARTHS @ 115200).
-                picocom
+                # USB tooling for enumerating the attached debug probe.
                 usbutils
               ];
 
+              PROBE_RS_REMOTE_HOST = probeRsHost;
+              PROBE_RS_REMOTE_TOKEN = probeRsToken;
               RUST_ANALYZER_SERVER_PATH = "${riscvRustToolchain}/bin/rust-analyzer";
 
               inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
@@ -2849,10 +2913,13 @@
               shellHook = ''
                 echo "ubos-main dev environment ready (redacted redacted, RV64GC)"
                 echo ""
-                echo "  cd firmware/redacted && cargo check         # build"
-                echo "  cd firmware/redacted && cargo run --release # package .redacted"
+                echo "  cd firmware/redacted && cargo check          # build"
+                echo "  cd firmware/redacted && cargo run --release   # flash + RTT log via probe-rs (--chip redacted)"
+                echo "  cd firmware/redacted && cargo attach          # stream the RTT log without reflashing"
+                echo "  cd firmware/redacted && cargo pack --release  # package .redacted for OTA upload"
                 echo ""
-                echo "cargo run packages a .redacted (upload via web UI/API); see firmware/redacted/README.md."
+                echo "cargo run flashes over the redacted probe-rs fork; cargo pack still builds the .redacted"
+                echo "(upload via web UI/API). See firmware/redacted/README.md."
                 echo "For ARM boards: nix develop .#arm     ESP32-S3: nix develop .#esp"
               '';
             };

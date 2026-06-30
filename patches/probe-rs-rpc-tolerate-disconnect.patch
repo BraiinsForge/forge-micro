@@ -15,9 +15,11 @@ expected case at the end of every RPC and is not actionable here.
 
 Local fix only; no upstream issue or PR exists yet.
 
+diff --git a/probe-rs-tools/src/bin/probe-rs/rpc/functions/monitor.rs b/probe-rs-tools/src/bin/probe-rs/rpc/functions/monitor.rs
+index 77c08fa..98876fd 100644
 --- a/probe-rs-tools/src/bin/probe-rs/rpc/functions/monitor.rs
 +++ b/probe-rs-tools/src/bin/probe-rs/rpc/functions/monitor.rs
-@@ -101,7 +101,7 @@
+@@ -105,7 +105,7 @@ pub async fn monitor(
      sender
          .reply::<MonitorEndpoint>(header.seq_no, &resp)
          .await
@@ -25,10 +27,12 @@ Local fix only; no upstream issue or PR exists yet.
 +        .ok();
  }
 
- #[derive(Serialize, Deserialize, Schema)]
+ #[derive(Serialize, Deserialize, Clone, Schema)]
+diff --git a/probe-rs-tools/src/bin/probe-rs/rpc/functions/test.rs b/probe-rs-tools/src/bin/probe-rs/rpc/functions/test.rs
+index 4f34ac5..da1f836 100644
 --- a/probe-rs-tools/src/bin/probe-rs/rpc/functions/test.rs
 +++ b/probe-rs-tools/src/bin/probe-rs/rpc/functions/test.rs
-@@ -126,7 +126,7 @@
+@@ -126,7 +126,7 @@ pub async fn list_tests(
      sender
          .reply::<ListTestsEndpoint>(header.seq_no, &resp)
          .await
@@ -37,7 +41,7 @@ Local fix only; no upstream issue or PR exists yet.
  }
 
  fn list_tests_impl(
-@@ -213,7 +213,7 @@
+@@ -215,7 +215,7 @@ pub async fn run_test(
      sender
          .reply::<RunTestEndpoint>(header.seq_no, &resp)
          .await

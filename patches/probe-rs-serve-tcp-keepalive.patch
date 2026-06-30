@@ -15,72 +15,77 @@ half-open socket within ~30s, `reader.next()` returns None, and the
 existing disconnect cleanup drops the Session and frees the probe.
 
 socket2 is already in the dependency tree via tokio; this only adds a
-direct, remote-feature-gated dependency on it.
+direct, remote-feature-gated dependency on it. The `all` feature gates
+`TcpKeepalive::with_retries` (TCP_KEEPCNT); declare it directly rather
+than relying on tokio's transitive socket2 feature unification.
 
 Local fix only; no upstream issue or PR exists yet.
 
 diff --git a/Cargo.lock b/Cargo.lock
-index 3141650..08317a2 100644
+index 1e7ce4d..7467849 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -3036,6 +3036,7 @@ dependencies = [
-  "serde_yaml",
-  "sha2",
-  "signal-hook",
+@@ -3274,6 +3274,7 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "sha2 0.11.0",
 + "socket2",
   "svd-parser",
   "svg",
   "tempfile",
 diff --git a/probe-rs-tools/Cargo.toml b/probe-rs-tools/Cargo.toml
-index 4e3976d..8ee1387 100644
+index a566988..7f8d4e9 100644
 --- a/probe-rs-tools/Cargo.toml
 +++ b/probe-rs-tools/Cargo.toml
-@@ -22,6 +22,7 @@ remote = [
-     "dep:axum",
-     "dep:axum-extra",
-     "dep:rustls",
-+    "dep:socket2",
-     "dep:tempfile",
- ]
- 
-@@ -118,6 +119,7 @@ tokio-tungstenite = { version = "0.28", features = [
+@@ -18,7 +18,7 @@ default-run = "probe-rs"
+ [features]
+ default = []
+ # Include server/client functionality
+-remote = ["dep:tokio-tungstenite", "dep:axum", "dep:rustls"]
++remote = ["dep:tokio-tungstenite", "dep:axum", "dep:rustls", "dep:socket2"]
+
+ [dependencies]
+ anyhow = { workspace = true }
+@@ -111,6 +111,7 @@ tokio-tungstenite = { version = "0.29", features = [
+     "rustls-tls-webpki-roots",
  ], optional = true }
  axum = { version = "0.8", features = ["ws"], optional = true }
- axum-extra = { version = "0.12", features = ["typed-header"], optional = true }
-+socket2 = { version = "0.6", optional = true }
- tempfile = { version = "3.0", optional = true }
++socket2 = { version = "0.6", features = ["all"], optional = true }
+ tempfile = "3.0"
  postcard = { version = "1.0", features = ["use-std"] }
  postcard-rpc = { version = "0.12.0", features = ["use-std"] }
 diff --git a/probe-rs-tools/src/bin/probe-rs/cmd/serve.rs b/probe-rs-tools/src/bin/probe-rs/cmd/serve.rs
-index aaa0e7b..fc77f0d 100644
+index a42e5aa..6d10f38 100644
 --- a/probe-rs-tools/src/bin/probe-rs/cmd/serve.rs
 +++ b/probe-rs-tools/src/bin/probe-rs/cmd/serve.rs
-@@ -19,10 +19,11 @@ use postcard_rpc::server::WireRxErrorKind;
+@@ -19,12 +19,13 @@ use postcard_rpc::server::WireRxErrorKind;
  use probe_rs::probe::list::Lister;
  use serde::{Deserialize, Serialize};
  use sha2::{Digest, Sha512};
 +use socket2::{SockRef, TcpKeepalive};
  use tokio::task::LocalSet;
  use tokio_util::bytes::Bytes;
- 
+
+ #[cfg(unix)]
+ use std::path::PathBuf;
 -use std::{fmt::Write, sync::Arc};
 +use std::{fmt::Write, sync::Arc, time::Duration};
- 
- use crate::rpc::{
-     functions::{ProbeAccess, RpcApp},
-@@ -126,7 +127,7 @@ impl Cmd {
+
+ use crate::{
+     rpc::{
+@@ -165,7 +166,7 @@ impl Cmd {
          tracing::info!("listening on {}", listener.local_addr().unwrap());
- 
+
          let (result, _) = tokio::join! {
 -            axum::serve(listener, app),
 +            axum::serve(KeepaliveListener(listener), app),
              set,
          };
- 
-@@ -136,6 +137,52 @@ impl Cmd {
+
+@@ -202,6 +203,52 @@ impl Cmd {
      }
  }
- 
+
 +/// Wraps the accept loop so every accepted client connection gets TCP
 +/// keepalive enabled.
 +///
