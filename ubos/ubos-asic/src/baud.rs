@@ -1,15 +1,13 @@
 //! Compile-time baud-rate derivation for the BM1370 fast-UART path.
 //!
-//! The BM1370 on the hashnode board has marginal signal integrity on its
-//! chip serial pair. Running the chip at the generic 3.125 Mbaud (bt8d=0)
-//! causes framing errors and resyncs; the validated safe rate is 520 833 Hz
-//! (bt8d=5), which increases the per-bit sampling window by roughly 6x. Both the
-//! chip register value and the host line rate are derived from the same
-//! bt8d so they cannot drift apart.
+//! The BM1370 chip serial pair has marginal signal integrity at 3.125 Mbaud
+//! (bt8d=0), accumulating framing errors and resyncs. The validated safe rate
+//! is 520 833 Hz (bt8d=5), which increases the per-bit sampling window by
+//! roughly 6x. Both the chip register value and the host line rate are derived
+//! from the same bt8d so they cannot drift apart.
 //!
-//! `MINING_BAUDRATE` (set in the hashnode `.cargo/config.toml`) overrides
-//! the default at build time. Non-digit input fails the build rather than
-//! silently mis-clocking the chips.
+//! `MINING_BAUDRATE` overrides the default at build time. Non-digit input
+//! fails the build rather than silently mis-clocking the chips.
 
 /// UART reference clock on the BM1370, in Hz.
 const UART_CLK_HZ: u32 = 25_000_000;
@@ -40,23 +38,22 @@ const fn baud_env_to_hz(env: Option<&str>, default_hz: u32) -> u32 {
 
 /// Requested baud rate for the BM1370 fast-UART phase, in Hz.
 ///
-/// Defaults to `520_833` (bt8d=5), the rate validated on the hashnode: its
+/// Defaults to `520_833` (bt8d=5), the rate validated for the BM1370: its
 /// chip serial pair has marginal signal integrity, so the 3.125 Mbaud the chip
 /// would otherwise run accumulates framing errors and resyncs; the slower
-/// rate increases the per-bit sampling window by roughly 6x. Both the chip register
-/// and the host divider derive from this one value so they cannot drift apart.
+/// rate increases the per-bit sampling window by roughly 6x. Both the chip
+/// register and the host divider derive from this one value so they cannot
+/// drift apart.
 const MINING_BAUDRATE_HZ: u32 = baud_env_to_hz(option_env!("MINING_BAUDRATE"), 520_833);
 
-/// bt8d divider for [`MINING_BAUDRATE_HZ`], derived at build time.
+/// bt8d divider for the BM1370 fast-UART rate, derived at build time.
 ///
 /// `bt8d = round(uart_clk / (8 * baud)) - 1`. The chip register encoding
 /// uses `uart_clk / ((bt8d + 1) * 8)`, so deriving bt8d and then the exact
 /// host rate from it ensures chip and host stay matched even when the env
-/// baud does not divide evenly.
-/// bt8d divider for the BM1370 fast-UART rate. `BaudRateReg::bm1370_fast`
-/// loads it into the register's `bt8d` field on top of the shared fast-UART
-/// preset, so the chip register and the host rate stay derived from this one
-/// value. For the default 520 833 Hz build this is 5.
+/// baud does not divide evenly. `Bm1370::enable_fast_uart` loads this value
+/// into the register's `bt8d` field on top of the shared fast-UART preset.
+/// For the default 520 833 Hz build this is 5.
 pub const BM1370_FAST_UART_BT8D: u8 = {
     // Integer rounding: (numerator + half_denom) / denom.
     let half = (8 * MINING_BAUDRATE_HZ) / 2;

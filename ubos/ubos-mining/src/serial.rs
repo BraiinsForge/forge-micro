@@ -373,6 +373,10 @@ impl Serial {
         // Per-chip work-id variant count; the host strides work-ids by this
         // value and divides a returned work-id by it to recover the job.
         let midstate_count = chip.descriptor().midstate_count;
+        // Largest valid dispatched work-id for this chip. The BM1370 encodes
+        // the id in the high nibble of the response byte, so ids >= 128
+        // overflow and decode to the wrong slot. Other chips use the full range.
+        let max_work_id = chip.max_work_id();
 
         loop {
             // Honor a park request at the top of every iteration, before the
@@ -421,6 +425,7 @@ impl Serial {
                         &mut serial,
                         &mut work_id,
                         midstate_count,
+                        max_work_id,
                         &mut registry,
                         &mut work_receiver,
                     )
@@ -469,6 +474,7 @@ impl Serial {
         serial: &mut S,
         work_id: &mut u8,
         midstate_count: u8,
+        max_work_id: u8,
         registry: &mut [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         work_receiver: &mut DynReceiver<'_, WorkAssignment>,
     ) where
@@ -507,14 +513,14 @@ impl Serial {
             assignment,
         });
         *work_id = work_id.wrapping_add(midstate_count);
-        // A chip with midstate_count 16 (the BM1370) echoes the work-id in the
-        // high nibble of the response byte as `(work_id << 1) | small_core`, so
-        // the dispatched id must stay below 128: above it the `<< 1` overflows
-        // the byte and the reply decodes to a different slot, stranding that
-        // work and dropping its nonces. Chips that carry the id directly use
-        // the full u8 range.
-        if midstate_count == 16 {
-            *work_id %= 128;
+        // Wrap the work-id within the range the chip's response byte can carry,
+        // as reported by `Chip::max_work_id`. The BM1370 encodes the id in the
+        // high nibble as `(work_id << 1) | small_core`, so an id >= 128
+        // overflows the byte and decodes to the wrong slot. Chips that carry
+        // the id directly use the full u8 range (`max_work_id == u8::MAX`) and
+        // need no wrap: modulo 256 is a no-op on a u8 after `wrapping_add`.
+        if max_work_id < u8::MAX {
+            *work_id %= max_work_id.wrapping_add(1);
         }
 
         if let Err(e) = serial.write_all(&frame).await {

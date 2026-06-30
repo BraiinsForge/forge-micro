@@ -378,7 +378,7 @@ pub trait ChipProtocol {
     /// doing them earlier (against the boot clock) leaves cores idle and
     /// roughly halves the hashrate. The default is a no-op for chips that
     /// configure their cores entirely before the PLL.
-    async fn post_pll_rearm(&self, _bus: &mut impl ChipBus, _board: &BoardDescriptor) {}
+    async fn post_pll_rearm(&self, _bus: &mut impl ChipBus) {}
 
     /// Program the hash-counting number derived from `freq`. The capture
     /// only ever sends it on the fast UART, so bring-up programs it after
@@ -553,6 +553,21 @@ impl Chip {
             Chip::Bm1362 | Chip::Bm1366 => byte,
         }
     }
+
+    /// Largest dispatched work-id the chip's response byte can carry.
+    ///
+    /// The BM1370 encodes the work-id in the high nibble as
+    /// `(work_id << 1) | small_core_id`; an id of 128 or above overflows
+    /// the byte and decodes to the wrong slot. The dispatched id must
+    /// therefore stay within `0..=127`. Chips that carry the id directly
+    /// (BM1362, BM1366) use the full u8 range.
+    #[must_use]
+    pub const fn max_work_id(self) -> u8 {
+        match self {
+            Chip::Bm1370 => 127,
+            Chip::Bm1362 | Chip::Bm1366 => u8::MAX,
+        }
+    }
 }
 
 impl ChipProtocol for Chip {
@@ -592,11 +607,11 @@ impl ChipProtocol for Chip {
         }
     }
 
-    async fn post_pll_rearm(&self, bus: &mut impl ChipBus, board: &BoardDescriptor) {
+    async fn post_pll_rearm(&self, bus: &mut impl ChipBus) {
         match self {
-            Chip::Bm1362 => Bm1362.post_pll_rearm(bus, board).await,
-            Chip::Bm1366 => Bm1366.post_pll_rearm(bus, board).await,
-            Chip::Bm1370 => Bm1370.post_pll_rearm(bus, board).await,
+            Chip::Bm1362 => Bm1362.post_pll_rearm(bus).await,
+            Chip::Bm1366 => Bm1366.post_pll_rearm(bus).await,
+            Chip::Bm1370 => Bm1370.post_pll_rearm(bus).await,
         }
     }
 }
@@ -653,18 +668,21 @@ impl ChipProtocol for Bm1370 {
     }
 
     async fn enable_fast_uart(&self, bus: &mut impl ChipBus) {
-        // The BM1370 hashnode serial pair cannot sustain 3 Mbaud; use the
+        // The BM1370 chip serial pair cannot sustain 3 Mbaud; use the
         // SI-safe rate (520 833 Hz default, bt8d=5) instead. The host
         // switches to the matching rate via fast_uart_host_rate().
-        bus.write_register(ChipAddress::All, BaudRateReg::bm1370_fast())
-            .await;
+        bus.write_register(
+            ChipAddress::All,
+            BaudRateReg::fast_3mbaud().with_bt8d(crate::baud::BM1370_FAST_UART_BT8D),
+        )
+        .await;
     }
 
     fn fast_uart_host_rate(&self) -> u32 {
         crate::baud::BM1370_FAST_UART_HOST_HZ
     }
 
-    async fn post_pll_rearm(&self, bus: &mut impl ChipBus, _board: &BoardDescriptor) {
+    async fn post_pll_rearm(&self, bus: &mut impl ChipBus) {
         // The S21 Pro capture re-arms the cores against the running hash
         // clock after the PLL is up: a domain soft-reset, MiscCtrl, then the
         // three CoreControl writes whose last value enables the core clocks —

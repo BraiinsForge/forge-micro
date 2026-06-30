@@ -8,13 +8,12 @@
 
 #![no_std]
 
-pub mod baud;
+pub(crate) mod baud;
 pub mod board;
 pub mod chip;
 pub mod framing;
 pub mod registers;
 
-pub use baud::BM1370_FAST_UART_HOST_HZ;
 pub use board::*;
 pub use chip::{
     BM1362, BM1366, BM1370, Bm1362, Bm1366, Bm1370, Chip, ChipBus, ChipDescriptor, ChipError,

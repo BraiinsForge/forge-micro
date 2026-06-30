@@ -24,13 +24,6 @@ pub const DIFFICULTY: u32 = 1;
 /// `256 / 8`; chips with a larger count use fewer of these slots.
 pub const WORK_REGISTRY_SLOTS: usize = 256 / 8;
 
-/// Per-chip nonce-space offsets written to `ChipNonceOffsetReg`, one per
-/// chip, so each of the four chips scans a distinct quarter of the 32-bit
-/// nonce range. The host both programs these (the `FixedTuner` for BM1362,
-/// the captured trace for BM1370) and decodes them to attribute a returned
-/// nonce back to its chip, so the partitioning has a single home here.
-pub const CHIP_NONCE_OFFSETS: [u16; NUM_CHIPS as usize] = [0x0000, 0x3fff, 0x7ffe, 0xbffd];
-
 /// Boot baud rate the chip listens on out of reset.
 pub const INITIAL_BAUDRATE: u32 = 115_200;
 
