@@ -156,7 +156,7 @@ impl FanOutput for FanHwmonController {
 struct NoTach;
 
 impl TachReader<0> for NoTach {
-    const LABELS: [&'static str; 0] = [];
+    const LABELS: [Option<&'static str>; 0] = [];
 
     fn read_rpms(&mut self) -> [FanRpm; 0] {
         []

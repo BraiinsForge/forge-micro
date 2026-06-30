@@ -89,7 +89,7 @@ impl FanOutput for BoardFan {
 pub struct BoardTach;
 
 impl TachReader<TACH_COUNT> for BoardTach {
-    const LABELS: [&'static str; TACH_COUNT] = ["a", "b", "c"];
+    const LABELS: [Option<&'static str>; TACH_COUNT] = [Some("a"), Some("b"), Some("c")];
 
     fn read_rpms(&mut self) -> [FanRpm; TACH_COUNT] {
         let mut rpms = [FanRpm::from_rpm(0); TACH_COUNT];

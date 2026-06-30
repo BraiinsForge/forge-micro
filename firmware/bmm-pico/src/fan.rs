@@ -94,7 +94,7 @@ impl BoardTach {
 }
 
 impl TachReader<1> for BoardTach {
-    const LABELS: [&'static str; 1] = [""];
+    const LABELS: [Option<&'static str>; 1] = [None];
 
     fn read_rpms(&mut self) -> [FanRpm; 1] {
         let now = Instant::now();

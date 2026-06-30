@@ -39,10 +39,10 @@ pub trait FanOutput {
 /// speed of each fan measured since the previous call.
 ///
 /// `LABELS[i]` is the `fan` label attached to fan `i`'s `board_fan_rpm`
-/// series. An empty string publishes that series with no label, which
-/// single-fan boards use to keep the historical unlabeled metric.
+/// series. `None` publishes that series with no label, which single-fan
+/// boards use to keep the historical unlabeled metric.
 pub trait TachReader<const N: usize> {
-    const LABELS: [&'static str; N];
+    const LABELS: [Option<&'static str>; N];
     fn read_rpms(&mut self) -> [FanRpm; N];
 }
 
@@ -183,15 +183,16 @@ where
         .await;
         for (label, reading) in T::LABELS.iter().zip(rpms.iter()) {
             let value = Value::Uint(u64::from(reading.rpm()));
-            let metric = if label.is_empty() {
-                Metric::with_no_labels(METRIC_FAN_RPM, value)
-            } else {
-                let mut labels = Labels::new();
-                let _ = labels.push(Label {
-                    name: "fan",
-                    value: LabelValue::Static(label),
-                });
-                Metric::with_labels(METRIC_FAN_RPM, labels, value)
+            let metric = match *label {
+                None => Metric::with_no_labels(METRIC_FAN_RPM, value),
+                Some(name) => {
+                    let mut labels = Labels::new();
+                    let _ = labels.push(Label {
+                        name: "fan",
+                        value: LabelValue::Static(name),
+                    });
+                    Metric::with_labels(METRIC_FAN_RPM, labels, value)
+                }
             };
             push(metric).await;
         }

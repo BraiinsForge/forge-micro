@@ -201,7 +201,7 @@ pub async fn run_tach(_hardware: TachHardware) -> ! {
 pub struct Tach;
 
 impl TachReader<1> for Tach {
-    const LABELS: [&'static str; 1] = [""];
+    const LABELS: [Option<&'static str>; 1] = [None];
 
     fn read_rpms(&mut self) -> [FanRpm; 1] {
         [FanRpm::from_rpm(FAN_RPM_SAMPLE.load(Ordering::Relaxed))]
