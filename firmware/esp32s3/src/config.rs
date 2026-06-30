@@ -130,8 +130,8 @@ impl Board<'static> {
     /// folds the ESP32-S3 factory eFuse MAC into the remaining octets via
     /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
     /// distinct MAC with no per-board build flag. Families 0x01/0x02/0x03
-    /// are taken by rp2040/rp2350/bmm-pico; esp32s3 uses 0x04.
-    pub const MAC_FAMILY: u8 = 0x04;
+    /// are taken by rp2040/rp2350/bmm-pico, 0x04 by hashnode; esp32s3 uses 0x05.
+    pub const MAC_FAMILY: u8 = 0x05;
     /// Concurrent TCP connections the web-UI server (:80) accepts. A browser
     /// opens several parallel connections per page load; this sizes the
     /// worker/buffer pool. Held at 3 rather than the 5 the RP boards use:
