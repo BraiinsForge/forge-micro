@@ -161,12 +161,12 @@ pub(crate) fn decode_status(byte: u8) -> crate::StatusFlags {
 use embassy_time::{Duration, Timer};
 use embedded_hal_async::i2c::I2c;
 
-use crate::{Error, MiniminerPsuConfig};
+use crate::{BmmPsuConfig, Error};
 
 /// `t_d(EN)2` = 100 µs after the reset pulse before further writes.
 const SW_ENABLE_DELAY: Duration = Duration::from_micros(100);
 
-pub(crate) async fn init<I, E>(i2c: &mut I, config: &MiniminerPsuConfig) -> Result<(), Error<E>>
+pub(crate) async fn init<I, E>(i2c: &mut I, config: &BmmPsuConfig) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -187,7 +187,7 @@ where
         .map_err(Error::Bus)
 }
 
-async fn reset<I, E>(i2c: &mut I, config: &MiniminerPsuConfig) -> Result<(), Error<E>>
+async fn reset<I, E>(i2c: &mut I, config: &BmmPsuConfig) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -204,7 +204,7 @@ where
     .map_err(Error::Bus)
 }
 
-pub(crate) async fn enable<I, E>(i2c: &mut I, config: &MiniminerPsuConfig) -> Result<(), Error<E>>
+pub(crate) async fn enable<I, E>(i2c: &mut I, config: &BmmPsuConfig) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -223,7 +223,7 @@ where
     Ok(())
 }
 
-pub(crate) async fn disable<I, E>(i2c: &mut I, config: &MiniminerPsuConfig) -> Result<(), Error<E>>
+pub(crate) async fn disable<I, E>(i2c: &mut I, config: &BmmPsuConfig) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
     E: embedded_hal_async::i2c::Error,
@@ -238,7 +238,7 @@ where
 
 pub(crate) async fn set_voltage<I, E>(
     i2c: &mut I,
-    config: &MiniminerPsuConfig,
+    config: &BmmPsuConfig,
     millivolts: u32,
 ) -> Result<(), Error<E>>
 where
@@ -256,7 +256,7 @@ where
 
 pub(crate) async fn read_status<I, E>(
     i2c: &mut I,
-    config: &MiniminerPsuConfig,
+    config: &BmmPsuConfig,
 ) -> Result<crate::StatusFlags, Error<E>>
 where
     I: I2c<Error = E>,

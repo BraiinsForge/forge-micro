@@ -1,4 +1,4 @@
-//! `HashnodePsu` handle and `Psu` trait impl for the Braiins Hashnode miner
+//! `BfmPsu` handle and `Psu` trait impl for the Braiins Hashnode miner
 //! power stage: one `SIC45x` `PMBus` DC/DC converter and one INA230
 //! output monitor.
 
@@ -15,17 +15,17 @@ use crate::{Error, Psu, ina230, sic45x};
 /// `'static` mutex storage cell.
 pub type RawMutex = CriticalSectionRawMutex;
 
-/// Runtime configuration for `HashnodePsu`.
+/// Runtime configuration for `BfmPsu`.
 #[derive(Clone, Copy, Debug)]
-pub struct HashnodePsuConfig {
+pub struct BfmPsuConfig {
     /// `SIC45x` `PMBus` converter configuration.
     pub sic: crate::sic45x::Sic45xConfig,
-    /// INA230 7-bit I2C address.
-    ///
-    /// The Hashnode schematic originally listed 0x43, but bench
-    /// measurements and patch-0008 confirmed the populated address
-    /// resistor selects 0x53. Both values are documented here so the
-    /// discrepancy is traceable without digging into git history.
+    /// INA230 7-bit I2C address, strapped to 0x43 on the HASHNODE x4
+    /// hardware page. An earlier config defaulted to 0x53 from a
+    /// schematic reading, but the flashed firmware always overrode it to
+    /// 0x43, so 0x43 is the address the hardware actually answers on.
+    /// Kept as the default and documented so the 0x53/0x43 split stays
+    /// traceable and is not re-raised on every review.
     pub ina_address: u8,
     /// Maximum expected load current for INA230 calibration.
     pub ina_max_current_a: u32,
@@ -33,17 +33,17 @@ pub struct HashnodePsuConfig {
     pub ina_shunt_microohm: u32,
 }
 
-impl HashnodePsuConfig {
+impl BfmPsuConfig {
     /// Default configuration for the BOS Hashnode board.
     pub const DEFAULT: Self = Self {
         sic: crate::sic45x::Sic45xConfig::DEFAULT,
-        ina_address: 0x53,
+        ina_address: 0x43,
         ina_max_current_a: 30,
         ina_shunt_microohm: 2_000,
     };
 }
 
-impl<I: I2c> PsuInit<I> for HashnodePsuConfig {
+impl<I: I2c> PsuInit<I> for BfmPsuConfig {
     async fn run_init(i2c: &mut I, config: &Self) -> Result<(), Error<I::Error>> {
         // Why: the INA230's VS pin is powered by the SIC output rail.
         // The rail is off during init, so the INA is below its operating
@@ -59,36 +59,36 @@ impl<I: I2c> PsuInit<I> for HashnodePsuConfig {
         .await
         .is_err()
         {
-            ubos_logging::warn!("Hashnode INA230 init failed (rail not up yet?)");
+            ubos_logging::warn!("BFM INA230 init failed (rail not up yet?)");
         }
 
         sic45x::init(i2c, &config.sic).await
     }
 }
 
-/// State protected by the `HashnodePsu` mutex. Type alias over the shared
-/// [`State`] container; the generic parameter is `HashnodePsuConfig`.
-pub type HashnodeState<I> = State<I, HashnodePsuConfig>;
+/// State protected by the `BfmPsu` mutex. Type alias over the shared
+/// [`State`] container; the generic parameter is `BfmPsuConfig`.
+pub type BfmState<I> = State<I, BfmPsuConfig>;
 
-/// Handle to the Hashnode PSU. Cheap to clone-by-reference; the
+/// Handle to the BFM PSU. Cheap to clone-by-reference; the
 /// underlying state lives behind a `'static` mutex supplied by the
 /// caller.
-pub struct HashnodePsu<I: I2c + 'static> {
-    state: &'static Mutex<RawMutex, HashnodeState<I>>,
+pub struct BfmPsu<I: I2c + 'static> {
+    state: &'static Mutex<RawMutex, BfmState<I>>,
     terminated: &'static AtomicBool,
 }
 
-impl<I: I2c + 'static> HashnodePsu<I> {
+impl<I: I2c + 'static> BfmPsu<I> {
     /// Construct a handle from `'static` state and terminated flag.
     pub fn new(
-        state: &'static Mutex<RawMutex, HashnodeState<I>>,
+        state: &'static Mutex<RawMutex, BfmState<I>>,
         terminated: &'static AtomicBool,
     ) -> Self {
         Self { state, terminated }
     }
 }
 
-impl<I: I2c + 'static> Psu for HashnodePsu<I> {
+impl<I: I2c + 'static> Psu for BfmPsu<I> {
     type BusError = I::Error;
 
     async fn enable(&self) -> Result<(), Error<I::Error>> {
@@ -192,6 +192,10 @@ impl<I: I2c + 'static> Psu for HashnodePsu<I> {
     }
 
     fn voltage_source(&self) -> Option<&'static str> {
+        // Names the installed part, the SIC450, not the sic45x driver
+        // family. This is a deployed Prometheus label value; dashboards
+        // and alerts key on source="sic450", so it must not be
+        // genericized to "sic45x".
         Some("sic450")
     }
 
@@ -222,5 +226,5 @@ impl<I: I2c + 'static> Psu for HashnodePsu<I> {
 }
 
 #[cfg(test)]
-#[path = "tests/hashnode.rs"]
+#[path = "tests/bfm.rs"]
 mod tests;

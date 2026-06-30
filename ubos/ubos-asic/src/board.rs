@@ -93,7 +93,7 @@ impl BoardDescriptor {
 }
 
 /// Hashboard descriptor. The `max_psu_voltage` mirrors
-/// `MiniminerPsuConfig::DEFAULT.dcdc_voltage_range` (`VRange2`, end
+/// `BmmPsuConfig::DEFAULT.dcdc_voltage_range` (`VRange2`, end
 /// 1675 mV).
 pub const BMM100: BoardDescriptor = BoardDescriptor {
     chip: Chip::Bm1362,

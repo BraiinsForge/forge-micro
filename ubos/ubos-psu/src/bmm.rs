@@ -1,4 +1,4 @@
-//! `MiniminerPsu` handle, watchdog future, and `Psu` trait impl.
+//! `BmmPsu` handle, watchdog future, and `Psu` trait impl.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -10,17 +10,17 @@ use ubos_logging::{info, warn};
 use ubos_core::units::{Power, Voltage};
 
 use crate::state::{InitStatus, PsuInit, State, ensure_initialized};
-use crate::{Error, MiniminerPsuConfig, Psu, ina230, tps6287x, watchdog};
+use crate::{BmmPsuConfig, Error, Psu, ina230, tps6287x, watchdog};
 
 #[cfg(test)]
-#[path = "tests/miniminer.rs"]
+#[path = "tests/bmm.rs"]
 mod tests;
 
 /// `RawMutex` choice exposed for callers that need to declare the
 /// `'static` mutex storage cell.
 pub type RawMutex = CriticalSectionRawMutex;
 
-impl<I: I2c> PsuInit<I> for MiniminerPsuConfig {
+impl<I: I2c> PsuInit<I> for BmmPsuConfig {
     async fn run_init(i2c: &mut I, config: &Self) -> Result<(), Error<I::Error>> {
         watchdog::init(i2c, config.watchdog_address)
             .await
@@ -48,20 +48,20 @@ impl<I: I2c> PsuInit<I> for MiniminerPsuConfig {
     }
 }
 
-/// Handle to the miniminer PSU. Cheap to clone-by-reference; the
+/// Handle to the BMM PSU. Cheap to clone-by-reference; the
 /// underlying state lives behind a `'static` mutex supplied by the
 /// caller.
-pub struct MiniminerPsu<I: I2c + 'static> {
-    state: &'static Mutex<RawMutex, State<I, MiniminerPsuConfig>>,
+pub struct BmmPsu<I: I2c + 'static> {
+    state: &'static Mutex<RawMutex, State<I, BmmPsuConfig>>,
     terminated: &'static AtomicBool,
 }
 
-impl<I: I2c + 'static> MiniminerPsu<I> {
+impl<I: I2c + 'static> BmmPsu<I> {
     /// Construct a handle. Spawn `run_watchdog` separately on the
     /// same `state` + `terminated` references to drive the
     /// SLG46826G heartbeat.
     pub fn new(
-        state: &'static Mutex<RawMutex, State<I, MiniminerPsuConfig>>,
+        state: &'static Mutex<RawMutex, State<I, BmmPsuConfig>>,
         terminated: &'static AtomicBool,
     ) -> Self {
         Self { state, terminated }
@@ -73,7 +73,7 @@ impl<I: I2c + 'static> MiniminerPsu<I> {
 /// `SLG46826G` if init has succeeded. Returns once `terminated`
 /// flips to `true`.
 pub async fn run_watchdog<I: I2c>(
-    state: &'static Mutex<RawMutex, State<I, MiniminerPsuConfig>>,
+    state: &'static Mutex<RawMutex, State<I, BmmPsuConfig>>,
     terminated: &'static AtomicBool,
 ) {
     let interval = {
@@ -97,7 +97,7 @@ pub async fn run_watchdog<I: I2c>(
     }
 }
 
-impl<I: I2c + 'static> Psu for MiniminerPsu<I> {
+impl<I: I2c + 'static> Psu for BmmPsu<I> {
     type BusError = I::Error;
 
     async fn enable(&self) -> Result<(), Error<I::Error>> {

@@ -1,6 +1,6 @@
 //! Board constants and peripheral extraction for the Hashnode, an
 //! RP2350 with a W5500 running the ubos-mining backend and a `SIC45x`-based
-//! `HashnodePsu`.
+//! `BfmPsu`.
 //! `Board::take` consumes the RP2350 `Peripherals` once and returns every
 //! singleton the board's schematic claims, keeping pin assignments in one
 //! place rather than scattered through `main`.

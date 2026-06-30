@@ -53,18 +53,18 @@ pub enum Error<E> {
 
 /// Async PSU control surface. One implementation per hardware
 /// platform; consumers stay generic over `Psu`.
+pub mod bfm;
+pub mod bmm;
 pub mod config;
-pub mod hashnode;
 pub mod ina230;
-pub mod miniminer;
 pub mod sic45x;
 pub mod state;
 pub mod tps6287x;
 pub mod watchdog;
 
-pub use config::MiniminerPsuConfig;
-pub use hashnode::{HashnodePsu, HashnodePsuConfig, HashnodeState};
-pub use miniminer::{MiniminerPsu, RawMutex, run_watchdog};
+pub use bfm::{BfmPsu, BfmPsuConfig, BfmState};
+pub use bmm::{BmmPsu, RawMutex, run_watchdog};
+pub use config::BmmPsuConfig;
 pub use state::State;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -392,7 +392,7 @@ pub trait Psu {
     /// `set_voltage` against the voltage the hashboard actually sees so
     /// droop or sense-line loss is visible to operators. The source
     /// register is implementation-defined (e.g. `SIC READ_VOUT` for
-    /// `HashnodePsu`).
+    /// `BfmPsu`).
     async fn read_output_voltage(&self) -> Result<Voltage, Error<Self::BusError>>;
     /// Optional second sensor measuring the same output rail, for
     /// cross-checking [`read_output_voltage`]. `None` (the default) means the

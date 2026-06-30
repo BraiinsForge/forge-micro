@@ -1,5 +1,5 @@
 use super::*;
-use crate::MiniminerPsuConfig;
+use crate::BmmPsuConfig;
 use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
 
 fn run<F: core::future::Future>(future: F) -> F::Output {
@@ -50,7 +50,7 @@ fn power_register_to_mw() {
 
 #[test]
 fn init_writes_config_then_calibration() {
-    let config = MiniminerPsuConfig::DEFAULT;
+    let config = BmmPsuConfig::DEFAULT;
     let expectations = init_expectations(
         config.ina_input_address,
         config.ina_input_max_current_a,

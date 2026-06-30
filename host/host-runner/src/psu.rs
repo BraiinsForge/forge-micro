@@ -1,4 +1,4 @@
-//! Workspace-static `MiniminerPsu` over the Linux i2c-dev bus.
+//! Workspace-static `BmmPsu` over the Linux i2c-dev bus.
 //!
 //! Activated by `UBOS_I2C_BUS=/dev/i2c-N`; without the env var set
 //! `open()` returns `None` and the runner skips the miner spawn. The
@@ -11,15 +11,15 @@ use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
-use ubos_psu::{MiniminerPsu, MiniminerPsuConfig, State, run_power_stats, run_watchdog};
+use ubos_psu::{BmmPsu, BmmPsuConfig, State, run_power_stats, run_watchdog};
 
 /// Env var that points at the i2c-dev character device wired to the
 /// BMM100 PSU. Unset means no hashboard is attached and the runner
 /// skips the miner.
 pub const I2C_BUS_ENV: &str = "UBOS_I2C_BUS";
 
-pub type HostPsu = MiniminerPsu<HostI2c>;
-pub type HostState = Mutex<CriticalSectionRawMutex, State<HostI2c, MiniminerPsuConfig>>;
+pub type HostPsu = BmmPsu<HostI2c>;
+pub type HostState = Mutex<CriticalSectionRawMutex, State<HostI2c, BmmPsuConfig>>;
 
 static STATE: StaticCell<HostState> = StaticCell::new();
 static TERMINATED: StaticCell<AtomicBool> = StaticCell::new();
@@ -43,9 +43,9 @@ pub fn open() -> Option<(&'static HostPsu, &'static HostState, &'static AtomicBo
         }
     };
     info!("psu: opened {path}");
-    let state: &'static _ = STATE.init(Mutex::new(State::new(i2c, MiniminerPsuConfig::DEFAULT)));
+    let state: &'static _ = STATE.init(Mutex::new(State::new(i2c, BmmPsuConfig::DEFAULT)));
     let terminated: &'static _ = TERMINATED.init(AtomicBool::new(false));
-    let psu: &'static _ = PSU.init(MiniminerPsu::new(state, terminated));
+    let psu: &'static _ = PSU.init(BmmPsu::new(state, terminated));
     Some((psu, state, terminated))
 }
 

@@ -11,15 +11,12 @@ fn leak<T: 'static>(value: T) -> &'static T {
 
 fn make_handle(
     bus: Mock,
-    config: HashnodePsuConfig,
+    config: BfmPsuConfig,
     terminated_value: bool,
-) -> (
-    HashnodePsu<Mock>,
-    &'static Mutex<RawMutex, HashnodeState<Mock>>,
-) {
-    let state: &'static _ = leak(Mutex::<RawMutex, _>::new(HashnodeState::new(bus, config)));
+) -> (BfmPsu<Mock>, &'static Mutex<RawMutex, BfmState<Mock>>) {
+    let state: &'static _ = leak(Mutex::<RawMutex, _>::new(BfmState::new(bus, config)));
     let terminated: &'static _ = leak(AtomicBool::new(terminated_value));
-    (HashnodePsu::new(state, terminated), state)
+    (BfmPsu::new(state, terminated), state)
 }
 
 /// `INA230` CONFIG word (averaging=Avg1, `VBus` CT=1.1ms, Shunt CT=1.1ms,
@@ -119,7 +116,7 @@ fn sic_init_transactions() -> Vec<Transaction> {
 }
 
 /// Build the full init sequence: INA230 (2 transactions) then `SIC45x` (21).
-fn init_transactions(config: &HashnodePsuConfig) -> Vec<Transaction> {
+fn init_transactions(config: &BfmPsuConfig) -> Vec<Transaction> {
     let [ina_config, ina_cal] = ina_init_transactions(
         config.ina_address,
         config.ina_max_current_a,
@@ -134,7 +131,7 @@ fn init_transactions(config: &HashnodePsuConfig) -> Vec<Transaction> {
 /// `OPERATION` with on-bit set, write `CLEAR_FAULTS`).
 fn sic_enable_transactions() -> [Transaction; 3] {
     use crate::sic45x::{CLEAR_FAULTS, OPERATION};
-    let address = HashnodePsuConfig::DEFAULT.sic.address;
+    let address = BfmPsuConfig::DEFAULT.sic.address;
     [
         Transaction::write_read(address, vec![OPERATION], vec![0x00]),
         Transaction::write(address, vec![OPERATION, 0x80]),
@@ -144,7 +141,7 @@ fn sic_enable_transactions() -> [Transaction; 3] {
 
 #[test]
 fn init_wire_sequence_ina_then_sic_then_enable() {
-    let config = HashnodePsuConfig::DEFAULT;
+    let config = BfmPsuConfig::DEFAULT;
 
     let mut transactions = init_transactions(&config);
     transactions.extend_from_slice(&sic_enable_transactions());
@@ -162,7 +159,7 @@ fn init_wire_sequence_ina_then_sic_then_enable() {
 fn set_voltage_happy_path() {
     use crate::sic45x::{VOUT_COMMAND, encode_vout};
 
-    let config = HashnodePsuConfig::DEFAULT;
+    let config = BfmPsuConfig::DEFAULT;
     let address = config.sic.address;
     let millivolts = 1_000u32;
     let bytes = encode_vout(millivolts).to_le_bytes();
@@ -184,7 +181,7 @@ fn set_voltage_happy_path() {
 
 #[test]
 fn set_voltage_out_of_range_runs_init_first_then_errors() {
-    let config = HashnodePsuConfig::DEFAULT;
+    let config = BfmPsuConfig::DEFAULT;
     // Init still runs before the range check happens inside sic45x::set_voltage.
     let transactions = init_transactions(&config);
     let bus = Mock::new(&transactions);
@@ -202,7 +199,7 @@ fn set_voltage_out_of_range_runs_init_first_then_errors() {
 fn terminate_flips_flag_and_subsequent_calls_return_terminated() {
     use crate::sic45x::{OPERATION, VOUT_COMMAND, encode_vout};
 
-    let config = HashnodePsuConfig::DEFAULT;
+    let config = BfmPsuConfig::DEFAULT;
     let address = config.sic.address;
 
     let mut transactions = init_transactions(&config);
@@ -238,7 +235,7 @@ fn terminate_flips_flag_and_subsequent_calls_return_terminated() {
 fn read_input_power_reports_zero() {
     // The Femto/Hashnode stage has no input-side monitor; read_input_power
     // returns zero without touching the bus so the UI leaves "input" blank.
-    let config = HashnodePsuConfig::DEFAULT;
+    let config = BfmPsuConfig::DEFAULT;
     let bus = Mock::new(&[]);
     let (psu, state) = make_handle(bus, config, false);
 
@@ -251,7 +248,7 @@ fn read_input_power_reports_zero() {
 
 #[test]
 fn read_output_power_reads_ina230_power_register() {
-    let config = HashnodePsuConfig::DEFAULT;
+    let config = BfmPsuConfig::DEFAULT;
 
     let mut transactions = init_transactions(&config);
     // INA230 REG_POWER is 0x03; two BE bytes. power_register=1000 = [0x03, 0xE8].

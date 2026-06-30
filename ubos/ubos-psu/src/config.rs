@@ -1,4 +1,4 @@
-//! Runtime configuration for `MiniminerPsu`.
+//! Runtime configuration for `BmmPsu`.
 
 use embassy_time::Duration;
 use ubos_core::units::Voltage;
@@ -6,7 +6,7 @@ use ubos_core::units::Voltage;
 use crate::tps6287x::{SoftStartRampTime, VoltageRampSpeed, VoltageRange};
 
 #[derive(Clone, Copy, Debug)]
-pub struct MiniminerPsuConfig {
+pub struct BmmPsuConfig {
     pub dcdc_address: u8,
     pub dcdc_initial: Voltage,
     pub dcdc_voltage_range: VoltageRange,
@@ -22,7 +22,7 @@ pub struct MiniminerPsuConfig {
     pub ina_output_shunt_microohm: u32,
 }
 
-impl MiniminerPsuConfig {
+impl BmmPsuConfig {
     /// Defaults that match the BOS BMM100 miniminer constants.
     pub const DEFAULT: Self = Self {
         dcdc_address: 0x40,

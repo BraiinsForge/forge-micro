@@ -1,5 +1,5 @@
 //! Drives `ubos_mining::Miner` against the gpiocdev-backed reset pin
-//! and the workspace-static `MiniminerPsu`.
+//! and the workspace-static `BmmPsu`.
 
 use embassy_time::{Duration, Timer};
 use log::{error, info};

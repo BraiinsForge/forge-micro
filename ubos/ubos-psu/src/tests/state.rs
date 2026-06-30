@@ -1,5 +1,5 @@
 use super::*;
-use crate::MiniminerPsuConfig;
+use crate::BmmPsuConfig;
 use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
 
 fn run<F: core::future::Future>(future: F) -> F::Output {
@@ -8,7 +8,7 @@ fn run<F: core::future::Future>(future: F) -> F::Output {
 
 #[test]
 fn ensure_initialized_runs_full_init_then_marks_initialized() {
-    let config = MiniminerPsuConfig::DEFAULT;
+    let config = BmmPsuConfig::DEFAULT;
     let bus = Mock::new(&test_support::init_transactions(&config));
     let mut state = State::new(bus, config);
     run(ensure_initialized(&mut state)).expect("BUG: init failed");
@@ -18,7 +18,7 @@ fn ensure_initialized_runs_full_init_then_marks_initialized() {
 
 #[test]
 fn ensure_initialized_caches_success() {
-    let config = MiniminerPsuConfig::DEFAULT;
+    let config = BmmPsuConfig::DEFAULT;
     let bus = Mock::new(&test_support::init_transactions(&config));
     let mut state = State::new(bus, config);
     run(ensure_initialized(&mut state)).expect("BUG: first init failed");
@@ -29,7 +29,7 @@ fn ensure_initialized_caches_success() {
 
 #[test]
 fn ensure_initialized_caches_failure_kind() {
-    let config = MiniminerPsuConfig::DEFAULT;
+    let config = BmmPsuConfig::DEFAULT;
     // First transaction errors out: NACK on the watchdog write.
     let expectations = [
         Transaction::write(config.watchdog_address, vec![0x7a, 0x00]).with_error(

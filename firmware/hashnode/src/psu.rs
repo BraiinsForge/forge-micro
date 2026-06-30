@@ -1,6 +1,6 @@
 //! Hashnode PSU integration over the shared I2C1 bus.
 //!
-//! Wraps the shared `SIC45x` `PMBus` driver in [`HashnodePsu`], which owns the
+//! Wraps the shared `SIC45x` `PMBus` driver in [`BfmPsu`], which owns the
 //! `SIC_EN` (GPIO30) hardware-enable pin. On this board the `SIC45x` is gated
 //! by that pin, not by the `PMBus` `OPERATION` register, so `enable`/`disable`
 //! drive the GPIO and delegate the register reads and `set_voltage` to the
@@ -18,7 +18,7 @@ use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
 use ubos_core::units::{Power, Voltage};
 use ubos_psu::sic45x::{LoopScale, Sic45xConfig};
-use ubos_psu::{Error, HashnodePsu, HashnodePsuConfig, HashnodeState, Psu, StatusFlags};
+use ubos_psu::{BfmPsu, BfmPsuConfig, BfmState, Error, Psu, StatusFlags};
 
 /// Bus mutex shared by every consumer on I2C1. `NoopRawMutex` is sufficient
 /// because every I2C consumer runs on the Core 0 executor. The chip-serial
@@ -31,13 +31,13 @@ pub type Bus = Mutex<NoopRawMutex, I2c<'static, I2C1, Async>>;
 type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C1, Async>>;
 
 /// PSU state guarded by the raw mutex the SIC driver requires.
-type PsuStateInner = Mutex<CriticalSectionRawMutex, HashnodeState<Device>>;
+type PsuStateInner = Mutex<CriticalSectionRawMutex, BfmState<Device>>;
 
 /// I2C bus error surfaced by the shared-bus device.
 type BusError = I2cDeviceError<I2cError>;
 
 /// The shared `SIC45x` `PMBus` driver instantiated for this board's bus.
-type InnerPsu = HashnodePsu<Device>;
+type InnerPsu = BfmPsu<Device>;
 
 static STATE: StaticCell<PsuStateInner> = StaticCell::new();
 static TERMINATED: StaticCell<AtomicBool> = StaticCell::new();
@@ -143,13 +143,12 @@ const HASHNODE_SIC: Sic45xConfig = Sic45xConfig {
     voltage_max_millivolts: ubos_asic::HASHNODE.max_psu_voltage.mv(),
 };
 
-/// Hashnode PSU config. INA230 strapped to 0x43, confirmed against the
-/// HASHNODE x4 hardware page. INA shunt 2 mΩ and max current 30 A
-/// confirmed from the `SIC45x` hardware page.
-const HASHNODE_PSU: HashnodePsuConfig = HashnodePsuConfig {
+/// Hashnode PSU config. The INA230 address (0x43), 2 mΩ shunt, and 30 A
+/// max current all come from `BfmPsuConfig::DEFAULT`; only the `SIC45x`
+/// voltage rail is board-specific.
+const HASHNODE_PSU: BfmPsuConfig = BfmPsuConfig {
     sic: HASHNODE_SIC,
-    ina_address: 0x43,
-    ..HashnodePsuConfig::DEFAULT
+    ..BfmPsuConfig::DEFAULT
 };
 
 /// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`, taking
@@ -160,9 +159,9 @@ pub fn init(
     sic_enable: Output<'static>,
 ) -> (&'static BoardPsu, &'static AtomicBool) {
     let device = I2cDevice::new(bus);
-    let state: &'static _ = STATE.init(Mutex::new(HashnodeState::new(device, HASHNODE_PSU)));
+    let state: &'static _ = STATE.init(Mutex::new(BfmState::new(device, HASHNODE_PSU)));
     let terminated: &'static _ = TERMINATED.init(AtomicBool::new(false));
-    let inner = HashnodePsu::new(state, terminated);
+    let inner = BfmPsu::new(state, terminated);
     let psu: &'static _ = PSU.init(BoardPsu {
         inner,
         sic_enable: Mutex::new(sic_enable),

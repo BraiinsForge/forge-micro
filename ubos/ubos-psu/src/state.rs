@@ -71,16 +71,16 @@ where
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use crate::MiniminerPsuConfig;
+    use crate::BmmPsuConfig;
     use embedded_hal_mock::eh1::i2c::Transaction;
 
     /// Build the I2C transaction sequence that `run_init` produces
-    /// for a given `MiniminerPsuConfig`. Shared by the integration
+    /// for a given `BmmPsuConfig`. Shared by the integration
     /// tests so the canonical init wire shape lives next to the
     /// implementation.
     const INA_CONFIG: u16 = 0b0100_0001_0010_0111;
 
-    pub fn init_transactions(config: &MiniminerPsuConfig) -> Vec<Transaction> {
+    pub fn init_transactions(config: &BmmPsuConfig) -> Vec<Transaction> {
         use crate::{ina230, tps6287x};
 
         let dac = config

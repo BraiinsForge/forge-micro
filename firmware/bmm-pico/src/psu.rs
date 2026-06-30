@@ -1,5 +1,5 @@
 //! BMM100 PSU integration over the shared I2C1 bus. Owns the static
-//! cells for the `MiniminerPsu` state, terminated flag, and PSU handle.
+//! cells for the `BmmPsu` state, terminated flag, and PSU handle.
 //!
 //! Backend architecture: `../../../docs/MINING.md`.
 
@@ -10,7 +10,7 @@ use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::mutex::Mutex;
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
-use ubos_psu::{MiniminerPsu, MiniminerPsuConfig, State, run_watchdog};
+use ubos_psu::{BmmPsu, BmmPsuConfig, State, run_watchdog};
 
 /// Bus mutex shared by every consumer on I2C1. `NoopRawMutex` is sufficient
 /// because every I2C consumer runs on the Core 0 executor. The chip-serial
@@ -23,23 +23,23 @@ pub type Bus = Mutex<NoopRawMutex, I2c<'static, I2C1, Async>>;
 /// Cloning the bus reference is the supported shared-bus pattern.
 type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C1, Async>>;
 
-/// PSU state guarded by the raw mutex `ubos_psu::MiniminerPsu` requires.
-type PsuState = Mutex<CriticalSectionRawMutex, State<Device, MiniminerPsuConfig>>;
-/// Concrete `MiniminerPsu` instantiation for the BMM Adapter. Public so the
+/// PSU state guarded by the raw mutex `ubos_psu::BmmPsu` requires.
+type PsuState = Mutex<CriticalSectionRawMutex, State<Device, BmmPsuConfig>>;
+/// Concrete `BmmPsu` instantiation for the BMM Adapter. Public so the
 /// `mining` module can spell it in `miner_task`'s signature.
-pub type BoardPsu = MiniminerPsu<Device>;
+pub type BoardPsu = BmmPsu<Device>;
 
 static STATE: StaticCell<PsuState> = StaticCell::new();
 static TERMINATED: StaticCell<AtomicBool> = StaticCell::new();
 static PSU: StaticCell<BoardPsu> = StaticCell::new();
 
-/// Construct the `MiniminerPsu` over an `I2cDevice` carved from `bus` and
+/// Construct the `BmmPsu` over an `I2cDevice` carved from `bus` and
 /// return the `'static` references the watchdog / miner / sensor tasks need.
 pub fn init(bus: &'static Bus) -> (&'static BoardPsu, &'static PsuState, &'static AtomicBool) {
     let device = I2cDevice::new(bus);
-    let state: &'static _ = STATE.init(Mutex::new(State::new(device, MiniminerPsuConfig::DEFAULT)));
+    let state: &'static _ = STATE.init(Mutex::new(State::new(device, BmmPsuConfig::DEFAULT)));
     let terminated: &'static _ = TERMINATED.init(AtomicBool::new(false));
-    let psu: &'static _ = PSU.init(MiniminerPsu::new(state, terminated));
+    let psu: &'static _ = PSU.init(BmmPsu::new(state, terminated));
     (psu, state, terminated)
 }
 

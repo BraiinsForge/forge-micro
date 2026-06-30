@@ -1,6 +1,6 @@
 //! Firmware entry point for the Hashnode, an RP2350 with a W5500
 //! ethernet controller, the ubos-mining backend driving a 4-chip BM1370
-//! hashboard, and a `SIC45x`-based `HashnodePsu` power stage.
+//! hashboard, and a `SIC45x`-based `BfmPsu` power stage.
 //!
 //! Initialises SPI at 33 MHz, brings the W5500 up via `embassy-net-wiznet`,
 //! starts the embassy-net stack with DHCP, and spawns the watchdog, LED
