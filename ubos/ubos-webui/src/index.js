@@ -800,7 +800,14 @@ async function postWithRetry(send) {
     try {
       const response = await send();
       if (response.ok) return response;
-      lastError = new Error('HTTP ' + response.status);
+      // 4xx bodies carry a {"message": ...} reason from the API; surface it
+      // instead of the bare status. Fall back to the status for non-JSON.
+      let detail = '';
+      try {
+        const data = await response.json();
+        if (data && data.message) detail = data.message;
+      } catch (_) { /* body was not JSON */ }
+      lastError = new Error(detail || 'HTTP ' + response.status);
       if (response.status >= 400 && response.status < 500) break;
     } catch (error) {
       lastError = error;
