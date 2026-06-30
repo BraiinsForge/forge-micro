@@ -6,7 +6,7 @@
 //! board-scoped seam. The static instances (such as [`BMM100`]) name the
 //! concrete boards the firmware supports.
 
-use ubos_core::units::Voltage;
+use ubos_core::units::{Frequency, Voltage};
 
 use crate::chip::Chip;
 
@@ -56,8 +56,10 @@ pub struct BoardDescriptor {
     pub max_psu_voltage: Voltage,
     /// Boot operating point, so a board comes up at its correct rail and
     /// clock from its descriptor alone, with no `.cargo/config.toml` env.
-    pub default_voltage_mv: u32,
-    pub default_frequency_mhz: u32,
+    pub default_voltage: Voltage,
+    pub default_frequency: Frequency,
+    /// Swarm color assigned to this device type for UI grouping.
+    pub swarm_color: &'static str,
     /// Per-board cooling profile (PID setpoint and fan floor).
     pub cooling: BoardCooling,
     /// Product name reported to external clients and the dashboard, sited
@@ -98,8 +100,9 @@ pub const BMM100: BoardDescriptor = BoardDescriptor {
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(1675),
-    default_voltage_mv: ubos_core::consts::Mining::DEFAULT_VOLTAGE.mv(),
-    default_frequency_mhz: ubos_core::consts::Mining::DEFAULT_FREQUENCY.mhz(),
+    default_voltage: ubos_core::consts::Mining::DEFAULT_VOLTAGE,
+    default_frequency: ubos_core::consts::Mining::DEFAULT_FREQUENCY,
+    swarm_color: "blue",
     cooling: BoardCooling {
         target_temp_c: 67.0,
         min_fan_pwm: 20,
@@ -115,8 +118,9 @@ pub const HASHNODE: BoardDescriptor = BoardDescriptor {
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(4800),
-    default_voltage_mv: 4550,
-    default_frequency_mhz: 600,
+    default_voltage: Voltage::from_mv(4550),
+    default_frequency: Frequency::from_mhz(600),
+    swarm_color: "blue",
     cooling: BoardCooling {
         target_temp_c: 62.0,
         min_fan_pwm: 20,

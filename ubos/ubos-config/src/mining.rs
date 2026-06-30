@@ -3,7 +3,7 @@
 //! Defines [`TuningConfig`] for ASIC frequency and voltage overrides,
 //! [`MiningBounds`] with the accepted ranges, [`MiningInfo`] for the
 //! static chip facts that live alongside the config, and the
-//! [`BOUNDS`] and [`INFO`] constants.
+//! [`BOUNDS`] constant.
 
 use core::ops::RangeInclusive;
 use ubos_asic::BoardDescriptor;
@@ -26,8 +26,8 @@ impl Default for TuningConfig {
     /// the test suite has a stable baseline.
     fn default() -> Self {
         Self {
-            frequency_mhz: ubos_asic::BMM100.default_frequency_mhz,
-            voltage_mv: ubos_asic::BMM100.default_voltage_mv,
+            frequency_mhz: ubos_asic::BMM100.default_frequency.mhz(),
+            voltage_mv: ubos_asic::BMM100.default_voltage.mv(),
         }
     }
 }
@@ -36,7 +36,7 @@ impl TuningConfig {
     /// Validate frequency and voltage against `bounds`.
     ///
     /// The caller passes the active board's bounds (the firmware sources
-    /// them from its `BoardDescriptor` via [`bounds`]) so a board only
+    /// them from its `BoardDescriptor` via [`board_bounds`]) so a board only
     /// accepts an operating point inside its own rail/clock range.
     ///
     /// # Errors
@@ -76,16 +76,16 @@ pub struct MiningBounds {
 /// PLL-calculator span. Each firmware crate builds its own `BOUNDS`
 /// const from this with its explicit board descriptor.
 #[must_use]
-pub const fn bounds(board: &'static BoardDescriptor) -> MiningBounds {
+pub const fn board_bounds(board: &'static BoardDescriptor) -> MiningBounds {
     MiningBounds {
         frequency_mhz: 50..=1000,
         voltage_mv: 0..=board.max_rail_voltage().mv(),
     }
 }
 
-/// Bounds for the BMM100 board. The firmware uses [`bounds`] with its own
-/// descriptor; this exists so the test suite has a stable baseline.
-pub const BOUNDS: MiningBounds = bounds(&ubos_asic::BMM100);
+/// Bounds for the BMM100 board. The firmware uses [`board_bounds`] with its
+/// own descriptor; this exists so the test suite has a stable baseline.
+pub const BOUNDS: MiningBounds = board_bounds(&ubos_asic::BMM100);
 
 /// Static capability metadata for the ASIC and board.
 ///
@@ -123,10 +123,10 @@ pub const fn mining_info(
     MiningInfo {
         asic_model: board.chip.asic_model(),
         device_model: board.model,
-        swarm_color: "blue",
-        asic_count: ubos_core::consts::Mining::NUM_CHIPS,
-        default_frequency_mhz: board.default_frequency_mhz,
-        default_voltage_mv: board.default_voltage_mv,
+        swarm_color: board.swarm_color,
+        asic_count: board.num_chips,
+        default_frequency_mhz: board.default_frequency.mhz(),
+        default_voltage_mv: board.default_voltage.mv(),
         bounds,
     }
 }
