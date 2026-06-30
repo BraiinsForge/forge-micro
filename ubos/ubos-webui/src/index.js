@@ -121,6 +121,11 @@ async function loadThermalBounds() {
     cooldownInput.min = bounds.cooldownTempC.start;
     cooldownInput.max = bounds.cooldownTempC.end;
   }
+  const chipInput = $('chipC');
+  if (bounds.dangerousChipTempC) {
+    chipInput.min = bounds.dangerousChipTempC.start;
+    chipInput.max = bounds.dangerousChipTempC.end;
+  }
   thermalLoaded = true;
   return true;
 }
@@ -653,6 +658,7 @@ async function loadCfg() {
         renderPoolMeta();
         if (data.thermal) {
           $('dangerC').value = data.thermal.dangerous_temp_c;
+          $('chipC').value = data.thermal.dangerous_chip_temp_c;
           $('cooldownC').value = data.thermal.cooldown_temp_c;
         }
         if (data.cooling && data.cooling.target_temp_c != null) {
@@ -857,6 +863,7 @@ $('fmTemp').addEventListener('submit', async event => {
   const msg = $('msgTemp');
   msg.style.color = '';
   const dangerC = +$('dangerC').value;
+  const chipC = +$('chipC').value;
   const cooldownC = +$('cooldownC').value;
   const targetC = +$('targetC').value;
   const minFanPwm = +$('minFanPwm').value;
@@ -864,12 +871,12 @@ $('fmTemp').addEventListener('submit', async event => {
   // sample_interval_ms is not user-editable but the API expects a
   // complete thermal object, so replay the loaded value alongside any
   // edited threshold.
-  if (!tempInit || dangerC !== tempInit.dangerC || cooldownC !== tempInit.cooldownC) {
+  if (!tempInit || dangerC !== tempInit.dangerC || chipC !== tempInit.chipC || cooldownC !== tempInit.cooldownC) {
     body.thermal = {
       sample_interval_ms: tempInit ? tempInit.sampleMs : null,
       dangerous_temp_c: dangerC,
       cooldown_temp_c: cooldownC,
-      dangerous_chip_temp_c: tempInit ? tempInit.chipC : null,
+      dangerous_chip_temp_c: chipC,
     };
   }
   const cooling = {};
@@ -890,7 +897,7 @@ $('fmTemp').addEventListener('submit', async event => {
     await postWithRetry(() => csrfPost(body));
     msg.style.color = '';
     msg.textContent = 'Saved.';
-    tempInit = { sampleMs: tempInit ? tempInit.sampleMs : null, dangerC, cooldownC, chipC: tempInit ? tempInit.chipC : null, targetC, minFanPwm };
+    tempInit = { sampleMs: tempInit ? tempInit.sampleMs : null, dangerC, cooldownC, chipC, targetC, minFanPwm };
   } catch (error) {
     msg.style.color = 'var(--red)';
     msg.textContent = 'Save failed: ' + error.message;
