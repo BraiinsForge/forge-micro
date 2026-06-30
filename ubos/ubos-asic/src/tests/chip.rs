@@ -2,9 +2,9 @@ use super::*;
 
 use crate::{
     BMM100, BaudRateReg, BoardDescriptor, Chip, ChipAddress, ChipIdReg, ChipNonceOffsetReg,
-    ControlCommand, IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY, IoDriverStrengthCtrlReg,
-    MISC_SETTINGS_BM1370_BRINGUP, MidstateCalReg, MiscSettingsReg, PllParameterReg, Register,
-    UartRelayReg,
+    ControlCommand, CoreControlReg, CoreRegister, IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY,
+    IoDriverStrengthCtrlReg, MISC_SETTINGS_BM1370_BRINGUP, MidstateCalReg, MiscCtrlReg,
+    MiscSettingsReg, PllParameterReg, Register, SoftResetControlReg, UartRelayReg,
 };
 
 /// Drive an immediately-ready future to completion with a no-op waker.
@@ -576,3 +576,40 @@ fn chip_descriptor_midstate_counts_match_silicon() {
     assert_eq!(BM1366.midstate_count, 8);
     assert_eq!(BM1370.midstate_count, 16);
 }
+
+// ---------------------------------------------------------------------------
+// post_pll_rearm typed-constructor bit-equivalence proofs
+//
+// Each assertion confirms that the typed builder in post_pll_rearm produces
+// the same wire bits as the original capture literal. The original literal
+// is the source of truth; if any assertion fails the typed form is wrong,
+// not the literal.
+// ---------------------------------------------------------------------------
+
+const _: () = assert!(
+    SoftResetControlReg::new()
+        .with_b7_4(0xf)
+        .with_b8(true)
+        .with_b23_16(0x07)
+        .into_bits()
+        == 0x0007_01f0
+);
+
+const _: () = assert!(
+    MiscCtrlReg::default_bringup_config()
+        .with_unknown_bits_31_28(0xf)
+        .into_bits()
+        == 0xf000_c100
+);
+
+const _: () = assert!(
+    CoreControlReg::for_core_write(CoreRegister::CoreRegB, 0x00).into_bits() == 0x8000_8b00
+);
+
+const _: () = assert!(
+    CoreControlReg::for_core_write(CoreRegister::ClockDelayCtrl, 0x0c).into_bits() == 0x8000_800c
+);
+
+const _: () = assert!(
+    CoreControlReg::for_core_write(CoreRegister::Unknown(0x0d), 0xee).into_bits() == 0x8000_8dee
+);

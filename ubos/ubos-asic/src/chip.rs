@@ -698,15 +698,27 @@ impl ChipProtocol for Bm1370 {
         // capture via `from_bits`.
         bus.write_register(
             ChipAddress::All,
-            SoftResetControlReg::from_bits(0x0007_01f0),
+            SoftResetControlReg::new()
+                .with_b7_4(0xf)
+                .with_b8(true)
+                .with_b23_16(0x07),
         )
         .await;
-        bus.write_register(ChipAddress::All, MiscCtrlReg::from_bits(0xf000_c100))
-            .await;
-        bus.write_register(ChipAddress::All, CoreControlReg::from_bits(0x8000_8b00))
-            .await;
-        bus.write_register(ChipAddress::All, CoreControlReg::from_bits(0x8000_800c))
-            .await;
+        bus.write_register(
+            ChipAddress::All,
+            MiscCtrlReg::default_bringup_config().with_unknown_bits_31_28(0xf),
+        )
+        .await;
+        bus.write_register(
+            ChipAddress::All,
+            CoreControlReg::for_core_write(CoreRegister::CoreRegB, 0x00),
+        )
+        .await;
+        bus.write_register(
+            ChipAddress::All,
+            CoreControlReg::for_core_write(CoreRegister::ClockDelayCtrl, 0x0c),
+        )
+        .await;
         bus.write_register(ChipAddress::All, CoreControlReg::default_core_reg2_config())
             .await;
         bus.write_register(ChipAddress::All, MiscSettingsReg::bm1370_bringup())
@@ -719,7 +731,10 @@ impl ChipProtocol for Bm1370 {
         .await;
         bus.write_register(ChipAddress::All, MiscSettingsReg::bm1370_bringup())
             .await;
-        bus.write_register(ChipAddress::All, CoreControlReg::from_bits(0x8000_8dee))
-            .await;
+        bus.write_register(
+            ChipAddress::All,
+            CoreControlReg::for_core_write(CoreRegister::Unknown(0x0d), 0xee),
+        )
+        .await;
     }
 }
