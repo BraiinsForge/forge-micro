@@ -512,7 +512,7 @@ async fn boot(spawner: Spawner) {
 
         // Temperature and fan monitor via shared I2C1 bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
-        let hashboard_temp = temperature::HashboardTemperature::new(temp_device);
+        let hashboard_temp = temperature::new(temp_device);
         let board_fan = fan::BoardFan::new(hw.tim4, hw.fan_pwm_pin, hw.fan_tach_pin);
         let tach_hardware = fan::TachHardware::new(&board_fan);
         let tach = fan::Tach;
