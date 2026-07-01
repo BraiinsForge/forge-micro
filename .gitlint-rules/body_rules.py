@@ -8,6 +8,10 @@ EMOJI_PATTERN = re.compile(
 )
 
 
+# Issue-tracker tags: JIRA-style "#BOM-1704" and GitHub-style "#1704".
+TICKET_TAG_PATTERN = re.compile(r"#[A-Za-z0-9]+-[0-9]+|#[0-9]+")
+
+
 BANNED_PREFIXES = {"fix", "fixup", "wip", "tmp"}
 
 
@@ -26,6 +30,23 @@ class NoBannedPrefix(LineRule):
             return [RuleViolation(
                 self.id,
                 f"module prefix '{prefix}' is not allowed, use a proper module name",
+            )]
+
+
+class NoTicketTagInTitle(LineRule):
+    """Reject issue-tracker tags in the title; keep them in the body."""
+
+    name = "no-ticket-tag-in-title"
+    id = "UC4"
+    target = CommitMessageTitle
+
+    def validate(self, line, _commit):
+        match = TICKET_TAG_PATTERN.search(line)
+        if match:
+            return [RuleViolation(
+                self.id,
+                f"title must not contain the ticket tag '{match.group()}', "
+                "put it in the body instead",
             )]
 
 
