@@ -2604,6 +2604,8 @@
                   cargo-machete
                   # Builds combined BOOTSEL UF2 images from app and bootloader.
                   picotool
+                  # Automatic fixup commits for the documented fixup workflow.
+                  git-absorb
                 ]
                 ++ [ deploy-rs.packages.${system}.default ];
 
@@ -2659,6 +2661,8 @@
                 # Used by ubos-webui's build.rs to minify the dashboard
                 # CSS/JS before gzipping into OUT_DIR.
                 esbuild
+                # Automatic fixup commits for the documented fixup workflow.
+                git-absorb
               ]);
 
               NIX_LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
