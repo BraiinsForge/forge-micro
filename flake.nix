@@ -294,6 +294,19 @@
             ];
           };
 
+          # redacted redacted (dual-core RV64GC). Targets the tier-2
+          # `riscv64gc-unknown-none-elf` triple, which ships a prebuilt rust-std
+          # (so no `build-std`); `rust-src` is kept for rust-analyzer.
+          riscvRustToolchain = pkgs.rust-bin.stable.latest.default.override {
+            extensions = [
+              "rust-src"
+              "rust-analyzer"
+              "rustfmt"
+              "llvm-tools"
+            ];
+            targets = [ "riscv64gc-unknown-none-elf" ];
+          };
+
           hostRustToolchain = pkgs.rust-bin.stable.latest.default.override {
             extensions = [
               "rust-src"
@@ -416,6 +429,10 @@
           };
 
           espCraneLib = (crane.mkLib pkgs).overrideToolchain espToolchain;
+
+          # redacted redacted (RV64GC). The closure has no C deps (no
+          # secp256k1-sys/ii-sv2), so unlike espCraneLib it needs no cross GCC.
+          riscvCraneLib = (crane.mkLib pkgs).overrideToolchain riscvRustToolchain;
 
           # Xtensa GCC toolchain for `secp256k1-sys` (and any other C
           # dependency in the esp32s3 build). `secp256k1-sys` arrives via
@@ -770,6 +787,20 @@
             cargoExtraArgs = "-p rp2350-bootloader --target thumbv8m.main-none-eabihf";
             nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
+          # redacted redacted (RV64GC) dependency closure for the clippy-redacted check.
+          # No C deps, so no cross GCC; esbuild is for ubos-webui's build.rs.
+          # `panic=abort` matches the consuming check so the cached deps layer is
+          # reused (crane keys artifacts by build env), and riscv-rt 0.16 errors
+          # on the default unwind strategy without std.
+          riscvredactedArtifacts = riscvCraneLib.buildDepsOnly {
+            inherit src;
+            doCheck = false;
+            cargoBuildCommand = "true";
+            cargoExtraArgs = "-p redacted --target riscv64gc-unknown-none-elf";
+            nativeBuildInputs = [ pkgs.esbuild ];
+            CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
           };
 
           bmmArtifacts = bmmCraneLib.buildDepsOnly {
@@ -2330,6 +2361,33 @@
               RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
             };
 
+            # redacted redacted (RV64GC). Mirrors the rp2350 board checks: a tier-2
+            # target with prebuilt rust-std, so no `-Z build-std`. The closure
+            # has no C deps, so no cross GCC; esbuild is only for ubos-webui's
+            # build.rs. `panic=abort` is passed here because crane builds from
+            # the workspace root and ignores the crate's .cargo/config.toml,
+            # where the flag lives (riscv-rt 0.16 errors on unwind without std).
+            clippy-redacted = riscvCraneLib.cargoClippy {
+              inherit src;
+              cargoArtifacts = riscvredactedArtifacts;
+              cargoExtraArgs = "-p redacted --target riscv64gc-unknown-none-elf";
+              cargoClippyExtraArgs = "-- -D warnings";
+              doInstallCargoArtifacts = false;
+              nativeBuildInputs = [ pkgs.esbuild ];
+              CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
+              inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            };
+
+            build-redacted = riscvCraneLib.cargoBuild {
+              inherit src;
+              cargoArtifacts = null;
+              cargoBuildCommand = "cargo build --release";
+              cargoExtraArgs = "-p redacted --target riscv64gc-unknown-none-elf";
+              nativeBuildInputs = [ pkgs.esbuild ];
+              CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
+              inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            };
+
             clippy-load-test = craneLib.cargoClippy {
               src = loadTestSrc;
               cargoArtifacts = loadTestArtifacts;
@@ -2428,6 +2486,7 @@
                     build-stm32f439-no-display
                     build-esp32s3
                     build-esp32s3-no-display
+                    build-redacted
                     build-rp2350-bootloader
                     build-rp2040-bootloader
                     build-esp32s3-bootloader
@@ -2727,6 +2786,47 @@
                 echo "Inspect binary size: cargo size --release -- -A"
                 echo ""
                 echo "For ARM boards: nix develop .#arm"
+              '';
+            };
+
+            # redacted redacted (dual-core RV64GC, redacted 10). Interactive dev shell
+            # for firmware/redacted; the crate is gated in `checks` (clippy-redacted and
+            # build-redacted, built with riscvCraneLib).
+            #
+            # NOTE: `cargo run --release` packages the firmware into an redacted
+            # Upgrade Package (.redacted) via scripts/run.sh + scripts/redacted.py
+            # (rust-objcopy from cargo-binutils, python3 below). The .redacted is
+            # uploaded through the device web UI / redacted API. A raw-kflash /
+            # JTAG dev loop (sysprogs OpenOCD fork, packaged in the redacted
+            # flake) is still a follow-up — wiring that flake in as an input to
+            # expose `kflash` / `openocd-sysprogs` here.
+            riscv = pkgs.mkShell {
+              buildInputs = with pkgs; [
+                riscvRustToolchain
+                cargo-binutils
+                cargo-bloat
+                # ubos-webui's build.rs minifies the dashboard CSS/JS.
+                esbuild
+                cargo-machete
+                # scripts/redacted.py builds the .redacted (SHA-256 + CRC-32).
+                python3
+                # Serial console for the redacted debug UART (UARTHS @ 115200).
+                picocom
+                usbutils
+              ];
+
+              RUST_ANALYZER_SERVER_PATH = "${riscvRustToolchain}/bin/rust-analyzer";
+
+              inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+
+              shellHook = ''
+                echo "ubos-main dev environment ready (redacted redacted, RV64GC)"
+                echo ""
+                echo "  cd firmware/redacted && cargo check         # build"
+                echo "  cd firmware/redacted && cargo run --release # package .redacted"
+                echo ""
+                echo "cargo run packages a .redacted (upload via web UI/API); see firmware/redacted/README.md."
+                echo "For ARM boards: nix develop .#arm     ESP32-S3: nix develop .#esp"
               '';
             };
 
