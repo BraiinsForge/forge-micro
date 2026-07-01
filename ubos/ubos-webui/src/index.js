@@ -16,11 +16,15 @@ let eventsLoading = false;
 // fetch skips events that are now overwritten and gone for good.
 let eventsDropped = false;
 
-// Maximum OTA image size the UI will accept. Mirrors the flash slot
-// budget; reject oversized files client-side before starting the upload.
-// Keep in sync with OTA_MAX_IMAGE_BYTES in ubos/ubos-api/src/system.rs and
-// slotMaxBytes in flake.nix.
+// Default/fallback maximum OTA image size the UI accepts: used before the
+// first /api/info poll and on a board that does not report its own cap.
+// Mirrors the RP flash slot budget; keep in sync with OTA_MAX_IMAGE_BYTES in
+// ubos/ubos-api/src/system.rs and slotMaxBytes in flake.nix.
 const OTA_MAX_BYTES = 952 * 1024;
+
+// Live OTA image cap, refreshed from /api/info's ota.maxImageBytes each poll
+// so a board with a larger inactive slot (e.g. the redacted APP slot) is honoured.
+let otaMaxBytes = OTA_MAX_BYTES;
 
 // Chart geometry. PAD_* are fixed pixel gutters reserved for axis
 // labels; the chart width and height are read from each SVG element's
@@ -442,6 +446,7 @@ async function tick() {
       fwCard.classList.remove('hide');
       $('fwSlot').textContent = ota.runningSlot || '?';
       $('fwVer').textContent = ota.runningVersion != null ? ota.runningVersion : '?';
+      otaMaxBytes = ota.maxImageBytes || OTA_MAX_BYTES;
     } else {
       fwCard.classList.add('hide');
     }
@@ -1280,9 +1285,9 @@ $('btnFwUpdate').addEventListener('click', async () => {
     msg.textContent = 'Select a firmware image first.';
     return;
   }
-  if (file.size > OTA_MAX_BYTES) {
+  if (file.size > otaMaxBytes) {
     msg.style.color = 'var(--red)';
-    msg.textContent = 'File too large at ' + (file.size / 1024).toFixed(0) + ' KiB. The maximum is ' + (OTA_MAX_BYTES / 1024) + ' KiB.';
+    msg.textContent = 'File too large at ' + (file.size / 1024).toFixed(0) + ' KiB. The maximum is ' + (otaMaxBytes / 1024) + ' KiB.';
     return;
   }
   // Pause the 2 s poll so it does not occupy the single-connection :8080
@@ -1309,8 +1314,8 @@ $('btnFwUpdate').addEventListener('click', async () => {
 
   const CHUNK_SIZE = 4096;
 
-  // Read the entire file up front. Images are at most OTA_MAX_BYTES
-  // (~930 KiB), which fits comfortably in JS heap memory.
+  // Read the entire file up front. Images are at most otaMaxBytes (the
+  // board's slot capacity), which fits comfortably in JS heap memory.
   let bytes;
   try {
     bytes = new Uint8Array(await file.arrayBuffer());
