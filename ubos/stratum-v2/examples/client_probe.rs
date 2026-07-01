@@ -188,25 +188,23 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow!("drive: {e:?}"))?;
         client.accept(&mut visitor);
 
-        if !submitted {
-            if let Some(job_id) = visitor.latest_job {
-                // Deliberately bad share against a real `JobId`:
-                // pool will return `SubmitSharesError`. The point
-                // is to exercise the encode + flush path, not to
-                // mine.
-                let share = Share {
-                    id: job_id,
-                    nonce: 0,
-                    ntime: 0x6044_9522,
-                    version_bits: 0,
-                    extranonce_2: &[],
-                };
-                match client.submit(&share) {
-                    Ok(()) => println!("[submit] queued"),
-                    Err(e) => println!("[submit] error {e:?}"),
-                }
-                submitted = true;
+        if !submitted && let Some(job_id) = visitor.latest_job {
+            // Deliberately bad share against a real `JobId`:
+            // pool will return `SubmitSharesError`. The point
+            // is to exercise the encode + flush path, not to
+            // mine.
+            let share = Share {
+                id: job_id,
+                nonce: 0,
+                ntime: 0x6044_9522,
+                version_bits: 0,
+                extranonce_2: &[],
+            };
+            match client.submit(&share) {
+                Ok(()) => println!("[submit] queued"),
+                Err(e) => println!("[submit] error {e:?}"),
             }
+            submitted = true;
         }
     }
 
