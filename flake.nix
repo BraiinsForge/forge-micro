@@ -1724,7 +1724,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-core";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1740,7 +1740,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-http";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1748,7 +1748,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-api";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1785,7 +1785,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-auth";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1793,7 +1793,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-metrics";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1801,7 +1801,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-webui";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
               # build.rs runs `esbuild --minify` on the dashboard CSS/JS
               # before gzipping into OUT_DIR.
@@ -1821,7 +1821,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-mdns";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1837,7 +1837,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-net";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1861,7 +1861,7 @@
               inherit src;
               cargoArtifacts = hostRunnerArtifacts;
               cargoExtraArgs = "-p host-runner";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
               # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
               # runs as part of host-runner's dependency closure.
@@ -1921,7 +1921,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-psu";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1937,7 +1937,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p embedded-i2c-unix";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1953,7 +1953,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-mining";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1969,7 +1969,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p mining-protocol";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1977,7 +1977,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-asic";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1985,7 +1985,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p stratum-v1";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -1993,7 +1993,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p stratum-v2";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -2001,7 +2001,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p stratum-client";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -2112,7 +2112,7 @@
               inherit src;
               cargoArtifacts = ubosThermalArtifacts;
               cargoExtraArgs = "-p ubos-thermal";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -2128,7 +2128,7 @@
               inherit src;
               cargoArtifacts = ubosCoolingArtifacts;
               cargoExtraArgs = "-p ubos-cooling";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -2144,7 +2144,7 @@
               inherit src;
               cargoArtifacts = ubosManagerArtifacts;
               cargoExtraArgs = "-p ubos-manager";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -2160,7 +2160,7 @@
               inherit src;
               cargoArtifacts = ubosConfigArtifacts;
               cargoExtraArgs = "-p ubos-config";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -2180,6 +2180,14 @@
               doInstallCargoArtifacts = false;
             };
 
+            clippy-ubos-events-std = craneLib.cargoClippy {
+              inherit src;
+              cargoArtifacts = ubosEventsStdArtifacts;
+              cargoExtraArgs = "-p ubos-events --features std";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
+              doInstallCargoArtifacts = false;
+            };
+
             test-ubos-events = craneLib.cargoTest {
               inherit src;
               cargoArtifacts = ubosEventsStdArtifactsDev;
@@ -2192,7 +2200,7 @@
               inherit src;
               cargoArtifacts = ubosConfigStdArtifacts;
               cargoExtraArgs = "-p ubos-config --features std";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
@@ -2208,7 +2216,7 @@
               inherit src;
               cargoArtifacts = hostArtifacts;
               cargoExtraArgs = "-p ubos-temperature";
-              cargoClippyExtraArgs = "-- -D warnings";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
               doInstallCargoArtifacts = false;
             };
 
