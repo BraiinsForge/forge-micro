@@ -524,6 +524,7 @@ impl Service for RestApiService {
                             let _ = writer.write_str("null");
                         }
                     }
+                    let _ = core::write!(writer, ",\"maxImageBytes\":{}", ota.max_image_bytes);
 
                     // Live upload session state: readable lock-free even
                     // while an upload holds the target mutex.

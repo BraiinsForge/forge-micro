@@ -105,24 +105,38 @@ pub const OTA_CHUNK_SIZE: usize = 4096;
 /// the ~150 sectors of a full image.
 const OTA_DRAIN_DELAY_MS: u64 = 5;
 
-/// Maximum firmware image size accepted by the OTA upload handler.
+/// Default maximum firmware image size accepted by the OTA upload handler.
 ///
-/// One cap shared by every board so a single release binary fits the
-/// tightest slot in the fleet. That floor is the rp2350/rp2040 952 KiB
-/// ACTIVE slot: the embassy-boot bootloader splits the flash into a 952 KiB
-/// ACTIVE slot and a slightly larger DFU staging slot, and an image larger
-/// than ACTIVE could never swap in even though the DFU slot might hold it
-/// during upload. The esp32s3 has 3 MiB OTA slots but honours the same cap.
+/// Corresponds to the RP ACTIVE slot capacity the image must swap into:
+/// the bootloader splits the flash into a 952 KiB ACTIVE slot and a
+/// slightly larger DFU slot. An image larger than this is rejected up
+/// front because it could never swap into ACTIVE even though the larger
+/// DFU slot might hold it during upload.
 ///
-/// Must stay in sync with `OTA_MAX_BYTES` in `ubos-webui/src/index.js`
-/// and the `slotMaxBytes` guard in `flake.nix`.
-const OTA_MAX_IMAGE_BYTES: u64 = 952 * 1024;
+/// This is the default returned by [`crate::ota::OtaTarget::max_image_bytes`];
+/// a board with a larger inactive slot overrides that method and the
+/// handlers honour the per-target value (see [`max_image_bytes`]). Must
+/// stay in sync with `OTA_MAX_BYTES` in `ubos-webui/src/index.js` and the
+/// `slotMaxBytes` guard in `flake.nix`.
+pub(crate) const OTA_MAX_IMAGE_BYTES: u64 = 952 * 1024;
 
 /// Minimum firmware image size accepted by the OTA upload handler.
 ///
 /// A Cortex-M vector table occupies the first 512 bytes of a valid
 /// firmware image. Any image smaller than this cannot be valid firmware.
 const OTA_MIN_IMAGE_BYTES: u64 = 512;
+
+/// Maximum image size the registered target accepts.
+///
+/// Reads the board-reported cap from the lock-free OTA info snapshot,
+/// falling back to [`OTA_MAX_IMAGE_BYTES`] when no target is registered (a
+/// board without one returns 501 to the upload regardless, so this only
+/// gates the pre-lock size check). Lets a board with a larger inactive slot
+/// — the redacted APP slot, say — accept images above the RP default without a
+/// shared constant bump.
+fn max_image_bytes() -> u64 {
+    crate::ota::ota_info().map_or(OTA_MAX_IMAGE_BYTES, |info| info.max_image_bytes)
+}
 
 /// Build the dotted-quad IPv4 string from the shared net state.
 ///
@@ -881,7 +895,7 @@ where
 /// Error responses:
 /// - 501 — no `OtaTarget` supplied (board not capable).
 /// - 411 — no `Content-Length` header.
-/// - 413 — image larger than [`OTA_MAX_IMAGE_BYTES`].
+/// - 413 — image larger than the target's max image size.
 /// - 400 — image smaller than [`OTA_MIN_IMAGE_BYTES`].
 /// - 409 — `begin()` returned [`OtaError::NoPartitionTable`].
 /// - 503 — mining failed to stop within the timeout.
@@ -912,7 +926,7 @@ where
         .await;
     };
 
-    if image_bytes > OTA_MAX_IMAGE_BYTES {
+    if image_bytes > max_image_bytes() {
         return write_json_response(
             connection,
             413,
@@ -961,8 +975,8 @@ where
         .await;
     };
 
-    // `image_bytes` is now at most OTA_MAX_IMAGE_BYTES which fits in usize
-    // on all targets (952 KiB << 4 GiB).
+    // `image_bytes` is now at most the target's max image size, which fits
+    // in usize on all targets (any real slot is well under 4 GiB).
     #[allow(clippy::cast_possible_truncation)]
     let total_bytes = image_bytes as usize;
 
@@ -1215,7 +1229,7 @@ where
         .await;
     }
 
-    if ota_offset.saturating_add(chunk_bytes) > OTA_MAX_IMAGE_BYTES {
+    if ota_offset.saturating_add(chunk_bytes) > max_image_bytes() {
         return write_json_response(
             connection,
             413,
@@ -1414,13 +1428,13 @@ where
     }
 
     // `ota_offset` + `chunk_read` is the number of bytes written so far.
-    // Both are bounded by OTA_MAX_IMAGE_BYTES (fits in u32 on all targets).
+    // Both are bounded by the target's max image size (fits in u32 on all targets).
     #[allow(clippy::cast_possible_truncation)]
     record_chunk_written((ota_offset as u32).saturating_add(chunk_read as u32));
 
     if ota_final {
         // `ota_offset` + `chunk_read` is the total image size delivered.
-        // Both are bounded by OTA_MAX_IMAGE_BYTES (fits in u64 on all targets).
+        // Both are bounded by the target's max image size (fits in u64 on all targets).
         let total_image_bytes = ota_offset.saturating_add(chunk_read as u64);
         if total_image_bytes < OTA_MIN_IMAGE_BYTES {
             record_error(OtaError::ShortUpload);
@@ -1451,7 +1465,7 @@ where
             .await;
         }
 
-        // `ota_offset` is bounded by OTA_MAX_IMAGE_BYTES (fits in usize on all targets).
+        // `ota_offset` is bounded by the target's max image size (fits in usize on all targets).
         #[allow(clippy::cast_possible_truncation)]
         let total_bytes = ota_offset as usize + chunk_read;
         info!(
@@ -1467,7 +1481,7 @@ where
         ota.reboot_into_new()
     } else {
         // Acknowledge the chunk and tell the client the next expected offset.
-        // `ota_offset` is bounded by OTA_MAX_IMAGE_BYTES (fits in usize on all targets).
+        // `ota_offset` is bounded by the target's max image size (fits in usize on all targets).
         #[allow(clippy::cast_possible_truncation)]
         let next_offset = ota_offset as usize + chunk_read;
         let mut ack_buf = [0u8; 40];

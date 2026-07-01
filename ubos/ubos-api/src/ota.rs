@@ -355,6 +355,7 @@ pub async fn register_ota_target(target: &'static mut dyn OtaTarget) {
         running_version: target.running_version(),
         has_previous_image: target.has_previous_image(),
         previous_version: target.previous_version(),
+        max_image_bytes: target.max_image_bytes(),
     });
     *OTA_TARGET.lock().await = Some(target);
 }
@@ -428,6 +429,16 @@ pub trait OtaTarget: Send {
     /// Version number of the image in the inactive slot, or `None`
     /// when no previous image is present.
     fn previous_version(&self) -> Option<u32>;
+
+    /// Maximum firmware image size, in bytes, the board accepts for an
+    /// upload. The handlers reject a larger image before any write.
+    ///
+    /// Defaults to the RP active-slot budget. A board whose inactive slot
+    /// has a different capacity overrides this (for example the redacted, whose
+    /// APP slot is larger than the RP slot).
+    fn max_image_bytes(&self) -> u64 {
+        crate::system::OTA_MAX_IMAGE_BYTES
+    }
 
     /// Prepare the inactive slot to receive a new firmware image.
     ///

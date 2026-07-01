@@ -26,6 +26,9 @@ pub struct OtaInfo {
     /// Version number of the image in the inactive slot, or `null`
     /// when no previous image exists.
     pub previous_version: Option<u32>,
+    /// Maximum firmware image size in bytes this board accepts for an OTA
+    /// upload, so a client can cap its file picker at the real slot size.
+    pub max_image_bytes: u64,
 }
 
 /// Full system-info snapshot for `GET /api/system/info`.
