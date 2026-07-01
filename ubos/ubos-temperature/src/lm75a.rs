@@ -4,21 +4,8 @@
 //! converts to millicelsius. Resolution is 0.125°C on the LM75B and
 //! 0.5°C on the LM75A. Both produce the same register layout, so the
 //! driver handles either.
-//!
-//! [`Lm75aHashboard`] wraps four `Lm75a` sensors for the BMM101 layout,
-//! sharing a single I2C bus and exposing the hottest reading via the
-//! [`TemperatureSensor`](crate::TemperatureSensor) trait. Board firmware
-//! crates instantiate this directly so the four-sensor logic does not
-//! need to be duplicated per board.
-
-use core::fmt::Write as _;
 
 use embedded_hal_async::i2c::I2c;
-use ubos_core::units::Temperature;
-use ubos_logging::error;
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
-
-use crate::TemperatureSensor;
 
 #[cfg(test)]
 #[path = "tests/lm75a.rs"]
@@ -71,80 +58,6 @@ impl Lm75a {
 pub enum Error<E> {
     I2c(E),
     OutOfRange(i32),
-}
-
-/// Four LM75A sensors on the BMM101 hashboard wired to one shared I2C
-/// bus. Returns the hottest of the four readings each sample, offset by
-/// [`Lm75aHashboard::OFFSET_MILLICELSIUS`] to approximate chip junction
-/// temperature.
-pub struct Lm75aHashboard<Bus> {
-    bus: Bus,
-    sensors: [Lm75a; 4],
-}
-
-impl<Bus> Lm75aHashboard<Bus> {
-    /// LM75A I2C addresses on the BMM101: IC12D, IC12C, IC12B, IC12A.
-    pub const SENSOR_ADDRESSES: [u8; 4] = [0x49, 0x4a, 0x4b, 0x4c];
-
-    /// Offset added to each board reading to approximate chip junction
-    /// temperature. BOS uses +7 °C for every BMM101 sensor.
-    pub const OFFSET_MILLICELSIUS: i32 = 7_000;
-
-    #[must_use]
-    pub fn new(bus: Bus) -> Self {
-        Self {
-            bus,
-            sensors: Self::SENSOR_ADDRESSES.map(Lm75a::new),
-        }
-    }
-}
-
-impl<Bus> TemperatureSensor for Lm75aHashboard<Bus>
-where
-    Bus: I2c,
-{
-    async fn read(&mut self) -> Option<Temperature> {
-        let mut hottest: Option<i32> = None;
-        for sensor in &self.sensors {
-            match sensor.read_millicelsius(&mut self.bus).await {
-                Ok(reading) => {
-                    let adjusted = reading + Self::OFFSET_MILLICELSIUS;
-                    hottest = Some(hottest.map_or(adjusted, |current| current.max(adjusted)));
-
-                    // Push the per-sensor reading labeled by I2C address so
-                    // the dashboard can show hot vs cold sensors independently.
-                    let mut address_str = heapless::String::<24>::new();
-                    let _ = write!(address_str, "{:#04x}", sensor.address());
-                    let mut labels = Labels::new();
-                    let _ = labels.push(Label {
-                        name: "addr",
-                        value: LabelValue::Short(address_str),
-                    });
-                    push(Metric::with_labels(
-                        "board_lm75a_temperature_millicelsius",
-                        labels,
-                        Value::Int(i64::from(adjusted)),
-                    ))
-                    .await;
-                }
-                Err(Error::I2c(bus_error)) => {
-                    error!(
-                        "temperature: LM75A {:#x} I2C error: {:?}",
-                        sensor.address(),
-                        ubos_logging::Debug2Format(&bus_error),
-                    );
-                }
-                Err(Error::OutOfRange(raw)) => {
-                    error!(
-                        "temperature: LM75A {:#x} reading {} mC out of range",
-                        sensor.address(),
-                        raw,
-                    );
-                }
-            }
-        }
-        hottest.map(Temperature::from_millicelsius)
-    }
 }
 
 /// Decode the 16-bit big-endian register: high byte is signed integer

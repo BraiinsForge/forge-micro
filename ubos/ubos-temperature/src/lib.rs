@@ -8,13 +8,11 @@
 #![allow(clippy::missing_panics_doc)]
 
 pub mod array;
-pub mod hashnode;
 pub mod lm75a;
 pub mod tmp102;
 pub mod tmp461;
 
 pub use array::{SensorArray, SensorDescriptor, SensorKind};
-pub use hashnode::HashnodeTemperature;
 
 use embassy_time::{Duration, Ticker};
 use ubos_core::units::Temperature;
