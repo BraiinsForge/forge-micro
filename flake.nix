@@ -857,6 +857,15 @@
           slotMaxKiB = 952;
           slotMaxBytes = slotMaxKiB * 1024;
 
+          # esp32s3 OTA app-slot budget. The 8 MiB flash is partitioned into
+          # two equal 3 MiB app slots (ota_0/ota_1; see
+          # firmware/esp32s3/partitions.csv), so the image the OTA endpoint
+          # writes into the inactive slot may be up to 3 MiB — larger than the
+          # RP ACTIVE budget. Keep in sync with Ota::MAX_IMAGE_BYTES in
+          # firmware/esp32s3/src/config.rs.
+          esp32s3SlotKiB = 3 * 1024;
+          esp32s3SlotBytes = esp32s3SlotKiB * 1024;
+
           # Firmware version used by rp2350Image and the packages/apps outputs.
           # Pure builds default to "1" because the Nix sandbox strips all caller
           # environment variables; pass --impure to propagate UBOS_FW_VERSION.
@@ -1232,9 +1241,9 @@
           # Production esp32s3 firmware image. Shared by packages.esp32s3-image
           # (nix build) and apps.esp32s3-image (nix run). espflash converts the
           # linked ELF into the esp-idf app-image format the OTA endpoint writes
-          # into an ota_N slot. The size guard uses the OTA upload limit
-          # (slotMaxBytes), not the larger 3 MiB slot, because that limit is
-          # what the REST handler enforces on the upload.
+          # into an ota_N slot. The size guard uses the 3 MiB app-slot budget
+          # (esp32s3SlotBytes), which is what the REST handler enforces on the
+          # upload for this board.
           esp32s3Image = espCraneLib.cargoBuild {
             inherit src;
             cargoArtifacts = null;
@@ -1261,10 +1270,10 @@
                 target/xtensa-esp32s3-none-elf/release/esp32s3 \
                 "$out/esp32s3-v${fwVersion}.bin"
               size=$(wc -c < "$out/esp32s3-v${fwVersion}.bin")
-              echo "esp32s3 image: $size bytes / ${toString slotMaxBytes} bytes OTA upload limit, version ${fwVersion}"
-              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
+              echo "esp32s3 image: $size bytes / ${toString esp32s3SlotBytes} bytes OTA app-slot budget, version ${fwVersion}"
+              if [ "$size" -gt "${toString esp32s3SlotBytes}" ]; then
                 echo "ERROR: esp32s3 release image ($size bytes) exceeds the" \
-                     "${toString slotMaxBytes}-byte OTA upload limit. See docs/OTA.md."
+                     "${toString esp32s3SlotBytes}-byte OTA app slot. See docs/OTA.md."
                 exit 1
               fi
               if [ -n "''${POOL_USER:-}" ]; then
@@ -2275,7 +2284,7 @@
               CARGO_TARGET_XTENSA_ESP32S3_NONE_ELF_RUSTFLAGS = "-Clink-arg=-Tlinkall.x -Clink-arg=-Tdefmt.x -Clink-arg=-nostartfiles";
               inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
               # Slot-size and pool-worker guards. The esp32s3 is an OTA target
-              # with the shared 952 KiB upload budget, so this runs espflash
+              # with a 3 MiB app-slot budget, so this runs espflash
               # save-image to produce the esp-idf app image the OTA endpoint
               # writes into a slot and checks its size, mirroring the rp board
               # checks. The size guard must live here, not only in
@@ -2289,10 +2298,10 @@
                 export HOME="$TMPDIR"
                 espflash save-image --chip esp32s3 --flash-size 8mb "$elf" "$bin"
                 size=$(wc -c < "$bin")
-                echo "esp32s3 slot-size check: $size bytes / ${toString slotMaxBytes} bytes OTA upload limit"
-                if [ "$size" -gt "${toString slotMaxBytes}" ]; then
+                echo "esp32s3 slot-size check: $size bytes / ${toString esp32s3SlotBytes} bytes OTA app-slot budget"
+                if [ "$size" -gt "${toString esp32s3SlotBytes}" ]; then
                   echo "ERROR: esp32s3 release image ($size bytes) exceeds the" \
-                       "${toString slotMaxBytes}-byte OTA upload limit. See docs/OTA.md."
+                       "${toString esp32s3SlotBytes}-byte OTA app slot. See docs/OTA.md."
                   rm -f "$bin"; exit 1
                 fi
                 if [ -n "''${POOL_USER:-}" ]; then
@@ -2589,23 +2598,33 @@
                   touch $out
                 '';
 
-            # The OTA image-size limit is hard-coded in three languages that
-            # cannot share a definition: slotMaxBytes here, OTA_MAX_IMAGE_BYTES
-            # in ubos-api, and OTA_MAX_BYTES in the webui. Grep both source
-            # files for the kibibyte literal derived from slotMaxKiB and fail
-            # if either drifts, so the slot-size build guards above and the
-            # client-side rejection always agree on one number.
+            # The OTA image-size limit is hard-coded in several languages that
+            # cannot share a definition: slotMaxBytes/esp32s3SlotBytes here,
+            # the OTA_MAX_IMAGE_BYTES default in ubos-api, OTA_MAX_BYTES in the
+            # webui, and Ota::MAX_IMAGE_BYTES in each board's config.rs. Grep
+            # each source for the literal it must contain and fail on drift, so
+            # the slot-size build guards, the per-board configs, and the
+            # client-side rejection always agree on one number per board.
             ota-image-limit = pkgs.runCommand "ota-image-limit" { } ''
-              expected='${toString slotMaxKiB} * 1024'
-              for file in \
-                ${./ubos/ubos-api/src/system.rs} \
-                ${./ubos/ubos-webui/src/index.js}; do
-                if ! grep -qF "$expected" "$file"; then
-                  echo "OTA image limit drift: $file lacks '$expected'" >&2
-                  echo "expected to match slotMaxBytes (${toString slotMaxBytes}) in flake.nix" >&2
+              check() {
+                if ! grep -qF "$2" "$1"; then
+                  echo "OTA image limit drift: $1 lacks '$2'" >&2
                   exit 1
                 fi
-              done
+              }
+              # Shared RP ACTIVE-slot budget: the ubos-api default, the web-UI
+              # fallback, and the four RP boards all pin slotMaxKiB * 1024.
+              check ${./ubos/ubos-api/src/system.rs}     '${toString slotMaxKiB} * 1024'
+              check ${./ubos/ubos-webui/src/index.js}    '${toString slotMaxKiB} * 1024'
+              check ${./firmware/rp2040/src/config.rs}   '${toString slotMaxKiB} * 1024'
+              check ${./firmware/rp2350/src/config.rs}   '${toString slotMaxKiB} * 1024'
+              check ${./firmware/bmm-pico/src/config.rs} '${toString slotMaxKiB} * 1024'
+              check ${./firmware/hashnode/src/config.rs} '${toString slotMaxKiB} * 1024'
+              # esp32s3: the 3 MiB app slot, not the shared RP budget.
+              check ${./firmware/esp32s3/src/config.rs}  '3 * 1024 * 1024'
+              # redacted: APP slot plus the redacted v1 header. ota.rs additionally
+              # asserts this equals APP_SIZE + AUP_HEADER_SIZE at compile time.
+              check ${./firmware/redacted/src/config.rs}     '0x001C_0000 + 0xE0'
               touch $out
             '';
 
