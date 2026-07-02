@@ -94,6 +94,10 @@ pub trait OtaBackend: Send {
 pub struct OtaEngine<B> {
     backend: B,
     firmware_version: u32,
+    /// Maximum firmware image the board accepts, reported through
+    /// [`ubos_api::OtaTarget::max_image_bytes`]. Set by the board from its
+    /// `config.rs` so the accepted upload matches the board's active slot.
+    max_image_bytes: u64,
     /// Next write offset into the staging slot, advanced by each
     /// [`write_chunk`](ubos_api::OtaTarget::write_chunk). `None` until
     /// [`begin`](ubos_api::OtaTarget::begin) arms the writer.
@@ -102,12 +106,14 @@ pub struct OtaEngine<B> {
 
 impl<B: OtaBackend> OtaEngine<B> {
     /// Creates an engine over `backend`, reporting `firmware_version` as the
-    /// running image version. No session is active until `begin`.
+    /// running image version and `max_image_bytes` as the largest upload the
+    /// board accepts. No session is active until `begin`.
     #[must_use]
-    pub const fn new(backend: B, firmware_version: u32) -> Self {
+    pub const fn new(backend: B, firmware_version: u32, max_image_bytes: u64) -> Self {
         Self {
             backend,
             firmware_version,
+            max_image_bytes,
             write_offset: None,
         }
     }
@@ -144,6 +150,10 @@ impl<B: OtaBackend> ubos_api::OtaTarget for OtaEngine<B> {
 
     fn running_version(&self) -> u32 {
         self.firmware_version
+    }
+
+    fn max_image_bytes(&self) -> u64 {
+        self.max_image_bytes
     }
 
     fn running_slot_label(&self) -> &'static str {

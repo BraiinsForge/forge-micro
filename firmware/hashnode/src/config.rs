@@ -238,3 +238,11 @@ impl Flash {
     pub const SIZE: usize = 2 * 1024 * 1024;
     pub const CONFIG_RANGE: core::ops::Range<u32> = 0x001F_E000..0x0020_0000;
 }
+
+/// OTA upload limit, reported through `OtaTarget::max_image_bytes`. Equals
+/// the bootloader ACTIVE slot in `memory.x` (952 KiB): an image larger than
+/// this could never swap into ACTIVE, so the handler rejects it up front.
+pub struct Ota;
+impl Ota {
+    pub const MAX_IMAGE_BYTES: u64 = 952 * 1024;
+}

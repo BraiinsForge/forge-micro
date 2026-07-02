@@ -38,6 +38,15 @@ impl Flash {
     pub const CONFIG_RANGE: core::ops::Range<u32> = 0x0061_0000..0x0061_2000;
 }
 
+/// OTA upload limit, reported through `OtaTarget::max_image_bytes`. Equals
+/// the `ota_N` app slot in `partitions.csv` (3 MiB): the image is written
+/// into the inactive slot, so an image larger than the slot is rejected up
+/// front.
+pub struct Ota;
+impl Ota {
+    pub const MAX_IMAGE_BYTES: u64 = 3 * 1024 * 1024;
+}
+
 pub struct Watchdog;
 impl Watchdog {
     pub const TIMEOUT: esp_hal::time::Duration = esp_hal::time::Duration::from_millis(2000);

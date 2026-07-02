@@ -445,6 +445,7 @@ async fn boot(spawner: Spawner) {
     let ota_target = OTA_TARGET.init(ubos_ota::OtaEngine::new(
         ubos_ota::RpBackend::new(shared_flash),
         config::FIRMWARE_VERSION,
+        config::Ota::MAX_IMAGE_BYTES,
     ));
 
     // Pin the ubos-mining serial worker to core 1 so embassy-net on core 0 stays
