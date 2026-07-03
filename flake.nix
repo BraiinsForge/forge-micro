@@ -30,7 +30,7 @@
     # than the sandbox, which carries no ssh binary. mkForkProbeRsTools swaps
     # this into nixpkgs' probe-rs-tools build.
     probe-rs-redacted = {
-      url = "git+ssh://git@gitlab.ii.zone/bos/ubos/probe-rs.git?ref=riscv-debug-0.11-redacted&rev=dd0a1fbad7eda422145a58ea930583f74d26ca38";
+      url = "git+ssh://git@gitlab.ii.zone/bos/ubos/probe-rs.git?ref=riscv-debug-0.11-redacted&rev=81d789213eeecac43a125f92df03e04fe669320d";
       flake = false;
     };
     # Pinned to PR#131 branch to avoid the nvmd/nixpkgs fork rebuild penalty
