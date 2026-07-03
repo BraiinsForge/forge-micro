@@ -2781,6 +2781,7 @@ version = "0.1.0"
 dependencies = [
  "crc",
  "crc32fast",
+ "critical-section",
  "embassy-executor",
  "embassy-net",
  "embassy-net-wiznet",
@@ -2795,7 +2796,6 @@ dependencies = [
  "log",
  "riscv",
  "riscv-rt",
- "rtt-target",
  "static_cell",
  "ubos-api",
  "ubos-asic",
@@ -3736,17 +3736,6 @@ version = "0.1.0"
 dependencies = [
  "embassy-rp",
  "portable-atomic",
-]
-
-[[package]]
-name = "rtt-target"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7afed1f4302eeba88c601636cf2c554c45e1cbb464bab44c6012bab0e71473c"
-dependencies = [
- "critical-section",
- "portable-atomic",
- "ufmt-write",
 ]
 
 [[package]]
