@@ -33,10 +33,11 @@
       url = "git+ssh://git@gitlab.ii.zone/bos/ubos/probe-rs.git?ref=riscv-debug-0.11-redacted&rev=81d789213eeecac43a125f92df03e04fe669320d";
       flake = false;
     };
-    # Pinned to PR#131 branch to avoid the nvmd/nixpkgs fork rebuild penalty
-    # and to match cache paths for users who opt into the nixos-raspberrypi
-    # cachix entry locally. Revisit once the PR is released upstream.
-    nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/remove-options-compat";
+    # Tracks the upstream default branch (develop) now that PR#131
+    # (remove-options-compat) is merged. Upstream CI populates the
+    # nixos-raspberrypi cachix on every push, so the RPi kernel and
+    # closure substitute instead of rebuilding under QEMU.
+    nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi";
     deploy-rs.url = "github:serokell/deploy-rs";
     # ESP-IDF packaged for Nix; used only to build the esp32s3 second-stage
     # bootloader with rollback enabled. No esp-rs prebuilt rollback bootloader
