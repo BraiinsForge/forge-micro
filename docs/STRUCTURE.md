@@ -92,6 +92,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-mining`      | BM1362 chip-serial actor, miner state machine, `MiningHandle` |
 | `ubos-psu`         | async PSU driver over I2C                          |
 | `ubos-temperature` | temperature sampling and LM75A driver              |
+| `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner |
 | `ubos-firmware`    | top-of-graph assembly: `EVENT_REGISTRY`, shared stratum session; consumed only by the `firmware/<board>` binaries |
 
 ## `host/` — std crates

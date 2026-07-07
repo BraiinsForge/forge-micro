@@ -1,0 +1,12 @@
+[package]
+edition.workspace = true
+name    = "ubos-machine"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+ubos-asic        = { workspace = true }
+ubos-psu         = { workspace = true }
+ubos-temperature = { workspace = true }

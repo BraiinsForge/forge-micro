@@ -4888,6 +4888,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubos-machine"
+version = "0.1.0"
+dependencies = [
+ "ubos-asic",
+ "ubos-psu",
+ "ubos-temperature",
+]
+
+[[package]]
 name = "ubos-main-host"
 version = "0.1.0"
 dependencies = [

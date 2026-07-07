@@ -32,6 +32,7 @@ members = [
     "ubos/ubos-display",
     "ubos/ubos-http",
     "ubos/ubos-logging",
+    "ubos/ubos-machine",
     "ubos/ubos-manager",
     "ubos/ubos-metrics",
     "ubos/ubos-cooling",
@@ -113,6 +114,7 @@ ubos-display      = { path = "ubos/ubos-display" }
 ubos-http         = { path = "ubos/ubos-http", default-features = false }
 ubos-logging      = { path = "ubos/ubos-logging", default-features = false }
 ubos-manager      = { path = "ubos/ubos-manager", default-features = false }
+ubos-machine      = { path = "ubos/ubos-machine" }
 ubos-metrics      = { path = "ubos/ubos-metrics", default-features = false }
 ubos-cooling      = { path = "ubos/ubos-cooling", default-features = false }
 ubos-thermal      = { path = "ubos/ubos-thermal", default-features = false }

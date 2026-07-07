@@ -638,6 +638,7 @@
               "-p ubos-core"
               "-p ubos-display"
               "-p ubos-logging"
+              "-p ubos-machine"
               "-p ubos-main-host"
               "-p ubos-metrics"
               "-p ubos-mining"
@@ -2046,6 +2047,22 @@
               doInstallCargoArtifacts = false;
             };
 
+            clippy-ubos-machine = craneLib.cargoClippy {
+              inherit src;
+              cargoArtifacts = hostArtifacts;
+              cargoExtraArgs = "-p ubos-machine";
+              cargoClippyExtraArgs = "-- -D warnings";
+              doInstallCargoArtifacts = false;
+            };
+
+            test-ubos-machine = craneLib.cargoTest {
+              inherit src;
+              cargoArtifacts = hostArtifactsDev;
+              CARGO_PROFILE = "";
+              cargoExtraArgs = "-p ubos-machine";
+              doInstallCargoArtifacts = false;
+            };
+
             clippy-stratum-v1 = craneLib.cargoClippy {
               inherit src;
               cargoArtifacts = hostArtifacts;
@@ -2504,6 +2521,7 @@
                     test-ubos-events
                     test-ubos-cooling
                     test-ubos-http
+                    test-ubos-machine
                     test-ubos-manager
                     test-ubos-metrics
                     test-ubos-mining
