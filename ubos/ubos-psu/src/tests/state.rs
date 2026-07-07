@@ -1,5 +1,5 @@
 use super::*;
-use crate::BmmPsuDescriptor;
+use crate::{BmmPsu, BmmPsuDescriptor};
 use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
 
 fn run<F: core::future::Future>(future: F) -> F::Output {
@@ -11,7 +11,7 @@ fn ensure_initialized_runs_full_init_then_marks_initialized() {
     let config = BmmPsuDescriptor::DEFAULT;
     let bus = Mock::new(&test_support::init_transactions(&config));
     let mut state = State::new(bus, config);
-    run(ensure_initialized(&mut state)).expect("BUG: init failed");
+    run(BmmPsu::ensure_initialized(&mut state)).expect("BUG: init failed");
     assert_eq!(state.init, InitStatus::Initialized);
     state.i2c.done();
 }
@@ -21,9 +21,9 @@ fn ensure_initialized_caches_success() {
     let config = BmmPsuDescriptor::DEFAULT;
     let bus = Mock::new(&test_support::init_transactions(&config));
     let mut state = State::new(bus, config);
-    run(ensure_initialized(&mut state)).expect("BUG: first init failed");
+    run(BmmPsu::ensure_initialized(&mut state)).expect("BUG: first init failed");
     // Second call must not touch the bus.
-    run(ensure_initialized(&mut state)).expect("BUG: cached init returned error");
+    run(BmmPsu::ensure_initialized(&mut state)).expect("BUG: cached init returned error");
     state.i2c.done();
 }
 
@@ -40,7 +40,7 @@ fn ensure_initialized_caches_failure_kind() {
     ];
     let bus = Mock::new(&expectations);
     let mut state = State::new(bus, config);
-    let first = run(ensure_initialized(&mut state));
+    let first = run(BmmPsu::ensure_initialized(&mut state));
     assert!(matches!(first, Err(Error::Bus(_))));
     match state.init {
         InitStatus::Failed(kind) => {
@@ -48,7 +48,7 @@ fn ensure_initialized_caches_failure_kind() {
         }
         other => panic!("BUG: expected Failed, got {other:?}"),
     }
-    let second = run(ensure_initialized(&mut state));
+    let second = run(BmmPsu::ensure_initialized(&mut state));
     assert!(matches!(second, Err(Error::InitFailed(_))));
     state.i2c.done();
 }

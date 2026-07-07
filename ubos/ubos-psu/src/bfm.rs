@@ -8,7 +8,7 @@ use embedded_hal_async::i2c::I2c;
 use portable_atomic::{AtomicBool, Ordering};
 use ubos_core::units::{Power, Voltage};
 
-use crate::state::{InitStatus, PsuInit, State, ensure_initialized};
+use crate::state::{InitStatus, State};
 use crate::{Error, Psu, ina230, sic45x};
 
 /// `RawMutex` choice exposed for callers that need to declare the
@@ -43,29 +43,6 @@ impl BfmPsuDescriptor {
     };
 }
 
-impl<I: I2c> PsuInit<I> for BfmPsuDescriptor {
-    async fn run_init(i2c: &mut I, config: &Self) -> Result<(), Error<I::Error>> {
-        // Why: the INA230's VS pin is powered by the SIC output rail.
-        // The rail is off during init, so the INA is below its operating
-        // voltage (~2.7 V). We attempt init optimistically and continue on
-        // failure: a failure here does not indicate a hardware fault on this
-        // stage.
-        if ina230::init(
-            i2c,
-            config.ina_address,
-            config.ina_max_current_a,
-            config.ina_shunt_microohm,
-        )
-        .await
-        .is_err()
-        {
-            ubos_logging::warn!("BFM INA230 init failed (rail not up yet?)");
-        }
-
-        sic45x::init(i2c, &config.sic).await
-    }
-}
-
 /// State protected by the `BfmPsu` mutex. Type alias over the shared
 /// [`State`] container; the generic parameter is `BfmPsuDescriptor`.
 pub type BfmState<I> = State<I, BfmPsuDescriptor>;
@@ -86,6 +63,43 @@ impl<I: I2c + 'static> BfmPsu<I> {
     ) -> Self {
         Self { state, terminated }
     }
+
+    /// Initialization sequence for the BFM power stage: INA230 monitor,
+    /// then the `SIC45x` converter.
+    pub(crate) async fn run_init(
+        i2c: &mut I,
+        config: &BfmPsuDescriptor,
+    ) -> Result<(), Error<I::Error>> {
+        // Why: the INA230's VS pin is powered by the SIC output rail.
+        // The rail is off during init, so the INA is below its operating
+        // voltage (~2.7 V). We attempt init optimistically and continue on
+        // failure: a failure here does not indicate a hardware fault on this
+        // stage.
+        if ina230::init(
+            i2c,
+            config.ina_address,
+            config.ina_max_current_a,
+            config.ina_shunt_microohm,
+        )
+        .await
+        .is_err()
+        {
+            ubos_logging::warn!("BFM INA230 init failed (rail not up yet?)");
+        }
+
+        sic45x::init(i2c, &config.sic).await
+    }
+
+    /// Replay a cached init outcome or run [`Self::run_init`] once and
+    /// cache it.
+    pub(crate) async fn ensure_initialized(state: &mut BfmState<I>) -> Result<(), Error<I::Error>> {
+        if let Some(cached) = state.cached_init() {
+            return cached;
+        }
+        let result = Self::run_init(&mut state.i2c, &state.config).await;
+        state.record_init(&result);
+        result
+    }
 }
 
 impl<I: I2c + 'static> Psu for BfmPsu<I> {
@@ -96,7 +110,7 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         sic45x::enable(i2c, &config.sic).await
     }
@@ -106,7 +120,7 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         sic45x::disable(i2c, &config.sic).await
     }
@@ -116,7 +130,7 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         let result = sic45x::set_voltage(i2c, &config.sic, voltage.mv()).await;
         // Record the commanded value so telemetry consumers can compare
@@ -147,7 +161,7 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         ina230::read_power_mw(i2c, config.ina_address, config.ina_max_current_a)
             .await
@@ -163,7 +177,7 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         sic45x::read_vout_mv(i2c, &config.sic)
             .await
@@ -179,7 +193,7 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
             return Some(Err(Error::Terminated));
         }
         let mut guard = self.state.lock().await;
-        if let Err(error) = ensure_initialized(&mut guard).await {
+        if let Err(error) = Self::ensure_initialized(&mut guard).await {
             return Some(Err(error));
         }
         let State { i2c, config, .. } = &mut *guard;
@@ -208,7 +222,7 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         sic45x::read_status(i2c, &config.sic).await
     }

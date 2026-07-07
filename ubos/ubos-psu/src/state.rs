@@ -1,7 +1,7 @@
 //! Internal state container and initialization gating shared by all PSU
 //! drivers.
 
-use embedded_hal_async::i2c::{ErrorKind, I2c};
+use embedded_hal_async::i2c::ErrorKind;
 
 use crate::Error;
 
@@ -16,15 +16,10 @@ pub(crate) enum InitStatus {
     Failed(ErrorKind),
 }
 
-/// Per-PSU initialization routine. Implemented by each config type so the
-/// shared [`ensure_initialized`] can call the right set of I2C transactions
-/// without knowing the concrete IC topology.
-pub(crate) trait PsuInit<I: I2c> {
-    async fn run_init(i2c: &mut I, config: &Self) -> Result<(), Error<I::Error>>;
-}
-
 /// State protected by a PSU mutex. Generic over the I2C bus `I` and the
-/// config type `C`, which supplies the per-PSU [`PsuInit`] logic.
+/// config data `C`. The init routine that consumes them is a driver
+/// method; [`Self::cached_init`] and [`Self::record_init`] carry the
+/// shared bookkeeping around it.
 pub struct State<I, C> {
     pub(crate) i2c: I,
     pub(crate) config: C,
@@ -39,34 +34,31 @@ impl<I, C> State<I, C> {
             init: InitStatus::NotInit,
         }
     }
-}
 
-pub(crate) async fn ensure_initialized<I, C, E>(state: &mut State<I, C>) -> Result<(), Error<E>>
-where
-    I: I2c<Error = E>,
-    E: embedded_hal_async::i2c::Error,
-    C: PsuInit<I>,
-{
-    match state.init {
-        InitStatus::Initialized => return Ok(()),
-        InitStatus::Failed(kind) => return Err(Error::InitFailed(kind)),
-        InitStatus::NotInit => {}
+    /// Cached outcome of a previous init attempt, or `None` when no
+    /// attempt has run yet and the driver must run its init sequence.
+    pub(crate) fn cached_init<E>(&self) -> Option<Result<(), Error<E>>> {
+        match self.init {
+            InitStatus::Initialized => Some(Ok(())),
+            InitStatus::Failed(kind) => Some(Err(Error::InitFailed(kind))),
+            InitStatus::NotInit => None,
+        }
     }
 
-    if let Err(error) = C::run_init(&mut state.i2c, &state.config).await {
-        let kind = match &error {
-            Error::Bus(bus) => bus.kind(),
+    /// Record the outcome of an init attempt for [`Self::cached_init`].
+    pub(crate) fn record_init<E>(&mut self, result: &Result<(), Error<E>>)
+    where
+        E: embedded_hal_async::i2c::Error,
+    {
+        self.init = match result {
+            Ok(()) => InitStatus::Initialized,
+            Err(Error::Bus(bus)) => InitStatus::Failed(bus.kind()),
             // Init only constructs Bus or OutOfRange (the latter
             // when initial_mv is misconfigured); collapse the
             // misconfig case into Other.
-            _ => ErrorKind::Other,
+            Err(_) => InitStatus::Failed(ErrorKind::Other),
         };
-        state.init = InitStatus::Failed(kind);
-        return Err(error);
     }
-
-    state.init = InitStatus::Initialized;
-    Ok(())
 }
 
 #[cfg(test)]

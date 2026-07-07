@@ -9,8 +9,8 @@ use ubos_logging::{info, warn};
 
 use ubos_core::units::{Power, Voltage};
 
-use crate::state::{InitStatus, PsuInit, State, ensure_initialized};
-use crate::{Error, Psu, BmmPsuDescriptor, ina230, tps6287x, watchdog};
+use crate::state::{InitStatus, State};
+use crate::{BmmPsuDescriptor, Error, Psu, ina230, tps6287x, watchdog};
 
 #[cfg(test)]
 #[path = "tests/bmm.rs"]
@@ -20,8 +20,31 @@ mod tests;
 /// `'static` mutex storage cell.
 pub type RawMutex = CriticalSectionRawMutex;
 
-impl<I: I2c> PsuInit<I> for BmmPsuDescriptor {
-    async fn run_init(i2c: &mut I, config: &Self) -> Result<(), Error<I::Error>> {
+/// Handle to the BMM PSU. Cheap to clone-by-reference; the
+/// underlying state lives behind a `'static` mutex supplied by the
+/// caller.
+pub struct BmmPsu<I: I2c + 'static> {
+    state: &'static Mutex<RawMutex, State<I, BmmPsuDescriptor>>,
+    terminated: &'static AtomicBool,
+}
+
+impl<I: I2c + 'static> BmmPsu<I> {
+    /// Construct a handle. Spawn `run_watchdog` separately on the
+    /// same `state` + `terminated` references to drive the
+    /// SLG46826G heartbeat.
+    pub fn new(
+        state: &'static Mutex<RawMutex, State<I, BmmPsuDescriptor>>,
+        terminated: &'static AtomicBool,
+    ) -> Self {
+        Self { state, terminated }
+    }
+
+    /// Initialization sequence for the BMM power stage: SLG46826G
+    /// watchdog, both INA230 monitors, then the `TPS6287x` converter.
+    pub(crate) async fn run_init(
+        i2c: &mut I,
+        config: &BmmPsuDescriptor,
+    ) -> Result<(), Error<I::Error>> {
         watchdog::init(i2c, config.watchdog_address)
             .await
             .map_err(Error::Bus)?;
@@ -46,25 +69,18 @@ impl<I: I2c> PsuInit<I> for BmmPsuDescriptor {
             .await
             .map_err(Error::Bus)
     }
-}
 
-/// Handle to the BMM PSU. Cheap to clone-by-reference; the
-/// underlying state lives behind a `'static` mutex supplied by the
-/// caller.
-pub struct BmmPsu<I: I2c + 'static> {
-    state: &'static Mutex<RawMutex, State<I, BmmPsuDescriptor>>,
-    terminated: &'static AtomicBool,
-}
-
-impl<I: I2c + 'static> BmmPsu<I> {
-    /// Construct a handle. Spawn `run_watchdog` separately on the
-    /// same `state` + `terminated` references to drive the
-    /// SLG46826G heartbeat.
-    pub fn new(
-        state: &'static Mutex<RawMutex, State<I, BmmPsuDescriptor>>,
-        terminated: &'static AtomicBool,
-    ) -> Self {
-        Self { state, terminated }
+    /// Replay a cached init outcome or run [`Self::run_init`] once and
+    /// cache it.
+    pub(crate) async fn ensure_initialized(
+        state: &mut State<I, BmmPsuDescriptor>,
+    ) -> Result<(), Error<I::Error>> {
+        if let Some(cached) = state.cached_init() {
+            return cached;
+        }
+        let result = Self::run_init(&mut state.i2c, &state.config).await;
+        state.record_init(&result);
+        result
     }
 }
 
@@ -105,7 +121,7 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         tps6287x::enable(i2c, config).await
     }
@@ -115,7 +131,7 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         tps6287x::disable(i2c, config).await
     }
@@ -125,7 +141,7 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         let result = tps6287x::set_voltage(i2c, config, voltage.mv()).await;
         // Record the commanded value so telemetry consumers can compare
@@ -142,7 +158,7 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         ina230::read_power_mw(
             i2c,
@@ -159,7 +175,7 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         ina230::read_power_mw(
             i2c,
@@ -176,7 +192,7 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         ina230::read_bus_voltage_mv(i2c, config.ina_output_address)
             .await
@@ -189,7 +205,7 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
             return Err(Error::Terminated);
         }
         let mut guard = self.state.lock().await;
-        ensure_initialized(&mut guard).await?;
+        Self::ensure_initialized(&mut guard).await?;
         let State { i2c, config, .. } = &mut *guard;
         tps6287x::read_status(i2c, config).await
     }
