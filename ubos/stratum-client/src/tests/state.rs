@@ -3,7 +3,7 @@
 use super::*;
 
 use crate::job_ring::JobSlot;
-use mining_protocol::{JobId, LazyMerkle, MiningJob, SessionUpdate};
+use mining_protocol::{JobId, LazyMerkle, MAX_EXTRANONCE_2, MiningJob, SessionUpdate};
 
 const SAMPLE_PREV_HASH: [u8; 32] = [0x11; 32];
 const SAMPLE_TARGET: [u8; 32] = [0x22; 32];

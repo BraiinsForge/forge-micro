@@ -5,7 +5,19 @@
 //! invalidates the previous slot so stale shares get filtered
 //! before submit hits the wire.
 
-use mining_protocol::JobId;
+use mining_protocol::{JobId, MAX_EXTRANONCE_2, MiningJob};
+
+/// Why a borrowed [`MiningJob`] could not be snapshotted into a
+/// [`JobSlot`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum JobSlotError {
+    /// The job's `extranonce_2_size` exceeds the static per-share
+    /// buffer ([`MAX_EXTRANONCE_2`]), so the merkle root cannot be
+    /// built. Adapters reject oversized extranonce upstream, so this
+    /// only guards against a misbehaving adapter.
+    ExtranonceTooLarge { size: usize },
+}
 
 /// Default ring depth. Two slots covers the "current job + the
 /// one that just rotated" window most pools accept stale shares
@@ -51,6 +63,41 @@ impl JobSlot {
             clean_jobs: false,
         }
     }
+
+    /// Snapshot a borrowed job into an owned, valid slot with
+    /// `ntime_offset` reset to 0.
+    ///
+    /// Build the merkle root once with `extranonce_2 = zeros`. The
+    /// CPU mock and current ASIC drivers don't roll en2; when they
+    /// do, the per-share recompute happens in the work generator with
+    /// the materials still in scope (a future refinement extends
+    /// `OwnedJob` to keep them).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`JobSlotError::ExtranonceTooLarge`] when
+    /// `extranonce_2_size` exceeds [`MAX_EXTRANONCE_2`], since the
+    /// merkle root cannot be computed against a too-small buffer.
+    pub fn from_job(job: &MiningJob<'_>) -> Result<Self, JobSlotError> {
+        let en2_size = usize::from(job.extranonce_2_size);
+        if en2_size > MAX_EXTRANONCE_2 {
+            return Err(JobSlotError::ExtranonceTooLarge { size: en2_size });
+        }
+        let zeros = [0u8; MAX_EXTRANONCE_2];
+        Ok(Self {
+            job_id: job.id,
+            valid: true,
+            prev_hash: *job.prev_hash,
+            target: *job.target,
+            merkle_root: job.merkle.compute(&zeros[..en2_size]),
+            version: job.version,
+            nbits: job.nbits,
+            ntime_base: job.ntime,
+            ntime_offset: 0,
+            extranonce_2_size: job.extranonce_2_size,
+            clean_jobs: job.clean_jobs,
+        })
+    }
 }
 
 /// Depth-N rotating ring of `JobSlot`s.
@@ -68,18 +115,33 @@ impl<const N: usize> JobRing<N> {
         }
     }
 
-    /// Reserve and return a mutable handle to the next slot. The
-    /// caller fills it from a borrowed `MiningJob<'_>` and sets
-    /// `valid = true`. Older slot at this index is dropped.
-    pub fn next_slot(&mut self) -> &mut JobSlot {
+    /// Snapshot `job` into the next slot and rotate the ring,
+    /// dropping the oldest slot at that index. When `job.clean_jobs`
+    /// is set, older slots are invalidated so stale shares get
+    /// filtered before submit hits the wire.
+    ///
+    /// The ring is left untouched on error, so a rejected job causes
+    /// no partial rotation.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`JobSlot::from_job`]'s error when `job` cannot be
+    /// snapshotted.
+    pub fn push(&mut self, job: &MiningJob<'_>) -> Result<(), JobSlotError> {
+        let slot = JobSlot::from_job(job)?;
         let index = self.write_index;
+        self.slots[index] = slot;
         self.write_index = (self.write_index + 1) % N;
-        &mut self.slots[index]
+        if job.clean_jobs {
+            self.invalidate_previous();
+        }
+        Ok(())
     }
 
     /// Mark every slot except the most recently written as
-    /// `valid = false`. Called when `clean_jobs=true` arrives.
-    pub fn invalidate_previous(&mut self) {
+    /// `valid = false`. Called from [`push`](Self::push) when
+    /// `clean_jobs=true` arrives.
+    fn invalidate_previous(&mut self) {
         let latest = (self.write_index + N - 1) % N;
         for (index, slot) in self.slots.iter_mut().enumerate() {
             if index != latest {
@@ -97,7 +159,7 @@ impl<const N: usize> JobRing<N> {
     }
 
     /// Borrow the most recently written valid slot. Returns `None`
-    /// before the first `next_slot()` populate.
+    /// before the first `push()` populate.
     #[must_use]
     pub fn current(&self) -> Option<&JobSlot> {
         let latest = (self.write_index + N - 1) % N;

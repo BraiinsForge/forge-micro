@@ -32,7 +32,6 @@ pub fn shares_rejected() -> u64 {
 }
 
 use crate::job_ring::{JOB_RING_DEPTH, JobRing};
-use crate::work::MAX_EXTRANONCE_2;
 use crate::work_ring::{WORK_RING_DEPTH, WorkRing};
 
 #[cfg(test)]
@@ -72,40 +71,12 @@ impl MiningClientVisitor for StratumState {
              nbits={:#010x} en2_size={}",
             job.id.0, job.clean_jobs, job.ntime, job.nbits, job.extranonce_2_size,
         );
-        let en2_size = usize::from(job.extranonce_2_size);
-        // The two adapters reject oversized extranonce upstream, but
-        // the trait surface still admits a u8 (0..=255). Drop here so
-        // a misbehaving adapter cannot panic the work loop with an
-        // out-of-bounds slice in release.
-        if en2_size > MAX_EXTRANONCE_2 {
-            warn!(
-                "stratum-client: new job dropped, en2_size={} > MAX_EXTRANONCE_2={}",
-                en2_size, MAX_EXTRANONCE_2,
-            );
-            return;
-        }
-        let slot = self.job_ring.next_slot();
-        slot.job_id = job.id;
-        slot.prev_hash = *job.prev_hash;
-        slot.target = *job.target;
-        // Build the merkle root once with extranonce_2 = zeros. The
-        // CPU mock and current ASIC drivers don't roll en2; when
-        // they do, the per-share recompute happens in the work
-        // generator with the materials still in scope (a future
-        // refinement extends OwnedJob to keep them).
-        let zeros = [0u8; MAX_EXTRANONCE_2];
-        let en2 = &zeros[..en2_size];
-        slot.merkle_root = job.merkle.compute(en2);
-        slot.version = job.version;
-        slot.nbits = job.nbits;
-        slot.ntime_base = job.ntime;
-        slot.ntime_offset = 0;
-        slot.extranonce_2_size = job.extranonce_2_size;
-        slot.clean_jobs = job.clean_jobs;
-        slot.valid = true;
-
-        if job.clean_jobs {
-            self.job_ring.invalidate_previous();
+        // Adapters reject oversized extranonce upstream, but the trait
+        // surface still admits a u8 (0..=255). The ring refuses a job
+        // it cannot snapshot; drop it here so a misbehaving adapter
+        // cannot corrupt the work loop.
+        if let Err(e) = self.job_ring.push(&job) {
+            warn!("stratum-client: new job dropped, {:?}", e);
         }
     }
 
