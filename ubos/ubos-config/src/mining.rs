@@ -36,7 +36,7 @@ impl TuningConfig {
     /// Validate frequency and voltage against `bounds`.
     ///
     /// The caller passes the active board's bounds (the firmware sources
-    /// them from its `HashboardDescriptor` via [`board_bounds`]) so a board only
+    /// them from its `HashboardDescriptor` via [`bounds`]) so a board only
     /// accepts an operating point inside its own rail/clock range.
     ///
     /// # Errors
@@ -76,16 +76,16 @@ pub struct MiningBounds {
 /// PLL-calculator span. Each firmware crate builds its own `BOUNDS`
 /// const from this with its explicit board descriptor.
 #[must_use]
-pub const fn board_bounds(board: &'static HashboardDescriptor) -> MiningBounds {
+pub const fn bounds(board: &'static HashboardDescriptor) -> MiningBounds {
     MiningBounds {
         frequency_mhz: 50..=1000,
         voltage_mv: 0..=board.max_rail_voltage().mv(),
     }
 }
 
-/// Bounds for the BMM100 board. The firmware uses [`board_bounds`] with its
+/// Bounds for the BMM100 board. The firmware uses [`bounds`] with its
 /// own descriptor; this exists so the test suite has a stable baseline.
-pub const BOUNDS: MiningBounds = board_bounds(&ubos_asic::BMM100);
+pub const BOUNDS: MiningBounds = bounds(&ubos_asic::BMM100);
 
 /// Static capability metadata for the ASIC and board.
 ///

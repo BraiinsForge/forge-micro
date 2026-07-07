@@ -45,7 +45,7 @@ pub use cooling::{
 };
 pub use miner::{MinerConfig, TuningAlgorithm};
 pub use mining::{
-    BOUNDS as MINING_BOUNDS, MiningBounds, MiningInfo, TuningConfig, board_bounds, mining_info,
+    BOUNDS as MINING_BOUNDS, MiningBounds, MiningInfo, TuningConfig, bounds, mining_info,
 };
 pub use network::{NetworkConfig, NetworkMode};
 pub use pool::{
@@ -756,7 +756,7 @@ async fn load_initial<S: Storage>(storage: &mut S, board: &'static HashboardDesc
             return Config::for_board(board);
         }
     };
-    if config.validate(&mining::board_bounds(board)).is_err() {
+    if config.validate(&mining::bounds(board)).is_err() {
         warn!("config: stored config failed validation, using defaults");
         return Config::for_board(board);
     }

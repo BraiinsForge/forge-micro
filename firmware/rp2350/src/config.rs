@@ -78,7 +78,7 @@ pub struct Board {
 pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM100;
 
 /// Accepted tuning ranges for [`BOARD`]; the API validates against these.
-pub const BOUNDS: ubos_config::MiningBounds = ubos_config::board_bounds(BOARD);
+pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
 
 /// Static mining capability metadata, built from [`BOARD`].
 pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
