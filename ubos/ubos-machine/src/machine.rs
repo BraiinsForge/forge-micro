@@ -16,8 +16,14 @@ use crate::control_board::{
 /// serves it from the per-board `ubos_config::mining_info` const fn,
 /// which derives it from the hashboard descriptor so a second chip model
 /// reports its own values.
+///
+/// Generic over `Psu`: no code handles a `MachineDescriptor` generically
+/// — every board names its own concrete
+/// `MachineDescriptor<BmmPsuDescriptor>`/`MachineDescriptor<BfmPsuDescriptor>`
+/// const, so the PSU family is fixed at compile time per board rather
+/// than needing a sum type unwrapped at each call site.
 #[derive(Clone, Copy)]
-pub struct MachineDescriptor {
+pub struct MachineDescriptor<Psu: Copy> {
     /// Machine model name. Not consumed yet; scaffolding for the
     /// planned identity reporting.
     pub model: &'static str,
@@ -26,7 +32,7 @@ pub struct MachineDescriptor {
     /// The hashboard the machine drives.
     pub hashboard: HashboardDescriptor,
     /// The PSU powering the hashboard rail.
-    pub psu: BmmPsuDescriptor,
+    pub psu: Psu,
     /// The hashboard temperature-sensor topology.
     pub temp: &'static [SensorDescriptor],
 }
@@ -62,7 +68,7 @@ pub const BMM101_SENSORS: [SensorDescriptor; 4] = [
     },
 ];
 
-impl MachineDescriptor {
+impl MachineDescriptor<BmmPsuDescriptor> {
     /// Compose the miniminer machine on a given control board. Every
     /// miniminer shares the same hashboard, PSU, and temperature-sensor
     /// topology; only the control board varies.
@@ -78,23 +84,25 @@ impl MachineDescriptor {
 }
 
 /// The miniminer on the W5500-EVB-Pico control board.
-pub const MINIMINER_RP2040: MachineDescriptor = MachineDescriptor::miniminer(CONTROL_BOARD_RP2040);
+pub const MINIMINER_RP2040: MachineDescriptor<BmmPsuDescriptor> =
+    MachineDescriptor::miniminer(CONTROL_BOARD_RP2040);
 
 /// The miniminer on the RP2350 control board.
-pub const MINIMINER_RP2350: MachineDescriptor = MachineDescriptor::miniminer(CONTROL_BOARD_RP2350);
+pub const MINIMINER_RP2350: MachineDescriptor<BmmPsuDescriptor> =
+    MachineDescriptor::miniminer(CONTROL_BOARD_RP2350);
 
 /// The miniminer on the BMM adapter control board.
-pub const MINIMINER_BMM_PICO: MachineDescriptor =
+pub const MINIMINER_BMM_PICO: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_BMM_PICO);
 
 /// The miniminer on the ESP32-S3 control board.
-pub const MINIMINER_ESP32S3: MachineDescriptor =
+pub const MINIMINER_ESP32S3: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_ESP32S3);
 
 /// The miniminer on the STM32F407 control board.
-pub const MINIMINER_STM32F407: MachineDescriptor =
+pub const MINIMINER_STM32F407: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_STM32F407);
 
 /// The miniminer on the STM32F439 control board.
-pub const MINIMINER_STM32F439: MachineDescriptor =
+pub const MINIMINER_STM32F439: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_STM32F439);
