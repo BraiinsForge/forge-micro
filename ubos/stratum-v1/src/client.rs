@@ -515,6 +515,11 @@ fn load_notify_into_scratch(notify: &Notify<'_>, decode_scratch: &mut DecodeScra
 
     let coinbase_1_hex = notify.coin_base_1.as_bytes();
     if coinbase_1_hex.len() / 2 > MAX_COINBASE_PART {
+        warn!(
+            "stratum-v1: notify coinbase_1 len={} > MAX_COINBASE_PART={}; dropping job",
+            coinbase_1_hex.len() / 2,
+            MAX_COINBASE_PART,
+        );
         return false;
     }
     decode_scratch.coinbase_1_len = coinbase_1_hex.len() / 2;
@@ -527,6 +532,11 @@ fn load_notify_into_scratch(notify: &Notify<'_>, decode_scratch: &mut DecodeScra
 
     let coinbase_2_hex = notify.coin_base_2.as_bytes();
     if coinbase_2_hex.len() / 2 > MAX_COINBASE_PART {
+        warn!(
+            "stratum-v1: notify coinbase_2 len={} > MAX_COINBASE_PART={}; dropping job",
+            coinbase_2_hex.len() / 2,
+            MAX_COINBASE_PART,
+        );
         return false;
     }
     decode_scratch.coinbase_2_len = coinbase_2_hex.len() / 2;

@@ -7,9 +7,12 @@
 //! start of every notify dispatch.
 
 /// Maximum bytes for `coinbase_1` / `coinbase_2` after hex decode.
-/// Chosen large enough for current public-pool notifies with
-/// headroom; ckpool keeps these much smaller.
-pub const MAX_COINBASE_PART: usize = 512;
+/// Real Ocean notifies exceed the old 512-byte cap: a captured
+/// production notify carries a 587-byte `coinb2` (`stratum-comm-sample`,
+/// repo root) and block 953001's `coinb2` needs 667 bytes. 1024 gives
+/// headroom above both; the 4096-byte wire buffer bounds the whole
+/// notify line regardless.
+pub const MAX_COINBASE_PART: usize = 1024;
 
 /// Maximum merkle path length supported by V1 today.
 pub const MAX_MERKLE_BRANCHES: usize = 16;

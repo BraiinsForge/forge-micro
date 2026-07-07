@@ -285,6 +285,58 @@ async fn submit_encodes_mining_submit_with_wire_job_id() {
     assert!(bytes.contains("\"deadbeef\""), "nonce hex: {bytes}");
 }
 
+#[tokio::test]
+async fn accept_dispatches_notify_with_coinbase_2_between_512_and_1024_bytes() {
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
+
+    let subscribe_id = client.register_pending(PendingRequestKind::Subscribe);
+    let subscribe_payload = std::format!(
+        r#"{{"id":{subscribe_id},"result":[[["mining.notify","abc"]],"deadbeef",4],"error":null}}"#,
+    );
+    let _ = pump_one(&mut client, subscribe_payload.as_bytes()).await;
+
+    // 600 bytes sits between the old 512-byte cap and the new
+    // 1024-byte cap; a real Ocean notify's coinb2 is 587-667 bytes.
+    let notify = build_notify_line_with_coinbase_2_len(true, 600);
+    let visitor = pump_one(&mut client, notify.as_bytes()).await;
+    assert_eq!(visitor.new_jobs, 1);
+}
+
+#[tokio::test]
+async fn accept_drops_notify_with_coinbase_2_over_1024_bytes() {
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
+
+    let subscribe_id = client.register_pending(PendingRequestKind::Subscribe);
+    let subscribe_payload = std::format!(
+        r#"{{"id":{subscribe_id},"result":[[["mining.notify","abc"]],"deadbeef",4],"error":null}}"#,
+    );
+    let _ = pump_one(&mut client, subscribe_payload.as_bytes()).await;
+
+    let notify = build_notify_line_with_coinbase_2_len(true, 1025);
+    let visitor = pump_one(&mut client, notify.as_bytes()).await;
+    assert_eq!(visitor.new_jobs, 0);
+}
+
+/// Like `build_notify_line`, but pads `coinbase_2` out to exactly
+/// `coinbase_2_bytes` bytes (repeating a two-byte hex pattern) so
+/// tests can probe `MAX_COINBASE_PART` boundaries without needing a
+/// semantically valid coinbase.
+fn build_notify_line_with_coinbase_2_len(
+    clean_jobs: bool,
+    coinbase_2_bytes: usize,
+) -> std::string::String {
+    let merkle = "[\"ae23055e00f0f697cc3640124812d96d4fe8bdfa03484c1c638ce5a1c0e9aa81\"]";
+    let coinbase_1 = "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4b03a5020cfabe6d6d379ae882651f6469f2ed6b8b40a4f9a4b41fd838a3ad6de8cba775f4e8f1d3080100000000000000";
+    let coinbase_2: std::string::String = "ab".repeat(coinbase_2_bytes);
+    let prev_hash = "ef4b9a48c7986466de4adc002f7337a6e121bc43000376ea0000000000000000";
+    let clean = if clean_jobs { "true" } else { "false" };
+    std::format!(
+        r#"{{"id":null,"method":"mining.notify","params":["1d2e0c4d3d","{prev_hash}","{coinbase_1}","{coinbase_2}",{merkle},"20000004","1705c739","64495522",{clean}]}}"#
+    )
+}
+
 /// Real-pool notify shape with a 12-branch merkle path. Borrowed
 /// from the parser test fixtures.
 fn build_notify_line(clean_jobs: bool) -> std::string::String {
