@@ -19,7 +19,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use embedded_io::ErrorKind;
-use ubos_asic::BoardDescriptor;
+use ubos_asic::HashboardDescriptor;
 use ubos_config::{ConfigSubscription, TuningAlgorithm};
 use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, error, info, warn};
@@ -131,7 +131,7 @@ where
 {
     psu: &'a P,
     reset_pin: R,
-    board: &'static BoardDescriptor,
+    board: &'static HashboardDescriptor,
     halted: bool,
 }
 
@@ -154,7 +154,7 @@ where
     ///
     /// The PSU is borrowed for lifetime `'a`; on all current firmware
     /// targets `'a` is `'static` because the PSU lives in a static.
-    pub fn new(psu: &'a P, reset_pin: R, board: &'static BoardDescriptor) -> Self {
+    pub fn new(psu: &'a P, reset_pin: R, board: &'static HashboardDescriptor) -> Self {
         Self {
             psu,
             reset_pin,

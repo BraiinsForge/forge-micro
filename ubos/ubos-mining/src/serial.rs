@@ -24,8 +24,8 @@ use portable_atomic::{AtomicBool, AtomicU32, Ordering};
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_asic::{
-    BoardDescriptor, Chip, ChipAddress, ChipProtocol, Frame, HwWork, RegisterResponse, Response,
-    ResponseParser, build_read_register, build_write_register,
+    Chip, ChipAddress, ChipProtocol, Frame, HashboardDescriptor, HwWork, RegisterResponse,
+    Response, ResponseParser, build_read_register, build_write_register,
 };
 use ubos_logging::{Debug2Format, error, info, trace, warn};
 
@@ -356,7 +356,7 @@ impl Serial {
         &self,
         mut serial: S,
         session: &'static AsicSession,
-        board: &'static BoardDescriptor,
+        board: &'static HashboardDescriptor,
     ) -> Result<(), ErrorKind>
     where
         S: Read + Write + BaudRate,

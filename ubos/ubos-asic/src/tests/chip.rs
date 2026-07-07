@@ -1,8 +1,8 @@
 use super::*;
 
 use crate::{
-    BMM100, BaudRateReg, BoardDescriptor, Chip, ChipAddress, ChipIdReg, ChipNonceOffsetReg,
-    ControlCommand, CoreControlReg, CoreRegister, IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY,
+    BMM100, BaudRateReg, Chip, ChipAddress, ChipIdReg, ChipNonceOffsetReg, ControlCommand,
+    CoreControlReg, CoreRegister, HashboardDescriptor, IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY,
     IoDriverStrengthCtrlReg, MISC_SETTINGS_BM1370_BRINGUP, MidstateCalReg, MiscCtrlReg,
     MiscSettingsReg, PllParameterReg, Register, SoftResetControlReg, UartRelayReg,
 };
@@ -143,7 +143,7 @@ impl ChipBus for MockBus {
 /// descriptor id, so enumeration matches without a hardcoded literal.
 fn run_bringup_for<C: ChipProtocol>(
     chip: &C,
-    board: BoardDescriptor,
+    board: HashboardDescriptor,
     responders: u8,
 ) -> (heapless::Vec<Op, 512>, u8) {
     let mut bus = MockBus::new(responders, u32::from(chip.descriptor().chip_id));
@@ -164,9 +164,9 @@ fn run_bringup(responders: u8) -> (heapless::Vec<Op, 512>, u8) {
     run_bringup_for(&Bm1362, BMM100, responders)
 }
 
-/// Synthetic eight-chip, two-domain board for BM1366 multi-domain
+/// Synthetic eight-chip, two-domain hashboard for BM1366 multi-domain
 /// tests. Four chips per domain; addressing stride is 1.
-const BMM_TEST_MULTI_DOMAIN: BoardDescriptor = BoardDescriptor {
+const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
     chip: Chip::Bm1366,
     num_voltage_domains: 2,
     num_chips: 8,
@@ -181,10 +181,10 @@ const BMM_TEST_MULTI_DOMAIN: BoardDescriptor = BoardDescriptor {
     model: "test",
 };
 
-/// Single-chip BM1370 board used in the `MiscSettings` bring-up test.
-/// Topology is intentionally minimal; the 0xb9 write does not depend
-/// on chip count or domain count.
-const BM1370_TEST_BOARD: BoardDescriptor = BoardDescriptor {
+/// Single-chip BM1370 hashboard used in the `MiscSettings` bring-up
+/// test. Topology is intentionally minimal; the 0xb9 write does not
+/// depend on chip count or domain count.
+const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
     chip: Chip::Bm1370,
     num_voltage_domains: 1,
     num_chips: 1,

@@ -12,8 +12,8 @@ use heapless::Vec;
 use ubos_core::units::{Frequency, FrequencyRange, Voltage};
 
 use crate::{
-    AnalogMuxControl, BaudRateReg, BoardDescriptor, ChipAddress, ChipIdReg, ChipNonceOffsetReg,
-    ControlCommand, CoreControlReg, CoreRegister, DomainSelect, HashCountingNumberReg,
+    AnalogMuxControl, BaudRateReg, ChipAddress, ChipIdReg, ChipNonceOffsetReg, ControlCommand,
+    CoreControlReg, CoreRegister, DomainSelect, HashCountingNumberReg, HashboardDescriptor,
     IoDriverStrengthCtrlReg, MidstateCalReg, MiscCtrlReg, MiscSettingsReg, Pll0DividerReg,
     PllParameterReg, Register, SoftResetControlReg, UartRelayReg,
 };
@@ -120,7 +120,7 @@ pub trait ChipBus {
 /// chip-id register. Each method drives `bus` imperatively; host-side
 /// policy (PSU voltage, the host UART baud switch, work dispatch, the
 /// frequency ramp) stays in the consumer, not here. Chip count and
-/// series topology come from the `BoardDescriptor`.
+/// series topology come from the `HashboardDescriptor`.
 //
 // The default method bodies are the bring-up recipe shared by every
 // chip; a chip model varies only through [`Self::descriptor`]. A model
@@ -188,13 +188,14 @@ pub trait ChipProtocol {
     /// Always broadcasts `AnalogMuxControl::disabled()` and
     /// `IoDriverStrengthCtrlReg::default_drive_strengths()` first. When
     /// `board.num_voltage_domains == 0` or `chips_per_domain <= 1` (which
-    /// covers single-chip-per-domain boards such as the four-chip BMM100),
-    /// no relay programming is emitted. Otherwise, for each domain the
-    /// last chip receives a boosted clock-out drive strength and both the
-    /// first and last chips are programmed with the relay-enabled
-    /// `UartRelayReg`. The gap count scales with how far the domain sits
-    /// from the chain head so the relay inserts enough inter-byte spacing.
-    async fn initialize_domains(&self, bus: &mut impl ChipBus, board: &BoardDescriptor) {
+    /// covers single-chip-per-domain hashboards such as the four-chip
+    /// BMM100), no relay programming is emitted. Otherwise, for each
+    /// domain the last chip receives a boosted clock-out drive strength
+    /// and both the first and last chips are programmed with the
+    /// relay-enabled `UartRelayReg`. The gap count scales with how far
+    /// the domain sits from the chain head so the relay inserts enough
+    /// inter-byte spacing.
+    async fn initialize_domains(&self, bus: &mut impl ChipBus, board: &HashboardDescriptor) {
         bus.write_register(ChipAddress::All, AnalogMuxControl::disabled())
             .await;
         bus.write_register(
@@ -275,7 +276,7 @@ pub trait ChipProtocol {
     }
 
     /// Configure the per-core clock, delay, and reset settings.
-    async fn initialize_cores(&self, bus: &mut impl ChipBus, board: &BoardDescriptor) {
+    async fn initialize_cores(&self, bus: &mut impl ChipBus, board: &HashboardDescriptor) {
         bus.write_register(
             ChipAddress::All,
             CoreControlReg::default_hash_clock_config(),
@@ -318,7 +319,7 @@ pub trait ChipProtocol {
 
     /// Program each chip a disjoint nonce offset via the nonce-offset
     /// register so the chain searches the nonce space without overlap.
-    async fn split_nonce_space(&self, bus: &mut impl ChipBus, board: &BoardDescriptor) {
+    async fn split_nonce_space(&self, bus: &mut impl ChipBus, board: &HashboardDescriptor) {
         // Divide the 16-bit nonce-offset space into `num_chips` equal
         // slices; the per-step `- 1` reproduces the chain's small
         // per-chip skew. `index * step` stays below the 16-bit space.
@@ -414,9 +415,9 @@ pub struct ChipDescriptor {
     /// Total hashing cores on this chip model. Identity and capability
     /// metadata; not a register value.
     pub core_count: u32,
-    /// Maximum voltage a single whole chip tolerates. Board-local safety
-    /// policy, not a chip-spec value. The board-rail ceiling consumed by
-    /// the tuner is this value scaled by the hashboard's
+    /// Maximum voltage a single whole chip tolerates. Hashboard-local
+    /// safety policy, not a chip-spec value. The hashboard-rail ceiling
+    /// consumed by the tuner is this value scaled by the hashboard's
     /// `num_voltage_domains`.
     pub max_chip_voltage: Voltage,
     /// PLL hash-clock resolution: the frequency grid every programmed
@@ -445,10 +446,10 @@ pub struct ChipDescriptor {
 }
 
 /// Per-chip capability constants for the BM1362. `max_chip_voltage`
-/// is board-local tuning and safety policy; the 422 mV figure is not a
-/// chip-spec value. The `frequency_range` upper bound is a uniform
-/// 1000 MHz local tuning-policy envelope; the chip has no hard limit
-/// there.
+/// is hashboard-local tuning and safety policy; the 422 mV figure is
+/// not a chip-spec value. The `frequency_range` upper bound is a
+/// uniform 1000 MHz local tuning-policy envelope; the chip has no hard
+/// limit there.
 pub static BM1362: ChipDescriptor = ChipDescriptor {
     chip_id: 0x1362,
     core_count: 514,
@@ -463,7 +464,7 @@ pub static BM1362: ChipDescriptor = ChipDescriptor {
 };
 
 /// Per-chip capability constants for the BM1366. `max_chip_voltage` is
-/// the whole-chip ceiling, board-local safety policy rather than a
+/// the whole-chip ceiling, hashboard-local safety policy rather than a
 /// chip-spec value. `frequency_step` is the shared 6.25 MHz grid; the
 /// `frequency_range` upper bound is a uniform 1000 MHz local
 /// tuning-policy envelope, not a chip limit.
@@ -481,7 +482,7 @@ pub static BM1366: ChipDescriptor = ChipDescriptor {
 };
 
 /// Per-chip capability constants for the BM1370. `max_chip_voltage` is
-/// the whole-chip ceiling, board-local safety policy rather than a
+/// the whole-chip ceiling, hashboard-local safety policy rather than a
 /// chip-spec value. `frequency_step` is the shared 6.25 MHz grid; the
 /// `frequency_range` upper bound is a uniform 1000 MHz local
 /// tuning-policy envelope, not a chip limit.
@@ -498,10 +499,11 @@ pub static BM1370: ChipDescriptor = ChipDescriptor {
     midstate_count: 16,
 };
 
-/// The chip model a board is populated with. Selected statically from
-/// the board descriptor; it dispatches the shared bring-up recipe to the
-/// concrete per-chip implementation. `ChipProtocol` has async methods and
-/// is not dyn-compatible, so this enum is the dispatch mechanism.
+/// The chip model a hashboard is populated with. Selected statically
+/// from the hashboard descriptor; it dispatches the shared bring-up
+/// recipe to the concrete per-chip implementation. `ChipProtocol` has
+/// async methods and is not dyn-compatible, so this enum is the
+/// dispatch mechanism.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Chip {
@@ -634,7 +636,8 @@ impl ChipProtocol for Bm1362 {
 /// the common helpers; the chip differs only in its `ChipDescriptor`
 /// (higher core voltage and core count). Chains with more than one chip
 /// per domain additionally program the UART relay, driven entirely by
-/// the `BoardDescriptor` topology rather than by anything chip-specific.
+/// the `HashboardDescriptor` topology rather than by anything
+/// chip-specific.
 pub struct Bm1366;
 
 impl ChipProtocol for Bm1366 {

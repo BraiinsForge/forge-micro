@@ -1,10 +1,10 @@
 //! Hashboard descriptors.
 //!
-//! A [`BoardDescriptor`] carries the chip model and per-board topology
-//! (series voltage domains, chip count, PSU ceiling) so the tuner can
-//! dispatch the bring-up recipe and read chip capabilities through a
-//! board-scoped seam. The static instances (such as [`BMM100`]) name the
-//! concrete boards the firmware supports.
+//! A [`HashboardDescriptor`] carries the chip model and per-hashboard
+//! topology (series voltage domains, chip count, PSU ceiling) so the
+//! tuner can dispatch the bring-up recipe and read chip capabilities
+//! through a hashboard-scoped seam. The static instances (such as
+//! [`BMM100`]) name the concrete hashboards the firmware supports.
 
 use ubos_core::units::{Frequency, Voltage};
 
@@ -14,7 +14,7 @@ use crate::chip::Chip;
 #[path = "tests/board.rs"]
 mod tests;
 
-/// Per-board cooling profile. Grouped onto [`BoardDescriptor`] so the
+/// Per-board cooling profile. Grouped onto [`HashboardDescriptor`] so the
 /// cooling defaults travel with the board rather than as loose fields.
 /// The hashnode runs die-temp blind (a synthetic pcb+offset proxy), so it
 /// targets a lower setpoint and pins a higher fan floor than the default
@@ -29,10 +29,10 @@ pub struct BoardCooling {
 
 /// Hashboard-level descriptor. Carries the chip model so the tuner
 /// can dispatch the bring-up recipe and read chip capabilities through
-/// a board-scoped seam; per-board topology fields land here alongside
-/// the code that consumes them.
+/// a hashboard-scoped seam; per-hashboard topology fields land here
+/// alongside the code that consumes them.
 #[derive(Clone, Copy)]
-pub struct BoardDescriptor {
+pub struct HashboardDescriptor {
     /// Chip model populated on this hashboard. Selects the bring-up
     /// recipe and capability bounds the tuner drives.
     pub chip: Chip,
@@ -67,7 +67,7 @@ pub struct BoardDescriptor {
     pub model: &'static str,
 }
 
-impl BoardDescriptor {
+impl HashboardDescriptor {
     /// Open-core rail voltage: the per-chip maximum scaled by the
     /// number of series-stacked voltage domains, clamped against the
     /// PSU's configured upper bound. The tuner anchors the
@@ -95,7 +95,7 @@ impl BoardDescriptor {
 /// Hashboard descriptor. The `max_psu_voltage` mirrors
 /// `BmmPsuConfig::DEFAULT.dcdc_voltage_range` (`VRange2`, end
 /// 1675 mV).
-pub const BMM100: BoardDescriptor = BoardDescriptor {
+pub const BMM100: HashboardDescriptor = HashboardDescriptor {
     chip: Chip::Bm1362,
     num_voltage_domains: 4,
     num_chips: 4,
@@ -113,7 +113,7 @@ pub const BMM100: BoardDescriptor = BoardDescriptor {
 /// Hashboard descriptor for the 4-chip BM1370 hashnode board. Four BM1370
 /// voltage domains stack in series; the femto reference design ran two
 /// domains at 2.4 V total (≈1.2 V per domain), so four need ≈4.8 V.
-pub const HASHNODE: BoardDescriptor = BoardDescriptor {
+pub const HASHNODE: HashboardDescriptor = HashboardDescriptor {
     chip: Chip::Bm1370,
     num_voltage_domains: 4,
     num_chips: 4,

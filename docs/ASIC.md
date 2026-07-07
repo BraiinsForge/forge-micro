@@ -12,7 +12,7 @@ the bring-up sequence, and the per-chip differences.
 - **`ubos-asic`** — pure and unit-testable, owns no UART and performs no
   direct I/O. Holds the typed register layouts, the wire framing
   (`HwWork` / `HwSolution` / `ResponseParser`), the `ChipDescriptor` /
-  `BoardDescriptor` data, the `ChipProtocol` / `ChipBus` traits, and the
+  `HashboardDescriptor` data, the `ChipProtocol` / `ChipBus` traits, and the
   per-chip bring-up recipes (`Bm1362` / `Bm1366` / `Bm1370`).
 - **`ubos-mining`** — owns the serial actor (`SERIAL`) that drives the
   UART halves, the `ChipBus` implementation that forwards to the actor,
@@ -31,7 +31,7 @@ A hashboard is a chain of chips in series. Power is organized into
 **voltage domains**: a domain is one series element on the rail, and a
 domain may contain more than one chip wired in parallel.
 
-`BoardDescriptor` carries the topology:
+`HashboardDescriptor` carries the topology:
 
 | Field | Meaning |
 |-------|---------|
@@ -105,11 +105,11 @@ and dispatches each call to the concrete recipe. It forwards
 `descriptor()` and any overridden step; the shared default-method steps
 are inherited.
 
-Selection is **static through the board descriptor**: `BoardDescriptor.chip`
+Selection is **static through the hashboard descriptor**: `HashboardDescriptor.chip`
 is a `Chip`, so the tuner drives `board.chip.<step>()`. The chip model
 is a compile-time property of the board, not detected at runtime. A
-chain is always a single chip model. `ubos_mining::ACTIVE_BOARD` is the
-single point board selection flows from.
+chain is always a single chip model. Each firmware crate's
+`config::BOARD` is the single point board selection flows from.
 
 ### The serial actor
 

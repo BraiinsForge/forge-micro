@@ -100,7 +100,7 @@ pub struct Board {
 /// The board descriptor this firmware targets: the 4-chip BM1370 hashnode.
 /// Every crate that needs board facts takes this explicitly rather than
 /// selecting a board behind a cargo feature.
-pub const BOARD: &ubos_asic::BoardDescriptor = &ubos_asic::HASHNODE;
+pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::HASHNODE;
 
 /// Accepted tuning ranges for [`BOARD`]; the API validates against these.
 pub const BOUNDS: ubos_config::MiningBounds = ubos_config::board_bounds(BOARD);

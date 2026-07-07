@@ -6,7 +6,7 @@
 //! [`BOUNDS`] constant.
 
 use core::ops::RangeInclusive;
-use ubos_asic::BoardDescriptor;
+use ubos_asic::HashboardDescriptor;
 
 /// ASIC frequency and voltage overrides.
 #[derive(
@@ -36,7 +36,7 @@ impl TuningConfig {
     /// Validate frequency and voltage against `bounds`.
     ///
     /// The caller passes the active board's bounds (the firmware sources
-    /// them from its `BoardDescriptor` via [`board_bounds`]) so a board only
+    /// them from its `HashboardDescriptor` via [`board_bounds`]) so a board only
     /// accepts an operating point inside its own rail/clock range.
     ///
     /// # Errors
@@ -70,13 +70,13 @@ pub struct MiningBounds {
 /// Accepted value ranges for [`TuningConfig`] on `board`.
 ///
 /// The voltage ceiling is the board's open-core rail voltage
-/// (`BoardDescriptor::max_rail_voltage`: max chip voltage times the
+/// (`HashboardDescriptor::max_rail_voltage`: max chip voltage times the
 /// number of series domains, capped by the PSU). There is no lower
 /// limit, so the range floor is zero. The frequency range is the shared
 /// PLL-calculator span. Each firmware crate builds its own `BOUNDS`
 /// const from this with its explicit board descriptor.
 #[must_use]
-pub const fn board_bounds(board: &'static BoardDescriptor) -> MiningBounds {
+pub const fn board_bounds(board: &'static HashboardDescriptor) -> MiningBounds {
     MiningBounds {
         frequency_mhz: 50..=1000,
         voltage_mv: 0..=board.max_rail_voltage().mv(),
@@ -117,7 +117,7 @@ pub struct MiningInfo {
 /// own `MINING_INFO` const from this with its explicit board descriptor.
 #[must_use]
 pub const fn mining_info(
-    board: &'static BoardDescriptor,
+    board: &'static HashboardDescriptor,
     bounds: &'static MiningBounds,
 ) -> MiningInfo {
     MiningInfo {

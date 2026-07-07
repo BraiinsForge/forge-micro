@@ -5,7 +5,7 @@
 /// Matches `ubos_core::consts::Mining::NUM_CHIPS`; the value is
 /// reproduced here so callers inside `ubos-mining` do not need to
 /// reference the core crate for this single constant. Each firmware
-/// crate's `BoardDescriptor` must agree with this count; a broadcast
+/// crate's `HashboardDescriptor` must agree with this count; a broadcast
 /// register read expects exactly this many replies.
 pub const NUM_CHIPS: u8 = ubos_core::consts::Mining::NUM_CHIPS;
 

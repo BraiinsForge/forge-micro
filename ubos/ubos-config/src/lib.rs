@@ -36,7 +36,7 @@ pub mod network;
 pub mod pool;
 pub mod thermal;
 
-use ubos_asic::BoardDescriptor;
+use ubos_asic::HashboardDescriptor;
 
 pub use api::ApiConfig;
 pub use cooling::{
@@ -509,7 +509,7 @@ impl Config {
     /// (heapless 0.9 `String::push_str` is not `const fn`). The value is
     /// computed once at boot; it is cheap.
     #[must_use]
-    pub fn for_board(board: &'static BoardDescriptor) -> Self {
+    pub fn for_board(board: &'static HashboardDescriptor) -> Self {
         let mut host = heapless::String::new();
         host.push_str(option_env!("POOL_HOST").unwrap_or(DEFAULT_POOL_HOST))
             .expect("BUG: POOL_HOST exceeds PoolEntry::host capacity");
@@ -629,7 +629,7 @@ impl Config {
 /// `committed.network` is the revert target and is left untouched while
 /// a preview is pending, so a superseding apply still reverts all the
 /// way back.
-pub async fn run<S: Storage>(mut storage: S, board: &'static BoardDescriptor) -> ! {
+pub async fn run<S: Storage>(mut storage: S, board: &'static HashboardDescriptor) -> ! {
     let mut committed = load_initial(&mut storage, board).await;
     STATE_WATCH.sender().send(committed.clone());
     let mut preview: Option<(NetworkConfig, Instant)> = None;
@@ -736,7 +736,7 @@ fn clear_pending_status() {
 /// that could have been stored fits without reallocation. All failure
 /// paths converge on defaults so the firmware always boots with a
 /// valid config.
-async fn load_initial<S: Storage>(storage: &mut S, board: &'static BoardDescriptor) -> Config {
+async fn load_initial<S: Storage>(storage: &mut S, board: &'static HashboardDescriptor) -> Config {
     let mut buffer = [0u8; LOAD_BUFFER_SIZE];
     let blob = match storage.load(CONFIG_KEY, &mut buffer).await {
         Ok(Some(blob)) => blob,
@@ -812,7 +812,7 @@ async fn set_network<S: Storage>(config: &Config, storage: &mut S) {
 /// new value. Returning the config keeps the persisted, published, and
 /// in-memory values provably identical and lets tests drive the real
 /// reset path.
-async fn factory_reset<S: Storage>(storage: &mut S, board: &'static BoardDescriptor) -> Config {
+async fn factory_reset<S: Storage>(storage: &mut S, board: &'static HashboardDescriptor) -> Config {
     let config = Config::for_board(board);
     persist(&config, storage).await;
     STATE_WATCH.sender().send(config.clone());

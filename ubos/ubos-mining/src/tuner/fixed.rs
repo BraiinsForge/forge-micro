@@ -12,7 +12,7 @@
 
 use embassy_time::{Duration, Timer};
 use libm::sqrtf;
-use ubos_asic::{BoardDescriptor, ChipAddress, ChipBus, ChipProtocol, TicketMaskReg};
+use ubos_asic::{ChipAddress, ChipBus, ChipProtocol, HashboardDescriptor, TicketMaskReg};
 use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{debug, error, warn};
 
@@ -34,11 +34,11 @@ const RAMP_STEP_CAP: usize = 256;
 
 /// Tuner that walks a `V^2 * f = P_target` curve from the chip's
 /// open-core voltage at the safe-boot frequency to the configured
-/// operating point. Holds `&'static BoardDescriptor` so the open-core voltage
-/// and ramp constraints come from one chip-aware source instead of
-/// duplicated module constants.
+/// operating point. Holds `&'static HashboardDescriptor` so the
+/// open-core voltage and ramp constraints come from one chip-aware
+/// source instead of duplicated module constants.
 pub struct FixedTuner {
-    board: &'static BoardDescriptor,
+    board: &'static HashboardDescriptor,
     target: TuningConfig,
 }
 
@@ -47,7 +47,7 @@ impl FixedTuner {
     /// clock and the board's max rail voltage; the bring-up loop ramps from
     /// there to the configured operating point.
     #[must_use]
-    pub fn new(board: &'static BoardDescriptor) -> Self {
+    pub fn new(board: &'static HashboardDescriptor) -> Self {
         Self {
             board,
             target: TuningConfig {

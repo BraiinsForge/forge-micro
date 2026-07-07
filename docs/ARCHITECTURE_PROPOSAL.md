@@ -292,7 +292,7 @@ on the next bring-up.
 Tuner lives at `ubos_mining::tuner` — `Tuner` trait with `init` /
 `deinit` phases, plus `FixedTuner` (the current default, walks a
 `V^2 * f` curve to the target frequency and voltage). Constructors take
-`&'static ChipDescriptor` and `&'static BoardDescriptor`. The trait
+`&'static ChipDescriptor` and `&'static HashboardDescriptor`. The trait
 returns `Result<(), TunerError>`. Surfacing tuner faults to the
 manager as `PauseReason::TunerFault` is a planned follow-up; the
 landed `Miner` loop cuts the rail and retries on an `init` error.
