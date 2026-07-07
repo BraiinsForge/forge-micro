@@ -17,7 +17,7 @@ pub type RawMutex = CriticalSectionRawMutex;
 
 /// Runtime configuration for `BfmPsu`.
 #[derive(Clone, Copy, Debug)]
-pub struct BfmPsuConfig {
+pub struct BfmPsuDescriptor {
     /// `SIC45x` `PMBus` converter configuration.
     pub sic: crate::sic45x::Sic45xConfig,
     /// INA230 7-bit I2C address, strapped to 0x43 on the HASHNODE x4
@@ -33,7 +33,7 @@ pub struct BfmPsuConfig {
     pub ina_shunt_microohm: u32,
 }
 
-impl BfmPsuConfig {
+impl BfmPsuDescriptor {
     /// Default configuration for the BOS Hashnode board.
     pub const DEFAULT: Self = Self {
         sic: crate::sic45x::Sic45xConfig::DEFAULT,
@@ -43,7 +43,7 @@ impl BfmPsuConfig {
     };
 }
 
-impl<I: I2c> PsuInit<I> for BfmPsuConfig {
+impl<I: I2c> PsuInit<I> for BfmPsuDescriptor {
     async fn run_init(i2c: &mut I, config: &Self) -> Result<(), Error<I::Error>> {
         // Why: the INA230's VS pin is powered by the SIC output rail.
         // The rail is off during init, so the INA is below its operating
@@ -67,8 +67,8 @@ impl<I: I2c> PsuInit<I> for BfmPsuConfig {
 }
 
 /// State protected by the `BfmPsu` mutex. Type alias over the shared
-/// [`State`] container; the generic parameter is `BfmPsuConfig`.
-pub type BfmState<I> = State<I, BfmPsuConfig>;
+/// [`State`] container; the generic parameter is `BfmPsuDescriptor`.
+pub type BfmState<I> = State<I, BfmPsuDescriptor>;
 
 /// Handle to the BFM PSU. Cheap to clone-by-reference; the
 /// underlying state lives behind a `'static` mutex supplied by the

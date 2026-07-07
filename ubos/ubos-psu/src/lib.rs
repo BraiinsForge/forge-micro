@@ -62,7 +62,7 @@ pub mod state;
 pub mod tps6287x;
 pub mod watchdog;
 
-pub use bfm::{BfmPsu, BfmPsuConfig, BfmState};
+pub use bfm::{BfmPsu, BfmPsuDescriptor, BfmState};
 pub use bmm::{BmmPsu, RawMutex, run_watchdog};
 pub use config::BmmPsuDescriptor;
 pub use state::State;
