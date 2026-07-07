@@ -353,6 +353,13 @@ async fn boot(spawner: Spawner) {
         ubos_firmware::seed_sv2_prng(sv2_seed)
     };
 
+    // Derive a per-unit MAC from the 96-bit STM32 unique device id.
+    let mac_addr = ubos_net::mac::derive_mac(
+        ubos_net::mac::DUMMY_OUI,
+        config::MACHINE.control_board.mac_family,
+        &embassy_stm32::uid::uid(),
+    );
+
     // RMII pin mapping for Nucleo-F439ZI onboard LAN8742A PHY.
     static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
     let device = Ethernet::new(
@@ -366,12 +373,12 @@ async fn boot(spawner: Spawner) {
         hw.txd0,
         hw.txd1,
         hw.tx_en,
-        config::Board::MAC_ADDR,
+        mac_addr,
         hw.eth_sma,
         hw.mdio,
         hw.mdc,
     );
-    ubos_net::net::handle().set_mac(config::Board::MAC_ADDR);
+    ubos_net::net::handle().set_mac(mac_addr);
 
     let manager_handle = ubos_manager::handle();
     let mining_handle = ubos_mining::handle();
@@ -408,7 +415,7 @@ async fn boot(spawner: Spawner) {
         >(
             initial.network.hostname.as_str(),
             config::Board::MDNS_HOSTNAME_BASE,
-            config::Board::MAC_ADDR[5],
+            mac_addr[5],
             &MDNS_HOSTNAME,
         );
         (net_config, mdns_hostname)
