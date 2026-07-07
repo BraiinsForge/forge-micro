@@ -4,6 +4,8 @@
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
+pub use ubos_machine::MINIMINER_ESP32S3 as MACHINE;
+
 use esp_hal::peripherals::{
     CPU_CTRL, FLASH, GPIO1, GPIO2, GPIO5, GPIO7, GPIO10, GPIO11, GPIO15, GPIO39, GPIO40, GPIO41,
     GPIO42, GPIO43, GPIO44, I2C0, LEDC, PCNT, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1, UART0,
@@ -120,7 +122,7 @@ pub struct Board<'d> {
 /// The board descriptor this firmware targets: the 4-chip BM1362 BMM100.
 /// Every crate that needs board facts takes this explicitly rather than
 /// selecting a board behind a cargo feature.
-pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM100;
+pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
 
 /// Accepted tuning ranges for [`BOARD`]; the API validates against these.
 pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
@@ -129,36 +131,9 @@ pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
 pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
 
 impl Board<'static> {
-    pub const NAME: &str = "ESP32-S3 W5100S";
     /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
     /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "esp32s3";
-    /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
-    pub const MCU: &str = "esp32s3";
-    /// Board-family byte placed in the derived MAC address. The runtime
-    /// folds the ESP32-S3 factory eFuse MAC into the remaining octets via
-    /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
-    /// distinct MAC with no per-board build flag. Families 0x01/0x02/0x03
-    /// are taken by rp2040/rp2350/bmm-pico, 0x04 by hashnode; esp32s3 uses 0x05.
-    pub const MAC_FAMILY: u8 = 0x05;
-    /// Concurrent TCP connections the web-UI server (:80) accepts. A browser
-    /// opens several parallel connections per page load; this sizes the
-    /// worker/buffer pool. Held at 3 rather than the 5 the RP boards use:
-    /// each worker's buffers land in `.bss`, and on this MCU `.bss` shares
-    /// `dram_seg` with the core-0 stack, so oversized pools starve the boot
-    /// stack and trip the esp-hal stack-guard during `embassy_net::new`. The
-    /// `build.rs` link-time ASSERT enforces the resulting stack floor.
-    pub const WEBUI_HTTP_POOL: usize = 3;
-    /// Concurrent TCP connections the REST API server (:8080) accepts.
-    pub const API_HTTP_POOL: usize = 3;
-    /// Accepted-connection pool depth for the Prometheus metrics
-    /// listener. All workers share one exposition body buffer held
-    /// across the socket write, so depth is accept-queue slack for a
-    /// second concurrent scraper, not parallel rendering; scrapes still
-    /// serialize on that buffer. Matches the webui and api pools.
-    pub const METRICS_HTTP_POOL: usize = 3;
-    /// Capacity of the user-facing event ring served by `ubos-events`.
-    pub const EVENT_LOG_CAPACITY: usize = 128;
 
     pub fn take(peripherals: esp_hal::peripherals::Peripherals) -> Self {
         Self {

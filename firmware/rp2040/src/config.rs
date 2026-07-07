@@ -6,6 +6,8 @@
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
+pub use ubos_machine::MINIMINER_RP2040 as MACHINE;
+
 use embassy_rp::Peri;
 use embassy_rp::peripherals::{
     CORE1, DMA_CH0, DMA_CH1, FLASH, I2C1, PIN_2, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8, PIN_15,
@@ -71,7 +73,7 @@ pub struct Board {
 /// The board descriptor this firmware targets: the 4-chip BM1362 BMM100.
 /// Every crate that needs board facts takes this explicitly rather than
 /// selecting a board behind a cargo feature.
-pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM100;
+pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
 
 /// Accepted tuning ranges for [`BOARD`]; the API validates against these.
 pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
@@ -80,34 +82,14 @@ pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
 pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
 
 impl Board {
-    pub const NAME: &str = "W5500-EVB-Pico";
     /// DNS-safe base hostname for mDNS. The runtime appends a per-unit
     /// suffix derived from the last octet of the derived MAC so multiple
     /// rp2040 boards on the same LAN do not collide on
     /// `_prometheus._tcp.local.` and trigger RFC 6762 §9
-    /// conflict-resolution renames on every boot. `Board::NAME` is
-    /// human-readable and contains spaces, so it cannot be used directly
+    /// conflict-resolution renames on every boot. `MACHINE.control_board.name`
+    /// is human-readable and contains spaces, so it cannot be used directly
     /// in a DNS label.
     pub const MDNS_HOSTNAME_BASE: &str = "rp2040";
-    /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
-    pub const MCU: &str = "rp2040";
-    /// Board-family byte placed in the derived MAC address. The runtime
-    /// folds the flash unique id into the remaining octets via
-    /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
-    /// distinct MAC.
-    pub const MAC_FAMILY: u8 = 0x01;
-    /// Concurrent TCP connections the web-UI server (:80) accepts. A browser
-    /// opens several parallel connections per page load; this sizes the
-    /// worker/buffer pool. Tuned down on RAM-constrained boards.
-    pub const WEBUI_HTTP_POOL: usize = 1;
-    /// Concurrent TCP connections the REST API server (:8080) accepts.
-    pub const API_HTTP_POOL: usize = 1;
-    /// Accepted-connection pool depth for the Prometheus metrics
-    /// listener. One slot on this RAM-tight board, matching the webui
-    /// and api pools.
-    pub const METRICS_HTTP_POOL: usize = 1;
-    /// Capacity of the user-facing event ring served by `ubos-events`.
-    pub const EVENT_LOG_CAPACITY: usize = 32;
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {

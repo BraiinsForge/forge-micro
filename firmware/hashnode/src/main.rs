@@ -117,8 +117,9 @@ const UART_RING_BUFFER_SIZE: usize = 1024;
 /// startup code does not zero, so the ring survives a warm reset; the validity
 /// header in `RetainedRing` discards it after a cold boot leaves garbage.
 #[unsafe(link_section = ".uninit")]
-static mut EVENT_LOG_BACKING: ubos_events::RetainedRing<{ config::Board::EVENT_LOG_CAPACITY }> =
-    ubos_events::RetainedRing::new();
+static mut EVENT_LOG_BACKING: ubos_events::RetainedRing<
+    { config::MACHINE.control_board.event_log_capacity },
+> = ubos_events::RetainedRing::new();
 
 defmt::timestamp!("{=u64:iso8601s}", ubos_net::wall_clock_secs());
 
@@ -199,8 +200,8 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
     ubos_mdns::run_mdns(
         stack,
         hostname,
-        config::Board::NAME,
-        config::Board::MCU,
+        config::MACHINE.control_board.name,
+        config::MACHINE.control_board.platform.name,
         MDNS_SERVICES,
     )
     .await
@@ -299,19 +300,19 @@ async fn network_control_task(stack: embassy_net::Stack<'static>) -> ! {
 ubos_http::http_worker_task!(
     api_worker_task,
     ubos_api::RestApiService,
-    config::Board::API_HTTP_POOL
+    config::MACHINE.control_board.api_http_pool
 );
 
 ubos_http::http_worker_task!(
     webui_worker_task,
     ubos_webui::DashboardService,
-    config::Board::WEBUI_HTTP_POOL
+    config::MACHINE.control_board.webui_http_pool
 );
 
 ubos_http::http_worker_task!(
     metrics_worker_task,
     ubos_metrics::metrics::PrometheusMetricsService,
-    config::Board::METRICS_HTTP_POOL
+    config::MACHINE.control_board.metrics_http_pool
 );
 
 /// Board task shell around the shared stratum session loop. The loop body
@@ -594,7 +595,7 @@ async fn boot(spawner: Spawner) {
         });
         ubos_net::mac::derive_mac(
             ubos_net::mac::DUMMY_OUI,
-            config::Board::MAC_FAMILY,
+            config::MACHINE.control_board.mac_family,
             &chip_id.to_be_bytes(),
         )
     };
@@ -637,9 +638,9 @@ async fn boot(spawner: Spawner) {
     const STACK_SOCKETS: usize = 24;
     ubos_net::assert_stack_sockets!(
         STACK_SOCKETS,
-        config::Board::WEBUI_HTTP_POOL,
-        config::Board::API_HTTP_POOL,
-        config::Board::METRICS_HTTP_POOL,
+        config::MACHINE.control_board.webui_http_pool,
+        config::MACHINE.control_board.api_http_pool,
+        config::MACHINE.control_board.metrics_http_pool,
     );
     // The config task publishes the stored config on first boot. Wait
     // for it, then derive the stack config and hostname. Only the small
@@ -736,7 +737,7 @@ async fn boot(spawner: Spawner) {
     static API_SERVICE: StaticCell<ubos_api::RestApiService> = StaticCell::new();
     let api_service: &'static ubos_api::RestApiService =
         API_SERVICE.init(ubos_api::RestApiService::new(
-            config::Board::NAME,
+            config::MACHINE.control_board.name,
             &config::MINING_INFO,
             &config::BOUNDS,
             thermal,
@@ -749,7 +750,7 @@ async fn boot(spawner: Spawner) {
         stack,
         api_worker_task,
         api_service,
-        config::Board::API_HTTP_POOL,
+        config::MACHINE.control_board.api_http_pool,
         ubos_api::consts::Api
     );
     spawner.spawn(unwrap!(sync_credentials_task()));
@@ -763,7 +764,7 @@ async fn boot(spawner: Spawner) {
         stack,
         webui_worker_task,
         &WEBUI_SERVICE,
-        config::Board::WEBUI_HTTP_POOL,
+        config::MACHINE.control_board.webui_http_pool,
         ubos_webui::consts::Http
     );
 
@@ -774,7 +775,7 @@ async fn boot(spawner: Spawner) {
         stack,
         metrics_worker_task,
         &METRICS_SERVICE,
-        config::Board::METRICS_HTTP_POOL,
+        config::MACHINE.control_board.metrics_http_pool,
         ubos_metrics::consts::Metrics
     );
 }

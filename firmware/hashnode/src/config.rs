@@ -7,6 +7,8 @@
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
+pub use ubos_machine::HASHNODE as MACHINE;
+
 use embassy_rp::peripherals::{
     CORE1, DMA_CH0, DMA_CH1, FLASH, I2C1, PIN_10, PIN_11, PIN_16, PIN_17, PIN_18, PIN_19, PIN_2,
     PIN_20, PIN_21, PIN_23, PIN_24, PIN_25, PIN_3, PIN_30, PIN_32, PIN_4, PIN_5, PIN_6, PWM_SLICE5,
@@ -100,7 +102,7 @@ pub struct Board {
 /// The board descriptor this firmware targets: the 4-chip BM1370 hashnode.
 /// Every crate that needs board facts takes this explicitly rather than
 /// selecting a board behind a cargo feature.
-pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::HASHNODE;
+pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
 
 /// Accepted tuning ranges for [`BOARD`]; the API validates against these.
 pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
@@ -109,27 +111,9 @@ pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
 pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
 
 impl Board {
-    // Single-sourced from the mining metadata so the product name has one home.
-    pub const NAME: &str = MINING_INFO.device_model;
     /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
     /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "hashnode";
-    /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
-    pub const MCU: &str = "rp2350";
-    /// Board-family byte placed in the derived MAC address. The runtime
-    /// folds the RP2350 OTP chip id into the remaining octets via
-    /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
-    /// distinct MAC. Each board owns a distinct `MAC_FAMILY`: rp2040=0x01,
-    /// rp2350=0x02, bmm-pico=0x03, hashnode=0x04, esp32s3=0x05.
-    pub const MAC_FAMILY: u8 = 0x04;
-    /// Concurrent TCP connections the web-UI server (:80) accepts.
-    pub const WEBUI_HTTP_POOL: usize = 5;
-    /// Concurrent TCP connections the REST API server (:8080) accepts.
-    pub const API_HTTP_POOL: usize = 5;
-    /// Accepted-connection pool depth for the Prometheus metrics listener.
-    pub const METRICS_HTTP_POOL: usize = 5;
-    /// Capacity of the user-facing event ring served by `ubos-events`.
-    pub const EVENT_LOG_CAPACITY: usize = 128;
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {

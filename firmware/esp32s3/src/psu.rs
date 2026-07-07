@@ -11,6 +11,7 @@ use embassy_sync::mutex::Mutex;
 use esp_hal::i2c::master::I2c;
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
+use ubos_machine::MINIMINER_ESP32S3 as MACHINE;
 use ubos_psu::{BmmPsu, BmmPsuDescriptor, State, run_watchdog};
 
 /// Bus mutex shared by every consumer on I2C0. `NoopRawMutex` is sufficient
@@ -38,7 +39,7 @@ static PSU: StaticCell<BoardPsu> = StaticCell::new();
 /// return the `'static` references the watchdog / miner / sensor tasks need.
 pub fn init(bus: &'static Bus) -> (&'static BoardPsu, &'static PsuState, &'static AtomicBool) {
     let device = I2cDevice::new(bus);
-    let state: &'static _ = STATE.init(Mutex::new(State::new(device, BmmPsuDescriptor::DEFAULT)));
+    let state: &'static _ = STATE.init(Mutex::new(State::new(device, MACHINE.psu)));
     let terminated: &'static _ = TERMINATED.init(AtomicBool::new(false));
     let psu: &'static _ = PSU.init(BmmPsu::new(state, terminated));
     (psu, state, terminated)

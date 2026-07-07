@@ -17,8 +17,8 @@ use embassy_sync::mutex::Mutex;
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
 use ubos_core::units::{Power, Voltage};
-use ubos_psu::sic45x::{LoopScale, Sic45xConfig};
-use ubos_psu::{BfmPsu, BfmPsuConfig, BfmState, Error, Psu, StatusFlags};
+use ubos_machine::HASHNODE as MACHINE;
+use ubos_psu::{BfmPsu, BfmState, Error, Psu, StatusFlags};
 
 /// Bus mutex shared by every consumer on I2C1. `NoopRawMutex` is sufficient
 /// because every I2C consumer runs on the Core 0 executor. The chip-serial
@@ -113,44 +113,6 @@ impl Psu for BoardPsu {
     }
 }
 
-/// `SIC45x` configuration for the Hashnode 4-domain 4.8 V rail.
-///
-/// `loop_scale` is `Scale0_25` per the `SIC45x` page VOUT-range table: the
-/// 3.3 V to 5.0 V range selects register `0xE802`, whose LINEAR11 decode
-/// is 0.25.
-const HASHNODE_SIC: Sic45xConfig = Sic45xConfig {
-    address: 0x10,
-    // Idle at the 0.6 V pre-open-core floor, matching BOS PARAMS_4X1. The
-    // tuner programs the 4.8 V operating voltage before enumerating the chips.
-    initial_millivolts: 600,
-    loop_scale: LoopScale::Scale0_25,
-    // OV fault 5.0 V with headroom above the 4.8 V operating ceiling, per
-    // BOS PARAMS_4X1. BOS sets its OV warn at 4.85 V, but this driver has no
-    // warn field.
-    vout_ov_fault_millivolts: 5000,
-    vout_uv_fault_millivolts: 700,
-    vin_ov_fault_millivolts: 22_000,
-    vin_uv_warn_millivolts: 9_000,
-    iout_oc_fault_milliamps: 25_000,
-    iout_oc_warn_milliamps: 20_000,
-    ot_fault_celsius: 115,
-    ot_warn_celsius: 95,
-    power_good_on_millivolts: 1080,
-    power_good_off_millivolts: 1020,
-    voltage_min_millivolts: 400,
-    // Single-sourced from the board descriptor so the regulator ceiling and
-    // the tuner's `max_rail_voltage()` can never disagree.
-    voltage_max_millivolts: ubos_asic::HASHNODE.max_psu_voltage.mv(),
-};
-
-/// Hashnode PSU config. The INA230 address (0x43), 2 mΩ shunt, and 30 A
-/// max current all come from `BfmPsuConfig::DEFAULT`; only the `SIC45x`
-/// voltage rail is board-specific.
-const HASHNODE_PSU: BfmPsuConfig = BfmPsuConfig {
-    sic: HASHNODE_SIC,
-    ..BfmPsuConfig::DEFAULT
-};
-
 /// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`, taking
 /// ownership of the `SIC_EN` pin (passed in already driven low), and return
 /// the `'static` references the miner and power-stats tasks need.
@@ -159,7 +121,7 @@ pub fn init(
     sic_enable: Output<'static>,
 ) -> (&'static BoardPsu, &'static AtomicBool) {
     let device = I2cDevice::new(bus);
-    let state: &'static _ = STATE.init(Mutex::new(BfmState::new(device, HASHNODE_PSU)));
+    let state: &'static _ = STATE.init(Mutex::new(BfmState::new(device, MACHINE.psu)));
     let terminated: &'static _ = TERMINATED.init(AtomicBool::new(false));
     let inner = BfmPsu::new(state, terminated);
     let psu: &'static _ = PSU.init(BoardPsu {

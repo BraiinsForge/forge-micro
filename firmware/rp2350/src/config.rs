@@ -6,6 +6,8 @@
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
+pub use ubos_machine::MINIMINER_RP2350 as MACHINE;
+
 use embassy_rp::Peri;
 use embassy_rp::peripherals::{
     CORE1, DMA_CH0, DMA_CH1, FLASH, I2C1, PIN_2, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8, PIN_15,
@@ -75,7 +77,7 @@ pub struct Board {
 /// The board descriptor this firmware targets: the 4-chip BM1362 BMM100.
 /// Every crate that needs board facts takes this explicitly rather than
 /// selecting a board behind a cargo feature.
-pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM100;
+pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
 
 /// Accepted tuning ranges for [`BOARD`]; the API validates against these.
 pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
@@ -84,31 +86,9 @@ pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
 pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
 
 impl Board {
-    pub const NAME: &str = "Pico2 W6100";
     /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
     /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "rp2350";
-    /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
-    pub const MCU: &str = "rp2350";
-    /// Board-family byte placed in the derived MAC address. The runtime
-    /// folds the RP2350 OTP chip id into the remaining octets via
-    /// [`ubos_net::mac::derive_mac`], so each unit self-assigns a stable,
-    /// distinct MAC.
-    pub const MAC_FAMILY: u8 = 0x02;
-    /// Concurrent TCP connections the web-UI server (:80) accepts. A browser
-    /// opens several parallel connections per page load; this sizes the
-    /// worker/buffer pool.
-    pub const WEBUI_HTTP_POOL: usize = 5;
-    /// Concurrent TCP connections the REST API server (:8080) accepts.
-    pub const API_HTTP_POOL: usize = 5;
-    /// Accepted-connection pool depth for the Prometheus metrics
-    /// listener. All workers share one exposition body buffer held
-    /// across the socket write, so depth is accept-queue slack for a
-    /// second concurrent scraper, not parallel rendering; scrapes still
-    /// serialize on that buffer. Matches the webui and api pools.
-    pub const METRICS_HTTP_POOL: usize = 5;
-    /// Capacity of the user-facing event ring served by `ubos-events`.
-    pub const EVENT_LOG_CAPACITY: usize = 128;
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {

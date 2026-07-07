@@ -4,6 +4,8 @@
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
+pub use ubos_machine::MINIMINER_STM32F407 as MACHINE;
+
 use embassy_stm32::Peri;
 use embassy_stm32::peripherals::{
     ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0, ETH, ETH_SMA, FLASH, I2C1, IWDG, PA1,
@@ -136,7 +138,7 @@ impl Flash {
 /// The board descriptor this firmware targets: the 4-chip BM1362 BMM100.
 /// Every crate that needs board facts takes this explicitly rather than
 /// selecting a board behind a cargo feature.
-pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM100;
+pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
 
 /// Accepted tuning ranges for [`BOARD`]; the API validates against these.
 pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
@@ -145,26 +147,11 @@ pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
 pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
 
 impl Board {
-    pub const NAME: &str = "DevEBox STM32F407 LAN8720";
     /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
     /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "stm32f407";
-    /// MCU identifier exposed in the mDNS TXT record as `mcu=<MCU>`.
-    pub const MCU: &str = "stm32f407";
     /// Locally-administered MAC address. The LAA bit, bit 1 of the first octet, marks it as local.
     pub const MAC_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x03];
-    /// Concurrent TCP connections the web-UI server (:80) accepts. A browser
-    /// opens several parallel connections per page load; this sizes the
-    /// worker/buffer pool. Tuned down on RAM-constrained boards.
-    pub const WEBUI_HTTP_POOL: usize = 1;
-    /// Concurrent TCP connections the REST API server (:8080) accepts.
-    pub const API_HTTP_POOL: usize = 1;
-    /// Accepted-connection pool depth for the Prometheus metrics
-    /// listener. One slot on this board, matching the webui and api
-    /// pools.
-    pub const METRICS_HTTP_POOL: usize = 1;
-    /// Capacity of the user-facing event ring served by `ubos-events`.
-    pub const EVENT_LOG_CAPACITY: usize = 32;
 
     pub fn take(peripherals: embassy_stm32::Peripherals) -> Self {
         Self {
