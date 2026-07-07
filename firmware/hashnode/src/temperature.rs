@@ -42,10 +42,10 @@ const SENSORS: [SensorDescriptor; 3] = [
     },
 ];
 
-pub type HashboardTemperature = SensorArray<3, I2cBus>;
+pub type HashboardTemperature = SensorArray<I2cBus>;
 
 /// Construct the hashboard temperature aggregator on the shared I2C1 bus.
 #[must_use]
 pub fn new(bus: I2cBus) -> HashboardTemperature {
-    SensorArray::new(bus, SENSORS)
+    SensorArray::new(bus, &SENSORS)
 }

@@ -1,6 +1,6 @@
 //! Descriptor-driven multi-sensor hashboard temperature aggregator.
 //!
-//! A board describes its sensor topology as a const `[SensorDescriptor; N]`
+//! A board describes its sensor topology as a `&'static [SensorDescriptor]`
 //! table, then instantiates [`SensorArray`] with that table. On each sample,
 //! `SensorArray` reads every sensor, folds the readings into the two values
 //! the thermal layer needs — a safety reading (real die temperature when a
@@ -263,17 +263,17 @@ async fn publish_sensor(name: &'static str, address: u8, millicelsius: i32) {
     .await;
 }
 
-/// Multi-sensor hashboard aggregator backed by a const descriptor table.
-pub struct SensorArray<const N: usize, Bus> {
+/// Multi-sensor hashboard aggregator backed by a descriptor slice.
+pub struct SensorArray<Bus> {
     bus: Bus,
-    sensors: [SensorDescriptor; N],
+    sensors: &'static [SensorDescriptor],
     pid_temp: Option<Temperature>,
     safety_source: Option<&'static str>,
 }
 
-impl<const N: usize, Bus> SensorArray<N, Bus> {
+impl<Bus> SensorArray<Bus> {
     #[must_use]
-    pub const fn new(bus: Bus, sensors: [SensorDescriptor; N]) -> Self {
+    pub const fn new(bus: Bus, sensors: &'static [SensorDescriptor]) -> Self {
         Self {
             bus,
             sensors,
@@ -283,7 +283,7 @@ impl<const N: usize, Bus> SensorArray<N, Bus> {
     }
 }
 
-impl<const N: usize, Bus> TemperatureSensor for SensorArray<N, Bus>
+impl<Bus> TemperatureSensor for SensorArray<Bus>
 where
     Bus: I2c,
 {
@@ -292,7 +292,7 @@ where
         let mut est: Option<i32> = None;
         let mut has_die_capable = false;
 
-        for desc in &self.sensors {
+        for desc in self.sensors {
             let reading = read_sensor(desc, &mut self.bus).await;
             if desc.attached_chip.is_some() {
                 has_die_capable = true;
