@@ -10,7 +10,7 @@ use ubos_logging::{info, warn};
 use ubos_core::units::{Power, Voltage};
 
 use crate::state::{InitStatus, PsuInit, State, ensure_initialized};
-use crate::{BmmPsuConfig, Error, Psu, ina230, tps6287x, watchdog};
+use crate::{Error, Psu, BmmPsuDescriptor, ina230, tps6287x, watchdog};
 
 #[cfg(test)]
 #[path = "tests/bmm.rs"]
@@ -20,7 +20,7 @@ mod tests;
 /// `'static` mutex storage cell.
 pub type RawMutex = CriticalSectionRawMutex;
 
-impl<I: I2c> PsuInit<I> for BmmPsuConfig {
+impl<I: I2c> PsuInit<I> for BmmPsuDescriptor {
     async fn run_init(i2c: &mut I, config: &Self) -> Result<(), Error<I::Error>> {
         watchdog::init(i2c, config.watchdog_address)
             .await
@@ -52,7 +52,7 @@ impl<I: I2c> PsuInit<I> for BmmPsuConfig {
 /// underlying state lives behind a `'static` mutex supplied by the
 /// caller.
 pub struct BmmPsu<I: I2c + 'static> {
-    state: &'static Mutex<RawMutex, State<I, BmmPsuConfig>>,
+    state: &'static Mutex<RawMutex, State<I, BmmPsuDescriptor>>,
     terminated: &'static AtomicBool,
 }
 
@@ -61,7 +61,7 @@ impl<I: I2c + 'static> BmmPsu<I> {
     /// same `state` + `terminated` references to drive the
     /// SLG46826G heartbeat.
     pub fn new(
-        state: &'static Mutex<RawMutex, State<I, BmmPsuConfig>>,
+        state: &'static Mutex<RawMutex, State<I, BmmPsuDescriptor>>,
         terminated: &'static AtomicBool,
     ) -> Self {
         Self { state, terminated }
@@ -73,7 +73,7 @@ impl<I: I2c + 'static> BmmPsu<I> {
 /// `SLG46826G` if init has succeeded. Returns once `terminated`
 /// flips to `true`.
 pub async fn run_watchdog<I: I2c>(
-    state: &'static Mutex<RawMutex, State<I, BmmPsuConfig>>,
+    state: &'static Mutex<RawMutex, State<I, BmmPsuDescriptor>>,
     terminated: &'static AtomicBool,
 ) {
     let interval = {

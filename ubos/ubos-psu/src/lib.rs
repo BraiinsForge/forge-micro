@@ -64,7 +64,7 @@ pub mod watchdog;
 
 pub use bfm::{BfmPsu, BfmPsuConfig, BfmState};
 pub use bmm::{BmmPsu, RawMutex, run_watchdog};
-pub use config::BmmPsuConfig;
+pub use config::BmmPsuDescriptor;
 pub use state::State;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;

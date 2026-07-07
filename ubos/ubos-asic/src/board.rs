@@ -93,7 +93,7 @@ impl HashboardDescriptor {
 }
 
 /// Hashboard descriptor. The `max_psu_voltage` mirrors
-/// `BmmPsuConfig::DEFAULT.dcdc_voltage_range` (`VRange2`, end
+/// `BmmPsuDescriptor::DEFAULT.dcdc_voltage_range` (`VRange2`, end
 /// 1675 mV).
 pub const BMM100: HashboardDescriptor = HashboardDescriptor {
     chip: Chip::Bm1362,

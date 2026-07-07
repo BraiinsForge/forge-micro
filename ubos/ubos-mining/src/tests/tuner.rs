@@ -5,7 +5,7 @@
 
 use ubos_asic::{BMM100, ChipProtocol, PllParameterReg};
 use ubos_core::units::{Frequency, Voltage};
-use ubos_psu::BmmPsuConfig;
+use ubos_psu::BmmPsuDescriptor;
 
 use super::TuningConfig;
 use super::walk_steps;
@@ -17,7 +17,7 @@ fn open_core_voltage_fits_default_psu_range() {
     // `max_rail_voltage` only hides a descriptor / PSU range mismatch;
     // this test surfaces it.
     let open_core = BMM100.max_rail_voltage();
-    let range = BmmPsuConfig::DEFAULT.dcdc_voltage_range;
+    let range = BmmPsuDescriptor::DEFAULT.dcdc_voltage_range;
     assert!(
         range.voltage_to_dac(open_core.mv()).is_some(),
         "open core {} mV is outside PSU range [{}, {}] mV",

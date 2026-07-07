@@ -113,7 +113,7 @@ mod register_tests {
 
 #[cfg(test)]
 mod bus_tests {
-    use crate::BmmPsuConfig;
+    use crate::BmmPsuDescriptor;
     use crate::tps6287x::*;
     use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
 
@@ -123,7 +123,7 @@ mod bus_tests {
 
     #[test]
     fn init_writes_reset_then_control1_then_control2_then_vset() {
-        let config = BmmPsuConfig::DEFAULT;
+        let config = BmmPsuDescriptor::DEFAULT;
         let address = config.dcdc_address;
         let dac = config
             .dcdc_voltage_range
@@ -150,7 +150,7 @@ mod bus_tests {
 
     #[test]
     fn enable_writes_control1_with_swen_and_polls_status() {
-        let config = BmmPsuConfig::DEFAULT;
+        let config = BmmPsuDescriptor::DEFAULT;
         let address = config.dcdc_address;
 
         let expectations = [
@@ -170,7 +170,7 @@ mod bus_tests {
     fn enable_swallows_status_fault_to_clear_latched_bits() {
         // Soft-start ramp latches undervoltage briefly; reading
         // STATUS clears the bit and enable returns Ok regardless.
-        let config = BmmPsuConfig::DEFAULT;
+        let config = BmmPsuDescriptor::DEFAULT;
         let address = config.dcdc_address;
 
         let expectations = [
@@ -188,7 +188,7 @@ mod bus_tests {
 
     #[test]
     fn set_voltage_out_of_range_does_not_touch_bus() {
-        let config = BmmPsuConfig::DEFAULT;
+        let config = BmmPsuDescriptor::DEFAULT;
         let mut bus = Mock::new(&[]);
         let result = run(set_voltage(&mut bus, &config, 2_000));
         bus.done();
@@ -197,7 +197,7 @@ mod bus_tests {
 
     #[test]
     fn set_voltage_writes_vset() {
-        let config = BmmPsuConfig::DEFAULT;
+        let config = BmmPsuDescriptor::DEFAULT;
         let address = config.dcdc_address;
         let dac = config
             .dcdc_voltage_range
@@ -213,7 +213,7 @@ mod bus_tests {
 
     #[test]
     fn disable_writes_control1_with_swen_cleared() {
-        let config = BmmPsuConfig::DEFAULT;
+        let config = BmmPsuDescriptor::DEFAULT;
         let address = config.dcdc_address;
 
         let expectations = [Transaction::write(

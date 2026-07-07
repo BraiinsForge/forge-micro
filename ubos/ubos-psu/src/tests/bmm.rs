@@ -12,11 +12,11 @@ fn leak<T: 'static>(value: T) -> &'static T {
 
 fn make_handle(
     bus: Mock,
-    config: crate::BmmPsuConfig,
+    config: crate::BmmPsuDescriptor,
     terminated_value: bool,
 ) -> (
     BmmPsu<Mock>,
-    &'static Mutex<RawMutex, State<Mock, crate::BmmPsuConfig>>,
+    &'static Mutex<RawMutex, State<Mock, crate::BmmPsuDescriptor>>,
 ) {
     let state: &'static _ = leak(Mutex::<RawMutex, _>::new(State::new(bus, config)));
     let terminated: &'static _ = leak(AtomicBool::new(terminated_value));
@@ -26,7 +26,7 @@ fn make_handle(
 #[test]
 fn terminated_short_circuits_methods() {
     let bus = Mock::new(&[]);
-    let config = crate::BmmPsuConfig::DEFAULT;
+    let config = crate::BmmPsuDescriptor::DEFAULT;
     let (psu, _state) = make_handle(bus, config, true);
     let result = run(psu.set_voltage(Voltage::from_mv(700)));
     assert!(matches!(result, Err(Error::Terminated)));
@@ -34,7 +34,7 @@ fn terminated_short_circuits_methods() {
 
 #[test]
 fn dropped_set_voltage_future_does_not_corrupt_bus() {
-    let config = crate::BmmPsuConfig::DEFAULT;
+    let config = crate::BmmPsuDescriptor::DEFAULT;
     let dac_700 = config
         .dcdc_voltage_range
         .voltage_to_dac(700)
@@ -78,7 +78,7 @@ fn dropped_set_voltage_future_does_not_corrupt_bus() {
 
 #[test]
 fn terminate_disables_dcdc_and_short_circuits_subsequent_calls() {
-    let config = crate::BmmPsuConfig::DEFAULT;
+    let config = crate::BmmPsuDescriptor::DEFAULT;
     let dac_700 = config
         .dcdc_voltage_range
         .voltage_to_dac(700)

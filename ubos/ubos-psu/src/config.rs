@@ -6,7 +6,7 @@ use ubos_core::units::Voltage;
 use crate::tps6287x::{SoftStartRampTime, VoltageRampSpeed, VoltageRange};
 
 #[derive(Clone, Copy, Debug)]
-pub struct BmmPsuConfig {
+pub struct BmmPsuDescriptor {
     pub dcdc_address: u8,
     pub dcdc_initial: Voltage,
     pub dcdc_voltage_range: VoltageRange,
@@ -22,7 +22,7 @@ pub struct BmmPsuConfig {
     pub ina_output_shunt_microohm: u32,
 }
 
-impl BmmPsuConfig {
+impl BmmPsuDescriptor {
     /// Defaults that match the BOS BMM100 miniminer constants.
     pub const DEFAULT: Self = Self {
         dcdc_address: 0x40,
