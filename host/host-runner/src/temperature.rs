@@ -1,29 +1,26 @@
 //! BMM101 hashboard temperature sensor array.
 //!
 //! Reads the four LM75A board sensors via Linux i2c-dev. Each reading
-//! is offset by `OFFSET_C` to approximate chip junction temperature
-//! from the board-mounted sensor; the controller exposes the maximum
-//! across all sensors so a single hot spot wins. Mirrors the
-//! `BRAIINS_MINI_BMM101_BM1362_4X1` descriptor in bos-main.
+//! is offset by the descriptor's `pcb_to_die_offset_mc` to approximate
+//! chip junction temperature from the board-mounted sensor; the
+//! controller exposes the maximum across all sensors so a single hot
+//! spot wins. Mirrors the `BRAIINS_MINI_BMM101_BM1362_4X1` descriptor
+//! in bos-main. The sensor table is `ubos_machine::BMM101_SENSORS`,
+//! the same const the miniminer machines wrap, so it cannot drift
+//! from the firmware.
 
 use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
 use ubos_core::units::Temperature;
+use ubos_machine::BMM101_SENSORS;
 use ubos_temperature::TemperatureSensor;
 use ubos_temperature::lm75a::{Error as Lm75aError, Lm75a};
 
 use crate::psu::I2C_BUS_ENV;
 
-/// LM75A I2C addresses on the BMM101: IC12D, IC12C, IC12B, IC12A.
-const SENSOR_ADDRESSES: [u8; 4] = [0x49, 0x4a, 0x4b, 0x4c];
-
-/// Offset added to each board reading to approximate chip junction
-/// temperature. BOS uses +7 °C for every BMM101 sensor.
-const OFFSET_MILLICELSIUS: i32 = 7_000;
-
 pub struct HashboardTemperature {
     bus: HostI2c,
-    sensors: [Lm75a; SENSOR_ADDRESSES.len()],
+    sensors: [Lm75a; BMM101_SENSORS.len()],
 }
 
 impl HashboardTemperature {
@@ -46,11 +43,11 @@ impl HashboardTemperature {
         };
         info!(
             "temperature: opened {path} for {} LM75A sensor(s)",
-            SENSOR_ADDRESSES.len()
+            BMM101_SENSORS.len()
         );
         Some(Self {
             bus,
-            sensors: SENSOR_ADDRESSES.map(Lm75a::new),
+            sensors: BMM101_SENSORS.map(|desc| Lm75a::new(desc.address)),
         })
     }
 }
@@ -58,10 +55,11 @@ impl HashboardTemperature {
 impl TemperatureSensor for HashboardTemperature {
     async fn read(&mut self) -> Option<Temperature> {
         let mut hottest: Option<i32> = None;
-        for (address, sensor) in SENSOR_ADDRESSES.iter().zip(self.sensors.iter()) {
+        for (desc, sensor) in BMM101_SENSORS.iter().zip(self.sensors.iter()) {
+            let address = desc.address;
             match sensor.read_millicelsius(&mut self.bus).await {
                 Ok(reading) => {
-                    let adjusted = reading + OFFSET_MILLICELSIUS;
+                    let adjusted = reading + desc.pcb_to_die_offset_mc;
                     hottest = Some(hottest.map_or(adjusted, |current| current.max(adjusted)));
                 }
                 Err(Lm75aError::I2c(error)) => {
