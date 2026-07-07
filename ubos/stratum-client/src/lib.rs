@@ -1,9 +1,12 @@
 //! Integration layer between `mining-protocol` adapters and the
 //! `AsicSession` ASIC abstraction.
 //!
-//! Owns the `JobRing<2>`, `WorkRing<8>`, the work generator task,
-//! and the visitor impl that drives both. Generic over
-//! `MiningClient`, so V1 and V2 share the same integration code.
+//! Owns the `JobRing<2>`, `WorkRing<8>`, the work generator, and
+//! the visitor impl that drives both. Generic over `MiningClient`,
+//! so V1 and V2 share the same integration code.
+//!
+//! How the two rings translate between the pool's and the ASIC's
+//! coordinate systems: `../../../docs/STRATUM_ARCHITECTURE.md`.
 
 #![no_std]
 

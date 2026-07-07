@@ -1,7 +1,9 @@
 # Architecture: stratum-client + ASIC mock
 
-Visual reference for the design captured in `STRATUM_IMPLEMENTATION_PLAN.md`.
-This file is the picture; the plan is the rationale.
+Visual reference for the stratum stack. This file is the picture;
+`STRATUM_IMPLEMENTATION_PLAN.md` is the historical rationale. Kept
+aligned with the code in `ubos/stratum-client` — when the two
+disagree, the code wins and this file needs a patch.
 
 ## System overview
 
@@ -47,67 +49,53 @@ This file is the picture; the plan is the rationale.
    │      [crate: stratum-client — protocol-agnostic from here on]       │
    │                                                                     │
    │   ┌─────────────────────────────────────────────────────────┐       │
-   │   │ stratum_task                                            │       │
+   │   │ run_stratum_client — one loop, three wake sources       │       │
    │   │   loop {                                                │       │
-   │   │     select!(                                            │       │
-   │   │       client.drive(t).await   →  client.accept(self)    │       │
-   │   │       asic.solutions.recv()   →  submit_handler(self)   │       │
+   │   │     select3(                                            │       │
+   │   │       client.drive(t)       → client.accept(state)      │       │
+   │   │       asic.take_solution()  → handle_solution(state)    │       │
+   │   │       work_ticker (1 s)     → publish_work(state, asic) │       │
    │   │     )                                                   │       │
    │   │   }                                                     │       │
-   │   └────────┬───────────────────────────┬────────────────────┘       │
-   │            │                           │                            │
-   │   impl Visitor for self          submit_handler                     │
-   │   visit_new_job:                 ──────────────                     │
-   │     slot = job_ring.next_slot()  sol = AsicSession.recv()           │
-   │     lazy_merkle.compute(en2=0,   work = work_ring.lookup(           │
-   │          &mut slot.merkle_root)         sol.work_id) ?              │
-   │     slot.prev_hash = *job.ph     if !job_ring.is_valid(             │
-   │     slot.target = *job.target          work.job_id):                │
-   │     slot.{ntime_base, version,     drop_stale; return               │
-   │            nbits} = ...          else:                              │
-   │     slot.valid = true              share = Share {                  │
-   │     if clean_jobs:                   id: work.job_id,               │
-   │       job_ring.invalidate_prev()     nonce: sol.nonce,              │
-   │     latest_job.send(snapshot)        ntime: sol.ntime,              │
-   │                                      extranonce_2: work.en2,        │
-   │   visit_session_update:              version_bits: work.vb,         │
-   │     log only (no mutation)         }                                │
-   │                                    client.submit(&share)            │
-   │   visit_submit_result:                                              │
-   │     log + metrics                                                   │
+   │   └─────────────────────────────────────────────────────────┘       │
+   │                                                                     │
+   │   visit_new_job (Visitor):        publish_work (1 Hz tick):         │
+   │     slot = job_ring.next_slot()     slot = job_ring.current()?      │
+   │     merkle.compute(en2 = zeros)     slot.ntime_offset += 1          │
+   │       → slot.merkle_root              (capped NTIME_ROLL_MAX_SECS)  │
+   │     slot.prev_hash = *job.ph        work_id = next_work_id++        │
+   │     slot.target    = *job.target    work_ring.put(OutstandingWork{  │
+   │     slot.{version, nbits} = ...       work_id, slot.job_id,         │
+   │     slot.ntime_base = job.ntime       extranonce_2 = zeros })       │
+   │     slot.ntime_offset = 0           asic.publish_work(              │
+   │     slot.valid = true                 WorkAssignment{ work_id,      │
+   │     if clean_jobs:                      prev_hash, merkle_root,     │
+   │       job_ring.invalidate_previous()    target, version, nbits,     │
+   │                                         ntime = base + offset })    │
+   │   handle_solution (chip found something):                           │
+   │     work = work_ring.lookup(sol.work_id)?   else drop (rotated)     │
+   │     job_ring.is_valid(work.job_id)?         else drop (clean_jobs)  │
+   │     client.submit(&Share{ id: work.job_id,                          │
+   │       nonce: sol.nonce, ntime: sol.ntime,                           │
+   │       version_bits: sol.version_bits,                               │
+   │       extranonce_2: &work.extranonce_2 })                           │
+   │                                                                     │
+   │   visit_session_update: log only.  visit_submit_result: counters.   │
    │                                                                     │
    │   ┌──────────────────────┐    ┌──────────────────────────────┐      │
-   │   │ JobRing<2>           │    │ WorkRing<8>                  │      │
+   │   │ JobRing<2> rotating  │    │ WorkRing<8>  FIFO            │      │
    │   │ pool's last 2 jobs   │    │ outstanding ASIC work        │      │
-   │   │  + valid bit         │    │   work_id u32 → {            │      │
-   │   │ Slot:                │    │     job_id: JobId,           │      │
-   │   │   id: JobId          │    │     extranonce_2: hl::Vec,   │      │
-   │   │   valid: bool        │    │     ntime: u32,              │      │
-   │   │   prev_hash[32]      │    │     version_bits: u32,       │      │
-   │   │   target[32]         │    │   }                          │      │
-   │   │   merkle_root[32]    │    └──────────────────▲───────────┘      │
-   │   │   {ntime_base,       │                       │                  │
-   │   │    version,          │            record_outstanding()          │
-   │   │    nbits}            │                       │                  │
-   │   │   en2_size: u8       │                       │                  │
-   │   └──────┬───────────────┘                       │                  │
-   │          │                                       │                  │
-   │   latest_job: Watch<JobSnapshot, 2>              │                  │
-   │          │                                       │                  │
-   │   ┌──────▼───────────────────────────────────────┴───────────┐      │
-   │   │ work_generator_task                                      │      │
-   │   │   Ticker every 1 s:                                      │      │
-   │   │     job = latest_job.try_get() ?                         │      │
-   │   │     en2 = roll() (zeros today)                           │      │
-   │   │     ntime = job.ntime_base + (now - job.t0)              │      │
-   │   │     work_id = self.next_work_id()                        │      │
-   │   │     work_ring.put(work_id, job.id, en2, ntime, vb)       │      │
-   │   │     asic.write_work(WorkAssignment {                     │      │
-   │   │       work_id, prev_hash, merkle_root, target,           │      │
-   │   │       version, nbits, ntime,                             │      │
-   │   │     })                                                   │      │
-   │   └─────────────────┬────────────────────────────────────────┘      │
-   └─────────────────────┼────────────────────────────────────────┬──────┘
+   │   │ JobSlot:             │    │   work_id u32 → {            │      │
+   │   │   job_id, valid      │    │     job_id: JobId,           │      │
+   │   │   prev_hash[32]      │    │     extranonce_2: hl::Vec }  │      │
+   │   │   target[32]         │    │                              │      │
+   │   │   merkle_root[32]    │    │ ntime / version_bits are NOT │      │
+   │   │   version, nbits     │    │ stored here: the Solution    │      │
+   │   │   ntime_base         │    │ echoes whichever values the  │      │
+   │   │   ntime_offset       │    │ ASIC actually hashed with    │      │
+   │   │   en2_size, clean    │    └──────────────────────────────┘      │
+   │   └──────────────────────┘                                          │
+   └─────────────────────┬────────────────────────────────────────┬──────┘
                          │                                        ▲
                          │ Watch::sender().send()                 │
                          ▼                                        │
@@ -116,7 +104,7 @@ This file is the picture; the plan is the rationale.
    │      [in stratum-client; passed as &'static to both sides]          │
    │                                                                     │
    │   work:      Watch<CSRawMutex, WorkAssignment, 2>                   │
-   │              host (work_generator) writes  →  ASIC polls latest     │
+   │              host (publish_work) writes  →  ASIC polls latest       │
    │                                                                     │
    │   solutions: Channel<CSRawMutex, Solution, 8>                       │
    │              ASIC sends  →  host receives (bounded queue)           │
@@ -149,13 +137,83 @@ This file is the picture; the plan is the rationale.
    └─────────────────────────────────────────────────────────────────────┘
 ```
 
+## Why two rings: two coordinate systems
+
+`StratumState` is a translation table between two coordinate systems.
+The pool addresses work as *(job_id, extranonce_2, ntime,
+version_bits)*; the chip addresses it as *(work_id, nonce)*. The two
+worlds also have different cardinalities and lifetimes — one
+long-lived job fans out into many short-lived work assignments, one
+per second, differing only in `ntime` (extranonce_2 is fixed at zeros
+and the merkle root is folded once at job arrival, so the ntime roll
+is the only thing making each second's assignment fresh work).
+
+Downstream, pool → chip:
+
+```
+ASIC                              HOST                                 STRATUM
+════                              ════                                 ═══════
+                       job_ring (few, long-lived)
+                      ┌──────────────────────────┐  visit_new_job()
+                      │ JobSlot: pool's job in   │◄———— MiningJob ——— notify /
+                      │ canonical binary form    │   (borrowed; the   NewMiningJob
+                      └────────────┬─────────────┘    slot owns a copy)
+                                   │ 1 Hz: ntime_offset += 1
+                                   ▼
+              WorkAssignment   publish_work()
+ chip ◄══════ {work_id, header ┌──────────────────────────┐
+ (Watch,       fields, ntime = │ work_ring.put(receipt:   │
+  latest-wins) base + offset}  │  work_id → job_id + en2) │
+                               └──────────────────────────┘
+                                work_ring (many, short-lived)
+```
+
+Upstream, chip → pool — the receipt written at publish time is the
+only memory of which job and which extranonce_2 produced a given
+`work_id`, and the two rings act as two staleness gates:
+
+```
+ASIC                              HOST                                 STRATUM
+════                              ════                                 ═══════
+ chip ══════► Solution{work_id,  handle_solution()
+ (Channel,     nonce, ntime,    ┌────────────────────────────────┐
+  bounded)     version_bits}    │ ① work_ring.lookup(work_id)    │
+                                │     miss → DROP (ring rotated  │
+                                │     past it; ≈ >8 s in flight) │
+                                │ ② job_ring.is_valid(job_id)    │
+                                │     no → DROP (clean_jobs      │
+                                │     invalidated the job)       │
+                                │ ③ translate back to pool       │  submit()
+                                │    coords: Share{job_id, en2,  │—————————————► pool
+                                │    nonce, ntime, version_bits} │
+                                └────────────────────────────────┘
+```
+
+The ring depths encode the intended history windows:
+
+- `JobRing<2>` rotates: current + the job that just rotated out.
+  Pools generally accept shares against the previous job unless
+  `clean_jobs` says otherwise, so two slots is the useful history.
+- `WorkRing<8>` is a FIFO: at the 1 Hz publish cadence it bounds how
+  long a solution may sit in the chip FIFO plus the solution channel
+  before its submit context is forgotten — about eight seconds, with
+  no heap.
+
+The `AsicSession` seam mirrors the same asymmetry. Work rides a
+`Watch` (latest-wins cell, never a backlog: a slow chip skips
+straight to the newest assignment); solutions ride a bounded
+`Channel` (a real queue: each one is potential payment and must not
+be overwritten). `CriticalSectionRawMutex` makes both ends safe to
+share across cores, which is how dual-core boards run the serial
+task on core 1.
+
 ## Cycle frequencies
 
 | Loop | Period | Driver |
 |------|--------|--------|
-| Pool I/O | event-driven | network bytes arriving / Solution arriving in `select!` |
+| Pool I/O | event-driven | network bytes arriving / Solution arriving in `select3` |
 | Stratum visitor dispatch | per frame | inside `accept()` |
-| Work generator | 1 Hz | `Ticker::every(1s)` |
+| Work publish | 1 Hz | `work_ticker` arm of the same `select3` loop |
 | ASIC poll for work change | ~100 ms | yield boundary in CPU mock; polling cadence in real driver |
 | ASIC produces solutions | as found | non-blocking `try_send` into the channel |
 
@@ -224,6 +282,7 @@ for encoding.
 Owned ring slot ≈ 150 bytes. Two slots in the JobRing = ~300 bytes.
 No coinbase-sized data lives across the borrow boundary. The
 merkle root is computed once, before the borrow ends; the
-WorkRing slot carries the small per-share rolling state
-(extranonce_2, ntime, version_bits) so a returning Solution can
-reconstruct the full submit context via its `work_id`.
+WorkRing slot carries the per-share submit context (job_id,
+extranonce_2) so a returning Solution can reconstruct the full wire
+submit via its `work_id`, with `ntime` and `version_bits` echoed by
+the ASIC in the Solution itself.
