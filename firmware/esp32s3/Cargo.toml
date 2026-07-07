@@ -22,6 +22,7 @@ ubos-events          = { workspace = true, features = ["defmt"] }
 ubos-firmware        = { workspace = true }
 ubos-display         = { workspace = true }
 ubos-core            = { workspace = true }
+ubos-machine         = { workspace = true }
 esp32s3-tsens          = { workspace = true }
 embassy-executor       = { workspace = true, features = ["defmt"] }
 embassy-time           = { workspace = true, features = ["defmt", "generic-queue-8"] }

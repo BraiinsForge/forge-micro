@@ -45,6 +45,7 @@ ubos-config        = { workspace = true, default-features = false, features = ["
 ubos-cooling       = { workspace = true, default-features = false }
 ubos-core          = { workspace = true }
 ubos-http          = { workspace = true, default-features = false }
+ubos-machine       = { workspace = true }
 ubos-manager       = { workspace = true, default-features = false }
 ubos-mdns          = { workspace = true, default-features = false }
 ubos-metrics       = { workspace = true, default-features = false }
