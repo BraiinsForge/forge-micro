@@ -9,7 +9,9 @@
 /// scaffolding for the planned build and reporting work.
 #[derive(Clone, Copy)]
 pub struct PlatformDescriptor {
-    /// Short platform name, matching the firmware crate directory.
+    /// Short platform name. Matches the firmware crate directory for
+    /// every platform except `hashnode`, which reuses the `RP2350`
+    /// platform const and so reports `"rp2350"`.
     pub name: &'static str,
     /// CPU core family, e.g. `cortex-m33`.
     pub core: &'static str,

@@ -50,9 +50,11 @@ pub struct HashboardDescriptor {
     /// `Error::OutOfRange` from a descriptor / PSU range mismatch.
     /// Matches the `end_mv()` of the `VoltageRange` the firmware
     /// configures on the board's PSU.
-    // TODO: PSU-specific fields are currently bundled into the board
-    // descriptor, which is acceptable for now, but should be split into
-    // a dedicated PSU descriptor later.
+    // TODO: this field is PSU-specific but stays on the hashboard
+    // descriptor for now; it should move onto BmmPsuDescriptor /
+    // BfmPsuDescriptor once a board needs a rail ceiling that differs
+    // from its hashboard's. ubos-psu already has descriptor types for
+    // the PSU itself, but this field has not moved into them yet.
     pub max_psu_voltage: Voltage,
     /// Boot operating point, so a board comes up at its correct rail and
     /// clock from its descriptor alone, with no `.cargo/config.toml` env.

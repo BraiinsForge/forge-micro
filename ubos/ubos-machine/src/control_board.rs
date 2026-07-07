@@ -72,7 +72,6 @@ pub const CONTROL_BOARD_BMM_PICO: ControlBoardDescriptor = ControlBoardDescripto
 pub const CONTROL_BOARD_ESP32S3: ControlBoardDescriptor = ControlBoardDescriptor {
     name: "ESP32-S3 W5100S",
     platform: ESP32S3,
-    // Family 0x04 is reserved by hashnode, which keeps its byte outside this crate.
     mac_family: 0x05,
     webui_http_pool: 3,
     api_http_pool: 3,
@@ -104,4 +103,19 @@ pub const CONTROL_BOARD_STM32F439: ControlBoardDescriptor = ControlBoardDescript
     api_http_pool: 1,
     metrics_http_pool: 1,
     event_log_capacity: 32,
+};
+
+/// The Hashnode: control board and hashboard are one integrated product,
+/// so the name matches `ubos_asic::HASHNODE.model` rather than naming a
+/// separate control-board PCB. Reuses the RP2350 platform: the Hashnode's
+/// RP2350B is a pin-compatible variant of the same Cortex-M33 core and
+/// target as the RP2350A the rp2350 and bmm-pico boards use.
+pub const CONTROL_BOARD_HASHNODE: ControlBoardDescriptor = ControlBoardDescriptor {
+    name: "Braiins Forge Miner x4",
+    platform: RP2350,
+    mac_family: 0x04,
+    webui_http_pool: 5,
+    api_http_pool: 5,
+    metrics_http_pool: 5,
+    event_log_capacity: 128,
 };
