@@ -100,8 +100,8 @@ pub const BMM100: HashboardDescriptor = HashboardDescriptor {
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(1675),
-    default_voltage: ubos_core::consts::Mining::DEFAULT_VOLTAGE,
-    default_frequency: ubos_core::consts::Mining::DEFAULT_FREQUENCY,
+    default_voltage: Voltage::from_mv(1400),
+    default_frequency: Frequency::from_mhz(525),
     swarm_color: "blue",
     cooling: BoardCooling {
         target_temp_c: 67.0,

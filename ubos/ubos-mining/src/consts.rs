@@ -1,14 +1,5 @@
 //! Tunables for the BM1362 and BM1370 mining backends.
 
-/// Number of ASIC chips on the hashboard.
-///
-/// Matches `ubos_core::consts::Mining::NUM_CHIPS`; the value is
-/// reproduced here so callers inside `ubos-mining` do not need to
-/// reference the core crate for this single constant. Each firmware
-/// crate's `HashboardDescriptor` must agree with this count; a broadcast
-/// register read expects exactly this many replies.
-pub const NUM_CHIPS: u8 = ubos_core::consts::Mining::NUM_CHIPS;
-
 /// Maximum chips the registry can address and the actor buffers replies
 /// for. Tied to the chip-protocol chain cap so a discovery read can
 /// collect every responder the chain may hold.
