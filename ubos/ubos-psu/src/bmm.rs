@@ -105,7 +105,7 @@ pub async fn run_watchdog<I: I2c>(
         let mut guard = state.lock().await;
         if guard.init == InitStatus::Initialized {
             let address = guard.config.watchdog_address;
-            info!("petting the watchdog");
+            info!("feeding the watchdog");
             if let Err(_error) = watchdog::heartbeat(&mut guard.i2c, address).await {
                 warn!("psu watchdog heartbeat failed");
             }
