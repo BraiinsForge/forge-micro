@@ -139,9 +139,14 @@ pub async fn run_stratum_session(
                     )
                     .expect("BUG: PoolEntry user/password match Sv1Config buffer sizes");
                     let mut client = stratum_v1::StratumV1Client::new(&sv1);
-                    if let Err(error) =
-                        run_stratum_client(&mut client, &mut socket, &ASIC_SESSION, &mut state)
-                            .await
+                    if let Err(error) = run_stratum_client(
+                        &mut client,
+                        &mut socket,
+                        &ASIC_SESSION,
+                        &mut state,
+                        Some(NTIME_ROLL_PERIOD_SECS),
+                    )
+                    .await
                     {
                         defmt::warn!(
                             "stratum-client: session error {}",
@@ -157,9 +162,14 @@ pub async fn run_stratum_session(
                         secp_ctx,
                         Sv2BoardRng(&mut *sv2_prng),
                     );
-                    if let Err(error) =
-                        run_stratum_client(&mut client, &mut socket, &ASIC_SESSION, &mut state)
-                            .await
+                    if let Err(error) = run_stratum_client(
+                        &mut client,
+                        &mut socket,
+                        &ASIC_SESSION,
+                        &mut state,
+                        Some(NTIME_ROLL_PERIOD_SECS),
+                    )
+                    .await
                     {
                         defmt::warn!(
                             "stratum-client: session error {}",

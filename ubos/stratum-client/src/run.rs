@@ -59,6 +59,10 @@ use crate::asic_session::AsicSession;
 use crate::state::StratumState;
 use crate::work::{MAX_EXTRANONCE_2, OutstandingWork, Solution, WorkAssignment};
 
+#[cfg(test)]
+#[path = "tests/run.rs"]
+mod tests;
+
 /// Index of the primary (and currently only) pool in `POOL_ALIVE_BITMAP`.
 /// Bit 0 is the primary pool; a backup-pool task would use bit 1. If a
 /// backup pool is ever added, add a `pool_index` parameter to
@@ -109,7 +113,7 @@ pub fn set_pool_alive(pool_index: u8, alive: bool) {
 }
 
 /// Cadence at which the work generator publishes a fresh
-/// `WorkAssignment`. Each tick advances `ntime` by one second.
+/// `WorkAssignment`.
 pub const WORK_GENERATOR_PERIOD: Duration = Duration::from_secs(1);
 
 /// Maximum `ntime` roll, in seconds, past the pool's published
@@ -132,6 +136,17 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 /// firmware's outer reconnect loop drops `client` and `transport`,
 /// builds fresh ones, and calls `run_stratum_client` again.
 ///
+/// `ntime_roll_period_secs` configures the per-publish `ntime` roll:
+/// `Some(period)` advances the offset by one second every `period`
+/// publishes (`period == 0` is clamped to 1); `None` pins `ntime` to
+/// the job's base with no roll at all. `Some(1)` reproduces the
+/// historical one-second drift, since the publish cadence is
+/// [`WORK_GENERATOR_PERIOD`] (1 s) and the elapsed counter advances
+/// once per publish — sub-second periods were fake precision. Rolling
+/// faster than wall clock drifts `ntime` toward rejection, so callers
+/// should not pass a period below 1. See [`publish_work`] for the
+/// offset math.
+///
 /// # Errors
 ///
 /// Surfaces any `Error` returned from `client.connect()` or
@@ -143,12 +158,14 @@ pub async fn run_stratum_client<C, T>(
     transport: &mut T,
     asic: &'static AsicSession,
     state: &mut StratumState,
+    ntime_roll_period_secs: Option<u32>,
 ) -> Result<(), Error>
 where
     C: MiningClient,
     T: Read + Write,
 {
-    let result = run_stratum_client_inner(client, transport, asic, state).await;
+    let result =
+        run_stratum_client_inner(client, transport, asic, state, ntime_roll_period_secs).await;
     set_pool_alive(PRIMARY_POOL_INDEX, false);
     result
 }
@@ -158,6 +175,7 @@ async fn run_stratum_client_inner<C, T>(
     transport: &mut T,
     asic: &'static AsicSession,
     state: &mut StratumState,
+    ntime_roll_period_secs: Option<u32>,
 ) -> Result<(), Error>
 where
     C: MiningClient,
@@ -190,7 +208,7 @@ where
                 }
             }
             Either3::Third(()) => {
-                publish_work(state, asic);
+                publish_work(state, asic, ntime_roll_period_secs);
             }
         }
     }
@@ -240,17 +258,25 @@ fn handle_solution<C: MiningClient>(
 /// Build the next `WorkAssignment` from the current ring slot,
 /// record an `OutstandingWork` so the eventual `Solution` can be
 /// translated back to a `Share`, and publish to the ASIC.
-fn publish_work(state: &mut StratumState, asic: &AsicSession) {
+///
+/// `ntime_roll_period_secs` is `None` to pin `ntime` to the slot's base
+/// (`ntime_offset` stays 0), or `Some(period)` to roll one second
+/// forward every `period` publishes of accumulated publish cadence,
+/// capped at [`NTIME_ROLL_MAX_SECS`]. A `period` of 0 is clamped to 1
+/// rather than treated as `None`, since a caller passing `Some(0)`
+/// most likely meant "roll as fast as possible", not "don't roll".
+fn publish_work(state: &mut StratumState, asic: &AsicSession, ntime_roll_period_secs: Option<u32>) {
     let extranonce_2_size = match state.job_ring.current() {
         Some(slot) if slot.valid => slot.extranonce_2_size,
         _ => return,
     };
 
-    // Roll ntime within the consensus-allowed window.
-    if let Some(slot) = state.job_ring.current_mut()
-        && slot.ntime_offset < NTIME_ROLL_MAX_SECS
+    if let Some(period) = ntime_roll_period_secs
+        && let Some(slot) = state.job_ring.current_mut()
     {
-        slot.ntime_offset = slot.ntime_offset.saturating_add(1);
+        let period = period.max(1);
+        slot.roll_elapsed_secs = slot.roll_elapsed_secs.saturating_add(1);
+        slot.ntime_offset = (slot.roll_elapsed_secs / period).min(NTIME_ROLL_MAX_SECS);
     }
 
     let work_id = state.next_work_id;

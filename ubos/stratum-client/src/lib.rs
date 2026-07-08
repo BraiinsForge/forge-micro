@@ -37,6 +37,13 @@ pub const STRATUM_TCP_BUFFER_SIZE: usize = 2048;
 /// survive a few missed pool pings without dropping the session.
 pub const SOCKET_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Production work-generator cadence in seconds: publish and roll
+/// ntime once per second, matching the behavior before the period
+/// became configurable. Firmware and host call sites pass
+/// `Some(NTIME_ROLL_PERIOD_SECS)` to `run_stratum_session`; `None`
+/// is reserved for test builds that must pin ntime to the job base.
+pub const NTIME_ROLL_PERIOD_SECS: u32 = 1;
+
 pub use asic_session::{AsicSession, SOLUTION_QUEUE_DEPTH};
 pub use job_ring::{JOB_RING_DEPTH, JobRing, JobSlot, JobSlotError};
 pub use run::{

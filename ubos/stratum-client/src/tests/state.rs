@@ -44,6 +44,7 @@ fn visit_new_job_populates_slot() {
             nbits: 0x1705_c739,
             ntime_base: 0x6044_9522,
             ntime_offset: 0,
+            roll_elapsed_secs: 0,
             extranonce_2_size: 0,
             clean_jobs: false,
         }

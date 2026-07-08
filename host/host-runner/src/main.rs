@@ -246,6 +246,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                         &mut socket,
                         &ASIC_SESSION,
                         &mut state,
+                        Some(NTIME_ROLL_PERIOD_SECS),
                     )
                     .await
                     {
@@ -262,6 +263,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                         &mut socket,
                         &ASIC_SESSION,
                         &mut state,
+                        Some(NTIME_ROLL_PERIOD_SECS),
                     )
                     .await
                     {
