@@ -490,6 +490,21 @@
           # secp256k1-sys/ii-sv2), so unlike espCraneLib it needs no cross GCC.
           riscvCraneLib = (crane.mkLib pkgs).overrideToolchain riscvRustToolchain;
 
+          # Bare-metal riscv64 GCC, pulled into the redacted check closure purely
+          # for its bundled `riscv64-none-elf-ld` (see `riscvDefmtRustflags`).
+          # The redacted crate has no C deps, so this is the linker, not a C
+          # toolchain.
+          riscvGcc = pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc;
+          # redacted builds with defmt, whose `.defmt` symbol table lives in a
+          # non-`SHF_ALLOC` `(INFO)` section with no real load address. rust-lld
+          # mishandles `R_RISCV_PCREL_HI20` relocations against it, computing the
+          # auipc displacement as if it were a nearby real symbol and clamping to
+          # a signed 20-bit range instead of the actual 32-bit auipc+lo12 reach —
+          # see firmware/redacted/.cargo/config.toml, which carries the same flags
+          # for the interactive build. `riscvGcc` supplies the real
+          # `riscv64-none-elf-ld` these resolve to.
+          riscvDefmtRustflags = "-C panic=abort -C linker=riscv64-none-elf-ld -C linker-flavor=ld";
+
           # Xtensa GCC toolchain for `secp256k1-sys` (and any other C
           # dependency in the esp32s3 build). `secp256k1-sys` arrives via
           # the unconditional `ii-sv2` dep. Nixpkgs doesn't ship
@@ -861,17 +876,21 @@
           };
 
           # redacted redacted (RV64GC) dependency closure for the clippy-redacted check.
-          # No C deps, so no cross GCC; esbuild is for ubos-webui's build.rs.
-          # `panic=abort` matches the consuming check so the cached deps layer is
-          # reused (crane keys artifacts by build env), and riscv-rt 0.16 errors
-          # on the default unwind strategy without std.
+          # No C deps, so no cross GCC needed for `cc`; esbuild is for
+          # ubos-webui's build.rs. `riscvGcc` is still a build input, purely
+          # for its `riscv64-none-elf-ld` binary (see riscvDefmtRustflags).
+          # `riscvDefmtRustflags` matches the consuming check so the cached
+          # deps layer is reused (crane keys artifacts by build env).
           riscvredactedArtifacts = riscvCraneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
             cargoBuildCommand = "true";
             cargoExtraArgs = "-p redacted --target riscv64gc-unknown-none-elf";
-            nativeBuildInputs = [ pkgs.esbuild ];
-            CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
+            nativeBuildInputs = [
+              pkgs.esbuild
+              riscvGcc
+            ];
+            CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = riscvDefmtRustflags;
           };
 
           # redacted-rtt is a standalone no_std lib: no C deps, no build.rs, so
@@ -2558,19 +2577,25 @@
             };
 
             # redacted redacted (RV64GC). Mirrors the rp2350 board checks: a tier-2
-            # target with prebuilt rust-std, so no `-Z build-std`. The closure
-            # has no C deps, so no cross GCC; esbuild is only for ubos-webui's
-            # build.rs. `panic=abort` is passed here because crane builds from
+            # target with prebuilt rust-std, so no `-Z build-std`. No C deps, so
+            # no cross GCC for `cc`; esbuild is only for ubos-webui's build.rs.
+            # `riscvDefmtRustflags` is passed here because crane builds from
             # the workspace root and ignores the crate's .cargo/config.toml,
-            # where the flag lives (riscv-rt 0.16 errors on unwind without std).
+            # where the same flags live (panic strategy, and the linker
+            # override defmt's `.defmt` section needs — see that file and
+            # riscvDefmtRustflags above). riscvGcc is a build input purely for
+            # the `riscv64-none-elf-ld` binary that override resolves to.
             clippy-redacted = riscvCraneLib.cargoClippy {
               inherit src;
               cargoArtifacts = riscvredactedArtifacts;
               cargoExtraArgs = "-p redacted --target riscv64gc-unknown-none-elf";
               cargoClippyExtraArgs = "-- -D warnings";
               doInstallCargoArtifacts = false;
-              nativeBuildInputs = [ pkgs.esbuild ];
-              CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
+              nativeBuildInputs = [
+                pkgs.esbuild
+                riscvGcc
+              ];
+              CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = riscvDefmtRustflags;
               inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
             };
 
@@ -2579,8 +2604,11 @@
               cargoArtifacts = null;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p redacted --target riscv64gc-unknown-none-elf";
-              nativeBuildInputs = [ pkgs.esbuild ];
-              CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
+              nativeBuildInputs = [
+                pkgs.esbuild
+                riscvGcc
+              ];
+              CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = riscvDefmtRustflags;
               inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
             };
 
@@ -3054,10 +3082,9 @@
                 riscvRustToolchain
                 cargo-binutils
                 cargo-bloat
-                # The redacted now flashes and streams its `log` output over RTT
-                # (plain text via rtt-target, no defmt) through the probe-rs
-                # fork; the runner forwards to the NUC probe-rs-server exactly
-                # as the arm/esp shells do.
+                # The redacted flashes and streams its `defmt` output over RTT
+                # through the probe-rs fork; the runner forwards to the NUC
+                # probe-rs-server exactly as the arm/esp shells do.
                 probe-rs-tools-remote
                 probe-rs-runner
                 pkg-config
