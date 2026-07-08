@@ -811,6 +811,19 @@
             CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
           };
 
+          # hashnode cannot share the thumbv8m bag: it selects
+          # embassy-rp/rp235xb while the bag's crates select rp235xa, so
+          # the bag's embassy-rp would never match and every consumer of
+          # a unified bag would rebuild it.
+          hashnodeArtifacts = craneLib.buildDepsOnly {
+            inherit src;
+            doCheck = false;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p hashnode --target thumbv8m.main-none-eabihf";
+            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+          };
+
           ubosOtaArtifacts = craneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
@@ -1591,7 +1604,7 @@
 
             clippy-hashnode = craneLib.cargoClippy {
               inherit src;
-              cargoArtifacts = thumbv8mArtifacts;
+              cargoArtifacts = hashnodeArtifacts;
               cargoExtraArgs = "-p hashnode --target thumbv8m.main-none-eabihf";
               cargoClippyExtraArgs = "-- -D warnings";
               doInstallCargoArtifacts = false;
@@ -1605,7 +1618,7 @@
 
             build-hashnode = craneLib.cargoBuild {
               inherit src;
-              cargoArtifacts = null;
+              cargoArtifacts = hashnodeArtifacts;
               cargoBuildCommand = "cargo build --release";
               cargoExtraArgs = "-p hashnode --target thumbv8m.main-none-eabihf";
               nativeBuildInputs = [
