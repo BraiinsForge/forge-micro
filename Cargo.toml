@@ -38,6 +38,7 @@ members = [
     "ubos/ubos-cooling",
     "ubos/ubos-thermal",
     "ubos/ubos-config",
+    "ubos/ubos-eeprom",
     "ubos/ubos-events",
     "ubos/ubos-firmware",
     "ubos/ubos-net",
@@ -90,7 +91,9 @@ profont           = { version = "0.7.0", default-features = false }
 format_no_std     = "1.2.0"
 nb                = "1"
 sha2              = { version = "0.10", default-features = false }
+crc               = { version = "3", default-features = false }
 bitfield-struct   = "0.13"
+zerocopy          = { version = "0.8", default-features = false, features = ["derive"] }
 serde             = { version = "1", default-features = false, features = ["derive"] }
 serde-json-core   = "0.6"
 postcard               = { version = "1.1", default-features = false, features = ["heapless"] }
@@ -119,6 +122,7 @@ ubos-metrics      = { path = "ubos/ubos-metrics", default-features = false }
 ubos-cooling      = { path = "ubos/ubos-cooling", default-features = false }
 ubos-thermal      = { path = "ubos/ubos-thermal", default-features = false }
 ubos-config       = { path = "ubos/ubos-config", default-features = false }
+ubos-eeprom       = { path = "ubos/ubos-eeprom", default-features = false }
 ubos-events       = { path = "ubos/ubos-events", default-features = false }
 ubos-firmware     = { path = "ubos/ubos-firmware", default-features = false }
 ubos-mdns         = { path = "ubos/ubos-mdns", default-features = false }

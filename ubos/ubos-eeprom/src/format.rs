@@ -1,0 +1,226 @@
+//! Braiins hashboard EEPROM wire format, byte-for-byte compatible with
+//! `bos-main`'s braiinsminer layout so hashboards already
+//! factory-programmed by that tooling parse unchanged here. 256 bytes
+//! total: a 192-byte `BoardInfoSection` followed by a 64-byte
+//! `FirmwareInfoSection`, each self-contained with its own magic and
+//! CRC-16/CCITT.
+//!
+//! Parsing borrows `&str` fields directly out of the raw buffer rather
+//! than copying into owned strings — the caller already owns the buffer
+//! for as long as it needs the parsed data.
+
+use core::mem::size_of;
+
+use crc::{CRC_16_IBM_3740, Crc};
+use zerocopy::byteorder::little_endian::{U16, U32};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
+
+#[cfg(test)]
+#[path = "tests/format.rs"]
+mod tests;
+
+/// Total EEPROM size in bytes: [`BOARD_INFO_LEN`] + [`FIRMWARE_INFO_LEN`].
+pub const EEPROM_LEN: usize = BOARD_INFO_LEN + FIRMWARE_INFO_LEN;
+
+const BOARD_INFO_LEN: usize = 192;
+const FIRMWARE_INFO_LEN: usize = 64;
+const MAGIC: [u8; 2] = *b"Br";
+const VERSION_0: u8 = 0x00;
+
+/// Wire layout of `BoardInfoSection`, matching field order exactly.
+/// Every field is byte-aligned (plain `u8`/`[u8; N]`, or zerocopy's
+/// alignment-1 [`U16`]/[`U32`]), so `#[repr(C)]` alone pins the layout
+/// to declaration order with no padding.
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy)]
+struct RawBoardInfo {
+    magic: [u8; 2],
+    version: u8,
+    product_name: [u8; 16],
+    product_version: [u8; 16],
+    product_batch: [u8; 16],
+    serial_number: [u8; 16],
+    asic_type: [u8; 10],
+    asic_bin: [u8; 10],
+    asic_count: u8,
+    domains_count: u8,
+    temperature_sensors_count: u8,
+    voltage_centivolts: U16,
+    frequency_mhz: U16,
+    hashrate_gh: U32,
+    power_w: U16,
+    temperature_c: u8,
+    reserved: [u8; 89],
+    crc: U16,
+}
+
+const _: () = assert!(size_of::<RawBoardInfo>() == BOARD_INFO_LEN);
+
+/// Wire layout of `FirmwareInfoSection`. See [`RawBoardInfo`].
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy)]
+struct RawFirmwareInfo {
+    magic: [u8; 2],
+    version: [u8; 8],
+    compilation_date: [u8; 11],
+    device_id: [u8; 3],
+    serial_number: [u8; 10],
+    reserved: [u8; 28],
+    crc: U16,
+}
+
+const _: () = assert!(size_of::<RawFirmwareInfo>() == FIRMWARE_INFO_LEN);
+
+/// Failure parsing a raw EEPROM dump into [`HashboardEepromData`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// `BoardInfoSection`'s magic was not `"Br"`.
+    BoardMagic,
+    /// `FirmwareInfoSection`'s magic was not `"Br"`.
+    FirmwareMagic,
+    /// `version` was not the only structure version this crate
+    /// understands.
+    UnsupportedVersion(u8),
+    /// `BoardInfoSection`'s stored CRC did not match the computed one.
+    BoardCrc,
+    /// `FirmwareInfoSection`'s stored CRC did not match the computed one.
+    FirmwareCrc,
+    /// A reserved padding region held something other than the
+    /// erased-EEPROM filler byte (`0xFF`).
+    ReservedBytes,
+}
+
+/// Parsed `BoardInfoSection`: product identity, ASIC info, and the
+/// factory default operating point.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct BoardInfoSection<'a> {
+    pub product_name: &'a str,
+    pub product_version: &'a str,
+    pub product_batch: &'a str,
+    pub serial_number: &'a str,
+    pub asic_type: &'a str,
+    pub asic_bin: &'a str,
+    pub asic_count: u8,
+    pub domains_count: u8,
+    pub temperature_sensors_count: u8,
+    pub voltage_centivolts: u16,
+    pub frequency_mhz: u16,
+    pub hashrate_gh: u32,
+    pub power_w: u16,
+    pub temperature_c: u8,
+}
+
+/// Parsed `FirmwareInfoSection`: the board MCU's own firmware identity.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct FirmwareInfoSection<'a> {
+    pub version: &'a str,
+    pub compilation_date: &'a str,
+    pub device_id: [u8; 3],
+    pub serial_number: [u8; 10],
+}
+
+/// A fully validated hashboard EEPROM: both sections, magic/version/CRC
+/// checked, reserved padding confirmed erased.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct HashboardEepromData<'a> {
+    pub board_info: BoardInfoSection<'a>,
+    pub firmware_info: FirmwareInfoSection<'a>,
+}
+
+impl<'a> HashboardEepromData<'a> {
+    /// Parse and fully validate a raw EEPROM dump. Checks both magics,
+    /// the version byte, both sections' CRC-16/CCITT, and that both
+    /// reserved regions are still `0xFF`, in that order — matching
+    /// `bos-main`'s validation order so a captured dump either parses or
+    /// fails the same way in both codebases.
+    ///
+    /// # Errors
+    ///
+    /// Returns the specific [`Error`] variant for whichever check above
+    /// fails first.
+    ///
+    /// # Panics
+    ///
+    /// Never: [`RawBoardInfo`] and [`RawFirmwareInfo`] are sized to
+    /// exactly `BOARD_INFO_LEN`/`FIRMWARE_INFO_LEN` at compile time, and
+    /// `raw` is split into slices of those exact lengths, so the
+    /// `ref_from_bytes` calls below can't actually fail.
+    pub fn parse(raw: &'a [u8; EEPROM_LEN]) -> Result<Self, Error> {
+        let (board_bytes, firmware_bytes) = raw.split_at(BOARD_INFO_LEN);
+        let board = RawBoardInfo::ref_from_bytes(board_bytes).expect("BUG: size checked above");
+        let firmware =
+            RawFirmwareInfo::ref_from_bytes(firmware_bytes).expect("BUG: size checked above");
+
+        if board.magic != MAGIC {
+            return Err(Error::BoardMagic);
+        }
+        if firmware.magic != MAGIC {
+            return Err(Error::FirmwareMagic);
+        }
+        if board.version != VERSION_0 {
+            return Err(Error::UnsupportedVersion(board.version));
+        }
+
+        let crc = Crc::<u16>::new(&CRC_16_IBM_3740);
+        if crc.checksum(&board_bytes[..BOARD_INFO_LEN - 2]) != board.crc.get() {
+            return Err(Error::BoardCrc);
+        }
+        if crc.checksum(&firmware_bytes[..FIRMWARE_INFO_LEN - 2]) != firmware.crc.get() {
+            return Err(Error::FirmwareCrc);
+        }
+
+        if !board.reserved.iter().all(|b| *b == 0xFF)
+            || !firmware.reserved.iter().all(|b| *b == 0xFF)
+        {
+            return Err(Error::ReservedBytes);
+        }
+
+        Ok(Self {
+            board_info: BoardInfoSection {
+                product_name: ascii_field(&board.product_name),
+                product_version: ascii_field(&board.product_version),
+                product_batch: ascii_field(&board.product_batch),
+                serial_number: ascii_field(&board.serial_number),
+                asic_type: ascii_field(&board.asic_type),
+                asic_bin: ascii_field(&board.asic_bin),
+                asic_count: board.asic_count,
+                domains_count: board.domains_count,
+                temperature_sensors_count: board.temperature_sensors_count,
+                voltage_centivolts: board.voltage_centivolts.get(),
+                frequency_mhz: board.frequency_mhz.get(),
+                hashrate_gh: board.hashrate_gh.get(),
+                power_w: board.power_w.get(),
+                temperature_c: board.temperature_c,
+            },
+            firmware_info: FirmwareInfoSection {
+                version: ascii_field(&firmware.version),
+                compilation_date: ascii_field(&firmware.compilation_date),
+                device_id: firmware.device_id,
+                serial_number: firmware.serial_number,
+            },
+        })
+    }
+}
+
+/// Slice a NUL-terminated text field down to the text before the first
+/// NUL, or keep the whole field when no terminator is present. Falls
+/// back to `"INVALID"` on anything that isn't valid ASCII, matching
+/// `bos-main`'s own `StringText` helper: a single garbled text field
+/// does not invalidate a record whose magic, version, and CRC all
+/// checked out. Real hardware has produced exactly that, in fields
+/// `bos-main` fills with `0xFF` past their content and leaves without
+/// a NUL terminator.
+fn ascii_field(bytes: &[u8]) -> &str {
+    let text = match bytes.iter().position(|b| *b == 0) {
+        Some(nul) => &bytes[..nul],
+        None => bytes,
+    };
+    core::str::from_utf8(text)
+        .ok()
+        .filter(|s| s.is_ascii())
+        .unwrap_or("INVALID")
+}

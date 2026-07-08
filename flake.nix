@@ -637,6 +637,7 @@
               "-p ubos-auth"
               "-p ubos-core"
               "-p ubos-display"
+              "-p ubos-eeprom"
               "-p ubos-logging"
               "-p ubos-machine"
               "-p ubos-main-host"
@@ -2066,6 +2067,22 @@
               doInstallCargoArtifacts = false;
             };
 
+            clippy-ubos-eeprom = craneLib.cargoClippy {
+              inherit src;
+              cargoArtifacts = hostArtifacts;
+              cargoExtraArgs = "-p ubos-eeprom";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
+              doInstallCargoArtifacts = false;
+            };
+
+            test-ubos-eeprom = craneLib.cargoTest {
+              inherit src;
+              cargoArtifacts = hostArtifactsDev;
+              CARGO_PROFILE = "";
+              cargoExtraArgs = "-p ubos-eeprom";
+              doInstallCargoArtifacts = false;
+            };
+
             clippy-embedded-i2c-unix = craneLib.cargoClippy {
               inherit src;
               cargoArtifacts = hostArtifacts;
@@ -2585,6 +2602,7 @@
                     test-ubos-auth
                     test-ubos-config
                     test-ubos-config-std
+                    test-ubos-eeprom
                     test-ubos-events
                     test-ubos-cooling
                     test-ubos-http

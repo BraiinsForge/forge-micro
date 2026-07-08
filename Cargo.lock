@@ -4839,6 +4839,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubos-eeprom"
+version = "0.1.0"
+dependencies = [
+ "crc",
+ "defmt 1.0.1",
+ "embassy-futures",
+ "embedded-hal-async",
+ "embedded-hal-mock",
+ "ubos-logging",
+ "zerocopy",
+]
+
+[[package]]
 name = "ubos-events"
 version = "0.1.0"
 dependencies = [

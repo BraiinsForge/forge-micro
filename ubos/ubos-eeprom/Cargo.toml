@@ -1,0 +1,26 @@
+[package]
+edition.workspace = true
+name        = "ubos-eeprom"
+version     = "0.1.0"
+description = "no_std hashboard EEPROM support: a bus-agnostic read trait plus the bos-main-compatible wire format."
+
+[lints]
+workspace = true
+
+[features]
+default = []
+defmt   = ["dep:defmt", "ubos-logging/defmt"]
+
+[dependencies]
+crc                = { workspace = true }
+defmt              = { workspace = true, optional = true }
+embedded-hal-async = { workspace = true }
+ubos-logging       = { workspace = true }
+zerocopy           = { workspace = true }
+
+[dev-dependencies]
+embedded-hal-mock = { version = "0.11", default-features = false, features = ["embedded-hal-async", "eh1"] }
+embassy-futures   = { workspace = true }
+
+[package.metadata.cargo-machete]
+ignored = ["defmt"]
