@@ -874,6 +874,28 @@
             CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
           };
 
+          # redacted-rtt is a standalone no_std lib: no C deps, no build.rs, so
+          # neither esbuild nor a cross GCC is needed. `log` and `defmt` are
+          # mutually exclusive backends (each defines its own CHAN_NAME), so
+          # unlike a normal `--all-features` closure, the two are covered by
+          # separate artifact sets below rather than one `--all-features` build.
+          riscvredactedRttArtifacts = riscvCraneLib.buildDepsOnly {
+            inherit src;
+            doCheck = false;
+            cargoBuildCommand = "true";
+            cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf";
+            CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
+          };
+
+          # `defmt`-backend closure: used by firmware/redacted and firmware/redacted.
+          riscvredactedRttDefmtArtifacts = riscvCraneLib.buildDepsOnly {
+            inherit src;
+            doCheck = false;
+            cargoBuildCommand = "true";
+            cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf --no-default-features --features defmt";
+            CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
+          };
+
           bmmArtifacts = bmmCraneLib.buildDepsOnly {
             inherit src;
             doCheck = false;
@@ -2562,6 +2584,46 @@
               inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
             };
 
+            # redacted-rtt: shared RTT backend. `log` (default) has no current
+            # consumer but is still a supported mode of the crate; `defmt`
+            # is used by both firmware/redacted and firmware/redacted. The two
+            # are mutually exclusive (each defines its own CHAN_NAME), so
+            # they get separate clippy/build checks rather than one
+            # `--all-features` pass.
+            clippy-redacted-rtt = riscvCraneLib.cargoClippy {
+              inherit src;
+              cargoArtifacts = riscvredactedRttArtifacts;
+              cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf";
+              cargoClippyExtraArgs = "-- -D warnings";
+              doInstallCargoArtifacts = false;
+              CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
+            };
+
+            clippy-redacted-rtt-defmt = riscvCraneLib.cargoClippy {
+              inherit src;
+              cargoArtifacts = riscvredactedRttDefmtArtifacts;
+              cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf --no-default-features --features defmt";
+              cargoClippyExtraArgs = "-- -D warnings";
+              doInstallCargoArtifacts = false;
+              CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
+            };
+
+            build-redacted-rtt = riscvCraneLib.cargoBuild {
+              inherit src;
+              cargoArtifacts = null;
+              cargoBuildCommand = "cargo build --release";
+              cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf";
+              CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
+            };
+
+            build-redacted-rtt-defmt = riscvCraneLib.cargoBuild {
+              inherit src;
+              cargoArtifacts = null;
+              cargoBuildCommand = "cargo build --release";
+              cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf --no-default-features --features defmt";
+              CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
+            };
+
             clippy-load-test = craneLib.cargoClippy {
               src = loadTestSrc;
               cargoArtifacts = loadTestArtifacts;
@@ -2975,9 +3037,10 @@
               '';
             };
 
-            # redacted redacted (dual-core RV64GC, redacted 10). Interactive dev shell
-            # for firmware/redacted; the crate is gated in `checks` (clippy-redacted and
-            # build-redacted, built with riscvCraneLib).
+            # redacted redacted (dual-core RV64GC). One shell for firmware/redacted
+            # (redacted 10) and the redacted-rtt lib it now uses. Both are gated in
+            # `checks` (clippy-redacted/build-redacted and
+            # clippy-redacted-rtt/build-redacted-rtt, built with riscvCraneLib).
             #
             # NOTE: `cargo run --release` flashes the firmware into SRAM over
             # the probe-rs redacted fork and streams the RTT log; `cargo attach`

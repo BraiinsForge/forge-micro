@@ -2788,7 +2788,6 @@ version = "0.1.0"
 dependencies = [
  "crc",
  "crc32fast",
- "critical-section",
  "embassy-executor",
  "embassy-net",
  "embassy-net-wiznet",
