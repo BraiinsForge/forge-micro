@@ -13,6 +13,7 @@
 use embassy_time::Duration;
 
 pub mod asic_session;
+pub mod connector;
 pub mod job_ring;
 pub mod publishers;
 pub mod run;
@@ -45,6 +46,7 @@ pub const SOCKET_TIMEOUT: Duration = Duration::from_secs(120);
 pub const NTIME_ROLL_PERIOD_SECS: u32 = 1;
 
 pub use asic_session::{AsicSession, SOLUTION_QUEUE_DEPTH};
+pub use connector::{PoolConnector, SessionError, run_stratum_session};
 pub use job_ring::{JOB_RING_DEPTH, JobRing, JobSlot, JobSlotError};
 pub use run::{
     NTIME_ROLL_MAX_SECS, WORK_GENERATOR_PERIOD, pool_alive_bitmap, record_reconnect_attempt,

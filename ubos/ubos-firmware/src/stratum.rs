@@ -12,8 +12,8 @@ use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::{
-    AsicSession, RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE, StratumState,
-    record_reconnect_attempt, run_stratum_client,
+    AsicSession, NTIME_ROLL_PERIOD_SECS, PoolConnector, RECONNECT_DELAY, SOCKET_TIMEOUT,
+    STRATUM_TCP_BUFFER_SIZE, SessionError, StratumState, record_reconnect_attempt,
 };
 
 /// Shared ASIC session: the bridge between the stratum work source and the
@@ -52,6 +52,52 @@ impl ii_sv2::security::Rng for Sv2BoardRng<'_> {
 
 /// Boot-time storage for the SV2 `ChaCha20` PRNG.
 static SV2_PRNG: StaticCell<ChaCha20Rng> = StaticCell::new();
+
+/// TCP transport source for one pool entry. Owns the stack handle and
+/// host/port, borrows the task's static socket buffers; rebuilt per
+/// config-snapshot iteration alongside the protocol client.
+struct TcpConnector<'a> {
+    stack: embassy_net::Stack<'static>,
+    host: &'a str,
+    port: u16,
+    rx_buffer: &'a mut [u8],
+    tx_buffer: &'a mut [u8],
+}
+
+impl PoolConnector for TcpConnector<'_> {
+    type Conn<'c>
+        = embassy_net::tcp::TcpSocket<'c>
+    where
+        Self: 'c;
+    type Error = ubos_net::net::StratumConnectError;
+
+    async fn connect(&mut self) -> Result<Self::Conn<'_>, Self::Error> {
+        ubos_net::net::connect_stratum(
+            self.stack,
+            self.host,
+            self.port,
+            SOCKET_TIMEOUT,
+            self.rx_buffer,
+            self.tx_buffer,
+        )
+        .await
+    }
+}
+
+/// Log a session failure, preserving the distinct connect-failed and
+/// session-error lines the pre-connector code emitted.
+fn log_session_error(error: &SessionError<ubos_net::net::StratumConnectError>) {
+    match error {
+        SessionError::Connect(error) => defmt::warn!(
+            "stratum-client: connect failed: {}",
+            defmt::Debug2Format(error)
+        ),
+        SessionError::Session(error) => defmt::warn!(
+            "stratum-client: session error {}",
+            defmt::Debug2Format(error)
+        ),
+    }
+}
 
 /// Seed the SV2 `ChaCha20` PRNG once at boot, returning the `'static` handle each
 /// board hands to [`run_stratum_session`].
@@ -109,25 +155,12 @@ pub async fn run_stratum_session(
 
         let one_session = async {
             record_reconnect_attempt();
-            let mut socket = match ubos_net::net::connect_stratum(
+            let mut connector = TcpConnector {
                 stack,
-                entry.host.as_str(),
-                entry.port,
-                SOCKET_TIMEOUT,
-                rx_buffer,
-                tx_buffer,
-            )
-            .await
-            {
-                Ok(socket) => socket,
-                Err(error) => {
-                    defmt::warn!(
-                        "stratum-client: connect failed: {}",
-                        defmt::Debug2Format(&error)
-                    );
-                    Timer::after(RECONNECT_DELAY).await;
-                    return;
-                }
+                host: entry.host.as_str(),
+                port: entry.port,
+                rx_buffer: &mut *rx_buffer,
+                tx_buffer: &mut *tx_buffer,
             };
             let mut state = StratumState::new();
 
@@ -139,19 +172,16 @@ pub async fn run_stratum_session(
                     )
                     .expect("BUG: PoolEntry user/password match Sv1Config buffer sizes");
                     let mut client = stratum_v1::StratumV1Client::new(&sv1);
-                    if let Err(error) = run_stratum_client(
+                    if let Err(error) = stratum_client::run_stratum_session(
+                        &mut connector,
                         &mut client,
-                        &mut socket,
                         &ASIC_SESSION,
                         &mut state,
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )
                     .await
                     {
-                        defmt::warn!(
-                            "stratum-client: session error {}",
-                            defmt::Debug2Format(&error)
-                        );
+                        log_session_error(&error);
                     }
                 }
                 ubos_config::ProtocolKind::Sv2 { pool_pubkey } => {
@@ -162,19 +192,16 @@ pub async fn run_stratum_session(
                         secp_ctx,
                         Sv2BoardRng(&mut *sv2_prng),
                     );
-                    if let Err(error) = run_stratum_client(
+                    if let Err(error) = stratum_client::run_stratum_session(
+                        &mut connector,
                         &mut client,
-                        &mut socket,
                         &ASIC_SESSION,
                         &mut state,
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )
                     .await
                     {
-                        defmt::warn!(
-                            "stratum-client: session error {}",
-                            defmt::Debug2Format(&error)
-                        );
+                        log_session_error(&error);
                     }
                 }
             }

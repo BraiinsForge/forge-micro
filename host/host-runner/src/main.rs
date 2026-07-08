@@ -31,7 +31,10 @@ use rand::rngs::OsRng;
 use rand_core::RngCore;
 use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::AsicSession;
-use stratum_client::{RECONNECT_DELAY, SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE};
+use stratum_client::{
+    NTIME_ROLL_PERIOD_SECS, PoolConnector, RECONNECT_DELAY, SOCKET_TIMEOUT,
+    STRATUM_TCP_BUFFER_SIZE, SessionError, run_stratum_session,
+};
 use ubos_config::FileStorage;
 use ubos_manager::Handle as ManagerHandle;
 use ubos_mining::Handle as MiningHandle;
@@ -109,6 +112,47 @@ impl ii_sv2::security::Rng for HostSv2Rng {
 /// task and whichever ASIC driver is active (ubos-mining BM1362 actor or
 /// in-process CPU mock).
 pub static ASIC_SESSION: AsicSession = AsicSession::new();
+
+/// TCP transport source for one pool entry. Owns the stack handle and
+/// host/port, borrows the task's static socket buffers; rebuilt per
+/// config-snapshot iteration alongside the protocol client. Mirrors
+/// the connector in `ubos-firmware/src/stratum.rs`.
+struct TcpConnector<'a> {
+    stack: Stack<'static>,
+    host: &'a str,
+    port: u16,
+    rx_buffer: &'a mut [u8],
+    tx_buffer: &'a mut [u8],
+}
+
+impl PoolConnector for TcpConnector<'_> {
+    type Conn<'c>
+        = embassy_net::tcp::TcpSocket<'c>
+    where
+        Self: 'c;
+    type Error = net::StratumConnectError;
+
+    async fn connect(&mut self) -> Result<Self::Conn<'_>, Self::Error> {
+        net::connect_stratum(
+            self.stack,
+            self.host,
+            self.port,
+            SOCKET_TIMEOUT,
+            self.rx_buffer,
+            self.tx_buffer,
+        )
+        .await
+    }
+}
+
+/// Log a session failure, preserving the distinct connect-failed and
+/// session-error lines the pre-connector code emitted.
+fn log_session_error(error: &SessionError<net::StratumConnectError>) {
+    match error {
+        SessionError::Connect(error) => warn!("stratum-client: connect failed: {error:?}"),
+        SessionError::Session(error) => warn!("stratum-client: session error {error:?}"),
+    }
+}
 
 #[embassy_executor::task]
 async fn net_task(mut runner: Runner<'static, HostDevice>) -> ! {
@@ -214,22 +258,12 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
 
         let one_session = async {
             stratum_client::record_reconnect_attempt();
-            let mut socket = match net::connect_stratum(
+            let mut connector = TcpConnector {
                 stack,
-                entry.host.as_str(),
-                entry.port,
-                SOCKET_TIMEOUT,
-                rx_buffer,
-                tx_buffer,
-            )
-            .await
-            {
-                Ok(socket) => socket,
-                Err(error) => {
-                    warn!("stratum-client: connect failed: {error:?}");
-                    Timer::after(RECONNECT_DELAY).await;
-                    return;
-                }
+                host: entry.host.as_str(),
+                port: entry.port,
+                rx_buffer: &mut *rx_buffer,
+                tx_buffer: &mut *tx_buffer,
             };
             let mut state = stratum_client::StratumState::new();
 
@@ -241,16 +275,16 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                     )
                     .expect("BUG: PoolEntry user/password match Sv1Config buffer sizes");
                     let mut client = stratum_v1::StratumV1Client::new(&sv1);
-                    if let Err(error) = stratum_client::run_stratum_client(
+                    if let Err(error) = run_stratum_session(
+                        &mut connector,
                         &mut client,
-                        &mut socket,
                         &ASIC_SESSION,
                         &mut state,
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )
                     .await
                     {
-                        warn!("stratum-client: session error {error:?}");
+                        log_session_error(&error);
                     }
                 }
                 ubos_config::ProtocolKind::Sv2 { pool_pubkey } => {
@@ -258,16 +292,16 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                         .expect("BUG: PoolEntry.user matches Sv2Config buffer size");
                     let mut client =
                         stratum_v2::StratumV2Client::new(&sv2, secp_ctx, HostSv2Rng(OsRng));
-                    if let Err(error) = stratum_client::run_stratum_client(
+                    if let Err(error) = run_stratum_session(
+                        &mut connector,
                         &mut client,
-                        &mut socket,
                         &ASIC_SESSION,
                         &mut state,
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )
                     .await
                     {
-                        warn!("stratum-client: session error {error:?}");
+                        log_session_error(&error);
                     }
                 }
             }
