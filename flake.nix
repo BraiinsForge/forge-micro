@@ -1078,11 +1078,58 @@
             '';
           };
 
-          # Bootloader ELF for the rp2350 and bmm-pico boards. Both boards
-          # use the rp2350-bootloader crate; it occupies flash offset 0x10000000
-          # and carries the image-def the bootrom validates. The combined UF2
-          # derivations bundle this ELF with the app binary so the image is
-          # drag-droppable via the BOOTSEL mass-storage interface.
+          # Production hashnode firmware image derivation. Shared by
+          # packages.hashnode-image (nix build) and apps.hashnode-uf2
+          # (nix run).
+          hashnodeImage = craneLib.cargoBuild {
+            inherit src;
+            cargoArtifacts = hashnodeArtifacts;
+            cargoBuildCommand = "cargo build --release";
+            cargoExtraArgs = "-p hashnode --target thumbv8m.main-none-eabihf";
+            nativeBuildInputs = [
+              pkgs.gcc-arm-embedded
+              pkgs.esbuild
+            ];
+            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+            UBOS_FW_VERSION = fwVersion;
+            # Do not copy the cargo target directory into $out; we only
+            # want the raw binary image.
+            doInstallCargoArtifacts = false;
+            # The hashnode .cargo/config.toml bakes a test POOL_USER for
+            # dev flashing, but crane builds from the flake root where
+            # cargo does not read it; the guard proves it stayed out.
+            installPhaseCommand = ''
+              mkdir -p "$out"
+              arm-none-eabi-objcopy -O binary \
+                target/thumbv8m.main-none-eabihf/release/hashnode \
+                "$out/hashnode-v${fwVersion}.bin"
+              size=$(wc -c < "$out/hashnode-v${fwVersion}.bin")
+              echo "hashnode image: $size bytes / ${toString slotMaxBytes} bytes budget, version ${fwVersion}"
+              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
+                echo "ERROR: hashnode release image ($size bytes) exceeds the" \
+                     "${toString slotMaxBytes}-byte slot limit. See docs/OTA.md."
+                exit 1
+              fi
+              if [ -n "''${POOL_USER:-}" ]; then
+                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
+                exit 1
+              fi
+              if grep -qa "braiinstest" "$out/hashnode-v${fwVersion}.bin"; then
+                echo "ERROR: hashnode image contains the test pool worker 'braiinstest'; it must not ship."
+                exit 1
+              fi
+            '';
+          };
+
+          # Bootloader ELF for the rp2350, bmm-pico, and hashnode boards.
+          # All three use the rp2350-bootloader crate; it occupies flash
+          # offset 0x10000000 and carries the image-def the bootrom
+          # validates. The crate is built with the rp235xa feature but
+          # touches no GPIO, so the binary also runs on the hashnode's
+          # RP2350B. The combined UF2 derivations bundle this ELF with the
+          # app binary so the image is drag-droppable via the BOOTSEL
+          # mass-storage interface.
           rp2350Bootloader = craneLib.cargoBuild {
             inherit src;
             cargoArtifacts = thumbv8mBootloaderArtifacts;
@@ -1157,6 +1204,13 @@
             appBin = "${rp2040Image}/rp2040-v${fwVersion}.bin";
             bootElf = rp2040Bootloader;
             family = "rp2040";
+          };
+
+          hashnodeUf2 = mkCombinedUf2 {
+            name = "hashnode";
+            appBin = "${hashnodeImage}/hashnode-v${fwVersion}.bin";
+            bootElf = rp2350Bootloader;
+            family = "rp2350-arm-s";
           };
 
           # Resolve KiCad's stock symbol/footprint libraries for the
@@ -3082,9 +3136,11 @@
             rp2350-image = rp2350Image;
             bmm-pico-image = bmmPicoImage;
             rp2040-image = rp2040Image;
+            hashnode-image = hashnodeImage;
             rp2350-uf2 = rp2350Uf2;
             bmm-pico-uf2 = bmmPicoUf2;
             rp2040-uf2 = rp2040Uf2;
+            hashnode-uf2 = hashnodeUf2;
 
             # KiCad automation for the bmm-adapter fabrication job
             # (`nix run .#kibot`). DRC and ERC are gated separately by
@@ -3154,6 +3210,7 @@
           #   nix run .#rp2350-uf2                                  -> build/rp2350-v1.uf2
           #   nix run .#bmm-pico-uf2                                -> build/bmm-pico-v1.uf2
           #   nix run .#rp2040-uf2                                  -> build/rp2040-v1.uf2
+          #   nix run .#hashnode-uf2                                -> build/hashnode-v1.uf2
           #
           # The final stdout line is the absolute path to the written file.
           apps = {
@@ -3255,6 +3312,23 @@
                   name="$(basename "$src_uf2")"
                   install -m644 "$src_uf2" "$dest/$name"
                   echo "rp2040 UF2 v${fwVersion} written to:" >&2
+                  echo "$dest/$name"
+                ''
+              );
+            };
+            hashnode-uf2 = {
+              type = "app";
+              program = toString (
+                pkgs.writeShellScript "hashnode-uf2-to-build" ''
+                  set -euo pipefail
+                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
+                  dest="$root/build"
+                  mkdir -p "$dest"
+                  # The package $out holds exactly one hashnode-v<N>.uf2.
+                  src_uf2="$(echo ${hashnodeUf2}/*.uf2)"
+                  name="$(basename "$src_uf2")"
+                  install -m644 "$src_uf2" "$dest/$name"
+                  echo "hashnode UF2 v${fwVersion} written to:" >&2
                   echo "$dest/$name"
                 ''
               );
