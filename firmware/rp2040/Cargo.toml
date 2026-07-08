@@ -38,7 +38,7 @@ embedded-io-async    = { workspace = true }
 portable-atomic      = { workspace = true }
 cortex-m             = { version = "0.7", features = ["inline-asm"] }
 cortex-m-rt          = "0.7"
-stratum-client       = { workspace = true, features = ["defmt"] }
+stratum-client       = { workspace = true }
 ubos-thermal         = { workspace = true, features = ["defmt"] }
 ubos-manager         = { workspace = true, features = ["defmt"] }
 ubos-config          = { workspace = true, features = ["defmt"] }

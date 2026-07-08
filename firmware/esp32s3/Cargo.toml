@@ -32,7 +32,7 @@ defmt                  = { workspace = true }
 portable-atomic        = { workspace = true }
 static_cell            = { workspace = true }
 embedded-hal-bus       = { workspace = true, features = ["async"] }
-stratum-client         = { workspace = true, features = ["defmt"] }
+stratum-client         = { workspace = true }
 ubos-temperature       = { workspace = true, features = ["defmt"] }
 ubos-thermal           = { workspace = true, features = ["defmt"] }
 ubos-manager           = { workspace = true, features = ["defmt"] }
