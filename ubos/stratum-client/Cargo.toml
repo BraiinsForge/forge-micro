@@ -23,5 +23,12 @@ ubos-events     = { workspace = true, default-features = false }
 ubos-logging    = { workspace = true }
 ubos-metrics    = { workspace = true, default-features = false }
 
+[dev-dependencies]
+# The ntime-roll tests construct an `AsicSession`, whose `Watch`/`Channel`
+# are `CriticalSectionRawMutex`-backed, so the host test binary needs a
+# linkable critical-section implementation. The std impl is host-only and
+# never reaches firmware.
+critical-section = { version = "1.2", features = ["std"] }
+
 [package.metadata.cargo-machete]
 ignored = ["defmt"]

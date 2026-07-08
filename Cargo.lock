@@ -4260,6 +4260,7 @@ dependencies = [
 name = "stratum-client"
 version = "0.1.0"
 dependencies = [
+ "critical-section",
  "defmt 1.0.1",
  "embassy-futures",
  "embassy-sync 0.8.0",
