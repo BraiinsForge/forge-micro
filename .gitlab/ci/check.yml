@@ -72,3 +72,21 @@ check:
     - .rust-rules
   script:
     - nix build --no-link --print-build-logs .#ci-check
+
+# Flashable hashnode BOOTSEL image for every commit that lands on the
+# default branch. The `nix run` app copies the UF2 out of the store
+# into build/, so the artifact archives the file itself rather than a
+# dangling /nix/store symlink. The archive name carries the commit;
+# the pure build inside is always version 1.
+hashnode-uf2:
+  stage: check
+  extends:
+    - .rust-git
+  script:
+    - nix run --print-build-logs .#hashnode-uf2
+  artifacts:
+    name: "hashnode-uf2-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - build/*.uf2
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
