@@ -19,7 +19,7 @@ ubos-metrics         = { workspace = true, features = ["defmt"] }
 ubos-mdns            = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt"] }
 ubos-events          = { workspace = true, features = ["defmt"] }
-ubos-firmware        = { workspace = true }
+ubos-firmware        = { workspace = true, features = ["defmt"] }
 ubos-display         = { workspace = true }
 ubos-core            = { workspace = true }
 ubos-machine         = { workspace = true }

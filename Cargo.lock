@@ -4888,6 +4888,7 @@ dependencies = [
  "ubos-api",
  "ubos-config",
  "ubos-events",
+ "ubos-logging",
  "ubos-manager",
  "ubos-mining",
  "ubos-net",

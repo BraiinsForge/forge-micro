@@ -19,7 +19,7 @@ ubos-metrics         = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-mdns            = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-events          = { workspace = true, features = ["defmt"] }
-ubos-firmware        = { workspace = true }
+ubos-firmware        = { workspace = true, features = ["defmt"] }
 ubos-machine         = { workspace = true }
 ubos-display         = { workspace = true }
 ubos-core            = { workspace = true, features = ["ccmram-bss"] }

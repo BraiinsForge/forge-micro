@@ -6,8 +6,34 @@ version = "0.1.0"
 [lints]
 workspace = true
 
+[features]
+default = []
+# Route the whole firmware-assembly layer through defmt. Every MCU board
+# enables this, including the redacted (redacted), which logs via redacted-rtt's
+# defmt transport over RTT. Logging in this crate goes through the
+# `ubos_logging` facade, so the feature only has to forward defmt to every
+# subsystem dep that does its own logging.
+defmt = [
+    "dep:defmt",
+    "ubos-logging/defmt",
+    "stratum-client/defmt",
+    "stratum-v1/defmt",
+    "stratum-v2/defmt",
+    "ubos-api/defmt",
+    "ubos-config/defmt",
+    "ubos-events/defmt",
+    "ubos-manager/defmt",
+    "ubos-mining/defmt",
+    "ubos-net/defmt",
+    "ubos-psu/defmt",
+    "ubos-thermal/defmt",
+]
+
 [dependencies]
-defmt          = { workspace = true }
+# defmt is needed even though logging goes through the facade: the facade's
+# defmt macros expand to `::defmt::` paths in this crate. Optional, gated by
+# the `defmt` feature; every MCU board consuming this crate enables it.
+defmt          = { workspace = true, optional = true }
 embassy-futures = { workspace = true }
 embassy-net    = { workspace = true }
 embassy-time   = { workspace = true }
@@ -15,18 +41,26 @@ heapless       = { workspace = true }
 ii-sv2         = { workspace = true, features = ["lowmemory"] }
 rand_chacha    = { workspace = true }
 static_cell    = { workspace = true }
-stratum-client = { workspace = true, features = ["defmt"] }
-stratum-v1     = { workspace = true, features = ["defmt"] }
-stratum-v2     = { workspace = true, features = ["defmt"] }
-# defmt is enabled on every subsystem crate so this crate's feature set
-# matches the boards': stratum-client's `defmt` turns on `ubos-logging/defmt`,
-# and once the logging macros expand to `defmt::` every crate that uses them
-# must link defmt too. The boards enable defmt uniformly; this mirrors that.
-ubos-api       = { workspace = true, features = ["defmt"] }
-ubos-config    = { workspace = true, features = ["defmt"] }
-ubos-events    = { workspace = true, features = ["defmt"] }
-ubos-manager   = { workspace = true, features = ["defmt"] }
-ubos-mining    = { workspace = true, features = ["defmt"] }
-ubos-net       = { workspace = true, features = ["defmt"] }
-ubos-psu       = { workspace = true, features = ["defmt"] }
-ubos-thermal   = { workspace = true, features = ["defmt"] }
+# Logging facade: `log` by default, `defmt` when the board enables it.
+ubos-logging   = { workspace = true }
+stratum-client = { workspace = true }
+stratum-v1     = { workspace = true }
+stratum-v2     = { workspace = true }
+# `default-features = false` on the deps below: this crate's own `defmt`
+# feature (above) forwards to their `defmt` features explicitly, so a
+# consumer building without it must not get defmt back in through feature
+# unification via this crate's edges.
+ubos-api       = { workspace = true, default-features = false }
+ubos-config    = { workspace = true, default-features = false }
+ubos-events    = { workspace = true, default-features = false }
+ubos-manager   = { workspace = true, default-features = false }
+ubos-mining    = { workspace = true, default-features = false }
+ubos-net       = { workspace = true, default-features = false }
+ubos-psu       = { workspace = true, default-features = false }
+ubos-thermal   = { workspace = true, default-features = false }
+
+# `defmt` is a facade/macro-expansion dependency (the macros expand to
+# `::defmt::` paths under the `defmt` feature), so it has no direct code
+# reference for machete to see. It is real and gated by the feature.
+[package.metadata.cargo-machete]
+ignored = ["defmt"]

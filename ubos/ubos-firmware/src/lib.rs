@@ -23,8 +23,8 @@ use ubos_events::EventDef;
 /// Per-crate event catalogs assembled into the registry the events
 /// `/catalog` endpoint serves, so the browser can decode records into text.
 ///
-/// Hoisted out of the six board `main.rs` files, where it was duplicated
-/// byte-for-byte: adding a subsystem's events meant editing all six lists,
+/// Hoisted out of the seven board `main.rs` files, where it was duplicated
+/// byte-for-byte: adding a subsystem's events meant editing all seven lists,
 /// and missing one left that board serving an incomplete decode table.
 pub const EVENT_REGISTRY: &[&[EventDef]] = &[
     ubos_config::events::CATALOG,

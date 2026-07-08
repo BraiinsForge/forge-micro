@@ -126,5 +126,5 @@ consts the machines wrap — so it cannot drift from the firmware.
 - **Multiple hashboards per machine.** `MachineDescriptor.hashboard`
   is a single field, expanded to a collection when multi-board wiring
   actually lands.
-- **New control boards** (Maix Bit / redacted redacted, redacted10). The
+- **New control boards** (redacted / redacted redacted, redacted10). The
   `PlatformDescriptor` shape anticipates them.

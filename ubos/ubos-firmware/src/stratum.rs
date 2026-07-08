@@ -1,6 +1,6 @@
 //! Shared stratum client orchestration task.
 //!
-//! Hoisted out of the six board `main.rs` files, where this ~95-line session
+//! Hoisted out of the seven board `main.rs` files, where this ~95-line session
 //! loop was duplicated byte-for-byte. The only per-board variance was the SV2
 //! noise-handshake RNG: every board now seeds a `ChaCha20Rng` at boot from its
 //! hardware entropy and passes it in, so the task, the secp context, the
@@ -15,6 +15,7 @@ use stratum_client::{
     AsicSession, NTIME_ROLL_PERIOD_SECS, PoolConnector, RECONNECT_DELAY, SOCKET_TIMEOUT,
     STRATUM_TCP_BUFFER_SIZE, SessionError, StratumState, record_reconnect_attempt,
 };
+use ubos_logging::{Debug2Format, info, warn};
 
 /// Shared ASIC session: the bridge between the stratum work source and the
 /// BM1362 serial worker. One instance per binary; referenced by both the
@@ -88,14 +89,12 @@ impl PoolConnector for TcpConnector<'_> {
 /// session-error lines the pre-connector code emitted.
 fn log_session_error(error: &SessionError<ubos_net::net::StratumConnectError>) {
     match error {
-        SessionError::Connect(error) => defmt::warn!(
-            "stratum-client: connect failed: {}",
-            defmt::Debug2Format(error)
-        ),
-        SessionError::Session(error) => defmt::warn!(
-            "stratum-client: session error {}",
-            defmt::Debug2Format(error)
-        ),
+        SessionError::Connect(error) => {
+            warn!("stratum-client: connect failed: {:?}", Debug2Format(error));
+        }
+        SessionError::Session(error) => {
+            warn!("stratum-client: session error {:?}", Debug2Format(error));
+        }
     }
 }
 
@@ -148,7 +147,7 @@ pub async fn run_stratum_session(
     loop {
         let snapshot = config_handle.current();
         let Some(entry) = snapshot.pool.first() else {
-            defmt::warn!("stratum-client: pool list empty, awaiting config update");
+            warn!("stratum-client: pool list empty, awaiting config update");
             restart.wait().await;
             continue;
         };
@@ -212,7 +211,7 @@ pub async fn run_stratum_session(
             select(one_session, restart.wait()).await,
             Either::Second(())
         ) {
-            defmt::info!("stratum-client: pool config changed, reconnecting");
+            info!("stratum-client: pool config changed, reconnecting");
         }
     }
 }
