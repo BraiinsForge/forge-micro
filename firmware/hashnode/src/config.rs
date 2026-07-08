@@ -11,8 +11,8 @@ pub use ubos_machine::HASHNODE as MACHINE;
 
 use embassy_rp::peripherals::{
     CORE1, DMA_CH0, DMA_CH1, FLASH, I2C1, PIN_10, PIN_11, PIN_16, PIN_17, PIN_18, PIN_19, PIN_2,
-    PIN_20, PIN_21, PIN_23, PIN_24, PIN_25, PIN_3, PIN_30, PIN_32, PIN_4, PIN_5, PIN_6, PWM_SLICE5,
-    SPI0, TRNG, UART1, WATCHDOG,
+    PIN_20, PIN_21, PIN_23, PIN_24, PIN_25, PIN_3, PIN_30, PIN_32, PIN_4, PIN_5, PIN_6, PIO0,
+    PWM_SLICE5, SPI0, TRNG, UART1, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_15, PIN_26, PIN_27, PIN_28, PIN_29, SPI1};
@@ -61,11 +61,13 @@ pub struct Board {
     pub fan_pwm_pin_b: Peri<'static, PIN_11>,
     /// Fan tachometer inputs, one per connector: GPIO24 (`RP_TACH_A`),
     /// GPIO25 (`RP_TACH_B`), GPIO23 (`RP_TACH_C`). None map to a `PWM`
-    /// `ChannelB`, so `Pwm::new_input` is unusable; pulses are counted via
-    /// the async GPIO wait API instead.
+    /// `ChannelB`, so the slice edge counter is unusable; each is measured
+    /// by a `PIO0` state machine instead.
     pub fan_tach_pin_a: Peri<'static, PIN_24>,
     pub fan_tach_pin_b: Peri<'static, PIN_25>,
     pub fan_tach_pin_c: Peri<'static, PIN_23>,
+    /// PIO block driving the three tachometer period counters.
+    pub pio: Peri<'static, PIO0>,
     /// FLASH peripheral for the on-board QSPI; ubos-config persists the
     /// runtime config record in the last two sectors of this device.
     pub flash: Peri<'static, FLASH>,
@@ -141,6 +143,7 @@ impl Board {
             fan_tach_pin_a: peripherals.PIN_24,
             fan_tach_pin_b: peripherals.PIN_25,
             fan_tach_pin_c: peripherals.PIN_23,
+            pio: peripherals.PIO0,
             flash: peripherals.FLASH,
             sic_en: peripherals.PIN_30,
             #[cfg(feature = "display")]
@@ -186,7 +189,6 @@ impl Watchdog {
 pub struct Fan;
 impl Fan {
     pub const PWM_TOP: u16 = 5999;
-    pub const TACH_WINDOW: Duration = Duration::from_secs(1);
     pub const TACH_PULSES_PER_REV: u64 = 2;
 }
 

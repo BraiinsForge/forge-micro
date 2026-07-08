@@ -50,8 +50,8 @@ ubos-eeprom          = { workspace = true, features = ["defmt"] }
 ubos-machine         = { workspace = true }
 serial-baudrate      = { workspace = true }
 embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
-embassy-futures      = { workspace = true }
 embassy-sync         = { workspace = true, features = ["defmt"] }
+pio                  = "0.3"
 
 # cortex-m and cortex-m-rt are pulled in by `#[cortex_m_rt::entry]` and
 # the linker scripts; no direct source references, so machete can't see them.

@@ -23,15 +23,16 @@ use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
-use embassy_rp::gpio::{AnyPin, Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0, TRNG, UART1};
+use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, PIO0, SPI0, TRNG, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
+use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_rp::trng::{self, Trng};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
 use embassy_rp::watchdog::Watchdog;
-use embassy_rp::{bind_interrupts, dma, i2c, Peri};
+use embassy_rp::{bind_interrupts, dma, i2c};
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Delay;
@@ -133,6 +134,7 @@ bind_interrupts!(struct Irqs {
     I2C1_IRQ => i2c::InterruptHandler<I2C1>;
     UART1_IRQ => BufferedInterruptHandler<UART1>;
     TRNG_IRQ => trng::InterruptHandler<TRNG>;
+    PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
 });
 
 type EthernetRunner = Runner<
@@ -235,11 +237,6 @@ async fn config_task(storage: BoardConfigStorage) -> ! {
 #[embassy_executor::task]
 async fn cooling_task(fan: fan::BoardFan, tach: fan::BoardTach, thermal: ThermalHandle) -> ! {
     ubos_cooling::run_cooling(fan, tach, thermal).await
-}
-
-#[embassy_executor::task(pool_size = 3)]
-async fn tach_task(pin: Peri<'static, AnyPin>, index: usize) -> ! {
-    fan::run_tach(pin, index).await
 }
 
 #[embassy_executor::task]
@@ -531,9 +528,19 @@ async fn boot(spawner: Spawner) {
     let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
     let hashboard_temp = temperature::new(temp_device);
     let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin, hw.fan_pwm_pin_b);
+    // Each connector's tachometer is measured by a PIO0 state machine; the
+    // cooling loop drains the latest period per fan and publishes one
+    // labeled board_fan_rpm series each.
+    let tach_pio = Pio::new(hw.pio, Irqs);
+    let board_tach = fan::BoardTach::new(
+        tach_pio,
+        hw.fan_tach_pin_a,
+        hw.fan_tach_pin_b,
+        hw.fan_tach_pin_c,
+    );
     spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
     spawner.spawn(unwrap!(manager_task(mining_handle)));
-    spawner.spawn(unwrap!(cooling_task(board_fan, fan::BoardTach, thermal)));
+    spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
 
     // --- 7. Config — always ---------------------------------------------------
     let config_storage = FlashStorage::new(
@@ -543,11 +550,6 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(config_task(config_storage)));
 
     // --- 8. Board health tasks — always (no net/psu deps) ---------------------
-    // Each tach stores into its FAN_RPM_SAMPLE slot; the cooling loop reads
-    // all three and publishes one labeled board_fan_rpm series per fan.
-    spawner.spawn(unwrap!(tach_task(hw.fan_tach_pin_a.into(), 0)));
-    spawner.spawn(unwrap!(tach_task(hw.fan_tach_pin_b.into(), 1)));
-    spawner.spawn(unwrap!(tach_task(hw.fan_tach_pin_c.into(), 2)));
     spawner.spawn(unwrap!(cpu_load_task()));
 
     // --- 9. Display — feature-gated on the cargo `display` feature -----------
