@@ -36,16 +36,12 @@ pub struct JobSlot {
     pub version: u32,
     pub nbits: u32,
     /// Pool-supplied `ntime` base. The published `WorkAssignment`
-    /// carries `ntime_base + ntime_offset`, with the offset derived
-    /// from `roll_elapsed_secs` by the work generator every publish.
+    /// carries `ntime_base + ntime_offset`, with the offset advanced
+    /// directly by the work generator's per-publish step every publish.
     pub ntime_base: u32,
     /// Seconds rolled forward from `ntime_base`. Reset to 0 when
     /// the slot is freshly populated.
     pub ntime_offset: u32,
-    /// Publishes accumulated since the slot was populated, used to
-    /// derive `ntime_offset` from the configured roll period. Reset to
-    /// 0 alongside `ntime_offset` when the slot is freshly populated.
-    pub roll_elapsed_secs: u32,
     pub extranonce_2_size: u8,
     pub clean_jobs: bool,
 }
@@ -63,7 +59,6 @@ impl JobSlot {
             nbits: 0,
             ntime_base: 0,
             ntime_offset: 0,
-            roll_elapsed_secs: 0,
             extranonce_2_size: 0,
             clean_jobs: false,
         }
@@ -99,7 +94,6 @@ impl JobSlot {
             nbits: job.nbits,
             ntime_base: job.ntime,
             ntime_offset: 0,
-            roll_elapsed_secs: 0,
             extranonce_2_size: job.extranonce_2_size,
             clean_jobs: job.clean_jobs,
         })

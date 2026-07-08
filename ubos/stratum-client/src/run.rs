@@ -1,9 +1,10 @@
 //! `run_stratum_client` — the integration loop.
 //!
 //! One async function that owns the protocol-side `MiningClient`
-//! adapter, the `StratumState` (visitor + rings), and ticks a 1 Hz
-//! work generator that publishes fresh `WorkAssignment`s into the
-//! `AsicSession`. Solutions coming back from the ASIC are looked
+//! adapter, the `StratumState` (visitor + rings), and a work generator
+//! that publishes fresh `WorkAssignment`s into the `AsicSession` —
+//! either on a configurable ticker, or once per accepted job when the
+//! ticker is disabled. Solutions coming back from the ASIC are looked
 //! up in the `WorkRing`, validated against the `JobRing`, and
 //! submitted via the same `MiningClient`.
 //!
@@ -15,7 +16,7 @@ use embassy_futures::select::{Either3, select3};
 use embassy_time::{Duration, Ticker};
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
-use mining_protocol::{Error, MiningClient, Share};
+use mining_protocol::{Error, JobId, MiningClient, Share};
 use portable_atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use ubos_logging::{info, trace, warn};
 
@@ -112,10 +113,6 @@ pub fn set_pool_alive(pool_index: u8, alive: bool) {
     }
 }
 
-/// Cadence at which the work generator publishes a fresh
-/// `WorkAssignment`.
-pub const WORK_GENERATOR_PERIOD: Duration = Duration::from_secs(1);
-
 /// Maximum `ntime` roll, in seconds, past the pool's published
 /// base. Bitcoin's consensus rule allows ~2 hours; pools enforce a
 /// similar cap. Bounding the offset here keeps a wedged stratum
@@ -136,16 +133,24 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 /// firmware's outer reconnect loop drops `client` and `transport`,
 /// builds fresh ones, and calls `run_stratum_client` again.
 ///
-/// `ntime_roll_period_secs` configures the per-publish `ntime` roll:
-/// `Some(period)` advances the offset by one second every `period`
-/// publishes (`period == 0` is clamped to 1); `None` pins `ntime` to
-/// the job's base with no roll at all. `Some(1)` reproduces the
-/// historical one-second drift, since the publish cadence is
-/// [`WORK_GENERATOR_PERIOD`] (1 s) and the elapsed counter advances
-/// once per publish — sub-second periods were fake precision. Rolling
-/// faster than wall clock drifts `ntime` toward rejection, so callers
-/// should not pass a period below 1. See [`publish_work`] for the
-/// offset math.
+/// `ntime_roll_period_secs` doubles as the work-generator cadence:
+/// `Some(period)` ticks a [`Ticker`] every `period` seconds (`period
+/// == 0` is clamped to 1, since a caller passing `Some(0)` most likely
+/// means "publish as fast as possible", not "don't roll") and advances
+/// the `ntime` offset by exactly one second per tick — the period
+/// spaces the publishes, it does not scale the step, so a period
+/// above one second rolls `ntime` slower than wall clock, never
+/// faster (and never toward future-timestamp rejection). `Some(1)`
+/// reproduces the historical one-second cadence and drift.
+///
+/// `None` runs no ticker at all: the work generator instead publishes
+/// exactly once per job, right after the job is accepted, with no
+/// roll. Repeatedly re-publishing the same job — even to hand the chip
+/// an updated `ntime` — restarts whatever nonce/version sweep the ASIC
+/// was mid-way through, so a chip that never completes a full sweep
+/// pass can never search past one period's coverage. `None` trades the
+/// rolling `ntime` for an uninterrupted sweep. See [`publish_work`]
+/// for the offset math.
 ///
 /// # Errors
 ///
@@ -188,19 +193,43 @@ where
     // `await?` returning Err.
     set_pool_alive(PRIMARY_POOL_INDEX, true);
 
-    let mut work_ticker = Ticker::every(WORK_GENERATOR_PERIOD);
+    // A caller passing `Some(0)` most likely means "publish as fast as
+    // possible", not "don't roll" — that's what `None` is for.
+    let period_secs = ntime_roll_period_secs.map(|period| period.max(1));
+    let mut work_ticker =
+        period_secs.map(|period| Ticker::every(Duration::from_secs(u64::from(period))));
+
+    // Most recently published job, so the `None` (no ticker) path can
+    // detect a fresh job and publish exactly once for it, without a
+    // ticker driving repeat publishes that would restart the ASIC's
+    // sweep.
+    let mut last_published: Option<JobId> = None;
 
     loop {
-        match select3(
-            client.drive(transport),
-            asic.take_solution(),
-            work_ticker.next(),
-        )
-        .await
-        {
+        let tick = async {
+            match work_ticker.as_mut() {
+                Some(ticker) => ticker.next().await,
+                None => core::future::pending::<()>().await,
+            }
+        };
+
+        match select3(client.drive(transport), asic.take_solution(), tick).await {
             Either3::First(drive_result) => {
                 drive_result?;
                 client.accept(state);
+                if work_ticker.is_none()
+                    && let Some(current_job_id) = state.job_ring.current().map(|slot| slot.job_id)
+                    && last_published != Some(current_job_id)
+                {
+                    // No ticker exists to drive periodic publishes, so a
+                    // freshly accepted job would otherwise never reach
+                    // the ASIC. One publish per job is exactly what an
+                    // uninterrupted sweep needs: the assignment carries
+                    // the job's base ntime and the chip sweeps it
+                    // without ever being re-published.
+                    publish_work(state, asic, 0);
+                    last_published = Some(current_job_id);
+                }
             }
             Either3::Second(solution) => {
                 if let Err(error) = handle_solution(client, state, solution) {
@@ -208,7 +237,11 @@ where
                 }
             }
             Either3::Third(()) => {
-                publish_work(state, asic, ntime_roll_period_secs);
+                // Each publish is one ntime step regardless of how far
+                // apart the ticker spaces them; a period above one
+                // second therefore rolls ntime slower than wall clock,
+                // never faster.
+                publish_work(state, asic, 1);
             }
         }
     }
@@ -259,24 +292,22 @@ fn handle_solution<C: MiningClient>(
 /// record an `OutstandingWork` so the eventual `Solution` can be
 /// translated back to a `Share`, and publish to the ASIC.
 ///
-/// `ntime_roll_period_secs` is `None` to pin `ntime` to the slot's base
-/// (`ntime_offset` stays 0), or `Some(period)` to roll one second
-/// forward every `period` publishes of accumulated publish cadence,
-/// capped at [`NTIME_ROLL_MAX_SECS`]. A `period` of 0 is clamped to 1
-/// rather than treated as `None`, since a caller passing `Some(0)`
-/// most likely meant "roll as fast as possible", not "don't roll".
-fn publish_work(state: &mut StratumState, asic: &AsicSession, ntime_roll_period_secs: Option<u32>) {
+/// `step` advances the slot's `ntime_offset` by that many seconds,
+/// capped at [`NTIME_ROLL_MAX_SECS`], before publishing. The loop in
+/// [`run_stratum_client_inner`] passes the roll period on each ticker
+/// tick, or `0` for the one-shot publish that hands a freshly accepted
+/// job to the ASIC when no ticker is running.
+fn publish_work(state: &mut StratumState, asic: &AsicSession, step: u32) {
     let extranonce_2_size = match state.job_ring.current() {
         Some(slot) if slot.valid => slot.extranonce_2_size,
         _ => return,
     };
 
-    if let Some(period) = ntime_roll_period_secs
-        && let Some(slot) = state.job_ring.current_mut()
-    {
-        let period = period.max(1);
-        slot.roll_elapsed_secs = slot.roll_elapsed_secs.saturating_add(1);
-        slot.ntime_offset = (slot.roll_elapsed_secs / period).min(NTIME_ROLL_MAX_SECS);
+    if let Some(slot) = state.job_ring.current_mut() {
+        slot.ntime_offset = slot
+            .ntime_offset
+            .saturating_add(step)
+            .min(NTIME_ROLL_MAX_SECS);
     }
 
     let work_id = state.next_work_id;

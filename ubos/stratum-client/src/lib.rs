@@ -49,8 +49,8 @@ pub use asic_session::{AsicSession, SOLUTION_QUEUE_DEPTH};
 pub use connector::{PoolConnector, SessionError, run_stratum_session};
 pub use job_ring::{JOB_RING_DEPTH, JobRing, JobSlot, JobSlotError};
 pub use run::{
-    NTIME_ROLL_MAX_SECS, WORK_GENERATOR_PERIOD, pool_alive_bitmap, record_reconnect_attempt,
-    run_stratum_client, set_pool_alive,
+    NTIME_ROLL_MAX_SECS, pool_alive_bitmap, record_reconnect_attempt, run_stratum_client,
+    set_pool_alive,
 };
 pub use state::StratumState;
 pub use state::{shares_accepted, shares_rejected};
