@@ -4,7 +4,8 @@
 //! topology (series voltage domains, chip count, PSU ceiling) so the
 //! tuner can dispatch the bring-up recipe and read chip capabilities
 //! through a hashboard-scoped seam. The static instances (such as
-//! [`BMM100`]) name the concrete hashboards the firmware supports.
+//! [`BMM101_HASHBOARD`]) name the concrete hashboards the firmware
+//! supports.
 
 use ubos_core::units::{Frequency, Voltage};
 
@@ -97,7 +98,7 @@ impl HashboardDescriptor {
 /// Hashboard descriptor. The `max_psu_voltage` mirrors
 /// `BmmPsuDescriptor::DEFAULT.dcdc_voltage_range` (`VRange2`, end
 /// 1675 mV).
-pub const BMM100: HashboardDescriptor = HashboardDescriptor {
+pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     chip: Chip::Bm1362,
     num_voltage_domains: 4,
     num_chips: 4,
@@ -112,10 +113,11 @@ pub const BMM100: HashboardDescriptor = HashboardDescriptor {
     model: "miniminer",
 };
 
-/// Hashboard descriptor for the 4-chip BM1370 hashnode board. Four BM1370
-/// voltage domains stack in series; the femto reference design ran two
-/// domains at 2.4 V total (≈1.2 V per domain), so four need ≈4.8 V.
-pub const HASHNODE: HashboardDescriptor = HashboardDescriptor {
+/// Hashboard descriptor for the 4-chip BM1370 `BFMX4` (Braiins Forge Miner
+/// x4) hashboard, carried on the Hashnode machine. Four BM1370 voltage
+/// domains stack in series; the femto reference design ran two domains at
+/// 2.4 V total (≈1.2 V per domain), so four need ≈4.8 V.
+pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     chip: Chip::Bm1370,
     num_voltage_domains: 4,
     num_chips: 4,

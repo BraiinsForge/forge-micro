@@ -56,7 +56,7 @@ ubos-mining backend pushes shares into the `stratum-client::AsicSession`
 solution channel that the V1 and V2 client tasks drain. Hashes accumulated
 by the backend feed `ubos_metrics::hashrate` for the EWMA-smoothed rate the
 Prometheus endpoint and display surface. The ubos-mining backend ties together
-the BM1362 chip-serial actor, the BMM100 PSU driver, and a runtime
+the BM1362 chip-serial actor, the BMM101 PSU driver, and a runtime
 baud-rate switch; see [MINING.md](MINING.md).
 
 ## Workspace crates
@@ -100,7 +100,7 @@ baud-rate switch; see [MINING.md](MINING.md).
 - `ubos/rp235x-sha256/` -- polled driver for the RP2350 SHA-256 accelerator.
 - `ubos/esp32s3-tsens/` -- ESP32-S3 internal temperature sensor (esp-hal
   1.0.0 does not expose it).
-- `ubos/ubos-psu/` -- async PSU driver for the BMM100 miniminer hashboard
+- `ubos/ubos-psu/` -- async PSU driver for the BMM101 miniminer hashboard
   plus the INA230 current monitor; generic over `embedded-hal-async::i2c`.
 - `ubos/ubos-temperature/` -- LM75A / esp32s3-tsens temperature sensor
   abstraction.

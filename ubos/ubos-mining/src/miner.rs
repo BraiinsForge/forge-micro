@@ -1,4 +1,4 @@
-//! BMM100 mining main loop.
+//! BMM101 mining main loop.
 //!
 //! Each iteration brings the chip up (PSU, reset sequencing,
 //! `tuner.init`), waits on [`STOP_MINING`] or a [`Message`] delivered

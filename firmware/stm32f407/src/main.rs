@@ -1,5 +1,5 @@
 //! Firmware entry point for the `DevEBox` STM32F407VGT6 + WT32-ETH01
-//! (LAN8720) with the BMM100/BM1362 ubos-mining backend.
+//! (LAN8720) with the BMM101/BM1362 ubos-mining backend.
 //!
 //! Enables the module's 50 MHz oscillator, starts the built-in MAC with
 //! an auto-probed LAN8720 PHY, runs the embassy-net stack with DHCP, and
@@ -499,7 +499,7 @@ async fn boot(spawner: Spawner) {
 
     spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
 
-    // BMM100 hashboard PSU on I2C1: shared bus, PSU watchdog, power stats,
+    // BMM101 hashboard PSU on I2C1: shared bus, PSU watchdog, power stats,
     // and the miner bring-up task all run on the single-core executor, so
     // the I2C bus mutex can stay `NoopRawMutex`.
     {

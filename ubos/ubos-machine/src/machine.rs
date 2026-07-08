@@ -6,7 +6,7 @@ use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor};
 use ubos_temperature::{SensorDescriptor, SensorKind};
 
 use crate::control_board::{
-    CONTROL_BOARD_BMM_PICO, CONTROL_BOARD_ESP32S3, CONTROL_BOARD_HASHNODE, CONTROL_BOARD_RP2040,
+    CONTROL_BOARD_BMM_ADAPTER, CONTROL_BOARD_ESP32S3, CONTROL_BOARD_HASHNODE, CONTROL_BOARD_RP2040,
     CONTROL_BOARD_RP2350, CONTROL_BOARD_STM32F407, CONTROL_BOARD_STM32F439, ControlBoardDescriptor,
 };
 
@@ -77,7 +77,7 @@ impl MachineDescriptor<BmmPsuDescriptor> {
         Self {
             model: "miniminer",
             control_board,
-            hashboard: ubos_asic::BMM100,
+            hashboard: ubos_asic::BMM101_HASHBOARD,
             psu: BmmPsuDescriptor::DEFAULT,
             temp: &BMM101_SENSORS,
         }
@@ -93,8 +93,8 @@ pub const MINIMINER_RP2350: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_RP2350);
 
 /// The miniminer on the BMM adapter control board.
-pub const MINIMINER_BMM_PICO: MachineDescriptor<BmmPsuDescriptor> =
-    MachineDescriptor::miniminer(CONTROL_BOARD_BMM_PICO);
+pub const MINIMINER_BMM_ADAPTER: MachineDescriptor<BmmPsuDescriptor> =
+    MachineDescriptor::miniminer(CONTROL_BOARD_BMM_ADAPTER);
 
 /// The miniminer on the ESP32-S3 control board.
 pub const MINIMINER_ESP32S3: MachineDescriptor<BmmPsuDescriptor> =
@@ -112,7 +112,7 @@ pub const MINIMINER_STM32F439: MachineDescriptor<BmmPsuDescriptor> =
 /// sensors. The TMP461 gates thermal shutdown from the real die reading;
 /// the TMP102 pair drives the cooling estimate with a +15 °C PCB-to-die
 /// offset and covers the safety value if the die read fails.
-pub const HASHNODE_SENSORS: [SensorDescriptor; 3] = [
+pub const BFMX4_SENSORS: [SensorDescriptor; 3] = [
     SensorDescriptor {
         kind: SensorKind::Tmp461,
         address: 0x4E,
@@ -160,7 +160,7 @@ const HASHNODE_SIC: Sic45xConfig = Sic45xConfig {
     voltage_min_millivolts: 400,
     // Single-sourced from the board descriptor so the regulator ceiling and
     // the tuner's `max_rail_voltage()` can never disagree.
-    voltage_max_millivolts: ubos_asic::HASHNODE.max_psu_voltage.mv(),
+    voltage_max_millivolts: ubos_asic::BFMX4_HASHBOARD.max_psu_voltage.mv(),
 };
 
 /// Hashnode PSU config. The INA230 address (0x43), 2 mΩ shunt, and 30 A
@@ -176,7 +176,7 @@ const HASHNODE_PSU: BfmPsuDescriptor = BfmPsuDescriptor {
 pub const HASHNODE: MachineDescriptor<BfmPsuDescriptor> = MachineDescriptor {
     model: "Braiins Forge Miner x4",
     control_board: CONTROL_BOARD_HASHNODE,
-    hashboard: ubos_asic::HASHNODE,
+    hashboard: ubos_asic::BFMX4_HASHBOARD,
     psu: HASHNODE_PSU,
-    temp: &HASHNODE_SENSORS,
+    temp: &BFMX4_SENSORS,
 };

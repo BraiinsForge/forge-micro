@@ -189,7 +189,7 @@ pub trait ChipProtocol {
     /// `IoDriverStrengthCtrlReg::default_drive_strengths()` first. When
     /// `board.num_voltage_domains == 0` or `chips_per_domain <= 1` (which
     /// covers single-chip-per-domain hashboards such as the four-chip
-    /// BMM100), no relay programming is emitted. Otherwise, for each
+    /// BMM101), no relay programming is emitted. Otherwise, for each
     /// domain the last chip receives a boosted clock-out drive strength
     /// and both the first and last chips are programmed with the
     /// relay-enabled `UartRelayReg`. The gap count scales with how far
@@ -619,7 +619,7 @@ impl ChipProtocol for Chip {
 }
 
 /// BM1362 bring-up recipe. A single internal voltage domain; the
-/// BMM100 board stacks several chips in series, addressed `0x00..`.
+/// BMM101 board stacks several chips in series, addressed `0x00..`.
 pub struct Bm1362;
 
 impl ChipProtocol for Bm1362 {

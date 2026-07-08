@@ -3,7 +3,7 @@
 //! would emit against the BM1362 PLL factory table grid and the
 //! V^2 * f preservation rule.
 
-use ubos_asic::{BMM100, ChipProtocol, PllParameterReg};
+use ubos_asic::{BMM101_HASHBOARD, ChipProtocol, PllParameterReg};
 use ubos_core::units::{Frequency, Voltage};
 use ubos_psu::BmmPsuDescriptor;
 
@@ -12,11 +12,11 @@ use super::walk_steps;
 
 #[test]
 fn open_core_voltage_fits_default_psu_range() {
-    // Gates the BMM100 descriptor's `max_psu_voltage` mirror against
+    // Gates the BMM101_HASHBOARD descriptor's `max_psu_voltage` mirror against
     // the actual PSU range the firmware configures. The clamp inside
     // `max_rail_voltage` only hides a descriptor / PSU range mismatch;
     // this test surfaces it.
-    let open_core = BMM100.max_rail_voltage();
+    let open_core = BMM101_HASHBOARD.max_rail_voltage();
     let range = BmmPsuDescriptor::DEFAULT.dcdc_voltage_range;
     assert!(
         range.voltage_to_dac(open_core.mv()).is_some(),
@@ -30,15 +30,15 @@ fn open_core_voltage_fits_default_psu_range() {
 #[test]
 fn walk_to_same_state_is_empty() {
     let from = TuningConfig {
-        frequency: BMM100.chip.descriptor().frequency_range.min(),
-        voltage: BMM100.max_rail_voltage(),
+        frequency: BMM101_HASHBOARD.chip.descriptor().frequency_range.min(),
+        voltage: BMM101_HASHBOARD.max_rail_voltage(),
     };
     assert!(
         walk_steps(
             from,
             from,
-            BMM100.chip.descriptor().frequency_step,
-            BMM100.chip.descriptor().frequency_range.min()
+            BMM101_HASHBOARD.chip.descriptor().frequency_step,
+            BMM101_HASHBOARD.chip.descriptor().frequency_range.min()
         )
         .is_empty()
     );
@@ -52,12 +52,12 @@ fn walk_emits_target_as_final_step() {
     };
     let steps = walk_steps(
         TuningConfig {
-            frequency: BMM100.chip.descriptor().frequency_range.min(),
-            voltage: BMM100.max_rail_voltage(),
+            frequency: BMM101_HASHBOARD.chip.descriptor().frequency_range.min(),
+            voltage: BMM101_HASHBOARD.max_rail_voltage(),
         },
         target,
-        BMM100.chip.descriptor().frequency_step,
-        BMM100.chip.descriptor().frequency_range.min(),
+        BMM101_HASHBOARD.chip.descriptor().frequency_step,
+        BMM101_HASHBOARD.chip.descriptor().frequency_range.min(),
     );
     let (last_f, last_v) = *steps.last().expect("BUG: walk must emit at least one step");
     assert_eq!(last_f, target.frequency.khz());
@@ -76,12 +76,12 @@ fn walk_converges_for_float_lossy_voltage() {
     };
     let steps = walk_steps(
         TuningConfig {
-            frequency: BMM100.chip.descriptor().frequency_range.min(),
-            voltage: BMM100.max_rail_voltage(),
+            frequency: BMM101_HASHBOARD.chip.descriptor().frequency_range.min(),
+            voltage: BMM101_HASHBOARD.max_rail_voltage(),
         },
         target,
-        BMM100.chip.descriptor().frequency_step,
-        BMM100.chip.descriptor().frequency_range.min(),
+        BMM101_HASHBOARD.chip.descriptor().frequency_step,
+        BMM101_HASHBOARD.chip.descriptor().frequency_range.min(),
     );
     let (last_f, last_v) = *steps.last().expect("BUG: walk must emit at least one step");
     assert_eq!(last_f, target.frequency.khz());
@@ -102,19 +102,19 @@ fn walk_preserves_power_ceiling_after_phase_a() {
     let p_target = v_target * v_target * target.frequency.as_mhz();
     let steps = walk_steps(
         TuningConfig {
-            frequency: BMM100.chip.descriptor().frequency_range.min(),
-            voltage: BMM100.max_rail_voltage(),
+            frequency: BMM101_HASHBOARD.chip.descriptor().frequency_range.min(),
+            voltage: BMM101_HASHBOARD.max_rail_voltage(),
         },
         target,
-        BMM100.chip.descriptor().frequency_step,
-        BMM100.chip.descriptor().frequency_range.min(),
+        BMM101_HASHBOARD.chip.descriptor().frequency_step,
+        BMM101_HASHBOARD.chip.descriptor().frequency_range.min(),
     );
     let mut in_phase_b = false;
     for (f_khz, v_mv) in steps.iter().copied() {
         let volts = Voltage::from_mv(v_mv).as_volts();
         let mhz = Frequency::from_khz(f_khz).as_mhz();
         let power = volts * volts * mhz;
-        if v_mv < BMM100.max_rail_voltage().mv() {
+        if v_mv < BMM101_HASHBOARD.max_rail_voltage().mv() {
             in_phase_b = true;
         }
         if in_phase_b {
@@ -130,18 +130,18 @@ fn walk_preserves_power_ceiling_after_phase_a() {
 fn walk_visits_every_25mhz_grid_point_with_pll_table_match() {
     let target = TuningConfig {
         frequency: Frequency::from_khz(500_000),
-        voltage: BMM100.max_rail_voltage(),
+        voltage: BMM101_HASHBOARD.max_rail_voltage(),
     };
     let steps = walk_steps(
         TuningConfig {
-            frequency: BMM100.chip.descriptor().frequency_range.min(),
-            voltage: BMM100.max_rail_voltage(),
+            frequency: BMM101_HASHBOARD.chip.descriptor().frequency_range.min(),
+            voltage: BMM101_HASHBOARD.max_rail_voltage(),
         },
         target,
-        BMM100.chip.descriptor().frequency_step,
-        BMM100.chip.descriptor().frequency_range.min(),
+        BMM101_HASHBOARD.chip.descriptor().frequency_step,
+        BMM101_HASHBOARD.chip.descriptor().frequency_range.min(),
     );
-    let range = BMM100.chip.descriptor().frequency_range;
+    let range = BMM101_HASHBOARD.chip.descriptor().frequency_range;
     for (f_khz, _) in steps.iter().copied() {
         assert!(
             PllParameterReg::from_freq(f_khz, range).is_some(),
@@ -160,12 +160,12 @@ fn walk_floors_off_grid_target_onto_step_grid() {
     };
     let steps = walk_steps(
         TuningConfig {
-            frequency: BMM100.chip.descriptor().frequency_range.min(),
-            voltage: BMM100.max_rail_voltage(),
+            frequency: BMM101_HASHBOARD.chip.descriptor().frequency_range.min(),
+            voltage: BMM101_HASHBOARD.max_rail_voltage(),
         },
         target,
-        BMM100.chip.descriptor().frequency_step,
-        BMM100.chip.descriptor().frequency_range.min(),
+        BMM101_HASHBOARD.chip.descriptor().frequency_step,
+        BMM101_HASHBOARD.chip.descriptor().frequency_range.min(),
     );
     let (last_frequency, _) = *steps.last().expect("BUG: walk must emit at least one step");
     assert_eq!(

@@ -19,7 +19,7 @@ use static_cell::StaticCell;
 use ubos_psu::{BmmPsu, BmmPsuDescriptor, State, run_power_stats, run_watchdog};
 
 /// Env var that points at the i2c-dev character device wired to the
-/// BMM100 PSU. Unset means no hashboard is attached and the runner
+/// BMM101 PSU. Unset means no hashboard is attached and the runner
 /// skips the miner.
 pub const I2C_BUS_ENV: &str = "UBOS_I2C_BUS";
 

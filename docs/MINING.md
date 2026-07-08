@@ -8,8 +8,8 @@ Adapter wires the driver up.
 
 ```
 +---------------------+        UART1 (BM1362 serial)        +-------------+
-| firmware/bmm-pico   |<----------------------------------->| BMM100      |
-|                     |        I2C1 (BMM100 PSU)            | hashboard   |
+| firmware/bmm-pico   |<----------------------------------->| BMM101      |
+|                     |        I2C1 (BMM101 PSU)            | hashboard   |
 | serial_task <-------|<----------------------------------->| (BM1362     |
 | miner_task          |        GPIO (reset)                 |  chip chain)|
 | watchdog_task       |<----------------------------------->|             |
@@ -30,7 +30,7 @@ adds two more:
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives `ubos_mining::serial::SERIAL.run(rx, tx)`. Single actor for chip-side serial: command dispatch, parser, in-flight work registry, baud-rate switch. |
 | `miner_task` | `mining.rs` | Drives `Miner::new(psu, reset).run()` against the tuner selected by `MinerConfig::algorithm` (`FixedTuner` by default; see `TuningAlgorithm`). Bring-up / teardown state machine: PSU up, reset sequence, tuner init, mine, tuner deinit, PSU off. |
-| `watchdog_task` | `psu.rs` | Drives `ubos_psu::run_watchdog`. Keeps the BMM100 in its active state by re-asserting the protection-defeat sequence. |
+| `watchdog_task` | `psu.rs` | Drives `ubos_psu::run_watchdog`. Keeps the BMM101 in its active state by re-asserting the protection-defeat sequence. |
 | `power_stats_task` | `psu.rs` | Polls the INA230 input/output power readings every two seconds and logs them. Same cadence as the host-runner so prometheus rates are comparable. |
 
 `serial_task` and `miner_task` never return under normal operation.
@@ -77,7 +77,7 @@ and rebuilds it; other tuning edits apply on the next bring-up.
 
 1. Read the live `ubos-config` snapshot and select the tuner by
    `miner.algorithm`.
-2. Bring the BMM100 rails up via `ubos_psu::Psu`.
+2. Bring the BMM101 rails up via `ubos_psu::Psu`.
 3. Sequence the BM1362 reset pin (low to assert, high to release).
 4. Run `tuner.init` against the chip chain (cancellable by `STOP_MINING`
    or `Message::Halt`).
@@ -87,7 +87,7 @@ and rebuilds it; other tuning edits apply on the next bring-up.
    `wait_halt_clear_or_stop` until `Message::Resume`.
 7. On an algorithm change: run `tuner.deinit`, cut the rail, and rebuild
    the tuner on the next iteration.
-8. On `STOP_MINING`: run `tuner.deinit` and power down the BMM100.
+8. On `STOP_MINING`: run `tuner.deinit` and power down the BMM101.
 
 A fatal init failure -- chip silent at the new line rate, register
 mismatch, etc. -- cuts the rail, sleeps, and restarts. The chip is never

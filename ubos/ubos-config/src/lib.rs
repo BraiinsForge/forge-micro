@@ -490,13 +490,13 @@ pub struct Config {
 }
 
 impl Default for Config {
-    /// Factory defaults for the BMM100 board.
+    /// Factory defaults for the BMM101 board.
     ///
     /// Provided so the test suite (and any caller without a specific
     /// board) has a stable baseline; the firmware uses
     /// [`Config::for_board`] with its own descriptor instead.
     fn default() -> Self {
-        Self::for_board(&ubos_asic::BMM100)
+        Self::for_board(&ubos_asic::BMM101_HASHBOARD)
     }
 }
 

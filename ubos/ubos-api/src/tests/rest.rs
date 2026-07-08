@@ -14,7 +14,7 @@ use crate::rest::{API_INFO_BODY_BUFFER_SIZE, validate_board_name};
 /// Board names with no special characters must pass the check.
 #[test]
 fn validate_board_name_accepts_safe_names() {
-    assert!(validate_board_name("BMM Adapter W5500"));
+    assert!(validate_board_name("W5500-EVB-Pico2"));
     assert!(validate_board_name("host-runner"));
     assert!(validate_board_name(""));
     assert!(validate_board_name("abc123 !@#$%^&*()"));
@@ -48,7 +48,9 @@ fn validate_board_name_rejects_backslash() {
 ///
 /// Worst-case assumptions (mirroring the exact `core::write!` calls in
 /// `rest.rs`):
-/// - `name`: 32 ASCII characters (documented maximum).
+/// - `name`: 42 ASCII characters, the length of the longest current
+///   `ControlBoardDescriptor::name` (`CONTROL_BOARD_ESP32S3`'s
+///   "Waveshare ESP32-S3-LCD-Driver-Board W5100S").
 /// - All `u64` numeric fields: `u64::MAX` (20 decimal digits).
 /// - All `u32` numeric fields: `u32::MAX` (10 decimal digits).
 /// - `temperature` (`i32`): `i32::MIN` (11 chars including the sign).
@@ -68,7 +70,7 @@ fn validate_board_name_rejects_backslash() {
 fn api_info_body_fits_in_buffer() {
     // Build the body using the same `format!` calls that `rest.rs` uses,
     // with every variable-width field set to its maximum-width value.
-    let board_name = "A".repeat(32);
+    let board_name = "A".repeat(42);
     let hashrate = u64::MAX;
     let uptime_secs = u64::MAX;
     let temperature = i32::MIN;

@@ -1,6 +1,6 @@
 //! Hardware reset for the BM1362 chip chain.
 //!
-//! Active-low on the BMM100: backends drive the pin LOW to assert
+//! Active-low on the BMM101: backends drive the pin LOW to assert
 //! reset and HIGH to release it. Methods are infallible — a failed
 //! toggle is unrecoverable from the caller's perspective, so the
 //! convention is "log internally and proceed"; the next chip

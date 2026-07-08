@@ -83,7 +83,7 @@ pub struct Board {
     pub usart3_rx_dma: Peri<'static, DMA1_CH1>,
     /// DMA1 Stream3 Channel4 — `USART3_TX` per RM0090 table 42.
     pub usart3_tx_dma: Peri<'static, DMA1_CH3>,
-    /// I2C1 peripheral for the BMM100 PSU and LM75A temperature sensors.
+    /// I2C1 peripheral for the BMM101 PSU and LM75A temperature sensors.
     pub i2c1: Peri<'static, I2C1>,
     /// I2C1 SCL pin (PB6, AF4).
     pub scl: Peri<'static, PB6>,
@@ -129,7 +129,7 @@ impl DisplaySpi {
     pub const FREQUENCY: Hertz = Hertz(10_000_000);
 }
 
-/// The board descriptor this firmware targets: the 4-chip BM1362 BMM100.
+/// The board descriptor this firmware targets: the 4-chip BM1362 BMM101.
 /// Every crate that needs board facts takes this explicitly rather than
 /// selecting a board behind a cargo feature.
 pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;

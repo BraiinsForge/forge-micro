@@ -31,14 +31,15 @@ mod tests;
 /// Body buffer size for JSON responses built by `/api/info`.
 ///
 /// The largest `/api/info` JSON body with all fields populated is
-/// roughly 600 bytes in practice (name≤32 + numeric fields + 16-byte
-/// IPv4 + 17-byte MAC string + 16-byte time string + OTA static fields +
+/// roughly 600 bytes in practice (name≤42, the longest current
+/// `ControlBoardDescriptor::name` + numeric fields + 16-byte IPv4 +
+/// 17-byte MAC string + 16-byte time string + OTA static fields +
 /// OTA diagnostic fields including the `resetWritePhase` string +
 /// `running` bool + `paused` bool + `pause_reason` string up to
 /// `"dangerousTemperature"` + JSON framing). The
 /// `api_info_body_fits_in_buffer` test builds the absolute worst case
 /// with every numeric field at its maximum decimal width and measures
-/// ~780 bytes. 512 bytes overflowed once the OTA diagnostic fields were
+/// ~790 bytes. 512 bytes overflowed once the OTA diagnostic fields were
 /// added, silently truncating the tail; 896 bytes covers the synthetic
 /// worst case and leaves room for future fields while staying on the
 /// stack.

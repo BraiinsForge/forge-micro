@@ -1,4 +1,4 @@
-//! BMM100 PSU integration over the shared I2C1 bus. Owns the static
+//! BMM101 PSU integration over the shared I2C1 bus. Owns the static
 //! cells for the `BmmPsu` state, terminated flag, and PSU handle.
 //!
 //! Backend architecture: `../../../docs/MINING.md`.
@@ -10,7 +10,7 @@ use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::mutex::Mutex;
 use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
-use ubos_machine::MINIMINER_BMM_PICO as MACHINE;
+use ubos_machine::MINIMINER_BMM_ADAPTER as MACHINE;
 use ubos_psu::{BmmPsu, BmmPsuDescriptor, State, run_watchdog};
 
 /// Bus mutex shared by every consumer on I2C1. `NoopRawMutex` is sufficient

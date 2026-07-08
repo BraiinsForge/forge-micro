@@ -1,4 +1,4 @@
-//! BMM100 PSU integration over the shared I2C0 bus.
+//! BMM101 PSU integration over the shared I2C0 bus.
 //!
 //! Owns the static cells for the `BmmPsu` state, the terminated flag,
 //! and the PSU handle. The bus mutex is owned by `main` so future I2C

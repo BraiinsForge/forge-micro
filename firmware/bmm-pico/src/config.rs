@@ -4,7 +4,7 @@
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
-pub use ubos_machine::MINIMINER_BMM_PICO as MACHINE;
+pub use ubos_machine::MINIMINER_BMM_ADAPTER as MACHINE;
 
 use embassy_rp::Peri;
 use embassy_rp::peripherals::{
@@ -71,7 +71,7 @@ pub struct Board {
     pub trng: Peri<'static, TRNG>,
 }
 
-/// The board descriptor this firmware targets: the 4-chip BM1362 BMM100.
+/// The board descriptor this firmware targets: the 4-chip BM1362 BMM101.
 /// Every crate that needs board facts takes this explicitly rather than
 /// selecting a board behind a cargo feature.
 pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;

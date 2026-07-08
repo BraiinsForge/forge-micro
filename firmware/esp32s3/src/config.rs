@@ -1,6 +1,6 @@
-//! Peripheral extraction for the ESP32-S3 `DevKit`. SPI frequency is pinned
-//! below the W5100S datasheet limit because higher rates corrupt frames
-//! on this wiring.
+//! Peripheral extraction for the Waveshare ESP32-S3-LCD-Driver-Board. SPI
+//! frequency is pinned below the W5100S datasheet limit because higher
+//! rates corrupt frames on this wiring.
 //!
 //! Wiring/pinout: `../../../docs/SETUP.md`
 
@@ -83,7 +83,7 @@ pub struct Board<'d> {
     pub uart_tx: GPIO43<'d>,
     /// UART0 RX pin (GPIO44, default ROM UART RX).
     pub uart_rx: GPIO44<'d>,
-    /// I2C0 peripheral for the BMM100 PSU and LM75A temperature sensors.
+    /// I2C0 peripheral for the BMM101 PSU and LM75A temperature sensors.
     pub i2c0: I2C0<'d>,
     /// I2C0 SDA pin (GPIO15, routed via the GPIO matrix). Shares the bus
     /// with the carrier's TCA9554 I/O expander and touch controller.
@@ -119,7 +119,7 @@ pub struct Board<'d> {
     pub display_dma: esp_hal::peripherals::DMA_CH1<'d>,
 }
 
-/// The board descriptor this firmware targets: the 4-chip BM1362 BMM100.
+/// The board descriptor this firmware targets: the 4-chip BM1362 BMM101.
 /// Every crate that needs board facts takes this explicitly rather than
 /// selecting a board behind a cargo feature.
 pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;

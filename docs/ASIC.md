@@ -45,8 +45,9 @@ domain are in parallel; domains are stacked in series, so the open-core
 rail voltage is `chip.max_chip_voltage * num_voltage_domains` clamped to
 `max_psu_voltage`.
 
-The only board defined today is `BMM100`: four BM1362 chips, four
-domains, one chip per domain.
+The boards defined today are `BMM101_HASHBOARD` (four BM1362 chips) and
+`BFMX4_HASHBOARD` (four BM1370 chips), each with four domains, one chip
+per domain.
 
 Chip-internal voltage stacking inside a package is **not modeled** — it
 is a chip implementation detail with no bearing on the driver. All
@@ -157,8 +158,8 @@ registers it writes (layouts in [`REGISTERS.md`](REGISTERS.md)):
    `0x58`). When `chips_per_domain > 1`, additionally program, per
    domain, a boosted clock-out drive strength on the domain's last chip
    and the UART relay (`UartRelayReg`, `0x2C`) on its first and last
-   chips. Single-chip-per-domain chains (such as `BMM100`) need no relay
-   and emit none.
+   chips. Single-chip-per-domain chains (such as `BMM101_HASHBOARD` or
+   `BFMX4_HASHBOARD`) need no relay and emit none.
 4. **`initialize_cores`** — broadcast core-control configuration
    (`CoreControlReg`, `0x3C`) and the clock-delay value, then per chip a
    core-domain soft reset, misc-control, and the three core-control
@@ -199,8 +200,8 @@ is a base addend so the relay always inserts a minimum spacing.
 At the level the driver models, the bring-up recipe is shared. The
 divergences:
 
-- **BM1362** — the baseline. `BMM100` is one chip per domain, so no UART
-  relay is emitted; the bring-up is the plain shared recipe.
+- **BM1362** — the baseline. `BMM101_HASHBOARD` is one chip per domain, so
+  no UART relay is emitted; the bring-up is the plain shared recipe.
 - **BM1366** — identical recipe; a multi-domain board exercises the
   relay / boundary-drive path in `initialize_domains`.
 - **BM1370** — adds the `0xB9` `MiscSettings` write after core

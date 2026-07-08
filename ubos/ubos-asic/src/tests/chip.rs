@@ -1,10 +1,11 @@
 use super::*;
 
 use crate::{
-    BMM100, BaudRateReg, Chip, ChipAddress, ChipIdReg, ChipNonceOffsetReg, ControlCommand,
-    CoreControlReg, CoreRegister, HashboardDescriptor, IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY,
-    IoDriverStrengthCtrlReg, MISC_SETTINGS_BM1370_BRINGUP, MidstateCalReg, MiscCtrlReg,
-    MiscSettingsReg, PllParameterReg, Register, SoftResetControlReg, UartRelayReg,
+    BMM101_HASHBOARD, BaudRateReg, Chip, ChipAddress, ChipIdReg, ChipNonceOffsetReg,
+    ControlCommand, CoreControlReg, CoreRegister, HashboardDescriptor,
+    IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY, IoDriverStrengthCtrlReg, MISC_SETTINGS_BM1370_BRINGUP,
+    MidstateCalReg, MiscCtrlReg, MiscSettingsReg, PllParameterReg, Register, SoftResetControlReg,
+    UartRelayReg,
 };
 
 /// Drive an immediately-ready future to completion with a no-op waker.
@@ -159,9 +160,9 @@ fn run_bringup_for<C: ChipProtocol>(
     (bus.ops, count)
 }
 
-/// Runs the full BM1362 bring-up against the BMM100 board.
+/// Runs the full BM1362 bring-up against the `BMM101_HASHBOARD` board.
 fn run_bringup(responders: u8) -> (heapless::Vec<Op, 512>, u8) {
-    run_bringup_for(&Bm1362, BMM100, responders)
+    run_bringup_for(&Bm1362, BMM101_HASHBOARD, responders)
 }
 
 /// Synthetic eight-chip, two-domain hashboard for BM1366 multi-domain
@@ -210,7 +211,7 @@ fn run_bringup_bm1370(responders: u8) -> (heapless::Vec<Op, 512>, u8) {
 }
 
 // ---------------------------------------------------------------------------
-// BM1362 / BMM100 tests (unchanged behavior)
+// BM1362 / BMM101_HASHBOARD tests (unchanged behavior)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -287,7 +288,7 @@ fn nonce_offsets_are_computed_per_chip() {
     assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
-/// Regression: the BMM100 (four chips, four domains, chips-per-domain=1)
+/// Regression: the `BMM101_HASHBOARD` (four chips, four domains, chips-per-domain=1)
 /// must not emit any `UartRelayReg` (0x2c) writes; single-chip-per-domain
 /// chains need no relay programming.
 #[test]
@@ -513,11 +514,11 @@ fn bm1366_writes_no_misc_settings() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn bmm100_selects_bm1362() {
-    // The BMM100 board descriptor must declare the BM1362 chip model and
+fn bmm101_selects_bm1362() {
+    // The BMM101_HASHBOARD board descriptor must declare the BM1362 chip model and
     // its spec must carry the expected model identifier.
-    assert_eq!(BMM100.chip, Chip::Bm1362);
-    assert_eq!(BMM100.chip.descriptor().chip_id, 0x1362);
+    assert_eq!(BMM101_HASHBOARD.chip, Chip::Bm1362);
+    assert_eq!(BMM101_HASHBOARD.chip.descriptor().chip_id, 0x1362);
 }
 
 #[test]
@@ -553,8 +554,10 @@ fn chip_enum_dispatches_post_core_config() {
         let chip = Chip::Bm1362;
         chip.reset_chain(&mut bm1362_bus).await;
         let _ = chip.enumerate_chips(&mut bm1362_bus).await;
-        chip.initialize_domains(&mut bm1362_bus, &BMM100).await;
-        chip.initialize_cores(&mut bm1362_bus, &BMM100).await;
+        chip.initialize_domains(&mut bm1362_bus, &BMM101_HASHBOARD)
+            .await;
+        chip.initialize_cores(&mut bm1362_bus, &BMM101_HASHBOARD)
+            .await;
     });
 
     let bm1362_misc_count = bm1362_bus

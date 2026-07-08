@@ -28,7 +28,7 @@ const I2C_M_RD: u16 = 0x0001;
 const I2C_RDWR: libc::Ioctl = 0x0707;
 /// Maximum number of `Operation`s per `transaction()` call. The
 /// Linux kernel enforces its own per-driver bound; eight covers
-/// every real-world transfer the BMM100 PSU drivers issue.
+/// every real-world transfer the BMM101 PSU drivers issue.
 const MAX_MSGS: usize = 8;
 
 #[repr(C)]

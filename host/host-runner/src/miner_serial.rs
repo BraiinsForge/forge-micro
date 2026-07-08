@@ -14,7 +14,7 @@ use ubos_mining::serial::SERIAL;
 
 use crate::ASIC_SESSION;
 
-/// Path ubos-mining opens for chip-side traffic. Hard-coded because the BMM100
+/// Path ubos-mining opens for chip-side traffic. Hard-coded because the BMM101
 /// hashboard always presents the same device under our udev rules; if a
 /// future host needs a different path, an env-var override would slot in
 /// next to `HOST_NET_AFPACKET`.

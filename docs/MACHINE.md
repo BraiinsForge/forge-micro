@@ -15,10 +15,10 @@ the crate that owns the component:
 | Descriptor | Crate | Consts |
 |------------|-------|--------|
 | `ChipDescriptor` | `ubos-asic` | `BM1362`, `BM1366`, `BM1370` |
-| `HashboardDescriptor` | `ubos-asic` | `BMM100`, `HASHNODE` |
+| `HashboardDescriptor` | `ubos-asic` | `BMM101_HASHBOARD`, `BFMX4_HASHBOARD` |
 | `BmmPsuDescriptor` | `ubos-psu` | `BmmPsuDescriptor::DEFAULT` |
 | `BfmPsuDescriptor` | `ubos-psu` | `BfmPsuDescriptor::DEFAULT` |
-| `SensorDescriptor` | `ubos-temperature` | struct only; the tables (`BMM101_SENSORS`, `HASHNODE_SENSORS`) live in `ubos-machine` |
+| `SensorDescriptor` | `ubos-temperature` | struct only; the tables (`BMM101_SENSORS`, `BFMX4_SENSORS`) live in `ubos-machine` |
 | `PlatformDescriptor` | `ubos-machine` | `RP2040` .. `ESP32S3` |
 | `ControlBoardDescriptor` | `ubos-machine` | `CONTROL_BOARD_*` |
 | `MachineDescriptor<Psu>` | `ubos-machine` | `MINIMINER_*`, `HASHNODE` |

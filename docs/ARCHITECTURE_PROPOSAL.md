@@ -1010,7 +1010,7 @@ the same code path.
   `mining-protocol`) by `&'static`; does not define it.
 
 ### `ubos-psu`
-Async PSU driver. `Psu` trait + miniminer BMM100 I²C impl. Owned by
+Async PSU driver. `Psu` trait + miniminer BMM101 I²C impl. Owned by
 the mining task as a value; no separate handle. Library only.
 
 ### `ubos-temperature`

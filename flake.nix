@@ -2949,7 +2949,7 @@
 
                 echo "ubos-main dev environment ready (ESP32-S3)"
                 echo ""
-                echo "  cd firmware/esp32s3 && cargo build --release  # ESP32-S3 W5100S"
+                echo "  cd firmware/esp32s3 && cargo build --release  # Waveshare ESP32-S3-LCD-Driver-Board W5100S"
                 echo ""
                 echo "Inspect binary size: cargo size --release -- -A"
                 echo ""

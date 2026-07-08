@@ -36,7 +36,7 @@ pub struct Board {
     pub uart: Peri<'static, UART1>,
     pub uart_tx: Peri<'static, PIN_4>,
     pub uart_rx: Peri<'static, PIN_5>,
-    /// I2C1 bus for BMM100 PSU and LM75A temperature sensors.
+    /// I2C1 bus for BMM101 PSU and LM75A temperature sensors.
     pub i2c1: Peri<'static, I2C1>,
     pub sda: Peri<'static, PIN_6>,
     pub scl: Peri<'static, PIN_7>,
@@ -70,7 +70,7 @@ pub struct Board {
     pub core1: Peri<'static, CORE1>,
 }
 
-/// The board descriptor this firmware targets: the 4-chip BM1362 BMM100.
+/// The board descriptor this firmware targets: the 4-chip BM1362 BMM101.
 /// Every crate that needs board facts takes this explicitly rather than
 /// selecting a board behind a cargo feature.
 pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;

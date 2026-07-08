@@ -134,7 +134,7 @@ const EXPECTED_BLOB: &[u8] = &[
     0,   // network.hostname = "" (len 0)
 ];
 
-// The golden bytes capture the BMM100 factory defaults, which is what
+// The golden bytes capture the BMM101 factory defaults, which is what
 // `Config::default()` produces.
 #[test]
 fn golden_snapshot() {

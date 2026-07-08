@@ -41,9 +41,9 @@ pub const CONTROL_BOARD_RP2040: ControlBoardDescriptor = ControlBoardDescriptor 
     event_log_capacity: 32,
 };
 
-/// The RP2350 control board: `Pico2` wired to a W6100 Ethernet chip.
+/// The RP2350 control board: a genuine Wiznet W6100-EVB-Pico2 module.
 pub const CONTROL_BOARD_RP2350: ControlBoardDescriptor = ControlBoardDescriptor {
-    name: "Pico2 W6100",
+    name: "W6100-EVB-Pico2",
     platform: RP2350,
     mac_family: 0x02,
     webui_http_pool: 5,
@@ -52,9 +52,12 @@ pub const CONTROL_BOARD_RP2350: ControlBoardDescriptor = ControlBoardDescriptor 
     event_log_capacity: 128,
 };
 
-/// The BMM adapter control board on RP2350 with a W5500 Ethernet chip.
-pub const CONTROL_BOARD_BMM_PICO: ControlBoardDescriptor = ControlBoardDescriptor {
-    name: "BMM Adapter W5500",
+/// A genuine Wiznet W5500-EVB-Pico2 module mounted on Braiins' own "BMM
+/// Adapter" carrier PCB, which wires it into the miniminer's
+/// hashboard/PSU header. The carrier is an interposer, not the control
+/// board product itself, so the reported name names the actual module.
+pub const CONTROL_BOARD_BMM_ADAPTER: ControlBoardDescriptor = ControlBoardDescriptor {
+    name: "W5500-EVB-Pico2",
     platform: RP2350,
     mac_family: 0x03,
     webui_http_pool: 5,
@@ -63,14 +66,15 @@ pub const CONTROL_BOARD_BMM_PICO: ControlBoardDescriptor = ControlBoardDescripto
     event_log_capacity: 128,
 };
 
-/// The ESP32-S3 control board with a W5100S Ethernet chip. The HTTP
-/// pools are held at 3 rather than the 5 the RP2350 boards use: the
-/// pool buffers live in `.bss`, which shares `dram_seg` with the
-/// core-0 stack, so oversized pools starve the boot stack and trip
-/// the esp-hal stack-guard during `embassy_net::new`. The esp32s3
-/// `build.rs` link-time ASSERT enforces the resulting stack floor.
+/// A Waveshare ESP32-S3-LCD-Driver-Board with an external W5100S wired
+/// through its LCD header. The HTTP pools are held at 3 rather than the
+/// 5 the RP2350 boards use: the pool buffers live in `.bss`, which
+/// shares `dram_seg` with the core-0 stack, so oversized pools starve
+/// the boot stack and trip the esp-hal stack-guard during
+/// `embassy_net::new`. The esp32s3 `build.rs` link-time ASSERT enforces
+/// the resulting stack floor.
 pub const CONTROL_BOARD_ESP32S3: ControlBoardDescriptor = ControlBoardDescriptor {
-    name: "ESP32-S3 W5100S",
+    name: "Waveshare ESP32-S3-LCD-Driver-Board W5100S",
     platform: ESP32S3,
     mac_family: 0x05,
     webui_http_pool: 3,
@@ -106,10 +110,10 @@ pub const CONTROL_BOARD_STM32F439: ControlBoardDescriptor = ControlBoardDescript
 };
 
 /// The Hashnode: control board and hashboard are one integrated product,
-/// so the name matches `ubos_asic::HASHNODE.model` rather than naming a
-/// separate control-board PCB. Reuses the RP2350 platform: the Hashnode's
-/// RP2350B is a pin-compatible variant of the same Cortex-M33 core and
-/// target as the RP2350A the rp2350 and bmm-pico boards use.
+/// so the name matches `ubos_asic::BFMX4_HASHBOARD.model` rather than
+/// naming a separate control-board PCB. Reuses the RP2350 platform: the
+/// Hashnode's RP2350B is a pin-compatible variant of the same Cortex-M33
+/// core and target as the RP2350A the rp2350 and bmm-pico boards use.
 pub const CONTROL_BOARD_HASHNODE: ControlBoardDescriptor = ControlBoardDescriptor {
     name: "Braiins Forge Miner x4",
     platform: RP2350,

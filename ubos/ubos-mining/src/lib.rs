@@ -1,4 +1,4 @@
-//! BMM100 BM1362 ASIC mining backend.
+//! BMM101 BM1362 ASIC mining backend.
 //!
 //! Owns the chip-side serial protocol and the work-dispatch loop.
 //! [`Handle`] is the public surface every other crate uses to

@@ -1,5 +1,5 @@
-//! Firmware entry point for the ESP32-S3 `DevKit` + external W5100S (SPI)
-//! with the BMM100/BM1362 ubos-mining backend.
+//! Firmware entry point for the Waveshare ESP32-S3-LCD-Driver-Board +
+//! external W5100S (SPI) with the BMM101/BM1362 ubos-mining backend.
 //!
 //! Configures SPI with DMA, brings up the W5100S via `embassy-net-wiznet`,
 //! starts the embassy-net stack with DHCP, and spawns the watchdog,
@@ -681,7 +681,7 @@ async fn boot(spawner: Spawner) {
 
     spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
 
-    // BMM100 hashboard PSU, LM75A temperature sensors and the carrier
+    // BMM101 hashboard PSU, LM75A temperature sensors and the carrier
     // TCA9554 I/O expander all share I2C0 (GPIO15 SDA, GPIO7 SCL). All
     // mining tasks run on Core 0 so the I2C bus mutex can stay
     // `NoopRawMutex`: every consumer is on the same executor.

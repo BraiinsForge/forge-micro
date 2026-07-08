@@ -21,13 +21,13 @@ pub struct TuningConfig {
 }
 
 impl Default for TuningConfig {
-    /// Factory defaults for the BMM100 board. The firmware builds its real
+    /// Factory defaults for the BMM101 board. The firmware builds its real
     /// per-board defaults via [`crate::Config::for_board`]; this exists so
     /// the test suite has a stable baseline.
     fn default() -> Self {
         Self {
-            frequency_mhz: ubos_asic::BMM100.default_frequency.mhz(),
-            voltage_mv: ubos_asic::BMM100.default_voltage.mv(),
+            frequency_mhz: ubos_asic::BMM101_HASHBOARD.default_frequency.mhz(),
+            voltage_mv: ubos_asic::BMM101_HASHBOARD.default_voltage.mv(),
         }
     }
 }
@@ -83,9 +83,9 @@ pub const fn bounds(board: &'static HashboardDescriptor) -> MiningBounds {
     }
 }
 
-/// Bounds for the BMM100 board. The firmware uses [`bounds`] with its
+/// Bounds for the BMM101 board. The firmware uses [`bounds`] with its
 /// own descriptor; this exists so the test suite has a stable baseline.
-pub const BOUNDS: MiningBounds = bounds(&ubos_asic::BMM100);
+pub const BOUNDS: MiningBounds = bounds(&ubos_asic::BMM101_HASHBOARD);
 
 /// Static capability metadata for the ASIC and board.
 ///

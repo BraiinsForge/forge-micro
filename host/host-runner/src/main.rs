@@ -57,9 +57,9 @@ use hosted_network::HostDevice;
 const SOCKET_COUNT: usize = 24;
 const BOARD_NAME: &str = "host-runner";
 
-/// The host runner simulates the BMM100 hashboard, so it threads that
+/// The host runner simulates the BMM101 hashboard, so it threads that
 /// board descriptor through the mining, config, and API layers.
-pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM100;
+pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM101_HASHBOARD;
 pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
 pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
 

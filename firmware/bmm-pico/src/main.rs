@@ -475,7 +475,7 @@ async fn main(spawner: Spawner) {
     // firmware; dropping `Input` would clear the pad and pull setting.
     let _hb_plug = Input::new(hw.hb_plug, Pull::Up);
 
-    // BMM100 hashboard PSU on I2C1: shared bus, PSU watchdog, power
+    // BMM101 hashboard PSU on I2C1: shared bus, PSU watchdog, power
     // stats, and the miner bring-up task all run on core 0 so the I2C
     // bus mutex can stay NoopRawMutex.
     let thermal = ubos_thermal::handle();

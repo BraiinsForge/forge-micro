@@ -1,5 +1,5 @@
 //! Firmware entry point for the Nucleo-F439ZI (onboard LAN8742A over RMII)
-//! with the BMM100/BM1362 ubos-mining backend.
+//! with the BMM101/BM1362 ubos-mining backend.
 //!
 //! Starts the built-in MAC with an auto-probed PHY, runs the embassy-net
 //! stack with DHCP, and spawns the watchdog, LED blink, NTP, ubos-mining
@@ -494,7 +494,7 @@ async fn boot(spawner: Spawner) {
 
     spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
 
-    // BMM100 hashboard PSU on I2C1: shared bus, PSU watchdog, power stats,
+    // BMM101 hashboard PSU on I2C1: shared bus, PSU watchdog, power stats,
     // and the miner bring-up task all run on the single-core executor, so
     // the I2C bus mutex can stay `NoopRawMutex`.
     {
