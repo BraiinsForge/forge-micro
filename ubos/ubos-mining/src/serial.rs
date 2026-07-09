@@ -22,7 +22,7 @@ use embassy_sync::signal::Signal;
 use embassy_sync::watch::DynReceiver;
 use embassy_time::{Duration, Ticker, Timer, with_timeout};
 use embedded_io::ErrorKind;
-use embedded_io_async::{Error as _, Read, Write};
+use embedded_io_async::{Read, Write};
 use heapless::Vec as HVec;
 use mining_protocol::hashing::hash_meets_target;
 use portable_atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -627,7 +627,7 @@ impl Serial {
         }
 
         if let Err(e) = serial.write_all(&frame).await {
-            error!("Failed to send work: {:?}", Debug2Format(&e.kind()));
+            error!("Failed to send work: {:?}", Debug2Format(&e));
         }
     }
 
@@ -672,8 +672,7 @@ impl Serial {
                 Ok(())
             }
             Err(e) => {
-                let kind = e.kind();
-                warn!("Serial read error: {:?} (recovering)", Debug2Format(&kind));
+                warn!("Serial read error: {:?} (recovering)", Debug2Format(&e));
                 parser.clear();
                 Ok(())
             }
@@ -823,7 +822,7 @@ impl Serial {
                 let data = frame.as_slice();
                 trace!("TX ({} bytes): {}", data.len(), HexBytes(data));
                 if let Err(e) = serial.write_all(data).await {
-                    error!("Serial write error: {:?}", Debug2Format(&e.kind()));
+                    error!("Serial write error: {:?}", Debug2Format(&e));
                 }
             }
             SerialMessage::Terminate => {
