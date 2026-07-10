@@ -143,6 +143,28 @@ impl defmt::Format for HexBytes<'_> {
     }
 }
 
+/// Hex pretty printer that prints raw little-endien representation of block hash as a big-endien hex string that we commonly see
+/// in bitcoin industry.
+pub struct BlockHash<'a>(pub &'a [u8]);
+
+impl fmt::Display for BlockHash<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for b in self.0.iter().rev() {
+            write!(f, "{b:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for BlockHash<'_> {
+    fn format(&self, f: defmt::Formatter) {
+        for b in self.0.iter().rev() {
+            defmt::write!(f, "{:02x}", b);
+        }
+    }
+}
+
 /// Outbound command from a [`Serial`] handle to the server task. Replies
 /// for the variants that need one come back through `Serial::reply`.
 #[derive(Debug, Clone)]
@@ -603,11 +625,11 @@ impl Serial {
 
                 if !hash_meets_target(&hash, &Self::DIFF_1_TARGET) {
                     warn!(
-                        "nonce=0x{:08X} work_id={} ver_idx={} below diff 1 (hash={:?})",
+                        "nonce=0x{:08X} work_id={} ver_idx={} below diff 1 (hash={})",
                         wr.nonce,
                         wr.work_id,
                         wr.version_idx,
-                        Debug2Format(&hash)
+                        BlockHash(&hash)
                     );
                     return;
                 }
@@ -620,11 +642,11 @@ impl Serial {
 
                 if !hash_meets_target(&hash, &slot.assignment.target) {
                     trace!(
-                        "nonce=0x{:08X} work_id={} ver_idx={} below pool target (hash={:?})",
+                        "nonce=0x{:08X} work_id={} ver_idx={} below pool target (hash={})",
                         wr.nonce,
                         wr.work_id,
                         wr.version_idx,
-                        Debug2Format(&hash)
+                        BlockHash(&hash)
                     );
                     return;
                 }
