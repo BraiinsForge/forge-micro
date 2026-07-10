@@ -2822,7 +2822,7 @@ dependencies = [
 [[package]]
 name = "redacted-hal"
 version = "0.3.0"
-source = "git+ssh://git@gitlab.ii.zone/bos/ubos/redacted.git?branch=master#e87ae78284130bbe05924e107d38743587296d4a"
+source = "git+ssh://git@gitlab.ii.zone/bos/ubos/redacted.git?branch=master#f1e689f9198ffd0cc378fd029e4e57ade6a1f1dc"
 dependencies = [
  "bitflags 2.11.0",
  "critical-section",
@@ -2842,7 +2842,7 @@ dependencies = [
 [[package]]
 name = "redacted-pac"
 version = "0.3.0"
-source = "git+ssh://git@gitlab.ii.zone/bos/ubos/redacted.git?branch=master#e87ae78284130bbe05924e107d38743587296d4a"
+source = "git+ssh://git@gitlab.ii.zone/bos/ubos/redacted.git?branch=master#f1e689f9198ffd0cc378fd029e4e57ade6a1f1dc"
 dependencies = [
  "critical-section",
  "svd2rust",
@@ -5245,7 +5245,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
