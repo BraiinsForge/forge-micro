@@ -2801,6 +2801,7 @@ dependencies = [
  "redacted-hal",
  "redacted-pac",
  "log",
+ "portable-atomic",
  "riscv",
  "riscv-rt",
  "static_cell",
