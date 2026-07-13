@@ -41,7 +41,8 @@ pub struct OtaInfo {
 pub struct SystemInfo<'response> {
     /// Schema-version discriminator; always `"ubos-0.1"`.
     pub api_variant: &'static str,
-    /// Human-readable board identifier, e.g. `"rp2350-001"`.
+    /// The control board's product name, reported verbatim from
+    /// `ControlBoardDescriptor::name`, e.g. `"W6100-EVB-Pico2"`.
     pub board_name: &'response str,
     /// Network hostname. Set to the operator-configured hostname from
     /// `Config.network.hostname` when one has been saved; falls back
