@@ -61,6 +61,7 @@ pub enum Error<E> {
 pub mod bfm;
 pub mod bmm;
 pub mod config;
+pub mod redacted;
 pub mod ina230;
 pub mod sic45x;
 pub mod state;
@@ -70,6 +71,7 @@ pub mod watchdog;
 pub use bfm::{BfmPsu, BfmPsuDescriptor, BfmState};
 pub use bmm::{BmmPsu, RawMutex, run_watchdog};
 pub use config::BmmPsuDescriptor;
+pub use redacted::{redactedPsu, redactedState};
 pub use state::State;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
