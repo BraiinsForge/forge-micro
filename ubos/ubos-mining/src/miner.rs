@@ -63,6 +63,7 @@ pub enum PsuErrorKind {
     OutOfRange,
     Fault,
     Terminated,
+    Timeout,
 }
 
 impl<E> From<PsuError<E>> for PsuErrorKind {
@@ -73,6 +74,7 @@ impl<E> From<PsuError<E>> for PsuErrorKind {
             PsuError::OutOfRange => PsuErrorKind::OutOfRange,
             PsuError::Fault(_) => PsuErrorKind::Fault,
             PsuError::Terminated => PsuErrorKind::Terminated,
+            PsuError::Timeout => PsuErrorKind::Timeout,
         }
     }
 }

@@ -49,6 +49,11 @@ pub enum Error<E> {
     OutOfRange,
     Fault(StatusFlags),
     Terminated,
+    /// A bounded retry or poll loop exhausted its budget without ever
+    /// observing the expected device state. Distinct from `Bus`: every
+    /// individual transaction in the loop completed without a bus
+    /// error, but the loop's expected condition never became true.
+    Timeout,
 }
 
 /// Async PSU control surface. One implementation per hardware
