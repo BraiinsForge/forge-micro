@@ -148,297 +148,57 @@
             inherit system overlays;
           };
 
-          rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-            extensions = [
-              "rust-src"
-              "rust-analyzer"
-              "rustfmt"
-              "llvm-tools"
-            ];
-            targets = [
-              "thumbv6m-none-eabi"
-              "thumbv7em-none-eabihf"
-              "thumbv8m.main-none-eabihf"
-            ];
+          # Rust toolchains and the crane instances built on them; see
+          # nix/toolchains.nix for the per-universe rationale.
+          toolchains = import ./nix/toolchains.nix {
+            inherit
+              pkgs
+              nixpkgs
+              system
+              crane
+              ;
           };
+          inherit (toolchains)
+            rustToolchain
+            espRustToolchain
+            riscvRustToolchain
+            hostRustToolchain
+            bmmRustToolchain
+            bmmCc
+            craneLib
+            bmmCraneLib
+            riscvCraneLib
+            riscvGcc
+            riscvDefmtRustflags
+            ;
 
-          espRustToolchain = pkgs.rust-bin.stable.latest.default.override {
-            extensions = [
-              "rust-src"
-              "rust-analyzer"
-            ];
+          # ESP32-S3 build universe: pinned Xtensa rust, cross GCC, crane
+          # instance, vendored deps, the rollback-enabled bootloader, and
+          # the espup binary patcher. See nix/esp.nix.
+          esp = import ./nix/esp.nix {
+            inherit
+              pkgs
+              crane
+              system
+              nixpkgs-esp-dev
+              ;
           };
+          inherit (esp)
+            espToolchainVersion
+            espToolchain
+            espCraneLib
+            espCargoVendorDir
+            xtensaEspToolchain
+            esp32s3Bootloader
+            patchEspBinaries
+            ;
 
-          # redacted redacted (dual-core RV64GC). Targets the tier-2
-          # `riscv64gc-unknown-none-elf` triple, which ships a prebuilt rust-std
-          # (so no `build-std`); `rust-src` is kept for rust-analyzer.
-          riscvRustToolchain = pkgs.rust-bin.stable.latest.default.override {
-            extensions = [
-              "rust-src"
-              "rust-analyzer"
-              "rustfmt"
-              "llvm-tools"
-            ];
-            targets = [ "riscv64gc-unknown-none-elf" ];
-          };
+          # Cleaned source trees for the crane builds. See nix/source.nix.
+          sources = import ./nix/source.nix { inherit pkgs craneLib; };
+          inherit (sources) src loadTestSrc;
 
-          hostRustToolchain = pkgs.rust-bin.stable.latest.default.override {
-            extensions = [
-              "rust-src"
-              "rust-analyzer"
-              "rustfmt"
-              "llvm-tools"
-            ];
-          };
-
-          bmmRustToolchain = pkgs.rust-bin.stable.latest.default.override {
-            extensions = [
-              "rust-src"
-              "rust-analyzer"
-              "rustfmt"
-              "llvm-tools"
-            ];
-            targets = [ "arm-unknown-linux-musleabi" ];
-          };
-
-          # Cross gcc for the miniminer (BMM) target. Rust emits the code,
-          # gcc only links, so a generic ARM-musleabi toolchain works for
-          # the Cortex-A9 device. The crossSystem is pinned to armv5tel
-          # because that is the baseline soft-float ARMv5 musl variant that
-          # matches Rust's `arm-unknown-linux-musleabi` ABI; nixpkgs rejects
-          # the unversioned `arm-linux` system because musl's meta.platforms
-          # lists only versioned variants. ARMv5 binaries run unchanged on
-          # the Cortex-A9 (ARMv7l). Off-Nix workflows that use the OpenWrt
-          # SDK directly are unaffected; that path is user-local.
-          pkgsBmm = import nixpkgs {
-            inherit system;
-            crossSystem = {
-              config = "armv5tel-unknown-linux-musleabi";
-            };
-          };
-          bmmCc = pkgsBmm.stdenv.cc;
-
-          patchEspBinaries = pkgs.writeShellScriptBin "patch-esp-binaries" ''
-            if [ -f /etc/NIXOS ] || [ ! -f /lib64/ld-linux-x86-64.so.2 ]; then
-              echo "Patching ESP toolchain binaries for NixOS..."
-              find "$RUSTUP_HOME/toolchains/esp" -type f | while read -r file; do
-                if file "$file" 2>/dev/null | grep -q 'ELF'; then
-                  ${pkgs.patchelf}/bin/patchelf \
-                    --set-interpreter "$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)" \
-                    "$file" 2>/dev/null || true
-                  ${pkgs.patchelf}/bin/patchelf \
-                    --set-rpath "${
-                      pkgs.lib.makeLibraryPath [
-                        pkgs.stdenv.cc.cc.lib
-                        pkgs.glibc
-                        pkgs.zlib
-                        pkgs.libxml2
-                        pkgs.openssl
-                        pkgs.libffi
-                      ]
-                    }:$RUSTUP_HOME/toolchains/esp/lib:$(dirname "$file")" \
-                    "$file" 2>/dev/null || true
-                fi
-              done
-              echo "Patching complete."
-            fi
-          '';
-
-          craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
-
-          bmmCraneLib = (crane.mkLib pkgs).overrideToolchain bmmRustToolchain;
-
-          # Xtensa-LX7 Rust toolchain for the ESP32-S3. Upstream rustc does
-          # not ship xtensa-esp32s3-none-elf; esp-rs publishes pre-built
-          # artifacts at github.com/esp-rs/rust-build. Running espup inside
-          # a Nix build is non-deterministic, so flake checks fetch the
-          # release tarballs directly with pinned hashes.
-          #
-          # When bumping espToolchainVersion:
-          #   nix-prefetch-url <rust tarball url>
-          #   nix-prefetch-url <rust-src tarball url>
-          #   nix hash convert --to sri --hash-algo sha256 <each base32>
-          # The --unpack flag is intentionally omitted; fetchurl verifies
-          # the compressed tarball directly.
-          # Update the hashes below and retest both flake checks and the
-          # esp devshell in the same commit.
-          espToolchainVersion = "1.94.0.2";
-
-          espToolchain = pkgs.stdenv.mkDerivation {
-            pname = "esp-rust-xtensa";
-            version = espToolchainVersion;
-
-            srcs = [
-              (pkgs.fetchurl {
-                url = "https://github.com/esp-rs/rust-build/releases/download/v${espToolchainVersion}/rust-${espToolchainVersion}-x86_64-unknown-linux-gnu.tar.xz";
-                hash = "sha256-bOG2jBJtHuDBfUWejEg7kXaAAfzpzCz4lfbGiMMmKxU=";
-              })
-              (pkgs.fetchurl {
-                url = "https://github.com/esp-rs/rust-build/releases/download/v${espToolchainVersion}/rust-src-${espToolchainVersion}.tar.xz";
-                hash = "sha256-A8J1ScXW8c39Tw/6KKYsC6+XnCgkGewSGnfxttKxz4c=";
-              })
-            ];
-
-            nativeBuildInputs = [ pkgs.autoPatchelfHook ];
-            buildInputs = [
-              pkgs.stdenv.cc.cc
-              pkgs.zlib
-            ];
-
-            sourceRoot = ".";
-            dontStrip = true;
-
-            # Both tarballs unpack to directories named rust-nightly-*
-            # regardless of the release version, because esp-rs builds
-            # from the upstream rust master branch.
-            installPhase = ''
-              runHook preInstall
-              for dir in rust-nightly-x86_64-unknown-linux-gnu rust-src-nightly; do
-                patchShebangs "$dir/install.sh"
-                "$dir/install.sh" \
-                  --destdir=$out --prefix="" --disable-ldconfig \
-                  --without=rust-docs-json-preview,rust-docs
-              done
-              runHook postInstall
-            '';
-          };
-
-          espCraneLib = (crane.mkLib pkgs).overrideToolchain espToolchain;
-
-          # redacted redacted (RV64GC). The closure has no C deps (no
-          # secp256k1-sys/ii-sv2), so unlike espCraneLib it needs no cross GCC.
-          riscvCraneLib = (crane.mkLib pkgs).overrideToolchain riscvRustToolchain;
-
-          # Bare-metal riscv64 GCC, pulled into the redacted check closure purely
-          # for its bundled `riscv64-none-elf-ld` (see `riscvDefmtRustflags`).
-          # The redacted crate has no C deps, so this is the linker, not a C
-          # toolchain.
-          riscvGcc = pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc;
-          # redacted builds with defmt, whose `.defmt` symbol table lives in a
-          # non-`SHF_ALLOC` `(INFO)` section with no real load address. rust-lld
-          # mishandles `R_RISCV_PCREL_HI20` relocations against it, computing the
-          # auipc displacement as if it were a nearby real symbol and clamping to
-          # a signed 20-bit range instead of the actual 32-bit auipc+lo12 reach —
-          # see firmware/redacted/.cargo/config.toml, which carries the same flags
-          # for the interactive build. `riscvGcc` supplies the real
-          # `riscv64-none-elf-ld` these resolve to.
-          riscvDefmtRustflags = "-C panic=abort -C linker=riscv64-none-elf-ld -C linker-flavor=ld";
-
-          # Xtensa GCC toolchain for `secp256k1-sys` (and any other C
-          # dependency in the esp32s3 build). `secp256k1-sys` arrives via
-          # the unconditional `ii-sv2` dep. Nixpkgs doesn't ship
-          # `xtensa-esp-elf-gcc`, and the rustup-managed copy from `espup`
-          # is invisible inside the flake check sandbox. Hashes paired with
-          # the URL; bump both when upgrading to a newer
-          # espressif/crosstool-NG release.
-          xtensaEspToolchain = pkgs.stdenv.mkDerivation {
-            pname = "xtensa-esp-elf";
-            version = "15.2.0_20250920";
-
-            src = pkgs.fetchurl {
-              url = "https://github.com/espressif/crosstool-NG/releases/download/esp-15.2.0_20250920/xtensa-esp-elf-15.2.0_20250920-x86_64-linux-gnu.tar.xz";
-              hash = "sha256-49d60UVEgUUnu+ei0PeexFkqTiM5LFHHOIwOaGtqaXc=";
-            };
-
-            nativeBuildInputs = [ pkgs.autoPatchelfHook ];
-            buildInputs = [
-              pkgs.stdenv.cc.cc
-              pkgs.zlib
-            ];
-
-            sourceRoot = "xtensa-esp-elf";
-            dontStrip = true;
-
-            installPhase = ''
-              runHook preInstall
-              mkdir -p "$out"
-              cp -r . "$out"
-              runHook postInstall
-            '';
-          };
-
-          # Second-stage bootloader for the esp32s3 board, compiled from the
-          # minimal ESP-IDF stub in firmware/esp32s3-bootloader. ESP-IDF ships
-          # no Rust bootloader for Xtensa, and the bootloader bundled by
-          # espflash/probe-rs has CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE off, so
-          # the OTA PendingVerify auto-revert never fires. We build our own with
-          # rollback on and flash it via `probe-rs run --idf-bootloader`.
-          esp32s3Bootloader = pkgs.stdenv.mkDerivation {
-            pname = "esp32s3-bootloader";
-            version = "5.5.2";
-            src = ./firmware/esp32s3-bootloader;
-            # esp-idf-esp32s3 carries a setup-hook that exports IDF_PATH and
-            # puts idf.py plus the xtensa toolchain on PATH.
-            nativeBuildInputs = [ nixpkgs-esp-dev.packages.${system}.esp-idf-esp32s3 ];
-            dontConfigure = true;
-            buildPhase = ''
-              runHook preBuild
-              export HOME="$TMPDIR"
-              cp -r "$src" project
-              chmod -R u+w project
-              cd project
-              idf.py set-target esp32s3
-              idf.py bootloader
-              runHook postBuild
-            '';
-            installPhase = ''
-              runHook preInstall
-              mkdir -p "$out"
-              cp build/bootloader/bootloader.bin "$out/"
-              runHook postInstall
-            '';
-          };
-
-          src =
-            let
-              # Crane's default filter keeps Cargo.toml, Cargo.lock, and .rs files.
-              # We also need .cargo/config.toml (per-crate target settings), linker
-              # scripts (.x), the vendored embassy-net-wiznet patches directory,
-              # the dashboard HTML/CSS/JS that ubos-webui's build.rs composes and
-              # gzips into OUT_DIR, the Braiins wordmark served at /logo.svg via
-              # include_bytes!, the build.rs sibling at the ubos-webui crate
-              # root, the stratum-v2 golden transcript fixtures that the
-              # replay tests pull in via include_bytes!, and the
-              # ubos-snapshot JSON fixture its report tests pull in via
-              # include_str!.
-              customFilter =
-                path: _type:
-                (builtins.match ".*\\.cargo/config\\.toml$" path != null)
-                || (builtins.match ".*\\.x$" path != null)
-                || (builtins.match ".*/patches/embassy-net-wiznet/.*" path != null)
-                || (builtins.match ".*\\.html$" path != null)
-                || (builtins.match ".*\\.css$" path != null)
-                || (builtins.match ".*\\.js$" path != null)
-                || (builtins.match ".*\\.svg$" path != null)
-                || (builtins.match ".*/tests/fixtures/.*\\.bin$" path != null)
-                || (builtins.match ".*/tests/fixtures/.*\\.json$" path != null)
-                || (baseNameOf path == "build.rs");
-            in
-            pkgs.lib.cleanSourceWith {
-              src = ./.;
-              # The top-level nix/ directory holds only flake modules; crane's
-              # filter admits every directory, so without this exclusion it
-              # would land in the cleaned source as an empty directory and
-              # churn the src hash on every flake refactor.
-              filter =
-                path: type:
-                (path != toString ./nix) && ((customFilter path type) || (craneLib.filterCargoSources path type));
-            };
-
-          # build-std=core pulls sysroot crates like proc_macro and std
-          # that have their own Cargo.lock outside our tree. Vendor both
-          # so the Xtensa clippy checks resolve without network access.
-          espCargoVendorDir = espCraneLib.vendorMultipleCargoDeps {
-            cargoLockList = [
-              ./Cargo.lock
-              "${espToolchain}/lib/rustlib/src/rust/library/Cargo.lock"
-            ];
-          };
-
-          # Host-target load-test crate lives outside the ubos-main
-          # workspace, so it gets its own src filter and dep cache rather
-          # than sharing the embedded workspace wiring above.
-          loadTestSrc = craneLib.cleanCargoSource ./nuc/pkgs/load-test;
+          # Host-target load-test dependency artifacts; the crate src comes
+          # from nix/source.nix.
           loadTestArtifacts = craneLib.buildDepsOnly {
             src = loadTestSrc;
             strictDeps = true;
