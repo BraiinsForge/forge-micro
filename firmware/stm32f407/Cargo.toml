@@ -45,6 +45,7 @@ ubos-cooling        = { workspace = true, features = ["defmt"] }
 ubos-psu            = { workspace = true, features = ["defmt"] }
 ubos-mining         = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-asic            = { workspace = true }
+ubos-eeprom         = { workspace = true, features = ["defmt"] }
 serial-baudrate     = { workspace = true }
 embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
 embassy-sync        = { workspace = true, features = ["defmt"] }

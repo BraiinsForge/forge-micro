@@ -38,6 +38,7 @@ ubos-thermal           = { workspace = true, features = ["defmt"] }
 ubos-manager           = { workspace = true, features = ["defmt"] }
 ubos-config            = { workspace = true, features = ["defmt"] }
 ubos-asic              = { workspace = true }
+ubos-eeprom            = { workspace = true, features = ["defmt"] }
 ubos-cooling           = { workspace = true, features = ["defmt"] }
 ubos-psu               = { workspace = true, features = ["defmt"] }
 ubos-mining            = { workspace = true, features = ["defmt"] }
