@@ -68,6 +68,11 @@ pub struct HashboardDescriptor {
     /// Product name reported to external clients and the dashboard, sited
     /// here so the active board's name has one home.
     pub model: &'static str,
+    /// 7-bit I2C address of the hashboard's operational-data EEPROM, on
+    /// the same bus as the PSU/sensors. `None` when the address is not
+    /// yet known; a `Some` value may still be tentative and pending
+    /// hardware confirmation — see docs/EEPROM.md.
+    pub eeprom_i2c_address: Option<u8>,
 }
 
 impl HashboardDescriptor {
@@ -111,6 +116,11 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
         min_fan_pwm: 20,
     },
     model: "miniminer",
+    // Confirmed against bos-main's AM2-S17 addressing
+    // (`BASE_I2C_ADDRESS = 0x50`, single-hashboard `hashboard_address = 1`
+    // resolves to `0x50 + 1 - 1`), which shares this same I2C bus with the
+    // 0x40/0x43/0x46/0x08 PSU addresses `BmmPsuDescriptor::DEFAULT` uses.
+    eeprom_i2c_address: Some(0x50),
 };
 
 /// Hashboard descriptor for the 4-chip BM1370 `BFMX4` (Braiins Forge Miner
@@ -130,4 +140,8 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
         min_fan_pwm: 20,
     },
     model: "Braiins Forge Miner x4",
+    // Tentative, unlike BMM101_HASHBOARD's 0x50: not yet cross-checked
+    // against a parsed product-name match the way 0x50 was. See
+    // docs/EEPROM.md.
+    eeprom_i2c_address: Some(0x57),
 };

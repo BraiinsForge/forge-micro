@@ -180,6 +180,7 @@ const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
         min_fan_pwm: 0,
     },
     model: "test",
+    eeprom_i2c_address: None,
 };
 
 /// Single-chip BM1370 hashboard used in the `MiscSettings` bring-up
@@ -198,6 +199,7 @@ const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
         min_fan_pwm: 0,
     },
     model: "test",
+    eeprom_i2c_address: None,
 };
 
 /// Runs the full BM1366 bring-up against the multi-domain test board.
