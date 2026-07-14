@@ -1639,6 +1639,147 @@ async function loadEvents(incremental) {
 
 $('evReload').addEventListener('click', () => loadEvents(false));
 
+// Endpoint list for the state snapshot download. Key order is the section
+// order in the generated file; metrics lives on :8081 and is collected
+// separately, parsed into structured entries.
+const SNAPSHOT_SECTIONS = [
+  ['info', '/api/info'],
+  ['config', '/api/config'],
+  ['system_info', '/api/system/info'],
+  ['asic', '/api/system/asic'],
+  ['thermal', '/api/system/thermal'],
+  ['cooling', '/api/system/cooling'],
+  ['statistics', '/api/system/statistics'],
+  ['scoreboard', '/api/system/scoreboard'],
+  ['network', '/api/system/network'],
+  ['events', '/api/system/events'],
+  ['events_catalog', '/api/system/events/catalog'],
+];
+
+// Matches one exposition line. The label group is an alternation of
+// "outside a quoted value" and "a whole quoted value" so a literal '}'
+// inside a value does not end the label block early; the firmware only
+// escapes backslash, double-quote, and newline inside a value, and a '}'
+// is legal unescaped there. A `[^}]*` label group would stop at that
+// inner '}' instead of the real closing brace.
+const METRIC_LINE_RE =
+  /^([A-Za-z_:][A-Za-z0-9_:]*)(?:\{((?:[^"}]|"(?:[^"\\]|\\.)*")*)\})?\s+(\S+)(?:\s+(\d+))?$/;
+
+// Parse Prometheus exposition text into structured entries so the
+// snapshot stays inspectable JSON throughout. Values keep their string
+// form because the exposition format allows NaN and infinities; a line
+// that does not match the exposition shape is preserved verbatim under
+// `raw` so nothing the board served is lost. The split is a regex
+// because esbuild would shorten a '\n' string literal into a template
+// literal holding a physical newline, which the line-based HTML
+// minifier in build.rs rejects.
+function parseMetrics(text) {
+  const entries = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line || line.startsWith('#')) continue;
+    const match = METRIC_LINE_RE.exec(line);
+    if (match) {
+      const entry = { name: match[1], value: match[3] };
+      if (match[2]) entry.labels = match[2];
+      if (match[4]) entry.timestamp_ms = Number(match[4]);
+      entries.push(entry);
+    } else {
+      entries.push({ raw: line });
+    }
+  }
+  return entries;
+}
+
+// Fetch a single snapshot section against the shallow REST listener pool,
+// matching the retry idiom used by loadCfg/loadEvents/loadNetworkStatus.
+// Only a fetch rejection is a transient failure worth retrying, since it
+// means the pool refused the connection outright; a non-ok HTTP response
+// is a definitive answer from the board and is reported to the caller
+// immediately instead of being retried.
+async function fetchSectionWithRetry(url, options, parse) {
+  const delays = [0, 250, 500, 1000];
+  let lastError;
+  for (const wait of delays) {
+    if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+    let response;
+    try {
+      response = await fetch(url, options);
+    } catch (error) {
+      lastError = error;
+      continue;
+    }
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return await parse(response);
+  }
+  throw lastError;
+}
+
+// The snapshot is assembled here in the browser rather than by a firmware
+// aggregate endpoint: the firmware is heap-free with fixed per-response
+// buffers, and only the events and catalog handlers stream, so a combined
+// endpoint would mean rebuilding every handler's output through the
+// streaming path. The browser already fetches each of these endpoints, so
+// it collects them into one document instead.
+// Collect every read-only endpoint into one snapshot object. Sections are
+// fetched one at a time, in order, rather than concurrently: the REST
+// listener's worker pool is only one connection deep on the smallest
+// boards, so firing all eleven requests at once just makes the pool
+// refuse most of them instead of queuing them. Each section, including
+// the port 8081 metrics fetch, gets its own backoff retry against that
+// shallow pool; a section that still fails after retries is recorded
+// under `errors` instead of aborting the rest of the snapshot.
+async function collectSnapshot() {
+  const snapshot = {
+    version: 1,
+    meta: {
+      generated_at: new Date().toISOString(),
+      hostname: location.hostname,
+      page_url: location.href,
+      user_agent: navigator.userAgent,
+      ui_build_rev: $('bRev').textContent,
+      ui_build_time: $('bTime').textContent,
+    },
+  };
+  const jobs = SNAPSHOT_SECTIONS.map(([key, path]) => [key, () =>
+    fetchSectionWithRetry(API + path, { cache: 'no-store', credentials: 'include' }, response => response.json())]);
+  // The metrics listener answers with a wildcard CORS header, which
+  // browsers reject for credentialed requests, so omit credentials here.
+  jobs.push(['metrics', () =>
+    fetchSectionWithRetry(`${location.protocol}//${location.hostname}:8081/metrics`, { cache: 'no-store' },
+      response => response.text().then(parseMetrics))]);
+  const errors = {};
+  for (const [key, run] of jobs) {
+    try {
+      snapshot[key] = await run();
+    } catch (error) {
+      errors[key] = String((error && error.message) || error);
+    }
+  }
+  snapshot.errors = errors;
+  return snapshot;
+}
+
+$('evSave').addEventListener('click', async () => {
+  const button = $('evSave');
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const snapshot = await collectSnapshot();
+    const stamp = snapshot.meta.generated_at.slice(0, 19).replace(/:/g, '-') + 'Z';
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'ubos-snapshot-' + location.hostname + '-' + stamp + '.json';
+    link.click();
+    // Revoking the URL synchronously can race the browser starting the
+    // download, so free it after a short delay instead.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 // Auto-refresh the events view once a minute. The poll is incremental and
 // only runs while the tab is showing, so it stays cheap and never fights a
 // manual reload thanks to the eventsLoading guard.

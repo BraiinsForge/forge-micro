@@ -976,11 +976,11 @@ main > * {
   margin-bottom: 12px;
 }
 
-/* Reload is an icon-only button so it stays out of the way; it repeats
-   the muted nav-icon treatment and sits at the row's right edge with the
-   record count to its left. */
-#evReload {
-  margin-left: auto;
+/* Reload and snapshot download are icon-only buttons so they stay out
+   of the way; they repeat the muted nav-icon treatment and sit as one
+   cluster at the row's right edge with the record count to its left. */
+#evReload,
+#evSave {
   background: none;
   border: 0;
   color: var(--mute);
@@ -990,8 +990,20 @@ main > * {
   align-items: center;
 }
 
-#evReload:hover {
+#evReload {
+  margin-left: auto;
+}
+
+#evReload:hover,
+#evSave:hover {
   color: var(--fg);
+}
+
+/* Dimming is the only in-flight feedback for the snapshot download; a
+   spinning download arrow would read as activity on the wrong control. */
+#evSave:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .evReloadIcon {

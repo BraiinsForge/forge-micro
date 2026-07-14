@@ -305,6 +305,7 @@
     <div class="evhead">
       <span id="evStatus"></span>
       <button type="button" id="evReload" aria-label="Reload events" title="Reload"><svg class="evReloadIcon" aria-hidden="true"><use href="#iRenew"/></svg></button>
+      <button type="button" id="evSave" aria-label="Download snapshot" title="Download snapshot"><svg class="evReloadIcon" aria-hidden="true"><use href="#iSave"/></svg></button>
     </div>
     <table class="evtab">
       <thead>
@@ -353,7 +354,7 @@
   </div>
 
   <footer class="bar ft">
-    <span class="bi"><span id="ip">–</span> · <span id="mac">–</span> · {{BUILD_REV}} · {{BUILD_TIME}}</span>
+    <span class="bi"><span id="ip">–</span> · <span id="mac">–</span> · <span id="bRev">{{BUILD_REV}}</span> · <span id="bTime">{{BUILD_TIME}}</span></span>
   </footer>
 
   <!--JS-->
