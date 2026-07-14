@@ -578,8 +578,10 @@
               # the dashboard HTML/CSS/JS that ubos-webui's build.rs composes and
               # gzips into OUT_DIR, the Braiins wordmark served at /logo.svg via
               # include_bytes!, the build.rs sibling at the ubos-webui crate
-              # root, and the stratum-v2 golden transcript fixtures that the
-              # replay tests pull in via include_bytes!.
+              # root, the stratum-v2 golden transcript fixtures that the
+              # replay tests pull in via include_bytes!, and the
+              # ubos-snapshot JSON fixture its report tests pull in via
+              # include_str!.
               customFilter =
                 path: _type:
                 (builtins.match ".*\\.cargo/config\\.toml$" path != null)
@@ -590,6 +592,7 @@
                 || (builtins.match ".*\\.js$" path != null)
                 || (builtins.match ".*\\.svg$" path != null)
                 || (builtins.match ".*/tests/fixtures/.*\\.bin$" path != null)
+                || (builtins.match ".*/tests/fixtures/.*\\.json$" path != null)
                 || (baseNameOf path == "build.rs");
             in
             pkgs.lib.cleanSourceWith {
@@ -660,6 +663,7 @@
               "-p ubos-mining"
               "-p ubos-net"
               "-p ubos-psu"
+              "-p ubos-snapshot"
               "-p ubos-temperature"
             ];
           };
@@ -2220,6 +2224,22 @@
               doInstallCargoArtifacts = false;
             };
 
+            clippy-ubos-snapshot = craneLib.cargoClippy {
+              inherit src;
+              cargoArtifacts = hostArtifacts;
+              cargoExtraArgs = "-p ubos-snapshot";
+              cargoClippyExtraArgs = "--all-targets -- -D warnings";
+              doInstallCargoArtifacts = false;
+            };
+
+            test-ubos-snapshot = craneLib.cargoTest {
+              inherit src;
+              cargoArtifacts = hostArtifactsDev;
+              CARGO_PROFILE = "";
+              cargoExtraArgs = "-p ubos-snapshot";
+              doInstallCargoArtifacts = false;
+            };
+
             test-ubos-http = craneLib.cargoTest {
               inherit src;
               cargoArtifacts = ubosHttpArtifactsDev;
@@ -2702,6 +2722,7 @@
                     test-ubos-mining
                     test-ubos-net
                     test-ubos-psu
+                    test-ubos-snapshot
                     test-ubos-temperature
                     test-ubos-thermal
                     test-load-test
