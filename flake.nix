@@ -133,7 +133,12 @@
       sdImageFor = buildSystem: (mkNuc buildSystem [ ./nuc/sd-image.nix ]).config.system.build.sdImage;
     in
     nixpkgs.lib.recursiveUpdate
-      (flake-utils.lib.eachDefaultSystem (
+      # x86_64-linux only: the esp-rs Xtensa toolchain and the espressif
+      # cross-gcc are prebuilt x86_64 tarballs, so the per-system checks
+      # and shells cannot work elsewhere. The aarch64 NUC closure is not
+      # a per-system output; it comes from the nixosConfiguration and the
+      # explicit packages.aarch64-linux.sd-image below.
+      (flake-utils.lib.eachSystem [ "x86_64-linux" ] (
         system:
         let
           overlays = [
@@ -311,7 +316,7 @@
             # of the cross-built image here so that gap closes. The image
             # itself is never built: unsafeDiscardOutputDependency keeps the
             # evaluation but drops the multi-gigabyte build from the closure.
-            // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            // {
               sd-image-eval = pkgs.runCommand "sd-image-eval" { } ''
                 echo ${builtins.unsafeDiscardOutputDependency (sdImageFor system).drvPath} > $out
               '';
