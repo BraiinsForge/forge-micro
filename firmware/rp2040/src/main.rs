@@ -41,6 +41,7 @@ use static_cell::{ConstStaticCell, StaticCell};
 use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
+use ubos_eeprom::HashboardEeprom as _;
 use ubos_manager::Handle as ManagerHandle;
 use ubos_mining::Handle as MiningHandle;
 use ubos_thermal::Handle as ThermalHandle;
@@ -515,6 +516,16 @@ async fn boot(spawner: Spawner) {
         static I2C1_BUS: StaticCell<psu::Bus> = StaticCell::new();
         let i2c = I2c::new_async(hw.i2c1, hw.scl, hw.sda, Irqs, I2cConfig::default());
         let bus: &'static psu::Bus = I2C1_BUS.init(Mutex::new(i2c));
+
+        // Read the hashboard EEPROM once, before powering anything up, so
+        // its identity is in the log even if bring-up later fails.
+        if let Some(address) = config::BOARD.eeprom_i2c_address {
+            let mut device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
+            ubos_eeprom::i2c::I2cEeprom::new(address, &mut device)
+                .log_identity()
+                .await;
+        }
+
         let (board_psu, psu_state, terminated) = psu::init(bus);
         spawner.spawn(unwrap!(psu::watchdog_task(psu_state, terminated)));
         spawner.spawn(unwrap!(psu::power_stats_task(board_psu)));
