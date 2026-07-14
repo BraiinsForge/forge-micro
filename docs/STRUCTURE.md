@@ -14,7 +14,6 @@ and which authoritative references it is based on.
 .
 ├── Cargo.toml              virtual workspace manifest, no [package]
 ├── Cargo.lock
-├── rust-toolchain.toml     pinned toolchain for the workspace
 ├── .cargo/config.toml      workspace-wide cargo config and env
 ├── flake.nix flake.lock    nix dev shells and flake checks
 ├── README.md               entry point, quick-start commands

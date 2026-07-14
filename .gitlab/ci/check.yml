@@ -45,7 +45,6 @@
         - "patches/**"
         - "**/*.nix"
         - "flake.lock"
-        - "rust-toolchain.toml"
         - "pcb/bmm-adapter/**"
         - "jlcpcb.kibot.yaml"
 
