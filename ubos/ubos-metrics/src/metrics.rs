@@ -339,10 +339,15 @@ where
         .initiate_response(
             200,
             Some("OK"),
+            // The dashboard on port 80 reads this endpoint cross-origin
+            // for the state snapshot download. The wildcard is safe on an
+            // unauthenticated listener and keeps the handler free of
+            // Origin parsing; it also forbids credentialed fetches.
             &[
                 ("Content-Type", "text/plain; version=0.0.4"),
                 ("Content-Length", content_length.as_str()),
                 ("Connection", "close"),
+                ("Access-Control-Allow-Origin", "*"),
             ],
         )
         .await?;
@@ -353,13 +358,25 @@ where
 }
 
 /// Write the 404 response.
+///
+/// Error responses carry the same wildcard CORS header as the metrics
+/// response so a cross-origin caller sees the real HTTP status instead
+/// of an opaque CORS failure.
 async fn serve_not_found<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    ubos_http::write_status_only(connection, 404, "Not Found", "text/plain", &[], b"").await
+    ubos_http::write_status_only(
+        connection,
+        404,
+        "Not Found",
+        "text/plain",
+        &[("Access-Control-Allow-Origin", "*")],
+        b"",
+    )
+    .await
 }
 
 /// Write the 405 response. Includes `Allow: GET` per RFC 7231 §6.5.5.
@@ -374,7 +391,7 @@ where
         405,
         "Method Not Allowed",
         "text/plain",
-        &[("Allow", "GET")],
+        &[("Allow", "GET"), ("Access-Control-Allow-Origin", "*")],
         b"",
     )
     .await

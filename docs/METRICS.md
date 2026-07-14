@@ -15,6 +15,13 @@ pending pushes first, then renders the full map plus a fixed set of
 derived metrics (uptime, request count, NTP sync state) in
 Prometheus exposition format 0.0.4.
 
+Every response, including 404 and 405, carries
+`Access-Control-Allow-Origin: *` so the dashboard on port 80 can read
+the endpoint cross-origin for the state snapshot download and sees the
+real HTTP status of an error instead of an opaque CORS failure. The
+wildcard is safe because the listener is unauthenticated, and it
+requires the browser to fetch without credentials.
+
 ## CPU busy ratio
 
 Code: `ubos/ubos-metrics/src/cpu_load.rs`.
