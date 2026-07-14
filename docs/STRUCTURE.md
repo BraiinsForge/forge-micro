@@ -15,7 +15,11 @@ and which authoritative references it is based on.
 ├── Cargo.toml              virtual workspace manifest, no [package]
 ├── Cargo.lock
 ├── .cargo/config.toml      workspace-wide cargo config and env
-├── flake.nix flake.lock    nix dev shells and flake checks
+├── flake.nix flake.lock    flake entry point: inputs, wiring, outputs
+├── nix/                    flake modules: toolchains, esp, source,
+│                           deps, crate graph, checks, images,
+│                           devshells, ci staging, guards, probe-rs,
+│                           kicad, redacted, lib helpers
 ├── README.md               entry point, quick-start commands
 ├── CLAUDE.md               agent instructions, build conventions
 ├── docs/                   architecture, plans, this file
