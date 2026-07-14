@@ -144,7 +144,7 @@ Review the full diff (`git diff "$BASE"...HEAD`) for:
 - New files/modules properly integrated (imports, mod declarations)
 - Nix flakes reference correct paths after any restructuring
 - `.cargo/config.toml` runner and target settings correct
-- `rust-toolchain.toml` channels match the target architecture
+- The `nix/toolchains.nix` targets match the target architecture
 
 ### Phase 6: Verification checklist
 
