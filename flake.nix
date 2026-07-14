@@ -844,154 +844,13 @@
             family = "rp2350-arm-s";
           };
 
-          # Resolve KiCad's stock symbol/footprint libraries for the
-          # headless DRC/ERC checks. Without a global library table the CLI
-          # cannot find the standard libraries the board references
-          # (Connector_*, MountingHole, power, ...), and both the parity
-          # check and ERC degrade to a flood of spurious "configuration
-          # does not include library X" warnings instead of real
-          # comparisons - the full `kicad` package (not `kicad-small`)
-          # ships those libraries, and its wrapper exports the
-          # `KICAD*_{FOOTPRINT,SYMBOL}_DIR` that the stock tables in
-          # `KICAD*_TEMPLATE_DIR` reference. We copy those tables into the
-          # per-version config dir the CLI reads. The config dir and the
-          # template-dir env var both encode the pinned major version, so
-          # both derive from the single `kicadMajor` literal that tracks
-          # the KiCad pinned in this flake; KiCad names the dir
-          # `<major>.0`. A cp failure on a version bump surfaces loudly
-          # here.
-          kicadMajor = "10";
-          kicadLibTableSetup = ''
-            export HOME=$(mktemp -d)
-            eval "$(grep '^export KICAD${kicadMajor}_TEMPLATE_DIR=' "$(command -v kicad-cli)")"
-            cfg="$HOME/.config/kicad/${kicadMajor}.0"
-            mkdir -p "$cfg"
-            cp "$KICAD${kicadMajor}_TEMPLATE_DIR"/fp-lib-table "$cfg/"
-            cp "$KICAD${kicadMajor}_TEMPLATE_DIR"/sym-lib-table "$cfg/"
-          '';
+          # Headless KiCad DRC/ERC gates for the bmm-adapter board; the
+          # checks merge into `checks` below. See nix/kicad.nix.
+          kicad = import ./nix/kicad.nix { inherit pkgs; };
 
-          # redacted Logic 2 headless capture tooling.
-          #
-          # Logic 2's automation gRPC server is gated behind three things at
-          # once: `automationServerEnabled: true` in the Logic config.json,
-          # the ENABLE_AUTOMATION=1 env var, and a usable display (Xvfb, with
-          # the Electron renderer forced to --disable-gpu). Missing the
-          # config.json flag is why a bare ENABLE_AUTOMATION launch accepts
-          # the TCP connection but never finishes the gRPC handshake; the
-          # nixpkgs appimage (bwrap FHS) path is otherwise fine.
-          redactedPkgs = import nixpkgs {
-            inherit system;
-            config.allowUnfreePredicate = pkg: pkgs.lib.getName pkg == "redacted-logic-2";
-          };
-
-          # logic2-automation (PyPI), imported as `redacted.automation`. Not in
-          # nixpkgs, so it is built here against the packaged grpcio/protobuf.
-          # The sdist ships pre-generated protobuf stubs, so no protoc step is
-          # needed; the build backend is hatchling.
-          logic2Automation = pkgs.python3.pkgs.buildPythonPackage rec {
-            pname = "logic2-automation";
-            version = "1.0.11";
-            pyproject = true;
-            src = pkgs.fetchPypi {
-              pname = "logic2_automation";
-              inherit version;
-              hash = "sha256-gtFQm+5bdPP9YSly16bCuuuOIXbQJq9lBmO3neLJfAA=";
-            };
-            build-system = [ pkgs.python3.pkgs.hatchling ];
-            dependencies = with pkgs.python3.pkgs; [
-              grpcio
-              protobuf
-            ];
-            pythonImportsCheck = [ "redacted.automation" ];
-          };
-
-          # `python` with the redacted automation client on its path, used by
-          # tools/redacted_capture_uart.py.
-          redactedCapturePython = pkgs.python3.withPackages (_: [ logic2Automation ]);
-
-          # Reproducible Logic config that skips the first-run onboarding and
-          # telemetry so a fresh headless HOME comes up straight into a usable
-          # state. The automation server itself is enabled by the --automation
-          # flag, not this file. install(1) copies it into the throwaway HOME
-          # with write permission so Logic can rewrite it; the store original
-          # stays read-only.
-          redactedAutomationConfig = pkgs.writeText "redacted-logic-config.json" (
-            builtins.toJSON {
-              reportCrashes = false;
-              reportAnalytics = false;
-              isDisabledAutoUpdates = true;
-              renderSchemaVersion = 11;
-              onboardings.main = true;
-            }
-          );
-
-          # Bring Logic 2 up headless with the automation server enabled, wait
-          # for the gRPC port, run the given command against it, then tear the
-          # whole process group down. HOME is isolated to a throwaway dir so
-          # the user's real Logic config is never touched and every run starts
-          # from the same automation-enabled config.
-          redactedRun = pkgs.writeShellApplication {
-            name = "redacted-run";
-            runtimeInputs = [
-              redactedPkgs.redacted-logic-2
-              pkgs.xvfb-run
-              pkgs.coreutils
-            ];
-            text = ''
-              port="''${redacted_AUTOMATION_PORT:-10430}"
-              home="$(mktemp -d -t redacted-home.XXXXXX)"
-              install -Dm644 ${redactedAutomationConfig} "$home/.config/Logic/config.json"
-
-              logic_pgid=""
-              cleanup() {
-                if [ -n "$logic_pgid" ]; then
-                  kill -TERM "-$logic_pgid" 2>/dev/null || true
-                  for _ in $(seq 1 10); do
-                    kill -0 "-$logic_pgid" 2>/dev/null || break
-                    sleep 0.3
-                  done
-                  kill -KILL "-$logic_pgid" 2>/dev/null || true
-                fi
-                rm -rf "$home"
-              }
-              trap cleanup EXIT INT TERM
-
-              echo "redacted-run: launching Logic 2 headless (automation on :$port)" >&2
-              # The automation gRPC server is started by --automation; the
-              # default port is 10430 and --automationPort overrides it.
-              # --disable-gpu keeps the Electron renderer happy under Xvfb.
-              # setsid puts Logic, Xvfb, and xvfb-run in their own process
-              # group so cleanup can signal all of them at once.
-              setsid env HOME="$home" \
-                xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
-                redacted-logic-2 --disable-gpu --automation --automationPort "$port" \
-                >"$home/logic.log" 2>&1 &
-              logic_pgid=$!
-
-              ready=""
-              for _ in $(seq 1 120); do
-                if ! kill -0 "$logic_pgid" 2>/dev/null; then
-                  echo "redacted-run: Logic exited before the automation port opened:" >&2
-                  cat "$home/logic.log" >&2 || true
-                  exit 1
-                fi
-                if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
-                  exec 3>&- 3<&-
-                  ready=1
-                  break
-                fi
-                sleep 1
-              done
-              if [ -z "$ready" ]; then
-                echo "redacted-run: automation port $port never opened; Logic log:" >&2
-                cat "$home/logic.log" >&2 || true
-                exit 1
-              fi
-
-              echo "redacted-run: automation ready; running: $*" >&2
-              "$@"
-            '';
-          };
+          # redacted Logic 2 headless capture tooling. See nix/redacted.nix.
+          redacted = import ./nix/redacted.nix { inherit pkgs nixpkgs system; };
+          inherit (redacted) redactedPkgs redactedCapturePython redactedRun;
 
           # Production esp32s3 firmware image. Shared by packages.esp32s3-image
           # (nix build) and apps.esp32s3-image (nix run). espflash converts the
@@ -2374,69 +2233,6 @@
                     > "$out/README"
                 '';
 
-            # Real DRC gate. `--schematic-parity` compares the PCB's
-            # footprints against the schematic's symbols (footprint/value/
-            # field/pad parity), so library or symbol drift can no longer
-            # slip through unchecked; with the stock libraries resolved
-            # above this is a true comparison, not a "library not found"
-            # no-op. `--severity-error --severity-warning` makes the gate
-            # warnings-as-errors: any warning (footprint/library drift,
-            # silkscreen-over-copper, ...) fails the build, not just
-            # error-severity faults. Excluded violations are deliberately
-            # not reported, so the board's reviewed DRC exclusions in
-            # `bmm-adapter.kicad_pro` stay dismissed - the whole project dir
-            # is staged in a writable copy so KiCad reads them exactly as it
-            # does interactively. `--exit-code-violations` turns any
-            # reported violation into a nonzero exit. The kibot fab job
-            # also runs DRC/ERC as a warnings-as-errors preflight; this
-            # check is an independent gate in the check stage that runs
-            # regardless of fabrication.
-            drc-bmm-adapter =
-              pkgs.runCommand "drc-bmm-adapter"
-                {
-                  nativeBuildInputs = [ pkgs.kicad ];
-                }
-                ''
-                  ${kicadLibTableSetup}
-                  work=$(mktemp -d)
-                  cp -r ${./pcb/bmm-adapter}/. "$work"/
-                  chmod -R +w "$work"
-                  kicad-cli pcb drc \
-                    --schematic-parity \
-                    --severity-error \
-                    --severity-warning \
-                    --exit-code-violations \
-                    --format json \
-                    --output $out \
-                    "$work/bmm-adapter.kicad_pcb"
-                '';
-
-            # Real ERC gate. With the stock symbol libraries resolved, ERC
-            # checks the actual schematic (power-input/no-connect/pin
-            # conflicts) instead of reporting every symbol as an unresolved
-            # library reference. `--severity-error --severity-warning` makes
-            # it warnings-as-errors, matching the DRC gate;
-            # `--exit-code-violations` fails the build on any reported
-            # violation while leaving reviewed exclusions dismissed.
-            erc-bmm-adapter =
-              pkgs.runCommand "erc-bmm-adapter"
-                {
-                  nativeBuildInputs = [ pkgs.kicad ];
-                }
-                ''
-                  ${kicadLibTableSetup}
-                  work=$(mktemp -d)
-                  cp -r ${./pcb/bmm-adapter}/. "$work"/
-                  chmod -R +w "$work"
-                  kicad-cli sch erc \
-                    --severity-error \
-                    --severity-warning \
-                    --exit-code-violations \
-                    --format json \
-                    --output $out \
-                    "$work/bmm-adapter.kicad_sch"
-                '';
-
             # Fail the build on an unused dependency so dead deps cannot
             # accumulate. Runs over the cleaned source in default mode, which
             # parses every Cargo.toml and greps its source, so it needs no
@@ -2505,6 +2301,8 @@
             # the check stage is its gate.
             probe-rs-tools-server = pkgs.probe-rs-tools-server;
           }
+          # The bmm-adapter DRC/ERC gates; see nix/kicad.nix.
+          // kicad.checks
           # The SD image is a `packages` output, so no check covered it and
           # an evaluation regression - a nixpkgs bump whose device-tree
           # module the nixos-raspberrypi kernel cannot satisfy, say - passed
