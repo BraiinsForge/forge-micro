@@ -16,6 +16,7 @@ members = [
     "host/embedded-serial-unix",
     "host/host-runner",
     "host/ubos-main-host",
+    "tools/ubos-snapshot",
     "ubos/esp32s3-tsens",
     "ubos/mining-protocol",
     "ubos/ubos-asic",

@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "meta": {
+    "generated_at": "2026-07-14T12:34:56.789Z",
+    "hostname": "10.0.0.5",
+    "page_url": "http://10.0.0.5/",
+    "user_agent": "Mozilla/5.0",
+    "ui_build_rev": "abc123def456",
+    "ui_build_time": "2026-07-10 10:00 UTC"
+  },
+  "info": {
+    "name": "miner-01",
+    "hashrate": 123.4,
+    "uptime": 5000,
+    "temperature": 61.5,
+    "fan": 4980,
+    "power": 15.2,
+    "voltage": 12.1,
+    "psu_fault": false,
+    "running": true,
+    "paused": false,
+    "ip": "10.0.0.5",
+    "mac": "aa:bb:cc:dd:ee:ff",
+    "ota": { "active": false, "version": "1.2.3" }
+  },
+  "config": {
+    "pools": [
+      { "url": "stratum+tcp://pool.example.com:3333", "user": "worker.1" }
+    ]
+  },
+  "system_info": {
+    "board": "hashnode",
+    "firmware_version": "1.2.3"
+  },
+  "network": {
+    "dhcp": true,
+    "gateway": "10.0.0.1"
+  },
+  "events": {
+    "events": [
+      {
+        "seq": 1,
+        "ts": 42,
+        "sev": "info",
+        "code": 999999999,
+        "args": "0000000000000000000000"
+      },
+      {
+        "seq": 2,
+        "ts": 1721000000,
+        "sev": "warn",
+        "code": 4022250974,
+        "args": "1c25fb0000000000000000"
+      }
+    ]
+  },
+  "events_catalog": [
+    {
+      "code": 4022250974,
+      "sev": "warn",
+      "fmt": "Thermal limit {} reached, delta {}",
+      "args": ["u16", "i8"]
+    }
+  ],
+  "metrics": [
+    {
+      "name": "board_fan_rpm",
+      "labels": "fan=\"0\"",
+      "value": "4980",
+      "timestamp_ms": 1720950000000
+    },
+    { "name": "board_uptime_seconds", "value": "123" },
+    { "raw": "not a valid metric line" }
+  ],
+  "errors": {
+    "asic": "HTTP 500"
+  }
+}

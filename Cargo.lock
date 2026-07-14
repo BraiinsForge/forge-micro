@@ -5068,6 +5068,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubos-snapshot"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ubos-temperature"
 version = "0.1.0"
 dependencies = [

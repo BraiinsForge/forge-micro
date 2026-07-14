@@ -1,0 +1,12 @@
+[package]
+edition.workspace = true
+name        = "ubos-snapshot"
+version     = "0.1.0"
+description = "Renders a mining-device machine-state snapshot JSON file as a Markdown or HTML report."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde      = { workspace = true, features = ["std"] }
+serde_json = "1"
