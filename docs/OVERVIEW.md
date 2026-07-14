@@ -100,6 +100,8 @@ baud-rate switch; see [MINING.md](MINING.md).
 - `ubos/rp235x-sha256/` -- polled driver for the RP2350 SHA-256 accelerator.
 - `ubos/esp32s3-tsens/` -- ESP32-S3 internal temperature sensor (esp-hal
   1.0.0 does not expose it).
+- `ubos/ubos-eeprom/` -- hashboard identity EEPROM wire format and read
+  path; generic over `embedded-hal-async::i2c`.
 - `ubos/ubos-psu/` -- async PSU driver for the BMM101 miniminer hashboard
   plus the INA230 current monitor; generic over `embedded-hal-async::i2c`.
 - `ubos/ubos-temperature/` -- LM75A / esp32s3-tsens temperature sensor
