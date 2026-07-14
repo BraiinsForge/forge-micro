@@ -221,13 +221,6 @@
               bmmCc
               ;
           };
-          inherit (deps)
-            thumbv6mArtifacts
-            thumbv8mArtifacts
-            hashnodeArtifacts
-            thumbv6mBootloaderArtifacts
-            thumbv8mBootloaderArtifacts
-            ;
 
           # Maximum flash bytes allowed before CI fails the size guard.
           # The value is the embassy-boot ACTIVE partition budget. The 2 MiB
@@ -262,272 +255,25 @@
             in
             if v == "" then "1" else v;
 
-          # Production rp2350 firmware image derivation. Shared by
-          # packages.rp2350-image (nix build) and apps.rp2350-image (nix run).
-          rp2350Image = craneLib.cargoBuild {
-            inherit src;
-            cargoArtifacts = thumbv8mArtifacts;
-            cargoBuildCommand = "cargo build --release";
-            cargoExtraArgs = "-p rp2350 --target thumbv8m.main-none-eabihf";
-            nativeBuildInputs = [
-              pkgs.gcc-arm-embedded
-              pkgs.esbuild
-            ];
-            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-            UBOS_FW_VERSION = fwVersion;
-            # Do not copy the cargo target directory into $out; we only
-            # want the raw binary image.
-            doInstallCargoArtifacts = false;
-            # Slot-size and pool-worker guards match build-rp2350 in
-            # checks; the difference is that the bin is kept in $out
-            # instead of being deleted.
-            installPhaseCommand = ''
-              mkdir -p "$out"
-              arm-none-eabi-objcopy -O binary \
-                target/thumbv8m.main-none-eabihf/release/rp2350 \
-                "$out/rp2350-v${fwVersion}.bin"
-              size=$(wc -c < "$out/rp2350-v${fwVersion}.bin")
-              echo "rp2350 image: $size bytes / ${toString slotMaxBytes} bytes budget, version ${fwVersion}"
-              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
-                echo "ERROR: rp2350 release image ($size bytes) exceeds the" \
-                     "${toString slotMaxBytes}-byte slot limit. See docs/OTA.md."
-                exit 1
-              fi
-              if [ -n "''${POOL_USER:-}" ]; then
-                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
-                exit 1
-              fi
-              if grep -qa "braiinstest" "$out/rp2350-v${fwVersion}.bin"; then
-                echo "ERROR: rp2350 image contains the test pool worker 'braiinstest'; it must not ship."
-                exit 1
-              fi
-            '';
-          };
-
-          # Production bmm-pico firmware image derivation. Shared by
-          # packages.bmm-pico-image (nix build) and apps.bmm-pico-image
-          # (nix run). The bmm-pico crate bakes POOL_USER via its
-          # .cargo/config.toml, but cargo only reads that config when run
-          # from the crate directory; this crane build runs from the flake
-          # root, so POOL_USER stays unset and the test worker is not baked.
-          bmmPicoImage = craneLib.cargoBuild {
-            inherit src;
-            cargoArtifacts = thumbv8mArtifacts;
-            cargoBuildCommand = "cargo build --release";
-            cargoExtraArgs = "-p bmm-pico --target thumbv8m.main-none-eabihf";
-            nativeBuildInputs = [
-              pkgs.gcc-arm-embedded
-              pkgs.esbuild
-            ];
-            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-            UBOS_FW_VERSION = fwVersion;
-            # Do not copy the cargo target directory into $out; we only
-            # want the raw binary image.
-            doInstallCargoArtifacts = false;
-            # Slot-size and pool-worker guards match build-bmm-pico in
-            # checks; the difference is that the bin is kept in $out
-            # instead of being deleted.
-            installPhaseCommand = ''
-              mkdir -p "$out"
-              arm-none-eabi-objcopy -O binary \
-                target/thumbv8m.main-none-eabihf/release/bmm-pico \
-                "$out/bmm-pico-v${fwVersion}.bin"
-              size=$(wc -c < "$out/bmm-pico-v${fwVersion}.bin")
-              echo "bmm-pico image: $size bytes / ${toString slotMaxBytes} bytes budget, version ${fwVersion}"
-              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
-                echo "ERROR: bmm-pico release image ($size bytes) exceeds the" \
-                     "${toString slotMaxBytes}-byte slot limit. See docs/OTA.md."
-                exit 1
-              fi
-              if [ -n "''${POOL_USER:-}" ]; then
-                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
-                exit 1
-              fi
-              if grep -qa "braiinstest" "$out/bmm-pico-v${fwVersion}.bin"; then
-                echo "ERROR: bmm-pico image contains the test pool worker 'braiinstest'; it must not ship."
-                exit 1
-              fi
-            '';
-          };
-
-          # Production rp2040 firmware image derivation. Shared by
-          # packages.rp2040-image (nix build) and apps.rp2040-image (nix run).
-          rp2040Image = craneLib.cargoBuild {
-            inherit src;
-            cargoArtifacts = thumbv6mArtifacts;
-            cargoBuildCommand = "cargo build --release";
-            cargoExtraArgs = "-p rp2040 --target thumbv6m-none-eabi";
-            nativeBuildInputs = [
-              pkgs.gcc-arm-embedded
-              pkgs.esbuild
-            ];
-            CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-            UBOS_FW_VERSION = fwVersion;
-            # Do not copy the cargo target directory into $out; we only
-            # want the raw binary image.
-            doInstallCargoArtifacts = false;
-            # Slot-size and pool-worker guards match build-rp2040 in
-            # checks; the difference is that the bin is kept in $out
-            # instead of being deleted.
-            installPhaseCommand = ''
-              mkdir -p "$out"
-              arm-none-eabi-objcopy -O binary \
-                target/thumbv6m-none-eabi/release/rp2040 \
-                "$out/rp2040-v${fwVersion}.bin"
-              size=$(wc -c < "$out/rp2040-v${fwVersion}.bin")
-              echo "rp2040 image: $size bytes / ${toString slotMaxBytes} bytes budget, version ${fwVersion}"
-              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
-                echo "ERROR: rp2040 release image ($size bytes) exceeds the" \
-                     "${toString slotMaxBytes}-byte slot limit. See docs/OTA.md."
-                exit 1
-              fi
-              if [ -n "''${POOL_USER:-}" ]; then
-                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
-                exit 1
-              fi
-              if grep -qa "braiinstest" "$out/rp2040-v${fwVersion}.bin"; then
-                echo "ERROR: rp2040 image contains the test pool worker 'braiinstest'; it must not ship."
-                exit 1
-              fi
-            '';
-          };
-
-          # Production hashnode firmware image derivation. Shared by
-          # packages.hashnode-image (nix build) and apps.hashnode-uf2
-          # (nix run).
-          hashnodeImage = craneLib.cargoBuild {
-            inherit src;
-            cargoArtifacts = hashnodeArtifacts;
-            cargoBuildCommand = "cargo build --release";
-            cargoExtraArgs = "-p hashnode --target thumbv8m.main-none-eabihf";
-            nativeBuildInputs = [
-              pkgs.gcc-arm-embedded
-              pkgs.esbuild
-            ];
-            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-            UBOS_FW_VERSION = fwVersion;
-            # Do not copy the cargo target directory into $out; we only
-            # want the raw binary image.
-            doInstallCargoArtifacts = false;
-            # The hashnode .cargo/config.toml bakes a test POOL_USER for
-            # dev flashing, but crane builds from the flake root where
-            # cargo does not read it; the guard proves it stayed out.
-            installPhaseCommand = ''
-              mkdir -p "$out"
-              arm-none-eabi-objcopy -O binary \
-                target/thumbv8m.main-none-eabihf/release/hashnode \
-                "$out/hashnode-v${fwVersion}.bin"
-              size=$(wc -c < "$out/hashnode-v${fwVersion}.bin")
-              echo "hashnode image: $size bytes / ${toString slotMaxBytes} bytes budget, version ${fwVersion}"
-              if [ "$size" -gt "${toString slotMaxBytes}" ]; then
-                echo "ERROR: hashnode release image ($size bytes) exceeds the" \
-                     "${toString slotMaxBytes}-byte slot limit. See docs/OTA.md."
-                exit 1
-              fi
-              if [ -n "''${POOL_USER:-}" ]; then
-                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
-                exit 1
-              fi
-              if grep -qa "braiinstest" "$out/hashnode-v${fwVersion}.bin"; then
-                echo "ERROR: hashnode image contains the test pool worker 'braiinstest'; it must not ship."
-                exit 1
-              fi
-            '';
-          };
-
-          # Bootloader ELF for the rp2350, bmm-pico, and hashnode boards.
-          # All three use the rp2350-bootloader crate; it occupies flash
-          # offset 0x10000000 and carries the image-def the bootrom
-          # validates. The crate is built with the rp235xa feature but
-          # touches no GPIO, so the binary also runs on the hashnode's
-          # RP2350B. The combined UF2 derivations bundle this ELF with the
-          # app binary so the image is drag-droppable via the BOOTSEL
-          # mass-storage interface.
-          rp2350Bootloader = craneLib.cargoBuild {
-            inherit src;
-            cargoArtifacts = thumbv8mBootloaderArtifacts;
-            cargoBuildCommand = "cargo build --release";
-            cargoExtraArgs = "-p rp2350-bootloader --target thumbv8m.main-none-eabihf";
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
-            CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-            doInstallCargoArtifacts = false;
-            installPhaseCommand = ''
-              mkdir -p "$out"
-              cp target/thumbv8m.main-none-eabihf/release/rp2350-bootloader "$out/boot.elf"
-            '';
-          };
-
-          # Bootloader ELF for the rp2040 board. It occupies flash offset
-          # 0x10000000 and carries the image-def the bootrom validates. The
-          # combined UF2 derivation bundles this ELF with the app binary so the
-          # image is drag-droppable via the BOOTSEL mass-storage interface.
-          rp2040Bootloader = craneLib.cargoBuild {
-            inherit src;
-            cargoArtifacts = thumbv6mBootloaderArtifacts;
-            cargoBuildCommand = "cargo build --release";
-            cargoExtraArgs = "-p rp2040-bootloader --target thumbv6m-none-eabi";
-            nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
-            CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-            doInstallCargoArtifacts = false;
-            installPhaseCommand = ''
-              mkdir -p "$out"
-              cp target/thumbv6m-none-eabi/release/rp2040-bootloader "$out/boot.elf"
-            '';
-          };
-
-          # Build a combined BOOTSEL UF2 image from a raw app binary and a
-          # bootloader ELF. The bootloader covers offset 0x10000000 (the
-          # offset-0 region the bootrom validates); the app binary is placed at
-          # 0x10021000 (the ACTIVE partition). UF2 blocks carry individual
-          # flash addresses, so concatenating the two single-region UF2 files
-          # yields one drag-drop image spanning both flash regions.
-          mkCombinedUf2 =
-            {
-              name,
-              appBin,
-              bootElf,
-              family,
-            }:
-            pkgs.runCommand "${name}-uf2" { nativeBuildInputs = [ pkgs.picotool ]; } ''
-              mkdir -p "$out"
-              out_uf2="$out/${name}-v${fwVersion}.uf2"
-              picotool uf2 convert ${bootElf}/boot.elf boot.uf2
-              picotool uf2 convert ${appBin} -t bin app.uf2 -o 0x10021000 --family ${family}
-              cat boot.uf2 app.uf2 > "$out_uf2"
-              echo "${name} combined UF2 (bootloader + app v${fwVersion}):"
-              picotool info "$out_uf2" || true
-            '';
-
-          rp2350Uf2 = mkCombinedUf2 {
-            name = "rp2350";
-            appBin = "${rp2350Image}/rp2350-v${fwVersion}.bin";
-            bootElf = rp2350Bootloader;
-            family = "rp2350-arm-s";
-          };
-
-          bmmPicoUf2 = mkCombinedUf2 {
-            name = "bmm-pico";
-            appBin = "${bmmPicoImage}/bmm-pico-v${fwVersion}.bin";
-            bootElf = rp2350Bootloader;
-            family = "rp2350-arm-s";
-          };
-
-          rp2040Uf2 = mkCombinedUf2 {
-            name = "rp2040";
-            appBin = "${rp2040Image}/rp2040-v${fwVersion}.bin";
-            bootElf = rp2040Bootloader;
-            family = "rp2040";
-          };
-
-          hashnodeUf2 = mkCombinedUf2 {
-            name = "hashnode";
-            appBin = "${hashnodeImage}/hashnode-v${fwVersion}.bin";
-            bootElf = rp2350Bootloader;
-            family = "rp2350-arm-s";
+          # Production firmware images, bootloader ELFs, combined BOOTSEL
+          # UF2 images, and the `nix run` copy apps. See nix/images.nix
+          # for the UBOS_FW_VERSION usage.
+          images = import ./nix/images.nix {
+            inherit
+              pkgs
+              src
+              deps
+              craneLib
+              espCraneLib
+              espToolchain
+              espCargoVendorDir
+              xtensaEspToolchain
+              guards
+              webuiBuildEnv
+              fwVersion
+              slotMaxBytes
+              esp32s3SlotBytes
+              ;
           };
 
           # Headless KiCad DRC/ERC gates for the bmm-adapter board; the
@@ -537,55 +283,6 @@
           # redacted Logic 2 headless capture tooling. See nix/redacted.nix.
           redacted = import ./nix/redacted.nix { inherit pkgs nixpkgs system; };
           inherit (redacted) redactedPkgs redactedCapturePython redactedRun;
-
-          # Production esp32s3 firmware image. Shared by packages.esp32s3-image
-          # (nix build) and apps.esp32s3-image (nix run). espflash converts the
-          # linked ELF into the esp-idf app-image format the OTA endpoint writes
-          # into an ota_N slot. The size guard uses the 3 MiB app-slot budget
-          # (esp32s3SlotBytes), which is what the REST handler enforces on the
-          # upload for this board.
-          esp32s3Image = espCraneLib.cargoBuild {
-            inherit src;
-            cargoArtifacts = null;
-            cargoVendorDir = espCargoVendorDir;
-            cargoBuildCommand = "cargo build --release";
-            cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
-            CARGO_TARGET_XTENSA_ESP32S3_NONE_ELF_RUSTFLAGS = "-Clink-arg=-Tlinkall.x -Clink-arg=-Tdefmt.x -Clink-arg=-nostartfiles";
-            RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
-            nativeBuildInputs = [
-              xtensaEspToolchain
-              pkgs.esbuild
-              pkgs.espflash
-            ];
-            CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
-            CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
-            inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-            UBOS_FW_VERSION = fwVersion;
-            doInstallCargoArtifacts = false;
-            installPhaseCommand = ''
-              mkdir -p "$out"
-              # espflash reads/writes a user cache dir; keep it in the sandbox.
-              export HOME="$TMPDIR"
-              espflash save-image --chip esp32s3 --flash-size 8mb \
-                target/xtensa-esp32s3-none-elf/release/esp32s3 \
-                "$out/esp32s3-v${fwVersion}.bin"
-              size=$(wc -c < "$out/esp32s3-v${fwVersion}.bin")
-              echo "esp32s3 image: $size bytes / ${toString esp32s3SlotBytes} bytes OTA app-slot budget, version ${fwVersion}"
-              if [ "$size" -gt "${toString esp32s3SlotBytes}" ]; then
-                echo "ERROR: esp32s3 release image ($size bytes) exceeds the" \
-                     "${toString esp32s3SlotBytes}-byte OTA app slot. See docs/OTA.md."
-                exit 1
-              fi
-              if [ -n "''${POOL_USER:-}" ]; then
-                echo "ERROR: POOL_USER is set; a shipped image must not bake a pool worker."
-                exit 1
-              fi
-              if grep -qa "braiinstest" "$out/esp32s3-v${fwVersion}.bin"; then
-                echo "ERROR: esp32s3 image contains the test pool worker 'braiinstest'; it must not ship."
-                exit 1
-              fi
-            '';
-          };
         in
         {
           # Per-crate gates and static guards; see nix/checks.nix for the
@@ -956,238 +653,71 @@
             };
           };
 
-          # Production firmware images for flashing via the WebUI, and combined
-          # BOOTSEL UF2 images for drag-drop flashing via USB mass-storage.
-          #
-          # Build with a version number:
-          #   UBOS_FW_VERSION=42 nix build --impure .#rp2350-image
-          # This produces result/rp2350-v42.bin.
-          #
-          #   UBOS_FW_VERSION=42 nix build --impure .#rp2350-uf2
-          # This produces result/rp2350-v42.uf2.
-          #
-          # A pure build (no --impure) defaults to version 1 because
-          # builtins.getEnv returns "" in the Nix sandbox; the sandbox
-          # strips all caller environment variables.
-          packages = rec {
-            rp2350-image = rp2350Image;
-            bmm-pico-image = bmmPicoImage;
-            rp2040-image = rp2040Image;
-            hashnode-image = hashnodeImage;
-            rp2350-uf2 = rp2350Uf2;
-            bmm-pico-uf2 = bmmPicoUf2;
-            rp2040-uf2 = rp2040Uf2;
-            hashnode-uf2 = hashnodeUf2;
+          # Production firmware images and combined BOOTSEL UF2 images;
+          # see nix/images.nix for the UBOS_FW_VERSION build instructions.
+          packages =
+            images.packages
+            // rec {
+              # KiCad automation for the bmm-adapter fabrication job,
+              # `nix run .#kibot`. DRC and ERC are gated separately by
+              # the kicad-cli checks; kibot only generates fab outputs.
+              kiauto = pkgs.callPackage ./kiauto.nix { };
+              kibot = pkgs.callPackage ./kibot.nix { inherit kiauto; };
 
-            # KiCad automation for the bmm-adapter fabrication job
-            # (`nix run .#kibot`). DRC and ERC are gated separately by
-            # the kicad-cli checks; kibot only generates fab outputs.
-            kiauto = pkgs.callPackage ./kiauto.nix { };
-            kibot = pkgs.callPackage ./kibot.nix { inherit kiauto; };
+              # Headless redacted Logic 2 capture lifecycle wrapper. Also the
+              # entry point of the `logic` devShell.
+              redacted-run = redactedRun;
 
-            # Headless redacted Logic 2 capture lifecycle wrapper. Also the
-            # entry point of the `logic` devShell.
-            redacted-run = redactedRun;
+              esp32s3-bootloader = esp32s3Bootloader;
+            }
+            //
+              # CI stage groups. Each is a linkFarm over a slice of the
+              # flake's `checks`, so `nix build .#ci-<stage>` builds exactly
+              # that slice and nothing else - the CI pipeline runs these and
+              # a developer runs the identical command locally. No shell
+              # wrapper sits between CI and nix.
+              #
+              # `classify` maps every check name to exactly one stage, so the
+              # three groups partition `checks` with no overlap and no gaps:
+              # the union of ci-format + ci-clippy + ci-check is precisely
+              # `nix flake check`. ci-format is the formatting gate, ci-clippy
+              # the per-crate clippy gate, and ci-check the comprehensive
+              # remainder - host tests, firmware release builds, the
+              # bmm-adapter DRC/ERC gates, and the static guards. A newly
+              # added check that matches neither the format set nor the
+              # `clippy-` prefix falls into ci-check, so coverage can never
+              # silently shrink. Run a single check directly with
+              # `nix build .#checks.<system>.<name>`.
+              (
+                let
+                  checks = self.checks.${system};
+                  classify =
+                    name:
+                    if
+                      builtins.elem name [
+                        "fmt"
+                        "fmt-load-test"
+                        "nixfmt"
+                      ]
+                    then
+                      "ci-format"
+                    else if pkgs.lib.hasPrefix "clippy-" name then
+                      "ci-clippy"
+                    else
+                      "ci-check";
+                  grouped = pkgs.lib.groupBy classify (builtins.attrNames checks);
+                  farm = stage: pkgs.linkFarmFromDrvs stage (map (name: checks.${name}) (grouped.${stage} or [ ]));
+                in
+                {
+                  ci-format = farm "ci-format";
+                  ci-clippy = farm "ci-clippy";
+                  ci-check = farm "ci-check";
+                }
+              );
 
-            esp32s3-image = esp32s3Image;
-            esp32s3-bootloader = esp32s3Bootloader;
-          }
-          //
-            # CI stage groups. Each is a linkFarm over a slice of the
-            # flake's `checks`, so `nix build .#ci-<stage>` builds exactly
-            # that slice and nothing else - the CI pipeline runs these and
-            # a developer runs the identical command locally. No shell
-            # wrapper sits between CI and nix.
-            #
-            # `classify` maps every check name to exactly one stage, so the
-            # three groups partition `checks` with no overlap and no gaps:
-            # the union of ci-format + ci-clippy + ci-check is precisely
-            # `nix flake check`. ci-format is the formatting gate, ci-clippy
-            # the per-crate clippy gate, and ci-check the comprehensive
-            # remainder - host tests, firmware release builds, the
-            # bmm-adapter DRC/ERC gates, and the static guards. A newly
-            # added check that matches neither the format set nor the
-            # `clippy-` prefix falls into ci-check, so coverage can never
-            # silently shrink. Run a single check directly with
-            # `nix build .#checks.<system>.<name>`.
-            (
-              let
-                checks = self.checks.${system};
-                classify =
-                  name:
-                  if
-                    builtins.elem name [
-                      "fmt"
-                      "fmt-load-test"
-                      "nixfmt"
-                    ]
-                  then
-                    "ci-format"
-                  else if pkgs.lib.hasPrefix "clippy-" name then
-                    "ci-clippy"
-                  else
-                    "ci-check";
-                grouped = pkgs.lib.groupBy classify (builtins.attrNames checks);
-                farm = stage: pkgs.linkFarmFromDrvs stage (map (name: checks.${name}) (grouped.${stage} or [ ]));
-              in
-              {
-                ci-format = farm "ci-format";
-                ci-clippy = farm "ci-clippy";
-                ci-check = farm "ci-check";
-              }
-            );
-
-          # Copy the built image or UF2 into the repo's build/ directory and
-          # print the absolute path of the written file as the last stdout line.
-          #
-          # Usage:
-          #   nix run .#rp2350-image                                -> build/rp2350-v1.bin
-          #   UBOS_FW_VERSION=42 nix run --impure .#rp2350-image    -> build/rp2350-v42.bin
-          #   UBOS_FW_VERSION=42 nix run --impure .#bmm-pico-image  -> build/bmm-pico-v42.bin
-          #   nix run .#rp2350-uf2                                  -> build/rp2350-v1.uf2
-          #   nix run .#bmm-pico-uf2                                -> build/bmm-pico-v1.uf2
-          #   nix run .#rp2040-uf2                                  -> build/rp2040-v1.uf2
-          #   nix run .#hashnode-uf2                                -> build/hashnode-v1.uf2
-          #
-          # The final stdout line is the absolute path to the written file.
-          apps = {
-            rp2350-image = {
-              type = "app";
-              program = toString (
-                pkgs.writeShellScript "rp2350-image-to-build" ''
-                  set -euo pipefail
-                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-                  dest="$root/build"
-                  mkdir -p "$dest"
-                  # The package $out holds exactly one rp2350-v<N>.bin.
-                  src_bin="$(echo ${rp2350Image}/*.bin)"
-                  name="$(basename "$src_bin")"
-                  install -m644 "$src_bin" "$dest/$name"
-                  echo "rp2350 image v${fwVersion} written to:" >&2
-                  echo "$dest/$name"
-                ''
-              );
-            };
-            bmm-pico-image = {
-              type = "app";
-              program = toString (
-                pkgs.writeShellScript "bmm-pico-image-to-build" ''
-                  set -euo pipefail
-                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-                  dest="$root/build"
-                  mkdir -p "$dest"
-                  # The package $out holds exactly one bmm-pico-v<N>.bin.
-                  src_bin="$(echo ${bmmPicoImage}/*.bin)"
-                  name="$(basename "$src_bin")"
-                  install -m644 "$src_bin" "$dest/$name"
-                  echo "bmm-pico image v${fwVersion} written to:" >&2
-                  echo "$dest/$name"
-                ''
-              );
-            };
-            rp2040-image = {
-              type = "app";
-              program = toString (
-                pkgs.writeShellScript "rp2040-image-to-build" ''
-                  set -euo pipefail
-                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-                  dest="$root/build"
-                  mkdir -p "$dest"
-                  # The package $out holds exactly one rp2040-v<N>.bin.
-                  src_bin="$(echo ${rp2040Image}/*.bin)"
-                  name="$(basename "$src_bin")"
-                  install -m644 "$src_bin" "$dest/$name"
-                  echo "rp2040 image v${fwVersion} written to:" >&2
-                  echo "$dest/$name"
-                ''
-              );
-            };
-            rp2350-uf2 = {
-              type = "app";
-              program = toString (
-                pkgs.writeShellScript "rp2350-uf2-to-build" ''
-                  set -euo pipefail
-                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-                  dest="$root/build"
-                  mkdir -p "$dest"
-                  # The package $out holds exactly one rp2350-v<N>.uf2.
-                  src_uf2="$(echo ${rp2350Uf2}/*.uf2)"
-                  name="$(basename "$src_uf2")"
-                  install -m644 "$src_uf2" "$dest/$name"
-                  echo "rp2350 UF2 v${fwVersion} written to:" >&2
-                  echo "$dest/$name"
-                ''
-              );
-            };
-            bmm-pico-uf2 = {
-              type = "app";
-              program = toString (
-                pkgs.writeShellScript "bmm-pico-uf2-to-build" ''
-                  set -euo pipefail
-                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-                  dest="$root/build"
-                  mkdir -p "$dest"
-                  # The package $out holds exactly one bmm-pico-v<N>.uf2.
-                  src_uf2="$(echo ${bmmPicoUf2}/*.uf2)"
-                  name="$(basename "$src_uf2")"
-                  install -m644 "$src_uf2" "$dest/$name"
-                  echo "bmm-pico UF2 v${fwVersion} written to:" >&2
-                  echo "$dest/$name"
-                ''
-              );
-            };
-            rp2040-uf2 = {
-              type = "app";
-              program = toString (
-                pkgs.writeShellScript "rp2040-uf2-to-build" ''
-                  set -euo pipefail
-                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-                  dest="$root/build"
-                  mkdir -p "$dest"
-                  # The package $out holds exactly one rp2040-v<N>.uf2.
-                  src_uf2="$(echo ${rp2040Uf2}/*.uf2)"
-                  name="$(basename "$src_uf2")"
-                  install -m644 "$src_uf2" "$dest/$name"
-                  echo "rp2040 UF2 v${fwVersion} written to:" >&2
-                  echo "$dest/$name"
-                ''
-              );
-            };
-            hashnode-uf2 = {
-              type = "app";
-              program = toString (
-                pkgs.writeShellScript "hashnode-uf2-to-build" ''
-                  set -euo pipefail
-                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-                  dest="$root/build"
-                  mkdir -p "$dest"
-                  # The package $out holds exactly one hashnode-v<N>.uf2.
-                  src_uf2="$(echo ${hashnodeUf2}/*.uf2)"
-                  name="$(basename "$src_uf2")"
-                  install -m644 "$src_uf2" "$dest/$name"
-                  echo "hashnode UF2 v${fwVersion} written to:" >&2
-                  echo "$dest/$name"
-                ''
-              );
-            };
-            esp32s3-image = {
-              type = "app";
-              program = toString (
-                pkgs.writeShellScript "esp32s3-image-to-build" ''
-                  set -euo pipefail
-                  root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-                  dest="$root/build"
-                  mkdir -p "$dest"
-                  # The package $out holds exactly one esp32s3-v<N>.bin.
-                  src_bin="$(echo ${esp32s3Image}/*.bin)"
-                  name="$(basename "$src_bin")"
-                  install -m644 "$src_bin" "$dest/$name"
-                  echo "esp32s3 image v${fwVersion} written to:" >&2
-                  echo "$dest/$name"
-                ''
-              );
-            };
-          };
+          # Copy apps: `nix run .#<image>` writes the built image or UF2
+          # into the repo's build/ directory. See nix/images.nix.
+          apps = images.apps;
         }
       ))
       {
