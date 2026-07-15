@@ -142,10 +142,19 @@ explicitly.
 
 ## Git Workflow
 
-**Steps:** Clarify, Plan, Implement, Commit, Review. Fixups loop back
-to Plan.
+**Branch lifecycle** — the preferred path from request to merge:
 
-Wait for explicit user approval between steps. Never advance without it.
+1. Gather the requirements for what the branch should implement.
+2. Prepare a plan; once approved, commit it.
+3. Implement all the changes and features.
+4. Iterate `/review-branch` → `/fix-review` → `/branch-cleanup` until no
+   significant findings remain.
+5. Human review is expected at this point.
+6. After the human's fixes land, run review → fix → cleanup again.
+7. A clean branch with no significant findings is ready to merge.
+
+**Per step:** Clarify, Plan, Implement, Commit, Review. Wait for explicit
+user approval between steps; never advance without it.
 
 - Present findings and the proposed approach, then wait
 - Answer questions completely first, then wait before acting
