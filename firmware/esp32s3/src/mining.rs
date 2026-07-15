@@ -77,9 +77,12 @@ impl ubos_mining::reset::ResetPin for BoardResetPin {
 const PARK_INTERVAL: Duration = Duration::from_secs(60);
 
 #[embassy_executor::task]
-pub async fn serial_task(serial: MinerUart) -> ! {
+pub async fn serial_task(
+    serial: MinerUart,
+    session: &'static ubos_firmware::BoardAsicSession,
+) -> ! {
     match ubos_mining::serial::SERIAL
-        .run(serial, &ubos_firmware::ASIC_SESSION, crate::config::BOARD)
+        .run(serial, session, crate::config::BOARD)
         .await
     {
         Ok(()) => info!("ubos-mining serial actor terminated cleanly"),

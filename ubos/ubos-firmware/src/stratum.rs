@@ -1,10 +1,17 @@
 //! Shared stratum client orchestration task.
 //!
-//! Hoisted out of the seven board `main.rs` files, where this ~95-line session
-//! loop was duplicated byte-for-byte. The only per-board variance was the SV2
-//! noise-handshake RNG: every board now seeds a `ChaCha20Rng` at boot from its
-//! hardware entropy and passes it in, so the task, the secp context, the
-//! shared `AsicSession`, and the `Sv2BoardRng` adapter are all shared here.
+//! Hoisted out of the seven board `main.rs` files, where this session
+//! loop was duplicated byte-for-byte. One instance of
+//! [`run_stratum_session`] runs per pool slot: each maintains its own
+//! connection to its configured endpoint, publishes work into its slot
+//! of the shared [`BoardAsicSession`], and drains its slot's
+//! solutions. Which slot actually feeds the chip is decided on the
+//! ASIC side (`ubos-mining`'s dispatcher) via
+//! `AsicSession::set_active`; the sessions here are policy-free.
+//!
+//! Boot-time singletons (the SV2 secp context, the SV2 entropy seed)
+//! are initialised once via [`init_stratum`] and fanned out to the
+//! per-slot tasks as a [`StratumShared`] value.
 
 use embassy_futures::select::{Either, select};
 use embassy_time::Timer;
@@ -14,13 +21,21 @@ use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::{
     AsicSession, NTIME_ROLL_PERIOD_SECS, PoolConnector, RECONNECT_DELAY, SOCKET_TIMEOUT,
     STRATUM_TCP_BUFFER_SIZE, SessionError, StratumState, record_reconnect_attempt,
+    set_pool_alive,
 };
 use ubos_logging::{Debug2Format, info, warn};
 
-/// Shared ASIC session: the bridge between the stratum work source and the
-/// BM1362 serial worker. One instance per binary; referenced by both the
-/// stratum client task and the per-board mining serial task.
-pub static ASIC_SESSION: AsicSession = AsicSession::new();
+/// Pool-slot capacity every board binary wires up: one stratum session
+/// task and one `AsicSession` channel pair per config pool slot.
+/// Re-exported so board `main.rs` spawn loops and task `pool_size`
+/// attributes reference one authority.
+pub use ubos_config::pool::MAX_POOLS;
+
+/// The board-facing `AsicSession` instantiation, sized to the config
+/// pool capacity. Each board owns one in a `static` and passes it to
+/// both the `ubos-mining` serial worker and the per-slot stratum
+/// tasks.
+pub type BoardAsicSession = AsicSession<MAX_POOLS>;
 
 // Preallocated buffer for the SV2 `secp256k1::AllPreallocated` context.
 // `CryptoCtx::preallocated` needs a `[AlignedType]` slice at least
@@ -40,9 +55,10 @@ static SECP_CTX: StaticCell<
     ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
 > = StaticCell::new();
 
-/// SV2 noise-handshake RNG. Wraps the boot-seeded `ChaCha20` CSPRNG so the
-/// stratum-v2 client draws ephemeral keys and nonces from one shared entropy
-/// stream, independent of the session CSPRNG.
+/// SV2 noise-handshake RNG. Wraps a per-slot `ChaCha20` CSPRNG so each
+/// stratum-v2 client draws ephemeral keys and nonces from its own
+/// entropy stream, independent of the other slots and of the session
+/// CSPRNG.
 struct Sv2BoardRng<'a>(&'a mut ChaCha20Rng);
 
 impl ii_sv2::security::Rng for Sv2BoardRng<'_> {
@@ -51,8 +67,42 @@ impl ii_sv2::security::Rng for Sv2BoardRng<'_> {
     }
 }
 
-/// Boot-time storage for the SV2 `ChaCha20` PRNG.
-static SV2_PRNG: StaticCell<ChaCha20Rng> = StaticCell::new();
+/// Boot-time stratum singletons, fanned out by value to every per-slot
+/// session task. `Copy`: holds a shared reference to the secp context
+/// and the 32-byte SV2 entropy seed.
+#[derive(Clone, Copy)]
+pub struct StratumShared {
+    secp_ctx:
+        &'static ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
+    sv2_seed: [u8; 32],
+}
+
+/// Initialise the boot-time stratum singletons once, returning the
+/// [`StratumShared`] value each board hands to every
+/// [`run_stratum_session`] task.
+///
+/// `sv2_seed` must come from the board's hardware entropy source. Each
+/// slot's task derives its own `ChaCha20` stream from the one seed
+/// (`set_stream(slot)`), so the per-slot noise-handshake RNGs are
+/// mutually independent, and each stream outlives boot inside its task
+/// rather than being reconstructed per reconnect — continuous across
+/// reconnects, and no board keeps its hardware RNG peripheral live
+/// past seeding.
+///
+/// # Panics
+///
+/// Panics if called twice (the underlying cells are single-take), or
+/// if `SECP_CTX_SLOTS` undersizes the secp context (BUG-class,
+/// compile-time-sized invariant).
+#[must_use]
+pub fn init_stratum(sv2_seed: [u8; 32]) -> StratumShared {
+    let secp_buffer = SECP_CTX_BUF.take();
+    let secp_ctx: &'static _ = SECP_CTX.init(
+        ii_sv2::security::CryptoCtx::preallocated(secp_buffer)
+            .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
+    );
+    StratumShared { secp_ctx, sv2_seed }
+}
 
 /// TCP transport source for one pool entry. Owns the stack handle and
 /// host/port, borrows the task's static socket buffers; rebuilt per
@@ -87,73 +137,92 @@ impl PoolConnector for TcpConnector<'_> {
 
 /// Log a session failure, preserving the distinct connect-failed and
 /// session-error lines the pre-connector code emitted.
-fn log_session_error(error: &SessionError<ubos_net::net::StratumConnectError>) {
+fn log_session_error(slot: usize, error: &SessionError<ubos_net::net::StratumConnectError>) {
     match error {
         SessionError::Connect(error) => {
-            warn!("stratum-client: connect failed: {:?}", Debug2Format(error));
+            warn!(
+                "stratum-client: pool {} connect failed: {:?}",
+                slot,
+                Debug2Format(error)
+            );
         }
         SessionError::Session(error) => {
-            warn!("stratum-client: session error {:?}", Debug2Format(error));
+            warn!(
+                "stratum-client: pool {} session error {:?}",
+                slot,
+                Debug2Format(error)
+            );
         }
     }
 }
 
-/// Seed the SV2 `ChaCha20` PRNG once at boot, returning the `'static` handle each
-/// board hands to [`run_stratum_session`].
+/// Maintains one connection to the pool configured in `slot`,
+/// reconnecting on error and restarting on pool-config changes. A slot
+/// with no config entry parks until the next config update.
 ///
-/// `seed` must come from the board's hardware entropy source. Every board funds
-/// its SV2 handshake from a hardware-seeded `ChaCha20` CSPRNG that outlives boot
-/// as a `'static` rather than being reconstructed per reconnect, so the stream
-/// stays continuous across reconnects and no board has to keep its hardware RNG
-/// peripheral live past seeding.
-#[must_use]
-pub fn seed_sv2_prng(seed: [u8; 32]) -> &'static mut ChaCha20Rng {
-    SV2_PRNG.init(ChaCha20Rng::from_seed(seed))
-}
-
-/// Connects to the configured pool and runs stratum sessions, reconnecting on
-/// error and restarting on pool-config changes.
-///
-/// This is a plain `async fn`, not an `#[embassy_executor::task]`: esp32s3
-/// pins a different `embassy-executor` version than the ARM boards, so the
-/// task shell that owns the pool must stay in each board binary and compile
-/// against that board's executor. Each board wraps this body in a one-line
-/// task. The shared session loop lives here only once.
+/// This is a plain `async fn`, not an `#[embassy_executor::task]`:
+/// esp32s3 pins a different `embassy-executor` version than the ARM
+/// boards, so the task shell that owns the pool must stay in each
+/// board binary and compile against that board's executor. Each board
+/// wraps this body in a one-line task spawned once per slot
+/// (`pool_size = MAX_POOLS`). The shared session loop lives here only
+/// once.
 // The only panics are `.expect()` on compile-time-sized buffer invariants
 // (BUG-class, not caller-facing), so a `# Panics` doc section would mislead.
 #[allow(clippy::too_many_lines, clippy::missing_panics_doc)]
 pub async fn run_stratum_session(
     stack: embassy_net::Stack<'static>,
-    sv2_prng: &'static mut ChaCha20Rng,
+    slot: usize,
+    session: &'static BoardAsicSession,
+    shared: StratumShared,
 ) -> ! {
-    static TCP_RX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
-        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
-    static TCP_TX: ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]> =
-        ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]);
-    let rx_buffer = TCP_RX.take();
-    let tx_buffer = TCP_TX.take();
+    // Per-slot socket buffers; each slot's task takes exactly its own
+    // pair once at startup.
+    static TCP_RX: [ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]>; MAX_POOLS] =
+        [const { ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]) }; MAX_POOLS];
+    static TCP_TX: [ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]>; MAX_POOLS] =
+        [const { ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]) }; MAX_POOLS];
+    let rx_buffer = TCP_RX[slot].take();
+    let tx_buffer = TCP_TX[slot].take();
 
-    // SV2 secp context — initialised once even if the first pool entry
-    // is Sv1, so a runtime protocol switch needs no late allocation.
-    let secp_buffer = SECP_CTX_BUF.take();
-    let secp_ctx = SECP_CTX.init(
-        ii_sv2::security::CryptoCtx::preallocated(secp_buffer)
-            .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
-    );
+    // This slot's ChaCha20 stream over the shared boot seed: mutually
+    // independent between slots, continuous across reconnects within
+    // the task.
+    let mut sv2_prng = ChaCha20Rng::from_seed(shared.sv2_seed);
+    sv2_prng.set_stream(slot as u64);
+
+    let handle = session.pool_handle(slot);
+    let pool_index = u8::try_from(slot).expect("BUG: MAX_POOLS fits the u8 pool index");
 
     let config_handle = ubos_config::handle();
     let mut config_generation = config_handle.subscribe_generation();
 
     loop {
+        // Teardown boundary: whether the last iteration ended in a
+        // session error, a config change, or never ran, the slot's
+        // work cell must not offer a previous session's job to the
+        // dispatcher while no session backs it.
+        handle.clear_work();
+        // The alive bit must also drop here: a config change cancels
+        // `one_session` mid-await, so `run_stratum_client` never
+        // reaches its own on-return clear, and a slot parked on a
+        // removed entry would otherwise stay "Alive" forever.
+        set_pool_alive(pool_index, false);
+
         let snapshot = config_handle.current();
-        let Some(entry) = snapshot.pool.first() else {
-            warn!("stratum-client: pool list empty, awaiting config update");
+        let Some(entry) = snapshot.pool.get(slot) else {
+            // An empty primary slot means no mining at all — worth a
+            // warning. Higher slots are backup entries; absent ones
+            // are the normal single-pool configuration.
+            if slot == 0 {
+                warn!("stratum-client: pool list empty, awaiting config update");
+            }
             config_generation.changed().await;
             continue;
         };
 
         let one_session = async {
-            record_reconnect_attempt(0);
+            record_reconnect_attempt(pool_index);
             let mut connector = TcpConnector {
                 stack,
                 host: entry.host.as_str(),
@@ -174,13 +243,13 @@ pub async fn run_stratum_session(
                     if let Err(error) = stratum_client::run_stratum_session(
                         &mut connector,
                         &mut client,
-                        ASIC_SESSION.pool_handle(0),
+                        handle,
                         &mut state,
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )
                     .await
                     {
-                        log_session_error(&error);
+                        log_session_error(slot, &error);
                     }
                 }
                 ubos_config::ProtocolKind::Sv2 { pool_pubkey } => {
@@ -188,19 +257,19 @@ pub async fn run_stratum_session(
                         .expect("BUG: PoolEntry.user matches Sv2Config buffer size");
                     let mut client = stratum_v2::StratumV2Client::new(
                         &sv2,
-                        secp_ctx,
-                        Sv2BoardRng(&mut *sv2_prng),
+                        shared.secp_ctx,
+                        Sv2BoardRng(&mut sv2_prng),
                     );
                     if let Err(error) = stratum_client::run_stratum_session(
                         &mut connector,
                         &mut client,
-                        ASIC_SESSION.pool_handle(0),
+                        handle,
                         &mut state,
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )
                     .await
                     {
-                        log_session_error(&error);
+                        log_session_error(slot, &error);
                     }
                 }
             }
@@ -211,7 +280,7 @@ pub async fn run_stratum_session(
             select(one_session, config_generation.changed()).await,
             Either::Second(_)
         ) {
-            info!("stratum-client: pool config changed, reconnecting");
+            info!("stratum-client: pool {} config changed, reconnecting", slot);
         }
     }
 }

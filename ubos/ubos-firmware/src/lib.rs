@@ -15,8 +15,7 @@
 
 pub mod stratum;
 
-pub use rand_chacha::ChaCha20Rng;
-pub use stratum::{ASIC_SESSION, run_stratum_session, seed_sv2_prng};
+pub use stratum::{BoardAsicSession, MAX_POOLS, StratumShared, init_stratum, run_stratum_session};
 
 use ubos_events::EventDef;
 

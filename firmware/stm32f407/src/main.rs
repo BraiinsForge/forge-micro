@@ -283,16 +283,24 @@ async fn network_control_task(stack: embassy_net::Stack<'static>) -> ! {
     net::run_network_control(stack).await
 }
 
-/// Board task shell around the shared stratum session loop. The loop body
-/// lives in `ubos-firmware`; the `#[embassy_executor::task]` shell stays per
-/// board because esp32s3 pins a different `embassy-executor` version than the
-/// ARM boards, so the spawned task type must come from each board's executor.
-#[embassy_executor::task]
+/// Shared ASIC session: the bridge between the per-slot stratum sessions and
+/// the BM1362 serial worker. One instance per binary; referenced by every
+/// stratum client task and the mining serial task.
+static ASIC_SESSION: ubos_firmware::BoardAsicSession = ubos_firmware::BoardAsicSession::new();
+
+/// Board task shell around the shared stratum session loop, spawned once per
+/// pool slot. The loop body lives in `ubos-firmware`; the
+/// `#[embassy_executor::task]` shell stays per board because esp32s3 pins a
+/// different `embassy-executor` version than the ARM boards, so the spawned
+/// task type must come from each board's executor.
+#[embassy_executor::task(pool_size = ubos_firmware::MAX_POOLS)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
-    sv2_prng: &'static mut ubos_firmware::ChaCha20Rng,
+    slot: usize,
+    session: &'static ubos_firmware::BoardAsicSession,
+    shared: ubos_firmware::StratumShared,
 ) -> ! {
-    ubos_firmware::run_stratum_session(stack, sv2_prng).await
+    ubos_firmware::run_stratum_session(stack, slot, session, shared).await
 }
 
 // cortex-m-rt's startup only zeroes the standard `.bss`; CCM is a
@@ -346,12 +354,12 @@ async fn boot(spawner: Spawner) {
     // Seed the SV2 ChaCha20 PRNG from the hardware RNG; the stratum-v2
     // noise handshake gets its own entropy stream independent of the
     // session CSPRNG seeded below.
-    let sv2_prng = {
+    let stratum_shared = {
         let mut sv2_seed = [0u8; 32];
         rng.async_fill_bytes(&mut sv2_seed)
             .await
             .expect("BUG: RNG fill failed");
-        ubos_firmware::seed_sv2_prng(sv2_seed)
+        ubos_firmware::init_stratum(sv2_seed)
     };
 
     // Enable the 50 MHz oscillator on the WT32-ETH01 board.
@@ -571,7 +579,7 @@ async fn boot(spawner: Spawner) {
         let (uart_tx, uart_rx) = uart.split();
         let ring_rx = uart_rx.into_ring_buffered(DMA_RX_BUF.init([0; 1024]));
         let miner_serial = uart_baudrate::MinerUart::new(uart_tx, ring_rx);
-        spawner.spawn(unwrap!(mining::serial_task(miner_serial)));
+        spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
     }
 
     // SH1106 OLED on SPI3: reset pulse, then async TX-only SPI with DMA.
@@ -611,7 +619,14 @@ async fn boot(spawner: Spawner) {
     let config = net::wait_for_config(stack).await;
     info!("ip address: {:?}", config.address.address());
 
-    spawner.spawn(unwrap!(stratum_client_task(stack, sv2_prng)));
+    for slot in 0..ubos_firmware::MAX_POOLS {
+        spawner.spawn(unwrap!(stratum_client_task(
+            stack,
+            slot,
+            &ASIC_SESSION,
+            stratum_shared
+        )));
+    }
 
     spawner.spawn(unwrap!(network_control_task(stack)));
 

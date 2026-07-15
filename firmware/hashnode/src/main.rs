@@ -313,16 +313,24 @@ ubos_http::http_worker_task!(
     config::MACHINE.control_board.metrics_http_pool
 );
 
-/// Board task shell around the shared stratum session loop. The loop body
-/// lives in `ubos-firmware`; the `#[embassy_executor::task]` shell stays per
-/// board because esp32s3 pins a different `embassy-executor` version than the
-/// ARM boards, so the spawned task type must come from each board's executor.
-#[embassy_executor::task]
+/// Shared ASIC session: the bridge between the per-slot stratum sessions and
+/// the BM1362 serial worker. One instance per binary; referenced by every
+/// stratum client task and the mining serial task.
+static ASIC_SESSION: ubos_firmware::BoardAsicSession = ubos_firmware::BoardAsicSession::new();
+
+/// Board task shell around the shared stratum session loop, spawned once per
+/// pool slot. The loop body lives in `ubos-firmware`; the
+/// `#[embassy_executor::task]` shell stays per board because esp32s3 pins a
+/// different `embassy-executor` version than the ARM boards, so the spawned
+/// task type must come from each board's executor.
+#[embassy_executor::task(pool_size = ubos_firmware::MAX_POOLS)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
-    sv2_prng: &'static mut ubos_firmware::ChaCha20Rng,
+    slot: usize,
+    session: &'static ubos_firmware::BoardAsicSession,
+    shared: ubos_firmware::StratumShared,
 ) -> ! {
-    ubos_firmware::run_stratum_session(stack, sv2_prng).await
+    ubos_firmware::run_stratum_session(stack, slot, session, shared).await
 }
 
 #[cortex_m_rt::entry]
@@ -473,7 +481,7 @@ async fn boot(spawner: Spawner) {
         // letting `run_cpu_load::<2>()` publish a real busy ratio for
         // this core instead of a constant 1.0.
         ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner: Spawner| {
-            core1_spawner.spawn(unwrap!(mining::serial_task(miner_serial)));
+            core1_spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
         });
     });
 
@@ -715,7 +723,7 @@ async fn boot(spawner: Spawner) {
         trng.fill_bytes(&mut sv2_seed).await;
     }
     ubos_auth::csprng::seed_csprng(csprng_seed).await;
-    let sv2_prng = ubos_firmware::seed_sv2_prng(sv2_seed);
+    let stratum_shared = ubos_firmware::init_stratum(sv2_seed);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_ingest_task()));
@@ -731,7 +739,14 @@ async fn boot(spawner: Spawner) {
     info!("ip address: {:?}", config.address.address());
 
     // Core 1 hosts serial_task (ubos-mining backend); see spawn_core1 above.
-    spawner.spawn(unwrap!(stratum_client_task(stack, sv2_prng)));
+    for slot in 0..ubos_firmware::MAX_POOLS {
+        spawner.spawn(unwrap!(stratum_client_task(
+            stack,
+            slot,
+            &ASIC_SESSION,
+            stratum_shared
+        )));
+    }
 
     // Register the OTA target before spawning the REST API workers so the
     // OTA endpoints are available from the first request. The &'static mut
