@@ -29,12 +29,42 @@ Deep, exhaustive review of all commits on the current branch compared to its rev
 
 ### Phase 2: Run all checks
 
-The authoritative gate is a single command, run identically to CI so the
-local result cannot disagree with the pipeline:
+First decide whether the flake check applies. The flake checks compile
+firmware and run host tests, DRC, and ERC; a diff that changes only
+documentation or harness config (`.claude/`, `*.md`, `.gitlint*`) feeds
+into none of them, so running the check would rebuild every board
+without validating any of the change under review.
+
+```bash
+git diff --name-only "$BASE"...HEAD |
+  grep -qvE '^\.claude/|(^|/)[^/]*\.md$|^\.gitlint' \
+  && FLAKE_RELEVANT=1 || FLAKE_RELEVANT=0
+```
+
+`grep -qv` succeeds when any changed file falls outside the inert set,
+so any unexpected path forces the check on; only an all-inert diff skips
+it. When `FLAKE_RELEVANT=0`, skip the check and record
+`nix flake check .: SKIPPED (no flake inputs changed)` in the output,
+then move to Phase 3.
+
+When `FLAKE_RELEVANT=1`, the authoritative gate is a single command, run
+identically to CI so the local result cannot disagree with the pipeline:
 
 ```
 nix flake check .
 ```
+
+This is a full hermetic build of every board and takes far longer than a
+single tool call, so running it inline stalls the review indefinitely.
+Spawn a background `Task` agent (`model: "sonnet"`) to run it to
+completion and return the result, rather than blocking on it here:
+
+> Run `nix flake check .` from the repo root to completion. Report PASS
+> if it exits 0; on failure report FAIL with each failing check name and
+> the relevant error lines. Do not attempt any fix.
+
+Continue with Phases 3–5 while the agent builds, then fold its PASS/FAIL
+into the output. Do not emit the final report until the agent returns.
 
 The repo-root flake aggregates every project's checks (clippy, firmware
 builds, host tests, DRC, ERC) under a `<project>-` prefix, plus the
@@ -120,7 +150,7 @@ Review the full diff (`git diff "$BASE"...HEAD`) for:
 
 Before producing output, verify every category was checked. For each item below, confirm it was evaluated for every commit and every changed file. If any item was skipped or only partially checked, go back and complete the relevant phase before continuing.
 
-- [ ] All checks ran (Phase 2)
+- [ ] Flake check returned from its agent, or was skipped with reason (Phase 2)
 - [ ] Every commit message verified against its diff (Phase 3)
 - [ ] Every commit is a single logical change (Phase 3)
 - [ ] No bundled unrelated changes (Phase 3)
@@ -142,7 +172,7 @@ Only produce the final output after all items are confirmed.
 
 cargo check <crate>: PASS/FAIL
 cargo clippy <crate>: PASS/FAIL
-nix flake check . (all projects + formatting): PASS/FAIL
+nix flake check . (all projects + formatting): PASS/FAIL/SKIPPED
 
 ### Findings
 
@@ -161,7 +191,7 @@ If no issues are found, output: `No issues found. Branch is merge-ready.`
 ## Rules
 
 - Review ALL commits on the branch, not just the latest
-- Run `nix flake check .` (repo root) every review — it is the entire CI check stage; never skip it or swap in a narrower command
+- Run `nix flake check .` (repo root) in a spawned Task agent whenever the diff touches flake inputs — it is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, and record the skip in the output
 - Every finding MUST include a file:line reference (or commit hash for commit message issues)
 - Findings must be exhaustive: if this review passes, the branch is ready to merge
 - No praise, no "looks good" summaries, no filler text
