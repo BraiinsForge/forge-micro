@@ -475,6 +475,19 @@ hostClippyChecks
     doInstallCargoArtifacts = false;
   };
 
+  build-rp235x-sha256 = craneLib.cargoBuild {
+    inherit src;
+    cargoArtifacts = deps.thumbv8mArtifacts;
+    cargoBuildCommand = "cargo build --release";
+    cargoExtraArgs = "-p rp235x-sha256 --target thumbv8m.main-none-eabihf";
+    doInstallCargoArtifacts = false;
+  };
+
+  # ubos-ota is linted per backend here but has no standalone build
+  # derivation: every firmware board depends on it, so each board build
+  # compiles it transitively and a real breakage still fails the gate.
+  # clippy-ubos-ota lints the rp backend; clippy-ubos-ota-esp below
+  # lints the esp backend, since clippy only lints the top crate.
   clippy-ubos-ota = craneLib.cargoClippy {
     inherit src;
     cargoArtifacts = deps.ubosOtaArtifacts;
