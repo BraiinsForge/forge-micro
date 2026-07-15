@@ -197,100 +197,23 @@ Wait for explicit user approval between steps. Never advance without it.
 - Use plan mode for non-trivial tasks
 - **NEVER push to remote** (the user pushes when ready)
 
-## Commit Format
+## Commits and History
 
-Commit messages are gated by `gitlint` in the lint stage; `.gitlint`
-and `.gitlint-rules/` are the enforced source of truth.
+Commit and branch-history doctrine lives in the skills, which load only
+when invoked. `gitlint` (`.gitlint` + `.gitlint-rules/`) is the enforced
+source of truth for message format.
 
-```
-module: High-level what in imperative style
+- `/commit` — atomic commits, chunk staging, and the authoritative
+  message format
+- `/branch-cleanup` — collapse a branch to small, logical, atomic
+  commits: each change touched once, straight-linear history, no
+  development archaeology; git-absorb (`git absorb --base "$BASE"`, the
+  resolved review base) creates fixup commits, which this squashes before
+  merge
 
-- why this change was needed
-- why this approach, if non-obvious
-```
-
-**Philosophy:** the diff shows WHAT changed; the message explains WHY.
-
-**Title rules:**
-- One or more lowercase `module:` prefixes, then a capital first word,
-  imperative, max 72 chars (e.g. `ci:`, `pcb:`, `ubos-net:`, `flake:`)
-- Module is the subproject/area, not a list of files
-- The prefix must not be `fix`, `fixup`, `wip`, or `tmp` (rule UC3)
-
-**Body rules:**
-- Each line is blank, a `- ` bullet, or a `  ` indented continuation
-  (rule UC1); lowercase start; max 72 chars/line
-- Wrap long lines with `par w72p2h1` (greedy fill, 2-char hanging
-  indent)
-- Answer WHY: motivation, problem solved, approach rationale
-- NO restating the diff, NO signatures, NO `Co-Authored-By`, NO emojis
-  (rule UC2)
-
-**Bad vs good:**
-```
-BAD:  "- add StandardOutput directive to the service file"
-GOOD: "- prometheus must reach the service over the network"
-```
-
-**Atomic commits:**
-- The affected crate builds via its `nix develop` shell (skip if no
-  Rust changed)
-- A single logical change, reviewable in isolation
-
-**Commit separation — do not bundle these with source code:**
-- `Cargo.toml` + `Cargo.lock` (dependency changes) get their own
-  commit, placed before the code that uses them
-- Generated/maintained assets get their own commit
-- Lock files (`Cargo.lock`, `flake.lock`) and `.claude/` config get
-  separate commits
-
-Exception: bundle when separation would leave either commit unable to
-build — e.g. the initial introduction of a new crate, or a pure rename
-where source and lockfile must move together.
-
-Prefer many small commits during development; compact before merge.
-
-## Fixup Workflow
-
-**Prefer git-absorb** for automatic fixup creation:
-```bash
-git absorb --base master
-git absorb --base master --dry-run
-git absorb --base master --and-rebase
-```
-
-**Manual fixups** when absorb cannot determine the target:
-```bash
-git commit --fixup=<target-sha>
-# squash before merge with /branch-cleanup
-```
-
-**Interactive rebase is allowed** here (overriding the harness default
-prohibition on `-i`). Drive it non-interactively via
-`GIT_SEQUENCE_EDITOR` when reordering or squashing is cleaner than
-cherry-pick loops:
-```bash
-GIT_SEQUENCE_EDITOR='script-that-rewrites-the-todo' git rebase -i master
-```
-Never set `GIT_EDITOR` to bypass commit-message editing; only the todo
-list should be scripted.
-
-## Branch Cleanup
-
-Use the `/branch-cleanup` skill before merge to consolidate commits
-into clean logical groups.
-
-**Quick manual cleanup:**
-1. `git branch backup-<branch>`
-2. `git reset --soft master && git reset HEAD -- .`
-3. Commit in logical groups
-4. Build each affected crate
-
-**Principles:**
-- One logical change per commit
-- Squash duplicate/related changes
-- Separate `.claude/` changes from code commits
-- Soft reset is cleaner than rebase when commits are interleaved
+Interactive rebase is allowed here (overriding the harness default
+prohibition on `-i`). Drive it non-interactively via `GIT_SEQUENCE_EDITOR`;
+never set `GIT_EDITOR`.
 
 ## Skills
 
