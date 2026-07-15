@@ -10,6 +10,33 @@ full branch for fixups, redundant commits, and commit message quality, then
 presents a cleanup plan for user approval. Rebase operations below are the
 tools used to execute the plan.
 
+## Target End-State
+
+The cleaned branch must read as if the work were authored correctly the
+first time. Every decision in this skill serves that goal. The five
+invariants:
+
+1. **Atomic and logical** — each commit is one self-contained change that
+   builds on its own and is reviewable in isolation.
+2. **Each change touched once** — no hunk or behavior introduced by one
+   branch commit is later modified by another branch commit. Any such pair
+   is squashed so the final form appears exactly once. This eliminates
+   every "add X" → "fix X" → "tweak X" chain.
+3. **Linear** — a straight line rebased on the base ref: no merge commits,
+   no branch-in-branch.
+4. **No development archaeology** — no `wip`/`fixup!`/`squash!`, no
+   "address review", no typo-fix commits, no revert-of-own-work, no
+   commit-then-rewrite. History shows authored intent, not the development
+   timeline.
+5. **Dependency-ordered** — prerequisite changes precede the commits that
+   depend on them.
+
+The governing test for any two commits: *would both exist if the branch
+were authored cleanly from scratch?* If not, fold them. Granularity is
+still a virtue — many small atomic commits beat one large commit — but
+only along logical-change boundaries, never along development-time
+boundaries.
+
 ## Core Technique: GIT_SEQUENCE_EDITOR
 
 All rebase operations use `GIT_SEQUENCE_EDITOR` to avoid interactive editors.
@@ -113,9 +140,16 @@ If no fixups exist, skip to Phase 2.
 ### Phase 2: Identify Logical Changes
 
 Analyze the branch by reading every commit's full diff (`git show <hash>`)
-and understanding the intent behind each change. The goal is to ensure each
-commit represents exactly one logical change that a reviewer can understand
-in isolation.
+and understanding the intent behind each change. The goal is the
+**Target End-State** above: each commit is exactly one logical change,
+every change appears exactly once, and the history is linear and
+dependency-ordered.
+
+The primary test is **touched once**. Build a picture of which commits
+modify which lines: `git log -p master..HEAD -- <file>` per file, or scan
+each `git show <hash>`. Any line, hunk, or behavior that one branch commit
+introduces and a *later* branch commit changes is a squash candidate — the
+two are the same logical change split across development time.
 
 **What is a logical change?** A single reviewable idea: adding a feature,
 fixing a bug, refactoring an API, updating documentation for a specific
@@ -221,8 +255,17 @@ multiple commits with `-e` flags in one `GIT_SEQUENCE_EDITOR` sed command.
 
 1. Diff against backup must be empty: `git diff backup-<branch>-<ts>..HEAD`
 2. `cargo check` for each affected crate
-3. Show before/after commit list to user
-4. If the diff is not empty, something went wrong. Inform the user and
+3. Verify the **Target End-State** invariants hold:
+   - Linear: `git log --graph --oneline master..HEAD` shows no merge
+     commits and a single line of descent
+   - No archaeology: `git log --oneline master..HEAD` shows no `fixup!`,
+     `squash!`, `wip`, or `tmp` subjects surviving
+   - Touched once: no file is modified across multiple commits without a
+     distinct logical reason for each (spot-check with
+     `git log --oneline master..HEAD -- <file>` on files that appear in
+     more than one commit)
+4. Show before/after commit list to user
+5. If the diff is not empty, something went wrong. Inform the user and
    do NOT delete the backup.
 
 ## Rebase Operations
@@ -393,9 +436,11 @@ When a rebase encounters a conflict:
 - One logical change per commit — the unit of review is an idea, not a file
 - Touching the same file is not redundancy; serving the same purpose is
 - Touching different files is not independence; different intent is
-- Preserve commits by default; squash only when a commit has no standalone
-  review value
-- More granular commits are easier to review than large ones
+- Keep a commit only if it would exist in a clean-authored branch; fold any
+  commit that revises what an earlier branch commit introduced
+- Split along logical-change boundaries, never development-time boundaries
+- More granular commits are easier to review than large ones, but only
+  when each stands as its own logical change
 - Analysis is free, action requires approval
 - Present the full picture before touching history
 - Separate CLAUDE.md changes from code commits
