@@ -49,7 +49,8 @@ disagree, the code wins and this file needs a patch.
    │      [crate: stratum-client — protocol-agnostic from here on]       │
    │                                                                     │
    │   ┌─────────────────────────────────────────────────────────┐       │
-   │   │ run_stratum_client — one loop, three wake sources       │       │
+   │   │ run_stratum_client — one loop per pool session, three   │       │
+   │   │ wake sources (asic = PoolHandle for this pool's slot)   │       │
    │   │   loop {                                                │       │
    │   │     select3(                                            │       │
    │   │       client.drive(t)       → client.accept(state)      │       │
@@ -97,21 +98,29 @@ disagree, the code wins and this file needs a patch.
    │   └──────────────────────┘                                          │
    └─────────────────────┬────────────────────────────────────────┬──────┘
                          │                                        ▲
-                         │ Watch::sender().send()                 │
+                         │ PoolHandle::publish_work()             │
+                         │   → work[slot] (unconditional)         │
                          ▼                                        │
    ┌─────────────────────────────────────────────────────────────────────┐
-   │              AsicSession   (the "item" abstraction)                 │
-   │      [in stratum-client; passed as &'static to both sides]          │
+   │        AsicSession<N>   (one channel pair per pool slot)            │
+   │      [in stratum-client; passed as &'static to both sides;          │
+   │       each session sees only its slot through a PoolHandle]         │
    │                                                                     │
-   │   work:      Watch<CSRawMutex, WorkAssignment, 2>                   │
-   │              host (publish_work) writes  →  ASIC polls latest       │
+   │   work:      [Watch<CSRawMutex, WorkAssignment, 2>; N]              │
+   │              session slot writes latest  →  dispatcher reads the    │
+   │              ACTIVE slot's cell per work tick (the pool switch)     │
    │                                                                     │
-   │   solutions: Channel<CSRawMutex, Solution, 8>                       │
-   │              ASIC sends  →  host receives (bounded queue)           │
+   │   solutions: [Channel<CSRawMutex, Solution, 8>; N]                  │
+   │              ASIC routes each solution to the slot that dispatched  │
+   │              the originating work  →  that session submits it       │
+   │                                                                     │
+   │   active:    AtomicU8 — set_active(slot) from any task; read by     │
+   │              the dispatcher, never by the sessions (policy-free)    │
    └─────────────────────────────────────────────────────────────────────┘
                          │                                        ▲
-                         │ work.receiver().changed()              │
-                         │   / try_changed()                      │
+                         │ work_receivers[active_slot()]          │
+                         │   .try_get() per work tick             │
+                         │   (empty cell → skip tick)             │
                          ▼                                        │
    ┌─────────────────────────────────────────────────────────────────────┐
    │           BM1362 hashboard driver (ubos-mining) or inline CPU mock   │
@@ -207,6 +216,19 @@ be overwritten). `CriticalSectionRawMutex` makes both ends safe to
 share across cores, which is how dual-core boards run the serial
 task on core 1.
 
+Multipool multiplies the seam, not the loop: `AsicSession<N>` holds
+one work/solution pair per pool slot, every configured pool runs its
+own unchanged `run_stratum_client` session against its `PoolHandle`,
+and the runtime pool switch lives entirely on the consumer side —
+`dispatch_work` reads `active_slot()` at each work tick and pulls
+from that slot's cell. The serial worker's registry records which
+slot each dispatch came from, so a solution returns to the session
+that owns the work even if the active slot changed while the chip
+was hashing; a deactivated session still submits its in-flight
+shares over its open connection. A session clears its cell on
+teardown, and the dispatcher skips ticks whose active cell is empty,
+so a dead pool's last job is never re-fed to the chip.
+
 ## Cycle frequencies
 
 | Loop | Period | Driver |
@@ -216,6 +238,7 @@ task on core 1.
 | Work publish | 1 Hz | `work_ticker` arm of the same `select3` loop |
 | ASIC poll for work change | ~100 ms | yield boundary in CPU mock; polling cadence in real driver |
 | ASIC produces solutions | as found | non-blocking `try_send` into the channel |
+| Pool switch takes effect | next work tick | `dispatch_work` reads `active_slot()` before each dispatch |
 
 ## Where the protocols enter
 

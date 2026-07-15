@@ -1,10 +1,10 @@
 # Multipool: parallel stratum sessions with a runtime-switchable active slot
 
-> **Status.** Approved design for UBOS-49 ("Add second stratum
-> channel"). Implementation is tracked in `/IMPLEMENTATION_PLAN.md`.
-> Kept aligned with the code in `ubos/stratum-client`,
-> `ubos/ubos-mining`, and `ubos/ubos-firmware` — when the two disagree,
-> the code wins and this file needs a patch.
+> **Status.** Implemented (UBOS-49, "Add second stratum channel");
+> step tracking in `/IMPLEMENTATION_PLAN.md`. Kept aligned with the
+> code in `ubos/stratum-client`, `ubos/ubos-mining`, and
+> `ubos/ubos-firmware` — when the two disagree, the code wins and
+> this file needs a patch.
 
 ## Goal
 
@@ -138,10 +138,10 @@ switching added nothing to it:
 - `set_pool_alive(slot, ...)` replaces the hardcoded
   `PRIMARY_POOL_INDEX`.
 - `record_reconnect_attempt(slot)`: the function-local
-  `FIRST_ATTEMPT` static becomes a per-slot
-  `[AtomicBool; MAX_POOLS]`, resolving the documented single-caller
-  invariant. The prometheus counter stays a single total; per-pool
-  share/reconnect labels are a follow-up.
+  `FIRST_ATTEMPT` static becomes a per-slot `[AtomicBool; 8]` sized
+  to the alive-bitmap index space, resolving the documented
+  single-caller invariant. The prometheus counter stays a single
+  total; per-pool share/reconnect labels are a follow-up.
 
 ### `ubos-config`: config-generation broadcast
 
@@ -154,9 +154,10 @@ change as "tear down the session and re-snapshot". Capacity covers
 
 ### `ubos-firmware`: per-slot session loop
 
-`run_stratum_session(stack, slot, session: &'static BoardAsicSession)`
-stays a plain `async fn` (the esp32s3 executor-version constraint is
-unchanged). Per-slot loop:
+`run_stratum_session(stack, slot, session, shared)` stays a plain
+`async fn` (the esp32s3 executor-version constraint is unchanged);
+`shared: StratumShared` is the `Copy` fan-out of the boot singletons
+returned by `init_stratum(seed)`. Per-slot loop:
 
 1. Snapshot config; `snapshot.pool.get(slot)`. `None` → await the
    next config generation, retry.
