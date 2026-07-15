@@ -9,13 +9,13 @@ Apply fixes from `/review-branch` findings passed in `$ARGUMENTS`.
 
 ## Process
 
-1. Parse findings from arguments (BLOCKING and NIT items with file:line references)
+1. Parse findings from arguments (categorized items with file:line references)
 2. Classify each finding: code fix, structural fix, or documented-no-change
    (with rationale). Every finding must be addressed — either fix it or
    document why the existing state is acceptable. Never silently skip.
 3. Present the full list to user with proposed action for each item
 4. Wait for user approval
-5. Apply all approved fixes (BLOCKING and NIT together)
+5. Apply all approved fixes
 
 ### Fix classification
 

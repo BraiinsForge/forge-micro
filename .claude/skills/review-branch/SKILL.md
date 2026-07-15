@@ -176,15 +176,20 @@ nix flake check . (all projects + formatting): PASS/FAIL/SKIPPED
 
 ### Findings
 
-BLOCKING file.rs:42 -- Description of the issue
-BLOCKING file.rs:58 -- Description of the issue
-
-NIT file.rs:100 -- Description of the issue
+CODE     src/foo.rs:42 -- off-by-one in length check
+BUILD    src/bar.rs:10 -- clippy: needless clone (-D warnings)
+DOCS     CLAUDE.md:88 -- stale flag in build recipe
+COMMENTS src/x.rs:5 -- comment contradicts code
+COMMITS  a1b2c3d -- title exceeds 72 chars (gitlint UC rule)
 ```
 
-Severity levels:
-- `BLOCKING` — Must fix before merge: bugs, build failures, lint errors, format violations, rule violations, incorrect commit messages
-- `NIT` — Optional improvement, style preference, take it or leave it
+Categories — label each finding by the domain it lives in. Every finding
+is important and must be addressed; there is no severity ranking:
+- `CODE` — source logic, correctness, runtime behavior
+- `BUILD` — CI-gate failures: build errors, clippy under `-D warnings`, `cargo fmt`/nixfmt violations
+- `DOCS` — documentation, markdown, `CLAUDE.md`, skill files, rustdoc
+- `COMMENTS` — in-code comments that are wrong, stale, or misleading
+- `COMMITS` — commit message format (gitlint rules), history structure, atomicity
 
 If no issues are found, output: `No issues found. Branch is merge-ready.`
 
