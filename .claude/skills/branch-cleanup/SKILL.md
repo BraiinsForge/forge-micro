@@ -1,6 +1,6 @@
 ---
 name: branch-cleanup
-description: Prepare branch for merge with full history cleanup
+description: Prepares a branch for merge by collapsing it into small, logical, atomic commits — each change touched once, linear history, no development archaeology. Use before merging to squash fixups and consolidate redundant commits.
 disable-model-invocation: true
 allowed-tools: Bash, Read, Edit
 ---

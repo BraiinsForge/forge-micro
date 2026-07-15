@@ -1,6 +1,6 @@
 ---
 name: fix-review
-description: Apply fixes from review findings with conflict-safe fixup commits
+description: Applies /review-branch findings as conflict-safe fixup commits or rebase edits. Use after a branch review to address the reported findings.
 disable-model-invocation: true
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob
 ---
