@@ -37,6 +37,26 @@ still a virtue — many small atomic commits beat one large commit — but
 only along logical-change boundaries, never along development-time
 boundaries.
 
+## Resolve the base
+
+Before analyzing, resolve the base this branch is cleaned against. It
+defaults to `origin/master` — the shared upstream, matching the review
+base and CI — not the local `master`, which is often stale. A branch
+stacked on other in-flight work sets its own base once with
+`git config branch.<name>.reviewBase <base-ref>`:
+
+```bash
+BASE=$(git config "branch.$(git branch --show-current).reviewBase" || echo origin/master)
+```
+
+Report the resolved base. `$BASE` is both the range delimiter and the
+rebase target, so cleanup also restacks the branch onto the current
+upstream; fetch first if `origin/master` may be stale. Everywhere below,
+`master` in a command stands for `$BASE` — substitute it. On a long-lived
+or stacked branch this keeps the cleanup scoped to this branch's own
+commits instead of sweeping in unrelated authored history that must not be
+rewritten.
+
 ## Core Technique: GIT_SEQUENCE_EDITOR
 
 All rebase operations use `GIT_SEQUENCE_EDITOR` to avoid interactive editors.
@@ -66,9 +86,10 @@ GIT_SEQUENCE_EDITOR='bash -c "
 
 ## Pre-flight (before every rebase)
 
+0. Resolve the base (see above): `BASE=$(git config "branch.$(git branch --show-current).reviewBase" || echo origin/master)`
 1. Verify clean working tree: `git status`
 2. Create timestamped backup: `git branch backup-$(git branch --show-current)-$(date +%s)`
-3. Show current commits: `git log --oneline master..HEAD`
+3. Show current commits: `git log --oneline "$BASE"..HEAD`
 
 ## Absorb: Automatic Fixup Creation
 
@@ -86,16 +107,16 @@ staged with a warning.
 ```bash
 # Stage fixes, then absorb into fixup commits
 git add <fixed-files>
-git absorb --base master
+git absorb --base "$BASE"
 
 # Preview first without creating commits
-git absorb --base master --dry-run
+git absorb --base "$BASE" --dry-run
 
 # Create fixups and immediately autosquash them
-git absorb --base master --and-rebase
+git absorb --base "$BASE" --and-rebase
 ```
 
-**Always pass `--base master`** to search the full branch. The default
+**Always pass `--base "$BASE"`** to search the full branch. The default
 search depth is only 10 commits.
 
 ### When to use absorb vs manual fixup
@@ -125,14 +146,14 @@ approves the plan.
 If any `fixup!` or `squash!` commits exist:
 
 ```bash
-git log --oneline master..HEAD | grep -E 'fixup!|squash!'
+git log --oneline "$BASE"..HEAD | grep -E 'fixup!|squash!'
 ```
 
 1. Validate each fixup has a matching target commit on the branch
 2. Warn if any fixup is orphaned
 3. Run autosquash:
    ```bash
-   GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash master
+   GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash "$BASE"
    ```
 
 If no fixups exist, skip to Phase 2.
@@ -146,7 +167,7 @@ every change appears exactly once, and the history is linear and
 dependency-ordered.
 
 The primary test is **touched once**. Build a picture of which commits
-modify which lines: `git log -p master..HEAD -- <file>` per file, or scan
+modify which lines: `git log -p "$BASE"..HEAD -- <file>` per file, or scan
 each `git show <hash>`. Any line, hunk, or behavior that one branch commit
 introduces and a *later* branch commit changes is a squash candidate — the
 two are the same logical change split across development time.
@@ -257,13 +278,13 @@ multiple commits with `-e` flags in one `GIT_SEQUENCE_EDITOR` sed command.
 1. Diff against backup must be empty: `git diff backup-<branch>-<ts>..HEAD`
 2. `cargo check` for each affected crate
 3. Verify the **Target End-State** invariants hold:
-   - Linear: `git log --graph --oneline master..HEAD` shows no merge
+   - Linear: `git log --graph --oneline "$BASE"..HEAD` shows no merge
      commits and a single line of descent
-   - No archaeology: `git log --oneline master..HEAD` shows no `fixup!`,
+   - No archaeology: `git log --oneline "$BASE"..HEAD` shows no `fixup!`,
      `squash!`, `wip`, or `tmp` subjects surviving
    - Touched once: no file is modified across multiple commits without a
      distinct logical reason for each (spot-check with
-     `git log --oneline master..HEAD -- <file>` on files that appear in
+     `git log --oneline "$BASE"..HEAD -- <file>` on files that appear in
      more than one commit)
 4. Show before/after commit list to user
 5. If the diff is not empty, something went wrong. Inform the user and
@@ -283,7 +304,7 @@ When a rebase encounters a conflict:
 1. **Investigate first**: read the conflict markers and understand both sides.
    Check what the target branch changed:
    ```bash
-   git log -p -n 3 master -- <conflicting-file>
+   git log -p -n 3 "$BASE" -- <conflicting-file>
    ```
 2. **Simple conflicts** (few files, clear resolution): resolve the files,
    `git add <resolved-files>`, then `git rebase --continue`.

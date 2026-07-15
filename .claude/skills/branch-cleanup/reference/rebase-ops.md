@@ -6,6 +6,10 @@ operation. All operations drive interactive rebase non-interactively via
 `GIT_SEQUENCE_EDITOR`; never use the `reword` action — it opens an editor
 that hangs. Always use `edit` + `git commit --amend -m "..."` instead.
 
+In the commands below, `master` denotes the resolved base `$BASE` from the
+branch-cleanup skill (default `origin/master`, or a `reviewBase` override);
+substitute it.
+
 ## Contents
 - Edit a commit (modify content in place)
 - Split a commit
