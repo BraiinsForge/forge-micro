@@ -75,7 +75,6 @@ pub use message::Message;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_sync::signal::Signal;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{Duration, Instant, Timer};
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
@@ -136,11 +135,18 @@ pub(crate) static NETWORK_WATCH: Watch<CSMutex, NetworkConfig, NETWORK_WATCH_CAP
 pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH> =
     Channel::new();
 
-/// Fires once each time a successful [`Message::Update`] has been
-/// persisted and published. The stratum client awaits it in its
-/// reconnect loop so a pool change triggers an immediate teardown
-/// instead of waiting for the next session error.
-pub(crate) static STRATUM_RESTART: Signal<CSMutex, ()> = Signal::new();
+/// Receiver capacity for the update-generation watch: one per pool
+/// session task ([`pool::MAX_POOLS`]), plus one spare.
+const GENERATION_WATCH_CAPACITY: usize = pool::MAX_POOLS + 1;
+
+/// Update-generation watch. The counter is bumped and published once
+/// each time a successful [`Message::Update`] has been persisted and
+/// published. Every stratum session task awaits it in its reconnect
+/// loop so a pool change triggers an immediate teardown instead of
+/// waiting for the next session error. A `Watch` rather than a
+/// `Signal` because a `Signal` registers a single waker: with one
+/// session task per pool slot, all of them must observe every update.
+pub(crate) static GENERATION_WATCH: Watch<CSMutex, u32, GENERATION_WATCH_CAPACITY> = Watch::new();
 
 /// How long an unconfirmed network preview stays applied before it
 /// reverts to the committed config. A wrong static address strands the
@@ -187,6 +193,10 @@ pub type ConfigSubscription = Receiver<'static, CSMutex, Config, WATCH_CAPACITY>
 /// Per-task subscription to the effective-network watch, returned by
 /// [`Handle::subscribe_network`].
 pub type NetworkSubscription = Receiver<'static, CSMutex, NetworkConfig, NETWORK_WATCH_CAPACITY>;
+
+/// Per-task subscription to the update-generation watch, returned by
+/// [`Handle::subscribe_generation`].
+pub type GenerationSubscription = Receiver<'static, CSMutex, u32, GENERATION_WATCH_CAPACITY>;
 
 /// Obtain a handle to the config module. `Copy`; callers freely pass
 /// it to multiple tasks.
@@ -264,13 +274,21 @@ impl Handle {
         COMMAND_CHANNEL.try_send(message).is_ok()
     }
 
-    /// Signal fired after each successful config update has been
-    /// persisted and published. Consumers that need to react before the
-    /// next [`Handle::changed`] tick (the stratum client tearing down
-    /// its session, for example) await this signal directly.
+    /// Per-task subscription to the update-generation watch. The
+    /// generation is bumped after each successful config update has
+    /// been persisted and published. Consumers that need to react
+    /// before the next [`Handle::changed`] tick (a stratum session
+    /// tearing down, for example) await `changed()` on this receiver.
+    /// Call once per consumer task before entering its loop.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying `Watch` has no free receiver slots.
     #[must_use]
-    pub fn stratum_restart(&self) -> &'static Signal<CSMutex, ()> {
-        &STRATUM_RESTART
+    pub fn subscribe_generation(&self) -> GenerationSubscription {
+        GENERATION_WATCH.receiver().expect(
+            "BUG: GENERATION_WATCH receiver slots exhausted; raise GENERATION_WATCH_CAPACITY",
+        )
     }
 }
 
@@ -616,8 +634,8 @@ impl Config {
 /// treated as a clean first-boot — defaults, no warning.
 ///
 /// Each [`Message::Update`] persists the new value before publishing
-/// it and fires [`STRATUM_RESTART`] so the stratum client tears down
-/// its session.
+/// it and bumps [`GENERATION_WATCH`] so every stratum session tears
+/// down and reconnects.
 ///
 /// Network changes flow through [`Message::ApplyNetwork`]. With
 /// `confirm`, the new network is published on [`NETWORK_WATCH`] as a
@@ -779,15 +797,18 @@ fn log_decode_error<E>(error: &LoadError<E>) {
 
 /// Apply a config update with persistence and stratum restart.
 ///
-/// Persists the new value, publishes it on [`STATE_WATCH`], and
-/// signals stratum to reconnect. A store failure is logged but does
-/// not abort the publish: an in-memory update with no flash record
-/// is preferable to a stale config.
+/// Persists the new value, publishes it on [`STATE_WATCH`], and bumps
+/// the update generation so stratum sessions reconnect. A store
+/// failure is logged but does not abort the publish: an in-memory
+/// update with no flash record is preferable to a stale config.
 async fn apply_update<S: Storage>(new: &Config, storage: &mut S) {
     persist(new, storage).await;
     STATE_WATCH.sender().send(new.clone());
-    STRATUM_RESTART.signal(());
-    info!("config: applied update");
+    // Single writer: only the `run` task calls this, so read-then-send
+    // cannot race another bump.
+    let generation = GENERATION_WATCH.try_get().map_or(1, |g| g.wrapping_add(1));
+    GENERATION_WATCH.sender().send(generation);
+    info!("config: applied update, generation {}", generation);
     crate::events::config_changed(new.tuning.frequency_mhz, new.tuning.voltage_mv);
 }
 

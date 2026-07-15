@@ -142,13 +142,13 @@ pub async fn run_stratum_session(
     );
 
     let config_handle = ubos_config::handle();
-    let restart = config_handle.stratum_restart();
+    let mut config_generation = config_handle.subscribe_generation();
 
     loop {
         let snapshot = config_handle.current();
         let Some(entry) = snapshot.pool.first() else {
             warn!("stratum-client: pool list empty, awaiting config update");
-            restart.wait().await;
+            config_generation.changed().await;
             continue;
         };
 
@@ -208,8 +208,8 @@ pub async fn run_stratum_session(
             Timer::after(RECONNECT_DELAY).await;
         };
         if matches!(
-            select(one_session, restart.wait()).await,
-            Either::Second(())
+            select(one_session, config_generation.changed()).await,
+            Either::Second(_)
         ) {
             info!("stratum-client: pool config changed, reconnecting");
         }
