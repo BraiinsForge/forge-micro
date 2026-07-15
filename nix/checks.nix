@@ -21,6 +21,7 @@
 {
   pkgs,
   src,
+  srcFor,
   loadTestSrc,
   deps,
   craneLib,
@@ -59,7 +60,7 @@ let
     spec:
     craneLib.cargoClippy (
       {
-        inherit src;
+        src = srcFor [ spec.crate ];
         cargoArtifacts = spec.artifacts or deps.hostArtifacts;
         cargoExtraArgs = "-p ${spec.crate}${spec.args or ""}";
         cargoClippyExtraArgs = "${
@@ -77,7 +78,7 @@ let
     spec:
     craneLib.cargoTest (
       {
-        inherit src;
+        src = srcFor [ spec.crate ];
         cargoArtifacts = spec.artifacts or deps.hostArtifactsDev;
         CARGO_PROFILE = "";
         cargoExtraArgs = "-p ${spec.crate}${spec.args or ""}";
@@ -337,7 +338,7 @@ let
     name: board:
     craneLib.cargoClippy (
       {
-        inherit src;
+        src = srcFor [ name ];
         cargoArtifacts = board.artifacts;
         cargoExtraArgs = "-p ${name} --target ${board.target}";
         cargoClippyExtraArgs = "-- -D warnings";
@@ -362,7 +363,7 @@ let
     name: board:
     craneLib.cargoBuild (
       {
-        inherit src;
+        src = srcFor [ name ];
         cargoArtifacts = board.artifacts;
         doInstallCargoArtifacts = false;
         cargoBuildCommand = "cargo build --release";
@@ -395,7 +396,7 @@ let
     name: bag: target:
     let
       common = {
-        inherit src;
+        src = srcFor [ name ];
         cargoArtifacts = bag;
         cargoExtraArgs = "-p ${name} --target ${target}";
         doInstallCargoArtifacts = false;
@@ -422,7 +423,7 @@ let
   # cross-build env from helpers.espCrossEnv, plus the esp32s3 source,
   # the vendored build-std deps, and the toolchain build inputs.
   espCommon = espCrossEnv // {
-    inherit src;
+    src = srcFor [ "esp32s3" ];
     cargoVendorDir = espCargoVendorDir;
     doInstallCargoArtifacts = false;
     nativeBuildInputs = [
@@ -446,7 +447,7 @@ hostClippyChecks
 // rp2040BootloaderChecks
 // rec {
   clippy-rp235x-sha256 = craneLib.cargoClippy {
-    inherit src;
+    src = srcFor [ "rp235x-sha256" ];
     cargoArtifacts = deps.thumbv8mArtifacts;
     cargoExtraArgs = "-p rp235x-sha256 --target thumbv8m.main-none-eabihf";
     cargoClippyExtraArgs = "-- -D warnings";
@@ -454,7 +455,7 @@ hostClippyChecks
   };
 
   build-rp235x-sha256 = craneLib.cargoBuild {
-    inherit src;
+    src = srcFor [ "rp235x-sha256" ];
     cargoArtifacts = deps.thumbv8mArtifacts;
     cargoBuildCommand = "cargo build --release";
     cargoExtraArgs = "-p rp235x-sha256 --target thumbv8m.main-none-eabihf";
@@ -467,7 +468,7 @@ hostClippyChecks
   # clippy-ubos-ota lints the rp backend; clippy-ubos-ota-esp below
   # lints the esp backend, since clippy only lints the top crate.
   clippy-ubos-ota = craneLib.cargoClippy {
-    inherit src;
+    src = srcFor [ "ubos-ota" ];
     cargoArtifacts = deps.ubosOtaArtifacts;
     cargoExtraArgs = "-p ubos-ota --target thumbv8m.main-none-eabihf --features rp,embassy-rp/rp235xa,embassy-rp/imagedef-none";
     cargoClippyExtraArgs = "-- -D warnings";
@@ -476,7 +477,7 @@ hostClippyChecks
   };
 
   build-ubos-firmware = craneLib.cargoBuild {
-    inherit src;
+    src = srcFor [ "ubos-firmware" ];
     cargoArtifacts = deps.ubosFirmwareArtifacts;
     cargoBuildCommand = "cargo build --release";
     cargoExtraArgs = "-p ubos-firmware --target thumbv8m.main-none-eabihf";
@@ -486,7 +487,7 @@ hostClippyChecks
   };
 
   clippy-ubos-firmware = craneLib.cargoClippy {
-    inherit src;
+    src = srcFor [ "ubos-firmware" ];
     cargoArtifacts = deps.ubosFirmwareArtifacts;
     cargoExtraArgs = "-p ubos-firmware --target thumbv8m.main-none-eabihf";
     cargoClippyExtraArgs = "-- -D warnings";
@@ -497,7 +498,7 @@ hostClippyChecks
 
   clippy-host-runner-bmm = bmmCraneLib.cargoClippy (
     {
-      inherit src;
+      src = srcFor [ "host-runner" ];
       cargoArtifacts = deps.bmmArtifacts;
       cargoExtraArgs = "-p host-runner --target arm-unknown-linux-musleabi";
       cargoClippyExtraArgs = "-- -D warnings";
@@ -575,6 +576,7 @@ hostClippyChecks
   clippy-ubos-ota-esp = espCraneLib.cargoClippy (
     espCommon
     // {
+      src = srcFor [ "ubos-ota" ];
       cargoArtifacts = deps.espArtifacts;
       cargoExtraArgs =
         "-p ubos-ota --target xtensa-esp32s3-none-elf -Z build-std=core "
@@ -586,7 +588,7 @@ hostClippyChecks
   );
 
   clippy-esp32s3-tsens = espCraneLib.cargoClippy {
-    inherit src;
+    src = srcFor [ "esp32s3-tsens" ];
     cargoArtifacts = deps.espArtifacts;
     cargoVendorDir = espCargoVendorDir;
     cargoExtraArgs = "-p esp32s3-tsens --target xtensa-esp32s3-none-elf -Z build-std=core";
@@ -606,7 +608,7 @@ hostClippyChecks
   # the `riscv64-none-elf-ld` binary that override resolves to.
   clippy-redacted = riscvCraneLib.cargoClippy (
     {
-      inherit src;
+      src = srcFor [ "redacted" ];
       cargoArtifacts = deps.riscvredactedArtifacts;
       cargoExtraArgs = "-p redacted --target riscv64gc-unknown-none-elf";
       cargoClippyExtraArgs = "-- -D warnings";
@@ -622,7 +624,7 @@ hostClippyChecks
 
   build-redacted = riscvCraneLib.cargoBuild (
     {
-      inherit src;
+      src = srcFor [ "redacted" ];
       cargoArtifacts = null;
       cargoBuildCommand = "cargo build --release";
       cargoExtraArgs = "-p redacted --target riscv64gc-unknown-none-elf";
@@ -639,7 +641,7 @@ hostClippyChecks
   # it is the config firmware/redacted and firmware/redacted ship. The
   # crate's default `log` backend has no consumer, so it is not built.
   clippy-redacted-rtt-defmt = riscvCraneLib.cargoClippy {
-    inherit src;
+    src = srcFor [ "redacted-rtt" ];
     cargoArtifacts = deps.riscvredactedRttDefmtArtifacts;
     cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf --no-default-features --features defmt";
     cargoClippyExtraArgs = "-- -D warnings";
@@ -648,7 +650,7 @@ hostClippyChecks
   };
 
   build-redacted-rtt-defmt = riscvCraneLib.cargoBuild {
-    inherit src;
+    src = srcFor [ "redacted-rtt" ];
     cargoArtifacts = null;
     cargoBuildCommand = "cargo build --release";
     cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf --no-default-features --features defmt";

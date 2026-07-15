@@ -189,7 +189,7 @@
 
           # Cleaned source trees for the crane builds. See nix/source.nix.
           sources = import ./nix/source.nix { inherit pkgs craneLib; };
-          inherit (sources) src loadTestSrc;
+          inherit (sources) src srcFor loadTestSrc;
 
           # Slot-size and pool-worker guard text, rendered from one
           # function so the per-board copies cannot drift apart. See
@@ -266,7 +266,7 @@
           images = import ./nix/images.nix {
             inherit
               pkgs
-              src
+              srcFor
               deps
               craneLib
               espCraneLib
@@ -297,6 +297,7 @@
               inherit
                 pkgs
                 src
+                srcFor
                 loadTestSrc
                 deps
                 craneLib

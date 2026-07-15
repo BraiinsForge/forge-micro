@@ -14,7 +14,7 @@
 # strips all caller environment variables.
 {
   pkgs,
-  src,
+  srcFor,
   deps,
   craneLib,
   espCraneLib,
@@ -50,7 +50,7 @@ let
     }:
     craneLib.cargoBuild (
       {
-        inherit src;
+        src = srcFor [ name ];
         cargoArtifacts = artifacts;
         cargoBuildCommand = "cargo build --release";
         cargoExtraArgs = "-p ${name} --target ${target}";
@@ -91,7 +91,7 @@ let
     }:
     craneLib.cargoBuild (
       {
-        inherit src;
+        src = srcFor [ name ];
         cargoArtifacts = artifacts;
         cargoBuildCommand = "cargo build --release";
         cargoExtraArgs = "-p ${name} --target ${target}";
@@ -191,7 +191,7 @@ let
     espCrossEnv
     // espRustflags
     // {
-      inherit src;
+      src = srcFor [ "esp32s3" ];
       cargoArtifacts = null;
       cargoVendorDir = espCargoVendorDir;
       cargoBuildCommand = "cargo build --release";
