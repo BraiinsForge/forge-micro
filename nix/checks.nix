@@ -283,7 +283,7 @@ let
     hashnode = {
       artifacts = deps.hashnodeArtifacts;
       target = "thumbv8m.main-none-eabihf";
-      guard = null;
+      guard = "slot";
       noDisplay = false;
     };
     stm32f407 = {
