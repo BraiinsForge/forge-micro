@@ -7,7 +7,43 @@ allowed-tools: Bash, Read, Grep, Glob
 
 Create atomic commits for staged/unstaged changes using chunk-based staging.
 
-Follow the commit format from CLAUDE.md. Title must match `^[a-z][a-z0-9-]+(: [a-z][a-z0-9-]+)*: [A-Z]`, max 72 chars. Body must explain WHY, not WHAT.
+## Commit Format
+
+Commit messages are gated by `gitlint` in the lint stage; `.gitlint` and
+`.gitlint-rules/` are the enforced source of truth. This skill is the
+authoritative description of that format.
+
+```
+module: High-level what in imperative style
+
+- why this change was needed
+- why this approach, if non-obvious
+```
+
+**Philosophy:** the diff shows WHAT changed; the message explains WHY.
+
+**Title rules:**
+- Match `^\.?[a-z][a-z0-9-]+(: [a-z][a-z0-9-]+)*: [A-Z]`: one or more
+  lowercase `module:` prefixes, then a capital first word, imperative,
+  max 72 chars (e.g. `ci:`, `pcb:`, `ubos-net:`, `flake:`)
+- Module is the subproject/area, not a list of files
+- The prefix must not be `fix`, `fixup`, `wip`, or `tmp` (rule UC3)
+- No issue-tracker tag (`#UBOS-71` or `#71`) in the title; put the
+  ticket reference in the body (rule UC4)
+
+**Body rules:**
+- Each line is blank, a `- ` bullet, or a `  ` indented continuation
+  (rule UC1); lowercase start; max 72 chars/line
+- Wrap long lines with `par w72p2h1` (greedy fill, 2-char hanging indent)
+- Answer WHY: motivation, problem solved, approach rationale
+- NO restating the diff, NO signatures, NO `Co-Authored-By`, NO emojis
+  (rule UC2)
+
+**Bad vs good:**
+```
+BAD:  "- add StandardOutput directive to the service file"
+GOOD: "- prometheus must reach the service over the network"
+```
 
 ## Process
 
@@ -55,10 +91,22 @@ Interactive patch mode (`git add -p`) commands:
 
 ## Rules
 
-- One logical change per commit
+- One logical change per commit, reviewable in isolation
 - Separate unrelated changes into different commits
-- Lock files (`Cargo.lock`, `flake.lock`) get their own commit, never bundled with source
-- AI/tooling config (`.claude/`, `CLAUDE.md`) gets its own commit, never bundled with code
+- The affected crate builds via its `nix develop` shell (skip if no Rust
+  changed)
+
+**Commit separation — do not bundle these with source code:**
+- `Cargo.toml` + `Cargo.lock` (dependency changes) get their own commit,
+  placed before the code that uses them
+- Generated/maintained assets get their own commit
+- Lock files (`Cargo.lock`, `flake.lock`) and `.claude/` config get
+  separate commits, never bundled with source or with each other
+- Exception: bundle when separation would leave either commit unable to
+  build — the initial introduction of a new crate, or a pure rename where
+  source and lockfile must move together
+
+**Never:**
 - NEVER push to remote
 - NEVER use --amend unless explicitly requested
 - NEVER skip cargo check when Rust code changed
