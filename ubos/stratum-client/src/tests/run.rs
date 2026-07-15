@@ -43,11 +43,11 @@ fn sample_job(id: u32) -> MiningJob<'static> {
 fn offsets(step: u32, n: usize) -> heapless::Vec<u32, 16> {
     let mut state = StratumState::new();
     state.visit_new_job(sample_job(1));
-    let asic = AsicSession::new();
+    let asic: AsicSession = AsicSession::new();
 
     let mut out = heapless::Vec::new();
     for _ in 0..n {
-        publish_work(&mut state, &asic, step);
+        publish_work(&mut state, asic.pool_handle(0), step);
         let offset = state.job_ring.current().expect("slot present").ntime_offset;
         out.push(offset).expect("fits capacity");
     }
@@ -74,12 +74,12 @@ fn advances_by_the_given_step() {
 fn offset_caps_at_ntime_roll_max_secs() {
     let mut state = StratumState::new();
     state.visit_new_job(sample_job(1));
-    let asic = AsicSession::new();
+    let asic: AsicSession = AsicSession::new();
 
     // A period large enough that two ticks would overshoot the cap.
     let period = NTIME_ROLL_MAX_SECS / 2 + 100;
-    publish_work(&mut state, &asic, period);
-    publish_work(&mut state, &asic, period);
+    publish_work(&mut state, asic.pool_handle(0), period);
+    publish_work(&mut state, asic.pool_handle(0), period);
     assert_eq!(
         state.job_ring.current().expect("slot present").ntime_offset,
         NTIME_ROLL_MAX_SECS
@@ -97,10 +97,10 @@ fn zero_step_leaves_offset_unchanged() {
 fn offset_resets_on_new_job() {
     let mut state = StratumState::new();
     state.visit_new_job(sample_job(1));
-    let asic = AsicSession::new();
+    let asic: AsicSession = AsicSession::new();
 
-    publish_work(&mut state, &asic, 1);
-    publish_work(&mut state, &asic, 1);
+    publish_work(&mut state, asic.pool_handle(0), 1);
+    publish_work(&mut state, asic.pool_handle(0), 1);
     assert_eq!(
         state.job_ring.current().expect("slot present").ntime_offset,
         2
@@ -112,7 +112,7 @@ fn offset_resets_on_new_job() {
         0
     );
 
-    publish_work(&mut state, &asic, 1);
+    publish_work(&mut state, asic.pool_handle(0), 1);
     assert_eq!(
         state.job_ring.current().expect("slot present").ntime_offset,
         1

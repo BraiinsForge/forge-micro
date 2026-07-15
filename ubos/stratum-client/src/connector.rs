@@ -11,7 +11,7 @@
 use embedded_io_async::{Read, Write};
 use mining_protocol::{Error, MiningClient};
 
-use crate::asic_session::AsicSession;
+use crate::asic_session::PoolHandle;
 use crate::run::run_stratum_client;
 use crate::state::StratumState;
 
@@ -65,10 +65,10 @@ pub enum SessionError<E> {
 /// [`SessionError::Connect`] when `connector.connect()` fails.
 /// [`SessionError::Session`] when the connected [`run_stratum_client`]
 /// does; see its docs for the exact conditions.
-pub async fn run_stratum_session<P, C>(
+pub async fn run_stratum_session<P, C, const N: usize>(
     connector: &mut P,
     client: &mut C,
-    asic: &'static AsicSession,
+    asic: PoolHandle<'_, N>,
     state: &mut StratumState,
     ntime_roll_period_secs: Option<u32>,
 ) -> Result<(), SessionError<P::Error>>

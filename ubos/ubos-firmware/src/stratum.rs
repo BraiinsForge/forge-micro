@@ -153,7 +153,7 @@ pub async fn run_stratum_session(
         };
 
         let one_session = async {
-            record_reconnect_attempt();
+            record_reconnect_attempt(0);
             let mut connector = TcpConnector {
                 stack,
                 host: entry.host.as_str(),
@@ -174,7 +174,7 @@ pub async fn run_stratum_session(
                     if let Err(error) = stratum_client::run_stratum_session(
                         &mut connector,
                         &mut client,
-                        &ASIC_SESSION,
+                        ASIC_SESSION.pool_handle(0),
                         &mut state,
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )
@@ -194,7 +194,7 @@ pub async fn run_stratum_session(
                     if let Err(error) = stratum_client::run_stratum_session(
                         &mut connector,
                         &mut client,
-                        &ASIC_SESSION,
+                        ASIC_SESSION.pool_handle(0),
                         &mut state,
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )

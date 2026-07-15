@@ -94,7 +94,7 @@ pub const HASHES_PER_CHUNK: u32 = 256;
 /// way to trigger it.
 pub async fn run_asic_cpu(asic: &'static AsicSession) -> ! {
     let mut receiver = asic
-        .work_receiver()
+        .work_receiver(0)
         .expect("BUG: AsicSession Watch must have a free receiver slot");
 
     // Block until the host publishes the first WorkAssignment.
@@ -118,7 +118,7 @@ pub async fn run_asic_cpu(asic: &'static AsicSession) -> ! {
                     ntime: current.ntime,
                     version_bits: 0,
                 };
-                let _ = asic.submit_solution(solution);
+                let _ = asic.submit_solution(0, solution);
             }
             nonce = nonce.wrapping_add(1);
             if nonce == 0 {

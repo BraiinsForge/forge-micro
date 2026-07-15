@@ -257,7 +257,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
         };
 
         let one_session = async {
-            stratum_client::record_reconnect_attempt();
+            stratum_client::record_reconnect_attempt(0);
             let mut connector = TcpConnector {
                 stack,
                 host: entry.host.as_str(),
@@ -278,7 +278,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                     if let Err(error) = run_stratum_session(
                         &mut connector,
                         &mut client,
-                        &ASIC_SESSION,
+                        ASIC_SESSION.pool_handle(0),
                         &mut state,
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )
@@ -295,7 +295,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                     if let Err(error) = run_stratum_session(
                         &mut connector,
                         &mut client,
-                        &ASIC_SESSION,
+                        ASIC_SESSION.pool_handle(0),
                         &mut state,
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )

@@ -374,17 +374,20 @@ impl Serial {
     /// honoured, and `Err(BrokenPipe)` only on serial EOF. Line-level
     /// read errors are absorbed inside `handle_read` so a transient
     /// FIFO overrun does not kill mining for the rest of the run.
-    pub async fn run<S>(
+    pub async fn run<S, const N: usize>(
         &self,
         mut serial: S,
-        session: &'static AsicSession,
+        session: &'static AsicSession<N>,
         board: &'static HashboardDescriptor,
     ) -> Result<(), ErrorKind>
     where
         S: Read + Write + BaudRate,
     {
+        // Slot-aware dispatch (reading the active slot's cell per work
+        // tick) lands with the multipool switch; until then the worker
+        // consumes slot 0 only.
         let mut work_receiver = session
-            .work_receiver()
+            .work_receiver(0)
             .expect("BUG: AsicSession Watch must have a free receiver slot");
         let mut parser = ResponseParser::new();
         let mut work_ticker: Option<Ticker> = None;
@@ -560,14 +563,14 @@ impl Serial {
     /// when probe-rs is attached and the host stalls the blocking
     /// defmt-rtt channel long enough for core 1's UART ISR to miss
     /// the 32-byte HW FIFO drain window at 3 Mbaud.
-    fn handle_read<E: embedded_io::Error>(
+    fn handle_read<E: embedded_io::Error, const N: usize>(
         result: Result<usize, E>,
         parser: &mut ResponseParser,
         chip: Chip,
         midstate_count: u8,
         registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
-        session: &'static AsicSession,
+        session: &'static AsicSession<N>,
     ) -> Result<(), ErrorKind> {
         match result {
             Ok(0) => {
@@ -598,12 +601,12 @@ impl Serial {
         }
     }
 
-    fn dispatch_response(
+    fn dispatch_response<const N: usize>(
         resp: &Response,
         midstate_count: u8,
         registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
-        session: &'static AsicSession,
+        session: &'static AsicSession<N>,
     ) {
         match resp {
             Response::HwSolution(wr) => {
@@ -662,7 +665,7 @@ impl Serial {
                     ntime: slot.assignment.ntime,
                     version_bits,
                 };
-                if !session.submit_solution(solution) {
+                if !session.submit_solution(0, solution) {
                     warn!("AsicSession solutions full, dropping submission");
                 }
             }

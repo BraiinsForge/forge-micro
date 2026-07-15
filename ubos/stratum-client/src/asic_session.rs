@@ -1,89 +1,185 @@
-//! `AsicSession` — the polled-cell contract between the host and
-//! whatever drives the ASIC.
+//! `AsicSession` — the polled-cell contract between the host-side
+//! stratum sessions and whatever drives the ASIC.
 //!
-//! `work` is a `Watch<WorkAssignment>`: the host writes the latest
-//! assignment, the ASIC polls (latest-wins). `solutions` is a
-//! `Channel<Solution>`: the ASIC sends, the host drains. Both ends
-//! receive a `&'static AsicSession` at construction time.
+//! One work/solution channel pair per pool slot. `work[slot]` is a
+//! `Watch<WorkAssignment>`: each session writes its latest assignment
+//! unconditionally (latest-wins), and the ASIC dispatcher decides at
+//! dispatch time which slot's cell to read — the runtime pool switch
+//! lives on the consumer side, in `ubos-mining`'s `dispatch_work`,
+//! keyed on [`AsicSession::active_slot`]. `solutions[slot]` is a
+//! `Channel<Solution>`: the ASIC routes each found solution back to
+//! the slot whose work produced it, so a session still receives and
+//! submits its in-flight solutions after losing the active role.
+//! Sessions access their pair through a [`PoolHandle`] and never
+//! learn whether they are active.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::{DynReceiver, Watch};
+use portable_atomic::{AtomicU8, Ordering};
 
 use crate::work::{Solution, WorkAssignment};
 
-/// Channel depth for solutions. ASIC mocks send when found; the
-/// host drains in its `select!` between `client.drive()` and
-/// `asic.solutions.receiver()`. Eight slots is far more headroom
+#[cfg(test)]
+#[path = "tests/asic_session.rs"]
+mod tests;
+
+/// Channel depth for solutions, per slot. ASIC mocks send when found;
+/// the host drains in its `select!` between `client.drive()` and
+/// `PoolHandle::take_solution`. Eight slots is far more headroom
 /// than a CPU mock will produce between polls; an ASIC driver may
 /// want to tune.
 pub const SOLUTION_QUEUE_DEPTH: usize = 8;
 
-/// `Watch` capacity: one writer (the work generator) plus one
-/// reader (the ASIC). Two slots match the embassy-sync API
-/// requirement.
+/// Per-slot `Watch` capacity: one reader (the ASIC dispatcher) plus
+/// one spare. Senders do not consume receiver slots.
 const WATCH_RECEIVERS: usize = 2;
 
-/// Polled host↔ASIC handoff.
+/// Polled host↔ASIC handoff with one channel pair per pool slot.
 ///
-/// `static` lifetime is the intended use: the firmware allocates
-/// one in a `static` and passes `&'static AsicSession` to both the
-/// host-side stratum task and the ASIC-side worker.
-pub struct AsicSession {
-    work: Watch<CriticalSectionRawMutex, WorkAssignment, WATCH_RECEIVERS>,
-    solutions: Channel<CriticalSectionRawMutex, Solution, SOLUTION_QUEUE_DEPTH>,
+/// `N` is the pool-slot capacity. It defaults to 1 so single-pool
+/// consumers (host tooling, tests) can keep writing plain
+/// `AsicSession`; firmware instantiates the config-sized alias from
+/// `ubos-firmware`. `static` lifetime is the intended use: the
+/// firmware allocates one in a `static` and passes `&'static
+/// AsicSession<N>` to both the host-side stratum tasks (as
+/// [`PoolHandle`]s) and the ASIC-side worker.
+pub struct AsicSession<const N: usize = 1> {
+    work: [Watch<CriticalSectionRawMutex, WorkAssignment, WATCH_RECEIVERS>; N],
+    solutions: [Channel<CriticalSectionRawMutex, Solution, SOLUTION_QUEUE_DEPTH>; N],
+    /// Index of the slot the ASIC dispatcher currently draws work
+    /// from. `u8` bounds `N` at 256, asserted in [`Self::new`].
+    active: AtomicU8,
 }
 
-impl AsicSession {
+impl<const N: usize> AsicSession<N> {
     #[must_use]
     pub const fn new() -> Self {
+        const { assert!(N > 0, "AsicSession needs at least one slot") };
+        const { assert!(N <= 256, "active slot index must fit in the u8") };
         Self {
-            work: Watch::new(),
-            solutions: Channel::new(),
+            work: [const { Watch::new() }; N],
+            solutions: [const { Channel::new() }; N],
+            active: AtomicU8::new(0),
         }
+    }
+
+    /// Select which slot the ASIC dispatcher draws work from. The
+    /// runtime pool switch: callable from any task, takes effect at
+    /// the dispatcher's next work tick.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `slot` is not below `N`.
+    pub fn set_active(&self, slot: usize) {
+        assert!(slot < N, "active slot out of range");
+        // The assert bounds `slot` below `N <= 256`; `new()` rejects
+        // larger `N` at compile time.
+        self.active.store(
+            u8::try_from(slot).expect("BUG: slot bounded by N <= 256"),
+            Ordering::Relaxed,
+        );
+    }
+
+    /// Slot the ASIC dispatcher currently draws work from.
+    #[must_use]
+    pub fn active_slot(&self) -> usize {
+        usize::from(self.active.load(Ordering::Relaxed))
     }
 
     // ---- Host side ----
 
-    /// Publish a new `WorkAssignment`. Latest-wins: ASIC sees the
-    /// most recent value on its next poll.
-    pub fn publish_work(&self, work: WorkAssignment) {
-        self.work.sender().send(work);
-    }
-
-    /// Try to take one solution without blocking. Returns `None` if
-    /// the queue is empty.
-    pub fn try_take_solution(&self) -> Option<Solution> {
-        self.solutions.try_receive().ok()
-    }
-
-    /// Wait for the next solution.
-    pub async fn take_solution(&self) -> Solution {
-        self.solutions.receive().await
+    /// Per-slot face of the session, handed to the stratum task that
+    /// owns `slot`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `slot` is not below `N`.
+    #[must_use]
+    pub fn pool_handle(&self, slot: usize) -> PoolHandle<'_, N> {
+        assert!(slot < N, "pool slot out of range");
+        PoolHandle {
+            session: self,
+            slot,
+        }
     }
 
     // ---- ASIC side ----
 
-    /// Receiver handle for the work cell. Returns `None` if the
-    /// `Watch`'s receiver budget is exhausted (won't happen in
-    /// practice with `WATCH_RECEIVERS = 2` and one ASIC consumer).
+    /// Receiver handle for one slot's work cell. Returns `None` if
+    /// the `Watch`'s receiver budget is exhausted (won't happen in
+    /// practice with `WATCH_RECEIVERS = 2` and one ASIC consumer per
+    /// slot).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `slot` is not below `N`.
     #[must_use]
-    pub fn work_receiver(&self) -> Option<DynReceiver<'_, WorkAssignment>> {
-        self.work.dyn_receiver()
+    pub fn work_receiver(&self, slot: usize) -> Option<DynReceiver<'_, WorkAssignment>> {
+        self.work[slot].dyn_receiver()
     }
 
-    /// Push a found solution into the channel. Returns `false` on
-    /// full — matches the "tiny FIFO on the chip" model where the
-    /// host is expected to drain promptly. Callers may log or
-    /// retry; we don't surface a richer error type because the
-    /// only failure mode is the queue being full.
-    pub fn submit_solution(&self, solution: Solution) -> bool {
-        self.solutions.try_send(solution).is_ok()
+    /// Push a found solution into `slot`'s channel — the slot that
+    /// dispatched the originating work, not necessarily the active
+    /// one. Returns `false` on full — matches the "tiny FIFO on the
+    /// chip" model where the host is expected to drain promptly.
+    /// Callers may log or retry; we don't surface a richer error type
+    /// because the only failure mode is the queue being full.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `slot` is not below `N`.
+    pub fn submit_solution(&self, slot: usize, solution: Solution) -> bool {
+        self.solutions[slot].try_send(solution).is_ok()
     }
 }
 
-impl Default for AsicSession {
+impl<const N: usize> Default for AsicSession<N> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// One pool slot's face of the [`AsicSession`] — the only view a
+/// stratum session task gets. `Copy`: the firmware creates one per
+/// session task from the shared `&'static AsicSession<N>`.
+#[derive(Clone, Copy)]
+pub struct PoolHandle<'a, const N: usize> {
+    session: &'a AsicSession<N>,
+    slot: usize,
+}
+
+impl<const N: usize> PoolHandle<'_, N> {
+    /// Slot index this handle publishes to and drains, doubling as
+    /// the pool index for per-pool accounting (`set_pool_alive`,
+    /// `record_reconnect_attempt`).
+    #[must_use]
+    pub fn slot(&self) -> usize {
+        self.slot
+    }
+
+    /// Publish a new `WorkAssignment` into this slot's cell.
+    /// Latest-wins, and unconditional: whether it reaches the ASIC is
+    /// the dispatcher's decision, not the session's.
+    pub fn publish_work(&self, work: WorkAssignment) {
+        self.session.work[self.slot].sender().send(work);
+    }
+
+    /// Empty this slot's work cell. Sessions call it on teardown so
+    /// the dispatcher never re-dispatches a dead pool's last job.
+    pub fn clear_work(&self) {
+        self.session.work[self.slot].sender().clear();
+    }
+
+    /// Wait for the next solution routed to this slot.
+    pub async fn take_solution(&self) -> Solution {
+        self.session.solutions[self.slot].receive().await
+    }
+
+    /// Try to take one solution without blocking. Returns `None` if
+    /// the queue is empty.
+    #[must_use]
+    pub fn try_take_solution(&self) -> Option<Solution> {
+        self.session.solutions[self.slot].try_receive().ok()
     }
 }

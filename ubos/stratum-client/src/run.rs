@@ -32,31 +32,31 @@ use ubos_logging::{info, trace, warn};
 /// loop would take ~136 years to overflow 32 bits.
 pub(crate) static STRATUM_RECONNECTS: AtomicU32 = AtomicU32::new(0);
 
-/// Increment [`STRATUM_RECONNECTS`] on every call past the first.
+/// Increment [`STRATUM_RECONNECTS`] on every call past the first for
+/// the given pool.
 ///
-/// Callers invoke this at the top of their outer stratum-reconnect
-/// loop. The very first call after boot is a no-op so a successful
-/// first connection does not register as a reconnect; every subsequent
-/// loop entry adds one to the counter, capturing both TCP-level
-/// connect failures and session-level disconnects.
-///
-/// Caller invariant: only one stratum task per binary calls
-/// `record_reconnect_attempt`. The function-local static is
-/// process-wide; a second concurrent caller would observe the first
-/// caller's `false` and miscount reconnects. If a backup-pool task is
-/// ever added, refactor to a per-session counter.
-pub fn record_reconnect_attempt() {
-    // Caller invariant: only one stratum task per binary calls this
-    // function. The static is process-wide; a second concurrent caller
-    // would observe the first caller's `false` and miscount reconnects.
-    // If a backup-pool task is ever added, refactor to per-session state.
-    static FIRST_ATTEMPT: AtomicBool = AtomicBool::new(true);
-    if !FIRST_ATTEMPT.swap(false, Ordering::Relaxed) {
+/// Each pool session task invokes this at the top of its outer
+/// reconnect loop with its own `pool_index` (0-based, matching
+/// [`set_pool_alive`]). The very first call after boot is a no-op per
+/// pool so a successful first connection does not register as a
+/// reconnect; every subsequent loop entry adds one to the shared
+/// counter, capturing both TCP-level connect failures and
+/// session-level disconnects. Out-of-range indexes are ignored, like
+/// in [`set_pool_alive`].
+pub fn record_reconnect_attempt(pool_index: u8) {
+    // Sized to the `POOL_ALIVE_BITMAP` index space so the two per-pool
+    // accounting paths stay bounds-consistent.
+    static FIRST_ATTEMPT: [AtomicBool; 8] = [const { AtomicBool::new(true) }; 8];
+    debug_assert!(pool_index < 8, "pool_index must fit in the u8 bitmap");
+    let Some(first_attempt) = FIRST_ATTEMPT.get(usize::from(pool_index)) else {
+        return;
+    };
+    if !first_attempt.swap(false, Ordering::Relaxed) {
         STRATUM_RECONNECTS.fetch_add(1, Ordering::Relaxed);
     }
 }
 
-use crate::asic_session::AsicSession;
+use crate::asic_session::PoolHandle;
 use crate::state::StratumState;
 use crate::work::{MAX_EXTRANONCE_2, OutstandingWork, Solution, WorkAssignment};
 
@@ -64,19 +64,13 @@ use crate::work::{MAX_EXTRANONCE_2, OutstandingWork, Solution, WorkAssignment};
 #[path = "tests/run.rs"]
 mod tests;
 
-/// Index of the primary (and currently only) pool in `POOL_ALIVE_BITMAP`.
-/// Bit 0 is the primary pool; a backup-pool task would use bit 1. If a
-/// backup pool is ever added, add a `pool_index` parameter to
-/// `run_stratum_client` and pass `PRIMARY_POOL_INDEX` from the call site.
-const PRIMARY_POOL_INDEX: u8 = 0;
-
 /// Per-pool reachability bitmap, one bit per pool index. Set bits render
 /// as `Alive` on the dashboard; cleared bits as `Dead`. Pool reachability
 /// is a stratum concern, so it is owned here rather than in `ubos-net`.
 ///
-/// Only bit 0 (primary pool) is driven today. The dashboard reserves rows
-/// for backup pools; their bits stay zero and render `Dead` until
-/// secondary/tertiary stratum clients are wired up.
+/// Each pool session task drives its own bit, indexed by its
+/// `PoolHandle` slot. Bits of unconfigured slots stay zero and render
+/// `Dead`.
 static POOL_ALIVE_BITMAP: AtomicU8 = AtomicU8::new(0);
 
 /// Current per-pool reachability bitmap. The only path across the crate
@@ -121,13 +115,13 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 
 /// Run the integration loop forever (until the transport errors).
 ///
-/// Sets bit 0 of `POOL_ALIVE_BITMAP` only after `client.connect()`
-/// completes the protocol handshake successfully, and clears it on
-/// return. A handshake-level failure therefore never appears as a
-/// fleeting "alive" state on the dashboard. Callers should invoke
-/// [`record_reconnect_attempt`] at the top of their outer reconnect
-/// loop so the counter reflects re-establishment attempts rather than
-/// the very first boot connection.
+/// Sets the `POOL_ALIVE_BITMAP` bit of the handle's slot only after
+/// `client.connect()` completes the protocol handshake successfully,
+/// and clears it on return. A handshake-level failure therefore never
+/// appears as a fleeting "alive" state on the dashboard. Callers
+/// should invoke [`record_reconnect_attempt`] at the top of their
+/// outer reconnect loop so the counter reflects re-establishment
+/// attempts rather than the very first boot connection.
 ///
 /// Returns `Err` when the underlying `MiningClient` does — the
 /// firmware's outer reconnect loop drops `client` and `transport`,
@@ -158,10 +152,10 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 /// `client.drive()`. `client.submit()` errors are logged and
 /// otherwise swallowed — a single bad submit must not tear down
 /// the whole session.
-pub async fn run_stratum_client<C, T>(
+pub async fn run_stratum_client<C, T, const N: usize>(
     client: &mut C,
     transport: &mut T,
-    asic: &'static AsicSession,
+    asic: PoolHandle<'_, N>,
     state: &mut StratumState,
     ntime_roll_period_secs: Option<u32>,
 ) -> Result<(), Error>
@@ -171,14 +165,21 @@ where
 {
     let result =
         run_stratum_client_inner(client, transport, asic, state, ntime_roll_period_secs).await;
-    set_pool_alive(PRIMARY_POOL_INDEX, false);
+    set_pool_alive(pool_index(&asic), false);
     result
 }
 
-async fn run_stratum_client_inner<C, T>(
+/// Bitmap index of the handle's slot. Slots past the bitmap saturate
+/// to `u8::MAX`, which [`set_pool_alive`] and
+/// [`record_reconnect_attempt`] ignore via their range guards.
+fn pool_index<const N: usize>(asic: &PoolHandle<'_, N>) -> u8 {
+    u8::try_from(asic.slot()).unwrap_or(u8::MAX)
+}
+
+async fn run_stratum_client_inner<C, T, const N: usize>(
     client: &mut C,
     transport: &mut T,
-    asic: &'static AsicSession,
+    asic: PoolHandle<'_, N>,
     state: &mut StratumState,
     ntime_roll_period_secs: Option<u32>,
 ) -> Result<(), Error>
@@ -191,7 +192,7 @@ where
     // failed connect does not produce a transient "alive" blip in
     // `POOL_ALIVE_BITMAP` between this function's entry and the
     // `await?` returning Err.
-    set_pool_alive(PRIMARY_POOL_INDEX, true);
+    set_pool_alive(pool_index(&asic), true);
 
     // A caller passing `Some(0)` most likely means "publish as fast as
     // possible", not "don't roll" — that's what `None` is for.
@@ -290,14 +291,14 @@ fn handle_solution<C: MiningClient>(
 
 /// Build the next `WorkAssignment` from the current ring slot,
 /// record an `OutstandingWork` so the eventual `Solution` can be
-/// translated back to a `Share`, and publish to the ASIC.
+/// translated back to a `Share`, and publish into the handle's slot.
 ///
 /// `step` advances the slot's `ntime_offset` by that many seconds,
 /// capped at [`NTIME_ROLL_MAX_SECS`], before publishing. The loop in
 /// [`run_stratum_client_inner`] passes the roll period on each ticker
 /// tick, or `0` for the one-shot publish that hands a freshly accepted
 /// job to the ASIC when no ticker is running.
-fn publish_work(state: &mut StratumState, asic: &AsicSession, step: u32) {
+fn publish_work<const N: usize>(state: &mut StratumState, asic: PoolHandle<'_, N>, step: u32) {
     let extranonce_2_size = match state.job_ring.current() {
         Some(slot) if slot.valid => slot.extranonce_2_size,
         _ => return,

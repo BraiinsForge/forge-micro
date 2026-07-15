@@ -45,7 +45,7 @@ pub const SOCKET_TIMEOUT: Duration = Duration::from_secs(120);
 /// is reserved for test builds that must pin ntime to the job base.
 pub const NTIME_ROLL_PERIOD_SECS: u32 = 1;
 
-pub use asic_session::{AsicSession, SOLUTION_QUEUE_DEPTH};
+pub use asic_session::{AsicSession, PoolHandle, SOLUTION_QUEUE_DEPTH};
 pub use connector::{PoolConnector, SessionError, run_stratum_session};
 pub use job_ring::{JOB_RING_DEPTH, JobRing, JobSlot, JobSlotError};
 pub use run::{
