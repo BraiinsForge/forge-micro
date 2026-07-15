@@ -7,8 +7,8 @@ allowed-tools: Bash, Read, Edit
 
 Rebase toolkit for preparing a branch for merge. Default operation analyzes the
 full branch for fixups, redundant commits, and commit message quality, then
-presents a cleanup plan for user approval. Rebase operations below are the
-tools used to execute the plan.
+presents a cleanup plan for user approval. The per-operation rebase recipes
+that execute the plan live in [reference/rebase-ops.md](reference/rebase-ops.md).
 
 ## Target End-State
 
@@ -239,8 +239,9 @@ some, or modify the plan.
 
 ### Phase 5: Execute Approved Changes
 
-Execute the approved plan using the rebase operations documented below.
-Order of operations matters:
+Execute the approved plan using the recipes in
+[reference/rebase-ops.md](reference/rebase-ops.md). Order of operations
+matters:
 
 1. **Squash/drop** first — reduces the number of commits, making subsequent
    operations simpler and less likely to conflict
@@ -270,138 +271,10 @@ multiple commits with `-e` flags in one `GIT_SEQUENCE_EDITOR` sed command.
 
 ## Rebase Operations
 
-Reference for all rebase operations used during cleanup execution (Phase 5)
-or when the user requests a specific operation.
-
-### Edit a Commit (modify content in place)
-
-Use when: a commit needs its content changed without splitting. This is the
-most common rebase operation for fixing review findings, removing lines,
-or adjusting code in a specific commit.
-
-1. Mark the commit for editing:
-   ```bash
-   GIT_SEQUENCE_EDITOR="sed -i 's/^pick <HASH>/edit <HASH>/'" git rebase -i master
-   ```
-2. The rebase pauses at the target commit. The working tree reflects the
-   state as of that commit. Make the changes to the file.
-3. Stage and amend:
-   ```bash
-   git add <modified-files>
-   git commit --amend --no-edit
-   ```
-   Use `--amend -m "new message"` if the message also needs updating.
-4. Continue:
-   ```bash
-   git rebase --continue
-   ```
-
-To edit multiple commits in one rebase, mark them all with a single sed
-command using `-e` flags. The rebase will pause at each one in order.
-After amending each, run `git rebase --continue` to advance to the next.
-
-### Split a Commit
-
-Use when: a commit bundles unrelated changes that belong in separate commits.
-
-1. Mark for editing:
-   ```bash
-   GIT_SEQUENCE_EDITOR="sed -i 's/^pick <HASH>/edit <HASH>/'" git rebase -i master
-   ```
-2. Undo the commit but keep changes in working tree:
-   ```bash
-   git reset HEAD~1
-   ```
-3. Re-commit in logical groups:
-   ```bash
-   git add <files-for-group-1> && git commit -m "..."
-   git add <files-for-group-2> && git commit -m "..."
-   ```
-   For partial file splits, use `git add -p <file>` to stage individual hunks.
-4. Continue:
-   ```bash
-   git rebase --continue
-   ```
-
-### Reword a Commit
-
-Use when: a commit message is inaccurate or needs updating after fixup folding.
-
-1. Mark for editing:
-   ```bash
-   GIT_SEQUENCE_EDITOR="sed -i 's/^pick <HASH>/edit <HASH>/'" git rebase -i master
-   ```
-2. Amend with new message:
-   ```bash
-   git commit --amend -m "$(cat <<'EOF'
-   module: New commit message
-
-   - updated bullet points
-   EOF
-   )"
-   ```
-3. Continue:
-   ```bash
-   git rebase --continue
-   ```
-
-### Move Changes Between Commits
-
-Use when: specific hunks or files belong in a different commit for logical
-coherence. A commit may bundle unrelated changes, or a change may have
-landed in the wrong commit during development.
-
-1. Mark the source commit for editing:
-   ```bash
-   GIT_SEQUENCE_EDITOR="sed -i 's/^pick <HASH>/edit <HASH>/'" git rebase -i master
-   ```
-2. Extract changes from the commit. For whole files:
-   ```bash
-   git reset HEAD^ -- <file1> <file2>
-   git commit --amend --no-edit
-   ```
-   For individual hunks within a file:
-   ```bash
-   git reset HEAD^ -p -- <file>
-   git commit --amend --no-edit
-   ```
-3. Continue rebase: `git rebase --continue`
-4. The extracted changes are now uncommitted. Either:
-   - Amend them into a later commit with a second edit rebase, or
-   - Create a new commit and reorder it into place
-
-### Reorder Commits
-
-Use when: a commit needs to be at a different position in the branch.
-
-1. Show current order: `git log --oneline master..HEAD`
-2. Move a commit after a different one:
-   ```bash
-   GIT_SEQUENCE_EDITOR='bash -c "
-     LINE=$(grep \"^pick <HASH_TO_MOVE>\" \"\$1\")
-     sed -i \"/^pick <HASH_TO_MOVE>/d\" \"\$1\"
-     sed -i \"/^pick <TARGET_HASH>/a\\\\$LINE\" \"\$1\"
-   "' git rebase -i master
-   ```
-3. Handle any conflicts from the new order.
-
-### Drop a Commit
-
-Use when: a commit should be removed entirely.
-
-```bash
-GIT_SEQUENCE_EDITOR="sed -i 's/^pick <HASH>/drop <HASH>/'" git rebase -i master
-```
-
-### Full Soft Reset (last resort)
-
-Use when: commits are too interleaved to rebase cleanly. Requires user
-confirmation before proceeding.
-
-1. `git reset --soft master`
-2. `git reset HEAD -- .`
-3. Stage and commit in logical groups using `/commit` skill
-4. Verify: `cargo check` for affected crates
+Step-by-step recipes for each operation — edit, split, reword, move,
+reorder, drop, and full soft reset — are in
+[reference/rebase-ops.md](reference/rebase-ops.md). Read that file when
+executing Phase 5 or when the user requests a specific operation.
 
 ## Conflict Handling
 
