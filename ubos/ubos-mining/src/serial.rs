@@ -185,7 +185,7 @@ pub enum SerialMessage {
     SendFrame(Frame),
 }
 
-/// In-flight work for a given `work_id` slot. Kept around so an incoming
+/// In-flight work for a given chip work-id slot. Kept around so an incoming
 /// `HwSolution` can be matched back to the originating assignment when
 /// building the [`Solution`] to push through `AsicSession::submit_solution`.
 /// The target is captured at dispatch time because the session's
@@ -391,7 +391,7 @@ impl Serial {
             .expect("BUG: AsicSession Watch must have a free receiver slot");
         let mut parser = ResponseParser::new();
         let mut work_ticker: Option<Ticker> = None;
-        let mut work_id: u8 = 0;
+        let mut chip_work_id: u8 = 0;
         let mut registry: [Option<WorkSlot>; WORK_REGISTRY_SLOTS] =
             [const { None }; WORK_REGISTRY_SLOTS];
         let chip = board.chip;
@@ -401,7 +401,7 @@ impl Serial {
         // Largest valid dispatched work-id for this chip. The BM1370 encodes
         // the id in the high nibble of the response byte, so ids >= 128
         // overflow and decode to the wrong slot. Other chips use the full range.
-        let max_work_id = chip.max_work_id();
+        let max_chip_work_id = chip.max_work_id();
 
         loop {
             // Honor a park request at the top of every iteration, before the
@@ -448,9 +448,9 @@ impl Serial {
                 Either4::First(()) => {
                     self.dispatch_work(
                         &mut serial,
-                        &mut work_id,
+                        &mut chip_work_id,
                         midstate_count,
-                        max_work_id,
+                        max_chip_work_id,
                         &mut registry,
                         &mut work_receiver,
                     )
@@ -474,7 +474,7 @@ impl Serial {
                             &mut serial,
                             &mut parser,
                             &mut work_ticker,
-                            &mut work_id,
+                            &mut chip_work_id,
                             &mut registry,
                         )
                         .await
@@ -497,9 +497,9 @@ impl Serial {
     async fn dispatch_work<S>(
         &self,
         serial: &mut S,
-        work_id: &mut u8,
+        chip_work_id: &mut u8,
         midstate_count: u8,
-        max_work_id: u8,
+        max_chip_work_id: u8,
         registry: &mut [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         work_receiver: &mut DynReceiver<'_, WorkAssignment>,
     ) where
@@ -512,7 +512,7 @@ impl Serial {
         let assignment = work_receiver.get().await;
 
         let hw_work = HwWork {
-            work_id: *work_id,
+            work_id: *chip_work_id,
             nonce_start: 0,
             nbits: assignment.nbits,
             ntime: assignment.ntime,
@@ -532,20 +532,21 @@ impl Serial {
         // regardless of which variant the chip selected. The invariant
         // `256 / midstate_count <= WORK_REGISTRY_SLOTS` holds because
         // midstate_count >= 8.
-        let slot_index = usize::from(*work_id) / usize::from(midstate_count);
+        let slot_index = usize::from(*chip_work_id) / usize::from(midstate_count);
         registry[slot_index] = Some(WorkSlot {
             hw_work,
             assignment,
         });
-        *work_id = work_id.wrapping_add(midstate_count);
-        // Wrap the work-id within the range the chip's response byte can carry,
-        // as reported by `Chip::max_work_id`. The BM1370 encodes the id in the
-        // high nibble as `(work_id << 1) | small_core`, so an id >= 128
-        // overflows the byte and decodes to the wrong slot. Chips that carry
-        // the id directly use the full u8 range (`max_work_id == u8::MAX`) and
-        // need no wrap: modulo 256 is a no-op on a u8 after `wrapping_add`.
-        if max_work_id < u8::MAX {
-            *work_id %= max_work_id.wrapping_add(1);
+        *chip_work_id = chip_work_id.wrapping_add(midstate_count);
+        // Wrap the chip work-id within the range the chip's response byte can
+        // carry, as reported by `Chip::max_work_id`. The BM1370 encodes the id
+        // in the high nibble as `(chip_work_id << 1) | small_core`, so an id
+        // >= 128 overflows the byte and decodes to the wrong slot. Chips that
+        // carry the id directly use the full u8 range (`max_chip_work_id ==
+        // u8::MAX`) and need no wrap: modulo 256 is a no-op on a u8 after
+        // `wrapping_add`.
+        if max_chip_work_id < u8::MAX {
+            *chip_work_id %= max_chip_work_id.wrapping_add(1);
         }
 
         if let Err(e) = serial.write_all(&frame).await {
@@ -613,13 +614,13 @@ impl Serial {
                 let registry_id = usize::from(wr.work_id) / usize::from(midstate_count);
                 let version_bits = wr.version_bits();
 
-                // `registry_id` derives from the chip-returned `work_id`, so
+                // `registry_id` derives from the chip-returned work id, so
                 // a stray reply can land past the registry. `get` keeps that
                 // off the wire from panicking; it folds into the same
                 // missing-assignment path as an unknown id.
                 let Some(slot) = registry.get(registry_id).and_then(Option::as_ref) else {
                     warn!(
-                        "No WorkAssignment for work_id={} (registry_id {})",
+                        "No WorkAssignment for chip_work_id={} (registry_id {})",
                         wr.work_id, registry_id
                     );
                     return;
@@ -628,7 +629,7 @@ impl Serial {
 
                 if !hash_meets_target(&hash, &Self::DIFF_1_TARGET) {
                     warn!(
-                        "nonce=0x{:08X} work_id={} ver_idx={} below diff 1 (hash={})",
+                        "nonce=0x{:08X} chip_work_id={} ver_idx={} below diff 1 (hash={})",
                         wr.nonce,
                         wr.work_id,
                         wr.version_idx,
@@ -645,7 +646,7 @@ impl Serial {
 
                 if !hash_meets_target(&hash, &slot.assignment.target) {
                     trace!(
-                        "nonce=0x{:08X} work_id={} ver_idx={} below pool target (hash={})",
+                        "nonce=0x{:08X} chip_work_id={} ver_idx={} below pool target (hash={})",
                         wr.nonce,
                         wr.work_id,
                         wr.version_idx,
@@ -655,7 +656,7 @@ impl Serial {
                 }
 
                 info!(
-                    "Submitting share: nonce=0x{:08X} work_id={} ver_idx={}",
+                    "Submitting share: nonce=0x{:08X} chip_work_id={} ver_idx={}",
                     wr.nonce, wr.work_id, wr.version_idx
                 );
 
@@ -687,7 +688,7 @@ impl Serial {
         serial: &mut S,
         parser: &mut ResponseParser,
         work_ticker: &mut Option<Ticker>,
-        work_id: &mut u8,
+        chip_work_id: &mut u8,
         registry: &mut [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
     ) -> ControlFlow<()>
     where
@@ -697,7 +698,7 @@ impl Serial {
             SerialMessage::Reset => {
                 parser.clear();
                 *work_ticker = None;
-                *work_id = 0;
+                *chip_work_id = 0;
                 for slot in registry.iter_mut() {
                     *slot = None;
                 }
