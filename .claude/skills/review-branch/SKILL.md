@@ -54,17 +54,30 @@ identically to CI so the local result cannot disagree with the pipeline:
 nix flake check .
 ```
 
-This is a full hermetic build of every board and takes far longer than a
-single tool call, so running it inline stalls the review indefinitely.
-Spawn a background `Task` agent (`model: "sonnet"`) to run it to
-completion and return the result, rather than blocking on it here:
+This is a full hermetic build of every board: cold it runs tens of
+minutes, warm (most reviews) a minute or two. Either way it outlasts a
+single tool call, so it must run detached — but **do not** delegate it to
+a `Task` subagent and **do not** poll a log for a completion sentinel.
+Both have failed: a subagent launches the check in the background and
+returns before it finishes, reporting no result; and a hand-rolled
+`until grep …; do sleep; done` waiter spins indefinitely whenever its
+sentinel never lands in the file it polls.
 
-> Run `nix flake check .` from the repo root to completion. Report PASS
-> if it exits 0; on failure report FAIL with each failing check name and
-> the relevant error lines. Do not attempt any fix.
+Instead run it yourself as one background `Bash` call. `2>&1` is a
+redirection, not a pipe, so `$?` is nix's own exit status — capture it on
+the last line:
 
-Continue with Phases 3–5 while the agent builds, then fold its PASS/FAIL
-into the output. Do not emit the final report until the agent returns.
+```bash
+nix flake check . 2>&1; echo "FLAKE_CHECK_EXIT=$?"
+```
+
+Launch it with `run_in_background: true`, then continue with Phases 3–5.
+The harness re-invokes you when the command exits — wait for that
+notification; never arm a separate poll loop. When it fires, read the
+tail of the command's output file: PASS if the last line is
+`FLAKE_CHECK_EXIT=0`, otherwise FAIL with each failing check name and the
+relevant error lines. Do not emit the final report until this exit line
+is in hand.
 
 The repo-root flake aggregates every project's checks (clippy, firmware
 builds, host tests, DRC, ERC) under a `<project>-` prefix, plus the
@@ -150,7 +163,7 @@ Review the full diff (`git diff "$BASE"...HEAD`) for:
 
 Before producing output, verify every category was checked. For each item below, confirm it was evaluated for every commit and every changed file. If any item was skipped or only partially checked, go back and complete the relevant phase before continuing.
 
-- [ ] Flake check returned from its agent, or was skipped with reason (Phase 2)
+- [ ] Flake check exit line (`FLAKE_CHECK_EXIT=`) in hand, or was skipped with reason (Phase 2)
 - [ ] Every commit message verified against its diff (Phase 3)
 - [ ] Every commit is a single logical change (Phase 3)
 - [ ] No bundled unrelated changes (Phase 3)
@@ -196,7 +209,7 @@ If no issues are found, output: `No issues found. Branch is merge-ready.`
 ## Rules
 
 - Review ALL commits on the branch, not just the latest
-- Run `nix flake check .` (repo root) in a spawned Task agent whenever the diff touches flake inputs — it is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, and record the skip in the output
+- Run `nix flake check .` (repo root) as one background `Bash` call whenever the diff touches flake inputs — it is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, and record the skip in the output
 - Every finding MUST include a file:line reference (or commit hash for commit message issues)
 - Findings must be exhaustive: if this review passes, the branch is ready to merge
 - No praise, no "looks good" summaries, no filler text
