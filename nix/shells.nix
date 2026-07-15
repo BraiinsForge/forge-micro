@@ -179,10 +179,10 @@ in
     '';
   };
 
-  # redacted redacted (dual-core RV64GC). One shell for firmware/redacted
-  # (redacted 10) and the redacted-rtt lib it now uses. Both are gated in
-  # `checks` (clippy-redacted/build-redacted and
-  # clippy-redacted-rtt/build-redacted-rtt, built with riscvCraneLib).
+  # redacted redacted, dual-core RV64GC. One shell for firmware/redacted,
+  # redacted 10, and the redacted-rtt lib it now uses. Both are gated in
+  # `checks`: clippy-redacted/build-redacted and
+  # clippy-redacted-rtt-defmt/build-redacted-rtt-defmt, built with riscvCraneLib.
   #
   # NOTE: `cargo run --release` flashes the firmware into SRAM over
   # the probe-rs redacted fork and streams the RTT log; `cargo attach`

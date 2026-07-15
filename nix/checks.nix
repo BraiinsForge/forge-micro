@@ -257,8 +257,8 @@ let
     };
   };
 
-  # One row per ARM/STM board. Generates clippy-<name>, build-<name>,
-  # and (unless noDisplay = false) build-<name>-no-display. `guard`
+  # One row per ARM/STM board. Generates clippy-<name> and
+  # build-<name>, both with the default feature set. `guard`
   # selects the postBuild image guard: "slot" objcopies the ELF and
   # enforces the OTA slot budget, "elf" greps the ELF for the pool
   # worker only; boards that are not OTA targets have no slot budget.
@@ -282,7 +282,6 @@ let
       artifacts = deps.hashnodeArtifacts;
       target = "thumbv8m.main-none-eabihf";
       guard = "slot";
-      noDisplay = false;
     };
     stm32f407 = {
       artifacts = deps.stm32f407Artifacts;
@@ -360,14 +359,14 @@ let
   # docs/STRUCTURE.md records the per-board RAM snapshot this gate
   # protects.
   mkBoardBuild =
-    name: board: extraArgs:
+    name: board:
     craneLib.cargoBuild (
       {
         inherit src;
         cargoArtifacts = board.artifacts;
         doInstallCargoArtifacts = false;
         cargoBuildCommand = "cargo build --release";
-        cargoExtraArgs = "-p ${name} --target ${board.target}${extraArgs}";
+        cargoExtraArgs = "-p ${name} --target ${board.target}";
         nativeBuildInputs = [
           pkgs.gcc-arm-embedded
           pkgs.esbuild
@@ -375,24 +374,18 @@ let
       }
       // armCc board.target
       // webuiEnvAttrs
-      // lib.optionalAttrs (extraArgs == "" && board.guard == "slot") {
+      // lib.optionalAttrs (board.guard == "slot") {
         postBuild = slotGuard name board.target;
       }
-      // lib.optionalAttrs (extraArgs == "" && board.guard == "elf") {
+      // lib.optionalAttrs (board.guard == "elf") {
         postBuild = elfGuard name board.target;
       }
     );
 
-  boardChecks = lib.concatMapAttrs (
-    name: board:
-    {
-      "clippy-${name}" = mkBoardClippy name board;
-      "build-${name}" = mkBoardBuild name board "";
-    }
-    // lib.optionalAttrs (board.noDisplay or true) {
-      "build-${name}-no-display" = mkBoardBuild name board " --no-default-features";
-    }
-  ) boards;
+  boardChecks = lib.concatMapAttrs (name: board: {
+    "clippy-${name}" = mkBoardClippy name board;
+    "build-${name}" = mkBoardBuild name board;
+  }) boards;
 
   # Bootloader crates: same clippy/build pair as the boards, but no
   # esbuild or webui env, since ubos-webui is not in the closure, and
@@ -570,17 +563,6 @@ hostClippyChecks
     // webuiEnvAttrs
   );
 
-  build-esp32s3-no-display = espCraneLib.cargoBuild (
-    espCommon
-    // {
-      cargoArtifacts = null;
-      cargoBuildCommand = "cargo build --release";
-      cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core --no-default-features";
-    }
-    // espRustflags
-    // webuiEnvAttrs
-  );
-
   # Gate the OTA bootloader so a broken sdkconfig fails CI. This
   # pulls the esp-idf closure on first build; it is cached until the
   # nixpkgs-esp-dev input or the stub project changes.
@@ -653,35 +635,15 @@ hostClippyChecks
     // webuiEnvAttrs
   );
 
-  # redacted-rtt: shared RTT backend. `log` (default) has no current
-  # consumer but is still a supported mode of the crate; `defmt`
-  # is used by both firmware/redacted and firmware/redacted. The two
-  # are mutually exclusive (each defines its own CHAN_NAME), so
-  # they get separate clippy/build checks rather than one
-  # `--all-features` pass.
-  clippy-redacted-rtt = riscvCraneLib.cargoClippy {
-    inherit src;
-    cargoArtifacts = deps.riscvredactedRttArtifacts;
-    cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf";
-    cargoClippyExtraArgs = "-- -D warnings";
-    doInstallCargoArtifacts = false;
-    CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
-  };
-
+  # redacted-rtt: shared RTT backend. Only the `defmt` backend is gated:
+  # it is the config firmware/redacted and firmware/redacted ship. The
+  # crate's default `log` backend has no consumer, so it is not built.
   clippy-redacted-rtt-defmt = riscvCraneLib.cargoClippy {
     inherit src;
     cargoArtifacts = deps.riscvredactedRttDefmtArtifacts;
     cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf --no-default-features --features defmt";
     cargoClippyExtraArgs = "-- -D warnings";
     doInstallCargoArtifacts = false;
-    CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
-  };
-
-  build-redacted-rtt = riscvCraneLib.cargoBuild {
-    inherit src;
-    cargoArtifacts = null;
-    cargoBuildCommand = "cargo build --release";
-    cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf";
     CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
   };
 
@@ -763,9 +725,8 @@ hostClippyChecks
           > "$out/README"
       '';
 
-  # Aggregate over every firmware release build, default features and
-  # --no-default-features per board; derived from the board table plus
-  # the hand-written build checks above.
+  # Aggregate over every firmware release build; derived from the board
+  # table plus the hand-written build checks above.
   firmware-builds =
     pkgs.runCommand "ubos-main-firmware-builds"
       {
@@ -773,9 +734,7 @@ hostClippyChecks
           builtins.attrValues (lib.filterAttrs (name: _: lib.hasPrefix "build-" name) boardChecks)
           ++ [
             build-esp32s3
-            build-esp32s3-no-display
             build-redacted
-            build-redacted-rtt
             build-redacted-rtt-defmt
             rp2350BootloaderChecks.build-rp2350-bootloader
             rp2040BootloaderChecks.build-rp2040-bootloader
@@ -788,7 +747,7 @@ hostClippyChecks
           "ubos-main firmware build aggregate" \
           "" \
           "Building this check forces all firmware release build checks to build." \
-          "It covers default features and --no-default-features for each board." \
+          "It covers every board's default-feature release build." \
           > "$out/README"
       '';
 

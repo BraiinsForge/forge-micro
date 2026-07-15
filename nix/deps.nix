@@ -226,16 +226,9 @@ rec {
   };
 
   # redacted-rtt is a standalone no_std lib: no C deps, no build.rs, so
-  # neither esbuild nor a cross GCC is needed. `log` and `defmt` are
-  # mutually exclusive backends (each defines its own CHAN_NAME), so
-  # unlike a normal `--all-features` closure, the two are covered by
-  # separate artifact sets below rather than one `--all-features` build.
-  riscvredactedRttArtifacts = checkBag riscvCraneLib {
-    cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf";
-    CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
-  };
-
-  # `defmt`-backend closure: used by firmware/redacted and firmware/redacted.
+  # neither esbuild nor a cross GCC is needed. Only the `defmt` backend
+  # is gated; it is what firmware/redacted and firmware/redacted ship, while
+  # the crate's default `log` backend has no consumer.
   riscvredactedRttDefmtArtifacts = checkBag riscvCraneLib {
     cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf --no-default-features --features defmt";
     CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";

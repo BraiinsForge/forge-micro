@@ -128,14 +128,13 @@ Run each board in the correct Nix devshell:
 - `firmware/stm32f439`
 - `firmware/esp32s3`
 
-For each board, check default features and important variants such as
-`--no-default-features` where `display` is optional. The gate should catch
+For each board, check the default feature set. The gate should catch
 target dependency drift, linker-script failures, accidental feature coupling,
 and oversized binaries before hardware testing.
 
-The flake exposes this as `build-<board>` for the default feature set and
-`build-<board>-no-display` for the `--no-default-features` variant. The ESP32-S3
-entries use the same naming pattern with the Xtensa toolchain derivation.
+The flake exposes this as `build-<board>` for the default feature set. The
+ESP32-S3 entry uses the same naming pattern with the Xtensa toolchain
+derivation.
 
 Run this layer through the aggregate flake check:
 
@@ -223,7 +222,7 @@ Completed:
 
 - Fast host crates are covered by isolated `test-*` flake checks and the
   `fast-host` aggregate.
-- Firmware default and no-display release builds are covered by per-board
+- Firmware default-feature release builds are covered by per-board
   checks and the `firmware-builds` aggregate.
 - Web UI and native host-runner tests are covered by the `web-host` aggregate
   with `esbuild` supplied by the flake.
