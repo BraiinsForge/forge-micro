@@ -3101,6 +3101,13 @@
             riscv = pkgs.mkShell {
               buildInputs = with pkgs; [
                 riscvRustToolchain
+                # firmware/redacted links with GNU ld (`riscv64-none-elf-ld` via
+                # its .cargo/config.toml rustflags) since the defmt migration:
+                # rust-lld mishandles R_RISCV_PCREL_HI20 against the non-alloc
+                # `.defmt` section. The check derivations already carry this
+                # GCC; without it here, interactive `cargo build`/`run`/`pack`
+                # fail at the link step while CI stays green.
+                riscvGcc
                 cargo-binutils
                 cargo-bloat
                 # The redacted flashes and streams its `defmt` output over RTT
