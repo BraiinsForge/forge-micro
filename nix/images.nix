@@ -303,6 +303,12 @@ in
       ext = "bin";
       what = "image";
     };
+    hashnode-image = mkCopyApp {
+      name = "hashnode";
+      drv = hashnodeImage;
+      ext = "bin";
+      what = "image";
+    };
     rp2350-uf2 = mkCopyApp {
       name = "rp2350";
       drv = rp2350Uf2;
