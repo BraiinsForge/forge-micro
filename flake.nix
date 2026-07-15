@@ -357,6 +357,10 @@
           # Copy apps: `nix run .#<image>` writes the built image or UF2
           # into the repo's build/ directory. See nix/images.nix.
           apps = images.apps;
+
+          # `nix fmt` entry point, matching the nixfmt check in
+          # nix/checks.nix.
+          formatter = pkgs.nixfmt;
         }
       ))
       {
