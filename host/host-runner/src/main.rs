@@ -110,7 +110,9 @@ impl ii_sv2::security::Rng for HostSv2Rng {
 
 /// Shared work / solution rendezvous between the stratum-client
 /// task and whichever ASIC driver is active (ubos-mining BM1362 actor or
-/// in-process CPU mock).
+/// in-process CPU mock). Deliberately single-slot (`AsicSession<1>` via
+/// the default): the host runner exercises one protocol session at a
+/// time, so it has no use for the firmware's per-pool slots.
 pub static ASIC_SESSION: AsicSession = AsicSession::new();
 
 /// TCP transport source for one pool entry. Owns the stack handle and
@@ -249,6 +251,13 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
     let mut config_generation = config_handle.subscribe_generation();
 
     loop {
+        // Teardown boundary, mirroring the firmware session loop: never
+        // leave a previous session's job in the work cell while no
+        // session backs it, and drop the alive bit that a config-change
+        // cancellation of `run_stratum_client` never cleared.
+        ASIC_SESSION.pool_handle(0).clear_work();
+        stratum_client::set_pool_alive(0, false);
+
         let snapshot = config_handle.current();
         let Some(entry) = snapshot.pool.first() else {
             warn!("stratum-client: pool list empty, awaiting config update");
