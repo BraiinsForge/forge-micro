@@ -45,3 +45,10 @@ stratum-client    = { workspace = true }
 ubos-asic         = { workspace = true }
 ubos-logging      = { workspace = true }
 ubos-psu          = { workspace = true }
+
+[dev-dependencies]
+# The dispatch tests construct an `AsicSession`, whose `Watch`/`Channel`
+# are `CriticalSectionRawMutex`-backed, so the host test binary needs a
+# linkable critical-section implementation. The std impl is host-only and
+# never reaches firmware.
+critical-section = { version = "1.2", features = ["std"] }

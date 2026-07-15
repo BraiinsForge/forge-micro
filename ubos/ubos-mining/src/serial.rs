@@ -3,8 +3,11 @@
 //! One task owns the full-duplex serial line and the in-flight work registry;
 //! outside callers go through [`Serial`]'s typed methods to reset the
 //! chip, retune the baud rate, gate work dispatch, or push a pre-built
-//! command frame. The actor reads work from a `&'static AsicSession`'s
-//! `Watch` and submits found shares back via `AsicSession::submit_solution`.
+//! command frame. The actor holds a work receiver for every pool slot of
+//! a `&'static AsicSession<N>`, dispatches from the active slot's cell on
+//! each work tick — the runtime pool switch is decided here, not by the
+//! stratum sessions — and submits found shares back to the slot whose
+//! dispatch produced them via `AsicSession::submit_solution`.
 
 use core::fmt;
 use core::ops::ControlFlow;
@@ -28,6 +31,10 @@ use ubos_asic::{
     Response, ResponseParser, build_read_register, build_write_register,
 };
 use ubos_logging::{Debug2Format, error, info, trace, warn};
+
+#[cfg(test)]
+#[path = "tests/serial.rs"]
+mod tests;
 
 /// Lifetime-monotonic count of bytes discarded while scanning for the
 /// `0xAA 0x55` frame preamble in the UART byte stream. Survives serial-
@@ -195,6 +202,11 @@ pub enum SerialMessage {
 struct WorkSlot {
     hw_work: HwWork,
     assignment: WorkAssignment,
+    /// Pool slot that was active when this work was dispatched. The
+    /// eventual solution routes back to this slot even if the active
+    /// slot changed while the chip was hashing, so a deactivated
+    /// session still submits its in-flight shares.
+    session_slot: usize,
 }
 
 /// Depth of the command channel feeding the serial actor. A const
@@ -365,8 +377,10 @@ impl Serial {
     }
 
     /// Server entry point. Owns the byte stream and the work registry;
-    /// reads assignments from `session.work_receiver()` and submits
-    /// found shares back through `session.submit_solution`. Bumps
+    /// holds a work receiver for every pool slot, dispatches from the
+    /// active slot's cell on each work tick, and submits found shares
+    /// back to the slot whose dispatch produced them through
+    /// `session.submit_solution`. Bumps
     /// `ubos_metrics::hashrate::record_share` for every diff-1 chip
     /// share so the existing hashrate task picks them up.
     ///
@@ -383,12 +397,16 @@ impl Serial {
     where
         S: Read + Write + BaudRate,
     {
-        // Slot-aware dispatch (reading the active slot's cell per work
-        // tick) lands with the multipool switch; until then the worker
-        // consumes slot 0 only.
-        let mut work_receiver = session
-            .work_receiver(0)
-            .expect("BUG: AsicSession Watch must have a free receiver slot");
+        // One receiver per pool slot; `dispatch_work` picks which cell
+        // to read at each work tick from the session's active-slot
+        // atomic, so a pool switch needs no participation from the
+        // stratum sessions.
+        let mut work_receivers: [DynReceiver<'_, WorkAssignment>; N] =
+            core::array::from_fn(|slot| {
+                session
+                    .work_receiver(slot)
+                    .expect("BUG: AsicSession Watch must have a free receiver slot")
+            });
         let mut parser = ResponseParser::new();
         let mut work_ticker: Option<Ticker> = None;
         let mut chip_work_id: u8 = 0;
@@ -446,13 +464,14 @@ impl Serial {
 
             match select4(tick_arm, read_arm, cmd_arm, park_arm).await {
                 Either4::First(()) => {
-                    self.dispatch_work(
+                    Self::dispatch_work(
                         &mut serial,
+                        session,
                         &mut chip_work_id,
                         midstate_count,
                         max_chip_work_id,
                         &mut registry,
-                        &mut work_receiver,
+                        &mut work_receivers,
                     )
                     .await;
                 }
@@ -494,22 +513,32 @@ impl Serial {
         }
     }
 
-    async fn dispatch_work<S>(
-        &self,
+    async fn dispatch_work<S, const N: usize>(
         serial: &mut S,
+        session: &AsicSession<N>,
         chip_work_id: &mut u8,
         midstate_count: u8,
         max_chip_work_id: u8,
         registry: &mut [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
-        work_receiver: &mut DynReceiver<'_, WorkAssignment>,
+        work_receivers: &mut [DynReceiver<'_, WorkAssignment>; N],
     ) where
         S: Write + BaudRate,
     {
-        // Block until the stratum task publishes the first assignment;
-        // afterwards `get` returns the latest immediately so subsequent
-        // ticks pick up mid-job target / merkle-root changes without
-        // blocking.
-        let assignment = work_receiver.get().await;
+        // The pool switch takes effect here: each tick reads the
+        // active slot afresh, so `set_active` needs no session-side
+        // handshake. `try_get` returns the slot's latest assignment
+        // regardless of whether it changed since the last tick — the
+        // chip is re-fed the current job every tick, picking up
+        // mid-job target / merkle-root changes.
+        let session_slot = session.active_slot();
+        let Some(assignment) = work_receivers[session_slot].try_get() else {
+            // Not a bug: the active slot's cell is legitimately empty
+            // while its pool is offline or still connecting, or right
+            // after a session teardown cleared it. Skip the tick — the
+            // select loop keeps servicing UART reads and commands, and
+            // dispatch resumes on the first tick after the cell fills.
+            return;
+        };
 
         let hw_work = HwWork {
             work_id: *chip_work_id,
@@ -536,6 +565,7 @@ impl Serial {
         registry[slot_index] = Some(WorkSlot {
             hw_work,
             assignment,
+            session_slot,
         });
         *chip_work_id = chip_work_id.wrapping_add(midstate_count);
         // Wrap the chip work-id within the range the chip's response byte can
@@ -571,7 +601,7 @@ impl Serial {
         midstate_count: u8,
         registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
-        session: &'static AsicSession<N>,
+        session: &AsicSession<N>,
     ) -> Result<(), ErrorKind> {
         match result {
             Ok(0) => {
@@ -607,7 +637,7 @@ impl Serial {
         midstate_count: u8,
         registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
-        session: &'static AsicSession<N>,
+        session: &AsicSession<N>,
     ) {
         match resp {
             Response::HwSolution(wr) => {
@@ -666,7 +696,7 @@ impl Serial {
                     ntime: slot.assignment.ntime,
                     version_bits,
                 };
-                if !session.submit_solution(0, solution) {
+                if !session.submit_solution(slot.session_slot, solution) {
                     warn!("AsicSession solutions full, dropping submission");
                 }
             }
