@@ -196,6 +196,17 @@
           # nix/guards.nix.
           guards = import ./nix/guards.nix { };
 
+          # Cross-CC and webui build-env helpers shared by the checks,
+          # images, and shells modules. See nix/lib.nix.
+          helpers = import ./nix/lib.nix {
+            inherit
+              pkgs
+              webuiBuildEnv
+              espToolchain
+              xtensaEspToolchain
+              ;
+          };
+
           # Shared dependency artifacts for the clippy, test, and build
           # checks. See nix/deps.nix for the bag-splitting rationale.
           deps = import ./nix/deps.nix {
@@ -204,13 +215,13 @@
               src
               loadTestSrc
               craneLib
+              helpers
               bmmCraneLib
               riscvCraneLib
               riscvGcc
               riscvDefmtRustflags
               espCraneLib
               espCargoVendorDir
-              espToolchain
               xtensaEspToolchain
               bmmCc
               ;
@@ -259,11 +270,10 @@
               deps
               craneLib
               espCraneLib
-              espToolchain
               espCargoVendorDir
               xtensaEspToolchain
               guards
-              webuiBuildEnv
+              helpers
               fwVersion
               slotMaxBytes
               esp32s3SlotBytes
@@ -301,7 +311,7 @@
                 espCargoVendorDir
                 esp32s3Bootloader
                 guards
-                webuiBuildEnv
+                helpers
                 slotMaxKiB
                 slotMaxBytes
                 esp32s3SlotBytes
@@ -331,7 +341,7 @@
               redacted
               probeRsHost
               probeRsToken
-              webuiBuildEnv
+              helpers
               ;
             deployRsPackage = deploy-rs.packages.${system}.default;
           };

@@ -20,13 +20,13 @@
   src,
   loadTestSrc,
   craneLib,
+  helpers,
   bmmCraneLib,
   riscvCraneLib,
   riscvGcc,
   riscvDefmtRustflags,
   espCraneLib,
   espCargoVendorDir,
-  espToolchain,
   xtensaEspToolchain,
   bmmCc,
 }:
@@ -48,17 +48,18 @@ let
   # cross gcc covers C build scripts, such as secp256k1-sys via ii-sv2.
   armBag =
     { crates, target }:
-    craneLib.buildDepsOnly {
-      inherit src;
-      doCheck = false;
-      cargoBuildCommand = "cargo build --release";
-      cargoExtraArgs = builtins.concatStringsSep " " (
-        (map (c: "-p ${c}") crates) ++ [ "--target ${target}" ]
-      );
-      nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
-      "CC_${builtins.replaceStrings [ "-" "." ] [ "_" "_" ] target}" =
-        "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-    };
+    craneLib.buildDepsOnly (
+      {
+        inherit src;
+        doCheck = false;
+        cargoBuildCommand = "cargo build --release";
+        cargoExtraArgs = builtins.concatStringsSep " " (
+          (map (c: "-p ${c}") crates) ++ [ "--target ${target}" ]
+        );
+        nativeBuildInputs = [ pkgs.gcc-arm-embedded ];
+      }
+      // helpers.armCc target
+    );
 
   dev =
     bag:
@@ -183,10 +184,12 @@ rec {
     target = "thumbv8m.main-none-eabihf";
   };
 
-  ubosOtaArtifacts = checkBag craneLib {
-    cargoExtraArgs = "-p ubos-ota --target thumbv8m.main-none-eabihf --features rp,embassy-rp/rp235xa,embassy-rp/imagedef-none";
-    CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-  };
+  ubosOtaArtifacts = checkBag craneLib (
+    {
+      cargoExtraArgs = "-p ubos-ota --target thumbv8m.main-none-eabihf --features rp,embassy-rp/rp235xa,embassy-rp/imagedef-none";
+    }
+    // helpers.armCc "thumbv8m.main-none-eabihf"
+  );
 
   # ubos-firmware references the subsystem crates, which unify
   # firmware-only embassy features; it is gated on one ARM target
@@ -247,7 +250,7 @@ rec {
       pkgs.esbuild
     ];
     CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
-    CC_arm_unknown_linux_musleabi = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
+    ${helpers.ccVar "arm-unknown-linux-musleabi"} = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
   };
 
   # The esp deps bag stays check-only. crane's buildDepsOnly stubs the
@@ -257,17 +260,17 @@ rec {
   # links, so it builds. The esp release builds therefore keep
   # `cargoArtifacts = null` and rebuild their dependency closure; the
   # other targets' bags do codegen and the builds reuse them.
-  espArtifacts = checkBag espCraneLib {
-    cargoVendorDir = espCargoVendorDir;
-    cargoExtraArgs = builtins.concatStringsSep " " [
-      "-p esp32s3@0.1.0"
-      "-p esp32s3-tsens"
-      "--target xtensa-esp32s3-none-elf"
-      "-Z build-std=core"
-    ];
-    RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
-    nativeBuildInputs = [ xtensaEspToolchain ];
-    CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
-    CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
-  };
+  espArtifacts = checkBag espCraneLib (
+    {
+      cargoVendorDir = espCargoVendorDir;
+      cargoExtraArgs = builtins.concatStringsSep " " [
+        "-p esp32s3@0.1.0"
+        "-p esp32s3-tsens"
+        "--target xtensa-esp32s3-none-elf"
+        "-Z build-std=core"
+      ];
+      nativeBuildInputs = [ xtensaEspToolchain ];
+    }
+    // helpers.espCrossEnv
+  );
 }

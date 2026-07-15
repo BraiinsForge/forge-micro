@@ -10,9 +10,10 @@
   deployRsPackage,
   probeRsHost,
   probeRsToken,
-  webuiBuildEnv,
+  helpers,
 }:
 let
+  inherit (helpers) webuiEnvAttrs;
   inherit (toolchains)
     rustToolchain
     espRustToolchain
@@ -26,63 +27,63 @@ let
   inherit (redacted) redactedPkgs redactedCapturePython redactedRun;
 in
 {
-  arm = pkgs.mkShell {
-    buildInputs =
-      with pkgs;
-      [
-        rustToolchain
-        cargo-binutils
-        cargo-bloat
-        probe-rs-tools-remote
-        probe-rs-runner
-        pkg-config
-        libudev-zero
-        picocom
-        usbutils
-        # Cross C compiler for crates with C sources, for example
-        # secp256k1-sys via the unconditional ii-sv2 dep.
-        # Each rustc target needs a `CC_<target>` env var
-        # below; cc-rs' fallback to host `gcc` does not
-        # work for thumb targets.
-        gcc-arm-embedded
-        # Used by ubos-webui's build.rs to minify the dashboard
-        # CSS/JS before gzipping into OUT_DIR.
-        esbuild
-        # Unused-dependency lint, matching the cargo-machete check.
-        cargo-machete
-        # Builds combined BOOTSEL UF2 images from app and bootloader.
-        picotool
-        # Automatic fixup commits for the documented fixup workflow.
-        git-absorb
-      ]
-      ++ [ deployRsPackage ];
+  arm = pkgs.mkShell (
+    {
+      buildInputs =
+        with pkgs;
+        [
+          rustToolchain
+          cargo-binutils
+          cargo-bloat
+          probe-rs-tools-remote
+          probe-rs-runner
+          pkg-config
+          libudev-zero
+          picocom
+          usbutils
+          # Cross C compiler for crates with C sources, for example
+          # secp256k1-sys via the unconditional ii-sv2 dep.
+          # Each rustc target needs a `CC_<target>` env var, merged in
+          # below via helpers.armCc; cc-rs' fallback to host `gcc` does
+          # not work for thumb targets.
+          gcc-arm-embedded
+          # Used by ubos-webui's build.rs to minify the dashboard
+          # CSS/JS before gzipping into OUT_DIR.
+          esbuild
+          # Unused-dependency lint, matching the cargo-machete check.
+          cargo-machete
+          # Builds combined BOOTSEL UF2 images from app and bootloader.
+          picotool
+          # Automatic fixup commits for the documented fixup workflow.
+          git-absorb
+        ]
+        ++ [ deployRsPackage ];
 
-    PROBE_RS_REMOTE_HOST = probeRsHost;
-    PROBE_RS_REMOTE_TOKEN = probeRsToken;
-    RUST_ANALYZER_SERVER_PATH = "${rustToolchain}/bin/rust-analyzer";
+      PROBE_RS_REMOTE_HOST = probeRsHost;
+      PROBE_RS_REMOTE_TOKEN = probeRsToken;
+      RUST_ANALYZER_SERVER_PATH = "${rustToolchain}/bin/rust-analyzer";
 
-    CC_thumbv6m_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-    CC_thumbv7em_none_eabi = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-    CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-    CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+      inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
-    inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-
-    shellHook = ''
-      echo "ubos-main dev environment ready (ARM boards)"
-      echo ""
-      echo "  cd firmware/bmm-pico  && cargo build --release  # BMM Adapter RP2350 W5500"
-      echo "  cd firmware/rp2040    && cargo build --release  # RP2040 W5500"
-      echo "  cd firmware/rp2350    && cargo build --release  # RP2350 W6100"
-      echo "  cd firmware/stm32f407 && cargo build --release  # STM32F407 LAN8720"
-      echo "  cd firmware/stm32f439 && cargo build --release  # STM32F439 LAN8742A"
-      echo ""
-      echo "Inspect binary size: cargo size --release -- -A"
-      echo ""
-      echo "For ESP32-S3 board: nix develop .#esp"
-      echo "Deploy to NUC:      deploy .#redacted"
-    '';
-  };
+      shellHook = ''
+        echo "ubos-main dev environment ready (ARM boards)"
+        echo ""
+        echo "  cd firmware/bmm-pico  && cargo build --release  # BMM Adapter RP2350 W5500"
+        echo "  cd firmware/rp2040    && cargo build --release  # RP2040 W5500"
+        echo "  cd firmware/rp2350    && cargo build --release  # RP2350 W6100"
+        echo "  cd firmware/stm32f407 && cargo build --release  # STM32F407 LAN8720"
+        echo "  cd firmware/stm32f439 && cargo build --release  # STM32F439 LAN8742A"
+        echo ""
+        echo "Inspect binary size: cargo size --release -- -A"
+        echo ""
+        echo "For ESP32-S3 board: nix develop .#esp"
+        echo "Deploy to NUC:      deploy .#redacted"
+      '';
+    }
+    // helpers.armCc "thumbv6m-none-eabi"
+    // helpers.armCc "thumbv7em-none-eabihf"
+    // helpers.armCc "thumbv8m.main-none-eabihf"
+  );
 
   esp = pkgs.mkShell {
     buildInputs = [
@@ -128,7 +129,7 @@ in
     RUST_ANALYZER_SERVER_PATH = "${espRustToolchain}/bin/rust-analyzer";
     LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
-    inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+    inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
     shellHook = ''
       export RUSTUP_HOME="$PWD/.rustup"
@@ -222,7 +223,7 @@ in
     PROBE_RS_REMOTE_TOKEN = probeRsToken;
     RUST_ANALYZER_SERVER_PATH = "${riscvRustToolchain}/bin/rust-analyzer";
 
-    inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+    inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
     shellHook = ''
       echo "ubos-main dev environment ready (redacted redacted, RV64GC)"
@@ -282,7 +283,7 @@ in
 
     RUST_ANALYZER_SERVER_PATH = "${hostRustToolchain}/bin/rust-analyzer";
 
-    inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+    inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
     shellHook = ''
       echo "ubos-main dev environment ready (host-runner, native, TAP)"
@@ -309,7 +310,7 @@ in
     CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
     RUST_ANALYZER_SERVER_PATH = "${bmmRustToolchain}/bin/rust-analyzer";
 
-    inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+    inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
     # Resolved at shell-entry time relative to the user's cwd, which
     # by convention is the repository root, matching the existing

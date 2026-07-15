@@ -18,21 +18,21 @@
   deps,
   craneLib,
   espCraneLib,
-  espToolchain,
   espCargoVendorDir,
   xtensaEspToolchain,
   guards,
-  webuiBuildEnv,
+  helpers,
   fwVersion,
   slotMaxBytes,
   esp32s3SlotBytes,
 }:
 let
-  webuiEnvAttrs = {
-    inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-  };
-
-  ccVar = target: "CC_${builtins.replaceStrings [ "-" "." ] [ "_" "_" ] target}";
+  inherit (helpers)
+    armCc
+    webuiEnvAttrs
+    espCrossEnv
+    espRustflags
+    ;
 
   # Production ARM firmware image: build the board crate, objcopy the
   # raw binary into $out, and run the slot-size and pool-worker guards
@@ -74,9 +74,7 @@ let
           maxBytes = slotMaxBytes;
         };
       }
-      // {
-        "${ccVar target}" = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-      }
+      // armCc target
       // webuiEnvAttrs
     );
 
@@ -104,9 +102,7 @@ let
           cp target/${target}/release/${name} "$out/boot.elf"
         '';
       }
-      // {
-        "${ccVar target}" = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-      }
+      // armCc target
     );
 
   # Build a combined BOOTSEL UF2 image from a raw app binary and a
@@ -192,21 +188,19 @@ let
   # esp32s3SlotBytes, which is what the REST handler enforces on the
   # upload for this board.
   esp32s3Image = espCraneLib.cargoBuild (
-    {
+    espCrossEnv
+    // espRustflags
+    // {
       inherit src;
       cargoArtifacts = null;
       cargoVendorDir = espCargoVendorDir;
       cargoBuildCommand = "cargo build --release";
       cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
-      CARGO_TARGET_XTENSA_ESP32S3_NONE_ELF_RUSTFLAGS = "-Clink-arg=-Tlinkall.x -Clink-arg=-Tdefmt.x -Clink-arg=-nostartfiles";
-      RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
       nativeBuildInputs = [
         xtensaEspToolchain
         pkgs.esbuild
         pkgs.espflash
       ];
-      CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
-      CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
       UBOS_FW_VERSION = fwVersion;
       doInstallCargoArtifacts = false;
       installPhaseCommand = ''

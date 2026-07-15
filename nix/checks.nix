@@ -35,22 +35,20 @@
   espCargoVendorDir,
   esp32s3Bootloader,
   guards,
-  webuiBuildEnv,
+  helpers,
   slotMaxKiB,
   slotMaxBytes,
   esp32s3SlotBytes,
 }:
 let
   inherit (pkgs) lib;
+  inherit (helpers)
+    armCc
+    webuiEnvAttrs
+    espCrossEnv
+    espRustflags
+    ;
   root = ../.;
-
-  ccVar = target: "CC_${builtins.replaceStrings [ "-" "." ] [ "_" "_" ] target}";
-  armCc = target: {
-    "${ccVar target}" = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
-  };
-  webuiEnvAttrs = {
-    inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-  };
 
   # Host-side clippy: one row per check. `crate` is the cargo package;
   # `artifacts` defaults to the shared host bag; `allTargets` is off for
@@ -427,22 +425,17 @@ let
       );
     };
 
-  # Common attrs for every xtensa (esp32s3) crane invocation: the
-  # vendored build-std deps, rust-src for -Z build-std, the espressif
-  # cross-gcc for secp256k1-sys' C build script, and `-mlongcalls` so
-  # memset/memcpy from secp256k1's C code can be reached from text
-  # sections beyond the xtensa `call8` range.
-  espCommon = {
+  # Common attrs for every xtensa esp32s3 crane invocation: the shared
+  # cross-build env from helpers.espCrossEnv, plus the esp32s3 source,
+  # the vendored build-std deps, and the toolchain build inputs.
+  espCommon = espCrossEnv // {
     inherit src;
     cargoVendorDir = espCargoVendorDir;
     doInstallCargoArtifacts = false;
-    RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
     nativeBuildInputs = [
       xtensaEspToolchain
       pkgs.esbuild
     ];
-    CC_xtensa_esp32s3_none_elf = "${xtensaEspToolchain}/bin/xtensa-esp32s3-elf-gcc";
-    CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls";
   };
 
   rp2350BootloaderChecks =
@@ -452,14 +445,6 @@ let
     mkBootloaderChecks "rp2040-bootloader" deps.thumbv6mBootloaderArtifacts
       "thumbv6m-none-eabi";
 
-  # Crane runs cargo from the workspace root, so the per-crate
-  # `firmware/esp32s3/.cargo/config.toml` rustflags are out of cargo's
-  # discovery path. Without `-Tlinkall.x` the linker uses default
-  # section placement and secp256k1-sys's calls to memset/memcpy
-  # overflow the xtensa windowed-call range.
-  espRustflags = {
-    CARGO_TARGET_XTENSA_ESP32S3_NONE_ELF_RUSTFLAGS = "-Clink-arg=-Tlinkall.x -Clink-arg=-Tdefmt.x -Clink-arg=-nostartfiles";
-  };
 in
 hostClippyChecks
 // hostTestChecks
