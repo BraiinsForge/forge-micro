@@ -30,11 +30,13 @@
 
 pub(crate) mod baud;
 pub mod chip;
+pub mod driver;
 pub mod framing;
 pub mod registers;
 
 pub use chip::{
     BM1362, BM1366, BM1370, Bm1362, Bm1366, Bm1370, Chip, ChipBus, ChipProtocol, MAX_CHAIN_CHIPS,
 };
+pub use driver::Bm13xxDriver;
 pub use framing::*;
 pub use registers::*;

@@ -27,6 +27,10 @@
 
 #![no_std]
 
+#[cfg(test)]
+#[path = "tests/support.rs"]
+mod test_support;
+
 pub mod bm13xx;
 pub mod board;
 pub mod chain;

@@ -43,7 +43,7 @@ mod tests;
 /// - `standard=true, initial=0x1F`: request commands (host -> chip)
 /// - `standard=false, initial=0x03`: register responses
 /// - `standard=false, initial=0x06`: work responses
-fn crc5(message: &[u8], initial: u8, standard: bool) -> u8 {
+pub(crate) fn crc5(message: &[u8], initial: u8, standard: bool) -> u8 {
     const POLY: u8 = 0x05;
     let mut crc = initial & 0x1F;
     for &orig_byte in message {
@@ -248,7 +248,7 @@ fn transform_hash(hash: &[u8; 32]) -> [u8; 32] {
 // ---------------------------------------------------------------------------
 
 const HEADER_TX: [u8; 2] = [0x55, 0xAA];
-const RESPONSE_LEN: usize = 11;
+pub(crate) const RESPONSE_LEN: usize = 11;
 const CRC5_INIT_REG_RESPONSE: u8 = 0x03;
 const CRC5_INIT_WORK_RESPONSE: u8 = 0x06;
 
@@ -519,10 +519,23 @@ impl ResponseParser {
         self.len += n;
     }
 
-    /// Discard all buffered bytes. The desync counter is untouched;
-    /// it is drained only by [`Self::take_desync`] so recovery paths
-    /// do not lose counts still owed to the metric.
+    /// Number of bytes buffered awaiting a complete frame. A caller
+    /// discarding the parser folds this into its desync accounting so a
+    /// partial frame abandoned at end-of-stream is not lost from the
+    /// tally.
+    #[must_use]
+    pub fn buffered(&self) -> usize {
+        self.len
+    }
+
+    /// Discard all buffered bytes, counting them as desync: everything
+    /// dropped here was read off the line and never decoded to a frame.
+    /// The counter itself is drained only by [`Self::take_desync`], so
+    /// recovery paths do not lose counts still owed to the metric.
     pub fn clear(&mut self) {
+        #[allow(clippy::cast_possible_truncation)]
+        let dropped = self.len as u32;
+        self.desync_bytes = self.desync_bytes.wrapping_add(dropped);
         self.len = 0;
     }
 

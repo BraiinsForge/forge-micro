@@ -26,27 +26,7 @@ use crate::{
     MidstateCalReg, MiscCtrlReg, MiscSettingsReg, PllParameterReg, Register, SoftResetControlReg,
     UartRelayReg,
 };
-
-/// Drive an immediately-ready future to completion with a no-op waker.
-/// The mock bus never returns `Pending`, so a single poll resolves it.
-fn block_on<F: core::future::Future>(future: F) -> F::Output {
-    use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-    fn noop(_: *const ()) {}
-    fn clone(_: *const ()) -> RawWaker {
-        RawWaker::new(core::ptr::null(), &VTABLE)
-    }
-    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
-    // SAFETY: the vtable's functions are all no-ops over a null pointer,
-    // which is the standard no-op waker construction.
-    let waker = unsafe { Waker::from_raw(RawWaker::new(core::ptr::null(), &VTABLE)) };
-    let mut context = Context::from_waker(&waker);
-    let mut future = core::pin::pin!(future);
-    loop {
-        if let Poll::Ready(output) = future.as_mut().poll(&mut context) {
-            return output;
-        }
-    }
-}
+use crate::test_support::block_on;
 
 /// One recorded bus operation. Addresses are encoded as a `u16` so the
 /// broadcast address (`0x100`) never collides with a chip address.

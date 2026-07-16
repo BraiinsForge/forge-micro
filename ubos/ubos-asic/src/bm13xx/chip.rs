@@ -23,9 +23,9 @@
 //! per chip model, expressed as plain imperative async steps that write
 //! registers, send control commands, and wait settle delays. It owns no
 //! UART and performs no direct I/O; it drives [`ChipBus`], which the
-//! consumer (`ubos-mining`) implements over the real serial link. This
-//! keeps the bring-up logic in this pure crate and unit-testable against
-//! a mock bus.
+//! driver's `TransportBus` implements over the consumer's byte-level
+//! `Transport`. This keeps the bring-up logic in this pure crate and
+//! unit-testable against a mock bus.
 
 use heapless::Vec;
 use ubos_core::units::{Frequency, FrequencyRange, Voltage};
@@ -75,16 +75,17 @@ const RELAY_BASE_GAP: u32 = 14;
 const MISC_SETTINGS_REPEATS: usize = 2;
 
 /// The chip-side I/O a [`ChipProtocol`] drives. Implemented by the
-/// consumer, which owns the UART and a timer. Register writes and
-/// control commands are fire-and-forget; only reads can fail.
+/// driver's `TransportBus`, which frames each call onto the consumer's
+/// byte-level `Transport`, and by the mock bus in tests. Register writes
+/// and control commands are fire-and-forget; only reads can fail.
 // The async-fn-in-trait pattern matches the project-wide convention
 // established by `ubos_psu::Psu` and `ubos_mining`'s `MinerControl`.
 // Send bounds are not required on this single-task embedded target.
 #[allow(async_fn_in_trait)]
 pub trait ChipBus {
     /// Write a raw `value` to register `reg` on `addr` (a single chip or
-    /// the broadcast address). The primitive the consumer implements;
-    /// recipes use the typed [`Self::write_register`] instead.
+    /// the broadcast address). The primitive the bus implementation
+    /// provides; recipes use the typed [`Self::write_register`] instead.
     async fn write_register_raw(&mut self, addr: ChipAddress, reg: u8, value: u32);
 
     /// Read register `R` from `chip_address` (a single chip or the
