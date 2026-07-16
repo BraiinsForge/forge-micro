@@ -6,8 +6,8 @@
 //! connection to its configured endpoint, publishes work into its slot
 //! of the shared [`BoardAsicSession`], and drains its slot's
 //! solutions. Which slot actually feeds the chip is decided on the
-//! ASIC side (`ubos-mining`'s dispatcher) via
-//! `AsicSession::set_active`; the sessions here are policy-free.
+//! ASIC side, by `ubos-mining`'s dispatcher work scheduler; the
+//! sessions here are policy-free.
 //!
 //! Boot-time singletons (the SV2 secp context, the SV2 entropy seed)
 //! are initialised once via [`init_stratum`] and fanned out to the

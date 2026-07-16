@@ -1,10 +1,10 @@
-//! Tests for the per-slot channel pairs and the active-slot switch.
+//! Tests for the per-slot channel pairs.
 //!
-//! The dispatcher-side behavior (reading the active slot's cell on a
-//! work tick) lives in `ubos-mining` and is covered there; what is
-//! testable here is the routing contract the dispatcher relies on:
-//! slot isolation in both directions, teardown clearing, and the
-//! active-slot atomic.
+//! The dispatcher-side behavior (the scheduler picking which slot's
+//! cell to read on a work tick) lives in `ubos-mining` and is covered
+//! there; what is testable here is the routing contract the
+//! dispatcher relies on: slot isolation in both directions and
+//! teardown clearing.
 
 use super::*;
 
@@ -92,23 +92,6 @@ fn submit_solution_reports_full_queue() {
         assert!(session.submit_solution(0, solution(u32::try_from(i).expect("small"))));
     }
     assert!(!session.submit_solution(0, solution(99)));
-}
-
-#[test]
-fn active_slot_defaults_to_zero_and_follows_set_active() {
-    let session: AsicSession<3> = AsicSession::new();
-    assert_eq!(session.active_slot(), 0);
-    session.set_active(2);
-    assert_eq!(session.active_slot(), 2);
-    session.set_active(0);
-    assert_eq!(session.active_slot(), 0);
-}
-
-#[test]
-#[should_panic(expected = "active slot out of range")]
-fn set_active_rejects_out_of_range_slot() {
-    let session: AsicSession<2> = AsicSession::new();
-    session.set_active(2);
 }
 
 #[test]

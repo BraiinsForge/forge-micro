@@ -4,19 +4,19 @@
 //! One work/solution channel pair per pool slot. `work[slot]` is a
 //! `Watch<WorkAssignment>`: each session writes its latest assignment
 //! unconditionally (latest-wins), and the ASIC dispatcher decides at
-//! dispatch time which slot's cell to read — the runtime pool switch
-//! lives on the consumer side, in `ubos-mining`'s `dispatch_work`,
-//! keyed on [`AsicSession::active_slot`]. `solutions[slot]` is a
-//! `Channel<Solution>`: the ASIC routes each found solution back to
-//! the slot whose work produced it, so a session still receives and
-//! submits its in-flight solutions after losing the active role.
-//! Sessions access their pair through a [`PoolHandle`] and never
-//! learn whether they are active.
+//! dispatch time which slot's cell to read. That decision lives on
+//! the consumer side, in `ubos-mining`'s scheduler: a share-ratio
+//! policy fed back by difficulty-1 shares picks the slot for each
+//! work tick. `solutions[slot]` is a `Channel<Solution>`: the ASIC
+//! routes each found solution back to the slot whose work produced
+//! it, so a session still receives and submits its in-flight
+//! solutions after the scheduler moves on to another slot. Sessions
+//! access their pair through a [`PoolHandle`] and never learn which
+//! slot the scheduler is currently reading.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::{DynReceiver, Watch};
-use portable_atomic::{AtomicU8, Ordering};
 
 use crate::work::{Solution, WorkAssignment};
 
@@ -47,44 +47,16 @@ const WATCH_RECEIVERS: usize = 2;
 pub struct AsicSession<const N: usize = 1> {
     work: [Watch<CriticalSectionRawMutex, WorkAssignment, WATCH_RECEIVERS>; N],
     solutions: [Channel<CriticalSectionRawMutex, Solution, SOLUTION_QUEUE_DEPTH>; N],
-    /// Index of the slot the ASIC dispatcher currently draws work
-    /// from. `u8` bounds `N` at 256, asserted in [`Self::new`].
-    active: AtomicU8,
 }
 
 impl<const N: usize> AsicSession<N> {
     #[must_use]
     pub const fn new() -> Self {
         const { assert!(N > 0, "AsicSession needs at least one slot") };
-        const { assert!(N <= 256, "active slot index must fit in the u8") };
         Self {
             work: [const { Watch::new() }; N],
             solutions: [const { Channel::new() }; N],
-            active: AtomicU8::new(0),
         }
-    }
-
-    /// Select which slot the ASIC dispatcher draws work from. The
-    /// runtime pool switch: callable from any task, takes effect at
-    /// the dispatcher's next work tick.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `slot` is not below `N`.
-    pub fn set_active(&self, slot: usize) {
-        assert!(slot < N, "active slot out of range");
-        // The assert bounds `slot` below `N <= 256`; `new()` rejects
-        // larger `N` at compile time.
-        self.active.store(
-            u8::try_from(slot).expect("BUG: slot bounded by N <= 256"),
-            Ordering::Relaxed,
-        );
-    }
-
-    /// Slot the ASIC dispatcher currently draws work from.
-    #[must_use]
-    pub fn active_slot(&self) -> usize {
-        usize::from(self.active.load(Ordering::Relaxed))
     }
 
     // ---- Host side ----
@@ -120,11 +92,12 @@ impl<const N: usize> AsicSession<N> {
     }
 
     /// Push a found solution into `slot`'s channel — the slot that
-    /// dispatched the originating work, not necessarily the active
-    /// one. Returns `false` on full — matches the "tiny FIFO on the
-    /// chip" model where the host is expected to drain promptly.
-    /// Callers may log or retry; we don't surface a richer error type
-    /// because the only failure mode is the queue being full.
+    /// dispatched the originating work, not necessarily the slot the
+    /// scheduler currently reads. Returns `false` on full — matches
+    /// the "tiny FIFO on the chip" model where the host is expected
+    /// to drain promptly. Callers may log or retry; we don't surface
+    /// a richer error type because the only failure mode is the
+    /// queue being full.
     ///
     /// # Panics
     ///
