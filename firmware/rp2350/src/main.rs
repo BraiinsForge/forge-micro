@@ -323,21 +323,26 @@ async fn network_control_task(stack: embassy_net::Stack<'static>) -> ! {
     net::run_network_control(stack).await
 }
 
+/// Parallel stratum session slots this board runs — the full config
+/// capacity; this board has the RAM for a session task per pool slot.
+/// RAM-constrained boards may choose fewer (see stm32f407).
+pub(crate) const POOL_SLOTS: usize = ubos_firmware::MAX_POOLS;
+
 /// Shared ASIC session: the bridge between the per-slot stratum sessions and
 /// the BM1362 serial worker. One instance per binary; referenced by every
 /// stratum client task and the mining serial task.
-static ASIC_SESSION: ubos_firmware::BoardAsicSession = ubos_firmware::BoardAsicSession::new();
+static ASIC_SESSION: ubos_firmware::AsicSession<POOL_SLOTS> = ubos_firmware::AsicSession::new();
 
 /// Board task shell around the shared stratum session loop, spawned once per
 /// pool slot. The loop body lives in `ubos-firmware`; the
 /// `#[embassy_executor::task]` shell stays per board because esp32s3 pins a
 /// different `embassy-executor` version than the ARM boards, so the spawned
 /// task type must come from each board's executor.
-#[embassy_executor::task(pool_size = ubos_firmware::MAX_POOLS)]
+#[embassy_executor::task(pool_size = POOL_SLOTS)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
     slot: usize,
-    session: &'static ubos_firmware::BoardAsicSession,
+    session: &'static ubos_firmware::AsicSession<POOL_SLOTS>,
     shared: ubos_firmware::StratumShared,
 ) -> ! {
     ubos_firmware::run_stratum_session(stack, slot, session, shared).await
@@ -714,7 +719,7 @@ async fn boot(spawner: Spawner) {
     info!("ip address: {:?}", config.address.address());
 
     // Core 1 hosts serial_task (ubos-mining backend); see spawn_core1 above.
-    for slot in 0..ubos_firmware::MAX_POOLS {
+    for slot in 0..POOL_SLOTS {
         spawner.spawn(unwrap!(stratum_client_task(
             stack,
             slot,

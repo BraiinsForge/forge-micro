@@ -15,7 +15,10 @@
 
 pub mod stratum;
 
-pub use stratum::{BoardAsicSession, MAX_POOLS, StratumShared, init_stratum, run_stratum_session};
+pub use stratum::{MAX_POOLS, StratumShared, init_stratum, run_stratum_session};
+/// Re-exported so board binaries can name `AsicSession<POOL_SLOTS>`
+/// without a direct `stratum-client` dependency.
+pub use stratum_client::AsicSession;
 
 use ubos_events::EventDef;
 

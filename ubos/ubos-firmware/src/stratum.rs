@@ -20,22 +20,16 @@ use rand_chacha::rand_core::{RngCore, SeedableRng};
 use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::{
     AsicSession, NTIME_ROLL_PERIOD_SECS, PoolConnector, RECONNECT_DELAY, SOCKET_TIMEOUT,
-    STRATUM_TCP_BUFFER_SIZE, SessionError, StratumState, record_reconnect_attempt,
-    set_pool_alive,
+    STRATUM_TCP_BUFFER_SIZE, SessionError, StratumState, record_reconnect_attempt, set_pool_alive,
 };
 use ubos_logging::{Debug2Format, info, warn};
 
-/// Pool-slot capacity every board binary wires up: one stratum session
-/// task and one `AsicSession` channel pair per config pool slot.
-/// Re-exported so board `main.rs` spawn loops and task `pool_size`
-/// attributes reference one authority.
+/// Config pool-list capacity, re-exported as the default value for
+/// each board's `POOL_SLOTS` const. A board may choose fewer session
+/// slots than the config persists (RAM-constrained boards); it should
+/// never choose more — a session task for a slot at or beyond the
+/// config capacity parks forever.
 pub use ubos_config::pool::MAX_POOLS;
-
-/// The board-facing `AsicSession` instantiation, sized to the config
-/// pool capacity. Each board owns one in a `static` and passes it to
-/// both the `ubos-mining` serial worker and the per-slot stratum
-/// tasks.
-pub type BoardAsicSession = AsicSession<MAX_POOLS>;
 
 // Preallocated buffer for the SV2 `secp256k1::AllPreallocated` context.
 // `CryptoCtx::preallocated` needs a `[AlignedType]` slice at least
@@ -158,32 +152,36 @@ fn log_session_error(slot: usize, error: &SessionError<ubos_net::net::StratumCon
 
 /// Maintains one connection to the pool configured in `slot`,
 /// reconnecting on error and restarting on pool-config changes. A slot
-/// with no config entry parks until the next config update.
+/// with no config entry parks until the next config update — which is
+/// permanent for `slot >= MAX_POOLS`, so boards should size `N` at or
+/// below the config capacity.
+///
+/// `N` is the board's session-slot count, chosen by a `POOL_SLOTS`
+/// const in each board's `main.rs` and carried here by the generic:
+/// RAM-constrained boards run fewer parallel sessions than the config
+/// persists.
 ///
 /// This is a plain `async fn`, not an `#[embassy_executor::task]`:
 /// esp32s3 pins a different `embassy-executor` version than the ARM
 /// boards, so the task shell that owns the pool must stay in each
 /// board binary and compile against that board's executor. Each board
 /// wraps this body in a one-line task spawned once per slot
-/// (`pool_size = MAX_POOLS`). The shared session loop lives here only
-/// once.
+/// (`pool_size = POOL_SLOTS`). The shared session loop lives here
+/// only once.
 // The only panics are `.expect()` on compile-time-sized buffer invariants
 // (BUG-class, not caller-facing), so a `# Panics` doc section would mislead.
 #[allow(clippy::too_many_lines, clippy::missing_panics_doc)]
-pub async fn run_stratum_session(
+pub async fn run_stratum_session<const N: usize>(
     stack: embassy_net::Stack<'static>,
     slot: usize,
-    session: &'static BoardAsicSession,
+    session: &'static AsicSession<N>,
     shared: StratumShared,
 ) -> ! {
-    // Per-slot socket buffers; each slot's task takes exactly its own
-    // pair once at startup.
-    static TCP_RX: [ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]>; MAX_POOLS] =
-        [const { ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]) }; MAX_POOLS];
-    static TCP_TX: [ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]>; MAX_POOLS] =
-        [const { ConstStaticCell::new([0; STRATUM_TCP_BUFFER_SIZE]) }; MAX_POOLS];
-    let rx_buffer = TCP_RX[slot].take();
-    let tx_buffer = TCP_TX[slot].take();
+    // This session's socket buffers. Locals held across `.await` live
+    // in the task's statically allocated future, so each task instance
+    // owns its pair with no shared-static bookkeeping.
+    let mut rx_buffer = [0u8; STRATUM_TCP_BUFFER_SIZE];
+    let mut tx_buffer = [0u8; STRATUM_TCP_BUFFER_SIZE];
 
     // This slot's ChaCha20 stream over the shared boot seed: mutually
     // independent between slots, continuous across reconnects within
@@ -227,8 +225,8 @@ pub async fn run_stratum_session(
                 stack,
                 host: entry.host.as_str(),
                 port: entry.port,
-                rx_buffer: &mut *rx_buffer,
-                tx_buffer: &mut *tx_buffer,
+                rx_buffer: &mut rx_buffer[..],
+                tx_buffer: &mut tx_buffer[..],
             };
             let mut state = StratumState::new();
 

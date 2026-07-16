@@ -41,7 +41,7 @@ const PARK_INTERVAL: Duration = Duration::from_secs(60);
 #[embassy_executor::task]
 pub async fn serial_task(
     serial: MinerUart,
-    session: &'static ubos_firmware::BoardAsicSession,
+    session: &'static ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
 ) -> ! {
     match ubos_mining::serial::SERIAL
         .run(serial, session, crate::config::BOARD)
