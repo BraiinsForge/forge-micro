@@ -25,7 +25,7 @@ use embedded_io::ErrorKind;
 use embedded_io_async::{Error as _, Read, Write};
 use heapless::Vec as HVec;
 use mining_protocol::hashing::hash_meets_target;
-use portable_atomic::{AtomicBool, AtomicU32, Ordering};
+use portable_atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_asic::{
@@ -49,6 +49,13 @@ pub(crate) static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
 /// value points to corruption or a stray/late reply on the chain.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub(crate) static REGISTER_REPLY_MISMATCH: AtomicU32 = AtomicU32::new(0);
+
+/// Lifetime-monotonic count of difficulty-1 shares per pool slot,
+/// indexed by the slot the work was dispatched for. The per-slot view
+/// of delivered work: the ratio between these counters is the ratio
+/// the scheduler actually achieved.
+#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
+pub(crate) static POOL_WORK_SHARES: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
 
 // ---------------------------------------------------------------------------
 // Core-1 park primitives
@@ -396,9 +403,11 @@ impl Serial {
     /// shares back to the slot whose dispatch produced them through
     /// `session.submit_solution`. Bumps
     /// `ubos_metrics::hashrate::record_share` for every diff-1 chip
-    /// share so the existing hashrate task picks them up, and feeds the
+    /// share so the existing hashrate task picks them up, feeds the
     /// same shares to `scheduler.accumulate_share` so the delivered
-    /// split tracks its configured policy.
+    /// split tracks its configured policy, and bumps
+    /// [`POOL_WORK_SHARES`] for the originating slot so the split is
+    /// observable through metrics.
     ///
     /// Returns `Ok(())` when a [`SerialMessage::Terminate`] command was
     /// honoured, and `Err(BrokenPipe)` only on serial EOF. Line-level
@@ -701,6 +710,9 @@ impl Serial {
                 // shares. The estimator already weights by target.
                 ubos_metrics::hashrate::record_share(&Self::DIFF_1_TARGET);
                 scheduler.accumulate_share(slot.session_slot);
+                if let Some(counter) = POOL_WORK_SHARES.get(slot.session_slot) {
+                    counter.fetch_add(1, Ordering::Relaxed);
+                }
 
                 if !hash_meets_target(&hash, &slot.assignment.target) {
                     trace!(
@@ -714,8 +726,8 @@ impl Serial {
                 }
 
                 info!(
-                    "Submitting share: nonce=0x{:08X} chip_work_id={} ver_idx={}",
-                    wr.nonce, wr.work_id, wr.version_idx
+                    "Submitting share: pool {} nonce=0x{:08X} chip_work_id={} ver_idx={}",
+                    slot.session_slot, wr.nonce, wr.work_id, wr.version_idx
                 );
 
                 let solution = Solution {

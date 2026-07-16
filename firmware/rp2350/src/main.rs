@@ -261,7 +261,7 @@ async fn stratum_metrics_task() -> ! {
 
 #[embassy_executor::task]
 async fn miner_metrics_task(mining: MiningHandle) -> ! {
-    ubos_mining::publishers::run_miner_metrics_publisher(mining).await
+    ubos_mining::publishers::run_miner_metrics_publisher(mining, POOL_SLOTS).await
 }
 
 #[embassy_executor::task]

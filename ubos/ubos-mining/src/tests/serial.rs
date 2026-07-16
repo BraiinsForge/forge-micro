@@ -284,3 +284,55 @@ fn dispatch_response_credits_the_scheduler_on_a_diff_1_share() {
 
     assert_eq!(harness.scheduler.accumulated.as_slice(), &[0]);
 }
+
+/// A diff-1 chip share also bumps the originating slot's
+/// `POOL_WORK_SHARES` counter, leaving an unrelated slot untouched.
+/// The counters are process-wide statics shared across the whole test
+/// binary, so the assertions baseline against the current value
+/// first rather than an absolute count. Dispatch is pinned to slot 1
+/// and the untouched check reads slot 2 — slot 0 is exercised by the
+/// sibling `dispatch_response_credits_the_scheduler_on_a_diff_1_share`
+/// test, and under the default parallel runner that test's mutation
+/// could otherwise land inside this test's baseline-to-assert window.
+/// Any future test added here that also drives `dispatch_response`
+/// should pick another still-untouched slot rather than reusing 0-2.
+#[test]
+fn dispatch_response_bumps_the_originating_slots_pool_work_share_counter() {
+    let session: AsicSession<2> = AsicSession::new();
+    session.pool_handle(1).publish_work(genesis_assignment());
+
+    let mut harness = Harness::new(&session, 1);
+    harness.dispatch();
+
+    let baseline = [
+        POOL_WORK_SHARES[1].load(Ordering::Relaxed),
+        POOL_WORK_SHARES[2].load(Ordering::Relaxed),
+    ];
+
+    let mut parser = ResponseParser::new();
+    parser.free()[..GENESIS_SOLUTION_FRAME.len()].copy_from_slice(&GENESIS_SOLUTION_FRAME);
+    parser.commit(GENESIS_SOLUTION_FRAME.len());
+    let resp = parser.pop(Chip::Bm1362).expect("well-formed frame parses");
+
+    let register_replies: Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS> =
+        Channel::new();
+    Serial::dispatch_response(
+        &resp,
+        CTX,
+        &harness.registry,
+        &register_replies,
+        harness.session,
+        &mut harness.scheduler,
+    );
+
+    assert_eq!(
+        POOL_WORK_SHARES[1].load(Ordering::Relaxed),
+        baseline[0] + 1,
+        "the originating slot's counter records the diff-1 share"
+    );
+    assert_eq!(
+        POOL_WORK_SHARES[2].load(Ordering::Relaxed),
+        baseline[1],
+        "an unrelated slot's counter is untouched"
+    );
+}
