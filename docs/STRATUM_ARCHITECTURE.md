@@ -108,19 +108,17 @@ disagree, the code wins and this file needs a patch.
    │                                                                     │
    │   work:      [Watch<CSRawMutex, WorkAssignment, 2>; N]              │
    │              session slot writes latest  →  dispatcher reads the    │
-   │              ACTIVE slot's cell per work tick (the pool switch)     │
+   │              scheduler-chosen slot's cell per work tick (the pool   │
+   │              switch; sessions stay policy-free)                     │
    │                                                                     │
    │   solutions: [Channel<CSRawMutex, Solution, 8>; N]                  │
    │              ASIC routes each solution to the slot that dispatched  │
    │              the originating work  →  that session submits it       │
-   │                                                                     │
-   │   active:    AtomicU8 — set_active(slot) from any task; read by     │
-   │              the dispatcher, never by the sessions (policy-free)    │
    └─────────────────────────────────────────────────────────────────────┘
                          │                                        ▲
-                         │ work_receivers[active_slot()]          │
+                         │ work_receivers[scheduler.evaluate()]   │
                          │   .try_get() per work tick             │
-                         │   (empty cell → skip tick)             │
+                         │   (nothing dispatchable → skip tick)   │
                          ▼                                        │
    ┌─────────────────────────────────────────────────────────────────────┐
    │           BM1362 hashboard driver (ubos-mining) or inline CPU mock   │
@@ -220,14 +218,17 @@ Multipool multiplies the seam, not the loop: `AsicSession<N>` holds
 one work/solution pair per pool slot, every configured pool runs its
 own unchanged `run_stratum_client` session against its `PoolHandle`,
 and the runtime pool switch lives entirely on the consumer side —
-`dispatch_work` reads `active_slot()` at each work tick and pulls
-from that slot's cell. The serial worker's registry records which
-slot each dispatch came from, so a solution returns to the session
-that owns the work even if the active slot changed while the chip
-was hashing; a deactivated session still submits its in-flight
-shares over its open connection. A session clears its cell on
-teardown, and the dispatcher skips ticks whose active cell is empty,
-so a dead pool's last job is never re-fed to the chip.
+`dispatch_work` asks its `Scheduler` at each work tick which slot to
+serve and pulls from that slot's cell. The `RatioScheduler` splits
+delivered work between the slots at the board's `POOL_WEIGHTS` ratio,
+fed back by difficulty-1 chip shares; weight-0 slots are failover
+backups (see `docs/MULTIPOOL_DESIGN.md`, work-scheduler section). The
+serial worker's registry records which slot each dispatch came from,
+so a solution returns to the session that owns the work even if the
+scheduler moved on while the chip was hashing; that session still
+submits its in-flight shares over its open connection. A session
+clears its cell on teardown, and the dispatcher routes around empty
+cells, so a dead pool's last job is never re-fed to the chip.
 
 ## Cycle frequencies
 
@@ -238,7 +239,7 @@ so a dead pool's last job is never re-fed to the chip.
 | Work publish | 1 Hz | `work_ticker` arm of the same `select3` loop |
 | ASIC poll for work change | ~100 ms | yield boundary in CPU mock; polling cadence in real driver |
 | ASIC produces solutions | as found | non-blocking `try_send` into the channel |
-| Pool switch takes effect | next work tick | `dispatch_work` reads `active_slot()` before each dispatch |
+| Pool switch takes effect | next work tick | `dispatch_work` asks the scheduler before each dispatch |
 
 ## Where the protocols enter
 

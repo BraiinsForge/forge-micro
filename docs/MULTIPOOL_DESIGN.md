@@ -1,22 +1,20 @@
-# Multipool: parallel stratum sessions with a runtime-switchable active slot
+# Multipool: parallel stratum sessions with scheduler-driven dispatch
 
-> **Status.** The multipool mechanism is implemented (UBOS-49, "Add
-> second stratum channel"); the work-scheduler section (UBOS-72) is
-> designed but not yet implemented. Step tracking in
-> `/IMPLEMENTATION_PLAN.md`. Kept aligned with the code in
-> `ubos/stratum-client`, `ubos/ubos-mining`, and `ubos/ubos-firmware`
-> — when the two disagree, the code wins and this file needs a patch.
+> **Status.** Implemented: the multipool mechanism under UBOS-49
+> ("Add second stratum channel"), the work scheduler under UBOS-72.
+> Step tracking in `/IMPLEMENTATION_PLAN.md`. Kept aligned with the
+> code in `ubos/stratum-client`, `ubos/ubos-mining`, and
+> `ubos/ubos-firmware` — when the two disagree, the code wins and
+> this file needs a patch.
 
 ## Goal
 
 Run one stratum session per configured pool entry (up to
 `MAX_POOLS = 3`) in parallel, all connected at the same time, with
-exactly one *active* slot feeding work to the ASIC. The active slot is
-switchable at runtime from any task via an async-safe API. Selection
+exactly one slot feeding work to the ASIC at any work tick. Selection
 happens on the consumer side: sessions always publish their latest
-job; the serial worker decides which slot's job to dispatch. This is
-the mechanism the scheduler (see the work-scheduler section below)
-builds on.
+job; the serial worker's scheduler (see the work-scheduler section
+below) decides per tick which slot's job to dispatch.
 
 ## Non-goals
 
@@ -56,15 +54,14 @@ The session becomes const-generic over the slot count, with one work
 pub struct AsicSession<const N: usize> {
     work: [Watch<CriticalSectionRawMutex, WorkAssignment, WATCH_RECEIVERS>; N],
     solutions: [Channel<..., Solution, SOLUTION_QUEUE_DEPTH>; N],
-    active: AtomicU8,
 }
 ```
 
-- `set_active(slot)` / `active_slot()`: a plain atomic store/load —
-  the runtime switch, callable from any task. No signalling toward
-  the sessions; they are policy-free and never know whether they are
-  active. Superseded by the scheduler (see the work-scheduler
-  section), which removes the atomic entirely.
+- The session holds no selection state: which slot feeds the chip is
+  the dispatcher's decision, made per work tick by its scheduler
+  (see the work-scheduler section). No signalling toward the
+  sessions; they are policy-free and never know whether they are
+  being mined.
 - Host side, per slot: `pool_handle(slot) -> PoolHandle` — a `Copy`
   value `{ session, slot }`. `publish_work` writes **unconditionally**
   to `work[slot]`; `take_solution` reads `solutions[slot]`. No
@@ -93,26 +90,24 @@ small `N`s directly.
 ### The switch lives in `dispatch_work`
 
 `ubos-mining`'s serial worker holds a receiver for **every** slot. On
-each work tick, `dispatch_work` reads `active_slot()` and takes the
-latest assignment from that slot's watch via `try_get()`:
+each work tick, `dispatch_work` asks its scheduler which slot to
+serve and takes the latest assignment from that slot's watch via
+`try_get()` (the exact loop is in the work-scheduler section):
 
-- A switch becomes effective at the next work tick, bounded by the
-  serial work-ticker period, regardless of anything on the pool side.
-  No republish machinery, no activation signals.
-- `try_get()` replaces today's blocking `get().await`: if the active
-  slot has no job yet (pool still connecting, or cleared — see
-  below), the tick is skipped and the loop keeps servicing UART reads
-  and commands instead of stalling. Today's code blocks on the first
-  assignment; after this change the chip simply idles until the
-  active slot produces one.
-- The work registry entry (`WorkSlot`) gains the session slot index,
-  recorded at dispatch time. When a chip response maps back to a
-  registry entry, `handle_read` submits via
-  `submit_solution(slot, solution)` — the solution returns to the
-  session that created the work, even if the active slot changed
-  while the chip was hashing. In-flight shares of a deactivated slot
-  are therefore still submitted over its (still open) connection;
-  nothing is dropped at a switch boundary.
+- A pool switch becomes effective at the next work tick, bounded by
+  the serial work-ticker period, regardless of anything on the pool
+  side. No republish machinery, no activation signals.
+- When nothing is dispatchable (no slot has a job, or every populated
+  slot is excluded), the tick is skipped and the loop keeps servicing
+  UART reads and commands instead of stalling; the chip simply idles
+  until some slot produces work.
+- The work registry entry (`WorkSlot`) records the session slot at
+  dispatch time. When a chip response maps back to a registry entry,
+  `handle_read` submits via `submit_solution(slot, solution)` — the
+  solution returns to the session that created the work, even if the
+  scheduler moved on while the chip was hashing. In-flight shares of
+  a currently unselected slot are therefore still submitted over its
+  (still open) connection; nothing is dropped at a switch boundary.
 
 ### `work_id` stays a plain `u32`
 
@@ -201,14 +196,11 @@ submits with slot 0.
 
 ## Work scheduler (UBOS-72)
 
-> **Status.** Designed, not yet implemented. Branch
-> `jtr/UBOS-72/scheduler` on top of the multipool mechanism.
-
-The multipool mechanism above shipped policy-free: the dispatcher
-read a manually set active slot that nothing ever set. The scheduler
-replaces that with a policy splitting delivered work between the
-configured slots at a fixed ratio — the dev-fee use case — while
-routing around unavailable pools.
+The multipool mechanism above first shipped policy-free: the
+dispatcher read a manually set active slot that nothing ever set.
+The scheduler replaces that with a policy splitting delivered work
+between the configured slots at a fixed ratio — the dev-fee use case
+— while routing around unavailable pools.
 
 ### Accounting unit: difficulty-1 shares
 
@@ -309,8 +301,9 @@ loop {
         // dispatch `assignment`, record `slot` in the registry
         break;
     }
-    // The session cleared its cell between the mask build and the
-    // read (sessions run on the other core). Retry without it.
+    // The session, which may run on another core, cleared its
+    // cell between the mask build and the read. Retry without
+    // this slot.
     available[slot] = false;
 }
 ```
@@ -335,8 +328,10 @@ Each board's `main.rs` declares `POOL_WEIGHTS: [u32; POOL_SLOTS]`
 next to `POOL_SLOTS` (default `[1, 0, 0]`; stm32f407 `[1]`); its
 `mining.rs` builds `RatioScheduler::new(POOL_WEIGHTS)` and hands it
 to `SERIAL.run`. `host-runner`'s CPU mock reads `work_receiver(0)`
-directly and needs no scheduler. Runtime-configurable weights are a
-follow-up: only the constructor call changes.
+directly, but its miner-serial path also drives `SERIAL.run` and
+passes `RatioScheduler::new([1])` for its single-slot session.
+Runtime-configurable weights are a follow-up: only the constructor
+call changes.
 
 ### Scheduler testing
 
@@ -344,10 +339,11 @@ Scheduler unit tests (host-buildable like the rest of
 `ubos-mining`'s): 1:1 alternation on every share, 2:1 convergence
 over a long run, bounded catch-up after a simulated outage, weight-0
 backup behavior, all-unavailable returns `None`, all-zero weights
-rejected. Serial tests: the `set_active`-based tests are rewritten
-against a fixed-slot stub scheduler; a new test feeds a diff-1
-response and asserts `accumulate_share` fires for the originating
-slot.
+rejected. Serial tests drive selection through a fixed-slot stub
+scheduler; one test feeds a diff-1 chip response and asserts
+`accumulate_share` fires for the originating slot, another proves
+dispatch falls back to an available slot when the preferred cell is
+empty.
 
 ## RAM cost
 
@@ -392,10 +388,11 @@ Host tests:
   publish/take round-trip through `PoolHandle`; solutions submitted
   for slot k reach only slot k's channel; watch `clear()` on
   teardown.
-- `ubos-mining` (host-buildable test targets): `dispatch_work` reads
-  the active slot's watch, skips an empty active slot, records the
-  slot in the registry, and routes the resulting solution back to the
-  originating slot after an active-slot change mid-flight.
+- `ubos-mining` (host-buildable test targets): `dispatch_work` serves
+  the scheduler-chosen slot, skips the tick when nothing is
+  dispatchable, records the slot in the registry, and routes the
+  resulting solution back to the originating slot after the
+  scheduler's pick changes mid-flight.
 
 Firmware verification: per-crate `cargo check` + `clippy` through the
 `nix develop` shells for all seven boards and `host-runner`.
