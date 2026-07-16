@@ -13,12 +13,17 @@ defmt   = ["dep:defmt", "ubos-logging/defmt"]
 
 [dependencies]
 crc                = { workspace = true }
+critical-section   = { version = "1.2" }
 defmt              = { workspace = true, optional = true }
+embedded-hal       = { workspace = true }
 embedded-hal-async = { workspace = true }
 ubos-logging       = { workspace = true }
 zerocopy           = { workspace = true }
 
 [dev-dependencies]
+# The `std` feature links a critical-section implementation into the
+# host test binary, same as ubos-config's host tests.
+critical-section  = { version = "1.2", features = ["std"] }
 embedded-hal-mock = { version = "0.11", default-features = false, features = ["embedded-hal-async", "eh1"] }
 embassy-futures   = { workspace = true }
 

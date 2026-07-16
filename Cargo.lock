@@ -4852,8 +4852,10 @@ name = "ubos-eeprom"
 version = "0.1.0"
 dependencies = [
  "crc",
+ "critical-section",
  "defmt 1.0.1",
  "embassy-futures",
+ "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-hal-mock",
  "ubos-logging",
