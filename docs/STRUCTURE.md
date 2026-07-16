@@ -187,19 +187,21 @@ agents respectively; everything longer-form lives here.
 
 ## Footprint
 
-Per-board RAM headroom after the API refactor. Numbers reflect a
-release build at the point this snapshot was taken; reproduce with
-the `cargo size` recipe below.
+Per-board RAM headroom after the multipool change (one stratum
+session task per pool slot; the per-slot task future is ~15 KiB).
+Numbers reflect a release build at the point this snapshot was
+taken; Main RAM sums the `.data`/`.bss`/`.uninit` sections,
+reproduce with the `cargo size` recipe below.
 
 | Board     | Flash     | Main RAM   | CCM RAM      | Headroom note                                  |
 |-----------|-----------|------------|--------------|------------------------------------------------|
-| bmm-pico  | 564 / 2048 KiB | 174 / 512 KiB | —          | comfortable                                    |
-| rp2040    | 582 / 2048 KiB | 171 / 256 KiB (67%) | —    | comfortable; ~85 KiB free                      |
-| rp2350    | 566 / 2048 KiB | 175 / 512 KiB | —          | comfortable                                    |
-| hashnode  | 595 / 2048 KiB | 261 / 512 KiB | —          | comfortable                                    |
-| stm32f407 | 568 / 1024 KiB | 107 / 128 KiB (84%) | 23 / 64 KiB CCM | tight; ~21 KiB free, route new statics to CCM |
-| stm32f439 | 568 / 2048 KiB | 107 / 192 KiB | 23 / 64 KiB CCM | comfortable                                |
-| esp32s3   | 739 / 8192 KiB | 172 / 320 KiB DRAM | — | comfortable                                    |
+| bmm-pico  | 537 / 2048 KiB | 356 / 512 KiB (70%) | —   | comfortable                                    |
+| rp2040    | 558 / 2048 KiB | 211 / 256 KiB (83%) | —   | tightening; ~45 KiB free                       |
+| rp2350    | 539 / 2048 KiB | 357 / 512 KiB (70%) | —   | comfortable                                    |
+| hashnode  | 515 / 2048 KiB | 357 / 512 KiB (70%) | —   | comfortable                                    |
+| stm32f407 | 582 / 1024 KiB | 125 / 128 KiB (98%) | 13 / 64 KiB CCM | at the limit: ~2.7 KiB stack headroom; runs a single pool slot (`POOL_SLOTS = 1`); any new static must go to CCM, and CCM-relocating COMMAND_CHANNEL / METRICS / mDNS UDP_BUFFERS (~15 KiB) is the queued relief |
+| stm32f439 | 582 / 2048 KiB | 156 / 192 KiB (81%) | 13 / 64 KiB CCM | OK; ~36 KiB free                           |
+| esp32s3   | 787 / 8192 KiB | 280 / 320 KiB DRAM (88%) | — | watch; ~40 KiB DRAM free                   |
 
 The stm32f4 firmwares ship per-board `memory.x` declaring the 64 KiB
 Core-Coupled Memory region embassy-stm32 leaves unused. `ubos-metrics`,
