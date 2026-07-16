@@ -186,12 +186,13 @@ once.
   it has not been cross-checked against a parsed product-name match on
   real hardware. A wrong address only produces a bus error or a failed
   parse (both log-only), no effect on bring-up.
-- The redacted SIO readout is not yet validated on a live hashboard. Which
-  EEPROM family ships, the IC-ID semantics, and the board-info blob
-  layout are the open questions listed at the end of
-  [redacted/sio-eeprom-protocol.md](redacted/sio-eeprom-protocol.md); the
-  failure mode is the same log-only warning, so the boot log answers
-  the family question the first time a board runs this firmware.
+- The redacted SIO readout is hardware-validated (2026-07-16): a live
+  AM04_redacted_UART_X40X4 board read back an AT21CS01-class part with a
+  CRC-valid serial, 40x4 ASIC dims, and IC-ID `'I'`, with the miner
+  PSU disconnected — the EEPROM runs on parasitic line power. The
+  IC-ID semantics and the board-info blob layout remain open, listed
+  at the end of
+  [redacted/sio-eeprom-protocol.md](redacted/sio-eeprom-protocol.md).
 - Serial number/batch are not surfaced through the `system_info` REST
   API: the boot-time read happens once, while the API handler runs
   later, possibly concurrently, which needs a runtime-shared cell —
