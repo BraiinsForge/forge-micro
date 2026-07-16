@@ -143,8 +143,9 @@ switching added nothing to it:
 - `record_reconnect_attempt(slot)`: the function-local
   `FIRST_ATTEMPT` static becomes a per-slot `[AtomicBool; 8]` sized
   to the alive-bitmap index space, resolving the documented
-  single-caller invariant. The prometheus counter stays a single
-  total; per-pool share/reconnect labels are a follow-up.
+  single-caller invariant. Shares, rejects, and reconnects are
+  counted per slot and exposed as `pool`-labelled prometheus
+  series; see the per-pool observability section below.
 
 ### `ubos-config`: config-generation broadcast
 
@@ -332,6 +333,35 @@ directly, but its miner-serial path also drives `SERIAL.run` and
 passes `RatioScheduler::new([1])` for its single-slot session.
 Runtime-configurable weights are a follow-up: only the constructor
 call changes.
+
+### Per-pool observability
+
+Shares and stats are attributed to their pool slot in both the
+prometheus exposition and the logs:
+
+- `stratum-client` counts accepted shares, rejected shares, and
+  reconnect attempts in per-slot arrays sized by
+  `POOL_INDEX_SPACE = 8` (the alive-bitmap index space). The
+  existing metric names carry a `pool` label — one series per board
+  slot: `board_shares_accepted_total{pool="0"}`,
+  `board_shares_rejected_total{pool="0"}`,
+  `board_stratum_reconnects_total{pool="0"}`. No unlabelled
+  duplicates are emitted; the REST `system_info` totals sum the
+  arrays in code, so its schema is unchanged.
+- `ubos-mining` counts delivered diff-1 shares per originating slot
+  (`POOL_WORK_SHARES`, bumped next to the scheduler's
+  `accumulate_share`) and publishes
+  `board_pool_work_shares_total{pool="0"}` — the ratio between
+  these series is the split the scheduler actually delivered.
+  `board_shares_total` and the hashrate EWMA stay global: they
+  describe chip output, not pool credit.
+- Logs carry `pool {slot}` at the session and state layers: the
+  `StratumState` visitor lines (new job, accepted, rejected,
+  session updates), the submit and solution-drop lines in `run.rs`,
+  and the serial worker's `Submitting share` line. The stratum-v1
+  and stratum-v2 protocol clients stay untagged; their lines are
+  bracketed by the tagged `pool {slot}` lifecycle logs of the
+  owning session.
 
 ### Scheduler testing
 

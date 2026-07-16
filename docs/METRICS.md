@@ -67,6 +67,27 @@ CPU usage with Rust Embassy"
 (<https://www.giacomocaironi.dev/posts/measuring-cpu-usage-with-rust-embassy/>,
 reference impl at <https://gitlab.com/giacomocaironi/embassy-cpu-usage>).
 
+## Per-pool series
+
+Code: `ubos/stratum-client/src/publishers.rs`,
+`ubos/ubos-mining/src/publishers.rs`.
+
+Boards run one stratum session per configured pool slot, and the
+share counters are per-slot. The publishers emit one series per
+board pool slot, labelled `pool="0"`, `pool="1"`, ...:
+
+- `board_shares_accepted_total{pool=...}` — pool-accepted shares.
+- `board_shares_rejected_total{pool=...}` — pool-rejected shares.
+- `board_stratum_reconnects_total{pool=...}` — reconnect attempts.
+- `board_pool_work_shares_total{pool=...}` — diff-1 chip shares per
+  originating slot; the ratio between these series is the work
+  split the dispatch scheduler actually delivered.
+
+There are no unlabelled duplicates of these series; board totals are
+`sum(...)` over the label. `board_shares_total` and the hashrate
+estimator stay global because they describe chip output, not pool
+credit.
+
 ## Hashrate
 
 Code: `ubos/ubos-metrics/src/hashrate.rs`.
