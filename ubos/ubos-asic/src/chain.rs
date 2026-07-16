@@ -42,10 +42,9 @@
 
 use heapless::Vec;
 use sha2::{Digest, Sha256};
-use ubos_core::units::Frequency;
+use ubos_core::units::{Frequency, FrequencyRange, Voltage};
 
 use crate::board::HashboardDescriptor;
-use crate::chip::{ChipDescriptor, ChipError};
 use crate::transport::Transport;
 
 #[cfg(test)]
@@ -104,6 +103,76 @@ pub fn solution_hash(
     let first = Sha256::digest(header);
     let second = Sha256::digest(first);
     second.into()
+}
+
+/// Failure surface of a [`ChainDriver`] operation. Register reads inside
+/// a bring-up return an empty list rather than an error, so the fallible
+/// steps are programming a frequency outside the chip's range and moving
+/// the host line to the fast rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChipError {
+    /// The requested frequency is outside the chip's range.
+    UnsupportedFrequency(Frequency),
+    /// The host UART refused the switch to the given rate, in Hz. The
+    /// chips have already moved, so the chain must be reset and brought
+    /// up again rather than mined on a misclocked line.
+    BaudSwitch(u32),
+}
+
+// Hand-written so the error can carry a `Frequency` without `ubos-core`
+// taking a defmt dependency; the frequency is logged in kHz.
+#[cfg(feature = "defmt")]
+impl defmt::Format for ChipError {
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            ChipError::UnsupportedFrequency(freq) => {
+                defmt::write!(fmt, "UnsupportedFrequency({} kHz)", freq.khz());
+            }
+            ChipError::BaudSwitch(hz) => {
+                defmt::write!(fmt, "BaudSwitch({} Hz)", hz);
+            }
+        }
+    }
+}
+
+/// Capability bounds for a single ASIC, consumed by the tuner. Vendor-
+/// neutral: each chip family fills it from its own static descriptors.
+#[derive(Clone, Copy)]
+pub struct ChipDescriptor {
+    /// Model identifier the chip reports on the chain (Bitmain
+    /// `ChipIdReg.chip_id`: `0x1362`, `0x1366`, `0x1370`). Enumeration
+    /// matches the value read off the chain against this to select the
+    /// chip.
+    pub chip_id: u16,
+    /// Total hashing cores on this chip model. Identity and capability
+    /// metadata; not a register value.
+    pub core_count: u32,
+    /// Maximum voltage a single whole chip tolerates. Hashboard-local
+    /// safety policy, not a chip-spec value. The hashboard-rail ceiling
+    /// consumed by the tuner is this value scaled by the hashboard's
+    /// `num_voltage_domains`.
+    pub max_chip_voltage: Voltage,
+    /// PLL hash-clock resolution: the frequency grid every programmed
+    /// operating point lands on. The tuner ramps on and floors targets to
+    /// this grid so the requested frequency equals the realized hash
+    /// clock.
+    pub frequency_step: Frequency,
+    /// Inclusive hash-clock frequency envelope the chip operates within.
+    /// The tuner ramps inside it and the register calculators reject
+    /// targets outside it.
+    pub frequency_range: FrequencyRange,
+    /// Broadcast `ClockDelayCtrl` value loaded during core bring-up,
+    /// before the per-chip pass writes the final clock delay. Bitmain-
+    /// specific; unused by families that do not program a clock delay.
+    pub broadcast_clock_delay: u8,
+    /// Number of distinct work-id values the chip emits per dispatched
+    /// work item. On Bitmain the chip tags each returned solution with a
+    /// variant index in the low bits of the echoed work-id; the host
+    /// strides work-ids by this count and recovers the originating job by
+    /// dividing a returned work-id by it. Eight for the BM1362 and
+    /// BM1366, sixteen for the BM1370. One for families that echo the job
+    /// id directly.
+    pub midstate_count: u8,
 }
 
 /// Upper bound on solutions a single [`ChainDriver::poll_results`] or

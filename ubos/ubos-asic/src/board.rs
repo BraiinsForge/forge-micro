@@ -28,7 +28,7 @@
 
 use ubos_core::units::{Frequency, Voltage};
 
-use crate::chip::Chip;
+use crate::Chip;
 
 #[cfg(test)]
 #[path = "tests/board.rs"]

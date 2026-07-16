@@ -28,7 +28,7 @@
 use heapless::Vec as HVec;
 use sha2::{Digest, Sha256};
 
-use crate::chip::Chip;
+use super::chip::Chip;
 
 #[cfg(test)]
 #[path = "tests/framing.rs"]

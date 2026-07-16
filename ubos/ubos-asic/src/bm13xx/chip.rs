@@ -31,10 +31,11 @@ use heapless::Vec;
 use ubos_core::units::{Frequency, FrequencyRange, Voltage};
 
 use crate::{
-    AnalogMuxControl, BaudRateReg, ChipAddress, ChipIdReg, ChipNonceOffsetReg, ControlCommand,
-    CoreControlReg, CoreRegister, DomainSelect, HashCountingNumberReg, HashboardDescriptor,
-    IoDriverStrengthCtrlReg, MidstateCalReg, MiscCtrlReg, MiscSettingsReg, Pll0DividerReg,
-    PllParameterReg, Register, SoftResetControlReg, UartRelayReg,
+    AnalogMuxControl, BaudRateReg, ChipAddress, ChipDescriptor, ChipError, ChipIdReg,
+    ChipNonceOffsetReg, ControlCommand, CoreControlReg, CoreRegister, DomainSelect,
+    HashCountingNumberReg, HashboardDescriptor, IoDriverStrengthCtrlReg, MidstateCalReg,
+    MiscCtrlReg, MiscSettingsReg, Pll0DividerReg, PllParameterReg, Register, SoftResetControlReg,
+    UartRelayReg,
 };
 
 #[cfg(test)]
@@ -72,36 +73,6 @@ const RELAY_BASE_GAP: u32 = 14;
 /// Times the BM1370 `MiscSettings` write is repeated during bring-up so a
 /// single lost frame still leaves the register programmed.
 const MISC_SETTINGS_REPEATS: usize = 2;
-
-/// Failure surface of a [`ChipProtocol`] step or a `ChainDriver`
-/// operation. Reads return an empty list rather than an error, so the
-/// fallible steps are programming a frequency outside the chip's range
-/// and moving the host line to the fast rate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChipError {
-    /// The requested frequency is outside the chip's range.
-    UnsupportedFrequency(Frequency),
-    /// The host UART refused the switch to the given rate, in Hz. The
-    /// chips have already moved, so the chain must be reset and brought
-    /// up again rather than mined on a misclocked line.
-    BaudSwitch(u32),
-}
-
-// Hand-written so the error can carry a `Frequency` without `ubos-core`
-// taking a defmt dependency; the frequency is logged in kHz.
-#[cfg(feature = "defmt")]
-impl defmt::Format for ChipError {
-    fn format(&self, fmt: defmt::Formatter) {
-        match self {
-            ChipError::UnsupportedFrequency(freq) => {
-                defmt::write!(fmt, "UnsupportedFrequency({} kHz)", freq.khz());
-            }
-            ChipError::BaudSwitch(hz) => {
-                defmt::write!(fmt, "BaudSwitch({} Hz)", hz);
-            }
-        }
-    }
-}
 
 /// The chip-side I/O a [`ChipProtocol`] drives. Implemented by the
 /// consumer, which owns the UART and a timer. Register writes and
@@ -432,46 +403,6 @@ pub trait ChipProtocol {
     }
 }
 
-/// Capability bounds for a single ASIC, consumed by the tuner.
-#[derive(Clone, Copy)]
-pub struct ChipDescriptor {
-    /// Model identifier the chip reports in `ChipIdReg.chip_id`
-    /// (`0x1362`, `0x1366`, `0x1370`). Enumeration matches the value
-    /// read off the chain against this to select the chip.
-    pub chip_id: u16,
-    /// Total hashing cores on this chip model. Identity and capability
-    /// metadata; not a register value.
-    pub core_count: u32,
-    /// Maximum voltage a single whole chip tolerates. Hashboard-local
-    /// safety policy, not a chip-spec value. The hashboard-rail ceiling
-    /// consumed by the tuner is this value scaled by the hashboard's
-    /// `num_voltage_domains`.
-    pub max_chip_voltage: Voltage,
-    /// PLL hash-clock resolution: the frequency grid every programmed
-    /// operating point lands on. 6.25 MHz is the BM1362's natural
-    /// resolution. At the `(POSTDIV1+1)*(POSTDIV2+1) = 2` divider pair
-    /// `freq = 6.25 * FBDIV` MHz, so every integer FBDIV step sits on a
-    /// 6.25 MHz boundary the PLL calculator resolves exactly. The tuner
-    /// ramps on and floors targets to this grid so the requested
-    /// frequency equals the realized hash clock.
-    pub frequency_step: Frequency,
-    /// Inclusive hash-clock frequency envelope the chip operates within.
-    /// The tuner ramps inside it and the register calculators reject
-    /// targets outside it.
-    pub frequency_range: FrequencyRange,
-    /// Broadcast `ClockDelayCtrl` value loaded during core bring-up,
-    /// before the per-chip pass writes the final clock delay.
-    pub broadcast_clock_delay: u8,
-    /// Number of distinct work-id values the chip emits per dispatched
-    /// work item. The work frame sends a single header (multiversion 1);
-    /// the chip tags each returned solution with a variant index in the
-    /// low bits of the echoed work-id. The host strides work-ids by this
-    /// count and recovers the originating job by dividing a returned
-    /// work-id by it. Eight for the BM1362 and BM1366, sixteen for the
-    /// BM1370.
-    pub midstate_count: u8,
-}
-
 /// Per-chip capability constants for the BM1362. `max_chip_voltage`
 /// is hashboard-local tuning and safety policy; the 422 mV figure is
 /// not a chip-spec value. The `frequency_range` upper bound is a
@@ -703,13 +634,13 @@ impl ChipProtocol for Bm1370 {
         // switches to the matching rate via fast_uart_host_rate().
         bus.write_register(
             ChipAddress::All,
-            BaudRateReg::fast_3mbaud().with_bt8d(crate::baud::BM1370_FAST_UART_BT8D),
+            BaudRateReg::fast_3mbaud().with_bt8d(super::baud::BM1370_FAST_UART_BT8D),
         )
         .await;
     }
 
     fn fast_uart_host_rate(&self) -> u32 {
-        crate::baud::BM1370_FAST_UART_HOST_HZ
+        super::baud::BM1370_FAST_UART_HOST_HZ
     }
 
     async fn post_pll_rearm(&self, bus: &mut impl ChipBus) {
