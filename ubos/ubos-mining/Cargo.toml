@@ -52,3 +52,7 @@ ubos-psu          = { workspace = true }
 # linkable critical-section implementation. The std impl is host-only and
 # never reaches firmware.
 critical-section = { version = "1.2", features = ["std"] }
+# The diff-1 dispatch test drives a real chip share through
+# `record_share`, which reads `embassy_time::Instant::now()`. The std
+# time driver is host-only and never reaches firmware.
+embassy-time = { workspace = true, features = ["std"] }

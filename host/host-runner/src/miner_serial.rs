@@ -34,7 +34,13 @@ pub async fn miner_serial_task() -> ! {
         }
     };
     info!("host-runner: miner serial bringup on {MINER_SERIAL_PATH}");
-    match SERIAL.run(serial, &ASIC_SESSION, crate::BOARD).await {
+    // Single-slot session, so the ratio scheduler degenerates to
+    // always serving slot 0 when it has work.
+    let scheduler = ubos_mining::scheduler::RatioScheduler::new([1]);
+    match SERIAL
+        .run(serial, &ASIC_SESSION, crate::BOARD, scheduler)
+        .await
+    {
         Ok(()) => info!("host-runner: miner serial actor terminated cleanly"),
         Err(kind) => error!("host-runner: miner serial actor exited: {kind:?}"),
     }

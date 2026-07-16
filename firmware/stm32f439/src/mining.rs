@@ -53,7 +53,12 @@ pub async fn serial_task(
     session: &'static ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
 ) -> ! {
     match ubos_mining::serial::SERIAL
-        .run(serial, session, crate::config::BOARD)
+        .run(
+            serial,
+            session,
+            crate::config::BOARD,
+            ubos_mining::scheduler::RatioScheduler::new(crate::POOL_WEIGHTS),
+        )
         .await
     {
         Ok(()) => info!("ubos-mining serial actor terminated cleanly"),

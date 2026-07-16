@@ -4,10 +4,12 @@
 //! outside callers go through [`Serial`]'s typed methods to reset the
 //! chip, retune the baud rate, gate work dispatch, or push a pre-built
 //! command frame. The actor holds a work receiver for every pool slot of
-//! a `&'static AsicSession<N>`, dispatches from the active slot's cell on
-//! each work tick — the runtime pool switch is decided here, not by the
-//! stratum sessions — and submits found shares back to the slot whose
-//! dispatch produced them via `AsicSession::submit_solution`.
+//! a `&'static AsicSession<N>`; on each work tick a
+//! [`crate::scheduler::Scheduler`] picks which slot's cell to dispatch
+//! from, restricted to the slots that currently hold work, and every
+//! diff-1 chip share feeds back into it so the delivered split tracks
+//! the scheduler's configured policy. Found shares submit back to the
+//! slot whose dispatch produced them via `AsicSession::submit_solution`.
 
 use core::fmt;
 use core::ops::ControlFlow;
@@ -119,6 +121,7 @@ pub fn core1_is_parked() -> bool {
 use crate::consts::{
     FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, INITIAL_BAUDRATE, MAX_CHIPS, WORK_REGISTRY_SLOTS,
 };
+use crate::scheduler::Scheduler;
 
 /// Hex pretty-printer for trace logs. Wraps a byte slice and formats it
 /// as `"AA BB CC"` under both `core::fmt::Display` and `defmt::Format`,
@@ -202,11 +205,22 @@ pub enum SerialMessage {
 struct WorkSlot {
     hw_work: HwWork,
     assignment: WorkAssignment,
-    /// Pool slot that was active when this work was dispatched. The
-    /// eventual solution routes back to this slot even if the active
-    /// slot changed while the chip was hashing, so a deactivated
-    /// session still submits its in-flight shares.
+    /// Pool slot whose work cell this dispatch was drawn from. The
+    /// eventual solution routes back to this slot even if the
+    /// scheduler picks other slots while the chip is hashing, so a
+    /// session keeps submitting its in-flight shares.
     session_slot: usize,
+}
+
+/// Per-chip constants `run` builds once and threads through dispatch and
+/// read handling. Grouping them keeps `handle_read`'s argument count
+/// under clippy's too-many-arguments limit now that those functions also
+/// take the scheduler.
+#[derive(Clone, Copy)]
+struct ChipCtx {
+    chip: Chip,
+    midstate_count: u8,
+    max_chip_work_id: u8,
 }
 
 /// Depth of the command channel feeding the serial actor. A const
@@ -377,30 +391,32 @@ impl Serial {
     }
 
     /// Server entry point. Owns the byte stream and the work registry;
-    /// holds a work receiver for every pool slot, dispatches from the
-    /// active slot's cell on each work tick, and submits found shares
-    /// back to the slot whose dispatch produced them through
+    /// holds a work receiver for every pool slot and asks `scheduler`
+    /// which one to dispatch from on each work tick, then submits found
+    /// shares back to the slot whose dispatch produced them through
     /// `session.submit_solution`. Bumps
     /// `ubos_metrics::hashrate::record_share` for every diff-1 chip
-    /// share so the existing hashrate task picks them up.
+    /// share so the existing hashrate task picks them up, and feeds the
+    /// same shares to `scheduler.accumulate_share` so the delivered
+    /// split tracks its configured policy.
     ///
     /// Returns `Ok(())` when a [`SerialMessage::Terminate`] command was
     /// honoured, and `Err(BrokenPipe)` only on serial EOF. Line-level
     /// read errors are absorbed inside `handle_read` so a transient
     /// FIFO overrun does not kill mining for the rest of the run.
-    pub async fn run<S, const N: usize>(
+    pub async fn run<S, const N: usize, Sch: Scheduler<N>>(
         &self,
         mut serial: S,
         session: &'static AsicSession<N>,
         board: &'static HashboardDescriptor,
+        mut scheduler: Sch,
     ) -> Result<(), ErrorKind>
     where
         S: Read + Write + BaudRate,
     {
-        // One receiver per pool slot; `dispatch_work` picks which cell
-        // to read at each work tick from the session's active-slot
-        // atomic, so a pool switch needs no participation from the
-        // stratum sessions.
+        // One receiver per pool slot; `dispatch_work` asks the scheduler
+        // which cell to read at each work tick, so a pool switch needs no
+        // participation from the stratum sessions.
         let mut work_receivers: [DynReceiver<'_, WorkAssignment>; N] =
             core::array::from_fn(|slot| {
                 session
@@ -412,14 +428,18 @@ impl Serial {
         let mut chip_work_id: u8 = 0;
         let mut registry: [Option<WorkSlot>; WORK_REGISTRY_SLOTS] =
             [const { None }; WORK_REGISTRY_SLOTS];
-        let chip = board.chip;
-        // Per-chip work-id variant count; the host strides work-ids by this
-        // value and divides a returned work-id by it to recover the job.
-        let midstate_count = chip.descriptor().midstate_count;
-        // Largest valid dispatched work-id for this chip. The BM1370 encodes
-        // the id in the high nibble of the response byte, so ids >= 128
-        // overflow and decode to the wrong slot. Other chips use the full range.
-        let max_chip_work_id = chip.max_work_id();
+        let ctx = ChipCtx {
+            chip: board.chip,
+            // Per-chip work-id variant count; the host strides work-ids by
+            // this value and divides a returned work-id by it to recover
+            // the job.
+            midstate_count: board.chip.descriptor().midstate_count,
+            // Largest valid dispatched work-id for this chip. The BM1370
+            // encodes the id in the high nibble of the response byte, so
+            // ids >= 128 overflow and decode to the wrong slot. Other
+            // chips use the full range.
+            max_chip_work_id: board.chip.max_work_id(),
+        };
 
         loop {
             // Honor a park request at the top of every iteration, before the
@@ -466,10 +486,9 @@ impl Serial {
                 Either4::First(()) => {
                     Self::dispatch_work(
                         &mut serial,
-                        session,
+                        &mut scheduler,
                         &mut chip_work_id,
-                        midstate_count,
-                        max_chip_work_id,
+                        ctx,
                         &mut registry,
                         &mut work_receivers,
                     )
@@ -479,11 +498,11 @@ impl Serial {
                     Self::handle_read(
                         read_result,
                         &mut parser,
-                        chip,
-                        midstate_count,
+                        ctx,
                         &registry,
                         &self.register_replies,
                         session,
+                        &mut scheduler,
                     )?;
                 }
                 Either4::Third(msg) => {
@@ -513,31 +532,37 @@ impl Serial {
         }
     }
 
-    async fn dispatch_work<S, const N: usize>(
+    async fn dispatch_work<S, const N: usize, Sch: Scheduler<N>>(
         serial: &mut S,
-        session: &AsicSession<N>,
+        scheduler: &mut Sch,
         chip_work_id: &mut u8,
-        midstate_count: u8,
-        max_chip_work_id: u8,
+        ctx: ChipCtx,
         registry: &mut [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         work_receivers: &mut [DynReceiver<'_, WorkAssignment>; N],
     ) where
         S: Write + BaudRate,
     {
-        // The pool switch takes effect here: each tick reads the
-        // active slot afresh, so `set_active` needs no session-side
-        // handshake. `try_get` returns the slot's latest assignment
+        // Ask the scheduler which slot to dispatch from this tick:
+        // `evaluate` picks among the slots the availability mask marks as
+        // holding work. `try_get` returns the slot's latest assignment
         // regardless of whether it changed since the last tick — the
-        // chip is re-fed the current job every tick, picking up
-        // mid-job target / merkle-root changes.
-        let session_slot = session.active_slot();
-        let Some(assignment) = work_receivers[session_slot].try_get() else {
-            // Not a bug: the active slot's cell is legitimately empty
-            // while its pool is offline or still connecting, or right
-            // after a session teardown cleared it. Skip the tick — the
-            // select loop keeps servicing UART reads and commands, and
-            // dispatch resumes on the first tick after the cell fills.
-            return;
+        // chip is re-fed the current job every tick, picking up mid-job
+        // target / merkle-root changes.
+        let mut available: [bool; N] = core::array::from_fn(|i| work_receivers[i].contains_value());
+        let (session_slot, assignment) = loop {
+            let Some(slot) = scheduler.evaluate(&available) else {
+                // Nothing dispatchable: every populated slot is either
+                // excluded by the scheduler or empty. Skip the tick; the
+                // select loop keeps servicing UART reads and commands.
+                return;
+            };
+            if let Some(assignment) = work_receivers[slot].try_get() {
+                break (slot, assignment);
+            }
+            // The session, which may run on another core, cleared its
+            // cell between the mask build and the read. Retry without
+            // this slot.
+            available[slot] = false;
         };
 
         let hw_work = HwWork {
@@ -561,13 +586,13 @@ impl Serial {
         // regardless of which variant the chip selected. The invariant
         // `256 / midstate_count <= WORK_REGISTRY_SLOTS` holds because
         // midstate_count >= 8.
-        let slot_index = usize::from(*chip_work_id) / usize::from(midstate_count);
+        let slot_index = usize::from(*chip_work_id) / usize::from(ctx.midstate_count);
         registry[slot_index] = Some(WorkSlot {
             hw_work,
             assignment,
             session_slot,
         });
-        *chip_work_id = chip_work_id.wrapping_add(midstate_count);
+        *chip_work_id = chip_work_id.wrapping_add(ctx.midstate_count);
         // Wrap the chip work-id within the range the chip's response byte can
         // carry, as reported by `Chip::max_work_id`. The BM1370 encodes the id
         // in the high nibble as `(chip_work_id << 1) | small_core`, so an id
@@ -575,8 +600,8 @@ impl Serial {
         // carry the id directly use the full u8 range (`max_chip_work_id ==
         // u8::MAX`) and need no wrap: modulo 256 is a no-op on a u8 after
         // `wrapping_add`.
-        if max_chip_work_id < u8::MAX {
-            *chip_work_id %= max_chip_work_id.wrapping_add(1);
+        if ctx.max_chip_work_id < u8::MAX {
+            *chip_work_id %= ctx.max_chip_work_id.wrapping_add(1);
         }
 
         if let Err(e) = serial.write_all(&frame).await {
@@ -594,14 +619,14 @@ impl Serial {
     /// when probe-rs is attached and the host stalls the blocking
     /// defmt-rtt channel long enough for core 1's UART ISR to miss
     /// the 32-byte HW FIFO drain window at 3 Mbaud.
-    fn handle_read<E: embedded_io::Error, const N: usize>(
+    fn handle_read<E: embedded_io::Error, const N: usize, Sch: Scheduler<N>>(
         result: Result<usize, E>,
         parser: &mut ResponseParser,
-        chip: Chip,
-        midstate_count: u8,
+        ctx: ChipCtx,
         registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
         session: &AsicSession<N>,
+        scheduler: &mut Sch,
     ) -> Result<(), ErrorKind> {
         match result {
             Ok(0) => {
@@ -611,13 +636,14 @@ impl Serial {
             Ok(n) => {
                 trace!("RX ({} bytes): {}", n, HexBytes(&parser.free()[..n]));
                 parser.commit(n);
-                while let Some(resp) = parser.pop(chip) {
+                while let Some(resp) = parser.pop(ctx.chip) {
                     Self::dispatch_response(
                         &resp,
-                        midstate_count,
+                        ctx,
                         registry,
                         register_replies,
                         session,
+                        scheduler,
                     );
                 }
                 UART_DESYNC_BYTES.fetch_add(parser.take_desync(), Ordering::Relaxed);
@@ -632,16 +658,17 @@ impl Serial {
         }
     }
 
-    fn dispatch_response<const N: usize>(
+    fn dispatch_response<const N: usize, Sch: Scheduler<N>>(
         resp: &Response,
-        midstate_count: u8,
+        ctx: ChipCtx,
         registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         register_replies: &Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS>,
         session: &AsicSession<N>,
+        scheduler: &mut Sch,
     ) {
         match resp {
             Response::HwSolution(wr) => {
-                let registry_id = usize::from(wr.work_id) / usize::from(midstate_count);
+                let registry_id = usize::from(wr.work_id) / usize::from(ctx.midstate_count);
                 let version_bits = wr.version_bits();
 
                 // `registry_id` derives from the chip-returned work id, so
@@ -673,6 +700,7 @@ impl Serial {
                 // the actual chip work rather than only pool-passing
                 // shares. The estimator already weights by target.
                 ubos_metrics::hashrate::record_share(&Self::DIFF_1_TARGET);
+                scheduler.accumulate_share(slot.session_slot);
 
                 if !hash_meets_target(&hash, &slot.assignment.target) {
                     trace!(
