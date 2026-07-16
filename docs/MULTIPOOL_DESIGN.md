@@ -73,14 +73,22 @@ pub struct AsicSession<const N: usize> {
   slot; `submit_solution(slot, solution)` routes into
   `solutions[slot]`.
 
-`ubos-firmware` re-exports a board-facing alias pinned to the config
-capacity, with a static assertion tying the two together:
+Each board picks its own session-slot count as a compile-time const
+in its `main.rs`, carried upstream by the generics:
 
 ```
-pub type BoardAsicSession = AsicSession<{ ubos_config::pool::MAX_POOLS }>;
+pub(crate) const POOL_SLOTS: usize = ubos_firmware::MAX_POOLS;  // f407: = 1
+static ASIC_SESSION: AsicSession<POOL_SLOTS> = AsicSession::new();
 ```
 
-`host-runner` and unit tests instantiate small `N`s directly.
+The config schema stays at `MAX_POOLS` capacity fleet-wide (one
+schema hash, one REST API), so a board with
+`POOL_SLOTS < MAX_POOLS` — stm32f407, whose 128 KiB main SRAM cannot
+afford the extra per-slot session-task futures — persists pool
+entries it never runs: they validate, store, and render as Dead on
+the dashboard. Accepted limitation; runtime capacity reporting in
+the API is a follow-up. `host-runner` and unit tests instantiate
+small `N`s directly.
 
 ### The switch lives in `dispatch_work`
 
@@ -160,10 +168,12 @@ change as "tear down the session and re-snapshot". Capacity covers
 returned by `init_stratum(seed)`. Per-slot loop:
 
 1. Snapshot config; `snapshot.pool.get(slot)`. `None` → await the
-   next config generation, retry.
-2. Build the `TcpConnector` from per-slot static TCP buffers
-   (`[ConstStaticCell<[u8; STRATUM_TCP_BUFFER_SIZE]>; ...]`, indexed
-   by slot).
+   next config generation, retry. Permanent for
+   `slot >= MAX_POOLS`, so boards keep `POOL_SLOTS <= MAX_POOLS`.
+2. Build the `TcpConnector` from task-local buffers (`let mut
+   rx_buffer = [0u8; STRATUM_TCP_BUFFER_SIZE]`): locals held across
+   `.await` live in the statically allocated task future, so each
+   session instance owns its pair with no shared-static bookkeeping.
 3. Protocol dispatch as today. The secp context is initialised once
    and shared as `&'static CryptoCtx` (the SV2 client takes it by
    `&`). The SV2 PRNG becomes per-slot: one boot seed stored by
@@ -191,12 +201,15 @@ submits with slot 0.
 
 ## RAM cost
 
-Per-slot TCP buffers are static: every board pays
-2 × 2 KiB × 2 extra slots = 8 KiB RAM even with one pool configured,
-plus ~1–2 KiB per additional *running* session (`StratumState`, task
-arena) and one extra `WorkAssignment`-sized watch cell plus solution
-channel per slot (~150 B each). Accepted; lazy buffers are not
-possible without alloc.
+The dominant per-slot cost is the statically allocated session-task
+future (`pool_size = POOL_SLOTS` copies): each holds the 2 × 2 KiB
+TCP buffers, the protocol-client state, a config snapshot, and the
+`StratumState` — roughly 10–13 KiB per slot, measured on stm32f407
+where the 3-slot build overflowed 128 KiB RAM by ~25.7 KiB and the
+1-slot build links with margin. Each slot also adds a
+`WorkAssignment`-sized watch cell and a solution channel (~150 B).
+The cost scales with the board's `POOL_SLOTS`, not with how many
+pools are configured.
 
 ## Rejected alternatives
 
@@ -225,9 +238,10 @@ possible without alloc.
 
 Host tests:
 
-- `stratum-client` (`src/tests/run.rs`): per-slot publish/take
-  round-trip through `PoolHandle`; solutions submitted for slot k
-  reach only slot k's channel; watch `clear()` on teardown.
+- `stratum-client` (`src/tests/asic_session.rs`): per-slot
+  publish/take round-trip through `PoolHandle`; solutions submitted
+  for slot k reach only slot k's channel; watch `clear()` on
+  teardown.
 - `ubos-mining` (host-buildable test targets): `dispatch_work` reads
   the active slot's watch, skips an empty active slot, records the
   slot in the registry, and routes the resulting solution back to the
