@@ -1,10 +1,11 @@
 # Multipool: parallel stratum sessions with a runtime-switchable active slot
 
-> **Status.** Implemented (UBOS-49, "Add second stratum channel");
-> step tracking in `/IMPLEMENTATION_PLAN.md`. Kept aligned with the
-> code in `ubos/stratum-client`, `ubos/ubos-mining`, and
-> `ubos/ubos-firmware` — when the two disagree, the code wins and
-> this file needs a patch.
+> **Status.** The multipool mechanism is implemented (UBOS-49, "Add
+> second stratum channel"); the work-scheduler section (UBOS-72) is
+> designed but not yet implemented. Step tracking in
+> `/IMPLEMENTATION_PLAN.md`. Kept aligned with the code in
+> `ubos/stratum-client`, `ubos/ubos-mining`, and `ubos/ubos-firmware`
+> — when the two disagree, the code wins and this file needs a patch.
 
 ## Goal
 
@@ -14,13 +15,11 @@ exactly one *active* slot feeding work to the ASIC. The active slot is
 switchable at runtime from any task via an async-safe API. Selection
 happens on the consumer side: sessions always publish their latest
 job; the serial worker decides which slot's job to dispatch. This is
-the mechanism the dev-fee scheduler will later build on.
+the mechanism the scheduler (see the work-scheduler section below)
+builds on.
 
 ## Non-goals
 
-- The dev-fee *scheduler policy* (a task time-slicing between slots at
-  a duty cycle). Follow-up branch; this design only provides
-  `set_active`.
 - A hidden built-in dev-fee pool entry. Sessions map 1:1 to the
   user-visible `Config::pool` list. A hidden slot can be added later
   by instantiating the session type with a larger `N`.
@@ -64,7 +63,8 @@ pub struct AsicSession<const N: usize> {
 - `set_active(slot)` / `active_slot()`: a plain atomic store/load —
   the runtime switch, callable from any task. No signalling toward
   the sessions; they are policy-free and never know whether they are
-  active.
+  active. Superseded by the scheduler (see the work-scheduler
+  section), which removes the atomic entirely.
 - Host side, per slot: `pool_handle(slot) -> PoolHandle` — a `Copy`
   value `{ session, slot }`. `publish_work` writes **unconditionally**
   to `work[slot]`; `take_solution` reads `solutions[slot]`. No
@@ -134,8 +134,8 @@ When a session tears down (connection lost, config change), it
 `clear()`s its slot's work watch. `dispatch_work`'s `try_get()` then
 skips the slot instead of re-dispatching a dead pool's last job. The
 chip keeps sweeping its last dispatched work and goes idle after; the
-future scheduler should consult `pool_alive_bitmap()` before
-activating a slot.
+scheduler treats an empty work cell as "slot unavailable" and falls
+back to the best available slot (see the work-scheduler section).
 
 ### `run_stratum_client` / `run_stratum_session` (stratum-client)
 
@@ -198,6 +198,156 @@ Each board's one-line stratum task shell gains
 local static (now `AsicSession<1>` or the board alias) and uses
 `pool_handle(0)`; its CPU-mock ASIC consumes `work_receiver(0)` and
 submits with slot 0.
+
+## Work scheduler (UBOS-72)
+
+> **Status.** Designed, not yet implemented. Branch
+> `jtr/UBOS-72/scheduler` on top of the multipool mechanism.
+
+The multipool mechanism above shipped policy-free: the dispatcher
+read a manually set active slot that nothing ever set. The scheduler
+replaces that with a policy splitting delivered work between the
+configured slots at a fixed ratio — the dev-fee use case — while
+routing around unavailable pools.
+
+### Accounting unit: difficulty-1 shares
+
+The scheduler does not count dispatch ticks; it counts what the chip
+actually produced. Every chip response that passes the difficulty-1
+check in `dispatch_response` (the same point that feeds the hashrate
+EWMA via `record_share`) accounts one share to the slot recorded in
+the work registry — `WorkSlot::session_slot`, the slot whose
+dispatch produced the work. One diff-1 share stands for an expected
+2^32 hashes, so the accumulated counts measure real work delivered
+per pool, independent of tick period, chip pipeline lag, and job
+changes.
+
+### The `Scheduler` trait
+
+Defined in `ubos-mining` (dispatch is its only caller):
+
+```rust
+pub trait Scheduler<const N: usize> {
+    /// Account one difficulty-1 share found on work dispatched
+    /// for `slot`.
+    fn accumulate_share(&mut self, slot: usize);
+    /// Pick the slot to dispatch next, restricted to `available`
+    /// slots. `None` when nothing is dispatchable.
+    fn evaluate(&mut self, available: &[bool; N]) -> Option<usize>;
+}
+```
+
+Both call sites live inside the single `Serial::run` task —
+`evaluate` at the top of `dispatch_work` on each work tick,
+`accumulate_share` in `dispatch_response` right after the diff-1
+`record_share`, before the pool-target check, so all real chip work
+counts. The scheduler is therefore a plain `&mut` value owned by the
+serial worker: no atomics, no locking, no shared accumulator type.
+`Serial::run` gains a `Sch: Scheduler<N>` generic and takes the
+scheduler by value.
+
+### `RatioScheduler<N>`: clamped deficit counters
+
+State: `weights: [u32; N]`, `credit: [i32; N]`, and the precomputed
+`weight_sum`. On `accumulate_share(s)`:
+
+```
+credit[i] += weights[i]   for every i
+credit[s] -= weight_sum
+clamp every credit to ±CLAMP
+```
+
+`evaluate` returns the available slot with the highest credit among
+those with `weight > 0`; ties break to the lowest index.
+
+Why this shape, and not gross lifetime counters or EWMA rates:
+
+- **Exact convergence.** The update is zero-sum, so while no credit
+  touches the clamp the delivered share split converges exactly to
+  `weights`: the deviation stays bounded by a constant, so the ratio
+  error after `n` shares decays as `1/n`.
+- **Time-translation symmetry.** Credits hover within one
+  `weight_sum` of zero in steady state, so a 1:1 ratio alternates
+  slots on every accounted share indefinitely — the switching
+  cadence depends only on the bounded credit state, never on how
+  long the miner has been running.
+- **Bounded outage repayment.** Gross lifetime counters (argmin of
+  `count/weight`) build unbounded debt while a pool is down: after a
+  day-long outage the returning pool would be mined exclusively for
+  a day. The clamp caps repayment at `CLAMP` worth of shares (sized
+  to roughly a thousand shares, minutes of catch-up), so post-outage
+  behavior is indistinguishable from post-boot behavior. This is the
+  one deliberate deviation from exact lifetime ratio.
+- **EWMA share rates** would also be time-symmetric but converge
+  only asymptotically and need a decay constant plus fixed-point
+  bookkeeping; the deficit counter needs integer adds and compares.
+
+### Weight 0 = backup-only
+
+A slot with weight 0 is never picked while any weighted slot has
+work, but is picked (lowest index first) when no weighted slot is
+available. The default board weights `[1, 0, 0]` therefore keep the
+previous "mine pool 0" behavior and turn the remaining configured
+entries into classic failover backups. A default of equal weights
+would silently split hashrate 33:33:33 between pools the user
+configured as backups. Constructing a `RatioScheduler` with all
+weights zero is rejected.
+
+### Dispatch integration
+
+`dispatch_work` builds an availability mask and lets the scheduler
+choose:
+
+```rust
+let mut available: [bool; N] =
+    core::array::from_fn(|i| work_receivers[i].contains_value());
+loop {
+    let Some(slot) = scheduler.evaluate(&available) else {
+        return; // nothing dispatchable, skip the tick
+    };
+    if let Some(assignment) = work_receivers[slot].try_get() {
+        // dispatch `assignment`, record `slot` in the registry
+        break;
+    }
+    // The session cleared its cell between the mask build and the
+    // read (sessions run on the other core). Retry without it.
+    available[slot] = false;
+}
+```
+
+`contains_value()` peeks without cloning the `WorkAssignment`; only
+the chosen slot pays for the clone. Availability comes from the work
+cells themselves — a torn-down session has `clear()`ed its cell —
+not from `pool_alive_bitmap()`, which is API-facing state.
+
+### `AsicSession` sheds the `active` atomic
+
+`active: AtomicU8`, `set_active`, and `active_slot` are removed:
+their only callers were `dispatch_work` and tests, and the scheduler
+owned by the serial worker is now the single decision authority.
+`AsicSession` becomes pure per-slot channels. Surfacing "currently
+mined pool" to the API/webui is a metrics-gauge follow-up, not
+session state.
+
+### Wiring
+
+Each board's `main.rs` declares `POOL_WEIGHTS: [u32; POOL_SLOTS]`
+next to `POOL_SLOTS` (default `[1, 0, 0]`; stm32f407 `[1]`); its
+`mining.rs` builds `RatioScheduler::new(POOL_WEIGHTS)` and hands it
+to `SERIAL.run`. `host-runner`'s CPU mock reads `work_receiver(0)`
+directly and needs no scheduler. Runtime-configurable weights are a
+follow-up: only the constructor call changes.
+
+### Scheduler testing
+
+Scheduler unit tests (host-buildable like the rest of
+`ubos-mining`'s): 1:1 alternation on every share, 2:1 convergence
+over a long run, bounded catch-up after a simulated outage, weight-0
+backup behavior, all-unavailable returns `None`, all-zero weights
+rejected. Serial tests: the `set_active`-based tests are rewritten
+against a fixed-slot stub scheduler; a new test feeds a diff-1
+response and asserts `accumulate_share` fires for the originating
+slot.
 
 ## RAM cost
 
