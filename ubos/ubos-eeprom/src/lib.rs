@@ -3,10 +3,12 @@
 //! operational data (product name, serial number, batch, ASIC type,
 //! default operating point) every hashboard carries.
 //!
-//! [`HashboardEeprom`] carries no bus type in its signature so a future
-//! chip on a different bus (1-Wire, say) can implement it without the
-//! [`format`] parsing layer ever knowing which transport supplied the
-//! bytes. [`i2c::I2cEeprom`] is the only concrete implementation today.
+//! [`HashboardEeprom`] carries no bus type in its signature so a chip
+//! on a different bus can implement it without the [`format`] parsing
+//! layer ever knowing which transport supplied the bytes.
+//! [`i2c::I2cEeprom`] covers the I2C-attached `bos-main` EEPROMs;
+//! [`sio::SioEeprom`] covers the bit-banged single-wire EEPROM on
+//! redacted hashboards.
 
 #![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
@@ -16,6 +18,7 @@ use ubos_logging::{Debug2Format, info, warn};
 pub mod redacted;
 pub mod format;
 pub mod i2c;
+pub mod sio;
 
 /// Raw byte-level access to a hashboard EEPROM. One implementation per
 /// bus/chip; [`format::HashboardEepromData::parse`] consumes the bytes
