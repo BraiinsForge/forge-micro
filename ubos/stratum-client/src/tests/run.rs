@@ -41,7 +41,7 @@ fn sample_job(id: u32) -> MiningJob<'static> {
 /// Publish `n` times against a single fresh job with a fixed `step`
 /// and collect the resulting `ntime_offset` after each publish.
 fn offsets(step: u32, n: usize) -> heapless::Vec<u32, 16> {
-    let mut state = StratumState::new();
+    let mut state = StratumState::new(0);
     state.visit_new_job(sample_job(1));
     let asic: AsicSession = AsicSession::new();
 
@@ -72,7 +72,7 @@ fn advances_by_the_given_step() {
 
 #[test]
 fn offset_caps_at_ntime_roll_max_secs() {
-    let mut state = StratumState::new();
+    let mut state = StratumState::new(0);
     state.visit_new_job(sample_job(1));
     let asic: AsicSession = AsicSession::new();
 
@@ -95,7 +95,7 @@ fn zero_step_leaves_offset_unchanged() {
 
 #[test]
 fn offset_resets_on_new_job() {
-    let mut state = StratumState::new();
+    let mut state = StratumState::new(0);
     state.visit_new_job(sample_job(1));
     let asic: AsicSession = AsicSession::new();
 

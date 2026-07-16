@@ -228,7 +228,7 @@ pub async fn run_stratum_session<const N: usize>(
                 rx_buffer: &mut rx_buffer[..],
                 tx_buffer: &mut tx_buffer[..],
             };
-            let mut state = StratumState::new();
+            let mut state = StratumState::new(slot);
 
             match &entry.protocol {
                 ubos_config::ProtocolKind::Sv1 { password } => {

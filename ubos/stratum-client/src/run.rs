@@ -20,39 +20,51 @@ use mining_protocol::{Error, JobId, MiningClient, Share};
 use portable_atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use ubos_logging::{info, trace, warn};
 
+/// Pool-index space shared by the alive bitmap and every per-pool
+/// array keyed by pool index: [`STRATUM_RECONNECTS`] here, and
+/// `SHARES_ACCEPTED` / `SHARES_REJECTED` in `state.rs`. A `u8` pool
+/// index fits this space by construction, since the bitmap holds one
+/// bit per index.
+pub(crate) const POOL_INDEX_SPACE: usize = 8;
+
 /// Lifetime-monotonic count of times the stratum reconnect path has
-/// been entered AFTER the initial connection attempt. The first attempt
-/// after boot is intentionally not counted so a prometheus alert
-/// `board_stratum_reconnects_total > 0` only fires when the firmware
-/// has actually had to re-establish the link — not on a clean first
-/// boot.
+/// been entered AFTER the initial connection attempt, one counter per
+/// pool slot. The first attempt after boot is intentionally not
+/// counted so a prometheus alert `board_stratum_reconnects_total > 0`
+/// only fires when the firmware has actually had to re-establish the
+/// link — not on a clean first boot.
 ///
 /// `AtomicU32` (rather than `AtomicU64` like the share counters) is
 /// sized for reconnect cadence: a continuous reconnect-once-per-second
 /// loop would take ~136 years to overflow 32 bits.
-pub(crate) static STRATUM_RECONNECTS: AtomicU32 = AtomicU32::new(0);
+pub(crate) static STRATUM_RECONNECTS: [AtomicU32; POOL_INDEX_SPACE] =
+    [const { AtomicU32::new(0) }; POOL_INDEX_SPACE];
 
-/// Increment [`STRATUM_RECONNECTS`] on every call past the first for
-/// the given pool.
+/// Increment the given pool's slot in [`STRATUM_RECONNECTS`] on every
+/// call past the first for that pool.
 ///
 /// Each pool session task invokes this at the top of its outer
 /// reconnect loop with its own `pool_index` (0-based, matching
 /// [`set_pool_alive`]). The very first call after boot is a no-op per
 /// pool so a successful first connection does not register as a
-/// reconnect; every subsequent loop entry adds one to the shared
+/// reconnect; every subsequent loop entry adds one to that slot's
 /// counter, capturing both TCP-level connect failures and
 /// session-level disconnects. Out-of-range indexes are ignored, like
 /// in [`set_pool_alive`].
 pub fn record_reconnect_attempt(pool_index: u8) {
     // Sized to the `POOL_ALIVE_BITMAP` index space so the two per-pool
     // accounting paths stay bounds-consistent.
-    static FIRST_ATTEMPT: [AtomicBool; 8] = [const { AtomicBool::new(true) }; 8];
-    debug_assert!(pool_index < 8, "pool_index must fit in the u8 bitmap");
+    static FIRST_ATTEMPT: [AtomicBool; POOL_INDEX_SPACE] =
+        [const { AtomicBool::new(true) }; POOL_INDEX_SPACE];
+    debug_assert!(
+        usize::from(pool_index) < POOL_INDEX_SPACE,
+        "pool_index must fit the pool-index space"
+    );
     let Some(first_attempt) = FIRST_ATTEMPT.get(usize::from(pool_index)) else {
         return;
     };
     if !first_attempt.swap(false, Ordering::Relaxed) {
-        STRATUM_RECONNECTS.fetch_add(1, Ordering::Relaxed);
+        STRATUM_RECONNECTS[usize::from(pool_index)].fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -87,8 +99,11 @@ pub fn pool_alive_bitmap() -> u8 {
 pub fn set_pool_alive(pool_index: u8, alive: bool) {
     // The debug_assert traps a bad index in tests; the guard keeps an
     // out-of-range shift from writing a bogus bit in release firmware.
-    debug_assert!(pool_index < 8, "pool_index must fit in the u8 bitmap");
-    if pool_index >= 8 {
+    debug_assert!(
+        usize::from(pool_index) < POOL_INDEX_SPACE,
+        "pool_index must fit the pool-index space"
+    );
+    if usize::from(pool_index) >= POOL_INDEX_SPACE {
         return;
     }
     let bit = 1u8 << pool_index;
@@ -234,7 +249,10 @@ where
             }
             Either3::Second(solution) => {
                 if let Err(error) = handle_solution(client, state, solution) {
-                    warn!("stratum-client: submit dropped error={:?}", error);
+                    warn!(
+                        "stratum-client: pool {} submit dropped error={:?}",
+                        state.slot, error,
+                    );
                 }
             }
             Either3::Third(()) => {
@@ -260,23 +278,23 @@ fn handle_solution<C: MiningClient>(
     let Some(outstanding) = outstanding else {
         // Ring rotated past this work_id — pool would reject anyway.
         warn!(
-            "stratum-client: solution drop, work_id={} not in ring",
-            solution.work_id,
+            "stratum-client: pool {} solution drop, work_id={} not in ring",
+            state.slot, solution.work_id,
         );
         return Ok(());
     };
     if !state.job_ring.is_valid(outstanding.job_id) {
         // clean_jobs invalidated the originating slot.
         warn!(
-            "stratum-client: solution drop, job {} invalidated by clean_jobs",
-            outstanding.job_id.0,
+            "stratum-client: pool {} solution drop, job {} invalidated by clean_jobs",
+            state.slot, outstanding.job_id.0,
         );
         return Ok(());
     }
 
     info!(
-        "stratum-client: submit job={} nonce={:#010x} ntime={:#010x}",
-        outstanding.job_id.0, solution.nonce, solution.ntime,
+        "stratum-client: pool {} submit job={} nonce={:#010x} ntime={:#010x}",
+        state.slot, outstanding.job_id.0, solution.nonce, solution.ntime,
     );
 
     let share = Share {

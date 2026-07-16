@@ -274,7 +274,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                 rx_buffer: &mut *rx_buffer,
                 tx_buffer: &mut *tx_buffer,
             };
-            let mut state = stratum_client::StratumState::new();
+            let mut state = stratum_client::StratumState::new(0);
 
             match &entry.protocol {
                 ubos_config::ProtocolKind::Sv1 { password } => {
@@ -328,7 +328,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn stratum_metrics_task() -> ! {
-    stratum_client::publishers::run_stratum_metrics_publisher().await
+    stratum_client::publishers::run_stratum_metrics_publisher(1).await
 }
 
 #[embassy_executor::task]

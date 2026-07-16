@@ -10,25 +10,39 @@ use mining_protocol::{MiningClientVisitor, MiningJob, SessionUpdate, SubmitResul
 use portable_atomic::{AtomicU64, Ordering};
 use ubos_logging::{info, warn};
 
-/// Lifetime-monotonic count of shares the pool accepted. Incremented
-/// in [`StratumState::visit_submit_result`] on the `Accepted` arm.
-pub(crate) static SHARES_ACCEPTED: AtomicU64 = AtomicU64::new(0);
+use crate::run::POOL_INDEX_SPACE;
 
-/// Lifetime-monotonic count of shares the pool rejected. Incremented
-/// in [`StratumState::visit_submit_result`] on the `Rejected` arm.
-pub(crate) static SHARES_REJECTED: AtomicU64 = AtomicU64::new(0);
+/// Lifetime-monotonic count of shares the pool accepted, one counter
+/// per pool slot. Incremented in [`StratumState::visit_submit_result`]
+/// on the `Accepted` arm, indexed by [`StratumState::slot`].
+pub(crate) static SHARES_ACCEPTED: [AtomicU64; POOL_INDEX_SPACE] =
+    [const { AtomicU64::new(0) }; POOL_INDEX_SPACE];
 
-/// Shares the pool has accepted since boot. The only path across the
-/// crate boundary; the counter stays crate-private.
+/// Lifetime-monotonic count of shares the pool rejected, one counter
+/// per pool slot. Incremented in [`StratumState::visit_submit_result`]
+/// on the `Rejected` arm, indexed by [`StratumState::slot`].
+pub(crate) static SHARES_REJECTED: [AtomicU64; POOL_INDEX_SPACE] =
+    [const { AtomicU64::new(0) }; POOL_INDEX_SPACE];
+
+/// Shares the pool has accepted since boot, summed across every pool
+/// slot. The only path across the crate boundary; the per-slot
+/// counters stay crate-private.
 #[must_use]
 pub fn shares_accepted() -> u64 {
-    SHARES_ACCEPTED.load(Ordering::Relaxed)
+    SHARES_ACCEPTED
+        .iter()
+        .map(|counter| counter.load(Ordering::Relaxed))
+        .sum()
 }
 
-/// Shares the pool has rejected since boot.
+/// Shares the pool has rejected since boot, summed across every pool
+/// slot.
 #[must_use]
 pub fn shares_rejected() -> u64 {
-    SHARES_REJECTED.load(Ordering::Relaxed)
+    SHARES_REJECTED
+        .iter()
+        .map(|counter| counter.load(Ordering::Relaxed))
+        .sum()
 }
 
 use crate::job_ring::{JOB_RING_DEPTH, JobRing};
@@ -45,38 +59,46 @@ pub struct StratumState {
     /// Counter for `WorkAssignment::work_id` allocation in the work
     /// generator.
     pub next_work_id: u32,
+    /// This session's pool slot, used to index the per-slot share and
+    /// reconnect counters and to prefix every visitor log line so
+    /// concurrent sessions are distinguishable.
+    pub(crate) slot: usize,
 }
 
 impl StratumState {
+    /// Build state for the given pool slot. `slot` is clamped to the
+    /// last valid index if it does not fit [`POOL_INDEX_SPACE`].
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(slot: usize) -> Self {
+        debug_assert!(
+            slot < POOL_INDEX_SPACE,
+            "slot must fit the pool-index space"
+        );
         Self {
             job_ring: JobRing::new(),
             work_ring: WorkRing::new(),
             next_work_id: 0,
+            slot: slot.min(POOL_INDEX_SPACE - 1),
         }
-    }
-}
-
-impl Default for StratumState {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 impl MiningClientVisitor for StratumState {
     fn visit_new_job(&mut self, job: MiningJob<'_>) {
         info!(
-            "stratum-client: new job id={} clean={} ntime={:#010x} \
+            "stratum-client: pool {} new job id={} clean={} ntime={:#010x} \
              nbits={:#010x} en2_size={}",
-            job.id.0, job.clean_jobs, job.ntime, job.nbits, job.extranonce_2_size,
+            self.slot, job.id.0, job.clean_jobs, job.ntime, job.nbits, job.extranonce_2_size,
         );
         // Adapters reject oversized extranonce upstream, but the trait
         // surface still admits a u8 (0..=255). The ring refuses a job
         // it cannot snapshot; drop it here so a misbehaving adapter
         // cannot corrupt the work loop.
         if let Err(e) = self.job_ring.push(&job) {
-            warn!("stratum-client: new job dropped, {:?}", e);
+            warn!(
+                "stratum-client: pool {} new job dropped, {:?}",
+                self.slot, e
+            );
         }
     }
 
@@ -84,20 +106,20 @@ impl MiningClientVisitor for StratumState {
         match result {
             SubmitResult::Accepted { count, work } => {
                 info!(
-                    "stratum-client: {} share(s) accepted, +{} work",
-                    count, work,
+                    "stratum-client: pool {} {} share(s) accepted, +{} work",
+                    self.slot, count, work,
                 );
-                SHARES_ACCEPTED.fetch_add(u64::from(count), Ordering::Relaxed);
+                SHARES_ACCEPTED[self.slot].fetch_add(u64::from(count), Ordering::Relaxed);
             }
             SubmitResult::Rejected {
                 error_code,
                 error_message,
             } => {
                 warn!(
-                    "stratum-client: share rejected code={:?} message={:?}",
-                    error_code, error_message,
+                    "stratum-client: pool {} share rejected code={:?} message={:?}",
+                    self.slot, error_code, error_message,
                 );
-                SHARES_REJECTED.fetch_add(1, Ordering::Relaxed);
+                SHARES_REJECTED[self.slot].fetch_add(1, Ordering::Relaxed);
             }
         }
     }
@@ -110,7 +132,8 @@ impl MiningClientVisitor for StratumState {
                 // is operator visibility on the wire event only.
                 let target_hex = mining_protocol::hex::encode_block_hash_lower(target);
                 info!(
-                    "stratum-client: set target {}...",
+                    "stratum-client: pool {} set target {}...",
+                    self.slot,
                     core::str::from_utf8(&target_hex[..32]).expect("BUG: hex encoder emits ASCII"),
                 );
             }
@@ -134,7 +157,8 @@ impl MiningClientVisitor for StratumState {
                 );
                 debug_assert!(prefix_hex_ok);
                 info!(
-                    "stratum-client: set extranonce prefix={} en2_size={}",
+                    "stratum-client: pool {} set extranonce prefix={} en2_size={}",
+                    self.slot,
                     core::str::from_utf8(&prefix_hex[..prefix_hex_len])
                         .expect("BUG: hex encoder emits ASCII"),
                     en2_size,
@@ -142,7 +166,10 @@ impl MiningClientVisitor for StratumState {
             }
             SessionUpdate::SetVersionMask(mask) => {
                 // No state mutation: same reasoning as `SetTarget`.
-                info!("stratum-client: set version mask {:#010x}", mask);
+                info!(
+                    "stratum-client: pool {} set version mask {:#010x}",
+                    self.slot, mask,
+                );
             }
             SessionUpdate::Reconnect {
                 host,
@@ -150,8 +177,8 @@ impl MiningClientVisitor for StratumState {
                 wait_seconds,
             } => {
                 info!(
-                    "stratum-client: pool reconnect request host={} port={} wait={}",
-                    host, port, wait_seconds,
+                    "stratum-client: pool {} reconnect request host={} port={} wait={}",
+                    self.slot, host, port, wait_seconds,
                 );
                 // Surfacing a reconnect to the firmware loop comes
                 // with the migration in phase 8; for now the TCP

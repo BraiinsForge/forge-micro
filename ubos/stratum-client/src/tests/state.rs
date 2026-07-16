@@ -28,7 +28,7 @@ fn sample_job(id: u32, clean_jobs: bool) -> MiningJob<'static> {
 
 #[test]
 fn visit_new_job_populates_slot() {
-    let mut state = StratumState::new();
+    let mut state = StratumState::new(0);
     state.visit_new_job(sample_job(1, false));
 
     let current = state.job_ring.current().expect("slot populated");
@@ -52,7 +52,7 @@ fn visit_new_job_populates_slot() {
 
 #[test]
 fn visit_new_job_drops_when_en2_size_exceeds_max() {
-    let mut state = StratumState::new();
+    let mut state = StratumState::new(0);
     let mut job = sample_job(1, false);
     job.extranonce_2_size = u8::try_from(MAX_EXTRANONCE_2 + 1).expect("MAX_EXTRANONCE_2 fits u8");
     state.visit_new_job(job);
@@ -61,7 +61,7 @@ fn visit_new_job_drops_when_en2_size_exceeds_max() {
 
 #[test]
 fn clean_jobs_invalidates_previous_slot() {
-    let mut state = StratumState::new();
+    let mut state = StratumState::new(0);
     state.visit_new_job(sample_job(1, false));
     state.visit_new_job(sample_job(2, true));
 
@@ -71,7 +71,7 @@ fn clean_jobs_invalidates_previous_slot() {
 
 #[test]
 fn slot_target_comes_from_job() {
-    let mut state = StratumState::new();
+    let mut state = StratumState::new(0);
     state.visit_new_job(sample_job(1, false));
 
     let current = state.job_ring.current().expect("slot present");
@@ -80,7 +80,7 @@ fn slot_target_comes_from_job() {
 
 #[test]
 fn set_target_does_not_patch_current_slot() {
-    let mut state = StratumState::new();
+    let mut state = StratumState::new(0);
     state.visit_new_job(sample_job(1, false));
 
     let new_target: [u8; 32] = [0xAA; 32];
@@ -88,4 +88,35 @@ fn set_target_does_not_patch_current_slot() {
 
     let current = state.job_ring.current().expect("slot present");
     assert_eq!(current.target, SAMPLE_TARGET);
+}
+
+/// Accepted shares recorded through a slot-1 `StratumState` must land in
+/// slot 1's counter and be visible in the summed `shares_accepted()`,
+/// while slot 0's counter stays untouched — the routing the per-slot
+/// arrays exist for.
+#[test]
+fn accepted_shares_route_to_their_own_slot() {
+    let baseline = [
+        SHARES_ACCEPTED[0].load(Ordering::Relaxed),
+        SHARES_ACCEPTED[1].load(Ordering::Relaxed),
+    ];
+
+    let mut state = StratumState::new(1);
+    state.visit_submit_result(SubmitResult::Accepted { count: 3, work: 1 });
+
+    assert_eq!(
+        SHARES_ACCEPTED[1].load(Ordering::Relaxed),
+        baseline[1] + 3,
+        "slot 1's counter records the accepted shares"
+    );
+    assert_eq!(
+        SHARES_ACCEPTED[0].load(Ordering::Relaxed),
+        baseline[0],
+        "slot 0's counter is untouched by slot 1's shares"
+    );
+    assert_eq!(
+        shares_accepted(),
+        baseline[0] + baseline[1] + 3,
+        "the summed accessor includes slot 1's shares"
+    );
 }

@@ -246,7 +246,7 @@ async fn cpu_load_task() -> ! {
 
 #[embassy_executor::task]
 async fn stratum_metrics_task() -> ! {
-    stratum_client::publishers::run_stratum_metrics_publisher().await
+    stratum_client::publishers::run_stratum_metrics_publisher(POOL_SLOTS).await
 }
 
 #[embassy_executor::task]
