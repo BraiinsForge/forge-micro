@@ -13,6 +13,7 @@
 
 use ubos_logging::{Debug2Format, info, warn};
 
+pub mod redacted;
 pub mod format;
 pub mod i2c;
 
