@@ -18,6 +18,7 @@ mod control;
 pub mod miner;
 pub mod publishers;
 pub mod reset;
+pub mod scheduler;
 pub mod serial;
 pub mod tuner;
 
