@@ -154,22 +154,42 @@ pub fn record_set_voltage(voltage: Voltage) {
 /// Per-task subscription returned by [`Handle::subscribe`].
 pub type PsuSubscription = Receiver<'static, CSMutex, PsuReading, WATCH_CAPACITY>;
 
+/// Capacity of the detected PSU model string, matching the system-info
+/// API's hardware-identity string width.
+pub const MODEL_LEN: usize = 40;
+
+/// The PSU model string a driver detects during its one-shot init.
+pub type ModelString = heapless::String<MODEL_LEN>;
+
+/// Module-internal model watch. Written at most once, from a PSU
+/// driver's first successful init; read via [`Handle::model`].
+static MODEL_WATCH: Watch<CSMutex, ModelString, 1> = Watch::new();
+
+/// Publishes the detected PSU model. Drivers, including the out-of-tree
+/// PSU crates layered on this one, call this at most once, from their
+/// first successful init.
+pub fn publish_model(model: ModelString) {
+    MODEL_WATCH.sender().send(model);
+}
+
 /// Obtain a handle to the PSU telemetry module. `Copy`; callers freely
 /// pass it to multiple tasks.
 #[must_use]
 pub fn handle() -> Handle {
     Handle {
         state: &STATE_WATCH,
+        model: &MODEL_WATCH,
     }
 }
 
 /// Consumer-side handle for the PSU telemetry.
 ///
-/// `Copy` because it holds only a `&'static` reference. Every consumer
+/// `Copy` because it holds only `&'static` references. Every consumer
 /// task takes its own value.
 #[derive(Clone, Copy)]
 pub struct Handle {
     state: &'static Watch<CSMutex, PsuReading, WATCH_CAPACITY>,
+    model: &'static Watch<CSMutex, ModelString, 1>,
 }
 
 impl Handle {
@@ -191,6 +211,13 @@ impl Handle {
         self.state
             .receiver()
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
+    }
+
+    /// Detected PSU model, or `None` before the driver's first
+    /// successful init publishes one.
+    #[must_use]
+    pub fn model(&self) -> Option<ModelString> {
+        self.model.try_get()
     }
 }
 
