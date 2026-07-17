@@ -659,9 +659,24 @@ fn ota_chunk_non_final_short_returns_400() {
 // SystemInfo paused / pause_reason serialization
 // ---------------------------------------------------------------------------
 
-/// Build a minimal `SystemInfo` with the given `paused` and `pause_reason`
-/// values, serialize it with `serde_json_core`, and return the JSON string.
-fn serialize_system_info(paused: bool, pause_reason: Option<&'static str>) -> std::string::String {
+/// Build a default `HwInfo` for tests that do not exercise hardware
+/// version fields: no PSU model and no published versions.
+fn default_hw_info() -> crate::schema::system_info::HwInfo {
+    crate::schema::system_info::HwInfo {
+        bootloader_version: None,
+        fan_controller_version: None,
+        psu_model: None,
+    }
+}
+
+/// Build a minimal `SystemInfo` with the given `paused`, `pause_reason`,
+/// and `hw_info` values, serialize it with `serde_json_core`, and return
+/// the JSON string.
+fn serialize_system_info(
+    paused: bool,
+    pause_reason: Option<&'static str>,
+    hw_info: crate::schema::system_info::HwInfo,
+) -> std::string::String {
     let info = crate::schema::SystemInfo {
         api_variant: "ubos-0.1",
         board_name: "test",
@@ -686,6 +701,7 @@ fn serialize_system_info(paused: bool, pause_reason: Option<&'static str>) -> st
         ota: None,
         paused,
         pause_reason,
+        hw_info,
     };
     let mut buf = [0u8; 1024];
     let len = serde_json_core::to_slice(&info, &mut buf).expect("BUG: SystemInfo serialize failed");
@@ -696,7 +712,7 @@ fn serialize_system_info(paused: bool, pause_reason: Option<&'static str>) -> st
 /// When no reason is active `paused` is `false` and `pauseReason` is `null`.
 #[test]
 fn system_info_running_serializes_paused_false_and_null_reason() {
-    let json = serialize_system_info(false, None);
+    let json = serialize_system_info(false, None, default_hw_info());
     assert!(
         json.contains("\"paused\":false"),
         "expected paused:false in {json}"
@@ -711,7 +727,7 @@ fn system_info_running_serializes_paused_false_and_null_reason() {
 /// `pauseReason` carries the camelCase wire string.
 #[test]
 fn system_info_user_request_serializes_paused_true_and_reason() {
-    let json = serialize_system_info(true, Some("userRequest"));
+    let json = serialize_system_info(true, Some("userRequest"), default_hw_info());
     assert!(
         json.contains("\"paused\":true"),
         "expected paused:true in {json}"
@@ -719,5 +735,43 @@ fn system_info_user_request_serializes_paused_true_and_reason() {
     assert!(
         json.contains("\"pauseReason\":\"userRequest\""),
         "expected pauseReason:\"userRequest\" in {json}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// SystemInfo hwInfo serialization
+// ---------------------------------------------------------------------------
+
+/// When both redacted-only version strings have been published, `hwInfo`
+/// carries them alongside the PSU model. The fan version exceeds 8
+/// characters to cover more than the common `"XX.XX.XX"` prefix.
+#[test]
+fn system_info_hw_info_serializes_published_versions() {
+    let hw_info = crate::schema::system_info::HwInfo {
+        bootloader_version: Some("deadbeef".parse().expect("BUG: fits in HwString")),
+        fan_controller_version: Some("12.34.56 build 777".parse().expect("BUG: fits in HwString")),
+        psu_model: Some("PSU3300 rev a".parse().expect("BUG: fits in HwString")),
+    };
+    let json = serialize_system_info(false, None, hw_info);
+    assert!(
+        json.contains(
+            "\"hwInfo\":{\"bootloaderVersion\":\"deadbeef\",\
+             \"fanControllerVersion\":\"12.34.56 build 777\",\"psuModel\":\"PSU3300 rev a\"}"
+        ),
+        "expected populated hwInfo object in {json}"
+    );
+}
+
+/// Before either redacted-only version string is published,
+/// `bootloaderVersion` and `fanControllerVersion` are `null` inside
+/// `hwInfo`, and `psuModel` is `null` on a board whose PSU driver
+/// detects nothing; this is also the permanent state on boards that
+/// never publish any of them.
+#[test]
+fn system_info_hw_info_serializes_unpublished_versions_as_null() {
+    let json = serialize_system_info(false, None, default_hw_info());
+    assert!(
+        json.contains("\"bootloaderVersion\":null,\"fanControllerVersion\":null,\"psuModel\":null"),
+        "expected null bootloaderVersion, fanControllerVersion, and psuModel in {json}"
     );
 }

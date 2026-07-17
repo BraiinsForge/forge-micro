@@ -109,6 +109,7 @@ const fn validate_board_name(name: &str) -> bool {
 /// Auth profile mirrors `DashboardService`: Basic or session cookie
 /// with CSRF enforcement on session-authenticated mutating requests.
 pub struct RestApiService {
+    /// The control board's product name, e.g. `"W6100-EVB-Pico2"`.
     pub(crate) board_name: &'static str,
     pub(crate) mining_info: &'static ubos_config::MiningInfo,
     pub(crate) bounds: &'static ubos_config::MiningBounds,
@@ -402,6 +403,7 @@ impl Service for RestApiService {
                 path,
                 body,
                 self.board_name,
+                self.psu,
                 self.mining_info,
                 self.thermal,
                 self.manager,

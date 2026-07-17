@@ -111,7 +111,7 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 
 | Method | Path                              | Auth      | Status | Description                                                              |
 |--------|-----------------------------------|-----------|--------|--------------------------------------------------------------------------|
-| GET    | `/api/system/info`                | any       | 200    | `SystemInfo`; full telemetry with `apiVariant: "ubos-0.1"`               |
+| GET    | `/api/system/info`                | any       | 200    | `SystemInfo`; full telemetry with `apiVariant: "ubos-0.1"`, plus `hwInfo` (`psuModel` detected at runtime, `null` where the supply is not identifiable; `bootloaderVersion`/`fanControllerVersion` populated on redacted only) |
 | GET    | `/api/system/asic`                | any       | 200    | `MiningInfo`; chip facts (`asicModel`, `deviceModel`, `swarmColor`, `asicCount`), tuning defaults, `bounds: { frequencyMhz: { start, end }, voltageMv: { start, end } }` |
 | GET    | `/api/system/thermal`             | any       | 200    | `ThermalInfo`; accepted ranges as `bounds: { sampleIntervalMs, dangerousTempC, cooldownTempC }` |
 | GET    | `/api/system/cooling`             | any       | 200    | `CoolingInfo`; accepted ranges as `bounds: { targetTempC }` |

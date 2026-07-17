@@ -147,4 +147,7 @@ pub struct SystemInfo<'response> {
     /// `null` when `paused` is `false`. See `PauseReason::as_api_str` for
     /// the canonical string values.
     pub pause_reason: Option<&'static str>,
+    /// Hardware-identification fields: PSU model and the
+    /// boot-time-captured version strings redacted publishes.
+    pub hw_info: HwInfo,
 }

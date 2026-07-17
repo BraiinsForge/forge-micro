@@ -85,7 +85,7 @@ use crate::ota::{
 };
 use crate::schema::{
     API_VARIANT, GenericResponse, SystemInfo, SystemNetwork, SystemScoreboardEntry,
-    SystemStatistics, system_statistics::LABELS,
+    SystemStatistics, system_info::HwInfo, system_statistics::LABELS,
 };
 
 #[cfg(test)]
@@ -95,9 +95,12 @@ mod tests;
 /// Serialization scratch buffer size in bytes.
 ///
 /// The largest schema struct is `SystemInfo`, which serializes to roughly
-/// 600 bytes with all string fields at their maximums. 2048 bytes covers
-/// that worst case and leaves headroom for fields added in later phases
-/// without revisiting this constant.
+/// 800 bytes with all string fields at their maximums: a ~600-byte base
+/// plus roughly 200 bytes for `hwInfo`, whose string fields (bootloader
+/// and fan-controller versions, PSU model) each hold up to
+/// `HW_STRING_LEN` characters. 2048 bytes covers that worst case and
+/// leaves headroom for fields added in later phases without revisiting
+/// this constant.
 ///
 /// Per-connection stack cost is `SCRATCH_SIZE` bytes; this multiplies by
 /// `API_HTTP_POOL` for concurrent connections. If you increase this
@@ -338,7 +341,8 @@ where
 async fn handle_info<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
-    board_name: &str,
+    board_name: &'static str,
+    psu: ubos_psu::Handle,
     mining_info: &'static ubos_config::MiningInfo,
     thermal: ThermalHandle,
     extra_headers: &[(&str, &str)],
@@ -379,6 +383,12 @@ where
         .dominant()
         .map(ubos_manager::PauseReason::as_api_str);
 
+    let hw_info = HwInfo {
+        bootloader_version: crate::hw_info::bootloader_version(),
+        fan_controller_version: crate::hw_info::fan_controller_version(),
+        psu_model: psu.model(),
+    };
+
     let info = SystemInfo {
         api_variant: API_VARIANT,
         board_name,
@@ -403,6 +413,7 @@ where
         ota: ota_info,
         paused,
         pause_reason,
+        hw_info,
     };
 
     serialize_and_respond(connection, scratch, &info, extra_headers).await
@@ -1950,15 +1961,17 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
 /// `RestApiService::handle`; exposing this directly would let an
 /// outside caller bypass those checks.
 // The argument count comes from threading `extra_headers` and `stack`
-// through the existing board_name/thermal/manager set. A context struct
-// would reduce the count but add indirection without simplifying the callers.
+// through the existing board_name/psu/thermal/manager set. A context
+// struct would reduce the count but add indirection without simplifying
+// the callers.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub(crate) async fn dispatch<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     method: &str,
     path: &str,
     body: &[u8],
-    board_name: &str,
+    board_name: &'static str,
+    psu: ubos_psu::Handle,
     mining_info: &'static ubos_config::MiningInfo,
     thermal: ThermalHandle,
     manager: ManagerHandle,
@@ -1985,6 +1998,7 @@ where
                 connection,
                 scratch,
                 board_name,
+                psu,
                 mining_info,
                 thermal,
                 extra_headers,
