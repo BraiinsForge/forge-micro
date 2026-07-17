@@ -47,7 +47,8 @@ pub trait HashboardEeprom {
     /// Read `buf.len()` bytes starting at address 0 into `buf`.
     async fn read(&mut self, buf: &mut [u8]) -> Result<(), Self::Error>;
 
-    /// Read the whole EEPROM once and log the identity it carries.
+    /// Read the whole EEPROM once, log the identity it carries, and
+    /// return the parsed serial number.
     ///
     /// A read or parse failure only warns: descriptors stay compile-time
     /// per `docs/MACHINE.md`, so the EEPROM is a traceability and
@@ -55,14 +56,20 @@ pub trait HashboardEeprom {
     /// The numeric fields are logged too, because the CRC validates
     /// bytes, not semantics: a byte-order mistake would parse cleanly
     /// and only a human reading the values catches it.
-    async fn log_identity(&mut self)
+    ///
+    /// Returns `None` when the read or the parse fails, since there is
+    /// then no serial to report. Returns `Some` on a successful parse
+    /// even when the serial falls back to `"INVALID"`: that string still
+    /// tells a caller a board is present with corrupt EEPROM content,
+    /// which is distinct from no board answering at all.
+    async fn log_identity(&mut self) -> Option<heapless::String<40>>
     where
         Self::Error: core::fmt::Debug,
     {
         let mut raw = [0u8; format::EEPROM_LEN];
         if let Err(e) = self.read(&mut raw).await {
             warn!("hashboard EEPROM read failed: {:?}", Debug2Format(&e));
-            return;
+            return None;
         }
 
         match format::HashboardEepromData::parse(&raw) {
@@ -83,8 +90,16 @@ pub trait HashboardEeprom {
                     data.board_info.temperature_c,
                     data.firmware_info.version,
                 );
+                let mut serial = heapless::String::<40>::new();
+                // `serial_number` comes from a 16-byte wire field, well
+                // within this 40-byte capacity, so push_str cannot fail.
+                let _ = serial.push_str(data.board_info.serial_number);
+                Some(serial)
             }
-            Err(e) => warn!("hashboard EEPROM parse failed: {:?}", Debug2Format(&e)),
+            Err(e) => {
+                warn!("hashboard EEPROM parse failed: {:?}", Debug2Format(&e));
+                None
+            }
         }
     }
 }
