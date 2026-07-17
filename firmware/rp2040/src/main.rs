@@ -541,12 +541,18 @@ async fn boot(spawner: Spawner) {
         let bus: &'static psu::Bus = I2C1_BUS.init(Mutex::new(i2c));
 
         // Read the hashboard EEPROM once, before powering anything up, so
-        // its identity is in the log even if bring-up later fails.
+        // its identity is in the log even if bring-up later fails. The
+        // parsed serial (or `None` on a failed read) is published for
+        // `GET /api/system/info`; this board has one hashboard, so the
+        // published array holds a single slot.
         if let Some(address) = config::BOARD.eeprom_i2c_address {
             let mut device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
-            ubos_eeprom::i2c::I2cEeprom::new(address, &mut device)
+            let serial = ubos_eeprom::i2c::I2cEeprom::new(address, &mut device)
                 .log_identity()
                 .await;
+            let mut ids = ubos_api::HashboardIds::new();
+            unwrap!(ids.push(serial).map_err(|_| ()));
+            ubos_api::publish_hashboard_ids(ids);
         }
 
         let (board_psu, psu_state, terminated) = psu::init(bus);
