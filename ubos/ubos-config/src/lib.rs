@@ -49,8 +49,8 @@ pub use mining::{
 };
 pub use network::{NetworkConfig, NetworkMode};
 pub use pool::{
-    DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY, DEFAULT_POOL_USER, PoolEntry,
-    ProtocolKind,
+    DEFAULT_POOL_HOST, DEFAULT_POOL_PORT, DEFAULT_POOL_SV2_PUBKEY, DEFAULT_POOL_USER,
+    MAX_POOL_WEIGHT, PoolEntry, ProtocolKind,
 };
 pub use thermal::{
     BOUNDS as THERMAL_BOUNDS, INFO as THERMAL_INFO, ThermalBounds, ThermalConfig, ThermalInfo,
@@ -136,8 +136,9 @@ pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, COMMAND_CHANNEL_DEP
     Channel::new();
 
 /// Receiver capacity for the update-generation watch: one per pool
-/// session task ([`pool::MAX_POOLS`]), plus one spare.
-const GENERATION_WATCH_CAPACITY: usize = pool::MAX_POOLS + 1;
+/// session task ([`pool::MAX_POOLS`]), one for the pool-weights
+/// watcher, plus one spare.
+const GENERATION_WATCH_CAPACITY: usize = pool::MAX_POOLS + 2;
 
 /// Update-generation watch. The counter is bumped and published once
 /// each time a successful [`Message::Update`] has been persisted and
@@ -544,6 +545,7 @@ impl Config {
             protocol: ProtocolKind::Sv2 {
                 pool_pubkey: Some(DEFAULT_POOL_SV2_PUBKEY),
             },
+            weight: 0,
         };
         let mut pool = heapless::Vec::new();
         pool.push(entry)

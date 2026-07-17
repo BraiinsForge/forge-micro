@@ -63,6 +63,14 @@ pub struct PoolEntry {
     pub user: heapless::String<128>,
     /// Protocol selection and its parameters.
     pub protocol: ProtocolKind,
+    /// Scheduler dispatch weight for this slot. Zero marks a
+    /// backup-only slot: mined only while no weighted slot has
+    /// work. An absent JSON key deserializes as zero, so
+    /// weightless configs keep the primary-plus-backups
+    /// behavior. See the config-driven weights section of
+    /// `docs/MULTIPOOL_DESIGN.md`.
+    #[serde(default)]
+    pub weight: u32,
 }
 
 /// Maximum number of pool slots the firmware persists and validates.
@@ -74,6 +82,12 @@ pub struct PoolEntry {
 /// extended in step.
 pub const MAX_POOLS: usize = 3;
 
+/// Upper bound on [`PoolEntry::weight`]. Keeps
+/// `weight_sum * (CLAMP_SHARES + 1)` inside `i32` for any slot count up
+/// to 8, so the `ubos-mining` scheduler arithmetic cannot overflow on
+/// validated input.
+pub const MAX_POOL_WEIGHT: u32 = 100_000;
+
 const POOL_HOST_EMPTY: [&str; MAX_POOLS] = [
     "pool 1: host must not be empty",
     "pool 2: host must not be empty",
@@ -84,6 +98,12 @@ const POOL_PORT_ZERO: [&str; MAX_POOLS] = [
     "pool 1: port must be greater than 0",
     "pool 2: port must be greater than 0",
     "pool 3: port must be greater than 0",
+];
+
+const POOL_WEIGHT_RANGE: [&str; MAX_POOLS] = [
+    "pool 1: weight must be at most 100000",
+    "pool 2: weight must be at most 100000",
+    "pool 3: weight must be at most 100000",
 ];
 
 impl PoolEntry {
@@ -98,7 +118,8 @@ impl PoolEntry {
     ///
     /// # Errors
     ///
-    /// Returns `Err` when the host is empty or the port is zero.
+    /// Returns `Err` when the host is empty, the port is zero, or the
+    /// weight exceeds [`MAX_POOL_WEIGHT`].
     pub fn validate(&self, slot: usize) -> Result<(), &'static str> {
         if self.host.is_empty() {
             return Err(POOL_HOST_EMPTY
@@ -111,6 +132,12 @@ impl PoolEntry {
                 .get(slot)
                 .copied()
                 .unwrap_or("pool: port must be greater than 0"));
+        }
+        if self.weight > MAX_POOL_WEIGHT {
+            return Err(POOL_WEIGHT_RANGE
+                .get(slot)
+                .copied()
+                .unwrap_or("pool: weight must be at most 100000"));
         }
         Ok(())
     }

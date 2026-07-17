@@ -1,8 +1,8 @@
 //! Tests for [`crate::ConfigUpdate::validate`].
 
 use crate::{
-    ApiConfig, Config, ConfigUpdate, CoolingUpdate, MINING_BOUNDS, MinerConfig, NetworkConfig,
-    NetworkMode, PoolEntry, ProtocolKind, ThermalConfig, TuningConfig,
+    ApiConfig, Config, ConfigUpdate, CoolingUpdate, MAX_POOL_WEIGHT, MINING_BOUNDS, MinerConfig,
+    NetworkConfig, NetworkMode, PoolEntry, ProtocolKind, ThermalConfig, TuningConfig,
 };
 
 /// Builds a minimal valid [`ConfigUpdate`] with no fields set.
@@ -31,6 +31,7 @@ fn valid_pool_entry() -> PoolEntry {
         port: 3333,
         user,
         protocol: ProtocolKind::Sv1 { password: None },
+        weight: 0,
     }
 }
 
@@ -126,6 +127,66 @@ fn pool_empty_host_slot_2_reports_index() {
         update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("pool 2: host must not be empty")
     );
+}
+
+/// A JSON pool entry with no `weight` key deserializes with `weight == 0`,
+/// so a weightless config keeps the primary-plus-backups behavior.
+#[test]
+fn pool_entry_weightless_json_defaults_to_zero() {
+    let json = r#"{"host":"pool.example.com","port":3333,"user":"worker1","protocol":{"Sv1":{"password":null}}}"#;
+    let (entry, _) =
+        serde_json_core::de::from_str::<PoolEntry>(json).expect("deserialize succeeds");
+    assert_eq!(entry.weight, 0);
+}
+
+/// `weight == MAX_POOL_WEIGHT` is accepted; `MAX_POOL_WEIGHT + 1` is
+/// rejected with the slot-1 message, proving the table indexing.
+#[test]
+fn pool_weight_at_max_passes_over_max_rejected() {
+    let mut update = empty_update();
+    let mut entry = valid_pool_entry();
+    entry.weight = MAX_POOL_WEIGHT;
+    let mut pool = heapless::Vec::new();
+    pool.push(entry).expect("BUG: pool has capacity");
+    update.pool = Some(pool);
+    assert!(
+        update
+            .validate(&Config::default(), &crate::mining::BOUNDS)
+            .is_ok()
+    );
+
+    let mut update = empty_update();
+    let good = valid_pool_entry();
+    let mut bad = valid_pool_entry();
+    bad.weight = MAX_POOL_WEIGHT + 1;
+    let mut pool = heapless::Vec::new();
+    pool.push(good).expect("BUG: pool has capacity");
+    pool.push(bad).expect("BUG: pool has capacity");
+    update.pool = Some(pool);
+    assert_eq!(
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
+        Err("pool 2: weight must be at most 100000")
+    );
+}
+
+/// A `ConfigUpdate` round-trip through the exact wire codec `ubos-api`
+/// uses for `POST /api/config` preserves a nonzero pool weight.
+#[test]
+fn config_update_json_round_trip_preserves_weight() {
+    let mut entry = valid_pool_entry();
+    entry.weight = 42;
+    let mut pool = heapless::Vec::new();
+    pool.push(entry).expect("BUG: pool has capacity");
+    let update = ConfigUpdate {
+        pool: Some(pool),
+        ..empty_update()
+    };
+
+    let json = serde_json_core::ser::to_string::<_, 512>(&update).expect("serialize succeeds");
+    let (decoded, _) =
+        serde_json_core::de::from_str::<ConfigUpdate>(&json).expect("deserialize succeeds");
+
+    assert_eq!(decoded.pool.expect("pool field round-trips")[0].weight, 42);
 }
 
 // --- Thermal ---

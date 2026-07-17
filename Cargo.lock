@@ -4761,6 +4761,7 @@ dependencies = [
  "postcard-schema",
  "sequential-storage",
  "serde",
+ "serde-json-core",
  "ubos-asic",
  "ubos-core",
  "ubos-events",
