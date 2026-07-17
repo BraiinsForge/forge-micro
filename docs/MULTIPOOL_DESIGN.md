@@ -2,10 +2,11 @@
 
 > **Status.** Implemented: the multipool mechanism under UBOS-49
 > ("Add second stratum channel"), the work scheduler under UBOS-72.
-> Step tracking in `/IMPLEMENTATION_PLAN.md`. Kept aligned with the
-> code in `ubos/stratum-client`, `ubos/ubos-mining`, and
-> `ubos/ubos-firmware` — when the two disagree, the code wins and
-> this file needs a patch.
+> The config-driven weights section is designed but not yet
+> implemented (branch `jtr/UBOS-72/config-weights`). Step tracking
+> in `/IMPLEMENTATION_PLAN.md`. Kept aligned with the code in
+> `ubos/stratum-client`, `ubos/ubos-mining`, and `ubos/ubos-firmware`
+> — when the two disagree, the code wins and this file needs a patch.
 
 ## Goal
 
@@ -284,7 +285,8 @@ previous "mine pool 0" behavior and turn the remaining configured
 entries into classic failover backups. A default of equal weights
 would silently split hashrate 33:33:33 between pools the user
 configured as backups. Constructing a `RatioScheduler` with all
-weights zero is rejected.
+weights zero is rejected. The config-driven weights section below
+moves the weight source from board consts to the pool config.
 
 ### Dispatch integration
 
@@ -330,9 +332,9 @@ next to `POOL_SLOTS` (default `[1, 0, 0]`; stm32f407 `[1]`); its
 `mining.rs` builds `RatioScheduler::new(POOL_WEIGHTS)` and hands it
 to `SERIAL.run`. `host-runner`'s CPU mock reads `work_receiver(0)`
 directly, but its miner-serial path also drives `SERIAL.run` and
-passes `RatioScheduler::new([1])` for its single-slot session.
-Runtime-configurable weights are a follow-up: only the constructor
-call changes.
+passes `RatioScheduler::new([1])` for its single-slot session. The
+config-driven weights section below retires the consts and the
+constructor argument.
 
 ### Per-pool observability
 
@@ -374,6 +376,162 @@ scheduler; one test feeds a diff-1 chip response and asserts
 `accumulate_share` fires for the originating slot, another proves
 dispatch falls back to an available slot when the preferred cell is
 empty.
+
+## Config-driven weights (UBOS-72, follow-up branch)
+
+> **Status.** Designed, not yet implemented. Branch
+> `jtr/UBOS-72/config-weights` on top of the scheduler branch.
+
+The scheduler shipped with compile-time `POOL_WEIGHTS` consts in the
+board crates. This change moves the weight source into the same
+`POST /api/config` call that configures the pools, so the split is
+operator-tunable at runtime. Weights travel to the serial actor the
+same way every other instruction does — through its command
+channel — via a small config-watcher task. Design constraint
+(deliberate): no existing function gains an argument; the new
+message is intercepted in `run`'s command arm so even
+`handle_command` keeps its parameter list.
+
+### Schema: a `weight` field on `PoolEntry`
+
+```json
+{"pool":[
+  {"host":"...","port":3333,"user":"w1","weight":9,"protocol":{...}},
+  {"host":"...","port":3333,"user":"w2","weight":1,"protocol":{...}}
+]}
+```
+
+- `#[serde(default)] pub weight: u32` — an absent key deserializes
+  as 0, so existing callers (the webui, curl scripts) keep their
+  exact current behavior: a weightless pool list mines slot 0 with
+  the rest as failover backups.
+- `PoolEntry::validate` rejects `weight > MAX_POOL_WEIGHT`
+  (100 000). The bound exists so the scheduler arithmetic
+  (`weight_sum * (CLAMP_SHARES + 1)`) can never overflow `i32`
+  even with every slot at the maximum — a bad POST earns a 4xx,
+  never a firmware panic.
+- Adding the field shifts `Config::SCHEMA_HASH`, so the first boot
+  of the new firmware discards the stored config and starts from
+  defaults (the crate's designed fallback; there is no migration
+  machinery). Accepted: one-time re-POST per board, early-stage
+  project.
+
+### Weight semantics
+
+Unchanged from the scheduler design, restated against the config
+source: weight 0 means backup-only; the all-zero fallback (slot 0
+treated as weight 1) is applied **after truncating the config's
+`MAX_POOLS` weights to the board's `POOL_SLOTS`**, inside
+`set_weights`, so a reduced-slot board whose only weighted entry
+lies beyond its slot count still mines slot 0.
+
+### Propagation: a config watcher pushes over the command channel
+
+A dedicated task in `ubos-mining` (next to the scheduler; the crate
+already depends on `ubos-config`) subscribes to the config
+generation and forwards the mapped weights to the actor whenever
+they actually change:
+
+```rust
+pub async fn run_pool_weights_watcher() -> ! {
+    let handle = ubos_config::handle();
+    let mut generation = handle.subscribe_generation();
+    let mut last_sent: Option<[u32; 8]> = None;
+    loop {
+        let weights = pool_weights(&handle.current().pool);
+        if last_sent != Some(weights) {
+            SERIAL.set_pool_weights(weights).await;
+            last_sent = Some(weights);
+        }
+        generation.changed().await;
+    }
+}
+```
+
+- `pool_weights` maps the pool list to `[u32; 8]` (entry weight per
+  slot, absent entries 0) — a pure helper, unit-testable.
+- The `last_sent` guard means unrelated config updates (thermal,
+  fan) never disturb the scheduler; only an actual pool or weight
+  edit reaches it.
+- The first iteration runs at boot and delivers the initial weights
+  before awaiting the first generation change.
+- `Serial::set_pool_weights` is fire-and-forget like `send_frame`,
+  wrapping a new `SerialMessage::SetPoolWeights([u32; 8])`. This
+  keeps the serial actor config-agnostic: weights arrive as a
+  command like `Reset` or `StartSendingWork`, and `run`'s command
+  arm applies the variant to the scheduler directly before
+  delegating everything else to `handle_command`, whose parameter
+  list is unchanged.
+- Each board (and host-runner) spawns the watcher through the same
+  one-line task-shell pattern as the metrics publishers.
+- The watcher consumes the `GENERATION_WATCH` spare receiver, so
+  the capacity bumps from `MAX_POOLS + 1` to `MAX_POOLS + 2` to
+  keep one spare.
+
+### `set_weights`: clean slate on reconfiguration
+
+The `Scheduler` trait gains one method with a default no-op body,
+so existing impls and test stubs compile untouched:
+
+```rust
+fn set_weights(&mut self, _weights: &[u32]) {}
+```
+
+`RatioScheduler`'s impl truncates to its `N`, applies the all-zero
+fallback, recomputes `weight_sum` and the clamp, and zeroes every
+credit. Resetting the accumulated shares is deliberate: a pool
+reconfiguration coincides with the sessions tearing down on the
+same generation bump, so the whole pool machinery restarts
+coherently and the ratio converges from scratch. The method is
+total — inputs are bounded by config validation, and a defensive
+saturation keeps direct misuse from overflowing.
+
+`RatioScheduler::new(weights)` and the per-board `POOL_WEIGHTS`
+consts are retired: the constructor takes no arguments and starts
+from the fallback default (slot 0 weighted), which the watcher's
+boot-time push immediately replaces with the configured values. In
+the boards, the consts and constructor arguments disappear and one
+watcher spawn line appears.
+
+### Webui
+
+Each of the three pool rows in the config form gains a numeric
+weight input, loaded from `GET /api/config` and sent on Save (empty
+input posts 0). Without this, the save handler — which rebuilds
+entries as `{host, port, user, protocol}` — would silently wipe
+weights configured over curl on the next webui save.
+
+### Rejected alternatives
+
+- **Pull-based polling inside `Serial::run`** (the actor holds its
+  own generation subscription and re-reads the config at the top of
+  its loop): smallest diff — no new task, message, or board spawn
+  lines — but the chip-driving actor gains a hidden reach into the
+  global config handle instead of receiving policy through its
+  command API like everything else. Rejected for actor hygiene;
+  behavior, cost, and latency are equivalent.
+- **Shared weight atomics polled by dispatch**: splits the
+  scheduler's source of truth and puts shared mutable state into
+  the dispatch hot path.
+- **Schema migration**: versioned blobs or dual-decode to carry old
+  configs across the hash change; far larger than the feature, and
+  the one-time reset is acceptable at this stage.
+
+### Testing
+
+- `ubos-config`: `weight` default on a weightless JSON entry;
+  `MAX_POOL_WEIGHT` bound rejected with the per-slot message;
+  round-trip through `ConfigUpdate`.
+- `ubos-mining` scheduler tests: `set_weights` truncation and
+  post-truncation fallback; credit reset (accumulate, reweight,
+  assert clean convergence); clamp recomputation; default no-op on
+  a stub.
+- The `pool_weights` mapping helper is unit-tested directly
+  (weights per slot, absent entries, weightless list). The watcher
+  loop and command delivery are a few lines over already-tested
+  primitives; the end-to-end path is exercised on hardware
+  (reweight via `pool_conf.sh`, watch the split move in the Pool
+  work split panel).
 
 ## RAM cost
 
