@@ -148,3 +148,40 @@ impl<const N: usize> Scheduler<N> for RatioScheduler<N> {
         self.credit = [0; N];
     }
 }
+
+/// Maps a configured pool list to the `[u32; 8]` shape
+/// [`crate::serial::Serial::set_pool_weights`] takes: each entry's
+/// weight lands in its slot index, and slots beyond the list stay
+/// zero. A pure helper so the mapping is unit-testable independently
+/// of the watcher's task loop.
+#[must_use]
+pub fn pool_weights(pool: &[ubos_config::PoolEntry]) -> [u32; 8] {
+    let mut weights = [0u32; 8];
+    for (slot, entry) in weights.iter_mut().zip(pool) {
+        *slot = entry.weight;
+    }
+    weights
+}
+
+/// Watches the config generation and pushes the mapped pool weights
+/// to the serial actor whenever they actually change.
+///
+/// The `last_sent` equality guard means unrelated config updates
+/// (thermal, fan) never disturb the scheduler: only an edit that
+/// changes a pool's weight reaches it. The first iteration runs
+/// before the first `changed()` await, so the configured weights
+/// reach the scheduler at boot rather than waiting for a later
+/// config edit.
+pub async fn run_pool_weights_watcher() -> ! {
+    let handle = ubos_config::handle();
+    let mut generation = handle.subscribe_generation();
+    let mut last_sent: Option<[u32; 8]> = None;
+    loop {
+        let weights = pool_weights(&handle.current().pool);
+        if last_sent != Some(weights) {
+            crate::serial::SERIAL.set_pool_weights(weights).await;
+            last_sent = Some(weights);
+        }
+        generation.changed().await;
+    }
+}

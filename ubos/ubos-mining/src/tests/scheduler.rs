@@ -10,6 +10,18 @@
 
 use super::*;
 
+/// Builds a minimal [`ubos_config::PoolEntry`] with the given weight;
+/// host/user/protocol are irrelevant to the mapping under test.
+fn entry(weight: u32) -> ubos_config::PoolEntry {
+    ubos_config::PoolEntry {
+        host: heapless::String::new(),
+        port: 3333,
+        user: heapless::String::new(),
+        protocol: ubos_config::ProtocolKind::Sv1 { password: None },
+        weight,
+    }
+}
+
 /// Runs `rounds` iterations of the evaluate/accumulate feedback loop
 /// against `available` and returns how many times each slot was
 /// picked. Panics if a round has nothing dispatchable, since every
@@ -205,4 +217,16 @@ fn set_weights_recomputes_the_clamp() {
         "catch-up not bounded after reweight: {consecutive_slot_1} > {}",
         2 * CLAMP_SHARES
     );
+}
+
+#[test]
+fn pool_weights_maps_entries_to_their_slots() {
+    let pool = [entry(5), entry(0), entry(3)];
+    assert_eq!(pool_weights(&pool), [5, 0, 3, 0, 0, 0, 0, 0]);
+}
+
+#[test]
+fn pool_weights_empty_list_is_all_zero() {
+    let pool: [ubos_config::PoolEntry; 0] = [];
+    assert_eq!(pool_weights(&pool), [0u32; 8]);
 }

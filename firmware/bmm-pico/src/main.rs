@@ -251,6 +251,11 @@ async fn stratum_metrics_task() -> ! {
 }
 
 #[embassy_executor::task]
+async fn pool_weights_task() -> ! {
+    ubos_mining::scheduler::run_pool_weights_watcher().await
+}
+
+#[embassy_executor::task]
 async fn miner_metrics_task(mining: MiningHandle) -> ! {
     ubos_mining::publishers::run_miner_metrics_publisher(mining, POOL_SLOTS).await
 }
@@ -663,6 +668,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
     spawner.spawn(unwrap!(stratum_metrics_task()));
     spawner.spawn(unwrap!(hashrate_metrics_task()));
+    spawner.spawn(unwrap!(pool_weights_task()));
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.
     // The reset pin is moved into display_task so it stays driven high for the display's lifetime.

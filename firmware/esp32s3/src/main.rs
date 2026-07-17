@@ -164,6 +164,11 @@ async fn stratum_metrics_task() -> ! {
 }
 
 #[embassy_executor::task]
+async fn pool_weights_task() -> ! {
+    ubos_mining::scheduler::run_pool_weights_watcher().await
+}
+
+#[embassy_executor::task]
 async fn miner_metrics_task(mining: MiningHandle) -> ! {
     ubos_mining::publishers::run_miner_metrics_publisher(mining, POOL_SLOTS).await
 }
@@ -644,6 +649,7 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(cpu_load_task()));
     spawner.spawn(unwrap!(stratum_metrics_task()));
     spawner.spawn(unwrap!(hashrate_metrics_task()));
+    spawner.spawn(unwrap!(pool_weights_task()));
     // No LED blink task: board wiring does not include an accessible LED.
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
     spawner.spawn(unwrap!(temperature_task(BoardTempSensor(tsens))));

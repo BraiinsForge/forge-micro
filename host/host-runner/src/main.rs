@@ -341,6 +341,11 @@ async fn hashrate_metrics_task() -> ! {
     ubos_metrics::hashrate::run_hashrate_publisher().await
 }
 
+#[embassy_executor::task]
+async fn pool_weights_task() -> ! {
+    ubos_mining::scheduler::run_pool_weights_watcher().await
+}
+
 #[allow(
     clippy::single_match_else,
     clippy::items_after_statements,
@@ -393,6 +398,7 @@ fn main() {
         spawner.spawn(miner_metrics_task(mining_handle).expect("BUG: miner_metrics_task token"));
         spawner.spawn(stratum_metrics_task().expect("BUG: stratum_metrics_task token"));
         spawner.spawn(hashrate_metrics_task().expect("BUG: hashrate_metrics_task token"));
+        spawner.spawn(pool_weights_task().expect("BUG: pool_weights_task token"));
         let config_storage = FileStorage::new(
             std::env::var_os("UBOS_CONFIG_DIR")
                 .map_or_else(|| std::path::PathBuf::from(".ubos-config"), Into::into),
