@@ -38,6 +38,7 @@ ubos_mdns::declare_service!(
 );
 
 pub mod consts;
+pub mod hw_info;
 pub mod ota;
 pub mod rest;
 pub mod schema;
@@ -49,6 +50,9 @@ ubos_events::events! {
     user_restart()      warn = "User-requested restart",
 }
 
+pub use hw_info::{
+    HW_STRING_LEN, HwString, publish_bootloader_version, publish_fan_controller_version,
+};
 pub use ota::{
     OtaError, OtaTarget, OtaWritePhase, ResetReason, publish_reset_diag, register_ota_target,
 };

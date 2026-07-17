@@ -28,6 +28,8 @@
 use heapless::String;
 use serde::Serialize;
 
+use crate::hw_info::HwString;
+
 /// OTA-related fields embedded in the system-info response.
 ///
 /// Present when the board supplies an [`crate::ota::OtaTarget`]
@@ -48,6 +50,32 @@ pub struct OtaInfo {
     /// Maximum firmware image size in bytes this board accepts for an OTA
     /// upload, so a client can cap its file picker at the real slot size.
     pub max_image_bytes: u64,
+}
+
+/// Hardware-identification fields embedded in the system-info response.
+///
+/// `psu_model` is detected at runtime, at the PSU driver's first
+/// successful init, and reads `null` where the supply is not
+/// identifiable.
+/// `bootloader_version` and `fan_controller_version` are read once at
+/// boot on redacted only and reach this struct through the publish/read
+/// cells in `crate::hw_info`; they are `null` before publication and on
+/// every other board.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HwInfo {
+    /// Bootloader CRC-32 fingerprint as 8-char lowercase hex, or `null`
+    /// before the boot-time capture runs or on boards that do not
+    /// publish one.
+    pub bootloader_version: Option<HwString>,
+    /// STM8 fan-controller co-processor version string, or `null`
+    /// before the boot-time capture runs or on boards that do not
+    /// publish one.
+    pub fan_controller_version: Option<HwString>,
+    /// PSU model name, detected at the PSU driver's first successful
+    /// init. `redacted` reports the part with its detected revision
+    /// letter. `null` where the supply is not identifiable.
+    pub psu_model: Option<HwString>,
 }
 
 /// Full system-info snapshot for `GET /api/system/info`.
