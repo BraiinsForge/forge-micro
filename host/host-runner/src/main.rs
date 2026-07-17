@@ -32,7 +32,7 @@ use rand_core::RngCore;
 use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::AsicSession;
 use stratum_client::{
-    NTIME_ROLL_PERIOD_SECS, PoolConnector, RECONNECT_DELAY, SOCKET_TIMEOUT,
+    NTIME_ROLL_PERIOD_SECS, PoolConnector, RECONNECT_DELAY, SESSION_REJECTED_DELAY, SOCKET_TIMEOUT,
     STRATUM_TCP_BUFFER_SIZE, SessionError, run_stratum_session,
 };
 use ubos_config::FileStorage;
@@ -276,7 +276,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
             };
             let mut state = stratum_client::StratumState::new(0);
 
-            match &entry.protocol {
+            let result = match &entry.protocol {
                 ubos_config::ProtocolKind::Sv1 { password } => {
                     let sv1 = stratum_v1::Sv1Config::new(
                         entry.user.as_str(),
@@ -284,7 +284,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                     )
                     .expect("BUG: PoolEntry user/password match Sv1Config buffer sizes");
                     let mut client = stratum_v1::StratumV1Client::new(&sv1);
-                    if let Err(error) = run_stratum_session(
+                    run_stratum_session(
                         &mut connector,
                         &mut client,
                         ASIC_SESSION.pool_handle(0),
@@ -292,16 +292,13 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )
                     .await
-                    {
-                        log_session_error(&error);
-                    }
                 }
                 ubos_config::ProtocolKind::Sv2 { pool_pubkey } => {
                     let sv2 = stratum_v2::Sv2Config::new(entry.user.as_str(), *pool_pubkey)
                         .expect("BUG: PoolEntry.user matches Sv2Config buffer size");
                     let mut client =
                         stratum_v2::StratumV2Client::new(&sv2, secp_ctx, HostSv2Rng(OsRng));
-                    if let Err(error) = run_stratum_session(
+                    run_stratum_session(
                         &mut connector,
                         &mut client,
                         ASIC_SESSION.pool_handle(0),
@@ -309,13 +306,24 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                         Some(NTIME_ROLL_PERIOD_SECS),
                     )
                     .await
-                    {
-                        log_session_error(&error);
+                }
+            };
+
+            // Same backoff split as the firmware session loop: a pool
+            // rejection does not fix itself, so retry it on the longer
+            // cadence instead of the transport one.
+            let delay = match &result {
+                Err(error) => {
+                    log_session_error(error);
+                    if error.is_rejection() {
+                        SESSION_REJECTED_DELAY
+                    } else {
+                        RECONNECT_DELAY
                     }
                 }
-            }
-
-            Timer::after(RECONNECT_DELAY).await;
+                Ok(()) => RECONNECT_DELAY,
+            };
+            Timer::after(delay).await;
         };
         if matches!(
             select(one_session, config_generation.changed()).await,

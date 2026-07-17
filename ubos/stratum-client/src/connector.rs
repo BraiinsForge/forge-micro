@@ -15,6 +15,10 @@ use crate::asic_session::PoolHandle;
 use crate::run::run_stratum_client;
 use crate::state::StratumState;
 
+#[cfg(test)]
+#[path = "tests/connector.rs"]
+mod tests;
+
 /// Yields one connected transport per call. Implementations own the
 /// address/buffer plumbing (TCP via embassy-net, in-process pipes, …).
 ///
@@ -46,6 +50,21 @@ pub enum SessionError<E> {
     Connect(E),
     /// `run_stratum_client` returned an error over a connected transport.
     Session(Error),
+}
+
+impl<E> SessionError<E> {
+    /// True when the session ended in a permanent refusal — the pool
+    /// rejected the session, or the authenticator declined the pool's
+    /// certificate — rather than the transport or protocol failing.
+    /// Refusals do not fix themselves, so callers should retry them on
+    /// [`crate::SESSION_REJECTED_DELAY`] instead of the transport
+    /// cadence.
+    pub fn is_rejection(&self) -> bool {
+        matches!(
+            self,
+            Self::Session(Error::SessionRejected(_) | Error::AuthFailed)
+        )
+    }
 }
 
 /// Obtain one connection from `connector`, then run

@@ -30,6 +30,13 @@ ubos_events::events! {
 /// constant if a board needs a different one.
 pub const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 
+/// Delay between reconnect attempts after the pool actively rejected
+/// the session. A rejection such as an unknown user or failed auth
+/// does not fix itself, and each SV2 attempt burns a full noise
+/// handshake — about a second of CPU on the slowest boards — so it
+/// retries far less often than a dropped transport.
+pub const SESSION_REJECTED_DELAY: Duration = Duration::from_secs(30);
+
 /// TCP socket buffer size for the stratum connection. Smaller than
 /// the HTTP/TLS buffers because stratum JSON-RPC messages are short.
 pub const STRATUM_TCP_BUFFER_SIZE: usize = 2048;
