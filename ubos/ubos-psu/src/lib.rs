@@ -83,6 +83,7 @@ pub mod config;
 pub mod ina230;
 pub mod sic45x;
 pub mod state;
+pub mod tps53647;
 pub mod tps6287x;
 pub mod watchdog;
 
