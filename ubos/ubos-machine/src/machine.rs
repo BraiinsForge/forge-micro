@@ -21,12 +21,14 @@
 
 use ubos_asic::HashboardDescriptor;
 use ubos_psu::sic45x::{LoopScale, Sic45xConfig};
-use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor};
+use ubos_psu::tps53647::Tps53647Config;
+use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor, BraiinsAxePsuDescriptor};
 use ubos_temperature::{SensorDescriptor, SensorKind};
 
 use crate::control_board::{
-    CONTROL_BOARD_BMM_ADAPTER, CONTROL_BOARD_ESP32S3, CONTROL_BOARD_HASHNODE, CONTROL_BOARD_RP2040,
-    CONTROL_BOARD_RP2350, CONTROL_BOARD_STM32F407, CONTROL_BOARD_STM32F439, ControlBoardDescriptor,
+    CONTROL_BOARD_BMM_ADAPTER, CONTROL_BOARD_BRAIINS_AXE, CONTROL_BOARD_ESP32S3,
+    CONTROL_BOARD_HASHNODE, CONTROL_BOARD_RP2040, CONTROL_BOARD_RP2350, CONTROL_BOARD_STM32F407,
+    CONTROL_BOARD_STM32F439, ControlBoardDescriptor,
 };
 
 /// A complete miner: the control board plus the hashboard, PSU, and
@@ -199,4 +201,47 @@ pub const HASHNODE: MachineDescriptor<BfmPsuDescriptor> = MachineDescriptor {
     hashboard: ubos_asic::BFMX4_HASHBOARD,
     psu: HASHNODE_PSU,
     temp: &BFMX4_SENSORS,
+};
+
+/// The Braiins Axe's two TMP102 PCB sensors. There is no die-attached
+/// remote diode on this board; both sensors drive the cooling estimate
+/// with the PCB-to-die offset. Addresses are the schematic strap
+/// candidates, pending hardware confirmation.
+pub const BRAIINS_AXE_SENSORS: [SensorDescriptor; 2] = [
+    SensorDescriptor {
+        kind: SensorKind::Tmp102,
+        address: 0x48,
+        pcb_to_die_offset_mc: 15_000,
+        attached_chip: None,
+    },
+    SensorDescriptor {
+        kind: SensorKind::Tmp102,
+        address: 0x49,
+        pcb_to_die_offset_mc: 15_000,
+        attached_chip: None,
+    },
+];
+
+/// TPS53647 configuration for the Braiins Axe 1.2 V rail. The `PMBus`
+/// address is the ADDR-TRISE strap candidate (R1 16.5k / R2 24.3k),
+/// pending hardware confirmation.
+const BRAIINS_AXE_TPS: Tps53647Config = Tps53647Config {
+    // Single-sourced from the board descriptor so the regulator
+    // ceiling and the tuner's `max_rail_voltage()` can never disagree.
+    voltage_max_millivolts: ubos_asic::BRAIINS_AXE_HASHBOARD.max_psu_voltage.mv(),
+    ..Tps53647Config::DEFAULT
+};
+
+const BRAIINS_AXE_PSU: BraiinsAxePsuDescriptor = BraiinsAxePsuDescriptor {
+    tps: BRAIINS_AXE_TPS,
+};
+
+/// The Braiins Axe: four BM1370 in one parallel voltage domain on an
+/// integrated Pico 2 control board, with a TPS53647 multiphase VRM.
+pub const BRAIINS_AXE: MachineDescriptor<BraiinsAxePsuDescriptor> = MachineDescriptor {
+    model: "Braiins Axe",
+    control_board: CONTROL_BOARD_BRAIINS_AXE,
+    hashboard: ubos_asic::BRAIINS_AXE_HASHBOARD,
+    psu: BRAIINS_AXE_PSU,
+    temp: &BRAIINS_AXE_SENSORS,
 };

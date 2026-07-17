@@ -142,3 +142,17 @@ pub const CONTROL_BOARD_HASHNODE: ControlBoardDescriptor = ControlBoardDescripto
     metrics_http_pool: 5,
     event_log_capacity: 128,
 };
+
+/// The Braiins Axe: control board and hashboard are one integrated
+/// product, so the name matches `ubos_asic::BRAIINS_AXE_HASHBOARD.model`. The
+/// MCU is a Raspberry Pi Pico 2 module (RP2350A), the same platform as
+/// the other RP2350 boards.
+pub const CONTROL_BOARD_BRAIINS_AXE: ControlBoardDescriptor = ControlBoardDescriptor {
+    name: "Braiins Axe",
+    platform: RP2350,
+    mac_family: 0x08,
+    webui_http_pool: 5,
+    api_http_pool: 5,
+    metrics_http_pool: 5,
+    event_log_capacity: 128,
+};

@@ -171,3 +171,24 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     // docs/EEPROM.md.
     eeprom_i2c_address: Some(0x57),
 };
+
+/// The Braiins Axe hashboard: four BM1370 in a single parallel voltage
+/// domain on a 1.2 V rail, driven by a TPS53647 multiphase VRM.
+pub const BRAIINS_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
+    chip: &BM1370.chain,
+    num_voltage_domains: 1,
+    num_chips: 4,
+    // Caps max_rail_voltage below the chip's 1250 mV policy ceiling;
+    // the tuner opens the cores at this 1.2 V rail.
+    max_psu_voltage: Voltage::from_mv(1200),
+    default_voltage: Voltage::from_mv(1150),
+    default_frequency: Frequency::from_mhz(600),
+    swarm_color: "blue",
+    // Same cooling profile as the hashnode until tuned on hardware.
+    cooling: BoardCooling {
+        target_temp_c: 62.0,
+        min_fan_pwm: 20,
+    },
+    model: "Braiins Axe",
+    eeprom_i2c_address: None,
+};
