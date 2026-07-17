@@ -50,6 +50,9 @@ pub(crate) const POWER_GOOD_OFF: u8 = 0x5F;
 pub(crate) const STATUS_BYTE: u8 = 0x78;
 pub(crate) const READ_VOUT: u8 = 0x8B;
 pub(crate) const READ_POUT: u8 = 0x96;
+pub(crate) const PMBUS_REVISION: u8 = 0x98;
+pub(crate) const MFR_SERIAL: u8 = 0x9E;
+pub(crate) const IC_DEVICE_ID: u8 = 0xAD;
 
 /// OPERATION register on-bit: sets the output enabled state.
 const OPERATION_ON: u8 = 1 << 7;
@@ -545,6 +548,93 @@ where
         .await
         .map_err(Error::Bus)?;
     Ok(decode_status(buffer[0]))
+}
+
+/// Probe the SIC450's identity registers, log the raw bytes for bench
+/// evidence gathering, and return the `IC_DEVICE_ID` word when its read
+/// succeeded. Diagnostic reads never propagate errors to the caller.
+///
+/// `IC_DEVICE_ID` is the only identity register the datasheet documents.
+/// Its NVM default is 0x0000 and the part may ship unprogrammed, and the
+/// datasheet does not say whether it frames as a plain `PMBus` word read or
+/// a count-prefixed block read, so this probe tries both and logs the raw
+/// bytes from each; the returned value uses the word framing, matching
+/// every other multi-byte register in this driver. `PMBUS_REVISION` is a
+/// fixed byte per the datasheet, logged for cross-reference. `MFR_SERIAL`
+/// is user scratch space rather than a fixed identity, logged in case a
+/// prior programming step left something useful there.
+pub(crate) async fn log_identity<I, E>(i2c: &mut I, address: u8) -> Option<u16>
+where
+    I: I2c<Error = E>,
+    E: embedded_hal_async::i2c::Error,
+{
+    let mut device_id = None;
+    let mut word_buf = [0u8; 2];
+    match i2c
+        .write_read(address, &[IC_DEVICE_ID], &mut word_buf)
+        .await
+    {
+        Ok(()) => {
+            ubos_logging::info!(
+                "SIC identity: IC_DEVICE_ID word read = [{:x} {:x}]",
+                word_buf[0],
+                word_buf[1],
+            );
+            device_id = Some(u16::from_le_bytes(word_buf));
+        }
+        Err(error) => ubos_logging::warn!(
+            "SIC identity: IC_DEVICE_ID word read failed: {:?}",
+            ubos_logging::Debug2Format(&error),
+        ),
+    }
+
+    let mut block_buf = [0u8; 3];
+    match i2c
+        .write_read(address, &[IC_DEVICE_ID], &mut block_buf)
+        .await
+    {
+        Ok(()) => ubos_logging::info!(
+            "SIC identity: IC_DEVICE_ID block read = [{:x} {:x} {:x}]",
+            block_buf[0],
+            block_buf[1],
+            block_buf[2],
+        ),
+        Err(error) => ubos_logging::warn!(
+            "SIC identity: IC_DEVICE_ID block read failed: {:?}",
+            ubos_logging::Debug2Format(&error),
+        ),
+    }
+
+    let mut revision_buf = [0u8; 1];
+    match i2c
+        .write_read(address, &[PMBUS_REVISION], &mut revision_buf)
+        .await
+    {
+        Ok(()) => ubos_logging::info!("SIC identity: PMBUS_REVISION = {:x}", revision_buf[0]),
+        Err(error) => ubos_logging::warn!(
+            "SIC identity: PMBUS_REVISION read failed: {:?}",
+            ubos_logging::Debug2Format(&error),
+        ),
+    }
+
+    let mut serial_buf = [0u8; 3];
+    match i2c
+        .write_read(address, &[MFR_SERIAL], &mut serial_buf)
+        .await
+    {
+        Ok(()) => ubos_logging::info!(
+            "SIC identity: MFR_SERIAL = [{:x} {:x} {:x}]",
+            serial_buf[0],
+            serial_buf[1],
+            serial_buf[2],
+        ),
+        Err(error) => ubos_logging::warn!(
+            "SIC identity: MFR_SERIAL read failed: {:?}",
+            ubos_logging::Debug2Format(&error),
+        ),
+    }
+
+    device_id
 }
 
 #[cfg(test)]

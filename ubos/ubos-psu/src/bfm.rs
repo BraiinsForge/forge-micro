@@ -21,6 +21,8 @@
 //! power stage: one `SIC45x` `PMBus` DC/DC converter and one INA230
 //! output monitor.
 
+use core::fmt::Write as _;
+
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_hal_async::i2c::I2c;
@@ -106,7 +108,26 @@ impl<I: I2c + 'static> BfmPsu<I> {
             ubos_logging::warn!("BFM INA230 init failed (rail not up yet?)");
         }
 
-        sic45x::init(i2c, &config.sic).await
+        let result = sic45x::init(i2c, &config.sic).await;
+        if result.is_ok() {
+            // Identity probe: logs the SIC450's identity registers so
+            // bench captures can settle the word-vs-block framing
+            // question, and yields the IC_DEVICE_ID word. The register's
+            // NVM default is 0x0000 and catalog parts may ship
+            // unprogrammed, so only a real value is published; a blank
+            // or unreadable ID leaves the API model null. Does not
+            // affect the init outcome.
+            if let Some(id) = sic45x::log_identity(i2c, config.sic.address).await
+                && id != 0x0000
+                && id != 0xFFFF
+            {
+                let mut model = crate::ModelString::new();
+                if write!(model, "SIC450 id={id:#06x}").is_ok() {
+                    crate::publish_model(model);
+                }
+            }
+        }
+        result
     }
 
     /// Replay a cached init outcome or run [`Self::run_init`] once and

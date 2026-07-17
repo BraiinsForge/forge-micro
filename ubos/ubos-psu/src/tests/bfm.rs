@@ -134,7 +134,23 @@ fn sic_init_transactions() -> Vec<Transaction> {
     ]
 }
 
-/// Build the full init sequence: INA230 (2 transactions) then `SIC45x` (21).
+/// Build the 4-transaction identity probe sequence that
+/// `sic45x::log_identity` issues after every successful `SIC45x` init:
+/// `IC_DEVICE_ID` read as a word, `IC_DEVICE_ID` read as a block,
+/// `PMBUS_REVISION`, and `MFR_SERIAL`. The response bytes are arbitrary;
+/// the probe only logs what it reads and never inspects the values.
+fn identity_probe_transactions(address: u8) -> [Transaction; 4] {
+    use crate::sic45x::{IC_DEVICE_ID, MFR_SERIAL, PMBUS_REVISION};
+    [
+        Transaction::write_read(address, vec![IC_DEVICE_ID], vec![0x00, 0x00]),
+        Transaction::write_read(address, vec![IC_DEVICE_ID], vec![0x00, 0x00, 0x00]),
+        Transaction::write_read(address, vec![PMBUS_REVISION], vec![0x33]),
+        Transaction::write_read(address, vec![MFR_SERIAL], vec![0x00, 0x00, 0x00]),
+    ]
+}
+
+/// Build the full init sequence: INA230 (2 transactions), `SIC45x` (21),
+/// then the post-init identity probe (4).
 fn init_transactions(config: &BfmPsuDescriptor) -> Vec<Transaction> {
     let [ina_config, ina_cal] = ina_init_transactions(
         config.ina_address,
@@ -143,6 +159,7 @@ fn init_transactions(config: &BfmPsuDescriptor) -> Vec<Transaction> {
     );
     let mut transactions = vec![ina_config, ina_cal];
     transactions.extend(sic_init_transactions());
+    transactions.extend(identity_probe_transactions(config.sic.address));
     transactions
 }
 
