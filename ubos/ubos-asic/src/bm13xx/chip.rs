@@ -30,13 +30,14 @@
 use heapless::Vec;
 use ubos_core::units::{Frequency, FrequencyRange, Voltage};
 
-use crate::{
-    AnalogMuxControl, BaudRateReg, ChipAddress, ChipDescriptor, ChipError, ChipIdReg,
-    ChipNonceOffsetReg, ControlCommand, CoreControlReg, CoreRegister, DomainSelect,
-    HashCountingNumberReg, HashboardDescriptor, IoDriverStrengthCtrlReg, MidstateCalReg,
-    MiscCtrlReg, MiscSettingsReg, Pll0DividerReg, PllParameterReg, Register, SoftResetControlReg,
-    UartRelayReg,
+use super::framing::{ChipAddress, ControlCommand};
+use super::registers::{
+    AnalogMuxControl, BaudRateReg, ChipIdReg, ChipNonceOffsetReg, CoreControlReg, CoreRegister,
+    DomainSelect, HashCountingNumberReg, IoDriverStrengthCtrlReg, MidstateCalReg, MiscCtrlReg,
+    MiscSettingsReg, Pll0DividerReg, PllParameterReg, Register, SoftResetControlReg, UartRelayReg,
 };
+use crate::HashboardDescriptor;
+use crate::chain::{ChipDescriptor, ChipError};
 
 #[cfg(test)]
 #[path = "tests/chip.rs"]

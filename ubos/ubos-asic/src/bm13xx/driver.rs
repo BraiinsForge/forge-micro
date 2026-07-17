@@ -31,17 +31,18 @@
 
 use ubos_core::units::Frequency;
 
+use crate::HashboardDescriptor;
 use crate::chain::{
     ChainDriver, ChainSolution, ChipDescriptor, ChipError, ResultMode, SolutionBatch, WorkJob,
 };
 use crate::transport::Transport;
-use crate::{
-    ChipAddress, ControlCommand, HashboardDescriptor, HwWork, MAX_CHAIN_CHIPS, Register, Response,
-    ResponseParser, TicketMaskReg, build_command, build_read_register, build_write_register,
-};
 
-use super::chip::{Chip, ChipBus, ChipProtocol};
-use super::framing::RESPONSE_LEN;
+use super::chip::{Chip, ChipBus, ChipProtocol, MAX_CHAIN_CHIPS};
+use super::framing::{
+    ChipAddress, ControlCommand, HwWork, RESPONSE_LEN, Response, ResponseParser, build_command,
+    build_read_register, build_write_register,
+};
+use super::registers::{Register, TicketMaskReg};
 
 #[cfg(test)]
 #[path = "tests/driver.rs"]

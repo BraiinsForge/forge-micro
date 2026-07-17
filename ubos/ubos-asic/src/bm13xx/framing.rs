@@ -293,19 +293,19 @@ impl ControlCommand {
 
     /// Protocol code carried in the low bits of the cmd byte.
     #[must_use]
-    pub const fn code(&self) -> ControlCode {
+    pub const fn code(self) -> ControlCode {
         self.code
     }
 
     /// `true` if the cmd byte must set the broadcast bit.
     #[must_use]
-    pub const fn is_broadcast(&self) -> bool {
+    pub const fn is_broadcast(self) -> bool {
         self.broadcast
     }
 
     /// hw-addr the chip-side decoder consults; `0x00` for broadcast.
     #[must_use]
-    pub const fn hw_addr(&self) -> u8 {
+    pub const fn hw_addr(self) -> u8 {
         self.hw_addr
     }
 }

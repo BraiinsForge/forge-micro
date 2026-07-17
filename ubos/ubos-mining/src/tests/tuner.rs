@@ -22,7 +22,8 @@
 //! would emit against the BM1362 PLL factory table grid and the
 //! V^2 * f preservation rule.
 
-use ubos_asic::{BMM101_HASHBOARD, PllParameterReg};
+use ubos_asic::BMM101_HASHBOARD;
+use ubos_asic::bm13xx::registers::PllParameterReg;
 use ubos_core::units::{Frequency, Voltage};
 use ubos_psu::BmmPsuDescriptor;
 

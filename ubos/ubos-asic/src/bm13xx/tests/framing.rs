@@ -180,7 +180,9 @@ fn parse_register_response() {
             0xAA, 0x55, 0x13, 0x62, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1E,
         ],
     );
-    let response = parser.pop(crate::Chip::Bm1362).expect("should parse");
+    let response = parser
+        .pop(crate::bm13xx::chip::Chip::Bm1362)
+        .expect("should parse");
     match response {
         Response::RegisterResponse(register) => {
             assert_eq!(register.value, 0x1362_0300);
@@ -204,7 +206,7 @@ fn parse_with_junk() {
         ],
     );
     let response = parser
-        .pop(crate::Chip::Bm1362)
+        .pop(crate::bm13xx::chip::Chip::Bm1362)
         .expect("should parse despite junk");
     assert!(matches!(response, Response::RegisterResponse(_)));
     let desync = parser.take_desync();

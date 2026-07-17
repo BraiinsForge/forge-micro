@@ -19,7 +19,7 @@
 
 use super::*;
 
-use crate::BM1362;
+use crate::bm13xx::chip::BM1362;
 
 /// Reference corpus covering 50..=500 MHz in 25 MHz steps, expressed
 /// in kHz so the calculator's kHz signature is exercised at the

@@ -38,7 +38,7 @@ pub mod board;
 pub mod chain;
 pub mod transport;
 
-pub use bm13xx::*;
+pub use bm13xx::{chip::Chip, driver::Bm13xxDriver};
 pub use board::*;
 pub use chain::{
     BIP320_VERSION_MASK, ChainDriver, ChainSolution, ChipDescriptor, ChipError,

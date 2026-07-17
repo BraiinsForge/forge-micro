@@ -17,9 +17,11 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
+use crate::bm13xx::chip::Chip;
+use crate::bm13xx::framing::HwWork;
 use crate::bm13xx::framing::crc5;
 use crate::test_support::{MockTransport, block_on};
-use crate::{ChainDriver, Chip, HwWork, WorkJob};
+use crate::{ChainDriver, WorkJob};
 
 use super::Bm13xxDriver;
 

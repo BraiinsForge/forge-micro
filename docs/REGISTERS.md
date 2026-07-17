@@ -1,7 +1,7 @@
 # BM1362 Register Reference
 
 This document describes the typed BM1362 register set in
-`ubos-asic::registers`. Each section gives the register address,
+`ubos_asic::bm13xx::registers`. Each section gives the register address,
 direction, and field layout. Field names are kept raw where no richer
 semantic name is established for the bits.
 

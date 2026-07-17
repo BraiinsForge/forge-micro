@@ -19,14 +19,15 @@
 
 use super::*;
 
-use crate::{
-    BMM101_HASHBOARD, BaudRateReg, Chip, ChipAddress, ChipIdReg, ChipNonceOffsetReg,
-    ControlCommand, CoreControlReg, CoreRegister, HashboardDescriptor,
+use crate::bm13xx::framing::{ChipAddress, ControlCommand};
+use crate::bm13xx::registers::{
+    BaudRateReg, ChipIdReg, ChipNonceOffsetReg, CoreControlReg, CoreRegister,
     IO_DRIVER_STRENGTH_DOMAIN_BOUNDARY, IoDriverStrengthCtrlReg, MISC_SETTINGS_BM1370_BRINGUP,
     MidstateCalReg, MiscCtrlReg, MiscSettingsReg, PllParameterReg, Register, SoftResetControlReg,
     UartRelayReg,
 };
 use crate::test_support::block_on;
+use crate::{BMM101_HASHBOARD, HashboardDescriptor};
 
 /// One recorded bus operation. Addresses are encoded as a `u16` so the
 /// broadcast address (`0x100`) never collides with a chip address.
