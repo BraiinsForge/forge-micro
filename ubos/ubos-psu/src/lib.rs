@@ -79,6 +79,7 @@ pub enum Error<E> {
 /// platform; consumers stay generic over `Psu`.
 pub mod bfm;
 pub mod bmm;
+pub mod braiins_axe;
 pub mod config;
 pub mod ina230;
 pub mod sic45x;
@@ -89,6 +90,7 @@ pub mod watchdog;
 
 pub use bfm::{BfmPsu, BfmPsuDescriptor, BfmState};
 pub use bmm::{BmmPsu, RawMutex, run_watchdog};
+pub use braiins_axe::{BraiinsAxePsu, BraiinsAxePsuDescriptor, BraiinsAxeState};
 pub use config::BmmPsuDescriptor;
 pub use state::State;
 
