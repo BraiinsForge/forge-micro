@@ -95,12 +95,12 @@ mod tests;
 /// Serialization scratch buffer size in bytes.
 ///
 /// The largest schema struct is `SystemInfo`, which serializes to roughly
-/// 800 bytes with all string fields at their maximums: a ~600-byte base
-/// plus roughly 200 bytes for `hwInfo`, whose string fields (bootloader
-/// and fan-controller versions, PSU model) each hold up to
-/// `HW_STRING_LEN` characters. 2048 bytes covers that worst case and
-/// leaves headroom for fields added in later phases without revisiting
-/// this constant.
+/// 950 bytes with all string fields at their maximums: a ~600-byte base
+/// plus roughly 350 bytes for `hwInfo`, whose string fields (bootloader
+/// and fan-controller versions, PSU model, three hashboard serials) each
+/// hold up to `HW_STRING_LEN` characters. 2048 bytes covers that worst
+/// case and leaves headroom for fields added in later phases without
+/// revisiting this constant.
 ///
 /// Per-connection stack cost is `SCRATCH_SIZE` bytes; this multiplies by
 /// `API_HTTP_POOL` for concurrent connections. If you increase this
@@ -387,6 +387,7 @@ where
         bootloader_version: crate::hw_info::bootloader_version(),
         fan_controller_version: crate::hw_info::fan_controller_version(),
         psu_model: psu.model(),
+        hashboard_ids: crate::hw_info::hashboard_ids(),
     };
 
     let info = SystemInfo {

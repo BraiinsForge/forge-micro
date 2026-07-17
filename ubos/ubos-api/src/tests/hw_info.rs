@@ -21,7 +21,7 @@
 
 use super::*;
 
-/// Publishing distinct values through both cells round-trips each
+/// Publishing distinct values through all three cells round-trips each
 /// back through its own getter unchanged. The cells share one payload
 /// type, so a copy-paste that wired a publish function or getter to
 /// the wrong cell would compile cleanly; this test is what catches it.
@@ -29,10 +29,18 @@ use super::*;
 fn publish_and_read_round_trip_each_cell() {
     let bootloader: HwString = "deadbeef".parse().expect("BUG: fits in HwString");
     let fan: HwString = "12.34.56 build 777".parse().expect("BUG: fits in HwString");
+    let mut ids: HashboardIds = Vec::new();
+    ids.push(Some("SERIAL0".parse().expect("BUG: fits in HwString")))
+        .expect("BUG: fits in MAX_HASHBOARDS");
+    ids.push(None).expect("BUG: fits in MAX_HASHBOARDS");
+    ids.push(Some("SERIAL2".parse().expect("BUG: fits in HwString")))
+        .expect("BUG: fits in MAX_HASHBOARDS");
 
     publish_bootloader_version(bootloader.clone());
     publish_fan_controller_version(fan.clone());
+    publish_hashboard_ids(ids.clone());
 
     assert_eq!(bootloader_version(), Some(bootloader));
     assert_eq!(fan_controller_version(), Some(fan));
+    assert_eq!(hashboard_ids(), Some(ids));
 }

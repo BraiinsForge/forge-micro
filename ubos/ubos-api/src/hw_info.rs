@@ -22,12 +22,13 @@
 //! redacted reads the bootloader CRC-32 fingerprint and the STM8 fan
 //! controller's version string once, early in boot, and publishes them
 //! here through a `Watch` so the system-info handler can read the
-//! latest snapshot lock-free. Boards that never publish a given cell
-//! leave its reader returning `None`.
+//! latest snapshot lock-free. Every board's boot-time hashboard EEPROM
+//! read publishes its parsed serials the same way. Boards that never
+//! publish a given cell leave its reader returning `None`.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
-use heapless::String;
+use heapless::{String, Vec};
 
 /// Capacity of every string field in the hardware-identity response.
 /// Sized to the largest producer, the 40-byte redacted hashboard EEPROM
@@ -41,6 +42,14 @@ pub type HwString = String<HW_STRING_LEN>;
 
 static BOOTLOADER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static FAN_CONTROLLER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
+
+/// Largest hashboard chain count across supported machines (redacted 10).
+pub const MAX_HASHBOARDS: usize = 3;
+
+/// Per-slot hashboard serials; the index is the physical chain number.
+pub type HashboardIds = Vec<Option<HwString>, MAX_HASHBOARDS>;
+
+static HASHBOARD_IDS: Watch<CriticalSectionRawMutex, HashboardIds, 1> = Watch::new();
 
 /// Publishes the bootloader version string. Call once at boot.
 pub fn publish_bootloader_version(version: HwString) {
@@ -62,6 +71,18 @@ pub fn publish_fan_controller_version(version: HwString) {
 /// publication and on boards that never publish one.
 pub(crate) fn fan_controller_version() -> Option<HwString> {
     FAN_CONTROLLER_VERSION.try_get()
+}
+
+/// Publishes the per-chain hashboard serials. Call once at boot, after
+/// the boot-time EEPROM read(s) complete.
+pub fn publish_hashboard_ids(ids: HashboardIds) {
+    HASHBOARD_IDS.sender().send(ids);
+}
+
+/// Returns the published hashboard serials, or `None` before
+/// publication and on boards that never publish any.
+pub(crate) fn hashboard_ids() -> Option<HashboardIds> {
+    HASHBOARD_IDS.try_get()
 }
 
 #[cfg(test)]

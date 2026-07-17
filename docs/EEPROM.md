@@ -165,10 +165,12 @@ once.
   it has not been cross-checked against a parsed product-name match on
   real hardware. A wrong address only produces a bus error or a failed
   parse (both log-only), no effect on bring-up.
-- Serial number/batch are not surfaced through the `system_info` REST
-  API: the boot-time read happens once, while the API handler runs
-  later, possibly concurrently, which needs a runtime-shared cell —
-  not implemented here.
+- The serial number is surfaced through the `system_info` REST API: the
+  boot-time read publishes its parsed serial into a `ubos-api` `hw_info`
+  `Watch` cell (`ubos_api::publish_hashboard_ids`), and `GET
+  /api/system/info` reads the latest snapshot lock-free into
+  `hwInfo.hashboardIds`, a positional array indexed by physical chain.
+  Product name and batch are not part of that cell and stay log-only.
 - No mismatch warning exists between the EEPROM's `product_name` and
   the compiled descriptor: `HashboardDescriptor::model` holds a
   board-family name (`"miniminer"`, `"Braiins Forge Miner x4"`), while

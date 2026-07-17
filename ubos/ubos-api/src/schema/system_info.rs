@@ -28,7 +28,7 @@
 use heapless::String;
 use serde::Serialize;
 
-use crate::hw_info::HwString;
+use crate::hw_info::{HashboardIds, HwString};
 
 /// OTA-related fields embedded in the system-info response.
 ///
@@ -60,7 +60,8 @@ pub struct OtaInfo {
 /// `bootloader_version` and `fan_controller_version` are read once at
 /// boot on redacted only and reach this struct through the publish/read
 /// cells in `crate::hw_info`; they are `null` before publication and on
-/// every other board.
+/// every other board. `hashboard_ids` is published by every board's
+/// boot-time hashboard EEPROM read the same way.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HwInfo {
@@ -76,6 +77,14 @@ pub struct HwInfo {
     /// init. `redacted` reports the part with its detected revision
     /// letter. `null` where the supply is not identifiable.
     pub psu_model: Option<HwString>,
+    /// Per-chain hashboard serials, index-positional: element N is the
+    /// serial read off physical chain N. An element is `null` when that
+    /// chain's boot-time probe or read failed — an absent board and an
+    /// unreadable one both report `null`, distinct from a successful
+    /// read of a corrupt record, which still returns `"INVALID"`. The
+    /// whole field is `null` until the boot-time read publishes, and
+    /// stays `null` forever on a board with no EEPROM producer wired up.
+    pub hashboard_ids: Option<HashboardIds>,
 }
 
 /// Full system-info snapshot for `GET /api/system/info`.

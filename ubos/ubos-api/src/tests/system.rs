@@ -660,12 +660,14 @@ fn ota_chunk_non_final_short_returns_400() {
 // ---------------------------------------------------------------------------
 
 /// Build a default `HwInfo` for tests that do not exercise hardware
-/// version fields: no PSU model and no published versions.
+/// version fields: no PSU model and no published versions or
+/// hashboard serials.
 fn default_hw_info() -> crate::schema::system_info::HwInfo {
     crate::schema::system_info::HwInfo {
         bootloader_version: None,
         fan_controller_version: None,
         psu_model: None,
+        hashboard_ids: None,
     }
 }
 
@@ -742,36 +744,55 @@ fn system_info_user_request_serializes_paused_true_and_reason() {
 // SystemInfo hwInfo serialization
 // ---------------------------------------------------------------------------
 
-/// When both redacted-only version strings have been published, `hwInfo`
-/// carries them alongside the PSU model. The fan version exceeds 8
-/// characters to cover more than the common `"XX.XX.XX"` prefix.
+/// When both redacted-only version strings and the hashboard serials have been
+/// published, `hwInfo` carries all four fields with the published values
+/// present. The fan version exceeds 8 characters to cover more than the
+/// common `"XX.XX.XX"` prefix. The hashboard array carries a `None`
+/// middle slot alongside two published serials, covering an unreadable
+/// chain sitting between two good ones.
 #[test]
 fn system_info_hw_info_serializes_published_versions() {
+    let mut hashboard_ids: crate::hw_info::HashboardIds = heapless::Vec::new();
+    hashboard_ids
+        .push(Some("SERIAL0".parse().expect("BUG: fits in HwString")))
+        .expect("BUG: fits in MAX_HASHBOARDS");
+    hashboard_ids
+        .push(None)
+        .expect("BUG: fits in MAX_HASHBOARDS");
+    hashboard_ids
+        .push(Some("SERIAL2".parse().expect("BUG: fits in HwString")))
+        .expect("BUG: fits in MAX_HASHBOARDS");
+
     let hw_info = crate::schema::system_info::HwInfo {
         bootloader_version: Some("deadbeef".parse().expect("BUG: fits in HwString")),
         fan_controller_version: Some("12.34.56 build 777".parse().expect("BUG: fits in HwString")),
         psu_model: Some("PSU3300 rev a".parse().expect("BUG: fits in HwString")),
+        hashboard_ids: Some(hashboard_ids),
     };
     let json = serialize_system_info(false, None, hw_info);
     assert!(
         json.contains(
             "\"hwInfo\":{\"bootloaderVersion\":\"deadbeef\",\
-             \"fanControllerVersion\":\"12.34.56 build 777\",\"psuModel\":\"PSU3300 rev a\"}"
+             \"fanControllerVersion\":\"12.34.56 build 777\",\"psuModel\":\"PSU3300 rev a\",\
+             \"hashboardIds\":[\"SERIAL0\",null,\"SERIAL2\"]}"
         ),
         "expected populated hwInfo object in {json}"
     );
 }
 
-/// Before either redacted-only version string is published,
-/// `bootloaderVersion` and `fanControllerVersion` are `null` inside
-/// `hwInfo`, and `psuModel` is `null` on a board whose PSU driver
-/// detects nothing; this is also the permanent state on boards that
-/// never publish any of them.
+/// Before either redacted-only version string or the hashboard serials are
+/// published, `bootloaderVersion`, `fanControllerVersion`, and
+/// `hashboardIds` are all `null` inside `hwInfo`, and `psuModel` is
+/// `null` on a target without a modeled PSU; this is also the permanent
+/// state on boards that never publish any of them.
 #[test]
 fn system_info_hw_info_serializes_unpublished_versions_as_null() {
     let json = serialize_system_info(false, None, default_hw_info());
     assert!(
-        json.contains("\"bootloaderVersion\":null,\"fanControllerVersion\":null,\"psuModel\":null"),
-        "expected null bootloaderVersion, fanControllerVersion, and psuModel in {json}"
+        json.contains(
+            "\"bootloaderVersion\":null,\"fanControllerVersion\":null,\"psuModel\":null,\
+             \"hashboardIds\":null"
+        ),
+        "expected null bootloaderVersion, fanControllerVersion, and hashboardIds in {json}"
     );
 }
