@@ -298,6 +298,11 @@ let
   # enforces the OTA slot budget, "elf" greps the ELF for the pool
   # worker only; boards that are not OTA targets have no slot budget.
   boards = lib.filterAttrs (name: _: hasCrate name) {
+    braiins-axe = {
+      artifacts = deps.thumbv8mArtifacts;
+      target = "thumbv8m.main-none-eabihf";
+      guard = "slot";
+    };
     bmm-pico = {
       artifacts = deps.thumbv8mArtifacts;
       target = "thumbv8m.main-none-eabihf";
@@ -763,20 +768,23 @@ hostClippyChecks
     ''
     + lib.optionalString (hasCrate "rp2040") "  check ${
         root + "/firmware/rp2040/src/config.rs"
-      }   '${toString slotMaxKiB} * 1024'\n"
+      }      '${toString slotMaxKiB} * 1024'\n"
     + lib.optionalString (hasCrate "rp2350") "  check ${
         root + "/firmware/rp2350/src/config.rs"
-      }   '${toString slotMaxKiB} * 1024'\n"
+      }      '${toString slotMaxKiB} * 1024'\n"
     + lib.optionalString (hasCrate "bmm-pico") "  check ${
         root + "/firmware/bmm-pico/src/config.rs"
-      } '${toString slotMaxKiB} * 1024'\n"
+      }    '${toString slotMaxKiB} * 1024'\n"
     + lib.optionalString (hasCrate "hashnode") "  check ${
         root + "/firmware/hashnode/src/config.rs"
+      }    '${toString slotMaxKiB} * 1024'\n"
+    + lib.optionalString (hasCrate "braiins-axe") "  check ${
+        root + "/firmware/braiins-axe/src/config.rs"
       } '${toString slotMaxKiB} * 1024'\n"
     # esp32s3: the 3 MiB app slot, not the shared RP budget.
     + lib.optionalString (hasCrate "esp32s3") "  check ${
         root + "/firmware/esp32s3/src/config.rs"
-      }  '3 * 1024 * 1024'\n"
+      }     '3 * 1024 * 1024'\n"
     + ''
       touch $out
     ''

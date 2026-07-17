@@ -10,6 +10,7 @@ All builds must go through `nix develop` shells. The `arm` shell
 covers ARM targets; the `esp` shell covers the Xtensa target.
 
 ```sh
+nix develop .#arm -c bash -c 'cd firmware/braiins-axe && cargo check'
 nix develop .#arm -c bash -c 'cd firmware/bmm-pico    && cargo check'
 nix develop .#arm -c bash -c 'cd firmware/rp2040      && cargo check'
 nix develop .#arm -c bash -c 'cd firmware/rp2350      && cargo check'
@@ -28,18 +29,20 @@ auto-selects and only works with a single attached probe. Run from
 inside the crate directory.
 
 ```sh
-nix develop .#arm -c bash -c 'cd firmware/bmm-pico  && cargo run-1 --release'
-nix develop .#arm -c bash -c 'cd firmware/rp2040    && cargo run-1 --release'
-nix develop .#arm -c bash -c 'cd firmware/rp2350    && cargo run-1 --release'
-nix develop .#arm -c bash -c 'cd firmware/hashnode  && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/stm32f407 && cargo run-1 --release'
-nix develop .#arm -c bash -c 'cd firmware/stm32f439 && cargo run-1 --release'
-nix develop .#esp -c bash -c 'cd firmware/esp32s3   && cargo run-1 --release'
+nix develop .#arm -c bash -c 'cd firmware/braiins-axe && cargo run --release'
+nix develop .#arm -c bash -c 'cd firmware/bmm-pico    && cargo run-1 --release'
+nix develop .#arm -c bash -c 'cd firmware/rp2040      && cargo run-1 --release'
+nix develop .#arm -c bash -c 'cd firmware/rp2350      && cargo run-1 --release'
+nix develop .#arm -c bash -c 'cd firmware/hashnode    && cargo run --release'
+nix develop .#arm -c bash -c 'cd firmware/stm32f407   && cargo run-1 --release'
+nix develop .#arm -c bash -c 'cd firmware/stm32f439   && cargo run-1 --release'
+nix develop .#esp -c bash -c 'cd firmware/esp32s3     && cargo run-1 --release'
 ```
 
 Every board drives a BM1362 hashboard via `ubos-mining` unconditionally,
-except `hashnode`, where `config::CHIP` selects the 4-chip BM1370
-driver instead (there is no cargo feature for it); the board
+except `hashnode` (four-chip, four-domain BM1370) and `braiins-axe`
+(four-chip, single-domain BM1370), where `config::CHIP` selects the
+BM1370 driver instead (there is no cargo feature for it); the board
 descriptor carries only chip-neutral facts. The `display` feature is
 always in defaults and SV2 is always built on all boards.
 
@@ -75,6 +78,7 @@ on the same probe.
 
 | Crate | Target | MCU |
 |-------|--------|-----|
+| braiins-axe | thumbv8m.main-none-eabihf | RP2350A (Pico 2 module, Cortex-M33) |
 | bmm-pico | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
 | rp2040 | thumbv6m-none-eabi | RP2040 (Cortex-M0+) |
 | rp2350 | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
