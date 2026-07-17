@@ -5017,6 +5017,7 @@ dependencies = [
  "embassy-time",
  "embedded-hal-async",
  "embedded-hal-mock",
+ "heapless 0.9.2",
  "portable-atomic",
  "static_cell",
  "ubos-core",

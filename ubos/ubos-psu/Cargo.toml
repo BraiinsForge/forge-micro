@@ -12,6 +12,7 @@ workspace = true
 embedded-hal-async = { workspace = true }
 embassy-sync       = { workspace = true }
 embassy-time       = { workspace = true }
+heapless           = { workspace = true }
 portable-atomic    = { workspace = true }
 defmt              = { workspace = true, optional = true }
 ubos-core          = { workspace = true }
