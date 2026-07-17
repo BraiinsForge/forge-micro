@@ -334,6 +334,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "braiins-axe"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt 1.0.1",
+ "defmt-rtt",
+ "embassy-embedded-hal",
+ "embassy-executor",
+ "embassy-net",
+ "embassy-net-wiznet",
+ "embassy-rp",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "embedded-hal-bus",
+ "embedded-io-async 0.7.0",
+ "heapless 0.9.2",
+ "pio",
+ "portable-atomic",
+ "serial-baudrate",
+ "static_cell",
+ "stratum-client",
+ "ubos-api",
+ "ubos-asic",
+ "ubos-auth",
+ "ubos-config",
+ "ubos-cooling",
+ "ubos-core",
+ "ubos-display",
+ "ubos-eeprom",
+ "ubos-events",
+ "ubos-firmware",
+ "ubos-http",
+ "ubos-machine",
+ "ubos-manager",
+ "ubos-mdns",
+ "ubos-metrics",
+ "ubos-mining",
+ "ubos-net",
+ "ubos-ota",
+ "ubos-psu",
+ "ubos-temperature",
+ "ubos-thermal",
+ "ubos-webui",
+]
+
+[[package]]
 name = "bs58"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
