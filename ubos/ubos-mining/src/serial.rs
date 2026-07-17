@@ -200,6 +200,9 @@ pub enum SerialMessage {
     /// Fire-and-forget: enqueue a pre-built command frame to be written
     /// to the chip. No reply is signalled.
     SendFrame(Frame),
+    /// Replace the scheduler's per-slot dispatch weights.
+    /// Fire-and-forget: no reply is signalled.
+    SetPoolWeights([u32; 8]),
 }
 
 /// In-flight work for a given chip work-id slot. Kept around so an incoming
@@ -342,6 +345,13 @@ impl Serial {
     /// the chip in the order it arrives at the server task.
     pub async fn send_frame(&self, frame: Frame) {
         self.cmd.send(SerialMessage::SendFrame(frame)).await;
+    }
+
+    /// Fire-and-forget: replace the scheduler's per-slot dispatch
+    /// weights. Applied directly in `run`'s command arm rather than
+    /// through `handle_command`.
+    pub async fn set_pool_weights(&self, weights: [u32; 8]) {
+        self.cmd.send(SerialMessage::SetPoolWeights(weights)).await;
     }
 
     /// Build and dispatch a register-write frame. Fire-and-forget; the
@@ -513,6 +523,9 @@ impl Serial {
                         session,
                         &mut scheduler,
                     )?;
+                }
+                Either4::Third(SerialMessage::SetPoolWeights(weights)) => {
+                    scheduler.set_weights(&weights);
                 }
                 Either4::Third(msg) => {
                     if let ControlFlow::Break(()) = self
@@ -816,6 +829,10 @@ impl Serial {
             SerialMessage::Terminate => {
                 self.reply.signal(Ok(()));
                 return ControlFlow::Break(());
+            }
+            SerialMessage::SetPoolWeights(_) => {
+                // Intercepted in `run`'s command arm before it reaches
+                // `handle_command`; never actually matched here.
             }
         }
         ControlFlow::Continue(())

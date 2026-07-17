@@ -318,12 +318,6 @@ ubos_http::http_worker_task!(
 /// RAM-constrained boards may choose fewer (see stm32f407).
 pub(crate) const POOL_SLOTS: usize = ubos_firmware::MAX_POOLS;
 
-/// Per-slot dispatch weights for the work scheduler. A weight of
-/// zero marks a backup-only slot: mined only while no weighted
-/// slot has work. The default keeps pool 0 primary and the
-/// remaining configured entries as failover backups.
-pub(crate) const POOL_WEIGHTS: [u32; POOL_SLOTS] = [1, 0, 0];
-
 /// Shared ASIC session: the bridge between the per-slot stratum sessions and
 /// the BM1362 serial worker. One instance per binary; referenced by every
 /// stratum client task and the mining serial task.

@@ -48,7 +48,7 @@ pub async fn serial_task(
             serial,
             session,
             crate::config::BOARD,
-            ubos_mining::scheduler::RatioScheduler::new(crate::POOL_WEIGHTS),
+            ubos_mining::scheduler::RatioScheduler::new(),
         )
         .await
     {

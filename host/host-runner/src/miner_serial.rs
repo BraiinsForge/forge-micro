@@ -35,8 +35,9 @@ pub async fn miner_serial_task() -> ! {
     };
     info!("host-runner: miner serial bringup on {MINER_SERIAL_PATH}");
     // Single-slot session, so the ratio scheduler degenerates to
-    // always serving slot 0 when it has work.
-    let scheduler = ubos_mining::scheduler::RatioScheduler::new([1]);
+    // always serving slot 0 when it has work. `new`'s fallback
+    // default already weights slot 0, so no reweight is needed.
+    let scheduler = ubos_mining::scheduler::RatioScheduler::new();
     match SERIAL
         .run(serial, &ASIC_SESSION, crate::BOARD, scheduler)
         .await

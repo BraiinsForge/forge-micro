@@ -25,6 +25,11 @@ pub trait Scheduler<const N: usize> {
     /// Picks the slot to dispatch next, restricted to `available`
     /// slots. Returns `None` when nothing is dispatchable.
     fn evaluate(&mut self, available: &[bool; N]) -> Option<usize>;
+
+    /// Replace the dispatch weights at runtime. The default is a
+    /// no-op so policy-free implementations and test stubs need
+    /// not care.
+    fn set_weights(&mut self, _weights: &[u32]) {}
 }
 
 /// Clamped deficit-counter scheduler over `N` pool slots.
@@ -43,40 +48,35 @@ pub struct RatioScheduler<const N: usize> {
 }
 
 impl<const N: usize> RatioScheduler<N> {
-    /// Builds a scheduler for `weights`. Credits all start at zero.
-    ///
-    /// # Panics
-    ///
-    /// Panics if every weight is zero, or if the weight sum is large
-    /// enough that the credit clamp would not fit in `i32`.
+    /// Builds a scheduler at the fallback default: slot 0 weighted 1,
+    /// every other slot weight 0, credits at zero. Callers that need a
+    /// real dispatch ratio configure it through
+    /// [`Scheduler::set_weights`] once it is known.
     #[must_use]
-    pub fn new(weights: [u32; N]) -> Self {
-        assert!(
-            weights.iter().any(|&weight| weight > 0),
-            "RatioScheduler requires at least one non-zero weight"
-        );
-
-        let weight_sum_i64: i64 = weights.iter().map(|&weight| i64::from(weight)).sum();
-        let max_magnitude = weight_sum_i64 * i64::from(CLAMP_SHARES + 1);
-        assert!(
-            max_magnitude <= i64::from(i32::MAX),
-            "RatioScheduler weight sum too large for the credit clamp to fit i32"
-        );
-        let weight_sum =
-            i32::try_from(weight_sum_i64).expect("checked above: weight sum fits in i32");
-
-        Self {
-            weights,
+    pub fn new() -> Self {
+        let mut scheduler = Self {
+            weights: [0; N],
             credit: [0; N],
-            weight_sum,
-        }
+            weight_sum: 0,
+        };
+        // An empty input truncates to all zero, so this applies the
+        // fallback default and derives `weight_sum` through the same
+        // path `set_weights` uses at runtime.
+        scheduler.set_weights(&[]);
+        scheduler
+    }
+}
+
+impl<const N: usize> Default for RatioScheduler<N> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl<const N: usize> Scheduler<N> for RatioScheduler<N> {
     fn accumulate_share(&mut self, slot: usize) {
         for (credit, &weight) in self.credit.iter_mut().zip(&self.weights) {
-            *credit += i32::try_from(weight).expect("weight fits in i32: checked in Self::new");
+            *credit += i32::try_from(weight).expect("weight fits in i32: clamped in set_weights");
         }
         self.credit[slot] -= self.weight_sum;
 
@@ -110,5 +110,41 @@ impl<const N: usize> Scheduler<N> for RatioScheduler<N> {
             .iter()
             .zip(&self.weights)
             .position(|(&is_available, &weight)| is_available && weight == 0)
+    }
+
+    fn set_weights(&mut self, weights: &[u32]) {
+        // Largest weight a slot may hold without letting
+        // `weight_sum * (CLAMP_SHARES + 1)` overflow `i32`. Applied to
+        // every stored weight, not only their sum: `accumulate_share`
+        // converts each slot's own weight to `i32` on every share, so
+        // the per-slot bound is what keeps that conversion total.
+        // Config validation already bounds weights to 100 000, so this
+        // saturation is defense in depth against direct misuse of the
+        // method rather than a path with defined precision
+        // requirements.
+        let max_weight = i64::from(i32::MAX) / i64::from(CLAMP_SHARES + 1);
+
+        let mut new_weights = [0u32; N];
+        let len = weights.len().min(N);
+        for (dst, &src) in new_weights[..len].iter_mut().zip(&weights[..len]) {
+            let clamped = i64::from(src).min(max_weight);
+            *dst = u32::try_from(clamped).expect("clamped to max_weight, which fits in u32");
+        }
+
+        // Post-truncation fallback: a reduced-slot board whose only
+        // weighted entry lies beyond its slot count still mines slot 0.
+        if N > 0 && new_weights.iter().all(|&weight| weight == 0) {
+            new_weights[0] = 1;
+        }
+
+        let weight_sum_i64: i64 = new_weights.iter().map(|&weight| i64::from(weight)).sum();
+        let weight_sum_i64 = weight_sum_i64.min(max_weight);
+        self.weight_sum =
+            i32::try_from(weight_sum_i64).expect("clamped to max_weight, which fits in i32");
+
+        self.weights = new_weights;
+        // A reweight is a clean slate by design: it coincides with the
+        // stratum sessions restarting on the same config generation.
+        self.credit = [0; N];
     }
 }
