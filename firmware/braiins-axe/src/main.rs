@@ -25,10 +25,11 @@ use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C0, PIO0, SPI0, TRNG, UART1};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, DMA_CH3, I2C0, PIO0, PIO1, SPI0, TRNG, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
+use embassy_rp::pio_programs::ws2812::{PioWs2812, PioWs2812Program};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_rp::trng::{self, Trng};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
@@ -96,6 +97,7 @@ mod config;
 mod fan;
 mod mining;
 mod psu;
+mod rgb;
 mod temperature;
 mod uart_baudrate;
 
@@ -130,12 +132,14 @@ bind_interrupts!(struct Irqs {
     DMA_IRQ_0 =>
         dma::InterruptHandler<DMA_CH0>,
         dma::InterruptHandler<DMA_CH1>,
+        dma::InterruptHandler<DMA_CH3>,
         #[cfg(feature = "display")]
         dma::InterruptHandler<DMA_CH2>;
     I2C0_IRQ => i2c::InterruptHandler<I2C0>;
     UART1_IRQ => BufferedInterruptHandler<UART1>;
     TRNG_IRQ => trng::InterruptHandler<TRNG>;
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
+    PIO1_IRQ_0 => PioInterruptHandler<PIO1>;
 });
 
 type EthernetRunner = Runner<
@@ -541,11 +545,37 @@ async fn boot(spawner: Spawner) {
     // Each connector's tachometer is measured by a PIO0 state machine; the
     // cooling loop drains the latest period per fan and publishes one
     // labeled board_fan_rpm series each.
-    let tach_pio = Pio::new(hw.pio, Irqs);
-    let board_tach = fan::BoardTach::new(tach_pio, hw.fan_tach_pin_a, hw.fan_tach_pin_b);
+    let Pio {
+        mut common,
+        sm0,
+        sm1,
+        ..
+    } = Pio::new(hw.pio, Irqs);
+    let board_tach =
+        fan::BoardTach::new(&mut common, sm0, sm1, hw.fan_tach_pin_a, hw.fan_tach_pin_b);
     spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
     spawner.spawn(unwrap!(manager_task(mining_handle)));
     spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
+
+    // The 16-LED ARGB ring breathes a fixed color; see rgb.rs for why
+    // the ring runs on PIO1 rather than sharing PIO0 with the tachs.
+    // The WS2812 program object only parameterizes state machine setup,
+    // so it can drop at the end of boot().
+    let Pio {
+        common: mut rgb_common,
+        sm0: rgb_sm,
+        ..
+    } = Pio::new(hw.pio1, Irqs);
+    let rgb_program = PioWs2812Program::new(&mut rgb_common);
+    let status_ring: rgb::Ring = PioWs2812::new(
+        &mut rgb_common,
+        rgb_sm,
+        hw.rgb_dma,
+        Irqs,
+        hw.rgb_data,
+        &rgb_program,
+    );
+    spawner.spawn(unwrap!(rgb::rgb_task(status_ring)));
 
     // --- 7. Config — always ---------------------------------------------------
     let config_storage = FlashStorage::new(

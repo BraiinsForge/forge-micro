@@ -354,6 +354,7 @@ dependencies = [
  "pio",
  "portable-atomic",
  "serial-baudrate",
+ "smart-leds",
  "static_cell",
  "stratum-client",
  "ubos-api",

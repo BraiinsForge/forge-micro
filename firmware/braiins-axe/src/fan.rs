@@ -25,9 +25,7 @@
 
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::{PIN_27, PIN_28, PIN_8, PIN_9, PIO0, PWM_SLICE4};
-use embassy_rp::pio::{
-    Common, Config, Direction, FifoJoin, LoadedProgram, Pio, PioPin, StateMachine,
-};
+use embassy_rp::pio::{Common, Config, Direction, FifoJoin, LoadedProgram, PioPin, StateMachine};
 use embassy_rp::pio_programs::clock_divider::calculate_pio_clock_divider;
 use embassy_rp::pwm::{Config as PwmConfig, Pwm};
 use embassy_rp::Peri;
@@ -124,18 +122,19 @@ pub struct BoardTach {
 
 impl BoardTach {
     /// Load the tach program into `PIO0` and start one state machine per
-    /// connector. Consumes the whole `Pio`; the `common` handle is only
-    /// needed for setup and is dropped here, which leaves the running
-    /// state machines untouched.
+    /// connector. Borrows `common` rather than consuming the `Pio`: SM2
+    /// belongs to the WS2812 status ring, so `main` splits the block.
     #[must_use]
     pub fn new(
-        mut pio: Pio<'static, PIO0>,
+        common: &mut Common<'static, PIO0>,
+        sm0: StateMachine<'static, PIO0, 0>,
+        sm1: StateMachine<'static, PIO0, 1>,
         pin_a: Peri<'static, PIN_27>,
         pin_b: Peri<'static, PIN_28>,
     ) -> Self {
-        let program = tach_program(&mut pio.common);
-        let sm_a = setup_tach(&mut pio.common, pio.sm0, pin_a, &program);
-        let sm_b = setup_tach(&mut pio.common, pio.sm1, pin_b, &program);
+        let program = tach_program(common);
+        let sm_a = setup_tach(common, sm0, pin_a, &program);
+        let sm_b = setup_tach(common, sm1, pin_b, &program);
         Self { sm_a, sm_b }
     }
 }

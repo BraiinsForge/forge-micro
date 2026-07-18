@@ -11,9 +11,9 @@
 pub use ubos_machine::BRAIINS_AXE as MACHINE;
 
 use embassy_rp::peripherals::{
-    CORE1, DMA_CH0, DMA_CH1, FLASH, I2C0, PIN_0, PIN_1, PIN_16, PIN_17, PIN_18, PIN_19, PIN_2,
-    PIN_20, PIN_21, PIN_22, PIN_26, PIN_27, PIN_28, PIN_3, PIN_4, PIN_5, PIN_8, PIN_9, PIO0,
-    PWM_SLICE4, SPI0, TRNG, UART1, WATCHDOG,
+    CORE1, DMA_CH0, DMA_CH1, DMA_CH3, FLASH, I2C0, PIN_0, PIN_1, PIN_16, PIN_17, PIN_18, PIN_19,
+    PIN_2, PIN_20, PIN_21, PIN_22, PIN_26, PIN_27, PIN_28, PIN_3, PIN_4, PIN_5, PIN_6, PIN_8,
+    PIN_9, PIO0, PIO1, PWM_SLICE4, SPI0, TRNG, UART1, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, SPI1};
@@ -72,6 +72,15 @@ pub struct Board {
     pub fan_tach_pin_b: Peri<'static, PIN_28>,
     /// PIO block driving the two tachometer period counters.
     pub pio: Peri<'static, PIO0>,
+    /// PIO block clocking the WS2812 status ring. The ring cannot share
+    /// PIO0: the tach program plus the WS2812 program overflow the
+    /// 32-instruction memory by one.
+    pub pio1: Peri<'static, PIO1>,
+    /// ARGB header data line (GPIO6; the `DISP_SDA` net doubles as the
+    /// ring's WS2812 data input).
+    pub rgb_data: Peri<'static, PIN_6>,
+    /// DMA channel feeding the WS2812 PIO FIFO.
+    pub rgb_dma: Peri<'static, DMA_CH3>,
     /// FLASH peripheral for the on-board QSPI; ubos-config persists the
     /// runtime config record in the last two sectors of this device.
     pub flash: Peri<'static, FLASH>,
@@ -148,6 +157,9 @@ impl Board {
             fan_tach_pin_a: peripherals.PIN_27,
             fan_tach_pin_b: peripherals.PIN_28,
             pio: peripherals.PIO0,
+            pio1: peripherals.PIO1,
+            rgb_data: peripherals.PIN_6,
+            rgb_dma: peripherals.DMA_CH3,
             flash: peripherals.FLASH,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI1,
