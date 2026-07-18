@@ -34,13 +34,3 @@ pub const WORK_REGISTRY_SLOTS: usize = 256 / 8;
 /// today; a chip booting at a different rate would need this to become
 /// per-board.
 pub const INITIAL_BAUDRATE: u32 = 115_200;
-
-/// Nominal fast baud requested after PLL programming. The chip's `0x28`
-/// divider produces 3.125 Mbaud (`25 MHz / 8`) for this request; the
-/// host UART is programmed to [`FAST_BAUDRATE_ACTUAL`] instead.
-pub const FAST_BAUDRATE: u32 = 3_125_000;
-
-/// Host-side UART rate the serial controller is programmed to when
-/// [`FAST_BAUDRATE`] is requested. This is a host compatibility value,
-/// not the chip's divider output (which is 3.125 Mbaud).
-pub const FAST_BAUDRATE_ACTUAL: u32 = 3_000_000;

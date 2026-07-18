@@ -375,12 +375,17 @@ pub trait ChipProtocol {
             .await;
     }
 
-    /// Host UART rate, in Hz, that matches the chip register written by
-    /// [`Self::enable_fast_uart`]. The default is 3 125 000 Hz (bt8d=0,
-    /// crystal-clocked). Chips whose serial pair cannot sustain 3 Mbaud
-    /// override this to return a slower rate derived from their own bt8d.
+    /// Host UART rate, in Hz, to pair with the chip register written by
+    /// [`Self::enable_fast_uart`]. The default fast UART is crystal-
+    /// clocked at a nominal 3.125 Mbaud (bt8d=0), which the host
+    /// controllers cannot divide to exactly; they run 3.0 Mbaud, which
+    /// the chip tolerates. This hook therefore returns the achievable
+    /// host rate, not the chip's nominal one, so the consumer programs
+    /// it verbatim. Chips whose serial pair cannot sustain 3 Mbaud
+    /// override this to return a slower rate derived from their own
+    /// bt8d.
     fn fast_uart_host_rate(&self) -> u32 {
-        3_125_000
+        3_000_000
     }
 
     /// Program the hash-clock PLL to `freq`, leaving the counting number

@@ -189,7 +189,7 @@ fn park_if_requested() -> bool {
     true
 }
 
-use crate::consts::{FAST_BAUDRATE, FAST_BAUDRATE_ACTUAL, WORK_REGISTRY_SLOTS};
+use crate::consts::WORK_REGISTRY_SLOTS;
 use crate::scheduler::Scheduler;
 
 /// How often the actor polls the nonce FIFO for poll-delivery chips
@@ -334,21 +334,11 @@ struct WorkSlot {
 
 /// [`Transport`] over the actor's UART. Frames written by the driver go
 /// straight to the line; reads are bounded by the driver-supplied
-/// timeout; the baud switch maps the chip's nominal fast rate to the
-/// host controller's achievable rate.
+/// timeout; the baud switch programs the driver-supplied rate verbatim —
+/// each driver's host-rate hook already names a rate the host controller
+/// can achieve, so no vendor rate mapping lives here.
 struct SerialIo<'a, S> {
     serial: &'a mut S,
-}
-
-/// Map a chip-nominal baud to the host controller rate. The BM1362/BM1366
-/// fast UART reports 3.125 Mbaud but the host controller runs 3.0 Mbaud,
-/// which the chip tolerates; every other rate passes through.
-fn host_baud(hz: u32) -> u32 {
-    if hz == FAST_BAUDRATE {
-        FAST_BAUDRATE_ACTUAL
-    } else {
-        hz
-    }
 }
 
 impl<S> Transport for SerialIo<'_, S>
@@ -382,16 +372,15 @@ where
     }
 
     fn set_baud(&mut self, hz: u32) -> Result<(), BaudRateError> {
-        let rate = host_baud(hz);
-        if rate == 0 {
+        if hz == 0 {
             error!("Refusing zero baud rate");
             return Err(BaudRateError);
         }
-        info!("Serial baud rate changing to {}", rate);
+        info!("Serial baud rate changing to {}", hz);
         // The backend detail is logged here; the driver sees only the
         // opaque error and fails bring-up so the miner resets and
         // retries instead of mining on a misclocked line.
-        if let Err(e) = self.serial.set_baudrate(rate) {
+        if let Err(e) = self.serial.set_baudrate(hz) {
             error!("Serial baud switch failed: {:?}", Debug2Format(&e));
             return Err(BaudRateError);
         }
