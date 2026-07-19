@@ -8,13 +8,6 @@ reads and parses this data once at boot, reusing `bos-main`'s existing
 read-only wire format so hashboards already flashed by its factory
 tooling read correctly here without a second format or flasher.
 
-The redacted 10's `AM04_redacted_UART_X40X4` hashboards are the exception:
-they come factory-programmed by redacted, not by `bmm-flasher`, with a
-different EEPROM chip on a different bus carrying a different layout.
-The `redacted` format module and the `sio` single-wire transport cover
-them; the wire protocol is documented in
-[redacted/sio-eeprom-protocol.md](redacted/sio-eeprom-protocol.md).
-
 ## Naming corrections
 
 Descriptor and control-board names had drifted from the real hardware.
@@ -132,15 +125,6 @@ cleanly and only a human reading the values catches it.
 - `i2c` module: `I2cEeprom<I: embedded_hal_async::i2c::I2c>` (address
   passed at construction like `ubos_temperature::lm75a::Lm75a`; reads
   are not page-limited, the whole chip comes back in one transaction).
-- `sio` module: `SioEeprom<P, D>`, the single-wire transport for the
-  redacted hashboards, bit-banged over one open-drain pin
-  (`embedded_hal::digital`) plus a `DelayNs`. It autodetects the
-  DS28E05-class or AT21CS01-class part exactly like the stock
-  firmware; neither `format` nor any I2C call site changed when it
-  was added.
-- `redacted` module: the redacted record layout (bare-ASCII serial plus
-  three independently CRC-8-framed fields), parsed field-by-field
-  because the stock firmware validates each field on its own.
 - Gated in `flake.nix` checks (build + clippy + host test) alongside
   `ubos-psu`/`ubos-temperature`, per the verification requirement that
   every crate is gated.
@@ -157,11 +141,6 @@ cleanly and only a human reading the values catches it.
   the default operating point. The EEPROM shares the PSU/sensor I2C
   bus, so the read borrows a fresh `I2cDevice` off the existing bus
   mutex.
-- The redacted reads nothing over I2C: its hashboard EEPROMs sit on three
-  dedicated per-chain SIO single-wire buses (IO29/IO24/IO25). A
-  one-shot boot task probes each bus ahead of the network bring-up,
-  mirroring the stock firmware's early SIO enumeration, and logs the
-  family, device ID, and parsed `redacted` record per chain.
 - A read or parse failure only logs a warning. This is a sanity check
   and traceability source, not a config source: descriptors stay
   compile-time (per [MACHINE.md](MACHINE.md)'s no-runtime-autodetection
@@ -186,13 +165,6 @@ once.
   it has not been cross-checked against a parsed product-name match on
   real hardware. A wrong address only produces a bus error or a failed
   parse (both log-only), no effect on bring-up.
-- The redacted SIO readout is hardware-validated (2026-07-16): a live
-  AM04_redacted_UART_X40X4 board read back an AT21CS01-class part with a
-  CRC-valid serial, 40x4 ASIC dims, and IC-ID `'I'`, with the miner
-  PSU disconnected — the EEPROM runs on parasitic line power. The
-  IC-ID semantics and the board-info blob layout remain open, listed
-  at the end of
-  [redacted/sio-eeprom-protocol.md](redacted/sio-eeprom-protocol.md).
 - Serial number/batch are not surfaced through the `system_info` REST
   API: the boot-time read happens once, while the API handler runs
   later, possibly concurrently, which needs a runtime-shared cell —
