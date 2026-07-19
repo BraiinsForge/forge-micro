@@ -405,6 +405,18 @@
               redacted-run = redactedRun;
 
               esp32s3-bootloader = esp32s3Bootloader;
+
+              # GC-root anchor for the expensive cross toolchains that
+              # cache.nixos.org does not carry: the armv5tel-musl gcc for
+              # the BMM miniminer and the bare-metal riscv64 gcc/binutils.
+              # `nix build .#cross-toolchains` pins the whole closure so
+              # nix-collect-garbage keeps it. The rust toolchains substitute
+              # from the rust-overlay cache and the Xtensa compiler is
+              # espup-managed, so neither needs an anchor here.
+              cross-toolchains = pkgs.linkFarm "ubos-cross-toolchains" {
+                bmm-cc = bmmCc;
+                riscv-gcc = riscvGcc;
+              };
             }
             # CI stage groups partitioning `checks`; see nix/ci.nix.
             // (import ./nix/ci.nix {
