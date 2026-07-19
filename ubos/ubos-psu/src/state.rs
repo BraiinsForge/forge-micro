@@ -1,5 +1,23 @@
-//! Internal state container and initialization gating shared by all PSU
-//! drivers.
+//! State container and initialization gating shared by every PSU driver.
+//!
+//! This module is the support interface a PSU driver builds on, whether it
+//! lives in this crate, like [`crate::bmm`] and [`crate::bfm`], or out of tree. A
+//! driver is a handle over a
+//! `&'static Mutex<RawMutex, State<I, Config>>` plus a `&'static AtomicBool`
+//! termination flag, and it implements [`crate::Psu`]. The recurring shape is:
+//!
+//! - Hold [`State`], which owns the I2C bus [`State::i2c`] and the driver's
+//!   own config [`State::config`], and gates one-time device init.
+//! - Run the device init sequence once, guarded by [`State::cached_init`] and
+//!   recorded with [`State::record_init`]; check [`State::is_initialized`]
+//!   before touching the device on teardown.
+//! - Call [`crate::record_set_voltage`] after a successful `set_voltage` so the
+//!   shared telemetry publisher ([`crate::run_power_stats`]) reports the
+//!   commanded value.
+//!
+//! The concrete init sequence and the register protocol are the driver's own;
+//! this module carries only the bus ownership and init bookkeeping every
+//! driver would otherwise duplicate.
 
 use embedded_hal_async::i2c::ErrorKind;
 
@@ -21,8 +39,16 @@ pub(crate) enum InitStatus {
 /// method; [`Self::cached_init`] and [`Self::record_init`] carry the
 /// shared bookkeeping around it.
 pub struct State<I, C> {
-    pub(crate) i2c: I,
-    pub(crate) config: C,
+    /// The I2C bus the driver talks to the device over. A driver locks the
+    /// enclosing mutex and reaches the bus through this field.
+    pub i2c: I,
+    /// Driver-defined configuration or discovered device data. `BmmPsu`
+    /// stores its `BmmPsuDescriptor`; another driver might store a
+    /// calibration constant it discovers during device identification.
+    pub config: C,
+    // Init gate. `pub(crate)` so in-tree drivers read it directly;
+    // `InitStatus` stays crate-private, so out-of-tree drivers observe
+    // init state through [`Self::is_initialized`] and [`Self::cached_init`].
     pub(crate) init: InitStatus,
 }
 
@@ -37,7 +63,7 @@ impl<I, C> State<I, C> {
 
     /// Cached outcome of a previous init attempt, or `None` when no
     /// attempt has run yet and the driver must run its init sequence.
-    pub(crate) fn cached_init<E>(&self) -> Option<Result<(), Error<E>>> {
+    pub fn cached_init<E>(&self) -> Option<Result<(), Error<E>>> {
         match self.init {
             InitStatus::Initialized => Some(Ok(())),
             InitStatus::Failed(kind) => Some(Err(Error::InitFailed(kind))),
@@ -46,7 +72,7 @@ impl<I, C> State<I, C> {
     }
 
     /// Record the outcome of an init attempt for [`Self::cached_init`].
-    pub(crate) fn record_init<E>(&mut self, result: &Result<(), Error<E>>)
+    pub fn record_init<E>(&mut self, result: &Result<(), Error<E>>)
     where
         E: embedded_hal_async::i2c::Error,
     {
@@ -58,6 +84,15 @@ impl<I, C> State<I, C> {
             // misconfig case into Other.
             Err(_) => InitStatus::Failed(ErrorKind::Other),
         };
+    }
+
+    /// Whether init has run and succeeded. An out-of-tree driver's `terminate`
+    /// checks this before a final device-off command, so it does not touch the
+    /// bus for a device that never came up; the in-tree `bmm` and `bfm` drivers
+    /// gate the same way on the crate-private `InitStatus` directly.
+    #[must_use]
+    pub fn is_initialized(&self) -> bool {
+        self.init == InitStatus::Initialized
     }
 }
 

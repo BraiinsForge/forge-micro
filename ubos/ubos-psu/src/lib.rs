@@ -125,7 +125,12 @@ static SET_VOLTAGE_MV: AtomicU32 = AtomicU32::new(0);
 
 /// Record a successful `set_voltage` write so the telemetry publisher
 /// can include the commanded value in the next [`PsuReading`].
-pub(crate) fn record_set_voltage(voltage: Voltage) {
+///
+/// Part of the PSU-driver support interface in [`state`]: a driver's
+/// [`Psu::set_voltage`] calls this after a successful write so
+/// [`run_power_stats`] reports the commanded voltage alongside the measured
+/// one. In-tree and out-of-tree drivers call it the same way.
+pub fn record_set_voltage(voltage: Voltage) {
     SET_VOLTAGE_MV.store(voltage.mv(), AtomicOrdering::Relaxed);
 }
 
