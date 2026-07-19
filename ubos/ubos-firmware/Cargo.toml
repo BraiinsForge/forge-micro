@@ -9,8 +9,7 @@ workspace = true
 [features]
 default = []
 # Route the whole firmware-assembly layer through defmt. Every MCU board
-# enables this, including the redacted (redacted), which logs via redacted-rtt's
-# defmt transport over RTT. Logging in this crate goes through the
+# enables this. Logging in this crate goes through the
 # `ubos_logging` facade, so the feature only has to forward defmt to every
 # subsystem dep that does its own logging.
 defmt = [

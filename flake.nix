@@ -188,7 +188,9 @@
             ;
 
           # Cleaned source trees for the crane builds. See nix/source.nix.
-          sources = import ./nix/source.nix { inherit pkgs craneLib; };
+          sources = import ./nix/source.nix {
+            inherit pkgs craneLib;
+          };
           inherit (sources) src srcFor loadTestSrc;
 
           # Slot-size and pool-worker guard text, rendered from one
@@ -223,6 +225,29 @@
               bmmCc
               ;
           };
+
+          # Optional private-overlay checks, present only in the internal
+          # tree. The public mirror does not ship nix/private-checks.nix, so
+          # this evaluates to an empty attrset there instead of failing.
+          privateChecks =
+            let
+              f = ./nix/private-checks.nix;
+            in
+            if builtins.pathExists f then
+              import f {
+                inherit
+                  pkgs
+                  helpers
+                  craneLib
+                  riscvCraneLib
+                  riscvGcc
+                  riscvDefmtRustflags
+                  srcFor
+                  src
+                  ;
+              }
+            else
+              { };
 
           # Maximum flash bytes allowed before CI fails the size guard.
           # The value is the embassy-boot ACTIVE partition budget. The 2 MiB
@@ -312,6 +337,8 @@
                 esp32s3SlotBytes
                 ;
             }
+            # Optional private-overlay checks; see privateChecks above.
+            // privateChecks
             # The bmm-adapter DRC/ERC gates; see nix/kicad.nix.
             // kicad.checks
             # The SD image is a `packages` output, so no check covered it and
@@ -327,19 +354,40 @@
               '';
             };
 
-          # Interactive development shells; see nix/shells.nix.
-          devShells = import ./nix/shells.nix {
-            inherit
-              pkgs
-              toolchains
-              esp
-              redacted
-              probeRsHost
-              probeRsToken
-              helpers
-              ;
-            deployRsPackage = deploy-rs.packages.${system}.default;
-          };
+          # Interactive development shells; see nix/shells.nix. The
+          # private overlay nix/private-shells.nix contributes extra
+          # shells when present, merged in only if the file exists —
+          # absent from the public mirror, same idiom as privateChecks.
+          devShells =
+            (import ./nix/shells.nix {
+              inherit
+                pkgs
+                toolchains
+                esp
+                redacted
+                probeRsHost
+                probeRsToken
+                helpers
+                ;
+              deployRsPackage = deploy-rs.packages.${system}.default;
+            })
+            // (
+              let
+                f = ./nix/private-shells.nix;
+              in
+              if builtins.pathExists f then
+                import f {
+                  inherit
+                    pkgs
+                    toolchains
+                    helpers
+                    probeRsHost
+                    probeRsToken
+                    ;
+                }
+              else
+                { }
+            );
 
           # Production firmware images and combined BOOTSEL UF2 images;
           # see nix/images.nix for the UBOS_FW_VERSION build instructions.
@@ -366,7 +414,17 @@
 
           # Copy apps: `nix run .#<image>` writes the built image or UF2
           # into the repo's build/ directory. See nix/images.nix.
-          apps = images.apps;
+          apps =
+            images.apps
+            # `nix run .#publish` emits the gated public mirror. Present
+            # only in the internal tree, guarded like privateChecks above:
+            # the public mirror ships no publish/, so this degrades away.
+            // (
+              if builtins.pathExists ./publish/app.nix then
+                { publish = import ./publish/app.nix { inherit pkgs; }; }
+              else
+                { }
+            );
 
           # `nix fmt` entry point, matching the nixfmt check in
           # nix/checks.nix.

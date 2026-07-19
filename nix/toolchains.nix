@@ -91,13 +91,13 @@ rec {
   # secp256k1-sys/ii-sv2, so unlike espCraneLib it needs no cross GCC.
   riscvCraneLib = (crane.mkLib pkgs).overrideToolchain riscvRustToolchain;
 
-  # Bare-metal riscv64 GCC, pulled into the redacted check closure purely
-  # for its bundled `riscv64-none-elf-ld`; see `riscvDefmtRustflags`.
-  # The redacted crate has no C deps, so this is the linker, not a C
-  # toolchain.
+  # Bare-metal riscv64 GCC, pulled into the private redacted-rtt / riscv board
+  # check closure purely for its bundled `riscv64-none-elf-ld`; see
+  # `riscvDefmtRustflags`. The redacted-rtt crate has no C deps, so this is the
+  # linker, not a C toolchain.
   riscvGcc = pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc;
 
-  # redacted builds with defmt, whose `.defmt` symbol table lives in a
+  # redacted-rtt builds with defmt, whose `.defmt` symbol table lives in a
   # non-`SHF_ALLOC` section flagged `INFO` with no real load address.
   # rust-lld mishandles `R_RISCV_PCREL_HI20` relocations against it,
   # computing the auipc displacement as if it were a nearby real symbol
