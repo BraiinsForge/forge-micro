@@ -17,8 +17,6 @@ let
   inherit (toolchains)
     rustToolchain
     espRustToolchain
-    riscvRustToolchain
-    riscvGcc
     hostRustToolchain
     bmmRustToolchain
     bmmCc
@@ -176,66 +174,6 @@ in
       echo "Inspect binary size: cargo size --release -- -A"
       echo ""
       echo "For ARM boards: nix develop .#arm"
-    '';
-  };
-
-  # redacted redacted, dual-core RV64GC. One shell for firmware/redacted,
-  # redacted 10, and the redacted-rtt lib it now uses. Both are gated in
-  # `checks`: clippy-redacted/build-redacted and
-  # clippy-redacted-rtt-defmt/build-redacted-rtt-defmt, built with riscvCraneLib.
-  #
-  # NOTE: `cargo run --release` flashes the firmware into SRAM over
-  # the probe-rs redacted fork and streams the RTT log; `cargo attach`
-  # reconnects to a running board. `cargo pack --release` still
-  # packages the firmware into an redacted Upgrade Package, .redacted, via
-  # scripts/run.sh + scripts/redacted.py, rust-objcopy from
-  # cargo-binutils, python3 below, uploaded as the OTA artifact
-  # through the device web UI / redacted API.
-  riscv = pkgs.mkShell {
-    buildInputs = with pkgs; [
-      riscvRustToolchain
-      # firmware/redacted links with GNU ld (`riscv64-none-elf-ld` via
-      # its .cargo/config.toml rustflags) since the defmt migration:
-      # rust-lld mishandles R_RISCV_PCREL_HI20 against the non-alloc
-      # `.defmt` section. The check derivations already carry this
-      # GCC; without it here, interactive `cargo build`/`run`/`pack`
-      # fail at the link step while CI stays green.
-      riscvGcc
-      cargo-binutils
-      cargo-bloat
-      # The redacted flashes and streams its `defmt` output over RTT
-      # through the probe-rs fork; the runner forwards to the NUC
-      # probe-rs-server exactly as the arm/esp shells do.
-      probe-rs-tools-remote
-      probe-rs-runner
-      pkg-config
-      libudev-zero
-      # ubos-webui's build.rs minifies the dashboard CSS/JS.
-      esbuild
-      cargo-machete
-      # scripts/redacted.py builds the .redacted, SHA-256 + CRC-32, for OTA.
-      python3
-      # USB tooling for enumerating the attached debug probe.
-      usbutils
-    ];
-
-    PROBE_RS_REMOTE_HOST = probeRsHost;
-    PROBE_RS_REMOTE_TOKEN = probeRsToken;
-    RUST_ANALYZER_SERVER_PATH = "${riscvRustToolchain}/bin/rust-analyzer";
-
-    inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-
-    shellHook = ''
-      echo "ubos-main dev environment ready (redacted redacted, RV64GC)"
-      echo ""
-      echo "  cd firmware/redacted && cargo check          # build"
-      echo "  cd firmware/redacted && cargo run --release   # flash + RTT log via probe-rs (--chip redacted)"
-      echo "  cd firmware/redacted && cargo attach          # stream the RTT log without reflashing"
-      echo "  cd firmware/redacted && cargo pack --release  # package .redacted for OTA upload"
-      echo ""
-      echo "cargo run flashes over the redacted probe-rs fork; cargo pack still builds the .redacted"
-      echo "(upload via web UI/API). See firmware/redacted/README.md."
-      echo "For ARM boards: nix develop .#arm     ESP32-S3: nix develop .#esp"
     '';
   };
 

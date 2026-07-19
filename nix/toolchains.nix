@@ -102,8 +102,8 @@ rec {
   # rust-lld mishandles `R_RISCV_PCREL_HI20` relocations against it,
   # computing the auipc displacement as if it were a nearby real symbol
   # and clamping to a signed 20-bit range instead of the actual 32-bit
-  # auipc+lo12 reach — see firmware/redacted/.cargo/config.toml, which
-  # carries the same flags for the interactive build. `riscvGcc`
-  # supplies the real `riscv64-none-elf-ld` these resolve to.
+  # auipc+lo12 reach. A consuming firmware build carries the same flags in
+  # its .cargo/config.toml. `riscvGcc` supplies the real
+  # `riscv64-none-elf-ld` these resolve to.
   riscvDefmtRustflags = "-C panic=abort -C linker=riscv64-none-elf-ld -C linker-flavor=ld";
 }

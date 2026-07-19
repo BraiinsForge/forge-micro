@@ -10,7 +10,6 @@ members = [
     "firmware/stm32f407",
     "firmware/stm32f439",
     "firmware/esp32s3",
-    "firmware/redacted",
     "host/embassy-net-afpacket",
     "host/embedded-i2c-unix",
     "host/embedded-serial-unix",

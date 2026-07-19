@@ -217,9 +217,6 @@
               craneLib
               helpers
               bmmCraneLib
-              riscvCraneLib
-              riscvGcc
-              riscvDefmtRustflags
               espCraneLib
               espCargoVendorDir
               xtensaEspToolchain
@@ -302,9 +299,6 @@
                 deps
                 craneLib
                 bmmCraneLib
-                riscvCraneLib
-                riscvGcc
-                riscvDefmtRustflags
                 espCraneLib
                 bmmCc
                 espToolchain

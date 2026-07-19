@@ -22,9 +22,6 @@
   craneLib,
   helpers,
   bmmCraneLib,
-  riscvCraneLib,
-  riscvGcc,
-  riscvDefmtRustflags,
   espCraneLib,
   espCargoVendorDir,
   xtensaEspToolchain,
@@ -208,30 +205,6 @@ rec {
   thumbv8mBootloaderArtifacts = armBag {
     crates = [ "rp2350-bootloader" ];
     target = "thumbv8m.main-none-eabihf";
-  };
-
-  # redacted redacted, RV64GC, dependency closure for the clippy-redacted check.
-  # No C deps, so no cross GCC needed for `cc`; esbuild is for
-  # ubos-webui's build.rs. `riscvGcc` is still a build input, purely
-  # for its `riscv64-none-elf-ld` binary; see riscvDefmtRustflags.
-  # `riscvDefmtRustflags` matches the consuming check so the cached
-  # deps layer is reused, since crane keys artifacts by build env.
-  riscvredactedArtifacts = checkBag riscvCraneLib {
-    cargoExtraArgs = "-p redacted --target riscv64gc-unknown-none-elf";
-    nativeBuildInputs = [
-      pkgs.esbuild
-      riscvGcc
-    ];
-    CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = riscvDefmtRustflags;
-  };
-
-  # redacted-rtt is a standalone no_std lib: no C deps, no build.rs, so
-  # neither esbuild nor a cross GCC is needed. Only the `defmt` backend
-  # is gated; it is what firmware/redacted and firmware/redacted ship, while
-  # the crate's default `log` backend has no consumer.
-  riscvredactedRttDefmtArtifacts = checkBag riscvCraneLib {
-    cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf --no-default-features --features defmt";
-    CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
   };
 
   bmmArtifacts = checkBag bmmCraneLib {

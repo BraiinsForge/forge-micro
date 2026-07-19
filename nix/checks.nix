@@ -9,8 +9,8 @@
 # in `boards`. The `ubos-config`/`ubos-events` std feature variants and
 # the host build of `host-runner` go through those tables too. The
 # irregular checks stay hand-written because forcing them through the
-# tables would need a knob per quirk: esp32s3, redacted, the bootloaders,
-# and the bmm cross build of `host-runner`.
+# tables would need a knob per quirk: esp32s3, the bootloaders, and the
+# bmm cross build of `host-runner`.
 #
 # `patches/edge-nal-embassy` and `patches/embassy-net-wiznet` are
 # intentionally not gated by their own clippy or build derivations.
@@ -26,9 +26,6 @@
   deps,
   craneLib,
   bmmCraneLib,
-  riscvCraneLib,
-  riscvGcc,
-  riscvDefmtRustflags,
   espCraneLib,
   bmmCc,
   espToolchain,
@@ -597,66 +594,6 @@ hostClippyChecks
     RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
   };
 
-  # redacted redacted, RV64GC. Mirrors the rp2350 board checks: a tier-2
-  # target with prebuilt rust-std, so no `-Z build-std`. No C deps, so
-  # no cross GCC for `cc`; esbuild is only for ubos-webui's build.rs.
-  # `riscvDefmtRustflags` is passed here because crane builds from
-  # the workspace root and ignores the crate's .cargo/config.toml,
-  # where the same flags live: panic strategy, and the linker
-  # override defmt's `.defmt` section needs; see that file and
-  # riscvDefmtRustflags above. riscvGcc is a build input purely for
-  # the `riscv64-none-elf-ld` binary that override resolves to.
-  clippy-redacted = riscvCraneLib.cargoClippy (
-    {
-      src = srcFor [ "redacted" ];
-      cargoArtifacts = deps.riscvredactedArtifacts;
-      cargoExtraArgs = "-p redacted --target riscv64gc-unknown-none-elf";
-      cargoClippyExtraArgs = "-- -D warnings";
-      doInstallCargoArtifacts = false;
-      nativeBuildInputs = [
-        pkgs.esbuild
-        riscvGcc
-      ];
-      CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = riscvDefmtRustflags;
-    }
-    // webuiEnvAttrs
-  );
-
-  build-redacted = riscvCraneLib.cargoBuild (
-    {
-      src = srcFor [ "redacted" ];
-      cargoArtifacts = null;
-      cargoBuildCommand = "cargo build --release";
-      cargoExtraArgs = "-p redacted --target riscv64gc-unknown-none-elf";
-      nativeBuildInputs = [
-        pkgs.esbuild
-        riscvGcc
-      ];
-      CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = riscvDefmtRustflags;
-    }
-    // webuiEnvAttrs
-  );
-
-  # redacted-rtt: shared RTT backend. Only the `defmt` backend is gated:
-  # it is the config firmware/redacted and firmware/redacted ship. The
-  # crate's default `log` backend has no consumer, so it is not built.
-  clippy-redacted-rtt-defmt = riscvCraneLib.cargoClippy {
-    src = srcFor [ "redacted-rtt" ];
-    cargoArtifacts = deps.riscvredactedRttDefmtArtifacts;
-    cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf --no-default-features --features defmt";
-    cargoClippyExtraArgs = "-- -D warnings";
-    doInstallCargoArtifacts = false;
-    CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
-  };
-
-  build-redacted-rtt-defmt = riscvCraneLib.cargoBuild {
-    src = srcFor [ "redacted-rtt" ];
-    cargoArtifacts = null;
-    cargoBuildCommand = "cargo build --release";
-    cargoExtraArgs = "-p redacted-rtt --target riscv64gc-unknown-none-elf --no-default-features --features defmt";
-    CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUSTFLAGS = "-C panic=abort";
-  };
-
   clippy-load-test = craneLib.cargoClippy {
     src = loadTestSrc;
     cargoArtifacts = deps.loadTestArtifacts;
@@ -736,8 +673,6 @@ hostClippyChecks
           builtins.attrValues (lib.filterAttrs (name: _: lib.hasPrefix "build-" name) boardChecks)
           ++ [
             build-esp32s3
-            build-redacted
-            build-redacted-rtt-defmt
             rp2350BootloaderChecks.build-rp2350-bootloader
             rp2040BootloaderChecks.build-rp2040-bootloader
             build-esp32s3-bootloader
@@ -793,9 +728,6 @@ hostClippyChecks
     check ${root + "/firmware/hashnode/src/config.rs"} '${toString slotMaxKiB} * 1024'
     # esp32s3: the 3 MiB app slot, not the shared RP budget.
     check ${root + "/firmware/esp32s3/src/config.rs"}  '3 * 1024 * 1024'
-    # redacted: APP slot plus the redacted v1 header. ota.rs additionally
-    # asserts this equals APP_SIZE + AUP_HEADER_SIZE at compile time.
-    check ${root + "/firmware/redacted/src/config.rs"}     '0x001C_0000 + 0xE0'
     touch $out
   '';
 
