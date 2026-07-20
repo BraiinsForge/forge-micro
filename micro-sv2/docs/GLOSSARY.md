@@ -50,7 +50,7 @@ requires updating this file in the same change set.
 | Noise frame | A single AEAD chunk with up to 65 519 bytes of plaintext + 16-byte MAC | `MAX_PLAINTEXT_LENGTH`, chunking | Single-chunk MVP only — no chunking yet |
 | Two-AEAD-chunks layout | The SV2 wire layout per encrypted frame: `enc(Header) | MAC | enc(payload) | MAC` | `EncryptedCodec`, `HEADER_WIRE_SIZE = 22` | Hidden behind `FrameCodec::encode`/`decode_*` |
 | `FrameCodec` | The trait abstracting wire-level encode/decode; impls: `PlaintextCodec` (no transformation), `EncryptedCodec` (noise-sealed) | `encode`, `decode_header`, `decode_frame`, `payload_wire_size` | `framing/src/codec.rs` |
-| `Encode` / `Decode<'de>` | The byte-level codec trait pair from `ii-sv2-types`; replaces the reference impl's `serde` model | Used by every type in `types`/`framing`/`messages` | `framing/src/codec.rs` (defined in `types`) |
+| `Encode` / `Decode<'de>` | The byte-level codec trait pair from `ii-sv2-types`; used in place of a `serde`-based model | Used by every type in `types`/`framing`/`messages` | `framing/src/codec.rs` (defined in `types`) |
 | `IntoFrame` | Trait describing anything the codec can encode as a frame (`Message`s and `FrameView`s have impls) | `Message`, `FrameView` | `pub trait IntoFrame { fn descriptor(&self) -> _ ; ... }` |
 | `Message` | Per-message-struct trait carrying the static `MessageDescriptor` for that wire identity | `MessageDescriptor`, `IntoFrame` (blanket impl) | `impl Message for SetupConnection<'_>` |
 | `MessageGroup<'de>` | Per-extension-enum trait for dispatching a parsed `FrameView` into a typed variant by `(msg_type, is_channel_message)` | `MiningMessages`, `dispatch` | `impl<'de> MessageGroup<'de> for MiningMessages<'de>` |

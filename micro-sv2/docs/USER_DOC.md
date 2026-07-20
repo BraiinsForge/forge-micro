@@ -32,7 +32,7 @@ Add the umbrella crate as a dependency:
 
 ```toml
 [dependencies]
-ii-sv2 = { git = "https://gitlab.ii.zone/braiins-forge/mining/usv2" }
+ii-sv2 = { path = "path/to/ii-sv2" }
 ```
 
 Encode and decode a SV2 frame end-to-end without encryption (useful for
@@ -337,8 +337,6 @@ counters/timers, or implement a thin tracing layer over the
 - [`GLOSSARY.md`](GLOSSARY.md) — terminology.
 - Rustdoc landing page: `cargo doc -p ii-sv2 --open`.
 - Stratum V2 specification: <https://github.com/stratum-mining/sv2-spec/>
-- Reference implementation:
-  <https://gitlab.ii.zone/redacted/>
 
 When library behavior changes (new public types, error variants,
 trait bounds), update this document alongside the code.

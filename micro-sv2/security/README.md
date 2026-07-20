@@ -1,10 +1,9 @@
 # ii-sv2-security
 
 User-friendly Stratum V2 security types built on
-[`ii-sv2-crypto`](../crypto). Mirrors the relevant parts of
-`redacted` from
-[`stratum-v2`](https://gitlab.ii.zone/redacted/) — but
-`no_std`, no-alloc, and runtime-agnostic.
+[`ii-sv2-crypto`](../crypto). Mirrors the relevant parts of the
+Stratum V2 noise handshake — but `no_std`, no-alloc, and
+runtime-agnostic.
 
 ## Scope
 

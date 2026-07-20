@@ -174,8 +174,8 @@ mod tests {
         assert_ne!(hdr.hash(), other.hash());
     }
 
-    /// Mirrors the certificate_validators test from redacted,
-    /// adapted to use a synthetic clock.
+    /// Mirrors a certificate-validator conformance test, adapted to use
+    /// a synthetic clock.
     #[test]
     fn certificate_validators() {
         const NOW: u32 = 1_700_000_000;

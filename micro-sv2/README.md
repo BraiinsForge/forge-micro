@@ -13,7 +13,7 @@ standard channel, and receive jobs / prev-hash / target updates from a pool.
 
 ```toml
 [dependencies]
-ii-sv2 = { git = "https://gitlab.ii.zone/braiins-forge/mining/usv2" }
+ii-sv2 = { path = "path/to/ii-sv2" }
 ```
 
 ```rust
@@ -76,5 +76,5 @@ The umbrella crate is a thin re-export shim — no original logic.
 
 ## License
 
-See the workspace `Cargo.toml` and `https://gitlab.ii.zone/redacted/` for the
-upstream BOSI license terms inherited by this project.
+See the workspace `Cargo.toml` for the upstream BOSI license terms
+inherited by this project.

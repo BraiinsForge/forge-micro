@@ -4,9 +4,8 @@
 `Noise_NX_Secp256k1+EllSwift_ChaChaPoly_SHA256` — the SV2 handshake — without
 ring or std/alloc, so it can run on constrained mining devices.
 
-Functionally identical to the noise-core crate in
-[`stratum-v2`](https://gitlab.ii.zone/redacted/), with
-RustCrypto primitives in place of ring.
+Functionally identical to a noise-core implementation, with RustCrypto
+primitives in place of ring.
 
 ## Workflow
 

@@ -8,9 +8,8 @@ Engineer/contributor handbook. For *how to use it* see
 
 - **Product/Service Name:** `micro-sv2` (workspace) / `ii-sv2` (umbrella).
 - **Problem Statement:** Provide a small, embedded-friendly Stratum V2
-  stack with end-to-end functional parity for elementary mining vs the
-  reference implementation at
-  `https://gitlab.ii.zone/redacted/`.
+  stack, conformant with the Stratum V2 specification, for elementary
+  mining.
 - **Story Mapping:** `CONN001`–`CONN004`, `CHAN001`–`CHAN002`,
   `MINE001`–`MINE003`, `LIB001`–`LIB004`. Deferred:
   `CHAN003`, `MINE004`.
@@ -85,7 +84,7 @@ Engineer/contributor handbook. For *how to use it* see
 | Lints | `cargo clippy --all-targets -- -D warnings` | Required clean before commit. |
 | Formatting | `cargo fmt` | Standard rustfmt. |
 | Docs | `cargo doc --no-deps` | The umbrella's rustdoc page is the consumer landing page. |
-| Interop tests (optional) | `cargo test --manifest-path interop-test/Cargo.toml` | Cross-implementation tests against the reference impl. |
+| Interop tests (optional) | `cargo test --manifest-path interop-test/Cargo.toml` | Cross-implementation interop tests against other SV2 deployments (private crate, not in the public mirror). |
 
 - **Toolchain:** Rust **stable**, edition 2024. No nightly features
   required.
@@ -193,8 +192,6 @@ sites. Tests for each story live alongside the implementation.
 - [`GLOSSARY.md`](GLOSSARY.md) — terminology source of truth.
 - Stratum V2 specification:
   <https://github.com/stratum-mining/sv2-spec/>
-- Reference implementation mirrored by this workspace:
-  <https://gitlab.ii.zone/redacted/>
 
 > Keep this document evergreen: update commands, component lists,
 > story mappings, and test counts whenever behavior or tooling changes.
