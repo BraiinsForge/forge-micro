@@ -163,6 +163,16 @@ ubos-config field names; consumers of `/api/config` decode keys like
 serialized with `serde-json-core` into a 2 KiB stack scratch buffer
 (`ubos-api/src/system.rs`).
 
+Each `pool` entry carries an optional `weight` (unsigned integer,
+`0..=100000`) that sets its share of dispatched work in the ratio
+scheduler. An absent key defaults to 0, which marks the slot
+backup-only: it is mined solely when no weighted slot has work, so a
+weightless pool list keeps the primary-plus-backups behavior. When
+every entry is 0 the first slot is treated as weighted. Weights take
+effect at runtime on the same config-watch publish that restarts the
+pool sessions; the delivered split is observable via the
+`board_pool_work_shares_total{pool=...}` metric.
+
 | Struct                  | Endpoint(s)                                        |
 |-------------------------|----------------------------------------------------|
 | `SystemInfo`            | `GET /api/system/info`                             |

@@ -220,9 +220,10 @@ own unchanged `run_stratum_client` session against its `PoolHandle`,
 and the runtime pool switch lives entirely on the consumer side —
 `dispatch_work` asks its `Scheduler` at each work tick which slot to
 serve and pulls from that slot's cell. The `RatioScheduler` splits
-delivered work between the slots at the board's `POOL_WEIGHTS` ratio,
-fed back by difficulty-1 chip shares; weight-0 slots are failover
-backups (see `docs/MULTIPOOL_DESIGN.md`, work-scheduler section). The
+delivered work between the slots at the per-pool `weight` ratio set
+in the config, fed back by difficulty-1 chip shares; weight-0 slots
+are failover backups (see `docs/MULTIPOOL_DESIGN.md`, work-scheduler
+and config-driven weights sections). The
 serial worker's registry records which slot each dispatch came from,
 so a solution returns to the session that owns the work even if the
 scheduler moved on while the chip was hashing; that session still

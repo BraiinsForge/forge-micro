@@ -1,10 +1,9 @@
 # Multipool: parallel stratum sessions with scheduler-driven dispatch
 
 > **Status.** Implemented: the multipool mechanism under UBOS-49
-> ("Add second stratum channel"), the work scheduler under UBOS-72.
-> The config-driven weights section is designed but not yet
-> implemented (branch `jtr/UBOS-72/config-weights`). Step tracking
-> in `/IMPLEMENTATION_PLAN.md`. Kept aligned with the code in
+> ("Add second stratum channel"), the work scheduler and its
+> config-driven weights under UBOS-72. Step tracking in
+> `/IMPLEMENTATION_PLAN.md`. Kept aligned with the code in
 > `ubos/stratum-client`, `ubos/ubos-mining`, and `ubos/ubos-firmware`
 > — when the two disagree, the code wins and this file needs a patch.
 
@@ -280,13 +279,12 @@ Why this shape, and not gross lifetime counters or EWMA rates:
 
 A slot with weight 0 is never picked while any weighted slot has
 work, but is picked (lowest index first) when no weighted slot is
-available. The default board weights `[1, 0, 0]` therefore keep the
-previous "mine pool 0" behavior and turn the remaining configured
-entries into classic failover backups. A default of equal weights
-would silently split hashrate 33:33:33 between pools the user
-configured as backups. Constructing a `RatioScheduler` with all
-weights zero is rejected. The config-driven weights section below
-moves the weight source from board consts to the pool config.
+available. Weights come from the pool config (see the config-driven
+weights section): an unweighted pool list posts every weight as 0,
+which the all-zero fallback resolves to "mine slot 0, the rest are
+failover backups" — the previous "mine pool 0" behavior. A default
+of equal weights would instead silently split hashrate 33:33:33
+between pools the operator configured as backups.
 
 ### Dispatch integration
 
@@ -327,14 +325,14 @@ session state.
 
 ### Wiring
 
-Each board's `main.rs` declares `POOL_WEIGHTS: [u32; POOL_SLOTS]`
-next to `POOL_SLOTS` (default `[1, 0, 0]`; stm32f407 `[1]`); its
-`mining.rs` builds `RatioScheduler::new(POOL_WEIGHTS)` and hands it
-to `SERIAL.run`. `host-runner`'s CPU mock reads `work_receiver(0)`
-directly, but its miner-serial path also drives `SERIAL.run` and
-passes `RatioScheduler::new([1])` for its single-slot session. The
-config-driven weights section below retires the consts and the
-constructor argument.
+Each board's `mining.rs` builds `RatioScheduler::new()` and hands it
+to `SERIAL.run`; the scheduler starts from the fallback default and
+the config-weights watcher pushes the configured weights at boot
+(see the config-driven weights section). `host-runner`'s CPU mock
+reads `work_receiver(0)` directly, but its miner-serial path also
+drives `SERIAL.run` with a `RatioScheduler::new()` for its
+single-slot session. The `POOL_WEIGHTS` board consts that first
+carried the weights are retired.
 
 ### Per-pool observability
 
@@ -377,13 +375,10 @@ scheduler; one test feeds a diff-1 chip response and asserts
 dispatch falls back to an available slot when the preferred cell is
 empty.
 
-## Config-driven weights (UBOS-72, follow-up branch)
+## Config-driven weights (UBOS-72)
 
-> **Status.** Designed, not yet implemented. Branch
-> `jtr/UBOS-72/config-weights` on top of the scheduler branch.
-
-The scheduler shipped with compile-time `POOL_WEIGHTS` consts in the
-board crates. This change moves the weight source into the same
+The scheduler first shipped with compile-time `POOL_WEIGHTS` consts
+in the board crates. This change moved the weight source into the same
 `POST /api/config` call that configures the pools, so the split is
 operator-tunable at runtime. Weights travel to the serial actor the
 same way every other instruction does — through its command
