@@ -531,6 +531,65 @@ weights configured over curl on the next webui save.
   (reweight via `pool_conf.sh`, watch the split move in the Pool
   work split panel).
 
+## SV2 pubkey encoding (base58check in the pool URL, UBOS-78)
+
+The SV2 authority public key is presented as its SV2-spec base58check
+string everywhere an operator touches it, rather than as raw bytes.
+
+### Wire model
+
+The config carries a single field, `protocol.Sv2.pool_pubkey`, an
+`Option`. Its presence *is* the trust state: `Some` →
+`ValidateSignature` against the key, `None` → `ValidateNothing`. There
+is no separate "trust" flag on the wire.
+
+### base58check format
+
+`base58( prefix ‖ key ‖ checksum )`, where the prefix is
+`SV2_PUBKEY_PREFIX = [1, 0]`, `key` is the raw 32-byte xonly key, and
+the checksum is the first four bytes of the double SHA-256 of
+`prefix ‖ key` (Bitcoin-style Base58Check). The factory key decodes to
+the existing `DEFAULT_POOL_SV2_PUBKEY`. The codec lives in
+`ubos-config/src/pubkey.rs` and is alloc-free: base58 goes through
+`bs58::{encode,decode}(..).onto(&mut [u8])` into fixed stack buffers,
+with the checksum computed directly via `sha2`. `bs58` carries no
+`check`/`alloc` feature, so the firmware needs no allocator.
+
+### Storage stays bytes; only JSON speaks base58
+
+`sv2_pubkey_serde` on `pool_pubkey` branches on
+`is_human_readable()`: JSON (REST, `serde-json-core`, `true`) carries
+the base58check string, while postcard (flash, `false`) carries the
+raw `Option<[u8; 32]>` byte-identically. The stored Rust type is
+unchanged, so the postcard schema hash does not move and a stored
+config survives the change without a reset — the `EXPECTED_BLOB`
+golden test guards this. A malformed key over REST fails deserialize
+and returns HTTP 400.
+
+### Web UI: key in the URL, front-end-only trust checkbox
+
+Per the SV2 URL form, the key is the URL path segment —
+`stratum2+tcp://host:port/<base58>` — not a separate field. The "Trust
+pool" checkbox is front-end only (never transmitted): it is an
+explicit confirmation gate so an operator cannot end up with no
+signature validation by simply forgetting to paste a key. It only
+relaxes the *requirement* for a key; a key that is present is always
+honored:
+
+| Trust | Key in URL | Sent | Result |
+|-------|-----------|------|--------|
+| off | present | `"9awt…"` | validate |
+| off | absent | reject on save | must add key or tick Trust |
+| on | present | `"9awt…"` | validate (key wins) |
+| on | absent | `null` | ValidateNothing |
+
+### Clean break
+
+REST no longer accepts the legacy JSON byte-array form for
+`pool_pubkey` — the base58check string is the only accepted shape.
+`pool_conf.sh` sends the string. Acceptable at this project stage; no
+dual-accept transitional code.
+
 ## RAM cost
 
 The dominant per-slot cost is the statically allocated session-task
