@@ -127,7 +127,7 @@ fn index_payload_logout_is_post_form() {
 /// intentionally adding features, not as a reflexive update.
 #[test]
 fn index_payload_size_within_budget() {
-    const MAX_GZ_BYTES: usize = 18 * 1024;
+    const MAX_GZ_BYTES: usize = 19 * 1024;
     assert!(
         crate::INDEX_HTML_GZ.len() <= MAX_GZ_BYTES,
         "gz payload {} exceeds budget {}",

@@ -649,6 +649,7 @@ async function loadCfg() {
           const scheme = sv2 ? 'stratum2+tcp' : 'stratum+tcp';
           form['url' + slot].value = pool ? `${scheme}://${pool.host}:${pool.port}` : '';
           form['user' + slot].value = pool && pool.user ? pool.user : '';
+          form['weight' + slot].value = pool && pool.weight ? pool.weight : '';
           form['pass' + slot].value = sv1 && sv1.password ? sv1.password : '';
           form['trust' + slot].checked = !!(sv2 && !sv2.pool_pubkey);
           form['key' + slot].value = sv2 && sv2.pool_pubkey ? bytesToHex(sv2.pool_pubkey) : '';
@@ -839,6 +840,13 @@ $('cfgForm').addEventListener('submit', async event => {
     const host = match[2];
     const port = match[3] ? +match[3] : 3333;
     const user = formData.get('user' + slot) || '';
+    const weightRaw = (formData.get('weight' + slot) || '').trim();
+    const weight = weightRaw === '' ? 0 : Number(weightRaw);
+    if (!Number.isInteger(weight) || weight < 0 || weight > 100000) {
+      msg.style.color = 'var(--red)';
+      msg.textContent = 'Pool ' + slot + ': weight must be 0 to 100000';
+      return;
+    }
     let protocol;
     if (match[1] === 'stratum2+tcp') {
       const trust = formData.get('trust' + slot) === 'on';
@@ -857,7 +865,7 @@ $('cfgForm').addEventListener('submit', async event => {
       const pass = formData.get('pass' + slot);
       protocol = { Sv1: { password: pass || null } };
     }
-    pool.push({ host, port, user, protocol });
+    pool.push({ host, port, user, weight, protocol });
   }
   try {
     await postWithRetry(() => csrfPost({ pool }));
