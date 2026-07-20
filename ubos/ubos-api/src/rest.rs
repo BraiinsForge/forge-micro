@@ -71,12 +71,12 @@ const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
 ///
 /// The widest [`ubos_config::ConfigUpdate`] snapshot the buffer has to
 /// hold — three pool slots carrying 128-byte host and user strings and
-/// an SV2 pool key, a static `network` mode with three resolvers and a
+/// an SV1 password, a static `network` mode with three resolvers and a
 /// 32-byte hostname, a 32-byte `api` username and password, and every
-/// numeric field at its longest decimal form — serializes to 2108
-/// bytes. The SV2 key is what makes a pool slot widest: a `[u8; 32]`
-/// serializes as a JSON number array costing up to four bytes an
-/// element, which outruns the 128-byte SV1 password string. That total
+/// numeric field at its longest decimal form — serializes to 2102
+/// bytes. The SV1 password is what makes a pool slot
+/// widest: 128 bytes of string outruns the SV2 key, which travels as a
+/// base58check string rather than as a JSON number array. That total
 /// is an upper bound rather than a body this handler can produce:
 /// [`ubos_config::ConfigUpdate::from_config`] blanks `api.password`, so
 /// every served snapshot is shorter by that field. It blanks nothing

@@ -47,6 +47,53 @@ pub const DEFAULT_POOL_SV2_PUBKEY: [u8; 32] = [
     0x28, 0x52, 0x7b, 0xb8, 0x72, 0x29, 0xd7, 0xd7, 0xd2, 0xe6, 0x7e, 0x6d, 0xcd, 0x18, 0xeb, 0xcf,
 ];
 
+/// Format-aware serde for the SV2 authority pubkey.
+///
+/// JSON (REST, `is_human_readable() == true`) carries the SV2
+/// base58check string; postcard (flash, `false`) carries the raw
+/// `Option<[u8; 32]>`, byte-identical to a plain field. This is why a
+/// stored config survives this change without a schema reset.
+mod sv2_pubkey_serde {
+    use crate::pubkey;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    // `#[serde(with = "sv2_pubkey_serde")]` on an `Option<[u8; 32]>` field
+    // makes serde's derive call this with `&self.pool_pubkey`, i.e.
+    // `&Option<[u8; 32]>`; the signature is fixed by that calling
+    // convention, not a choice this function can make.
+    #[allow(clippy::ref_option)]
+    pub fn serialize<S>(value: &Option<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            match value {
+                Some(key) => serializer.serialize_some(pubkey::encode(key).as_str()),
+                None => serializer.serialize_none(),
+            }
+        } else {
+            value.serialize(serializer)
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<[u8; 32]>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let encoded = Option::<heapless::String<64>>::deserialize(deserializer)?;
+            match encoded {
+                Some(text) => pubkey::decode(&text)
+                    .map(Some)
+                    .map_err(serde::de::Error::custom),
+                None => Ok(None),
+            }
+        } else {
+            Option::<[u8; 32]>::deserialize(deserializer)
+        }
+    }
+}
+
 /// Selects the pool mining protocol and carries its protocol-specific
 /// parameters.
 #[derive(
@@ -63,7 +110,11 @@ pub enum ProtocolKind {
     /// Stratum V2 with an optional authority public key.
     Sv2 {
         /// `None` means `ValidateNothing`; `Some` means
-        /// `ValidateSignature` against the supplied 32-byte key.
+        /// `ValidateSignature` against the supplied 32-byte key. Over
+        /// JSON this is the SV2 base58check string; in flash it is the
+        /// raw 32 bytes. See [`crate::pubkey`] and
+        /// [`sv2_pubkey_serde`].
+        #[serde(with = "sv2_pubkey_serde")]
         pool_pubkey: Option<[u8; 32]>,
     },
 }
@@ -159,5 +210,89 @@ impl PoolEntry {
                 .unwrap_or("pool: weight must be at most 100000"));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod pubkey_serde_tests {
+    use super::*;
+
+    const KEY_B58: &str = "9awtMD5KQgvRUh2yFbjVeT7b6hjipWcAsQHd6wEhgtDT9soosna";
+
+    fn sv2_entry(pool_pubkey: Option<[u8; 32]>) -> PoolEntry {
+        PoolEntry {
+            host: heapless::String::try_from("stratum.braiins.com")
+                .expect("BUG: host literal fits String<128>"),
+            port: 3333,
+            user: heapless::String::try_from("worker").expect("BUG: user literal fits String<128>"),
+            protocol: ProtocolKind::Sv2 { pool_pubkey },
+            weight: 1,
+        }
+    }
+
+    #[test]
+    fn json_emits_base58_string() {
+        let entry = sv2_entry(Some(DEFAULT_POOL_SV2_PUBKEY));
+        let mut buf = [0u8; 256];
+        let len = serde_json_core::to_slice(&entry, &mut buf).expect("encode must succeed");
+        let json = core::str::from_utf8(&buf[..len]).expect("BUG: json output is ASCII");
+        assert!(
+            json.contains(alloc_free_quote(KEY_B58).as_str()),
+            "expected base58 string in {json}"
+        );
+        // The raw byte-array form must be gone.
+        assert!(!json.contains("[41,149"), "byte array leaked: {json}");
+    }
+
+    #[test]
+    fn json_round_trips_some() {
+        let entry = sv2_entry(Some(DEFAULT_POOL_SV2_PUBKEY));
+        let mut buf = [0u8; 256];
+        let len = serde_json_core::to_slice(&entry, &mut buf).expect("encode must succeed");
+        let (decoded, _) =
+            serde_json_core::from_slice::<PoolEntry>(&buf[..len]).expect("decode must succeed");
+        assert_eq!(decoded, entry);
+    }
+
+    #[test]
+    fn json_round_trips_none_as_null() {
+        let entry = sv2_entry(None);
+        let mut buf = [0u8; 256];
+        let len = serde_json_core::to_slice(&entry, &mut buf).expect("encode must succeed");
+        let json = core::str::from_utf8(&buf[..len]).expect("BUG: json output is ASCII");
+        assert!(json.contains("null"), "expected null pubkey in {json}");
+        let (decoded, _) =
+            serde_json_core::from_slice::<PoolEntry>(&buf[..len]).expect("decode must succeed");
+        assert_eq!(decoded, entry);
+    }
+
+    #[test]
+    fn json_rejects_bad_pubkey() {
+        let body = br#"{"host":"h","port":3333,"user":"u","weight":1,"protocol":{"Sv2":{"pool_pubkey":"notvalid!!"}}}"#;
+        assert!(serde_json_core::from_slice::<PoolEntry>(body).is_err());
+    }
+
+    #[test]
+    fn postcard_keeps_raw_bytes() {
+        // The postcard branch must be byte-identical to serializing the
+        // field as a plain Option<[u8; 32]> — 0x01 tag then 32 bytes.
+        let entry = sv2_entry(Some(DEFAULT_POOL_SV2_PUBKEY));
+        let mut buf = [0u8; 256];
+        let bytes = postcard::to_slice(&entry, &mut buf).expect("encode must succeed");
+        // The 32 key bytes appear verbatim (no base58 ASCII).
+        assert!(
+            bytes.windows(32).any(|w| w == DEFAULT_POOL_SV2_PUBKEY),
+            "raw key bytes missing from postcard output"
+        );
+    }
+
+    /// Wrap a string in JSON double quotes without allocation.
+    fn alloc_free_quote(s: &str) -> heapless::String<64> {
+        let mut out = heapless::String::new();
+        out.push('"').expect("BUG: quote fits String<64>");
+        out.push_str(s)
+            .expect("BUG: 52-char base58 fits String<64>");
+        out.push('"').expect("BUG: quote fits String<64>");
+        out
     }
 }

@@ -266,7 +266,7 @@ const WIDEST_F32: f32 = -0.000_001_000_000_1;
 /// so the figure quoted in that constant's comment cannot drift: a field
 /// addition that still fits the buffer fails here, and updating this constant
 /// is the prompt to update that comment.
-const WORST_CASE_BODY_LEN: usize = 2108;
+const WORST_CASE_BODY_LEN: usize = 2102;
 
 /// The `GET /api/config` handler serializes a `ConfigUpdate` into a fixed
 /// `[u8; CONFIG_RESPONSE_BUFFER_SIZE]`. `serde_json_core::to_slice` returns
@@ -311,22 +311,25 @@ fn config_response_body_fits_in_buffer() {
     // Which `ProtocolKind` variant is the wider one is likewise a premise of
     // the total, so pin it rather than leave it to the comment: the two
     // maxima are close enough that a capacity change could invert them.
-    let widest_protocol = ubos_config::ProtocolKind::Sv2 {
-        pool_pubkey: Some([u8::MAX; 32]),
+    // SV2 carries the pubkey as a base58check string over JSON, which is
+    // shorter than the byte array it replaced, so SV1 with a full password
+    // is the wider variant now.
+    let widest_protocol = ubos_config::ProtocolKind::Sv1 {
+        password: Some(filled()),
     };
     let mut probe = [0u8; 256];
-    let sv2 =
+    let sv1 =
         serde_json_core::to_slice(&widest_protocol, &mut probe).expect("a protocol fits the probe");
-    let sv1 = serde_json_core::to_slice(
-        &ubos_config::ProtocolKind::Sv1 {
-            password: Some(filled()),
+    let sv2 = serde_json_core::to_slice(
+        &ubos_config::ProtocolKind::Sv2 {
+            pool_pubkey: Some([u8::MAX; 32]),
         },
         &mut probe,
     )
     .expect("a protocol fits the probe");
     assert!(
-        sv2 > sv1,
-        "SV1 now serializes at least as wide as SV2 ({sv1} vs {sv2}); the \
+        sv1 > sv2,
+        "SV2 now serializes at least as wide as SV1 ({sv2} vs {sv1}); the \
          worst-case body no longer uses the widest protocol variant"
     );
 
