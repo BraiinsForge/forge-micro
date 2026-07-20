@@ -19,20 +19,7 @@
 
 //! Unit tests for blob framing and storage error paths.
 
-use crate::{
-    Config, DEFAULT_POOL_SV2_PUBKEY, LoadError, NetworkConfig, NetworkMode, decode_blob,
-    encode_blob,
-};
-
-/// Base58check literal whose decoded 32-byte tail must equal
-/// [`DEFAULT_POOL_SV2_PUBKEY`]. Kept in sync with the doc comment on
-/// the constant.
-const DEFAULT_POOL_SV2_PUBKEY_BASE58: &str = "9awtMD5KQgvRUh2yFbjVeT7b6hjipWcAsQHd6wEhgtDT9soosna";
-
-/// SV2 authority key prefix expected by the original `pool_config`
-/// decoder; preserved here so a future encoding change to the literal
-/// is caught alongside the byte sequence.
-const SV2_PUBKEY_PREFIX: [u8; 2] = [1, 0];
+use crate::{Config, LoadError, NetworkConfig, NetworkMode, decode_blob, encode_blob};
 
 /// Round-trip: encode the default config and decode it back.
 #[test]
@@ -173,20 +160,4 @@ fn golden_snapshot() {
     let mut buffer = [0u8; 512];
     let length = encode_blob(&config, &mut buffer).expect("encode must succeed");
     assert_eq!(&buffer[..length], EXPECTED_BLOB);
-}
-
-/// Decoding the base58check literal embedded in the
-/// [`DEFAULT_POOL_SV2_PUBKEY`] doc comment must produce the hardcoded
-/// 32-byte constant. Catches typos in the literal or the bytes if
-/// either side is edited without the other.
-#[test]
-fn default_pool_sv2_pubkey_matches_base58check_literal() {
-    let mut buffer = [0u8; 64];
-    let length = bs58::decode(DEFAULT_POOL_SV2_PUBKEY_BASE58)
-        .with_check(None)
-        .onto(&mut buffer[..])
-        .expect("base58check decode must succeed");
-    assert_eq!(length, 34, "expected 2-byte prefix + 32-byte key");
-    assert_eq!(&buffer[..2], &SV2_PUBKEY_PREFIX);
-    assert_eq!(&buffer[2..34], &DEFAULT_POOL_SV2_PUBKEY);
 }

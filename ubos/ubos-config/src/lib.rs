@@ -53,6 +53,7 @@ pub mod miner;
 pub mod mining;
 pub mod network;
 pub mod pool;
+pub mod pubkey;
 pub mod thermal;
 
 use ubos_asic::HashboardDescriptor;

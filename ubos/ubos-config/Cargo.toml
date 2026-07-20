@@ -34,13 +34,10 @@ postcard-schema        = { workspace = true }
 sequential-storage     = { workspace = true }
 embedded-storage       = { workspace = true }
 embedded-storage-async = { workspace = true }
+bs58                   = { version = "0.5", default-features = false }
+sha2                   = { workspace = true }
 
 [dev-dependencies]
-# Host tests re-decode the base58check literal embedded in the
-# `DEFAULT_POOL_SV2_PUBKEY` doc comment and assert it matches the
-# hardcoded bytes. `alloc` is required by `with_check` on top of
-# `check`. The lib build never sees the dev-dep.
-bs58                   = { version = "0.5", default-features = false, features = ["check", "alloc"] }
 # `block_on` drives `async fn` tests against `FileStorage`, whose
 # methods have no real suspend points, so the future resolves on the
 # first poll. Pattern mirrors the ubos-auth test suite.
