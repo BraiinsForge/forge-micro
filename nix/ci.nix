@@ -23,6 +23,7 @@ let
         "fmt"
         "fmt-load-test"
         "nixfmt"
+        "micro-sv2-formatting"
       ]
     then
       "ci-format"

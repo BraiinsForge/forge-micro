@@ -41,6 +41,12 @@
     # nixpkgs: its esp-idf derivation pins python310, which nixos-unstable has
     # dropped, so it must keep its own locked nixpkgs.
     nixpkgs-esp-dev.url = "github:mirrexagon/nixpkgs-esp-dev";
+    # Vendored SV2 library workspace (micro-sv2/). It is its own flake with
+    # its own locked inputs, kept independent so it still builds standalone
+    # and stays borrowable; ubos gates it by composing its checks below
+    # rather than re-deriving crane builds. Deliberately not `follows`ed onto
+    # our nixpkgs: it pins nixos-25.11 and builds as upstream tested.
+    micro-sv2.url = "path:./micro-sv2";
   };
 
   outputs =
@@ -54,6 +60,7 @@
       deploy-rs,
       nixpkgs-esp-dev,
       probe-rs-redacted,
+      micro-sv2,
     }@inputs:
     let
       nucHost = "redacted.redacted";
@@ -352,6 +359,15 @@
               sd-image-eval = pkgs.runCommand "sd-image-eval" { } ''
                 echo ${builtins.unsafeDiscardOutputDependency (sdImageFor system).drvPath} > $out
               '';
+            }
+            # Vendored micro-sv2 is its own workspace the root crane build does
+            # not cover, so gate it by re-exporting its flake's checks. The
+            # clippy- prefix routes to ci-clippy; micro-sv2-formatting is added
+            # to ci-format's set in nix/ci.nix; the rest fall into ci-check.
+            // {
+              "clippy-micro-sv2" = micro-sv2.checks.${system}.clippy;
+              "micro-sv2-test" = micro-sv2.checks.${system}.test;
+              "micro-sv2-formatting" = micro-sv2.checks.${system}.formatting;
             };
 
           # Interactive development shells; see nix/shells.nix. The
