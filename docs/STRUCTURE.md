@@ -28,7 +28,8 @@ and which authoritative references it is based on.
 ├── firmware/               per-target firmware binaries
 ├── nuc/                    NixOS configuration for the support host
 ├── pcb/                    KiCad hardware sources
-└── patches/                vendored patches and forked crates
+├── patches/                vendored patches and forked crates
+└── micro-sv2/              nested workspace: vendored SV2 library
 ```
 
 There is no `src/` at the workspace root. The root `Cargo.toml` is a
@@ -141,6 +142,16 @@ All upstream patches and forked-crate sources live here.
   `[patch.crates-io]`).
 - Vendored crate forks live in their own subdirectory and are wired
   into the workspace via `[patch.crates-io] crate = { path = "..." }`.
+
+## `micro-sv2/` — vendored SV2 library
+
+A self-contained nested Cargo workspace holding the Stratum V2 library: the
+umbrella crate `ii-sv2` plus `ii-sv2-crypto`, `ii-sv2-framing`,
+`ii-sv2-messages`, `ii-sv2-security`, and `ii-sv2-types`. It has its own
+`[workspace]`, `Cargo.lock`, and `flake.nix` for standalone builds, and is
+listed in the root workspace's `[workspace].exclude`. The root workspace
+consumes it as an ordinary path dependency, `ii-sv2 = { path =
+"micro-sv2/ii-sv2" }`, rather than as a member.
 
 ## `nuc/` — NixOS host configuration
 
