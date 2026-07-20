@@ -48,6 +48,14 @@ members = [
     "ubos/ubos-webui",
 ]
 
+# micro-sv2 is its own nested workspace, vendored for deployment convenience
+# and consumed only through the `ii-sv2` path dependency below. Without this
+# exclude, cargo would auto-add it and its path-dep siblings as members of this
+# workspace (path deps inside the workspace dir are pulled in), and their
+# `workspace = true` inheritance would resolve against this root instead of
+# micro-sv2's, which does not define their deps (bs58, secp256k1, ...).
+exclude = ["micro-sv2"]
+
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
@@ -108,7 +116,7 @@ stratum-client    = { path = "ubos/stratum-client" }
 stratum-v1        = { path = "ubos/stratum-v1" }
 stratum-v2        = { path = "ubos/stratum-v2" }
 ubos-mining       = { path = "ubos/ubos-mining", default-features = false }
-ii-sv2            = { git = "ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git", tag = "v0.2.0", default-features = false }
+ii-sv2            = { path = "micro-sv2/ii-sv2", default-features = false }
 ubos-api          = { path = "ubos/ubos-api", default-features = false }
 ubos-asic         = { path = "ubos/ubos-asic" }
 ubos-auth         = { path = "ubos/ubos-auth", default-features = false }

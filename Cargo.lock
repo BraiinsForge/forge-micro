@@ -2592,7 +2592,6 @@ dependencies = [
 [[package]]
 name = "ii-sv2"
 version = "0.2.0"
-source = "git+ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git?tag=v0.2.0#6753178f2b558f3afe385e1ff2a51fd181a4171e"
 dependencies = [
  "ii-sv2-framing",
  "ii-sv2-messages",
@@ -2603,7 +2602,6 @@ dependencies = [
 [[package]]
 name = "ii-sv2-crypto"
 version = "0.2.0"
-source = "git+ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git?tag=v0.2.0#6753178f2b558f3afe385e1ff2a51fd181a4171e"
 dependencies = [
  "chacha20poly1305",
  "hkdf",
@@ -2614,7 +2612,6 @@ dependencies = [
 [[package]]
 name = "ii-sv2-framing"
 version = "0.2.0"
-source = "git+ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git?tag=v0.2.0#6753178f2b558f3afe385e1ff2a51fd181a4171e"
 dependencies = [
  "ii-sv2-types",
 ]
@@ -2622,7 +2619,6 @@ dependencies = [
 [[package]]
 name = "ii-sv2-messages"
 version = "0.2.0"
-source = "git+ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git?tag=v0.2.0#6753178f2b558f3afe385e1ff2a51fd181a4171e"
 dependencies = [
  "ii-sv2-framing",
  "ii-sv2-types",
@@ -2631,7 +2627,6 @@ dependencies = [
 [[package]]
 name = "ii-sv2-security"
 version = "0.2.0"
-source = "git+ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git?tag=v0.2.0#6753178f2b558f3afe385e1ff2a51fd181a4171e"
 dependencies = [
  "bs58",
  "embedded-io-async 0.7.0",
@@ -2645,7 +2640,6 @@ dependencies = [
 [[package]]
 name = "ii-sv2-types"
 version = "0.2.0"
-source = "git+ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git?tag=v0.2.0#6753178f2b558f3afe385e1ff2a51fd181a4171e"
 
 [[package]]
 name = "indexmap"
