@@ -42,7 +42,10 @@ pub mod tuner;
 
 pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
 pub use miner::{Miner, MinerControl, MinerError, PsuErrorKind};
-pub use serial::{core1_is_parked, release_core1_park, request_core1_park};
+pub use serial::{
+    core1_is_parked, core1_serial_running, release_core1_park, request_core1_park,
+    signal_core1_park,
+};
 
 ubos_events::events! {
     miner_reset()                                 info  = "Miner reset",

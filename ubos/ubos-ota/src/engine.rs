@@ -141,15 +141,17 @@ impl<B: OtaBackend> OtaEngine<B> {
     /// acknowledges, bounded by [`PARK_POLL_MAX_ATTEMPTS`].
     ///
     /// Returns `true` once core 1 is parked, or `false` on timeout. The park
-    /// is re-requested on every poll iteration: a single cross-core wake can
-    /// be missed when core 1's executor is idle in `wfe` and the wake lands
-    /// during a brief interrupts-disabled window, so re-signalling each
-    /// iteration guarantees the worker is woken within the budget. The caller
-    /// releases the park; this only acquires and waits.
+    /// is requested once and re-signalled on every poll iteration: a single
+    /// cross-core wake can be missed when core 1's executor is idle in `wfe`
+    /// and the wake lands during a brief interrupts-disabled window, so
+    /// re-signalling each iteration guarantees the worker is woken within the
+    /// budget. Re-requesting instead would leave unbalanced increments on the
+    /// park counter. The caller releases the park; this only acquires and
+    /// waits.
     fn park_core1_and_wait(&self) -> bool {
+        ubos_mining::request_core1_park();
         let mut attempts = 0u32;
         loop {
-            ubos_mining::request_core1_park();
             if ubos_mining::core1_is_parked() {
                 return true;
             }
@@ -158,6 +160,7 @@ impl<B: OtaBackend> OtaEngine<B> {
             }
             self.backend.park_poll_delay();
             attempts += 1;
+            ubos_mining::signal_core1_park();
         }
     }
 }

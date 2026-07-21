@@ -27,6 +27,7 @@
 //! is therefore a thin newtype that exists only to satisfy the orphan rule for
 //! `BaudRate`.
 
+use embassy_rp::interrupt::{self, InterruptExt};
 use embassy_rp::uart::{BufferedUart, Error as UartError};
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use serial_baudrate::BaudRate;
@@ -72,5 +73,17 @@ impl BaudRate for MinerUart {
         // drains 1 s on either side of the change.
         self.inner.set_baudrate(baud);
         Ok(())
+    }
+
+    fn set_rx_irq_enabled(&mut self, enabled: bool) {
+        // Masked on core 1 across a config/OTA flash erase so a chip-UART RX
+        // interrupt cannot wake the core out of the flash-suspend pause and
+        // fault it. `enable` is re-arming an interrupt that was set up at
+        // bring-up and only briefly masked here.
+        if enabled {
+            unsafe { interrupt::UART1_IRQ.enable() };
+        } else {
+            interrupt::UART1_IRQ.disable();
+        }
     }
 }

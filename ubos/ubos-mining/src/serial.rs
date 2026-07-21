@@ -92,12 +92,15 @@ pub(crate) static POOL_WORK_SHARES: [AtomicU64; 8] = [const { AtomicU64::new(0) 
 // lifetime.
 // ---------------------------------------------------------------------------
 
-/// Level flag: `true` means the serial worker should enter the park loop.
+/// Outstanding park requests. Non-zero means the serial worker should
+/// enter (and stay in) the park loop.
 ///
-/// Set to `true` by [`request_core1_park`] and back to `false` by
-/// [`release_core1_park`]. The serial worker polls this inside the park
-/// loop and exits the spin when it returns `false`.
-pub(crate) static PARK_REQUESTED: AtomicBool = AtomicBool::new(false);
+/// A counter rather than a flag so nested requesters compose: OTA holds
+/// a park across a whole upload while a config flash write parks around
+/// its single erase/write. [`request_core1_park`] increments,
+/// [`release_core1_park`] decrements, and the worker parks while the
+/// count is non-zero, so an inner release cannot drop an outer park.
+pub(crate) static PARK_REQUESTED: AtomicU32 = AtomicU32::new(0);
 
 /// Ack flag: `true` means the serial worker is currently spinning in the
 /// park loop and will not attempt any flash or UART access.
@@ -107,6 +110,22 @@ pub(crate) static PARK_REQUESTED: AtomicBool = AtomicBool::new(false);
 /// access should poll this with [`core1_is_parked`] after calling
 /// [`request_core1_park`].
 pub(crate) static PARKED: AtomicBool = AtomicBool::new(false);
+
+/// `true` while [`Serial::run`] is on core 1 and able to answer a park
+/// request.
+///
+/// A flash write that lands when this is `false` has nothing to park, and
+/// waiting for an ack that can never come would fail the write. The case
+/// that matters is a worker that has exited on serial EOF: its task then
+/// idles forever, so every later config save would burn the writer's whole
+/// park budget and fail. `run` masks the chip-UART RX interrupt on its way
+/// out, so once this clears there is no interrupt left to wake core 1 out
+/// of the flash-pause `wfe` either.
+///
+/// The flag is `false` for a short window at boot too, between core 1
+/// arming the UART interrupt and reaching `run`. Nothing writes flash
+/// there: config saves come from the API, which needs the network up.
+static SERIAL_WORKER_LIVE: AtomicBool = AtomicBool::new(false);
 
 /// Wakes the serial worker's `select` loop when a park is requested.
 ///
@@ -119,23 +138,50 @@ static PARK_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Requests that the core-1 serial worker enter its park loop.
 ///
-/// Sets [`PARK_REQUESTED`] to `true` with `Release` ordering and signals
+/// Increments [`PARK_REQUESTED`] with `Release` ordering and signals
 /// [`PARK_SIGNAL`] to wake the worker's `select` loop immediately. After
 /// this call, poll [`core1_is_parked`] to wait for the ack; flash
-/// operations must not begin until the ack is observed.
+/// operations must not begin until the ack is observed. Pair every call
+/// with exactly one [`release_core1_park`].
 pub fn request_core1_park() {
-    PARK_REQUESTED.store(true, Ordering::Release);
+    PARK_REQUESTED.fetch_add(1, Ordering::Release);
     PARK_SIGNAL.signal(());
 }
 
-/// Releases the core-1 serial worker from its park loop.
+/// Releases one core-1 park request.
 ///
-/// Sets [`PARK_REQUESTED`] to `false` with `Release` ordering. The worker
-/// exits its busy-spin on the next poll of [`PARK_REQUESTED`] and resumes
-/// normal operation. Safe to call when the worker is not parked (the store
-/// is idempotent).
+/// Decrements [`PARK_REQUESTED`] with `Release` ordering, saturating at
+/// zero so an unbalanced release cannot wrap the counter and strand the
+/// worker parked forever. The worker leaves its busy-spin only once the
+/// count reaches zero, so an inner requester's release does not drop an
+/// outer requester's park.
 pub fn release_core1_park() {
-    PARK_REQUESTED.store(false, Ordering::Release);
+    let _ = PARK_REQUESTED.fetch_update(Ordering::Release, Ordering::Acquire, |count| {
+        Some(count.saturating_sub(1))
+    });
+}
+
+/// Re-wakes the serial worker for a park that is already requested.
+///
+/// Signals [`PARK_SIGNAL`] without touching [`PARK_REQUESTED`], so a
+/// requester polling for the ack can retry a cross-core wake that was lost
+/// while core 1 sat in `wfe` with interrupts briefly disabled. Calling
+/// [`request_core1_park`] again instead would leave an increment behind
+/// that no release balances.
+pub fn signal_core1_park() {
+    PARK_SIGNAL.signal(());
+}
+
+/// Returns `true` while the core-1 serial worker is running and able to
+/// answer a park request.
+///
+/// A flash writer must check this before waiting on [`core1_is_parked`]:
+/// when it returns `false` there is no worker to park, and no chip-UART
+/// interrupt armed on core 1 either, so the write is safe to run
+/// unparked. See [`SERIAL_WORKER_LIVE`].
+#[must_use]
+pub fn core1_serial_running() -> bool {
+    SERIAL_WORKER_LIVE.load(Ordering::Acquire)
 }
 
 /// Returns `true` while the core-1 serial worker is spinning in the park
@@ -178,15 +224,22 @@ pub fn core1_is_parked() -> bool {
 /// single-threaded test harness cannot drive both this loop and the task
 /// that releases it; the park handshake is exercised by the on-hardware
 /// core-split bring-up rather than the unit suite.
-fn park_if_requested() -> bool {
-    if !PARK_REQUESTED.load(Ordering::Acquire) {
+fn park_if_requested(serial: &mut impl BaudRate) -> bool {
+    if PARK_REQUESTED.load(Ordering::Acquire) == 0 {
         return false;
     }
+    // Mask the RX interrupt before acking the park. The requester runs a
+    // flash erase/program with XIP suspended; a pending chip-UART RX
+    // interrupt would otherwise wake this core out of the flash driver's
+    // `wfe` pause and fault it fetching the pause loop from suspended
+    // flash. Restored on release.
+    serial.set_rx_irq_enabled(false);
     PARKED.store(true, Ordering::Release);
-    while PARK_REQUESTED.load(Ordering::Acquire) {
+    while PARK_REQUESTED.load(Ordering::Acquire) > 0 {
         core::hint::spin_loop();
     }
     PARKED.store(false, Ordering::Release);
+    serial.set_rx_irq_enabled(true);
     true
 }
 
@@ -511,6 +564,22 @@ impl Serial {
             .await;
     }
 
+    /// Retires the worker: masks the chip-UART RX interrupt for good, then
+    /// clears [`SERIAL_WORKER_LIVE`].
+    ///
+    /// Once `run` returns nothing on core 1 drains the UART, but the RX
+    /// interrupt stays armed on core 1's NVIC and a chip byte would still
+    /// pend it — enough to wake core 1 out of the flash-pause `wfe` and
+    /// fault it on suspended XIP. Masking removes that hazard for the rest
+    /// of the image's life, which is what lets a flash write skip the park
+    /// once [`core1_serial_running`] reads `false`. The mask is published
+    /// before the flag so an observer of `false` cannot race an armed
+    /// interrupt.
+    fn stand_down(serial: &mut impl BaudRate) {
+        serial.set_rx_irq_enabled(false);
+        SERIAL_WORKER_LIVE.store(false, Ordering::Release);
+    }
+
     /// Server entry point. Owns the byte stream and the work registry;
     /// holds a work receiver for every pool slot and asks `scheduler`
     /// which one to dispatch from on each work tick, then submits found
@@ -586,9 +655,11 @@ impl Serial {
             [const { None }; WORK_REGISTRY_SLOTS];
         let mut read_buf = [0u8; READ_CHUNK];
 
+        SERIAL_WORKER_LIVE.store(true, Ordering::Release);
+
         loop {
             // Honor a park request before the select; see park_if_requested.
-            if park_if_requested() {
+            if park_if_requested(&mut serial) {
                 continue;
             }
 
@@ -661,6 +732,7 @@ impl Serial {
                 Either4::Second(ResultEvent::Read(Ok(0))) => {
                     error!("Serial port EOF");
                     UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
+                    Self::stand_down(&mut serial);
                     return Err(ErrorKind::BrokenPipe);
                 }
                 Either4::Second(ResultEvent::Read(Ok(n))) => {
@@ -698,6 +770,7 @@ impl Serial {
                         )
                         .await
                     {
+                        Self::stand_down(&mut serial);
                         return Ok(());
                     }
                 }

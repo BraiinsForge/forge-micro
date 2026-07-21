@@ -38,13 +38,22 @@
 //! operation, never across an `await`, so it adds no latency beyond the
 //! XIP-suspend the flash driver already performs.
 //!
+//! `write`/`erase` park the core-1 serial worker first. `embassy-rp`'s
+//! `Flash` does pause core 1 for the XIP-off window (`in_ram` →
+//! `multicore::pause_core1`), but that pause `wfe`s in a flash-resident
+//! handler that a pending chip-UART RX interrupt wakes — faulting core 1 on
+//! the suspended flash. Parking the worker makes it mask its RX interrupt
+//! for the op, so nothing pends to wake the pause. The park is mandatory,
+//! not best-effort: a write whose park is not acknowledged fails rather
+//! than proceeding into that hardfault.
+//!
 //! The mutex uses [`CriticalSectionRawMutex`] so the lock is sound against
 //! both the other core and interrupt context, matching the cross-core
 //! sharing the board relies on elsewhere.
 
 use core::cell::RefCell;
 
-use embassy_rp::flash::{Blocking, Flash};
+use embassy_rp::flash::{Blocking, Error, Flash};
 use embassy_rp::peripherals::FLASH;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -94,16 +103,74 @@ impl<const FLASH_SIZE: usize> ReadNorFlash for SharedBlockingFlash<FLASH_SIZE> {
     }
 }
 
+/// Cap on the core-1 park-ack busy-spin, after which the flash operation is
+/// abandoned. The worker parks within one loop iteration once signalled,
+/// but a bring-up command holds it for seconds, so this bound is reached in
+/// normal operation whenever a save collides with one.
+const MAX_PARK_SPINS: u32 = 5_000_000;
+
+/// Spin count between park re-signals. A single cross-core wake can be lost
+/// when core 1 is in `wfe` with interrupts briefly disabled, and without a
+/// retry the whole budget would be spent waiting on a wake that never
+/// arrives. A power of two so the check is a mask.
+const PARK_RESIGNAL_SPINS: u32 = 0xFFFF;
+
+/// Run `op` with the core-1 serial worker parked, or fail without running
+/// it.
+///
+/// `embassy-rp`'s blocking `Flash` already pauses core 1 for the XIP-off
+/// window (`in_ram` → `multicore::pause_core1`), but that pause `wfe`s in a
+/// flash-resident handler: a pending chip-UART RX interrupt wakes it and
+/// faults core 1 fetching from suspended flash. Parking the worker first
+/// makes it mask its RX interrupt (see `BaudRate::set_rx_irq_enabled`), so
+/// no interrupt pends to wake the pause.
+///
+/// Fails closed. Running `op` unparked is the exact hardfault this exists
+/// to prevent, so a park that does not ack within [`MAX_PARK_SPINS`] gives
+/// up and returns [`Error::Other`]: the caller sees a failed write instead
+/// of the board rebooting under it. A config save colliding with a chain
+/// bring-up is the case that reaches this, since the worker cannot answer a
+/// park until the command in flight finishes.
+///
+/// When no worker is running the park is skipped rather than waited out. A
+/// worker that exited on serial EOF never acks again, and has already
+/// masked its RX interrupt on the way out, so waiting would fail every
+/// later save for nothing.
+fn with_core1_parked<R>(op: impl FnOnce() -> Result<R, Error>) -> Result<R, Error> {
+    if !ubos_mining::core1_serial_running() {
+        return op();
+    }
+
+    ubos_mining::request_core1_park();
+    let mut spins = 0u32;
+    while !ubos_mining::core1_is_parked() {
+        if spins >= MAX_PARK_SPINS {
+            ubos_mining::release_core1_park();
+            return Err(Error::Other);
+        }
+        core::hint::spin_loop();
+        spins += 1;
+        if spins & PARK_RESIGNAL_SPINS == 0 {
+            ubos_mining::signal_core1_park();
+        }
+    }
+    let result = op();
+    ubos_mining::release_core1_park();
+    result
+}
+
 impl<const FLASH_SIZE: usize> NorFlash for SharedBlockingFlash<FLASH_SIZE> {
     const WRITE_SIZE: usize = <Flash<'static, FLASH, Blocking, FLASH_SIZE> as NorFlash>::WRITE_SIZE;
     const ERASE_SIZE: usize = <Flash<'static, FLASH, Blocking, FLASH_SIZE> as NorFlash>::ERASE_SIZE;
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.mutex
-            .lock(|cell| cell.borrow_mut().write(offset, bytes))
+        with_core1_parked(|| {
+            self.mutex
+                .lock(|cell| cell.borrow_mut().write(offset, bytes))
+        })
     }
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.mutex.lock(|cell| cell.borrow_mut().erase(from, to))
+        with_core1_parked(|| self.mutex.lock(|cell| cell.borrow_mut().erase(from, to)))
     }
 }

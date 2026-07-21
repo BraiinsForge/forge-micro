@@ -46,4 +46,14 @@ pub trait BaudRate {
     /// for backend-specific failures (the backend should log the real
     /// error before mapping).
     fn set_baudrate(&mut self, baud: u32) -> Result<(), ErrorKind>;
+
+    /// Enable or disable the line's RX interrupt.
+    ///
+    /// The mining serial actor disables it while another core runs a flash
+    /// erase/program with XIP suspended: on dual-core RP boards a pending
+    /// chip-UART RX interrupt would wake the paused core out of `wfe` and
+    /// fault it fetching the pause loop from suspended flash. Default is a
+    /// no-op — single-core and host backends are unaffected; only the
+    /// dual-core RP backends override it to mask their chip-UART IRQ.
+    fn set_rx_irq_enabled(&mut self, _enabled: bool) {}
 }
