@@ -219,6 +219,13 @@
           };
           inherit (sources) src srcFor loadTestSrc;
 
+          # Workspace package names present in this tree, from crate-graph.
+          # The checks and images modules gate every firmware crate on its
+          # membership, so the public mirror — which strips every board but
+          # hashnode and drops them from the root Cargo.toml — evaluates
+          # with those gates absent instead of dangling on missing sources.
+          members = sources.crateGraph.members;
+
           # Slot-size and pool-worker guard text, rendered from one
           # function so the per-board copies cannot drift apart. See
           # nix/guards.nix.
@@ -249,6 +256,7 @@
               espCargoVendorDir
               xtensaEspToolchain
               bmmCc
+              members
               ;
           };
 
@@ -325,6 +333,7 @@
               fwVersion
               slotMaxBytes
               esp32s3SlotBytes
+              members
               ;
           };
 
@@ -361,6 +370,7 @@
                 slotMaxKiB
                 slotMaxBytes
                 esp32s3SlotBytes
+                members
                 ;
             }
             # Optional private-overlay checks; see privateChecks above.
@@ -439,8 +449,6 @@
               # entry point of the `logic` devShell.
               redacted-run = redactedRun;
 
-              esp32s3-bootloader = esp32s3Bootloader;
-
               # GC-root anchor for the expensive cross toolchains that
               # cache.nixos.org does not carry: the armv5tel-musl gcc for
               # the BMM miniminer and the bare-metal riscv64 gcc/binutils.
@@ -452,6 +460,13 @@
                 bmm-cc = bmmCc;
                 riscv-gcc = riscvGcc;
               };
+            }
+            # The esp32s3 second-stage bootloader builds from
+            # firmware/esp32s3-bootloader, which the public mirror strips
+            # with the rest of the esp32s3 board, so expose it only when
+            # that board is a member. See nix/esp.nix.
+            // pkgs.lib.optionalAttrs (builtins.elem "esp32s3" members) {
+              esp32s3-bootloader = esp32s3Bootloader;
             }
             # CI stage groups partitioning `checks`; see nix/ci.nix.
             // (import ./nix/ci.nix {

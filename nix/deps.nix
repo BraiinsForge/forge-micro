@@ -45,6 +45,11 @@
   espCargoVendorDir,
   xtensaEspToolchain,
   bmmCc,
+  # Workspace package names present in the tree, from crate-graph. The
+  # thumbv8m bag mixes stripped boards with the always-public
+  # rp235x-sha256, so its crate list must filter on membership or the
+  # bag fails package-spec resolution on the public mirror.
+  members,
 }:
 let
   # A check-only bag: dependencies are `cargo check`ed, never linked.
@@ -182,8 +187,11 @@ rec {
     target = "thumbv7em-none-eabihf";
   };
 
+  # The board crates are stripped from the public mirror while
+  # rp235x-sha256 stays, and its checks consume this bag
+  # unconditionally, so the crate list keeps only workspace members.
   thumbv8mArtifacts = armBag {
-    crates = [
+    crates = builtins.filter (c: builtins.elem c members) [
       "bmm-pico"
       "rp2350"
       "rp235x-sha256"

@@ -56,6 +56,13 @@
   slotMaxKiB,
   slotMaxBytes,
   esp32s3SlotBytes,
+  # Workspace package names present in the tree, from crate-graph. The
+  # public mirror strips every firmware crate but hashnode and drops
+  # their members from the root Cargo.toml, so on the mirror this list
+  # omits them and the firmware gates below filter themselves out. On the
+  # full internal tree every crate is a member, so the filters are the
+  # identity and gate every board exactly as before.
+  members,
 }:
 let
   inherit (pkgs) lib;
@@ -66,6 +73,12 @@ let
     espRustflags
     ;
   root = ../.;
+
+  # A firmware crate is gated only when it is a workspace member. On the
+  # public mirror the non-hashnode boards are stripped and dropped from
+  # the member list, so their gates vanish; on the internal tree every
+  # board is a member and this is always true. See the `members` arg.
+  hasCrate = name: builtins.elem name members;
 
   # Host-side clippy: one row per check. `crate` is the cargo package;
   # `artifacts` defaults to the shared host bag; `allTargets` is off for
@@ -279,7 +292,7 @@ let
   # selects the postBuild image guard: "slot" objcopies the ELF and
   # enforces the OTA slot budget, "elf" greps the ELF for the pool
   # worker only; boards that are not OTA targets have no slot budget.
-  boards = {
+  boards = lib.filterAttrs (name: _: hasCrate name) {
     bmm-pico = {
       artifacts = deps.thumbv8mArtifacts;
       target = "thumbv8m.main-none-eabihf";
@@ -455,12 +468,99 @@ let
     mkBootloaderChecks "rp2040-bootloader" deps.thumbv6mBootloaderArtifacts
       "thumbv6m-none-eabi";
 
+  # esp32s3 firmware gates, grouped so they can be dropped as a unit when
+  # the esp32s3 board is stripped from the mirror. They share the esp
+  # toolchain and the esp32s3 source scaffolding, so gating the esp
+  # backend of the kept ubos-ota crate and the esp32s3-tsens lib here too
+  # keeps the whole esp toolchain out of the public mirror's checks.
+  espChecks = {
+    # Our firmware crate name collides with the esp32s3 PAC crate pulled
+    # in transitively; disambiguate by pinning to @0.1.0.
+    clippy-esp32s3 = espCraneLib.cargoClippy (
+      espCommon
+      // {
+        cargoArtifacts = deps.espArtifacts;
+        cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
+        cargoClippyExtraArgs = "-- -D warnings";
+      }
+      // webuiEnvAttrs
+    );
+
+    # No codegen bag to reuse; see the esp bag rationale in nix/deps.nix.
+    # The size guard must live here, not only in packages.esp32s3-image:
+    # `nix flake check` builds checks.* but merely evaluates packages.*,
+    # so a guard in the image package alone would never gate an oversized
+    # image in CI.
+    build-esp32s3 = espCraneLib.cargoBuild (
+      espCommon
+      // {
+        cargoArtifacts = null;
+        cargoBuildCommand = "cargo build --release";
+        cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
+        nativeBuildInputs = espCommon.nativeBuildInputs ++ [ pkgs.espflash ];
+        postBuild = ''
+          elf=target/xtensa-esp32s3-none-elf/release/esp32s3
+          bin=$(mktemp --suffix=.bin)
+          # espflash reads/writes a user cache dir; keep it in the sandbox.
+          export HOME="$TMPDIR"
+          espflash save-image --chip esp32s3 --flash-size 8mb "$elf" "$bin"
+        ''
+        + guards.imageGuard {
+          name = "esp32s3";
+          bin = ''"$bin"'';
+          maxBytes = esp32s3SlotBytes;
+          budgetLabel = "OTA app slot";
+          cleanup = ''rm -f "$bin"; '';
+        }
+        + ''
+          rm -f "$bin"
+        '';
+      }
+      // espRustflags
+      // webuiEnvAttrs
+    );
+
+    # Gate the OTA bootloader so a broken sdkconfig fails CI. This
+    # pulls the esp-idf closure on first build; it is cached until the
+    # nixpkgs-esp-dev input or the stub project changes.
+    build-esp32s3-bootloader = esp32s3Bootloader;
+
+    # Lint the ubos-ota esp backend. clippy only lints the top crate,
+    # so the esp32s3 firmware build compiles this code but does not
+    # lint it; this check does. The chip features are supplied on the
+    # CLI, matching clippy-ubos-ota for the rp backend.
+    clippy-ubos-ota-esp = espCraneLib.cargoClippy (
+      espCommon
+      // {
+        src = srcFor [ "ubos-ota" ];
+        cargoArtifacts = deps.espArtifacts;
+        cargoExtraArgs =
+          "-p ubos-ota --target xtensa-esp32s3-none-elf -Z build-std=core "
+          + "--features esp,esp-hal/esp32s3,esp-hal/unstable,esp-storage/esp32s3,"
+          + "esp-storage/critical-section,esp-bootloader-esp-idf/esp32s3";
+        cargoClippyExtraArgs = "-- -D warnings";
+      }
+      // webuiEnvAttrs
+    );
+
+    clippy-esp32s3-tsens = espCraneLib.cargoClippy {
+      src = srcFor [ "esp32s3-tsens" ];
+      cargoArtifacts = deps.espArtifacts;
+      cargoVendorDir = espCargoVendorDir;
+      cargoExtraArgs = "-p esp32s3-tsens --target xtensa-esp32s3-none-elf -Z build-std=core";
+      cargoClippyExtraArgs = "-- -D warnings";
+      doInstallCargoArtifacts = false;
+      RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
+    };
+  };
+
 in
 hostClippyChecks
 // hostTestChecks
 // boardChecks
-// rp2350BootloaderChecks
-// rp2040BootloaderChecks
+// lib.optionalAttrs (hasCrate "rp2350-bootloader") rp2350BootloaderChecks
+// lib.optionalAttrs (hasCrate "rp2040-bootloader") rp2040BootloaderChecks
+// lib.optionalAttrs (hasCrate "esp32s3") espChecks
 // rec {
   clippy-rp235x-sha256 = craneLib.cargoClippy {
     src = srcFor [ "rp235x-sha256" ];
@@ -533,85 +633,6 @@ hostClippyChecks
     }
     // webuiEnvAttrs
   );
-
-  # Our firmware crate name collides with the esp32s3 PAC crate pulled
-  # in transitively; disambiguate by pinning to @0.1.0.
-  clippy-esp32s3 = espCraneLib.cargoClippy (
-    espCommon
-    // {
-      cargoArtifacts = deps.espArtifacts;
-      cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
-      cargoClippyExtraArgs = "-- -D warnings";
-    }
-    // webuiEnvAttrs
-  );
-
-  # No codegen bag to reuse; see the esp bag rationale in nix/deps.nix.
-  # The size guard must live here, not only in packages.esp32s3-image:
-  # `nix flake check` builds checks.* but merely evaluates packages.*,
-  # so a guard in the image package alone would never gate an oversized
-  # image in CI.
-  build-esp32s3 = espCraneLib.cargoBuild (
-    espCommon
-    // {
-      cargoArtifacts = null;
-      cargoBuildCommand = "cargo build --release";
-      cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
-      nativeBuildInputs = espCommon.nativeBuildInputs ++ [ pkgs.espflash ];
-      postBuild = ''
-        elf=target/xtensa-esp32s3-none-elf/release/esp32s3
-        bin=$(mktemp --suffix=.bin)
-        # espflash reads/writes a user cache dir; keep it in the sandbox.
-        export HOME="$TMPDIR"
-        espflash save-image --chip esp32s3 --flash-size 8mb "$elf" "$bin"
-      ''
-      + guards.imageGuard {
-        name = "esp32s3";
-        bin = ''"$bin"'';
-        maxBytes = esp32s3SlotBytes;
-        budgetLabel = "OTA app slot";
-        cleanup = ''rm -f "$bin"; '';
-      }
-      + ''
-        rm -f "$bin"
-      '';
-    }
-    // espRustflags
-    // webuiEnvAttrs
-  );
-
-  # Gate the OTA bootloader so a broken sdkconfig fails CI. This
-  # pulls the esp-idf closure on first build; it is cached until the
-  # nixpkgs-esp-dev input or the stub project changes.
-  build-esp32s3-bootloader = esp32s3Bootloader;
-
-  # Lint the ubos-ota esp backend. clippy only lints the top crate,
-  # so the esp32s3 firmware build compiles this code but does not
-  # lint it; this check does. The chip features are supplied on the
-  # CLI, matching clippy-ubos-ota for the rp backend.
-  clippy-ubos-ota-esp = espCraneLib.cargoClippy (
-    espCommon
-    // {
-      src = srcFor [ "ubos-ota" ];
-      cargoArtifacts = deps.espArtifacts;
-      cargoExtraArgs =
-        "-p ubos-ota --target xtensa-esp32s3-none-elf -Z build-std=core "
-        + "--features esp,esp-hal/esp32s3,esp-hal/unstable,esp-storage/esp32s3,"
-        + "esp-storage/critical-section,esp-bootloader-esp-idf/esp32s3";
-      cargoClippyExtraArgs = "-- -D warnings";
-    }
-    // webuiEnvAttrs
-  );
-
-  clippy-esp32s3-tsens = espCraneLib.cargoClippy {
-    src = srcFor [ "esp32s3-tsens" ];
-    cargoArtifacts = deps.espArtifacts;
-    cargoVendorDir = espCargoVendorDir;
-    cargoExtraArgs = "-p esp32s3-tsens --target xtensa-esp32s3-none-elf -Z build-std=core";
-    cargoClippyExtraArgs = "-- -D warnings";
-    doInstallCargoArtifacts = false;
-    RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
-  };
 
   clippy-load-test = craneLib.cargoClippy {
     src = loadTestSrc;
@@ -688,14 +709,15 @@ hostClippyChecks
   firmware-builds =
     pkgs.runCommand "ubos-main-firmware-builds"
       {
+        # Board release builds present in this tree, plus the esp and
+        # bootloader builds when their crates are members. On the mirror
+        # only hashnode survives; the rest drop out with their crates.
         nativeBuildInputs =
           builtins.attrValues (lib.filterAttrs (name: _: lib.hasPrefix "build-" name) boardChecks)
-          ++ [
-            build-esp32s3
-            rp2350BootloaderChecks.build-rp2350-bootloader
-            rp2040BootloaderChecks.build-rp2040-bootloader
-            build-esp32s3-bootloader
-          ];
+          ++ lib.optional (hasCrate "esp32s3") espChecks.build-esp32s3
+          ++ lib.optional (hasCrate "rp2350-bootloader") rp2350BootloaderChecks.build-rp2350-bootloader
+          ++ lib.optional (hasCrate "rp2040-bootloader") rp2040BootloaderChecks.build-rp2040-bootloader
+          ++ lib.optional (hasCrate "esp32s3") espChecks.build-esp32s3-bootloader;
       }
       ''
         mkdir -p "$out"
@@ -730,25 +752,42 @@ hostClippyChecks
   # each source for the literal it must contain and fail on drift, so
   # the slot-size build guards, the per-board configs, and the
   # client-side rejection always agree on one number per board.
-  ota-image-limit = pkgs.runCommand "ota-image-limit" { } ''
-    check() {
-      if ! grep -qF "$2" "$1"; then
-        echo "OTA image limit drift: $1 lacks '$2'" >&2
-        exit 1
-      fi
-    }
-    # Shared RP ACTIVE-slot budget: the ubos-api default, the web-UI
-    # fallback, and the RP boards all pin slotMaxKiB * 1024.
-    check ${root + "/ubos/ubos-api/src/system.rs"}     '${toString slotMaxKiB} * 1024'
-    check ${root + "/ubos/ubos-webui/src/index.js"}    '${toString slotMaxKiB} * 1024'
-    check ${root + "/firmware/rp2040/src/config.rs"}   '${toString slotMaxKiB} * 1024'
-    check ${root + "/firmware/rp2350/src/config.rs"}   '${toString slotMaxKiB} * 1024'
-    check ${root + "/firmware/bmm-pico/src/config.rs"} '${toString slotMaxKiB} * 1024'
-    check ${root + "/firmware/hashnode/src/config.rs"} '${toString slotMaxKiB} * 1024'
+  ota-image-limit = pkgs.runCommand "ota-image-limit" { } (
+    ''
+      check() {
+        if ! grep -qF "$2" "$1"; then
+          echo "OTA image limit drift: $1 lacks '$2'" >&2
+          exit 1
+        fi
+      }
+      # Shared RP ACTIVE-slot budget: the ubos-api default, the web-UI
+      # fallback, and the RP boards all pin slotMaxKiB * 1024. The
+      # ubos-api and web-UI copies are always present; the per-board
+      # config checks are gated on the board being a member, so the
+      # mirror checks only hashnode and the internal tree checks all.
+      check ${root + "/ubos/ubos-api/src/system.rs"}     '${toString slotMaxKiB} * 1024'
+      check ${root + "/ubos/ubos-webui/src/index.js"}    '${toString slotMaxKiB} * 1024'
+    ''
+    + lib.optionalString (hasCrate "rp2040") "  check ${
+        root + "/firmware/rp2040/src/config.rs"
+      }   '${toString slotMaxKiB} * 1024'\n"
+    + lib.optionalString (hasCrate "rp2350") "  check ${
+        root + "/firmware/rp2350/src/config.rs"
+      }   '${toString slotMaxKiB} * 1024'\n"
+    + lib.optionalString (hasCrate "bmm-pico") "  check ${
+        root + "/firmware/bmm-pico/src/config.rs"
+      } '${toString slotMaxKiB} * 1024'\n"
+    + lib.optionalString (hasCrate "hashnode") "  check ${
+        root + "/firmware/hashnode/src/config.rs"
+      } '${toString slotMaxKiB} * 1024'\n"
     # esp32s3: the 3 MiB app slot, not the shared RP budget.
-    check ${root + "/firmware/esp32s3/src/config.rs"}  '3 * 1024 * 1024'
-    touch $out
-  '';
+    + lib.optionalString (hasCrate "esp32s3") "  check ${
+        root + "/firmware/esp32s3/src/config.rs"
+      }  '3 * 1024 * 1024'\n"
+    + ''
+      touch $out
+    ''
+  );
 
   # Nix formatting gate. In the monorepo this was owned by a
   # repo-root treefmt; as a standalone repo the flake must

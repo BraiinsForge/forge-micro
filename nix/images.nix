@@ -44,8 +44,17 @@
   fwVersion,
   slotMaxBytes,
   esp32s3SlotBytes,
+  # Workspace package names present in the tree; see nix/checks.nix. The
+  # public mirror ships only the hashnode board and the rp2350-bootloader
+  # it flashes with, so the other boards' image and UF2 outputs gate
+  # themselves out. A combined UF2 also needs its bootloader crate: the
+  # hashnode UF2 ships because rp2350-bootloader is public, while a board
+  # whose bootloader is stripped keeps its raw image but loses its UF2.
+  members,
 }:
 let
+  inherit (pkgs) lib;
+  hasCrate = name: builtins.elem name members;
   inherit (helpers)
     armCc
     webuiEnvAttrs
@@ -283,74 +292,102 @@ let
     bootElf = rp2350Bootloader;
     family = "rp2350-arm-s";
   };
+
+  # A raw image is gated on its board being a member; a combined UF2
+  # additionally needs its bootloader crate, so a board whose bootloader
+  # is stripped from the mirror keeps its image but loses its UF2. On the
+  # full internal tree every crate is a member and every output is present.
+  imageOutputs =
+    drvOf:
+    lib.optionalAttrs (hasCrate "rp2350") { rp2350-image = drvOf "rp2350-image"; }
+    // lib.optionalAttrs (hasCrate "bmm-pico") { bmm-pico-image = drvOf "bmm-pico-image"; }
+    // lib.optionalAttrs (hasCrate "rp2040") { rp2040-image = drvOf "rp2040-image"; }
+    // lib.optionalAttrs (hasCrate "hashnode") { hashnode-image = drvOf "hashnode-image"; }
+    // lib.optionalAttrs (hasCrate "esp32s3") { esp32s3-image = drvOf "esp32s3-image"; }
+    // lib.optionalAttrs (hasCrate "rp2350" && hasCrate "rp2350-bootloader") {
+      rp2350-uf2 = drvOf "rp2350-uf2";
+    }
+    // lib.optionalAttrs (hasCrate "bmm-pico" && hasCrate "rp2350-bootloader") {
+      bmm-pico-uf2 = drvOf "bmm-pico-uf2";
+    }
+    // lib.optionalAttrs (hasCrate "rp2040" && hasCrate "rp2040-bootloader") {
+      rp2040-uf2 = drvOf "rp2040-uf2";
+    }
+    // lib.optionalAttrs (hasCrate "hashnode" && hasCrate "rp2350-bootloader") {
+      hashnode-uf2 = drvOf "hashnode-uf2";
+    };
+
+  # Package and app metadata per output key: the built derivation, the
+  # copy-app board name, extension, and label.
+  meta = {
+    rp2350-image = {
+      drv = rp2350Image;
+      name = "rp2350";
+      ext = "bin";
+      what = "image";
+    };
+    bmm-pico-image = {
+      drv = bmmPicoImage;
+      name = "bmm-pico";
+      ext = "bin";
+      what = "image";
+    };
+    rp2040-image = {
+      drv = rp2040Image;
+      name = "rp2040";
+      ext = "bin";
+      what = "image";
+    };
+    hashnode-image = {
+      drv = hashnodeImage;
+      name = "hashnode";
+      ext = "bin";
+      what = "image";
+    };
+    esp32s3-image = {
+      drv = esp32s3Image;
+      name = "esp32s3";
+      ext = "bin";
+      what = "image";
+    };
+    rp2350-uf2 = {
+      drv = rp2350Uf2;
+      name = "rp2350";
+      ext = "uf2";
+      what = "UF2";
+    };
+    bmm-pico-uf2 = {
+      drv = bmmPicoUf2;
+      name = "bmm-pico";
+      ext = "uf2";
+      what = "UF2";
+    };
+    rp2040-uf2 = {
+      drv = rp2040Uf2;
+      name = "rp2040";
+      ext = "uf2";
+      what = "UF2";
+    };
+    hashnode-uf2 = {
+      drv = hashnodeUf2;
+      name = "hashnode";
+      ext = "uf2";
+      what = "UF2";
+    };
+  };
 in
 {
-  packages = {
-    rp2350-image = rp2350Image;
-    bmm-pico-image = bmmPicoImage;
-    rp2040-image = rp2040Image;
-    hashnode-image = hashnodeImage;
-    rp2350-uf2 = rp2350Uf2;
-    bmm-pico-uf2 = bmmPicoUf2;
-    rp2040-uf2 = rp2040Uf2;
-    hashnode-uf2 = hashnodeUf2;
-    esp32s3-image = esp32s3Image;
-  };
+  packages = imageOutputs (key: meta.${key}.drv);
 
-  apps = {
-    rp2350-image = mkCopyApp {
-      name = "rp2350";
-      drv = rp2350Image;
-      ext = "bin";
-      what = "image";
-    };
-    bmm-pico-image = mkCopyApp {
-      name = "bmm-pico";
-      drv = bmmPicoImage;
-      ext = "bin";
-      what = "image";
-    };
-    rp2040-image = mkCopyApp {
-      name = "rp2040";
-      drv = rp2040Image;
-      ext = "bin";
-      what = "image";
-    };
-    hashnode-image = mkCopyApp {
-      name = "hashnode";
-      drv = hashnodeImage;
-      ext = "bin";
-      what = "image";
-    };
-    rp2350-uf2 = mkCopyApp {
-      name = "rp2350";
-      drv = rp2350Uf2;
-      ext = "uf2";
-      what = "UF2";
-    };
-    bmm-pico-uf2 = mkCopyApp {
-      name = "bmm-pico";
-      drv = bmmPicoUf2;
-      ext = "uf2";
-      what = "UF2";
-    };
-    rp2040-uf2 = mkCopyApp {
-      name = "rp2040";
-      drv = rp2040Uf2;
-      ext = "uf2";
-      what = "UF2";
-    };
-    hashnode-uf2 = mkCopyApp {
-      name = "hashnode";
-      drv = hashnodeUf2;
-      ext = "uf2";
-      what = "UF2";
-    };
-    esp32s3-image = mkCopyApp {
-      name = "esp32s3";
-      drv = esp32s3Image;
-      ext = "bin";
-      what = "image";
-    };
-  };
+  apps = imageOutputs (
+    key:
+    mkCopyApp {
+      inherit (meta.${key})
+        name
+        drv
+        ext
+        what
+        ;
+    }
+  );
 }
