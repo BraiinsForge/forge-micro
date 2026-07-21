@@ -37,10 +37,11 @@ let
   };
 in
 {
-  # embassy-net-wiznet 0.3.0 with the read_frame hardening; see the
-  # patch preamble and the `[patch.crates-io]` comment in Cargo.toml
-  # for why the base stays the crates.io release rather than a git
-  # rev of the embassy workspace.
+  # embassy-net-wiznet 0.3.0 with the read_frame hardening and the
+  # RECV-interrupt drain rework applied in order; see the patch
+  # preambles and the `[patch.crates-io]` comment in Cargo.toml for
+  # why the base stays the crates.io release rather than a git rev of
+  # the embassy workspace.
   embassy-net-wiznet = pkgs.applyPatches {
     name = "embassy-net-wiznet-0.3.0-patched";
     src = pkgs.fetchzip {
@@ -49,7 +50,10 @@ in
       extension = "tar.gz";
       hash = "sha256-EinaCoxc1IIotH9RHj9iBzpY0VDs/zm+C+nqHNp94E8=";
     };
-    patches = [ ../patches/embassy-net-wiznet-rx-frame-underflow.patch ];
+    patches = [
+      ../patches/embassy-net-wiznet-rx-frame-underflow.patch
+      ../patches/embassy-net-wiznet-drain-rx-frames.patch
+    ];
   };
 
   # edge-nal-embassy from the pinned edge-net rev with the local patch

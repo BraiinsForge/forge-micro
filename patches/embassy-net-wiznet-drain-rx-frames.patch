@@ -1,0 +1,163 @@
+Drain all buffered RX frames per RECV interrupt.
+
+Sn_IR.RECV is a per-arrival event, not a buffer-fill level: clearing
+it after every frame read deasserts INTn with several frames still
+buffered, stranding them until the next arrival. read_frame now
+clears the event only once the RX buffer reads empty, rechecks the
+buffer after the clear, and reports whether more data is already
+buffered; the runner re-reads instead of awaiting INTn while data is
+pending, so a burst arriving between reads cannot wedge the RX path.
+A failed read clears the drain state and sleeps briefly before the
+retry, because the level-triggered INTn cannot throttle a
+persistently failing bus. A corrupted-header discard also reports more
+data pending, but unlike a failed read it advances the read pointer and
+drains two bytes per pass, so it converges on the empty-buffer clear
+rather than spinning; only the failing-bus path, which cannot make
+progress, needs the sleep.
+
+The runner also guards `rx_done` on `n > 0`, where it previously called it
+unconditionally. A zero-length read now covers both an empty-buffer poll and
+a corrupted-header discard, and neither should hand a spurious zero-length
+frame up to embassy-net; only a real frame is announced.
+
+Applies on top of embassy-net-wiznet-rx-frame-underflow.patch to
+embassy-net-wiznet 0.3.0 from crates.io; the pin and the patch series
+are consumed by nix/patched-crates.nix.
+
+diff -ruN a/src/device.rs b/src/device.rs
+--- a/src/device.rs
++++ b/src/device.rs
+@@ -194,15 +194,22 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
+         Ok(())
+     }
+ 
+-    /// Read an ethernet frame from the device. Returns the number of bytes read.
+-    pub async fn read_frame(&mut self, frame: &mut [u8]) -> Result<usize, SPI::Error> {
++    /// Read an ethernet frame from the device. Returns the number of bytes
++    /// read and whether more RX data is already buffered.
++    ///
++    /// `Sn_IR.RECV` is a per-arrival event, not a buffer-fill level: with
++    /// several frames buffered, clearing it after reading only one would
++    /// deassert `INTn` and strand the remaining frames until the next
++    /// arrival. The interrupt is therefore cleared only once the buffer
++    /// reads empty, and the buffer is rechecked after the clear so an
++    /// arrival racing the clear write is not lost.
++    pub async fn read_frame(&mut self, frame: &mut [u8]) -> Result<(usize, bool), SPI::Error> {
+         let rx_size = self.get_rx_size().await? as usize;
+         if rx_size == 0 {
+-            return Ok(0);
++            let more = self.clear_recv_interrupt().await?;
++            return Ok((0, more));
+         }
+ 
+-        self.reset_interrupt(Interrupt::Receive).await?;
+-
+         let mut read_ptr = self.get_rx_read_ptr().await?;
+ 
+         // First two bytes gives the size of the received ethernet frame
+@@ -214,7 +221,7 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
+                 // Corrupted header — advance read pointer past it and discard.
+                 self.set_rx_read_ptr(read_ptr).await?;
+                 self.command(Command::Receive).await?;
+-                return Ok(0);
++                return Ok((0, true));
+             }
+             raw - 2
+         };
+@@ -239,7 +246,31 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
+         self.set_rx_read_ptr(read_ptr).await?;
+         self.command(Command::Receive).await?;
+ 
+-        Ok(read_len)
++        // Past the Receive command the frame is committed: it is consumed
++        // from the chip and already copied into the caller's buffer, so a
++        // failing probe below must not become an error return, or the caller
++        // would drop a frame it can no longer re-read. Report the frame and
++        // assume more data; a size-read fault here is left unlogged because
++        // the next call's leading `?` re-probes and propagates it.
++        let more = match self.get_rx_size().await {
++            Ok(0) => self.clear_recv_interrupt().await.unwrap_or_else(|_| {
++                #[cfg(feature = "defmt")]
++                defmt::warn!(
++                    "wiznet: clear_recv_interrupt failed after frame commit; assuming more RX pending"
++                );
++                true
++            }),
++            _ => true,
++        };
++        Ok((read_len, more))
++    }
++
++    /// Clear the RECV event, then recheck the RX buffer. Returns true when
++    /// data arrived while the clear was in flight, meaning the caller must
++    /// read again rather than wait on `INTn`.
++    async fn clear_recv_interrupt(&mut self) -> Result<bool, SPI::Error> {
++        self.reset_interrupt(Interrupt::Receive).await?;
++        Ok(self.get_rx_size().await? != 0)
+     }
+ 
+     /// Write an ethernet frame to the device. Returns number of bytes written
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -63,10 +63,23 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI,
+     pub async fn run(mut self) -> ! {
+         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
+         let mut tick = Ticker::every(Duration::from_millis(500));
++        // Set when `read_frame` left data buffered or saw an arrival race the
++        // RECV clear; the next iteration must read again without waiting on
++        // `INTn`, whose event may already be consumed. `select3` polls the
++        // RX branch below before the TX and link-tick branches and returns
++        // the first one ready, so while `rx_pending` holds, RX is serviced
++        // ahead of TX and the 500 ms link poll until the chip RX buffer
++        // drains. The delay this imposes on TX and the link poll is
++        // therefore bounded by that finite buffer. Servicing RX first is a
++        // deliberate choice to keep frames from stranding in the chip under
++        // sustained load.
++        let mut rx_pending = false;
+         loop {
+             match select3(
+                 async {
+-                    self.int.wait_for_low().await.ok();
++                    if !rx_pending {
++                        self.int.wait_for_low().await.ok();
++                    }
+                     rx_chan.rx_buf().await
+                 },
+                 tx_chan.tx_buf(),
+@@ -75,8 +88,33 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI,
+             .await
+             {
+                 Either3::First(p) => {
+-                    if let Ok(n) = self.mac.read_frame(p).await {
+-                        rx_chan.rx_done(n);
++                    match self.mac.read_frame(p).await {
++                        Ok((n, more)) => {
++                            if n > 0 {
++                                rx_chan.rx_done(n);
++                            }
++                            rx_pending = more;
++                        }
++                        // Clear on error so the next iteration re-arms on
++                        // `INTn` rather than trusting the stale drain state.
++                        // That alone does not throttle a broken bus: `INTn`
++                        // is level-triggered and may still be asserted, in
++                        // which case `wait_for_low` returns immediately, so
++                        // the sleep is what bounds the retry rate. It also
++                        // delays the TX arm; on a healthy bus this branch
++                        // never runs. If the error struck inside
++                        // `clear_recv_interrupt` after the RECV clear,
++                        // already-buffered frames are not re-announced until
++                        // the next arrival; that delay is accepted over a
++                        // busy loop on a failing bus.
++                        Err(_) => {
++                            #[cfg(feature = "defmt")]
++                            defmt::warn!(
++                                "wiznet: read_frame failed; clearing drain state and backing off"
++                            );
++                            rx_pending = false;
++                            Timer::after_millis(10).await;
++                        }
+                     }
+                 }
+                 Either3::Second(p) => {
