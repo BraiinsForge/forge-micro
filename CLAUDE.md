@@ -113,6 +113,27 @@ nix build .#checks.<system>.<name>     # one check in isolation
 nix flake check                        # everything
 ```
 
+## Licensing
+
+The published mirror is GPL-3.0-or-later; see `LICENSE` and the README
+License section. Header conventions for new files:
+
+- First-party published sources (`.rs`, `.nix`, `.py`, `.js`, `.sh`,
+  `.css`, `.html`) carry the GPL-3.0-or-later block; copy it from a
+  neighbouring file. Prose header only, no SPDX identifiers.
+- Sources in the private board crates, every `firmware/` crate but
+  `hashnode` and `rp2350-bootloader`, carry the proprietary
+  all-rights-reserved notice instead; those crates are stripped from
+  the mirror.
+- Vendored `patches/*` trees keep their upstream license and get no
+  Braiins header.
+- Private sources outside the board crates that the mirror strips
+  (`publish/`, `nix/private-*.nix`, `micro-sv2/interop-test`, the
+  redacted trees) carry no header; the strip itself keeps them private.
+
+Which crates are stripped, and why `rp2350-bootloader` stays public, is
+documented at `stripPaths` and `HIDDEN_MEMBERS` in `publish/app.nix`.
+
 ## Working Style
 
 - Read existing code patterns before making changes

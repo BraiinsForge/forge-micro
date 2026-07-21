@@ -17,3 +17,12 @@ Docs live in `docs/`:
 - `docs/DEBUGGING.md` -- probe-rs, binary size, stack analysis
 
 Support node (NUC): see `nuc/README.md`.
+
+## License
+
+This program is free software licensed under the terms of the GNU
+General Public License, version 3 or (at your option) any later version.
+See [`LICENSE`](LICENSE) for the full text.
+
+Braiins Systems s.r.o. reserves the right to license this program, or
+any part thereof, under separate terms.
