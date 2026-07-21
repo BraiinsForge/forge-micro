@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026  Braiins Systems s.r.o.
+#
+# All rights reserved. This file is proprietary and may not be copied,
+# distributed, or disclosed except as authorized in writing.
+
 # Cargo runner that forwards to probe-rs-runner with an optional
 # --probe selector taken from $PROBE_SERIAL. Bare `cargo run` leaves
 # the variable unset and lets probe-rs auto-select the only attached

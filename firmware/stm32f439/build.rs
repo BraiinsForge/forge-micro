@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 /// Build script that configures linker scripts and error handling.
 ///
 /// The local `memory.x` is copied into `$OUT_DIR` and that directory is

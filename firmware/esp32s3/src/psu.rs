@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! BMM101 PSU integration over the shared I2C0 bus.
 //!
 //! Owns the static cells for the `BmmPsu` state, the terminated flag,

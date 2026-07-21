@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Firmware entry point for the Nucleo-F439ZI (onboard LAN8742A over RMII)
 //! with the BMM101/BM1362 ubos-mining backend.
 //!

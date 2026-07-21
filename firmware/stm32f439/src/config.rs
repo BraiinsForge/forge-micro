@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Board constants, clock tree, and peripheral extraction for the
 //! Nucleo-F439ZI. `stm32_config` builds the `embassy_stm32::Config`
 //! that drives the core at 180 MHz from an 8 MHz HSE in bypass mode

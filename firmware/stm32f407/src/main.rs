@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Firmware entry point for the `DevEBox` STM32F407VGT6 + WT32-ETH01
 //! (LAN8720) with the BMM101/BM1362 ubos-mining backend.
 //!

@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Clock tree and peripheral extraction for the `DevEBox` STM32F407.
 //! `stm32_config` runs the core at 168 MHz from an 8 MHz HSE for the
 //! ethernet MAC and RMII reference clock.

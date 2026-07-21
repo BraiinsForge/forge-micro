@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Board constants and peripheral extraction for the W6100-EVB-Pico-2
 //! (RP2350) running the ubos-mining backend. `Board::take` consumes the RP2350
 //! `Peripherals` once and returns every singleton the board's schematic

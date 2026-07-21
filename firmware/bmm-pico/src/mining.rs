@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Hashboard reset pin plus the two long-running tasks the ubos-mining backend
 //! spawns: the chip-serial actor and the bring-up/teardown state machine.
 //!

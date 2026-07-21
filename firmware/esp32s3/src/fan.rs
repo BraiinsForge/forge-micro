@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Fan PWM drive and tachometer readback for the ESP32-S3.
 //!
 //! LEDC drives the 25 kHz PWM signal on `GPIO10` (`LowSpeed` Timer0, Channel0).

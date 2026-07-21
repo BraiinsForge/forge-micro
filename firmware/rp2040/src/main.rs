@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Firmware entry point for the W5500-EVB-Pico (RP2040 + W5500) with the
 //! ubos-mining backend.
 //!

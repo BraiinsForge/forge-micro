@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026  Braiins Systems s.r.o.
+#
+# All rights reserved. This file is proprietary and may not be copied,
+# distributed, or disclosed except as authorized in writing.
+
 # Cargo runner that forwards to probe-rs-runner with an optional
 # --probe selector taken from $PROBE_SERIAL. The `run-N` aliases in
 # .cargo/config.toml set this variable per board so a specific probe

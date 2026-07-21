@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! `serial_baudrate::BaudRate` wrapper for the embassy-rp `BufferedUart`.
 //!
 //! `ubos_mining::serial::Serial::run` drives one full-duplex instance, which

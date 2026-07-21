@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Peripheral extraction for the Waveshare ESP32-S3-LCD-Driver-Board. SPI
 //! frequency is pinned below the W5100S datasheet limit because higher
 //! rates corrupt frames on this wiring.

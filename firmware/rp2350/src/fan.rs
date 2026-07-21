@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Fan PWM drive and tachometer readback.
 //!
 //! The BMM Adapter has `FAN_PWM` on J13 pin 3 and `FAN_RPM` on

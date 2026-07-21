@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Fan PWM drive and tachometer readback via TIM4.
 //!
 //! `TIM4_CH3` (PB8, AF2) drives the fan's 25 kHz PWM input.

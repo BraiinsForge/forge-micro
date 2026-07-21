@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Board constants and peripheral extraction for the BMM Adapter (RP2350 +
 //! W5500). `Board::take` consumes the RP2350 `Peripherals` once and returns
 //! every singleton the board's schematic claims.

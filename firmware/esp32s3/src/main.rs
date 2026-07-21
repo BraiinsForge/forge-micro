@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Firmware entry point for the Waveshare ESP32-S3-LCD-Driver-Board +
 //! external W5100S (SPI) with the BMM101/BM1362 ubos-mining backend.
 //!

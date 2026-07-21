@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Board constants and peripheral extraction for the W5500-EVB-Pico
 //! (RP2040) running the ubos-mining backend. `Board::take` consumes the RP2040
 //! `Peripherals` once and returns every singleton the board's schematic

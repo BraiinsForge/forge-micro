@@ -1,3 +1,8 @@
+// Copyright (C) 2026  Braiins Systems s.r.o.
+//
+// All rights reserved. This file is proprietary and may not be copied,
+// distributed, or disclosed except as authorized in writing.
+
 //! Firmware entry point for the BMM Adapter (RP2350 + W5500).
 //!
 //! Board docs: `../../../docs/OVERVIEW.md`
