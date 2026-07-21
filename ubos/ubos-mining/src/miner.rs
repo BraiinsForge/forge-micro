@@ -231,6 +231,16 @@ where
         let config_handle = ubos_config::handle();
         let mut config_subscription = config_handle.subscribe();
 
+        // Block for the config task's first publish before reading a
+        // target. This task is spawned before the config task and reaches
+        // the read below with no intervening await, so `current()` would
+        // otherwise fall back to `Config::default()` — the BMM101/BM1362
+        // board's operating point, wrong for this chip. Returns
+        // immediately once a config has been published. Consuming the
+        // first change here also keeps `mine_phase`'s entry `changed()`
+        // from firing a spurious restart against the just-read target.
+        config_subscription.changed().await;
+
         loop {
             let snapshot = config_handle.current();
             let target = TuningConfig {
@@ -335,8 +345,9 @@ where
     /// Runs the PSU-reset-settle-init sequence, then delegates to
     /// `mine_phase` for the steady-state select loop. Returns
     /// `CycleOutcome::Stop` when `STOP_MINING` fires; returns
-    /// `CycleOutcome::Continue` on halt, halt-clear, algorithm change,
-    /// or a transient init failure that has already cut the rail.
+    /// `CycleOutcome::Continue` on halt, halt-clear, a mining-target
+    /// change (algorithm or frequency/voltage), or a transient init
+    /// failure that has already cut the rail.
     async fn bring_up_cycle<T: Tuner<Self>>(
         &mut self,
         target: TuningConfig,
@@ -410,7 +421,7 @@ where
             InitPhase::Retry => return CycleOutcome::Continue,
         }
 
-        self.mine_phase(current_algorithm, tuner, config_subscription)
+        self.mine_phase(current_algorithm, target, tuner, config_subscription)
             .await
     }
 
@@ -425,6 +436,7 @@ where
     async fn mine_phase<T: Tuner<Self>>(
         &mut self,
         current_algorithm: TuningAlgorithm,
+        target: TuningConfig,
         tuner: &mut T,
         config_subscription: &mut ConfigSubscription,
     ) -> CycleOutcome {
@@ -458,20 +470,23 @@ where
                     // Absorb it rather than tear down a healthy chip.
                 }
                 Either3::Third(new_config) => {
-                    if new_config.miner.algorithm != current_algorithm {
-                        // Algorithm change: tear down the current tuner
-                        // fully before the outer loop constructs the new
-                        // one. The chip must be at a clean baseline before
-                        // the new tuner's init walk begins.
-                        info!("mining: algorithm changed; tearing down current tuner");
+                    // Reprogram the ASIC when the operating target moved:
+                    // an algorithm change, or a frequency/voltage edit.
+                    // Tear the tuner down fully so the outer loop re-reads
+                    // the new target and brings up from a clean baseline;
+                    // there is no in-place ramp. Config edits that do not
+                    // touch mining (cooling, pools, network) are left to
+                    // their own tasks and do not restart the chip.
+                    let tuning_changed = new_config.tuning.frequency_mhz != target.frequency.mhz()
+                        || new_config.tuning.voltage_mv != target.voltage.mv();
+                    if new_config.miner.algorithm != current_algorithm || tuning_changed {
+                        info!("mining: mining target changed; tearing down current tuner");
                         let _ = tuner.deinit(&*self).await;
                         let _ = SERIAL.stop_sending_work().await;
                         let _ = SERIAL.reset().await;
                         cut_rail(self.psu, &mut self.reset_pin).await;
                         return CycleOutcome::Continue;
                     }
-                    // Other config edits (tuning, etc.) apply on the next
-                    // bring-up; no in-place ramp.
                 }
             }
         }
