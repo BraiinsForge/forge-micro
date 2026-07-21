@@ -1,5 +1,6 @@
 [package]
 name    = "rp2350-bootloader"
+license.workspace = true
 edition.workspace = true
 version = "0.1.0"
 

@@ -57,6 +57,7 @@ members = [
 exclude = ["micro-sv2"]
 
 [workspace.package]
+license = "GPL-3.0-or-later"
 version = "0.0.1"
 edition = "2024"
 

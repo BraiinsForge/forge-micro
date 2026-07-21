@@ -1,4 +1,5 @@
 [package]
+license.workspace = true
 name        = "embassy-net-afpacket"
 edition.workspace = true
 version     = "0.1.0"
