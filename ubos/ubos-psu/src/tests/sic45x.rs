@@ -211,6 +211,7 @@ mod bus_tests {
         let ot_fault = encode_temp(config.ot_fault_celsius).to_le_bytes();
         let vin_undervoltage = encode_lin11_half(config.vin_uv_warn_millivolts).to_le_bytes();
         let iout_warn = encode_lin11_half(config.iout_oc_warn_milliamps).to_le_bytes();
+        let iin_warn = encode_lin11_half(config.iin_oc_warn_milliamps).to_le_bytes();
         let ot_warn = encode_temp(config.ot_warn_celsius).to_le_bytes();
         let pg_on = encode_vout(config.power_good_on_millivolts).to_le_bytes();
         let pg_off = encode_vout(config.power_good_off_millivolts).to_le_bytes();
@@ -250,6 +251,7 @@ mod bus_tests {
                 address,
                 vec![IOUT_OC_WARN_LIMIT, iout_warn[0], iout_warn[1]],
             ),
+            Transaction::write(address, vec![IIN_OC_WARN_LIMIT, iin_warn[0], iin_warn[1]]),
             Transaction::write(address, vec![OT_WARN_LIMIT, ot_warn[0], ot_warn[1]]),
             Transaction::write(
                 address,

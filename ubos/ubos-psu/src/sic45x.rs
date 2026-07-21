@@ -45,6 +45,7 @@ pub(crate) const OT_WARN_LIMIT: u8 = 0x51;
 pub(crate) const VIN_OV_FAULT_LIMIT: u8 = 0x55;
 pub(crate) const VIN_OV_FAULT_RESPONSE: u8 = 0x56;
 pub(crate) const VIN_UV_WARN_LIMIT: u8 = 0x58;
+pub(crate) const IIN_OC_WARN_LIMIT: u8 = 0x5D;
 pub(crate) const POWER_GOOD_ON: u8 = 0x5E;
 pub(crate) const POWER_GOOD_OFF: u8 = 0x5F;
 pub(crate) const STATUS_BYTE: u8 = 0x78;
@@ -195,6 +196,9 @@ pub struct Sic45xConfig {
     pub iout_oc_fault_milliamps: u32,
     /// IOUT overcurrent warning threshold.
     pub iout_oc_warn_milliamps: u32,
+    /// IIN overcurrent warning threshold. The device has no IIN fault
+    /// register, so input overcurrent only raises a warning.
+    pub iin_oc_warn_milliamps: u32,
     /// Overtemperature fault threshold.
     pub ot_fault_celsius: u32,
     /// Overtemperature warning threshold.
@@ -222,6 +226,7 @@ impl Sic45xConfig {
         vin_uv_warn_millivolts: 9_000,
         iout_oc_fault_milliamps: 25_000,
         iout_oc_warn_milliamps: 20_000,
+        iin_oc_warn_milliamps: 5_000,
         ot_fault_celsius: 115,
         ot_warn_celsius: 95,
         power_good_on_millivolts: 540,
@@ -330,6 +335,13 @@ where
         address,
         IOUT_OC_WARN_LIMIT,
         encode_lin11_half(config.iout_oc_warn_milliamps),
+    )
+    .await?;
+    write_word(
+        i2c,
+        address,
+        IIN_OC_WARN_LIMIT,
+        encode_lin11_half(config.iin_oc_warn_milliamps),
     )
     .await?;
     write_word(

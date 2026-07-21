@@ -173,8 +173,13 @@ const HASHNODE_SIC: Sic45xConfig = Sic45xConfig {
     vout_uv_fault_millivolts: 700,
     vin_ov_fault_millivolts: 22_000,
     vin_uv_warn_millivolts: 9_000,
-    iout_oc_fault_milliamps: 25_000,
-    iout_oc_warn_milliamps: 20_000,
+    // Actual SIC450 output limit is 40A, we set a lower to protect the chips.
+    // Maximum achieved output current was 25.9A.
+    iout_oc_fault_milliamps: 28_000,
+    iout_oc_warn_milliamps: 26_000,
+    // Input-current warning. 16A was the maximum achieved in practice.
+    // Warning only; the device has no IIN fault trip.
+    iin_oc_warn_milliamps: 16_000,
     ot_fault_celsius: 115,
     ot_warn_celsius: 95,
     power_good_on_millivolts: 1080,

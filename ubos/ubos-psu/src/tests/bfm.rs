@@ -62,9 +62,9 @@ fn ina_init_transactions(address: u8, max_current_a: u32, shunt_microohm: u32) -
 /// Build the full 21-transaction `SIC45x` init sequence from `Sic45xConfig::DEFAULT`.
 fn sic_init_transactions() -> Vec<Transaction> {
     use crate::sic45x::{
-        CLEAR_FAULTS, IOUT_OC_FAULT_LIMIT, IOUT_OC_FAULT_RESPONSE, IOUT_OC_WARN_LIMIT,
-        OT_FAULT_LIMIT, OT_FAULT_RESPONSE, OT_WARN_LIMIT, POWER_GOOD_OFF, POWER_GOOD_ON,
-        RESTORE_USER_ALL, Sic45xConfig, VIN_OV_FAULT_LIMIT, VIN_OV_FAULT_RESPONSE,
+        CLEAR_FAULTS, IIN_OC_WARN_LIMIT, IOUT_OC_FAULT_LIMIT, IOUT_OC_FAULT_RESPONSE,
+        IOUT_OC_WARN_LIMIT, OT_FAULT_LIMIT, OT_FAULT_RESPONSE, OT_WARN_LIMIT, POWER_GOOD_OFF,
+        POWER_GOOD_ON, RESTORE_USER_ALL, Sic45xConfig, VIN_OV_FAULT_LIMIT, VIN_OV_FAULT_RESPONSE,
         VIN_UV_WARN_LIMIT, VOUT_COMMAND, VOUT_OV_FAULT_LIMIT, VOUT_OV_FAULT_RESPONSE,
         VOUT_SCALE_LOOP, VOUT_UV_FAULT_LIMIT, VOUT_UV_FAULT_RESPONSE, encode_lin11_half,
         encode_temp, encode_vout,
@@ -81,6 +81,7 @@ fn sic_init_transactions() -> Vec<Transaction> {
     let ot_fault = encode_temp(config.ot_fault_celsius).to_le_bytes();
     let vin_undervoltage = encode_lin11_half(config.vin_uv_warn_millivolts).to_le_bytes();
     let iout_warn = encode_lin11_half(config.iout_oc_warn_milliamps).to_le_bytes();
+    let iin_warn = encode_lin11_half(config.iin_oc_warn_milliamps).to_le_bytes();
     let ot_warn = encode_temp(config.ot_warn_celsius).to_le_bytes();
     let pg_on = encode_vout(config.power_good_on_millivolts).to_le_bytes();
     let pg_off = encode_vout(config.power_good_off_millivolts).to_le_bytes();
@@ -121,6 +122,7 @@ fn sic_init_transactions() -> Vec<Transaction> {
             address,
             vec![IOUT_OC_WARN_LIMIT, iout_warn[0], iout_warn[1]],
         ),
+        Transaction::write(address, vec![IIN_OC_WARN_LIMIT, iin_warn[0], iin_warn[1]]),
         Transaction::write(address, vec![OT_WARN_LIMIT, ot_warn[0], ot_warn[1]]),
         Transaction::write(address, vec![VOUT_OV_FAULT_RESPONSE, 0xF8]),
         Transaction::write(address, vec![VOUT_UV_FAULT_RESPONSE, 0xB9]),
