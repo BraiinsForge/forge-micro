@@ -54,30 +54,36 @@ identically to CI so the local result cannot disagree with the pipeline:
 nix flake check .
 ```
 
-This is a full hermetic build of every board: cold it runs tens of
-minutes, warm (most reviews) a minute or two. Either way it outlasts a
-single tool call, so it must run detached — but **do not** delegate it to
-a `Task` subagent and **do not** poll a log for a completion sentinel.
-Both have failed: a subagent launches the check in the background and
-returns before it finishes, reporting no result; and a hand-rolled
-`until grep …; do sleep; done` waiter spins indefinitely whenever its
-sentinel never lands in the file it polls.
+This is a full hermetic build of every board. Warm — most reviews, since
+the local `/nix/store` is already populated — it takes a minute or two;
+cold it can run much longer.
 
-Instead run it yourself as one background `Bash` call. `2>&1` is a
-redirection, not a pipe, so `$?` is nix's own exit status — capture it on
-the last line:
+Run it as **one foreground, blocking `Bash` call** with a long `timeout`
+(the 600000 ms maximum). Do not background it, do not delegate it to a
+`Task` subagent, and do not poll a log for a completion sentinel. Each has
+failed in a way rooted in this skill's forked context (`context: fork`): a
+fork is one-shot, so once it returns its final message it cannot be
+re-entered. A backgrounded check's completion notification then lands in
+the main loop, never in the finished fork, so the report gate below is
+unreachable and the review ends with no report; a `Task` subagent likewise
+returns before the check finishes; and a hand-rolled
+`until grep …; do sleep; done` waiter spins whenever its sentinel never
+lands. A foreground call sidesteps all three: it blocks this same turn
+until nix exits, so the exit status is in hand before the call returns.
+`2>&1` is a redirection, not a pipe, so `$?` is nix's own exit status;
+capture it on the last line:
 
 ```bash
 nix flake check . 2>&1; echo "FLAKE_CHECK_EXIT=$?"
 ```
 
-Launch it with `run_in_background: true`, then continue with Phases 3–5.
-The harness re-invokes you when the command exits — wait for that
-notification; never arm a separate poll loop. When it fires, read the
-tail of the command's output file: PASS if the last line is
-`FLAKE_CHECK_EXIT=0`, otherwise FAIL with each failing check name and the
-relevant error lines. Do not emit the final report until this exit line
-is in hand.
+Read the last line of the output: PASS if it is `FLAKE_CHECK_EXIT=0`,
+otherwise FAIL with each failing check name and the relevant error lines.
+If the call hits its timeout before the exit line appears, the store was
+cold; record the flake check as `TIMED OUT (re-run manually)` and note
+that the branch is not gated until it is re-run, rather than dropping the
+report. Do not emit the final report until this exit line is in hand or
+the timeout is recorded.
 
 The repo-root flake aggregates every project's checks (clippy, firmware
 builds, host tests, DRC, ERC) under a `<project>-` prefix, plus the
@@ -163,7 +169,7 @@ Review the full diff (`git diff "$BASE"...HEAD`) for:
 
 Before producing output, verify every category was checked. For each item below, confirm it was evaluated for every commit and every changed file. If any item was skipped or only partially checked, go back and complete the relevant phase before continuing.
 
-- [ ] Flake check exit line (`FLAKE_CHECK_EXIT=`) in hand, or was skipped with reason (Phase 2)
+- [ ] Flake check exit line (`FLAKE_CHECK_EXIT=`) in hand, or was skipped/timed-out with reason recorded (Phase 2)
 - [ ] Every commit message verified against its diff (Phase 3)
 - [ ] Every commit is a single logical change (Phase 3)
 - [ ] No bundled unrelated changes (Phase 3)
@@ -209,7 +215,7 @@ If no issues are found, output: `No issues found. Branch is merge-ready.`
 ## Rules
 
 - Review ALL commits on the branch, not just the latest
-- Run `nix flake check .` (repo root) as one background `Bash` call whenever the diff touches flake inputs — it is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, and record the skip in the output
+- Run `nix flake check .` (repo root) as one foreground, blocking `Bash` call whenever the diff touches flake inputs — it is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, and record the skip in the output
 - Every finding MUST include a file:line reference (or commit hash for commit message issues)
 - Findings must be exhaustive: if this review passes, the branch is ready to merge
 - No praise, no "looks good" summaries, no filler text
