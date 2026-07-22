@@ -74,8 +74,16 @@ impl FixedTuner {
         }
     }
 
-    /// Settling delay held after each frequency programming write.
+    /// Settling delay held after each frequency programming write during
+    /// the operating ramp-up, where the chain must stabilise at each new
+    /// higher clock before the next step.
     const RAMP_SETTLE: Duration = Duration::from_secs(1);
+
+    /// Settling delay for the deinit ramp-down. Stepping voltage and clock
+    /// *down* toward the safe-boot anchor needs no per-step stabilisation,
+    /// so the graceful walk keeps its gradual steps but runs faster than
+    /// the operating ramp-up.
+    const DEINIT_SETTLE: Duration = Duration::from_millis(200);
 
     /// Period between consecutive work-frame sends.
     const WORK_PERIOD: Duration = Duration::from_secs(1);
@@ -107,6 +115,7 @@ impl FixedTuner {
         &mut self,
         miner: &M,
         target: TuningConfig,
+        settle: Duration,
     ) -> Result<(), TunerError> {
         let step = self.board.chip.frequency_step;
         // Floor the configured frequency onto the chip's PLL grid so
@@ -149,7 +158,7 @@ impl FixedTuner {
             miner.set_frequency(next).await?;
             publish_tuner_step(next, voltage_now);
             frequency_now = next;
-            Timer::after(Self::RAMP_SETTLE).await;
+            Timer::after(settle).await;
         }
 
         // Phase B: voltage steps down to `sqrt(power_target / next_frequency)`
@@ -180,7 +189,7 @@ impl FixedTuner {
             publish_tuner_step(next_frequency, next_voltage);
             voltage_now = next_voltage;
             frequency_now = next_frequency;
-            Timer::after(Self::RAMP_SETTLE).await;
+            Timer::after(settle).await;
         }
 
         self.target = target;
@@ -245,7 +254,7 @@ impl<M: MinerControl> Tuner<M> for FixedTuner {
             .await
             .map_err(TunerError::Miner)?;
 
-        self.walk_to_target(miner, target).await
+        self.walk_to_target(miner, target, Self::RAMP_SETTLE).await
     }
 
     async fn deinit(&mut self, miner: &M) -> Result<(), TunerError> {
@@ -253,7 +262,7 @@ impl<M: MinerControl> Tuner<M> for FixedTuner {
             frequency: self.safe_boot(),
             voltage: self.board.max_rail_voltage(),
         };
-        self.walk_to_target(miner, safe).await
+        self.walk_to_target(miner, safe, Self::DEINIT_SETTLE).await
     }
 }
 

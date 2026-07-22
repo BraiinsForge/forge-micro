@@ -470,17 +470,18 @@ where
                     // Absorb it rather than tear down a healthy chip.
                 }
                 Either3::Third(new_config) => {
-                    // Reprogram the ASIC when the operating target moved:
-                    // an algorithm change, or a frequency/voltage edit.
-                    // Tear the tuner down fully so the outer loop re-reads
-                    // the new target and brings up from a clean baseline;
-                    // there is no in-place ramp. Config edits that do not
-                    // touch mining (cooling, pools, network) are left to
-                    // their own tasks and do not restart the chip.
+                    // Reprogram the ASIC when the operating target moved: an
+                    // algorithm change, or a frequency/voltage edit. Ramp the
+                    // chain gracefully down to the safe-boot anchor (deinit,
+                    // fast — see DEINIT_SETTLE), then reset so the outer loop
+                    // re-reads the new target and brings up from a clean
+                    // baseline. Config edits that do not touch mining
+                    // (cooling, pools, network) are left to their own tasks
+                    // and do not restart the chip.
                     let tuning_changed = new_config.tuning.frequency_mhz != target.frequency.mhz()
                         || new_config.tuning.voltage_mv != target.voltage.mv();
                     if new_config.miner.algorithm != current_algorithm || tuning_changed {
-                        info!("mining: mining target changed; tearing down current tuner");
+                        info!("mining: mining target changed; ramping down to restart");
                         let _ = tuner.deinit(&*self).await;
                         let _ = SERIAL.stop_sending_work().await;
                         let _ = SERIAL.reset().await;
