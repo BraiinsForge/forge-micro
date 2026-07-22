@@ -82,10 +82,6 @@
       micro-sv2,
     }@inputs:
     let
-      nucHost = "redacted.redacted";
-      probeRsHost = "ws://${nucHost}:8080";
-      probeRsToken = "redacted";
-
       webuiBuildEnv = {
         # 12 chars to match the build.rs git-fallback (`rev-parse
         # --short=12`); the Nix `shortRev` default of 7 would produce
@@ -100,70 +96,38 @@
 
       # probe-rs fork tooling: the redacted-capable fork build, the remote and
       # server patch variants, and the overlay exposing them plus the
-      # probe-rs-runner wrapper. The mk* functions are reused by mkNuc below
-      # to rebuild the fork against cross pkgs.
+      # probe-rs-runner wrapper. The private bench wiring reuses the mk*
+      # functions to rebuild the fork against cross pkgs for the NUC.
       probeRs = import ./nix/probe-rs.nix { inherit inputs; };
-      inherit (probeRs)
-        mkForkProbeRsTools
-        mkRemoteProbeRsTools
-        mkServerProbeRsTools
-        ;
       probeRsOverlay = probeRs.overlay;
 
-      # Build a NUC nixosSystem with the shared RPi overlays and platform
-      # setting. Callers append image-specific modules (e.g. sd-image.nix).
-      # buildSystem is the system doing the build. On aarch64-linux the
-      # aarch64 packages build natively; on other systems they go through
-      # pkgsCross.aarch64-multiplatform so rustc stays native rather than
-      # running under binfmt/QEMU.
-      mkNuc =
-        buildSystem: extraModules:
+      # Internal-only wiring behind a single guard: the NUC and bench
+      # outputs. The publish strip removes nix/private.nix together
+      # with the nuc/ tree it imports, so the public mirror falls back
+      # to the inert stub below and evaluates with no bench outputs at
+      # all. See nix/private.nix.
+      private =
         let
-          aarch64Pkgs =
-            if buildSystem == "aarch64-linux" then
-              import nixpkgs { system = "aarch64-linux"; }
-            else
-              (import nixpkgs { system = buildSystem; }).pkgsCross.aarch64-multiplatform;
+          f = ./nix/private.nix;
         in
-        nixpkgs.lib.nixosSystem {
-          specialArgs = {
-            inherit inputs nixos-raspberrypi nucHost;
+        if builtins.pathExists f then
+          import f { inherit inputs probeRs; }
+        else
+          {
+            bench = null;
+            topLevel = { };
+            perSystem = _: {
+              checks = { };
+            };
           };
-          modules = [
-            nixos-raspberrypi.lib.inject-overlays
-            nixos-raspberrypi.nixosModules.nixpkgs-rpi
-            { nixpkgs.hostPlatform = "aarch64-linux"; }
-            (
-              { pkgs, ... }:
-              {
-                nixpkgs.overlays = [
-                  probeRsOverlay
-                  # Override probe-rs-tools-remote with a cross-compiled
-                  # build so rustc runs natively on the build host instead
-                  # of under QEMU. The probe-rs-runner shell wrapper from
-                  # probeRsOverlay above still applies unchanged.
-                  (final: _prev: {
-                    probe-rs-tools-remote = mkRemoteProbeRsTools (mkForkProbeRsTools aarch64Pkgs);
-                    probe-rs-tools-server = mkServerProbeRsTools aarch64Pkgs (mkForkProbeRsTools aarch64Pkgs);
-                  })
-                  (final: _prev: {
-                    load-test = aarch64Pkgs.callPackage ./nuc/pkgs/load-test.nix { };
-                  })
-                ];
-              }
-            )
-            ./nuc/nuc.nix
-          ]
-          ++ extraModules;
-        };
-      sdImageFor = buildSystem: (mkNuc buildSystem [ ./nuc/sd-image.nix ]).config.system.build.sdImage;
+      bench = private.bench;
     in
     nixpkgs.lib.recursiveUpdate
       # x86_64-linux only: the esp-rs Xtensa toolchain and the espressif
       # cross-gcc are prebuilt x86_64 tarballs, so the per-system checks
       # and shells cannot work elsewhere. The aarch64 NUC closure is not
-      # a per-system output; it comes from the nixosConfiguration and the
-      # explicit packages.aarch64-linux.sd-image below.
+      # a per-system output; it comes from the guarded private module
+      # above when nix/private.nix is present.
       (flake-utils.lib.eachSystem [ "x86_64-linux" ] (
         system:
         let
@@ -193,6 +157,11 @@
             riscvGcc
             riscvDefmtRustflags
             ;
+
+          # Per-system private outputs; see nix/private.nix. On the
+          # public mirror `priv` is the inert stub above and the merges
+          # below are empty.
+          priv = private.perSystem { inherit pkgs system; };
 
           # ESP32-S3 build universe: pinned Xtensa rust, cross GCC, crane
           # instance, vendored deps, the rollback-enabled bootloader, and
@@ -377,18 +346,9 @@
             // privateChecks
             # The bmm-adapter DRC/ERC gates; see nix/kicad.nix.
             // kicad.checks
-            # The SD image is a `packages` output, so no check covered it and
-            # an evaluation regression - a nixpkgs bump whose device-tree
-            # module the nixos-raspberrypi kernel cannot satisfy, say - passed
-            # CI while failing `nix flake check`. Force a full NixOS evaluation
-            # of the cross-built image here so that gap closes. The image
-            # itself is never built: unsafeDiscardOutputDependency keeps the
-            # evaluation but drops the multi-gigabyte build from the closure.
-            // {
-              sd-image-eval = pkgs.runCommand "sd-image-eval" { } ''
-                echo ${builtins.unsafeDiscardOutputDependency (sdImageFor system).drvPath} > $out
-              '';
-            }
+            # Bench-only checks contributed by the private module; empty
+            # on the public mirror. See nix/private.nix.
+            // priv.checks
             # Vendored micro-sv2 is its own workspace the root crane build does
             # not cover, so gate it by re-exporting its flake's checks. The
             # clippy- prefix routes to ci-clippy; micro-sv2-formatting is added
@@ -410,8 +370,7 @@
                 toolchains
                 esp
                 redacted
-                probeRsHost
-                probeRsToken
+                bench
                 helpers
                 ;
               deployRsPackage = deploy-rs.packages.${system}.default;
@@ -426,8 +385,7 @@
                     pkgs
                     toolchains
                     helpers
-                    probeRsHost
-                    probeRsToken
+                    bench
                     ;
                 }
               else
@@ -493,29 +451,8 @@
           formatter = pkgs.nixfmt;
         }
       ))
-      {
-        # Raspberry Pi 4 support node that connects the target boards to the
-        # nbvpn.braiins.cz mesh. See nuc/nuc.nix for the host definition.
-        # Deployment runs from the developer workstation, always x86_64.
-        nixosConfigurations.redacted = mkNuc "x86_64-linux" [ ];
-
-        # Remote deployment via deploy-rs. Pushes the NUC NixOS closure over
-        # SSH and activates it without requiring a full SD-card reflash.
-        deploy.nodes.redacted = {
-          hostname = nucHost;
-          sshUser = "admin";
-          profiles.system = {
-            user = "root";
-            path = deploy-rs.lib.aarch64-linux.activate.nixos self.nixosConfigurations.redacted;
-          };
-        };
-
-        # Bootable SD-card image for the NUC. The image is always aarch64 but
-        # the build can run on any host via binfmt/QEMU. Build with:
-        #   redacted_SETUP_KEY=<key> \
-        #   WIFI_NETWORKS='[{"ssid":"home","psk":"secret"}]' \
-        #     nix build .#sd-image --impure
-        packages.x86_64-linux.sd-image = sdImageFor "x86_64-linux";
-        packages.aarch64-linux.sd-image = sdImageFor "aarch64-linux";
-      };
+      # Bench-only top-level outputs: the NUC nixosConfiguration, its
+      # deploy-rs node, and the SD-card image. See nix/private.nix;
+      # empty on the public mirror.
+      private.topLevel;
 }
