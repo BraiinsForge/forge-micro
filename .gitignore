@@ -40,6 +40,9 @@ build/
 result
 result-*
 
+# Default output directory of `nix run .#publish`
+.publish-out/
+
 # Nix dev shell local toolchains (not root-anchored — applies at any
 # depth, e.g. .cargo/ created by espup/nix dev shells). Root
 # .cargo/config.toml is allowed for centralized target-dir setting.
