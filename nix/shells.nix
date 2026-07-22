@@ -20,7 +20,8 @@
 # Interactive development shells, one per compilation universe that
 # ships on the public mirror. The internal-only shells — esp,
 # hardware, logic, riscv — live in nix/private-shells.nix, which the
-# publish strip removes. Shared knobs — the bench probe-rs endpoint
+# publish strip removes with the nix/private.nix wrapper that merges
+# them in. Shared knobs — the bench probe-rs endpoint
 # and the webui build env — arrive as arguments so every shell stays
 # consistent with the flake checks. `bench` is null on the public
 # mirror, which ships no nuc/; the bench-only pieces degrade away.

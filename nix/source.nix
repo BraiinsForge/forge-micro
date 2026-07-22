@@ -169,6 +169,12 @@ in
 
   # Host-target load-test crate lives outside the ubos-main
   # workspace, so it gets its own src filter and dep cache rather
-  # than sharing the embedded workspace wiring above.
-  loadTestSrc = craneLib.cleanCargoSource (root + "/nuc/pkgs/load-test");
+  # than sharing the embedded workspace wiring above. It ships with
+  # the bench nuc/ tree, which the publish strip removes, so it is
+  # null on the public mirror; the load-test checks gate on that.
+  loadTestSrc =
+    if builtins.pathExists (root + "/nuc") then
+      craneLib.cleanCargoSource (root + "/nuc/pkgs/load-test")
+    else
+      null;
 }

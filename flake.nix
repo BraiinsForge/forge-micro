@@ -28,7 +28,7 @@
 # shells together. Each block is a thin import of a nix/ module and
 # names the module it comes from; see nix/shells.nix for the dev
 # shells and the `nix develop .#arm` entry point. The internal tree
-# adds more shells via nix/private-shells.nix.
+# adds more outputs via nix/private.nix.
 {
   description = "ubos-main bare-metal Rust firmware workspace";
 
@@ -103,10 +103,12 @@
       probeRsOverlay = probeRs.overlay;
 
       # Internal-only wiring behind a single guard: the NUC and bench
-      # outputs. The publish strip removes nix/private.nix together
-      # with the nuc/ tree it imports, so the public mirror falls back
-      # to the inert stub below and evaluates with no bench outputs at
-      # all. See nix/private.nix.
+      # outputs, the esp32s3 toolchain universe, the KiCad and redacted
+      # tooling, the private checks and shells, the CI stage groups,
+      # and the publish app. The publish strip removes nix/private.nix
+      # together with every module it imports, so the public mirror
+      # falls back to the inert stub below and evaluates with none of
+      # those outputs. See nix/private.nix.
       private =
         let
           f = ./nix/private.nix;
@@ -118,10 +120,13 @@
             bench = null;
             topLevel = { };
             perSystem = _: {
+              esp = null;
               checks = { };
+              shells = { };
+              packages = { };
+              apps = { };
             };
           };
-      bench = private.bench;
     in
     nixpkgs.lib.recursiveUpdate
       # x86_64-linux only: the esp-rs Xtensa toolchain and the espressif
@@ -154,27 +159,26 @@
             bmmCc
             craneLib
             bmmCraneLib
-            riscvCraneLib
             riscvGcc
-            riscvDefmtRustflags
             ;
 
           # Per-system private outputs; see nix/private.nix. On the
-          # public mirror `priv` is the inert stub above and the merges
-          # below are empty.
-          priv = private.perSystem { inherit pkgs system; };
-
-          # ESP32-S3 build universe: pinned Xtensa rust, cross GCC, crane
-          # instance, vendored deps, the rollback-enabled bootloader, and
-          # the espup binary patcher. See nix/esp.nix.
-          esp = import ./nix/esp.nix {
+          # public mirror `priv` is the inert stub above: the merges
+          # below are empty and `esp` is null, which is never forced
+          # because every esp consumer is gated on the esp32s3
+          # workspace membership.
+          priv = private.perSystem {
             inherit
               pkgs
-              crane
               system
-              nixpkgs-esp-dev
+              toolchains
+              helpers
+              srcFor
+              src
               ;
+            flakeChecks = self.checks.${system};
           };
+          inherit (priv) esp;
           inherit (esp)
             espToolchain
             espCraneLib
@@ -230,29 +234,6 @@
               ;
           };
 
-          # Optional private-overlay checks, present only in the internal
-          # tree. The public mirror does not ship nix/private-checks.nix, so
-          # this evaluates to an empty attrset there instead of failing.
-          privateChecks =
-            let
-              f = ./nix/private-checks.nix;
-            in
-            if builtins.pathExists f then
-              import f {
-                inherit
-                  pkgs
-                  helpers
-                  craneLib
-                  riscvCraneLib
-                  riscvGcc
-                  riscvDefmtRustflags
-                  srcFor
-                  src
-                  ;
-              }
-            else
-              { };
-
           # Maximum flash bytes allowed before CI fails the size guard.
           # The value is the embassy-boot ACTIVE partition budget. The 2 MiB
           # flash is split into a 128 KiB bootloader, a 4 KiB state word, an
@@ -307,13 +288,6 @@
               ;
           };
 
-          # Headless KiCad DRC/ERC gates for the bmm-adapter board; the
-          # checks merge into `checks` below. See nix/kicad.nix.
-          kicad = import ./nix/kicad.nix { inherit pkgs; };
-
-          # redacted Logic 2 headless capture tooling. See nix/redacted.nix.
-          redacted = import ./nix/redacted.nix { inherit pkgs nixpkgs system; };
-          inherit (redacted) redactedPkgs redactedCapturePython redactedRun;
         in
         {
           # Per-crate gates and static guards; see nix/checks.nix for the
@@ -343,17 +317,14 @@
                 members
                 ;
             }
-            # Optional private-overlay checks; see privateChecks above.
-            // privateChecks
-            # The bmm-adapter DRC/ERC gates; see nix/kicad.nix.
-            // kicad.checks
-            # Bench-only checks contributed by the private module; empty
-            # on the public mirror. See nix/private.nix.
+            # Internal-only checks contributed by the private module;
+            # empty on the public mirror. See nix/private.nix.
             // priv.checks
             # Vendored micro-sv2 is its own workspace the root crane build does
             # not cover, so gate it by re-exporting its flake's checks. The
             # clippy- prefix routes to ci-clippy; micro-sv2-formatting is added
-            # to ci-format's set in nix/ci.nix; the rest fall into ci-check.
+            # to ci-format's set in the internal CI stage groups; the rest
+            # fall into ci-check.
             // {
               "clippy-micro-sv2" = micro-sv2.checks.${system}.clippy;
               "micro-sv2-test" = micro-sv2.checks.${system}.test;
@@ -361,53 +332,25 @@
             };
 
           # Interactive development shells; see nix/shells.nix. The
-          # private overlay nix/private-shells.nix contributes extra
-          # shells when present, merged in only if the file exists —
-          # absent from the public mirror, same idiom as privateChecks.
+          # internal tree contributes extra shells through the private
+          # module — absent from the public mirror. See nix/private.nix.
           devShells =
             (import ./nix/shells.nix {
               inherit
                 pkgs
                 toolchains
-                bench
                 helpers
                 ;
+              bench = private.bench;
               deployRsPackage = deploy-rs.packages.${system}.default;
             })
-            // (
-              let
-                f = ./nix/private-shells.nix;
-              in
-              if builtins.pathExists f then
-                import f {
-                  inherit
-                    pkgs
-                    toolchains
-                    helpers
-                    esp
-                    redacted
-                    bench
-                    ;
-                }
-              else
-                { }
-            );
+            // priv.shells;
 
           # Production firmware images and combined BOOTSEL UF2 images;
           # see nix/images.nix for the UBOS_FW_VERSION build instructions.
           packages =
             images.packages
-            // rec {
-              # KiCad automation for the bmm-adapter fabrication job,
-              # `nix run .#kibot`. DRC and ERC are gated separately by
-              # the kicad-cli checks; kibot only generates fab outputs.
-              kiauto = pkgs.callPackage ./kiauto.nix { };
-              kibot = pkgs.callPackage ./kibot.nix { inherit kiauto; };
-
-              # Headless redacted Logic 2 capture lifecycle wrapper. Also the
-              # entry point of the `logic` devShell.
-              redacted-run = redactedRun;
-
+            // {
               # GC-root anchor for the expensive cross toolchains that
               # cache.nixos.org does not carry: the armv5tel-musl gcc for
               # the BMM miniminer and the bare-metal riscv64 gcc/binutils.
@@ -427,25 +370,18 @@
             // pkgs.lib.optionalAttrs (builtins.elem "esp32s3" members) {
               esp32s3-bootloader = esp32s3Bootloader;
             }
-            # CI stage groups partitioning `checks`; see nix/ci.nix.
-            // (import ./nix/ci.nix {
-              inherit pkgs;
-              checks = self.checks.${system};
-            });
+            # The KiCad fabrication tooling, the redacted capture wrapper,
+            # and the CI stage groups partitioning `checks`; empty on
+            # the public mirror. See nix/private.nix.
+            // priv.packages;
 
           # Copy apps: `nix run .#<image>` writes the built image or UF2
           # into the repo's build/ directory. See nix/images.nix.
           apps =
             images.apps
-            # `nix run .#publish` emits the gated public mirror. Present
-            # only in the internal tree, guarded like privateChecks above:
-            # the public mirror ships no publish/, so this degrades away.
-            // (
-              if builtins.pathExists ./publish/app.nix then
-                { publish = import ./publish/app.nix { inherit pkgs; }; }
-              else
-                { }
-            );
+            # `nix run .#publish` emits the gated public mirror; empty
+            # on the public mirror itself. See nix/private.nix.
+            // priv.apps;
 
           # `nix fmt` entry point, matching the nixfmt check in
           # nix/checks.nix.
