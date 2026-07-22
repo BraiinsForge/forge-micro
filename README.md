@@ -16,8 +16,6 @@ Docs live in `docs/`:
 - `docs/TESTING.md` -- layered test architecture and coverage strategy
 - `docs/DEBUGGING.md` -- probe-rs, binary size, stack analysis
 
-Support node (NUC): see `nuc/README.md`.
-
 ## License
 
 This program is free software licensed under the terms of the GNU

@@ -284,5 +284,3 @@ dig +time=3 +tries=1 -p 5353 @<board-ip> _prometheus._tcp.local PTR
 dig +time=3 +tries=1 -p 5353 @<board-ip> _http._tcp.local PTR
 dig +time=3 +tries=1 -p 5353 @<board-ip> _ubos._tcp.local PTR
 ```
-
-Support node (NUC): `nuc/README.md`.

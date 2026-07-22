@@ -129,7 +129,9 @@ License section. Header conventions for new files:
   Braiins header.
 - Private sources outside the board crates that the mirror strips
   (`publish/`, `nix/private-*.nix`, `micro-sv2/interop-test`, the
-  redacted trees) carry no header; the strip itself keeps them private.
+  redacted trees, `nuc/`, and the bench tooling modules listed at
+  `stripPaths` in `publish/app.nix`) carry no header; the strip
+  itself keeps them private.
 
 Which crates are stripped, and why `rp2350-bootloader` stays public, is
 documented at `stripPaths` and `HIDDEN_MEMBERS` in `publish/app.nix`.
