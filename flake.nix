@@ -27,7 +27,8 @@
 # the per-crate checks, firmware images, and the interactive dev
 # shells together. Each block is a thin import of a nix/ module and
 # names the module it comes from; see nix/shells.nix for the dev
-# shells and the `nix develop .#arm` / `.#esp` entry points.
+# shells and the `nix develop .#arm` entry point. The internal tree
+# adds more shells via nix/private-shells.nix.
 {
   description = "ubos-main bare-metal Rust firmware workspace";
 
@@ -368,8 +369,6 @@
               inherit
                 pkgs
                 toolchains
-                esp
-                redacted
                 bench
                 helpers
                 ;
@@ -385,6 +384,8 @@
                     pkgs
                     toolchains
                     helpers
+                    esp
+                    redacted
                     bench
                     ;
                 }
