@@ -1,0 +1,27 @@
+Rewrite the manifest for standalone consumption.
+
+The workspace-inherited dependency table only resolves inside the
+edge-net workspace; a detached copy of the crate has no parent
+workspace, so the deps become explicit versions matching the
+edge-net pin, with edge-nal kept on the same pinned rev so the
+whole edge-net family resolves to one source.
+
+diff -ruN a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -31,9 +31,9 @@
+ dhcpv4-hostname = ["embassy-net/dhcpv4-hostname"]
+ 
+ [dependencies]
+-log = { workspace = true, default-features = false, optional = true }
+-defmt = { workspace = true, default-features = false, optional = true }
+-embedded-io-async = { workspace = true }
+-edge-nal = { workspace = true }
+-embassy-net = { workspace = true }
+-embassy-futures = { workspace = true }
++log = { version = "0.4", default-features = false, optional = true }
++defmt = { version = "1", default-features = false, features = ["ip_in_core"], optional = true }
++embedded-io-async = { version = "0.7", default-features = false }
++edge-nal = { git = "https://github.com/ivmarkov/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
++embassy-net = { version = "0.9.0", default-features = false }
++embassy-futures = { version = "0.1.2", default-features = false }

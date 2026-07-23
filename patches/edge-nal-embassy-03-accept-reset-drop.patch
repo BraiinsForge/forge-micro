@@ -1,0 +1,28 @@
+Drop a connection that resets during accept.
+
+A port scanner completes the handshake then immediately resets,
+which can leave the socket with no remote endpoint; unwrapping it
+panicked and the hard fault rebooted the board through the
+watchdog. Returning a reset error lets the accept loop log it and
+carry on.
+
+diff --git a/src/tcp.rs b/src/tcp.rs
+index dbd08b74..f94d6364 100644
+--- a/src/tcp.rs
++++ b/src/tcp.rs
+@@ -108,7 +108,14 @@ impl edge_nal::TcpAccept for TcpAccept<'_> {
+         // Return the peer's address so callers can inspect the remote IP.
+         // The original code called local_endpoint(), which returns the bound
+         // server address and defeats any IP-based filtering at the handler.
+-        let remote_endpoint = unwrap!(socket.socket.remote_endpoint());
++        // A peer that completes the handshake and then immediately resets,
++        // as a port scanner does, can leave the socket without a remote
++        // endpoint by the time we read it; surface that as a reset so the
++        // accept loop drops the connection instead of panicking.
++        let remote_endpoint = socket
++            .socket
++            .remote_endpoint()
++            .ok_or(TcpError::General(Error::ConnectionReset))?;
+ 
+         Ok((to_net_socket(remote_endpoint), socket))
+     }
