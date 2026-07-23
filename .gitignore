@@ -30,6 +30,11 @@ fp-info-cache
 # Rust / Cargo build output directory
 target/
 
+# Pinned-and-patched upstream crates materialized by the nix dev
+# shells; the repo carries only the patches/*.patch files. See
+# nix/patched-crates.nix.
+/patches/embassy-net-wiznet
+
 # probe-rs-runner session logs, written to the project logs/ dir
 **/logs/*.log
 

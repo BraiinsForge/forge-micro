@@ -31,12 +31,14 @@
 # tables would need a knob per quirk: esp32s3, the bootloaders, and the
 # bmm cross build of `host-runner`.
 #
-# `patches/edge-nal-embassy` and `patches/embassy-net-wiznet` are
-# intentionally not gated by their own clippy or build derivations.
-# They are vendored upstream crates carrying local fixes that we do not
-# author; gating them in CI would tie the build to upstream lint
-# cleanliness we do not control. Every firmware build derivation below
-# exercises them transitively, so a real breakage still fails the gate.
+# The `[patch]` override crates — vendored `patches/edge-nal-embassy`
+# and the pinned-and-patched embassy-net-wiznet from
+# nix/patched-crates.nix — are intentionally not gated by their own
+# clippy or build derivations. They are upstream crates carrying local
+# fixes that we do not author; gating them in CI would tie the build to
+# upstream lint cleanliness we do not control. Every firmware build
+# derivation below exercises them transitively, so a real breakage
+# still fails the gate.
 {
   pkgs,
   src,

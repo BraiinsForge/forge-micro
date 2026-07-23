@@ -155,9 +155,13 @@ incremental   = false
 lto           = "fat"
 opt-level     = "s"
 
-# Vendored copy of embassy-net-wiznet 0.3.0 with the read_frame underflow
-# fix from upstream commit 14592448 applied on top. Single-crate patch
-# keeps every transitive embassy dep on crates.io. Patching embassy-time
+# embassy-net-wiznet 0.3.0 from crates.io with the read_frame underflow
+# fix from upstream commit 14592448 applied on top. The repo carries only
+# the patch file; nix materializes the patched tree at this path — the
+# dev shells symlink it into the working tree and nix/source.nix copies
+# it into the check sources (see nix/patched-crates.nix) — so cargo must
+# run inside the dev shells. Single-crate patch keeps every transitive
+# embassy dep on crates.io. Patching embassy-time
 # to a git rev silently swaps crate content while keeping the 0.5.1
 # version string, which diverges from what embassy-rp 0.10.0 from
 # crates.io was built against and hangs RP2040 at startup. See
