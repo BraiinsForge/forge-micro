@@ -106,6 +106,25 @@ Interactive patch mode (`git add -p`) commands:
   build — the initial introduction of a new crate, or a pure rename where
   source and lockfile must move together
 
+**Commit separation — the mirror strip boundary:**
+
+The publish filter strips a fixed set of paths (`stripPaths` in
+`publish/app.nix`) from every mirror commit. A commit that mixes
+mirror-kept and mirror-stripped hunks survives in the mirror as only its
+kept hunks, under its original message.
+
+- A change to the strip machinery itself (`stripPaths`/`redactPatterns`
+  in `publish/app.nix`, or anything else under `publish/`) gets its own
+  commit touching only `publish/`. It becomes empty in the mirror and
+  drops cleanly; bundling mirror-kept source with it leaves a surviving
+  mirror commit whose message points at machinery the mirror cannot show.
+- Do not mix mirror-kept and mirror-stripped hunks when they are
+  separable logical changes; give each its own commit. Spanning the strip
+  boundary is fine only for a single logical change that mechanically
+  spans it — a rename, or shared wiring applied to both the public and
+  private dev shells — where splitting would break atomicity or leave an
+  unbuildable step.
+
 **Never:**
 - NEVER push to remote
 - NEVER use --amend unless explicitly requested
