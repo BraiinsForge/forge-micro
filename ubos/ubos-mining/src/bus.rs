@@ -22,7 +22,7 @@
 //! Bridges the pure `ubos_asic::ChipProtocol` bring-up recipes to the
 //! real chip serial link: register and command traffic forwards to the
 //! [`SERIAL`] actor, and delays are backed by embassy-time. This is the
-//! consumer side of the sans-IO seam (see `.claude/rules/rust.md`).
+//! consumer side of the sans-IO seam.
 
 use embassy_time::{Duration, Timer};
 use heapless::Vec;

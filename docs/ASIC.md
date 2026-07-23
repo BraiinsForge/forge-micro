@@ -20,10 +20,9 @@ the bring-up sequence, and the per-chip differences.
   dispatch / share verification path.
 
 The dependency arrow is `ubos-mining → ubos-asic`. `ubos-asic` declares
-`ChipBus`; `ubos-mining` implements it. This is the sans-IO rule (see
-`.claude/rules/rust.md`): bring-up logic computes and acts through a
-passed-in bus, so it is testable against a mock bus, and the actor stays
-the single I/O edge.
+`ChipBus`; `ubos-mining` implements it. This is the sans-IO rule:
+bring-up logic computes and acts through a passed-in bus, so it is
+testable against a mock bus, and the actor stays the single I/O edge.
 
 ## Hardware model
 

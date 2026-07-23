@@ -25,7 +25,7 @@
 //! UART and performs no direct I/O; it drives [`ChipBus`], which the
 //! consumer (`ubos-mining`) implements over the real serial link. This
 //! keeps the bring-up logic in this pure crate and unit-testable against
-//! a mock bus. See `.claude/rules/rust.md` for the sans-IO rule.
+//! a mock bus.
 
 use heapless::Vec;
 use ubos_core::units::{Frequency, FrequencyRange, Voltage};
