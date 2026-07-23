@@ -169,10 +169,10 @@ opt-level     = "s"
 [patch.crates-io]
 embassy-net-wiznet = { path = "patches/embassy-net-wiznet" }
 
-# Vendored copy of edge-nal-embassy with the peer-endpoint fix applied.
-# Upstream PR pending. The library's TcpAccept::accept() was returning
-# local_endpoint() instead of remote_endpoint(), making the SocketAddr in
-# the return value useless for IP allow-list checks in the handler.
+# edge-nal-embassy from the pinned edge-net rev with the local patch
+# series applied on top; nix materializes the tree at this path the
+# same way as embassy-net-wiznet above. Each patch file's preamble
+# explains its fix; the peer-endpoint fix has an upstream PR pending.
 [patch."https://github.com/ivmarkov/edge-net"]
 edge-nal-embassy = { path = "patches/edge-nal-embassy" }
 

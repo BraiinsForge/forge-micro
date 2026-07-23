@@ -110,12 +110,11 @@ let
   relOf = path: lib.removePrefix (rootStr + "/") (toString path);
 
   # A scoped real source admits only files under the closure directories
-  # plus the always-shared roots: workspace manifest/lock, `.cargo`
-  # config, and the vendored `[patch]` override crate edge-nal-embassy
-  # that cargo must resolve even when the crate under build does not use
-  # it; the pinned-and-patched embassy-net-wiznet arrives via
-  # patchedCratesOverlay instead. `cleanSourceWith` hashes only these
-  # files, so an edit outside the closure leaves the result unchanged.
+  # plus the always-shared roots: workspace manifest/lock and `.cargo`
+  # config; the `[patch]` override crates cargo must resolve even when
+  # the crate under build does not use them arrive via
+  # patchedCratesOverlay. `cleanSourceWith` hashes only these files, so
+  # an edit outside the closure leaves the result unchanged.
   scopedFilter =
     dirs: path: type:
     let
@@ -126,12 +125,7 @@ let
         d: rel == d || lib.hasPrefix (d + "/") rel || lib.hasPrefix (rel + "/") (d + "/")
       ) dirs;
       shared =
-        rel == "Cargo.toml"
-        || rel == "Cargo.lock"
-        || rel == ".cargo"
-        || lib.hasPrefix ".cargo/" rel
-        || rel == "patches"
-        || lib.hasPrefix "patches/" rel;
+        rel == "Cargo.toml" || rel == "Cargo.lock" || rel == ".cargo" || lib.hasPrefix ".cargo/" rel;
     in
     (shared || inClosure) && admit path type;
 
@@ -142,7 +136,6 @@ let
     "Cargo.toml"
     "Cargo.lock"
     ".cargo"
-    "patches"
   ];
 
   # Overlay the real closure directories, and the shared roots, from a
