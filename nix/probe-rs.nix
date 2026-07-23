@@ -17,50 +17,136 @@
 # to this program, or any part thereof, under any terms, and such a grant
 # shall be considered distinct from the grant above.
 
-# probe-rs fork tooling: the redacted-capable fork build, the remote and
-# server variants with their patches, and the overlay exposing them
-# plus the probe-rs-runner wrapper. See flake.nix for how the overlay
-# is threaded into each system's pkgs and the NUC's cross overlay.
-{ inputs }:
+# probe-rs tooling: the redacted-capable build from the pinned upstream
+# source plus the in-repo patch series, the remote and server variants
+# with their patches, and the overlay exposing them plus the
+# probe-rs-runner wrapper. See flake.nix for how the overlay is
+# threaded into each system's pkgs and the NUC's cross overlay.
+{ }:
 rec {
-  # probe-rs fork carrying redacted redacted, RISC-V debug spec 0.11, support:
-  # upstream 0.31.0 plus one commit adding the redacted target. The dependency
-  # closure still matches nixpkgs' own 0.31.0 probe-rs-tools, so the whole
-  # nixpkgs build recipe is reused and only the source and the re-vendored
-  # cargo deps are swapped. Every probe-rs consumer, each dev shell and the
-  # NUC serve service, builds from this one base, so redacted flashing and RTT
-  # work across the fleet without a second probe-rs version. cargoHash is
-  # baked into nixpkgs' derivation before overrideAttrs runs, so the vendor
-  # must be rethreaded through cargoDeps rather than by setting cargoHash.
-  # The fork source arrives through the probe-rs-redacted flake input, fetched
-  # at eval time so the gitlab.ii.zone SSH access uses the developer's git
-  # config; the sandbox carries no ssh.
+  # probe-rs carrying redacted redacted, RISC-V debug spec 0.11, support:
+  # the upstream v0.32.0 release tag with the patches/probe-rs-redacted/
+  # series applied on top; each patch's preamble carries its original
+  # commit message. Built straight from the GitHub source as our own
+  # rustPlatform.buildRustPackage rather than by overriding nixpkgs'
+  # probe-rs-tools, so the fleet's probe-rs version is decoupled from
+  # whichever release nixpkgs happens to carry. The recipe mirrors the
+  # small nixpkgs one: cmake and pkg-config, libusb and openssl, the
+  # udev-rules install, and the skip list for the probe- and
+  # toolchain-requiring tests. Every probe-rs consumer, each dev shell
+  # and the NUC serve service, builds from this one base, so redacted
+  # flashing and RTT work across the fleet without a second probe-rs
+  # version. The series touches no manifest or lock, so the vendor
+  # reads the unpatched base's lock and needs no import-from-derivation.
   #
   # cargoDeps uses importCargoLock rather than fetchCargoVendor: this vendor
   # is a binary-cache miss, and fetchCargoVendor's parallel download pool
   # trips crates.io's rate limit on the /download API endpoint, HTTP 403,
   # while fetching the full closure fresh. importCargoLock fetches each
   # crate as its own cache-backed fetchurl, so most come from cache.nixos.org
-  # and the rest go through nix's throttled, retrying fetcher. The fork's
+  # and the rest go through nix's throttled, retrying fetcher. The
   # lock has no git sources, so no outputHashes are required.
-  mkForkProbeRsTools =
+  mkredactedProbeRsTools =
     pkgs:
     let
-      forkSrc = inputs.probe-rs-redacted;
-    in
-    pkgs.probe-rs-tools.overrideAttrs (old: {
-      src = forkSrc;
-      cargoDeps = pkgs.rustPlatform.importCargoLock {
-        lockFile = "${forkSrc}/Cargo.lock";
+      baseSrc = pkgs.fetchFromGitHub {
+        owner = "probe-rs";
+        repo = "probe-rs";
+        tag = "v0.32.0";
+        hash = "sha256-C6ioLkU0tmCzWtThPGyOOiD/Z9n8RB5eogAxTmBwDj8=";
       };
-      # The fork renames the DAP test `test_initalize_request`, a nixpkgs
-      # typo, to `test_initialize_request`, so nixpkgs' existing --skip no
-      # longer matches and the probe-requiring test runs and fails. Skip it
-      # under its corrected name.
-      checkFlags = (old.checkFlags or [ ]) ++ [
-        "--skip=cmd::dap_server::server::debugger::test::test_initialize_request"
+      # The udev rules live in an unversioned webpage repo; pin the same
+      # revision nixpkgs' probe-rs-tools installs.
+      udevRules = pkgs.fetchurl {
+        url = "https://raw.githubusercontent.com/probe-rs/webpage/054a0b16831593091a8a5624d0e2305573e860ee/public/files/69-probe-rs.rules";
+        hash = "sha256-yjxld5ebm2jpfyzkw+vngBfHu5Nfh2ioLUKQQDY4KYo=";
+      };
+    in
+    pkgs.rustPlatform.buildRustPackage {
+      pname = "probe-rs-tools";
+      version = "0.32.0";
+
+      src = pkgs.applyPatches {
+        name = "probe-rs-redacted-src";
+        src = baseSrc;
+        # Apply order is this list, not the file names. The series
+        # directory is stripped from the public mirror; without it the
+        # base builds vanilla upstream probe-rs at the same tag, redacted
+        # support stays internal, and the remote and server patches
+        # below still apply.
+        patches = pkgs.lib.optionals (builtins.pathExists ../patches/probe-rs-redacted) [
+          ../patches/probe-rs-redacted/contributor-guide.patch
+          ../patches/probe-rs-redacted/riscv-debug-011-redacted.patch
+          ../patches/probe-rs-redacted/riscv-011-memory-access.patch
+          ../patches/probe-rs-redacted/redacted-ram-entry-point.patch
+          ../patches/probe-rs-redacted/rtt-64bit-control-block.patch
+          ../patches/probe-rs-redacted/riscv-011-run-state-transparent.patch
+          ../patches/probe-rs-redacted/redacted-uncached-sram-alias.patch
+          ../patches/probe-rs-redacted/riscv-011-debug-ram-round-trips.patch
+          ../patches/probe-rs-redacted/riscv-011-dbus-batch-u64.patch
+          ../patches/probe-rs-redacted/riscv-011-halt-dcsr-dpc-batch.patch
+        ];
+      };
+
+      cargoDeps = pkgs.rustPlatform.importCargoLock {
+        lockFile = "${baseSrc}/Cargo.lock";
+      };
+
+      buildAndTestSubdir = "probe-rs-tools";
+
+      nativeBuildInputs = [
+        # cmake is pulled in by libz-sys, which has no dynamic-link option.
+        pkgs.cmake
+        pkgs.pkg-config
       ];
-    });
+      buildInputs = [
+        pkgs.libusb1
+        pkgs.openssl
+      ];
+
+      postInstall = ''
+        install -D -m 444 ${udevRules} $out/etc/udev/rules.d/69-probe-rs.rules
+      '';
+
+      # Skip the tests that need a physical probe attached or an embedded
+      # toolchain and workspace the sandbox lacks. This is the set nixpkgs'
+      # probe-rs-tools skips, re-resolved against the 0.32.0 tree: the DAP
+      # typo test_initalize_request is corrected upstream and
+      # launch_with_config_error is gone, but the disassemble cases still
+      # run and still need skipping; the tests now live in the probe-rs
+      # binary.
+      checkFlags = [
+        "--skip=cmd::dap_server::server::debugger::test::attach_request"
+        "--skip=cmd::dap_server::server::debugger::test::attach_with_flashing"
+        "--skip=cmd::dap_server::server::debugger::test::disassemble::instructions_after_and_not_including_the_ref_address"
+        "--skip=cmd::dap_server::server::debugger::test::disassemble::instructions_before_and_not_including_the_ref_address_multiple_locations"
+        "--skip=cmd::dap_server::server::debugger::test::disassemble::instructions_including_the_ref_address_location_cloned_from_earlier_line"
+        "--skip=cmd::dap_server::server::debugger::test::disassemble::negative_byte_offset_of_exactly_one_instruction_aligned_"
+        "--skip=cmd::dap_server::server::debugger::test::disassemble::positive_byte_offset_that_lands_in_the_middle_of_an_instruction_unaligned_"
+        "--skip=cmd::dap_server::server::debugger::test::launch_and_threads"
+        "--skip=cmd::dap_server::server::debugger::test::test_initialize_request"
+        "--skip=cmd::dap_server::server::debugger::test::test_launch_and_terminate"
+        "--skip=cmd::dap_server::server::debugger::test::test_launch_no_probes"
+        "--skip=cmd::dap_server::server::debugger::test::wrong_request_after_init"
+        "--skip=util::cargo::test::get_binary_artifact"
+        "--skip=util::cargo::test::get_binary_artifact_with_cargo_config"
+        "--skip=util::cargo::test::get_binary_artifact_with_cargo_config_toml"
+        "--skip=util::cargo::test::library_with_example_specified"
+        "--skip=util::cargo::test::multiple_binaries_in_crate_select_binary"
+        "--skip=util::cargo::test::workspace_binary_package"
+        "--skip=util::cargo::test::workspace_root"
+      ];
+
+      meta = {
+        description = "CLI tool for on-chip debugging and flashing of ARM chips";
+        homepage = "https://probe.rs/";
+        license = with pkgs.lib.licenses; [
+          asl20
+          mit
+        ];
+        mainProgram = "probe-rs";
+      };
+    };
 
   # `serve` panics on `ConnectionClosed` when the client disconnects
   # mid-RPC, leaving the probe Session held but the worker dead.
@@ -94,13 +180,11 @@ rec {
       # lock swap no longer applies. socket2 is already in the closure via
       # tokio, so this re-vendor is a set of cache hits. Reading the lock
       # from the applyPatches output is import-from-derivation and relies on
-      # IFD being enabled, the default here, unlike the fork base above
-      # whose lock comes from the already-fetched flake input.
+      # IFD being enabled, the default here, unlike the redacted base above
+      # whose lock comes straight from the fetched upstream source.
       cargoDeps =
         let
           patchedSrc = pkgs.applyPatches {
-            # The fork src is a flake-input store path with no name to
-            # derive a default from, so name the patched source explicitly.
             name = "probe-rs-server-src";
             inherit (old) src;
             patches = (old.patches or [ ]) ++ [ serverPatch ];
@@ -112,8 +196,8 @@ rec {
     });
 
   overlay = final: prev: {
-    probe-rs-tools-remote = mkRemoteProbeRsTools (mkForkProbeRsTools prev);
-    probe-rs-tools-server = mkServerProbeRsTools prev (mkForkProbeRsTools prev);
+    probe-rs-tools-remote = mkRemoteProbeRsTools (mkredactedProbeRsTools prev);
+    probe-rs-tools-server = mkServerProbeRsTools prev (mkredactedProbeRsTools prev);
     probe-rs-runner = prev.writeShellScriptBin "probe-rs-runner" ''
       args=()
       for arg in "$@"; do

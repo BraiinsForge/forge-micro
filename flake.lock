@@ -315,24 +315,6 @@
         "type": "github"
       }
     },
-    "probe-rs-redacted": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1783084667,
-        "narHash": "sha256-D3K1507A5cPlQpehQF6euvaFrOVO3gMDY9iAhvRozbc=",
-        "ref": "riscv-debug-0.11-redacted",
-        "rev": "81d789213eeecac43a125f92df03e04fe669320d",
-        "revCount": 6345,
-        "type": "git",
-        "url": "ssh://git@gitlab.ii.zone/bos/ubos/probe-rs.git"
-      },
-      "original": {
-        "ref": "riscv-debug-0.11-redacted",
-        "rev": "81d789213eeecac43a125f92df03e04fe669320d",
-        "type": "git",
-        "url": "ssh://git@gitlab.ii.zone/bos/ubos/probe-rs.git"
-      }
-    },
     "root": {
       "inputs": {
         "crane": "crane",
@@ -342,7 +324,6 @@
         "nixos-raspberrypi": "nixos-raspberrypi",
         "nixpkgs": "nixpkgs_4",
         "nixpkgs-esp-dev": "nixpkgs-esp-dev",
-        "probe-rs-redacted": "probe-rs-redacted",
         "rust-overlay": "rust-overlay_2"
       }
     },

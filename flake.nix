@@ -40,15 +40,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     crane.url = "github:ipetkov/crane";
-    # probe-rs fork adding redacted redacted (RISC-V debug spec 0.11) support on
-    # top of upstream 0.31.0. Fetched as a non-flake source at eval time so the
-    # private gitlab.ii.zone SSH access uses the developer's git config rather
-    # than the sandbox, which carries no ssh binary. mkForkProbeRsTools swaps
-    # this into nixpkgs' probe-rs-tools build.
-    probe-rs-redacted = {
-      url = "git+ssh://git@gitlab.ii.zone/bos/ubos/probe-rs.git?ref=riscv-debug-0.11-redacted&rev=81d789213eeecac43a125f92df03e04fe669320d";
-      flake = false;
-    };
     # Tracks the upstream default branch (develop) now that PR#131
     # (remove-options-compat) is merged. Upstream CI populates the
     # nixos-raspberrypi cachix on every push, so the RPi kernel and
@@ -79,7 +70,6 @@
       nixos-raspberrypi,
       deploy-rs,
       nixpkgs-esp-dev,
-      probe-rs-redacted,
       micro-sv2,
     }@inputs:
     let
@@ -95,11 +85,12 @@
         UBOS_WEBUI_BUILD_TIME = toString self.lastModified;
       };
 
-      # probe-rs fork tooling: the redacted-capable fork build, the remote and
+      # probe-rs tooling: the redacted-capable patched build, the remote and
       # server patch variants, and the overlay exposing them plus the
       # probe-rs-runner wrapper. The private bench wiring reuses the mk*
-      # functions to rebuild the fork against cross pkgs for the NUC.
-      probeRs = import ./nix/probe-rs.nix { inherit inputs; };
+      # functions to rebuild the patched probe-rs against cross pkgs for
+      # the NUC.
+      probeRs = import ./nix/probe-rs.nix { };
       probeRsOverlay = probeRs.overlay;
 
       # Internal-only wiring behind a single guard: the NUC and bench
