@@ -30,9 +30,27 @@
   webuiBuildEnv,
   espToolchain,
   xtensaEspToolchain,
+  patchedCrates,
 }:
 rec {
   ccVar = target: "CC_${builtins.replaceStrings [ "-" "." ] [ "_" "_" ] target}";
+
+  # Shell-hook fragment for every cargo-running dev shell. The
+  # workspace `[patch]` table points at patches/<crate>, which the
+  # repo no longer carries for the pinned-and-patched upstream crates;
+  # symlink each materialized tree from the store into the working
+  # tree so cargo resolves it. A real directory at the path is left
+  # alone: it is either the not-yet-removed vendored tree on an older
+  # commit or a local unpacked copy being hacked on, and both should
+  # win over the store tree. The shells are entered from the
+  # repository root by convention; elsewhere there is nothing to link.
+  linkPatchedCrates = pkgs.lib.concatStrings (
+    pkgs.lib.mapAttrsToList (name: drv: ''
+      if [ -d patches ] && { [ ! -e "patches/${name}" ] || [ -L "patches/${name}" ]; }; then
+        ln -sfnT ${drv} "patches/${name}"
+      fi
+    '') patchedCrates
+  );
 
   armCc = target: {
     "${ccVar target}" = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";

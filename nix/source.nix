@@ -31,16 +31,31 @@
 # so an edit to an unrelated crate leaves the scoped source's hash
 # unchanged and nix reuses the cached build instead of recompiling.
 # The per-crate checks and images consume `srcFor`.
-{ pkgs, craneLib }:
+{
+  pkgs,
+  craneLib,
+  patchedCrates,
+}:
 let
   inherit (pkgs) lib;
   root = ../.;
   crateGraph = import ./crate-graph.nix { inherit lib root; };
 
+  # The pinned-and-patched upstream crates from nix/patched-crates.nix
+  # live in the store, not the repo, so every source the cargo builds
+  # consume gets them copied in at patches/<crate>, where the workspace
+  # `[patch]` table points.
+  patchedCratesOverlay = lib.concatStrings (
+    lib.mapAttrsToList (name: drv: ''
+      rm -rf "$out/patches/${name}"
+      mkdir -p "$out/patches"
+      cp -a --no-preserve=mode ${drv} "$out/patches/${name}"
+    '') patchedCrates
+  );
+
   # Crane's default filter keeps Cargo.toml, Cargo.lock, and .rs files.
   # We also need .cargo/config.toml, which holds per-crate target
-  # settings, `.x` linker scripts, the vendored embassy-net-wiznet
-  # patches directory, the dashboard HTML/CSS/JS that ubos-webui's
+  # settings, `.x` linker scripts, the dashboard HTML/CSS/JS that ubos-webui's
   # build.rs composes and gzips into OUT_DIR, the Braiins wordmark
   # served at /logo.svg via include_bytes!, the build.rs sibling at
   # the ubos-webui crate root, the stratum-v2 golden transcript
@@ -51,7 +66,6 @@ let
     path: _type:
     (builtins.match ".*\\.cargo/config\\.toml$" path != null)
     || (builtins.match ".*\\.x$" path != null)
-    || (builtins.match ".*/patches/embassy-net-wiznet/.*" path != null)
     || (builtins.match ".*\\.html$" path != null)
     || (builtins.match ".*\\.css$" path != null)
     || (builtins.match ".*\\.js$" path != null)
@@ -97,10 +111,11 @@ let
 
   # A scoped real source admits only files under the closure directories
   # plus the always-shared roots: workspace manifest/lock, `.cargo`
-  # config, and the `[patch]` override crates embassy-net-wiznet and
-  # edge-nal-embassy that cargo must resolve even when the crate under
-  # build does not use them. `cleanSourceWith` hashes only these files,
-  # so an edit outside the closure leaves the result unchanged.
+  # config, and the vendored `[patch]` override crate edge-nal-embassy
+  # that cargo must resolve even when the crate under build does not use
+  # it; the pinned-and-patched embassy-net-wiznet arrives via
+  # patchedCratesOverlay instead. `cleanSourceWith` hashes only these
+  # files, so an edit outside the closure leaves the result unchanged.
   scopedFilter =
     dirs: path: type:
     let
@@ -154,15 +169,21 @@ let
       mkdir -p "$out"
       cp -a --no-preserve=mode ${dummyWorkspace}/. "$out/"
       ${overlay}
+      ${patchedCratesOverlay}
     '';
+
+  cleanedSrc = lib.cleanSourceWith {
+    src = root;
+    filter = admit;
+  };
 in
 {
   inherit crateGraph;
 
-  src = lib.cleanSourceWith {
-    src = root;
-    filter = admit;
-  };
+  src = pkgs.runCommand "ubos-src" { } ''
+    cp -a --no-preserve=mode ${cleanedSrc} "$out"
+    ${patchedCratesOverlay}
+  '';
 
   # Source scoped to the transitive closure of the named cargo packages.
   srcFor = names: mkScoped (crateGraph.closureForNames names);

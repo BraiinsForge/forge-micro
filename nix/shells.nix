@@ -33,7 +33,9 @@
   helpers,
 }:
 let
-  inherit (helpers) webuiEnvAttrs;
+  # The linkPatchedCrates hook materializes the pinned-and-patched
+  # upstream crates at patches/<crate> on shell entry; see nix/lib.nix.
+  inherit (helpers) webuiEnvAttrs linkPatchedCrates;
   inherit (toolchains)
     rustToolchain
     hostRustToolchain
@@ -87,6 +89,7 @@ in
       inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
       shellHook = ''
+        ${linkPatchedCrates}
         echo "ubos-main dev environment ready (ARM boards)"
         echo ""
         echo "  cd firmware/hashnode  && cargo build --release  # Hashnode RP2350B BM1370"
@@ -132,6 +135,7 @@ in
     inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
     shellHook = ''
+      ${linkPatchedCrates}
       echo "ubos-main dev environment ready (host-runner, native, TAP)"
       echo ""
       echo "  cargo run -p host-runner"
@@ -162,6 +166,7 @@ in
     # by convention is the repository root, matching the existing
     # arm/esp shells using $PWD for state directories.
     shellHook = ''
+      ${linkPatchedCrates}
       export CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_RUNNER="$PWD/host/host-runner/scripts/runner.py"
       echo "ubos-main dev environment ready (host-runner, BMM/miniminer cross)"
       echo ""

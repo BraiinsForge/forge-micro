@@ -187,9 +187,14 @@
             esp32s3Bootloader
             ;
 
+          # Pinned upstream crates with local patch files applied; the
+          # workspace `[patch]` table resolves them at patches/<crate>.
+          # See nix/patched-crates.nix.
+          patchedCrates = import ./nix/patched-crates.nix { inherit pkgs; };
+
           # Cleaned source trees for the crane builds. See nix/source.nix.
           sources = import ./nix/source.nix {
-            inherit pkgs craneLib;
+            inherit pkgs craneLib patchedCrates;
           };
           inherit (sources) src srcFor loadTestSrc;
 
@@ -213,6 +218,7 @@
               webuiBuildEnv
               espToolchain
               xtensaEspToolchain
+              patchedCrates
               ;
           };
 
