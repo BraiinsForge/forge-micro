@@ -36,14 +36,22 @@ into none of them, so running the check would rebuild every board
 without validating any of the change under review.
 
 ```bash
-git diff --name-only "$BASE"...HEAD |
-  grep -qvE '^\.claude/|(^|/)[^/]*\.md$|^\.gitlint' \
-  && FLAKE_RELEVANT=1 || FLAKE_RELEVANT=0
+FLAKE_RELEVANT=0
+while IFS= read -r f; do
+  case "$f" in
+    .claude/*|*.md|.gitlint*) ;;
+    *) FLAKE_RELEVANT=1; break ;;
+  esac
+done < <(git diff --name-only "$BASE"...HEAD)
 ```
 
-`grep -qv` succeeds when any changed file falls outside the inert set,
-so any unexpected path forces the check on; only an all-inert diff skips
-it. When `FLAKE_RELEVANT=0`, skip the check and record
+The loop flags the diff as relevant when any changed file falls outside
+the inert set, so any unexpected path forces the check on; only an
+all-inert diff skips it. The test is plain shell on purpose. Do not
+rewrite it around `grep`: the host grep may be ugrep, whose `-q -v`
+exits 1 whenever any line matches the pattern even though non-matching
+lines exist, which silently skipped this gate on mixed diffs. When
+`FLAKE_RELEVANT=0`, skip the check and record
 `nix flake check .: SKIPPED (no flake inputs changed)` in the output,
 then move to Phase 3.
 
