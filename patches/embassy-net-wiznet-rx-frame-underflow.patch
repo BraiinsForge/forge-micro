@@ -1,0 +1,54 @@
+Harden read_frame against corrupted RX headers.
+
+Based on upstream embassy commit 14592448 (read_frame underflow
+fix), extended with a cap of the reported frame size to the caller's
+buffer so a corrupted header cannot index past it, skipping any
+excess bytes in the chip's RX buffer instead.
+
+Applies to embassy-net-wiznet 0.3.0 from crates.io; the pin and this
+patch are consumed by nix/patched-crates.nix.
+
+diff -ruN a/src/device.rs b/src/device.rs
+--- a/src/device.rs
++++ b/src/device.rs
+@@ -209,18 +209,37 @@
+         let expected_frame_size: usize = {
+             let mut frame_bytes = [0u8; 2];
+             self.read_bytes(&mut read_ptr, &mut frame_bytes).await?;
+-            u16::from_be_bytes(frame_bytes) as usize - 2
++            let raw = u16::from_be_bytes(frame_bytes) as usize;
++            if raw < 2 {
++                // Corrupted header — advance read pointer past it and discard.
++                self.set_rx_read_ptr(read_ptr).await?;
++                self.command(Command::Receive).await?;
++                return Ok(0);
++            }
++            raw - 2
+         };
+ 
++        // Cap to frame buffer length to prevent out-of-bounds access when
++        // a corrupted header reports a size larger than the buffer.
++        let read_len = expected_frame_size.min(frame.len());
++
++        #[cfg(feature = "defmt")]
++        defmt::trace!("wiznet rx: expected={} read={} buf={}", expected_frame_size, read_len, frame.len());
++
+         // Read the ethernet frame
+-        self.read_bytes(&mut read_ptr, &mut frame[..expected_frame_size])
++        self.read_bytes(&mut read_ptr, &mut frame[..read_len])
+             .await?;
+ 
++        // If the frame was larger than our buffer, skip the remaining bytes.
++        if expected_frame_size > read_len {
++            read_ptr = read_ptr.wrapping_add((expected_frame_size - read_len) as u16);
++        }
++
+         // Register RX as completed
+         self.set_rx_read_ptr(read_ptr).await?;
+         self.command(Command::Receive).await?;
+ 
+-        Ok(expected_frame_size)
++        Ok(read_len)
+     }
+ 
+     /// Write an ethernet frame to the device. Returns number of bytes written
