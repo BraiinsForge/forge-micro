@@ -28,7 +28,7 @@ and which authoritative references it is based on.
 ├── firmware/               per-target firmware binaries
 ├── nuc/                    NixOS configuration for the support host
 ├── pcb/                    KiCad hardware sources
-├── patches/                vendored patches and forked crates
+├── patches/                upstream patch files applied at build time
 └── micro-sv2/              nested workspace: vendored SV2 library
 ```
 
@@ -134,14 +134,21 @@ firmware/
 Firmware crate names are the board name, unprefixed. The directory
 above the crate (`firmware/`) is the disambiguator.
 
-## `patches/` — vendored patches
+## `patches/` — upstream patches
 
-All upstream patches and forked-crate sources live here.
+Local patches against pinned upstream sources live here as `.patch`
+files; the repo carries only the patches, never a vendored crate tree.
 
-- Single-file patches kept as `.patch` files (consumed by nix or by
-  `[patch.crates-io]`).
-- Vendored crate forks live in their own subdirectory and are wired
-  into the workspace via `[patch.crates-io] crate = { path = "..." }`.
+- Standalone patches applied to a nixpkgs or GitHub source by nix
+  (for example the probe-rs `serve` and keepalive fixes).
+- `[patch]` override crates: a pinned pristine upstream source plus a
+  patch (or ordered series) that `nix/patched-crates.nix` materializes
+  at `patches/<crate>`, where the workspace `[patch]` table points. The
+  dev shells symlink that tree into the working tree and
+  `nix/source.nix` copies it into the check sources; the path itself is
+  git-ignored. See `nix/patched-crates.nix`.
+- `probe-rs-redacted/` holds the ordered redacted patch series applied to the
+  pinned upstream probe-rs by `nix/probe-rs.nix`.
 
 ## `micro-sv2/` — vendored SV2 library
 
