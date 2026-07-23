@@ -25,6 +25,17 @@
 # copies it into the cleaned check sources. The patch files live in
 # `patches/` and keep the upstream license, like the probe-rs ones.
 { pkgs }:
+let
+  # The edge-net workspace at the rev the workspace deps pin; the
+  # edge-nal-embassy override below is cut from its subdir so the
+  # whole edge-net family keeps resolving to one source.
+  edge-net = pkgs.fetchFromGitHub {
+    owner = "ivmarkov";
+    repo = "edge-net";
+    rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0";
+    hash = "sha256-nrwRz1vd6Au3Bne/qNsfS/ccNd+v13dupAHWAEkppnU=";
+  };
+in
 {
   # embassy-net-wiznet 0.3.0 with the read_frame hardening; see the
   # patch preamble and the `[patch.crates-io]` comment in Cargo.toml
@@ -39,5 +50,23 @@
       hash = "sha256-EinaCoxc1IIotH9RHj9iBzpY0VDs/zm+C+nqHNp94E8=";
     };
     patches = [ ../patches/embassy-net-wiznet-rx-frame-underflow.patch ];
+  };
+
+  # edge-nal-embassy from the pinned edge-net rev with the local patch
+  # series applied in order; each patch's preamble explains its change.
+  # The series starts with the standalone-manifest rewrite because the
+  # subdir only resolves workspace-inherited deps inside the edge-net
+  # workspace.
+  edge-nal-embassy = pkgs.applyPatches {
+    name = "edge-nal-embassy-0.8.1-patched";
+    src = "${edge-net}/edge-nal-embassy";
+    patches = [
+      ../patches/edge-nal-embassy-01-standalone-manifest.patch
+      ../patches/edge-nal-embassy-02-accept-peer-endpoint.patch
+      ../patches/edge-nal-embassy-03-accept-reset-drop.patch
+      ../patches/edge-nal-embassy-04-embassy-time-dep.patch
+      ../patches/edge-nal-embassy-05-idle-timeout.patch
+      ../patches/edge-nal-embassy-06-edition-2024.patch
+    ];
   };
 }
