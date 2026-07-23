@@ -70,10 +70,10 @@ embassy-sync      = { version = "0.8", default-features = false }
 embassy-time      = { version = "0.5.1", default-features = false }
 embassy-net       = { version = "0.9.0", default-features = false }
 embassy-net-wiznet = { version = "0.3.0", default-features = false }
-edge-http         = { git = "https://github.com/sysgrok/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
-edge-mdns         = { git = "https://github.com/sysgrok/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
-edge-nal          = { git = "https://github.com/sysgrok/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
-edge-nal-embassy  = { git = "https://github.com/sysgrok/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
+edge-http         = { git = "https://github.com/ivmarkov/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
+edge-mdns         = { git = "https://github.com/ivmarkov/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
+edge-nal          = { git = "https://github.com/ivmarkov/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
+edge-nal-embassy  = { git = "https://github.com/ivmarkov/edge-net", rev = "1f084b41944c35b233cbe17accfbc09a56d5eaf0", default-features = false }
 embassy-futures   = "0.1.2"
 heapless          = "0.9"
 libm              = "0.2"
@@ -173,7 +173,7 @@ embassy-net-wiznet = { path = "patches/embassy-net-wiznet" }
 # Upstream PR pending. The library's TcpAccept::accept() was returning
 # local_endpoint() instead of remote_endpoint(), making the SocketAddr in
 # the return value useless for IP allow-list checks in the handler.
-[patch."https://github.com/sysgrok/edge-net"]
+[patch."https://github.com/ivmarkov/edge-net"]
 edge-nal-embassy = { path = "patches/edge-nal-embassy" }
 
 [profile.rust-analyzer]
