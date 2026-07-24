@@ -134,13 +134,25 @@ impl Handle {
     }
 }
 
+/// Publish `reading` directly onto the thermal watch, bypassing
+/// `run_thermal`. Lets a host test in a consuming crate drive a reading
+/// without standing up a real sensor task.
+#[cfg(feature = "test-util")]
+pub fn publish_reading_for_test(reading: ThermalReading) {
+    STATE_WATCH.sender().send(reading);
+}
+
 /// Consecutive sensor-read failures tolerated before declaring the bus
 /// dead. At a 1 Hz sample interval this is 5 seconds, long enough to
 /// ride out a transient I2C glitch but short enough to react if the bus
 /// has gone permanently silent (stuck SDA, dead chip, broken cable). On
 /// fault the loop halts mining and parks the fan at 100% until a
 /// successful reading clears it.
-const SENSOR_FAULT_TICKS: u32 = 5;
+///
+/// Exposed `pub` so `ubos-cooling` can assert at compile time that its
+/// `STALE_INTERVAL_MULTIPLIER` stays at least `SENSOR_FAULT_TICKS + 2`.
+/// Lowering that margin fails the cooling crate's build.
+pub const SENSOR_FAULT_TICKS: u32 = 5;
 
 /// Publish the safety reading, and the cooling-PID estimate too when the
 /// board exposes a distinct one, each tagged with its source label. Returns

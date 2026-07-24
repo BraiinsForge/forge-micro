@@ -17,15 +17,30 @@ defmt   = [
 ]
 
 [dependencies]
-embassy-sync = { workspace = true }
-defmt        = { workspace = true, optional = true }
-ubos-config  = { workspace = true, default-features = false }
-ubos-core    = { workspace = true }
-ubos-thermal = { workspace = true, default-features = false }
-ubos-metrics = { workspace = true, default-features = false }
-ubos-logging = { workspace = true }
-libm         = "0.2"
-heapless     = { workspace = true }
+embassy-sync    = { workspace = true }
+embassy-time    = { workspace = true }
+embassy-futures = { workspace = true }
+defmt           = { workspace = true, optional = true }
+ubos-config     = { workspace = true, default-features = false }
+ubos-core       = { workspace = true }
+ubos-thermal    = { workspace = true, default-features = false }
+ubos-metrics    = { workspace = true, default-features = false }
+ubos-logging    = { workspace = true }
+libm            = "0.2"
+heapless        = { workspace = true }
+
+[dev-dependencies]
+# Driving `run_cooling` publishes on several `CriticalSectionRawMutex`-backed
+# watches, so the host test binary needs a linkable critical-section
+# implementation. The std impl is host-only and never reaches firmware.
+critical-section = { version = "1.2", features = ["std"] }
+# The tests drive `run_cooling` on a virtual clock, stepping `Instant`
+# forward with no real delay; `mock-driver` supplies that clock and
+# `generic-queue-8` gives it the timer queue the ticker awaits on.
+embassy-time     = { workspace = true, features = ["mock-driver", "generic-queue-8"] }
+# `test-util` exposes `publish_reading_for_test`, the hook the tests use to
+# inject thermal readings without a real sensor task.
+ubos-thermal     = { workspace = true, features = ["test-util"] }
 
 [package.metadata.cargo-machete]
 ignored = ["defmt"]

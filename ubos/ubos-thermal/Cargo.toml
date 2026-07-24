@@ -18,6 +18,11 @@ defmt   = [
     "ubos-manager/defmt",
     "ubos-temperature/defmt",
 ]
+# Exposes a hook that publishes a `ThermalReading` directly onto the
+# module-internal watch, bypassing `run_thermal`. Host tests in other
+# crates use it to drive their own thermal-consuming loop without
+# spawning a real sensor task. No effect on production builds.
+test-util = []
 
 [dependencies]
 embassy-sync     = { workspace = true }

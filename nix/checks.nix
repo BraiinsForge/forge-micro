@@ -264,8 +264,13 @@ let
       crate = "ubos-thermal";
       artifacts = deps.ubosThermalArtifactsDev;
     };
+    # Host tests build with defmt off; see the test-ubos-api comment
+    # above. The staleness-failsafe test drives the real `run_cooling`
+    # task, whose `ubos_logging` calls hit the same undefined
+    # `_defmt_*` symbols once defmt is on.
     test-ubos-cooling = {
       crate = "ubos-cooling";
+      args = " --no-default-features";
       artifacts = deps.ubosCoolingArtifactsDev;
     };
     test-ubos-manager = {
