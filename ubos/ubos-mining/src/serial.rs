@@ -85,8 +85,9 @@ pub(crate) static POOL_WORK_SHARES: [AtomicU64; 8] = [const { AtomicU64::new(0) 
 // Xtensa (esp32s3) targets. `wfe` is only a power optimisation and is
 // not needed for correctness; omitting it keeps `cortex_m` out of the
 // ubos-mining dependency graph, satisfying the esp32s3 build constraint.
-// On non-RP boards the request functions are never called, so the park
-// loop is dormant for the full lifetime of those firmware images.
+// The request functions are called from the OTA flash path and, on the
+// redacted board, from the firmware-reset path; a board that exercises
+// neither leaves the park loop dormant for the image's lifetime.
 // ---------------------------------------------------------------------------
 
 /// Level flag: `true` means the serial worker should enter the park loop.

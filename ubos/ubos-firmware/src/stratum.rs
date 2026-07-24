@@ -19,7 +19,7 @@
 
 //! Shared stratum client orchestration task.
 //!
-//! Hoisted out of the seven board `main.rs` files, where this session
+//! Hoisted out of the board `main.rs` files, where this session
 //! loop was duplicated byte-for-byte. One instance of
 //! [`run_stratum_session`] runs per pool slot: each maintains its own
 //! connection to its configured endpoint, publishes work into its slot

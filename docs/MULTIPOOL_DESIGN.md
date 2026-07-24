@@ -578,4 +578,4 @@ Host tests:
   scheduler's pick changes mid-flight.
 
 Firmware verification: per-crate `cargo check` + `clippy` through the
-`nix develop` shells for all seven boards and `host-runner`.
+`nix develop` shells for every board crate and `host-runner`.
