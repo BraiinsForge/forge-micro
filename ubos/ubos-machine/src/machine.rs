@@ -92,7 +92,8 @@ impl MachineDescriptor<BmmPsuDescriptor> {
     /// Compose the miniminer machine on a given control board. Every
     /// miniminer shares the same hashboard, PSU, and temperature-sensor
     /// topology; only the control board varies.
-    const fn miniminer(control_board: ControlBoardDescriptor) -> Self {
+    #[must_use]
+    pub const fn miniminer(control_board: ControlBoardDescriptor) -> Self {
         Self {
             model: "miniminer",
             control_board,
