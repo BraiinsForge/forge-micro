@@ -133,6 +133,10 @@ License section. Header conventions for new files:
   redacted trees, `nuc/`, and the bench tooling modules listed at
   `stripPaths` in `publish/app.nix`) carry no header; the strip
   itself keeps them private.
+- Whether a path is stripped is judged at the branch tip, where the
+  mirror scrubs it from all of history. A file that transits a
+  published crate mid-branch but ends the branch on a stripped path
+  carries no header at any point in its history.
 
 Which crates are stripped, and why `rp2350-bootloader` stays public, is
 documented at `stripPaths` and `HIDDEN_MEMBERS` in `publish/app.nix`.
