@@ -177,5 +177,6 @@ embassy-net-wiznet = { path = "patches/embassy-net-wiznet" }
 [patch."https://github.com/ivmarkov/edge-net"]
 edge-nal-embassy = { path = "patches/edge-nal-embassy" }
 
+
 [profile.rust-analyzer]
 inherits = "dev"
