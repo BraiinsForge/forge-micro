@@ -2791,6 +2791,7 @@ dependencies = [
  "embedded-hal-async",
  "embedded-hal-bus 0.3.0",
  "embedded-io 0.7.1",
+ "embedded-io-async 0.7.0",
  "embedded-storage",
  "redacted-pac",
  "riscv",
