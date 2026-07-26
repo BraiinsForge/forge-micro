@@ -106,15 +106,31 @@ rec {
 
   bmmCraneLib = (crane.mkLib pkgs).overrideToolchain bmmRustToolchain;
 
-  # redacted redacted, RV64GC. The closure has no C deps, such as
-  # secp256k1-sys/ii-sv2, so unlike espCraneLib it needs no cross GCC.
+  # redacted redacted, RV64GC. Shared by the redacted-rtt and riscv board checks.
+  # Their C-dep needs differ: redacted-rtt and the riscv board firmware that
+  # does not depend on ubos-firmware are C-free, while the riscv board
+  # firmware that does pulls secp256k1-sys via ii-sv2, so its check
+  # derivations pass the cross GCC below, see `riscvCc`/`riscvCflags`.
   riscvCraneLib = (crane.mkLib pkgs).overrideToolchain riscvRustToolchain;
 
-  # Bare-metal riscv64 GCC, pulled into the private redacted-rtt / riscv board
+  # Bare-metal riscv64 GCC. Pulled into the private redacted-rtt / riscv board
   # check closure purely for its bundled `riscv64-none-elf-ld`; see
-  # `riscvDefmtRustflags`. The redacted-rtt crate has no C deps, so this is the
-  # linker, not a C toolchain.
+  # `riscvDefmtRustflags`. The redacted-rtt crate has no C deps, so there it is
+  # only the linker. The riscv board firmware does have C deps —
+  # secp256k1-sys via ii-sv2, pulled in through ubos-firmware — so for it
+  # this is also a real C cross-compiler; see `riscvCc`/`riscvCflags`.
   riscvGcc = pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc;
+
+  riscvCc = "${riscvGcc}/bin/riscv64-none-elf-gcc";
+
+  # riscv64 gdb for manual JTAG debug of the riscv board via openocd.
+  riscvGdb = pkgs.pkgsCross.riscv64-embedded.buildPackages.gdb;
+
+  # C objects must match the Rust riscv64gc-unknown-none-elf ABI (rv64gc,
+  # hard double-float lp64d) or the linker rejects them; medany is required
+  # because the app runs from SRAM at 0x80000000 and secp256k1's large tables
+  # overflow R_RISCV_HI20 under the default medlow. Pinned for cc.
+  riscvCflags = "-march=rv64gc -mabi=lp64d -mcmodel=medany";
 
   # redacted-rtt builds with defmt, whose `.defmt` symbol table lives in a
   # non-`SHF_ALLOC` section flagged `INFO` with no real load address.

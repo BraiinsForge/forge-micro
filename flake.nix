@@ -58,6 +58,14 @@
     # rather than re-deriving crane builds. Deliberately not `follows`ed onto
     # our nixpkgs: it pins nixos-25.11 and builds as upstream tested.
     micro-sv2.url = "path:./micro-sv2";
+
+    # The redacted tooling (`kflash`, `openocd-redacted`) lives on private
+    # gitlab.ii.zone and is consumed only by the stripped riscv dev shell,
+    # so it is deliberately NOT a top-level flake input: those are fetched
+    # eagerly on every eval, which would break `nix flake check` for public
+    # mirror clones that have no gitlab credentials. It is pulled in lazily
+    # via `builtins.getFlake` inside nix/private.nix instead, on the path
+    # the mirror strips. See nix/private.nix.
   };
 
   outputs =
@@ -151,6 +159,7 @@
             craneLib
             bmmCraneLib
             riscvGcc
+            riscvGdb
             ;
 
           # Per-system private outputs; see nix/private.nix. On the
@@ -350,14 +359,15 @@
             // {
               # GC-root anchor for the expensive cross toolchains that
               # cache.nixos.org does not carry: the armv5tel-musl gcc for
-              # the BMM miniminer and the bare-metal riscv64 gcc/binutils.
-              # `nix build .#cross-toolchains` pins the whole closure so
-              # nix-collect-garbage keeps it. The rust toolchains substitute
-              # from the rust-overlay cache and the Xtensa compiler is
-              # espup-managed, so neither needs an anchor here.
+              # the BMM miniminer and the bare-metal riscv64 gcc/binutils
+              # and gdb. `nix build .#cross-toolchains` pins the whole
+              # closure so nix-collect-garbage keeps it. The rust toolchains
+              # substitute from the rust-overlay cache and the Xtensa
+              # compiler is espup-managed, so neither needs an anchor here.
               cross-toolchains = pkgs.linkFarm "ubos-cross-toolchains" {
                 bmm-cc = bmmCc;
                 riscv-gcc = riscvGcc;
+                riscv-gdb = riscvGdb;
               };
             }
             # The esp32s3 second-stage bootloader builds from
