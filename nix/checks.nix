@@ -756,7 +756,18 @@ hostClippyChecks
         nativeBuildInputs = [ pkgs.cargo-machete ];
       }
       ''
-        cargo-machete ${src}
+        # Scan a copy with patches/ removed: those are pinned-and-patched
+        # upstream trees (nix/patched-crates.nix, plus any private
+        # additions), not crates this repo owns, and machete's static
+        # import scan misfires on their generated/macro-only code (e.g. an
+        # svd2rust PAC build script, a bitflags! invocation) in a way we
+        # cannot fix without patching vendored manifests beyond the one
+        # change each patch file already documents. Excluding the
+        # directory keeps the gate scoped to what this repo owns.
+        cp -a ${src} ./scan-src
+        chmod -R u+w ./scan-src
+        rm -rf ./scan-src/patches
+        cargo-machete ./scan-src
         touch $out
       '';
 
