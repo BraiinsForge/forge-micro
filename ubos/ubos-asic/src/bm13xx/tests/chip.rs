@@ -309,6 +309,22 @@ fn nonce_offsets_are_computed_per_chip() {
     assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
+/// Regression: a zero-chip board must return from the nonce split
+/// without dividing the offset space by the chip count, and without
+/// writing any nonce-offset register. Pins the empty-chain guard so a
+/// refactor cannot reintroduce the division by zero.
+#[test]
+fn nonce_split_on_an_empty_chain_writes_nothing() {
+    let mut board = BMM101_HASHBOARD;
+    board.num_chips = 0;
+    let mut bus = MockBus::new(0, u32::from(BM1362.chip_id));
+    block_on(Bm1362.split_nonce_space(&mut bus, &board));
+    assert!(
+        bus.ops.is_empty(),
+        "empty chain must not program nonce offsets"
+    );
+}
+
 /// Regression: the `BMM101_HASHBOARD` (four chips, four domains, chips-per-domain=1)
 /// must not emit any `UartRelayReg` (0x2c) writes; single-chip-per-domain
 /// chains need no relay programming.

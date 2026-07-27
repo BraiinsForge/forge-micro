@@ -318,11 +318,16 @@ pub trait ChipProtocol {
     /// Program each chip a disjoint nonce offset via the nonce-offset
     /// register so the chain searches the nonce space without overlap.
     async fn split_nonce_space(&self, bus: &mut impl ChipBus, board: &HashboardDescriptor) {
+        let num_chips = board.num_chips;
+        if num_chips == 0 {
+            return;
+        }
+
         // Divide the 16-bit nonce-offset space into `num_chips` equal
         // slices; the per-step `- 1` reproduces the chain's small
         // per-chip skew. `index * step` stays below the 16-bit space.
-        let step = (NONCE_OFFSET_SPACE / u32::from(board.num_chips)).saturating_sub(1);
-        for index in 0..board.num_chips {
+        let step = (NONCE_OFFSET_SPACE / u32::from(num_chips)).saturating_sub(1);
+        for index in 0..num_chips {
             // `index < num_chips`, so `index * step` fits the 16-bit space.
             #[allow(clippy::cast_possible_truncation)]
             let offset = (u32::from(index) * step) as u16;
