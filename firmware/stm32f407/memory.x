@@ -14,3 +14,17 @@ SECTIONS {
     __eccmram_bss = .;
   } > CCMRAM
 } INSERT AFTER .bss;
+
+/* The main stack lives in CCM, growing down from its top toward
+ * `.ccmram.bss`. In main RAM the stack had only the slack left over
+ * after `.bss`/`.uninit` — under 200 bytes — with nothing but a
+ * link-time assert between the executor's poll frames and the
+ * statics below. CCM is never a DMA target (DMA buffers are statics
+ * or task-future fields in main RAM), the core reaches it with zero
+ * wait states, and hardware loads the initial SP from the vector
+ * table before any code runs, so reset-time placement is safe.
+ * Overriding `_stack_end` as well repoints cortex-m-rt's
+ * stack-overlap assert at the real neighbour: a `.ccmram.bss` that
+ * grows into the stack region now fails the link. */
+_stack_start = ORIGIN(CCMRAM) + LENGTH(CCMRAM);
+_stack_end = __eccmram_bss;
