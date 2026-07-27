@@ -466,6 +466,12 @@ async fn boot(spawner: Spawner) {
         config::MACHINE.control_board.api_http_pool,
         config::MACHINE.control_board.metrics_http_pool,
     );
+    // In CCM: the socket set is pure CPU data — the ethernet DMA only
+    // touches PACKETS, and frames are CPU-copied between there and the
+    // sockets. A StaticCell is CCM-safe without a zero-image audit: its
+    // pre-init state is a false flag plus uninitialized payload, and the
+    // value is written by init() at runtime.
+    #[unsafe(link_section = ".ccmram.bss")]
     static RESOURCES: StaticCell<StackResources<STACK_SOCKETS>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
