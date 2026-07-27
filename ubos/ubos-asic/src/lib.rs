@@ -41,7 +41,7 @@ pub mod transport;
 pub use bm13xx::{chip::Chip, driver::Bm13xxDriver};
 pub use board::*;
 pub use chain::{
-    BIP320_VERSION_MASK, ChainDriver, ChainSolution, ChipDescriptor, ChipError,
+    BIP320_VERSION_MASK, ChainDriver, ChainSolution, ChipDescriptor, ChipError, MAX_INGEST_CHUNK,
     MAX_SOLUTIONS_PER_BATCH, ResultMode, SolutionBatch, WorkJob, block_header, rolled_version,
     solution_hash,
 };

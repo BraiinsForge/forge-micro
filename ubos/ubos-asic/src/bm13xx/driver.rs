@@ -33,7 +33,8 @@ use ubos_core::units::Frequency;
 
 use crate::HashboardDescriptor;
 use crate::chain::{
-    ChainDriver, ChainSolution, ChipDescriptor, ChipError, ResultMode, SolutionBatch, WorkJob,
+    ChainDriver, ChainSolution, ChipDescriptor, ChipError, MAX_INGEST_CHUNK,
+    MAX_SOLUTIONS_PER_BATCH, ResultMode, SolutionBatch, WorkJob,
 };
 use crate::transport::Transport;
 
@@ -79,6 +80,12 @@ const READ_REPLY_TIMEOUT_MS: u32 = 50;
 /// from [`MAX_CHAIN_CHIPS`] chips is 32 * 11 = 352 bytes of 11-byte
 /// replies; 1024 holds just under three of them.
 const READ_REPLY_BUDGET: usize = 1_024;
+
+// A full ingest chunk of RESPONSE_LEN-byte frames plus a carried-over
+// partial must fit one batch, or `ingest` would drop a CRC-valid
+// solution; this pins `MAX_SOLUTIONS_PER_BATCH` against
+// `MAX_INGEST_CHUNK` so the two cannot drift apart.
+const _: () = assert!(MAX_INGEST_CHUNK.div_ceil(RESPONSE_LEN) <= MAX_SOLUTIONS_PER_BATCH);
 
 /// [`ChainDriver`] for one Bitmain chip model. Holds the streaming
 /// `ResponseParser` for the push solution path and a running desync

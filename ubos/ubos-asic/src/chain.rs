@@ -163,13 +163,22 @@ pub struct ChipDescriptor {
     pub frequency_range: FrequencyRange,
 }
 
+/// Upper bound on bytes a consumer feeds to a single
+/// [`ChainDriver::ingest`] call. Part of the seam contract:
+/// [`MAX_SOLUTIONS_PER_BATCH`] is sized so a push driver decodes a full
+/// chunk of its smallest frames plus a carried-over partial without
+/// overflowing the batch, so a consumer that sizes its UART read buffer
+/// to this bound never loses a decoded solution to batch overflow.
+pub const MAX_INGEST_CHUNK: usize = 256;
+
 /// Upper bound on solutions a single [`ChainDriver::poll_results`] or
 /// [`ChainDriver::ingest`] call returns. Sized to the Bitmain push
-/// path's worst case: a 256-byte read chunk plus the parser's
-/// partial-frame carry-over decodes at most 24 of its 11-byte frames.
-/// A polled nonce burst from a smaller-frame family fits comfortably
-/// within the same bound. The consumer drains the returned batch before
-/// the next call.
+/// path's worst case: a [`MAX_INGEST_CHUNK`]-byte read plus the parser's
+/// partial-frame carry-over decodes at most 24 of its 11-byte frames, a
+/// bound the driver pins with a compile-time assertion beside its frame
+/// length. A polled nonce burst from a smaller-frame family fits
+/// comfortably within the same bound. The consumer drains the returned
+/// batch before the next call.
 pub const MAX_SOLUTIONS_PER_BATCH: usize = 24;
 
 /// How a chip family delivers found nonces, so the consumer can shape its

@@ -197,8 +197,10 @@ use crate::scheduler::Scheduler;
 /// cadence no hardware is available to calibrate here.
 const POLL_PERIOD: Duration = Duration::from_millis(100);
 
-/// Scratch buffer size for a single UART read on the push path.
-const READ_CHUNK: usize = 256;
+/// Scratch buffer size for a single UART read on the push path. Pinned
+/// to the seam's ingest contract so one full read can never decode into
+/// more solutions than a batch carries.
+const READ_CHUNK: usize = ubos_asic::MAX_INGEST_CHUNK;
 
 /// Hex pretty-printer for trace logs. Wraps a byte slice and formats it
 /// as `"AA BB CC"` under both `core::fmt::Display` and `defmt::Format`,
