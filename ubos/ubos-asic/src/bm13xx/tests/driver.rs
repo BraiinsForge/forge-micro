@@ -19,7 +19,9 @@
 
 use crate::bm13xx::chip::Chip;
 use crate::bm13xx::framing::HwWork;
+use crate::bm13xx::framing::RESPONSE_LEN;
 use crate::bm13xx::framing::crc5;
+use crate::chain::MAX_SOLUTIONS_PER_BATCH;
 use crate::test_support::{MockTransport, block_on};
 use crate::{ChainDriver, WorkJob};
 
@@ -67,6 +69,29 @@ fn reset_and_enumerate_counts_line_garble_as_desync() {
 
     assert_eq!(count, 1);
     assert_eq!(driver.take_desync(), 4);
+}
+
+#[test]
+fn reset_and_enumerate_stops_at_the_read_reply_budget_on_a_wedged_line() {
+    let mut driver = Bm13xxDriver::new(Chip::Bm1362);
+    // A line that never carries the `0xAA 0x55` preamble keeps the
+    // ephemeral parser resyncing byte by byte forever; twice the budget
+    // so the read stopping is pinned on the budget rather than on the
+    // mock line running dry.
+    let garbage = [0xFFu8; super::READ_REPLY_BUDGET * 2];
+    let mut io = MockTransport::with_reads(&garbage);
+    let board = crate::BMM101_HASHBOARD;
+
+    let count = block_on(driver.reset_and_enumerate(&mut io, &board));
+
+    // No chip-id reply was ever parsed off the wedged line.
+    assert_eq!(count, 0);
+    // The budget cuts the read off at exactly its own byte count rather
+    // than draining the whole line.
+    assert_eq!(
+        driver.take_desync(),
+        u32::try_from(super::READ_REPLY_BUDGET).expect("BUG: budget fits u32")
+    );
 }
 
 #[test]
@@ -161,6 +186,45 @@ fn ingest_reassembles_a_frame_split_across_reads() {
     // work-id 24 / midstate 8 = job_key 3.
     assert_eq!(batch[0].job_key, 3);
     assert_eq!(batch[0].nonce, 0xdead_beef);
+}
+
+#[test]
+fn ingest_drops_the_batch_overflow_solution_in_a_single_oversized_call() {
+    let mut driver = Bm13xxDriver::new(Chip::Bm1362);
+    // `ingest` takes an unbounded byte slice, so nothing stops a single
+    // call from carrying more valid, CRC-passing frames than one batch
+    // holds. One more than the batch capacity forces the overflow path.
+    let mut frames: heapless::Vec<u8, 512> = heapless::Vec::new();
+    let last_work_id = u8::try_from(MAX_SOLUTIONS_PER_BATCH).expect("BUG: batch cap fits u8");
+    for work_id in 0..=last_work_id {
+        frames
+            .extend_from_slice(&work_response(
+                0x1000_0000 + u32::from(work_id),
+                work_id * 8,
+                0,
+            ))
+            .expect("test frames fit");
+    }
+
+    let batch = driver.ingest(&frames);
+
+    // The batch caps at MAX_SOLUTIONS_PER_BATCH; the last, already
+    // CRC-validated solution is lost rather than returned.
+    assert_eq!(batch.len(), MAX_SOLUTIONS_PER_BATCH);
+    // By the time the batch overflows the whole slice has already been
+    // fed to the parser, so the dropped solution's frame length is the
+    // entire desync contribution, with no unfed remainder added to it.
+    assert_eq!(
+        driver.take_desync(),
+        u32::try_from(RESPONSE_LEN).expect("BUG: frame length fits u32")
+    );
+
+    // The parser carries no stale partial frame out of the overflow, so
+    // the next call still decodes cleanly.
+    let frame = work_response(0xdead_beef, 16, 0);
+    let next = driver.ingest(&frame);
+    assert_eq!(next.len(), 1);
+    assert_eq!(next[0].nonce, 0xdead_beef);
 }
 
 #[test]

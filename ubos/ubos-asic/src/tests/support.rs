@@ -41,7 +41,7 @@ pub(crate) fn block_on<F: core::future::Future>(future: F) -> F::Output {
 /// window.
 pub(crate) struct MockTransport {
     pub(crate) writes: heapless::Vec<u8, 4096>,
-    pending: heapless::Vec<u8, 256>,
+    pending: heapless::Vec<u8, 2048>,
     pos: usize,
     pub(crate) baud: u32,
     /// When set, `set_baud` refuses the switch, exercising the
