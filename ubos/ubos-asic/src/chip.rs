@@ -73,13 +73,18 @@ const RELAY_BASE_GAP: u32 = 14;
 /// single lost frame still leaves the register programmed.
 const MISC_SETTINGS_REPEATS: usize = 2;
 
-/// Failure surface of a [`ChipProtocol`] step. Reads return an empty
-/// list rather than an error, so the only fallible step is programming
-/// a frequency outside the chip's range.
+/// Failure surface of a [`ChipProtocol`] step or a `ChainDriver`
+/// operation. Reads return an empty list rather than an error, so the
+/// fallible steps are programming a frequency outside the chip's range
+/// and moving the host line to the fast rate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChipError {
     /// The requested frequency is outside the chip's range.
     UnsupportedFrequency(Frequency),
+    /// The host UART refused the switch to the given rate, in Hz. The
+    /// chips have already moved, so the chain must be reset and brought
+    /// up again rather than mined on a misclocked line.
+    BaudSwitch(u32),
 }
 
 // Hand-written so the error can carry a `Frequency` without `ubos-core`
@@ -90,6 +95,9 @@ impl defmt::Format for ChipError {
         match self {
             ChipError::UnsupportedFrequency(freq) => {
                 defmt::write!(fmt, "UnsupportedFrequency({} kHz)", freq.khz());
+            }
+            ChipError::BaudSwitch(hz) => {
+                defmt::write!(fmt, "BaudSwitch({} Hz)", hz);
             }
         }
     }

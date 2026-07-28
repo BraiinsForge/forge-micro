@@ -100,6 +100,11 @@ impl From<ubos_asic::ChipError> for TunerError {
     fn from(error: ubos_asic::ChipError) -> Self {
         match error {
             ubos_asic::ChipError::UnsupportedFrequency(freq) => Self::UnsupportedFrequency(freq),
+            // A refused host baud switch is a serial-line failure; the
+            // rate itself is already logged by the transport.
+            ubos_asic::ChipError::BaudSwitch(_) => {
+                Self::Miner(MinerError::Serial(embedded_io::ErrorKind::Other))
+            }
         }
     }
 }

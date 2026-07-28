@@ -29,14 +29,21 @@
 
 pub(crate) mod baud;
 pub mod board;
+pub mod chain;
 pub mod chip;
 pub mod framing;
 pub mod registers;
+pub mod transport;
 
 pub use board::*;
+pub use chain::{
+    BIP320_VERSION_MASK, ChainDriver, ChainSolution, MAX_SOLUTIONS_PER_BATCH,
+    ResultMode, SolutionBatch, WorkJob, block_header, rolled_version, solution_hash,
+};
 pub use chip::{
     BM1362, BM1366, BM1370, Bm1362, Bm1366, Bm1370, Chip, ChipBus, ChipDescriptor, ChipError,
     ChipProtocol, MAX_CHAIN_CHIPS,
 };
 pub use framing::*;
 pub use registers::*;
+pub use transport::{BaudRateError, Transport};
