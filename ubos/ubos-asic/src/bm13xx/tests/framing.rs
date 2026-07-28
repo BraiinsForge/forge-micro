@@ -73,6 +73,9 @@ fn crc5_register_response() {
     assert_eq!(crc5(&data, 0x03, false), 0x1E);
 }
 
+/// `version_bits` composed with `chain::rolled_version` is exactly the
+/// pipeline a solution takes: the driver reports the masked bits and the
+/// consumer re-merges them into the base version.
 #[test]
 fn work_response_rolled_version() {
     let response = HwSolution {
@@ -81,7 +84,10 @@ fn work_response_rolled_version() {
         work_id: 0xB8,
         version_idx: 312,
     };
-    assert_eq!(response.rolled_version(0x2000_0000), 0x2027_0000);
+    assert_eq!(
+        crate::chain::rolled_version(0x2000_0000, response.version_bits()),
+        0x2027_0000
+    );
 }
 
 #[test]
@@ -206,52 +212,4 @@ fn parse_with_junk() {
         desync, 2,
         "expected exactly two desync bytes (got {desync})",
     );
-}
-
-/// Locks ubos-mining's local share-verification hash to
-/// `mining_protocol::hashing::header_hash`. Both sides reconstruct the
-/// same canonical block header from the same `WorkAssignment` fields,
-/// and the pool will reject any submit whose chip-side hash diverges
-/// from what it recomputes for the same `(prev_hash, ntime, nonce, ...)`.
-#[test]
-fn compute_hash_matches_mining_protocol_reference() {
-    let mut stratum_prev = [0u8; 32];
-    for (index, byte) in stratum_prev.iter_mut().enumerate() {
-        // `enumerate` over a 32-byte array yields 0..32.
-        *byte = u8::try_from(index).expect("BUG: index < 32");
-    }
-    let mut merkle = [0u8; 32];
-    for (index, byte) in merkle.iter_mut().enumerate() {
-        // `enumerate` over a 32-byte array yields 0..32.
-        *byte = u8::try_from(32 - index).expect("BUG: 32 - index in 1..=32");
-    }
-    let version: u32 = 0x2000_0000;
-    let ntime: u32 = 0x6700_0000;
-    let nbits: u32 = 0x1d00_ffff;
-    let nonce: u32 = 0xdead_beef;
-
-    let hw_work = HwWork {
-        work_id: 0,
-        nonce_start: 0,
-        nbits,
-        ntime,
-        merkle_root: merkle,
-        // The stratum adapter word-swaps prev_hash on arrival, so
-        // HwWork.prev_hash is already in Bitcoin internal byte
-        // order. Simulate that here so the reference header_hash
-        // (which swaps inline) produces the same 80-byte header.
-        prev_hash: word_swap_prev_hash(&stratum_prev),
-        version,
-    };
-    let response = HwSolution {
-        nonce,
-        _extra_diff: 0,
-        work_id: 0,
-        version_idx: 0,
-    };
-
-    let actual_hash = hw_work.compute_hash(&response);
-    let reference =
-        mining_protocol::hashing::header_hash(version, stratum_prev, merkle, ntime, nbits, nonce);
-    assert_eq!(actual_hash, reference);
 }

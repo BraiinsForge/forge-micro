@@ -129,6 +129,10 @@ pub struct Board<'d> {
 /// selecting a board behind a cargo feature.
 pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
 
+/// The Bitmain chip model this board's hashboard carries; injected into
+/// the mining actor as the concrete chain driver.
+pub const CHIP: ubos_asic::Chip = ubos_asic::Chip::Bm1362;
+
 /// Accepted tuning ranges for [`BOARD`]; the API validates against these.
 pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
 

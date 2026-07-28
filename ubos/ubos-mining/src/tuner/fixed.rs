@@ -19,24 +19,22 @@
 
 //! `FixedTuner` — chip bring-up plus a constant-power-curve ramp.
 //!
-//! Drives the per-chip `ubos_asic::ChipProtocol` bring-up over a
-//! [`SerialBus`] (reset, enumerate, domains, cores, nonce split, then
-//! the baud-rate switch), then walks a coupled voltage / frequency ramp
-//! from the chip's open-core voltage at the safe-boot frequency to the configured
-//! `(voltage, frequency)` target. The ramp preserves `V^2 * f` along the
-//! walk so the chain never exceeds the target power at any intermediate
-//! step. Host-side policy — PSU voltage, the host UART baud switch, and
-//! work dispatch — stays here; the chip register sequence lives in the
-//! `ChipProtocol` impl.
+//! Drives the chain bring-up through [`MinerControl`] — reset and
+//! enumerate with a retry policy, then configure — and then walks a
+//! coupled voltage / frequency ramp from the chip's open-core voltage at the
+//! safe-boot frequency to the configured `(voltage, frequency)` target.
+//! The ramp preserves `V^2 * f` along the walk so the chain never
+//! exceeds the target power at any intermediate step. Host-side policy
+//! — PSU voltage, enumeration retries, and the ramp — stays here; the
+//! vendor register sequence and the UART baud switch live in the
+//! `ubos_asic::ChainDriver` impl behind [`MinerControl::configure`].
 
 use embassy_time::{Duration, Timer};
 use libm::sqrtf;
-use ubos_asic::{ChipAddress, ChipBus, ChipProtocol, HashboardDescriptor, TicketMaskReg};
+use ubos_asic::HashboardDescriptor;
 use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{debug, error, warn};
 
-use crate::bus::SerialBus;
-use crate::consts::DIFFICULTY;
 use crate::control::publish_tuner_step;
 use crate::miner::MinerControl;
 
@@ -70,7 +68,7 @@ impl FixedTuner {
         Self {
             board,
             target: TuningConfig {
-                frequency: board.chip.descriptor().frequency_range.min(),
+                frequency: board.chip.frequency_range.min(),
                 voltage: board.max_rail_voltage(),
             },
         }
@@ -91,7 +89,7 @@ impl FixedTuner {
     /// ramping up and the ramp never floors below it; `deinit` ramps
     /// back down to it.
     fn safe_boot(&self) -> Frequency {
-        self.board.chip.descriptor().frequency_range.min()
+        self.board.chip.frequency_range.min()
     }
 
     /// Walk the chain from `(self.target.voltage, self.target.frequency)`
@@ -108,10 +106,9 @@ impl FixedTuner {
     async fn walk_to_target<M: MinerControl>(
         &mut self,
         miner: &M,
-        bus: &mut SerialBus,
         target: TuningConfig,
     ) -> Result<(), TunerError> {
-        let step = self.board.chip.descriptor().frequency_step;
+        let step = self.board.chip.frequency_step;
         // Floor the configured frequency onto the chip's PLL grid so
         // every programmed step is exactly representable and telemetry
         // reports the realized hash clock rather than the request.
@@ -149,8 +146,7 @@ impl FixedTuner {
                 next.khz(),
                 voltage_now.mv()
             );
-            let chip = self.board.chip;
-            chip.set_hash_freq(bus, next).await?;
+            miner.set_frequency(next).await?;
             publish_tuner_step(next, voltage_now);
             frequency_now = next;
             Timer::after(Self::RAMP_SETTLE).await;
@@ -180,8 +176,7 @@ impl FixedTuner {
                 next_frequency.khz()
             );
             miner.set_voltage(next_voltage).await?;
-            let chip = self.board.chip;
-            chip.set_hash_freq(bus, next_frequency).await?;
+            miner.set_frequency(next_frequency).await?;
             publish_tuner_step(next_frequency, next_voltage);
             voltage_now = next_voltage;
             frequency_now = next_frequency;
@@ -196,8 +191,6 @@ impl FixedTuner {
 
 impl<M: MinerControl> Tuner<M> for FixedTuner {
     async fn init(&mut self, miner: &M, target: TuningConfig) -> Result<(), TunerError> {
-        let mut bus = SerialBus;
-
         // Open-core voltage anchors the curve at the chip's safe
         // headroom; cores get clocked at the safe-boot baseline and the
         // walk then trades voltage for frequency along V^2 * f.
@@ -217,16 +210,14 @@ impl<M: MinerControl> Tuner<M> for FixedTuner {
 
         // Reset and enumerate, retrying a transient chain glitch a few
         // times. A persistent count mismatch is terminal: the miner must
-        // not run a board whose chain it cannot account for.
-        let chip = self.board.chip;
+        // not run a board whose chain it cannot account for. The driver
+        // owns the vendor bring-up sequence; the tuner keeps only the
+        // retry / count-check policy.
         for attempt in 1..=Self::ENUMERATE_ATTEMPTS {
-            chip.reset_chain(&mut bus).await;
-            let found = chip.enumerate_chips(&mut bus).await;
+            let found = miner.reset_and_enumerate().await;
             if found == self.board.num_chips {
                 break;
             }
-            // The last attempt's failure is terminal; earlier ones warn
-            // and retry.
             if attempt == Self::ENUMERATE_ATTEMPTS {
                 error!(
                     "fixed-tuner: chain count {} != expected {}; stopping",
@@ -246,47 +237,28 @@ impl<M: MinerControl> Tuner<M> for FixedTuner {
             );
         }
 
-        chip.initialize_domains(&mut bus, self.board).await;
-        chip.initialize_cores(&mut bus, self.board).await;
-        chip.split_nonce_space(&mut bus, self.board).await;
-        // Anchor the PLL at the safe-boot baseline on the boot UART. The
-        // counting number follows on the fast UART after the baud switch,
-        // matching the capture, which never sends it at the boot baud.
-        chip.set_pll(&mut bus, safe_boot).await?;
-        // Re-arm the cores against the now-running hash clock; without it the
-        // cores stay configured against the boot clock and the hashrate halves.
-        chip.post_pll_rearm(&mut bus).await;
-        // Initial share filter accepts every share (difficulty 1).
-        let ticket = TicketMaskReg::from_difficulty(DIFFICULTY)
-            .expect("BUG: DIFFICULTY must be a power of two");
-        bus.write_register(ChipAddress::All, ticket).await;
-        // Baud switch last: program the chip side, then the host UART.
-        // The rate comes from the chip so a BM1370 uses its SI-safe
-        // 520 833 Hz instead of the generic 3.125 Mbaud.
-        chip.enable_fast_uart(&mut bus).await;
-        miner.set_baud_rate(chip.fast_uart_host_rate()).await?;
-        // Counting number on the fast UART, after the baud switch.
-        chip.set_hcn(&mut bus, safe_boot).await?;
+        // Configure the chain to the safe-boot operating point on the fast
+        // UART; the driver owns the register sequence and the baud switch.
+        miner.configure().await?;
         miner
             .start_sending_work(Self::WORK_PERIOD)
             .await
             .map_err(TunerError::Miner)?;
 
-        self.walk_to_target(miner, &mut bus, target).await
+        self.walk_to_target(miner, target).await
     }
 
     async fn deinit(&mut self, miner: &M) -> Result<(), TunerError> {
-        let mut bus = SerialBus;
         let safe = TuningConfig {
             frequency: self.safe_boot(),
             voltage: self.board.max_rail_voltage(),
         };
-        self.walk_to_target(miner, &mut bus, safe).await
+        self.walk_to_target(miner, safe).await
     }
 }
 
 /// Round `frequency` down to the chip's PLL step grid. The walk programs
-/// only multiples of `step`; the BM1362 PLL calculator resolves each to
+/// only multiples of `step`; the chip's PLL calculator resolves each to
 /// the nearest reachable clock, so the realized hash clock tracks the
 /// published frequency without drifting between hops.
 fn snap_down(frequency: Frequency, step: Frequency) -> Frequency {

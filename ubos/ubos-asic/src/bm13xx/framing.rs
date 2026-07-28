@@ -26,9 +26,9 @@
 //! ([`ResponseParser`]).
 
 use heapless::Vec as HVec;
-use sha2::{Digest, Sha256};
 
 use super::chip::Chip;
+use crate::chain::BIP320_VERSION_MASK;
 
 #[cfg(test)]
 #[path = "tests/framing.rs"]
@@ -99,49 +99,19 @@ pub struct HwSolution {
 }
 
 impl HwSolution {
-    /// Bitmask selecting the version-rolling bits in the block version
-    /// field per BIP320. Bits 28:13 carry the rolled value.
-    const BIP320_VERSION_MASK: u32 = 0x1FFF_E000;
-
     /// Bit offset of the BIP320 version-rolling field within the 32-bit
     /// block version.
-    const BIP320_VERSION_SHIFT: u32 = Self::BIP320_VERSION_MASK.trailing_zeros();
+    const BIP320_VERSION_SHIFT: u32 = BIP320_VERSION_MASK.trailing_zeros();
 
     /// The rolled version bits this solution used, masked to the BIP320
     /// field. This is the canonical share-submission form: the base
-    /// version is re-merged at submit time, so it is intentionally
-    /// absent here.
+    /// version is re-merged at submit time via
+    /// [`crate::chain::rolled_version`], so it is intentionally absent
+    /// here.
     #[must_use]
     pub fn version_bits(&self) -> u32 {
-        (u32::from(self.version_idx) << Self::BIP320_VERSION_SHIFT) & Self::BIP320_VERSION_MASK
+        (u32::from(self.version_idx) << Self::BIP320_VERSION_SHIFT) & BIP320_VERSION_MASK
     }
-
-    /// Compute the rolled block version given a base version.
-    fn rolled_version(&self, base_version: u32) -> u32 {
-        (base_version & !Self::BIP320_VERSION_MASK) | self.version_bits()
-    }
-}
-
-/// Reverse the bytes within each 4-byte word of a 256-bit value.
-///
-/// Stratum's `mining.notify` emits `prev_hash` as eight big-endian 32-bit
-/// words, but Bitcoin's block header wants them in native (little-endian)
-/// byte order inside each word. `mining_protocol::hashing::build_header`
-/// applies this swap inline; ubos-mining stores `HwWork.prev_hash` in canonical
-/// post-swap form so both the local hash check and the chip wire frame
-/// see the same bytes.
-#[cfg(test)]
-#[must_use]
-fn word_swap_prev_hash(input: &[u8; 32]) -> [u8; 32] {
-    let mut output = [0u8; 32];
-    for word_index in 0..8 {
-        let offset = word_index * 4;
-        output[offset] = input[offset + 3];
-        output[offset + 1] = input[offset + 2];
-        output[offset + 2] = input[offset + 1];
-        output[offset + 3] = input[offset];
-    }
-    output
 }
 
 /// A work assignment to send to the chip.
@@ -168,29 +138,6 @@ pub struct HwWork {
 }
 
 impl HwWork {
-    /// Build the 80-byte block header for hash verification.
-    fn block_header(&self, nonce: u32, rolled_version: u32) -> [u8; 80] {
-        let mut header = [0u8; 80];
-        header[0..4].copy_from_slice(&rolled_version.to_le_bytes());
-        header[4..36].copy_from_slice(&self.prev_hash);
-        header[36..68].copy_from_slice(&self.merkle_root);
-        header[68..72].copy_from_slice(&self.ntime.to_le_bytes());
-        header[72..76].copy_from_slice(&self.nbits.to_le_bytes());
-        header[76..80].copy_from_slice(&nonce.to_le_bytes());
-        header
-    }
-
-    /// Compute double-SHA256 hash for a work response. Returns the 32-byte
-    /// digest in native (little-endian) byte order.
-    #[must_use]
-    pub fn compute_hash(&self, response: &HwSolution) -> [u8; 32] {
-        let version = response.rolled_version(self.version);
-        let header = self.block_header(response.nonce, version);
-        let first = Sha256::digest(header);
-        let second = Sha256::digest(first);
-        second.into()
-    }
-
     /// Serialize into the 88-byte on-wire frame.
     #[must_use]
     pub fn serialize(&self) -> [u8; 88] {

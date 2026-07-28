@@ -19,16 +19,21 @@
 
 //! Hashboard descriptors.
 //!
-//! A [`HashboardDescriptor`] carries the chip model and per-hashboard
-//! topology (series voltage domains, chip count, PSU ceiling) so the
-//! tuner can dispatch the bring-up recipe and read chip capabilities
-//! through a hashboard-scoped seam. The static instances (such as
+//! A [`HashboardDescriptor`] carries the chip's capability descriptor and
+//! per-hashboard topology (series voltage domains, chip count, PSU
+//! ceiling) so the tuner can read chip capabilities through a
+//! hashboard-scoped seam. The static instances (such as
 //! [`BMM101_HASHBOARD`]) name the concrete hashboards the firmware
-//! supports.
+//! supports; the consumer picks the matching [`crate::ChainDriver`]
+//! implementation separately.
 
 use ubos_core::units::{Frequency, Voltage};
 
-use crate::Chip;
+use crate::ChipDescriptor;
+// The built-in hashboard statics below are populated with the built-in
+// bm13xx chip family; a board carrying another vendor's chip lives
+// beside that vendor's own driver crate instead of here.
+use crate::bm13xx::chip::{BM1362, BM1370};
 
 #[cfg(test)]
 #[path = "tests/board.rs"]
@@ -47,15 +52,17 @@ pub struct BoardCooling {
     pub min_fan_pwm: u8,
 }
 
-/// Hashboard-level descriptor. Carries the chip model so the tuner
-/// can dispatch the bring-up recipe and read chip capabilities through
-/// a hashboard-scoped seam; per-hashboard topology fields land here
-/// alongside the code that consumes them.
+/// Hashboard-level descriptor. Carries the chip's capability descriptor
+/// so the tuner can read chip capabilities through a hashboard-scoped
+/// seam; per-hashboard topology fields land here alongside the code that
+/// consumes them.
 #[derive(Clone, Copy)]
 pub struct HashboardDescriptor {
-    /// Chip model populated on this hashboard. Selects the bring-up
-    /// recipe and capability bounds the tuner drives.
-    pub chip: Chip,
+    /// Capability and identity descriptor of the chip populated on this
+    /// hashboard. Selects the capability bounds the tuner drives; the
+    /// consumer's driver selection is a separate concern this descriptor
+    /// does not carry.
+    pub chip: &'static ChipDescriptor,
     /// Number of voltage domains stacked in series on the rail. The
     /// PSU programs the sum across the stack, so the rail-side
     /// ceiling is `chip.max_chip_voltage * num_voltage_domains`.
@@ -106,7 +113,7 @@ impl HashboardDescriptor {
     pub const fn max_rail_voltage(&self) -> Voltage {
         let chip_stack = self
             .chip
-            .max_chip_voltage()
+            .max_chip_voltage
             .mv()
             .saturating_mul(self.num_voltage_domains as u32);
         let psu_max = self.max_psu_voltage.mv();
@@ -123,7 +130,7 @@ impl HashboardDescriptor {
 /// `BmmPsuDescriptor::DEFAULT.dcdc_voltage_range` (`VRange2`, end
 /// 1675 mV).
 pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
-    chip: Chip::Bm1362,
+    chip: &BM1362,
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(1675),
@@ -147,7 +154,7 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
 /// domains stack in series; the femto reference design ran two domains at
 /// 2.4 V total (≈1.2 V per domain), so four need ≈4.8 V.
 pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
-    chip: Chip::Bm1370,
+    chip: &BM1370,
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(4800),

@@ -22,18 +22,19 @@
 //! skip and fallback, and the diff-1 share feedback into the
 //! scheduler.
 //!
-//! The submit half of the routing (`dispatch_response` pushing into
+//! The submit half of the routing (`process_solution` pushing into
 //! `solutions[slot.session_slot]`) is exercised through a crafted
-//! chip response whose hash meets the diff-1 target, which also
-//! covers the scheduler share accounting. What matters for routing —
-//! that each registry entry pins the pool slot it was dispatched
-//! from, unaffected by later scheduler picks — is covered directly
-//! here.
+//! [`ChainSolution`] whose rebuilt header meets the diff-1 target,
+//! which also covers the scheduler share accounting. What matters for
+//! routing — that each registry entry pins the pool slot it was
+//! dispatched from, unaffected by later scheduler picks — is covered
+//! directly here.
 
 use super::*;
 
 use embassy_futures::block_on;
 use stratum_client::AsicSession;
+use ubos_asic::{Bm13xxDriver, Chip};
 
 /// Fixed-slot scheduler stub: `evaluate` returns the pinned slot when
 /// it is available, otherwise the lowest available slot, so both the
@@ -41,14 +42,14 @@ use stratum_client::AsicSession;
 /// `accumulate_share` just records which slot was credited.
 struct Pinned {
     slot: usize,
-    accumulated: HVec<usize, 8>,
+    accumulated: heapless::Vec<usize, 8>,
 }
 
 impl Pinned {
     fn new(slot: usize) -> Self {
         Self {
             slot,
-            accumulated: HVec::new(),
+            accumulated: heapless::Vec::new(),
         }
     }
 }
@@ -68,24 +69,17 @@ impl<const N: usize> Scheduler<N> for Pinned {
     }
 }
 
-/// The per-chip constants tests dispatch with: BM1362, 8-way midstate,
-/// full-range work ids.
-const CTX: ChipCtx = ChipCtx {
-    chip: Chip::Bm1362,
-    midstate_count: 8,
-    max_chip_work_id: u8::MAX,
-};
-
-/// Write-only serial mock: captures dispatched frames, accepts any
-/// baud rate.
+/// Serial mock: captures dispatched frames, accepts any baud rate,
+/// and answers reads with silence. The dispatch path only writes;
+/// the `Read` bound comes along with the shared [`Transport`] impl.
 struct MockSerial {
-    written: HVec<u8, 512>,
+    written: heapless::Vec<u8, 512>,
 }
 
 impl MockSerial {
     fn new() -> Self {
         Self {
-            written: HVec::new(),
+            written: heapless::Vec::new(),
         }
     }
 }
@@ -104,6 +98,12 @@ impl embedded_io_async::Write for MockSerial {
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
+    }
+}
+
+impl embedded_io_async::Read for MockSerial {
+    async fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Self::Error> {
+        Ok(0)
     }
 }
 
@@ -126,25 +126,27 @@ fn assignment(work_id: u32) -> WorkAssignment {
 }
 
 /// Genesis block header fields, in the internal byte order
-/// `HwWork::compute_hash` expects. A mined block always meets
-/// diff-1 — it is the easiest possible target — so genesis's known
-/// `(header, nonce)` pair is a real chip response that passes the
+/// [`solution_hash`] expects. A mined block always meets diff-1 — it
+/// is the easiest possible target — so genesis's known
+/// `(header, nonce)` pair is a real chip solution that passes the
 /// diff-1 check without brute-forcing one in the test.
 const GENESIS_MERKLE_ROOT: [u8; 32] = [
     0x3b, 0xa3, 0xed, 0xfd, 0x7a, 0x7b, 0x12, 0xb2, 0x7a, 0xc7, 0x2c, 0x3e, 0x67, 0x76, 0x8f, 0x61,
     0x7f, 0xc8, 0x1b, 0xc3, 0x88, 0x8a, 0x51, 0x32, 0x3a, 0x9f, 0xb8, 0xaa, 0x4b, 0x1e, 0x5e, 0x4a,
 ];
 
-/// Raw work-response wire frame carrying the genesis block's nonce
-/// `0x7C2B_AC1D` with work-id 0 and version-idx 0, CRC5-valid for
-/// [`ResponseParser::pop`].
-const GENESIS_SOLUTION_FRAME: [u8; 11] = [
-    0xAA, 0x55, 0x1D, 0xAC, 0x2B, 0x7C, 0x00, 0x00, 0x00, 0x00, 0x90,
-];
+/// The genesis block's nonce as a [`ChainSolution`] for job key 0,
+/// with no version rolling and no ntime roll.
+const GENESIS_SOLUTION: ChainSolution = ChainSolution {
+    job_key: 0,
+    nonce: 0x7C2B_AC1D,
+    ntime_offset: 0,
+    version_bits: 0,
+};
 
 /// A `WorkAssignment` matching the genesis block header. The
 /// all-zero pool target guarantees the pool-target check in
-/// `dispatch_response` fails, so the test isolates the scheduler
+/// `process_solution` fails, so the test isolates the scheduler
 /// credit from the submit path.
 fn genesis_assignment() -> WorkAssignment {
     WorkAssignment {
@@ -159,18 +161,26 @@ fn genesis_assignment() -> WorkAssignment {
 }
 
 /// Per-test dispatch harness: one `AsicSession<N>`, its receivers,
-/// a `Pinned` scheduler stub, and the counters `dispatch_work` mutates.
+/// the chain driver, a `Pinned` scheduler stub, and the counters
+/// `dispatch_work` mutates.
 struct Harness<'a, const N: usize> {
     session: &'a AsicSession<N>,
     receivers: [DynReceiver<'a, WorkAssignment>; N],
     serial: MockSerial,
+    driver: Bm13xxDriver,
     scheduler: Pinned,
-    chip_work_id: u8,
+    next_job_key: u32,
+    job_slots: u32,
     registry: [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
 }
 
 impl<'a, const N: usize> Harness<'a, N> {
     fn new(session: &'a AsicSession<N>, pinned_slot: usize) -> Self {
+        let driver = Bm13xxDriver::new(Chip::Bm1362);
+        // Mirror `run`'s registry sizing so job keys stay valid indices.
+        let job_slots = u32::try_from(driver.job_slots().min(WORK_REGISTRY_SLOTS))
+            .unwrap_or(1)
+            .max(1);
         Self {
             session,
             receivers: core::array::from_fn(|slot| {
@@ -179,8 +189,10 @@ impl<'a, const N: usize> Harness<'a, N> {
                     .expect("test session has a free receiver per slot")
             }),
             serial: MockSerial::new(),
+            driver,
             scheduler: Pinned::new(pinned_slot),
-            chip_work_id: 0,
+            next_job_key: 0,
+            job_slots,
             registry: [const { None }; WORK_REGISTRY_SLOTS],
         }
     }
@@ -189,8 +201,9 @@ impl<'a, const N: usize> Harness<'a, N> {
         block_on(Serial::dispatch_work(
             &mut self.serial,
             &mut self.scheduler,
-            &mut self.chip_work_id,
-            CTX,
+            &mut self.driver,
+            &mut self.next_job_key,
+            self.job_slots,
             &mut self.registry,
             &mut self.receivers,
         ));
@@ -222,7 +235,7 @@ fn dispatch_skips_the_tick_when_no_slot_has_work() {
 
     assert!(harness.registry.iter().all(Option::is_none));
     assert!(harness.serial.written.is_empty());
-    assert_eq!(harness.chip_work_id, 0, "skipped tick burns no chip id");
+    assert_eq!(harness.next_job_key, 0, "skipped tick burns no job key");
 }
 
 #[test]
@@ -278,25 +291,16 @@ fn registry_pins_the_dispatch_time_slot_across_a_pin_change() {
 }
 
 #[test]
-fn dispatch_response_credits_the_scheduler_on_a_diff_1_share() {
+fn process_solution_credits_the_scheduler_on_a_diff_1_share() {
     let session: AsicSession<1> = AsicSession::new();
     session.pool_handle(0).publish_work(genesis_assignment());
 
     let mut harness = Harness::new(&session, 0);
     harness.dispatch();
 
-    let mut parser = ResponseParser::new();
-    parser.free()[..GENESIS_SOLUTION_FRAME.len()].copy_from_slice(&GENESIS_SOLUTION_FRAME);
-    parser.commit(GENESIS_SOLUTION_FRAME.len());
-    let resp = parser.pop(Chip::Bm1362).expect("well-formed frame parses");
-
-    let register_replies: Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS> =
-        Channel::new();
-    Serial::dispatch_response(
-        &resp,
-        CTX,
+    Serial::process_solution(
+        &GENESIS_SOLUTION,
         &harness.registry,
-        &register_replies,
         harness.session,
         &mut harness.scheduler,
     );
@@ -310,13 +314,13 @@ fn dispatch_response_credits_the_scheduler_on_a_diff_1_share() {
 /// binary, so the assertions baseline against the current value
 /// first rather than an absolute count. Dispatch is pinned to slot 1
 /// and the untouched check reads slot 2 — slot 0 is exercised by the
-/// sibling `dispatch_response_credits_the_scheduler_on_a_diff_1_share`
+/// sibling `process_solution_credits_the_scheduler_on_a_diff_1_share`
 /// test, and under the default parallel runner that test's mutation
 /// could otherwise land inside this test's baseline-to-assert window.
-/// Any future test added here that also drives `dispatch_response`
+/// Any future test added here that also drives `process_solution`
 /// should pick another still-untouched slot rather than reusing 0-2.
 #[test]
-fn dispatch_response_bumps_the_originating_slots_pool_work_share_counter() {
+fn process_solution_bumps_the_originating_slots_pool_work_share_counter() {
     let session: AsicSession<2> = AsicSession::new();
     session.pool_handle(1).publish_work(genesis_assignment());
 
@@ -328,18 +332,9 @@ fn dispatch_response_bumps_the_originating_slots_pool_work_share_counter() {
         POOL_WORK_SHARES[2].load(Ordering::Relaxed),
     ];
 
-    let mut parser = ResponseParser::new();
-    parser.free()[..GENESIS_SOLUTION_FRAME.len()].copy_from_slice(&GENESIS_SOLUTION_FRAME);
-    parser.commit(GENESIS_SOLUTION_FRAME.len());
-    let resp = parser.pop(Chip::Bm1362).expect("well-formed frame parses");
-
-    let register_replies: Channel<CriticalSectionRawMutex, RegisterResponse, MAX_CHIPS> =
-        Channel::new();
-    Serial::dispatch_response(
-        &resp,
-        CTX,
+    Serial::process_solution(
+        &GENESIS_SOLUTION,
         &harness.registry,
-        &register_replies,
         harness.session,
         &mut harness.scheduler,
     );

@@ -416,6 +416,7 @@ pub trait ChipProtocol {
 /// limit there.
 pub static BM1362: ChipDescriptor = ChipDescriptor {
     chip_id: 0x1362,
+    asic_model: Chip::Bm1362.asic_model(),
     core_count: 514,
     max_chip_voltage: Chip::Bm1362.max_chip_voltage(),
     frequency_step: Frequency::from_khz(6_250),
@@ -434,6 +435,7 @@ pub static BM1362: ChipDescriptor = ChipDescriptor {
 /// tuning-policy envelope, not a chip limit.
 pub static BM1366: ChipDescriptor = ChipDescriptor {
     chip_id: 0x1366,
+    asic_model: Chip::Bm1366.asic_model(),
     core_count: 894,
     max_chip_voltage: Chip::Bm1366.max_chip_voltage(),
     frequency_step: Frequency::from_khz(6_250),
@@ -452,6 +454,7 @@ pub static BM1366: ChipDescriptor = ChipDescriptor {
 /// tuning-policy envelope, not a chip limit.
 pub static BM1370: ChipDescriptor = ChipDescriptor {
     chip_id: 0x1370,
+    asic_model: Chip::Bm1370.asic_model(),
     core_count: 2040,
     max_chip_voltage: Chip::Bm1370.max_chip_voltage(),
     frequency_step: Frequency::from_khz(6_250),
@@ -463,11 +466,12 @@ pub static BM1370: ChipDescriptor = ChipDescriptor {
     midstate_count: 16,
 };
 
-/// The chip model a hashboard is populated with. Selected statically
-/// from the hashboard descriptor; it dispatches the shared bring-up
-/// recipe to the concrete per-chip implementation. `ChipProtocol` has
-/// async methods and is not dyn-compatible, so this enum is the
-/// dispatch mechanism.
+/// The chip model a hashboard is populated with. Each firmware injects
+/// its `config::CHIP` constant into `Bm13xxDriver::new`; the hashboard
+/// descriptor carries only the neutral `ChipDescriptor`. This enum
+/// dispatches the shared bring-up recipe to the concrete per-chip
+/// implementation: `ChipProtocol` has async methods and is not
+/// dyn-compatible, so an enum is the dispatch mechanism.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Chip {
@@ -480,9 +484,10 @@ pub enum Chip {
 }
 
 impl Chip {
-    /// Model string reported to the REST API and dashboard. `const` so
-    /// `ubos-config`'s static `MiningInfo` can read it without invoking the
-    /// non-const `ChipProtocol::descriptor`.
+    /// Model string reported to the REST API and dashboard. `const` so the
+    /// static `ChipDescriptor` initialisers below can evaluate it for the
+    /// `ChipDescriptor::asic_model` field, which `ubos-config`'s
+    /// `mining_info` reads.
     #[must_use]
     pub const fn asic_model(self) -> &'static str {
         match self {

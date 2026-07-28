@@ -17,24 +17,22 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tunables for the BM1362 and BM1370 mining backends.
+//! Tunables for the mining serial backends.
 
-/// Maximum chips the registry can address and the actor buffers replies
-/// for. Tied to the chip-protocol chain cap so a discovery read can
-/// collect every responder the chain may hold.
-pub const MAX_CHIPS: usize = ubos_asic::MAX_CHAIN_CHIPS;
-
-/// Hardware shares submitted at diff 1; the chip rolls below this and
-/// hands every find back to the host.
-pub const DIFFICULTY: u32 = 1;
-
-/// Slots in the in-memory registry that holds per-`work_id` context for
-/// matching incoming `HwSolution` frames back to the originating job.
-/// Sized for the smallest supported per-job work-id count (8), i.e.
-/// `256 / 8`; chips with a larger count use fewer of these slots.
+/// Capacity of the in-memory registry that holds per-`job_key` context
+/// for matching returned `ChainSolution`s back to the originating job.
+/// The active slot count is the driver's `job_slots`, capped at this
+/// capacity; sized to the largest `job_slots` a supported driver
+/// reports, the BM1362/BM1366 `256 / 8`.
 pub const WORK_REGISTRY_SLOTS: usize = 256 / 8;
 
-/// Boot baud rate the chip listens on out of reset.
+/// Boot baud rate the chip listens on out of reset. The firmware crates
+/// arm the UART with this before any driver exists; once the serial
+/// actor runs, every re-arm goes through `ChainDriver::boot_uart_rate`,
+/// so this must agree with each supported driver's boot rate. Every
+/// vendor module states its own boot-rate fact, and both are 115 200
+/// today; a chip booting at a different rate would need this to become
+/// per-board.
 pub const INITIAL_BAUDRATE: u32 = 115_200;
 
 /// Nominal fast baud requested after PLL programming. The chip's `0x28`

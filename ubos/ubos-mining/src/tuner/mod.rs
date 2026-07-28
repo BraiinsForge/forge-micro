@@ -29,9 +29,10 @@
 //! `ubos-mining` or `ubos-manager`.
 //!
 //! Tuner implementations live in submodules: `fixed::FixedTuner` is
-//! the typed open-loop ramp that reaches arbitrary targets via the
-//! BM1362 PLL calculator. The active tuner is runtime-selectable via
-//! `MinerConfig::algorithm`.
+//! the typed open-loop ramp that steps toward arbitrary targets via
+//! `MinerControl::set_frequency`, behind which the vendor-neutral
+//! chain driver owns the PLL programming. The active tuner is
+//! runtime-selectable via `MinerConfig::algorithm`.
 
 use ubos_core::units::{Frequency, Voltage};
 
@@ -79,9 +80,6 @@ pub trait Tuner<M: MinerControl> {
 #[derive(Debug)]
 pub enum TunerError {
     Miner(MinerError),
-    /// The PLL calculator rejected the requested frequency as outside
-    /// the chip's supported range.
-    UnsupportedFrequency(Frequency),
     /// Enumeration kept finding a chip count other than the board's
     /// expected `num_chips` after every retry.
     ChipCountMismatch {
@@ -93,19 +91,6 @@ pub enum TunerError {
 impl From<MinerError> for TunerError {
     fn from(error: MinerError) -> Self {
         Self::Miner(error)
-    }
-}
-
-impl From<ubos_asic::ChipError> for TunerError {
-    fn from(error: ubos_asic::ChipError) -> Self {
-        match error {
-            ubos_asic::ChipError::UnsupportedFrequency(freq) => Self::UnsupportedFrequency(freq),
-            // A refused host baud switch is a serial-line failure; the
-            // rate itself is already logged by the transport.
-            ubos_asic::ChipError::BaudSwitch(_) => {
-                Self::Miner(MinerError::Serial(embedded_io::ErrorKind::Other))
-            }
-        }
     }
 }
 

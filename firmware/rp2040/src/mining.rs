@@ -57,6 +57,7 @@ pub async fn serial_task(
             serial,
             session,
             crate::config::BOARD,
+            ubos_asic::Bm13xxDriver::new(crate::config::CHIP),
             ubos_mining::scheduler::RatioScheduler::new(),
         )
         .await

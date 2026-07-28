@@ -58,7 +58,16 @@ pub async fn miner_serial_task() -> ! {
     // default already weights slot 0, so no reweight is needed.
     let scheduler = ubos_mining::scheduler::RatioScheduler::new();
     match SERIAL
-        .run(serial, &ASIC_SESSION, crate::BOARD, scheduler)
+        .run(
+            serial,
+            &ASIC_SESSION,
+            crate::BOARD,
+            // host-runner has no `config` module, so it selects the chip
+            // here directly rather than through a `config::CHIP` const the
+            // way the firmware boards do.
+            ubos_asic::Bm13xxDriver::new(ubos_asic::Chip::Bm1362),
+            scheduler,
+        )
         .await
     {
         Ok(()) => info!("host-runner: miner serial actor terminated cleanly"),

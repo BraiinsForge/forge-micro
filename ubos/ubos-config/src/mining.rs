@@ -140,7 +140,7 @@ pub const fn mining_info(
     bounds: &'static MiningBounds,
 ) -> MiningInfo {
     MiningInfo {
-        asic_model: board.chip.asic_model(),
+        asic_model: board.chip.asic_model,
         device_model: board.model,
         swarm_color: board.swarm_color,
         asic_count: board.num_chips,

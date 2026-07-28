@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! BMM101 mining main loop.
+//! ASIC mining main loop over the firmware-injected chain driver.
 //!
 //! Each iteration brings the chip up (PSU, reset sequencing,
 //! `tuner.init`), waits on [`STOP_MINING`] or a [`Message`] delivered
@@ -64,12 +64,27 @@ pub static STOP_MINING: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 /// coupling callers to the specific serial actor types.
 #[derive(Debug)]
 pub enum MinerError {
-    /// The serial actor returned an error on a register read or write.
+    /// The serial actor returned an error on a control operation.
     Serial(ErrorKind),
     /// The PSU rejected a voltage or enable/disable command. The
     /// payload narrows the failure to a discriminant the caller can
     /// dispatch on without taking on the PSU's `BusError` generic.
     Psu(PsuErrorKind),
+    /// The chain driver rejected a frequency outside the chip's range.
+    UnsupportedFrequency(Frequency),
+}
+
+impl From<ubos_asic::ChipError> for MinerError {
+    fn from(error: ubos_asic::ChipError) -> Self {
+        match error {
+            ubos_asic::ChipError::UnsupportedFrequency(freq) => {
+                MinerError::UnsupportedFrequency(freq)
+            }
+            // A refused host baud switch is a serial-line failure; the
+            // rate itself is already logged by the transport.
+            ubos_asic::ChipError::BaudSwitch(_) => MinerError::Serial(ErrorKind::Other),
+        }
+    }
 }
 
 /// Classification of [`ubos_psu::Error`] surfaces stripped of the
@@ -108,6 +123,9 @@ impl defmt::Format for MinerError {
             MinerError::Psu(kind) => {
                 defmt::write!(f, "Psu({:?})", defmt::Debug2Format(kind));
             }
+            MinerError::UnsupportedFrequency(freq) => {
+                defmt::write!(f, "UnsupportedFrequency({} kHz)", freq.khz());
+            }
         }
     }
 }
@@ -127,19 +145,24 @@ pub trait MinerControl {
     /// Set the core voltage through the PSU driver.
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), MinerError>;
 
-    // `set_baud_rate` and `start_sending_work` are semantic operations
-    // that tuner implementations legitimately need: the baud bump is
-    // part of the bring-up protocol, and work-send must start before
-    // the chip begins hashing.
+    /// Reset and enumerate the chain, returning the chip count. The
+    /// driver owns the vendor reset/enumerate sequence; the tuner keeps
+    /// the retry and count-check policy.
+    async fn reset_and_enumerate(&self) -> u8;
 
-    /// Switch the UART line rate to `rate`.
-    async fn set_baud_rate(&self, rate: u32) -> Result<(), MinerError>;
+    /// Configure the enumerated chain to its safe-boot operating point,
+    /// including the switch to the fast UART. The driver owns the vendor
+    /// register sequence and baud switch.
+    async fn configure(&self) -> Result<(), MinerError>;
+
+    /// Program the hash-clock frequency for one ramp step.
+    async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError>;
 
     /// Start the periodic work-send loop in the serial actor.
     async fn start_sending_work(&self, period: Duration) -> Result<(), MinerError>;
 }
 
-/// The `BM13xx` mining state machine.
+/// The ASIC mining state machine driving the injected chain driver.
 ///
 /// Owns the PSU reference and the reset pin. Firmware constructs this
 /// with [`Miner::new`] and calls [`Miner::run`] to enter the bring-up
@@ -184,7 +207,7 @@ where
         }
     }
 
-    /// Drive the BM1362 mining work loop.
+    /// Drive the mining work loop.
     ///
     /// Reads the initial config from `ubos_config::handle()` and holds a
     /// subscription across the outer bring-up loop. On each iteration the
@@ -467,8 +490,16 @@ where
             .map_err(|error| MinerError::Psu(error.into()))
     }
 
-    async fn set_baud_rate(&self, rate: u32) -> Result<(), MinerError> {
-        SERIAL.set_baud_rate(rate).await.map_err(MinerError::Serial)
+    async fn reset_and_enumerate(&self) -> u8 {
+        SERIAL.reset_and_enumerate().await
+    }
+
+    async fn configure(&self) -> Result<(), MinerError> {
+        SERIAL.configure().await.map_err(MinerError::from)
+    }
+
+    async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError> {
+        SERIAL.set_frequency(freq).await.map_err(MinerError::from)
     }
 
     async fn start_sending_work(&self, period: Duration) -> Result<(), MinerError> {

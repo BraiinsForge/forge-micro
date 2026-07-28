@@ -88,8 +88,8 @@ pub fn block_header(
 
 /// Double-SHA256 of the 80-byte block header for share verification.
 ///
-/// Vendor-neutral, and byte-identical to the header the Bitmain path
-/// hashed. Returns the digest in native little-endian order.
+/// Vendor-neutral, and byte-identical to the header any chip family's
+/// driver hashes. Returns the digest in native little-endian order.
 #[must_use]
 pub fn solution_hash(
     version: u32,
@@ -144,6 +144,8 @@ pub struct ChipDescriptor {
     /// matches the value read off the chain against this to select the
     /// chip.
     pub chip_id: u16,
+    /// Model string reported to the REST API and dashboard.
+    pub asic_model: &'static str,
     /// Total hashing cores on this chip model. Identity and capability
     /// metadata; not a register value.
     pub core_count: u32,

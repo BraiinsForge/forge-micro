@@ -17,13 +17,15 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Pure chip-protocol library for the `BM13xx` ASIC family.
+//! Pure chip-protocol library for the supported ASIC families.
 //!
-//! Holds the per-chip register layouts, serial framing, hashboard
-//! descriptors, and the per-chip bring-up recipes. This crate performs
-//! no I/O and holds no global state: bring-up drives the [`chip::ChipBus`]
-//! trait the consumer implements, and the serial actor in `ubos-mining`
-//! owns the UART and all atomics.
+//! Holds the vendor-neutral chain seam ([`chain::ChainDriver`] over
+//! [`transport::Transport`]) plus the [`bm13xx`] chip family (the
+//! Bitmain register layouts, framing, and bring-up recipes). Additional
+//! vendor drivers live in their own crates against this same seam. This
+//! crate performs no I/O and holds no global state: drivers frame onto
+//! the byte-level `Transport` the consumer implements, and the serial
+//! actor in `ubos-mining` owns the UART and all atomics.
 
 #![no_std]
 
