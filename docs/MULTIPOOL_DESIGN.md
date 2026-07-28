@@ -103,7 +103,7 @@ serve and takes the latest assignment from that slot's watch via
   until some slot produces work.
 - The work registry entry (`WorkSlot`) records the session slot at
   dispatch time. When a chip response maps back to a registry entry,
-  `handle_read` submits via `submit_solution(slot, solution)` — the
+  `process_solution` submits via `submit_solution(slot, solution)` — the
   solution returns to the session that created the work, even if the
   scheduler moved on while the chip was hashing. In-flight shares of
   a currently unselected slot are therefore still submitted over its
@@ -207,7 +207,7 @@ between the configured slots at a fixed ratio — the dev-fee use case
 
 The scheduler does not count dispatch ticks; it counts what the chip
 actually produced. Every chip response that passes the difficulty-1
-check in `dispatch_response` (the same point that feeds the hashrate
+check in `process_solution` (the same point that feeds the hashrate
 EWMA via `record_share`) accounts one share to the slot recorded in
 the work registry — `WorkSlot::session_slot`, the slot whose
 dispatch produced the work. One diff-1 share stands for an expected
@@ -232,7 +232,7 @@ pub trait Scheduler<const N: usize> {
 
 Both call sites live inside the single `Serial::run` task —
 `evaluate` at the top of `dispatch_work` on each work tick,
-`accumulate_share` in `dispatch_response` right after the diff-1
+`accumulate_share` in `process_solution` right after the diff-1
 `record_share`, before the pool-target check, so all real chip work
 counts. The scheduler is therefore a plain `&mut` value owned by the
 serial worker: no atomics, no locking, no shared accumulator type.
@@ -450,7 +450,7 @@ pub async fn run_pool_weights_watcher() -> ! {
   edit reaches it.
 - The first iteration runs at boot and delivers the initial weights
   before awaiting the first generation change.
-- `Serial::set_pool_weights` is fire-and-forget like `send_frame`,
+- `Serial::set_pool_weights` is fire-and-forget,
   wrapping a new `SerialMessage::SetPoolWeights([u32; 8])`. This
   keeps the serial actor config-agnostic: weights arrive as a
   command like `Reset` or `StartSendingWork`, and `run`'s command

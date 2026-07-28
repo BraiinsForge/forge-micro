@@ -1,28 +1,73 @@
 # ASIC Mining Driver
 
-Reference for the BM13xx hashboard driver: the chip support split across
+Reference for the hashboard driver: the chip support split across
 `ubos-asic` (pure, sans-IO chip logic) and `ubos-mining` (the serial
-I/O edge plus tuning policy). Supported chips: **BM1362, BM1366,
-BM1370**. Register bit layouts are documented separately in
+I/O edge plus tuning policy). The Bitmain **BM1362 / BM1366 / BM1370**
+family ships in the open `bm13xx` module behind a vendor-neutral seam;
+the seam admits additional vendor drivers, which live in their own
+crates depending on `ubos-asic` and are injected into the actor by the
+consumer. Register bit layouts are documented separately in
 [`REGISTERS.md`](REGISTERS.md); this document covers the architecture,
 the bring-up sequence, and the per-chip differences.
 
 ## Crate responsibilities
 
 - **`ubos-asic`** — pure and unit-testable, owns no UART and performs no
-  direct I/O. Holds the typed register layouts, the wire framing
-  (`HwWork` / `HwSolution` / `ResponseParser`), the `ChipDescriptor` /
-  `HashboardDescriptor` data, the `ChipProtocol` / `ChipBus` traits, and the
-  per-chip bring-up recipes (`Bm1362` / `Bm1366` / `Bm1370`).
+  direct I/O. Holds the vendor-neutral seam (`ChainDriver` /
+  `Transport`), the `ChipDescriptor` / `HashboardDescriptor` data, and the
+  `bm13xx` module (the Bitmain register layouts, wire framing, and
+  `Bm1362` / `Bm1366` / `Bm1370` recipes) implementing `ChainDriver` as
+  `Bm13xxDriver`. Other vendor drivers implement the same `ChainDriver`
+  from their own crates; the consumer injects one concrete driver.
 - **`ubos-mining`** — owns the serial actor (`SERIAL`) that drives the
-  UART halves, the `ChipBus` implementation that forwards to the actor,
-  the tuner that applies bring-up and the V²·f ramp, and the work
-  dispatch / share verification path.
+  UART halves and implements `Transport` over them, the tuner that
+  applies bring-up and the V²·f ramp, and the work dispatch / share
+  verification path.
 
 The dependency arrow is `ubos-mining → ubos-asic`. `ubos-asic` declares
-`ChipBus`; `ubos-mining` implements it. This is the sans-IO rule:
-bring-up logic computes and acts through a passed-in bus, so it is
-testable against a mock bus, and the actor stays the single I/O edge.
+`Transport`; `ubos-mining` implements it. This is the sans-IO rule: the
+vendor driver frames and acts through a passed-in byte transport, so it
+is testable against a mock transport, and the actor stays the single
+I/O edge.
+
+## The vendor-neutral seam
+
+`ChainDriver` is the operations contract every vendor implements, sans-IO
+over a `Transport` (`write_all` / `read` / `set_baud` / `delay_ms`):
+
+- `reset_and_enumerate` / `configure` — bring the chain up to a safe-boot
+  operating point on the fast UART; `configure` owns the baud switch.
+- `set_frequency` — one ramp step, vendor-specific PLL programming.
+- `send_work` — dispatch a neutral `WorkJob`; the driver maps the
+  consumer-assigned `job_key` onto the chip's echo field.
+- `result_mode` + `ingest` (push) / `poll_results` (poll) — collect
+  `ChainSolution`s. Push families stream nonce frames unsolicited; poll
+  families read a nonce FIFO, so the actor branches its steady-state loop
+  on `result_mode`. Bitmain is a push family.
+- `reset` — re-arm the driver to its freshly-constructed state, keeping
+  the chip identity; the actor calls it on a `Reset` command.
+
+Share verification is vendor-neutral: the actor rebuilds the header from
+the registry assignment and the driver-reported nonce / rolled version /
+ntime offset via `ubos_asic::solution_hash`.
+
+## The Bitmain family
+
+The open `bm13xx` module implements `ChainDriver` for the Bitmain family:
+
+| | `bm13xx` |
+|---|---|
+| Framing | `0x55 0xAA` preamble, CRC5 cmd / CRC16 work |
+| Work | full header, 88-byte work frame |
+| Solutions | pushed 11-byte frames |
+| Freq→PLL | `PllParameterReg` calc |
+| Fast baud | chip 3.125 M, host 3.0 M (BM1370: 520 k) |
+
+A vendor whose framing, work model, or solution delivery differs
+implements the same `ChainDriver` in its own crate — the seam's
+`result_mode`, `boot_uart_rate`, and `job_slots` carry the varying
+facts, and each driver's `configure` applies its own fast-baud switch
+internally, so the actor drives every family through the one contract.
 
 ## Hardware model
 
@@ -34,7 +79,7 @@ domain may contain more than one chip wired in parallel.
 
 | Field | Meaning |
 |-------|---------|
-| `chip` | the `Chip` model populated on the board |
+| `chip` | the `&'static ChipDescriptor` for the chip on the board |
 | `num_chips` | total chips on the serial chain |
 | `num_voltage_domains` | series voltage domains on the rail |
 | `max_psu_voltage` | upper rail bound the PSU enforces |
@@ -71,61 +116,72 @@ The **work-id variant count** is explained under [Work dispatch](#work-dispatch-
 
 ## Architecture: sans-IO layering
 
-Two traits in `ubos-asic`:
+The vendor-neutral seam in `ubos-asic` is `Transport` (byte I/O) +
+`ChainDriver` (operations); see [The vendor-neutral
+seam](#the-vendor-neutral-seam). Inside the `bm13xx` module the Bitmain
+recipe keeps its own register-level internal seam, which the vendor
+driver bridges onto `Transport`:
 
-- **`ChipBus`** — the chip-side I/O surface a recipe drives:
-  `write_register_raw` / `read_register` / `send_command` / `delay_ms`,
-  plus a provided typed `write_register<R>`. The consumer implements it;
-  register writes and commands are fire-and-forget, only reads can fail
-  (returning an empty responder list).
-- **`ChipProtocol`** — the per-chip bring-up recipe as plain imperative
-  async steps. The steps are **default methods** keyed on
-  `descriptor()`, because the recipe is identical across chip models at
-  the level the driver models; a chip overrides only a step where it
+- **`ChipBus`** (bm13xx-internal) — the register I/O surface the recipe
+  drives: `write_register_raw` / `read_register` / `send_command` /
+  `delay_ms`, plus a provided typed `write_register<R>`. Register writes
+  and commands are fire-and-forget, only reads can fail (returning an
+  empty responder list).
+- **`ChipProtocol`** (bm13xx-internal) — the per-chip bring-up recipe as
+  plain imperative async steps. The steps are **default methods** keyed
+  on `descriptor()`, because the recipe is identical across chip models
+  at the level the driver models; a chip overrides only a step where it
   genuinely diverges.
 
 ```
 ubos-asic  (sans-IO: no UART, no direct I/O)
-  registers / framing / descriptors
-  ChipBus trait              ← I/O surface; the consumer implements it
-  ChipProtocol trait         ← per-chip imperative async bring-up
-      Bm1362 / Bm1366 / Bm1370   (recipe via default methods)
-      Chip enum                  (dispatches to the above)
+  Transport trait            ← byte I/O seam; the consumer implements it
+  ChainDriver trait          ← vendor operations (bring-up, work, results)
+  ChipDescriptor             ← neutral per-chip facts the actor/tuner read
+  bm13xx/                    ← Bitmain: registers, framing, ChipProtocol
+      Bm13xxDriver             (bridges ChipProtocol onto Transport)
+  (other vendor drivers implement ChainDriver from their own crates)
 ubos-mining
-  serial actor (SERIAL)      ← owns the UART halves + select loop
-  ChipBus handle             ← thin forwarder over the actor
-  tuner (policy)             ← drives ChipProtocol; PSU + V²·f ramp
+  serial actor (SERIAL)      ← owns UART halves + select loop; is Transport
+                               runs the concrete driver the consumer injects
+  tuner (policy)             ← drives ChainDriver ops; PSU + V²·f ramp
 ```
 
 ### Chip selection
 
-`ChipProtocol` has async methods and is not `dyn`-compatible, so the
-`Chip` enum (`Bm1362` / `Bm1366` / `Bm1370`) implements `ChipProtocol`
-and dispatches each call to the concrete recipe. It forwards
-`descriptor()` and any overridden step; the shared default-method steps
-are inherited.
+`ChainDriver` has async methods and is not `dyn`-compatible, so dispatch
+is **static**: the consumer picks one concrete driver type and injects it
+into the actor by value (`Serial::run` is generic over `C: ChainDriver`),
+rather than a closed enum naming every vendor. Within `bm13xx`, the
+`Chip` enum dispatches `ChipProtocol` across `Bm1362` / `Bm1366` /
+`Bm1370` — a within-family enum, not a cross-vendor one.
 
-Selection is **static through the hashboard descriptor**: `HashboardDescriptor.chip`
-is a `Chip`, so the tuner drives `board.chip.<step>()`. The chip model
-is a compile-time property of the board, not detected at runtime. A
-chain is always a single chip model. Each firmware crate's
-`config::BOARD` is the single point board selection flows from.
+Selection is a **compile-time property of the firmware**: the neutral
+`HashboardDescriptor.chip` (a `&'static ChipDescriptor`) carries the chip
+facts, and each firmware crate injects its driver from a `config::CHIP`
+(e.g. `Bm13xxDriver::new(config::CHIP)`), so no shared type names every
+vendor. A chain is always a single chip model. Each firmware's
+`config::BOARD` / `config::CHIP` is the single point selection flows
+from.
 
 ### The serial actor
 
-`SERIAL` owns the UART read and write halves and runs a `select` loop
-over three arms: a work tick (periodic work send), a UART read (fed into
-`ResponseParser`, dispatched as solutions or register replies), and a
-command channel (register reads/writes, baud switch, start/stop work,
-reset). On dual-core boards the actor is pinned to Core 1 so the network
-stack on Core 0 stays responsive; the shared session uses a
+`SERIAL` owns the UART read and write halves, implements `Transport` over
+them, and runs a `select` loop over four arms: a work tick (periodic work
+send via `ChainDriver::send_work`), a result arm (a UART read fed to
+`ChainDriver::ingest` for push chips, or a poll ticker that calls
+`poll_results` for poll chips), a command channel (reset, reset-and-
+enumerate, configure, set-frequency, start/stop work, terminate), and the
+park signal. On dual-core boards the actor is pinned to Core 1 so the
+network stack on Core 0 stays responsive; the shared session uses a
 `CriticalSectionRawMutex`.
 
 ### Policy stays in the consumer
 
-The recipe does no policy. PSU voltage, the host-side UART baud switch
-(run *after* the chip-side `enable_fast_uart`), starting the work loop, and
-the V²·f frequency ramp all live in the tuner.
+The recipe does no policy. PSU voltage, starting the work loop, and the
+V²·f frequency ramp all live in the tuner. The host-side UART baud
+switch lives in the driver: `configure` issues it through `Transport`
+right after the chip-side `enable_fast_uart`.
 
 ### Testability
 
@@ -135,10 +191,11 @@ version rolling precedes the first read, baud is the last register
 write, per-domain relay lands on the right chips, the gap count matches
 the formula — with no hardware.
 
-## Bring-up sequence
+## Bring-up sequence (bm13xx)
 
-The tuner calls the `ChipProtocol` steps in order. Each step and the
-registers it writes (layouts in [`REGISTERS.md`](REGISTERS.md)):
+`Bm13xxDriver` runs the `ChipProtocol` steps in order across
+`reset_and_enumerate` and `configure`. Each step and the registers it
+writes (layouts in [`REGISTERS.md`](REGISTERS.md)):
 
 1. **`reset_chain`** — soft-reset to quiescent
    (`SoftResetControlReg`, `0xA8`), misc-control bring-up config
@@ -171,7 +228,8 @@ registers it writes (layouts in [`REGISTERS.md`](REGISTERS.md)):
    into `num_chips` equal slices.
 7. **`enable_fast_uart`** — program the chip side of the fast-UART switch
    (`BaudRateReg`, `0x28`). The fast UART is crystal-clocked, so it needs
-   no PLL first. The tuner switches the host UART to match afterwards.
+   no PLL first. `configure` switches the host UART to match immediately
+   afterwards.
 8. **`set_hash_freq`** — program the derived hash-counting number
    (`set_hcn`) and the hash-clock PLL (`set_pll`, `PllParameterReg`,
    `0x08`) together, as the frequency ramp pairs them on the fast UART.
@@ -233,8 +291,8 @@ from the descriptor at runtime. The work registry is a fixed array sized
 for the smallest count (`256 / 8 = 32` slots); a chip with a larger
 count uses fewer slots.
 
-Solutions are verified in place in the actor's `dispatch_response`:
-`HwWork::compute_hash` rebuilds the 80-byte header with the rolled
+Solutions are verified in place in the actor's `process_solution`:
+`ubos_asic::solution_hash` rebuilds the 80-byte header with the rolled
 version and double-SHA256s it, and the result is checked against the
 target before submission. Nonce-space division across chips is uniform —
 the explicit per-chip offset of `split_nonce_space`, the same on all
@@ -251,15 +309,17 @@ tuning-policy envelope, not a chip limit.
 
 ## Tuners
 
-- **`FixedTuner`** — the default. Drives the `ChipProtocol` bring-up
-  through `board.chip`, anchors the open-core voltage, and walks the
-  V²·f curve to the configured target on a 6.25 MHz grid.
+- **`FixedTuner`** — the default. Drives the `ChainDriver` bring-up
+  (`reset_and_enumerate` / `configure`) through `MinerControl`, anchors
+  the open-core voltage, and walks the V²·f curve to the configured
+  target on the chip's frequency-step grid.
 
 ## Verification
 
-- `ubos-asic` code is pure and unit-tested under `src/tests/`; every
-  register has a `REG_NUM` and an encode/decode round-trip test, and the
-  bring-up recipes are guarded by `MockBus` op-sequence tests.
+- `ubos-asic` code is pure and unit-tested in-crate: the vendor-neutral
+  seam under `src/tests/` and the Bitmain module under `src/bm13xx/tests/`;
+  every register has a `REG_NUM` and an encode/decode round-trip test, and
+  the bring-up recipes are guarded by `MockBus` op-sequence tests.
 - Every crate path stays in the flake `checks.<system>` (`cargo check`
   plus `cargo clippy -- -D warnings`); `nix flake check` is the CI gate.
 - Firmware RAM budgets are caught only by `cargo build --release` /
