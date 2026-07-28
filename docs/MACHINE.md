@@ -14,7 +14,7 @@ the crate that owns the component:
 
 | Descriptor | Crate | Consts |
 |------------|-------|--------|
-| `ChipDescriptor` | `ubos-asic` | `BM1362`, `BM1366`, `BM1370` |
+| `ChipDescriptor` | `ubos-asic` | embedded in the `BmDescriptor` statics (`BM1362`, `BM1366`, `BM1370`) in the crate-internal `ubos_asic::bm13xx::chip` |
 | `HashboardDescriptor` | `ubos-asic` | `BMM101_HASHBOARD`, `BFMX4_HASHBOARD` |
 | `BmmPsuDescriptor` | `ubos-psu` | `BmmPsuDescriptor::DEFAULT` |
 | `BfmPsuDescriptor` | `ubos-psu` | `BfmPsuDescriptor::DEFAULT` |

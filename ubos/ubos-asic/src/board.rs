@@ -130,7 +130,7 @@ impl HashboardDescriptor {
 /// `BmmPsuDescriptor::DEFAULT.dcdc_voltage_range` (`VRange2`, end
 /// 1675 mV).
 pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
-    chip: &BM1362,
+    chip: &BM1362.chain,
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(1675),
@@ -154,7 +154,7 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
 /// domains stack in series; the femto reference design ran two domains at
 /// 2.4 V total (≈1.2 V per domain), so four need ≈4.8 V.
 pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
-    chip: &BM1370,
+    chip: &BM1370.chain,
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(4800),

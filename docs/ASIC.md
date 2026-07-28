@@ -279,7 +279,8 @@ The chip distributes version-rolling work into a fixed number of
 streams and tags each returned solution with a variant index in the low
 bits of the echoed `work_id`. That count — the **work-id variant
 count** — is 8 for BM1362/BM1366 and 16 for BM1370, carried as
-`ChipDescriptor::midstate_count`. The host:
+`midstate_count` on the `BmDescriptor` statics in the crate-internal
+`ubos_asic::bm13xx::chip`. The host:
 
 - dispatches work-ids in strides of that count, so the chip's variant
   tags do not collide with the next job's base, and

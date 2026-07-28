@@ -258,7 +258,11 @@ fn capability_metadata_matches_the_chip_model() {
     assert_eq!(bm1362.job_slots(), 32);
     // BM1370: 128 usable work-ids / midstate 16 = 8 slots.
     assert_eq!(bm1370.job_slots(), 8);
-    assert_eq!(bm1362.descriptor().chip_id, 0x1362);
+    // The chain seam serves the neutral half of the Bitmain descriptor;
+    // core counts differ per model, so they pin the driver-to-descriptor
+    // wiring.
+    assert_eq!(bm1362.descriptor().core_count, 514);
+    assert_eq!(bm1370.descriptor().core_count, 2040);
     assert!(matches!(bm1362.result_mode(), crate::ResultMode::Push));
 }
 

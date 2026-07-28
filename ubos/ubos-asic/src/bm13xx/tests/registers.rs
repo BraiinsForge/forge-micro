@@ -54,7 +54,7 @@ const FREQ_REGISTER_CORPUS: &[(u32, u32, u32)] = &[
 #[test]
 fn pll_parameter_from_freq_packs_to_corpus() {
     for &(khz, expected_pll, _) in FREQ_REGISTER_CORPUS {
-        let reg = PllParameterReg::from_freq(khz, BM1362.frequency_range)
+        let reg = PllParameterReg::from_freq(khz, BM1362.chain.frequency_range)
             .expect("BUG: corpus frequency missing");
         let value = u32::from_be_bytes(reg.to_be_bytes());
         assert_eq!(value, expected_pll, "PLL register mismatch at {khz} kHz");
@@ -64,7 +64,7 @@ fn pll_parameter_from_freq_packs_to_corpus() {
 #[test]
 fn hash_counting_number_from_freq_packs_to_corpus() {
     for &(khz, _, expected_hcn) in FREQ_REGISTER_CORPUS {
-        let reg = HashCountingNumberReg::from_freq(khz, BM1362.frequency_range)
+        let reg = HashCountingNumberReg::from_freq(khz, BM1362.chain.frequency_range)
             .expect("BUG: corpus frequency missing");
         let value = u32::from_be_bytes(reg.to_be_bytes());
         assert_eq!(
@@ -78,7 +78,7 @@ fn hash_counting_number_from_freq_packs_to_corpus() {
 fn pll_parameter_from_freq_rejects_out_of_range() {
     // Targets outside the calculator's safe range return None without
     // attempting the search. Both edges and trivial extremes covered.
-    let range = BM1362.frequency_range;
+    let range = BM1362.chain.frequency_range;
     assert!(PllParameterReg::from_freq(0, range).is_none());
     assert!(PllParameterReg::from_freq(25_000, range).is_none());
     assert!(PllParameterReg::from_freq(49_999, range).is_none());
@@ -88,7 +88,7 @@ fn pll_parameter_from_freq_rejects_out_of_range() {
 
 #[test]
 fn hash_counting_number_from_freq_rejects_out_of_range() {
-    let range = BM1362.frequency_range;
+    let range = BM1362.chain.frequency_range;
     assert!(HashCountingNumberReg::from_freq(0, range).is_none());
     assert!(HashCountingNumberReg::from_freq(49_999, range).is_none());
     assert!(HashCountingNumberReg::from_freq(1_000_001, range).is_none());
@@ -101,7 +101,7 @@ fn pll_parameter_from_freq_resolves_quarter_mhz_step() {
     // FixedTuner 6.25 MHz ramp from 50 MHz. The calculator must reach
     // it exactly via some `(fbdiv, postdiv1, postdiv2)` tuple in the
     // search space.
-    let reg = PllParameterReg::from_freq(56_250, BM1362.frequency_range)
+    let reg = PllParameterReg::from_freq(56_250, BM1362.chain.frequency_range)
         .expect("BUG: 56.25 MHz must resolve in range");
     let actual_hz = u64::from(reg.fbdiv()) * 25_000_000
         / 2
@@ -116,7 +116,7 @@ fn pll_parameter_from_freq_resolves_off_grid_to_nearest() {
     // calculator's nearest-reachable result is 262.5 MHz at
     // (fbdiv=168, pd1_stored=3, pd2_stored=1), which packs to
     // 0x40a8_0231. Hand-verified: 25e6*168/2/4/2 = 262.5e6.
-    let reg = PllParameterReg::from_freq(262_000, BM1362.frequency_range)
+    let reg = PllParameterReg::from_freq(262_000, BM1362.chain.frequency_range)
         .expect("BUG: 262 MHz must resolve in range");
     assert_eq!(reg.fbdiv(), 168);
     assert_eq!(reg.postdiv1_minus_1(), 3);
@@ -132,7 +132,7 @@ fn pll_parameter_from_freq_resolves_exact_off_table_target() {
     // (fbdiv=230,pd1=4,pd2=1). The calculator sort key prefers
     // minimum pd2_stored, matching the corpus pattern at entries
     // where pd2=0 is reachable, so fbdiv=161, pd1=6, pd2=0 wins.
-    let reg = PllParameterReg::from_freq(287_000, BM1362.frequency_range)
+    let reg = PllParameterReg::from_freq(287_000, BM1362.chain.frequency_range)
         .expect("BUG: 287 MHz must resolve in range");
     assert_eq!(reg.fbdiv(), 161);
     assert_eq!(reg.postdiv1_minus_1(), 6);
@@ -145,7 +145,7 @@ fn pll_parameter_from_freq_sets_vco_high_band() {
     // pd2_stored=0). The VCO runs at 25e6 * 208 / 2 = 2.6 GHz, at or
     // above the 2.4 GHz high-band edge, so vco_high (bit 28) is set and
     // the payload's top byte is 0x50 rather than 0x40.
-    let reg = PllParameterReg::from_freq(650_000, BM1362.frequency_range)
+    let reg = PllParameterReg::from_freq(650_000, BM1362.chain.frequency_range)
         .expect("BUG: 650 MHz must resolve in range");
     assert_eq!(reg.fbdiv(), 208);
     assert!(reg.vco_high());
@@ -158,7 +158,7 @@ fn pll_field_decomposition_round_trips() {
     // actual_pd2=3 (stored values are pd-1) — the wire format
     // 0x40b4_0252. Verify field accessors return the expected encoded
     // values and to_be_bytes reverses from_be_bytes.
-    let reg = PllParameterReg::from_freq(125_000, BM1362.frequency_range)
+    let reg = PllParameterReg::from_freq(125_000, BM1362.chain.frequency_range)
         .expect("BUG: 125 MHz corpus entry missing");
     assert!(reg.pll_en());
     assert!(!reg.locked());

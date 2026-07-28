@@ -135,15 +135,13 @@ impl defmt::Format for ChipError {
     }
 }
 
-/// Capability bounds for a single ASIC, consumed by the tuner. Vendor-
-/// neutral: each chip family fills it from its own static descriptors.
+/// Capability bounds for a single ASIC, consumed by the tuner. Strictly
+/// vendor-neutral — each chip family fills it from its own static
+/// descriptors; vendor-specific constants such as Bitmain's chip-id,
+/// clock delay, and work-id stride stay in that family's module beside
+/// its driver.
 #[derive(Clone, Copy)]
 pub struct ChipDescriptor {
-    /// Model identifier the chip reports on the chain (Bitmain
-    /// `ChipIdReg.chip_id`: `0x1362`, `0x1366`, `0x1370`). Enumeration
-    /// matches the value read off the chain against this to select the
-    /// chip.
-    pub chip_id: u16,
     /// Model string reported to the REST API and dashboard.
     pub asic_model: &'static str,
     /// Total hashing cores on this chip model. Identity and capability
@@ -163,18 +161,6 @@ pub struct ChipDescriptor {
     /// The tuner ramps inside it and the register calculators reject
     /// targets outside it.
     pub frequency_range: FrequencyRange,
-    /// Broadcast `ClockDelayCtrl` value loaded during core bring-up,
-    /// before the per-chip pass writes the final clock delay. Bitmain-
-    /// specific; unused by families that do not program a clock delay.
-    pub broadcast_clock_delay: u8,
-    /// Number of distinct work-id values the chip emits per dispatched
-    /// work item. On Bitmain the chip tags each returned solution with a
-    /// variant index in the low bits of the echoed work-id; the host
-    /// strides work-ids by this count and recovers the originating job by
-    /// dividing a returned work-id by it. Eight for the BM1362 and
-    /// BM1366, sixteen for the BM1370. One for families that echo the job
-    /// id directly.
-    pub midstate_count: u8,
 }
 
 /// Upper bound on solutions a single [`ChainDriver::poll_results`] or

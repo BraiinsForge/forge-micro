@@ -114,6 +114,29 @@ pub trait ChipBus {
     }
 }
 
+/// Bitmain-specific capability constants layered over the vendor-neutral
+/// [`ChipDescriptor`]. The neutral half is what the `ChainDriver` seam
+/// serves to the tuner; the fields here are register-protocol facts only
+/// the `bm13xx` recipes and driver consume.
+pub struct BmDescriptor {
+    /// Vendor-neutral capability bounds served through the chain seam.
+    pub chain: ChipDescriptor,
+    /// Model identifier the chip reports in `ChipIdReg.chip_id`
+    /// (`0x1362`, `0x1366`, `0x1370`). Enumeration matches the value
+    /// read off the chain against this to select the chip.
+    pub chip_id: u16,
+    /// Broadcast `ClockDelayCtrl` value loaded during core bring-up,
+    /// before the per-chip pass writes the final clock delay.
+    pub broadcast_clock_delay: u8,
+    /// Number of distinct work-id values the chip emits per dispatched
+    /// work item. The chip tags each returned solution with a variant
+    /// index in the low bits of the echoed work-id; the host strides
+    /// work-ids by this count and recovers the originating job by
+    /// dividing a returned work-id by it. Eight for the BM1362 and
+    /// BM1366, sixteen for the BM1370.
+    pub midstate_count: u8,
+}
+
 /// Per-chip bring-up recipe. One implementation per chip model
 /// (`Bm1362` / `Bm1366` / `Bm1370`), selected at enumeration from the
 /// chip-id register. Each method drives `bus` imperatively; host-side
@@ -127,7 +150,7 @@ pub trait ChipBus {
 #[allow(async_fn_in_trait)]
 pub trait ChipProtocol {
     /// Static capability and identity constants for this chip model.
-    fn descriptor(&self) -> &'static ChipDescriptor;
+    fn descriptor(&self) -> &'static BmDescriptor;
 
     /// Bring the chain to a known reset state and drop any assigned
     /// addresses so it can be re-enumerated. Also enables hardware
@@ -364,7 +387,7 @@ pub trait ChipProtocol {
     /// programs the PLL alone before the baud switch; the counting
     /// number follows on the fast UART via [`Self::set_hcn`].
     async fn set_pll(&self, bus: &mut impl ChipBus, freq: Frequency) -> Result<(), ChipError> {
-        let range = self.descriptor().frequency_range;
+        let range = self.descriptor().chain.frequency_range;
         let pll = PllParameterReg::from_freq(freq.khz(), range)
             .ok_or(ChipError::UnsupportedFrequency(freq))?;
         let fence = Pll0DividerReg::zeroed();
@@ -389,7 +412,7 @@ pub trait ChipProtocol {
     /// only ever sends it on the fast UART, so bring-up programs it after
     /// the baud switch, never at the boot baud.
     async fn set_hcn(&self, bus: &mut impl ChipBus, freq: Frequency) -> Result<(), ChipError> {
-        let range = self.descriptor().frequency_range;
+        let range = self.descriptor().chain.frequency_range;
         let hcn = HashCountingNumberReg::from_freq(freq.khz(), range)
             .ok_or(ChipError::UnsupportedFrequency(freq))?;
         bus.write_register(ChipAddress::All, hcn).await;
@@ -413,17 +436,23 @@ pub trait ChipProtocol {
 /// is hashboard-local tuning and safety policy; the 422 mV figure is
 /// not a chip-spec value. The `frequency_range` upper bound is a
 /// uniform 1000 MHz local tuning-policy envelope; the chip has no hard
-/// limit there.
-pub static BM1362: ChipDescriptor = ChipDescriptor {
+/// limit there. `frequency_step` is 6.25 MHz, the chip's natural PLL
+/// resolution: at the `(POSTDIV1+1)*(POSTDIV2+1) = 2` divider pair
+/// `freq = 6.25 * FBDIV` MHz, so every integer FBDIV step sits on a
+/// 6.25 MHz boundary the PLL calculator resolves exactly. The BM1366
+/// and BM1370 share this grid.
+pub static BM1362: BmDescriptor = BmDescriptor {
+    chain: ChipDescriptor {
+        asic_model: Chip::Bm1362.asic_model(),
+        core_count: 514,
+        max_chip_voltage: Chip::Bm1362.max_chip_voltage(),
+        frequency_step: Frequency::from_khz(6_250),
+        frequency_range: FrequencyRange::new(
+            Frequency::from_khz(50_000),
+            Frequency::from_khz(1_000_000),
+        ),
+    },
     chip_id: 0x1362,
-    asic_model: Chip::Bm1362.asic_model(),
-    core_count: 514,
-    max_chip_voltage: Chip::Bm1362.max_chip_voltage(),
-    frequency_step: Frequency::from_khz(6_250),
-    frequency_range: FrequencyRange::new(
-        Frequency::from_khz(50_000),
-        Frequency::from_khz(1_000_000),
-    ),
     broadcast_clock_delay: 0x34,
     midstate_count: 8,
 };
@@ -433,16 +462,18 @@ pub static BM1362: ChipDescriptor = ChipDescriptor {
 /// chip-spec value. `frequency_step` is the shared 6.25 MHz grid; the
 /// `frequency_range` upper bound is a uniform 1000 MHz local
 /// tuning-policy envelope, not a chip limit.
-pub static BM1366: ChipDescriptor = ChipDescriptor {
+pub static BM1366: BmDescriptor = BmDescriptor {
+    chain: ChipDescriptor {
+        asic_model: Chip::Bm1366.asic_model(),
+        core_count: 894,
+        max_chip_voltage: Chip::Bm1366.max_chip_voltage(),
+        frequency_step: Frequency::from_khz(6_250),
+        frequency_range: FrequencyRange::new(
+            Frequency::from_khz(50_000),
+            Frequency::from_khz(1_000_000),
+        ),
+    },
     chip_id: 0x1366,
-    asic_model: Chip::Bm1366.asic_model(),
-    core_count: 894,
-    max_chip_voltage: Chip::Bm1366.max_chip_voltage(),
-    frequency_step: Frequency::from_khz(6_250),
-    frequency_range: FrequencyRange::new(
-        Frequency::from_khz(50_000),
-        Frequency::from_khz(1_000_000),
-    ),
     broadcast_clock_delay: 0x34,
     midstate_count: 8,
 };
@@ -452,18 +483,40 @@ pub static BM1366: ChipDescriptor = ChipDescriptor {
 /// chip-spec value. `frequency_step` is the shared 6.25 MHz grid; the
 /// `frequency_range` upper bound is a uniform 1000 MHz local
 /// tuning-policy envelope, not a chip limit.
-pub static BM1370: ChipDescriptor = ChipDescriptor {
+pub static BM1370: BmDescriptor = BmDescriptor {
+    chain: ChipDescriptor {
+        asic_model: Chip::Bm1370.asic_model(),
+        core_count: 2040,
+        max_chip_voltage: Chip::Bm1370.max_chip_voltage(),
+        frequency_step: Frequency::from_khz(6_250),
+        frequency_range: FrequencyRange::new(
+            Frequency::from_khz(250_000),
+            Frequency::from_khz(1_000_000),
+        ),
+    },
     chip_id: 0x1370,
-    asic_model: Chip::Bm1370.asic_model(),
-    core_count: 2040,
-    max_chip_voltage: Chip::Bm1370.max_chip_voltage(),
-    frequency_step: Frequency::from_khz(6_250),
-    frequency_range: FrequencyRange::new(
-        Frequency::from_khz(250_000),
-        Frequency::from_khz(1_000_000),
-    ),
     broadcast_clock_delay: 0x34,
     midstate_count: 16,
+};
+
+// The driver divides by `midstate_count` unguarded — `job_slots` and the
+// work-id decode rely on a nonzero stride that divides the echoed byte's
+// range exactly. Enforce both invariants where the descriptors are
+// defined, at compile time, so a future descriptor cannot reintroduce
+// the divide-by-zero class the empty-chain guard fixed at runtime.
+const _: () = {
+    assert!(BM1362.midstate_count > 0);
+    assert!(BM1366.midstate_count > 0);
+    assert!(BM1370.midstate_count > 0);
+    assert!(
+        (Chip::Bm1362.max_work_id() as usize + 1).is_multiple_of(BM1362.midstate_count as usize)
+    );
+    assert!(
+        (Chip::Bm1366.max_work_id() as usize + 1).is_multiple_of(BM1366.midstate_count as usize)
+    );
+    assert!(
+        (Chip::Bm1370.max_work_id() as usize + 1).is_multiple_of(BM1370.midstate_count as usize)
+    );
 };
 
 /// The chip model a hashboard is populated with. Each firmware injects
@@ -485,7 +538,7 @@ pub enum Chip {
 
 impl Chip {
     /// Model string reported to the REST API and dashboard. `const` so the
-    /// static `ChipDescriptor` initialisers below can evaluate it for the
+    /// static `BmDescriptor` initialisers below can evaluate it for the
     /// `ChipDescriptor::asic_model` field, which `ubos-config`'s
     /// `mining_info` reads.
     #[must_use]
@@ -500,7 +553,8 @@ impl Chip {
     /// Per-chip voltage ceiling: board-local safety policy, not a chip-spec
     /// value. `const` so the board descriptor's rail-voltage math and the
     /// tuning bounds evaluate at compile time. Single source of truth: the
-    /// static `ChipDescriptor`s below initialise their field from here.
+    /// static `BmDescriptor`s below initialise their chain descriptor's
+    /// `max_chip_voltage` from here.
     #[must_use]
     pub const fn max_chip_voltage(self) -> Voltage {
         match self {
@@ -542,7 +596,7 @@ impl Chip {
 }
 
 impl ChipProtocol for Chip {
-    fn descriptor(&self) -> &'static ChipDescriptor {
+    fn descriptor(&self) -> &'static BmDescriptor {
         match self {
             Chip::Bm1362 => &BM1362,
             Chip::Bm1366 => &BM1366,
@@ -592,7 +646,7 @@ impl ChipProtocol for Chip {
 pub struct Bm1362;
 
 impl ChipProtocol for Bm1362 {
-    fn descriptor(&self) -> &'static ChipDescriptor {
+    fn descriptor(&self) -> &'static BmDescriptor {
         &BM1362
     }
 }
@@ -602,7 +656,7 @@ impl ChipProtocol for Bm1362 {
 // ---------------------------------------------------------------------------
 
 /// BM1366 bring-up recipe. The sequence is shared with BM1362 through
-/// the common helpers; the chip differs only in its `ChipDescriptor`
+/// the common helpers; the chip differs only in its `BmDescriptor`
 /// (higher core voltage and core count). Chains with more than one chip
 /// per domain additionally program the UART relay, driven entirely by
 /// the `HashboardDescriptor` topology rather than by anything
@@ -610,7 +664,7 @@ impl ChipProtocol for Bm1362 {
 pub struct Bm1366;
 
 impl ChipProtocol for Bm1366 {
-    fn descriptor(&self) -> &'static ChipDescriptor {
+    fn descriptor(&self) -> &'static BmDescriptor {
         &BM1366
     }
 }
@@ -620,13 +674,13 @@ impl ChipProtocol for Bm1366 {
 // ---------------------------------------------------------------------------
 
 /// BM1370 bring-up recipe. Shares the recipe with BM1362/BM1366 through
-/// the default methods, differing only in its `ChipDescriptor` and in one
+/// the default methods, differing only in its `BmDescriptor` and in one
 /// extra register: after core configuration it programs the `MiscSettings`
 /// register (0xb9), which the other models do not require.
 pub struct Bm1370;
 
 impl ChipProtocol for Bm1370 {
-    fn descriptor(&self) -> &'static ChipDescriptor {
+    fn descriptor(&self) -> &'static BmDescriptor {
         &BM1370
     }
 
