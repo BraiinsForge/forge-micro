@@ -36,8 +36,9 @@ nix develop .#esp -c bash -c 'cd firmware/esp32s3   && cargo run --release'
 ```
 
 Every board drives a BM1362 hashboard via `ubos-mining` unconditionally,
-except `hashnode`, whose board descriptor selects the 4-chip BM1370
-instead (there is no cargo feature for it). The `display` feature is
+except `hashnode`, where `config::CHIP` selects the 4-chip BM1370
+driver instead (there is no cargo feature for it); the board
+descriptor carries only chip-neutral facts. The `display` feature is
 always in defaults and SV2 is always built on all boards.
 
 The bmm-pico crate also has multiple boards attached (six). Aliases
