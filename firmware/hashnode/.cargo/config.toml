@@ -9,7 +9,7 @@ runner = [
 # point, cooling profile, and chip baud all come from the board descriptor
 # and config defaults now, not build-time env.
 [env]
-DEFMT_LOG = "info,embassy_net=info,smoltcp=info"
+DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
 POOL_USER = "braiinstest.hashnode"
 
 [build]

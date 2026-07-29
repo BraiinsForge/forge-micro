@@ -7,10 +7,10 @@ runner = [
 
 [env]
 # DEFMT_LOG stays per-firmware (see workspace .cargo/config.toml for
-# why). This board's filter silences esp-hal/esp-rtos debug noise on
-# top of the common embassy_net filter. POOL_* defaults inherit from
-# the workspace config.
-DEFMT_LOG = "debug,esp_hal=info,esp_rtos=info,embassy_net=info"
+# why). The common default all boards share, plus silencers for the
+# board-only esp-hal/esp-rtos crates, which chatter at debug. POOL_*
+# defaults inherit from the workspace config.
+DEFMT_LOG = "debug,embassy_net=info,smoltcp=info,esp_hal=info,esp_rtos=info"
 # esp-rtos 0.3.0 adds per-CPU scheduler state that pushed the binary
 # over dram_seg. Moving interrupt switch tables back to flash recovers
 # enough room without affecting mining throughput.
