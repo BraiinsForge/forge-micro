@@ -19,10 +19,10 @@
 
 //! Tests for block-header construction against known-good vectors.
 //!
-//! Vectors are taken from the reference-miner unit tests (`test_mining.c` /
-//! "Test nonce diff checking") which run a redacted-derived verifier on
-//! real-world stratum data. Matching their output proves the
-//! byte-order handling of `version`/`prev_hash`/`ntime`/`nbits` is correct.
+//! The vectors are a recorded real-world stratum share and Bitcoin
+//! mainnet block 1, both with independently known hashes. Matching
+//! them proves the byte-order handling of
+//! `version`/`prev_hash`/`ntime`/`nbits` is correct.
 
 use crate::hashing::{build_header, hash_meets_target, header_hash};
 use crate::hex::decode_to_slice;
@@ -54,7 +54,7 @@ fn diff_one_target() -> [u8; 32] {
 }
 
 #[test]
-fn build_header_matches_redacted_vector() {
+fn build_header_matches_recorded_share_vector() {
     let version: u32 = 0x2000_0004;
     let prev_hash = hex32("d02b10fc0d4711eae1a805af50a8a83312a2215e00017f2b0000000000000000");
     let merkle_root = hex32("6d0359c451434605c52a5a9ce074340be47c2c63840731f9edf1db3f26b1cdd9");
@@ -118,8 +118,8 @@ fn hash_meets_target_accepts_block_1_at_diff_one() {
 }
 
 #[test]
-fn header_hash_reports_redacted_diff() {
-    // reference-miner asserts the share's difficulty truncates to 18.
+fn header_hash_reports_recorded_share_diff() {
+    // The recorded share's difficulty truncates to 18.
     let version: u32 = 0x2000_0004;
     let prev_hash = hex32("d02b10fc0d4711eae1a805af50a8a83312a2215e00017f2b0000000000000000");
     let merkle_root = hex32("6d0359c451434605c52a5a9ce074340be47c2c63840731f9edf1db3f26b1cdd9");
