@@ -75,8 +75,10 @@ nix shell nixpkgs#jdk nixpkgs#libusb1 -c bash -c \
 ## Debug probe (Pico 2 as CMSIS-DAP)
 
 A Raspberry Pi Pico 2 running the debugprobe firmware provides SWD and
-UART passthrough for the EVB-Pico boards. Flash `debugprobe_on_pico2.uf2`
-from `../assets/` via BOOTSEL mass storage.
+UART passthrough for the EVB-Pico boards. Download the Pico 2 UF2 from
+the upstream
+[raspberrypi/debugprobe releases](https://github.com/raspberrypi/debugprobe/releases)
+and flash it via BOOTSEL mass storage.
 
 | Probe GPIO | EVB-Pico GPIO | Function |
 |------------|---------------|----------|
