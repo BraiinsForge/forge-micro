@@ -35,7 +35,6 @@ target/
 # nix/patched-crates.nix.
 /patches/embassy-net-wiznet
 /patches/edge-nal-embassy
-/patches/redacted-hal
 
 # probe-rs-runner session logs, written to the project logs/ dir
 **/logs/*.log

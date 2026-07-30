@@ -120,7 +120,6 @@
             topLevel = { };
             perSystem = _: {
               esp = null;
-              patchedCrates = { };
               checks = { };
               shells = { };
               packages = { };
@@ -180,11 +179,6 @@
             flakeChecks = self.checks.${system};
           };
           inherit (priv) esp;
-          # Private patched-crate additions (currently just redacted-hal, whose
-          # `src` names a private gitlab.ii.zone repo and so cannot live in
-          # the public nix/patched-crates.nix); merged into `patchedCrates`
-          # below. Empty on the public mirror. See nix/private.nix.
-          privPatchedCrates = priv.patchedCrates;
           inherit (esp)
             espToolchain
             espCraneLib
@@ -195,10 +189,8 @@
 
           # Pinned upstream crates with local patch files applied; the
           # workspace `[patch]` table resolves them at patches/<crate>.
-          # See nix/patched-crates.nix. `privPatchedCrates` adds the
-          # private redacted-hal entry (empty on the public mirror); see
-          # nix/private.nix.
-          patchedCrates = import ./nix/patched-crates.nix { inherit pkgs; } // privPatchedCrates;
+          # See nix/patched-crates.nix.
+          patchedCrates = import ./nix/patched-crates.nix { inherit pkgs; };
 
           # Cleaned source trees for the crane builds. See nix/source.nix.
           sources = import ./nix/source.nix {
