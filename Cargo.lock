@@ -2779,7 +2779,7 @@ dependencies = [
 [[package]]
 name = "redacted-hal"
 version = "0.3.0"
-source = "git+ssh://git@gitlab.ii.zone/bos/ubos/redacted.git?branch=master#085ec0630da76fb1a90c57088fcf8192d01eada9"
+source = "git+ssh://git@gitlab.ii.zone/bos/ubos/redacted.git?branch=master#49e075c21ab6f8650dd8b90e528194a348a44a56"
 dependencies = [
  "bitflags 2.11.0",
  "critical-section",
@@ -2800,7 +2800,7 @@ dependencies = [
 [[package]]
 name = "redacted-pac"
 version = "0.3.0"
-source = "git+ssh://git@gitlab.ii.zone/bos/ubos/redacted.git?branch=master#085ec0630da76fb1a90c57088fcf8192d01eada9"
+source = "git+ssh://git@gitlab.ii.zone/bos/ubos/redacted.git?branch=master#49e075c21ab6f8650dd8b90e528194a348a44a56"
 dependencies = [
  "critical-section",
  "svd2rust",
