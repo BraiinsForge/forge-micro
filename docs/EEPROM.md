@@ -108,8 +108,9 @@ pub trait HashboardEeprom {
 `log_identity` is a provided method: the whole read/parse/log boot path
 lives once on the trait, so each board contributes only its bus handle
 instead of carrying a per-firmware copy. It logs through the
-`ubos-logging` facade, because the redacted builds its `ubos-*` crates on
-the `log` backend while every other board uses `defmt`. The numeric
+`ubos-logging` facade, because not every platform builds its `ubos-*`
+crates on the same logging backend: some use `log`, the rest `defmt`.
+The numeric
 fields are logged alongside the identity strings deliberately: the CRC
 validates bytes, not semantics, so a byte-order mistake would parse
 cleanly and only a human reading the values catches it.
