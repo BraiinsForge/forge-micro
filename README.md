@@ -1,9 +1,12 @@
 # ubos-main
 
-Bare-metal Rust Ethernet across six boards. Each serves a small HTTP
+Bare-metal Rust miner firmware. The published board is the Braiins
+Forge Miner x4 (`firmware/hashnode`), an RP2350B driving a 4-chip
+BM1370 hashboard over Ethernet. Each board serves a small HTTP
 dashboard that polls `/api/info` and renders uptime, DHCP-assigned IP,
-current hashrate from the on-board BM1362 ASIC via the `ubos-mining` driver, on-board
-temperature, fan speed and PWM duty, and UTC time via NTP.
+current hashrate from the on-board BM13xx ASIC via the `ubos-mining`
+driver, on-board temperature, fan speed and PWM duty, and UTC time via
+NTP.
 
 ## Start here
 
@@ -11,7 +14,7 @@ Docs live in `docs/`:
 
 - `docs/OVERVIEW.md` -- workspace map, board table, firmware architecture
 - `docs/SETUP.md` -- probes, wiring, pinouts, building and flashing
-- `docs/MINING.md` -- BM1362 hashboard backend on the BMM Adapter
+- `docs/MINING.md` -- BM1370 hashboard backend: chip serial, PSU, tuning
 - `docs/METRICS.md` -- Prometheus exposition, CPU-busy ratio model
 - `docs/TESTING.md` -- layered test architecture and coverage strategy
 - `docs/DEBUGGING.md` -- probe-rs, binary size, stack analysis

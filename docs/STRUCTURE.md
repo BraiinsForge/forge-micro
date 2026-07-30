@@ -16,18 +16,15 @@ and which authoritative references it is based on.
 ├── Cargo.lock
 ├── .cargo/config.toml      workspace-wide cargo config and env
 ├── flake.nix flake.lock    flake entry point: inputs, wiring, outputs
-├── nix/                    flake modules: toolchains, esp, source,
-│                           deps, crate graph, checks, images,
-│                           devshells, ci staging, guards, probe-rs,
-│                           kicad, redacted, lib helpers
+├── nix/                    flake modules: toolchains, source, deps,
+│                           crate graph, checks, images, devshells,
+│                           guards, probe-rs, lib helpers
 ├── README.md               entry point, quick-start commands
 ├── CLAUDE.md               agent instructions, build conventions
 ├── docs/                   architecture, plans, this file
 ├── ubos/                   no_std library crates (firmware framework + drivers)
 ├── host/                   std library crates and host-side binaries
 ├── firmware/               per-target firmware binaries
-├── nuc/                    NixOS configuration for the support host
-├── pcb/                    KiCad hardware sources
 ├── patches/                upstream patch files applied at build time
 └── micro-sv2/              nested workspace: vendored SV2 library
 ```
@@ -47,7 +44,7 @@ gives the framework's table of contents.
 |-------------|--------------------------------------------|
 | `ubos-`     | core firmware framework                    |
 | `ubos-mining`, `mining-protocol`, `stratum-*` | mining domain    |
-| `esp32s3-`, `rp235x-`, `serial-`      | hardware-specific drivers |
+| `rp235x-`, `serial-`      | hardware-specific drivers |
 
 The firmware framework is split along domain lines. `ubos-core`,
 `ubos-logging`, and `ubos-config` are leaf crates with no
@@ -93,7 +90,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-logging`     | `defmt`/`log` macro facade                         |
 | `ubos-thermal`     | sensor poll, `ThermalHandle` publisher, thermal guard |
 | `ubos-cooling`     | fan PID controller and `FanOutput` HAL trait        |
-| `ubos-mining`      | BM1362 chip-serial actor, miner state machine, `MiningHandle` |
+| `ubos-mining`      | BM13xx chip-serial actor, miner state machine, `MiningHandle` |
 | `ubos-psu`         | async PSU driver over I2C                          |
 | `ubos-temperature` | temperature sampling and LM75A driver              |
 | `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner |
@@ -122,17 +119,13 @@ inside the crate directory so the per-crate config is picked up.
 
 ```
 firmware/
-├── bmm-pico/      thumbv8m.main-none-eabihf  (RP2350)
-├── rp2040/        thumbv6m-none-eabi         (RP2040)
-├── rp2350/        thumbv8m.main-none-eabihf  (RP2350)
-├── hashnode/      thumbv8m.main-none-eabihf  (RP2350B)
-├── stm32f407/     thumbv7em-none-eabihf      (STM32F407)
-├── stm32f439/     thumbv7em-none-eabihf      (STM32F439)
-└── esp32s3/       xtensa-esp32s3-none-elf    (ESP32-S3)
+└── hashnode/      thumbv8m.main-none-eabihf  (RP2350B)
 ```
 
 Firmware crate names are the board name, unprefixed. The directory
-above the crate (`firmware/`) is the disambiguator.
+above the crate (`firmware/`) is the disambiguator. The crates for
+the boards developed in the private tree are enumerated in
+`docs/BOARDS.md` there.
 
 ## `patches/` — upstream patches
 
@@ -147,8 +140,6 @@ files; the repo carries only the patches, never a vendored crate tree.
   dev shells symlink that tree into the working tree and
   `nix/source.nix` copies it into the check sources; the path itself is
   git-ignored. See `nix/patched-crates.nix`.
-- `probe-rs-redacted/` holds the ordered redacted patch series applied to the
-  pinned upstream probe-rs by `nix/probe-rs.nix`.
 
 ## `micro-sv2/` — vendored SV2 library
 
@@ -159,18 +150,6 @@ umbrella crate `ii-sv2` plus `ii-sv2-crypto`, `ii-sv2-framing`,
 listed in the root workspace's `[workspace].exclude`. The root workspace
 consumes it as an ordinary path dependency, `ii-sv2 = { path =
 "micro-sv2/ii-sv2" }`, rather than as a member.
-
-## `nuc/` — NixOS host configuration
-
-Configuration for the support host (Raspberry Pi 4 today; the name
-reflects the role, not the hardware). Owns systemd units, networking,
-monitoring stack, and any host-specific Nix packages under `pkgs/`.
-Renamed from `redacted/` because the hardware is no longer a constraint
-of the role.
-
-## `pcb/` — hardware sources
-
-KiCad projects only. ERC and DRC are gated by flake `checks`.
 
 ## `docs/` — long-form documentation
 
@@ -213,22 +192,20 @@ reproduce with the `cargo size` recipe below.
 
 | Board     | Flash     | Main RAM   | CCM RAM      | Headroom note                                  |
 |-----------|-----------|------------|--------------|------------------------------------------------|
-| bmm-pico  | 537 / 2048 KiB | 356 / 512 KiB (70%) | —   | comfortable                                    |
-| rp2040    | 558 / 2048 KiB | 211 / 256 KiB (83%) | —   | tightening; ~45 KiB free                       |
-| rp2350    | 539 / 2048 KiB | 357 / 512 KiB (70%) | —   | comfortable                                    |
 | hashnode  | 515 / 2048 KiB | 357 / 512 KiB (70%) | —   | comfortable                                    |
-| stm32f407 | 582 / 1024 KiB | 125 / 128 KiB (98%) | 13 / 64 KiB CCM | at the limit: ~2.7 KiB stack headroom; runs a single pool slot (`POOL_SLOTS = 1`); any new static must go to CCM, and CCM-relocating COMMAND_CHANNEL / METRICS / mDNS UDP_BUFFERS (~15 KiB) is the queued relief |
-| stm32f439 | 582 / 2048 KiB | 156 / 192 KiB (81%) | 13 / 64 KiB CCM | OK; ~36 KiB free                           |
-| esp32s3   | 787 / 8192 KiB | 280 / 320 KiB DRAM (88%) | — | watch; ~40 KiB DRAM free                   |
 
-The stm32f4 firmwares ship per-board `memory.x` declaring the 64 KiB
-Core-Coupled Memory region embassy-stm32 leaves unused. `ubos-metrics`,
-`ubos-auth`, `ubos-api`, and `ubos-webui` expose a `ccmram-bss` cargo
-feature that places non-DMA static state (metric map, HTTP scratch
-buffers, credential / session / CSRF / CSPRNG tables) in
-`.ccmram.bss`. Only stm32f407 and stm32f439 enable the feature; on
-every other board the `link_section` annotations are no-ops. New
-CCM-eligible statics should carry:
+The rows for the boards developed in the private tree live in
+`docs/BOARDS.md` there.
+
+`ubos-metrics`, `ubos-auth`, `ubos-api`, and `ubos-webui` expose a
+`ccmram-bss` cargo feature that places non-DMA static state (metric
+map, HTTP scratch buffers, credential / session / CSRF / CSPRNG
+tables) in a `.ccmram.bss` section, for boards whose MCU carries a
+Core-Coupled Memory region the linker otherwise leaves unused. No
+board in this tree enables the feature, so the `link_section`
+annotations are no-ops here; the boards that do, and their per-board
+`memory.x`, are developed in the private tree (see `docs/BOARDS.md`
+there). New CCM-eligible statics should still carry:
 
 ```rust
 #[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
@@ -238,9 +215,6 @@ Reproduce with:
 
 ```sh
 nix develop .#arm -c bash -c 'cd firmware/<board> && cargo build --release && cargo size --release -- -A'
-nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo build --release'
-nix develop .#esp -c bash -c 'cd firmware/esp32s3 && xtensa-esp-elf-size -A \
-  target/xtensa-esp32s3-none-elf/release/esp32s3'
 ```
 
 ## Rationale
@@ -333,7 +307,8 @@ here.
 The reorganization landed across a sequence of atomic commits, each
 keeping `cargo check` green for every affected crate:
 
-1. `redacted/` → `nuc/` (independent rename).
+1. The support-host tree takes its role-based `nuc/` name
+   (independent rename).
 2. `firmware/embassy-net-wiznet-patch/` → `patches/embassy-net-wiznet/`
    with the `[patch.crates-io]` path updated.
 3. Every existing `no_std` library crate moves from the workspace

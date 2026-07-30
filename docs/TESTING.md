@@ -119,22 +119,15 @@ peripheral singleton, it belongs in a host-testable crate or helper.
 Firmware crates need compile coverage, feature coverage, and binary-size
 visibility. They do not need host unit tests for every HAL call.
 
-Run each board in the correct Nix devshell:
-
-- `firmware/rp2040`
-- `firmware/rp2350`
-- `firmware/bmm-pico`
-- `firmware/stm32f407`
-- `firmware/stm32f439`
-- `firmware/esp32s3`
+Run each board in the correct Nix devshell. The published tree covers
+`firmware/hashnode`; the further boards are developed in the private tree,
+where their matrix lives in `docs/BOARDS.md`.
 
 For each board, check the default feature set. The gate should catch
 target dependency drift, linker-script failures, accidental feature coupling,
 and oversized binaries before hardware testing.
 
-The flake exposes this as `build-<board>` for the default feature set. The
-ESP32-S3 entry uses the same naming pattern with the Xtensa toolchain
-derivation.
+The flake exposes this as `build-<board>` for the default feature set.
 
 Run this layer through the aggregate flake check:
 

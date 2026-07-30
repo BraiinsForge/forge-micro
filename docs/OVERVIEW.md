@@ -1,6 +1,6 @@
 # Overview
 
-`ubos-main` is a bare-metal Rust Ethernet workspace spanning six firmware
+`ubos-main` is a bare-metal Rust Ethernet workspace: per-board firmware
 crates, the libraries that back them, and a host-side runner that mirrors
 the firmware tasks against a Linux network device.
 
@@ -8,12 +8,10 @@ the firmware tasks against a Linux network device.
 
 | Crate | MCU | Ethernet | Target |
 |-------|-----|----------|--------|
-| `firmware/rp2040` | RP2040 | W5500 (SPI) | `thumbv6m-none-eabi` |
-| `firmware/rp2350` | RP2350A | W6100 (SPI) | `thumbv8m.main-none-eabihf` |
-| `firmware/bmm-pico` | RP2350A (BMM Adapter) | W5500 (SPI) | `thumbv8m.main-none-eabihf` |
-| `firmware/stm32f407` | STM32F407VGT6 | LAN8720 (RMII, WT32-ETH01 cannibalized) | `thumbv7em-none-eabihf` |
-| `firmware/stm32f439` | STM32F439ZIT6 | LAN8742A (RMII, onboard) | `thumbv7em-none-eabihf` |
-| `firmware/esp32s3` | ESP32-S3 | W5100S (SPI) | `xtensa-esp32s3-none-elf` |
+| `firmware/hashnode` | RP2350B (Braiins Forge Miner x4) | W5500 (SPI) | `thumbv8m.main-none-eabihf` |
+
+Further boards are developed in the private tree; their table lives in
+`docs/BOARDS.md` there.
 
 ## Firmware architecture
 
@@ -29,11 +27,11 @@ that point every board runs the same above-the-link-layer tasks:
 
 The link-layer differs by board:
 
-- WIZnet boards (rp2040, rp2350, bmm-pico, esp32s3) use `embassy-net-wiznet`
+- WIZnet boards, the hashnode among them, use `embassy-net-wiznet`
   in MACRAW mode so smoltcp owns the full TCP/IP stack. One code path covers
   W5500/W5100S/W6100.
-- STM32 boards use the on-chip RMII MAC via `embassy-stm32::eth` with a
-  LAN8720 (F407) or LAN8742A (F439) PHY.
+- STM32 boards in the private tree use the on-chip RMII MAC via
+  `embassy-stm32::eth`; their PHY wiring is in `docs/BOARDS.md` there.
 
 The HTTP response is hand-rolled into caller-owned buffers because the
 firmware serves a single metrics page and does not justify a full web
@@ -51,12 +49,12 @@ left blank.
 
 ## Mining backend
 
-Every board drives a real BM1362 hashboard via the `ubos-mining` crate. The
+Every board drives a real BM13xx hashboard via the `ubos-mining` crate. The
 ubos-mining backend pushes shares into the `stratum-client::AsicSession`
 solution channel that the V1 and V2 client tasks drain. Hashes accumulated
 by the backend feed `ubos_metrics::hashrate` for the EWMA-smoothed rate the
 Prometheus endpoint and display surface. The ubos-mining backend ties together
-the BM1362 chip-serial actor, the BMM101 PSU driver, and a runtime
+the BM13xx chip-serial actor, the board's PSU driver, and a runtime
 baud-rate switch; see [MINING.md](MINING.md).
 
 ## Workspace crates
@@ -92,20 +90,18 @@ baud-rate switch; see [MINING.md](MINING.md).
 - `ubos/stratum-client/` -- shared work-generator task, `JobRing`,
   `WorkRing`, and `AsicSession` ASIC abstraction; generic over the
   protocol adapter.
-- `ubos/ubos-mining/` -- BM1362 chip driver: frame layouts, parser, miner
+- `ubos/ubos-mining/` -- BM13xx chip driver: frame layouts, parser, miner
   state machine, and the single-task chip-serial actor.
 
 ### Hardware drivers
 
 - `ubos/rp235x-sha256/` -- polled driver for the RP2350 SHA-256 accelerator.
-- `ubos/esp32s3-tsens/` -- ESP32-S3 internal temperature sensor (esp-hal
-  1.0.0 does not expose it).
 - `ubos/ubos-eeprom/` -- hashboard identity EEPROM wire format and read
   path; generic over `embedded-hal-async::i2c`.
 - `ubos/ubos-psu/` -- async PSU driver for the BMM101 miniminer hashboard
   plus the INA230 current monitor; generic over `embedded-hal-async::i2c`.
-- `ubos/ubos-temperature/` -- LM75A / esp32s3-tsens temperature sensor
-  abstraction.
+- `ubos/ubos-temperature/` -- temperature sensor abstraction and the
+  LM75A driver.
 - `ubos/serial-baudrate/` -- `BaudRate` trait, orthogonal to `embedded-io`,
   for runtime baud switching from a `&self` receiver.
 
@@ -124,5 +120,3 @@ baud-rate switch; see [MINING.md](MINING.md).
   Linux `/dev/i2c-N` via `I2C_RDWR` ioctls.
 - `host/ubos-main-host/` -- integration harness wiring the firmware
   tasks to the host-runner transport.
-- `nuc/` -- NixOS host configuration for the bench NUC and an HTTP
-  load generator under `pkgs/load-test/`.

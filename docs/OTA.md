@@ -1,6 +1,6 @@
 # OTA Firmware Update
 
-The rp2350, rp2040, bmm-pico, and esp32s3 boards support over-the-network
+Boards with an OTA backend — the hashnode among them — support over-the-network
 firmware updates via the REST API. An image is uploaded in 4 KiB chunks, written
 to a staging slot, and activated on the next boot. If the new image does not
 confirm itself, the bootloader automatically reverts to the previous image on
@@ -10,10 +10,11 @@ The upload flow, WebUI behaviour, CSRF handling, session lifecycle, and HTTP
 diagnostics are board-agnostic and described once below. The flash mechanism is
 board-specific and lives behind the `ubos_ota::OtaBackend` trait: the RP boards
 use an `embassy-boot` swap bootloader (the sections immediately following), and
-the esp32s3 uses the ESP-IDF bootloader's `otadata` two-slot scheme (see
-[ESP32-S3](#esp32-s3)). The board-agnostic `ubos_ota::OtaEngine` drives either
-backend and implements `ubos_api::OtaTarget`, so the REST and WebUI layers never
-know which board they are talking to.
+`ubos-ota`'s `esp` feature carries a second backend over the ESP-IDF
+bootloader's `otadata` two-slot scheme, documented with the private boards
+(`docs/BOARDS.md` in the private tree). The board-agnostic `ubos_ota::OtaEngine`
+drives either backend and implements `ubos_api::OtaTarget`, so the REST and
+WebUI layers never know which board they are talking to.
 
 ## Flash layout
 
@@ -30,7 +31,7 @@ The 2 MiB QSPI flash is partitioned as follows (XIP-mapped addresses):
 `DFU` is 4 KiB larger than `ACTIVE` because embassy-boot requires one extra
 sector as swap scratch space. `DFU` ends exactly where `CONFIG` begins
 (`0x101FE000`), so no flash is wasted. The CONFIG range is defined in
-`firmware/rp2350/src/config.rs` as `Flash::CONFIG_RANGE = 0x001FE000..0x00200000`
+`firmware/hashnode/src/config.rs` as `Flash::CONFIG_RANGE = 0x001FE000..0x00200000`
 (offsets from flash base).
 
 ## Components
@@ -89,10 +90,11 @@ Required headers per request:
 The mid-stream ack is `{"ok":true,"next":<next_offset>}`. The final ack is
 `{"ok":true}` followed immediately by a board reset; the connection will drop.
 
-The one-chunk-at-a-time protocol exists because the W6100 Ethernet controller
-has a 4 KiB hardware RX buffer. Each flash write pauses both cores (the
-embassy-rp flash driver runs erase/program from RAM and gates XIP), so the W6100
-cannot be drained while the write is in progress. Sending data faster than one
+The one-chunk-at-a-time protocol exists because the WIZnet Ethernet controllers
+have small hardware RX buffers (4 KiB on the W6100). Each flash write pauses
+both cores (the embassy-rp flash driver runs erase/program from RAM and gates
+XIP), so the chip buffer cannot be drained while the write is in progress.
+Sending data faster than one
 sector per ack would overflow the chip buffer. The `OTA_DRAIN_DELAY_MS = 5 ms`
 pause after each write gives the network task time to drain the buffer, send
 ACKs, and reopen the TCP window.
@@ -295,7 +297,7 @@ ignored once SCRATCH0 is cleared.
 
 ## Build and dev loop
 
-The application crate (`firmware/rp2350`) has a single build variant.
+The application crate (`firmware/hashnode`) has a single build variant.
 `memory.x` sets `FLASH ORIGIN = 0x10021000`, which is the XIP address of the
 `ACTIVE` region. The same binary is used for both probe-rs flashing and OTA
 delivery.
@@ -305,8 +307,8 @@ compile time. When the variable is absent, `FIRMWARE_VERSION` defaults to `1`.
 The parse is done at compile time by a `const fn` so the value is baked into
 the binary.
 
-Slot-size gate: the flake's `build-rp2350`, `build-bmm-pico`, and `build-rp2040`
-derivations each run `arm-none-eabi-objcopy -O binary` on the release ELF and
+Slot-size gate: the flake's RP board build derivations, `build-hashnode`
+among them, each run `arm-none-eabi-objcopy -O binary` on the release ELF and
 reject images larger than `slotMaxBytes = 952 * 1024` (the ACTIVE slot size).
 
 Initial dev loop for a board that has never had the bootloader flashed:
@@ -317,7 +319,7 @@ probe-rs erase --chip RP235x
 probe-rs download --chip RP235x firmware/rp2350-bootloader/target/.../rp2350-bootloader.bin --base-address 0x10000000
 
 # Thereafter, flash the application at the ACTIVE offset.
-nix develop .#arm -c bash -c 'cd firmware/rp2350 && cargo run --release'
+nix develop .#arm -c bash -c 'cd firmware/hashnode && cargo run --release'
 ```
 
 `cargo run` flashes at the ACTIVE offset (`0x10021000`). A warm reset from
@@ -326,153 +328,14 @@ chains directly to `ACTIVE`. STATE must hold the confirmed boot magic before an
 OTA upload is accepted; `mark_booted` writes this on the first run after
 flashing.
 
-## ESP32-S3
-
-The esp32s3 reaches the same OTA behaviour through a different mechanism. There
-is no Rust second-stage bootloader for Xtensa (embassy-boot targets ARM and
-RISC-V only), so the swap and rollback live in the ESP-IDF C bootloader, and the
-firmware drives it through the `otadata` partition via `esp-bootloader-esp-idf`.
-The shared upload flow, WebUI, CSRF, session lifecycle, and `/api/info`
-diagnostics sections above apply unchanged; only the flash layout, bootloader,
-and per-board specifics below differ.
-
-### Flash layout
-
-The 8 MiB flash uses an ESP-IDF partition table (`firmware/esp32s3/partitions.csv`,
-flashed at `0x8000`):
-
-| Name      | Type | SubType | Offset     | Size   | Purpose |
-|-----------|------|---------|------------|--------|---------|
-| `otadata` | data | ota     | `0x9000`   | 8 KiB  | Selects the active app slot; two redundant copies |
-| `ota_0`   | app  | ota_0   | `0x10000`  | 3 MiB  | App slot A |
-| `ota_1`   | app  | ota_1   | `0x310000` | 3 MiB  | App slot B |
-| `config`  | data | `0x40`  | `0x610000` | 1.9 MiB| ubos-config store (uses the first 8 KiB) |
-
-There is no `factory` slot: an empty `otadata` boots `ota_0`. There is no `nvs`
-or `phy_init` partition because the board has no esp-wifi. The running image is
-~760 KiB, well under the 952 KiB OTA upload limit and a fraction of the 3 MiB
-slot. `config::Flash::CONFIG_RANGE` (`0x610000..0x612000`) must stay in sync with
-the `config` partition offset.
-
-Provisioning this table rewrites the flash layout, so a board carrying config
-from an earlier layout loses it and boots from defaults. This only happens
-during the one-time probe-rs provision below, not across an OTA update.
-
-### Bootloader
-
-The ESP-IDF second-stage bootloader is built by the `esp32s3-bootloader` flake
-package from the minimal stub project in `firmware/esp32s3-bootloader/`. Its only
-non-default setting is `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`: the bootloader
-that espflash and probe-rs bundle has rollback **disabled**, so the
-`PendingVerify` auto-revert would never fire. The build uses ESP-IDF from the
-`nixpkgs-esp-dev` flake input and is gated in CI by `build-esp32s3-bootloader`.
-
-### Backend and boot
-
-`EspBackend` (`ubos/ubos-ota/src/esp.rs`, feature `esp`) implements `OtaBackend`
-over `esp-bootloader-esp-idf`'s `OtaUpdater`:
-
-1. `write` streams chunks into the inactive slot. `esp-storage`'s `Storage::write`
-   does read-modify-erase-write per 4 KiB sector, so no per-sector updater dance
-   is needed (unlike the RP backend).
-2. `activate` flips `otadata` to the freshly written slot and marks it
-   `OtaImageState::New`. The rollback-enabled bootloader boots a `New` slot once
-   as `PendingVerify` and reverts on the next reset unless it is confirmed.
-3. `reboot` calls `esp_hal::system::software_reset()`.
-
-At boot, `ubos_ota::confirm_running` marks a `PendingVerify` slot `Valid`,
-cancelling the pending revert — the analogue of the RP `mark_booted`. A crash or
-hang before that call leaves the slot unconfirmed, so the next reset reverts to
-the previous slot.
-
-The single `esp-storage` flash driver is shared between the config store and the
-OTA writer through `ubos_ota::EspFlashMutex`; `multicore_auto_park` halts core 1
-around each flash op so a write never races the mining serial worker. The
-core-1 park that the engine performs before an upload still applies.
-
-### Build and flashing
-
-Build the OTA image (the esp-idf app image the upload endpoint expects):
-
-```sh
-UBOS_FW_VERSION=42 nix run --impure .#esp32s3-image   # -> build/esp32s3-v42.bin
-```
-
-`espflash save-image` produces the app-image format; the `esp32s3-image`
-package rejects an image over the 952 KiB upload limit.
-
-A fresh board needs the rollback bootloader and partition table flashed
-alongside the app; the plain `cargo run` runner does **not** pass the esp-idf
-flags, so it would flash the app on top of whatever bootloader is already
-present (espflash's default has rollback **disabled**). Provision in one shot
-with the idf flags — the `esp32s3-bootloader` package supplies the rollback
-bootloader and the partition table is `partitions.csv`:
-
-```sh
-bl="$(nix build --print-out-paths .#esp32s3-bootloader)/bootloader.bin"
-nix develop .#esp -c bash -c "cd firmware/esp32s3 && \
-  cargo build --release && \
-  probe-rs run --chip esp32s3 \
-    --idf-bootloader \"$bl\" \
-    --idf-partition-table partitions.csv \
-    --idf-target-app-partition ota_0 \
-    target/xtensa-esp32s3-none-elf/release/esp32s3"
-```
-
-Once provisioned, the bootloader and partition table persist, so the day-to-day
-dev loop reflashes only the app:
-
-```sh
-nix develop .#esp -c bash -c "cd firmware/esp32s3 && cargo run --release"
-```
-
-Day-to-day OTA needs no probe at all: upload `esp32s3-vN.bin` through the WebUI
-or `POST /api/system/OTA`.
-
-### ESP-specific diagnostics
-
-The esp32s3 has no reset-surviving scratch registers like the RP watchdog block,
-so the OTA breadcrumb is not recorded: `resetOtaActive` is always `false`,
-`resetOtaOffset` is `0`, and `resetWritePhase` is `"none"`. `resetReason` is
-still populated from the chip's reset reason. `hasPreviousImage` is `false` and
-`previousVersion` is `null` — rollback is bootloader-driven, not app-reported.
-The two-slot `otadata` scheme is self-healing: a reset mid-upload simply leaves
-`otadata` pointing at the old slot, so no breadcrumb is needed to recover.
-
-## Planned follow-up (next branch)
-
-The chunk-ack endpoint and the rp2350 firmware path described above are in
-place. One piece of the robust-upload story is deferred to a follow-up branch.
-
-### 1. End-to-end validation on rp2040 and bmm-pico
-
-This branch brings rp2040 and bmm-pico to flash-write parity with rp2350 — the
-core-1 park across `begin`/`write_chunk`/`finish`/`reboot_into_new` and an
-`abort()` that releases the park and resets `write_offset` (the property item 2
-relies on). What remains is hardware validation: only the rp2350 has been
-exercised through a full upload → swap → confirm → rollback cycle, and the other
-two boards need the same before they can be trusted for OTA.
-
-Reset diagnostics (the watchdog SCRATCH breadcrumb, reset reason, and write
-phase) are present on all three RP boards: rp2040, rp2350, and bmm-pico share
-the same custom `#[panic_handler]`, `record_panic_breadcrumb`, and
-`publish_reset_diag` path. What remains for rp2040 and bmm-pico is only the
-end-to-end hardware validation.
-
 ## Limits and not implemented
 
 - **No image signing.** Images are not signed or authenticated. Any client with
   network access and valid credentials can install any binary.
 - **No anti-rollback.** There is no monotonic version counter; older images can
   be installed freely.
-- **Validated on rp2350 only.** The rp2040 and bmm-pico firmware implement
-  `OtaTarget` with the same core-1 park and flash-write safety as the rp2350,
-  but the end-to-end OTA path has been validated only on the rp2350. See Planned
-  follow-up.
-- **esp32s3 not yet hardware-validated.** The esp32s3 OTA path (rollback
-  bootloader, partition table, `EspBackend`, firmware wiring) is code-complete
-  and gated in CI, but the upload → activate → rollback cycle has not yet been
-  run on hardware. Two interactions need on-board confirmation: the engine's
-  `ubos_mining` core-1 park composed with `esp-storage`'s `multicore_auto_park`
-  during a flash write, and whether the nix-built rollback bootloader reverts a
-  broken image as expected.
+- **Hardware validation is per board.** The full upload → swap → confirm →
+  rollback cycle has been validated end to end on one RP2350-class board;
+  the hashnode itself has not yet been exercised through the full cycle.
+  Per-board validation status is tracked with the private boards
+  (`docs/BOARDS.md` in the private tree).
