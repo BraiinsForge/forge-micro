@@ -207,6 +207,21 @@ rec {
           args+=("$arg")
         fi
       done
+      # $PROBE_SERIAL is the per-board probe selector the cargo run-N
+      # aliases set. The scripts/run.sh runners translate it to --probe
+      # themselves; crates whose runner invokes this wrapper directly get
+      # the translation here, inserted right after the subcommand so it
+      # never lands behind the ELF path or passthrough arguments. An
+      # explicit --probe wins.
+      if [ -n "''${PROBE_SERIAL:-}" ] && [ "''${#args[@]}" -gt 0 ]; then
+        has_probe=0
+        for arg in "''${args[@]}"; do
+          if [ "$arg" = "--probe" ]; then has_probe=1; fi
+        done
+        if [ "$has_probe" -eq 0 ]; then
+          args=("''${args[0]}" --probe "$PROBE_SERIAL" "''${args[@]:1}")
+        fi
+      fi
       # Default RUST_LOG=info so probe-rs surfaces session errors
       # to stderr instead of returning silently with exit 0 when a
       # CMSIS-DAP probe is wedged (probe-rs/probe-rs#1849).

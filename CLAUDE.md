@@ -21,18 +21,20 @@ nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo check'
 
 ## Flash + monitor
 
-Each firmware crate's `.cargo/config.toml` pins the probe serial,
-so `cargo run --release` flashes the right board without any
-`--probe` flag. Run from inside the crate directory.
+Each bench board's probe serial is pinned behind its crate's `run-1`
+alias (`run-N` on the multi-board crates), so `cargo run-1 --release`
+flashes the right board without any `--probe` flag; bare
+`cargo run --release` auto-selects and only works with a single
+attached probe. Run from inside the crate directory.
 
 ```sh
-nix develop .#arm -c bash -c 'cd firmware/bmm-pico  && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/rp2040    && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/rp2350    && cargo run --release'
+nix develop .#arm -c bash -c 'cd firmware/bmm-pico  && cargo run-1 --release'
+nix develop .#arm -c bash -c 'cd firmware/rp2040    && cargo run-1 --release'
+nix develop .#arm -c bash -c 'cd firmware/rp2350    && cargo run-1 --release'
 nix develop .#arm -c bash -c 'cd firmware/hashnode  && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/stm32f407 && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/stm32f439 && cargo run --release'
-nix develop .#esp -c bash -c 'cd firmware/esp32s3   && cargo run --release'
+nix develop .#arm -c bash -c 'cd firmware/stm32f407 && cargo run-1 --release'
+nix develop .#arm -c bash -c 'cd firmware/stm32f439 && cargo run-1 --release'
+nix develop .#esp -c bash -c 'cd firmware/esp32s3   && cargo run-1 --release'
 ```
 
 Every board drives a BM1362 hashboard via `ubos-mining` unconditionally,

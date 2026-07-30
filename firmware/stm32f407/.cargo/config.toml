@@ -2,7 +2,6 @@
 runner = [
   "probe-rs-runner", "run",
   "--chip", "STM32F407VGTx",
-  "--probe", "2e8a:000c:E6605481DB696536",
   "--log-format", "{t:>10} {f:<14} [{L}] {s}",
 ]
 
@@ -12,3 +11,10 @@ DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
 
 [build]
 target = "thumbv7em-none-eabihf"
+
+# Per-board alias in the bmm-pico run-N style: the bench board is slot 1
+# of this family and its Pico debugprobe is pinned by serial, so a probe
+# host carrying several probes cannot hand out a stranger. Bare
+# `cargo run` auto-selects and needs a single attached probe.
+[alias]
+run-1 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E6605481DB696536\""]
