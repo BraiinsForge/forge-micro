@@ -213,11 +213,12 @@ fn main() {
     // OUT_DIR is set by cargo for every build script invocation.
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("BUG: OUT_DIR unset by cargo"));
 
-    // src/common.css, src/common.js, and src/icons.svg are checked into
-    // the crate sources.
+    // src/common.css and src/common.js are checked into the crate sources.
+    // The third-party Carbon icon set lives under assets/, alongside its
+    // Apache-2.0 text in assets/LICENSE-CARBON.
     let common_css = fs::read_to_string("src/common.css").expect("BUG: read src/common.css");
     let common_js = fs::read_to_string("src/common.js").expect("BUG: read src/common.js");
-    let icons_svg = fs::read_to_string("src/icons.svg").expect("BUG: read src/icons.svg");
+    let icons_svg = fs::read_to_string("assets/icons.svg").expect("BUG: read assets/icons.svg");
 
     let build_rev = resolve_build_rev();
     let build_time = resolve_build_time();
@@ -243,7 +244,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/common.css");
     println!("cargo:rerun-if-changed=src/common.js");
-    println!("cargo:rerun-if-changed=src/icons.svg");
+    println!("cargo:rerun-if-changed=assets/icons.svg");
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_REV");
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_TIME");
 }

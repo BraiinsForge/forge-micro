@@ -87,7 +87,7 @@
 
 /* Status badge. Filled Carbon-style circle with a check or X cutout;
    the parent card class drives the colour through currentColor. The
-   shared symbol defs are spliced from src/icons.svg via the ICONS
+   shared symbol defs are spliced from assets/icons.svg via the ICONS
    marker and hidden by the .defs rule in common.css. */
 .dot {
   width: 14px;

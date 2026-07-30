@@ -116,7 +116,7 @@ nix flake check                        # everything
 
 ## Licensing
 
-The published mirror is GPL-3.0-or-later; see `LICENSE` and the README
+The published mirror is GPL-3.0-or-later; see `COPYING` and the README
 License section. Header conventions for new files:
 
 - First-party published sources (`.rs`, `.nix`, `.py`, `.js`, `.sh`,

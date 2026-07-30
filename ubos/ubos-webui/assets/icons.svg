@@ -1,4 +1,9 @@
-<!-- Shared SVG symbol library. build.rs splices this whole block in place of the ICONS marker in each HTML template, so both pages reach the same icons through use-href references and the Carbon path strings stay out of the page sources. New icons go here, not into the HTML files. Each symbol must keep its own viewBox so the consuming <use> element can stay attribute-free. -->
+<!-- Shared SVG symbol library. build.rs splices this whole block in place of the ICONS marker in each HTML template, so both pages reach the same icons through use-href references and the Carbon path strings stay out of the page sources. New icons go here, not into the HTML files. Each symbol must keep its own viewBox so the consuming <use> element can stay attribute-free.
+
+     The icon path data is from the IBM Carbon icon set,
+     https://github.com/carbon-design-system/icons, Copyright IBM Corp.,
+     licensed under the Apache License, Version 2.0. See LICENSE-CARBON
+     in this directory. -->
 <svg class="defs" aria-hidden="true">
   <symbol id="sok" viewBox="0 0 32 32"><path d="M16,2A14,14,0,1,0,30,16,14,14,0,0,0,16,2ZM14,21.5908l-5-5L10.5906,15,14,18.4092,21.41,11l1.5957,1.5859Z"/></symbol>
   <symbol id="serr" viewBox="0 0 32 32"><path d="M16,2C8.3,2,2,8.3,2,16s6.3,14,14,14s14-6.3,14-14S23.7,2,16,2z M21.4,23L16,17.6L10.6,23L9,21.4l5.4-5.4L9,10.6L10.6,9l5.4,5.4L21.4,9l1.6,1.6L17.6,16l5.4,5.4L21.4,23z"/></symbol>
