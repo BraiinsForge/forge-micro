@@ -59,7 +59,7 @@
     # our nixpkgs: it pins nixos-25.11 and builds as upstream tested.
     micro-sv2.url = "path:./micro-sv2";
 
-    # The redacted tooling (`kflash`, `openocd-redacted`) lives on private
+    # The redacted tooling (`openocd-redacted`) lives on private
     # gitlab.ii.zone and is consumed only by the stripped riscv dev shell,
     # so it is deliberately NOT a top-level flake input: those are fetched
     # eagerly on every eval, which would break `nix flake check` for public
