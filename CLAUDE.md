@@ -141,6 +141,12 @@ License section. Header conventions for new files:
 Which crates are stripped, and why `rp2350-bootloader` stays public, is
 documented at `stripPaths` and `HIDDEN_MEMBERS` in `publish/app.nix`.
 
+Code comments and commit messages never name internal prototypes,
+external miner projects, or chip datasheets — each mention is a legal
+surface, and commit messages survive the mirror strip. Doc comments
+describe behavior, not lineage; see the "No provenance mentions"
+section of `docs/redacted/PUBLISHING.md`.
+
 ## Working Style
 
 - Read existing code patterns before making changes
