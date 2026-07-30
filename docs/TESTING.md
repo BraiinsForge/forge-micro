@@ -62,10 +62,6 @@ Primary crates:
 - `ubos-temperature`
 - `ubos-thermal`
 
-Standalone host utilities:
-
-- `nuc/pkgs/load-test`
-
 This is the default pull-request gate. It should stay quick and deterministic,
 with no hardware, web bundler, network service, or probe dependency.
 

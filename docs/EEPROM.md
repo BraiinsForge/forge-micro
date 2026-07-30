@@ -42,17 +42,15 @@ Fixing this first kept the EEPROM work from naming the wrong board:
     `"BMM Adapter W5500"` → `"W5500-EVB-Pico2"`. There is no
     "bmm-pico" product — the real hardware is a genuine Wiznet
     W5500-EVB-Pico2 module mounted on Braiins' own "BMM Adapter"
-    carrier PCB (`pcb/bmm-adapter/`, whose schematic literally labels
-    the mounted module `W5500-EVB-Pico2`). This rename is scoped to
-    the `ubos-machine` Rust identifiers and display string only; the
-    `firmware/bmm-pico` crate directory/package name and its ~100
-    references across `flake.nix`/`CLAUDE.md`/docs (47 in `flake.nix`
-    alone) are left as-is — a larger, separate blast radius (release
-    artifact names, CI check names).
+    carrier PCB, whose schematic literally labels the mounted module
+    `W5500-EVB-Pico2`. This rename is scoped to the `ubos-machine`
+    Rust identifiers and display string only; the board crate
+    directory/package name and its many references across the flake,
+    `CLAUDE.md`, and docs are left as-is — a larger, separate blast
+    radius (release artifact names, CI check names).
   - `CONTROL_BOARD_ESP32S3.name`: `"ESP32-S3 W5100S"` →
     `"Waveshare ESP32-S3-LCD-Driver-Board W5100S"`, matching the real
-    hardware named in `firmware/esp32s3/src/main.rs`'s SPI-wiring
-    comment.
+    hardware named in that board's SPI-wiring comment.
   - `CONTROL_BOARD_RP2040` (`"W5500-EVB-Pico"`), STM32F407
     (`"DevEBox STM32F407 LAN8720"`), and STM32F439
     (`"Nucleo-F439ZI LAN8742A"`) were already accurate — no change.

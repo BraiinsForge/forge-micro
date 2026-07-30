@@ -9,8 +9,8 @@ MEMORY {
     FLASH_ZERO       : ORIGIN = 0x10000000, LENGTH = 0
 
     /* Partition layout — must match the bootloader's memory.x exactly.
-       hashnode reuses the rp2350-bootloader, so the regions are identical
-       to firmware/rp2350/memory.x. */
+       hashnode reuses the rp2350-bootloader, so the slot geometry
+       follows firmware/rp2350-bootloader/memory.x. */
     BOOTLOADER       : ORIGIN = 0x10000000, LENGTH = 128K
     BOOTLOADER_STATE : ORIGIN = 0x10020000, LENGTH = 4K
     /* ACTIVE is where this application binary lives. ACTIVE and DFU split

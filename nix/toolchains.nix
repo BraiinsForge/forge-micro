@@ -20,8 +20,8 @@
 # Rust toolchains and the crane instances built on them, one per
 # compilation universe: the ARM boards, the ESP32-S3 shell's host rust,
 # the redacted, the native host, and the BMM miniminer musl cross target.
-# The Xtensa build toolchain itself lives in nix/esp.nix; the
-# espRustToolchain here only equips the esp devshell with a host rustc
+# The Xtensa build toolchain itself lives in a private-tree nix module;
+# the espRustToolchain here only equips the esp devshell with a host rustc
 # and rust-analyzer while espup manages the Xtensa compiler.
 {
   pkgs,

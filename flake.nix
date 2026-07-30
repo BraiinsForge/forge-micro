@@ -245,9 +245,10 @@
           # flash is split into a 128 KiB bootloader, a 4 KiB state word, an
           # 8 KiB config store at the tail, and the remaining 1908 KiB shared
           # 50/50 between the ACTIVE and DFU slots (ACTIVE 952 KiB, DFU one
-          # page larger at 956 KiB; see firmware/rp2350/memory.x). rp2350 and
-          # bmm-pico reuse the rp2350-bootloader with this layout, and rp2040
-          # mirrors it, so an image over 952 KiB does not fit the slot.
+          # page larger at 956 KiB; see firmware/rp2350-bootloader/memory.x).
+          # rp2350 and bmm-pico reuse the rp2350-bootloader with this
+          # layout, and rp2040 mirrors it, so an image over 952 KiB does
+          # not fit the slot.
           # The kibibyte count is the source of truth. The ota-image-limit
           # check greps both source files for "<slotMaxKiB> * 1024" so a drift
           # in OTA_MAX_IMAGE_BYTES (ubos/ubos-api/src/system.rs) or
@@ -256,11 +257,11 @@
           slotMaxBytes = slotMaxKiB * 1024;
 
           # esp32s3 OTA app-slot budget. The 8 MiB flash is partitioned into
-          # two equal 3 MiB app slots (ota_0/ota_1; see
-          # firmware/esp32s3/partitions.csv), so the image the OTA endpoint
-          # writes into the inactive slot may be up to 3 MiB — larger than the
-          # RP ACTIVE budget. Keep in sync with Ota::MAX_IMAGE_BYTES in
-          # firmware/esp32s3/src/config.rs.
+          # two equal 3 MiB app slots (ota_0/ota_1 in the board's partition
+          # table), so the image the OTA endpoint writes into the inactive
+          # slot may be up to 3 MiB — larger than the RP ACTIVE budget. Keep
+          # in sync with the esp32s3 firmware's Ota::MAX_IMAGE_BYTES in the
+          # private tree.
           esp32s3SlotKiB = 3 * 1024;
           esp32s3SlotBytes = esp32s3SlotKiB * 1024;
 

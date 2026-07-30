@@ -1,8 +1,8 @@
 # Metrics
 
 Each firmware exposes a Prometheus text endpoint on
-`http://<board-ip>:<Metrics::PORT>/`. The bench NUC scrapes it from
-`nuc/`.
+`http://<board-ip>:<Metrics::PORT>/`. A Prometheus server scrapes it on
+an interval.
 
 ## Endpoint model
 
