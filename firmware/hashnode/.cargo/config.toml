@@ -10,7 +10,6 @@ runner = [
 # and config defaults now, not build-time env.
 [env]
 DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
-POOL_USER = "braiinstest.hashnode"
 
 [build]
 target = "thumbv8m.main-none-eabihf"
