@@ -51,6 +51,13 @@ let
     PROBE_RS_REMOTE_TOKEN = bench.probeRsToken;
   };
 
+  # Cargo runner shared by the private probe-rs boards (bmm-pico, rp2040,
+  # rp2350), packaged as a writeShellApplication so it self-lints and
+  # carries its probe-rs-runner PATH dep; each crate's .cargo/config.toml
+  # sets PROBE_RS_CHIP and points its runner at this binary. Bench-gated,
+  # so mirror evaluation never forces the stripped package path.
+  probeRsBoardRunner = pkgs.callPackage ../pkgs/probe-rs-board-runner { };
+
   # Public script packages, the same writeShellApplication/writePython3Bin
   # wrappers (self-linting, PATH deps baked). Kept on the mirror, so wired
   # unconditionally into their shells: the rp2350-bootloader cargo runner,
@@ -94,7 +101,10 @@ in
           # rp2350-bootloader's cargo runner; public, so ships on the mirror.
           rp2350BootloaderRunner
         ]
-        ++ pkgs.lib.optionals (bench != null) [ deployRsPackage ];
+        ++ pkgs.lib.optionals (bench != null) [
+          deployRsPackage
+          probeRsBoardRunner
+        ];
 
       RUST_ANALYZER_SERVER_PATH = "${rustToolchain}/bin/rust-analyzer";
 
