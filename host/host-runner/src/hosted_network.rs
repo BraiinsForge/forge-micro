@@ -100,7 +100,7 @@ mod imp {
 
     /// Open the link driver and return the matching `embassy_net` config.
     ///
-    /// The TAP path keeps its setup-network.sh-aligned static IP. The
+    /// The TAP path keeps its setup-network-aligned static IP. The
     /// `AF_PACKET` path runs DHCP because the real LAN it attaches to has
     /// its own server and the runner cannot know the subnet ahead of time.
     pub fn open_host_device() -> (HostDevice, Config) {

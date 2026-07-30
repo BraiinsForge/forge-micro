@@ -4,10 +4,10 @@ The ubos-main firmwares use the embassy net stack. To run them in Linux userspac
 you need a way to put raw packets onto the network. The transport is
 selected by target architecture:
 
-* `x86_64` (dev host) — TAP device, set up via `setup-network.sh`. No
+* `x86_64` (dev host) — TAP device, set up via `setup-network`. No
   root at runtime, default IP `192.168.69.2`.
 * `arm` (miniminer) — bridged networking via `AF_PACKET`. Requires
-  `CAP_NET_RAW` (run via the `runner.py` cargo runner, which `ssh`s as
+  `CAP_NET_RAW` (run via the `host-runner-run` cargo runner, which `ssh`s as
   root). Gets its IP from the LAN DHCP server.
 
 
@@ -17,20 +17,20 @@ selected by target architecture:
   builds and runs the TAP variant on x86_64.
 * `nix develop .#bmm` — cross-toolchain for the miniminer (BMM). Sets
   `CARGO_BUILD_TARGET=arm-unknown-linux-musleabi`, the matching linker,
-  and `CARGO_TARGET_..._RUNNER` pointing at `scripts/runner.py`. Plain
+  and `CARGO_TARGET_..._RUNNER` pointing at `host-runner-run`. Plain
   `cargo run -p host-runner` cross-builds, ships, and runs on the target.
 
 
 ## Host (TAP)
 
-`setup-network.sh` runs once per boot. It creates `tap0`, assigns the
+`setup-network` runs once per boot. It creates `tap0`, assigns the
 host-side IP, and installs the NAT + forward rules needed for outbound
 traffic from the embedded stack to reach the internet. Re-execs itself
 with `sudo` as needed.
 
 ```sh
-./setup-network.sh up     # create tap0 for your $USER, enable forward + NAT
-./setup-network.sh down   # remove rules, delete tap0
+setup-network up     # create tap0 for your $USER, enable forward + NAT
+setup-network down   # remove rules, delete tap0
 ```
 
 Env overrides: `TAP_NAME`, `HOST_PREFIX`, `HOST_SUBNET`.
@@ -68,8 +68,8 @@ curl http://192.168.69.2:8081/metrics
 ## BMM (miniminer, AF_PACKET)
 
 Set the target host (and optionally user/password) via env or via
-`scripts/runner.py` flags. The rest of the runner's knobs are flag-only;
-see `scripts/runner.py --help`.
+`host-runner-run` flags. The rest of the runner's knobs are flag-only;
+see `host-runner-run --help`.
 
 | Env var        | Flag         | Default |
 |----------------|--------------|---------|
@@ -83,9 +83,7 @@ BMM_HOST=10.x.x.x nix develop .#bmm -c env RUST_LOG=debug cargo run -p host-runn
 ```
 
 `RUST_LOG`, `RUST_BACKTRACE`, and any `INJECT_*` env vars are propagated
-to the remote process. The runner script is vendored from bos-main with
-beaglebone, bosminer test prep, tmux gateway, and similar branches
-trimmed; see `scripts/runner.py`.
+to the remote process; see `host-runner-run`.
 
 `AFPACKET_IF` (default `eth0`) selects the interface; `AFPACKET_MAC` sets
 a fixed MAC. Without `AFPACKET_MAC`, a stable synthetic MAC is derived

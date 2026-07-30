@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Copyright (C) 2026  Braiins Systems s.r.o.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -25,8 +24,6 @@ Copies the binary to a remote miniminer (or compatible OpenWrt target) via
 scp, runs it under a PTY, forwards the exit code, and cleans up. Always
 stops any running bosminer first to free the hash boards. OpenWrt's `lock`
 serializes concurrent runner invocations.
-
-Vendored and trimmed from bos-main's bosminer/scripts/runner.py.
 
 Configuration: pass --hostname/--user/--password on the command line, or
 via $BMM_HOST/$BMM_USER/$BMM_PASSWORD. The remaining options

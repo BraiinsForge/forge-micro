@@ -50,6 +50,16 @@ let
     PROBE_RS_REMOTE_HOST = bench.probeRsHost;
     PROBE_RS_REMOTE_TOKEN = bench.probeRsToken;
   };
+
+  # Public script packages, the same writeShellApplication/writePython3Bin
+  # wrappers (self-linting, PATH deps baked). Kept on the mirror, so wired
+  # unconditionally into their shells: the rp2350-bootloader cargo runner,
+  # the HTTP load tester, the host-runner TAP setup, and the host-runner
+  # cross-build cargo runner.
+  rp2350BootloaderRunner = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };
+  httpLoadTest = pkgs.callPackage ../pkgs/http-load-test { };
+  setupNetwork = pkgs.callPackage ../pkgs/setup-network { };
+  hostRunnerRun = pkgs.callPackage ../pkgs/host-runner-run { };
 in
 {
   arm = pkgs.mkShell (
@@ -81,6 +91,8 @@ in
           picotool
           # Automatic fixup commits for the documented fixup workflow.
           git-absorb
+          # rp2350-bootloader's cargo runner; public, so ships on the mirror.
+          rp2350BootloaderRunner
         ]
         ++ pkgs.lib.optionals (bench != null) [ deployRsPackage ];
 
@@ -128,6 +140,8 @@ in
       pkgs.esbuild
       # Unused-dependency lint, matching the cargo-machete check.
       pkgs.cargo-machete
+      # Brings up tap0 for the native host-runner path.
+      setupNetwork
     ];
 
     RUST_ANALYZER_SERVER_PATH = "${hostRustToolchain}/bin/rust-analyzer";
@@ -148,7 +162,9 @@ in
     buildInputs = [
       bmmRustToolchain
       bmmCc
-      pkgs.python3
+      # The host-runner cross-build cargo runner (bakes its own python);
+      # it ssh/scp/sshpass's the binary to the target and streams logs.
+      hostRunnerRun
       pkgs.openssh
       pkgs.sshpass
       # Used by ubos-webui's build.rs to minify the dashboard
@@ -158,22 +174,21 @@ in
 
     CARGO_BUILD_TARGET = "arm-unknown-linux-musleabi";
     CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
+    # cargo runs this on `cargo run`; a fixed store path, no longer a
+    # working-tree script, so it needs no $PWD resolution.
+    CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_RUNNER = pkgs.lib.getExe hostRunnerRun;
     RUST_ANALYZER_SERVER_PATH = "${bmmRustToolchain}/bin/rust-analyzer";
 
     inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
-    # Resolved at shell-entry time relative to the user's cwd, which
-    # by convention is the repository root, matching the existing
-    # arm/esp shells using $PWD for state directories.
     shellHook = ''
       ${linkPatchedCrates}
-      export CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_RUNNER="$PWD/host/host-runner/scripts/runner.py"
       echo "ubos-main dev environment ready (host-runner, BMM/miniminer cross)"
       echo ""
       echo "  cd host/host-runner && cargo build --release"
       echo "                         cargo run --release -- --hostname redacted50.1"
       echo ""
-      echo "See host/host-runner/scripts/runner.py --help for more flags."
+      echo "See host-runner-run --help for more flags."
       echo ""
       echo "For native host-runner: nix develop .#host"
     '';
@@ -185,6 +200,8 @@ in
       [
         picocom
         usbutils
+        # Drives concurrent HTTP load at a board's dashboard API.
+        httpLoadTest
       ]
       ++ pkgs.lib.optionals (bench != null) [ deployRsPackage ];
 
@@ -200,7 +217,7 @@ in
       echo "  nix develop .#host  — host-runner, native"
       echo "  nix develop .#bmm   — host-runner, BMM/miniminer cross"
       echo ""
-      echo "This default shell provides picocom and usbutils."
+      echo "This default shell provides picocom, usbutils, and http-load-test."
     ''
     + pkgs.lib.optionalString (bench != null) ''
       echo "deploy-rs is included for NUC deployment."

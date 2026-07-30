@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 # Copyright (C) 2026  Braiins Systems s.r.o.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -29,7 +28,6 @@
 # replacing them, so an alias that tried to set
 # target.<triple>.runner=[...] ended up concatenating its arg list
 # with the base runner's and feeding probe-rs two --chip flags.
-set -euo pipefail
 
 # `run` flashes + resets + attaches. The bootloader emits no defmt and
 # hands off to the ACTIVE app within milliseconds, so nothing streams;

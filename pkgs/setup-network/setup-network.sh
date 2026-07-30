@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 # Copyright (C) 2026  Braiins Systems s.r.o.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,15 +20,13 @@
 # One-shot TAP + NAT setup for host-runner.
 #
 # Usage:
-#   ./setup-network.sh up     create tap, assign IP, enable forward + NAT
-#   ./setup-network.sh down   remove rules, delete tap
+#   setup-network up     create tap, assign IP, enable forward + NAT
+#   setup-network down   remove rules, delete tap
 #
 # Override with env vars: TAP_NAME, HOST_PREFIX, HOST_SUBNET.
 #
 # Rules are idempotent: re-running `up` does not add duplicates. The script
 # re-execs itself with sudo when not run as root.
-
-set -euo pipefail
 
 TAP="${TAP_NAME:-tap0}"
 SUBNET="${HOST_SUBNET:-192.168.69.0/24}"

@@ -208,7 +208,7 @@ rec {
         fi
       done
       # $PROBE_SERIAL is the per-board probe selector the cargo run-N
-      # aliases set. The scripts/run.sh runners translate it to --probe
+      # aliases set. The board cargo runners translate it to --probe
       # themselves; crates whose runner invokes this wrapper directly get
       # the translation here, inserted right after the subcommand so it
       # never lands behind the ELF path or passthrough arguments. An

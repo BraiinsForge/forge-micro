@@ -172,14 +172,14 @@ Each supported MCU family should have at least one board in the smoke matrix.
 
 ### HTTP listener load test
 
-`scripts/http-load-test.sh` measures how many concurrent clients a board's
+`http-load-test` measures how many concurrent clients a board's
 HTTP listener serves cleanly. It drives `N` jittered pollers and sweeps the
 concurrency, reporting success rate and latency per level. Use it to verify
 a pool-depth change before merging and to populate the capacity numbers in
 `docs/HTTP_LISTENERS.md`.
 
 ```sh
-scripts/http-load-test.sh <board-ip> --max 8 --rounds 8 --jitter 0.8
+http-load-test <board-ip> --max 8 --rounds 8 --jitter 0.8
 ```
 
 ## Coverage reporting

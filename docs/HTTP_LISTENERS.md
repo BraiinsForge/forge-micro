@@ -130,7 +130,7 @@ Consequences:
 
 ## Measured on bmm-pico (RP2350)
 
-Using `scripts/http-load-test.sh` (see below), with clients desynchronized
+Using `http-load-test` (see below), with clients desynchronized
 by ±0.8 s of jitter:
 
 | `API_HTTP_POOL` | clean viewers (≥99%) | above the pool |
@@ -247,7 +247,7 @@ not shared:
 
 ## How to measure
 
-`scripts/http-load-test.sh` drives `N` independent clients, each polling one
+`http-load-test` drives `N` independent clients, each polling one
 endpoint on a jittered interval, and sweeps the concurrency from 1 to a
 ceiling, reporting success rate and latency per level. The jitter
 desynchronizes the clients so the result reflects real browsers rather than
@@ -255,7 +255,7 @@ a lockstep worst case.
 
 ```sh
 # Sweep 1..8 concurrent API pollers against a board, 8 polls each.
-scripts/http-load-test.sh redacted50.151 --max 8 --rounds 8 --jitter 0.8
+http-load-test redacted50.151 --max 8 --rounds 8 --jitter 0.8
 ```
 
 Defaults: `root:root` credentials, port 8080, path `/api/info`, 2 s poll

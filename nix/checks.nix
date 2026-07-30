@@ -829,4 +829,16 @@ hostClippyChecks
         find ${root} -name '*.nix' -print0 | xargs -0 nixfmt --check
         touch $out
       '';
+
+  # Script packages: the writeShellApplication/writePython3Bin wrappers
+  # under pkgs/ run shellcheck / pyflakes on their source at build time,
+  # so building each one is its own lint gate — no tree-wide shell sweep
+  # is needed, and a new package is gated the moment it is wired here.
+  # Only the public packages are gated in this shared set; the private
+  # board runners ride the private checks (nix/private-checks.nix) out
+  # with the boards they serve.
+  rp2350-bootloader-run = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };
+  http-load-test = pkgs.callPackage ../pkgs/http-load-test { };
+  setup-network = pkgs.callPackage ../pkgs/setup-network { };
+  host-runner-run = pkgs.callPackage ../pkgs/host-runner-run { };
 }

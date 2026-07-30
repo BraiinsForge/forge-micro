@@ -35,7 +35,7 @@
 //! the public Braiins endpoint with an empty user so the connection
 //! is rejected until the operator configures their worker.
 //!
-//! Host-side prerequisites (run once per boot): `./setup-network.sh up`
+//! Host-side prerequisites (run once per boot): `setup-network up`
 //! creates the TAP device and installs the NAT + forward rules. See
 //! `README.md` for the manual equivalents and for `AF_PACKET` caveats.
 
