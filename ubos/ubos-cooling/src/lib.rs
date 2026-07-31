@@ -140,6 +140,42 @@ impl Handle {
     }
 }
 
+/// Fold a published cooling config into the controller.
+///
+/// A gains change rebuilds it: the integral accumulated under the old gains
+/// describes a fan this controller was not driving. Anything else only moves
+/// the setpoint, which is idempotent, so it needs no comparison of its own.
+///
+/// The config watch publishes on any config change, so an unchanged cooling
+/// section returns before logging and leaves an unrelated update silent here.
+fn refresh_control(control: &mut TempControl, old: &CoolingConfig, new: &CoolingConfig) {
+    if new == old {
+        return;
+    }
+    let rebuild = new.pid != old.pid;
+    if rebuild {
+        control.reconfigure(new);
+    } else {
+        control.set_target(new.target_temp_c);
+    }
+    log_cooling("cooling: updated", new);
+}
+
+/// Log the whole cooling state on one line. Printing the resulting state
+/// rather than naming the field that moved keeps the call sites free of the
+/// branching a per-field message would need, and answers the question an
+/// operator reading the log actually has.
+fn log_cooling(prefix: &str, config: &CoolingConfig) {
+    info!(
+        "{} (mode={}, target={}°C, floor={}%, fixed={}%)",
+        prefix,
+        config.mode.as_str(),
+        config.target_temp_c,
+        config.pid.min_fan_pwm,
+        config.fixed_fan_pwm
+    );
+}
+
 /// Cadence at which the cooling loop wakes independently of the thermal
 /// subsystem: it reads the tachometer, republishes telemetry so the
 /// display and metrics stay fresh while thermal is quiet, and enforces the
@@ -274,10 +310,7 @@ where
     // stopped fan by construction, held until the first reading.
     let mut last_pwm = FanPwm::from_percent(config.pid.min_fan_pwm);
     emit_state(&mut fan, last_pwm, &last_rpms, &tach_labels).await;
-    info!(
-        "cooling: started (target={}°C, floor={}%)",
-        config.target_temp_c, config.pid.min_fan_pwm
-    );
+    log_cooling("cooling: started", &config);
 
     let mut subscription = thermal.subscribe();
     let mut ticker = Ticker::every(CONTROL_INTERVAL);
@@ -291,16 +324,7 @@ where
 
         if let Some(updated) = config_subscription.try_changed() {
             let new_cooling = updated.cooling;
-            if new_cooling.pid != config.pid {
-                control.reconfigure(&new_cooling);
-                info!(
-                    "cooling: PID reset on gains update (target={}°C)",
-                    new_cooling.target_temp_c
-                );
-            } else if new_cooling.target_temp_c.to_bits() != config.target_temp_c.to_bits() {
-                control.set_target(new_cooling.target_temp_c);
-                info!("cooling: target updated to {}°C", new_cooling.target_temp_c);
-            }
+            refresh_control(&mut control, &config, &new_cooling);
             config = new_cooling;
             stale = stale_timeout(updated.thermal.sample_interval_ms);
         }
