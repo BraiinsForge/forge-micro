@@ -19,10 +19,10 @@
 
 # Rust toolchains and the crane instances built on them, one per
 # compilation universe: the ARM boards, the ESP32-S3 shell's host rust,
-# the redacted, the native host, and the BMM miniminer musl cross target.
-# The Xtensa build toolchain itself lives in a private-tree nix module;
-# the espRustToolchain here only equips the esp devshell with a host rustc
-# and rust-analyzer while espup manages the Xtensa compiler.
+# the native host, and the BMM miniminer musl cross target. The Xtensa
+# build toolchain itself lives in nix/esp.nix; the espRustToolchain here
+# only equips the esp devshell with a host rustc and rust-analyzer while
+# espup manages the Xtensa compiler.
 {
   pkgs,
   nixpkgs,
@@ -68,19 +68,6 @@ rec {
     ];
   };
 
-  # redacted redacted, dual-core RV64GC. Targets the tier-2
-  # `riscv64gc-unknown-none-elf` triple, which ships a prebuilt rust-std,
-  # so it needs no `build-std`; `rust-src` is kept for rust-analyzer.
-  riscvRustToolchain = pkgs.rust-bin.stable.latest.default.override {
-    extensions = [
-      "rust-src"
-      "rust-analyzer"
-      "rustfmt"
-      "llvm-tools"
-    ];
-    targets = [ "riscv64gc-unknown-none-elf" ];
-  };
-
   hostRustToolchain = pkgs.rust-bin.stable.latest.default.override {
     extensions = [
       "rust-src"
@@ -106,39 +93,4 @@ rec {
 
   bmmCraneLib = (crane.mkLib pkgs).overrideToolchain bmmRustToolchain;
 
-  # redacted redacted, RV64GC. Shared by the redacted-rtt and riscv board checks.
-  # Their C-dep needs differ: redacted-rtt and the riscv board firmware that
-  # does not depend on ubos-firmware are C-free, while the riscv board
-  # firmware that does pulls secp256k1-sys via ii-sv2, so its check
-  # derivations pass the cross GCC below, see `riscvCc`/`riscvCflags`.
-  riscvCraneLib = (crane.mkLib pkgs).overrideToolchain riscvRustToolchain;
-
-  # Bare-metal riscv64 GCC. Pulled into the private redacted-rtt / riscv board
-  # check closure purely for its bundled `riscv64-none-elf-ld`; see
-  # `riscvDefmtRustflags`. The redacted-rtt crate has no C deps, so there it is
-  # only the linker. The riscv board firmware does have C deps —
-  # secp256k1-sys via ii-sv2, pulled in through ubos-firmware — so for it
-  # this is also a real C cross-compiler; see `riscvCc`/`riscvCflags`.
-  riscvGcc = pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc;
-
-  riscvCc = "${riscvGcc}/bin/riscv64-none-elf-gcc";
-
-  # riscv64 gdb for manual JTAG debug of the riscv board via openocd.
-  riscvGdb = pkgs.pkgsCross.riscv64-embedded.buildPackages.gdb;
-
-  # C objects must match the Rust riscv64gc-unknown-none-elf ABI (rv64gc,
-  # hard double-float lp64d) or the linker rejects them; medany is required
-  # because the app runs from SRAM at 0x80000000 and secp256k1's large tables
-  # overflow R_RISCV_HI20 under the default medlow. Pinned for cc.
-  riscvCflags = "-march=rv64gc -mabi=lp64d -mcmodel=medany";
-
-  # redacted-rtt builds with defmt, whose `.defmt` symbol table lives in a
-  # non-`SHF_ALLOC` section flagged `INFO` with no real load address.
-  # rust-lld mishandles `R_RISCV_PCREL_HI20` relocations against it,
-  # computing the auipc displacement as if it were a nearby real symbol
-  # and clamping to a signed 20-bit range instead of the actual 32-bit
-  # auipc+lo12 reach. A consuming firmware build carries the same flags in
-  # its .cargo/config.toml. `riscvGcc` supplies the real
-  # `riscv64-none-elf-ld` these resolve to.
-  riscvDefmtRustflags = "-C panic=abort -C linker=riscv64-none-elf-ld -C linker-flavor=ld";
 }

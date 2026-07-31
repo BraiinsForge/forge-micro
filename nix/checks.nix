@@ -42,7 +42,6 @@
   pkgs,
   src,
   srcFor,
-  loadTestSrc,
   deps,
   craneLib,
   bmmCraneLib,
@@ -560,32 +559,6 @@ let
     };
   };
 
-  # Bench load-test crate checks. The crate ships with the nuc/ tree,
-  # which the publish strip removes, so loadTestSrc is null on the
-  # public mirror and these merge in only when it is present.
-  loadTestChecks = {
-    clippy-load-test = craneLib.cargoClippy {
-      src = loadTestSrc;
-      cargoArtifacts = deps.loadTestArtifacts;
-      cargoClippyExtraArgs = "-- -D warnings";
-      doInstallCargoArtifacts = false;
-      strictDeps = true;
-    };
-
-    fmt-load-test = craneLib.cargoFmt {
-      src = loadTestSrc;
-      doInstallCargoArtifacts = false;
-    };
-
-    test-load-test = craneLib.cargoTest {
-      src = loadTestSrc;
-      cargoArtifacts = deps.loadTestArtifactsDev;
-      CARGO_PROFILE = "";
-      strictDeps = true;
-      doInstallCargoArtifacts = false;
-    };
-  };
-
 in
 hostClippyChecks
 // hostTestChecks
@@ -593,7 +566,6 @@ hostClippyChecks
 // lib.optionalAttrs (hasCrate "rp2350-bootloader") rp2350BootloaderChecks
 // lib.optionalAttrs (hasCrate "rp2040-bootloader") rp2040BootloaderChecks
 // lib.optionalAttrs (hasCrate "esp32s3") espChecks
-// lib.optionalAttrs (loadTestSrc != null) loadTestChecks
 // rec {
   clippy-rp235x-sha256 = craneLib.cargoClippy {
     src = srcFor [ "rp235x-sha256" ];
@@ -687,9 +659,7 @@ hostClippyChecks
     in
     pkgs.runCommand "ubos-main-fast-host-tests"
       {
-        nativeBuildInputs =
-          builtins.attrValues fastTests
-          ++ lib.optionals (loadTestSrc != null) [ loadTestChecks.test-load-test ];
+        nativeBuildInputs = builtins.attrValues fastTests;
       }
       ''
         mkdir -p "$out"

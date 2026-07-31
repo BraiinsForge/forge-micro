@@ -17,8 +17,7 @@
 # to this program, or any part thereof, under any terms, and such a grant
 # shall be considered distinct from the grant above.
 
-# Cleaned source trees for the crane builds: the embedded workspace
-# and the out-of-tree load-test crate.
+# Cleaned source trees for the crane builds.
 #
 # `src` is the whole cleaned workspace, used by the workspace-wide gates,
 # such as fmt and cargo-machete, that legitimately read every crate.
@@ -186,14 +185,4 @@ in
   # Source scoped to the transitive closure of the named cargo packages.
   srcFor = names: mkScoped (crateGraph.closureForNames names);
 
-  # Host-target load-test crate lives outside the ubos-main
-  # workspace, so it gets its own src filter and dep cache rather
-  # than sharing the embedded workspace wiring above. It ships with
-  # the bench nuc/ tree, which the publish strip removes, so it is
-  # null on the public mirror; the load-test checks gate on that.
-  loadTestSrc =
-    if builtins.pathExists (root + "/nuc") then
-      craneLib.cleanCargoSource (root + "/nuc/pkgs/load-test")
-    else
-      null;
 }

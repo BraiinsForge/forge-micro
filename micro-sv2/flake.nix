@@ -60,14 +60,10 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-        # Cargo-relevant files only, with interop-test/ excluded. interop-test
-        # sits in the tree but is outside the workspace (proprietary registry
-        # dep — see the root Cargo.toml `exclude`).
+        # Cargo-relevant files only.
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
-          filter =
-            path: type:
-            (craneLib.filterCargoSources path type) && (builtins.match ".*/interop-test(/.*)?$" path == null);
+          filter = craneLib.filterCargoSources;
           name = "source";
         };
 
@@ -96,7 +92,6 @@
               "2024"
             ];
             includes = [ "**/*.rs" ];
-            excludes = [ "interop-test/**" ];
           };
         };
       in

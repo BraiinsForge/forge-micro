@@ -37,7 +37,6 @@
 {
   pkgs,
   src,
-  loadTestSrc,
   craneLib,
   helpers,
   bmmCraneLib,
@@ -89,14 +88,6 @@ let
     });
 in
 rec {
-  # loadTestSrc is null on the public mirror; only the nuc-gated
-  # load-test checks force these two bags, so they never evaluate there.
-  loadTestArtifacts = craneLib.buildDepsOnly {
-    src = loadTestSrc;
-    strictDeps = true;
-  };
-  loadTestArtifactsDev = dev loadTestArtifacts;
-
   hostArtifacts = checkBag craneLib {
     cargoExtraArgs = builtins.concatStringsSep " " [
       "-p embassy-net-afpacket"

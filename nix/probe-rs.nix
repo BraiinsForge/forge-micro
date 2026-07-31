@@ -75,25 +75,11 @@ rec {
       src = pkgs.applyPatches {
         name = "probe-rs-patched-src";
         src = baseSrc;
-        # Apply order is this list, not the file names. The series
-        # directory is stripped from the public mirror; without it the
-        # base builds vanilla upstream probe-rs at the same tag and the
-        # remote and server patches below still apply. `extraPatches`
-        # lands after, so an out-of-repo series applies on top.
-        patches =
-          pkgs.lib.optionals (builtins.pathExists ../patches/probe-rs-redacted) [
-            ../patches/probe-rs-redacted/contributor-guide.patch
-            ../patches/probe-rs-redacted/riscv-debug-011-redacted.patch
-            ../patches/probe-rs-redacted/riscv-011-memory-access.patch
-            ../patches/probe-rs-redacted/redacted-ram-entry-point.patch
-            ../patches/probe-rs-redacted/rtt-64bit-control-block.patch
-            ../patches/probe-rs-redacted/riscv-011-run-state-transparent.patch
-            ../patches/probe-rs-redacted/redacted-uncached-sram-alias.patch
-            ../patches/probe-rs-redacted/riscv-011-debug-ram-round-trips.patch
-            ../patches/probe-rs-redacted/riscv-011-dbus-batch-u64.patch
-            ../patches/probe-rs-redacted/riscv-011-halt-dcsr-dpc-batch.patch
-          ]
-          ++ extraPatches;
+        # Apply order is this list, not the file names. This repo's
+        # targets need nothing over the release tag; a consumer adding
+        # silicon support passes its series as `extraPatches`, which
+        # applies before the remote and server patches below.
+        patches = extraPatches;
       };
 
       cargoDeps = pkgs.rustPlatform.importCargoLock {

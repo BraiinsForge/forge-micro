@@ -48,10 +48,6 @@ Engineer/contributor handbook. For *how to use it* see
     submodule (`types`, `framing`, `messages`, `security`) re-exports
     `pub use ii_sv2_X::*;`. Has one doc-test that smoke-tests the
     re-export structure end-to-end.
-  - **`interop-test/`** — excluded from the default workspace
-    (`exclude = ["interop-test"]`); pulls a proprietary registry
-    dep that we don't want in the default cargo motion. Run on demand
-    via `cargo test --manifest-path interop-test/Cargo.toml`.
 
 - **High-level data flow** (encrypted send path):
 
@@ -77,14 +73,13 @@ Engineer/contributor handbook. For *how to use it* see
 
 | Area | Command | Notes |
 |------|---------|-------|
-| Workspace build | `cargo build` | Builds the 5 default workspace members; `interop-test` is excluded. |
+| Workspace build | `cargo build` | Builds every workspace member. |
 | Per-crate build | `cargo build -p ii-sv2-types` (etc.) | Useful when iterating on one crate. |
 | Tests | `cargo test` | Runs every workspace crate's tests. |
 | Per-crate tests | `cargo test -p ii-sv2-security` | Faster iteration for crate-specific work. |
 | Lints | `cargo clippy --all-targets -- -D warnings` | Required clean before commit. |
 | Formatting | `cargo fmt` | Standard rustfmt. |
 | Docs | `cargo doc --no-deps` | The umbrella's rustdoc page is the consumer landing page. |
-| Interop tests (optional) | `cargo test --manifest-path interop-test/Cargo.toml` | Cross-implementation interop tests against other SV2 deployments (private crate, not in the public mirror). |
 
 - **Toolchain:** Rust **stable**, edition 2024. No nightly features
   required.
@@ -101,7 +96,6 @@ Engineer/contributor handbook. For *how to use it* see
 [workspace]
 resolver = "3"
 members = ["crypto", "framing", "messages", "security", "types", "ii-sv2"]
-exclude = ["interop-test"]
 
 [workspace.dependencies]
 secp256k1        = { version = "0.31", default-features = false }
@@ -182,7 +176,7 @@ sites. Tests for each story live alongside the implementation.
 | `MINE002` | `messages/src/lib.rs::SetNewPrevHash` | `messages::tests::set_new_prev_hash_roundtrip` |
 | `MINE003` | `messages/src/lib.rs::SetTarget` | `messages::tests::set_target_roundtrip` |
 | `LIB001` | `#![no_std]` declared at the root of every production crate | `cargo build` succeeds without `alloc` features |
-| `LIB002` | All `Encode`/`Decode<'de>` impls; byte-exact spot checks | `framing::codec::tests::encode_msg_byte_exact`, `messages::tests::setup_connection_success_byte_exact`, `interop-test/` (out of default workspace) |
+| `LIB002` | All `Encode`/`Decode<'de>` impls; byte-exact spot checks | `framing::codec::tests::encode_msg_byte_exact`, `messages::tests::setup_connection_success_byte_exact` |
 | `LIB003` | `ii-sv2/src/lib.rs` umbrella with module-grouped re-exports | `ii-sv2`'s doc-test |
 | `LIB004` | `docs/GLOSSARY.md` + reviewer convention | (no automated test; reviewer responsibility) |
 
