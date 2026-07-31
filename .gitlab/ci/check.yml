@@ -6,24 +6,13 @@
 # derivations, so a changed crate's sources do compile once per stage
 # (clippy, then build); that is the cost of failing lint before the
 # expensive stage, not a redundant rebuild of the same derivation.
-#
-# The workspace pulls ii-sv2 from
-# ssh://git@gitlab.ii.zone/braiins-forge/mining/usv2.git. The CI runner
-# image has no SSH key for gitlab.ii.zone, so rewrite SSH URLs on this
-# host to HTTPS-with-CI-token; cargo's git fetch then resolves over
-# HTTPS. Requires braiins-forge/mining/usv2 to allowlist this project
-# under CI/CD -> Job token permissions.
-.rust-git:
-  before_script:
-    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.ii.zone/".insteadOf "ssh://git@gitlab.ii.zone/"
 
 # Run the staged flake checks on the default branch for full coverage
 # at merge, and on an MR only when a change can affect one of them: the
 # Rust sources, manifests, lockfile, cargo config, linker scripts,
 # build scripts, embedded assets, and test fixtures the clippy and
-# check builds consume; the bmm-adapter PCB and kibot config behind the
-# check stage's DRC and ERC gates; and any Nix file behind its sd-image
-# evaluation. A docs-only MR skips them. A PCB-only or Nix-only MR also
+# check builds consume, plus any Nix file, since every check derivation
+# is defined in one. A docs-only MR skips them. A Nix-only MR also
 # triggers clippy, which ignores those inputs, so that job resolves to
 # cache hits.
 .rust-rules:
@@ -45,8 +34,6 @@
         - "patches/**"
         - "**/*.nix"
         - "flake.lock"
-        - "pcb/bmm-adapter/**"
-        - "jlcpcb.kibot.yaml"
 
 # Stage 2: per-crate clippy/check (clippy-* checks, `-D warnings`).
 # Fails before the expensive build/test stage so a lint slip on the
@@ -55,19 +42,17 @@
 clippy:
   stage: clippy
   extends:
-    - .rust-git
     - .rust-rules
   script:
     - nix build --no-link --print-build-logs .#ci-clippy
 
 # Stage 3: everything else `nix flake check` covers - host tests,
 # firmware release builds with their flash-size and pool-worker guards,
-# the bmm-adapter DRC/ERC gates, cargo-machete, and the OTA image-limit
-# guard. This is the comprehensive backstop; clippy already passed.
+# cargo-machete, and the OTA image-limit guard. This is the
+# comprehensive backstop; clippy already passed.
 check:
   stage: check
   extends:
-    - .rust-git
     - .rust-rules
   script:
     - nix build --no-link --print-build-logs .#ci-check
@@ -79,8 +64,6 @@ check:
 # the pure build inside is always version 1.
 hashnode-uf2:
   stage: check
-  extends:
-    - .rust-git
   script:
     - nix run --print-build-logs .#hashnode-uf2
   artifacts:
