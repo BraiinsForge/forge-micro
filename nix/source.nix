@@ -46,6 +46,18 @@
   # on its `[patch]` paths, and an overlay writing to the unprefixed
   # path would put the trees where cargo does not look.
   patchesDir ? "patches",
+  # Extra `root`-relative paths to carry verbatim into every scoped
+  # source, alongside the workspace manifest, lock and `.cargo` config.
+  #
+  # This exists for a consumer whose closure reaches crates belonging to
+  # a *nested* workspace, which is what consuming this repo through a
+  # submodule means. `mkDummySrc` reserializes every manifest it finds,
+  # and crane's cleaner drops `[workspace.lints]` on the way; the outer
+  # root manifest survives because it is overlaid back verbatim, but a
+  # nested one is not in that list, so its members fail to load with
+  # "error inheriting `lints` from workspace root manifest". Naming the
+  # nested root here overlays it back the same way.
+  extraRoots ? [ ],
 }:
 let
   inherit (pkgs) lib;
@@ -120,33 +132,40 @@ let
   relOf = path: lib.removePrefix (rootStr + "/") (toString path);
 
   # A scoped real source admits only files under the closure directories
-  # plus the always-shared roots: workspace manifest/lock and `.cargo`
-  # config; the `[patch]` override crates cargo must resolve even when
-  # the crate under build does not use them arrive via
-  # patchedCratesOverlay. `cleanSourceWith` hashes only these files, so
-  # an edit outside the closure leaves the result unchanged.
+  # plus the always-shared roots: workspace manifest/lock, `.cargo`
+  # config, and whatever `extraRoots` a consumer adds; the `[patch]`
+  # override crates cargo must resolve even when the crate under build
+  # does not use them arrive via patchedCratesOverlay.
+  # `cleanSourceWith` hashes only these files, so an edit outside the
+  # closure leaves the result unchanged.
   scopedFilter =
     dirs: path: type:
     let
       rel = relOf path;
-      # `rel` is one of the closure dirs, inside one, or an ancestor of
-      # one, so cleanSource descends into it to reach the wanted subdir.
-      inClosure = builtins.any (
-        d: rel == d || lib.hasPrefix (d + "/") rel || lib.hasPrefix (rel + "/") (d + "/")
-      ) dirs;
-      shared =
-        rel == "Cargo.toml" || rel == "Cargo.lock" || rel == ".cargo" || lib.hasPrefix ".cargo/" rel;
+      # Both tests admit three cases: `rel` is the entry itself, inside
+      # it, or an ancestor of it. The ancestor case is what makes
+      # cleanSource descend far enough to reach the entry at all, so a
+      # nested `extraRoots` path such as `<submodule>/Cargo.toml` needs
+      # it as much as a closure dir does; without it that path is
+      # dropped silently and the overlay below skips it.
+      reaches =
+        entry: rel == entry || lib.hasPrefix (entry + "/") rel || lib.hasPrefix (rel + "/") (entry + "/");
+      inClosure = builtins.any reaches dirs;
+      shared = builtins.any reaches sharedRoots;
     in
     (shared || inClosure) && admit path type;
 
   # The always-shared roots to overlay onto the dummy workspace, on top of
   # the closure directories. The workspace manifest and lock are overlaid
-  # too so the scoped source carries the real ones verbatim.
+  # too so the scoped source carries the real ones verbatim; `extraRoots`
+  # extends the list for a consumer whose own workspace root sits at a
+  # path this repo does not know.
   sharedRoots = [
     "Cargo.toml"
     "Cargo.lock"
     ".cargo"
-  ];
+  ]
+  ++ extraRoots;
 
   # Overlay the real closure directories, and the shared roots, from a
   # closure-scoped source onto the all-dummy workspace, so only those
