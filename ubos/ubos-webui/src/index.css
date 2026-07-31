@@ -678,19 +678,21 @@ main > * {
   display: none;
 }
 
-/* In DHCP mode the address fields show the live lease but are not
-   editable. The browser's default disabled styling is too subtle on the
-   dark panel, so grey them explicitly: muted text on the page background
-   reads as clearly inactive while the real values stay visible. */
+/* A field the current mode does not drive shows its value but is not
+   editable: the address fields under DHCP, and whichever of the two fan
+   duties the fan mode leaves idle. The browser's default disabled styling
+   is too subtle on the dark panel, so grey them explicitly: muted text on
+   the page background reads as clearly inactive while the real values
+   stay visible. */
 .cfgsec input:disabled {
   background: var(--bg);
   color: var(--mute);
   cursor: not-allowed;
 }
 
-/* Network section: segmented mode picker and informational note.
-   The two buttons sit flush in a row; the active button uses the
-   accent colour so the selected mode reads at a glance. */
+/* Segmented mode picker, shared by the Cooling and Network sections.
+   The two buttons sit flush in a row; the active button uses the accent
+   colour so the selected mode reads at a glance. */
 .seg {
   display: flex;
   gap: 0;

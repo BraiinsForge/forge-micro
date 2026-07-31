@@ -153,8 +153,8 @@ async function loadThermalBounds() {
   return true;
 }
 
-// Pull the accepted range for the targetC input from GET /api/system/cooling
-// so the bound lives only in ubos-config::cooling.
+// Pull the accepted ranges for the cooling inputs from GET /api/system/cooling
+// so the bounds live only in ubos-config::cooling.
 async function loadCoolingBounds() {
   if (coolingLoaded) return true;
   const response = await fetch(API + '/api/system/cooling', { cache: 'no-store', credentials: 'include' });
@@ -162,9 +162,19 @@ async function loadCoolingBounds() {
   const data = await response.json();
   const bounds = data.bounds || {};
   const targetInput = $('targetC');
+  const minFanInput = $('minFanPwm');
+  const fixedFanInput = $('fixedFanPwm');
   if (bounds.targetTempC) {
     targetInput.min = bounds.targetTempC.start;
     targetInput.max = bounds.targetTempC.end;
+  }
+  if (bounds.minFanPwm) {
+    minFanInput.min = bounds.minFanPwm.start;
+    minFanInput.max = bounds.minFanPwm.end;
+  }
+  if (bounds.fixedFanPwm) {
+    fixedFanInput.min = bounds.fixedFanPwm.start;
+    fixedFanInput.max = bounds.fixedFanPwm.end;
   }
   coolingLoaded = true;
   return true;
@@ -606,6 +616,55 @@ function syncNetUi() {
   }
 }
 
+// Reflect the fan mode in the segmented button pair and set the disabled
+// state on the inputs the other mode owns. The floor bounds PID output, so
+// it is dead in fixed mode, and the fixed duty is dead in auto. The target
+// stays editable in both: it steers the fan again the moment the mode
+// returns to auto, and an update carrying the danger threshold is refused
+// unless the target stays below it, so greying it out would strand an
+// operator who lowers the danger threshold past it. Every input keeps its
+// value either way, so a mode toggle does not discard what the operator
+// typed; the one exception is a duty the operator emptied or pushed out of
+// range in the input this toggle disables, which is put back from the
+// loaded config, since the save refuses either and behind a disabled input
+// that error would name a field they can no longer type into. The duty that
+// stays enabled is left alone: the operator can still correct it, and
+// rewriting it under them would undo an edit in progress.
+function syncFanUi() {
+  const isFixed = $('fanMode').value === 'fixed';
+  $('fanModeAuto').classList.toggle('active', !isFixed);
+  $('fanModeFixed').classList.toggle('active', isFixed);
+  if (isFixed) {
+    restoreUnusableDuty('minFanPwm', tempInit && tempInit.minFanPwm);
+  } else {
+    restoreUnusableDuty('fixedFanPwm', tempInit && tempInit.fixedFanPwm);
+  }
+  $('minFanPwm').disabled = isFixed;
+  $('fixedFanPwm').disabled = !isFixed;
+}
+
+// Put the loaded duty back in an input the operator left unusable, meaning
+// empty or outside the bounds loaded onto it. Called before the input is
+// disabled, since a disabled control is barred from the browser's
+// constraint check and would carry an out-of-range duty into the save. A
+// no-op before the first config load, where there is nothing to restore to.
+function restoreUnusableDuty(id, loaded) {
+  const input = $(id);
+  if ((input.value === '' || !input.validity.valid) && loaded != null) {
+    input.value = loaded;
+  }
+}
+
+$('fanModeAuto').addEventListener('click', function () {
+  $('fanMode').value = this.dataset.mode;
+  syncFanUi();
+});
+$('fanModeFixed').addEventListener('click', function () {
+  $('fanMode').value = this.dataset.mode;
+  syncFanUi();
+});
+syncFanUi();
+
 $('netModeDhcp').addEventListener('click', function () {
   $('netMode').value = this.dataset.mode;
   syncNetUi();
@@ -692,6 +751,11 @@ async function loadCfg() {
         if (data.cooling && data.cooling.min_fan_pwm != null) {
           $('minFanPwm').value = data.cooling.min_fan_pwm;
         }
+        if (data.cooling && data.cooling.fixed_fan_pwm != null) {
+          $('fixedFanPwm').value = data.cooling.fixed_fan_pwm;
+        }
+        // Recorded before syncFanUi runs: the duties it puts back into an
+        // emptied input come from here, and they have to be this load's.
         tempInit = {
           sampleMs: data.thermal ? data.thermal.sample_interval_ms : null,
           dangerC: data.thermal ? data.thermal.dangerous_temp_c : null,
@@ -699,7 +763,13 @@ async function loadCfg() {
           chipC: data.thermal ? data.thermal.dangerous_chip_temp_c : null,
           targetC: data.cooling && data.cooling.target_temp_c != null ? data.cooling.target_temp_c : null,
           minFanPwm: data.cooling && data.cooling.min_fan_pwm != null ? data.cooling.min_fan_pwm : null,
+          fixedFanPwm: data.cooling && data.cooling.fixed_fan_pwm != null ? data.cooling.fixed_fan_pwm : null,
+          fanMode: data.cooling && data.cooling.mode != null ? data.cooling.mode : null,
         };
+        if (data.cooling && data.cooling.mode != null) {
+          $('fanMode').value = data.cooling.mode;
+          syncFanUi();
+        }
         if (data.tuning) {
           $('freqMhz').value = data.tuning.frequency_mhz;
           $('voltMv').value = data.tuning.voltage_mv;
@@ -905,7 +975,22 @@ $('fmTemp').addEventListener('submit', async event => {
   const chipC = +$('chipC').value;
   const cooldownC = +$('cooldownC').value;
   const targetC = +$('targetC').value;
-  const minFanPwm = +$('minFanPwm').value;
+  const minFanRaw = $('minFanPwm').value;
+  const minFanPwm = +minFanRaw;
+  const fixedFanRaw = $('fixedFanPwm').value;
+  const fixedFanPwm = +fixedFanRaw;
+  const fanMode = $('fanMode').value;
+  // An emptied number input reads as 0, and 0 is a valid duty for the floor
+  // as much as for the fixed duty, so the firmware cannot reject either
+  // cleared field the way it rejects the ones whose range starts above
+  // zero. Catch them here: submitting the coerced 0 would stop the fan,
+  // the floor on the next return to auto control and the fixed duty at
+  // once.
+  if (minFanRaw === '' || fixedFanRaw === '') {
+    msg.style.color = 'var(--red)';
+    msg.textContent = (minFanRaw === '' ? 'Min fan (%)' : 'Fixed fan (%)') + ' must be set.';
+    return;
+  }
   const body = {};
   // sample_interval_ms is not user-editable but the API expects a
   // complete thermal object, so replay the loaded value alongside any
@@ -925,6 +1010,12 @@ $('fmTemp').addEventListener('submit', async event => {
   if (!tempInit || minFanPwm !== tempInit.minFanPwm) {
     cooling.min_fan_pwm = minFanPwm;
   }
+  if (!tempInit || fixedFanPwm !== tempInit.fixedFanPwm) {
+    cooling.fixed_fan_pwm = fixedFanPwm;
+  }
+  if (!tempInit || fanMode !== tempInit.fanMode) {
+    cooling.mode = fanMode;
+  }
   if (Object.keys(cooling).length) {
     body.cooling = cooling;
   }
@@ -936,7 +1027,7 @@ $('fmTemp').addEventListener('submit', async event => {
     await postWithRetry(() => csrfPost(body));
     msg.style.color = '';
     msg.textContent = 'Saved.';
-    tempInit = { sampleMs: tempInit ? tempInit.sampleMs : null, dangerC, cooldownC, chipC, targetC, minFanPwm };
+    tempInit = { sampleMs: tempInit ? tempInit.sampleMs : null, dangerC, cooldownC, chipC, targetC, minFanPwm, fixedFanPwm, fanMode };
   } catch (error) {
     msg.style.color = 'var(--red)';
     msg.textContent = 'Save failed: ' + error.message;
