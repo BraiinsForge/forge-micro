@@ -399,5 +399,36 @@
       # Bench-only top-level outputs: the NUC nixosConfiguration, its
       # deploy-rs node, and the SD-card image. See nix/private.nix;
       # empty on the public mirror.
-      private.topLevel;
+      private.topLevel
+    // {
+      # Reusable wiring for a downstream repo that consumes this one as
+      # a flake input and builds a workspace of its own against these
+      # crates. Exporting the modules rather than letting the consumer
+      # copy them is what keeps the two trees' toolchain pins, source
+      # filters, dependency bags, and CI grouping from drifting apart;
+      # every module already takes its inputs as explicit arguments, so
+      # nothing here is a wrapper.
+      #
+      # `source` and `crate-graph` take a `root`, so a consumer points
+      # them at its own tree. `patched-crates` deliberately does not:
+      # the patch files live here, and its whole job is to materialize
+      # the pins this repo's `[patch]` table resolves against.
+      lib.modules = {
+        ci = ./nix/ci.nix;
+        crate-graph = ./nix/crate-graph.nix;
+        deps = ./nix/deps.nix;
+        guards = ./nix/guards.nix;
+        helpers = ./nix/lib.nix;
+        patched-crates = ./nix/patched-crates.nix;
+        probe-rs = ./nix/probe-rs.nix;
+        source = ./nix/source.nix;
+        toolchains = ./nix/toolchains.nix;
+      };
+
+      # The probe-rs overlay as this repo instantiates it. A consumer
+      # carrying its own silicon-support series imports `lib.modules
+      # .probe-rs` with `extraPatches` and uses the overlay that comes
+      # back instead of this one.
+      overlays.probe-rs = probeRsOverlay;
+    };
 }

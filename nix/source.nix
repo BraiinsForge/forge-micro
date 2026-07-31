@@ -31,14 +31,19 @@
 # so an edit to an unrelated crate leaves the scoped source's hash
 # unchanged and nix reuses the cached build instead of recompiling.
 # The per-crate checks and images consume `srcFor`.
+#
+# `root` defaults to this repo's tree. A downstream repo consuming this
+# module through the flake's `lib.modules` passes its own tree instead:
+# the crate graph and every scoped source are then read from there, so
+# the module works unchanged on a workspace that is not this one.
 {
   pkgs,
   craneLib,
   patchedCrates,
+  root ? ../.,
 }:
 let
   inherit (pkgs) lib;
-  root = ../.;
   crateGraph = import ./crate-graph.nix { inherit lib root; };
 
   # The pinned-and-patched upstream crates from nix/patched-crates.nix
