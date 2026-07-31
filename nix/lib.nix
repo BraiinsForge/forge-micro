@@ -31,12 +31,18 @@
   espToolchain,
   xtensaEspToolchain,
   patchedCrates,
+  # Directory the workspace `[patch]` table points at, relative to the
+  # repository root the shell is entered from. A consumer that imports
+  # this module and reaches these crates through a submodule has to say
+  # so: its `[patch]` paths are prefixed, and a hook writing to the
+  # unprefixed path would create a directory cargo never reads.
+  patchesDir ? "patches",
 }:
 rec {
   ccVar = target: "CC_${builtins.replaceStrings [ "-" "." ] [ "_" "_" ] target}";
 
   # Shell-hook fragment for every cargo-running dev shell. The
-  # workspace `[patch]` table points at patches/<crate>, which the
+  # workspace `[patch]` table points at ${patchesDir}/<crate>, which the
   # repo no longer carries for the pinned-and-patched upstream crates;
   # symlink each materialized tree from the store into the working
   # tree so cargo resolves it. A real directory at the path is left
@@ -46,8 +52,8 @@ rec {
   # repository root by convention; elsewhere there is nothing to link.
   linkPatchedCrates = pkgs.lib.concatStrings (
     pkgs.lib.mapAttrsToList (name: drv: ''
-      if [ -d patches ] && { [ ! -e "patches/${name}" ] || [ -L "patches/${name}" ]; }; then
-        ln -sfnT ${drv} "patches/${name}"
+      if [ -d "${patchesDir}" ] && { [ ! -e "${patchesDir}/${name}" ] || [ -L "${patchesDir}/${name}" ]; }; then
+        ln -sfnT ${drv} "${patchesDir}/${name}"
       fi
     '') patchedCrates
   );

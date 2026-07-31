@@ -40,6 +40,12 @@
   craneLib,
   patchedCrates,
   root ? ../.,
+  # Directory the workspace `[patch]` table points at, relative to
+  # `root`. Same argument, and the same reason, as in nix/lib.nix: a
+  # consumer reaching these crates through a submodule carries a prefix
+  # on its `[patch]` paths, and an overlay writing to the unprefixed
+  # path would put the trees where cargo does not look.
+  patchesDir ? "patches",
 }:
 let
   inherit (pkgs) lib;
@@ -47,13 +53,13 @@ let
 
   # The pinned-and-patched upstream crates from nix/patched-crates.nix
   # live in the store, not the repo, so every source the cargo builds
-  # consume gets them copied in at patches/<crate>, where the workspace
-  # `[patch]` table points.
+  # consume gets them copied in at ${patchesDir}/<crate>, where the
+  # workspace `[patch]` table points.
   patchedCratesOverlay = lib.concatStrings (
     lib.mapAttrsToList (name: drv: ''
-      rm -rf "$out/patches/${name}"
-      mkdir -p "$out/patches"
-      cp -a --no-preserve=mode ${drv} "$out/patches/${name}"
+      rm -rf "$out/${patchesDir}/${name}"
+      mkdir -p "$out/${patchesDir}"
+      cp -a --no-preserve=mode ${drv} "$out/${patchesDir}/${name}"
     '') patchedCrates
   );
 
