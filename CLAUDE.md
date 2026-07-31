@@ -124,9 +124,9 @@ and `ubos/ubos-webui/assets/icons.svg` the two bundled files under a
 different licence; see `COPYING` and the README License section.
 Header conventions for new files:
 
-- First-party sources (`.rs`, `.nix`, `.py`, `.js`, `.sh`, `.css`,
-  `.html`) carry the GPL-3.0-or-later block; copy it from a neighbouring
-  file. Prose header only, no SPDX identifiers.
+- First-party sources (`.rs`, `.c`, `.nix`, `.py`, `.js`, `.sh`,
+  `.css`, `.html`) carry the GPL-3.0-or-later block; copy it from a
+  neighbouring file. Prose header only, no SPDX identifiers.
 - Vendored `patches/*` trees keep their upstream license and get no
   Braiins header.
 
