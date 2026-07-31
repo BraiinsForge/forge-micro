@@ -21,11 +21,11 @@ nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo check'
 
 ## Flash + monitor
 
-Each bench board's probe serial is pinned behind its crate's `run-1`
-alias (`run-N` on the multi-board crates), so `cargo run-1 --release`
-flashes the right board without any `--probe` flag; bare
-`cargo run --release` auto-selects and only works with a single
-attached probe. Run from inside the crate directory.
+Each board's probe serial is pinned behind its crate's `run-1` alias
+(`run-N` on the multi-board crates), so `cargo run-1 --release` flashes
+the right board without any `--probe` flag; bare `cargo run --release`
+auto-selects and only works with a single attached probe. Run from
+inside the crate directory.
 
 ```sh
 nix develop .#arm -c bash -c 'cd firmware/bmm-pico  && cargo run-1 --release'
@@ -43,10 +43,9 @@ driver instead (there is no cargo feature for it); the board
 descriptor carries only chip-neutral facts. The `display` feature is
 always in defaults and SV2 is always built on all boards.
 
-The bmm-pico crate also has multiple boards attached (six). Aliases
-`cargo run-1` through `cargo run-6` pin the probe serial of each.
-The bare `cargo run --release` auto-picks when only one board is
-plugged in. Run from `firmware/bmm-pico/` under `.#arm`:
+The bmm-pico crate pins several units, `cargo run-1` through
+`cargo run-6`. The bare `cargo run --release` auto-picks when only one
+board is plugged in. Run from `firmware/bmm-pico/` under `.#arm`:
 
 ```sh
 nix develop .#arm -c bash -c 'cd firmware/bmm-pico && cargo run-3 --release'
@@ -55,20 +54,22 @@ nix develop .#arm -c bash -c 'cd firmware/bmm-pico && cargo run-3 --release'
 `probe-rs run` flashes then streams defmt logs. To flash and detach,
 send SIGINT (Ctrl+C, or `kill -INT <pid>`) to the runner — `cargo` or
 `probe-rs-runner` — after the boot banner; the firmware keeps running.
-Do not SIGTERM `probe-rs` itself: it is the client of the remote
-`probe-rs-server` on the NUC (`PROBE_RS_REMOTE_HOST`), and a hard kill
-can leave the remote session in a bad state.
 
-If `cargo run` returns silently (no defmt output, board uptime keeps
-growing in prometheus), the CMSIS-DAP probe is wedged per
-probe-rs/probe-rs#1849. The runner now defaults `RUST_LOG=info`,
-which surfaces "Could not determine a suitable packet size for this
-probe" instead of silent exit. Recovery: physically unplug and
-replug the affected Pico-debugprobe (the Realtek 0bda:5411 hub on
-the NUC reports `ppps` but does not actually cut power, so
-`uhubctl` and software USB resets do not help). `probe-rs info` is
-what triggers the wedge; never run it twice in a row on the same
-probe.
+`probe-rs-runner` targets a remote `probe-rs-server` when
+`PROBE_RS_REMOTE_HOST` and `PROBE_RS_REMOTE_TOKEN` are set in the
+environment, and a locally attached probe otherwise. Against a remote
+server, do not SIGTERM `probe-rs` itself: it is the server's client,
+and a hard kill can leave the remote session in a bad state.
+
+If `cargo run` returns silently — no defmt output, while the board's
+uptime keeps growing — the CMSIS-DAP probe is wedged per
+probe-rs/probe-rs#1849. The runner defaults `RUST_LOG=info`, which
+surfaces "Could not determine a suitable packet size for this probe"
+instead of exiting silently. Recovery is a physical unplug and replug
+of the affected debugprobe; `uhubctl` and software USB resets do not
+help through a hub that reports `ppps` without actually cutting power.
+`probe-rs info` is what triggers the wedge; never run it twice in a row
+on the same probe.
 
 ## Targets
 
@@ -111,43 +112,34 @@ wrapper script:
 ```sh
 nix build .#ci-format                  # cargo fmt + nixfmt
 nix build .#ci-clippy                  # per-crate clippy
-nix build .#ci-check                   # builds, tests, DRC/ERC, static gates
+nix build .#ci-check                   # builds, tests, static gates
 nix build .#checks.<system>.<name>     # one check in isolation
 nix flake check                        # everything
 ```
 
 ## Licensing
 
-The published mirror is GPL-3.0-or-later; see `COPYING` and the README
-License section. Header conventions for new files:
+This repository is GPL-3.0-or-later, with `assets/69-probe-rs.rules`
+and `ubos/ubos-webui/assets/icons.svg` the two bundled files under a
+different licence; see `COPYING` and the README License section.
+Header conventions for new files:
 
-- First-party published sources (`.rs`, `.nix`, `.py`, `.js`, `.sh`,
-  `.css`, `.html`) carry the GPL-3.0-or-later block; copy it from a
-  neighbouring file. Prose header only, no SPDX identifiers.
-- Sources in the private board crates, every `firmware/` crate but
-  `hashnode` and `rp2350-bootloader`, carry the proprietary
-  all-rights-reserved notice instead; those crates are stripped from
-  the mirror.
+- First-party sources (`.rs`, `.nix`, `.py`, `.js`, `.sh`, `.css`,
+  `.html`) carry the GPL-3.0-or-later block; copy it from a neighbouring
+  file. Prose header only, no SPDX identifiers.
 - Vendored `patches/*` trees keep their upstream license and get no
   Braiins header.
-- Private sources outside the board crates that the mirror strips
-  (`publish/`, `nix/private-*.nix`, `micro-sv2/interop-test`, the
-  redacted trees, `nuc/`, and the bench tooling modules listed at
-  `stripPaths` in `publish/app.nix`) carry no header; the strip
-  itself keeps them private.
-- Whether a path is stripped is judged at the branch tip, where the
-  mirror scrubs it from all of history. A file that transits a
-  published crate mid-branch but ends the branch on a stripped path
-  carries no header at any point in its history.
 
-Which crates are stripped, and why `rp2350-bootloader` stays public, is
-documented at `stripPaths` and `HIDDEN_MEMBERS` in `publish/app.nix`.
+Nothing in this tree is confidential, so there is no strip step and no
+per-path exception to reason about. Product-specific driver code and
+the bench and lab machinery live in the internal repository, which
+consumes this one; a change that belongs there does not belong here.
 
 Code comments and commit messages never name internal prototypes,
 external miner projects, or chip datasheets — each mention is a legal
-surface, and commit messages survive the mirror strip. Doc comments
-describe behavior, not lineage; see the "No provenance mentions"
-section of `docs/redacted/PUBLISHING.md`.
+surface, and this history is public. Doc comments describe behavior,
+not lineage; provenance questions from reviewers get their answer in
+the review thread, not in the codebase.
 
 ## Working Style
 
