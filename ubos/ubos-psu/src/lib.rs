@@ -140,6 +140,10 @@ pub(crate) static STATE_WATCH: Watch<CSMutex, PsuReading, WATCH_CAPACITY> = Watc
 /// this boot. Written by the PSU impl, read by [`run_power_stats`].
 static SET_VOLTAGE_MV: AtomicU32 = AtomicU32::new(0);
 
+/// Gauge carrying the last voltage commanded, published from the two
+/// places below.
+const SET_VOLTAGE_METRIC: &str = "board_psu_output_voltage_set_mv";
+
 /// Record a successful `set_voltage` write so the telemetry publisher
 /// can include the commanded value in the next [`PsuReading`].
 ///
@@ -149,6 +153,24 @@ static SET_VOLTAGE_MV: AtomicU32 = AtomicU32::new(0);
 /// one. In-tree and out-of-tree drivers call it the same way.
 pub fn record_set_voltage(voltage: Voltage) {
     SET_VOLTAGE_MV.store(voltage.mv(), AtomicOrdering::Relaxed);
+}
+
+/// Record a successful `set_voltage` write and publish its gauge, for a
+/// driver whose board runs no [`run_power_stats`].
+///
+/// A supply with nothing to measure has no reason to be polled, but the
+/// voltage it was commanded to is still worth exposing, and that gauge
+/// otherwise rides the poll loop. One push per setpoint suffices: the
+/// metric map holds the last value pushed until it is overwritten, and
+/// [`run_power_stats`] republishes every tick only because it is already
+/// awake.
+pub async fn publish_set_voltage(voltage: Voltage) {
+    record_set_voltage(voltage);
+    push(Metric::with_no_labels(
+        SET_VOLTAGE_METRIC,
+        Value::Uint(u64::from(voltage.mv())),
+    ))
+    .await;
 }
 
 /// Per-task subscription returned by [`Handle::subscribe`].
@@ -343,7 +365,7 @@ where
         }
         if set_voltage.mv() != 0 {
             push(Metric::with_no_labels(
-                "board_psu_output_voltage_set_mv",
+                SET_VOLTAGE_METRIC,
                 Value::Uint(u64::from(set_voltage.mv())),
             ))
             .await;
