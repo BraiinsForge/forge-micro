@@ -17,15 +17,21 @@
 # to this program, or any part thereof, under any terms, and such a grant
 # shall be considered distinct from the grant above.
 
-# probe-rs tooling: the redacted-capable build from the pinned upstream
-# source plus the in-repo patch series, the remote and server variants
-# with their patches, and the overlay exposing them plus the
-# probe-rs-runner wrapper. See flake.nix for how the overlay is
-# threaded into each system's pkgs and the NUC's cross overlay.
-{ }:
+# probe-rs tooling: the build from the pinned upstream source plus any
+# caller-supplied patch series, the remote and server variants with
+# their patches, and the overlay exposing them plus the probe-rs-runner
+# wrapper. See flake.nix for how the overlay is threaded into each
+# system's pkgs and the NUC's cross overlay.
+#
+# `extraPatches` is how a consumer outside this repo adds a silicon
+# support series without copying the recipe: import this module with
+# its own list and use the overlay that comes back. The patches apply
+# on top of the in-repo series, before the remote and server patches.
+{
+  extraPatches ? [ ],
+}:
 rec {
-  # probe-rs carrying redacted redacted, RISC-V debug spec 0.11, support:
-  # the upstream v0.32.0 release tag with the patches/probe-rs-redacted/
+  # probe-rs from the upstream v0.32.0 release tag with the in-repo
   # series applied on top; each patch's preamble carries its original
   # commit message. Built straight from the GitHub source as our own
   # rustPlatform.buildRustPackage rather than by overriding nixpkgs'
@@ -34,10 +40,10 @@ rec {
   # small nixpkgs one: cmake and pkg-config, libusb and openssl, the
   # udev-rules install, and the skip list for the probe- and
   # toolchain-requiring tests. Every probe-rs consumer, each dev shell
-  # and the NUC serve service, builds from this one base, so redacted
-  # flashing and RTT work across the fleet without a second probe-rs
-  # version. The series touches no manifest or lock, so the vendor
-  # reads the unpatched base's lock and needs no import-from-derivation.
+  # and the NUC serve service, builds from this one base, so the fleet
+  # runs a single probe-rs version. The series touches no manifest or
+  # lock, so the vendor reads the unpatched base's lock and needs no
+  # import-from-derivation.
   #
   # cargoDeps uses importCargoLock rather than fetchCargoVendor: this vendor
   # is a binary-cache miss, and fetchCargoVendor's parallel download pool
@@ -46,7 +52,7 @@ rec {
   # crate as its own cache-backed fetchurl, so most come from cache.nixos.org
   # and the rest go through nix's throttled, retrying fetcher. The
   # lock has no git sources, so no outputHashes are required.
-  mkredactedProbeRsTools =
+  mkProbeRsTools =
     pkgs:
     let
       baseSrc = pkgs.fetchFromGitHub {
@@ -67,25 +73,27 @@ rec {
       version = "0.32.0";
 
       src = pkgs.applyPatches {
-        name = "probe-rs-redacted-src";
+        name = "probe-rs-patched-src";
         src = baseSrc;
         # Apply order is this list, not the file names. The series
         # directory is stripped from the public mirror; without it the
-        # base builds vanilla upstream probe-rs at the same tag, redacted
-        # support stays internal, and the remote and server patches
-        # below still apply.
-        patches = pkgs.lib.optionals (builtins.pathExists ../patches/probe-rs-redacted) [
-          ../patches/probe-rs-redacted/contributor-guide.patch
-          ../patches/probe-rs-redacted/riscv-debug-011-redacted.patch
-          ../patches/probe-rs-redacted/riscv-011-memory-access.patch
-          ../patches/probe-rs-redacted/redacted-ram-entry-point.patch
-          ../patches/probe-rs-redacted/rtt-64bit-control-block.patch
-          ../patches/probe-rs-redacted/riscv-011-run-state-transparent.patch
-          ../patches/probe-rs-redacted/redacted-uncached-sram-alias.patch
-          ../patches/probe-rs-redacted/riscv-011-debug-ram-round-trips.patch
-          ../patches/probe-rs-redacted/riscv-011-dbus-batch-u64.patch
-          ../patches/probe-rs-redacted/riscv-011-halt-dcsr-dpc-batch.patch
-        ];
+        # base builds vanilla upstream probe-rs at the same tag and the
+        # remote and server patches below still apply. `extraPatches`
+        # lands after, so an out-of-repo series applies on top.
+        patches =
+          pkgs.lib.optionals (builtins.pathExists ../patches/probe-rs-redacted) [
+            ../patches/probe-rs-redacted/contributor-guide.patch
+            ../patches/probe-rs-redacted/riscv-debug-011-redacted.patch
+            ../patches/probe-rs-redacted/riscv-011-memory-access.patch
+            ../patches/probe-rs-redacted/redacted-ram-entry-point.patch
+            ../patches/probe-rs-redacted/rtt-64bit-control-block.patch
+            ../patches/probe-rs-redacted/riscv-011-run-state-transparent.patch
+            ../patches/probe-rs-redacted/redacted-uncached-sram-alias.patch
+            ../patches/probe-rs-redacted/riscv-011-debug-ram-round-trips.patch
+            ../patches/probe-rs-redacted/riscv-011-dbus-batch-u64.patch
+            ../patches/probe-rs-redacted/riscv-011-halt-dcsr-dpc-batch.patch
+          ]
+          ++ extraPatches;
       };
 
       cargoDeps = pkgs.rustPlatform.importCargoLock {
@@ -196,8 +204,8 @@ rec {
     });
 
   overlay = final: prev: {
-    probe-rs-tools-remote = mkRemoteProbeRsTools (mkredactedProbeRsTools prev);
-    probe-rs-tools-server = mkServerProbeRsTools prev (mkredactedProbeRsTools prev);
+    probe-rs-tools-remote = mkRemoteProbeRsTools (mkProbeRsTools prev);
+    probe-rs-tools-server = mkServerProbeRsTools prev (mkProbeRsTools prev);
     probe-rs-runner = prev.writeShellScriptBin "probe-rs-runner" ''
       args=()
       for arg in "$@"; do
