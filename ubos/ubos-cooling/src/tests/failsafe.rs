@@ -20,12 +20,8 @@
 //! Integration test for the staleness failsafe in [`super::run_cooling`].
 //!
 //! Drives the real `run_cooling` task against `embassy_time::MockDriver`
-//! so the staleness window can be crossed without a real clock. The task
-//! never returns, so it is polled manually instead of run under an
-//! executor: each phase advances the mock clock or publishes a thermal
-//! reading, then polls `run_cooling` and the metrics ingest task a bounded
-//! number of times to let the resulting chain of awaits settle before the
-//! commanded PWM is asserted through `super::handle`.
+//! so the staleness window can be crossed without a real clock, on the
+//! shared harness in `tests/harness.rs`.
 //!
 //! All four phases share one `run_cooling` instance and the process-global
 //! statics it reads and writes — the mock clock, config, and metrics
@@ -37,74 +33,18 @@
 //! here: this test runs under `--no-default-features`, with defmt off and no
 //! log sink to count emissions against.
 
-use core::future::Future;
-use core::pin::{Pin, pin};
+use core::pin::pin;
 use core::task::{Context, Waker};
 
 use embassy_time::MockDriver;
-use ubos_core::units::{FanPwm, FanRpm, Temperature};
-use ubos_thermal::ThermalReading;
+use ubos_core::units::FanPwm;
 
-use super::{CONTROL_INTERVAL, FanOutput, TachReader, handle, run_cooling, stale_timeout};
-
-/// Number of times each phase polls `run_cooling` and the metrics ingest
-/// task, enough for the awaits a phase triggers to settle — the metric pushes
-/// and any catch-up control ticks — while staying a fixed bound rather than an
-/// open-ended poll loop. The bound assumes the default config's thermal sample
-/// interval: a phase advances the clock by one `stale_timeout`, so raising
-/// that interval enough that the window spans more than `POLL_BUDGET` control
-/// ticks would under-poll and need a larger bound.
-const POLL_BUDGET: usize = 64;
-
-struct FakeFan;
-
-impl FanOutput for FakeFan {
-    fn set_pwm(&mut self, _pwm: FanPwm) {}
-}
-
-struct FakeTach;
-
-impl TachReader<1> for FakeTach {
-    const LABELS: [Option<&'static str>; 1] = [None];
-
-    fn read_rpms(&mut self) -> [FanRpm; 1] {
-        [FanRpm::from_rpm(0)]
-    }
-}
-
-fn moderate_reading(sensor_fault: bool) -> ThermalReading {
-    // Well below the default 67°C target: the PID drives the PWM toward
-    // its floor rather than toward FULL, so a non-fault reading at this
-    // temperature unambiguously demonstrates the fan leaving FULL.
-    let temp = Temperature::from_millicelsius(50_000);
-    ThermalReading {
-        chip_max: temp,
-        pid_temp: temp,
-        timestamp_ms: 0,
-        sensor_fault,
-    }
-}
-
-/// Polls `cooling` and `ingest` up to [`POLL_BUDGET`] times so the awaits
-/// triggered by the last clock advance or published reading settle. Both
-/// futures never complete — `run_cooling` is `-> !`, `run_ingest` is `-> !`
-/// and the channel never empties on its own — so the return value carries
-/// no information; only the side effects on `super::STATE_WATCH` matter.
-/// Takes the pinned futures by reborrow so the caller's `pin!` bindings
-/// stay usable across the repeated calls one per test phase.
-fn drive<Cooling: Future, Ingest: Future>(
-    mut cooling: Pin<&mut Cooling>,
-    mut ingest: Pin<&mut Ingest>,
-    cx: &mut Context<'_>,
-) {
-    for _ in 0..POLL_BUDGET {
-        let _ = cooling.as_mut().poll(cx);
-        let _ = ingest.as_mut().poll(cx);
-    }
-}
+use super::tests_harness::{FakeFan, FakeTach, LOOP_MUTEX, drive, moderate_reading};
+use super::{CONTROL_INTERVAL, handle, run_cooling, stale_timeout};
 
 #[test]
 fn staleness_failsafe_forces_and_releases_full_fan() {
+    let _guard = LOOP_MUTEX.lock().expect("BUG: LOOP_MUTEX poisoned");
     let driver = MockDriver::get();
     driver.reset();
 

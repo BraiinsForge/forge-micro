@@ -32,6 +32,10 @@
 mod pid;
 
 #[cfg(test)]
+#[path = "tests/harness.rs"]
+mod tests_harness;
+
+#[cfg(test)]
 #[path = "tests/pid.rs"]
 mod tests_pid;
 
