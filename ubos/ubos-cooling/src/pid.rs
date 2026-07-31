@@ -24,6 +24,8 @@
 //! `OnErrorWithSmoothing` derivative mode is kept: it is the only one
 //! used by the BOS hashboard profile this crate carries forward.
 
+use ubos_config::CoolingConfig;
+
 /// Fixed-capacity ring buffer used to detect a stable temperature window.
 ///
 /// Stores the last `CAP` samples and reports their min/max so the PID can
@@ -230,6 +232,31 @@ impl TempControl {
             target_temp_c: 0.0,
             min_fan_pwm,
         }
+    }
+
+    /// Build a controller from the cooling section of the config: the gains
+    /// and the output floor for the PID, and the thermal setpoint.
+    #[must_use]
+    pub fn from_config(config: &CoolingConfig) -> Self {
+        let mut control = Self::new(
+            config.pid.p_gain,
+            config.pid.i_gain,
+            config.pid.d_gain,
+            config.pid.smoother_half_decay_secs,
+            config.pid.min_fan_pwm,
+        );
+        control.set_target(config.target_temp_c);
+        control
+    }
+
+    /// Reconfigure for `config`, discarding the accumulated control state.
+    ///
+    /// The integral, the derivative smoother, and the stability window all
+    /// describe the fan the previous configuration was driving, so new gains
+    /// must start clean rather than carry them forward. Replacing the whole
+    /// value is what makes that total: no field survives by omission.
+    pub fn reconfigure(&mut self, config: &CoolingConfig) {
+        *self = Self::from_config(config);
     }
 
     pub fn set_target(&mut self, target_temp_c: f32) {

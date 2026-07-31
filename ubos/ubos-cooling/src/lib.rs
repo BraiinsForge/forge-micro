@@ -140,18 +140,6 @@ impl Handle {
     }
 }
 
-fn build_control(config: &CoolingConfig) -> TempControl {
-    let mut control = TempControl::new(
-        config.pid.p_gain,
-        config.pid.i_gain,
-        config.pid.d_gain,
-        config.pid.smoother_half_decay_secs,
-        config.pid.min_fan_pwm,
-    );
-    control.set_target(config.target_temp_c);
-    control
-}
-
 /// Cadence at which the cooling loop wakes independently of the thermal
 /// subsystem: it reads the tachometer, republishes telemetry so the
 /// display and metrics stay fresh while thermal is quiet, and enforces the
@@ -273,7 +261,7 @@ where
     let mut config: CoolingConfig = initial_config.cooling;
     let mut stale = stale_timeout(initial_config.thermal.sample_interval_ms);
 
-    let mut control = build_control(&config);
+    let mut control = TempControl::from_config(&config);
 
     let tach_labels = T::LABELS;
     // Sample the tach once up front so boot telemetry is not a blank line; the
@@ -304,7 +292,7 @@ where
         if let Some(updated) = config_subscription.try_changed() {
             let new_cooling = updated.cooling;
             if new_cooling.pid != config.pid {
-                control = build_control(&new_cooling);
+                control.reconfigure(&new_cooling);
                 info!(
                     "cooling: PID reset on gains update (target={}°C)",
                     new_cooling.target_temp_c
