@@ -185,6 +185,16 @@ rule is what bounds how low `dangerous_temp_c` can be set. A fixed duty
 of 0 is accepted. The mining halt at `thermal.dangerous_temp_c`
 protects the board.
 
+Under `"fixed"` the fan holds `fixed_fan_pwm`. No PID runs, so
+`min_fan_pwm`, which bounds PID output, does not apply, and
+`target_temp_c`, the PID setpoint, does not steer the fan. It steers the
+fan again from the first thermal reading after the mode returns to
+`"auto"`. Until that reading lands, the control tick raises the duty to
+`min_fan_pwm` but never lowers it. A fixed duty below the floor does not
+survive the switch. A duty above the floor is held until the PID takes
+over. The cooling failsafes do not depend on the mode — a sensor fault
+and a stalled thermal task force the fan to full under either.
+
 | Struct                  | Endpoint(s)                                        |
 |-------------------------|----------------------------------------------------|
 | `SystemInfo`            | `GET /api/system/info`                             |

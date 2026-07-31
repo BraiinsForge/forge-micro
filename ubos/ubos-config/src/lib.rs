@@ -312,6 +312,14 @@ impl Handle {
     }
 }
 
+/// Publish `config` directly onto the config watch, bypassing [`run`] and
+/// persistence. Lets a host test in a consuming crate drive a config without
+/// standing up the config task and a storage backend.
+#[cfg(feature = "test-util")]
+pub fn publish_for_test(config: Config) {
+    STATE_WATCH.sender().send(config);
+}
+
 /// Partial-update cooling section of [`ConfigUpdate`].
 ///
 /// Only the operator-tunable cooling fields are exposed; the rest of

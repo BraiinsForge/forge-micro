@@ -76,7 +76,8 @@ baud-rate switch; see [MINING.md](MINING.md).
 - `ubos/ubos-thermal/` -- sensor poll, `ThermalHandle` publisher,
   safety trip asserted as `PauseReason::DangerousTemperature` on
   `ManagerHandle`.
-- `ubos/ubos-cooling/` -- fan PID controller and `FanOutput` HAL trait.
+- `ubos/ubos-cooling/` -- fan control task, PID or fixed duty, and
+  `FanOutput` HAL trait.
 - `ubos/ubos-logging/` -- macro facade that swaps between `defmt` and
   `log` at compile time, so the same crate builds for firmware and host.
 

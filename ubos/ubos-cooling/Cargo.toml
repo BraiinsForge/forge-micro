@@ -41,6 +41,9 @@ embassy-time     = { workspace = true, features = ["mock-driver", "generic-queue
 # `test-util` exposes `publish_reading_for_test`, the hook the tests use to
 # inject thermal readings without a real sensor task.
 ubos-thermal     = { workspace = true, features = ["test-util"] }
+# `test-util` exposes `publish_for_test`, the hook the fixed-mode test uses to
+# drive a config without the config task and a storage backend.
+ubos-config      = { workspace = true, default-features = false, features = ["test-util"] }
 
 [package.metadata.cargo-machete]
 ignored = ["defmt"]

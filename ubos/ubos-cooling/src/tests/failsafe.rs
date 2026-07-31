@@ -23,7 +23,7 @@
 //! so the staleness window can be crossed without a real clock, on the
 //! shared harness in `tests/harness.rs`.
 //!
-//! All four phases share one `run_cooling` instance and the process-global
+//! All phases share one `run_cooling` instance and the process-global
 //! statics it reads and writes — the mock clock, config, and metrics
 //! channel — so the test runs as a single function with sequential phases
 //! rather than as independent `#[test]` cases.
@@ -33,13 +33,14 @@
 //! here: this test runs under `--no-default-features`, with defmt off and no
 //! log sink to count emissions against.
 
+use core::cell::Cell;
 use core::pin::pin;
 use core::task::{Context, Waker};
 
 use embassy_time::MockDriver;
 use ubos_core::units::FanPwm;
 
-use super::tests_harness::{FakeFan, FakeTach, LOOP_MUTEX, drive, moderate_reading};
+use super::tests_harness::{FakeTach, LOOP_MUTEX, RecordingFan, drive, moderate_reading};
 use super::{CONTROL_INTERVAL, handle, run_cooling, stale_timeout};
 
 #[test]
@@ -55,14 +56,38 @@ fn staleness_failsafe_forces_and_releases_full_fan() {
     let stale = stale_timeout(default_config.thermal.sample_interval_ms);
     let floor_pwm = FanPwm::from_percent(default_config.cooling.pid.min_fan_pwm);
 
-    let mut cooling = pin!(run_cooling(FakeFan, FakeTach, ubos_thermal::handle()));
+    // The thermal watch retains whatever reading ran last in this process and
+    // a fresh subscriber sees it as changed, so seed a known clean one rather
+    // than assert against whichever reading another test left behind.
+    ubos_thermal::publish_reading_for_test(moderate_reading(false));
+
+    let boot_command = Cell::new(None);
+    let mut cooling = pin!(run_cooling(
+        RecordingFan(&boot_command),
+        FakeTach,
+        ubos_thermal::handle()
+    ));
     let mut ingest = pin!(ubos_metrics::metrics::run_ingest());
 
     drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
-    let boot_state = handle().current().expect("run_cooling publishes at boot");
+    // Behavior 0: the fan comes up on the PID floor before any reading is
+    // acted on, so a board in auto mode never runs the fan below the floor
+    // while the PID has nothing to act on. Asserted on the first command
+    // rather than on the watch: the seeded reading settles the PID on the
+    // same floor, so the published value cannot tell the two apart, while
+    // the boot publish precedes the thermal subscription and the fixed arm
+    // would show here as the default 50% duty.
     assert_eq!(
-        boot_state.pwm, floor_pwm,
-        "before any reading the fan sits at the configured floor"
+        boot_command.get(),
+        Some(floor_pwm),
+        "auto mode must start the fan on the PID floor, not the fixed duty"
+    );
+
+    let settled_state = handle().current().expect("run_cooling publishes");
+    assert_eq!(
+        settled_state.pwm, floor_pwm,
+        "the seeded reading is well below target, so PID control settles the \
+         fan on the min_fan_pwm floor"
     );
 
     // Behavior 1: thermal silence past `stale_timeout`, with only control

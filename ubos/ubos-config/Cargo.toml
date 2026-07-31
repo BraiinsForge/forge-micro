@@ -16,6 +16,9 @@ defmt    = [
     "ubos-logging/defmt",
 ]
 std    = ["postcard/use-std"]
+# Exposes `publish_for_test` so a consuming crate's host tests can drive a
+# config without standing up the `run` task and a storage backend.
+test-util = []
 
 [dependencies]
 embassy-sync           = { workspace = true }

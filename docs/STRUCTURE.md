@@ -89,7 +89,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-display`     | SH1106 OLED driver and render task                 |
 | `ubos-logging`     | `defmt`/`log` macro facade                         |
 | `ubos-thermal`     | sensor poll, `ThermalHandle` publisher, thermal guard |
-| `ubos-cooling`     | fan PID controller and `FanOutput` HAL trait        |
+| `ubos-cooling`     | fan control task, PID or fixed duty, `FanOutput` HAL trait |
 | `ubos-mining`      | BM13xx chip-serial actor, miner state machine, `MiningHandle` |
 | `ubos-psu`         | async PSU driver over I2C                          |
 | `ubos-temperature` | temperature sampling and LM75A driver              |

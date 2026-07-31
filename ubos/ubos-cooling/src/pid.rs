@@ -253,8 +253,9 @@ impl TempControl {
     ///
     /// The integral, the derivative smoother, and the stability window all
     /// describe the fan the previous configuration was driving, so new gains
-    /// must start clean rather than carry them forward. Replacing the whole
-    /// value is what makes that total: no field survives by omission.
+    /// — or a return from a fixed duty, which the controller did not drive at
+    /// all — must start clean rather than carry them forward. Replacing the
+    /// whole value is what makes that total: no field survives by omission.
     pub fn reconfigure(&mut self, config: &CoolingConfig) {
         *self = Self::from_config(config);
     }

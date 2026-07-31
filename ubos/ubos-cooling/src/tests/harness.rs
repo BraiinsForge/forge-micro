@@ -30,6 +30,7 @@
 // serialises the tests driving `run_cooling`.
 extern crate std;
 
+use core::cell::Cell;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::Context;
@@ -58,10 +59,23 @@ pub(crate) static LOOP_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// ticks would under-poll and need a larger bound.
 const POLL_BUDGET: usize = 64;
 
-pub(crate) struct FakeFan;
+/// Fan that latches the first duty commanded to it.
+///
+/// The duty `run_cooling` starts on never reaches the fan watch: the seeded
+/// reading resolves the thermal arm inside the same [`drive`], so the control
+/// pass overwrites the boot publish before the phase can read the watch. What
+/// reached the fan is where the boot branch is observable, and it is latched
+/// rather than tracked because the boot publish precedes the thermal
+/// subscription, so the first command is the boot duty whatever the loop
+/// commands afterwards.
+pub(crate) struct RecordingFan<'a>(pub(crate) &'a Cell<Option<FanPwm>>);
 
-impl FanOutput for FakeFan {
-    fn set_pwm(&mut self, _pwm: FanPwm) {}
+impl FanOutput for RecordingFan<'_> {
+    fn set_pwm(&mut self, pwm: FanPwm) {
+        if self.0.get().is_none() {
+            self.0.set(Some(pwm));
+        }
+    }
 }
 
 pub(crate) struct FakeTach;
