@@ -807,6 +807,7 @@ hostClippyChecks
   # Only the public packages are gated in this shared set; the private
   # board runners ride the private checks (nix/private-checks.nix) out
   # with the boards they serve.
+  probe-rs-board-run = pkgs.callPackage ../pkgs/probe-rs-board-runner { };
   rp2350-bootloader-run = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };
   http-load-test = pkgs.callPackage ../pkgs/http-load-test { };
   setup-network = pkgs.callPackage ../pkgs/setup-network { };
