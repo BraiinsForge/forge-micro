@@ -272,7 +272,7 @@ in
       echo "ubos-main dev environment ready (host-runner, BMM/miniminer cross)"
       echo ""
       echo "  cd host/host-runner && cargo build --release"
-      echo "                         cargo run --release -- --hostname redacted50.1"
+      echo "                         cargo run --release -- --hostname <miner-ip>"
       echo ""
       echo "See host-runner-run --help for more flags."
       echo ""

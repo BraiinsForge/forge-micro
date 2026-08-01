@@ -207,8 +207,8 @@ storm in this firmware/configuration.
 
 ## RP2040 comparison (why it "just works")
 
-Running the same `WFE` diagnostics on RP2040 (instance `redacted104:8081`)
-shows a qualitatively different regime:
+Running the same `WFE` diagnostics on RP2040 shows a qualitatively
+different regime:
 
 - `board_cpu_poll_count` is low (~10-15k per 5s window per core), matching the
   expected interrupt cadence + real wakeups.
