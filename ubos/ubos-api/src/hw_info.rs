@@ -19,20 +19,21 @@
 
 //! Boot-time-captured hardware identity published by board code.
 //!
-//! redacted reads the bootloader CRC-32 fingerprint and the STM8 fan
-//! controller's version string once, early in boot, and publishes them
-//! here through a `Watch` so the system-info handler can read the
-//! latest snapshot lock-free. Every board's boot-time hashboard EEPROM
-//! read publishes its parsed serials the same way. Boards that never
-//! publish a given cell leave its reader returning `None`.
+//! A board with a second-stage bootloader and a fan-controller
+//! co-processor reads their version strings once, early in boot, and
+//! publishes them here through a `Watch` so the system-info handler can
+//! read the latest snapshot lock-free. Every board's boot-time
+//! hashboard EEPROM read publishes its parsed serials the same way.
+//! Boards that never publish a given cell leave its reader returning
+//! `None`.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
 use heapless::{String, Vec};
 
 /// Capacity of every string field in the hardware-identity response.
-/// Sized to the largest producer, the 40-byte redacted hashboard EEPROM
-/// serial, so no board's data needs truncating and no field encodes a
+/// Sized to the largest producer, a 40-byte hashboard EEPROM serial, so
+/// no board's data needs truncating and no field encodes a
 /// producer-specific width.
 pub const HW_STRING_LEN: usize = 40;
 
@@ -43,7 +44,10 @@ pub type HwString = String<HW_STRING_LEN>;
 static BOOTLOADER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static FAN_CONTROLLER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 
-/// Largest hashboard chain count across supported machines (redacted 10).
+/// Capacity of the per-slot serial vector below, sized for the largest
+/// chain count this API has to describe rather than for any board in
+/// this tree, all of which drive a single hashboard. A machine with
+/// more chains raises it; a board with fewer leaves the tail empty.
 pub const MAX_HASHBOARDS: usize = 3;
 
 /// Per-slot hashboard serials; the index is the physical chain number.

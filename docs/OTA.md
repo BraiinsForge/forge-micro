@@ -11,8 +11,8 @@ diagnostics are board-agnostic and described once below. The flash mechanism is
 board-specific and lives behind the `ubos_ota::OtaBackend` trait: the RP boards
 use an `embassy-boot` swap bootloader (the sections immediately following), and
 `ubos-ota`'s `esp` feature carries a second backend over the ESP-IDF
-bootloader's `otadata` two-slot scheme, documented with the private boards
-(`docs/BOARDS.md` in the private tree). The board-agnostic `ubos_ota::OtaEngine`
+bootloader's `otadata` two-slot scheme, documented in
+[BOARDS.md](BOARDS.md). The board-agnostic `ubos_ota::OtaEngine`
 drives either backend and implements `ubos_api::OtaTarget`, so the REST and
 WebUI layers never know which board they are talking to.
 
@@ -337,5 +337,4 @@ flashing.
 - **Hardware validation is per board.** The full upload → swap → confirm →
   rollback cycle has been validated end to end on one RP2350-class board;
   the hashnode itself has not yet been exercised through the full cycle.
-  Per-board validation status is tracked with the private boards
-  (`docs/BOARDS.md` in the private tree).
+  Per-board validation status is tracked in [BOARDS.md](BOARDS.md).

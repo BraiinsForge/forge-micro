@@ -154,8 +154,7 @@ const OTA_MIN_IMAGE_BYTES: u64 = 512;
 /// falling back to [`OTA_MAX_IMAGE_BYTES`] when no target is registered (a
 /// board without one returns 501 to the upload regardless, so this only
 /// gates the pre-lock size check). Lets a board with a larger inactive slot
-/// — the redacted APP slot, say — accept images above the RP default without a
-/// shared constant bump.
+/// accept images above the RP default without a shared constant bump.
 fn max_image_bytes() -> u64 {
     crate::ota::ota_info().map_or(OTA_MAX_IMAGE_BYTES, |info| info.max_image_bytes)
 }

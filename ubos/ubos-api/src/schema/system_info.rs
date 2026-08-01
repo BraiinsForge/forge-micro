@@ -58,10 +58,11 @@ pub struct OtaInfo {
 /// successful init, and reads `null` where the supply is not
 /// identifiable.
 /// `bootloader_version` and `fan_controller_version` are read once at
-/// boot on redacted only and reach this struct through the publish/read
-/// cells in `crate::hw_info`; they are `null` before publication and on
-/// every other board. `hashboard_ids` is published by every board's
-/// boot-time hashboard EEPROM read the same way.
+/// boot, on the boards that have both, and reach this struct through
+/// the publish/read cells in `crate::hw_info`; they are `null` before
+/// publication and on every board that publishes neither.
+/// `hashboard_ids` is published by every board's boot-time hashboard
+/// EEPROM read the same way.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HwInfo {
@@ -69,13 +70,14 @@ pub struct HwInfo {
     /// before the boot-time capture runs or on boards that do not
     /// publish one.
     pub bootloader_version: Option<HwString>,
-    /// STM8 fan-controller co-processor version string, or `null`
+    /// Fan-controller co-processor version string, or `null`
     /// before the boot-time capture runs or on boards that do not
     /// publish one.
     pub fan_controller_version: Option<HwString>,
     /// PSU model name, detected at the PSU driver's first successful
-    /// init. `redacted` reports the part with its detected revision
-    /// letter. `null` where the supply is not identifiable.
+    /// init. A driver whose protocol exposes one reports the part
+    /// together with its revision letter. `null` where the supply is
+    /// not identifiable.
     pub psu_model: Option<HwString>,
     /// Per-chain hashboard serials, index-positional: element N is the
     /// serial read off physical chain N. An element is `null` when that
@@ -157,6 +159,6 @@ pub struct SystemInfo<'response> {
     /// the canonical string values.
     pub pause_reason: Option<&'static str>,
     /// Hardware-identification fields: PSU model and the
-    /// boot-time-captured version strings redacted publishes.
+    /// boot-time-captured version strings a board may publish.
     pub hw_info: HwInfo,
 }

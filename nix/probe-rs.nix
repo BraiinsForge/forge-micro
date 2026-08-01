@@ -174,7 +174,7 @@ rec {
       # lock swap no longer applies. socket2 is already in the closure via
       # tokio, so this re-vendor is a set of cache hits. Reading the lock
       # from the applyPatches output is import-from-derivation and relies on
-      # IFD being enabled, the default here, unlike the redacted base above
+      # IFD being enabled, the default here, unlike the base above
       # whose lock comes straight from the fetched upstream source.
       cargoDeps =
         let

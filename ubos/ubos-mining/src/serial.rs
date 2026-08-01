@@ -87,8 +87,9 @@ pub(crate) static POOL_WORK_SHARES: [AtomicU64; 8] = [const { AtomicU64::new(0) 
 // not needed for correctness; omitting it keeps `cortex_m` out of the
 // ubos-mining dependency graph, satisfying the esp32s3 build constraint.
 // The request functions are called from the OTA flash path and, on the
-// redacted board, from the firmware-reset path; a board that exercises
-// neither leaves the park loop dormant for the image's lifetime.
+// boards that have one, from the firmware-reset path; a board that
+// exercises neither leaves the park loop dormant for the image's
+// lifetime.
 // ---------------------------------------------------------------------------
 
 /// Level flag: `true` means the serial worker should enter the park loop.
@@ -167,8 +168,8 @@ pub fn core1_is_parked() -> bool {
 /// fails closed rather than parking promptly. That fail-closed is
 /// deliberate, not a budget oversight: the OTA park-wait in
 /// `ubos-ota`'s `PARK_POLL_MAX_ATTEMPTS` is a synchronous core-0
-/// busy-wait, so — unlike redacted's `reset_task` budget, which awaits a
-/// timer and so was widened to sit through a bring-up — the OTA budget
+/// busy-wait, so — unlike a board reset task's budget, which awaits a
+/// timer and can be widened to sit through a bring-up — the OTA budget
 /// is left short on purpose: sizing it to a multi-second bring-up would
 /// stall embassy-net on core 0 for that whole window. The busy-spin uses
 /// `core::hint::spin_loop()` only so it compiles for esp32s3 (Xtensa) and

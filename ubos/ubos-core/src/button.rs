@@ -22,8 +22,8 @@
 //! [`wait_for_hold`] resolves once a momentary button has been held pressed
 //! continuously for a configured duration. It is pure mechanism — sampling,
 //! debounce, and edge bookkeeping over an `embedded_hal` [`InputPin`] — with
-//! no notion of what the hold means. The caller owns the action: the redacted
-//! platform board loops on it and sends `ubos_config::Message::FactoryReset`.
+//! no notion of what the hold means. The caller owns the action: a board
+//! loops on it and sends `ubos_config::Message::FactoryReset`.
 //! Keeping the action in the caller is deliberate — `ubos-config` already
 //! depends on this crate, so importing it here would be a cycle, mirroring how
 //! [`crate::reboot`] stays a neutral signal between the API and the board.

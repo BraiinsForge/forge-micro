@@ -10,8 +10,8 @@ the firmware tasks against a Linux network device.
 |-------|-----|----------|--------|
 | `firmware/hashnode` | RP2350B (Braiins Forge Miner x4) | W5500 (SPI) | `thumbv8m.main-none-eabihf` |
 
-Further boards are developed in the private tree; their table lives in
-`docs/BOARDS.md` there.
+The evaluation and adapter board table lives in
+[BOARDS.md](BOARDS.md).
 
 ## Firmware architecture
 
@@ -30,8 +30,8 @@ The link-layer differs by board:
 - WIZnet boards, the hashnode among them, use `embassy-net-wiznet`
   in MACRAW mode so smoltcp owns the full TCP/IP stack. One code path covers
   W5500/W5100S/W6100.
-- STM32 boards in the private tree use the on-chip RMII MAC via
-  `embassy-stm32::eth`; their PHY wiring is in `docs/BOARDS.md` there.
+- The STM32 boards use the on-chip RMII MAC via `embassy-stm32::eth`;
+  their PHY wiring is in [BOARDS.md](BOARDS.md).
 
 The HTTP response is hand-rolled into caller-owned buffers because the
 firmware serves a single metrics page and does not justify a full web

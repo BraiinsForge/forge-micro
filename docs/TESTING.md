@@ -115,9 +115,8 @@ peripheral singleton, it belongs in a host-testable crate or helper.
 Firmware crates need compile coverage, feature coverage, and binary-size
 visibility. They do not need host unit tests for every HAL call.
 
-Run each board in the correct Nix devshell. The published tree covers
-`firmware/hashnode`; the further boards are developed in the private tree,
-where their matrix lives in `docs/BOARDS.md`.
+Run each board in the correct Nix devshell. The per-board matrix lives
+in [BOARDS.md](BOARDS.md).
 
 For each board, check the default feature set. The gate should catch
 target dependency drift, linker-script failures, accidental feature coupling,

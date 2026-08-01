@@ -744,7 +744,7 @@ fn system_info_user_request_serializes_paused_true_and_reason() {
 // SystemInfo hwInfo serialization
 // ---------------------------------------------------------------------------
 
-/// When both redacted-only version strings and the hashboard serials have been
+/// When both boot-captured version strings and the hashboard serials have been
 /// published, `hwInfo` carries all four fields with the published values
 /// present. The fan version exceeds 8 characters to cover more than the
 /// common `"XX.XX.XX"` prefix. The hashboard array carries a `None`
@@ -780,7 +780,7 @@ fn system_info_hw_info_serializes_published_versions() {
     );
 }
 
-/// Before either redacted-only version string or the hashboard serials are
+/// Before either boot-captured version string or the hashboard serials are
 /// published, `bootloaderVersion`, `fanControllerVersion`, and
 /// `hashboardIds` are all `null` inside `hwInfo`, and `psuModel` is
 /// `null` on a target without a modeled PSU; this is also the permanent

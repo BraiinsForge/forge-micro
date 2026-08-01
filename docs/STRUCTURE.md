@@ -99,8 +99,7 @@ typed `TaskPool` static and so rejects generic task functions.
 ## `host/` — std crates
 
 Crates that pull in the standard library and only build for the
-developer host or the NUC support node. They never appear in a
-firmware crate's dep graph.
+developer host. They never appear in a firmware crate's dep graph.
 
 | Crate                  | Role                                          |
 |------------------------|-----------------------------------------------|
@@ -123,9 +122,8 @@ firmware/
 ```
 
 Firmware crate names are the board name, unprefixed. The directory
-above the crate (`firmware/`) is the disambiguator. The crates for
-the boards developed in the private tree are enumerated in
-`docs/BOARDS.md` there.
+above the crate (`firmware/`) is the disambiguator. The evaluation and
+adapter board crates are enumerated in [BOARDS.md](BOARDS.md).
 
 ## `patches/` — upstream patches
 
@@ -194,8 +192,8 @@ reproduce with the `cargo size` recipe below.
 |-----------|-----------|------------|--------------|------------------------------------------------|
 | hashnode  | 515 / 2048 KiB | 357 / 512 KiB (70%) | —   | comfortable                                    |
 
-The rows for the boards developed in the private tree live in
-`docs/BOARDS.md` there.
+The rows for the evaluation and adapter boards live in
+[BOARDS.md](BOARDS.md).
 
 `ubos-metrics`, `ubos-auth`, `ubos-api`, and `ubos-webui` expose a
 `ccmram-bss` cargo feature that places non-DMA static state (metric
@@ -204,8 +202,8 @@ tables) in a `.ccmram.bss` section, for boards whose MCU carries a
 Core-Coupled Memory region the linker otherwise leaves unused. No
 board in this tree enables the feature, so the `link_section`
 annotations are no-ops here; the boards that do, and their per-board
-`memory.x`, are developed in the private tree (see `docs/BOARDS.md`
-there). New CCM-eligible statics should still carry:
+`memory.x`, are covered in [BOARDS.md](BOARDS.md). New CCM-eligible
+statics should still carry:
 
 ```rust
 #[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
@@ -307,8 +305,8 @@ here.
 The reorganization landed across a sequence of atomic commits, each
 keeping `cargo check` green for every affected crate:
 
-1. The support-host tree takes its role-based `nuc/` name
-   (independent rename).
+1. The support-host tree, since moved to the internal repo, takes a
+   role-based name; the rename is independent of the moves below.
 2. `firmware/embassy-net-wiznet-patch/` → `patches/embassy-net-wiznet/`
    with the `[patch.crates-io]` path updated.
 3. Every existing `no_std` library crate moves from the workspace

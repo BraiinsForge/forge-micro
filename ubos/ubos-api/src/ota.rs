@@ -453,8 +453,7 @@ pub trait OtaTarget: Send {
     /// upload. The handlers reject a larger image before any write.
     ///
     /// Defaults to the RP active-slot budget. A board whose inactive slot
-    /// has a different capacity overrides this (for example the redacted, whose
-    /// APP slot is larger than the RP slot).
+    /// has a different capacity overrides this.
     fn max_image_bytes(&self) -> u64 {
         crate::system::OTA_MAX_IMAGE_BYTES
     }

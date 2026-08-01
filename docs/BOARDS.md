@@ -1,17 +1,17 @@
-# Private boards
+# Development boards
 
-Board facts for the boards developed only in the private tree: the
-board table, wiring and pin assignments, size budget, build and flash
-commands, and per-board OTA specifics. The published mirror ships the
-hashnode board and the rp2350-bootloader it flashes with; this file is
-stripped from the mirror, and the published halves stay in
-[OVERVIEW.md](OVERVIEW.md), [SETUP.md](SETUP.md), [OTA.md](OTA.md),
-and [STRUCTURE.md](STRUCTURE.md).
+Board facts for the evaluation and adapter boards: the board table,
+wiring and pin assignments, size budget, build and flash commands, and
+per-board OTA specifics. These boards carry no product-specific
+support; they are what keeps the OS honest across five MCU parts.
+The hashnode product board and the rp2350-bootloader it flashes with
+are covered in [OVERVIEW.md](OVERVIEW.md), [SETUP.md](SETUP.md),
+[OTA.md](OTA.md), and [STRUCTURE.md](STRUCTURE.md).
 
 ## Board table
 
 Split out of the table in [OVERVIEW.md](OVERVIEW.md), which keeps the
-published hashnode row.
+hashnode row.
 
 | Crate | MCU | Ethernet | Target |
 |-------|-----|----------|--------|
@@ -23,8 +23,8 @@ published hashnode row.
 | `firmware/esp32s3` | ESP32-S3 | W5100S (SPI) | `xtensa-esp32s3-none-elf` |
 
 The esp32s3 board's on-die temperature sensor is supported by
-`ubos/esp32s3-tsens/` (esp-hal 1.0.0 does not expose it); the crate is
-stripped from the mirror alongside its only consumer.
+`ubos/esp32s3-tsens/`, since esp-hal 1.0.0 does not expose it. That
+board is the crate's only consumer.
 
 ## Debug probe wiring (Pico 2 debugprobe to EVB-Pico)
 
@@ -107,10 +107,9 @@ Repurposes the LCD header pins on an ESP32-S3 dev board.
 
 ## PCB sources
 
-Moved out of [STRUCTURE.md](STRUCTURE.md): `pcb/` holds the KiCad
-hardware sources, KiCad projects only, with ERC and DRC gated by
-flake `checks`. The tree is stripped from the mirror alongside this
-file.
+The BMM Adapter's KiCad sources, and the ERC/DRC and fabrication
+tooling gating them, live in the internal repository. The adapter's
+pin assignments above are what the firmware needs.
 
 ## Building and flashing
 
@@ -143,9 +142,9 @@ OTA image build.
 
 ## Size budget
 
-Rows for the private boards, split out of the footprint table in
-[STRUCTURE.md](STRUCTURE.md); the snapshot caveats and the measurement
-recipe are there.
+Rows for the boards in this repository, split out of the footprint
+table in [STRUCTURE.md](STRUCTURE.md); the snapshot caveats and the
+measurement recipe are there.
 
 | Board     | Flash     | Main RAM   | CCM RAM      | Headroom note                                  |
 |-----------|-----------|------------|--------------|------------------------------------------------|

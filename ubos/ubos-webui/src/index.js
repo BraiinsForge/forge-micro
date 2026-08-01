@@ -42,7 +42,7 @@ let eventsDropped = false;
 const OTA_MAX_BYTES = 952 * 1024;
 
 // Live OTA image cap, refreshed from /api/info's ota.maxImageBytes each poll
-// so a board with a larger inactive slot (e.g. the redacted APP slot) is honoured.
+// so a board with a larger inactive slot is honoured.
 let otaMaxBytes = OTA_MAX_BYTES;
 
 // Chart geometry. PAD_* are fixed pixel gutters reserved for axis
