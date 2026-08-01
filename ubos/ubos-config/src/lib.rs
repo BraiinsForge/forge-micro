@@ -59,8 +59,8 @@ use ubos_asic::HashboardDescriptor;
 
 pub use api::ApiConfig;
 pub use cooling::{
-    BOUNDS as COOLING_BOUNDS, CoolingBounds, CoolingConfig, CoolingInfo, INFO as COOLING_INFO,
-    PidConfig,
+    BOUNDS as COOLING_BOUNDS, CoolingBounds, CoolingConfig, CoolingInfo, FanMode,
+    INFO as COOLING_INFO, PidConfig,
 };
 pub use miner::{MinerConfig, TuningAlgorithm};
 pub use mining::{
@@ -314,15 +314,24 @@ impl Handle {
 
 /// Partial-update cooling section of [`ConfigUpdate`].
 ///
-/// Only the two operator-tunable cooling fields are exposed; the rest of
+/// Only the operator-tunable cooling fields are exposed; the rest of
 /// [`CoolingConfig::pid`] (the PID gains) is factory-set and never patched
-/// from the UI. Each field is `Option` so one can be set without the other.
+/// from the UI. Each field is `Option` so one can be set without the others.
+/// `mode` and `fixed_fan_pwm` are separate fields rather than one payload
+/// variant so the UI can edit the duty without leaving auto control.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CoolingUpdate {
+    /// Replacement for [`CoolingConfig::mode`]; `None` leaves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<FanMode>,
     /// Replacement for [`CoolingConfig::target_temp_c`]; `None` leaves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_temp_c: Option<f32>,
+    /// Replacement for [`CoolingConfig::fixed_fan_pwm`] (the fixed-mode duty,
+    /// 0-100); `None` leaves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_fan_pwm: Option<u8>,
     /// Replacement for [`PidConfig::min_fan_pwm`] (the fan floor, 0-100);
     /// `None` leaves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -348,9 +357,10 @@ pub struct ConfigUpdate {
     /// Replacement value for [`Config::thermal`]; `None` means leave unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thermal: Option<ThermalConfig>,
-    /// Partial cooling update (setpoint and fan floor); `None` means leave
-    /// unchanged. The full [`CoolingConfig`] is not exposed because the PID
-    /// gains are factory-tuned and must not be overwritten from the UI.
+    /// Partial cooling update (mode, setpoint, fixed duty, and fan floor);
+    /// `None` means leave unchanged. The full [`CoolingConfig`] is not
+    /// exposed because the PID gains are factory-tuned and must not be
+    /// overwritten from the UI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cooling: Option<CoolingUpdate>,
     /// Replacement value for [`Config::miner`]; `None` means leave unchanged.
@@ -384,8 +394,14 @@ impl ConfigUpdate {
             target.thermal = thermal;
         }
         if let Some(cooling) = self.cooling {
+            if let Some(mode) = cooling.mode {
+                target.cooling.mode = mode;
+            }
             if let Some(temp) = cooling.target_temp_c {
                 target.cooling.target_temp_c = temp;
+            }
+            if let Some(pwm) = cooling.fixed_fan_pwm {
+                target.cooling.fixed_fan_pwm = pwm;
             }
             if let Some(pwm) = cooling.min_fan_pwm {
                 target.cooling.pid.min_fan_pwm = pwm;
@@ -417,7 +433,9 @@ impl ConfigUpdate {
             pool: Some(config.pool.clone()),
             thermal: Some(config.thermal.clone()),
             cooling: Some(CoolingUpdate {
+                mode: Some(config.cooling.mode),
                 target_temp_c: Some(config.cooling.target_temp_c),
+                fixed_fan_pwm: Some(config.cooling.fixed_fan_pwm),
                 min_fan_pwm: Some(config.cooling.pid.min_fan_pwm),
             }),
             miner: Some(config.miner.clone()),
@@ -475,13 +493,23 @@ impl ConfigUpdate {
         if let Some(network) = &self.network {
             network.validate()?;
         }
-        let cooling_target = self.cooling.as_ref().and_then(|c| c.target_temp_c);
-        if let Some(pwm) = self.cooling.as_ref().and_then(|c| c.min_fan_pwm) {
-            // PID output clamps to [min_fan_pwm, 100]; a floor above 100 would
-            // invert the clamp range (see ubos-cooling::pid::set_limits).
-            if pwm > 100 {
-                return Err("cooling.min_fan_pwm must be between 0 and 100");
-            }
+        let cooling_target = self
+            .cooling
+            .as_ref()
+            .and_then(|cooling| cooling.target_temp_c);
+        if let Some(pwm) = self
+            .cooling
+            .as_ref()
+            .and_then(|cooling| cooling.min_fan_pwm)
+        {
+            CoolingConfig::validate_min_fan_pwm(pwm)?;
+        }
+        if let Some(pwm) = self
+            .cooling
+            .as_ref()
+            .and_then(|cooling| cooling.fixed_fan_pwm)
+        {
+            CoolingConfig::validate_fixed_fan_pwm(pwm)?;
         }
 
         if self.thermal.is_some() || cooling_target.is_some() {
@@ -580,11 +608,15 @@ impl Config {
                 ..ThermalConfig::default()
             },
             cooling: CoolingConfig {
+                // Every board boots under PID control; a fixed duty is an
+                // explicit operator choice, never a factory default.
+                mode: FanMode::Auto,
                 // The board's cooling profile lives on its descriptor: the
                 // hashnode runs die-temp blind (synthetic pcb+offset), so it
                 // carries a lower setpoint and a higher fan floor than the
                 // default board. Runtime-editable via the UI afterwards.
                 target_temp_c: board.cooling.target_temp_c,
+                fixed_fan_pwm: cooling::DEFAULT_FIXED_FAN_PWM,
                 pid: PidConfig {
                     min_fan_pwm: board.cooling.min_fan_pwm,
                     ..PidConfig::default()
@@ -620,17 +652,19 @@ impl Config {
 
     /// Validate operator-tunable fields against their per-domain bounds.
     ///
-    /// Runs the pool, thermal, miner, tuning, and api sub-validators and
-    /// enforces the cross-field rule
-    /// `cooling.target_temp_c < thermal.dangerous_temp_c`. Stored blobs
-    /// pass through serde and can carry out-of-range or non-finite floats
-    /// in those fields; [`load_initial`] calls this after [`decode_blob`]
-    /// so a corrupted blob falls back to defaults instead of feeding
-    /// consumers values that bypass per-update validation.
+    /// Runs the pool, thermal, miner, tuning, api, and network
+    /// sub-validators, bounds both cooling duties, and enforces the
+    /// cross-field rule `cooling.target_temp_c < thermal.dangerous_temp_c`.
+    /// Stored blobs pass through serde and can carry out-of-range or
+    /// non-finite floats in those fields; [`load_initial`] calls this after
+    /// [`decode_blob`] so a corrupted blob falls back to defaults instead of
+    /// feeding consumers values that bypass per-update validation.
     ///
-    /// The `cooling.pid` gains are not user-tunable through [`ConfigUpdate`]
-    /// and therefore only enter flash via [`Config::default`]; they are not
-    /// re-validated here.
+    /// `min_fan_pwm` sits under `cooling.pid` but is operator-tunable through
+    /// [`CoolingUpdate::min_fan_pwm`] and so reaches flash from the UI; it is
+    /// bounded here alongside `cooling.fixed_fan_pwm`. The remaining
+    /// `cooling.pid` gains have no [`ConfigUpdate`] path and enter flash only
+    /// via [`Config::default`]; they are not re-validated here.
     ///
     /// # Errors
     ///
@@ -648,6 +682,8 @@ impl Config {
             self.cooling.target_temp_c,
             self.thermal.dangerous_temp_c,
         )?;
+        CoolingConfig::validate_fixed_fan_pwm(self.cooling.fixed_fan_pwm)?;
+        CoolingConfig::validate_min_fan_pwm(self.cooling.pid.min_fan_pwm)?;
         Ok(())
     }
 }

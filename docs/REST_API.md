@@ -104,7 +104,7 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 | Method | Path           | Auth        | Description                                                       |
 |--------|----------------|-------------|-------------------------------------------------------------------|
 | GET    | `/api/info`    | any         | Telemetry blob consumed by the SPA poll                           |
-| GET    | `/api/config`  | any         | `ConfigUpdate` snapshot: `pool`, `thermal`, `cooling_target_temp_c`, `tuning`, `api` (password blanked) |
+| GET    | `/api/config`  | any         | `ConfigUpdate` snapshot: `pool`, `thermal`, `cooling` (`mode`, `target_temp_c`, `fixed_fan_pwm`, `min_fan_pwm`), `miner`, `tuning`, `api` (password blanked), `network` |
 | POST   | `/api/config`  | any +CSRF   | Partial `ConfigUpdate` (any subset of those fields); returns `{"ok":true}` |
 
 ### `/api/system/*` (port 8080)
@@ -114,7 +114,7 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 | GET    | `/api/system/info`                | any       | 200    | `SystemInfo`; full telemetry with `apiVariant: "ubos-0.1"`, plus `hwInfo` (`psuModel` detected at runtime, `null` where the supply is not identifiable; `bootloaderVersion`/`fanControllerVersion` populated only on platforms that report them, `null` elsewhere; `hashboardIds` per-chain hashboard EEPROM serials, `null` slot when a chain's board is absent or unreadable) |
 | GET    | `/api/system/asic`                | any       | 200    | `MiningInfo`; chip facts (`asicModel`, `deviceModel`, `swarmColor`, `asicCount`), tuning defaults, `bounds: { frequencyMhz: { start, end }, voltageMv: { start, end } }` |
 | GET    | `/api/system/thermal`             | any       | 200    | `ThermalInfo`; accepted ranges as `bounds: { sampleIntervalMs, dangerousTempC, cooldownTempC }` |
-| GET    | `/api/system/cooling`             | any       | 200    | `CoolingInfo`; accepted ranges as `bounds: { targetTempC }` |
+| GET    | `/api/system/cooling`             | any       | 200    | `CoolingInfo`; accepted ranges as `bounds: { targetTempC, minFanPwm, fixedFanPwm }` |
 | GET    | `/api/system/statistics`          | any       | 200    | `SystemStatistics`; label set + (currently empty) ring of samples        |
 | GET    | `/api/system/scoreboard`          | any       | 200    | `SystemScoreboardEntry[]`; currently empty                               |
 | GET    | `/api/system/network`             | any       | 200    | `SystemNetwork`; current mode, pending-change flag, confirm window seconds |
@@ -159,10 +159,10 @@ bounds they carry) and are served at `/api/system/asic`,
 `ConfigUpdate` (the `/api/config` GET response and POST body) uses
 serde's default snake_case naming so the wire shape matches the
 ubos-config field names; consumers of `/api/config` decode keys like
-`sample_interval_ms` and `cooling_target_temp_c`. Bodies are
-serialized with `serde-json-core`: the `/api/system/*` handlers share
+`sample_interval_ms` and `fixed_fan_pwm`. Bodies are
+serialized with `serde-json-core`. The `/api/system/*` handlers share
 one 2 KiB stack scratch buffer (`SCRATCH_SIZE`,
-`ubos-api/src/system.rs`), while `/api/config` serializes into its own,
+`ubos-api/src/system.rs`). `/api/config` serializes into its own,
 larger buffer (`CONFIG_RESPONSE_BUFFER_SIZE`, `ubos-api/src/rest.rs`),
 sized from a measured worst-case body.
 
@@ -175,6 +175,15 @@ every entry is 0 the first slot is treated as weighted. Weights take
 effect at runtime on the same config-watch publish that restarts the
 pool sessions; the delivered split is observable via the
 `board_pool_work_shares_total{pool=...}` metric.
+
+The `cooling` section carries `mode`, either `"auto"` or `"fixed"`,
+alongside `fixed_fan_pwm` and `min_fan_pwm`, both 0-100. Each duty is
+validated on its own, independently of the mode, so one can be edited
+while the other governs the fan. `target_temp_c` is validated under
+both modes: it must stay below `thermal.dangerous_temp_c`, and that
+rule is what bounds how low `dangerous_temp_c` can be set. A fixed duty
+of 0 is accepted. The mining halt at `thermal.dangerous_temp_c`
+protects the board.
 
 | Struct                  | Endpoint(s)                                        |
 |-------------------------|----------------------------------------------------|

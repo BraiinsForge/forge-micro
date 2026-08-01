@@ -20,8 +20,9 @@
 //! Tests for [`crate::ConfigUpdate::validate`].
 
 use crate::{
-    ApiConfig, Config, ConfigUpdate, CoolingUpdate, MAX_POOL_WEIGHT, MINING_BOUNDS, MinerConfig,
-    NetworkConfig, NetworkMode, PoolEntry, ProtocolKind, ThermalConfig, TuningConfig,
+    ApiConfig, Config, ConfigUpdate, CoolingConfig, CoolingUpdate, FanMode, MAX_POOL_WEIGHT,
+    MINING_BOUNDS, MinerConfig, NetworkConfig, NetworkMode, PoolEntry, ProtocolKind, ThermalConfig,
+    TuningConfig,
 };
 
 /// Builds a minimal valid [`ConfigUpdate`] with no fields set.
@@ -350,7 +351,9 @@ fn thermal_cooldown_not_less_than_dangerous_rejected() {
 fn cooling_target_below_dangerous_passes() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
+        mode: None,
         target_temp_c: Some(70.0),
+        fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
     assert!(
@@ -371,7 +374,9 @@ fn cooling_target_equal_to_dangerous_rejected() {
     let mut update = empty_update();
     // 80.0 is within 30..=85 but equals the dangerous limit.
     update.cooling = Some(CoolingUpdate {
+        mode: None,
         target_temp_c: Some(80.0),
+        fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
     assert_eq!(
@@ -391,7 +396,9 @@ fn cooling_target_cross_field_uses_incoming_dangerous() {
     thermal.dangerous_temp_c = 80.0;
     update.thermal = Some(thermal);
     update.cooling = Some(CoolingUpdate {
+        mode: None,
         target_temp_c: Some(75.0),
+        fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
     assert!(
@@ -406,7 +413,9 @@ fn cooling_target_cross_field_uses_incoming_dangerous() {
 fn cooling_target_nan_rejected() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
+        mode: None,
         target_temp_c: Some(f32::NAN),
+        fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
     assert_eq!(
@@ -420,7 +429,9 @@ fn cooling_target_nan_rejected() {
 fn cooling_target_too_low() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
+        mode: None,
         target_temp_c: Some(29.9),
+        fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
     assert_eq!(
@@ -434,7 +445,9 @@ fn cooling_target_too_low() {
 fn cooling_target_too_high() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
+        mode: None,
         target_temp_c: Some(85.1),
+        fixed_fan_pwm: None,
         min_fan_pwm: None,
     });
     assert_eq!(
@@ -587,7 +600,9 @@ fn tuning_voltage_in_range_non_discrete_passes() {
 fn cooling_min_fan_pwm_100_passes() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
+        mode: None,
         target_temp_c: None,
+        fixed_fan_pwm: None,
         min_fan_pwm: Some(100),
     });
     assert!(
@@ -603,12 +618,128 @@ fn cooling_min_fan_pwm_100_passes() {
 fn cooling_min_fan_pwm_101_rejected() {
     let mut update = empty_update();
     update.cooling = Some(CoolingUpdate {
+        mode: None,
         target_temp_c: None,
+        fixed_fan_pwm: None,
         min_fan_pwm: Some(101),
     });
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
         Err("cooling.min_fan_pwm must be between 0 and 100")
+    );
+}
+
+// --- Cooling fixed fan duty ---
+
+/// Both ends of the fixed-duty range pass. Zero is accepted deliberately:
+/// a stopped fan is a legitimate request, and the board stays covered by
+/// the mining halt at `thermal.dangerous_temp_c`.
+#[test]
+fn cooling_fixed_fan_pwm_range_ends_pass() {
+    for duty in [0, 100] {
+        let mut update = empty_update();
+        update.cooling = Some(CoolingUpdate {
+            mode: Some(FanMode::Fixed),
+            target_temp_c: None,
+            fixed_fan_pwm: Some(duty),
+            min_fan_pwm: None,
+        });
+        assert!(
+            update
+                .validate(&Config::default(), &crate::mining::BOUNDS)
+                .is_ok(),
+            "duty {duty} must be accepted"
+        );
+    }
+}
+
+/// A fixed duty above 100 is rejected; a duty cycle has no value above full.
+#[test]
+fn cooling_fixed_fan_pwm_101_rejected() {
+    let mut update = empty_update();
+    update.cooling = Some(CoolingUpdate {
+        mode: None,
+        target_temp_c: None,
+        fixed_fan_pwm: Some(101),
+        min_fan_pwm: None,
+    });
+    assert_eq!(
+        update.validate(&Config::default(), &crate::mining::BOUNDS),
+        Err("cooling.fixed_fan_pwm must be between 0 and 100")
+    );
+}
+
+/// The fixed duty is independent of the PID floor: a duty below
+/// `min_fan_pwm` passes, because the floor bounds PID output only.
+#[test]
+fn cooling_fixed_fan_pwm_below_floor_passes() {
+    let current = Config::default();
+    let mut update = empty_update();
+    update.cooling = Some(CoolingUpdate {
+        mode: Some(FanMode::Fixed),
+        target_temp_c: None,
+        fixed_fan_pwm: Some(current.cooling.pid.min_fan_pwm - 1),
+        min_fan_pwm: None,
+    });
+    assert!(update.validate(&current, &crate::mining::BOUNDS).is_ok());
+}
+
+/// The fan mode survives the exact wire codec the API uses, so the webui
+/// sees the string variant name it sends back. The enum is the first one in
+/// `CoolingUpdate`, and `serde-json-core` handles unit variants specially.
+#[test]
+fn cooling_mode_json_round_trip() {
+    let update = ConfigUpdate {
+        cooling: Some(CoolingUpdate {
+            mode: Some(FanMode::Fixed),
+            target_temp_c: None,
+            fixed_fan_pwm: Some(70),
+            min_fan_pwm: None,
+        }),
+        ..empty_update()
+    };
+
+    let json = serde_json_core::ser::to_string::<_, 128>(&update).expect("serialize succeeds");
+    assert!(
+        json.contains("\"mode\":\"fixed\""),
+        "mode must serialize as the snake_case variant name, got {json}"
+    );
+    let (decoded, _) =
+        serde_json_core::de::from_str::<ConfigUpdate>(&json).expect("deserialize succeeds");
+    assert_eq!(decoded.cooling, update.cooling);
+}
+
+/// Applying a cooling update overwrites the mode and the fixed duty, leaves
+/// the fields it omits at their previous values, and `from_config` round-trips
+/// the result.
+#[test]
+fn cooling_mode_and_duty_apply_and_roundtrip() {
+    let mut config = Config::default();
+    let mut update = empty_update();
+    update.cooling = Some(CoolingUpdate {
+        mode: Some(FanMode::Fixed),
+        target_temp_c: None,
+        fixed_fan_pwm: Some(35),
+        min_fan_pwm: None,
+    });
+    update.apply(&mut config);
+    assert_eq!(
+        config.cooling,
+        CoolingConfig {
+            mode: FanMode::Fixed,
+            fixed_fan_pwm: 35,
+            ..Config::default().cooling
+        }
+    );
+
+    assert_eq!(
+        ConfigUpdate::from_config(&config).cooling,
+        Some(CoolingUpdate {
+            mode: Some(FanMode::Fixed),
+            target_temp_c: Some(config.cooling.target_temp_c),
+            fixed_fan_pwm: Some(35),
+            min_fan_pwm: Some(config.cooling.pid.min_fan_pwm),
+        })
     );
 }
 
@@ -889,5 +1020,31 @@ fn config_cooling_target_above_dangerous_rejected() {
     assert_eq!(
         config.validate(&crate::mining::BOUNDS),
         Err("cooling.target_temp_c must be less than dangerous_temp_c")
+    );
+}
+
+/// A Config decoded from storage with an out-of-range `min_fan_pwm` is
+/// rejected. The floor lives under `cooling.pid` but is operator-tunable, so
+/// it reaches flash the same way the fixed duty does and gets the same
+/// boot-time bound rather than being silently clamped by `TempControl::new`.
+#[test]
+fn config_cooling_min_fan_pwm_101_rejected() {
+    let mut config = Config::default();
+    config.cooling.pid.min_fan_pwm = 101;
+    assert_eq!(
+        config.validate(&crate::mining::BOUNDS),
+        Err("cooling.min_fan_pwm must be between 0 and 100")
+    );
+}
+
+/// A Config decoded from storage with an out-of-range `fixed_fan_pwm` is
+/// rejected, covering the sibling duty on the same path.
+#[test]
+fn config_cooling_fixed_fan_pwm_101_rejected() {
+    let mut config = Config::default();
+    config.cooling.fixed_fan_pwm = 101;
+    assert_eq!(
+        config.validate(&crate::mining::BOUNDS),
+        Err("cooling.fixed_fan_pwm must be between 0 and 100")
     );
 }

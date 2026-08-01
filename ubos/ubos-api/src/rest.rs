@@ -72,7 +72,7 @@ const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
 /// hold — three pool slots carrying 128-byte host and user strings and
 /// an SV2 pool key, a static `network` mode with three resolvers and a
 /// 32-byte hostname, a 32-byte `api` username and password, and every
-/// numeric field at its longest decimal form — serializes to 2062
+/// numeric field at its longest decimal form — serializes to 2097
 /// bytes. The SV2 key is what makes a pool slot widest: a `[u8; 32]`
 /// serializes as a JSON number array costing up to four bytes an
 /// element, which outruns the 128-byte SV1 password string. That total
@@ -101,7 +101,7 @@ const CONFIG_RESPONSE_BUFFER_SIZE: usize = 3072;
 /// serve is a body it will also accept back: `POST /api/config` is the
 /// natural round-trip of the `GET /api/config` snapshot, and
 /// `Api::REQUEST_BUFFER_SIZE` — sized to the socket RX window, not to any
-/// body — left the widest snapshot 14 bytes over. The window bounds a
+/// body — left the widest snapshot 49 bytes over. The window bounds a
 /// single socket read rather than the body, which `read_body` accumulates
 /// across reads, so the two never had to agree. Requests that exceed this
 /// cap receive a 413 response.

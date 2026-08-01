@@ -204,7 +204,7 @@ const WIDEST_F32: f32 = -0.000_001_000_000_1;
 /// so the figure quoted in that constant's comment cannot drift: a field
 /// addition that still fits the buffer fails here, and updating this constant
 /// is the prompt to update that comment.
-const WORST_CASE_BODY_LEN: usize = 2062;
+const WORST_CASE_BODY_LEN: usize = 2097;
 
 /// The `GET /api/config` handler serializes a `ConfigUpdate` into a fixed
 /// `[u8; CONFIG_RESPONSE_BUFFER_SIZE]`. `serde_json_core::to_slice` returns
@@ -295,7 +295,9 @@ fn config_response_body_fits_in_buffer() {
             cooldown_temp_c: WIDEST_F32,
         }),
         cooling: Some(ubos_config::CoolingUpdate {
+            mode: Some(ubos_config::FanMode::Fixed),
             target_temp_c: Some(WIDEST_F32),
+            fixed_fan_pwm: Some(u8::MAX),
             min_fan_pwm: Some(u8::MAX),
         }),
         miner: Some(ubos_config::MinerConfig {

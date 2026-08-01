@@ -19,10 +19,40 @@
 
 //! Cooling loop configuration and validation.
 //!
-//! Defines [`CoolingConfig`], [`PidConfig`], [`CoolingBounds`], and
-//! the static [`BOUNDS`] constant.
+//! Defines [`CoolingConfig`], [`FanMode`], [`PidConfig`],
+//! [`CoolingBounds`], and the static [`BOUNDS`] constant.
 
 use core::ops::RangeInclusive;
+
+/// How the cooling loop decides the fan duty.
+///
+/// [`FanMode::Auto`] runs the PID against [`CoolingConfig::target_temp_c`];
+/// [`FanMode::Fixed`] holds the fan at [`CoolingConfig::fixed_fan_pwm`] and
+/// ignores the temperature. Neither mode disables the cooling failsafes: a
+/// sensor fault and a stalled thermal task force the fan to full in both.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
+)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum FanMode {
+    /// PID control against the thermal setpoint.
+    Auto,
+    /// Operator-selected constant duty.
+    Fixed,
+}
+
+impl FanMode {
+    /// Wire name of the variant, for log lines that must read the same
+    /// under both logging backends.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Fixed => "fixed",
+        }
+    }
+}
 
 /// PID controller gains for the cooling loop.
 ///
@@ -33,7 +63,10 @@ use core::ops::RangeInclusive;
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PidConfig {
-    /// Minimum PWM duty cycle; prevents the fan from stopping entirely.
+    /// Floor on the PID's output duty; keeps the PID from stopping the fan.
+    /// Bounds nothing outside [`FanMode::Auto`]: in [`FanMode::Fixed`] the
+    /// PID is not running and [`CoolingConfig::fixed_fan_pwm`] is held as
+    /// given.
     pub min_fan_pwm: u8,
     /// Proportional gain.
     pub p_gain: f32,
@@ -64,17 +97,26 @@ impl Default for PidConfig {
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CoolingConfig {
-    /// PID setpoint temperature in Celsius.
+    /// Whether the loop runs the PID or holds a fixed duty.
+    pub mode: FanMode,
+    /// PID setpoint temperature in Celsius. Ignored in [`FanMode::Fixed`].
     pub target_temp_c: f32,
+    /// Duty cycle held in [`FanMode::Fixed`], 0-100. Not floored by
+    /// [`PidConfig::min_fan_pwm`]: the floor is a bound on PID output, and a
+    /// fixed duty is what the operator asked for. A board whose hardware
+    /// needs a minimum duty clamps it in its own `FanOutput`.
+    pub fixed_fan_pwm: u8,
     /// PID controller gains.
     pub pid: PidConfig,
 }
 
 impl Default for CoolingConfig {
-    /// Factory default: 67 °C setpoint with tuned PID gains.
+    /// Factory default: PID control at a 67 °C setpoint with tuned gains.
     fn default() -> Self {
         Self {
+            mode: FanMode::Auto,
             target_temp_c: 67.0,
+            fixed_fan_pwm: DEFAULT_FIXED_FAN_PWM,
             pid: PidConfig::default(),
         }
     }
@@ -104,9 +146,54 @@ impl CoolingConfig {
         }
         Ok(())
     }
+
+    /// Validate the proposed fixed duty.
+    ///
+    /// The whole 0-100 range is accepted, including 0: a stopped fan is a
+    /// legitimate request, and the board stays protected by the mining halt
+    /// at `thermal.dangerous_temp_c`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when `pwm` falls outside `BOUNDS.fixed_fan_pwm` and so
+    /// is not a duty cycle.
+    pub fn validate_fixed_fan_pwm(pwm: u8) -> Result<(), &'static str> {
+        if !BOUNDS.fixed_fan_pwm.contains(&pwm) {
+            return Err("cooling.fixed_fan_pwm must be between 0 and 100");
+        }
+        Ok(())
+    }
+
+    /// Validate the proposed PID output floor.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when `pwm` is outside `BOUNDS.min_fan_pwm`. PID output
+    /// clamps to `[min_fan_pwm, 100]`, so a floor above 100 would invert the
+    /// clamp range; see `ubos-cooling::pid::set_limits`. `TempControl::new`
+    /// clamps the floor to 100 before it reaches the controller, so an
+    /// unvalidated value cannot invert the range at runtime; rejecting it
+    /// here is what keeps a value the operator can see from being silently
+    /// altered.
+    pub fn validate_min_fan_pwm(pwm: u8) -> Result<(), &'static str> {
+        if !BOUNDS.min_fan_pwm.contains(&pwm) {
+            return Err("cooling.min_fan_pwm must be between 0 and 100");
+        }
+        Ok(())
+    }
 }
 
-/// Accepted ranges for each [`CoolingConfig`] field.
+/// Duty a board starts with in [`FanMode::Fixed`] before the operator picks
+/// one. Never commanded while the default [`FanMode::Auto`] holds; it exists
+/// so the UI has a value to show when the mode is first switched.
+pub(crate) const DEFAULT_FIXED_FAN_PWM: u8 = 50;
+
+/// Accepted ranges for every numeric [`CoolingConfig`] field.
+///
+/// `mode` carries no range: it is an enum, and serde rejects any variant
+/// outside it. The [`CoolingConfig`] validators check against these ranges
+/// rather than against literals of their own, so this is the single
+/// definition of what the firmware accepts.
 ///
 /// Serializable so API endpoints can return the bounds alongside the
 /// current config without a separate hard-coded schema.
@@ -116,11 +203,17 @@ impl CoolingConfig {
 pub struct CoolingBounds {
     /// Accepted range for `target_temp_c` in Celsius.
     pub target_temp_c: RangeInclusive<f32>,
+    /// Accepted range for `pid.min_fan_pwm` as a duty percent.
+    pub min_fan_pwm: RangeInclusive<u8>,
+    /// Accepted range for `fixed_fan_pwm` as a duty percent.
+    pub fixed_fan_pwm: RangeInclusive<u8>,
 }
 
 /// Accepted value ranges for [`CoolingConfig`] fields.
 pub const BOUNDS: CoolingBounds = CoolingBounds {
     target_temp_c: 30.0..=85.0,
+    min_fan_pwm: 0..=100,
+    fixed_fan_pwm: 0..=100,
 };
 
 /// Static bounds metadata for the cooling config section.
