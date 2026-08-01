@@ -18,15 +18,18 @@
 # shall be considered distinct from the grant above.
 
 # probe-rs tooling: the build from the pinned upstream source plus any
-# caller-supplied patch series, the remote and server variants with
-# their patches, and the overlay exposing them plus the probe-rs-runner
-# wrapper. See flake.nix for how the overlay is threaded into each
-# system's pkgs and the NUC's cross overlay.
+# caller-supplied patch series, the remote variant with its patch, and
+# the overlay exposing it plus the probe-rs-runner wrapper. See
+# flake.nix for how the overlay is threaded into each system's pkgs.
+#
+# The serve side is not built here. A repo that runs a probe-rs server
+# derives its own variant from this base, because the serve-side
+# patches and the host they run on are internal.
 #
 # `extraPatches` is how a consumer outside this repo adds a silicon
 # support series without copying the recipe: import this module with
 # its own list and use the overlay that comes back. The patches apply
-# on top of the in-repo series, before the remote and server patches.
+# on top of the in-repo series, before the remote patch.
 {
   extraPatches ? [ ],
 }:
@@ -40,10 +43,10 @@ rec {
   # small nixpkgs one: cmake and pkg-config, libusb and openssl, the
   # udev-rules install, and the skip list for the probe- and
   # toolchain-requiring tests. Every probe-rs consumer, each dev shell
-  # and the NUC serve service, builds from this one base, so the fleet
-  # runs a single probe-rs version. The series touches no manifest or
-  # lock, so the vendor reads the unpatched base's lock and needs no
-  # import-from-derivation.
+  # here and each serve-side variant a consuming repo derives, builds
+  # from this one base, so the fleet runs a single probe-rs version.
+  # The series touches no manifest or lock, so the vendor reads the
+  # unpatched base's lock and needs no import-from-derivation.
   #
   # cargoDeps uses importCargoLock rather than fetchCargoVendor: this vendor
   # is a binary-cache miss, and fetchCargoVendor's parallel download pool
@@ -78,7 +81,7 @@ rec {
         # Apply order is this list, not the file names. This repo's
         # targets need nothing over the release tag; a consumer adding
         # silicon support passes its series as `extraPatches`, which
-        # applies before the remote and server patches below.
+        # applies before the remote patch below.
         patches = extraPatches;
       };
 
@@ -155,43 +158,8 @@ rec {
       ];
     });
 
-  # The bench's probe-rs server additionally needs the serve-side TCP
-  # keepalive fix so a client that dies abruptly does not pin the probe
-  # Session. That patch is server-only, so it stays off the dev-facing
-  # probe-rs-tools-remote, which gains nothing from it.
-  mkServerProbeRsTools =
-    pkgs: base:
-    let
-      serverPatch = ../patches/probe-rs-serve-tcp-keepalive.patch;
-    in
-    (mkRemoteProbeRsTools base).overrideAttrs (old: {
-      patches = (old.patches or [ ]) ++ [ serverPatch ];
-      # The server patch adds socket2 to probe-rs-tools' Cargo.toml and
-      # Cargo.lock, so the vendor must list it under probe-rs-tools too.
-      # Re-vendor from the patched source's lock rather than reusing the
-      # remote vendor: importCargoLock produces a self-referential vendor
-      # directory that cannot be copied to a new path, so the old in-place
-      # lock swap no longer applies. socket2 is already in the closure via
-      # tokio, so this re-vendor is a set of cache hits. Reading the lock
-      # from the applyPatches output is import-from-derivation and relies on
-      # IFD being enabled, the default here, unlike the base above
-      # whose lock comes straight from the fetched upstream source.
-      cargoDeps =
-        let
-          patchedSrc = pkgs.applyPatches {
-            name = "probe-rs-server-src";
-            inherit (old) src;
-            patches = (old.patches or [ ]) ++ [ serverPatch ];
-          };
-        in
-        pkgs.rustPlatform.importCargoLock {
-          lockFile = "${patchedSrc}/Cargo.lock";
-        };
-    });
-
   overlay = final: prev: {
     probe-rs-tools-remote = mkRemoteProbeRsTools (mkProbeRsTools prev);
-    probe-rs-tools-server = mkServerProbeRsTools prev (mkProbeRsTools prev);
     probe-rs-runner = prev.writeShellScriptBin "probe-rs-runner" ''
       args=()
       for arg in "$@"; do
@@ -233,8 +201,8 @@ rec {
       # Persist a copy of each session so a flash can be left
       # unattended and read back later. Logs land in the project's
       # logs/ directory - the nearest ancestor holding flake.nix,
-      # i.e. ubos-main. PROBE_RS_LOG_DIR overrides this, and the NUC
-      # layers rotation on top of that override separately.
+      # i.e. ubos-main. PROBE_RS_LOG_DIR overrides this; a deployment
+      # that wants rotation layers it on top of that override.
       #
       # Named <firmware>[-<suffix>]-<timestamp>.log. The firmware
       # name is the crate directory we run from (rp2350, bmm-pico,
@@ -297,7 +265,7 @@ rec {
         for arg in "''${args[@]}"; do
           if [ "$arg" = "run" ] || [ "$arg" = "attach" ]; then
             echo "probe-rs-runner: probe-rs exited 0 in ''${elapsed}s without flashing - probe likely wedged (probe-rs/probe-rs#1849 for CMSIS-DAP)." >&2
-            echo "  Physically replug the probe; check 'journalctl -u probe-rs-server' on the NUC for server-side errors." >&2
+            echo "  Physically replug the probe; check 'journalctl -u probe-rs-server' on the remote host for server-side errors." >&2
             break
           fi
         done

@@ -131,7 +131,7 @@ Local patches against pinned upstream sources live here as `.patch`
 files; the repo carries only the patches, never a vendored crate tree.
 
 - Standalone patches applied to a nixpkgs or GitHub source by nix
-  (for example the probe-rs `serve` and keepalive fixes).
+  (for example `probe-rs-rpc-tolerate-disconnect.patch`).
 - `[patch]` override crates: a pinned pristine upstream source plus a
   patch (or ordered series) that `nix/patched-crates.nix` materializes
   at `patches/<crate>`, where the workspace `[patch]` table points. The

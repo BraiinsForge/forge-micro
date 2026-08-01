@@ -78,8 +78,8 @@
         UBOS_WEBUI_BUILD_TIME = toString self.lastModified;
       };
 
-      # probe-rs tooling: the patched build, the remote and server patch
-      # variants, and the overlay exposing them plus the probe-rs-runner
+      # probe-rs tooling: the patched build, the remote patch variant,
+      # and the overlay exposing them plus the probe-rs-runner
       # wrapper. A downstream repo carrying its own silicon-support
       # series re-imports this module with `extraPatches`; see the
       # `lib.modules` output below.

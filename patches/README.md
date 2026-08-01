@@ -11,4 +11,4 @@ GPL-3.0-or-later grant.
 |--------|------------------|-----|---------|
 | `edge-nal-embassy-*.patch` | [ivmarkov/edge-net](https://github.com/ivmarkov/edge-net), `edge-nal-embassy` subdirectory | git `1f084b41944c35b233cbe17accfbc09a56d5eaf0` | MIT OR Apache-2.0 |
 | `embassy-net-wiznet-*.patch` | [embassy-rs/embassy](https://github.com/embassy-rs/embassy), `embassy-net-wiznet` crate | crates.io release 0.3.0 | MIT OR Apache-2.0 |
-| `probe-rs-rpc-tolerate-disconnect.patch`, `probe-rs-serve-tcp-keepalive.patch` | [probe-rs/probe-rs](https://github.com/probe-rs/probe-rs) | tag v0.32.0 | MIT OR Apache-2.0 |
+| `probe-rs-rpc-tolerate-disconnect.patch` | [probe-rs/probe-rs](https://github.com/probe-rs/probe-rs) | tag v0.32.0 | MIT OR Apache-2.0 |
