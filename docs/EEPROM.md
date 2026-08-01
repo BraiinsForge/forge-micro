@@ -4,9 +4,9 @@ Every hashboard (`BMM101_HASHBOARD` on the miniminers, `BFMX4_HASHBOARD`
 on the Hashnode) carries an EEPROM with factory-programmed operational
 data: product name, serial number, batch, ASIC type/count, and the
 default voltage/frequency/hashrate/power operating point. `ubos-eeprom`
-reads and parses this data once at boot, reusing `bos-main`'s existing
-read-only wire format so hashboards already flashed by its factory
-tooling read correctly here without a second format or flasher.
+reads and parses this data once at boot, reusing BOS's existing read-only
+wire format so hashboards already flashed by its factory tooling read
+correctly here without a second format or flasher.
 
 ## Naming corrections
 
@@ -22,11 +22,11 @@ Fixing this first kept the EEPROM work from naming the wrong board:
   definition, every call site, and prose comments that describe "the
   board this firmware runs on" now read `BMM101`. One exception:
   `ubos-psu/src/config.rs`'s `BmmPsuDescriptor::DEFAULT` doc comment
-  cites `bos-main`'s actual `BMM100_PSU_DESCRIPTOR` symbol by name
-  (that PSU config is shared verbatim between the BMM100 and BMM101
-  boards in `bos-main`, so the symbol really is called that) — that
-  citation stays as `BMM100` for traceability, with a note that it's
-  shared across both revisions.
+  cites BOS's actual `BMM100_PSU_DESCRIPTOR` symbol by name (that PSU
+  config is shared verbatim between the BMM100 and BMM101 boards in BOS,
+  so the symbol really is called that) — that citation stays as
+  `BMM100` for traceability, with a note that it's shared across both
+  revisions.
 - **`ubos_asic::HASHNODE` (hashboard descriptor) → `BFMX4_HASHBOARD`**;
   **`ubos_machine::HASHNODE_SENSORS` → `BFMX4_SENSORS`.** "Hashnode" is
   the product codename for the whole integrated PCB (control board +
@@ -57,9 +57,9 @@ Fixing this first kept the EEPROM work from naming the wrong board:
 
 ## EEPROM wire format
 
-Matches `bos-main`'s braiinsminer hashboard EEPROM layout byte-for-byte,
-so boards already factory-programmed by the existing `bmm-flasher` tool
-read correctly and no second format/flasher exists:
+Matches BOS's braiinsminer hashboard EEPROM layout byte-for-byte, so
+boards already factory-programmed by the existing `bmm-flasher` tool read
+correctly and no second format/flasher exists:
 
 - 256 bytes total, two fixed-offset sections.
 - `BoardInfoSection` (192 bytes): magic `b"Br"`, a version byte
@@ -70,23 +70,23 @@ read correctly and no second format/flasher exists:
   (`CRC_16_IBM_3740`) over the section.
 - `FirmwareInfoSection` (64 bytes): magic `b"Br"`, MCU firmware
   version/compile date/device id/serial, reserved bytes, its own CRC.
-- Physical part in `bos-main`: M24C02 (256 B, 16-byte pages) at base
-  I2C address `0x50`.
+- Physical part in BOS: M24C02 (256 B, 16-byte pages) at base I2C
+  address `0x50`.
 
 Parsing is a fallible conversion (`TryFrom<[u8; 256]>`-shaped): length
 is enforced at compile time by the `&[u8; EEPROM_LEN]` parameter type;
 the parse validates both magics, the version enum, both CRCs, and the
-reserved-byte padding, in that order, matching `bos-main`'s validation
-order exactly so a real captured dump either parses or fails the same
-way in both codebases.
+reserved-byte padding, in that order, matching BOS's validation order
+exactly so a real captured dump either parses or fails the same way in
+both codebases.
 
 A text field that fails to decode (invalid UTF-8, or non-ASCII) does
 not fail the whole record: it falls back to the literal string
-`"INVALID"`, matching `bos-main`'s own `StringText` helper. A real
-BMM101 hashboard dump surfaced a CRC-verified record with one text
-field padded past its content with `0xFF` and no NUL terminator; an
-earlier, stricter pass here failed the whole record over that one
-field, which didn't match `bos-main`'s behavior on the same dump.
+`"INVALID"`, matching BOS's own `StringText` helper. A real BMM101
+hashboard dump surfaced a CRC-verified record with one text field padded
+past its content with `0xFF` and no NUL terminator; an earlier, stricter
+pass here failed the whole record over that one field, which didn't match
+BOS's behavior on the same dump.
 
 ## Bus-agnostic trait
 
@@ -144,18 +144,16 @@ cleanly and only a human reading the values catches it.
   and traceability source, not a config source: descriptors stay
   compile-time (per [MACHINE.md](MACHINE.md)'s no-runtime-autodetection
   stance) regardless of what the EEPROM reports.
-- Read-only. Writing stays out of firmware scope, matching `bos-main`
-  (factory writes go through a separate flasher tool, not the mining
-  daemon).
+- Read-only. Writing stays out of firmware scope, matching BOS (factory
+  writes go through a separate flasher tool, not the mining daemon).
 
 ## Confirmed on hardware
 
 `0x50` is correct: on a real bmm-pico + BMM101 hashboard, the boot log
 reads `hashboard EEPROM: product=BMM101 P00 serial=SN asic=BM1362AC
 batch=BATCH` — `"BMM101 P00"` is the exact product-name string
-`bos-main` registers for `BRAIINS_MINI_BMM101_BM1362_4X1`, confirming
-the address, the wire format, and the `BMM101_HASHBOARD` rename all at
-once.
+BOS registers for `BRAIINS_MINI_BMM101_BM1362_4X1`, confirming the
+address, the wire format, and the `BMM101_HASHBOARD` rename all at once.
 
 ## Known limitations
 

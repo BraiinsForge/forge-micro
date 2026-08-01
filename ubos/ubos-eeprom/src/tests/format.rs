@@ -67,8 +67,8 @@ fn valid_dump() -> [u8; EEPROM_LEN] {
 }
 
 /// Right-pad `text` with a NUL terminator, leaving the rest of the
-/// field `0xFF` — matching the erased-EEPROM filler `bos-main` leaves
-/// past a field's content.
+/// field `0xFF` — matching the erased-EEPROM filler BOS leaves past a
+/// field's content.
 fn text<const N: usize>(text: &[u8]) -> [u8; N] {
     let mut field = [0xFFu8; N];
     field[..text.len()].copy_from_slice(text);

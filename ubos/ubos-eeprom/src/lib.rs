@@ -18,16 +18,16 @@
 // shall be considered distinct from the grant above.
 
 //! Hashboard EEPROM support: a bus-agnostic read trait plus the
-//! bos-main-compatible wire format for the factory-programmed
-//! operational data (product name, serial number, batch, ASIC type,
-//! default operating point) every hashboard carries.
+//! BOS-compatible wire format for the factory-programmed operational
+//! data (product name, serial number, batch, ASIC type, default
+//! operating point) every hashboard carries.
 //!
 //! [`HashboardEeprom`] carries no bus type in its signature so a chip
 //! on a different bus can implement it without the [`format`] parsing
 //! layer ever knowing which transport supplied the bytes.
-//! [`i2c::I2cEeprom`] covers the I2C-attached `bos-main` EEPROMs.
-//! Vendor-specific single-wire transports and memory-map parsers live in
-//! a separate downstream crate, layered on top of this trait and
+//! [`i2c::I2cEeprom`] covers the I2C-attached BOS EEPROMs.
+//! Vendor-specific single-wire transports and memory-map parsers live
+//! in a separate downstream crate, layered on top of this trait and
 //! [`format`].
 
 #![cfg_attr(not(test), no_std)]

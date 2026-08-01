@@ -24,9 +24,9 @@
 //! chip junction temperature from the board-mounted sensor; the
 //! controller exposes the maximum across all sensors so a single hot
 //! spot wins. Mirrors the `BRAIINS_MINI_BMM101_BM1362_4X1` descriptor
-//! in bos-main. The sensor table is `ubos_machine::BMM101_SENSORS`,
-//! the same const the miniminer machines wrap, so it cannot drift
-//! from the firmware.
+//! in BOS. The sensor table is `ubos_machine::BMM101_SENSORS`, the same
+//! const the miniminer machines wrap, so it cannot drift from the
+//! firmware.
 
 use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};

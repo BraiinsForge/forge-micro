@@ -18,9 +18,9 @@
 // shall be considered distinct from the grant above.
 
 //! Braiins hashboard EEPROM wire format, byte-for-byte compatible with
-//! `bos-main`'s braiinsminer layout so hashboards already
-//! factory-programmed by that tooling parse unchanged here. 256 bytes
-//! total: a 192-byte `BoardInfoSection` followed by a 64-byte
+//! BOS's braiinsminer layout so hashboards already factory-programmed
+//! by that tooling parse unchanged here. 256 bytes total: a 192-byte
+//! `BoardInfoSection` followed by a 64-byte
 //! `FirmwareInfoSection`, each self-contained with its own magic and
 //! CRC-16/CCITT.
 //!
@@ -154,8 +154,8 @@ impl<'a> HashboardEepromData<'a> {
     /// Parse and fully validate a raw EEPROM dump. Checks both magics,
     /// the version byte, both sections' CRC-16/CCITT, and that both
     /// reserved regions are still `0xFF`, in that order — matching
-    /// `bos-main`'s validation order so a captured dump either parses or
-    /// fails the same way in both codebases.
+    /// BOS's validation order so a captured dump either parses or fails
+    /// the same way in both codebases.
     ///
     /// # Errors
     ///
@@ -228,11 +228,10 @@ impl<'a> HashboardEepromData<'a> {
 /// Slice a NUL-terminated text field down to the text before the first
 /// NUL, or keep the whole field when no terminator is present. Falls
 /// back to `"INVALID"` on anything that isn't valid ASCII, matching
-/// `bos-main`'s own `StringText` helper: a single garbled text field
-/// does not invalidate a record whose magic, version, and CRC all
-/// checked out. Real hardware has produced exactly that, in fields
-/// `bos-main` fills with `0xFF` past their content and leaves without
-/// a NUL terminator.
+/// BOS's own `StringText` helper: a single garbled text field does not
+/// invalidate a record whose magic, version, and CRC all checked out.
+/// Real hardware has produced exactly that, in fields BOS fills with
+/// `0xFF` past their content and leaves without a NUL terminator.
 fn ascii_field(bytes: &[u8]) -> &str {
     let text = match bytes.iter().position(|b| *b == 0) {
         Some(nul) => &bytes[..nul],

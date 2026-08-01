@@ -3,7 +3,7 @@ license.workspace = true
 edition.workspace = true
 name        = "ubos-eeprom"
 version     = "0.1.0"
-description = "no_std hashboard EEPROM support: a bus-agnostic read trait plus the bos-main-compatible wire format."
+description = "no_std hashboard EEPROM support: a bus-agnostic read trait plus the BOS-compatible wire format."
 
 [lints]
 workspace = true

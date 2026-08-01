@@ -18,10 +18,10 @@
 // shall be considered distinct from the grant above.
 
 //! I2C-backed [`HashboardEeprom`]. Targets the M24C02-class serial
-//! EEPROMs `bos-main` uses: 256 bytes, 16-byte write pages, but reads
-//! are not page-limited, so the whole chip comes back in one
-//! transaction. A future 1-Wire chip would live in its own sibling
-//! module implementing the same trait.
+//! EEPROMs BOS uses: 256 bytes, 16-byte write pages, but reads are not
+//! page-limited, so the whole chip comes back in one transaction. A
+//! future 1-Wire chip would live in its own sibling module implementing
+//! the same trait.
 
 use embedded_hal_async::i2c::I2c;
 

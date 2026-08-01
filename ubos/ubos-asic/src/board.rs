@@ -142,7 +142,7 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
         min_fan_pwm: 20,
     },
     model: "miniminer",
-    // Confirmed against bos-main's AM2-S17 addressing
+    // Confirmed against BOS's AM2-S17 addressing
     // (`BASE_I2C_ADDRESS = 0x50`, single-hashboard `hashboard_address = 1`
     // resolves to `0x50 + 1 - 1`), which shares this same I2C bus with the
     // 0x40/0x43/0x46/0x08 PSU addresses `BmmPsuDescriptor::DEFAULT` uses.
