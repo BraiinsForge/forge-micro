@@ -44,12 +44,10 @@
   fwVersion,
   slotMaxBytes,
   esp32s3SlotBytes,
-  # Workspace package names present in the tree; see nix/checks.nix. The
-  # public mirror ships only the hashnode board and the rp2350-bootloader
-  # it flashes with, so the other boards' image and UF2 outputs gate
-  # themselves out. A combined UF2 also needs its bootloader crate: the
-  # hashnode UF2 ships because rp2350-bootloader is public, while a board
-  # whose bootloader is stripped keeps its raw image but loses its UF2.
+  # Workspace package names present in the tree; see nix/checks.nix. A
+  # board whose crate is absent gates its image and UF2 outputs out. A
+  # combined UF2 additionally needs its bootloader crate, so a board
+  # present without its bootloader keeps its raw image but loses its UF2.
   members,
 }:
 let
@@ -294,9 +292,8 @@ let
   };
 
   # A raw image is gated on its board being a member; a combined UF2
-  # additionally needs its bootloader crate, so a board whose bootloader
-  # is stripped from the mirror keeps its image but loses its UF2. On the
-  # full internal tree every crate is a member and every output is present.
+  # additionally needs its bootloader crate. In this repo every crate is
+  # a member and every output is present.
   imageOutputs =
     drvOf:
     lib.optionalAttrs (hasCrate "rp2350") { rp2350-image = drvOf "rp2350-image"; }

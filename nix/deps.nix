@@ -44,10 +44,11 @@
   espCargoVendorDir,
   xtensaEspToolchain,
   bmmCc,
-  # Workspace package names present in the tree, from crate-graph. The
-  # thumbv8m bag mixes stripped boards with the always-public
-  # rp235x-sha256, so its crate list must filter on membership or the
-  # bag fails package-spec resolution on the public mirror.
+  # Workspace package names present in the tree, from crate-graph. This
+  # module is exported through the flake's `lib.modules`, so a consumer
+  # building its own workspace against these crates passes a member list
+  # of its own; every bag filters its crate list on it or fails
+  # package-spec resolution on a tree that carries fewer boards.
   members,
 }:
 let
@@ -180,9 +181,9 @@ rec {
     target = "thumbv7em-none-eabihf";
   };
 
-  # The board crates are stripped from the public mirror while
-  # rp235x-sha256 stays, and its checks consume this bag
-  # unconditionally, so the crate list keeps only workspace members.
+  # rp235x-sha256's checks consume this bag unconditionally while the
+  # board crates beside it may be absent from a consumer's tree, so the
+  # crate list keeps only workspace members.
   thumbv8mArtifacts = armBag {
     crates = builtins.filter (c: builtins.elem c members) [
       "bmm-pico"

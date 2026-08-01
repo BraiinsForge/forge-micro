@@ -27,11 +27,10 @@
 # the union of ci-format + ci-clippy + ci-check is precisely
 # `nix flake check`. ci-format is the formatting gate, ci-clippy
 # the per-crate clippy gate, and ci-check the comprehensive
-# remainder - host tests, firmware release builds, the
-# bmm-adapter DRC/ERC gates, and the static guards. A newly
-# added check that matches neither the format set nor the
-# `clippy-` prefix falls into ci-check, so coverage can never
-# silently shrink. Run a single check directly with
+# remainder - host tests, firmware release builds, and the static
+# guards. A newly added check that matches neither the format set
+# nor the `clippy-` prefix falls into ci-check, so coverage can
+# never silently shrink. Run a single check directly with
 # `nix build .#checks.<system>.<name>`.
 { pkgs, checks }:
 let

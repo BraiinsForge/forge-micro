@@ -56,12 +56,12 @@
   slotMaxKiB,
   slotMaxBytes,
   esp32s3SlotBytes,
-  # Workspace package names present in the tree, from crate-graph. The
-  # public mirror strips every firmware crate but hashnode and drops
-  # their members from the root Cargo.toml, so on the mirror this list
-  # omits them and the firmware gates below filter themselves out. On the
-  # full internal tree every crate is a member, so the filters are the
-  # identity and gate every board exactly as before.
+  # Workspace package names present in the tree, from crate-graph. Every
+  # firmware gate below filters itself out when its crate is not a
+  # member, so a tree carrying a subset of the boards evaluates with
+  # those gates absent instead of dangling on sources it does not have.
+  # In this repo every board is a member, so the filters are the identity
+  # and gate all of them.
   members,
 }:
 let
@@ -74,10 +74,10 @@ let
     ;
   root = ../.;
 
-  # A firmware crate is gated only when it is a workspace member. On the
-  # public mirror the non-hashnode boards are stripped and dropped from
-  # the member list, so their gates vanish; on the internal tree every
-  # board is a member and this is always true. See the `members` arg.
+  # A firmware crate is gated only when it is a workspace member. In this
+  # repo every board is a member, so this is always true; it is what lets
+  # the module evaluate against a tree that carries fewer. See the
+  # `members` arg.
   hasCrate = name: builtins.elem name members;
 
   # Host-side clippy: one row per check. `crate` is the cargo package;
@@ -474,10 +474,10 @@ let
       "thumbv6m-none-eabi";
 
   # esp32s3 firmware gates, grouped so they can be dropped as a unit when
-  # the esp32s3 board is stripped from the mirror. They share the esp
-  # toolchain and the esp32s3 source scaffolding, so gating the esp
-  # backend of the kept ubos-ota crate and the esp32s3-tsens lib here too
-  # keeps the whole esp toolchain out of the public mirror's checks.
+  # the board is not a member. They share the esp toolchain and the
+  # esp32s3 source scaffolding, so the esp backend of ubos-ota and the
+  # esp32s3-tsens lib are gated here too: a tree without the board pulls
+  # in no Xtensa toolchain at all.
   espChecks = {
     # Our firmware crate name collides with the esp32s3 PAC crate pulled
     # in transitively; disambiguate by pinning to @0.1.0.
@@ -695,8 +695,7 @@ hostClippyChecks
     pkgs.runCommand "ubos-main-firmware-builds"
       {
         # Board release builds present in this tree, plus the esp and
-        # bootloader builds when their crates are members. On the mirror
-        # only hashnode survives; the rest drop out with their crates.
+        # bootloader builds when their crates are members.
         nativeBuildInputs =
           builtins.attrValues (lib.filterAttrs (name: _: lib.hasPrefix "build-" name) boardChecks)
           ++ lib.optional (hasCrate "esp32s3") espChecks.build-esp32s3
@@ -727,13 +726,13 @@ hostClippyChecks
       }
       ''
         # Scan a copy with patches/ removed: those are pinned-and-patched
-        # upstream trees (nix/patched-crates.nix, plus any private
-        # additions), not crates this repo owns, and machete's static
-        # import scan misfires on their generated/macro-only code (e.g. an
-        # svd2rust PAC build script, a bitflags! invocation) in a way we
-        # cannot fix without patching vendored manifests beyond the one
-        # change each patch file already documents. Excluding the
-        # directory keeps the gate scoped to what this repo owns.
+        # upstream trees (nix/patched-crates.nix), not crates this repo
+        # owns, and machete's static import scan misfires on their
+        # generated/macro-only code (e.g. an svd2rust PAC build script, a
+        # bitflags! invocation) in a way we cannot fix without patching
+        # vendored manifests beyond the one change each patch file
+        # already documents. Excluding the directory keeps the gate
+        # scoped to what this repo owns.
         cp -a ${src} ./scan-src
         chmod -R u+w ./scan-src
         rm -rf ./scan-src/patches
@@ -759,8 +758,7 @@ hostClippyChecks
       # Shared RP ACTIVE-slot budget: the ubos-api default, the web-UI
       # fallback, and the RP boards all pin slotMaxKiB * 1024. The
       # ubos-api and web-UI copies are always present; the per-board
-      # config checks are gated on the board being a member, so the
-      # mirror checks only hashnode and the internal tree checks all.
+      # config checks are gated on the board being a member.
       check ${root + "/ubos/ubos-api/src/system.rs"}     '${toString slotMaxKiB} * 1024'
       check ${root + "/ubos/ubos-webui/src/index.js"}    '${toString slotMaxKiB} * 1024'
     ''
@@ -804,9 +802,6 @@ hostClippyChecks
   # under pkgs/ run shellcheck / pyflakes on their source at build time,
   # so building each one is its own lint gate — no tree-wide shell sweep
   # is needed, and a new package is gated the moment it is wired here.
-  # Only the public packages are gated in this shared set; the private
-  # board runners ride the private checks (nix/private-checks.nix) out
-  # with the boards they serve.
   probe-rs-board-run = pkgs.callPackage ../pkgs/probe-rs-board-runner { };
   rp2350-bootloader-run = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };
   http-load-test = pkgs.callPackage ../pkgs/http-load-test { };

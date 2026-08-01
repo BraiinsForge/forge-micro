@@ -52,11 +52,11 @@ let
   # sets PROBE_RS_CHIP and points its runner at this binary.
   probeRsBoardRunner = pkgs.callPackage ../pkgs/probe-rs-board-runner { };
 
-  # Public script packages, the same writeShellApplication/writePython3Bin
-  # wrappers (self-linting, PATH deps baked). Kept on the mirror, so wired
-  # unconditionally into their shells: the rp2350-bootloader cargo runner,
-  # the HTTP load tester, the host-runner TAP setup, and the host-runner
-  # cross-build cargo runner.
+  # The remaining script packages, the same self-linting
+  # writeShellApplication/writePython3Bin wrappers with their PATH deps
+  # baked in: the rp2350-bootloader cargo runner, the HTTP load tester,
+  # the host-runner TAP setup, and the host-runner cross-build cargo
+  # runner.
   rp2350BootloaderRunner = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };
   httpLoadTest = pkgs.callPackage ../pkgs/http-load-test { };
   setupNetwork = pkgs.callPackage ../pkgs/setup-network { };
@@ -90,7 +90,7 @@ in
         picotool
         # Automatic fixup commits for the documented fixup workflow.
         git-absorb
-        # rp2350-bootloader's cargo runner; public, so ships on the mirror.
+        # rp2350-bootloader's cargo runner.
         rp2350BootloaderRunner
         # The shared cargo runner the other ARM boards' .cargo/config.toml
         # point their `runner` at.

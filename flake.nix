@@ -202,8 +202,8 @@
         # two equal 3 MiB app slots (ota_0/ota_1 in the board's partition
         # table), so the image the OTA endpoint writes into the inactive
         # slot may be up to 3 MiB — larger than the RP ACTIVE budget. Keep
-        # in sync with the esp32s3 firmware's Ota::MAX_IMAGE_BYTES in the
-        # private tree.
+        # in sync with Ota::MAX_IMAGE_BYTES in
+        # firmware/esp32s3/src/config.rs.
         esp32s3SlotKiB = 3 * 1024;
         esp32s3SlotBytes = esp32s3SlotKiB * 1024;
 
