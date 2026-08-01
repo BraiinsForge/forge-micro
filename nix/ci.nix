@@ -39,7 +39,6 @@ let
     if
       builtins.elem name [
         "fmt"
-        "fmt-load-test"
         "nixfmt"
         "micro-sv2-formatting"
       ]

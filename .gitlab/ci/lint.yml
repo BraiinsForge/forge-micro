@@ -13,9 +13,9 @@ commits:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 # nixfmt over every .nix file plus `cargo fmt --check` over the
-# workspace and the out-of-tree load-test crate. `.#ci-format` is a
-# flake package that link-farms exactly the `fmt`, `fmt-load-test`, and
-# `nixfmt` checks, so this is the same build a developer runs locally.
+# workspace. `.#ci-format` is a flake package that link-farms exactly
+# the `fmt`, `nixfmt`, and vendored micro-sv2 formatting checks, so
+# this is the same build a developer runs locally.
 # Runs on every MR (it is fast and touches no dependency graph).
 format:
   stage: lint

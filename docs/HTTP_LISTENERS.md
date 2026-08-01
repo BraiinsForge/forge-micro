@@ -130,8 +130,8 @@ Consequences:
 
 ## Measured on bmm-pico (RP2350)
 
-Using `http-load-test` (see below), with clients desynchronized
-by ±0.8 s of jitter:
+Measured as described under *How to measure*, with clients
+desynchronized by ±0.8 s of jitter:
 
 | `API_HTTP_POOL` | clean viewers (≥99%) | above the pool |
 |-----------------|----------------------|----------------|
@@ -247,19 +247,19 @@ not shared:
 
 ## How to measure
 
-`http-load-test` drives `N` independent clients, each polling one
-endpoint on a jittered interval, and sweeps the concurrency from 1 to a
-ceiling, reporting success rate and latency per level. The jitter
-desynchronizes the clients so the result reflects real browsers rather than
-a lockstep worst case.
+Drive `N` independent clients, each polling one endpoint on a jittered
+interval, and sweep the concurrency from 1 to a ceiling, recording
+success rate and latency per level. The jitter is what makes the result
+representative: it desynchronizes the clients the way real browsers do,
+where a lockstep sweep would measure only the worst case and understate
+capacity.
 
-```sh
-# Sweep 1..8 concurrent API pollers against a board, 8 polls each.
-http-load-test redacted50.151 --max 8 --rounds 8 --jitter 0.8
-```
+The numbers above were taken at port 8080 on `/api/info` with
+`root:root`, a 2 s poll interval, ±0.5 s of jitter, and a viability
+threshold of 99 % success — "clean viewers" is the highest `N` that
+stayed at or above that threshold. Find the board's address from its
+boot log (`ip address: …`) or over mDNS.
 
-Defaults: `root:root` credentials, port 8080, path `/api/info`, 2 s poll
-interval, ±0.5 s jitter, and a viability threshold of 99 % success. The
-"viable concurrency" line reports the highest `N` that stayed at or above
-the threshold. Find the board's address from its boot log
-(`ip address: …`) or over mDNS.
+Because the firmware sends `Connection: close` on every response, each
+poll is a fresh short-lived connection, so what the sweep bounds is the
+peak simultaneous connection count rather than sustained throughput.

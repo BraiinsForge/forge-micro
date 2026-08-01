@@ -644,12 +644,11 @@ hostClippyChecks
     doInstallCargoArtifacts = false;
   };
 
-  # Aggregate over every host-testable crate check plus the load-test
-  # crate when present, so one build forces them all; derived from the
-  # test table, a new test row joins automatically. The web/host-runner
-  # tests sit in web-host instead: they additionally need the
-  # flake-provided esbuild and rebuild whenever the webui build env
-  # changes.
+  # Aggregate over every host-testable crate check, so one build forces
+  # them all; derived from the test table, a new test row joins
+  # automatically. The web/host-runner tests sit in web-host instead:
+  # they additionally need the flake-provided esbuild and rebuild
+  # whenever the webui build env changes.
   fast-host =
     let
       fastTests = builtins.removeAttrs hostTestChecks [
@@ -804,7 +803,6 @@ hostClippyChecks
   # is needed, and a new package is gated the moment it is wired here.
   probe-rs-board-run = pkgs.callPackage ../pkgs/probe-rs-board-runner { };
   rp2350-bootloader-run = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };
-  http-load-test = pkgs.callPackage ../pkgs/http-load-test { };
   setup-network = pkgs.callPackage ../pkgs/setup-network { };
   host-runner-run = pkgs.callPackage ../pkgs/host-runner-run { };
 }

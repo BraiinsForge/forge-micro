@@ -54,11 +54,9 @@ let
 
   # The remaining script packages, the same self-linting
   # writeShellApplication/writePython3Bin wrappers with their PATH deps
-  # baked in: the rp2350-bootloader cargo runner, the HTTP load tester,
-  # the host-runner TAP setup, and the host-runner cross-build cargo
-  # runner.
+  # baked in: the rp2350-bootloader cargo runner, the host-runner TAP
+  # setup, and the host-runner cross-build cargo runner.
   rp2350BootloaderRunner = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };
-  httpLoadTest = pkgs.callPackage ../pkgs/http-load-test { };
   setupNetwork = pkgs.callPackage ../pkgs/setup-network { };
   hostRunnerRun = pkgs.callPackage ../pkgs/host-runner-run { };
 in
@@ -286,8 +284,6 @@ in
     buildInputs = with pkgs; [
       picocom
       usbutils
-      # Drives concurrent HTTP load at a board's dashboard API.
-      httpLoadTest
     ];
 
     shellHook = ''
@@ -298,7 +294,7 @@ in
       echo "  nix develop .#host  — host-runner, native"
       echo "  nix develop .#bmm   — host-runner, BMM/miniminer cross"
       echo ""
-      echo "This default shell provides picocom, usbutils, and http-load-test."
+      echo "This default shell provides picocom and usbutils."
     '';
   };
 }
