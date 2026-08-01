@@ -160,8 +160,11 @@ bounds they carry) and are served at `/api/system/asic`,
 serde's default snake_case naming so the wire shape matches the
 ubos-config field names; consumers of `/api/config` decode keys like
 `sample_interval_ms` and `cooling_target_temp_c`. Bodies are
-serialized with `serde-json-core` into a 2 KiB stack scratch buffer
-(`ubos-api/src/system.rs`).
+serialized with `serde-json-core`: the `/api/system/*` handlers share
+one 2 KiB stack scratch buffer (`SCRATCH_SIZE`,
+`ubos-api/src/system.rs`), while `/api/config` serializes into its own,
+larger buffer (`CONFIG_RESPONSE_BUFFER_SIZE`, `ubos-api/src/rest.rs`),
+sized from a measured worst-case body.
 
 Each `pool` entry carries an optional `weight` (unsigned integer,
 `0..=100000`) that sets its share of dispatched work in the ratio

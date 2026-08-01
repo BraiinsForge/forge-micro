@@ -37,7 +37,6 @@ use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
 
-use crate::consts::Api;
 use ubos_http::{
     MAX_RESPONSE_HEADERS, RequestParts, Service, extract_request_parts, read_body,
     write_json_response, write_status_only,
@@ -69,20 +68,44 @@ const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
 
 /// Body buffer size for `GET /api/config` responses.
 ///
-/// A full [`ubos_config::ConfigUpdate`] snapshot breaks down as: three
-/// pool entries at up to ~580 bytes each in the SV1 worst case (three
-/// 128-byte heapless strings — host, user, password — plus JSON
-/// framing), plus `thermal` (~80 bytes), `cooling`
-/// (~30 bytes), `tuning` (~50 bytes), and `api` (~80 bytes), plus
-/// outer JSON framing — close to ~1900 bytes total. 2048 bytes
-/// covers this with margin while keeping the stack budget predictable.
-const CONFIG_RESPONSE_BUFFER_SIZE: usize = 2048;
+/// The widest [`ubos_config::ConfigUpdate`] snapshot the buffer has to
+/// hold — three pool slots carrying 128-byte host and user strings and
+/// an SV2 pool key, a static `network` mode with three resolvers and a
+/// 32-byte hostname, a 32-byte `api` username and password, and every
+/// numeric field at its longest decimal form — serializes to 2062
+/// bytes. The SV2 key is what makes a pool slot widest: a `[u8; 32]`
+/// serializes as a JSON number array costing up to four bytes an
+/// element, which outruns the 128-byte SV1 password string. That total
+/// is an upper bound rather than a body this handler can produce:
+/// [`ubos_config::ConfigUpdate::from_config`] blanks `api.password`, so
+/// every served snapshot is shorter by that field. It blanks nothing
+/// else — the pool entries, SV1 passwords included, are served as
+/// stored. The figure is measured rather than estimated:
+/// `config_response_body_fits_in_buffer` in `tests/rest.rs` builds the
+/// snapshot and pins its length exactly, so the figure quoted here
+/// cannot drift, and it fails outright if a field addition pushes the
+/// body past this buffer. 3072 bytes covers it with margin while
+/// keeping the stack budget predictable. A body that outgrows the
+/// buffer is caught rather than truncated: `to_slice` returns `Err` and
+/// the handler answers 500.
+///
+/// Per-connection stack cost is `CONFIG_RESPONSE_BUFFER_SIZE` bytes twice
+/// over, since [`BODY_READ_BUFFER_SIZE`] tracks this constant; both
+/// multiply by `API_HTTP_POOL` for concurrent connections. If you increase
+/// this constant, audit task-stack sizing for all ubos-api consumers.
+const CONFIG_RESPONSE_BUFFER_SIZE: usize = 3072;
 
 /// Buffer for reading POST/PATCH request bodies.
 ///
-/// Sized to `Api::REQUEST_BUFFER_SIZE` so a config payload fits in one
-/// allocation. Requests that exceed this cap receive a 413 response.
-const BODY_READ_BUFFER_SIZE: usize = Api::REQUEST_BUFFER_SIZE;
+/// Tracks [`CONFIG_RESPONSE_BUFFER_SIZE`] so the widest body this API can
+/// serve is a body it will also accept back: `POST /api/config` is the
+/// natural round-trip of the `GET /api/config` snapshot, and
+/// `Api::REQUEST_BUFFER_SIZE` — sized to the socket RX window, not to any
+/// body — left the widest snapshot 14 bytes over. The window bounds a
+/// single socket read rather than the body, which `read_body` accumulates
+/// across reads, so the two never had to agree. Requests that exceed this
+/// cap receive a 413 response.
+const BODY_READ_BUFFER_SIZE: usize = CONFIG_RESPONSE_BUFFER_SIZE;
 
 /// Validate that a board name string contains no JSON-unsafe characters.
 ///
@@ -277,13 +300,13 @@ impl Service for RestApiService {
         let is_mutating = matches!(method, "POST" | "PATCH" | "DELETE");
 
         // The OTA firmware upload is the one body too large to pre-read into
-        // `body_buffer` (it is ~1 MiB against a 2 KiB buffer). It is streamed
+        // `body_buffer` (it is ~1 MiB against a 3 KiB buffer). It is streamed
         // straight to flash by `handle_ota`, which reads the connection itself
         // in sector-sized chunks, so its body is not pre-read here.
         let is_ota_upload = is_mutating && method == "POST" && path == "/api/system/OTA";
 
         // The chunk upload body is at most OTA_CHUNK_SIZE (4096 bytes), which
-        // exceeds BODY_READ_BUFFER_SIZE (2048 bytes), so it is also not
+        // exceeds BODY_READ_BUFFER_SIZE (3072 bytes), so it is also not
         // pre-read; `handle_ota_chunk` reads the connection directly.
         let is_ota_chunk_upload =
             is_mutating && method == "POST" && path == "/api/system/OTA/chunk";
