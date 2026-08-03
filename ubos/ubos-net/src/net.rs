@@ -392,15 +392,25 @@ pub async fn fetch_ntp_time(stack: Stack<'static>) -> Result<(), &'static str> {
 }
 
 /// Periodically sync NTP time. Runs forever.
+///
+/// A failed fetch is retried on [`Ntp::RETRY_INTERVAL`] rather than the
+/// steady-state [`Ntp::SYNC_INTERVAL`], so a board whose gateway or DNS was
+/// not ready at boot gets its clock in a minute instead of an hour. There is
+/// no attempt limit: an unreachable pool is a condition to keep trying
+/// through, not one to give up on.
 pub async fn run_ntp_sync(stack: Stack<'static>) -> ! {
     wait_for_config(stack).await;
     Timer::after(Ntp::INITIAL_DELAY).await;
 
     loop {
-        if let Err(error) = fetch_ntp_time(stack).await {
-            warn!("ntp sync failed: {}", error);
-        }
-        Timer::after(Ntp::SYNC_INTERVAL).await;
+        let interval = match fetch_ntp_time(stack).await {
+            Ok(()) => Ntp::SYNC_INTERVAL,
+            Err(error) => {
+                warn!("ntp sync failed: {}", error);
+                Ntp::RETRY_INTERVAL
+            }
+        };
+        Timer::after(interval).await;
     }
 }
 

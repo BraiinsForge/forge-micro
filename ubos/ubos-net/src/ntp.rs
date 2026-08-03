@@ -34,7 +34,20 @@ pub struct Ntp;
 impl Ntp {
     pub const HOST: &str = "pool.ntp.org";
     pub const PORT: u16 = 123;
-    pub const SYNC_INTERVAL: Duration = Duration::from_secs(60);
+    /// Cadence between successful syncs. The pool asks appliances to query
+    /// no more often than a few times an hour, and one fetch carries a
+    /// fresh DNS query, which it separately caps at once an hour. An hour
+    /// satisfies both and is far more clock than these boards need: the
+    /// wall clock only stamps events and the display.
+    ///
+    /// Measured from boot rather than from a wall-clock time, so a fleet
+    /// powered up at different moments does not converge on one instant.
+    pub const SYNC_INTERVAL: Duration = Duration::from_secs(3600);
+    /// Cadence between attempts before the first success, and after a
+    /// failure. Retrying on [`Self::SYNC_INTERVAL`] would leave a board
+    /// that missed its first fetch with no wall clock for an hour, when
+    /// the usual cause is a gateway or DNS that is seconds from ready.
+    pub const RETRY_INTERVAL: Duration = Duration::from_secs(60);
     /// Delay between the DHCP lease landing and the first NTP fetch, giving
     /// ARP, the gateway, and routing a moment to settle before the DNS query.
     pub const INITIAL_DELAY: Duration = Duration::from_secs(5);
