@@ -106,7 +106,11 @@ For each commit, verify against CLAUDE.md commit format rules:
 
 ### Phase 4: Code correctness
 
-Judge the Phase 1 read for what no gate can decide.
+Judge the Phase 1 read for what no gate can decide. Clippy under
+`-D warnings`, `cargo fmt`, `nixfmt` and `cargo-machete` already settle
+formatting, needless clones, unused imports, dead code and unused
+dependencies. Those are BUILD findings when they fire, and not this
+phase's work when they do not — do not hand-check the gate's domain.
 
 **Logic and safety:**
 - Logic errors, off-by-one, race conditions
@@ -114,17 +118,15 @@ Judge the Phase 1 read for what no gate can decide.
 - Security: injection, unsafe without justification, secrets in code
 - Edge cases and failure modes
 
-**Rust-specific:**
+**Rust:**
 - No `unwrap()` or `expect()` in production code where error handling is appropriate
 - Proper use of `Result` and `Option`
-- No unnecessary allocations or clones
 - Correct lifetime annotations
 - Async tasks do not block
 
 **Embedded firmware (when applicable):**
 - No heap allocation (`alloc`, `Vec`, `String`, `Box`)
 - No `unwrap()`, `expect()`, `panic!()` outside tests
-- No blocking operations in async tasks
 - Peripheral access follows ownership model (move semantics)
 - Embassy task spawning uses correct static lifetimes
 - PubSub channel dimensions match actual publisher/subscriber count
@@ -136,7 +138,7 @@ Judge the Phase 1 read for what no gate can decide.
 **CLAUDE.md compliance:**
 - Comments are proper sentences, no parenthetical asides, no size claims
 - Code follows existing patterns in the codebase
-- Dead code: unused imports, unreachable branches, commented-out code
+- Commented-out code, and branches no caller can reach
 - Duplication: same content defined in multiple places
 - No stale references after renames
 
