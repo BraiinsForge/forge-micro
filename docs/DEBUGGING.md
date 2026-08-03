@@ -2,11 +2,11 @@
 
 ## probe-rs
 
-- `probe-rs list` shows connected probes.
-- Each crate's `.cargo/config.toml` configures the probe-rs runner with a
-  fixed probe serial.
-- The `bmm-pico` `cargo run-<n>` aliases invoke `probe-rs` directly
-  instead of `probe-rs-runner`, so they bypass the runner's defaults.
+- `probe-rs list` shows the connected probes.
+- `cargo run` flashes over a probe attached to this machine. When only
+  one probe is attached, the runner selects it automatically.
+- When several probes are attached, export `$PROBE_SERIAL` to select
+  one. The runners give that serial to `probe-rs` as `--probe`.
 
 ## Binary size
 

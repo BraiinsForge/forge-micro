@@ -13,31 +13,17 @@ POOL_USER = "braiinstest.dumb_worker"
 [build]
 target = "thumbv8m.main-none-eabihf"
 
-# `cargo run-N` flashes one of the six bmm-pico boards. Each alias sets
-# $PROBE_SERIAL so probe-rs-board-run picks the matching `--probe`. The
-# bare `cargo run` leaves it unset, so probe-rs auto-selects when only one
-# probe is attached. Each board derives its own MAC from the RP2350 OTP
-# chip id at boot, so no per-board build flag is needed. The env table is
-# used instead of overriding the runner from the alias because cargo's
-# --config merges arrays rather than replacing them, so a runner override
-# would have concatenated arg lists.
+# Every board of this family derives its own MAC from the RP2350 OTP chip
+# id at boot, so one build serves all of them and no per-board flag is
+# needed.
 #
-# `cargo attach-N` connects to a board that is already running and streams
-# its defmt logs without flashing or resetting it; it sets the same
-# $PROBE_SERIAL plus $PROBE_RS_ACTION=attach, which probe-rs-board-run
-# turns into `probe-rs attach`. It still builds the firmware so the local ELF can
-# decode the RTT stream; set $PROBE_RS_ELF to decode against a different
-# binary when the board carries firmware other than the current source.
+# `cargo run` flashes a board over a probe attached to this machine and
+# auto-selects when only one probe is plugged in. Export $PROBE_SERIAL to
+# pin a specific probe when several are. `cargo attach` connects to a
+# board that is already running and streams its defmt logs without
+# flashing or resetting it, setting $PROBE_RS_ACTION so probe-rs-board-run
+# issues `probe-rs attach`. It still builds the firmware so the local ELF
+# can decode the RTT stream; set $PROBE_RS_ELF to decode against a
+# different binary when the board carries other firmware.
 [alias]
-run-1 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:FA67CE4A27C3E7EF\""]
-run-2 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:88BB90F0F41E72CA\""]
-run-3 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:B6E765A6D8F55506\""]
-run-4 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:330584C1CAFB25E0\""]
-run-5 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:D6116FA12FA4716C\""]
-run-6 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E4A10693F025DCA6\""]
-attach-1 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:FA67CE4A27C3E7EF\""]
-attach-2 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:88BB90F0F41E72CA\""]
-attach-3 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:B6E765A6D8F55506\""]
-attach-4 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:330584C1CAFB25E0\""]
-attach-5 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:D6116FA12FA4716C\""]
-attach-6 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E4A10693F025DCA6\""]
+attach = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\""]

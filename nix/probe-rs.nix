@@ -18,18 +18,19 @@
 # shall be considered distinct from the grant above.
 
 # probe-rs tooling: the build from the pinned upstream source plus any
-# caller-supplied patch series, the remote variant with its patch, and
-# the overlay exposing it plus the probe-rs-runner wrapper. See
-# flake.nix for how the overlay is threaded into each system's pkgs.
+# caller-supplied patch series, and the overlay exposing it plus the
+# probe-rs-runner wrapper. See flake.nix for how the overlay is threaded
+# into each system's pkgs.
 #
-# The serve side is not built here. A repo that runs a probe-rs server
-# derives its own variant from this base, because the serve-side
-# patches and the host they run on are internal.
+# Only the base is built here, and it talks to probes attached to the
+# machine it runs on. Neither the remote nor the serve variant is here:
+# both exist to reach a probe-rs server across a network, that server and
+# its patches are internal, and a repo that runs one derives its own
+# variants from this base.
 #
 # `extraPatches` is how a consumer outside this repo adds a silicon
 # support series without copying the recipe: import this module with
-# its own list and use the overlay that comes back. The patches apply
-# on top of the in-repo series, before the remote patch.
+# its own list and use the overlay that comes back.
 {
   extraPatches ? [ ],
 }:
@@ -80,8 +81,7 @@ rec {
         src = baseSrc;
         # Apply order is this list, not the file names. This repo's
         # targets need nothing over the release tag; a consumer adding
-        # silicon support passes its series as `extraPatches`, which
-        # applies before the remote patch below.
+        # silicon support passes its series as `extraPatches`.
         patches = extraPatches;
       };
 
@@ -145,36 +145,16 @@ rec {
       };
     };
 
-  # `serve` panics on `ConnectionClosed` when the client disconnects
-  # mid-RPC, leaving the probe Session held but the worker dead.
-  # systemd does not restart because the panic is tokio-contained,
-  # so the next client gets a silent exit-0. No upstream fix yet.
-  mkRemoteProbeRsTools =
-    base:
-    base.overrideAttrs (old: {
-      cargoBuildFeatures = (old.cargoBuildFeatures or [ ]) ++ [ "remote" ];
-      patches = (old.patches or [ ]) ++ [
-        ../patches/probe-rs-rpc-tolerate-disconnect.patch
-      ];
-    });
-
   overlay = final: prev: {
-    probe-rs-tools-remote = mkRemoteProbeRsTools (mkProbeRsTools prev);
+    probe-rs-tools = mkProbeRsTools prev;
     probe-rs-runner = prev.writeShellScriptBin "probe-rs-runner" ''
-      args=()
-      for arg in "$@"; do
-        if [ "$arg" = "--local" ]; then
-          unset PROBE_RS_REMOTE_HOST PROBE_RS_REMOTE_TOKEN
-        else
-          args+=("$arg")
-        fi
-      done
-      # $PROBE_SERIAL is the per-board probe selector the cargo run-N
-      # aliases set. The board cargo runners translate it to --probe
-      # themselves; crates whose runner invokes this wrapper directly get
-      # the translation here, inserted right after the subcommand so it
-      # never lands behind the ELF path or passthrough arguments. An
-      # explicit --probe wins.
+      args=("$@")
+      # $PROBE_SERIAL selects one probe when several are attached. The
+      # board cargo runners translate it to --probe themselves; crates
+      # whose runner invokes this wrapper directly get the translation
+      # here, inserted right after the subcommand so it never lands
+      # behind the ELF path or passthrough arguments. An explicit
+      # --probe wins.
       if [ -n "''${PROBE_SERIAL:-}" ] && [ "''${#args[@]}" -gt 0 ]; then
         has_probe=0
         for arg in "''${args[@]}"; do
@@ -206,10 +186,10 @@ rec {
       #
       # Named <firmware>[-<suffix>]-<timestamp>.log. The firmware
       # name is the crate directory we run from (rp2350, bmm-pico,
-      # ...). The suffix is the probe serial of the flashed board,
-      # taken from $PROBE_SERIAL, which the cargo run-N aliases set
-      # to distinguish the six bmm-pico units; it is appended when
-      # present. The timestamp keeps one file per flash rather than
+      # ...). The suffix is the serial of the probe that flashed the
+      # board, taken from $PROBE_SERIAL and appended when present, so
+      # logs stay apart when several boards of one family are flashed.
+      # The timestamp keeps one file per flash rather than
       # overwriting.
       fw="$(basename "$PWD")"
       serial="''${PROBE_SERIAL:-}"
@@ -257,15 +237,14 @@ rec {
       # A real flash plus attach of any of our targets takes longer
       # than this threshold. An exit-0 in under that with `run`
       # requested means probe-rs short-circuited without ever
-      # talking to the chip - canonically the wedged CMSIS-DAP case
-      # where the remote server swallows the error. Surface a hint
-      # so the failure isn't silent.
+      # talking to the chip - canonically the wedged CMSIS-DAP case.
+      # Surface a hint so the failure isn't silent.
       min_flash_seconds=4
       if [ "$status" -eq 0 ] && [ "$elapsed" -lt "$min_flash_seconds" ]; then
         for arg in "''${args[@]}"; do
           if [ "$arg" = "run" ] || [ "$arg" = "attach" ]; then
             echo "probe-rs-runner: probe-rs exited 0 in ''${elapsed}s without flashing - probe likely wedged (probe-rs/probe-rs#1849 for CMSIS-DAP)." >&2
-            echo "  Physically replug the probe; check 'journalctl -u probe-rs-server' on the remote host for server-side errors." >&2
+            echo "  Physically replug the probe." >&2
             break
           fi
         done

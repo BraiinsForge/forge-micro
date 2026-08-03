@@ -20,10 +20,3 @@ target = "thumbv6m-none-eabi"
 # different binary when the board carries other firmware.
 [alias]
 attach = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\""]
-# Per-board aliases in the bmm-pico run-N style: the bench board is slot
-# 1 of this family and its Pico debugprobe is pinned by serial. The
-# serial is a placeholder — the racked probe has not been enumerated yet;
-# read it off `probe-rs list` and replace it. Until then a run-1 flash
-# fails on "no probe found" instead of grabbing another board's probe.
-run-1 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:0000000000002040\""]
-attach-1 = ["run", "--config", "env.PROBE_RS_ACTION=\"attach\"", "--config", "env.PROBE_SERIAL=\"2e8a:000c:0000000000002040\""]

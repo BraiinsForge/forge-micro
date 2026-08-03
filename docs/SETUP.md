@@ -63,8 +63,9 @@ nix develop .#arm
 cd firmware/hashnode && cargo run --release
 ```
 
-Each crate's `.cargo/config.toml` pins the probe serial, so `cargo run`
-flashes the right board without a `--probe` flag.
+`cargo run` flashes over a probe attached to this machine. When only
+one probe is attached, the runner selects it automatically. Export
+`$PROBE_SERIAL` to pick one when several are attached.
 
 Every board drives a BM13xx hashboard via the `ubos-mining` backend
 unconditionally. The `display` feature is enabled by default on

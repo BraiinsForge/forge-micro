@@ -78,11 +78,11 @@
         UBOS_WEBUI_BUILD_TIME = toString self.lastModified;
       };
 
-      # probe-rs tooling: the patched build, the remote patch variant,
-      # and the overlay exposing them plus the probe-rs-runner
-      # wrapper. A downstream repo carrying its own silicon-support
-      # series re-imports this module with `extraPatches`; see the
-      # `lib.modules` output below.
+      # probe-rs tooling: the patched build and the overlay exposing
+      # it plus the probe-rs-runner wrapper. A downstream repo
+      # carrying its own silicon-support series re-imports this
+      # module with `extraPatches`; see the `lib.modules` output
+      # below.
       probeRs = import ./nix/probe-rs.nix { };
       probeRsOverlay = probeRs.overlay;
     in

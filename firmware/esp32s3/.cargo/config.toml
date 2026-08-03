@@ -24,12 +24,9 @@ rustflags = [
 ]
 target = "xtensa-esp32s3-none-elf"
 
-# Per-board alias in the bmm-pico run-N style: the bench board is slot 1
-# of this family and its builtin USB-JTAG is pinned by serial, so a probe
-# host carrying several probes cannot hand out a stranger. Bare
-# `cargo run` auto-selects and needs a single attached probe.
-[alias]
-run-1 = ["run", "--config", "env.PROBE_SERIAL=\"303a:1001:D8:3B:DA:49:F7:E0\""]
+# `cargo run` flashes over the board's builtin USB-JTAG and auto-selects
+# when only one probe is plugged in. Export $PROBE_SERIAL to pin a
+# specific probe when several are.
 
 [unstable]
 build-std = ["core"]

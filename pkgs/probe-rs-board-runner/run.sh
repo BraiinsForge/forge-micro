@@ -19,9 +19,9 @@
 
 # Cargo runner shared by the probe-rs boards: forwards to probe-rs-runner
 # with the chip from $PROBE_RS_CHIP (each crate's .cargo/config.toml [env]
-# sets it) and an optional --probe from $PROBE_SERIAL. The run-N/attach-N
-# aliases set those per board so a specific probe is picked when several
-# are plugged in; bare `cargo run` leaves them unset for a single probe.
+# sets it) and an optional --probe from $PROBE_SERIAL. Export
+# $PROBE_SERIAL to pick one probe when several are plugged in; bare
+# `cargo run` leaves it unset and auto-selects the only attached probe.
 #
 # This indirection exists because cargo's `--config` merges array values
 # from the CLI with config.toml rather than replacing them, so an alias

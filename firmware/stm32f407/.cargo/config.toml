@@ -12,9 +12,6 @@ DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
 [build]
 target = "thumbv7em-none-eabihf"
 
-# Per-board alias in the bmm-pico run-N style: the bench board is slot 1
-# of this family and its Pico debugprobe is pinned by serial, so a probe
-# host carrying several probes cannot hand out a stranger. Bare
-# `cargo run` auto-selects and needs a single attached probe.
-[alias]
-run-1 = ["run", "--config", "env.PROBE_SERIAL=\"2e8a:000c:E6605481DB696536\""]
+# `cargo run` flashes over a probe attached to this machine and
+# auto-selects when only one probe is plugged in. Export $PROBE_SERIAL to
+# pin a specific probe when several are.

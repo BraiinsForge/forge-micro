@@ -22,11 +22,10 @@
 # arrive as arguments so every shell stays consistent with the flake
 # checks.
 #
-# None of these shells pins a probe-rs endpoint. `probe-rs-runner`
-# reads `PROBE_RS_REMOTE_HOST` and `PROBE_RS_REMOTE_TOKEN` from the
-# ambient environment and falls back to a locally attached probe when
-# they are unset, so a standalone checkout flashes its own hardware
-# and a bench user exports the pair (or enters a shell that sets it).
+# These shells flash over a probe attached to the machine they run on.
+# `probe-rs-runner` takes the probe from `--probe`, or from
+# `$PROBE_SERIAL` when several are plugged in, and auto-selects
+# otherwise.
 {
   pkgs,
   toolchains,
@@ -67,7 +66,7 @@ in
         rustToolchain
         cargo-binutils
         cargo-bloat
-        probe-rs-tools-remote
+        probe-rs-tools
         probe-rs-runner
         pkg-config
         libudev-zero
@@ -126,7 +125,7 @@ in
   # by the flake checks.
   esp = pkgs.mkShell {
     buildInputs = [
-      pkgs.probe-rs-tools-remote
+      pkgs.probe-rs-tools
       pkgs.probe-rs-runner
     ]
     ++ (with pkgs; [

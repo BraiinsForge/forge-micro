@@ -22,22 +22,24 @@ nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo check'
 
 ## Flash + monitor
 
-Each board's probe serial is pinned behind its crate's `run-1` alias
-(`run-N` on the multi-board crates), so `cargo run-1 --release` flashes
-the right board without any `--probe` flag; bare `cargo run --release`
-auto-selects and only works with a single attached probe. Run from
+`cargo run --release` flashes over a probe attached to this machine and
+auto-selects when a single probe is plugged in. Export `$PROBE_SERIAL`
+to pick one when several are, or pass `--probe` after `--`. Run from
 inside the crate directory.
 
 ```sh
 nix develop .#arm -c bash -c 'cd firmware/braiins-axe && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/bmm-pico    && cargo run-1 --release'
-nix develop .#arm -c bash -c 'cd firmware/rp2040      && cargo run-1 --release'
-nix develop .#arm -c bash -c 'cd firmware/rp2350      && cargo run-1 --release'
+nix develop .#arm -c bash -c 'cd firmware/bmm-pico    && cargo run --release'
+nix develop .#arm -c bash -c 'cd firmware/rp2040      && cargo run --release'
+nix develop .#arm -c bash -c 'cd firmware/rp2350      && cargo run --release'
 nix develop .#arm -c bash -c 'cd firmware/hashnode    && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/stm32f407   && cargo run-1 --release'
-nix develop .#arm -c bash -c 'cd firmware/stm32f439   && cargo run-1 --release'
-nix develop .#esp -c bash -c 'cd firmware/esp32s3     && cargo run-1 --release'
+nix develop .#arm -c bash -c 'cd firmware/stm32f407   && cargo run --release'
+nix develop .#arm -c bash -c 'cd firmware/stm32f439   && cargo run --release'
+nix develop .#esp -c bash -c 'cd firmware/esp32s3     && cargo run --release'
 ```
+
+`cargo attach` streams a running board's defmt logs without flashing or
+resetting it, on the crates whose runner is `probe-rs-board-run`.
 
 Every board drives a BM1362 hashboard via `ubos-mining` unconditionally,
 except `hashnode` (four-chip, four-domain BM1370) and `braiins-axe`
@@ -46,23 +48,9 @@ BM1370 driver instead (there is no cargo feature for it); the board
 descriptor carries only chip-neutral facts. The `display` feature is
 always in defaults and SV2 is always built on all boards.
 
-The bmm-pico crate pins several units, `cargo run-1` through
-`cargo run-6`. The bare `cargo run --release` auto-picks when only one
-board is plugged in. Run from `firmware/bmm-pico/` under `.#arm`:
-
-```sh
-nix develop .#arm -c bash -c 'cd firmware/bmm-pico && cargo run-3 --release'
-```
-
 `probe-rs run` flashes then streams defmt logs. To flash and detach,
 send SIGINT (Ctrl+C, or `kill -INT <pid>`) to the runner — `cargo` or
 `probe-rs-runner` — after the boot banner; the firmware keeps running.
-
-`probe-rs-runner` targets a remote `probe-rs-server` when
-`PROBE_RS_REMOTE_HOST` and `PROBE_RS_REMOTE_TOKEN` are set in the
-environment, and a locally attached probe otherwise. Against a remote
-server, do not SIGTERM `probe-rs` itself: it is the server's client,
-and a hard kill can leave the remote session in a bad state.
 
 If `cargo run` returns silently — no defmt output, while the board's
 uptime keeps growing — the CMSIS-DAP probe is wedged per

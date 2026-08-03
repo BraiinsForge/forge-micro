@@ -23,7 +23,7 @@
 # materializes the patched tree at `patches/<crate>` for cargo — the
 # dev shells symlink it into the working tree and nix/source.nix
 # copies it into the cleaned check sources. The patch files live in
-# `patches/` and keep the upstream license, like the probe-rs ones.
+# `patches/` and keep the upstream license of the crate they patch.
 { pkgs }:
 let
   # The edge-net workspace at the rev the workspace deps pin; the
