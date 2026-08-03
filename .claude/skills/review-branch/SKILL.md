@@ -22,9 +22,24 @@ Deep, exhaustive review of all commits on the current branch compared to its rev
    Report which base was resolved. To stack a branch, set its base once:
    `git config branch.<name>.reviewBase <base-ref>`.
 
-1. `git log --oneline "$BASE"..HEAD` — list all commits
-2. `git diff "$BASE"...HEAD --stat` — see which files changed
-3. `git diff "$BASE"...HEAD` — full diff of all changes
+1. `git log --oneline "$BASE"..HEAD` — the commit list
+2. `git diff --stat "$BASE"...HEAD` — the cumulative shape
+3. `git log -p --submodule=short "$BASE"..HEAD` — **the one full read of
+   the branch.** Every commit's message followed by its own patch, in a
+   single output. This is the entire input to Phases 3 and 4; neither
+   reads the branch again. There is no separate full `git diff` and no
+   per-commit `git show`.
+
+   `--submodule=short` because a consumer may set `diff.submodule=log`,
+   which expands a single gitlink change into the whole submodule
+   history and buries the branch in output belonging to another repo.
+
+   Per-commit patches are what Phase 3 needs and what a cumulative diff
+   cannot supply: `..` gives each commit's own patch, `...` gives the
+   diff against the merge base, and the two coincide only on a linear
+   branch. Step 2 is the cheap cross-check — if the per-commit patches do
+   not account for the cumulative stat, the branch carries a merge or a
+   rebase artefact, which is itself a finding.
 4. For non-trivial changes, read full files for context beyond the diff
 
 ### Phase 2: Run all checks
@@ -117,6 +132,9 @@ check does not run, the environment is wrong — fix it and run the check.
 
 ### Phase 3: Per-commit review
 
+Work from the Phase 1 step 3 output. Every commit's message and its own
+patch are already there; do not re-read the branch.
+
 For each commit, verify against CLAUDE.md commit format rules:
 - Title: module prefix, imperative verb, high-level summary
 - Body explains WHY the change was needed, not WHAT changed in the code
@@ -133,7 +151,7 @@ For each commit, verify against CLAUDE.md commit format rules:
 
 ### Phase 4: Code correctness
 
-Review the full diff (`git diff "$BASE"...HEAD`) for:
+Judge the Phase 1 read for what no gate can decide.
 
 **Logic and safety:**
 - Logic errors, off-by-one, race conditions
@@ -178,6 +196,7 @@ Review the full diff (`git diff "$BASE"...HEAD`) for:
 Before producing output, verify every category was checked. For each item below, confirm it was evaluated for every commit and every changed file. If any item was skipped or only partially checked, go back and complete the relevant phase before continuing.
 
 - [ ] Flake check exit line (`FLAKE_CHECK_EXIT=`) in hand, or was skipped/timed-out with reason recorded (Phase 2)
+- [ ] The branch was read once, in Phase 1 step 3, and not re-read since
 - [ ] Every commit message verified against its diff (Phase 3)
 - [ ] Every commit is a single logical change (Phase 3)
 - [ ] No bundled unrelated changes (Phase 3)
@@ -224,10 +243,11 @@ If no issues are found, output: `No issues found. Branch is merge-ready.`
 
 - Review ALL commits on the branch, not just the latest
 - Run `nix flake check .` (repo root) as one foreground, blocking `Bash` call whenever the diff touches flake inputs — it is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, and record the skip in the output
+- Read the branch exactly once, with the Phase 1 step 3 `git log -p`. Later phases judge that output; they do not run their own `git show` or `git diff`
 - Every finding MUST include a file:line reference (or commit hash for commit message issues)
 - Findings must be exhaustive: if this review passes, the branch is ready to merge
 - No praise, no "looks good" summaries, no filler text
 - No suggestions without file:line references
 - Report only concrete issues found in the actual code or checks
 - Do not invent issues that are not evidenced by code, diffs, or check output
-- Use `Task` agents for heavy exploration to save context
+- The Phase 1 read is normally the whole input. Reach for a `Task` agent only when the branch is too large to hold at once, and never for work a phase above already has in context — a fresh agent re-reads `CLAUDE.md` before it can help

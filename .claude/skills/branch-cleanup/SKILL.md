@@ -160,25 +160,40 @@ If no fixups exist, skip to Phase 2.
 
 ### Phase 2: Identify Logical Changes
 
-Analyze the branch by reading every commit's full diff (`git show <hash>`)
-and understanding the intent behind each change. The goal is the
-**Target End-State** above: each commit is exactly one logical change,
-every change appears exactly once, and the history is linear and
-dependency-ordered.
+Read the branch once, here, with every commit's message and patch in a
+single output:
 
-The primary test is **touched once**. Build a picture of which commits
-modify which lines: `git log -p "$BASE"..HEAD -- <file>` per file, or scan
-each `git show <hash>`. Any line, hunk, or behavior that one branch commit
-introduces and a *later* branch commit changes is a squash candidate — the
-two are the same logical change split across development time.
+```bash
+git log -p --submodule=short "$BASE"..HEAD
+```
+
+That output is the whole input to this phase **and to Phase 3**. Both ask
+different questions of the same bytes, so neither runs its own
+`git show`, and there is no per-file `git log -p -- <file>` pass on top;
+the per-file picture is already in it, grouped by commit instead of by
+file.
+
+`--submodule=short` because a consumer may set `diff.submodule=log`,
+which expands a single gitlink change into the whole submodule history
+and buries the branch in output belonging to another repo.
+
+Understand the intent behind each change. The goal is the **Target
+End-State** above: each commit is exactly one logical change, every change
+appears exactly once, and the history is linear and dependency-ordered.
+
+The primary test is **touched once**. From the read, build a picture of
+which commits modify which lines. Any line, hunk, or behavior that one
+branch commit introduces and a *later* branch commit changes is a squash
+candidate — the two are the same logical change split across development
+time.
 
 **What is a logical change?** A single reviewable idea: adding a feature,
 fixing a bug, refactoring an API, updating documentation for a specific
 reason. A logical change may span many files or touch a single line — file
 count is irrelevant.
 
-1. Read every commit with `git show <hash>` and summarize its intent in
-   one sentence. Group commits by the logical change they contribute to.
+1. Summarize each commit's intent in one sentence, from the read above.
+   Group commits by the logical change they contribute to.
 
 2. Identify commits that should be **squashed** (multiple commits that are
    part of the same logical change):
@@ -207,8 +222,8 @@ count is irrelevant.
 
 ### Phase 3: Audit Commit Messages
 
-For every commit on the branch, read the full commit with `git show <hash>`
-and check:
+For every commit on the branch, working from the Phase 2 read rather than
+re-reading it, check:
 
 1. **Title format**: `module: Imperative verb, capital letter` with max 72 chars
 2. **Body explains WHY**: The bullets must explain intent and motivation, not
