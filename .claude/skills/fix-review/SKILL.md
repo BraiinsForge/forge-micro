@@ -122,43 +122,12 @@ git branch backup-$(git branch --show-current)-$(date +%s)
 
 #### Step 2: Apply the rebase operation
 
-Use the appropriate pattern from `/branch-cleanup`:
-
-**Split a commit:**
-```bash
-GIT_SEQUENCE_EDITOR="sed -i 's/^pick <HASH>/edit <HASH>/'" git rebase -i master
-git reset HEAD~1
-git add <files-for-group-1> && git commit -m "..."
-git add <files-for-group-2> && git commit -m "..."
-git rebase --continue
-```
-
-**Edit a commit in place** (modify content of a specific commit):
-```bash
-GIT_SEQUENCE_EDITOR="sed -i 's/^pick <HASH>/edit <HASH>/'" git rebase -i master
-# make changes to the file
-git add <modified-files>
-git commit --amend --no-edit
-git rebase --continue
-```
-
-**Reword a commit message** (fix inaccurate or incomplete message):
-```bash
-GIT_SEQUENCE_EDITOR="sed -i 's/^pick <HASH>/edit <HASH>/'" git rebase -i master
-git commit --amend -m "$(cat <<'EOF'
-module: Updated commit message
-
-- corrected or added bullets
-EOF
-)"
-git rebase --continue
-```
-
-NEVER use the `reword` action. It opens an interactive editor which hangs in
-non-interactive mode. Always use `edit` + `git commit --amend -m "..."`.
-
-**Multiple operations**: mark all target commits for edit in a single sed
-command with `-e` flags. The rebase pauses at each in order.
+The recipes are `/branch-cleanup`'s, written once in
+[../branch-cleanup/reference/rebase-ops.md](../branch-cleanup/reference/rebase-ops.md).
+Read that file and follow the operation it names — edit in place, split,
+reword, move, reorder, or drop. Its rules bind here unchanged, including
+driving every rebase through `GIT_SEQUENCE_EDITOR` and never using the
+`reword` action, which opens an editor and hangs.
 
 #### Step 3: Verify
 
