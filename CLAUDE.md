@@ -152,6 +152,10 @@ the review thread, not in the codebase.
 - Prefer editing existing files over creating new ones
 - Keep responses concise and action-oriented
 - Comments: proper sentences, no parenthetical asides, no size claims
+- New user-facing prose — READMEs, `docs/`, runbooks, error messages —
+  follows `/simple-english`. Comments and commit messages keep the
+  rules above and in `.gitlint` instead, and existing prose is left
+  alone until its meaning changes
 
 **Safe commands** (run without confirmation):
 - `cargo check`, `build`, `test`, `clippy`, `fmt` (inside the right
@@ -220,6 +224,7 @@ never set `GIT_EDITOR`.
 | `/branch-cleanup` | Prepare a branch for merge with full history cleanup |
 | `/review-branch` | Review all branch changes against master |
 | `/fix-review` | Apply review findings as fixup commits |
+| `/simple-english` | Write new user-facing prose plainly and unambiguously |
 
 ## Communication
 
