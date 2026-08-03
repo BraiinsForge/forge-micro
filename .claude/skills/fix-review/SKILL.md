@@ -9,6 +9,17 @@ Apply fixes from `/review-branch` findings passed in `$ARGUMENTS`.
 
 ## Process
 
+0. Resolve the base these fixes are attributed against, the same way
+   `/review-branch` and `/branch-cleanup` do. It is not the local
+   `master`, which is often stale, and the branch may be stacked:
+
+   ```bash
+   BASE=$(git config "branch.$(git branch --show-current).reviewBase" || echo origin/master)
+   ```
+
+   Everywhere below, `$BASE` is both the attribution range and what
+   `git absorb` searches. A caller that already resolved it supplies it.
+
 1. Parse findings from arguments (categorized items with file:line references)
 2. Classify each finding: code fix, structural fix, documentation-hardening,
    or documented-no-change (with rationale). Every finding must be
@@ -54,7 +65,7 @@ rationale in the final summary; do not silently drop the item.
 
 Find the commit that introduced the issue:
 ```bash
-git log --oneline master..HEAD -- <file>
+git log --oneline "$BASE"..HEAD -- <file>
 ```
 
 #### Step 2: Conflict prevention check
@@ -88,7 +99,7 @@ Before creating a fixup, verify the fix will not conflict during autosquash:
 
 **Multiple code fixes**: if several fixes are ready and each touches lines
 clearly owned by a single prior commit, apply all fixes, stage them, and use
-`git absorb --base master` to create all fixup commits at once. Use
+`git absorb --base "$BASE"` to create all fixup commits at once. Use
 `--dry-run` first to verify attribution. This replaces steps 1-4 per fix.
 
 **Single fix or ambiguous attribution**: create the fixup manually:
