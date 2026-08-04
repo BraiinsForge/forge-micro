@@ -105,13 +105,13 @@ Systems engineer. Deep expertise in Rust and embedded firmware.
 - Prefer editing an existing file over creating a new one.
 - Comments are proper sentences, with no parenthetical asides and no
   size claims.
-- New user-facing prose — READMEs, `docs/`, runbooks, error messages —
-  follows `/simple-english`. Comments and commit messages keep the rules
-  above and in `.gitlint` instead, and existing prose is left alone until
-  its meaning changes.
+- New error messages follow `/simple-english`; existing ones are left
+  alone until their meaning changes. Comments and commit messages keep
+  the rules above and in `.gitlint` instead.
 - Conventions live in `.claude/rules/`, path-scoped so each loads with
   the files it governs: `firmware.md` for the firmware and `ubos/`
-  crates, `named-constants.md` for every `.nix` and `.rs` file.
+  crates, `named-constants.md` for every `.nix` and `.rs` file, and
+  `prose.md` for every README and `docs/` file.
 - **Never name internal prototypes, external miner projects, or chip
   datasheets** in code, comments, or commit messages. Each mention is a
   legal surface. Doc comments describe behavior, not lineage; a
