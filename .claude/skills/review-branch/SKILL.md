@@ -44,7 +44,14 @@ Deep, exhaustive review of all commits on the current branch compared to its rev
 
 ### Phase 2: Run all checks
 
-First decide whether the flake check applies. The flake checks compile
+If the caller states the gate has already been run for this tree and
+gives its result, record that result and go to Phase 3. Run no `nix` and
+no `cargo`, and report no BUILD findings — they belong to whoever ran the
+gate. A caller that gates several trees in one invocation does this, and
+it owns the whole of the reasoning below.
+
+Otherwise the gate is this phase's to run. First decide whether the flake
+check applies. The flake checks compile
 firmware and run host tests, DRC, and ERC; a diff that changes only
 documentation or harness config (`.claude/`, `*.md`, `.gitlint*`) feeds
 into none of them, so running the check would rebuild every board
@@ -143,7 +150,7 @@ Judge the Phase 1 read for what no gate can decide.
 
 Before producing output, verify every category was checked. For each item below, confirm it was evaluated for every commit and every changed file. If any item was skipped or only partially checked, go back and complete the relevant phase before continuing.
 
-- [ ] Flake check exit line (`FLAKE_CHECK_EXIT=`) in hand, or was skipped/timed-out with reason recorded (Phase 2)
+- [ ] Gate result in hand — an own `FLAKE_CHECK_EXIT=` line, a caller-supplied result, or a recorded skip or timeout (Phase 2)
 - [ ] The branch was read once, in Phase 1 step 3, and not re-read since
 - [ ] Every commit message verified against its diff (Phase 3)
 - [ ] Every commit is a single logical change (Phase 3)
@@ -190,7 +197,7 @@ If no issues are found, output: `No issues found. Branch is merge-ready.`
 ## Rules
 
 - Review ALL commits on the branch, not just the latest
-- Run `nix flake check .` (repo root) as one foreground, blocking `Bash` call whenever the diff touches flake inputs — it is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, and record the skip in the output
+- Run `nix flake check .` (repo root) as one foreground, blocking `Bash` call whenever the diff touches flake inputs — it is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, or when the caller supplied the gate result, and record which in the output
 - Read the branch exactly once, with the Phase 1 step 3 `git log -p`. Later phases judge that output; they do not run their own `git show` or `git diff`
 - Every finding MUST include a file:line reference (or commit hash for commit message issues)
 - Findings must be exhaustive: if this review passes, the branch is ready to merge
