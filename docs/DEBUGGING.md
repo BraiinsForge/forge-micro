@@ -8,6 +8,19 @@
 - When several probes are attached, export `$PROBE_SERIAL` to select
   one. The runners give that serial to `probe-rs` as `--probe`.
 
+### A wedged probe
+
+If `cargo run` returns silently -- no defmt output, while the board's
+uptime keeps growing -- the CMSIS-DAP probe is wedged per
+probe-rs/probe-rs#1849. `probe-rs-runner` defaults `RUST_LOG=info`, which
+surfaces "Could not determine a suitable packet size for this probe"
+instead of exiting silently.
+
+Recovery is a physical unplug and replug of the affected debugprobe.
+`uhubctl` and software USB resets do not help through a hub that reports
+`ppps` without actually cutting power. `probe-rs info` is what triggers
+the wedge, so never run it twice in a row on the same probe.
+
 ## Binary size
 
 `cargo size --release -- -A` (from `cargo-binutils`, available in the dev

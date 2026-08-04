@@ -1,103 +1,59 @@
 # ubos-main
 
+Open firmware for the ARM and Xtensa boards. Tree layout:
+`docs/STRUCTURE.md`.
+
 ## Build
 
-Each crate must be built from its own directory to pick up the
-per-crate `.cargo/config.toml` target. Building from the workspace
-root selects the wrong target and fails.
-
-All builds must go through `nix develop` shells. The `arm` shell
-covers ARM targets; the `esp` shell covers the Xtensa target.
+Every build goes through a `nix develop` shell, and **from the crate's
+own directory** — the workspace root selects the wrong target and fails.
+The `arm` shell covers the ARM targets, `esp` the Xtensa one.
 
 ```sh
-nix develop .#arm -c bash -c 'cd firmware/braiins-axe && cargo check'
-nix develop .#arm -c bash -c 'cd firmware/bmm-pico    && cargo check'
-nix develop .#arm -c bash -c 'cd firmware/rp2040      && cargo check'
-nix develop .#arm -c bash -c 'cd firmware/rp2350      && cargo check'
-nix develop .#arm -c bash -c 'cd firmware/hashnode    && cargo check'
-nix develop .#arm -c bash -c 'cd firmware/stm32f407   && cargo check'
-nix develop .#arm -c bash -c 'cd firmware/stm32f439   && cargo check'
+nix develop .#arm -c bash -c 'cd firmware/rp2350  && cargo check'
 nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo check'
 ```
 
-## Flash + monitor
+Which chip driver a board selects, and which cargo features are on by
+default, is decided in `config.rs` rather than by a flag: see
+`docs/ASIC.md` and `docs/SETUP.md`.
 
-`cargo run --release` flashes over a probe attached to this machine and
-auto-selects when a single probe is plugged in. Export `$PROBE_SERIAL`
-to pick one when several are, or pass `--probe` after `--`. Run from
-inside the crate directory.
+## Flash
 
-```sh
-nix develop .#arm -c bash -c 'cd firmware/braiins-axe && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/bmm-pico    && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/rp2040      && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/rp2350      && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/hashnode    && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/stm32f407   && cargo run --release'
-nix develop .#arm -c bash -c 'cd firmware/stm32f439   && cargo run --release'
-nix develop .#esp -c bash -c 'cd firmware/esp32s3     && cargo run --release'
-```
-
-`cargo attach` streams a running board's defmt logs without flashing or
+Run from inside the crate directory. `cargo run --release` flashes over a
+probe attached to this machine and auto-selects when a single probe is
+plugged in; export `$PROBE_SERIAL` to pick one when several are, or pass
+`--probe` after `--`. `probe-rs run` flashes then streams defmt logs, and
+`cargo attach` streams a running board's logs without flashing or
 resetting it, on the crates whose runner is `probe-rs-board-run`.
 
-Every board drives a BM1362 hashboard via `ubos-mining` unconditionally,
-except `hashnode` (four-chip, four-domain BM1370) and `braiins-axe`
-(four-chip, single-domain BM1370), where `config::CHIP` selects the
-BM1370 driver instead (there is no cargo feature for it); the board
-descriptor carries only chip-neutral facts. The `display` feature is
-always in defaults and SV2 is always built on all boards.
+- To flash and detach, send **SIGINT** after the boot banner and the
+  firmware keeps running.
+- **Never run `probe-rs info` twice in a row on one probe.** That is
+  what wedges a CMSIS-DAP probe, and recovery is a physical replug.
 
-`probe-rs run` flashes then streams defmt logs. To flash and detach,
-send SIGINT (Ctrl+C, or `kill -INT <pid>`) to the runner — `cargo` or
-`probe-rs-runner` — after the boot banner; the firmware keeps running.
-
-If `cargo run` returns silently — no defmt output, while the board's
-uptime keeps growing — the CMSIS-DAP probe is wedged per
-probe-rs/probe-rs#1849. The runner defaults `RUST_LOG=info`, which
-surfaces "Could not determine a suitable packet size for this probe"
-instead of exiting silently. Recovery is a physical unplug and replug
-of the affected debugprobe; `uhubctl` and software USB resets do not
-help through a hub that reports `ppps` without actually cutting power.
-`probe-rs info` is what triggers the wedge; never run it twice in a row
-on the same probe.
+A silent `cargo run`, probe recovery, and size and stack analysis:
+`docs/DEBUGGING.md`.
 
 ## Targets
 
-| Crate | Target | MCU |
-|-------|--------|-----|
-| braiins-axe | thumbv8m.main-none-eabihf | RP2350A (Pico 2 module, Cortex-M33) |
-| bmm-pico | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
-| rp2040 | thumbv6m-none-eabi | RP2040 (Cortex-M0+) |
-| rp2350 | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
-| hashnode | thumbv8m.main-none-eabihf | RP2350B (Cortex-M33, 48 GPIO) |
-| stm32f407 | thumbv7em-none-eabihf | STM32F407VGT6 (Cortex-M4F) |
-| stm32f439 | thumbv7em-none-eabihf | STM32F439ZIT6 (Cortex-M4F) |
-| esp32s3 | xtensa-esp32s3-none-elf | ESP32-S3 (Xtensa LX7) |
-
-Firmware and `ubos/` implementation conventions load automatically from
-`.claude/rules/firmware.md` when working under those trees.
-
-## Role
-
-Systems engineer. Deep expertise in Rust and embedded firmware.
-
-## Principles
-
-- **Simplicity above all**: Minimal, correct code. No clever
-  abstractions. When in doubt, write less.
-- **Verify, don't trust**: Test assumptions through code and docs.
-  Build the affected crate after every change (see Build).
-- **Push back**: Be skeptical. Question whether the solution is truly
-  simplest. Disagree on suboptimal approaches.
+| Crate | Shell | Target | MCU |
+|-------|-------|--------|-----|
+| braiins-axe | arm | thumbv8m.main-none-eabihf | RP2350A (Pico 2 module, Cortex-M33) |
+| bmm-pico | arm | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
+| rp2040 | arm | thumbv6m-none-eabi | RP2040 (Cortex-M0+) |
+| rp2350 | arm | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
+| hashnode | arm | thumbv8m.main-none-eabihf | RP2350B (Cortex-M33, 48 GPIO) |
+| stm32f407 | arm | thumbv7em-none-eabihf | STM32F407VGT6 (Cortex-M4F) |
+| stm32f439 | arm | thumbv7em-none-eabihf | STM32F439ZIT6 (Cortex-M4F) |
+| esp32s3 | esp | xtensa-esp32s3-none-elf | ESP32-S3 (Xtensa LX7) |
 
 ## Verification
 
-Every crate, library crates included, must be covered by a build and a
-clippy derivation in the flake `checks` output. Adding a crate means
-adding a `cargo build`/`cargo check` and a `cargo clippy -- -D warnings`
-derivation to `checks.<system>`; a crate that is not in `checks` is not
-gated. CI runs the checks as staged groups whose union is exactly
+Every crate, library crates included, must be gated by the flake
+`checks`: a `cargo build`/`cargo check` derivation and a
+`cargo clippy -- -D warnings` one. **A crate that is not in `checks` is
+not gated.** CI runs those checks as staged groups whose union is exactly
 `nix flake check`, and the same commands run locally — there is no
 wrapper script:
 
@@ -109,116 +65,102 @@ nix build .#checks.<system>.<name>     # one check in isolation
 nix flake check                        # everything
 ```
 
+The `claude-md-limit` gate holds this file at or under 200 lines: it
+loads on every session and adherence drops as it grows, so detail belongs
+in `docs/` or in a path-scoped `.claude/rules/` file instead.
+
 ## Licensing
 
-This repository is GPL-3.0-or-later, with `assets/69-probe-rs.rules`
-and `ubos/ubos-webui/assets/icons.svg` the two bundled files under a
-different licence; see `COPYING` and the README License section.
-Header conventions for new files:
+GPL-3.0-or-later throughout, and public. `assets/69-probe-rs.rules` and
+`ubos/ubos-webui/assets/icons.svg` are the two bundled files under a
+different licence; see `COPYING`.
 
-- First-party sources (`.rs`, `.c`, `.nix`, `.py`, `.js`, `.sh`,
-  `.css`, `.html`) carry the GPL-3.0-or-later block; copy it from a
-  neighbouring file. Prose header only, no SPDX identifiers.
-- Vendored `patches/*` trees keep their upstream license and get no
+- New first-party sources (`.rs`, `.c`, `.nix`, `.py`, `.js`, `.sh`,
+  `.css`, `.html`) carry the GPL-3.0-or-later block, copied from a
+  neighbouring file. Prose header, no SPDX identifiers.
+- Vendored `patches/*` trees keep their upstream licence and get no
   Braiins header.
 
-Nothing in this tree is confidential, so there is no strip step and no
-per-path exception to reason about. Product-specific driver code and
-the bench and lab machinery live in the internal repository, which
-consumes this one; a change that belongs there does not belong here.
+Nothing here is confidential, so there is no strip step and no per-path
+exception to reason about. Product-specific driver code and the bench
+and lab machinery live in the internal repository that consumes this
+one; a change that belongs there does not belong here.
 
-Code comments and commit messages never name internal prototypes,
-external miner projects, or chip datasheets — each mention is a legal
-surface, and this history is public. Doc comments describe behavior,
-not lineage; provenance questions from reviewers get their answer in
-the review thread, not in the codebase.
+## Role
+
+Systems engineer. Deep expertise in Rust and embedded firmware.
+
+## Principles
+
+- **Simplicity above all**: minimal, correct code. No clever
+  abstractions. When in doubt, write less.
+- **Verify, don't trust**: test assumptions against the code and the
+  docs. Build the affected crate after every change.
+- **Push back**: question whether a solution is the simplest one, and
+  disagree with a suboptimal approach rather than implementing it.
 
 ## Working Style
 
-- Read existing code patterns before making changes
-- Use ripgrep/grep to understand the codebase
-- Prefer editing existing files over creating new ones
-- Keep responses concise and action-oriented
-- Comments: proper sentences, no parenthetical asides, no size claims
+- Read the surrounding code before changing it, and match its patterns.
+- Prefer editing an existing file over creating a new one.
+- Comments are proper sentences, with no parenthetical asides and no
+  size claims.
 - New user-facing prose — READMEs, `docs/`, runbooks, error messages —
-  follows `/simple-english`. Comments and commit messages keep the
-  rules above and in `.gitlint` instead, and existing prose is left
-  alone until its meaning changes
-
-**Safe commands** (run without confirmation):
-- `cargo check`, `build`, `test`, `clippy`, `fmt` (inside the right
-  `nix develop` shell)
-- `git status`, `git diff`, `git log`, `git show`
-
-**Configuration** (project-local, committed to the repo):
-- `.claude/` for project-specific configuration and vendored skills
-- `CLAUDE.md` for instructions
+  follows `/simple-english`. Comments and commit messages keep the rules
+  above and in `.gitlint` instead, and existing prose is left alone until
+  its meaning changes.
+- Conventions live in `.claude/rules/`, path-scoped so each loads with
+  the files it governs: `firmware.md` for the firmware and `ubos/`
+  crates, `named-constants.md` for every `.nix` and `.rs` file.
+- **Never name internal prototypes, external miner projects, or chip
+  datasheets** in code, comments, or commit messages. Each mention is a
+  legal surface. Doc comments describe behavior, not lineage; a
+  provenance question is answered in the review thread, not in the
+  codebase.
 
 ## Model Routing
 
-**Opus orchestrates, sonnet executes.** Delegate substantial work to
-sonnet subagents via the Task tool. Opus handles only architectural
-decisions, plan approval, coordination, and 1-2 line edits where
-spawning is slower.
-
-When spawning multiple parallel agents, set `model: "sonnet"`
-explicitly.
+Opus orchestrates, sonnet executes. Delegate substantial work to sonnet
+subagents; Opus keeps architecture, plan approval, coordination, and the
+edits too small to be worth spawning for. Set `model: "sonnet"`
+explicitly when spawning parallel agents.
 
 ## Git Workflow
 
-**Branch lifecycle** — the preferred path from request to merge:
+Clarify → Plan → Implement → Commit → Review. **Wait for explicit user
+approval between steps, and never advance without it.**
 
-1. Gather the requirements for what the branch should implement.
-2. Prepare a plan; once approved, commit it.
-3. Implement all the changes and features.
-4. Iterate `/review-branch` → `/fix-review` → `/branch-cleanup` until no
-   significant findings remain.
-5. Human review is expected at this point.
-6. After the human's fixes land, run review → fix → cleanup again.
-7. A clean branch with no significant findings is ready to merge.
+- Present findings and the proposed approach, then wait.
+- Answer a question completely, then wait. A question is a question, not
+  an implicit instruction.
+- One logical change per iteration.
+- Use plan mode for anything non-trivial.
+- **NEVER push to remote.** The user pushes when ready.
 
-**Per step:** Clarify, Plan, Implement, Commit, Review. Wait for explicit
-user approval between steps; never advance without it.
-
-- Present findings and the proposed approach, then wait
-- Answer questions completely first, then wait before acting
-- One logical change per iteration, stop for user review
-- Use plan mode for non-trivial tasks
-- **NEVER push to remote** (the user pushes when ready)
+A branch runs plan → implement → `/review-branch` → `/fix-review` →
+`/branch-cleanup`, iterated until no significant findings remain, then
+human review, then the same loop again over the human's fixes.
 
 ## Commits and History
 
-Commit and branch-history doctrine lives in the skills, which load only
-when invoked. `gitlint` (`.gitlint` + `.gitlint-rules/`) is the enforced
-source of truth for message format.
+`gitlint` (`.gitlint` + `.gitlint-rules/`) is the enforced source of
+truth for message format. The doctrine itself lives in the skills and
+loads when they are invoked: `/commit` owns the message format, and
+`/branch-cleanup` collapses a branch to small atomic commits with each
+change touched once and no development archaeology.
 
-- `/commit` — atomic commits, chunk staging, and the authoritative
-  message format
-- `/branch-cleanup` — collapse a branch to small, logical, atomic
-  commits: each change touched once, straight-linear history, no
-  development archaeology; git-absorb (`git absorb --base "$BASE"`, the
-  resolved review base) creates fixup commits, which this squashes before
-  merge
-
-Interactive rebase is allowed here (overriding the harness default
-prohibition on `-i`). Drive it non-interactively via `GIT_SEQUENCE_EDITOR`;
-never set `GIT_EDITOR`.
-
-## Skills
-
-| Skill | Purpose |
-|-------|---------|
-| `/commit` | Atomic commits with chunk-based staging |
-| `/branch-cleanup` | Prepare a branch for merge with full history cleanup |
-| `/review-branch` | Review all branch changes against master |
-| `/fix-review` | Apply review findings as fixup commits |
-| `/simple-english` | Write new user-facing prose plainly and unambiguously |
+Interactive rebase is allowed here, overriding the harness default.
+Drive it non-interactively through `GIT_SEQUENCE_EDITOR`, and never set
+`GIT_EDITOR`.
 
 ## Communication
 
-- Direct, concise, technical
-- No praise or validation — evaluate on technical merit only
-- No weasel words: avoid "likely", "probably", "might be"; say "I don't
-  know" when uncertain
-- Questions are questions: analyze and answer, do not treat as implicit
-  instructions
+- Direct, concise, technical. Lead with the answer.
+- Structured *and* concise: let a heading, table, or list carry what a
+  paragraph would bury.
+- No preamble, no recap of work already shown, no restating the
+  question, no summary of a summary.
+- Report the conclusion and what backs it, not the path that reached it.
+- A caveat is one line. Label it and move on: `Risk:`, `Assumption:`.
+- No praise and no validation. Evaluate on technical merit only.
+- No weasel words. Say "I don't know" when uncertain.
