@@ -70,65 +70,13 @@ lines exist, which silently skipped this gate on mixed diffs. When
 `nix flake check .: SKIPPED (no flake inputs changed)` in the output,
 then move to Phase 3.
 
-When `FLAKE_RELEVANT=1`, the authoritative gate is a single command, run
-identically to CI so the local result cannot disagree with the pipeline:
-
-```
-nix flake check .
-```
-
-This is a full hermetic build of every board. Warm — most reviews, since
-the local `/nix/store` is already populated — it takes a minute or two;
-cold it can run much longer.
-
-Run it as **one foreground, blocking `Bash` call** with a long `timeout`
-(the 600000 ms maximum). Do not background it, do not delegate it to a
-`Task` subagent, and do not poll a log for a completion sentinel. Each has
-failed in a way rooted in this skill's forked context (`context: fork`): a
-fork is one-shot, so once it returns its final message it cannot be
-re-entered. A backgrounded check's completion notification then lands in
-the main loop, never in the finished fork, so the report gate below is
-unreachable and the review ends with no report; a `Task` subagent likewise
-returns before the check finishes; and a hand-rolled
-`until grep …; do sleep; done` waiter spins whenever its sentinel never
-lands. A foreground call sidesteps all three: it blocks this same turn
-until nix exits, so the exit status is in hand before the call returns.
-`2>&1` is a redirection, not a pipe, so `$?` is nix's own exit status;
-capture it on the last line:
-
-```bash
-nix flake check . 2>&1; echo "FLAKE_CHECK_EXIT=$?"
-```
-
-Read the last line of the output: PASS if it is `FLAKE_CHECK_EXIT=0`,
-otherwise FAIL with each failing check name and the relevant error lines.
-If the call hits its timeout before the exit line appears, the store was
-cold; record the flake check as `TIMED OUT (re-run manually)` and note
-that the branch is not gated until it is re-run, rather than dropping the
-report. Do not emit the final report until this exit line is in hand or
-the timeout is recorded.
-
-The repo-root flake aggregates every project's checks (clippy, firmware
-builds, host tests, DRC, ERC) under a `<project>-` prefix, plus the
-repo-wide treefmt formatting check. This is the entire CI `check` stage
-(`.gitlab/ci/lint.yml`), so one command covers what the pipeline gates.
-Do not run per-flake `nix flake check <path>`; the root check already
-includes them, and the root is the only place the nix-formatting check
-lives.
-
-Never substitute an ad-hoc `nixfmt`, `treefmt`, or per-crate
-`cargo fmt --check`. Only the flake check uses the formatter version
-pinned in `flake.lock`, so only it matches CI exactly; a locally
-installed formatter can be a different version and pass while CI fails.
-
-`cargo check` / `cargo clippy` per changed crate are fine for fast
-iteration, but a clean run does not substitute for the flake check above.
-
-The flake checks are hermetic: every toolchain — including the Xtensa
-toolchain the `.#esp` shell uses — is supplied by the flake and built by
-nix, so `nix flake check` runs every board's checks with no host setup,
-the same way CI does. There is no "missing toolchain" to skip over; if a
-check does not run, the environment is wrong — fix it and run the check.
+When `FLAKE_RELEVANT=1`, the gate is `nix flake check .` at the repo root
+and nothing narrower. It is the entire CI `check` stage, it must run as
+one foreground blocking `Bash` call, and the exit line must be in hand
+before the report. How to run it, the three ways of running it that have
+failed, how to read the result, and what must never be substituted for it
+are in [reference/flake-gate.md](reference/flake-gate.md) — read that
+before running the gate.
 
 ### Phase 3: Per-commit review
 
