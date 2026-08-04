@@ -43,7 +43,7 @@ use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, PIO0, SPI0, TRNG, UART1};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, PIO0, PIO1, SPI0, TRNG, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
@@ -103,6 +103,7 @@ bind_interrupts!(struct Irqs {
     UART1_IRQ => BufferedInterruptHandler<UART1>;
     TRNG_IRQ => trng::InterruptHandler<TRNG>;
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
+    PIO1_IRQ_0 => PioInterruptHandler<PIO1>;
 });
 
 type EthernetRunner = Runner<
@@ -364,16 +365,29 @@ async fn boot(spawner: Spawner) {
     // Temperature and fan monitor via shared I2C bus.
     let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
     let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
-    let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin, hw.fan_pwm_pin_b);
-    // Each connector's tachometer is measured by a PIO0 state machine; the
-    // cooling loop drains the latest period per fan and publishes one
-    // labeled board_fan_rpm series each.
-    let tach_pio = Pio::new(hw.pio, Irqs);
+    let board_fan = fan::BoardFan::new(
+        hw.fan_pwm_slice,
+        hw.fan_pwm_pin,
+        hw.fan_pwm_pin_b,
+        hw.fan_pwm_slice_c,
+        hw.fan_pwm_pin_c,
+    );
+    // Each connector's tachometer is measured by one PIO state machine.
+    // Five connectors need five state machines, but a PIO block has only
+    // four and addresses a single 32-GPIO window, so the tachs split:
+    // GPIO23/24/25 on PIO0, GPIO38/44 on PIO1. The cooling loop drains
+    // the latest period per fan and publishes one labeled board_fan_rpm
+    // series each.
+    let tach_pio0 = Pio::new(hw.pio, Irqs);
+    let tach_pio1 = Pio::new(hw.pio1, Irqs);
     let board_tach = fan::BoardTach::new(
-        tach_pio,
+        tach_pio0,
+        tach_pio1,
         hw.fan_tach_pin_a,
         hw.fan_tach_pin_b,
         hw.fan_tach_pin_c,
+        hw.fan_tach_pin_d,
+        hw.fan_tach_pin_e,
     );
     spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
     spawner.spawn(unwrap!(manager_task(mining_handle)));

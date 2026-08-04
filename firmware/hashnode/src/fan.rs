@@ -19,20 +19,25 @@
 
 //! Fan PWM drive and tachometer readback.
 //!
-//! `PWM_SLICE5` channel A on GPIO10 drives the fan's PWM input at 25 kHz,
-//! the rate specified by the Intel 4-wire fan spec. `BoardFan` exposes
-//! the PWM output behind the `ubos_cooling::FanOutput` trait so the
-//! cooling task can drive duty cycle from a PID loop.
+//! `PWM_SLICE5` channels A/B (GPIO10/GPIO11, `RP_PWM_A`/`RP_PWM_B`) and
+//! `PWM_SLICE9` channel B (GPIO43, `RP_PWM_C` on the `FAN_CONTROL`
+//! header) drive the fan PWM inputs at 25 kHz, the rate specified by
+//! the Intel 4-wire fan spec. `BoardFan` exposes the outputs behind the
+//! `ubos_cooling::FanOutput` trait at one shared duty so the cooling
+//! task can drive them from a PID loop.
 //!
-//! The three fan connectors each expose a tachometer: GPIO24
-//! (`RP_TACH_A`), GPIO25 (`RP_TACH_B`), and GPIO23 (`RP_TACH_C`). None
-//! map to a `PWM_SLICE` channel B, so the PWM slice edge counter is
-//! unusable; instead each tach drives one PIO state machine on `PIO0`
-//! that measures the pulse-to-pulse period in hardware and pushes it to
-//! its RX FIFO. `BoardTach` drains the latest period per fan each control
+//! Five connectors expose a tachometer: GPIO24 (`RP_TACH_A`), GPIO25
+//! (`RP_TACH_B`), GPIO23 (`RP_TACH_C`), GPIO38 (`RP_TACH_D`), and
+//! GPIO44 (`RP_TACH_E`). None map to a `PWM_SLICE` channel B, so the
+//! PWM slice edge counter is unusable; instead each tach drives one PIO
+//! state machine that measures the pulse-to-pulse period in hardware
+//! and pushes it to its RX FIFO. A PIO block addresses a single 32-pin
+//! GPIO window (and embassy-rp selects the low window whenever a state
+//! machine's pins all sit below GPIO32), so the tachs split across
+//! blocks: `PIO0` SM0-2 take GPIO23/24/25, `PIO1` SM0-1 take
+//! GPIO38/44. `BoardTach` drains the latest period per fan each control
 //! tick behind `ubos_cooling::TachReader`, which publishes one labeled
-//! series per fan. Measuring in PIO removes the per-edge CPU wakeups the
-//! old `wait_for_rising_edge` loop incurred.
+//! series per fan. Unpopulated connectors simply read 0 rpm.
 //!
 //! The board's tach RC network charges the filter cap through a 4.7 kΩ
 //! pull-up, so the rising edge ramps slowly through the input threshold
@@ -43,9 +48,13 @@
 
 use embassy_rp::Peri;
 use embassy_rp::gpio::Pull;
-use embassy_rp::peripherals::{PIN_10, PIN_11, PIN_23, PIN_24, PIN_25, PIO0, PWM_SLICE5};
+use embassy_rp::pac;
+use embassy_rp::peripherals::{
+    PIN_10, PIN_11, PIN_23, PIN_24, PIN_25, PIN_38, PIN_43, PIN_44, PIO0, PIO1, PWM_SLICE5,
+    PWM_SLICE9,
+};
 use embassy_rp::pio::{
-    Common, Config, Direction, FifoJoin, LoadedProgram, Pio, PioPin, StateMachine,
+    Common, Config, Direction, FifoJoin, Instance, LoadedProgram, Pio, PioPin, StateMachine,
 };
 use embassy_rp::pio_programs::clock_divider::calculate_pio_clock_divider;
 use embassy_rp::pwm::{Config as PwmConfig, Pwm};
@@ -55,7 +64,7 @@ use ubos_core::units::{FanPwm, FanRpm};
 use crate::config::Fan;
 
 /// Number of fan connectors, each with its own tachometer.
-pub const TACH_COUNT: usize = 3;
+pub const TACH_COUNT: usize = 5;
 
 /// PIO state-machine clock. The counting loops are exactly
 /// [`TACH_CYCLES_PER_ITER`] PIO cycles per period tick, so at 3 MHz one
@@ -81,27 +90,32 @@ const TACH_MIN_ITERS: u32 = (60 * TACH_PIO_HZ as u64
     / (TACH_MAX_PLAUSIBLE_RPM * TACH_CYCLES_PER_ITER as u64 * Fan::TACH_PULSES_PER_REV))
     as u32;
 
-/// PWM output driving the fan input. Construct once and pass into the
+/// PWM outputs driving the fan inputs. Construct once and pass into the
 /// cooling task; the cooling loop sets duty via `FanOutput::set_pwm`.
 pub struct BoardFan {
-    pwm: Pwm<'static>,
+    pwm_ab: Pwm<'static>,
+    pwm_c: Pwm<'static>,
     top: u16,
 }
 
 impl BoardFan {
     #[must_use]
     pub fn new(
-        slice: Peri<'static, PWM_SLICE5>,
+        slice_ab: Peri<'static, PWM_SLICE5>,
         pin_a: Peri<'static, PIN_10>,
         pin_b: Peri<'static, PIN_11>,
+        slice_c: Peri<'static, PWM_SLICE9>,
+        pin_c: Peri<'static, PIN_43>,
     ) -> Self {
         let mut pwm_config = PwmConfig::default();
         pwm_config.top = Fan::PWM_TOP;
-        // GPIO10 (PWM_A) and GPIO11 (PWM_B) are both channels of PWM_SLICE5;
-        // driving both at one duty keeps all three fan connectors in step.
-        let pwm = Pwm::new_output_ab(slice, pin_a, pin_b, pwm_config);
+        let pwm_ab = Pwm::new_output_ab(slice_ab, pin_a, pin_b, pwm_config.clone());
+        // GPIO43 is PWM_SLICE9's B channel; the slice's A pin is not
+        // routed to a fan, so only channel B is claimed.
+        let pwm_c = Pwm::new_output_b(slice_c, pin_c, pwm_config);
         Self {
-            pwm,
+            pwm_ab,
+            pwm_c,
             top: Fan::PWM_TOP,
         }
     }
@@ -110,10 +124,10 @@ impl BoardFan {
 impl FanOutput for BoardFan {
     fn set_pwm(&mut self, pwm: FanPwm) {
         let percent = pwm.percent();
-        // An inverting buffer drives the hashnode fan, so a higher duty on the
-        // GPIO runs the fan slower. Invert the duty here so the commanded
-        // percent matches the actual fan speed; confirmed on hardware by a
-        // duty/RPM sweep.
+        // An inverting buffer drives the fans, so a higher duty on the GPIO
+        // runs the fan slower. Invert the duty here so the commanded percent
+        // matches the actual fan speed; confirmed on hardware by a duty/RPM
+        // sweep.
         let duty = 100 - percent;
         let compare = u32::from(self.top) * u32::from(duty) / 100;
         let mut config = PwmConfig::default();
@@ -121,15 +135,16 @@ impl FanOutput for BoardFan {
         // u16 cast safe: compare <= self.top, which fits in u16.
         #[allow(clippy::cast_possible_truncation)]
         {
-            // Both channels (GPIO10/GPIO11) get the same duty.
+            // Every channel gets the same duty so all fans track.
             config.compare_a = compare as u16;
             config.compare_b = compare as u16;
         }
-        self.pwm.set_config(&config);
+        self.pwm_ab.set_config(&config);
+        self.pwm_c.set_config(&config);
     }
 }
 
-/// Reads the latest measured RPM for all three connectors into the
+/// Reads the latest measured RPM for all five connectors into the
 /// cooling loop. Each field owns the PIO state machine driving that
 /// connector's tachometer.
 // One field per connector; the state machines are distinct const-generic
@@ -139,36 +154,68 @@ pub struct BoardTach {
     sm_a: StateMachine<'static, PIO0, 0>,
     sm_b: StateMachine<'static, PIO0, 1>,
     sm_c: StateMachine<'static, PIO0, 2>,
+    sm_d: StateMachine<'static, PIO1, 0>,
+    sm_e: StateMachine<'static, PIO1, 1>,
 }
 
 impl BoardTach {
-    /// Load the tach program into `PIO0` and start one state machine per
-    /// connector. Consumes the whole `Pio`; the `common` handle is only
-    /// needed for setup and is dropped here, which leaves the running
-    /// state machines untouched.
+    /// Load the tach program into both PIO blocks and start one state
+    /// machine per connector. Consumes both `Pio`s; the `common`
+    /// handles are only needed for setup and are dropped here, which
+    /// leaves the running state machines untouched.
     #[must_use]
     pub fn new(
-        mut pio: Pio<'static, PIO0>,
+        mut pio0: Pio<'static, PIO0>,
+        mut pio1: Pio<'static, PIO1>,
         pin_a: Peri<'static, PIN_24>,
         pin_b: Peri<'static, PIN_25>,
         pin_c: Peri<'static, PIN_23>,
+        pin_d: Peri<'static, PIN_38>,
+        pin_e: Peri<'static, PIN_44>,
     ) -> Self {
-        let program = tach_program(&mut pio.common);
-        let sm_a = setup_tach(&mut pio.common, pio.sm0, pin_a, &program);
-        let sm_b = setup_tach(&mut pio.common, pio.sm1, pin_b, &program);
-        let sm_c = setup_tach(&mut pio.common, pio.sm2, pin_c, &program);
-        Self { sm_a, sm_b, sm_c }
+        let program0 = tach_program(&mut pio0.common);
+        let sm_a = setup_tach(&mut pio0.common, pio0.sm0, pin_a, &program0);
+        let sm_b = setup_tach(&mut pio0.common, pio0.sm1, pin_b, &program0);
+        let sm_c = setup_tach(&mut pio0.common, pio0.sm2, pin_c, &program0);
+        let program1 = tach_program(&mut pio1.common);
+        let sm_d = setup_tach(&mut pio1.common, pio1.sm0, pin_d, &program1);
+        let sm_e = setup_tach(&mut pio1.common, pio1.sm1, pin_e, &program1);
+        // embassy-rp 0.10.0 subtracts the PIO GPIOBASE window shift from the
+        // IN/SET/OUT/SIDESET bases but not from EXECCTRL.JMP_PIN, which the
+        // RP2350 also interprets relative to GPIOBASE. GPIO38/GPIO44 sit in
+        // PIO1's base-16 window, so the driver leaves `jmp pin` watching the
+        // wrong GPIO and the tach program never sees an edge (0 rpm). Re-point
+        // it at the window-relative index. Base-0 blocks (PIO0, GPIO<32) are
+        // correct as written, so only PIO1 needs the fix-up.
+        pac::PIO1
+            .sm(0)
+            .execctrl()
+            .modify(|w| w.set_jmp_pin(Fan::TACH_D_GPIO - Fan::PIO_HIGH_WINDOW_BASE));
+        pac::PIO1
+            .sm(1)
+            .execctrl()
+            .modify(|w| w.set_jmp_pin(Fan::TACH_E_GPIO - Fan::PIO_HIGH_WINDOW_BASE));
+        Self {
+            sm_a,
+            sm_b,
+            sm_c,
+            sm_d,
+            sm_e,
+        }
     }
 }
 
 impl TachReader<TACH_COUNT> for BoardTach {
-    const LABELS: [Option<&'static str>; TACH_COUNT] = [Some("a"), Some("b"), Some("c")];
+    const LABELS: [Option<&'static str>; TACH_COUNT] =
+        [Some("a"), Some("b"), Some("c"), Some("d"), Some("e")];
 
     async fn read_rpms(&mut self) -> [FanRpm; TACH_COUNT] {
         [
             latest_rpm(&mut self.sm_a),
             latest_rpm(&mut self.sm_b),
             latest_rpm(&mut self.sm_c),
+            latest_rpm(&mut self.sm_d),
+            latest_rpm(&mut self.sm_e),
         ]
     }
 }
@@ -186,7 +233,7 @@ impl TachReader<TACH_COUNT> for BoardTach {
 /// produces around the input threshold. The debounce runs inside the
 /// counting loop (`s_deb`) at the same cycles-per-tick as the
 /// `high`/`low` loops, so it does not bias the measured period.
-fn tach_program(common: &mut Common<'static, PIO0>) -> LoadedProgram<'static, PIO0> {
+fn tach_program<P: Instance>(common: &mut Common<'static, P>) -> LoadedProgram<'static, P> {
     // `set y, N` takes a 5-bit immediate, so the debounce window maxes at
     // 31 ticks (31 µs), comfortably longer than a single chatter pulse and
     // far shorter than a real tach half-period.
@@ -238,12 +285,12 @@ fn tach_program(common: &mut Common<'static, PIO0>) -> LoadedProgram<'static, PI
     common.load_program(&program.program)
 }
 
-fn setup_tach<const SM: usize>(
-    common: &mut Common<'static, PIO0>,
-    mut sm: StateMachine<'static, PIO0, SM>,
+fn setup_tach<P: Instance, const SM: usize>(
+    common: &mut Common<'static, P>,
+    mut sm: StateMachine<'static, P, SM>,
     pin: Peri<'static, impl PioPin>,
-    program: &LoadedProgram<'static, PIO0>,
-) -> StateMachine<'static, PIO0, SM> {
+    program: &LoadedProgram<'static, P>,
+) -> StateMachine<'static, P, SM> {
     let mut pin = common.make_pio_pin(pin);
     pin.set_pull(Pull::Up);
     sm.set_pin_dirs(Direction::In, &[&pin]);
@@ -262,7 +309,7 @@ fn setup_tach<const SM: usize>(
 /// Drain a state machine's FIFO and convert the most recent plausible
 /// period into RPM. Returns zero when no fresh period is available, which
 /// is what a stopped fan produces.
-fn latest_rpm<const SM: usize>(sm: &mut StateMachine<'static, PIO0, SM>) -> FanRpm {
+fn latest_rpm<P: Instance, const SM: usize>(sm: &mut StateMachine<'static, P, SM>) -> FanRpm {
     let mut iters = None;
     while let Some(raw) = sm.rx().try_pull() {
         let elapsed = u32::MAX - raw;

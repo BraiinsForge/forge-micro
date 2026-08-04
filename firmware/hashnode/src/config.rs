@@ -31,8 +31,8 @@ pub use ubos_machine::HASHNODE as MACHINE;
 use embassy_rp::Peri;
 use embassy_rp::peripherals::{
     CORE1, DMA_CH0, DMA_CH1, FLASH, I2C1, PIN_2, PIN_3, PIN_4, PIN_5, PIN_6, PIN_10, PIN_11,
-    PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_23, PIN_24, PIN_25, PIN_30, PIN_32, PIO0,
-    PWM_SLICE5, SPI0, TRNG, UART1, WATCHDOG,
+    PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_23, PIN_24, PIN_25, PIN_30, PIN_32, PIN_38,
+    PIN_43, PIN_44, PIO0, PIO1, PWM_SLICE5, PWM_SLICE9, SPI0, TRNG, UART1, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_15, PIN_26, PIN_27, PIN_28, PIN_29, SPI1};
@@ -71,21 +71,31 @@ pub struct Board {
     /// LOW = held in reset. Drive LOW at boot until the miner task
     /// is ready to bring up the hashboard.
     pub hb_rst: Peri<'static, PIN_32>,
-    /// Fan PWM outputs (25 kHz). `PWM_SLICE5` channel A = GPIO10 (`PWM_A`,
-    /// two connectors), channel B = GPIO11 (`PWM_B`, the third). Both run at
-    /// the same duty so all three fans track together.
+    /// Fan PWM outputs (25 kHz). `PWM_SLICE5` channel A = GPIO10
+    /// (`RP_PWM_A`), channel B = GPIO11 (`RP_PWM_B`); `PWM_SLICE9`
+    /// channel B = GPIO43 (`RP_PWM_C`, the `FAN_CONTROL` header). All run
+    /// at the same duty so every fan tracks together.
     pub fan_pwm_slice: Peri<'static, PWM_SLICE5>,
     pub fan_pwm_pin: Peri<'static, PIN_10>,
     pub fan_pwm_pin_b: Peri<'static, PIN_11>,
+    pub fan_pwm_slice_c: Peri<'static, PWM_SLICE9>,
+    pub fan_pwm_pin_c: Peri<'static, PIN_43>,
     /// Fan tachometer inputs, one per connector: GPIO24 (`RP_TACH_A`),
-    /// GPIO25 (`RP_TACH_B`), GPIO23 (`RP_TACH_C`). None map to a `PWM`
+    /// GPIO25 (`RP_TACH_B`), GPIO23 (`RP_TACH_C`), GPIO38 (`RP_TACH_D`),
+    /// GPIO44 (`RP_TACH_E`, the `FAN_CONTROL` header). None map to a `PWM`
     /// `ChannelB`, so the slice edge counter is unusable; each is measured
-    /// by a `PIO0` state machine instead.
+    /// by a PIO state machine instead.
     pub fan_tach_pin_a: Peri<'static, PIN_24>,
     pub fan_tach_pin_b: Peri<'static, PIN_25>,
     pub fan_tach_pin_c: Peri<'static, PIN_23>,
-    /// PIO block driving the three tachometer period counters.
+    pub fan_tach_pin_d: Peri<'static, PIN_38>,
+    pub fan_tach_pin_e: Peri<'static, PIN_44>,
+    /// PIO block driving the tach counters for GPIO23/24/25. A PIO
+    /// block addresses one 32-pin GPIO window, so the two tachs above
+    /// GPIO31 live on [`Self::pio1`] instead.
     pub pio: Peri<'static, PIO0>,
+    /// Second PIO block for the GPIO38/GPIO44 tach counters.
+    pub pio1: Peri<'static, PIO1>,
     /// FLASH peripheral for the on-board QSPI; ubos-config persists the
     /// runtime config record in the last two sectors of this device.
     pub flash: Peri<'static, FLASH>,
@@ -162,10 +172,15 @@ impl Board {
             fan_pwm_slice: peripherals.PWM_SLICE5,
             fan_pwm_pin: peripherals.PIN_10,
             fan_pwm_pin_b: peripherals.PIN_11,
+            fan_pwm_slice_c: peripherals.PWM_SLICE9,
+            fan_pwm_pin_c: peripherals.PIN_43,
             fan_tach_pin_a: peripherals.PIN_24,
             fan_tach_pin_b: peripherals.PIN_25,
             fan_tach_pin_c: peripherals.PIN_23,
+            fan_tach_pin_d: peripherals.PIN_38,
+            fan_tach_pin_e: peripherals.PIN_44,
             pio: peripherals.PIO0,
+            pio1: peripherals.PIO1,
             flash: peripherals.FLASH,
             sic_en: peripherals.PIN_30,
             #[cfg(feature = "display")]
@@ -212,6 +227,13 @@ pub struct Fan;
 impl Fan {
     pub const PWM_TOP: u16 = 5999;
     pub const TACH_PULSES_PER_REV: u64 = 2;
+    /// GPIO of the `RP_TACH_D` / `RP_TACH_E` inputs on PIO1. Both sit
+    /// above GPIO31, so PIO1 runs in the base-16 window and the fan
+    /// driver rebases their `jmp pin` by [`Self::PIO_HIGH_WINDOW_BASE`].
+    pub const TACH_D_GPIO: u8 = 38;
+    pub const TACH_E_GPIO: u8 = 44;
+    /// Start of the upper 32-GPIO PIO window (`GPIOBASE = 16`).
+    pub const PIO_HIGH_WINDOW_BASE: u8 = 16;
 }
 
 pub struct Core1;
