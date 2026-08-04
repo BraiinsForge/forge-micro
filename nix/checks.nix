@@ -74,6 +74,9 @@ let
     ;
   root = ../.;
 
+  # Line budget for CLAUDE.md; see claude-md-limit below.
+  claudeMdMaxLines = 200;
+
   # A firmware crate is gated only when it is a workspace member. In this
   # repo every board is a member, so this is always true; it is what lets
   # the module evaluate against a tree that carries fewer. See the
@@ -789,6 +792,24 @@ hostClippyChecks
       touch $out
     ''
   );
+
+  # CLAUDE.md is loaded into context at the start of every session, and
+  # an agent's adherence to it drops as it grows: past a few hundred
+  # lines the rules that matter get lost among the ones that do not.
+  # claudeMdMaxLines is the documented target, so gate it rather than
+  # trusting the next edit to notice. Detail belongs in docs/ or, when
+  # it is only relevant under one tree, in a path-scoped .claude/rules/
+  # file, which loads on demand instead.
+  claude-md-limit = pkgs.runCommand "claude-md-limit" { } ''
+    lines=$(wc -l < ${root + "/CLAUDE.md"})
+    echo "CLAUDE.md: $lines lines / ${toString claudeMdMaxLines}"
+    if [ "$lines" -gt ${toString claudeMdMaxLines} ]; then
+      echo "ERROR: CLAUDE.md is $lines lines; the limit is ${toString claudeMdMaxLines}." >&2
+      echo "Move detail into docs/ or .claude/rules/ instead of growing it." >&2
+      exit 1
+    fi
+    touch $out
+  '';
 
   # Nix formatting gate. In the monorepo this was owned by a
   # repo-root treefmt; as a standalone repo the flake must
