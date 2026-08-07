@@ -229,13 +229,20 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
         let Some(temp) = sensor.read().await else {
             sensor_misses = sensor_misses.saturating_add(1);
             if sensor_misses == SENSOR_FAULT_TICKS {
-                error!(
-                    "thermal: sensor unreadable for {} ticks; halting + forcing fan to 100%",
-                    sensor_misses
-                );
                 crate::events::sensor_fault(sensor_misses);
-                halted = true;
-                manager.send(ManagerMessage::DangerousTemperature).await;
+                if sensor.halts_on_fault() {
+                    error!(
+                        "thermal: sensor unreadable for {} ticks; halting + forcing fan to 100%",
+                        sensor_misses
+                    );
+                    halted = true;
+                    manager.send(ManagerMessage::DangerousTemperature).await;
+                } else {
+                    warn!(
+                        "thermal: sensor unreadable for {} ticks; forcing fan to 100%, not halting",
+                        sensor_misses
+                    );
+                }
             }
             if sensor_misses >= SENSOR_FAULT_TICKS {
                 publisher.send(ThermalReading {
@@ -249,13 +256,15 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
         };
 
         if sensor_misses >= SENSOR_FAULT_TICKS {
-            info!(
-                "thermal: sensor recovered after {} misses; releasing halt for re-evaluation",
-                sensor_misses
-            );
             crate::events::sensor_recovered(sensor_misses);
-            halted = false;
-            manager.send(ManagerMessage::TemperatureNormal).await;
+            info!("thermal: sensor recovered after {} misses", sensor_misses);
+            // Only the branch that halted may release the halt: a sensor
+            // that does not halt on fault never set it, and clearing it
+            // here would lift one held for an unrelated reason.
+            if sensor.halts_on_fault() {
+                halted = false;
+                manager.send(ManagerMessage::TemperatureNormal).await;
+            }
         }
         sensor_misses = 0;
         last_chip_max = Some(temp);

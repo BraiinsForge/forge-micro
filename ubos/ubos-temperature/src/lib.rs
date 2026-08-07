@@ -83,6 +83,21 @@ pub trait TemperatureSensor {
     fn pid_temperature_source(&self) -> Option<&'static str> {
         None
     }
+
+    /// Whether a sensor that has stopped reading should halt mining.
+    ///
+    /// True for a board whose sensor is independent of what it measures,
+    /// where silence means the reading is gone and the board is running
+    /// unwatched. False for one whose only thermometer is inside the
+    /// chips it is trying to bring up, where silence is the normal state
+    /// until the chain answers and halting on it stops the very work that
+    /// would produce a reading.
+    ///
+    /// A board that returns false still logs the fault, still publishes
+    /// it, and still gets the fan forced to full. It just is not stopped.
+    fn halts_on_fault(&self) -> bool {
+        true
+    }
 }
 
 /// Push a temperature reading as the canonical board-temperature gauge.
