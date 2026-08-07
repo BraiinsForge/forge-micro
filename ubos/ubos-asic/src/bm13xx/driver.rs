@@ -302,6 +302,12 @@ impl ChainDriver for Bm13xxDriver {
         // (the former actor cleared its parser here instead). configure()
         // only writes after the switch, so those bytes surface in the
         // desync metric once, on the first steady-state ingest().
+        // Drain before the settle rather than trusting the settle to do
+        // it. A buffered transport acknowledges a write when it is
+        // queued, so the delay alone measures nothing about what is still
+        // on the line, and a switch over a non-empty buffer retimes the
+        // queued tail to a rate the chips have not adopted.
+        io.flush().await;
         io.delay_ms(BAUD_DRAIN_MS).await;
         let rate = chip.fast_uart_host_rate();
         io.set_baud(rate).map_err(|_| ChipError::BaudSwitch(rate))?;

@@ -50,6 +50,21 @@ pub trait Transport {
     /// Write every byte of `bytes` to the line.
     async fn write_all(&mut self, bytes: &[u8]);
 
+    /// Wait until every byte accepted by [`Self::write_all`] has left the
+    /// line. A buffered implementation acknowledges a write once it is
+    /// queued, not once it is sent, so a caller about to change the line
+    /// rate must drain the queue first — switching over a non-empty
+    /// buffer retimes the queued tail, the chip-side baud command
+    /// included, to a rate the chips have not adopted yet.
+    ///
+    /// Infallible, like [`Self::write_all`] and [`Self::read`]: an
+    /// implementation logs a failed drain and returns as though it had
+    /// succeeded. A caller cannot tell a completed drain from a failed
+    /// one and switches either way. [`Self::set_baud`] is the only method
+    /// here that reports failure, because a refused host switch leaves
+    /// the two ends at rates that cannot be reconciled by retrying.
+    async fn flush(&mut self);
+
     /// Read available bytes into `buf` within `timeout_ms`, returning how
     /// many were written. Returns `0` on timeout or end-of-stream. A
     /// driver bounds its wait for chip replies this way — enumeration and

@@ -408,6 +408,12 @@ where
         }
     }
 
+    async fn flush(&mut self) {
+        if let Err(e) = self.serial.flush().await {
+            error!("Serial flush error: {:?}", Debug2Format(&e));
+        }
+    }
+
     async fn read(&mut self, buf: &mut [u8], timeout_ms: u32) -> usize {
         match with_timeout(
             Duration::from_millis(u64::from(timeout_ms)),

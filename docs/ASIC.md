@@ -33,7 +33,8 @@ I/O edge.
 ## The vendor-neutral seam
 
 `ChainDriver` is the operations contract every vendor implements, sans-IO
-over a `Transport` (`write_all` / `read` / `set_baud` / `delay_ms`):
+over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
+`delay_ms`):
 
 - `reset_and_enumerate` / `configure` — bring the chain up to a safe-boot
   operating point on the fast UART; `configure` owns the baud switch.

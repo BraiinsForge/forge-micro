@@ -77,6 +77,8 @@ impl Transport for MockTransport {
             .expect("writes exceed mock capacity");
     }
 
+    async fn flush(&mut self) {}
+
     async fn read(&mut self, buf: &mut [u8], _timeout_ms: u32) -> usize {
         let available = self.pending.len() - self.pos;
         if available == 0 {
