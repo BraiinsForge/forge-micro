@@ -40,4 +40,19 @@ pub trait ResetPin {
 
     /// Release the chip from reset (drive the line HIGH).
     async fn exit_reset(&mut self);
+
+    /// Called once the chain is enumerated, configured and clocked, and
+    /// immediately before the first work is dispatched.
+    ///
+    /// Most families need nothing here, so the default does nothing. It
+    /// exists for a chain addressed one way while it is being configured
+    /// and another while it hashes, where a mode line is held in one state
+    /// across enumeration and configuration and moved to the other to
+    /// hash. Enumerating such a chain in the hashing state is unreliable:
+    /// it answers only after several attempts, if at all.
+    ///
+    /// [`Self::exit_reset`] is the other half of that pair. A board with a
+    /// mode line leaves it in the configuring state there and moves it
+    /// here.
+    async fn enter_work_mode(&mut self) {}
 }

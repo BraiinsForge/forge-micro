@@ -421,6 +421,11 @@ where
             InitPhase::Retry => return CycleOutcome::Continue,
         }
 
+        // The chain is enumerated, configured and clocked; from here it
+        // only hashes. A board that addresses it differently for the two
+        // moves its mode line now.
+        self.reset_pin.enter_work_mode().await;
+
         self.mine_phase(current_algorithm, target, tuner, config_subscription)
             .await
     }
