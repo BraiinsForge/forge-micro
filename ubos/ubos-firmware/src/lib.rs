@@ -32,6 +32,7 @@
 //! crates such as `ubos-mining`, so it does not host-build and carries no
 //! unit tests. Anything worth testing stays in the subsystem crates below.
 
+pub mod net;
 pub mod stratum;
 pub mod tasks;
 

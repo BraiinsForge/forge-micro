@@ -25,7 +25,6 @@ embassy-sync         = { workspace = true, features = ["defmt"] }
 embassy-time         = { workspace = true, features = ["defmt"] }
 embedded-hal-bus     = { workspace = true, features = ["async"] }
 embedded-io-async    = { workspace = true }
-heapless             = { workspace = true }
 portable-atomic      = { workspace = true }
 serial-baudrate      = { workspace = true }
 static_cell          = { workspace = true }

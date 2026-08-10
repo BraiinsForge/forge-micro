@@ -549,37 +549,10 @@ async fn boot(spawner: Spawner) {
 
     let seed = rng.next_u64();
 
-    // The config task publishes the stored config on first boot. Wait
-    // for it, then derive the stack config and hostname. Only the small
-    // results escape the block, so this task's future never has to hold
-    // the full Config or load_initial's decode buffer.
-    static MDNS_HOSTNAME: StaticCell<heapless::String<32>> = StaticCell::new();
-    let (net_config, mdns_hostname) = {
-        let initial = ubos_config::handle().changed().await;
-        let net_config = match &initial.network.mode {
-            ubos_config::NetworkMode::Static {
-                address,
-                prefix_len,
-                gateway,
-                dns,
-            } => ubos_net::config::static_ipv4(*address, *prefix_len, *gateway, dns),
-            ubos_config::NetworkMode::Dhcp => {
-                embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default())
-            }
-        };
-        // Compose inside the block so only the &'static hostname escapes,
-        // not a 32-byte copy held across the rest of boot.
-        let mdns_hostname = ubos_mdns::compose_hostname_configured::<
-            32,
-            { config::Board::MDNS_HOSTNAME_BASE.len() },
-        >(
-            initial.network.hostname.as_str(),
-            config::Board::MDNS_HOSTNAME_BASE,
-            mac_addr[5],
-            &MDNS_HOSTNAME,
-        );
-        (net_config, mdns_hostname)
-    };
+    let (net_config, mdns_hostname) = ubos_firmware::net::bring_up::<
+        { config::Board::MDNS_HOSTNAME_BASE.len() },
+    >(config::Board::MDNS_HOSTNAME_BASE, mac_addr[5])
+    .await;
 
     // Socket-set capacity for the embassy-net stack. Seven sockets are
     // held continuously: DHCPv4, DNS, the stratum client, the mDNS
