@@ -286,17 +286,10 @@ async fn main(spawner: Spawner) {
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
     let hw = config::Board::take(peripherals);
 
-    // Install the event ring and its decode-table registry before any task
-    // that records events runs. wall_clock_secs returns uptime before NTP
-    // sync and Unix time after; the ring stores it unconditionally.
-    ubos_events::set_catalogs(ubos_firmware::EVENT_REGISTRY);
     // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
     // in .uninit, so the startup code does not zero it and a warm reset
     // preserves its contents.
-    ubos_events::init(
-        unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) },
-        ubos_net::wall_clock_secs,
-    );
+    ubos_firmware::events::install(unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) });
     let mut rng = RoscRng;
 
     // Build the single blocking FLASH driver and place it in a `'static`

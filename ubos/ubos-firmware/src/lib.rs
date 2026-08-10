@@ -32,6 +32,7 @@
 //! crates such as `ubos-mining`, so it does not host-build and carries no
 //! unit tests. Anything worth testing stays in the subsystem crates below.
 
+pub mod events;
 pub mod net;
 pub mod serve;
 pub mod stratum;
@@ -50,29 +51,3 @@ pub use stratum_client::publishers::run_stratum_metrics_publisher;
 /// both. Reaching them through this crate is what lets a board serve the
 /// three listeners without naming `ubos-http` in its own manifest.
 pub use ubos_http::{http_worker_task, serve_http_pool};
-
-use ubos_events::EventDef;
-
-/// Per-crate event catalogs assembled into the registry the events
-/// `/catalog` endpoint serves, so the browser can decode records into text.
-///
-/// Hoisted out of the board `main.rs` files, where it was duplicated
-/// byte-for-byte: adding a subsystem's events meant editing every list,
-/// and missing one left that board serving an incomplete decode table.
-pub const EVENT_REGISTRY: &[&[EventDef]] = &[
-    ubos_config::events::CATALOG,
-    ubos_thermal::events::CATALOG,
-    ubos_mining::events::CATALOG,
-    ubos_psu::events::CATALOG,
-    ubos_manager::events::CATALOG,
-    ubos_api::events::CATALOG,
-    ubos_net::events::CATALOG,
-    stratum_client::events::CATALOG,
-];
-
-// FNV-1a slug hashes must not collide across crates, or the decode table would
-// silently merge two events. Checked here, where the full registry is visible.
-const _: () = assert!(
-    ubos_events::codes_unique(EVENT_REGISTRY),
-    "duplicate event code across catalogs"
-);

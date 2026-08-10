@@ -314,16 +314,9 @@ async fn boot(spawner: Spawner) {
     let peripherals = esp_hal::init(esp_hal::Config::default());
     let hw = config::Board::take(peripherals);
 
-    // Install the event ring and its decode-table registry before any task
-    // that records events runs. wall_clock_secs returns uptime before NTP
-    // sync and Unix time after; the ring stores it unconditionally.
-    ubos_events::set_catalogs(ubos_firmware::EVENT_REGISTRY);
     // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
     // in RTC fast RAM (persistent), so a warm reset preserves its contents.
-    ubos_events::init(
-        unsafe { &mut (*core::ptr::addr_of_mut!(EVENT_LOG_BACKING)).0 },
-        ubos_net::wall_clock_secs,
-    );
+    ubos_firmware::events::install(unsafe { &mut (*core::ptr::addr_of_mut!(EVENT_LOG_BACKING)).0 });
 
     let timg0 = TimerGroup::new(hw.timg0);
     let software_interrupts = SoftwareInterruptControl::new(hw.sw_interrupt);
