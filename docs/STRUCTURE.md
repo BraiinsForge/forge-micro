@@ -94,7 +94,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-psu`         | async PSU driver over I2C                          |
 | `ubos-temperature` | LM75A, TMP102 and TMP461 drivers, and the sensor descriptor types a board declares its topology with. No task and no metric |
 | `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner |
-| `ubos-firmware`    | top-of-graph assembly: `EVENT_REGISTRY`, shared stratum session; consumed only by the `firmware/<board>` binaries |
+| `ubos-firmware`    | top-of-graph assembly: `events::install`, `net::bring_up`, shared stratum session, task-shell macros, the `serve_all!` listener macro; consumed only by the `firmware/<board>` binaries |
 
 ## `host/` — std crates
 
