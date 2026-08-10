@@ -66,9 +66,14 @@ SWD I/O levels. The target must be powered separately via USB.
 | INT | 21 | GPIO (Pull-Up) |
 | LED | 25 | GPIO |
 
+This board also runs on the BMM Adapter carrier. For the fan wiring on
+that carrier, see [Fan connector](#fan-connector).
+
 ### W6100-EVB-Pico-2 (rp2350)
 
 Same pinout as the W5500-EVB-Pico, with a W6100 in place of the W5500.
+This board also runs on the BMM Adapter carrier. For the fan wiring on
+that carrier, see [Fan connector](#fan-connector).
 
 ### BMM Adapter (bmm-pico)
 
@@ -76,6 +81,19 @@ RP2350A on the BMM Adapter carrier board with a W5500 over SPI0 and the
 chip-side resources required by the ubos-mining backend on UART1, I2C1, and GPIO.
 See `firmware/bmm-pico/src/config.rs` for the full peripheral map. The
 ubos-mining bring-up is in [MINING.md](MINING.md).
+
+The carrier accepts any of the three RP devkit modules, so `rp2040` and
+`rp2350` run on it as well and inherit its connector wiring. The note
+below therefore applies to all three boards, not to `bmm-pico` alone.
+
+#### Fan connector
+
+The carrier's schematic names J13 pin 3 `FAN_PWM` and pin 4 `FAN_RPM`,
+but the Intel 4-wire fan spec assigns PWM to pin 4 and TACH to pin 3.
+The firmware follows the spec, so the cable between the connector and
+the fan must swap pins 3 and 4 relative to the schematic net names.
+
+TODO: Drop this note when a future board revision renames the nets.
 
 ### DevEBox STM32F407 + LAN8720 (stm32f407)
 
