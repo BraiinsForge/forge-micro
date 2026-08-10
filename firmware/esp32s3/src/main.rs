@@ -551,8 +551,8 @@ async fn boot(spawner: Spawner) {
     .into_async();
 
     let chip_select = Output::new(hw.cs, Level::High, OutputConfig::default());
-    let w5500_int = Input::new(hw.w5500_int, InputConfig::default().with_pull(Pull::Up));
-    let w5500_reset = Output::new(hw.w5500_reset, Level::High, OutputConfig::default());
+    let phy_int = Input::new(hw.phy_int, InputConfig::default().with_pull(Pull::Up));
+    let phy_reset = Output::new(hw.phy_reset, Level::High, OutputConfig::default());
 
     // Fold the ESP32-S3 factory eFuse MAC into a stable per-unit MAC.
     // The WIZnet chip has no factory address; derive_mac keeps the fleet
@@ -572,8 +572,8 @@ async fn boot(spawner: Spawner) {
         mac_addr,
         state,
         ExclusiveDevice::new(spi, chip_select, Delay),
-        w5500_int,
-        w5500_reset,
+        phy_int,
+        phy_reset,
     )
     .await
     // Initialization succeeds when the chip is wired correctly and responds on SPI.
@@ -728,10 +728,10 @@ async fn boot(spawner: Spawner) {
     {
         static I2C0_BUS: StaticCell<psu::Bus> = StaticCell::new();
         // Valid I2C0 peripheral with GPIO15/7 routed via the GPIO matrix; cannot fail.
-        let i2c = I2c::new(hw.i2c0, I2cConfig::default())
+        let i2c = I2c::new(hw.i2c, I2cConfig::default())
             .expect("BUG: I2C0 configuration failed")
-            .with_sda(hw.i2c_sda)
-            .with_scl(hw.i2c_scl)
+            .with_sda(hw.sda)
+            .with_scl(hw.scl)
             .into_async();
         let bus: &'static psu::Bus = I2C0_BUS.init(Mutex::new(i2c));
 

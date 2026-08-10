@@ -51,9 +51,9 @@ pub struct Board {
     /// W5500 chip-select (GPIO17, active-low; driven as GPIO Output).
     pub cs: Peri<'static, PIN_17>,
     /// W5500 interrupt line (GPIO22, active-low input).
-    pub w5500_int: Peri<'static, PIN_22>,
+    pub phy_int: Peri<'static, PIN_22>,
     /// W5500 reset line (GPIO26, active-low output).
-    pub w5500_reset: Peri<'static, PIN_26>,
+    pub phy_reset: Peri<'static, PIN_26>,
     pub rx_dma: Peri<'static, DMA_CH0>,
     pub tx_dma: Peri<'static, DMA_CH1>,
     /// UART1 drives the BM1370 chip serial: TX=GPIO4, RX=GPIO5.
@@ -62,7 +62,7 @@ pub struct Board {
     pub uart_rx: Peri<'static, PIN_5>,
     /// Power I2C0 bus: SDA=GPIO20, SCL=GPIO21. Devices: TPS53647
     /// `PMBus`, TMP102 ×2.
-    pub i2c0: Peri<'static, I2C0>,
+    pub i2c: Peri<'static, I2C0>,
     pub sda: Peri<'static, PIN_20>,
     pub scl: Peri<'static, PIN_21>,
     /// Hashboard reset (GPIO2). HIGH = enabled / out-of-reset;
@@ -156,14 +156,14 @@ impl Board {
             mosi: peripherals.PIN_19,
             miso: peripherals.PIN_16,
             cs: peripherals.PIN_17,
-            w5500_int: peripherals.PIN_22,
-            w5500_reset: peripherals.PIN_26,
+            phy_int: peripherals.PIN_22,
+            phy_reset: peripherals.PIN_26,
             rx_dma: peripherals.DMA_CH0,
             tx_dma: peripherals.DMA_CH1,
             uart: peripherals.UART1,
             uart_tx: peripherals.PIN_4,
             uart_rx: peripherals.PIN_5,
-            i2c0: peripherals.I2C0,
+            i2c: peripherals.I2C0,
             sda: peripherals.PIN_20,
             scl: peripherals.PIN_21,
             hb_rst: peripherals.PIN_2,

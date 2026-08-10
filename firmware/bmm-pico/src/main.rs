@@ -524,7 +524,7 @@ async fn main(spawner: Spawner) {
 
     {
         static I2C1_BUS: StaticCell<psu::Bus> = StaticCell::new();
-        let i2c = I2c::new_async(hw.i2c, hw.i2c_scl, hw.i2c_sda, Irqs, I2cConfig::default());
+        let i2c = I2c::new_async(hw.i2c, hw.scl, hw.sda, Irqs, I2cConfig::default());
         let bus: &'static psu::Bus = I2C1_BUS.init(Mutex::new(i2c));
 
         // Read the hashboard EEPROM once, before powering anything up, so
@@ -551,8 +551,8 @@ async fn main(spawner: Spawner) {
         // Temperature + fan monitor via shared I2C bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
         let hashboard_temp = temperature::new(temp_device);
-        let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm);
-        let board_tach = fan::BoardTach::new(hw.fan_rpm_slice, hw.fan_rpm);
+        let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin);
+        let board_tach = fan::BoardTach::new(hw.fan_tach_slice, hw.fan_tach_pin);
         spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
         spawner.spawn(unwrap!(manager_task(mining_handle)));
         spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
@@ -570,8 +570,8 @@ async fn main(spawner: Spawner) {
         hw.spi, hw.sck, hw.mosi, hw.miso, hw.rx_dma, hw.tx_dma, Irqs, spi_config,
     );
     let chip_select = Output::new(hw.cs, Level::High);
-    let w5500_int = Input::new(hw.w5500_int, Pull::Up);
-    let w5500_reset = Output::new(hw.w5500_reset, Level::High);
+    let phy_int = Input::new(hw.phy_int, Pull::Up);
+    let phy_reset = Output::new(hw.phy_reset, Level::High);
 
     // Fold the RP2350 OTP chip id into a stable per-board MAC. The WIZnet
     // chip has no factory address, so the firmware supplies one.
@@ -597,8 +597,8 @@ async fn main(spawner: Spawner) {
         mac_addr,
         state,
         ExclusiveDevice::new(spi, chip_select, Delay),
-        w5500_int,
-        w5500_reset,
+        phy_int,
+        phy_reset,
     )
     .await
     // Initialization succeeds when the chip is wired correctly and responds on SPI.

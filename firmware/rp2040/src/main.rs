@@ -551,7 +551,7 @@ async fn boot(spawner: Spawner) {
 
     {
         static I2C1_BUS: StaticCell<psu::Bus> = StaticCell::new();
-        let i2c = I2c::new_async(hw.i2c1, hw.scl, hw.sda, Irqs, I2cConfig::default());
+        let i2c = I2c::new_async(hw.i2c, hw.scl, hw.sda, Irqs, I2cConfig::default());
         let bus: &'static psu::Bus = I2C1_BUS.init(Mutex::new(i2c));
 
         // Read the hashboard EEPROM once, before powering anything up, so
@@ -597,8 +597,8 @@ async fn boot(spawner: Spawner) {
         hw.spi, hw.sck, hw.mosi, hw.miso, hw.rx_dma, hw.tx_dma, Irqs, spi_config,
     );
     let chip_select = Output::new(hw.cs, Level::High);
-    let w5500_int = Input::new(hw.w5500_int, Pull::Up);
-    let w5500_reset = Output::new(hw.w5500_reset, Level::High);
+    let phy_int = Input::new(hw.phy_int, Pull::Up);
+    let phy_reset = Output::new(hw.phy_reset, Level::High);
 
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     let state = STATE.init(State::<8, 8>::new());
@@ -606,8 +606,8 @@ async fn boot(spawner: Spawner) {
         mac_addr,
         state,
         ExclusiveDevice::new(spi, chip_select, Delay),
-        w5500_int,
-        w5500_reset,
+        phy_int,
+        phy_reset,
     )
     .await
     // Initialization succeeds when the chip is wired correctly and responds on SPI.

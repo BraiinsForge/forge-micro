@@ -547,11 +547,11 @@ async fn boot(spawner: Spawner) {
     {
         static I2C1_BUS: StaticCell<psu::Bus> = StaticCell::new();
         let i2c = I2c::new(
-            hw.i2c1,
+            hw.i2c,
             hw.scl,
             hw.sda,
-            hw.i2c1_tx_dma,
-            hw.i2c1_rx_dma,
+            hw.i2c_tx_dma,
+            hw.i2c_rx_dma,
             Irqs,
             I2cConfig::default(),
         );

@@ -103,15 +103,15 @@ pub struct Board {
     /// DMA1 Stream3 Channel4 — `USART3_TX` per RM0090 table 42.
     pub usart3_tx_dma: Peri<'static, DMA1_CH3>,
     /// I2C1 peripheral for the BMM101 PSU and LM75A temperature sensors.
-    pub i2c1: Peri<'static, I2C1>,
+    pub i2c: Peri<'static, I2C1>,
     /// I2C1 SCL pin (PB6, AF4).
     pub scl: Peri<'static, PB6>,
     /// I2C1 SDA pin (PB7, AF4).
     pub sda: Peri<'static, PB7>,
     /// DMA1 Stream0 — `I2C1_RX` per RM0090 table 42.
-    pub i2c1_rx_dma: Peri<'static, DMA1_CH0>,
+    pub i2c_rx_dma: Peri<'static, DMA1_CH0>,
     /// DMA1 Stream6 — `I2C1_TX` per RM0090 table 42.
-    pub i2c1_tx_dma: Peri<'static, DMA1_CH6>,
+    pub i2c_tx_dma: Peri<'static, DMA1_CH6>,
     /// Hashboard reset line (active-low GPIO output, PE0).
     pub hb_rst: Peri<'static, PE0>,
     /// Hashboard plug-detect line (GPIO input with pull-up, PE1).
@@ -192,11 +192,11 @@ impl Board {
             usart3_rx: peripherals.PD9,
             usart3_rx_dma: peripherals.DMA1_CH1,
             usart3_tx_dma: peripherals.DMA1_CH3,
-            i2c1: peripherals.I2C1,
+            i2c: peripherals.I2C1,
             scl: peripherals.PB6,
             sda: peripherals.PB7,
-            i2c1_rx_dma: peripherals.DMA1_CH0,
-            i2c1_tx_dma: peripherals.DMA1_CH6,
+            i2c_rx_dma: peripherals.DMA1_CH0,
+            i2c_tx_dma: peripherals.DMA1_CH6,
             hb_rst: peripherals.PE0,
             hb_plug: peripherals.PE1,
             tim4: peripherals.TIM4,

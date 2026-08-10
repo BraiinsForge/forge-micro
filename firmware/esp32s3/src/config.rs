@@ -90,8 +90,8 @@ pub struct Board<'d> {
     pub mosi: GPIO2<'d>,
     pub miso: GPIO42<'d>,
     pub cs: GPIO39<'d>,
-    pub w5500_int: GPIO41<'d>,
-    pub w5500_reset: GPIO40<'d>,
+    pub phy_int: GPIO41<'d>,
+    pub phy_reset: GPIO40<'d>,
     pub dma: esp_hal::peripherals::DMA_CH0<'d>,
     pub sens: SENS<'d>,
     pub sw_interrupt: SW_INTERRUPT<'d>,
@@ -103,13 +103,13 @@ pub struct Board<'d> {
     /// UART0 RX pin (GPIO44, default ROM UART RX).
     pub uart_rx: GPIO44<'d>,
     /// I2C0 peripheral for the BMM101 PSU and LM75A temperature sensors.
-    pub i2c0: I2C0<'d>,
+    pub i2c: I2C0<'d>,
     /// I2C0 SDA pin (GPIO15, routed via the GPIO matrix). Shares the bus
     /// with the carrier's TCA9554 I/O expander and touch controller.
-    pub i2c_sda: GPIO15<'d>,
+    pub sda: GPIO15<'d>,
     /// I2C0 SCL pin (GPIO7, routed via the GPIO matrix). Shares the bus
     /// with the carrier's TCA9554 I/O expander and touch controller.
-    pub i2c_scl: GPIO7<'d>,
+    pub scl: GPIO7<'d>,
     /// Hashboard plug-detect pin (GPIO5, input pull-up).
     pub hb_plug: GPIO5<'d>,
     /// LEDC peripheral for 25 kHz fan PWM on GPIO10.
@@ -167,8 +167,8 @@ impl Board<'static> {
             mosi: peripherals.GPIO2,
             miso: peripherals.GPIO42,
             cs: peripherals.GPIO39,
-            w5500_int: peripherals.GPIO41,
-            w5500_reset: peripherals.GPIO40,
+            phy_int: peripherals.GPIO41,
+            phy_reset: peripherals.GPIO40,
             dma: peripherals.DMA_CH0,
             sens: peripherals.SENS,
             sw_interrupt: peripherals.SW_INTERRUPT,
@@ -176,9 +176,9 @@ impl Board<'static> {
             uart0: peripherals.UART0,
             uart_tx: peripherals.GPIO43,
             uart_rx: peripherals.GPIO44,
-            i2c0: peripherals.I2C0,
-            i2c_sda: peripherals.GPIO15,
-            i2c_scl: peripherals.GPIO7,
+            i2c: peripherals.I2C0,
+            sda: peripherals.GPIO15,
+            scl: peripherals.GPIO7,
             hb_plug: peripherals.GPIO5,
             ledc: peripherals.LEDC,
             fan_pwm_pin: peripherals.GPIO10,
