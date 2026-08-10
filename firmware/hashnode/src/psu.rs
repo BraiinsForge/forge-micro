@@ -26,8 +26,8 @@
 //! inner driver. The bus mutex is owned by `main` so other I2C consumers can
 //! take additional `I2cDevice` handles from the same mutex.
 
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_embedded_hal::shared_bus::I2cDeviceError;
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::Output;
 use embassy_rp::i2c::{Async, Error as I2cError, I2c};
 use embassy_rp::peripherals::I2C1;

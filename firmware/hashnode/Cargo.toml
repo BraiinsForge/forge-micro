@@ -1,6 +1,6 @@
 [package]
 license.workspace = true
-edition = "2021"
+edition.workspace = true
 name    = "hashnode"
 version = "0.1.0"
 

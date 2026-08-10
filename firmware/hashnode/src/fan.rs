@@ -41,6 +41,7 @@
 //! has stayed high for 31 consecutive samples (~31 µs), longer than a
 //! chatter pulse yet far shorter than a real tach half-period.
 
+use embassy_rp::Peri;
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::{PIN_10, PIN_11, PIN_23, PIN_24, PIN_25, PIO0, PWM_SLICE5};
 use embassy_rp::pio::{
@@ -48,7 +49,6 @@ use embassy_rp::pio::{
 };
 use embassy_rp::pio_programs::clock_divider::calculate_pio_clock_divider;
 use embassy_rp::pwm::{Config as PwmConfig, Pwm};
-use embassy_rp::Peri;
 use ubos_cooling::{FanOutput, TachReader};
 use ubos_core::units::{FanPwm, FanRpm};
 

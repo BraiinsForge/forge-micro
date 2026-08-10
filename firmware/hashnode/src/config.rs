@@ -28,14 +28,14 @@
 
 pub use ubos_machine::HASHNODE as MACHINE;
 
+use embassy_rp::Peri;
 use embassy_rp::peripherals::{
-    CORE1, DMA_CH0, DMA_CH1, FLASH, I2C1, PIN_10, PIN_11, PIN_16, PIN_17, PIN_18, PIN_19, PIN_2,
-    PIN_20, PIN_21, PIN_23, PIN_24, PIN_25, PIN_3, PIN_30, PIN_32, PIN_4, PIN_5, PIN_6, PIO0,
+    CORE1, DMA_CH0, DMA_CH1, FLASH, I2C1, PIN_2, PIN_3, PIN_4, PIN_5, PIN_6, PIN_10, PIN_11,
+    PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_23, PIN_24, PIN_25, PIN_30, PIN_32, PIO0,
     PWM_SLICE5, SPI0, TRNG, UART1, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_15, PIN_26, PIN_27, PIN_28, PIN_29, SPI1};
-use embassy_rp::Peri;
 use embassy_time::Duration;
 
 /// Every peripheral singleton the board consumes, extracted in one place.
