@@ -230,9 +230,9 @@ static ASIC_SESSION: ubos_firmware::AsicSession<POOL_SLOTS> = ubos_firmware::Asi
 
 /// Board task shell around the shared stratum session loop, spawned once per
 /// pool slot. The loop body lives in `ubos-firmware`; the
-/// `#[embassy_executor::task]` shell stays per board because esp32s3 pins a
-/// different `embassy-executor` version than the ARM boards, so the spawned
-/// task type must come from each board's executor.
+/// `#[embassy_executor::task]` shell stays per board because the attribute
+/// expands a typed task pool sized by this board's `POOL_SLOTS`, and it
+/// rejects the generic function a shared shell would have to be.
 #[embassy_executor::task(pool_size = POOL_SLOTS)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
