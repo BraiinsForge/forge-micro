@@ -251,23 +251,7 @@ ubos_core::reset_task!(cortex_m::peripheral::SCB::sys_reset());
 
 ubos_api::sync_credentials_task!();
 
-ubos_http::http_worker_task!(
-    api_worker_task,
-    ubos_api::RestApiService,
-    config::MACHINE.control_board.api_http_pool
-);
-
-ubos_http::http_worker_task!(
-    webui_worker_task,
-    ubos_webui::DashboardService,
-    config::MACHINE.control_board.webui_http_pool
-);
-
-ubos_http::http_worker_task!(
-    metrics_worker_task,
-    ubos_metrics::metrics::PrometheusMetricsService,
-    config::MACHINE.control_board.metrics_http_pool
-);
+ubos_firmware::serve_all!(config::MACHINE, &config::MINING_INFO, &config::BOUNDS);
 
 ubos_net::network_control_task!();
 
@@ -658,51 +642,5 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(ota_watchdog_task()));
     spawner.spawn(unwrap!(network_control_task(stack)));
 
-    // REST API on :8080 — seed credentials once, then spawn one worker
-    // task per pool slot so each has its own static TaskStorage.
-    ubos_api::seed_api_credentials().await;
-    static API_SERVICE: StaticCell<ubos_api::RestApiService> = StaticCell::new();
-    let api_service: &'static ubos_api::RestApiService =
-        API_SERVICE.init(ubos_api::RestApiService::new(
-            config::MACHINE.control_board.name,
-            &config::MINING_INFO,
-            &config::BOUNDS,
-            thermal,
-            manager_handle,
-            ubos_psu::handle(),
-            stack,
-        ));
-    ubos_http::serve_http_pool!(
-        spawner,
-        stack,
-        api_worker_task,
-        api_service,
-        config::MACHINE.control_board.api_http_pool,
-        ubos_api::consts::Api
-    );
-    spawner.spawn(unwrap!(sync_credentials_task()));
-
-    // Web UI on :80 — seed credentials once (the API listener's
-    // sync_credentials_task keeps them current after first boot).
-    ubos_webui::seed_webui_credentials().await;
-    static WEBUI_SERVICE: ubos_webui::DashboardService = ubos_webui::DashboardService;
-    ubos_http::serve_http_pool!(
-        spawner,
-        stack,
-        webui_worker_task,
-        &WEBUI_SERVICE,
-        config::MACHINE.control_board.webui_http_pool,
-        ubos_webui::consts::Http
-    );
-
-    static METRICS_SERVICE: ubos_metrics::metrics::PrometheusMetricsService =
-        ubos_metrics::metrics::PrometheusMetricsService;
-    ubos_http::serve_http_pool!(
-        spawner,
-        stack,
-        metrics_worker_task,
-        &METRICS_SERVICE,
-        config::MACHINE.control_board.metrics_http_pool,
-        ubos_metrics::consts::Metrics
-    );
+    serve_all(spawner, stack, thermal, manager_handle).await;
 }

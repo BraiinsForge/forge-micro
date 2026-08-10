@@ -39,7 +39,6 @@ ubos-display         = { workspace = true }
 ubos-eeprom          = { workspace = true, features = ["defmt"] }
 ubos-events          = { workspace = true, features = ["defmt"] }
 ubos-firmware        = { workspace = true, features = ["defmt"] }
-ubos-http            = { workspace = true, features = ["defmt"] }
 ubos-machine         = { workspace = true }
 ubos-manager         = { workspace = true, features = ["defmt"] }
 ubos-mdns            = { workspace = true, features = ["defmt"] }

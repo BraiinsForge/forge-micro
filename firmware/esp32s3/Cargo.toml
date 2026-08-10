@@ -12,7 +12,6 @@ default = ["display"]
 display = []
 
 [dependencies]
-ubos-http            = { workspace = true, features = ["defmt"] }
 ubos-api             = { workspace = true, features = ["defmt"] }
 ubos-webui           = { workspace = true, features = ["defmt"] }
 ubos-auth            = { workspace = true, features = ["defmt"] }

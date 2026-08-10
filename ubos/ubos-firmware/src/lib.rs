@@ -33,6 +33,7 @@
 //! unit tests. Anything worth testing stays in the subsystem crates below.
 
 pub mod net;
+pub mod serve;
 pub mod stratum;
 pub mod tasks;
 
@@ -45,6 +46,10 @@ pub use stratum_client::AsicSession;
 /// on it. Reaching it through this crate is what lets a board spawn the
 /// publisher without naming `stratum-client` in its own manifest.
 pub use stratum_client::publishers::run_stratum_metrics_publisher;
+/// Re-exported because [`serve_all`](crate::serve_all) expands to calls on
+/// both. Reaching them through this crate is what lets a board serve the
+/// three listeners without naming `ubos-http` in its own manifest.
+pub use ubos_http::{http_worker_task, serve_http_pool};
 
 use ubos_events::EventDef;
 
