@@ -12,42 +12,42 @@ default = ["display"]
 display = []
 
 [dependencies]
-ubos-http            = { workspace = true, features = ["defmt"] }
+cortex-m             = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt          = "0.7"
+critical-section     = { version = "1" }
+defmt                = { workspace = true }
+defmt-rtt            = { workspace = true }
+embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
+embassy-executor     = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-net          = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
+embassy-stm32        = { version = "0.6.0", features = ["defmt", "stm32f407vg", "time-driver-tim2", "time", "unstable-pac"] }
+embassy-sync         = { workspace = true, features = ["defmt"] }
+embassy-time         = { workspace = true, features = ["defmt"] }
+embedded-hal-bus     = { workspace = true, features = ["async"] }
+embedded-io-async    = { workspace = true }
+heapless             = { workspace = true }
+panic-probe          = { workspace = true, features = ["print-defmt"] }
+portable-atomic      = { workspace = true }
+serial-baudrate      = { workspace = true }
+static_cell          = { workspace = true }
+stratum-client       = { workspace = true }
 ubos-api             = { workspace = true, features = ["defmt", "ccmram-bss"] }
-ubos-webui           = { workspace = true, features = ["defmt", "ccmram-bss"] }
+ubos-asic            = { workspace = true }
 ubos-auth            = { workspace = true, features = ["defmt", "ccmram-bss"] }
-ubos-metrics         = { workspace = true, features = ["defmt", "ccmram-bss"] }
-ubos-mdns            = { workspace = true, features = ["defmt"] }
-ubos-net             = { workspace = true, features = ["defmt", "ccmram-bss"] }
+ubos-config          = { workspace = true, features = ["defmt"] }
+ubos-cooling         = { workspace = true, features = ["defmt"] }
+ubos-core            = { workspace = true, features = ["ccmram-bss"] }
+ubos-display         = { workspace = true }
+ubos-eeprom          = { workspace = true, features = ["defmt"] }
 ubos-events          = { workspace = true, features = ["defmt"] }
 ubos-firmware        = { workspace = true, features = ["defmt"] }
+ubos-http            = { workspace = true, features = ["defmt"] }
 ubos-machine         = { workspace = true }
-ubos-display         = { workspace = true }
-ubos-core            = { workspace = true, features = ["ccmram-bss"] }
-embassy-executor    = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
-embassy-time        = { workspace = true, features = ["defmt"] }
-embassy-net         = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
-embassy-stm32       = { version = "0.6.0", features = ["defmt", "stm32f407vg", "time-driver-tim2", "time", "unstable-pac"] }
-defmt               = { workspace = true }
-defmt-rtt           = { workspace = true }
-panic-probe         = { workspace = true, features = ["print-defmt"] }
-static_cell         = { workspace = true }
-embedded-hal-bus    = { workspace = true, features = ["async"] }
-embedded-io-async   = { workspace = true }
-cortex-m            = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
-cortex-m-rt         = "0.7"
-portable-atomic     = { workspace = true }
-stratum-client      = { workspace = true }
-ubos-thermal        = { workspace = true, features = ["defmt"] }
-ubos-manager        = { workspace = true, features = ["defmt"] }
-ubos-config         = { workspace = true, features = ["defmt"] }
-ubos-cooling        = { workspace = true, features = ["defmt"] }
-ubos-psu            = { workspace = true, features = ["defmt"] }
-ubos-mining         = { workspace = true, features = ["defmt", "ccmram-bss"] }
-ubos-asic            = { workspace = true }
-ubos-eeprom         = { workspace = true, features = ["defmt"] }
-serial-baudrate     = { workspace = true }
-embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
-embassy-sync        = { workspace = true, features = ["defmt"] }
-heapless            = { workspace = true }
-critical-section    = { version = "1" }
+ubos-manager         = { workspace = true, features = ["defmt"] }
+ubos-mdns            = { workspace = true, features = ["defmt"] }
+ubos-metrics         = { workspace = true, features = ["defmt", "ccmram-bss"] }
+ubos-mining          = { workspace = true, features = ["defmt", "ccmram-bss"] }
+ubos-net             = { workspace = true, features = ["defmt", "ccmram-bss"] }
+ubos-psu             = { workspace = true, features = ["defmt"] }
+ubos-thermal         = { workspace = true, features = ["defmt"] }
+ubos-webui           = { workspace = true, features = ["defmt", "ccmram-bss"] }

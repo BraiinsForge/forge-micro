@@ -12,42 +12,42 @@ default = ["display"]
 display = []
 
 [dependencies]
-ubos-http            = { workspace = true, features = ["defmt"] }
-ubos-api             = { workspace = true, features = ["defmt"] }
-ubos-webui           = { workspace = true, features = ["defmt"] }
-ubos-auth            = { workspace = true, features = ["defmt"] }
-ubos-metrics         = { workspace = true, features = ["defmt"] }
-ubos-mdns            = { workspace = true, features = ["defmt"] }
-ubos-net             = { workspace = true, features = ["defmt"] }
-ubos-events          = { workspace = true, features = ["defmt"] }
-ubos-firmware        = { workspace = true, features = ["defmt"] }
-ubos-display         = { workspace = true }
-ubos-core            = { workspace = true }
-ubos-machine         = { workspace = true }
+cortex-m             = { version = "0.7", features = ["inline-asm"] }
+cortex-m-rt          = "0.7"
+defmt                = { workspace = true }
+defmt-rtt            = { workspace = true }
+embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
 embassy-executor     = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-net          = { workspace = true, features = ["defmt", "tcp", "udp", "dhcpv4", "medium-ethernet", "dns"] }
 embassy-net-wiznet   = { workspace = true, features = ["defmt"] }
 embassy-rp           = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040", "boot2-none"] }
-ubos-ota             = { workspace = true, features = ["defmt", "rp"] }
+embassy-sync         = { workspace = true, features = ["defmt"] }
 embassy-time         = { workspace = true, features = ["defmt"] }
-defmt                = { workspace = true }
-defmt-rtt            = { workspace = true }
-static_cell          = { workspace = true }
-heapless             = { workspace = true }
 embedded-hal-bus     = { workspace = true, features = ["async"] }
 embedded-io-async    = { workspace = true }
+heapless             = { workspace = true }
 portable-atomic      = { workspace = true }
-cortex-m             = { version = "0.7", features = ["inline-asm"] }
-cortex-m-rt          = "0.7"
+serial-baudrate      = { workspace = true }
+static_cell          = { workspace = true }
 stratum-client       = { workspace = true }
-ubos-thermal         = { workspace = true, features = ["defmt"] }
-ubos-manager         = { workspace = true, features = ["defmt"] }
+ubos-api             = { workspace = true, features = ["defmt"] }
+ubos-asic            = { workspace = true }
+ubos-auth            = { workspace = true, features = ["defmt"] }
 ubos-config          = { workspace = true, features = ["defmt"] }
 ubos-cooling         = { workspace = true, features = ["defmt"] }
-ubos-mining          = { workspace = true, features = ["defmt"] }
-ubos-psu             = { workspace = true, features = ["defmt"] }
-ubos-asic            = { workspace = true }
+ubos-core            = { workspace = true }
+ubos-display         = { workspace = true }
 ubos-eeprom          = { workspace = true, features = ["defmt"] }
-serial-baudrate      = { workspace = true }
-embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
-embassy-sync         = { workspace = true, features = ["defmt"] }
+ubos-events          = { workspace = true, features = ["defmt"] }
+ubos-firmware        = { workspace = true, features = ["defmt"] }
+ubos-http            = { workspace = true, features = ["defmt"] }
+ubos-machine         = { workspace = true }
+ubos-manager         = { workspace = true, features = ["defmt"] }
+ubos-mdns            = { workspace = true, features = ["defmt"] }
+ubos-metrics         = { workspace = true, features = ["defmt"] }
+ubos-mining          = { workspace = true, features = ["defmt"] }
+ubos-net             = { workspace = true, features = ["defmt"] }
+ubos-ota             = { workspace = true, features = ["defmt", "rp"] }
+ubos-psu             = { workspace = true, features = ["defmt"] }
+ubos-thermal         = { workspace = true, features = ["defmt"] }
+ubos-webui           = { workspace = true, features = ["defmt"] }
