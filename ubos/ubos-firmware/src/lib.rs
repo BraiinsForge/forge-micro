@@ -33,11 +33,17 @@
 //! unit tests. Anything worth testing stays in the subsystem crates below.
 
 pub mod stratum;
+pub mod tasks;
 
 pub use stratum::{MAX_POOLS, StratumShared, init_stratum, run_stratum_session};
 /// Re-exported so board binaries can name `AsicSession<POOL_SLOTS>`
 /// without a direct `stratum-client` dependency.
 pub use stratum_client::AsicSession;
+/// Re-exported for the same reason, and because
+/// [`stratum_metrics_task`](crate::stratum_metrics_task) expands to a call
+/// on it. Reaching it through this crate is what lets a board spawn the
+/// publisher without naming `stratum-client` in its own manifest.
+pub use stratum_client::publishers::run_stratum_metrics_publisher;
 
 use ubos_events::EventDef;
 

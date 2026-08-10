@@ -469,3 +469,15 @@ where
         }
     }
 }
+
+/// Task shell around [`run_cooling`], the fan PID loop. Takes the
+/// board's fan output and tachometer reader types.
+#[macro_export]
+macro_rules! cooling_task {
+    ($fan:ty, $tach:ty) => {
+        #[embassy_executor::task]
+        async fn cooling_task(fan: $fan, tach: $tach, thermal: ubos_thermal::Handle) -> ! {
+            ubos_cooling::run_cooling(fan, tach, thermal).await
+        }
+    };
+}

@@ -66,10 +66,7 @@ use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_eeprom::HashboardEeprom as _;
-use ubos_manager::Handle as ManagerHandle;
-use ubos_mining::Handle as MiningHandle;
 use ubos_net::net;
-use ubos_thermal::Handle as ThermalHandle;
 use {defmt_rtt as _, esp_backtrace as _};
 
 /// Wraps the event-ring backing so it can carry the esp-hal `Persistable`
@@ -129,30 +126,15 @@ impl ubos_core::watchdog::Watchdog for BoardWatchdog {
     }
 }
 
-#[embassy_executor::task]
-async fn watchdog_task(watchdog: BoardWatchdog) -> ! {
-    ubos_core::watchdog::run_watchdog(watchdog).await
-}
+ubos_core::watchdog_task!(BoardWatchdog);
 
-#[embassy_executor::task]
-async fn ethernet_task(runner: EthernetRunner) -> ! {
-    runner.run().await
-}
+ubos_firmware::ethernet_task!(EthernetRunner);
 
-#[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
-    runner.run().await
-}
+ubos_firmware::net_task!(Device<'static>);
 
-#[embassy_executor::task]
-async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
-    net::run_ntp_sync(stack).await
-}
+ubos_net::ntp_sync_task!();
 
-#[embassy_executor::task]
-async fn metrics_ingest_task() -> ! {
-    ubos_metrics::metrics::run_ingest().await
-}
+ubos_metrics::metrics_ingest_task!();
 
 const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
     &ubos_webui::WEBUI_SERVICE,
@@ -177,25 +159,13 @@ async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<2>().await
 }
 
-#[embassy_executor::task]
-async fn stratum_metrics_task() -> ! {
-    stratum_client::publishers::run_stratum_metrics_publisher(POOL_SLOTS).await
-}
+ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
 
-#[embassy_executor::task]
-async fn pool_weights_task() -> ! {
-    ubos_mining::scheduler::run_pool_weights_watcher().await
-}
+ubos_mining::pool_weights_task!();
 
-#[embassy_executor::task]
-async fn miner_metrics_task(mining: MiningHandle) -> ! {
-    ubos_mining::publishers::run_miner_metrics_publisher(mining, POOL_SLOTS).await
-}
+ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
-#[embassy_executor::task]
-async fn hashrate_metrics_task() -> ! {
-    ubos_metrics::hashrate::run_hashrate_publisher().await
-}
+ubos_metrics::hashrate_metrics_task!();
 
 /// Adapts the MCU internal thermometer, `esp32s3_tsens::Tsens`, to the
 /// `McuTemperatureSensor` trait.
@@ -210,39 +180,20 @@ impl ubos_metrics::mcu_temperature::McuTemperatureSensor for McuTempSensor {
     }
 }
 
-#[embassy_executor::task]
-async fn mcu_temperature_task(sensor: McuTempSensor) -> ! {
-    ubos_metrics::mcu_temperature::run_mcu_temperature(sensor).await
-}
+ubos_metrics::mcu_temperature_task!(McuTempSensor);
 
-#[embassy_executor::task]
-async fn thermal_task(sensor: temperature::HashboardTemperature, manager: ManagerHandle) -> ! {
-    ubos_thermal::run_thermal(sensor, manager).await
-}
+ubos_thermal::thermal_task!(temperature::HashboardTemperature);
 
-#[embassy_executor::task]
-async fn manager_task(mining: MiningHandle) -> ! {
-    ubos_manager::run_manager(mining).await
-}
+ubos_manager::manager_task!();
 
 /// Storage backend type the [`config_task`] hands to
 /// [`ubos_config::run`]. The chain is
 /// `esp-storage FlashStorage → SyncFlash → ubos-config FlashStorage`.
 type BoardConfigStorage = FlashStorage<SyncFlash<ubos_ota::EspSharedFlash>>;
 
-#[embassy_executor::task]
-async fn config_task(storage: BoardConfigStorage) -> ! {
-    ubos_config::run(storage, config::BOARD).await
-}
+ubos_config::config_task!(BoardConfigStorage, config::BOARD);
 
-#[embassy_executor::task]
-async fn cooling_task(
-    board_fan: fan::BoardFan,
-    board_tach: fan::BoardTach,
-    thermal: ThermalHandle,
-) -> ! {
-    ubos_cooling::run_cooling(board_fan, board_tach, thermal).await
-}
+ubos_cooling::cooling_task!(fan::BoardFan, fan::BoardTach);
 
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
@@ -254,30 +205,12 @@ type OledDisplay = Sh1106<
     Output<'static>,
 >;
 
-/// The reset pin is moved in and held for the task's lifetime so the SH1106
-/// RESET line stays driven high; dropping it would release the pad and blank
-/// the panel.
 #[cfg(feature = "display")]
-#[embassy_executor::task]
-async fn display_task(
-    mut display: OledDisplay,
-    #[allow(clippy::used_underscore_binding)] _reset_pin: Output<'static>,
-) -> ! {
-    ubos_display::display::run(&mut display).await
-}
+ubos_display::display_task!(OledDisplay, Output<'static>);
 
-/// Resets the MCU once a reboot has been requested through the HTTP API.
-#[embassy_executor::task]
-async fn reset_task() -> ! {
-    ubos_core::reboot::wait_for_reboot_request().await;
-    esp_hal::system::software_reset()
-}
+ubos_core::reset_task!(esp_hal::system::software_reset());
 
-/// Keeps the credential store in sync with config changes at runtime.
-#[embassy_executor::task]
-async fn sync_credentials_task() -> ! {
-    ubos_api::run_sync_credentials().await
-}
+ubos_api::sync_credentials_task!();
 
 ubos_http::http_worker_task!(
     api_worker_task,
@@ -297,15 +230,9 @@ ubos_http::http_worker_task!(
     config::MACHINE.control_board.metrics_http_pool
 );
 
-#[embassy_executor::task]
-async fn network_control_task(stack: embassy_net::Stack<'static>) -> ! {
-    net::run_network_control(stack).await
-}
+ubos_net::network_control_task!();
 
-#[embassy_executor::task]
-async fn ota_watchdog_task() -> ! {
-    ubos_api::run_ota_session_watchdog().await
-}
+ubos_api::ota_watchdog_task!();
 
 /// Parallel stratum session slots this board runs — the full config
 /// capacity; this board has the RAM for a session task per pool slot.

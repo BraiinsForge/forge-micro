@@ -30,7 +30,6 @@ panic-probe          = { workspace = true, features = ["print-defmt"] }
 portable-atomic      = { workspace = true }
 serial-baudrate      = { workspace = true }
 static_cell          = { workspace = true }
-stratum-client       = { workspace = true }
 ubos-api             = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-asic            = { workspace = true }
 ubos-auth            = { workspace = true, features = ["defmt", "ccmram-bss"] }

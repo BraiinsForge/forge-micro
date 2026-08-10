@@ -186,8 +186,7 @@ pub fn hashrate() -> u64 {
 /// the metrics exposition channel.
 ///
 /// Reads the same atomics as [`hashrate`] and [`SHARE_COUNT`]. Boards
-/// spawn this from their own `#[embassy_executor::task]` wrapper so the
-/// pool/stack/cap configuration stays per-target.
+/// spawn it through [`hashrate_metrics_task`].
 pub async fn run_hashrate_publisher() -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(2));
     loop {
@@ -206,6 +205,17 @@ pub async fn run_hashrate_publisher() -> ! {
         ))
         .await;
     }
+}
+
+/// Task shell around [`run_hashrate_publisher`].
+#[macro_export]
+macro_rules! hashrate_metrics_task {
+    () => {
+        #[embassy_executor::task]
+        async fn hashrate_metrics_task() -> ! {
+            ubos_metrics::hashrate::run_hashrate_publisher().await
+        }
+    };
 }
 
 /// `Display` adapter for a hashrate in H/s. Renders rates below 1 GH/s

@@ -362,6 +362,20 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
     }
 }
 
+/// Task shell around [`run_thermal`], which polls the temperature
+/// sensors and publishes the thermal reading. Takes the board's sensor
+/// type: an I2C sensor array on most boards, a single ambient sensor
+/// where that is all there is.
+#[macro_export]
+macro_rules! thermal_task {
+    ($sensor:ty) => {
+        #[embassy_executor::task]
+        async fn thermal_task(sensor: $sensor, manager: ubos_manager::Handle) -> ! {
+            ubos_thermal::run_thermal(sensor, manager).await
+        }
+    };
+}
+
 /// Toggle the halt state and notify the manager based on the threshold
 /// decision. `celsius` is used only for the log lines.
 async fn apply_action(

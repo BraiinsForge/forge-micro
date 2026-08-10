@@ -53,3 +53,20 @@ pub async fn wait_for_reboot_request() {
     REBOOT_REQUESTED.wait().await;
     Timer::after(REBOOT_FLUSH_DELAY).await;
 }
+
+/// Task shell around [`wait_for_reboot_request`], which resets the MCU
+/// once a reboot has been requested through the HTTP API.
+///
+/// Takes the reset itself as an expression: there is no architectural
+/// self-reset shared across these targets, so each board supplies its
+/// own diverging call.
+#[macro_export]
+macro_rules! reset_task {
+    ($reset:expr) => {
+        #[embassy_executor::task]
+        async fn reset_task() -> ! {
+            ubos_core::reboot::wait_for_reboot_request().await;
+            $reset
+        }
+    };
+}

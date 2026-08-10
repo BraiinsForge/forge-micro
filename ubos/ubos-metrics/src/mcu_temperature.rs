@@ -63,3 +63,17 @@ pub async fn run_mcu_temperature<S: McuTemperatureSensor>(mut sensor: S) -> ! {
         ticker.next().await;
     }
 }
+
+/// Task shell around [`run_mcu_temperature`]. Takes the board's sensor
+/// type, which reaches the MCU's on-die thermometer through
+/// [`McuTemperatureSensor`]. The hashboard sensors are
+/// `ubos_thermal::thermal_task`'s.
+#[macro_export]
+macro_rules! mcu_temperature_task {
+    ($sensor:ty) => {
+        #[embassy_executor::task]
+        async fn mcu_temperature_task(sensor: $sensor) -> ! {
+            ubos_metrics::mcu_temperature::run_mcu_temperature(sensor).await
+        }
+    };
+}

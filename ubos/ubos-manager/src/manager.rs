@@ -137,3 +137,15 @@ pub async fn run_manager(mining: MiningHandle) -> ! {
         }
     }
 }
+
+/// Task shell around [`run_manager`], the supervisor command router that
+/// forwards halt and resume to the mining, cooling and thermal handles.
+#[macro_export]
+macro_rules! manager_task {
+    () => {
+        #[embassy_executor::task]
+        async fn manager_task(mining: ubos_mining::Handle) -> ! {
+            ubos_manager::run_manager(mining).await
+        }
+    };
+}

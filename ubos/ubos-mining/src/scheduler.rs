@@ -204,3 +204,15 @@ pub async fn run_pool_weights_watcher() -> ! {
         generation.changed().await;
     }
 }
+
+/// Task shell around [`run_pool_weights_watcher`], which watches the
+/// configured pool weights and re-derives the work split.
+#[macro_export]
+macro_rules! pool_weights_task {
+    () => {
+        #[embassy_executor::task]
+        async fn pool_weights_task() -> ! {
+            ubos_mining::scheduler::run_pool_weights_watcher().await
+        }
+    };
+}

@@ -30,3 +30,15 @@ pub async fn run_led_blink<P: StatefulOutputPin>(mut led: P) -> ! {
         ticker.next().await;
     }
 }
+
+/// Task shell around [`run_led_blink`]. Takes the board's HAL output
+/// type, which is the only thing that differs between boards.
+#[macro_export]
+macro_rules! led_blink_task {
+    ($led:ty) => {
+        #[embassy_executor::task]
+        async fn led_blink_task(led: $led) -> ! {
+            ubos_core::led::run_led_blink(led).await
+        }
+    };
+}

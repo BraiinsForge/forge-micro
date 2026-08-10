@@ -414,6 +414,19 @@ pub async fn run_ntp_sync(stack: Stack<'static>) -> ! {
     }
 }
 
+/// Task shell around [`run_ntp_sync`], which keeps the wall clock
+/// aligned so event and log timestamps are absolute rather than
+/// uptime-relative.
+#[macro_export]
+macro_rules! ntp_sync_task {
+    () => {
+        #[embassy_executor::task]
+        async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
+            ubos_net::net::run_ntp_sync(stack).await
+        }
+    };
+}
+
 /// Cadence at which the live IPv4 address is observed and republished,
 /// matching the prior reconcile loop. Long enough to stay well off the
 /// executor hot path; `/api/info` and the display tolerate up to this
@@ -500,4 +513,16 @@ pub async fn run_network_control(stack: Stack<'static>) -> ! {
             }
         }
     }
+}
+
+/// Task shell around [`run_network_control`], which applies network
+/// configuration changes to the running stack.
+#[macro_export]
+macro_rules! network_control_task {
+    () => {
+        #[embassy_executor::task]
+        async fn network_control_task(stack: embassy_net::Stack<'static>) -> ! {
+            ubos_net::net::run_network_control(stack).await
+        }
+    };
 }

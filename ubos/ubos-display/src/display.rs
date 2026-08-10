@@ -120,3 +120,21 @@ where
         Timer::after(Duration::from_secs(1)).await;
     }
 }
+
+/// Task shell around [`run`], which renders the OLED display.
+///
+/// The reset pin is moved in and held for the task's lifetime so the
+/// panel's RESET line stays driven; dropping it would release the pad and
+/// blank the panel. That is why the binding is unused rather than absent.
+#[macro_export]
+macro_rules! display_task {
+    ($display:ty, $reset:ty) => {
+        #[embassy_executor::task]
+        async fn display_task(
+            mut display: $display,
+            #[allow(clippy::used_underscore_binding)] _reset_pin: $reset,
+        ) -> ! {
+            ubos_display::display::run(&mut display).await
+        }
+    };
+}

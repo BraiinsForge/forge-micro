@@ -785,6 +785,17 @@ pub async fn run_sync_credentials() -> ! {
     }
 }
 
+/// Task shell around [`run_sync_credentials`].
+#[macro_export]
+macro_rules! sync_credentials_task {
+    () => {
+        #[embassy_executor::task]
+        async fn sync_credentials_task() -> ! {
+            ubos_api::run_sync_credentials().await
+        }
+    };
+}
+
 /// Idle window before a chunk-ack upload session is treated as abandoned.
 ///
 /// A chunk-ack upload that makes no progress for this long is treated as
@@ -846,4 +857,16 @@ pub async fn run_ota_session_watchdog() -> ! {
 
         last_seen_chunks = snapshot.chunks;
     }
+}
+
+/// Task shell around [`run_ota_session_watchdog`]. Only boards that
+/// register an OTA target invoke it.
+#[macro_export]
+macro_rules! ota_watchdog_task {
+    () => {
+        #[embassy_executor::task]
+        async fn ota_watchdog_task() -> ! {
+            ubos_api::run_ota_session_watchdog().await
+        }
+    };
 }

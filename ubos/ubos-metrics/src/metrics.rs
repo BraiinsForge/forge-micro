@@ -272,6 +272,18 @@ pub async fn run_ingest() -> ! {
     }
 }
 
+/// Task shell around [`run_ingest`]. The body is the same on every
+/// board, so the macro takes nothing.
+#[macro_export]
+macro_rules! metrics_ingest_task {
+    () => {
+        #[embassy_executor::task]
+        async fn metrics_ingest_task() -> ! {
+            ubos_metrics::metrics::run_ingest().await
+        }
+    };
+}
+
 /// Upsert a metric into the map, sorting its labels into a canonical key.
 fn upsert_metric(
     map: &mut heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,

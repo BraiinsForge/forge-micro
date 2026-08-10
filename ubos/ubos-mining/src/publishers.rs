@@ -96,3 +96,15 @@ async fn push_slot_metric(name: &'static str, slot: usize, value: Value) {
     });
     push(Metric::with_labels(name, labels, value)).await;
 }
+
+/// Task shell around [`run_miner_metrics_publisher`]. Takes the board's
+/// pool slot count, which is a per-board const.
+#[macro_export]
+macro_rules! miner_metrics_task {
+    ($pool_slots:expr) => {
+        #[embassy_executor::task]
+        async fn miner_metrics_task(mining: ubos_mining::Handle) -> ! {
+            ubos_mining::publishers::run_miner_metrics_publisher(mining, $pool_slots).await
+        }
+    };
+}

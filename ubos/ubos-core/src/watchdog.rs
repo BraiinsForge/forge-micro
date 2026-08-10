@@ -38,3 +38,20 @@ pub async fn run_watchdog<W: Watchdog>(mut wdt: W) -> ! {
         Timer::after(crate::consts::Watchdog::FEED_PERIOD).await;
     }
 }
+
+/// Task shell around [`run_watchdog`]. Takes the board's [`Watchdog`]
+/// implementation, which wraps its HAL watchdog peripheral.
+///
+/// The shell cannot be a plain generic function, because
+/// `#[embassy_executor::task]` expands a typed `TaskPool` static and so
+/// rejects a generic task. `ubos-firmware`'s `tasks.rs` explains that
+/// barrier once for every shell that works around it.
+#[macro_export]
+macro_rules! watchdog_task {
+    ($watchdog:ty) => {
+        #[embassy_executor::task]
+        async fn watchdog_task(watchdog: $watchdog) -> ! {
+            ubos_core::watchdog::run_watchdog(watchdog).await
+        }
+    };
+}

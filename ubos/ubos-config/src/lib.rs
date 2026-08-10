@@ -801,6 +801,19 @@ pub async fn run<S: Storage>(mut storage: S, board: &'static HashboardDescriptor
     }
 }
 
+/// Task shell around [`run`], which drives the persisted config store.
+/// Takes the board's storage backend, which bottoms out in its own flash
+/// driver, and the hashboard descriptor the store validates against.
+#[macro_export]
+macro_rules! config_task {
+    ($storage:ty, $board:expr) => {
+        #[embassy_executor::task]
+        async fn config_task(storage: $storage) -> ! {
+            ubos_config::run(storage, $board).await
+        }
+    };
+}
+
 /// Arm the pending-window status counters read by the API handlers.
 fn arm_pending_status(network: &NetworkConfig, deadline: Instant) {
     // Publish the mode before the deadline. A reader that observes a nonzero

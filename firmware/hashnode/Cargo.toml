@@ -30,7 +30,6 @@ pio                  = "0.3"
 portable-atomic      = { workspace = true }
 serial-baudrate      = { workspace = true }
 static_cell          = { workspace = true }
-stratum-client       = { workspace = true }
 ubos-api             = { workspace = true, features = ["defmt"] }
 ubos-asic            = { workspace = true }
 ubos-auth            = { workspace = true, features = ["defmt"] }
