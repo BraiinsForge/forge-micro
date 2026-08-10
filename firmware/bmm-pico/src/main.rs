@@ -248,9 +248,11 @@ async fn manager_task(mining: MiningHandle) -> ! {
 }
 
 /// Storage backend type the [`config_task`] hands to
-/// [`ubos_config::run`]. With OTA enabled, flash is shared through the
-/// `'static` mutex; the chain is `SharedBlockingFlash → SyncFlash →
-/// FlashStorage`.
+/// [`ubos_config::run`]. The chain is
+/// `shared blocking Flash → SharedBlockingFlash → SyncFlash → FlashStorage`.
+/// The one [`Flash`] driver lives in the `'static` mutex the OTA updater
+/// also partitions, so the config store and OTA share the single FLASH
+/// peripheral.
 type BoardConfigStorage =
     FlashStorage<SyncFlash<ubos_ota::SharedBlockingFlash<{ config::Flash::SIZE }>>>;
 
