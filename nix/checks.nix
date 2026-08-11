@@ -56,6 +56,7 @@
   slotMaxKiB,
   slotMaxBytes,
   esp32s3SlotBytes,
+  boardParity,
   # Workspace package names present in the tree, from crate-graph. Every
   # firmware gate below filters itself out when its crate is not a
   # member, so a tree carrying a subset of the boards evaluates with
@@ -872,6 +873,24 @@ hostClippyChecks
       fi
       touch $out
     '';
+
+  # Every board must take its task shells and its boot sequence from
+  # ubos-firmware. nix/board-parity.nix holds the names both trees of the
+  # pair share; this call site names only this tree's exceptions, and the
+  # board list comes from firmware/ itself so a new board is gated the
+  # day it lands. The three bootloader crates are excluded: they run no
+  # embassy executor and have no boot sequence to share.
+  board-skeleton-parity = boardParity.boardSkeletonParity {
+    inherit root;
+    exclude = [
+      "esp32s3-bootloader"
+      "rp2040-bootloader"
+      "rp2350-bootloader"
+    ];
+    holders = {
+      braiins-axe = [ "rgb_task" ];
+    };
+  };
 
   # CLAUDE.md is loaded into context at the start of every session, and
   # an agent's adherence to it drops as it grows: past a few hundred

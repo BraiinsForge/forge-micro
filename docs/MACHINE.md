@@ -99,6 +99,28 @@ The descriptor declares *what* the machine is; the binding supplies
 the typed handles. Everything expressible as data is data; the
 binding is the small honest residue.
 
+The task shells are part of that residue, and most of them are not. A
+board takes each shell from a macro in `ubos/ubos-firmware/src/tasks.rs`.
+Nine names are the exception, and a board can still declare them by
+hand:
+
+`boot`, `cpu_load_task`, `mdns_task`, `miner_task`, `power_stats_task`,
+`serial_task`, `stratum_client_task`, `tach_task`, `watchdog_task`.
+
+`boot` is the composition root itself. `mdns_task` and `cpu_load_task`
+name per-board consts, and `stratum_client_task` needs the board's own
+session type and pool size. `serial_task`, `miner_task`, `watchdog_task`
+and `power_stats_task` come from `mining.rs` and `psu.rs`, which are per
+board today. `tach_task` belongs to the fan module of one MCU family.
+
+The `board-skeleton-parity` check holds boards to that list. It also
+fails a board that does not name `ubos_firmware::net::bring_up`,
+`ubos_firmware::events::install` and `ubos_firmware::serve_all!`. A board
+that writes its own boot sequence writes plain functions, which carry no
+task attribute, so the name list alone cannot see it. A board with tasks
+of its own names them at the call site in `nix/checks.nix`. Keep this
+list and that call site level with each other.
+
 ## Layering
 
 ```

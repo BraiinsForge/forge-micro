@@ -153,6 +153,11 @@
         # nix/guards.nix.
         guards = import ./nix/guards.nix { };
 
+        # The board-skeleton parity gate, emitted per tree. Both repos of
+        # the pair import this module, so the shared task names have one
+        # copy. See nix/board-parity.nix.
+        boardParity = import ./nix/board-parity.nix { inherit pkgs; };
+
         # Cross-CC and webui build-env helpers shared by the checks,
         # images, and shells modules. See nix/lib.nix.
         helpers = import ./nix/lib.nix {
@@ -258,6 +263,7 @@
               espCargoVendorDir
               esp32s3Bootloader
               guards
+              boardParity
               helpers
               slotMaxKiB
               slotMaxBytes
@@ -332,6 +338,7 @@
       # the patch files live here, and its whole job is to materialize
       # the pins this repo's `[patch]` table resolves against.
       lib.modules = {
+        board-parity = ./nix/board-parity.nix;
         ci = ./nix/ci.nix;
         crate-graph = ./nix/crate-graph.nix;
         deps = ./nix/deps.nix;
