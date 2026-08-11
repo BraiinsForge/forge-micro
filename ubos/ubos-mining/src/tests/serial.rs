@@ -50,7 +50,7 @@ use embassy_futures::block_on;
 use embassy_futures::join::join;
 use embassy_futures::yield_now;
 use stratum_client::AsicSession;
-use ubos_asic::{BMM101_HASHBOARD, Bm13xxDriver, Chip, ChipDescriptor};
+use ubos_asic::{BMM101_HASHBOARD, Bm13xxDriver, Chip, ChipDescriptor, ShareTarget};
 use ubos_core::units::{FrequencyRange, Voltage};
 
 /// Fixed-slot scheduler stub: `evaluate` returns the pinned slot when
@@ -227,6 +227,40 @@ impl<'a, const N: usize> Harness<'a, N> {
             &mut self.receivers,
         ));
     }
+
+    fn process_solution(&mut self, solution: &ChainSolution, floor: &[u8; 32]) {
+        Serial::process_solution(
+            solution,
+            &self.registry,
+            self.session,
+            &mut self.scheduler,
+            floor,
+        );
+    }
+
+    /// Independently rehash a solution against the registry and verify
+    /// it meets the given floor target.
+    fn assert_solution_meets_floor(&self, solution: &ChainSolution, floor: &[u8; 32]) {
+        let slot = self
+            .registry
+            .get(solution.job_key as usize)
+            .and_then(Option::as_ref)
+            .expect("solution's job_key must map to a populated registry slot");
+        let version = rolled_version(slot.assignment.version, solution.version_bits);
+        let ntime = slot.assignment.ntime.wrapping_add(solution.ntime_offset);
+        let hash = solution_hash(
+            version,
+            &slot.assignment.prev_hash,
+            &slot.assignment.merkle_root,
+            ntime,
+            slot.assignment.nbits,
+            solution.nonce,
+        );
+        assert!(
+            hash_meets_target(&hash, floor),
+            "independently rehashed solution must meet the floor target"
+        );
+    }
 }
 
 #[test]
@@ -322,6 +356,7 @@ fn process_solution_credits_the_scheduler_on_a_diff_1_share() {
         &harness.registry,
         harness.session,
         &mut harness.scheduler,
+        &ShareTarget::DIFF_1,
     );
 
     assert_eq!(harness.scheduler.accumulated.as_slice(), &[0]);
@@ -356,6 +391,7 @@ fn process_solution_bumps_the_originating_slots_pool_work_share_counter() {
         &harness.registry,
         harness.session,
         &mut harness.scheduler,
+        &ShareTarget::DIFF_1,
     );
 
     assert_eq!(
@@ -368,6 +404,66 @@ fn process_solution_bumps_the_originating_slots_pool_work_share_counter() {
         baseline[1],
         "an unrelated slot's counter is untouched"
     );
+}
+
+/// A floor harder than [`ShareTarget::DIFF_1`]: it clears the
+/// target's leading word down to a single low byte, `0x10` at index
+/// 26. The genesis solution's hash carries `0x19` at that same index
+/// (with every more-significant byte zero on both sides), so it fails
+/// this floor while still meeting `ShareTarget::DIFF_1` itself and
+/// any pool target at or looser than that.
+const HARDER_THAN_DIFF_1_FLOOR: [u8; 32] = {
+    let mut bytes = [0u8; 32];
+    bytes[26] = 0x10;
+    bytes
+};
+
+/// A solution between the pool target and a floor harder than
+/// difficulty-1 is rejected outright: the floor check runs ahead of
+/// the credit block, so a solution failing it is dropped regardless of
+/// how loose the pool target is, and it never reaches the pool queue
+/// either. Crediting tracks whatever floor the driver reports rather
+/// than a hardcoded threshold: the identical solution against
+/// `ShareTarget::DIFF_1`, which the pool target below already
+/// equals, is credited and does reach the queue.
+#[test]
+fn process_solution_rejects_a_solution_between_the_pool_target_and_a_harder_floor() {
+    let session: AsicSession<1> = AsicSession::new();
+    let assignment = WorkAssignment {
+        target: *ShareTarget::DIFF_1,
+        ..genesis_assignment()
+    };
+    session.pool_handle(0).publish_work(assignment);
+
+    let mut harness = Harness::new(&session, 0);
+    harness.dispatch();
+
+    harness.process_solution(&GENESIS_SOLUTION, &HARDER_THAN_DIFF_1_FLOOR);
+
+    assert!(
+        harness.scheduler.accumulated.is_empty(),
+        "a solution below the driver's own floor must not be credited"
+    );
+    assert!(
+        session.pool_handle(0).try_take_solution().is_none(),
+        "a solution below the floor must never reach the pool queue either"
+    );
+
+    harness.assert_solution_meets_floor(&GENESIS_SOLUTION, &ShareTarget::DIFF_1);
+
+    harness.process_solution(&GENESIS_SOLUTION, &ShareTarget::DIFF_1);
+
+    assert_eq!(
+        harness.scheduler.accumulated.as_slice(),
+        &[0],
+        "the same solution against the loosened floor is credited"
+    );
+    let submitted = session
+        .pool_handle(0)
+        .try_take_solution()
+        .expect("the solution reaches the pool queue once the floor no longer blocks it");
+    assert_eq!(submitted.nonce, GENESIS_SOLUTION.nonce);
+    assert_eq!(submitted.work_id, genesis_assignment().work_id);
 }
 
 /// Capability constants for [`StubDriver`]. The values are arbitrary:
@@ -480,6 +576,10 @@ impl ChainDriver for StubDriver {
 
     fn result_mode(&self) -> ResultMode {
         self.mode
+    }
+
+    fn floor_target(&self) -> ShareTarget {
+        ShareTarget::DIFF_1
     }
 
     fn ingest(&mut self, _bytes: &[u8]) -> SolutionBatch {
@@ -1038,6 +1138,10 @@ impl ChainDriver for ResultDriver {
         self.mode
     }
 
+    fn floor_target(&self) -> ShareTarget {
+        ShareTarget::DIFF_1
+    }
+
     fn ingest(&mut self, _bytes: &[u8]) -> SolutionBatch {
         self.ingest_calls.fetch_add(1, Ordering::Relaxed);
         SolutionBatch::new()
@@ -1151,7 +1255,7 @@ fn poll_ticker_collects_a_solution_through_process_solutions_without_calling_ing
     // solution reaches the session's solution channel rather than only
     // the scheduler's diff-1 credit.
     let assignment = WorkAssignment {
-        target: Serial::DIFF_1_TARGET,
+        target: *ShareTarget::DIFF_1,
         ..genesis_assignment()
     };
     SESSION.pool_handle(0).publish_work(assignment);
@@ -1336,7 +1440,7 @@ fn a_command_arriving_during_an_in_flight_poll_is_honoured_and_the_solution_surv
     // solution reaches the session's solution channel, proving it was
     // not merely decoded but actually delivered.
     let assignment = WorkAssignment {
-        target: Serial::DIFF_1_TARGET,
+        target: *ShareTarget::DIFF_1,
         ..genesis_assignment()
     };
     SESSION.pool_handle(0).publish_work(assignment);

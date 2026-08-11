@@ -469,16 +469,6 @@ where
 }
 
 impl Serial {
-    /// Difficulty-1 target in 256-bit little-endian byte order: `0xFFFF * 2^208`.
-    /// Matches Bitcoin's `bnPowLimit` for mainnet/regtest. Used to reject
-    /// chip-emitted nonces that don't even meet the easiest possible target.
-    const DIFF_1_TARGET: [u8; 32] = {
-        let mut bytes = [0u8; 32];
-        bytes[26] = 0xFF;
-        bytes[27] = 0xFF;
-        bytes
-    };
-
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -674,6 +664,10 @@ impl Serial {
         let mut registry: [Option<WorkSlot>; WORK_REGISTRY_SLOTS] =
             [const { None }; WORK_REGISTRY_SLOTS];
         let mut read_buf = [0u8; READ_CHUNK];
+        // The chip's own share filter, fetched once: it is a constant of
+        // the chip family, and every solution is verified and credited
+        // against it.
+        let floor = driver.floor_target();
 
         SERIAL_WORKER_LIVE.store(true, Ordering::Release);
 
@@ -757,7 +751,7 @@ impl Serial {
                 }
                 Either4::Second(ResultEvent::Read(Ok(n))) => {
                     let batch = driver.ingest(&read_buf[..n]);
-                    Self::process_solutions(&batch, &registry, session, &mut scheduler);
+                    Self::process_solutions(&batch, &registry, session, &mut scheduler, &floor);
                     UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
                 }
                 Either4::Second(ResultEvent::Read(Err(kind))) => {
@@ -769,7 +763,7 @@ impl Serial {
                     UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
                 }
                 Either4::Second(ResultEvent::Polled(batch)) => {
-                    Self::process_solutions(&batch, &registry, session, &mut scheduler);
+                    Self::process_solutions(&batch, &registry, session, &mut scheduler, &floor);
                     UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
                 }
                 Either4::Third((_, SerialMessage::SetPoolWeights(weights))) => {
@@ -872,18 +866,21 @@ impl Serial {
         }
     }
 
-    /// Verify each solution against the diff-1 floor and the pool target,
-    /// then submit the passing ones. Vendor-neutral: the header is rebuilt
-    /// from the registry assignment and the driver-reported nonce, rolled
-    /// version, and ntime offset.
+    /// Verify each solution against the chip's own floor target and the
+    /// pool target, then submit the passing ones. Vendor-neutral: the
+    /// header is rebuilt from the registry assignment and the
+    /// driver-reported nonce, rolled version, and ntime offset, and the
+    /// floor comes from the driver, since a chip family may filter
+    /// harder than difficulty one to keep a slow link clear.
     fn process_solutions<const N: usize, Sch: Scheduler<N>>(
         batch: &[ChainSolution],
         registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         session: &AsicSession<N>,
         scheduler: &mut Sch,
+        floor: &[u8; 32],
     ) {
         for solution in batch {
-            Self::process_solution(solution, registry, session, scheduler);
+            Self::process_solution(solution, registry, session, scheduler, floor);
         }
     }
 
@@ -892,6 +889,7 @@ impl Serial {
         registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
         session: &AsicSession<N>,
         scheduler: &mut Sch,
+        floor: &[u8; 32],
     ) {
         // `job_key` derives from the chip-returned echo field, so a stray
         // reply can land past the registry. `get` keeps that off the wire
@@ -916,9 +914,9 @@ impl Serial {
             solution.nonce,
         );
 
-        if !hash_meets_target(&hash, &Self::DIFF_1_TARGET) {
+        if !hash_meets_target(&hash, floor) {
             warn!(
-                "nonce=0x{:08X} job_key={} below diff 1 (hash={})",
+                "nonce=0x{:08X} job_key={} below the chip's floor (hash={})",
                 solution.nonce,
                 solution.job_key,
                 BlockHash(&hash)
@@ -926,10 +924,11 @@ impl Serial {
             return;
         }
 
-        // Credit one share against the diff-1 target so the shared
+        // Credit one share against the chip's floor target so the shared
         // hashrate EWMA reflects the actual chip work rather than only
-        // pool-passing shares. The estimator weights by target.
-        ubos_metrics::hashrate::record_share(&Self::DIFF_1_TARGET);
+        // pool-passing shares. The estimator weights by target, so a
+        // harder floor makes each collected solution count for more.
+        ubos_metrics::hashrate::record_share(floor);
         scheduler.accumulate_share(slot.session_slot);
         if let Some(counter) = POOL_WORK_SHARES.get(slot.session_slot) {
             counter.fetch_add(1, Ordering::Relaxed);

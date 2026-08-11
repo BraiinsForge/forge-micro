@@ -87,3 +87,24 @@ fn rolled_version_replaces_only_the_bip320_field() {
     // Out-of-field bits in the rolled value are masked away.
     assert_eq!(rolled_version(0x2000_0000, !0), 0x3FFF_E000);
 }
+
+/// `from_pow2_difficulty` reproduces the hand-built byte arrays it
+/// replaced: difficulty one places `0xFFFF` at bit 208, and each
+/// doubling of the difficulty shifts the mantissa right one bit.
+#[test]
+fn from_pow2_difficulty_places_the_mantissa() {
+    let mut diff_one = [0u8; 32];
+    diff_one[26] = 0xFF;
+    diff_one[27] = 0xFF;
+    assert_eq!(*ShareTarget::DIFF_1, diff_one);
+
+    let mut diff_eight = [0u8; 32];
+    diff_eight[25] = 0xE0;
+    diff_eight[26] = 0xFF;
+    diff_eight[27] = 0x1F;
+    assert_eq!(*ShareTarget::from_pow2_difficulty(8), diff_eight);
+    assert_eq!(
+        ShareTarget::from_pow2_difficulty(8).to_le_bytes(),
+        diff_eight
+    );
+}

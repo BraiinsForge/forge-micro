@@ -34,7 +34,7 @@ use ubos_core::units::Frequency;
 use crate::HashboardDescriptor;
 use crate::chain::{
     ChainDriver, ChainSolution, ChipDescriptor, ChipError, MAX_INGEST_CHUNK,
-    MAX_SOLUTIONS_PER_BATCH, ResultMode, SolutionBatch, WorkJob,
+    MAX_SOLUTIONS_PER_BATCH, ResultMode, ShareTarget, SolutionBatch, WorkJob,
 };
 use crate::transport::Transport;
 
@@ -363,6 +363,12 @@ impl ChainDriver for Bm13xxDriver {
 
     fn result_mode(&self) -> ResultMode {
         ResultMode::Push
+    }
+
+    fn floor_target(&self) -> ShareTarget {
+        // The difficulty `configure` programs into the ticket mask, so
+        // the register and the reported floor cannot drift apart.
+        ShareTarget::from_pow2_difficulty(u64::from(BRINGUP_DIFFICULTY))
     }
 
     fn ingest(&mut self, bytes: &[u8]) -> SolutionBatch {

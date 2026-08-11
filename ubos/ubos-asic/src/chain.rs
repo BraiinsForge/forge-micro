@@ -260,6 +260,64 @@ pub struct ChainSolution {
 /// A batch of solutions returned by a single collection call.
 pub type SolutionBatch = Vec<ChainSolution, MAX_SOLUTIONS_PER_BATCH>;
 
+/// A 256-bit share target in little-endian byte order.
+///
+/// Wraps the raw bytes the chip's hardware filter and the consumer's
+/// floor check both compare against, so the constant lives in one
+/// place and the type documents intent at the trait boundary.
+pub struct ShareTarget([u8; 32]);
+
+impl ShareTarget {
+    /// Difficulty one is `DIFF_1_MANTISSA * 2^DIFF_1_EXPONENT`, and a
+    /// power-of-two difficulty only shifts the mantissa down, so the
+    /// pair generates every target this type constructs.
+    const DIFF_1_MANTISSA: u32 = 0xFFFF;
+    /// The exponent difficulty one places the mantissa at; see
+    /// [`Self::DIFF_1_MANTISSA`].
+    const DIFF_1_EXPONENT: u32 = 208;
+
+    /// Difficulty one: Bitcoin's mainnet pow limit, the loosest filter
+    /// a chip ships with.
+    pub const DIFF_1: Self = Self::from_pow2_difficulty(1);
+
+    /// The target whose shares each count for `difficulty`
+    /// difficulty-one shares: [`Self::DIFF_1`] divided by `difficulty`.
+    ///
+    /// # Panics
+    ///
+    /// When `difficulty` is not a power of two, because only a power
+    /// of two divides the mantissa as an exact shift.
+    #[must_use]
+    pub const fn from_pow2_difficulty(difficulty: u64) -> Self {
+        assert!(difficulty.is_power_of_two());
+        let exponent = Self::DIFF_1_EXPONENT - difficulty.trailing_zeros();
+        let mantissa = (Self::DIFF_1_MANTISSA << (exponent % 8)).to_le_bytes();
+        let start = (exponent / 8) as usize;
+        let mut bytes = [0u8; 32];
+        let mut offset = 0;
+        while offset < mantissa.len() {
+            bytes[start + offset] = mantissa[offset];
+            offset += 1;
+        }
+        Self(bytes)
+    }
+
+    /// The raw little-endian bytes, callable in const context where
+    /// the `Deref` impl is not.
+    #[must_use]
+    pub const fn to_le_bytes(&self) -> [u8; 32] {
+        self.0
+    }
+}
+
+impl core::ops::Deref for ShareTarget {
+    type Target = [u8; 32];
+
+    fn deref(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
 /// The vendor-neutral operations a mining consumer drives, one impl per
 /// chip family. Sans-IO: every method that touches the wire takes a
 /// `&mut impl Transport`; the driver owns no UART and no global state.
@@ -336,6 +394,13 @@ pub trait ChainDriver {
     /// consumer calls [`Self::ingest`] (Push) or [`Self::poll_results`]
     /// (Poll).
     fn result_mode(&self) -> ResultMode;
+
+    /// The share target the chip's own hardware filter enforces.
+    /// Every solution the driver returns meets it, so the consumer
+    /// verifies against it as the floor and credits each solution at
+    /// its weight; a floor above difficulty one is how a chip family
+    /// keeps its result path from flooding a slow link.
+    fn floor_target(&self) -> ShareTarget;
 
     /// Push path: feed bytes freshly read from the line and return any
     /// complete solutions decoded from them. Stateful — the driver
