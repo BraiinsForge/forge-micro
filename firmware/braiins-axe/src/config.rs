@@ -29,14 +29,14 @@
 
 pub use ubos_machine::BRAIINS_AXE as MACHINE;
 
+use embassy_rp::Peri;
 use embassy_rp::peripherals::{
-    CORE1, DMA_CH0, DMA_CH1, DMA_CH3, FLASH, I2C0, PIN_0, PIN_1, PIN_16, PIN_17, PIN_18, PIN_19,
-    PIN_2, PIN_20, PIN_21, PIN_22, PIN_26, PIN_27, PIN_28, PIN_3, PIN_4, PIN_5, PIN_6, PIN_8,
-    PIN_9, PIO0, PIO1, PWM_SLICE4, SPI0, TRNG, UART1, WATCHDOG,
+    CORE1, DMA_CH0, DMA_CH1, DMA_CH3, FLASH, I2C0, PIN_0, PIN_1, PIN_2, PIN_3, PIN_4, PIN_5, PIN_6,
+    PIN_8, PIN_9, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_22, PIN_26, PIN_27, PIN_28,
+    PIO0, PIO1, PWM_SLICE4, SPI0, TRNG, UART1, WATCHDOG,
 };
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, SPI1};
-use embassy_rp::Peri;
 use embassy_time::Duration;
 
 /// Every peripheral singleton the board consumes, extracted in one place.
