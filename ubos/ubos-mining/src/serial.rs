@@ -247,9 +247,16 @@ use crate::consts::WORK_REGISTRY_SLOTS;
 use crate::scheduler::Scheduler;
 
 /// How often the actor polls the nonce FIFO for poll-delivery chips
-/// while work is active. Provisional, for a poll-family driver whose
-/// cadence no hardware is available to calibrate here.
-const POLL_PERIOD: Duration = Duration::from_millis(100);
+/// while work is active.
+///
+/// Calibrated on hardware against a poll driver whose sweep also feeds
+/// each chip its next work: a chip consumes a feed faster than the
+/// hundred-millisecond cadence delivered the next one, and the idle
+/// tail was a third of the chain's throughput. At this period the
+/// ticker adds no idle between sweeps — a sweep of a full chain takes
+/// longer than the period, so the wire is the pace — while a short
+/// chain still polls no faster than this.
+const POLL_PERIOD: Duration = Duration::from_millis(60);
 
 /// Scratch buffer size for a single UART read on the push path. Pinned
 /// to the seam's ingest contract so one full read can never decode into
