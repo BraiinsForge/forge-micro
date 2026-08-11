@@ -149,6 +149,14 @@ pub struct SetupConnectionSuccess {
     pub flags: u32,
 }
 
+impl SetupConnectionSuccess {
+    /// The upstream accepts no changes to the header's version field.
+    /// Absent, the downstream may roll the BIP320 bits: the success
+    /// flags carry the upstream's own requirements and are not an echo
+    /// of what the downstream asked for.
+    pub const REQUIRES_FIXED_VERSION: u32 = 1;
+}
+
 impl Encode for SetupConnectionSuccess {
     fn encoded_len(&self) -> usize {
         self.used_version.encoded_len() + self.flags.encoded_len()

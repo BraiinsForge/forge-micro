@@ -36,6 +36,7 @@ fn assignment(work_id: u32) -> WorkAssignment {
         version: 0x2000_0000,
         nbits: 0x1705_c739,
         ntime: 0x6000_0000,
+        version_mask: 0,
     }
 }
 

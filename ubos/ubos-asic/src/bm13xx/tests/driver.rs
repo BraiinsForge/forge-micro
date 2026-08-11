@@ -121,6 +121,7 @@ fn send_work_serializes_the_hw_work_frame() {
         nbits: 0x1703_1abc,
         ntime: 0x6512_3456,
         version: 0x2000_0000,
+        version_mask: 0,
         merkle_root: [0x11; 32],
         prev_hash: [0x22; 32],
     };
@@ -237,6 +238,7 @@ fn bm1370_work_id_packing_round_trips_through_the_driver() {
         nbits: 0x1703_1abc,
         ntime: 0x6512_3456,
         version: 0x2000_0000,
+        version_mask: 0,
         merkle_root: [0x11; 32],
         prev_hash: [0x22; 32],
     };

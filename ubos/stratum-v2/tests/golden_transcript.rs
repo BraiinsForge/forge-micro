@@ -545,10 +545,14 @@ async fn golden_success_transcript_replays() {
         visitor.session_updates.len(),
     );
 
-    // Index 0: SetVersionMask(0) from SetupConnectionSuccess(flags=0).
+    // Index 0: the full BIP320 mask from SetupConnectionSuccess(flags=0),
+    // whose flags carry the upstream's requirements and pin nothing.
     assert!(
-        matches!(visitor.session_updates[0], RecordedUpdate::VersionMask(0)),
-        "first session update must be SetVersionMask(0), got {:?}",
+        matches!(
+            visitor.session_updates[0],
+            RecordedUpdate::VersionMask(0x1FFF_E000)
+        ),
+        "first session update must grant the full BIP320 mask, got {:?}",
         visitor.session_updates[0],
     );
 

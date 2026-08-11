@@ -137,6 +137,7 @@ fn assignment(work_id: u32) -> WorkAssignment {
         merkle_root: [0x33; 32],
         target: [0x22; 32],
         version: 0x2000_0000,
+        version_mask: 0,
         nbits: 0x1705_c739,
         ntime: 0x6000_0000,
     }
@@ -172,6 +173,7 @@ fn genesis_assignment() -> WorkAssignment {
         merkle_root: GENESIS_MERKLE_ROOT,
         target: [0u8; 32],
         version: 1,
+        version_mask: 0,
         nbits: 0x1d00_ffff,
         ntime: 1_231_006_505,
     }

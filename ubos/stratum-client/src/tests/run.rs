@@ -138,6 +138,26 @@ fn offset_resets_on_new_job() {
     );
 }
 
+/// The granted version-rolling mask rides every published
+/// `WorkAssignment`: `StratumState::version_mask` is read straight
+/// into the assignment `publish_work` builds, so a chip driver
+/// downstream of the `AsicSession` sees which bits it may roll.
+#[test]
+fn version_mask_reaches_the_published_work_assignment() {
+    let mut state = StratumState::new(0);
+    state.visit_new_job(sample_job(1));
+    state.version_mask = 0x1FFF_E000;
+    let asic: AsicSession = AsicSession::new();
+
+    publish_work(&mut state, asic.pool_handle(0), 0);
+
+    let mut receiver = asic.work_receiver(0).expect("slot 0 has a receiver");
+    let assignment = receiver
+        .try_get()
+        .expect("publish_work published an assignment");
+    assert_eq!(assignment.version_mask, 0x1FFF_E000);
+}
+
 /// Mirrors the `last_published != Some(current_job_id)` guard in
 /// `run_stratum_client_inner`'s `Either3::First` arm: with no ticker,
 /// that comparison is the only thing deciding whether a given

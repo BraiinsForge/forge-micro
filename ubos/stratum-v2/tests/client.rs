@@ -547,8 +547,10 @@ async fn connect_sends_setup_connection_then_open_channel() {
     }
 }
 
-/// `SetupConnectionSuccess` with `REQUIRES_VERSION_ROLLING` flag set →
-/// visitor sees `SessionUpdate::SetVersionMask(0x1FFF_E000)`.
+/// `SetupConnectionSuccess` whose flags do not pin the version →
+/// visitor sees `SessionUpdate::SetVersionMask(0x1FFF_E000)`. The
+/// success flags carry the upstream's requirements, so any flags
+/// without `REQUIRES_FIXED_VERSION` leave the version free to roll.
 #[tokio::test]
 async fn setup_connection_success_with_version_rolling_flag_sets_mask() {
     let mut session = Session::new().await;
@@ -556,7 +558,10 @@ async fn setup_connection_success_with_version_rolling_flag_sets_mask() {
 
     let message = SetupConnectionSuccess {
         used_version: 2,
-        flags: ii_sv2::messages::SetupConnection::REQUIRES_VERSION_ROLLING,
+        // Every success-space flag set except the one that pins the
+        // version, so the test exercises the mask decision rather than
+        // a value whose low bit happens to be clear.
+        flags: !SetupConnectionSuccess::REQUIRES_FIXED_VERSION,
     };
     session.pool_send_msg(&message).await;
     session.drive_and_accept(&mut visitor).await;
@@ -577,13 +582,13 @@ async fn setup_connection_success_with_version_rolling_flag_sets_mask() {
 
 /// `SetupConnectionSuccess` without the version-rolling flag → mask is `0`.
 #[tokio::test]
-async fn setup_connection_success_without_version_rolling_flag_sets_zero_mask() {
+async fn setup_connection_success_requiring_a_fixed_version_sets_zero_mask() {
     let mut session = Session::new().await;
     let mut visitor = RecordingVisitor::default();
 
     let message = SetupConnectionSuccess {
         used_version: 2,
-        flags: 0,
+        flags: SetupConnectionSuccess::REQUIRES_FIXED_VERSION,
     };
     session.pool_send_msg(&message).await;
     session.drive_and_accept(&mut visitor).await;
@@ -598,7 +603,7 @@ async fn setup_connection_success_without_version_rolling_flag_sets_zero_mask() 
         .expect("BUG: expected SetVersionMask callback after SetupConnectionSuccess");
     assert_eq!(
         mask, 0,
-        "version mask must be 0 when pool does not advertise version rolling"
+        "version mask must be 0 when the upstream pins the version"
     );
 }
 
@@ -1174,8 +1179,11 @@ async fn partial_reads_assemble_full_frame() {
         "SetupConnectionSuccess via byte-by-byte reads must produce one session update",
     );
     assert!(
-        matches!(visitor.session_updates[0], RecordedUpdate::VersionMask(0)),
-        "SetupConnectionSuccess flags=0 must produce SetVersionMask(0)",
+        matches!(
+            visitor.session_updates[0],
+            RecordedUpdate::VersionMask(0x1FFF_E000)
+        ),
+        "SetupConnectionSuccess flags=0 leaves the version free to roll",
     );
 }
 
@@ -1244,8 +1252,11 @@ async fn drive_future_cancelled_mid_frame_resumes() {
         "the resumed frame must dispatch exactly one session update",
     );
     assert!(
-        matches!(visitor.session_updates[0], RecordedUpdate::VersionMask(0)),
-        "resumed SetupConnectionSuccess(flags=0) must produce SetVersionMask(0)",
+        matches!(
+            visitor.session_updates[0],
+            RecordedUpdate::VersionMask(0x1FFF_E000)
+        ),
+        "resumed SetupConnectionSuccess(flags=0) leaves the version free to roll",
     );
 }
 

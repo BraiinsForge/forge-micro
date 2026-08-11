@@ -82,6 +82,9 @@ pub struct StratumState {
     /// reconnect counters and to prefix every visitor log line so
     /// concurrent sessions are distinguishable.
     pub(crate) slot: usize,
+    /// The version-rolling mask the pool granted, zero until the
+    /// connection handshake reports one.
+    pub version_mask: u32,
 }
 
 impl StratumState {
@@ -98,6 +101,7 @@ impl StratumState {
             work_ring: WorkRing::new(),
             next_work_id: 0,
             slot: slot.min(POOL_INDEX_SPACE - 1),
+            version_mask: 0,
         }
     }
 }
@@ -184,7 +188,10 @@ impl MiningClientVisitor for StratumState {
                 );
             }
             SessionUpdate::SetVersionMask(mask) => {
-                // No state mutation: same reasoning as `SetTarget`.
+                // The granted mask is stamped into every later work
+                // assignment, so the chip knows which version bits it
+                // may roll.
+                self.version_mask = mask;
                 info!(
                     "stratum-client: pool {} set version mask {:#010x}",
                     self.slot, mask,

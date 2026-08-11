@@ -848,6 +848,7 @@ impl Serial {
             nbits: assignment.nbits,
             ntime: assignment.ntime,
             version: assignment.version,
+            version_mask: assignment.version_mask,
             merkle_root: assignment.merkle_root,
             prev_hash: assignment.prev_hash,
         };

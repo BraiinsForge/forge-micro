@@ -33,7 +33,7 @@ use ii_sv2::framing::{FrameCodec, FrameView, Header, MessageGroup};
 use ii_sv2::messages::{
     DeviceInfo, MiningMessages, NewMiningJob, OpenStandardMiningChannel,
     OpenStandardMiningChannelSuccess, SetNewPrevHash, SetTarget, SetupConnection,
-    SubmitSharesError, SubmitSharesStandard, SubmitSharesSuccess,
+    SetupConnectionSuccess, SubmitSharesError, SubmitSharesStandard, SubmitSharesSuccess,
 };
 use ii_sv2::security::{
     CryptoCtx, EncryptedCodec, EstablishedSession, PublicKey, Rng, ValidateNothing,
@@ -280,13 +280,14 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         info!("stratum-v2: noise handshake complete");
 
         // SetupConnection — protocol = 0 (mining), version 2/2,
-        // flags = 0 (no extensions requested initially), endpoint
-        // empty (pool routing is handled at the TCP layer here).
+        // version rolling requested because a chip that rolls versions
+        // multiplies the work each burst carries. The endpoint is
+        // empty; pool routing happens at the TCP layer.
         let setup = SetupConnection {
             protocol: 0,
             min_version: 2,
             max_version: 2,
-            flags: 0,
+            flags: SetupConnection::REQUIRES_VERSION_ROLLING,
             endpoint_host: Str0_255::try_from("").map_err(|_| Error::Adapter)?,
             endpoint_port: 0,
             device: DeviceInfo {
@@ -564,7 +565,10 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                     "stratum-v2: setup-connection-success used_version={} flags={:#010x}",
                     success.used_version, success.flags,
                 );
-                let mask = if success.flags & SetupConnection::REQUIRES_VERSION_ROLLING != 0 {
+                // The success flags carry the upstream's requirements,
+                // not an echo of the downstream's request: rolling is
+                // permitted unless the upstream pins the version.
+                let mask = if success.flags & SetupConnectionSuccess::REQUIRES_FIXED_VERSION == 0 {
                     BIP320_VERSION_MASK
                 } else {
                     0

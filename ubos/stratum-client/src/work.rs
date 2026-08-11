@@ -45,6 +45,10 @@ pub struct WorkAssignment {
     pub version: u32,
     pub nbits: u32,
     pub ntime: u32,
+    /// The version-rolling mask the pool granted for this work; bits
+    /// inside it may be varied by the chip, zero means the version
+    /// must be used as given.
+    pub version_mask: u32,
 }
 
 /// Found nonce returned from the ASIC.

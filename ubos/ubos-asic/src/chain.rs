@@ -57,6 +57,12 @@ pub const BIP320_VERSION_MASK: u32 = 0x1FFF_E000;
 /// Merge the rolled version bits from a solution into a base version,
 /// replacing only the BIP320 field. `version_bits` is already masked to
 /// that field by the driver.
+///
+/// The merge always spans the whole field, whatever
+/// [`WorkJob::version_mask`] granted: a compliant driver echoes only
+/// bits it was allowed to roll, so the wider merge is exact for it,
+/// and narrowing the merge to the grant would need the grant threaded
+/// to every caller before any driver misbehaves enough to matter.
 #[must_use]
 pub fn rolled_version(base_version: u32, version_bits: u32) -> u32 {
     (base_version & !BIP320_VERSION_MASK) | (version_bits & BIP320_VERSION_MASK)
@@ -216,6 +222,14 @@ pub struct WorkJob {
     pub ntime: u32,
     /// Block version field, may be rolled by the chip.
     pub version: u32,
+    /// Mask of version bits the chip may roll; zero pins the version.
+    ///
+    /// Only the drivers that opt in act on this; a driver that ignores
+    /// it keeps its family's fixed rolling behaviour, and the
+    /// reconstruction in [`rolled_version`] still assumes the full
+    /// BIP320 field either way. A pool that pins the version is
+    /// honoured by a driver that reads the mask, not by the seam.
+    pub version_mask: u32,
     /// Merkle root in canonical Bitcoin internal byte order.
     pub merkle_root: [u8; 32],
     /// Previous block hash in canonical Bitcoin internal byte order.

@@ -382,6 +382,7 @@ fn publish_work<const N: usize>(state: &mut StratumState, asic: PoolHandle<'_, N
         version: slot.version,
         nbits: slot.nbits,
         ntime: slot.ntime_base.wrapping_add(slot.ntime_offset),
+        version_mask: state.version_mask,
     };
     trace!(
         "stratum-client: publish work_id={} job={} ntime={:#010x}",
