@@ -65,9 +65,6 @@ use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_eeprom::HashboardEeprom as _;
-use ubos_manager::Handle as ManagerHandle;
-use ubos_mining::Handle as MiningHandle;
-use ubos_thermal::Handle as ThermalHandle;
 
 use ubos_net::net;
 
@@ -181,35 +178,17 @@ impl ubos_core::watchdog::Watchdog for BoardWatchdog {
     }
 }
 
-#[embassy_executor::task]
-async fn ethernet_task(runner: EthernetRunner) -> ! {
-    runner.run().await
-}
+ubos_firmware::ethernet_task!(EthernetRunner);
 
-#[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
-    runner.run().await
-}
+ubos_firmware::net_task!(Device<'static>);
 
-#[embassy_executor::task]
-async fn watchdog_task(watchdog: BoardWatchdog) -> ! {
-    ubos_core::watchdog::run_watchdog(watchdog).await
-}
+ubos_core::watchdog_task!(BoardWatchdog);
 
-#[embassy_executor::task]
-async fn ntp_sync_task(stack: embassy_net::Stack<'static>) -> ! {
-    net::run_ntp_sync(stack).await
-}
+ubos_net::ntp_sync_task!();
 
-#[embassy_executor::task]
-async fn metrics_ingest_task() -> ! {
-    ubos_metrics::metrics::run_ingest().await
-}
+ubos_metrics::metrics_ingest_task!();
 
-#[embassy_executor::task]
-async fn ota_watchdog_task() -> ! {
-    ubos_api::run_ota_session_watchdog().await
-}
+ubos_api::ota_watchdog_task!();
 
 const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
     &ubos_webui::WEBUI_SERVICE,
@@ -229,15 +208,9 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
     .await
 }
 
-#[embassy_executor::task]
-async fn thermal_task(sensor: temperature::HashboardTemperature, manager: ManagerHandle) -> ! {
-    ubos_thermal::run_thermal(sensor, manager).await
-}
+ubos_thermal::thermal_task!(temperature::HashboardTemperature);
 
-#[embassy_executor::task]
-async fn manager_task(mining: MiningHandle) -> ! {
-    ubos_manager::run_manager(mining).await
-}
+ubos_manager::manager_task!();
 
 /// Storage backend type the [`config_task`] hands to
 /// [`ubos_config::run`]. The chain is
@@ -248,35 +221,20 @@ async fn manager_task(mining: MiningHandle) -> ! {
 type BoardConfigStorage =
     FlashStorage<SyncFlash<ubos_ota::SharedBlockingFlash<{ config::Flash::SIZE }>>>;
 
-#[embassy_executor::task]
-async fn config_task(storage: BoardConfigStorage) -> ! {
-    ubos_config::run(storage, config::BOARD).await
-}
+ubos_config::config_task!(BoardConfigStorage, config::BOARD);
 
-#[embassy_executor::task]
-async fn cooling_task(fan: fan::BoardFan, tach: fan::BoardTach, thermal: ThermalHandle) -> ! {
-    ubos_cooling::run_cooling(fan, tach, thermal).await
-}
+ubos_cooling::cooling_task!(fan::BoardFan, fan::BoardTach);
 
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
     ubos_metrics::cpu_load::run_cpu_load::<2>().await
 }
 
-#[embassy_executor::task]
-async fn stratum_metrics_task() -> ! {
-    stratum_client::publishers::run_stratum_metrics_publisher(POOL_SLOTS).await
-}
+ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
 
-#[embassy_executor::task]
-async fn miner_metrics_task(mining: MiningHandle) -> ! {
-    ubos_mining::publishers::run_miner_metrics_publisher(mining, POOL_SLOTS).await
-}
+ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
-#[embassy_executor::task]
-async fn hashrate_metrics_task() -> ! {
-    ubos_metrics::hashrate::run_hashrate_publisher().await
-}
+ubos_metrics::hashrate_metrics_task!();
 
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
@@ -284,53 +242,16 @@ type OledDisplay = Sh1106<
     Output<'static>,
 >;
 
-/// The reset pin is moved in and held for the task's lifetime so the SH1106
-/// RESET line stays driven high; dropping it would release the pad and blank
-/// the panel.
 #[cfg(feature = "display")]
-#[embassy_executor::task]
-async fn display_task(
-    mut display: OledDisplay,
-    #[allow(clippy::used_underscore_binding)] _reset_pin: Output<'static>,
-) -> ! {
-    ubos_display::display::run(&mut display).await
-}
+ubos_display::display_task!(OledDisplay, Output<'static>);
 
-/// Resets the MCU once a reboot has been requested through the HTTP API.
-#[embassy_executor::task]
-async fn reset_task() -> ! {
-    ubos_core::reboot::wait_for_reboot_request().await;
-    cortex_m::peripheral::SCB::sys_reset()
-}
+ubos_core::reset_task!(cortex_m::peripheral::SCB::sys_reset());
 
-/// Keeps the credential store in sync with config changes at runtime.
-#[embassy_executor::task]
-async fn sync_credentials_task() -> ! {
-    ubos_api::run_sync_credentials().await
-}
+ubos_api::sync_credentials_task!();
 
-#[embassy_executor::task]
-async fn network_control_task(stack: embassy_net::Stack<'static>) -> ! {
-    net::run_network_control(stack).await
-}
+ubos_firmware::serve_all!(config::MACHINE, &config::MINING_INFO, &config::BOUNDS);
 
-ubos_http::http_worker_task!(
-    api_worker_task,
-    ubos_api::RestApiService,
-    config::MACHINE.control_board.api_http_pool
-);
-
-ubos_http::http_worker_task!(
-    webui_worker_task,
-    ubos_webui::DashboardService,
-    config::MACHINE.control_board.webui_http_pool
-);
-
-ubos_http::http_worker_task!(
-    metrics_worker_task,
-    ubos_metrics::metrics::PrometheusMetricsService,
-    config::MACHINE.control_board.metrics_http_pool
-);
+ubos_net::network_control_task!();
 
 /// Parallel stratum session slots this board runs — the full config
 /// capacity; this board has the RAM for a session task per pool slot.
@@ -344,9 +265,9 @@ static ASIC_SESSION: ubos_firmware::AsicSession<POOL_SLOTS> = ubos_firmware::Asi
 
 /// Board task shell around the shared stratum session loop, spawned once per
 /// pool slot. The loop body lives in `ubos-firmware`; the
-/// `#[embassy_executor::task]` shell stays per board because esp32s3 pins a
-/// different `embassy-executor` version than the ARM boards, so the spawned
-/// task type must come from each board's executor.
+/// `#[embassy_executor::task]` shell stays per board because the attribute
+/// expands a typed task pool sized by this board's `POOL_SLOTS`, and it
+/// rejects the generic function a shared shell would have to be.
 #[embassy_executor::task(pool_size = POOL_SLOTS)]
 async fn stratum_client_task(
     stack: embassy_net::Stack<'static>,
@@ -374,17 +295,10 @@ async fn boot(spawner: Spawner) {
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
     let hw = config::Board::take(peripherals);
 
-    // Install the event ring and its decode-table registry before any task
-    // that records events runs. wall_clock_secs returns uptime before NTP
-    // sync and Unix time after; the ring stores it unconditionally.
-    ubos_events::set_catalogs(ubos_firmware::EVENT_REGISTRY);
     // Safety: called once at boot before any task runs. EVENT_LOG_BACKING lives
     // in .uninit, so the startup code does not zero it and a warm reset
     // preserves its contents.
-    ubos_events::init(
-        unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) },
-        ubos_net::wall_clock_secs,
-    );
+    ubos_firmware::events::install(unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) });
 
     // `rng` seeds the embassy-net stack. Declared here so it lives for the
     // full boot scope regardless of gating.
@@ -698,6 +612,11 @@ async fn boot(spawner: Spawner) {
 
     let seed = rng.next_u64();
 
+    let (net_config, mdns_hostname) = ubos_firmware::net::bring_up::<
+        { config::Board::MDNS_HOSTNAME_BASE.len() },
+    >(config::Board::MDNS_HOSTNAME_BASE, mac_addr[5])
+    .await;
+
     // 16 was one short of even a single pool generation; 24 matches the
     // rp2350 board running the same pool sizes. The assert is shared so
     // every board gets the same smoltcp socket-exhaustion guarantee.
@@ -708,38 +627,6 @@ async fn boot(spawner: Spawner) {
         config::MACHINE.control_board.api_http_pool,
         config::MACHINE.control_board.metrics_http_pool,
     );
-    // The config task publishes the stored config on first boot. Wait
-    // for it, then derive the stack config and hostname. Only the small
-    // results escape the block, so this task's future never has to hold
-    // the full Config or load_initial's decode buffer.
-    static MDNS_HOSTNAME: StaticCell<heapless::String<32>> = StaticCell::new();
-    let (net_config, mdns_hostname) = {
-        let initial = ubos_config::handle().changed().await;
-        let net_config = match &initial.network.mode {
-            ubos_config::NetworkMode::Static {
-                address,
-                prefix_len,
-                gateway,
-                dns,
-            } => ubos_net::config::static_ipv4(*address, *prefix_len, *gateway, dns),
-            ubos_config::NetworkMode::Dhcp => {
-                embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default())
-            }
-        };
-        // Compose inside the block so only the &'static hostname escapes,
-        // not a 32-byte copy held across the rest of boot.
-        let mdns_hostname = ubos_mdns::compose_hostname_configured::<
-            32,
-            { config::Board::MDNS_HOSTNAME_BASE.len() },
-        >(
-            initial.network.hostname.as_str(),
-            config::Board::MDNS_HOSTNAME_BASE,
-            mac_addr[5],
-            &MDNS_HOSTNAME,
-        );
-        (net_config, mdns_hostname)
-    };
-
     static RESOURCES: StaticCell<StackResources<STACK_SOCKETS>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         device,
@@ -804,51 +691,5 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(ota_watchdog_task()));
     spawner.spawn(unwrap!(network_control_task(stack)));
 
-    // REST API on :8080 — seed credentials once, then spawn one worker
-    // task per pool slot so each has its own static TaskStorage.
-    ubos_api::seed_api_credentials().await;
-    static API_SERVICE: StaticCell<ubos_api::RestApiService> = StaticCell::new();
-    let api_service: &'static ubos_api::RestApiService =
-        API_SERVICE.init(ubos_api::RestApiService::new(
-            config::MACHINE.control_board.name,
-            &config::MINING_INFO,
-            &config::BOUNDS,
-            thermal,
-            manager_handle,
-            ubos_psu::handle(),
-            stack,
-        ));
-    ubos_http::serve_http_pool!(
-        spawner,
-        stack,
-        api_worker_task,
-        api_service,
-        config::MACHINE.control_board.api_http_pool,
-        ubos_api::consts::Api
-    );
-    spawner.spawn(unwrap!(sync_credentials_task()));
-
-    // Web UI on :80 — seed credentials once (the API listener's
-    // sync_credentials_task keeps them current after first boot).
-    ubos_webui::seed_webui_credentials().await;
-    static WEBUI_SERVICE: ubos_webui::DashboardService = ubos_webui::DashboardService;
-    ubos_http::serve_http_pool!(
-        spawner,
-        stack,
-        webui_worker_task,
-        &WEBUI_SERVICE,
-        config::MACHINE.control_board.webui_http_pool,
-        ubos_webui::consts::Http
-    );
-
-    static METRICS_SERVICE: ubos_metrics::metrics::PrometheusMetricsService =
-        ubos_metrics::metrics::PrometheusMetricsService;
-    ubos_http::serve_http_pool!(
-        spawner,
-        stack,
-        metrics_worker_task,
-        &METRICS_SERVICE,
-        config::MACHINE.control_board.metrics_http_pool,
-        ubos_metrics::consts::Metrics
-    );
+    serve_all(spawner, stack, thermal, manager_handle).await;
 }

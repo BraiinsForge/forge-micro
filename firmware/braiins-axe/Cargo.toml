@@ -24,13 +24,11 @@ embassy-sync         = { workspace = true, features = ["defmt"] }
 embassy-time         = { workspace = true, features = ["defmt"] }
 embedded-hal-bus     = { workspace = true, features = ["async"] }
 embedded-io-async    = { workspace = true }
-heapless             = { workspace = true }
 pio                  = "0.3"
 portable-atomic      = { workspace = true }
 serial-baudrate      = { workspace = true }
 smart-leds           = "0.4"
 static_cell          = { workspace = true }
-stratum-client       = { workspace = true }
 ubos-api             = { workspace = true, features = ["defmt"] }
 ubos-asic            = { workspace = true }
 ubos-auth            = { workspace = true, features = ["defmt"] }
@@ -41,7 +39,6 @@ ubos-display         = { workspace = true }
 ubos-eeprom          = { workspace = true, features = ["defmt"] }
 ubos-events          = { workspace = true, features = ["defmt"] }
 ubos-firmware        = { workspace = true, features = ["defmt"] }
-ubos-http            = { workspace = true, features = ["defmt"] }
 ubos-machine         = { workspace = true }
 ubos-manager         = { workspace = true, features = ["defmt"] }
 ubos-mdns            = { workspace = true, features = ["defmt"] }
