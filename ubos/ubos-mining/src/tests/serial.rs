@@ -1381,3 +1381,63 @@ fn a_command_arriving_during_an_in_flight_poll_is_honoured_and_the_solution_surv
         "the solution left untouched by the cancelled poll still reaches the session"
     );
 }
+
+/// Serial mock for driving [`SerialIo::read`] directly: the first read
+/// pops a queued line error, the second delivers bytes. That is the
+/// order a serial driver presents a break or framing error from an
+/// earlier line event — queued in line with the data behind it.
+struct FlakySerial {
+    reads: u8,
+}
+
+impl embedded_io::ErrorType for FlakySerial {
+    type Error = ErrorKind;
+}
+
+impl embedded_io_async::Write for FlakySerial {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        Ok(buf.len())
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl embedded_io_async::Read for FlakySerial {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.reads += 1;
+        if self.reads == 1 {
+            return Err(ErrorKind::Other);
+        }
+        buf[..3].copy_from_slice(&[0xAA, 0xBB, 0xCC]);
+        Ok(3)
+    }
+}
+
+impl BaudRate for FlakySerial {
+    fn set_baudrate(&mut self, _baud: u32) -> Result<(), ErrorKind> {
+        Ok(())
+    }
+}
+
+#[test]
+fn transport_read_consumes_a_line_error_and_returns_the_bytes_behind_it() {
+    // A queued line error must not end the read. The transport consumes
+    // it and retries within the deadline, so the bytes behind the error
+    // reach the caller instead of a spurious empty read.
+    let mut serial = FlakySerial { reads: 0 };
+    let mut io = SerialIo {
+        serial: &mut serial,
+    };
+    let mut buf = [0u8; 8];
+
+    let n = block_on(io.read(&mut buf, 50));
+
+    assert_eq!(n, 3, "the read must survive the popped line error");
+    assert_eq!(buf[..3], [0xAA, 0xBB, 0xCC]);
+    assert_eq!(
+        serial.reads, 2,
+        "the error consumed one attempt, the bytes came on the next"
+    );
+}

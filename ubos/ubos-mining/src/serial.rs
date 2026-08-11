@@ -43,7 +43,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::DynReceiver;
-use embassy_time::{Duration, Ticker, Timer, with_timeout};
+use embassy_time::{Duration, Instant, Ticker, Timer, with_timeout};
 use embedded_io::ErrorKind;
 use embedded_io_async::{Error as _, Read, Write};
 use mining_protocol::hashing::hash_meets_target;
@@ -415,21 +415,35 @@ where
     }
 
     async fn read(&mut self, buf: &mut [u8], timeout_ms: u32) -> usize {
-        match with_timeout(
-            Duration::from_millis(u64::from(timeout_ms)),
-            self.serial.read(buf),
-        )
-        .await
-        {
-            Ok(Ok(n)) => {
-                trace!("RX ({} bytes): {}", n, HexBytes(&buf[..n]));
-                n
+        // A read error is consumed and the read continues. Serial
+        // drivers queue line errors in order with the data, so a break
+        // or framing error from an earlier line event surfaces on
+        // whichever later read pops it, with the bytes the caller wants
+        // behind it. Ending the read on the popped error made a chain
+        // look mute while it was answering: the error ate the attempt
+        // and the next drain ate the answer.
+        //
+        // The consume-and-continue cannot spin on a stuck fault on this
+        // transport: `BufferedUart` reports one sticky RX error per read
+        // that returns it and masks further RX interrupts until that read
+        // drains it, so at most one extra iteration runs per real line
+        // event. A backend without that interlock — a future DMA or
+        // hardware-FIFO RX path — would need its own backoff added here.
+        let deadline = Instant::now() + Duration::from_millis(u64::from(timeout_ms));
+        loop {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return 0;
+            };
+            match with_timeout(remaining, self.serial.read(buf)).await {
+                Ok(Ok(n)) => {
+                    trace!("RX ({} bytes): {}", n, HexBytes(&buf[..n]));
+                    return n;
+                }
+                Ok(Err(e)) => {
+                    warn!("Serial read error: {:?}", Debug2Format(&e));
+                }
+                Err(_) => return 0,
             }
-            Ok(Err(e)) => {
-                warn!("Serial read error: {:?}", Debug2Format(&e));
-                0
-            }
-            Err(_) => 0,
         }
     }
 
