@@ -52,8 +52,3 @@ ubos-ota             = { workspace = true, features = ["defmt", "rp"] }
 ubos-psu             = { workspace = true, features = ["defmt"] }
 ubos-thermal         = { workspace = true, features = ["defmt"] }
 ubos-webui           = { workspace = true, features = ["defmt"] }
-
-# cortex-m and cortex-m-rt are pulled in by `#[cortex_m_rt::entry]` and
-# the linker scripts; no direct source references, so machete can't see them.
-[package.metadata.cargo-machete]
-ignored = ["cortex-m", "cortex-m-rt"]
