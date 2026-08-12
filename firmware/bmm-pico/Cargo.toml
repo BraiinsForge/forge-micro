@@ -11,6 +11,13 @@ workspace = true
 default = ["display"]
 display = []
 
+# cortex-m-rt is named only by the `#[embassy_executor::main]` expansion, which
+# this board uses instead of `#[cortex_m_rt::entry]`. That reference vanished
+# from the source when the `HardFault` handler moved to ubos-rp, so machete no
+# longer sees the crate even though the entry macro still links it.
+[package.metadata.cargo-machete]
+ignored = ["cortex-m-rt"]
+
 [dependencies]
 cortex-m             = { version = "0.7", features = ["inline-asm"] }
 cortex-m-rt          = "0.7"
@@ -24,8 +31,6 @@ embassy-rp           = { version = "0.10.0", features = ["defmt", "unstable-pac"
 embassy-sync         = { workspace = true, features = ["defmt"] }
 embassy-time         = { workspace = true, features = ["defmt"] }
 embedded-hal-bus     = { workspace = true, features = ["async"] }
-embedded-io-async    = { workspace = true }
-serial-baudrate      = { workspace = true }
 static_cell          = { workspace = true }
 ubos-api             = { workspace = true, features = ["defmt"] }
 ubos-asic            = { workspace = true }
@@ -45,6 +50,7 @@ ubos-mining          = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt"] }
 ubos-ota             = { workspace = true, features = ["defmt", "rp"] }
 ubos-psu             = { workspace = true, features = ["defmt"] }
+ubos-rp              = { workspace = true }
 ubos-thermal         = { workspace = true, features = ["defmt"] }
 ubos-webui           = { workspace = true, features = ["defmt"] }
 
