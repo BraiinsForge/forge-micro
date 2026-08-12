@@ -665,3 +665,28 @@ where
         }
     }
 }
+
+/// Task shell that runs the [`Miner`] bring-up and teardown state
+/// machine. Takes the board's PSU and reset-pin types, and the
+/// descriptor whose chip facts drive the tuner.
+///
+/// [`Miner::run`] returns only when `STOP_MINING` fires, which on bare
+/// metal never happens. The shell parks afterwards for the same reason
+/// `ubos_mining::serial_task` does.
+#[macro_export]
+macro_rules! miner_task {
+    ($psu:ty, $reset:ty, $board:expr) => {
+        #[embassy_executor::task]
+        pub async fn miner_task(psu: &'static $psu, reset: $reset) -> ! {
+            /// Park interval after the state machine returns.
+            const PARK_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(60);
+
+            let mut miner = ubos_mining::Miner::new(psu, reset, $board);
+            miner.run().await;
+            defmt::info!("ubos-mining miner exited");
+            loop {
+                embassy_time::Timer::after(PARK_INTERVAL).await;
+            }
+        }
+    };
+}

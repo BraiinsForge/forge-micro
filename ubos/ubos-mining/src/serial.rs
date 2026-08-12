@@ -1078,3 +1078,44 @@ impl Default for Serial {
 /// wiring a static through every task constructor.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub static SERIAL: Serial = Serial::new();
+
+/// Task shell that owns the UART and drives [`SERIAL`] for the lifetime
+/// of the firmware.
+///
+/// It never returns under normal operation: there is no SIGINT on bare
+/// metal, so the actor only leaves its loop on a fatal serial error.
+/// Rather than panic and reset the whole firmware, the shell then parks
+/// so the rest of the system keeps running and a human can pull logs.
+///
+/// The session type is a parameter rather than a name in this crate,
+/// because the board composes it and its capacity is a per-board const.
+#[macro_export]
+macro_rules! serial_task {
+    ($uart:ty, $session:ty, $board:expr, $chip:expr) => {
+        #[embassy_executor::task]
+        pub async fn serial_task(serial: $uart, session: &'static $session) -> ! {
+            /// Park interval after the actor's loop returns.
+            const PARK_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(60);
+
+            match ubos_mining::serial::SERIAL
+                .run(
+                    serial,
+                    session,
+                    $board,
+                    ubos_asic::Bm13xxDriver::new($chip),
+                    ubos_mining::scheduler::RatioScheduler::new(),
+                )
+                .await
+            {
+                Ok(()) => defmt::info!("ubos-mining serial actor terminated cleanly"),
+                Err(kind) => defmt::error!(
+                    "ubos-mining serial actor exited: {:?}",
+                    defmt::Debug2Format(&kind)
+                ),
+            }
+            loop {
+                embassy_time::Timer::after(PARK_INTERVAL).await;
+            }
+        }
+    };
+}

@@ -31,12 +31,7 @@
 //! transfer level; the embassy-stm32 ring-buffered RX driver absorbs most
 //! bursts. This is the same trade-off accepted on bmm-pico for Core 0 tasks.
 
-use defmt::{Debug2Format, error, info};
 use embassy_stm32::gpio::Output;
-use embassy_time::{Duration, Timer};
-
-use crate::psu::BoardPsu;
-use crate::uart_baudrate::MinerUart;
 
 /// Drives the hashboard reset line through an embassy-stm32 GPIO.
 pub struct BoardResetPin {
@@ -60,41 +55,11 @@ impl ubos_mining::reset::ResetPin for BoardResetPin {
     }
 }
 
-/// Long park used after either task's main loop returns. The ubos-mining actor
-/// only returns on a fatal serial error; rather than panic and reset the whole
-/// firmware, the task idles so the rest of the system keeps running and a
-/// human can pull logs.
-const PARK_INTERVAL: Duration = Duration::from_secs(60);
+ubos_mining::serial_task!(
+    crate::uart_baudrate::MinerUart,
+    ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
+    crate::config::BOARD,
+    crate::config::CHIP
+);
 
-#[embassy_executor::task]
-pub async fn serial_task(
-    serial: MinerUart,
-    session: &'static ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
-) -> ! {
-    match ubos_mining::serial::SERIAL
-        .run(
-            serial,
-            session,
-            crate::config::BOARD,
-            ubos_asic::Bm13xxDriver::new(crate::config::CHIP),
-            ubos_mining::scheduler::RatioScheduler::new(),
-        )
-        .await
-    {
-        Ok(()) => info!("ubos-mining serial actor terminated cleanly"),
-        Err(kind) => error!("ubos-mining serial actor exited: {:?}", Debug2Format(&kind)),
-    }
-    loop {
-        Timer::after(PARK_INTERVAL).await;
-    }
-}
-
-#[embassy_executor::task]
-pub async fn miner_task(psu: &'static BoardPsu, reset: BoardResetPin) -> ! {
-    let mut miner = ubos_mining::Miner::new(psu, reset, crate::config::BOARD);
-    miner.run().await;
-    info!("ubos-mining miner exited");
-    loop {
-        Timer::after(PARK_INTERVAL).await;
-    }
-}
+ubos_mining::miner_task!(crate::psu::BoardPsu, BoardResetPin, crate::config::BOARD);

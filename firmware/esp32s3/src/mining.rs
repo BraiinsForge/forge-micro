@@ -30,15 +30,13 @@
 //! the rp2350/bmm-pico dual-core split. `ASIC_SESSION` uses a
 //! `CriticalSectionRawMutex`, so the cross-core share needs no extra pipe.
 
-use defmt::{Debug2Format, error, info, warn};
+use defmt::warn;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_time::{Duration, Timer};
 use esp_hal::i2c::master::I2c;
 use tca9554::{Address, Tca9554};
 
-use crate::psu::{BoardPsu, Bus};
-use crate::uart_baudrate::MinerUart;
+use crate::psu::Bus;
 
 /// `embedded-hal-async` handle for one consumer of the shared I2C0 bus.
 type ExpanderDevice = I2cDevice<'static, NoopRawMutex, I2c<'static, esp_hal::Async>>;
@@ -90,40 +88,11 @@ impl ubos_mining::reset::ResetPin for BoardResetPin {
     }
 }
 
-/// Long park used after either task's main loop returns. The ubos-mining actor
-/// only returns on a fatal serial error; the task idles so the rest of the
-/// system keeps running and a human can pull logs.
-const PARK_INTERVAL: Duration = Duration::from_secs(60);
+ubos_mining::serial_task!(
+    crate::uart_baudrate::MinerUart,
+    ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
+    crate::config::BOARD,
+    crate::config::CHIP
+);
 
-#[embassy_executor::task]
-pub async fn serial_task(
-    serial: MinerUart,
-    session: &'static ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
-) -> ! {
-    match ubos_mining::serial::SERIAL
-        .run(
-            serial,
-            session,
-            crate::config::BOARD,
-            ubos_asic::Bm13xxDriver::new(crate::config::CHIP),
-            ubos_mining::scheduler::RatioScheduler::new(),
-        )
-        .await
-    {
-        Ok(()) => info!("ubos-mining serial actor terminated cleanly"),
-        Err(kind) => error!("ubos-mining serial actor exited: {:?}", Debug2Format(&kind)),
-    }
-    loop {
-        Timer::after(PARK_INTERVAL).await;
-    }
-}
-
-#[embassy_executor::task]
-pub async fn miner_task(psu: &'static BoardPsu, reset: BoardResetPin) -> ! {
-    let mut miner = ubos_mining::Miner::new(psu, reset, crate::config::BOARD);
-    miner.run().await;
-    info!("ubos-mining miner exited");
-    loop {
-        Timer::after(PARK_INTERVAL).await;
-    }
-}
+ubos_mining::miner_task!(crate::psu::BoardPsu, BoardResetPin, crate::config::BOARD);
