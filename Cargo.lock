@@ -309,6 +309,7 @@ dependencies = [
  "ubos-api",
  "ubos-asic",
  "ubos-auth",
+ "ubos-build",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -353,6 +354,7 @@ dependencies = [
  "ubos-api",
  "ubos-asic",
  "ubos-auth",
+ "ubos-build",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -2250,6 +2252,7 @@ dependencies = [
  "ubos-api",
  "ubos-asic",
  "ubos-auth",
+ "ubos-build",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -3324,6 +3327,7 @@ dependencies = [
  "ubos-api",
  "ubos-asic",
  "ubos-auth",
+ "ubos-build",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -3364,6 +3368,7 @@ dependencies = [
  "embassy-rp",
  "embassy-sync 0.8.0",
  "embassy-time",
+ "ubos-build",
 ]
 
 [[package]]
@@ -3388,6 +3393,7 @@ dependencies = [
  "ubos-api",
  "ubos-asic",
  "ubos-auth",
+ "ubos-build",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -3419,6 +3425,7 @@ dependencies = [
  "embassy-rp",
  "embassy-sync 0.8.0",
  "embassy-time",
+ "ubos-build",
 ]
 
 [[package]]
@@ -3858,6 +3865,7 @@ dependencies = [
  "ubos-api",
  "ubos-asic",
  "ubos-auth",
+ "ubos-build",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -3900,6 +3908,7 @@ dependencies = [
  "ubos-api",
  "ubos-asic",
  "ubos-auth",
+ "ubos-build",
  "ubos-config",
  "ubos-cooling",
  "ubos-core",
@@ -4314,6 +4323,10 @@ dependencies = [
  "rand_chacha",
  "ubos-logging",
 ]
+
+[[package]]
+name = "ubos-build"
+version = "0.1.0"
 
 [[package]]
 name = "ubos-config"

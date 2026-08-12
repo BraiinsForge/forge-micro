@@ -15,6 +15,7 @@ members = [
     "host/embedded-i2c-unix",
     "host/embedded-serial-unix",
     "host/host-runner",
+    "host/ubos-build",
     "host/ubos-main-host",
     "ubos-snapshot",
     "ubos/esp32s3-tsens",
@@ -122,6 +123,7 @@ ii-sv2            = { path = "micro-sv2/ii-sv2", default-features = false }
 ubos-api          = { path = "ubos/ubos-api", default-features = false }
 ubos-asic         = { path = "ubos/ubos-asic" }
 ubos-auth         = { path = "ubos/ubos-auth", default-features = false }
+ubos-build        = { path = "host/ubos-build" }
 ubos-core         = { path = "ubos/ubos-core" }
 ubos-display      = { path = "ubos/ubos-display" }
 ubos-http         = { path = "ubos/ubos-http", default-features = false }

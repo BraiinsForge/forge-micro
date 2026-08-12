@@ -99,12 +99,16 @@ typed `TaskPool` static and so rejects generic task functions.
 ## `host/` — std crates
 
 Crates that pull in the standard library and only build for the
-developer host. They never appear in a firmware crate's dep graph.
+developer host. No firmware image contains one. `ubos-build` is the only
+entry that a firmware crate names, and it names it as a build
+dependency. Cargo compiles a build script for the host, so `ubos-build`
+is host code that a board reaches.
 
 | Crate                  | Role                                          |
 |------------------------|-----------------------------------------------|
 | `host-runner`          | full miner loop running on Linux (TUN/TAP, AF_PACKET) |
 | `ubos-main-host`       | thin host shim wrapping `stratum-client`      |
+| `ubos-build`           | build-script support for the board crates: linker wiring, the `memory.x` copy, and a build-id stamp |
 | `embassy-net-afpacket` | Linux AF_PACKET driver for `embassy-net`      |
 | `embedded-i2c-unix`    | `/dev/i2c-N` adapter for `embedded-hal-async` |
 | `embedded-serial-unix` | Linux char-device serial for `embedded-io-async` |

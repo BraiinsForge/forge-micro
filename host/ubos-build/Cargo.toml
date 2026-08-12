@@ -1,0 +1,9 @@
+[package]
+license.workspace = true
+edition.workspace = true
+name        = "ubos-build"
+version     = "0.1.0"
+description = "Build-script support shared by the board crates: linker wiring, the memory.x copy and the build-id stamp."
+
+[lints]
+workspace = true

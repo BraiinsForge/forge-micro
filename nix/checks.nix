@@ -126,6 +126,7 @@ let
     clippy-ubos-http.crate = "ubos-http";
     clippy-ubos-api.crate = "ubos-api";
     clippy-ubos-auth.crate = "ubos-auth";
+    clippy-ubos-build.crate = "ubos-build";
     clippy-ubos-metrics.crate = "ubos-metrics";
     clippy-ubos-mdns.crate = "ubos-mdns";
     clippy-ubos-net.crate = "ubos-net";
