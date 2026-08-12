@@ -178,14 +178,30 @@ pub struct ChipDescriptor {
 pub const MAX_INGEST_CHUNK: usize = 256;
 
 /// Upper bound on solutions a single [`ChainDriver::poll_results`] or
-/// [`ChainDriver::ingest`] call returns. Sized to the Bitmain push
-/// path's worst case: a [`MAX_INGEST_CHUNK`]-byte read plus the parser's
-/// partial-frame carry-over decodes at most 24 of its 11-byte frames, a
-/// bound the driver pins with a compile-time assertion beside its frame
-/// length. A polled nonce burst from a smaller-frame family fits
-/// comfortably within the same bound. The consumer drains the returned
-/// batch before the next call.
-pub const MAX_SOLUTIONS_PER_BATCH: usize = 24;
+/// [`ChainDriver::ingest`] call returns.
+///
+/// Sized to the poll family's worst case: a sixteen-chip chain whose
+/// every nonce FIFO holds its full eight records. It has to hold a
+/// whole sweep, because a poll driver that runs out of batch stops its
+/// sweep early, and on the bench that break landed unevenly — the
+/// chips a broken sweep never reached missed the work feed that rides
+/// on their FIFO read, their FIFOs then filled, and the fuller FIFOs
+/// broke the next sweep sooner, a cycle that held a third of the chain
+/// at half its feed rate and cost a quarter of the hashrate.
+///
+/// The push path's worst case — a [`MAX_INGEST_CHUNK`]-byte
+/// read plus the parser's carry-over decodes at most 24 of its
+/// 11-byte frames, a bound the driver pins with a compile-time
+/// assertion beside its frame length — fits inside the same bound.
+/// The consumer drains the returned batch before the next call.
+///
+/// The batch holds [`MAX_SOLUTIONS_PER_BATCH`] solutions of sixteen bytes
+/// each, about two kilobytes carried inline in the value a poll or ingest
+/// call returns, so it lands on the consumer's serial-worker stack rather
+/// than the heap. Every current consumer runs that worker on a
+/// thirty-two-kilobyte stack, which holds the batch at well under a tenth
+/// of the budget.
+pub const MAX_SOLUTIONS_PER_BATCH: usize = 128;
 
 /// How a chip family delivers found nonces, so the consumer can shape its
 /// steady-state loop correctly.

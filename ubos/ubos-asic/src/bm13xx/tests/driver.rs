@@ -194,14 +194,20 @@ fn ingest_drops_the_batch_overflow_solution_in_a_single_oversized_call() {
     let mut driver = Bm13xxDriver::new(Chip::Bm1362);
     // `ingest` takes an unbounded byte slice, so nothing stops a single
     // call from carrying more valid, CRC-passing frames than one batch
-    // holds. One more than the batch capacity forces the overflow path.
-    let mut frames: heapless::Vec<u8, 512> = heapless::Vec::new();
+    // holds. One more than the batch capacity forces the overflow path;
+    // the buffer is sized from the same constants so a batch resize
+    // cannot silently shrink the test below the overflow it exercises.
+    let mut frames: heapless::Vec<u8, { (MAX_SOLUTIONS_PER_BATCH + 1) * 11 }> =
+        heapless::Vec::new();
     let last_work_id = u8::try_from(MAX_SOLUTIONS_PER_BATCH).expect("BUG: batch cap fits u8");
     for work_id in 0..=last_work_id {
         frames
             .extend_from_slice(&work_response(
                 0x1000_0000 + u32::from(work_id),
-                work_id * 8,
+                // The stride-8 wire id wraps once the batch outgrows 32
+                // frames; the overflow path cares about the count, not
+                // id uniqueness.
+                work_id.wrapping_mul(8),
                 0,
             ))
             .expect("test frames fit");
