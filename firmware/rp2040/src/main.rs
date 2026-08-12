@@ -48,7 +48,7 @@ use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
-use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config as UartConfig};
+use embassy_rp::uart::BufferedInterruptHandler;
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{bind_interrupts, dma, i2c};
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
@@ -62,59 +62,6 @@ use ubos_config::{FlashStorage, SyncFlash};
 use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_eeprom::HashboardEeprom as _;
 
-/// Custom panic handler: records a breadcrumb in SCRATCH2 and spins.
-///
-/// The breadcrumb distinguishes a panic-induced watchdog reset from a
-/// slow-flash watchdog timeout: both set the watchdog TIMER reason bit,
-/// but only a panic sets SCRATCH2 to `WRITE_PHASE_PANIC`. The probe is
-/// detached during OTA uploads so defmt output is not observed; the
-/// breadcrumb is the only durable record that survives the warm reset.
-/// Spinning without feeding the watchdog causes the 2 s hardware watchdog
-/// to fire, which resets the board with the TIMER reason bit set, and
-/// SCRATCH2 carries the panic marker to the next boot. This holds only
-/// once `watchdog_task` has armed the watchdog; a panic in early boot
-/// before arming spins forever, the same window the prior `panic_probe`
-/// handler had.
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    ubos_ota::record_panic_breadcrumb();
-    defmt::error!("firmware panic");
-    // Spin without feeding the watchdog so the hardware watchdog fires and
-    // resets the board, leaving SCRATCH2 set for the next boot to read.
-    loop {
-        cortex_m::asm::wfi();
-    }
-}
-
-/// `HardFault` handler: defmt-logs the stacked exception frame.
-///
-/// A `HardFault` is distinct from a Rust panic and from a watchdog
-/// timeout. cortex-m-rt's default handler executes `udf`, which probe-rs
-/// reports only as a bare "Exception" with an unreliable unwound
-/// backtrace. Logging the stacked PC and LR gives the true faulting
-/// address. The frame is emitted over defmt-rtt before the board is
-/// left to the hardware watchdog, so `cargo run` captures it even when
-/// the unwinder cannot.
-#[cortex_m_rt::exception]
-unsafe fn HardFault(frame: &cortex_m_rt::ExceptionFrame) -> ! {
-    defmt::error!(
-        "HardFault: pc={=u32:#x} lr={=u32:#x} xpsr={=u32:#x} r0={=u32:#x} r1={=u32:#x} r2={=u32:#x} r3={=u32:#x} r12={=u32:#x}",
-        frame.pc(),
-        frame.lr(),
-        frame.xpsr(),
-        frame.r0(),
-        frame.r1(),
-        frame.r2(),
-        frame.r3(),
-        frame.r12(),
-    );
-    // Spin without feeding the watchdog so the hardware watchdog resets the
-    // board after the frame has been emitted.
-    loop {
-        cortex_m::asm::wfi();
-    }
-}
-
 use ubos_net::net;
 
 /// CPU cycles per core-1 park poll: 12 500 cycles at 125 MHz `clk_sys` is
@@ -122,10 +69,8 @@ use ubos_net::net;
 const PARK_POLL_DELAY_CYCLES: u32 = 12_500;
 
 mod config;
-mod fan;
 mod mining;
 mod psu;
-mod uart_baudrate;
 
 static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
     ConstStaticCell::new(embassy_rp::multicore::Stack::new());
@@ -133,11 +78,6 @@ static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1
 static OTA_TARGET: StaticCell<
     ubos_ota::RpOtaTarget<{ config::Flash::SIZE }, PARK_POLL_DELAY_CYCLES>,
 > = StaticCell::new();
-
-/// Software ring buffer size per direction for the core-1 `BufferedUart`.
-/// The RP2040 HW FIFO is 32 bytes; 1 KiB gives slack for ETH-ISR jitter
-/// at the BM1362 hashboard baud rate.
-const UART_RING_BUFFER_SIZE: usize = 1024;
 
 /// Backing storage for the user-facing event ring, owned here so its size
 /// follows this board's `EVENT_LOG_CAPACITY`. Placed in `.uninit`, which the
@@ -168,23 +108,11 @@ type EthernetRunner = Runner<
     Output<'static>,
 >;
 
-struct BoardWatchdog(Watchdog);
-
-impl ubos_core::watchdog::Watchdog for BoardWatchdog {
-    fn init(&mut self) {
-        self.0.start(config::Watchdog::TIMEOUT);
-    }
-
-    fn feed(&mut self) {
-        self.0.feed(config::Watchdog::TIMEOUT);
-    }
-}
-
 ubos_firmware::ethernet_task!(EthernetRunner);
 
 ubos_firmware::net_task!(Device<'static>);
 
-ubos_core::watchdog_task!(BoardWatchdog);
+ubos_core::watchdog_task!(ubos_rp::BoardWatchdog);
 
 ubos_core::led_blink_task!(Output<'static>);
 
@@ -227,7 +155,7 @@ type BoardConfigStorage =
 
 ubos_config::config_task!(BoardConfigStorage, config::BOARD);
 
-ubos_cooling::cooling_task!(fan::BoardFan, fan::BoardTach);
+ubos_cooling::cooling_task!(ubos_rp::fan::BoardFan, ubos_rp::fan::BoardTach);
 
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
@@ -335,54 +263,7 @@ async fn boot(spawner: Spawner) {
     let shared_flash: &'static ubos_ota::SharedFlashMutex<{ config::Flash::SIZE }> =
         SHARED_FLASH.init(BlockingMutex::new(RefCell::new(flash)));
 
-    // Capture the watchdog reset reason and OTA breadcrumb before anything
-    // else touches the watchdog registers. This must happen before
-    // `mark_booted` because `mark_booted` performs a flash op that feeds
-    // the watchdog, and the reason register is read-once (a debugger warm
-    // reset clears it). Reading here guarantees the values reflect the
-    // most recent reset.
-    {
-        use embassy_rp::pac;
-        use ubos_api::{OtaWritePhase, ResetReason};
-
-        let watchdog = pac::WATCHDOG;
-        let reason_reg = watchdog.reason().read();
-        let scratch0 = watchdog.scratch0().read();
-        let scratch1 = watchdog.scratch1().read();
-        let scratch2 = watchdog.scratch2().read();
-
-        // Determine the reset reason from the hardware bits. A debugger
-        // warm reset also clears these bits, so the values are reliable
-        // in production but may read as Clean after probe-rs attaches;
-        // that is acceptable for diagnostic purposes.
-        let reason = if reason_reg.timer() {
-            ResetReason::WatchdogTimeout
-        } else if reason_reg.force() {
-            ResetReason::WatchdogForced
-        } else {
-            ResetReason::Clean
-        };
-
-        // The breadcrumb is active when SCRATCH0 holds the magic value.
-        let ota_was_active = scratch0 == ubos_ota::OTA_BREADCRUMB_MAGIC;
-        let ota_offset = if ota_was_active { scratch1 } else { 0 };
-
-        // SCRATCH2 holds the write-phase code written by `write_chunk` or
-        // the panic handler. Unknown values map to None.
-        let write_phase = OtaWritePhase::from_u32(scratch2);
-
-        info!(
-            "reset reason: {:?}, ota_active={}, ota_offset={}, write_phase={:?}",
-            reason as u8, ota_was_active, ota_offset, write_phase as u8,
-        );
-
-        ubos_api::publish_reset_diag(reason, ota_was_active, ota_offset, write_phase);
-
-        // Clear SCRATCH0 and SCRATCH2 so a subsequent clean reset does not
-        // re-report stale OTA state from this boot cycle.
-        watchdog.scratch0().write_value(0u32);
-        watchdog.scratch2().write_value(0u32);
-    }
+    ubos_rp::capture_reset_diag();
 
     // Log which image booted, so an OTA swap is observable on the defmt
     // console: the new version appears here after a successful update.
@@ -407,39 +288,26 @@ async fn boot(spawner: Spawner) {
     // buffer into the HW FIFO. RP2040's Cortex-M0+ has per-core NVICs, so
     // an unmask on one core and a pend on the other land on different
     // controllers and the FIFO is never written.
-    let uart_parts = (hw.uart, hw.uart_tx, hw.uart_rx);
-    embassy_rp::multicore::spawn_core1(hw.core1, CORE1_STACK.take(), move || {
-        let miner_serial = {
-            static TX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
-            static RX_BUF: StaticCell<[u8; UART_RING_BUFFER_SIZE]> = StaticCell::new();
-            let (peripheral, tx_pin, rx_pin) = uart_parts;
-            let uart = BufferedUart::new(
-                peripheral,
-                tx_pin,
-                rx_pin,
-                Irqs,
-                TX_BUF.init([0; UART_RING_BUFFER_SIZE]),
-                RX_BUF.init([0; UART_RING_BUFFER_SIZE]),
-                {
-                    let mut config = UartConfig::default();
-                    config.baudrate = ubos_mining::consts::INITIAL_BAUDRATE;
-                    config
-                },
-            );
-            uart_baudrate::MinerUart::new(uart)
-        };
-        // Drive core 1 through `run_cortex_m_executor::<1, _>` so the
-        // poll/wfe loop accumulates idle ticks into `IDLE_TICKS[1]`,
-        // letting `run_cpu_load::<2>()` publish a real busy ratio for
-        // this core instead of a constant 1.0.
-        ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner: Spawner| {
-            core1_spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
-        });
-    });
+    ubos_rp::spawn_miner_core1!(
+        core1 = hw.core1,
+        stack = CORE1_STACK,
+        irqs = Irqs,
+        uart = (hw.uart, hw.uart_tx, hw.uart_rx),
+        run = |miner_serial| {
+            // Drive core 1 through `run_cortex_m_executor::<1, _>` so the
+            // poll/wfe loop accumulates idle ticks into `IDLE_TICKS[1]`,
+            // letting `run_cpu_load::<2>()` publish a real busy ratio for
+            // this core instead of a constant 1.0.
+            ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner: Spawner| {
+                core1_spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
+            });
+        },
+    );
 
-    spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(Watchdog::new(
-        hw.watchdog
-    )))));
+    spawner.spawn(unwrap!(watchdog_task(ubos_rp::BoardWatchdog::new(
+        Watchdog::new(hw.watchdog),
+        config::Watchdog::TIMEOUT,
+    ))));
     spawner.spawn(unwrap!(reset_task()));
 
     let led = Output::new(hw.led, Level::Low);
@@ -487,8 +355,13 @@ async fn boot(spawner: Spawner) {
         // Temperature and fan monitor via shared I2C bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
         let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
-        let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin);
-        let board_tach = fan::BoardTach::new(hw.fan_tach_slice, hw.fan_tach_pin);
+        let board_fan =
+            ubos_rp::fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin, config::Fan::PWM_TOP);
+        let board_tach = ubos_rp::fan::BoardTach::new(
+            hw.fan_tach_slice,
+            hw.fan_tach_pin,
+            config::Fan::TACH_PULSES_PER_REV,
+        );
         spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
         spawner.spawn(unwrap!(manager_task(mining_handle)));
         spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));

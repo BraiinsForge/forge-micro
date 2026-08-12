@@ -3321,8 +3321,6 @@ dependencies = [
  "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-hal-bus",
- "embedded-io-async 0.7.0",
- "serial-baudrate",
  "static_cell",
  "ubos-api",
  "ubos-asic",
@@ -3343,6 +3341,7 @@ dependencies = [
  "ubos-net",
  "ubos-ota",
  "ubos-psu",
+ "ubos-rp",
  "ubos-thermal",
  "ubos-webui",
 ]
