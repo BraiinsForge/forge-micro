@@ -100,18 +100,20 @@ the typed handles. Everything expressible as data is data; the
 binding is the small honest residue.
 
 The task shells are part of that residue, and most of them are not. A
-board takes each shell from a macro in `ubos/ubos-firmware/src/tasks.rs`.
-Nine names are the exception, and a board can still declare them by
-hand:
+board takes each shell from a macro. That macro lives in the crate that
+owns the loop the shell calls, beside the loop itself:
+`ubos_core::watchdog_task!` sits next to
+`ubos_core::watchdog::run_watchdog`. Three shells belong to no such
+crate and stay in `ubos/ubos-firmware/src/tasks.rs`.
 
-`boot`, `cpu_load_task`, `mdns_task`, `miner_task`, `power_stats_task`,
-`serial_task`, `stratum_client_task`, `tach_task`, `watchdog_task`.
+Five names are the exception, and a board can still declare them by hand:
+
+`boot`, `cpu_load_task`, `mdns_task`, `stratum_client_task`, `tach_task`.
 
 `boot` is the composition root itself. `mdns_task` and `cpu_load_task`
 name per-board consts, and `stratum_client_task` needs the board's own
-session type and pool size. `serial_task`, `miner_task`, `watchdog_task`
-and `power_stats_task` come from `mining.rs` and `psu.rs`, which are per
-board today. `tach_task` belongs to the fan module of one MCU family.
+session type and pool size. `tach_task` belongs to the fan module of one
+MCU family, and leaves when that family's crate takes the module.
 
 The `board-skeleton-parity` check holds boards to that list. It also
 fails a board that does not name `ubos_firmware::net::bring_up`,

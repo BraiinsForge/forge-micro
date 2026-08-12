@@ -18,10 +18,10 @@
 # shall be considered distinct from the grant above.
 
 # The board-skeleton parity gate: a board crate must take its task
-# shells and its boot sequence from ubos-firmware rather than write a
-# copy. Nothing else asks that question, so three boards have already
-# arrived on master carrying twenty hand-written shells each and passed
-# every check in both trees.
+# shells from the ubos crates that own them, and its boot sequence from
+# ubos-firmware, rather than write a copy. Nothing else asks that
+# question, so three boards have already arrived on master carrying
+# twenty hand-written shells each and passed every check in both trees.
 #
 # The gate has two halves, because either one alone leaves the same hole
 # those boards went through:
@@ -42,26 +42,21 @@ let
   inherit (pkgs) lib;
 
   # The task shells a board may still declare by hand. Every other task
-  # in a board crate must expand from a macro in
-  # ubos/ubos-firmware/src/tasks.rs.
+  # in a board crate must expand from a macro in the crate that owns the
+  # loop it calls.
   #
   # `boot` is the composition root itself. `mdns_task` and
   # `cpu_load_task` name per-board consts, and `stratum_client_task`
-  # needs the board's own session type and pool size. `serial_task`,
-  # `miner_task`, `watchdog_task` and `power_stats_task` are declared by
-  # mining.rs and psu.rs, which are per board until the satellite macros
-  # land. `tach_task` backs the fan module of a family rather than of a
-  # board. docs/MACHINE.md carries this list in prose.
+  # needs the board's own session type and pool size. `tach_task` backs
+  # the fan module of a family rather than of a board, and leaves when
+  # that family's crate takes the module. docs/MACHINE.md carries this
+  # list in prose.
   fleetShells = [
     "boot"
     "cpu_load_task"
     "mdns_task"
-    "miner_task"
-    "power_stats_task"
-    "serial_task"
     "stratum_client_task"
     "tach_task"
-    "watchdog_task"
   ];
 
   # The three calls that reach the hoisted boot sequence. A board that
@@ -160,7 +155,7 @@ in
             esac
             echo "ERROR: $board declares the task $name at $loc." >&2
             echo "       A board must not write a hoisted task shell by hand. Take the" >&2
-            echo "       shell from a macro in ubos/ubos-firmware/src/tasks.rs." >&2
+            echo "       shell from the macro in the crate that owns the loop it calls." >&2
             echo "       If the task is this board's own, add its name to the board's" >&2
             echo "       holders in nix/checks.nix." >&2
             status=1
