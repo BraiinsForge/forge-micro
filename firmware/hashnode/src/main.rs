@@ -111,7 +111,6 @@ mod config;
 mod fan;
 mod mining;
 mod psu;
-mod temperature;
 mod uart_baudrate;
 
 static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
@@ -205,7 +204,15 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
     .await
 }
 
-ubos_thermal::thermal_task!(temperature::HashboardTemperature);
+// This board's array is a TMP461 remote-diode sensor on the ASIC die plus
+// two TMP102 PCB sensors, from the `ubos_machine::HASHNODE` sensor table.
+//
+// Note on `dangerous_temp_c`: the 90 °C runtime default in `ThermalConfig`
+// is calibrated for PCB-surface sensors. Because the safety gate reads the
+// real die temperature from the TMP461 remote channel, the Hashnode
+// threshold should be raised toward ~108 °C; override it in the per-board
+// `ThermalConfig`, not in the shared `ubos-config` default.
+ubos_thermal::thermal_task!(ubos_thermal::SensorArray<psu::Device>);
 
 ubos_manager::manager_task!();
 
@@ -477,7 +484,7 @@ async fn boot(spawner: Spawner) {
 
     // Temperature and fan monitor via shared I2C bus.
     let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
-    let hashboard_temp = temperature::new(temp_device);
+    let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
     let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin, hw.fan_pwm_pin_b);
     // Each connector's tachometer is measured by a PIO0 state machine; the
     // cooling loop drains the latest period per fan and publishes one

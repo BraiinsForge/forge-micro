@@ -114,7 +114,6 @@ mod fan;
 mod mining;
 mod psu;
 mod rgb;
-mod temperature;
 mod uart_baudrate;
 
 static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
@@ -208,7 +207,11 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
     .await
 }
 
-ubos_thermal::thermal_task!(temperature::HashboardTemperature);
+// This board's array is two TMP102 PCB sensors, from the
+// `ubos_machine::BRAIINS_AXE` sensor table. There is no die-attached
+// remote diode on this board, so the safety gate runs on the PCB
+// readings plus their PCB-to-die offset.
+ubos_thermal::thermal_task!(ubos_thermal::SensorArray<psu::Device>);
 
 ubos_manager::manager_task!();
 
@@ -473,7 +476,7 @@ async fn boot(spawner: Spawner) {
 
     // Temperature and fan monitor via shared I2C bus.
     let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
-    let hashboard_temp = temperature::new(temp_device);
+    let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
     let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin, hw.fan_pwm_pin_b);
     // Each connector's tachometer is measured by a PIO0 state machine; the
     // cooling loop drains the latest period per fan and publishes one

@@ -93,7 +93,6 @@ mod config;
 mod fan;
 mod mining;
 mod psu;
-mod temperature;
 mod uart_baudrate;
 
 defmt::timestamp!("{=u64:iso8601s}", ubos_net::wall_clock_secs());
@@ -182,7 +181,7 @@ impl ubos_metrics::mcu_temperature::McuTemperatureSensor for McuTempSensor {
 
 ubos_metrics::mcu_temperature_task!(McuTempSensor);
 
-ubos_thermal::thermal_task!(temperature::HashboardTemperature);
+ubos_thermal::thermal_task!(ubos_thermal::SensorArray<psu::Device>);
 
 ubos_manager::manager_task!();
 
@@ -639,7 +638,7 @@ async fn boot(spawner: Spawner) {
 
         // Temperature and fan monitor via shared I2C0 bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
-        let hashboard_temp = temperature::new(temp_device);
+        let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
         let board_fan = fan::BoardFan::new(hw.ledc, hw.fan_pwm_pin);
         let board_tach = fan::BoardTach::new(hw.pcnt, hw.fan_tach_pin);
         spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));

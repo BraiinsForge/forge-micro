@@ -122,7 +122,6 @@ mod config;
 mod fan;
 mod mining;
 mod psu;
-mod temperature;
 mod uart_baudrate;
 
 static CORE1_STACK: ConstStaticCell<embassy_rp::multicore::Stack<{ config::Core1::STACK_BYTES }>> =
@@ -213,7 +212,7 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
     .await
 }
 
-ubos_thermal::thermal_task!(temperature::HashboardTemperature);
+ubos_thermal::thermal_task!(ubos_thermal::SensorArray<psu::Device>);
 
 ubos_manager::manager_task!();
 
@@ -460,7 +459,7 @@ async fn main(spawner: Spawner) {
 
         // Temperature + fan monitor via shared I2C bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
-        let hashboard_temp = temperature::new(temp_device);
+        let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
         let board_fan = fan::BoardFan::new(hw.fan_pwm_slice, hw.fan_pwm_pin);
         let board_tach = fan::BoardTach::new(hw.fan_tach_slice, hw.fan_tach_pin);
         spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));

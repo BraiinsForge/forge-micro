@@ -70,7 +70,6 @@ mod config;
 mod fan;
 mod mining;
 mod psu;
-mod temperature;
 mod uart_baudrate;
 
 /// Backing storage for the user-facing event ring, owned here so its size
@@ -187,7 +186,7 @@ ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
 ubos_metrics::hashrate_metrics_task!();
 
-ubos_thermal::thermal_task!(temperature::HashboardTemperature);
+ubos_thermal::thermal_task!(ubos_thermal::SensorArray<psu::Device>);
 
 ubos_manager::manager_task!();
 
@@ -467,7 +466,7 @@ async fn boot(spawner: Spawner) {
 
         // Temperature and fan monitor via shared I2C1 bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
-        let hashboard_temp = temperature::new(temp_device);
+        let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
         let board_fan = fan::BoardFan::new(hw.tim4, hw.fan_pwm_pin, hw.fan_tach_pin);
         // Takes the fan by reference as proof that CH4 is configured and its
         // capture interrupt is armed.
