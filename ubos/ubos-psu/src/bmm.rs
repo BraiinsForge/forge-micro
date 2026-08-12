@@ -240,3 +240,66 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
         }
     }
 }
+
+/// The whole of a board's `psu` module where the power stage is a
+/// [`BmmPsu`] on a shared I2C bus: the state alias, the `'static`
+/// storage, the constructor, and the two long-running tasks.
+///
+/// Takes the board's bus mutex type, the `I2cDevice` handle carved from
+/// it, and the machine descriptor's PSU entry. The board keeps those two
+/// aliases, because they name its own HAL I2C peripheral; everything
+/// built on top of them is the same on every board that has this power
+/// stage.
+///
+/// A board whose power stage is its own wrapper rather than a [`BmmPsu`]
+/// keeps its module and invokes `ubos_psu::power_stats_task!` alone.
+#[macro_export]
+macro_rules! i2c_psu {
+    ($bus:ty, $device:ty, $descriptor:expr) => {
+        /// PSU state guarded by the raw mutex `ubos_psu::BmmPsu`
+        /// requires. The type is the driver's choice, not this board's.
+        type PsuState = embassy_sync::mutex::Mutex<
+            ubos_psu::RawMutex,
+            ubos_psu::State<$device, ubos_psu::BmmPsuDescriptor>,
+        >;
+
+        /// Concrete `BmmPsu` for this board. Public so the `mining`
+        /// module can spell it in `miner_task`'s signature.
+        pub type BoardPsu = ubos_psu::BmmPsu<$device>;
+
+        static STATE: static_cell::StaticCell<PsuState> = static_cell::StaticCell::new();
+        static TERMINATED: static_cell::StaticCell<ubos_psu::AtomicBool> =
+            static_cell::StaticCell::new();
+        static PSU: static_cell::StaticCell<BoardPsu> = static_cell::StaticCell::new();
+
+        /// Construct the `BmmPsu` over an `I2cDevice` carved from `bus`
+        /// and return the `'static` references the watchdog, miner and
+        /// sensor tasks need.
+        #[must_use]
+        pub fn init(
+            bus: &'static $bus,
+        ) -> (
+            &'static BoardPsu,
+            &'static PsuState,
+            &'static ubos_psu::AtomicBool,
+        ) {
+            let device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
+            let state: &'static _ = STATE.init(embassy_sync::mutex::Mutex::new(
+                ubos_psu::State::new(device, $descriptor),
+            ));
+            let terminated: &'static _ = TERMINATED.init(ubos_psu::AtomicBool::new(false));
+            let psu: &'static _ = PSU.init(ubos_psu::BmmPsu::new(state, terminated));
+            (psu, state, terminated)
+        }
+
+        #[embassy_executor::task]
+        pub async fn watchdog_task(
+            state: &'static PsuState,
+            terminated: &'static ubos_psu::AtomicBool,
+        ) {
+            ubos_psu::run_watchdog(state, terminated).await;
+        }
+
+        ubos_psu::power_stats_task!(BoardPsu);
+    };
+}

@@ -48,7 +48,8 @@ use ubos_psu::{BraiinsAxePsu, BraiinsAxeState, Error, Psu, StatusFlags};
 pub type Bus = Mutex<NoopRawMutex, I2c<'static, I2C0, Async>>;
 
 /// `embedded-hal-async` device handle for one consumer of the shared bus.
-type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C0, Async>>;
+/// Public because the hashboard sensor array takes one of these too.
+pub type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C0, Async>>;
 
 /// PSU state guarded by the raw mutex the TPS driver requires.
 type PsuStateInner = Mutex<CriticalSectionRawMutex, BraiinsAxeState<Device>>;
@@ -165,7 +166,4 @@ pub fn init(
     (psu, terminated)
 }
 
-#[embassy_executor::task]
-pub async fn power_stats_task(psu: &'static BoardPsu) -> ! {
-    ubos_psu::run_power_stats(psu).await
-}
+ubos_psu::power_stats_task!(BoardPsu);

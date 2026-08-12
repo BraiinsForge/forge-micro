@@ -94,6 +94,12 @@ pub use braiins_axe::{BraiinsAxePsu, BraiinsAxePsuDescriptor, BraiinsAxeState};
 pub use config::BmmPsuDescriptor;
 pub use state::State;
 
+/// The terminated flag every constructor here takes, re-exported so
+/// `i2c_psu!` can name it without the board declaring `portable-atomic`
+/// for that one reference. It is already part of this crate's public
+/// surface through `BmmPsu::new` and [`run_watchdog`].
+pub use portable_atomic::AtomicBool;
+
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
 use portable_atomic::{AtomicU32, Ordering as AtomicOrdering};
@@ -286,9 +292,8 @@ async fn publish_measured_voltage(voltage: Voltage, source: Option<&'static str>
 /// prometheus and publish a fresh [`PsuReading`]; failures log an error
 /// and republish the last known values with `sensor_fault = true` so
 /// consumers see a stable last-good sample plus a fault flag. Mirrors
-/// the publish pattern in `ubos_thermal::run_thermal`. Board firmware
-/// crates wrap this in a `#[embassy_executor::task]` of their own
-/// because tasks cannot be generic.
+/// the publish pattern in `ubos_thermal::run_thermal`. Boards spawn it
+/// through [`power_stats_task`], because a task cannot be generic.
 // The function reads in a flat sequence (power, voltage, status) and
 // pushes metrics inline; splitting into helpers would force the `P:
 // Psu` bound and the publisher captures through each one.
@@ -493,4 +498,19 @@ pub trait Psu {
     /// Read the PSU STATUS register and decode the four fault flags.
     async fn read_status(&self) -> Result<StatusFlags, Error<Self::BusError>>;
     async fn terminate(&self);
+}
+
+/// Task shell around [`run_power_stats`]. Takes the board's PSU type.
+///
+/// Every board that reads a PSU spawns this, including the three whose
+/// power stage is their own wrapper rather than [`BmmPsu`]. Those three
+/// invoke it directly; the rest get it from [`i2c_psu`].
+#[macro_export]
+macro_rules! power_stats_task {
+    ($psu:ty) => {
+        #[embassy_executor::task]
+        pub async fn power_stats_task(psu: &'static $psu) -> ! {
+            ubos_psu::run_power_stats(psu).await
+        }
+    };
 }
