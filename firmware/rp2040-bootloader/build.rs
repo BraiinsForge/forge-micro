@@ -18,21 +18,14 @@
 // shall be considered distinct from the grant above.
 
 use std::env;
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
 
+/// Build script for the bootloader image.
+///
+/// The board build script does not fit here: a bootloader links its
+/// arguments with `rustc-link-arg-bins`, takes `--nmagic`, and reaches
+/// defmt only behind a cargo feature.
 fn main() {
-    // Put `memory.x` in our output directory and ensure it's
-    // on the linker search path.
-    let out = &PathBuf::from(env::var_os("OUT_DIR").expect("BUG: OUT_DIR not set during build"));
-    File::create(out.join("memory.x"))
-        .expect("BUG: failed to create memory.x in OUT_DIR")
-        .write_all(include_bytes!("memory.x"))
-        .expect("BUG: failed to write memory.x");
-    println!("cargo:rustc-link-search={}", out.display());
-
-    println!("cargo:rerun-if-changed=memory.x");
+    ubos_build::copy_memory_x();
     println!("cargo:rerun-if-changed=build.rs");
 
     println!("cargo:rustc-link-arg-bins=--nmagic");

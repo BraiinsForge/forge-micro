@@ -50,4 +50,9 @@ fn main() {
     println!("cargo:rustc-link-arg=-Tstack-floor.x");
 
     println!("cargo:rerun-if-changed=build.rs");
+
+    // `config.rs` reads `UBOS_FW_VERSION` through `option_env!`; cargo does
+    // not track that input, so without this an override silently reuses a
+    // stale version baked into the image.
+    println!("cargo:rerun-if-env-changed=UBOS_FW_VERSION");
 }

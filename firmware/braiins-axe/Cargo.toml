@@ -50,3 +50,6 @@ ubos-ota             = { workspace = true, features = ["defmt", "rp"] }
 ubos-psu             = { workspace = true, features = ["defmt"] }
 ubos-thermal         = { workspace = true, features = ["defmt"] }
 ubos-webui           = { workspace = true, features = ["defmt"] }
+
+[build-dependencies]
+ubos-build = { workspace = true }
