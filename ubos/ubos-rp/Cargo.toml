@@ -1,0 +1,24 @@
+[package]
+license.workspace = true
+name = "ubos-rp"
+edition.workspace = true
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+ubos-core = { workspace = true }
+ubos-cooling = { workspace = true }
+ubos-api = { workspace = true, features = ["defmt"] }
+ubos-ota = { workspace = true, features = ["defmt", "rp"] }
+serial-baudrate = { workspace = true }
+embedded-io-async = { workspace = true }
+embassy-time = { workspace = true }
+defmt = { workspace = true }
+
+# No chip feature here: the crate builds under both rp2040 (thumbv6m) and
+# rp235xa (thumbv8m), so the board or the flake check selects the chip.
+embassy-rp = { version = "0.10.0", default-features = false, features = ["unstable-pac"] }
+cortex-m = { version = "0.7", features = ["inline-asm"] }
+cortex-m-rt = "0.7"

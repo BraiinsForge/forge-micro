@@ -4621,6 +4621,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubos-rp"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt 1.0.1",
+ "embassy-rp",
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+ "serial-baudrate",
+ "ubos-api",
+ "ubos-cooling",
+ "ubos-core",
+ "ubos-ota",
+]
+
+[[package]]
 name = "ubos-snapshot"
 version = "0.1.0"
 dependencies = [

@@ -46,6 +46,7 @@ members = [
     "ubos/ubos-net",
     "ubos/ubos-ota",
     "ubos/ubos-psu",
+    "ubos/ubos-rp",
     "ubos/ubos-temperature",
     "ubos/ubos-webui",
 ]
@@ -141,6 +142,7 @@ ubos-mdns         = { path = "ubos/ubos-mdns", default-features = false }
 ubos-net          = { path = "ubos/ubos-net", default-features = false }
 ubos-ota          = { path = "ubos/ubos-ota", default-features = false }
 ubos-psu          = { path = "ubos/ubos-psu", default-features = false }
+ubos-rp           = { path = "ubos/ubos-rp" }
 ubos-temperature  = { path = "ubos/ubos-temperature", default-features = false }
 ubos-webui        = { path = "ubos/ubos-webui", default-features = false }
 
