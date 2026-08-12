@@ -24,10 +24,8 @@ embassy-rp           = { version = "0.10.0", features = ["defmt", "unstable-pac"
 embassy-sync         = { workspace = true, features = ["defmt"] }
 embassy-time         = { workspace = true, features = ["defmt"] }
 embedded-hal-bus     = { workspace = true, features = ["async"] }
-embedded-io-async    = { workspace = true }
 pio                  = "0.3"
 portable-atomic      = { workspace = true }
-serial-baudrate      = { workspace = true }
 static_cell          = { workspace = true }
 ubos-api             = { workspace = true, features = ["defmt"] }
 ubos-asic            = { workspace = true }
@@ -47,6 +45,7 @@ ubos-mining          = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt"] }
 ubos-ota             = { workspace = true, features = ["defmt", "rp"] }
 ubos-psu             = { workspace = true, features = ["defmt"] }
+ubos-rp              = { workspace = true }
 ubos-thermal         = { workspace = true, features = ["defmt"] }
 ubos-webui           = { workspace = true, features = ["defmt"] }
 

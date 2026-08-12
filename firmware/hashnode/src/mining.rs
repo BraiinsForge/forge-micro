@@ -51,7 +51,7 @@ impl ubos_mining::reset::ResetPin for BoardResetPin {
 }
 
 ubos_mining::serial_task!(
-    crate::uart_baudrate::MinerUart,
+    ubos_rp::uart::MinerUart,
     ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
     crate::config::BOARD,
     crate::config::CHIP
