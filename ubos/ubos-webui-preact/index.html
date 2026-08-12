@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>microBOS</title>
+  <!-- Apply the saved theme preference before first paint so the page
+       never flashes the wrong palette. data-theme-pref keeps the
+       operator's choice (auto, light, dark) and drives the cycler icon;
+       data-theme holds the resolved palette and may flip live when
+       prefers-color-scheme changes. -->
+  <script>
+    (function () {
+      var pref;
+      try { pref = localStorage.getItem('theme'); } catch (error) { }
+      if (pref !== 'light' && pref !== 'dark') pref = 'auto';
+      document.documentElement.dataset.themePref = pref;
+      document.documentElement.dataset.theme =
+        pref === 'auto'
+          ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+          : pref;
+    })();
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+</body>
+</html>

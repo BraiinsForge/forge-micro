@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>microBOS — Login</title>
+  <!-- Apply the saved theme preference before first paint so the page
+       never flashes the wrong palette. -->
+  <script>
+    (function () {
+      var pref;
+      try { pref = localStorage.getItem('theme'); } catch (error) { }
+      if (pref !== 'light' && pref !== 'dark') pref = 'auto';
+      document.documentElement.dataset.themePref = pref;
+      document.documentElement.dataset.theme =
+        pref === 'auto'
+          ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+          : pref;
+    })();
+  </script>
+</head>
+<body>
+  <!-- The login page is deliberately framework-free: it is a single
+       static form, so it ships plain HTML + a few lines of JS instead
+       of the Preact runtime the dashboard needs. -->
+  <div class="card">
+    <div class="logo">
+      <img src="/logo.svg" alt="Braiins">
+      <span class="mu">micro</span>
+    </div>
+    <div class="err" id="err">Invalid username or password.</div>
+    <form method="post" action="/login">
+      <label for="u">Username</label>
+      <input id="u" name="username" type="text" autocomplete="username" required>
+      <label for="p">Password</label>
+      <input id="p" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</body>
+</html>

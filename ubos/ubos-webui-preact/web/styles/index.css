@@ -1,0 +1,1640 @@
+/* Dashboard-specific styles. Built into index.html alongside
+   common.css; do not duplicate the shared palette or base resets. */
+
+/* ---------- Top navigation bar ----------
+   .bar core lives in common.css; only the dashboard-specific link
+   styling lives here. */
+
+.logo {
+  margin-right: 128px;
+}
+
+.bar a {
+  color: var(--mute);
+  text-decoration: none;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  font-size: var(--fs-body);
+  border-bottom: 2px solid transparent;
+}
+
+.bar a:hover {
+  color: var(--fg);
+}
+
+.bar a.on {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+/* Icon-only nav link. The Carbon glyph inherits its size from this
+   class and its colour from the parent <a>, so the hover transition
+   defined on .bar a already paints the icon. */
+.navIcon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  display: block;
+}
+
+/* Logout is a POST form so the browser navigates to /login by
+   following the redirect, the same way the login form does. The
+   wrapping form uses display: contents so it leaves the nav flex
+   layout untouched and the button sits inline like the other nav
+   items; the button repeats the .bar a icon-link styling because
+   .bar a only matches anchors. */
+.lo {
+  display: contents;
+}
+
+.navBtn {
+  background: none;
+  border: 0;
+  color: var(--mute);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: background-color 0.11s, color 0.11s;
+}
+
+.navBtn:hover {
+  color: var(--fg);
+  background: var(--hover-bg);
+}
+
+#nLogout {
+  border-bottom: 2px solid transparent;
+  padding: 0 14px;
+}
+
+/* Status badge. Filled Carbon-style circle with a check or X cutout;
+   the parent card class drives the colour through currentColor. The
+   shared symbol defs come from a `?raw` import of icons.svg and are
+   hidden by the .defs rule in common.css. */
+.dot {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  fill: currentColor;
+  color: var(--red);
+  transition: color 0.3s;
+}
+
+/* ---------- Page frame ----------
+   Make the page at least viewport-tall and let the active view grow,
+   so the build-info footer rests at the window bottom even when the
+   dashboard is shorter than a tall screen rather than floating up
+   under the content. #app uses display: contents so the Preact mount
+   point is invisible to the flex layout and nav, content, and footer
+   become direct flex children of body. The inactive view carries
+   .hide, which sets display: none, and drops out of the flex flow. */
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+#app {
+  display: contents;
+}
+
+/* Grow to fill the column so the footer sits at the bottom. width:
+   100% is needed because both views center themselves with
+   max-width + margin: 0 auto; as flex items their auto margins would
+   otherwise override the stretch and collapse them to content width,
+   most visibly the narrow config form. */
+main,
+.cfg {
+  flex: 1;
+  width: 100%;
+}
+
+/* ---------- Main dashboard grid ---------- */
+
+/* Charts on the left column, summary cards on the right, pools card
+   spans both. */
+main {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  grid-auto-rows: min-content;
+  column-gap: 16px;
+  row-gap: 8px;
+  padding: 16px;
+  align-items: start;
+  justify-items: stretch;
+}
+
+/* Grid and flex items default to min-width: auto and refuse to shrink
+   below their content, so on a phone the chart SVG and pool rows force
+   the single 1fr column wider than the screen. min-width: 0 lets each
+   column track collapse to the viewport; the cards already clip or
+   ellipsize their own contents. */
+main > * {
+  min-width: 0;
+}
+
+/* The three charts stack into a single unbroken panel: no rule where
+   two charts meet, so the shared hover cursor reads as one continuous
+   line down all three plots. */
+.left {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 584px;
+}
+
+/* ---------- Charts ----------
+   The chart coordinate space is read from each SVG's rendered pixel
+   box at draw time in index.js (see chartDims) and the viewBox is set
+   from JS, so there is no fixed width or height to keep in sync here.
+   The svg height below is what the chart fills; PAD_* in index.js
+   reserve the axis-label gutters. */
+
+.chart {
+  background: var(--panel);
+  padding: 12px;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.chart:hover {
+  z-index: 1;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.gr {
+  stroke: var(--border);
+  stroke-width: 0.5;
+  opacity: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.tk {
+  stroke: var(--mute);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.cur {
+  stroke: var(--mute);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.ax {
+  fill: var(--mute);
+  font-size: 9px;
+  font-family: var(--ff-mono);
+}
+
+/* Chart line strokes are set inline per series in Chart.tsx (the
+   colour is data-driven), so no per-series stroke classes live here. */
+
+.plot {
+  position: relative;
+  height: 100%;
+}
+
+.lb {
+  position: absolute;
+  left: 60px;
+  top: 10px;
+  transform: translateY(-50%);
+  z-index: 1;
+  font-size: var(--fs-label);
+  pointer-events: none;
+}
+
+.lb span + span {
+  margin-left: 10px;
+}
+
+.tt {
+  position: absolute;
+  z-index: 3;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 6px 10px;
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: var(--fs-label);
+}
+
+.tt-time {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--fg);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.tt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.6;
+}
+
+.tt-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tt-label {
+  color: var(--mute);
+}
+
+.tt-val {
+  color: var(--fg);
+  font-weight: 700;
+  margin-left: auto;
+}
+
+/* ---------- Sidebar summary cards ---------- */
+
+/* Two cards per row, matching bos-main's stat grid; a card that needs
+   the full row (a long or compound value) opts in via .wide. Grid
+   auto-flow drops it on its own row and resumes 2-up after, so callers
+   don't need to reorder cards around it. */
+.side {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  grid-column: 2;
+}
+
+/* Height accommodates the label plus value at the current padding, so
+   overflow: hidden does not clip the value. */
+.side .card {
+  height: 80px;
+  overflow: hidden;
+}
+
+.side .wide {
+  grid-column: 1 / -1;
+}
+
+.card {
+  background: var(--panel);
+  padding: 16px 24px;
+}
+
+.k {
+  color: var(--mute);
+  font-size: var(--fs-body);
+}
+
+.v {
+  font-size: var(--fs-body);
+  margin-top: 4px;
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Pools card ---------- */
+
+.pools {
+  grid-column: 1 / -1;
+}
+
+.pools .k {
+  margin-bottom: 6px;
+}
+
+.pool {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-family: var(--ff-mono);
+  font-size: var(--fs-body);
+}
+
+.pools .pool:first-of-type {
+  border-top: 0;
+}
+
+.ps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pt {
+  color: var(--mute);
+  font-size: var(--fs-label);
+  min-width: 3em;
+  text-align: right;
+}
+
+.pool.live .pt,
+.pool.live .dot {
+  color: var(--green);
+}
+
+.pool.empty .dot {
+  display: none;
+}
+
+.pm {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pi {
+  font-size: var(--fs-label);
+  color: var(--mute);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Link card reuses the .ps/.pt structure but with bigger text. */
+.lkc .ps {
+  margin-top: 4px;
+}
+
+.lkc .pt {
+  font-family: var(--ff-mono);
+  font-size: var(--fs-body);
+  min-width: auto;
+  text-align: left;
+}
+
+.lkc.live .dot {
+  color: var(--green);
+}
+
+.lkc.live .pt {
+  color: var(--green);
+}
+
+.lkc.dead .pt {
+  color: var(--red);
+}
+
+/* Dashboard responsive breakpoints. These sit here, after all the base
+   rules they override, on purpose: an @media block adds no specificity,
+   so it only wins over an equal-specificity base rule declared earlier
+   in the file. They run in descending max-width order so the narrower
+   breakpoint's declarations always come last and win. */
+
+@media (max-width: 1000px) {
+  /* Below 1000px the 400px sidebar leaves too little width for two
+     readable card columns once the chart column has run out of slack,
+     so the cards stack and the track halves to give the width back to
+     the charts. The track still clears the widest value a card holds:
+     the firmware formats the clock as a fixed twelve-character
+     "HH:MM:SS UTC", which needs about 149px of the 216px once the card
+     padding is taken out. */
+  main {
+    grid-template-columns: 1fr 216px;
+  }
+  .side {
+    grid-template-columns: 1fr;
+  }
+
+  /* Centre the view links between the logo and the right-hand controls.
+     The links are bare siblings of the flex row rather than a group, so
+     auto margins on the outermost two absorb the free space evenly and
+     centre the run between its neighbours. The .sp spacer has to stop
+     growing first, otherwise it claims all the free space and leaves
+     the auto margins nothing to split. The wide layout's hand-tuned
+     logo margin would bias the result, so it goes as well. */
+  .logo {
+    margin-right: 0;
+  }
+  .sp {
+    flex: 0;
+  }
+  .bar a:first-of-type {
+    margin-left: auto;
+  }
+  .bar a:last-of-type {
+    margin-right: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  /* The sidebar moves below the charts and spans the full width, so
+     there is room for two card columns again. */
+  main {
+    grid-template-columns: 1fr;
+  }
+  .left {
+    height: auto;
+  }
+  .side {
+    grid-template-columns: 1fr 1fr;
+    grid-column: auto;
+    grid-row: auto;
+  }
+  .side .card {
+    height: auto;
+  }
+
+  /* The nav row loses its slack at the same width, so the "micro" tag
+     beside the wordmark gives way. The Braiins wordmark is the mark
+     worth keeping, so it stays down to the narrowest screen. */
+  .logo .mu {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  main {
+    padding: 10px;
+    gap: 10px;
+  }
+  .side {
+    grid-template-columns: 1fr;
+  }
+  .card {
+    padding: 10px 12px;
+  }
+  .pool {
+    font-size: var(--fs-label);
+    padding: 6px 0;
+  }
+  .pt {
+    font-size: var(--fs-label);
+  }
+  /* The nav is one non-wrapping row: logo, three text links, then the
+     action, theme and logout controls. On a narrow phone that row
+     overran the width and pushed the controls off the clipped right
+     edge. The "micro" tag is already gone by this width, so what is
+     left to give is the link tracking and the outer gaps. */
+  .bar {
+    padding: 0 8px;
+  }
+  .bar a {
+    padding: 0 6px;
+    font-size: var(--fs-label);
+    letter-spacing: 0;
+  }
+  .logo {
+    margin-right: 8px;
+  }
+}
+
+/* Status card value: colored to match the mining state. Green while
+   running, orange for a safety pause, muted for an operator stop. */
+.v.running {
+  color: var(--green);
+}
+
+.v.warn {
+  color: var(--orange);
+}
+
+.v.stopped {
+  color: var(--mute);
+}
+
+/* ---------- Configuration page ----------
+   Outer grid mirrors the dashboard `main` so a user toggling between
+   Dashboard and Configuration sees no horizontal shift: same outer
+   width, same sidebar column, same panel column. The nav rail uses
+   a 100vw box-shadow to bleed its dark background to the left
+   viewport edge; body { overflow-x: clip } in common.css contains
+   the shadow without promoting body to a scroll container. An outer
+   padding leaves visible body bg gaps between the rail and the
+   sticky header and footer. */
+
+.cfg {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+  column-gap: 16px;
+  min-height: calc(100vh - 96px);
+}
+
+@media (max-width: 480px) {
+  .cfg {
+    padding: 16px 12px;
+  }
+}
+
+@media (max-width: 760px) {
+  .cfg {
+    grid-template-columns: 1fr;
+    min-height: 0;
+    /* The page frame makes .cfg a flex: 1 filler. On mobile the nav
+       and panel stack as two grid rows; the default align-content
+       would split the leftover height between them and stretch the
+       nav row, dropping the active item's underline well below its
+       label, more so for shorter panels. Pack the rows at the top so
+       the nav keeps its natural height. */
+    align-content: start;
+  }
+}
+
+/* Sticks to the left below the top bar (48px) plus the page's own
+   16px padding, so it stays in view while a long panel (e.g. Pools
+   with several entries) scrolls underneath it. */
+.cfgnav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  background: var(--panel);
+  box-shadow: -100vw 0 0 var(--panel);
+  position: sticky;
+  top: 64px;
+  align-self: start;
+}
+
+@media (max-width: 760px) {
+  .cfgnav {
+    position: static;
+    flex-direction: row;
+    border-bottom: 1px solid var(--border);
+    padding: 0 8px 8px;
+    margin-bottom: 16px;
+    gap: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+}
+
+.cfgnav a {
+  color: var(--mute);
+  text-decoration: none;
+  padding: 7px 10px;
+  font-size: var(--fs-body);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+
+.cfgnav a:hover {
+  color: var(--fg);
+}
+
+.cfgnav a.on {
+  color: var(--fg);
+  border-left-color: var(--accent);
+}
+
+@media (max-width: 760px) {
+  .cfgnav a {
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+  }
+
+  .cfgnav a.on {
+    border-bottom-color: var(--accent);
+  }
+}
+
+.cfgpanel {
+  min-width: 0;
+}
+
+.cfgsec {
+  display: none;
+}
+
+.cfgsec.on {
+  display: block;
+}
+
+/* Each form lays its dark panels and its save button out as a vertical
+   stack with consistent breathing room. The save button lives outside
+   any panel on the body bg so the form's terminal controls feel
+   distinct from the configuration surfaces. Save results surface as
+   toasts (see .toasts), not inline. */
+.cfgsec form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel {
+  background: var(--panel);
+  padding: 16px 20px;
+}
+
+/* Section heading sits on body bg above its panel so it reads as the
+   label for the panel surface below it rather than the first row of
+   inputs. The form's flex gap controls spacing between sections. */
+.psec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.psec h3 {
+  color: var(--fg);
+  font-weight: var(--fw-emp);
+  font-size: var(--fs-head);
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.psec.sep {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.cfgsec label {
+  display: block;
+  color: var(--mute);
+  font-size: var(--fs-label);
+  margin: 10px 0 2px;
+}
+
+/* Browser-default spinner buttons on type=number inputs read as noisy
+   chrome inside the dark panel and the operator can just type. */
+.cfgsec input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.cfgsec input[type="number"]::-webkit-inner-spin-button,
+.cfgsec input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Carbon text input: flat, no radius, background fill with only a
+   bottom rule in border-strong. 40px is Carbon's default "md" size;
+   body-compact-01 (--fs-body, 14px) is kept monospace since these
+   fields hold IPs, ports, hex pubkeys and numbers where digit
+   alignment matters. */
+.fld input {
+  width: 100%;
+  height: 40px;
+  padding: 0 16px;
+  background: var(--field);
+  color: var(--fg);
+  border: 0;
+  border-bottom: 1px solid var(--field-border);
+  border-radius: 0;
+  font: var(--fs-body) var(--ff-mono);
+}
+
+/* Carbon focus state is an inset ring, not a border colour change, so
+   the ring has to sit inside the field box via a negative offset. */
+.fld input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Invalid reuses the same inset ring in the error colour. Not wired to
+   any caller yet; the `invalid` prop exists for a later pass. */
+.fld.invalid input {
+  outline: 2px solid var(--red);
+  outline-offset: -2px;
+}
+
+.fld input::placeholder {
+  color: var(--mute);
+  opacity: 1;
+}
+
+/* Carbon keeps the field background on disabled and drops the
+   underline instead of greying the whole box; this is what the DHCP
+   read-only address fields render as. */
+.fld input:disabled {
+  color: var(--mute);
+  border-bottom-color: transparent;
+  cursor: not-allowed;
+}
+
+/* Text and control wrappers default to the stacked layout: plain block
+   flow, one on top of the other, exactly like the bare .fldLabel + input
+   this replaces. .fldRows below overrides both to lay a field out as a
+   row instead. .fldCtl is relative in both layouts so .fldUnit can be
+   positioned against it either way. */
+.fldText {
+  display: block;
+}
+
+.fldCtl {
+  display: block;
+  position: relative;
+}
+
+.fldLabel {
+  display: block;
+  color: var(--mute);
+  font-size: var(--fs-label);
+  margin-bottom: 8px; /* Carbon $spacing-03 */
+}
+
+.fldHelp,
+.fldErr {
+  display: block;
+  font-size: var(--fs-label);
+  margin-top: 4px; /* Carbon $spacing-02 */
+  color: var(--mute);
+}
+
+.fldErr {
+  color: var(--red);
+}
+
+/* Row layout: label and description stacked on the left, input on the
+   right, one flat panel-coloured row per field. Values below are lifted
+   from a live getComputedStyle() measurement of the Braiins OS Cooling
+   page. Rows are separated by the page background showing through a
+   3px flex gap rather than a border, which is visually equivalent to
+   the reference's per-row margin-top and needs no first-row exception. */
+.fldRows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.fldRows > .pcfg {
+  display: contents;
+}
+
+/* Zeroing the margin is what makes the 3px gap above the real gap. Each
+   row is a <label>, so the generic .cfgsec label rule contributes
+   10px top and 2px bottom, which would otherwise add to 15px. */
+.fldRows .fld {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 16px;
+  background: var(--panel);
+}
+
+@media (max-width: 760px) {
+  .fldRows .fld {
+    flex-direction: column;
+    gap: 4px;
+    align-items: stretch;
+  }
+
+  .urlRow .fldText {
+    max-width: unset !important;
+  }
+}
+
+/* The row splits evenly and the control is capped at the reference's
+   290px, so the input starts at the halfway mark and the remainder of
+   its half stays empty. Both halves grow from a zero basis; the control
+   freezes at its cap and the leftover space collects at the row's end
+   rather than widening either column. */
+/* The min-height reserves the label-plus-description height even on rows
+   that carry no description, so such a row is the same height as one
+   with it instead of collapsing to the 40px input. Centring the column
+   then keeps a lone label on the input's centre line; a row that fills
+   the 44px is unaffected. */
+.fldRows .fldText {
+  flex: 1 1 0%;
+  max-width: 50%;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.fldRows .fldCtl {
+  flex: 1 1 0%;
+  max-width: 290px;
+  display: flex;
+}
+
+.fldRows .wide .fldCtl,
+.fldRows .fld.wide .fldCtl {
+  max-width: none;
+}
+
+.fldRows .fldLabel {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-emp);
+  color: var(--fg);
+  line-height: 18px;
+  margin: 0;
+}
+
+.fldRows .fldDesc {
+  display: block;
+  font-size: var(--fs-body);
+  color: var(--mute);
+  line-height: 18px;
+  margin-top: 8px;
+}
+
+.fldRows .fld input {
+  width: 100%;
+}
+
+.fldRows .fldCtl.hasUnit input {
+  padding-right: 48px;
+}
+
+.fldCtl.hasPw input {
+  padding-right: 40px;
+}
+
+.cfgsec .pwToggle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 40px;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.cfgsec .pwToggle:hover {
+  background: none;
+}
+
+.pwToggle svg {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  fill: var(--fg);
+}
+
+.pwToggle:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.pwToggle:disabled {
+  cursor: not-allowed;
+}
+
+.pwToggle:disabled svg,
+.pwToggle:disabled:hover svg {
+  fill: var(--field-border);
+}
+
+.fldUnit {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  font-size: var(--fs-body);
+  pointer-events: none;
+}
+
+/* Carbon select: native <select> with appearance stripped and a custom
+   chevron overlaid. Reuses .fld and .fldText/.fldLabel so the row
+   layout (.fldRows) works without extra rules. */
+.selCtl {
+  position: relative;
+  display: flex;
+}
+
+.selCtl select {
+  width: 100%;
+  height: 40px;
+  padding: 0 48px 0 16px;
+  background: var(--field);
+  color: var(--fg);
+  border: 0;
+  border-bottom: 1px solid var(--field-border);
+  border-radius: 0;
+  font: var(--fs-body) var(--ff-mono);
+  appearance: none;
+  cursor: pointer;
+}
+
+.selCtl select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.selCtl select:disabled {
+  color: var(--mute);
+  border-bottom-color: transparent;
+  cursor: not-allowed;
+}
+
+.selCtl svg {
+  position: absolute;
+  right: 16px;
+  top: 0;
+  width: 16px;
+  height: 100%;
+  fill: var(--fg);
+  pointer-events: none;
+}
+
+.fldRows .selCtl {
+  flex: 1 1 0%;
+  max-width: 290px;
+}
+
+/* Carbon checkbox: a 16px box indented by padding-left, with the real
+   input hidden behind it. The input stays absolutely positioned at
+   zero size with opacity 0, never display: none, so it keeps its
+   place in the tab order and stays clickable via the wrapping label. */
+/* Carbon lays the checkbox row out as a flex box. Both current call sites
+   sit inside .cfgsec, where the more specific .cfgsec label rule sets
+   display: block and wins; the box is absolutely positioned so either
+   value lays the row out the same way. The declaration stands as the
+   fallback for any checkbox used outside the config pages, which would
+   otherwise inherit a label's inline display and lose the min-height. */
+.chk {
+  position: relative;
+  display: flex;
+  padding-left: 20px; /* 16px box + Carbon's 4px label gap */
+  min-height: 20px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chk input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  margin: 0;
+  opacity: 0;
+}
+
+.chkBox {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid var(--fg);
+  border-radius: 2px;
+}
+
+/* Tick geometry from Carbon's _checkbox.scss: a 9x5px box whose
+   bottom-left borders form the check mark, rotated -45deg and scaled
+   from the bottom-right corner so it grows into place on check. */
+.chkBox::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 5px;
+  top: -2px;
+  left: 3px;
+  border-bottom: 1px solid var(--panel);
+  border-left: 1px solid var(--panel);
+  transform: scale(0) rotate(-45deg);
+  transform-origin: bottom right;
+}
+
+.chk input:checked + .chkBox {
+  background: var(--fg);
+  border-color: var(--fg);
+}
+
+.chk input:checked + .chkBox::after {
+  transform: scale(1) rotate(-45deg);
+}
+
+.chk input:focus + .chkBox {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.chkText {
+  color: var(--fg);
+  font-size: var(--fs-body);
+}
+
+/* URL row: "URL" label on the far left, protocol dropdown + "://" at
+   the right edge of the label half, flush against the input. .fldText
+   switches to a horizontal flex row so the label and .urlProto sit
+   side by side with the label growing to fill the gap. */
+.fldRows .urlRow .fldText {
+  flex-direction: row;
+  align-items: center;
+  min-height: 0;
+}
+
+.fldRows .urlRow .fldCtl {
+  max-width: none;
+}
+
+.fldRows .urlRow .fldLabel {
+  flex: 1;
+}
+
+.urlProto {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.urlProto .selCtl select {
+  padding-right: 32px;
+}
+
+.urlProto .selCtl svg {
+  right: 8px;
+}
+
+.urlSep {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  height: 40px;
+  background: var(--field);
+  color: var(--mute);
+  border-bottom: 1px solid var(--field-border);
+  border-left: 1px solid var(--field-border);
+  border-right: 1px solid var(--field-border);
+  font: var(--fs-body) var(--ff-mono);
+  flex-shrink: 0;
+}
+
+/* Per-pool form: protocol dropdown drives which subfields show.
+   .s1 fields are sv1-only, .s2 fields are sv2-only. */
+.pcfg:not([data-protocol="sv1"]) .s1 {
+  display: none;
+}
+
+.pcfg:not([data-protocol="sv2"]) .s2 {
+  display: none;
+}
+
+/* Save button sits outside the panels on the body bg as a deliberate
+   submit affordance. align-self: flex-start sizes it to content width.
+   Metrics match the equivalent button in Braiins OS: sentence case at
+   the regular weight, 8px by 16px padding inside a 48px minimum height,
+   and the 0.16px tracking Carbon gives its compact body text. */
+.cfgsec button {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  padding: 8px 16px;
+  letter-spacing: 0.16px;
+  cursor: pointer;
+  font-size: var(--fs-body);
+}
+
+/* Braiins OS separates the submit control from the last panel by 32px.
+   The form's flex gap already contributes 12px of that, so only the
+   remaining 20px is added here. The direct-child selector is what keeps
+   the buttons that sit inside panels, such as the firmware update and
+   factory reset controls, from being pushed away from their own rows. */
+.cfgsec form > button {
+  margin-top: 20px;
+}
+
+.cfgsec button:hover {
+  background: var(--accent-hi);
+}
+
+.toasts {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: min(360px, calc(100vw - 32px));
+}
+
+.toast {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 12px;
+  padding: 14px 14px 14px 13px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--mute);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.toast-success {
+  border-left-color: var(--green);
+  color: var(--green);
+}
+
+.toast-error {
+  border-left-color: var(--red);
+  color: var(--red);
+}
+
+.toastIcon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  display: block;
+  margin-top: 1px;
+}
+
+.toastTitle {
+  color: var(--fg);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-emp);
+}
+
+.toastText {
+  color: var(--mute);
+  font-size: var(--fs-label);
+  margin-top: 2px;
+  word-break: break-word;
+}
+
+.toastClose {
+  min-height: 0;
+  height: auto;
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  color: var(--mute);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toastClose:hover {
+  color: var(--fg);
+}
+
+.hide {
+  display: none;
+}
+
+.seg {
+  display: flex;
+  align-self: center;
+}
+
+.seg button {
+  min-height: 0;
+  height: 40px;
+  background: var(--field);
+  color: var(--mute);
+  border: 1px solid var(--border);
+  border-right-width: 0;
+  padding: 0 16px;
+  font: var(--fw-emp) var(--fs-body) var(--ff-mono);
+  cursor: pointer;
+}
+
+.seg button:last-child {
+  border-right-width: 1px;
+}
+
+.seg button:hover {
+  color: var(--fg);
+}
+
+.seg button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* Full-screen takeover shown after a network change is applied. The
+   board's address and this session are gone, so the SPA is dead; an
+   opaque page-filling notice makes that unmistakable and tells the
+   operator where to reconnect, rather than a small box over a stale UI. */
+.fullNotice {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+}
+
+.fullNotice h1 {
+  font-size: 1.8rem;
+  margin: 0 0 16px;
+  color: var(--fg);
+}
+
+.fullNotice p {
+  font-size: var(--fs-body);
+  color: var(--mute);
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+/* ---------- Network confirm modal ---------- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal > div {
+  background: var(--panel);
+  padding: 24px 28px;
+  max-width: 480px;
+  width: 90%;
+}
+
+.modal p {
+  margin: 0 0 12px;
+  font-size: var(--fs-body);
+}
+
+.modalWarn {
+  color: var(--red);
+  font-size: var(--fs-label);
+  margin: 0 0 12px;
+}
+
+.modalCheck {
+  margin-bottom: 8px;
+}
+
+.modalBtns {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* These variants have to outrank `.cfgsec button`, which sets the accent
+   background and matches with one class and one type. A bare .btnDanger
+   scores lower and lost, so the destructive buttons inside the config
+   pages rendered in the accent colour instead of red. Pairing each
+   variant with .cfgsec covers those call sites, and the unscoped
+   selector still serves the action menu in the nav bar. */
+.btnDanger,
+.cfgsec .btnDanger {
+  background: var(--red);
+}
+
+.btnDanger:hover,
+.cfgsec .btnDanger:hover {
+  background: #b91c25;
+}
+
+.btnSecondary,
+.cfgsec .btnSecondary {
+  background: transparent;
+  color: var(--mute);
+  border: 1px solid var(--border);
+}
+
+.btnSecondary:hover,
+.cfgsec .btnSecondary:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+/* ---------- Miner action menu ----------
+   The action button lives in the nav bar immediately before the theme
+   toggle. Its dropdown floats below the bar in a positioned container
+   so the nav flex row stays unaffected. The menu closes on any item
+   click, on Escape, or on a click outside; `.hide` is the shared
+   visibility toggle used everywhere else on this page. */
+
+.actWrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.actBtn {
+  border-bottom: 2px solid transparent;
+  padding: 0 10px;
+  gap: 6px;
+}
+
+.actMenu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  min-width: 160px;
+  z-index: 50;
+  padding: 4px 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.actMenu.hide {
+  display: none;
+}
+
+.actItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  font-size: var(--fs-body);
+  padding: 9px 16px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.actItem:hover:not(:disabled) {
+  background: var(--field);
+}
+
+.actItem:disabled {
+  color: var(--mute);
+  cursor: not-allowed;
+}
+
+.actConfirm {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.actConfirm.hide {
+  display: none;
+}
+
+.actConfirmText {
+  font-size: var(--fs-label);
+  color: var(--mute);
+  padding: 6px 16px 8px;
+  margin: 0;
+}
+
+.actMsg {
+  font-size: var(--fs-label);
+  color: var(--red);
+  padding: 6px 16px 8px;
+  margin: 0;
+}
+
+.actMsg.hide {
+  display: none;
+}
+
+/* Danger and secondary styles inside the menu reuse the config section
+   button tokens so the confirm step reads the same as the factory reset
+   confirmation in the Configuration page. Width is overridden to fill
+   the menu column rather than auto-sizing to content. */
+.actMenu .btnDanger {
+  color: #fff;
+  border-radius: 0;
+}
+
+.actMenu .btnSecondary {
+  border: 0;
+  border-radius: 0;
+}
+
+/* ---------- Firmware update card ---------- */
+
+.fwLabel {
+  color: var(--mute);
+  font-size: var(--fs-label);
+}
+
+.fwLabelGap {
+  margin-left: 16px;
+}
+
+.fwRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+#fwProgWrap {
+  margin-top: 10px;
+  height: 6px;
+  background: var(--field);
+  overflow: hidden;
+}
+
+#fwProgBar {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+/* ---------- Events page ---------- */
+
+.events {
+  flex: 1;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.evhead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* Reload and snapshot download are icon-only buttons so they stay out
+   of the way; they repeat the muted nav-icon treatment and sit as one
+   cluster at the row's right edge with the record count to its left. */
+#evReload,
+#evSave {
+  padding: 4px;
+}
+
+.evhead .seg button {
+  height: 26px;
+  padding: 0 10px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#evReload:hover,
+#evSave:hover {
+  color: var(--fg);
+}
+
+/* Dimming is the only in-flight feedback for the snapshot download; a
+   spinning download arrow would read as activity on the wrong control. */
+#evSave:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.evReloadIcon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  display: block;
+}
+
+/* Spin the glyph while a fetch is in flight; the icon is the button's
+   only feedback since the status text only settles once the load ends. */
+#evReload.loading .evReloadIcon {
+  animation: evSpin 0.8s linear infinite;
+}
+
+@keyframes evSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+#evStatus {
+  font-size: var(--fs-body);
+  color: var(--mute);
+}
+
+.evtab {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+}
+
+.evtab th,
+.evtab td {
+  white-space: nowrap;
+}
+
+.evtab th:last-child,
+.evtab td:last-child {
+  white-space: normal;
+  width: 100%;
+}
+
+.evtab th {
+  color: var(--mute);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-emp);
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.evtab th.sortable {
+  cursor: pointer;
+  transition: color 0.11s;
+}
+
+.evtab th.sortable:hover {
+  color: var(--fg);
+}
+
+.sort-arrow {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 6px;
+  vertical-align: middle;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.evtab th.sortable:hover .sort-arrow {
+  opacity: 0.4;
+}
+
+.evtab th.sorted .sort-arrow {
+  opacity: 1;
+}
+
+.evtab th.sorted.asc .sort-arrow {
+  border-top: 0;
+  border-bottom: 5px solid currentColor;
+}
+
+.evtab td {
+  padding: 7px 12px;
+  font-size: var(--fs-body);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.evtab tr:last-child td {
+  border-bottom: 0;
+}
+
+.sev-warn td {
+  background: rgba(254, 132, 49, 0.06);
+}
+
+.sev-error td {
+  background: rgba(217, 34, 44, 0.08);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-emp);
+  letter-spacing: var(--ls-cap);
+  text-transform: uppercase;
+  color: #fff;
+}
+
+.badge.info {
+  background: var(--green);
+}
+
+.badge.warn {
+  background: var(--orange);
+}
+
+.badge.error {
+  background: var(--red);
+}
+
+.sev-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sev-dot.info {
+  background: var(--green);
+}
+
+.sev-dot.warn {
+  background: var(--orange);
+}
+
+.sev-dot.error {
+  background: var(--red);
+}

@@ -1,0 +1,133 @@
+import { useEffect, useState } from 'preact/hooks';
+import type { JSX } from 'preact';
+import { getConfig, getJSON, RETRY_DELAYS } from '../lib/api';
+import type { AsicBounds, CoolingBounds, Config as ConfigData, ThermalBounds } from '../lib/types';
+import ConfigPools from './ConfigPools';
+import ConfigMining from './ConfigMining';
+import ConfigThermal from './ConfigThermal';
+import ConfigSystem from './ConfigSystem';
+import ConfigNetwork from './ConfigNetwork';
+
+// Shared with ConfigSystem.tsx: shows the board-unavailable overlay and,
+// when `poll` is set, polls until the board answers again. Defined here
+// (rather than imported) so the two files don't form a type-only import
+// cycle over something this small.
+export type BoardNotice = (title: string, text: string, poll: boolean) => void;
+
+interface TabRenderProps {
+  config: ConfigData | null;
+  asicBounds: Partial<AsicBounds>;
+  thermalBounds: Partial<ThermalBounds>;
+  coolingBounds: Partial<CoolingBounds>;
+  boardNotice: BoardNotice;
+}
+
+interface Tab {
+  key: string;
+  label: string;
+  render: (p: TabRenderProps) => JSX.Element;
+}
+
+const TABS: Tab[] = [
+  { key: 'pools', label: 'Pools', render: (p) => <ConfigPools pools={p.config?.pool || []} /> },
+  {
+    key: 'temperature',
+    label: 'Temperature',
+    render: (p) => (
+      <ConfigThermal
+        thermal={p.config?.thermal}
+        cooling={p.config?.cooling}
+        thermalBounds={p.thermalBounds}
+        coolingBounds={p.coolingBounds}
+      />
+    ),
+  },
+  {
+    key: 'mining',
+    label: 'Mining',
+    render: (p) => <ConfigMining tuning={p.config?.tuning} bounds={p.asicBounds} />,
+  },
+  {
+    key: 'system',
+    label: 'System',
+    render: (p) => <ConfigSystem api={p.config?.api} boardNotice={p.boardNotice} />,
+  },
+  {
+    key: 'network',
+    label: 'Network',
+    render: (p) => <ConfigNetwork hostname={p.config?.network?.hostname} />,
+  },
+];
+
+function subOf(hash: string): string {
+  const found = TABS.find((t) => hash === '#config/' + t.key);
+  return found ? found.key : 'pools';
+}
+
+export interface ConfigProps {
+  hash: string;
+  boardNotice: BoardNotice;
+}
+
+export default function Config({ hash, boardNotice }: ConfigProps) {
+  const sub = subOf(hash);
+
+  const [config, setConfig] = useState<ConfigData | null>(null);
+  const [asicBounds, setAsicBounds] = useState<Partial<AsicBounds>>({});
+  const [thermalBounds, setThermalBounds] = useState<Partial<ThermalBounds>>({});
+  const [coolingBounds, setCoolingBounds] = useState<Partial<CoolingBounds>>({});
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      let lastError: unknown;
+      for (const wait of RETRY_DELAYS) {
+        if (wait) await new Promise((r) => setTimeout(r, wait));
+        try {
+          const [cfg, asic, thermal, cooling] = await Promise.all([
+            getConfig(),
+            getJSON<{ bounds: AsicBounds }>('/api/system/asic'),
+            getJSON<{ bounds: ThermalBounds }>('/api/system/thermal'),
+            getJSON<{ bounds: CoolingBounds }>('/api/system/cooling'),
+          ]);
+          setConfig(cfg);
+          setAsicBounds(asic.bounds || {});
+          setThermalBounds(thermal.bounds || {});
+          setCoolingBounds(cooling.bounds || {});
+          setLoadError('');
+          return;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      setLoadError('Load failed: ' + (lastError instanceof Error ? lastError.message : 'unknown'));
+    })();
+  }, []);
+
+  const props: TabRenderProps = { config, asicBounds, thermalBounds, coolingBounds, boardNotice };
+
+  return (
+    <section class="cfg">
+      <nav class="cfgnav">
+        {TABS.map((t) => (
+          <a key={t.key} href={'#config/' + t.key} class={sub === t.key ? 'on' : ''}>
+            {t.label}
+          </a>
+        ))}
+      </nav>
+      <div class="cfgpanel">
+        {loadError ? (
+          <div class="msg" style={{ color: 'var(--red)' }}>{loadError}</div>
+        ) : !config ? (
+          <div class="msg">Loading…</div>
+        ) : (
+          TABS.map((t) => (
+            <div key={t.key} class={'cfgsec' + (sub === t.key ? ' on' : '')}>
+              {t.render(props)}
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}

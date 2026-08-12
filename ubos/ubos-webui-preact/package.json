@@ -1,0 +1,19 @@
+{
+  "name": "ubos-webui-preact",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "rsbuild dev",
+    "build": "rsbuild build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "^2",
+    "@rsbuild/plugin-preact": "^2",
+    "@types/node": "^22",
+    "typescript": "^5"
+  }
+}

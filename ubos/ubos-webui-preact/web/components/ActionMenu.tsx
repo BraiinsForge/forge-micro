@@ -1,0 +1,164 @@
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { postJSON } from '../lib/api';
+import { useDash } from '../lib/store';
+import type { BoardNotice } from '../app';
+
+export interface ActionMenuProps {
+  boardNotice: BoardNotice;
+}
+
+export default function ActionMenu({ boardNotice }: ActionMenuProps) {
+  const dash = useDash();
+
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false); // restart confirm step
+  const [inFlight, setInFlight] = useState(false);
+  const [msg, setMsg] = useState('');
+  const wrapRef = useRef<HTMLDivElement>(null); // menu wrapper, for outside-click detection
+
+  // Start/Stop disabled states, mirroring updateActionState in the
+  // vanilla UI. paused wins over running; an OTA pause locks both.
+  const paused = dash.info?.paused;
+  const running = dash.info?.running;
+  const reason = dash.info?.pause_reason;
+  const startDisabled = paused == null ? false : paused ? reason === 'otaUpdate' : running;
+  const stopDisabled = paused == null ? false : paused || !running;
+
+  function close() {
+    setOpen(false);
+    setConfirming(false);
+    setMsg('');
+  }
+
+  function toggle() {
+    open ? close() : setOpen(true);
+  }
+
+  useEffect(() => {
+    // Close when a click lands outside the menu wrapper. The toggle
+    // button and menu items live inside wrapRef, so their clicks never
+    // trip this.
+    function onWindowClick(event: MouseEvent) {
+      // `contains` wants a Node; a click target is always one in
+      // practice (it comes from the DOM event dispatch), just typed
+      // more loosely as EventTarget.
+      if (open && wrapRef.current && !wrapRef.current.contains(event.target as Node)) close();
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape' && open) close();
+    }
+    addEventListener('click', onWindowClick);
+    addEventListener('keydown', onKey);
+    return () => {
+      removeEventListener('click', onWindowClick);
+      removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  async function act(path: string, label: string) {
+    if (inFlight) return;
+    setInFlight(true);
+    setMsg('');
+    try {
+      await postJSON(path, {});
+      close();
+    } catch (_) {
+      setMsg(`${label} failed. Try again.`);
+    } finally {
+      setInFlight(false);
+    }
+  }
+
+  async function confirmRestart() {
+    if (inFlight) return;
+    setInFlight(true);
+    setMsg('');
+    try {
+      await postJSON('/api/system/restart', {});
+      close();
+      boardNotice(
+        'Restarting',
+        'The board is rebooting. It can take up to 30 seconds to become reachable, then log in again.',
+        true
+      );
+    } catch (_) {
+      setMsg('Could not reach the board to restart. Try again.');
+    } finally {
+      setInFlight(false);
+    }
+  }
+
+  return (
+    <div class="actWrap" ref={wrapRef}>
+      <button
+        type="button"
+        class="navBtn actBtn"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label="Miner action menu"
+        title="Miner actions"
+        onClick={toggle}
+      >
+        <svg class="navIcon" aria-hidden="true">
+          <use href="#iAction" />
+        </svg>
+      </button>
+
+      <div class={'actMenu' + (open ? '' : ' hide')}>
+        <button
+          type="button"
+          class="actItem"
+          disabled={startDisabled}
+          onClick={() => act('/api/system/resume', 'Start')}
+        >
+          <svg class="navIcon" aria-hidden="true">
+            <use href="#iPlay" />
+          </svg>
+          <span>Start</span>
+        </button>
+        <button
+          type="button"
+          class="actItem"
+          disabled={stopDisabled}
+          onClick={() => act('/api/system/pause', 'Stop')}
+        >
+          <svg class="navIcon" aria-hidden="true">
+            <use href="#iPause" />
+          </svg>
+          <span>Stop</span>
+        </button>
+        <button
+          type="button"
+          class={'actItem' + (confirming ? ' hide' : '')}
+          onClick={() => {
+            setConfirming(true);
+            setMsg('');
+          }}
+        >
+          <svg class="navIcon" aria-hidden="true">
+            <use href="#iRestart" />
+          </svg>
+          <span>Restart…</span>
+        </button>
+
+        <div class={'actConfirm' + (confirming ? '' : ' hide')}>
+          <p class="actConfirmText">
+            Restarts the entire board. Mining stops until the board comes back (~30 s).
+          </p>
+          <button type="button" class="actItem btnDanger" onClick={confirmRestart}>
+            Confirm restart
+          </button>
+          <button type="button" class="actItem btnSecondary" onClick={() => setConfirming(false)}>
+            Cancel
+          </button>
+        </div>
+
+        {msg && (
+          <p class="actMsg" role="status" aria-live="polite">
+            {msg}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

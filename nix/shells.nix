@@ -81,6 +81,9 @@ in
         # Used by ubos-webui's build.rs to minify the dashboard
         # CSS/JS before gzipping into OUT_DIR.
         esbuild
+        # ubos-webui-preact's Vite/Preact dev loop (`npm run dev`) and
+        # its build.rs dev-shell fallback (`npm run build`).
+        nodejs
         # Unused-dependency lint, matching the cargo-machete check.
         cargo-machete
         # Builds combined BOOTSEL UF2 images from app and bootloader.

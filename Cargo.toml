@@ -51,6 +51,7 @@ members = [
     "ubos/ubos-stm32",
     "ubos/ubos-temperature",
     "ubos/ubos-webui",
+    "ubos/ubos-webui-preact",
 ]
 
 # micro-sv2 is its own nested workspace, vendored for deployment convenience
@@ -148,6 +149,7 @@ ubos-rp           = { path = "ubos/ubos-rp" }
 ubos-stm32        = { path = "ubos/ubos-stm32" }
 ubos-temperature  = { path = "ubos/ubos-temperature", default-features = false }
 ubos-webui        = { path = "ubos/ubos-webui", default-features = false }
+ubos-webui-preact = { path = "ubos/ubos-webui-preact", default-features = false }
 
 [workspace.lints.clippy]
 pedantic     = { level = "warn", priority = -1 }

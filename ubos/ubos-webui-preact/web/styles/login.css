@@ -1,0 +1,72 @@
+/* Login-page-specific styles. Built into login.html alongside
+   common.css. */
+
+/* The login card is the only thing on the page. margin: auto on the
+   card absorbs the free space on every side of a full-viewport flex
+   box, centering it both vertically and horizontally. */
+body {
+  display: flex;
+  min-height: 100vh;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  padding: 32px;
+  width: 100%;
+  max-width: 360px;
+  margin: auto;
+}
+
+.logo {
+  justify-content: center;
+  margin: 0 0 24px;
+}
+
+label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--fs-body);
+  color: var(--mute);
+}
+
+input {
+  display: block;
+  width: 100%;
+  background: var(--field);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 8px 10px;
+  font-size: var(--fs-val);
+  margin-bottom: 16px;
+  outline: none;
+}
+
+input:focus {
+  border-color: var(--accent);
+}
+
+button {
+  width: 100%;
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  padding: 9px;
+  font-size: var(--fs-val);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--accent-hi);
+}
+
+.err {
+  color: var(--red);
+  font-size: var(--fs-body);
+  margin-bottom: 12px;
+  display: none;
+}
+
+.err.show {
+  display: block;
+}

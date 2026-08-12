@@ -1,0 +1,185 @@
+//! Pre-compress the Preact dashboard and login pages for the firmware.
+//!
+//! The frontend is a Preact + Rsbuild project under `web/` with two HTML
+//! entries (`index.html`, `login.html`). `rsbuild build` emits one
+//! self-contained, minified HTML file per entry (all JS and CSS
+//! inlined). This script obtains those two files and Brotli-compresses
+//! each into `OUT_DIR/<name>.html.br`,
+//! which `src/lib.rs` embeds via `include_bytes!` and `dashboard.rs`
+//! serves with `Content-Encoding: br`, so first paint costs no runtime
+//! compression on the MCU. Brotli at quality 11 beats gzip -9 by ~11%
+//! on the dashboard bundle and ~21% on the login page; every browser
+//! that reaches a LAN miner advertises `br`, so no gzip fallback ships.
+//!
+//! Two ways to obtain the built pages:
+//!   * If `UBOS_WEBUI_PREACT_DIST` is set, read `<dist>/index.html` and
+//!     `<dist>/login.html`. The flake sets this to a hermetic
+//!     `buildNpmPackage` derivation output, so the Rust check sandbox
+//!     needs no Node.
+//!   * Otherwise (a dev shell with Node on PATH) run `npm run build`
+//!     in the crate directory and read the resulting `dist/`.
+//!
+//! Build provenance (`UBOS_WEBUI_BUILD_REV`, `UBOS_WEBUI_BUILD_TIME`)
+//! is forwarded into the Rsbuild child environment; `rsbuild.config.ts`
+//! injects it into the footer via `source.define`.
+
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use brotli::enc::BrotliEncoderParams;
+
+/// Brotli-compress `bytes` at quality 11 and write to `dest`.
+fn brotli_to(bytes: &[u8], dest: &Path) {
+    // Quality 11 is the maximum; lgwin 24 is the largest window and
+    // never hurts, since inputs far smaller than the window simply do
+    // not reach the extra range. `BrotliCompress` finalizes the stream
+    // in one call, so there is no separate flush, and writing into a
+    // Vec never fails.
+    let params = BrotliEncoderParams {
+        quality: 11,
+        lgwin: 24,
+        ..Default::default()
+    };
+    let mut input = bytes;
+    let mut compressed = Vec::new();
+    brotli::BrotliCompress(&mut input, &mut compressed, &params)
+        .expect("BUG: brotli encoder rejected HTML bytes");
+    fs::write(dest, compressed).unwrap_or_else(|_| panic!("BUG: write {}", dest.display()));
+}
+
+/// Run `npm run build` in the crate directory, forwarding build
+/// provenance so the `source.define` step can stamp the footer. Installs
+/// dependencies first when `node_modules` is absent so a fresh checkout
+/// builds without a manual `npm ci`.
+fn run_web_build(manifest_dir: &Path, build_rev: &str, build_time: &str) {
+    // `npm` is on PATH in the Nix dev shells that add `nodejs`. This
+    // path is never taken in the flake checks: those set
+    // `UBOS_WEBUI_PREACT_DIST` to a prebuilt hermetic dist instead.
+    if !manifest_dir.join("node_modules").exists() {
+        run_npm(manifest_dir, &["ci"], build_rev, build_time);
+    }
+    run_npm(manifest_dir, &["run", "build"], build_rev, build_time);
+}
+
+fn run_npm(manifest_dir: &Path, args: &[&str], build_rev: &str, build_time: &str) {
+    let status = Command::new("npm")
+        .args(args)
+        .current_dir(manifest_dir)
+        .env("UBOS_WEBUI_BUILD_REV", build_rev)
+        .env("UBOS_WEBUI_BUILD_TIME", build_time)
+        .status()
+        .unwrap_or_else(|_| {
+            panic!(
+                "BUG: npm missing from PATH; enter a nix devshell that provides \
+                 `nodejs`, or set UBOS_WEBUI_PREACT_DIST to a prebuilt dist"
+            )
+        });
+    assert!(status.success(), "npm {args:?} exited {status:?}");
+}
+
+fn main() {
+    // OUT_DIR is set by cargo for every build script invocation.
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("BUG: OUT_DIR unset by cargo"));
+    let manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("BUG: CARGO_MANIFEST_DIR unset"));
+
+    let build_rev = resolve_build_rev(&manifest_dir);
+    let build_time = resolve_build_time();
+
+    // Locate the built pages: a prebuilt hermetic dist wins; otherwise
+    // build it here with Rsbuild.
+    let dist_dir = match env::var_os("UBOS_WEBUI_PREACT_DIST") {
+        Some(dir) => PathBuf::from(dir),
+        None => {
+            run_web_build(&manifest_dir, &build_rev, &build_time);
+            manifest_dir.join("dist")
+        }
+    };
+
+    for name in ["index", "login"] {
+        let src = dist_dir.join(format!("{name}.html"));
+        let html =
+            fs::read(&src).unwrap_or_else(|_| panic!("BUG: read built page {}", src.display()));
+        brotli_to(&html, &out_dir.join(format!("{name}.html.br")));
+    }
+
+    // The logo is a standalone `/logo.svg` asset (referenced by an
+    // `<img>`, not inlined in the bundle), so it does not pass through
+    // the bundler. Brotli-compress it here too, so the handler can serve
+    // it with `Content-Encoding: br` instead of the raw SVG.
+    let logo = fs::read(manifest_dir.join("src/logo.svg")).expect("BUG: read src/logo.svg");
+    brotli_to(&logo, &out_dir.join("logo.svg.br"));
+
+    // Rebuild when any frontend source or the build environment changes.
+    for path in [
+        "web",
+        "dev",
+        "src/logo.svg",
+        "index.html",
+        "login.html",
+        "rsbuild.config.ts",
+        "tsconfig.json",
+        "globals.d.ts",
+        "package.json",
+        "package-lock.json",
+    ] {
+        println!("cargo:rerun-if-changed={path}");
+    }
+    println!("cargo:rerun-if-env-changed=UBOS_WEBUI_PREACT_DIST");
+    println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_REV");
+    println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_TIME");
+}
+
+/// Resolve the short commit hash for the build-info footer. The flake
+/// passes `UBOS_WEBUI_BUILD_REV` because the nix sandbox has no `.git`
+/// directory; outside the sandbox the dev shell falls back to `git
+/// rev-parse` against the crate's manifest directory.
+fn resolve_build_rev(manifest_dir: &Path) -> String {
+    if let Ok(rev) = env::var("UBOS_WEBUI_BUILD_REV") {
+        let trimmed = rev.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    git_short_rev(manifest_dir).unwrap_or_else(|| "unknown".to_string())
+}
+
+fn git_short_rev(manifest_dir: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--short=12", "HEAD"])
+        .current_dir(manifest_dir)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let rev = String::from_utf8(output.stdout).ok()?;
+    let trimmed = rev.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// Resolve the build timestamp as a unix-epoch string. Prefers
+/// `UBOS_WEBUI_BUILD_TIME` (the flake sets it to `self.lastModified`);
+/// falls back to the system clock for dev-shell rebuilds.
+/// `SOURCE_DATE_EPOCH` is intentionally ignored: nix-shell pins it to
+/// 1980-01-01, which would freeze every dev-shell page at that date.
+fn resolve_build_time() -> String {
+    if let Ok(value) = env::var("UBOS_WEBUI_BUILD_TIME") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("BUG: system clock before unix epoch")
+        .as_secs()
+        .to_string()
+}
