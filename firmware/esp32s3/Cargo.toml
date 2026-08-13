@@ -23,13 +23,13 @@ ubos-firmware        = { workspace = true, features = ["defmt"] }
 ubos-display         = { workspace = true }
 ubos-core            = { workspace = true }
 ubos-machine         = { workspace = true }
+ubos-esp32             = { workspace = true }
 esp32s3-tsens          = { workspace = true }
 embassy-executor       = { workspace = true, features = ["defmt"] }
 embassy-time           = { workspace = true, features = ["defmt", "generic-queue-8"] }
 embassy-net            = { workspace = true, features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
 embassy-net-wiznet     = { workspace = true, features = ["defmt"] }
 defmt                  = { workspace = true }
-portable-atomic        = { workspace = true }
 static_cell            = { workspace = true }
 embedded-hal-bus       = { workspace = true, features = ["async"] }
 ubos-thermal           = { workspace = true, features = ["defmt"] }
@@ -41,10 +41,8 @@ ubos-cooling           = { workspace = true, features = ["defmt"] }
 ubos-psu               = { workspace = true, features = ["defmt"] }
 ubos-mining            = { workspace = true, features = ["defmt"] }
 ubos-ota               = { workspace = true, features = ["defmt", "esp"] }
-serial-baudrate        = { workspace = true }
 embassy-embedded-hal   = { version = "0.6.0", default-features = false, features = ["defmt"] }
 embassy-sync           = { workspace = true, features = ["defmt"] }
-embedded-io-async      = { workspace = true }
 critical-section       = { version = "1" }
 esp-hal                = { version = "1.1.1", features = ["defmt", "esp32s3", "unstable"] }
 esp-rtos               = { version = "0.3.0", features = ["embassy", "esp32s3", "defmt"] }

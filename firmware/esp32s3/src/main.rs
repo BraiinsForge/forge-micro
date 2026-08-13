@@ -39,28 +39,24 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, unwrap, warn};
+use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5100S;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_sync::mutex::Mutex;
-use embassy_time::{Delay, Duration, Instant, Timer};
+use embassy_time::{Delay, Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_hal::dma::{DmaRxBuf, DmaTxBuf};
 use esp_hal::dma_buffers;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
-use esp_hal::peripherals::TIMG1;
 use esp_hal::rng::Rng;
 use esp_hal::spi::Mode;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::system::Stack;
-use esp_hal::timer::timg::{MwdtStage, TimerGroup, Wdt};
-use esp_hal::uart::{Config as UartConfig, Uart};
-use esp_rtos::embassy::Callbacks;
-use portable_atomic::Ordering;
+use esp_hal::timer::timg::TimerGroup;
 use static_cell::StaticCell;
 use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
@@ -69,31 +65,19 @@ use ubos_eeprom::HashboardEeprom as _;
 use ubos_net::net;
 use {defmt_rtt as _, esp_backtrace as _};
 
-/// Wraps the event-ring backing so it can carry the esp-hal `Persistable`
-/// marker that `#[ram(persistent)]` requires. `RetainedRing` is `repr(C)` over
-/// `u32` and `u8` fields, so every bit pattern is a valid value.
-#[repr(transparent)]
-struct PersistentRing(
-    ubos_events::RetainedRing<{ config::MACHINE.control_board.event_log_capacity }>,
-);
-
-// Safety: every bit pattern of `PersistentRing` is a valid value and it needs
-// no initialisation beyond the validity header `init` checks, so persisting it
-// uninitialised across a reset is sound.
-unsafe impl esp_hal::Persistable for PersistentRing {}
-
 /// Backing storage for the user-facing event ring, owned here so its size
 /// follows this board's `EVENT_LOG_CAPACITY`. Placed in RTC fast RAM, which
 /// retains across a warm reset; the validity header in `RetainedRing` discards
 /// it after a cold boot leaves garbage.
 #[esp_hal::ram(unstable(rtc_fast, persistent))]
-static mut EVENT_LOG_BACKING: PersistentRing = PersistentRing(ubos_events::RetainedRing::new());
+static mut EVENT_LOG_BACKING: ubos_esp32::PersistentRing<
+    { config::MACHINE.control_board.event_log_capacity },
+> = ubos_esp32::PersistentRing(ubos_events::RetainedRing::new());
 
 mod config;
 mod fan;
 mod mining;
 mod psu;
-mod uart_baudrate;
 
 defmt::timestamp!("{=u64:iso8601s}", ubos_net::wall_clock_secs());
 
@@ -111,21 +95,7 @@ type EthernetRunner = Runner<
     Output<'static>,
 >;
 
-struct BoardWatchdog(Wdt<TIMG1<'static>>);
-
-impl ubos_core::watchdog::Watchdog for BoardWatchdog {
-    fn init(&mut self) {
-        self.0.enable();
-        self.0
-            .set_timeout(MwdtStage::Stage0, config::Watchdog::TIMEOUT);
-    }
-
-    fn feed(&mut self) {
-        self.0.feed();
-    }
-}
-
-ubos_core::watchdog_task!(BoardWatchdog);
+ubos_core::watchdog_task!(ubos_esp32::BoardWatchdog);
 
 ubos_firmware::ethernet_task!(EthernetRunner);
 
@@ -242,47 +212,13 @@ async fn stratum_client_task(
     ubos_firmware::run_stratum_session(stack, slot, session, shared).await
 }
 
-/// Brackets `flags.wait()` inside `esp_rtos::embassy::Executor::run_with_callbacks`.
-/// `on_idle` records the entry instant; `before_poll` accumulates the
-/// elapsed ticks on the next iteration into `IDLE_TICKS[CPU_INDEX]`.
-/// `run_with_callbacks` only fires `on_idle` when the wait will
-/// actually block, so spurious wakes do not skew the count.
-struct IdleAccounting<const CPU_INDEX: usize> {
-    idle_start: Option<Instant>,
-}
-
-impl<const CPU_INDEX: usize> IdleAccounting<CPU_INDEX> {
-    const fn new() -> Self {
-        const {
-            assert!(
-                CPU_INDEX < ubos_metrics::cpu_load::MAX_CPUS,
-                "CPU_INDEX exceeds MAX_CPUS"
-            );
-        }
-        Self { idle_start: None }
-    }
-}
-
-impl<const CPU_INDEX: usize> Callbacks for IdleAccounting<CPU_INDEX> {
-    fn before_poll(&mut self) {
-        if let Some(start) = self.idle_start.take() {
-            let elapsed = (Instant::now() - start).as_ticks();
-            ubos_metrics::cpu_load::IDLE_TICKS[CPU_INDEX].fetch_add(elapsed, Ordering::Relaxed);
-        }
-    }
-
-    fn on_idle(&mut self) {
-        self.idle_start = Some(Instant::now());
-    }
-}
-
 #[esp_hal::main]
 fn main() -> ! {
     static EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
     let executor = EXECUTOR.init(esp_rtos::embassy::Executor::new());
     executor.run_with_callbacks(
         |spawner| spawner.spawn(unwrap!(boot(spawner))),
-        IdleAccounting::<0>::new(),
+        ubos_esp32::IdleAccounting::<0>::new(),
     )
 }
 
@@ -328,82 +264,23 @@ async fn boot(spawner: Spawner) {
     // `IdleAccounting::<1>` to populate `IDLE_TICKS[1]` for cpu-load metrics.
     static APP_EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
     static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
-    let uart_parts = (hw.uart0, hw.uart_tx, hw.uart_rx);
-    esp_rtos::start_second_core(
-        hw.cpu_ctrl,
-        software_interrupts.software_interrupt1,
-        APP_CORE_STACK.init(Stack::new()),
-        move || {
-            let miner_serial = {
-                let (peripheral, tx_pin, rx_pin) = uart_parts;
-                let uart_config = UartConfig::default()
-                    // Valid baud rate for UART0; cannot fail.
-                    .with_baudrate(ubos_mining::consts::INITIAL_BAUDRATE);
-                // Valid UART0 peripheral with default-compatible baud rate; cannot fail.
-                let uart = Uart::new(peripheral, uart_config)
-                    .expect("BUG: UART0 configuration failed")
-                    .with_tx(tx_pin)
-                    .with_rx(rx_pin)
-                    .into_async();
-                uart_baudrate::MinerUart::new(uart)
-            };
+    ubos_esp32::spawn_miner_core1!(
+        cpu_ctrl = hw.cpu_ctrl,
+        sw_interrupt = software_interrupts.software_interrupt1,
+        stack = APP_CORE_STACK,
+        uart = (hw.uart0, hw.uart_tx, hw.uart_rx),
+        run = |miner_serial| {
             let executor = APP_EXECUTOR.init(esp_rtos::embassy::Executor::new());
             executor.run_with_callbacks(
                 |app_spawner| {
                     app_spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
                 },
-                IdleAccounting::<1>::new(),
+                ubos_esp32::IdleAccounting::<1>::new(),
             );
         },
     );
 
-    // Report why the chip last reset and publish it for the OTA reset
-    // diagnostics. A watchdog reason means the previous run stalled the
-    // executor past config::Watchdog::TIMEOUT; a power-on or external reset
-    // reads as None. Unlike the RP boards there is no reset-surviving scratch
-    // register, so the OTA breadcrumb fields are absent: the two-slot otadata
-    // scheme is self-healing, so a reset is never an in-progress OTA write.
-    use esp_hal::rtc_cntl::SocResetReason;
-    use ubos_api::{OtaWritePhase, ResetReason};
-    let reset_reason = match esp_hal::system::reset_reason() {
-        Some(
-            SocResetReason::CoreMwdt0
-            | SocResetReason::CoreMwdt1
-            | SocResetReason::CpuMwdt0
-            | SocResetReason::CpuMwdt1
-            | SocResetReason::CoreRtcWdt
-            | SocResetReason::CpuRtcWdt
-            | SocResetReason::SysRtcWdt
-            | SocResetReason::SysSuperWdt,
-        ) => {
-            warn!("last reset: watchdog");
-            ResetReason::WatchdogTimeout
-        }
-        Some(SocResetReason::SysBrownOut) => {
-            warn!("last reset: brownout");
-            ResetReason::Unknown
-        }
-        Some(SocResetReason::CoreSw | SocResetReason::CpuSw) => {
-            info!("last reset: software");
-            ResetReason::Clean
-        }
-        Some(SocResetReason::ChipPowerOn) | None => {
-            info!("last reset: power-on or external");
-            ResetReason::Clean
-        }
-        Some(
-            SocResetReason::CoreDeepSleep
-            | SocResetReason::SysClkGlitch
-            | SocResetReason::CoreEfuseCrc
-            | SocResetReason::CoreUsbUart
-            | SocResetReason::CoreUsbJtag
-            | SocResetReason::CorePwrGlitch,
-        ) => {
-            info!("last reset: other");
-            ResetReason::Unknown
-        }
-    };
-    ubos_api::publish_reset_diag(reset_reason, false, 0, OtaWritePhase::None);
+    ubos_esp32::capture_reset_diag();
 
     // One esp-storage driver behind a mutex, shared by the config store and
     // the OTA writer: the chip has a single flash peripheral. The mutex
@@ -424,7 +301,10 @@ async fn boot(spawner: Spawner) {
     ubos_ota::confirm_running(ubos_ota::EspSharedFlash::new(shared_flash));
 
     let timg1 = TimerGroup::new(hw.timg1);
-    spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(timg1.wdt))));
+    spawner.spawn(unwrap!(watchdog_task(ubos_esp32::BoardWatchdog::new(
+        timg1.wdt,
+        config::Watchdog::TIMEOUT
+    ))));
     spawner.spawn(unwrap!(reset_task()));
 
     // SPI wiring via LCD header on Waveshare ESP32-S3-LCD-Driver-Board.

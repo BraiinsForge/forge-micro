@@ -1,0 +1,24 @@
+[package]
+license.workspace = true
+name = "ubos-esp32"
+edition.workspace = true
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+ubos-core = { workspace = true }
+ubos-api = { workspace = true, features = ["defmt"] }
+ubos-events = { workspace = true, features = ["defmt"] }
+ubos-metrics = { workspace = true, features = ["defmt"] }
+serial-baudrate = { workspace = true }
+embedded-io-async = { workspace = true }
+embassy-time = { workspace = true, features = ["defmt"] }
+defmt = { workspace = true }
+portable-atomic = { workspace = true }
+
+# The crate is ESP32-S3-only, so the chip feature is pinned here rather
+# than selected by the board.
+esp-hal = { version = "1.1.1", features = ["defmt", "esp32s3", "unstable"] }
+esp-rtos = { version = "0.3.0", features = ["embassy", "esp32s3", "defmt"] }

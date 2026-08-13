@@ -567,6 +567,16 @@ let
       doInstallCargoArtifacts = false;
       RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
     };
+
+    clippy-ubos-esp32 = espCraneLib.cargoClippy {
+      src = srcFor [ "ubos-esp32" ];
+      cargoArtifacts = deps.espArtifacts;
+      cargoVendorDir = espCargoVendorDir;
+      cargoExtraArgs = "-p ubos-esp32 --target xtensa-esp32s3-none-elf -Z build-std=core";
+      cargoClippyExtraArgs = "-- -D warnings";
+      doInstallCargoArtifacts = false;
+      RUST_SRC_PATH = "${espToolchain}/lib/rustlib/src/rust/library";
+    };
   };
 
 in

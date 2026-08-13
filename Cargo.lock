@@ -1944,16 +1944,13 @@ dependencies = [
  "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-hal-bus",
- "embedded-io-async 0.7.0",
  "esp-backtrace",
  "esp-bootloader-esp-idf",
  "esp-hal",
  "esp-rtos",
  "esp-storage",
  "esp32s3-tsens",
- "portable-atomic",
  "rand_core 0.6.4",
- "serial-baudrate",
  "static_cell",
  "tca9554",
  "ubos-api",
@@ -1964,6 +1961,7 @@ dependencies = [
  "ubos-core",
  "ubos-display",
  "ubos-eeprom",
+ "ubos-esp32",
  "ubos-events",
  "ubos-firmware",
  "ubos-machine",
@@ -4396,6 +4394,23 @@ dependencies = [
  "heapless 0.9.2",
  "ubos-logging",
  "zerocopy",
+]
+
+[[package]]
+name = "ubos-esp32"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.0.1",
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+ "esp-hal",
+ "esp-rtos",
+ "portable-atomic",
+ "serial-baudrate",
+ "ubos-api",
+ "ubos-core",
+ "ubos-events",
+ "ubos-metrics",
 ]
 
 [[package]]
