@@ -571,7 +571,14 @@ impl Config {
             .expect("BUG: single default pool entry exceeds Config::pool capacity");
         Self {
             pool,
-            thermal: ThermalConfig::default(),
+            thermal: ThermalConfig {
+                // The chip family's safe junction ceiling lives on the
+                // board descriptor rather than a single hardcoded
+                // default, so a board with a different die-temperature
+                // rating comes up at its own halt threshold.
+                dangerous_chip_temp_c: board.dangerous_chip_temp_c,
+                ..ThermalConfig::default()
+            },
             cooling: CoolingConfig {
                 // The board's cooling profile lives on its descriptor: the
                 // hashnode runs die-temp blind (synthetic pcb+offset), so it

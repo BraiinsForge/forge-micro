@@ -91,6 +91,11 @@ pub struct HashboardDescriptor {
     pub swarm_color: &'static str,
     /// Per-board cooling profile (PID setpoint and fan floor).
     pub cooling: BoardCooling,
+    /// Die-temperature halt threshold in Celsius, read by
+    /// `Config::for_board` into `ThermalConfig::dangerous_chip_temp_c`.
+    /// Travels with the board because a chip family's safe junction
+    /// ceiling is a property of the silicon, not a runtime tuning knob.
+    pub dangerous_chip_temp_c: f32,
     /// Product name reported to external clients and the dashboard, sited
     /// here so the active board's name has one home.
     pub model: &'static str,
@@ -141,6 +146,7 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
         target_temp_c: 67.0,
         min_fan_pwm: 20,
     },
+    dangerous_chip_temp_c: 110.0,
     model: "miniminer",
     // Confirmed against BOS's AM2-S17 addressing
     // (`BASE_I2C_ADDRESS = 0x50`, single-hashboard `hashboard_address = 1`
@@ -165,6 +171,7 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
         target_temp_c: 62.0,
         min_fan_pwm: 20,
     },
+    dangerous_chip_temp_c: 110.0,
     model: "Braiins Forge Miner x4",
     // Tentative, unlike BMM101_HASHBOARD's 0x50: not yet cross-checked
     // against a parsed product-name match the way 0x50 was. See
@@ -189,6 +196,7 @@ pub const BRAIINS_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
         target_temp_c: 62.0,
         min_fan_pwm: 20,
     },
+    dangerous_chip_temp_c: 110.0,
     model: "Braiins Axe",
     eeprom_i2c_address: None,
 };

@@ -179,6 +179,7 @@ const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
         target_temp_c: 0.0,
         min_fan_pwm: 0,
     },
+    dangerous_chip_temp_c: 110.0,
     model: "test",
     eeprom_i2c_address: None,
 };
@@ -198,6 +199,7 @@ const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
         target_temp_c: 0.0,
         min_fan_pwm: 0,
     },
+    dangerous_chip_temp_c: 110.0,
     model: "test",
     eeprom_i2c_address: None,
 };
