@@ -17,81 +17,127 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Shared blocking-flash adapter for the single RP MCU QSPI peripheral.
+//! Shared blocking-flash adapter over one flash driver.
 //!
-//! The board has exactly one [`FLASH`](embassy_rp::peripherals::FLASH)
-//! peripheral, but two independent consumers need it: the `ubos-config`
-//! record store (writing the last two sectors) and the OTA
-//! `BlockingFirmwareUpdater` (writing the DFU partition and the bootloader
-//! state partition). Both must go through the same `embassy-rp` blocking
-//! [`Flash`] driver, because a flash erase or program suspends XIP and runs
-//! from RAM with core 1 paused; two independent driver instances over the
-//! same peripheral would race that critical section.
+//! A board has one flash peripheral, but two independent consumers need it:
+//! the `ubos-config` record store and the OTA firmware target. Both must go
+//! through the same driver instance, because a flash erase or program is a
+//! critical section that two independent instances over the one peripheral
+//! would race.
 //!
-//! [`SharedBlockingFlash`] resolves this by holding the one [`Flash`]
-//! instance in a `'static` [`Mutex`] of a [`RefCell`] and exposing a `Copy`
-//! handle that implements the synchronous [`embedded_storage`] `NorFlash`
-//! traits. The config backend takes this handle (through
-//! [`ubos_config::SyncFlash`]); the OTA updater partitions the same
-//! `'static` mutex directly via `embassy-embedded-hal`'s `BlockingPartition`.
-//! The mutex is locked only for the duration of one synchronous flash
-//! operation, never across an `await`, so it adds no latency beyond the
-//! XIP-suspend the flash driver already performs.
+//! [`SharedFlash`] resolves this by holding the one driver in a `'static`
+//! [`Mutex`] of a [`RefCell`] and exposing a `Copy` handle that implements the
+//! synchronous [`embedded_storage`] `NorFlash` traits. The config backend
+//! takes this handle through [`ubos_config::SyncFlash`]; the OTA target takes
+//! another. The mutex is locked only for the span of one synchronous flash
+//! operation, never across an `await`. The [`CriticalSectionRawMutex`] makes
+//! the handle sound against both another core and interrupt context.
 //!
-//! `write`/`erase` park the core-1 serial worker first. `embassy-rp`'s
-//! `Flash` does pause core 1 for the XIP-off window (`in_ram` →
-//! `multicore::pause_core1`), but that pause `wfe`s in a flash-resident
-//! handler that a pending chip-UART RX interrupt wakes — faulting core 1 on
-//! the suspended flash. Parking the worker makes it mask its RX interrupt
-//! for the op, so nothing pends to wake the pause. The park is mandatory,
-//! not best-effort: a write whose park is not acknowledged fails rather
-//! than proceeding into that hardfault.
-//!
-//! The mutex uses [`CriticalSectionRawMutex`] so the lock is sound against
-//! both the other core and interrupt context, matching the cross-core
-//! sharing the board relies on elsewhere.
+//! The type is generic over the flash driver `F`, so each MCU family names its
+//! own driver, and over a [`FlashGuard`] run around each write and erase. A
+//! family that must quiesce other work before a flash write supplies a guard;
+//! [`NoGuard`] runs the operation directly. The RP family's guard lives in the
+//! `rp` module and parks the core-1 serial worker.
 
 use core::cell::RefCell;
+use core::marker::PhantomData;
 
-use embassy_rp::flash::{Blocking, Error, Flash};
-use embassy_rp::peripherals::FLASH;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
-/// Type of the `'static` mutex guarding the one blocking [`Flash`] driver.
+/// Type of the `'static` mutex guarding the one blocking flash driver `F`.
 ///
-/// Exposed so `main` can declare the backing `static` and so the OTA
-/// updater can build `BlockingPartition`s over the very same mutex.
-pub type SharedFlashMutex<const FLASH_SIZE: usize> =
-    Mutex<CriticalSectionRawMutex, RefCell<Flash<'static, FLASH, Blocking, FLASH_SIZE>>>;
+/// Exposed so `main` can declare the backing `static` and so an OTA updater
+/// can build `BlockingPartition`s over the very same mutex.
+pub type SharedFlashMutex<F> = Mutex<CriticalSectionRawMutex, RefCell<F>>;
 
-/// `Copy` handle to the shared blocking [`Flash`] driver.
+/// Hook run around each blocking write and erase.
 ///
-/// Implements the synchronous [`embedded_storage`] `NorFlash` traits by
-/// locking the mutex for the span of each operation and delegating to the
-/// inner [`Flash`]. Cheap to copy, so the config backend and any other
-/// consumer can each hold one.
-#[derive(Clone, Copy)]
-pub struct SharedBlockingFlash<const FLASH_SIZE: usize> {
-    mutex: &'static SharedFlashMutex<FLASH_SIZE>,
+/// A family whose flash writes must not race other work brackets each
+/// operation with this. `E` is the flash driver's error type, so a guard that
+/// gives up reports the failure as a flash error the caller already handles.
+pub trait FlashGuard<E> {
+    /// Runs `op`, optionally bracketing it with setup and teardown.
+    ///
+    /// # Errors
+    ///
+    /// Returns whatever `op` returns; a guard that cannot obtain the
+    /// bracket it needs reports that as `E`, the flash driver's own error
+    /// type, rather than running `op` unguarded.
+    fn guard<R>(op: impl FnOnce() -> Result<R, E>) -> Result<R, E>;
 }
 
-impl<const FLASH_SIZE: usize> SharedBlockingFlash<FLASH_SIZE> {
-    /// Wraps the `'static` flash mutex in a fresh `Copy` handle.
-    #[must_use]
-    pub const fn new(mutex: &'static SharedFlashMutex<FLASH_SIZE>) -> Self {
-        Self { mutex }
+/// The default guard, which runs the operation directly.
+pub struct NoGuard;
+
+impl<E> FlashGuard<E> for NoGuard {
+    fn guard<R>(op: impl FnOnce() -> Result<R, E>) -> Result<R, E> {
+        op()
     }
 }
 
-impl<const FLASH_SIZE: usize> ErrorType for SharedBlockingFlash<FLASH_SIZE> {
-    type Error = <Flash<'static, FLASH, Blocking, FLASH_SIZE> as ErrorType>::Error;
+/// `Copy` handle to the shared blocking flash driver `F`, guarded by `G`.
+///
+/// Implements the synchronous [`embedded_storage`] `NorFlash` traits by
+/// locking the mutex for the span of each operation and delegating to `F`.
+/// Write and erase run through [`FlashGuard`]; read does not. Cheap to copy,
+/// so the config backend and any other consumer can each hold one.
+pub struct SharedFlash<F, G = NoGuard>
+where
+    F: NorFlash + 'static,
+    G: FlashGuard<F::Error>,
+{
+    mutex: &'static SharedFlashMutex<F>,
+    _guard: PhantomData<G>,
 }
 
-impl<const FLASH_SIZE: usize> ReadNorFlash for SharedBlockingFlash<FLASH_SIZE> {
-    const READ_SIZE: usize =
-        <Flash<'static, FLASH, Blocking, FLASH_SIZE> as ReadNorFlash>::READ_SIZE;
+impl<F, G> SharedFlash<F, G>
+where
+    F: NorFlash + 'static,
+    G: FlashGuard<F::Error>,
+{
+    /// Wraps the `'static` flash mutex in a fresh `Copy` handle.
+    #[must_use]
+    pub const fn new(mutex: &'static SharedFlashMutex<F>) -> Self {
+        Self {
+            mutex,
+            _guard: PhantomData,
+        }
+    }
+}
+
+impl<F, G> Clone for SharedFlash<F, G>
+where
+    F: NorFlash + 'static,
+    G: FlashGuard<F::Error>,
+{
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<F, G> Copy for SharedFlash<F, G>
+where
+    F: NorFlash + 'static,
+    G: FlashGuard<F::Error>,
+{
+}
+
+impl<F, G> ErrorType for SharedFlash<F, G>
+where
+    F: NorFlash + 'static,
+    G: FlashGuard<F::Error>,
+{
+    type Error = F::Error;
+}
+
+impl<F, G> ReadNorFlash for SharedFlash<F, G>
+where
+    F: NorFlash + 'static,
+    G: FlashGuard<F::Error>,
+{
+    const READ_SIZE: usize = <F as ReadNorFlash>::READ_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
         self.mutex
@@ -103,74 +149,22 @@ impl<const FLASH_SIZE: usize> ReadNorFlash for SharedBlockingFlash<FLASH_SIZE> {
     }
 }
 
-/// Cap on the core-1 park-ack busy-spin, after which the flash operation is
-/// abandoned. The worker parks within one loop iteration once signalled,
-/// but a bring-up command holds it for seconds, so this bound is reached in
-/// normal operation whenever a save collides with one.
-const MAX_PARK_SPINS: u32 = 5_000_000;
-
-/// Spin count between park re-signals. A single cross-core wake can be lost
-/// when core 1 is in `wfe` with interrupts briefly disabled, and without a
-/// retry the whole budget would be spent waiting on a wake that never
-/// arrives. A power of two so the check is a mask.
-const PARK_RESIGNAL_SPINS: u32 = 0xFFFF;
-
-/// Run `op` with the core-1 serial worker parked, or fail without running
-/// it.
-///
-/// `embassy-rp`'s blocking `Flash` already pauses core 1 for the XIP-off
-/// window (`in_ram` → `multicore::pause_core1`), but that pause `wfe`s in a
-/// flash-resident handler: a pending chip-UART RX interrupt wakes it and
-/// faults core 1 fetching from suspended flash. Parking the worker first
-/// makes it mask its RX interrupt (see `BaudRate::set_rx_irq_enabled`), so
-/// no interrupt pends to wake the pause.
-///
-/// Fails closed. Running `op` unparked is the exact hardfault this exists
-/// to prevent, so a park that does not ack within [`MAX_PARK_SPINS`] gives
-/// up and returns [`Error::Other`]: the caller sees a failed write instead
-/// of the board rebooting under it. A config save colliding with a chain
-/// bring-up is the case that reaches this, since the worker cannot answer a
-/// park until the command in flight finishes.
-///
-/// When no worker is running the park is skipped rather than waited out. A
-/// worker that exited on serial EOF never acks again, and has already
-/// masked its RX interrupt on the way out, so waiting would fail every
-/// later save for nothing.
-fn with_core1_parked<R>(op: impl FnOnce() -> Result<R, Error>) -> Result<R, Error> {
-    if !ubos_mining::core1_serial_running() {
-        return op();
-    }
-
-    ubos_mining::request_core1_park();
-    let mut spins = 0u32;
-    while !ubos_mining::core1_is_parked() {
-        if spins >= MAX_PARK_SPINS {
-            ubos_mining::release_core1_park();
-            return Err(Error::Other);
-        }
-        core::hint::spin_loop();
-        spins += 1;
-        if spins & PARK_RESIGNAL_SPINS == 0 {
-            ubos_mining::signal_core1_park();
-        }
-    }
-    let result = op();
-    ubos_mining::release_core1_park();
-    result
-}
-
-impl<const FLASH_SIZE: usize> NorFlash for SharedBlockingFlash<FLASH_SIZE> {
-    const WRITE_SIZE: usize = <Flash<'static, FLASH, Blocking, FLASH_SIZE> as NorFlash>::WRITE_SIZE;
-    const ERASE_SIZE: usize = <Flash<'static, FLASH, Blocking, FLASH_SIZE> as NorFlash>::ERASE_SIZE;
+impl<F, G> NorFlash for SharedFlash<F, G>
+where
+    F: NorFlash + 'static,
+    G: FlashGuard<F::Error>,
+{
+    const WRITE_SIZE: usize = <F as NorFlash>::WRITE_SIZE;
+    const ERASE_SIZE: usize = <F as NorFlash>::ERASE_SIZE;
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        with_core1_parked(|| {
+        G::guard(|| {
             self.mutex
                 .lock(|cell| cell.borrow_mut().write(offset, bytes))
         })
     }
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        with_core1_parked(|| self.mutex.lock(|cell| cell.borrow_mut().erase(from, to)))
+        G::guard(|| self.mutex.lock(|cell| cell.borrow_mut().erase(from, to)))
     }
 }

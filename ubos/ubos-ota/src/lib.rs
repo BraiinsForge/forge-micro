@@ -31,14 +31,15 @@
 mod engine;
 pub use engine::{OtaBackend, OtaEngine};
 
+pub mod shared_flash;
+
 #[cfg(feature = "rp")]
 mod rp;
 #[cfg(feature = "rp")]
-mod shared_flash;
-#[cfg(feature = "rp")]
-pub use rp::{OTA_BREADCRUMB_MAGIC, RpBackend, mark_booted, record_panic_breadcrumb};
-#[cfg(feature = "rp")]
-pub use shared_flash::{SharedBlockingFlash, SharedFlashMutex};
+pub use rp::{
+    OTA_BREADCRUMB_MAGIC, RpBackend, SharedBlockingFlash, SharedFlashMutex, mark_booted,
+    record_panic_breadcrumb,
+};
 
 /// The RP OTA target: the board-agnostic [`OtaEngine`] over the RP
 /// `embassy-boot` [`RpBackend`]. Generic over flash size and the core-1 park

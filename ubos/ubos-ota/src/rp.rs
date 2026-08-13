@@ -75,7 +75,81 @@ use embedded_storage::nor_flash::ReadNorFlash;
 use ubos_api::{OtaError as ApiError, OtaWritePhase};
 
 use crate::OtaBackend;
-use crate::shared_flash::SharedFlashMutex;
+use crate::shared_flash::{FlashGuard, SharedFlash};
+
+/// The RP blocking flash driver over the one QSPI `FLASH` peripheral.
+pub type RpFlash<const FLASH_SIZE: usize> = Flash<'static, FLASH, Blocking, FLASH_SIZE>;
+
+/// Type of the `'static` mutex guarding the one blocking [`Flash`] driver.
+///
+/// Exposed so `main` can declare the backing `static` and so the OTA updater
+/// can build `BlockingPartition`s over the very same mutex.
+pub type SharedFlashMutex<const FLASH_SIZE: usize> =
+    crate::shared_flash::SharedFlashMutex<RpFlash<FLASH_SIZE>>;
+
+/// `Copy` handle to the shared blocking [`Flash`] driver, parking the core-1
+/// serial worker around each write and erase.
+pub type SharedBlockingFlash<const FLASH_SIZE: usize> = SharedFlash<RpFlash<FLASH_SIZE>, RpGuard>;
+
+/// Cap on the core-1 park-ack busy-spin, after which the flash operation is
+/// abandoned. The worker parks within one loop iteration once signalled,
+/// but a bring-up command holds it for seconds, so this bound is reached in
+/// normal operation whenever a save collides with one.
+const MAX_PARK_SPINS: u32 = 5_000_000;
+
+/// Spin count between park re-signals. A single cross-core wake can be lost
+/// when core 1 is in `wfe` with interrupts briefly disabled, and without a
+/// retry the whole budget would be spent waiting on a wake that never
+/// arrives. A power of two so the check is a mask.
+const PARK_RESIGNAL_SPINS: u32 = 0xFFFF;
+
+/// [`FlashGuard`] that parks the core-1 serial worker for the span of a
+/// blocking write or erase.
+///
+/// `embassy-rp`'s blocking `Flash` already pauses core 1 for the XIP-off
+/// window (`in_ram` → `multicore::pause_core1`), but that pause `wfe`s in a
+/// flash-resident handler: a pending chip-UART RX interrupt wakes it and
+/// faults core 1 fetching from suspended flash. Parking the worker first
+/// makes it mask its RX interrupt (see `BaudRate::set_rx_irq_enabled`), so no
+/// interrupt pends to wake the pause.
+///
+/// Fails closed. Running the operation unparked is the exact hardfault this
+/// exists to prevent, so a park that does not ack within [`MAX_PARK_SPINS`]
+/// gives up and returns [`flash::Error::Other`]: the caller sees a failed
+/// write instead of the board rebooting under it. A config save colliding
+/// with a chain bring-up is the case that reaches this, since the worker
+/// cannot answer a park until the command in flight finishes.
+///
+/// When no worker is running the park is skipped rather than waited out. A
+/// worker that exited on serial EOF never acks again, and has already masked
+/// its RX interrupt on the way out, so waiting would fail every later save for
+/// nothing.
+pub struct RpGuard;
+
+impl FlashGuard<flash::Error> for RpGuard {
+    fn guard<R>(op: impl FnOnce() -> Result<R, flash::Error>) -> Result<R, flash::Error> {
+        if !ubos_mining::core1_serial_running() {
+            return op();
+        }
+
+        ubos_mining::request_core1_park();
+        let mut spins = 0u32;
+        while !ubos_mining::core1_is_parked() {
+            if spins >= MAX_PARK_SPINS {
+                ubos_mining::release_core1_park();
+                return Err(flash::Error::Other);
+            }
+            core::hint::spin_loop();
+            spins += 1;
+            if spins & PARK_RESIGNAL_SPINS == 0 {
+                ubos_mining::signal_core1_park();
+            }
+        }
+        let result = op();
+        ubos_mining::release_core1_park();
+        result
+    }
+}
 
 /// Magic value written to SCRATCH0 when an OTA upload session is active.
 ///
