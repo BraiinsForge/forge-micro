@@ -21,10 +21,10 @@
 //!
 //! The crate holds the fan, miner-serial, watchdog and Ethernet device code
 //! that both STM32 boards carried one copy of: the timer-based fan PWM and
-//! tachometer module with its `tach_task!` macro, the `MinerUart` newtype,
-//! the `BoardWatchdog` wrapper, and the `Device` type alias with its
-//! `ethernet_device!` macro. A board depends on this crate and deletes its
-//! own copies.
+//! the tachometer that counts capture edges in the TIM4 handler, the
+//! `MinerUart` newtype, the `BoardWatchdog` wrapper, and the `Device` type
+//! alias with its `ethernet_device!` macro. A board depends on this crate
+//! and deletes its own copies.
 //!
 //! Both boards are single-core, so there is no core-1 spawn macro here, and
 //! neither declares a `#[panic_handler]` or a `HardFault` handler, so there

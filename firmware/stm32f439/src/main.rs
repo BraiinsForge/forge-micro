@@ -35,15 +35,12 @@ use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_stm32::adc::{Adc, AdcChannel, Exten, RingBufferedAdc, SampleTime};
-use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::flash::{Blocking as FlashBlocking, Flash};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{Config as I2cConfig, I2c};
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::DMA2_CH3;
-use embassy_stm32::peripherals::{
-    ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0, ETH, ETH_SMA, IWDG,
-};
+use embassy_stm32::peripherals::{ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0};
 use embassy_stm32::rng::Rng;
 #[cfg(feature = "display")]
 use embassy_stm32::spi::{self, Spi};
@@ -51,7 +48,6 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer as LowLevelTimer};
 use embassy_stm32::triggers::TIM3_TRGO;
 use embassy_stm32::usart::{Config as UartConfig, InterruptHandler as UsartInterruptHandler, Uart};
-use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{bind_interrupts, dma, eth, peripherals, rng};
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
@@ -67,10 +63,8 @@ use {defmt_rtt as _, panic_probe as _};
 use ubos_net::net;
 
 mod config;
-mod fan;
 mod mining;
 mod psu;
-mod uart_baudrate;
 
 /// Backing storage for the user-facing event ring, owned here so its size
 /// follows this board's `EVENT_LOG_CAPACITY`. Placed in `.uninit`, which the
@@ -97,20 +91,6 @@ bind_interrupts!(struct Irqs {
     #[cfg(feature = "display")]
     DMA2_STREAM3 => dma::InterruptHandler<DMA2_CH3>;
 });
-
-type Device = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
-
-struct BoardWatchdog(IndependentWatchdog<'static, IWDG>);
-
-impl ubos_core::watchdog::Watchdog for BoardWatchdog {
-    fn init(&mut self) {
-        self.0.unleash();
-    }
-
-    fn feed(&mut self) {
-        self.0.pet();
-    }
-}
 
 /// The MCU internal thermometer, read through ADC1. TIM3 runs free as a
 /// TRGO source for that ADC, and the timer peripheral is moved into this
@@ -143,9 +123,9 @@ impl ubos_metrics::mcu_temperature::McuTemperatureSensor for McuTempSensor {
     }
 }
 
-ubos_firmware::net_task!(Device);
+ubos_firmware::net_task!(ubos_stm32::Device);
 
-ubos_core::watchdog_task!(BoardWatchdog);
+ubos_core::watchdog_task!(ubos_stm32::BoardWatchdog);
 
 ubos_core::led_blink_task!(Output<'static>);
 
@@ -197,7 +177,7 @@ type BoardConfigStorage = FlashStorage<SyncFlash<Flash<'static, FlashBlocking>>>
 
 ubos_config::config_task!(BoardConfigStorage, config::BOARD);
 
-ubos_cooling::cooling_task!(fan::BoardFan, fan::BoardTach);
+ubos_cooling::cooling_task!(ubos_stm32::fan::BoardFan, ubos_stm32::fan::BoardTach);
 
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
@@ -270,8 +250,10 @@ async fn boot(spawner: Spawner) {
     // preserves its contents.
     ubos_firmware::events::install(unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) });
 
-    let watchdog = IndependentWatchdog::new(hw.iwdg, config::Watchdog::TIMEOUT_US);
-    spawner.spawn(unwrap!(watchdog_task(BoardWatchdog(watchdog))));
+    spawner.spawn(unwrap!(watchdog_task(ubos_stm32::BoardWatchdog::new(
+        hw.iwdg,
+        config::Watchdog::TIMEOUT_US
+    ))));
     spawner.spawn(unwrap!(reset_task()));
 
     let led = Output::new(hw.led, Level::Low, Speed::Low);
@@ -305,22 +287,20 @@ async fn boot(spawner: Spawner) {
     );
 
     // RMII pin mapping for Nucleo-F439ZI onboard LAN8742A PHY.
-    static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
-    let device = Ethernet::new(
-        PACKETS.init(PacketQueue::<4, 4>::new()),
-        hw.eth,
-        Irqs,
-        hw.ref_clk,
-        hw.crs_dv,
-        hw.rxd0,
-        hw.rxd1,
-        hw.txd0,
-        hw.txd1,
-        hw.tx_en,
-        mac_addr,
-        hw.eth_sma,
-        hw.mdio,
-        hw.mdc,
+    let device = ubos_stm32::ethernet_device!(
+        eth = hw.eth,
+        irqs = Irqs,
+        ref_clk = hw.ref_clk,
+        crs_dv = hw.crs_dv,
+        rxd0 = hw.rxd0,
+        rxd1 = hw.rxd1,
+        txd0 = hw.txd0,
+        txd1 = hw.txd1,
+        tx_en = hw.tx_en,
+        mac_addr = mac_addr,
+        eth_sma = hw.eth_sma,
+        mdio = hw.mdio,
+        mdc = hw.mdc,
     );
     ubos_net::net::handle().set_mac(mac_addr);
 
@@ -455,10 +435,10 @@ async fn boot(spawner: Spawner) {
         // Temperature and fan monitor via shared I2C1 bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
         let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
-        let board_fan = fan::BoardFan::new(hw.tim4, hw.fan_pwm_pin, hw.fan_tach_pin);
+        let board_fan = ubos_stm32::fan::BoardFan::new(hw.tim4, hw.fan_pwm_pin, hw.fan_tach_pin);
         // Takes the fan by reference as proof that CH4 is configured and its
         // capture interrupt is armed.
-        let tach = fan::BoardTach::new(&board_fan);
+        let tach = ubos_stm32::fan::BoardTach::new(&board_fan);
         spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
         spawner.spawn(unwrap!(manager_task(mining_handle)));
         spawner.spawn(unwrap!(cooling_task(board_fan, tach, thermal)));
@@ -488,7 +468,7 @@ async fn boot(spawner: Spawner) {
         .expect("BUG: USART3 configuration failed");
         let (uart_tx, uart_rx) = uart.split();
         let ring_rx = uart_rx.into_ring_buffered(DMA_RX_BUF.init([0; 1024]));
-        let miner_serial = uart_baudrate::MinerUart::new(uart_tx, ring_rx);
+        let miner_serial = ubos_stm32::uart::MinerUart::new(uart_tx, ring_rx);
         spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
     }
 

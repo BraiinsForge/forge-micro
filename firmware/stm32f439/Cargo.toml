@@ -14,7 +14,6 @@ display = []
 [dependencies]
 cortex-m             = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt          = "0.7"
-critical-section     = { version = "1" }
 defmt                = { workspace = true }
 defmt-rtt            = { workspace = true }
 embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
@@ -24,10 +23,7 @@ embassy-stm32        = { version = "0.6.0", features = ["defmt", "stm32f439zi", 
 embassy-sync         = { workspace = true, features = ["defmt"] }
 embassy-time         = { workspace = true, features = ["defmt"] }
 embedded-hal-bus     = { workspace = true, features = ["async"] }
-embedded-io-async    = { workspace = true }
 panic-probe          = { workspace = true, features = ["print-defmt"] }
-portable-atomic      = { workspace = true }
-serial-baudrate      = { workspace = true }
 static_cell          = { workspace = true }
 ubos-api             = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-asic            = { workspace = true }
@@ -46,6 +42,7 @@ ubos-metrics         = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-mining          = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-psu             = { workspace = true, features = ["defmt"] }
+ubos-stm32           = { workspace = true }
 ubos-thermal         = { workspace = true, features = ["defmt"] }
 ubos-webui           = { workspace = true, features = ["defmt", "ccmram-bss"] }
 

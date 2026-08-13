@@ -47,16 +47,13 @@ let
   #
   # `boot` is the composition root itself. `mdns_task` and
   # `cpu_load_task` name per-board consts, and `stratum_client_task`
-  # needs the board's own session type and pool size. `tach_task` backs
-  # the fan module of a family rather than of a board, and leaves when
-  # that family's crate takes the module. docs/MACHINE.md carries this
-  # list in prose.
+  # needs the board's own session type and pool size. docs/MACHINE.md
+  # carries this list in prose.
   fleetShells = [
     "boot"
     "cpu_load_task"
     "mdns_task"
     "stratum_client_task"
-    "tach_task"
   ];
 
   # The three calls that reach the hoisted boot sequence. A board that
