@@ -620,6 +620,19 @@ hostClippyChecks
     CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
   };
 
+  # ubos-stm32 is linted here for the same reason as ubos-rp: both STM32
+  # boards depend on it, so each board build compiles it transitively.
+  # clippy selects a chip on the CLI because the crate pins none, so the
+  # same source builds under both stm32f407 and stm32f439.
+  clippy-ubos-stm32 = craneLib.cargoClippy {
+    src = srcFor [ "ubos-stm32" ];
+    cargoArtifacts = deps.stm32f439Artifacts;
+    cargoExtraArgs = "-p ubos-stm32 --target thumbv7em-none-eabihf --features embassy-stm32/stm32f439zi";
+    cargoClippyExtraArgs = "-- -D warnings";
+    doInstallCargoArtifacts = false;
+    CC_thumbv7em_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+  };
+
   build-ubos-firmware = craneLib.cargoBuild {
     src = srcFor [ "ubos-firmware" ];
     cargoArtifacts = deps.ubosFirmwareArtifacts;

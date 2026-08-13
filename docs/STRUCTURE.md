@@ -95,6 +95,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-temperature` | LM75A, TMP102 and TMP461 drivers, and the sensor descriptor types a board declares its topology with. No task and no metric |
 | `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner |
 | `ubos-rp`          | per-platform support for the RP2040 and RP2350 control boards: the `#[panic_handler]` and `HardFault` symbols, reset diagnostic, `BoardWatchdog`, fan PWM and tachometer, `MinerUart`, and the `spawn_miner_core1!` macro |
+| `ubos-stm32`       | per-platform support for the STM32F407 and STM32F439 control boards: fan PWM and tachometer, `MinerUart`, `BoardWatchdog`, and the Ethernet `Device` type with the `ethernet_device!` macro |
 | `ubos-firmware`    | top-of-graph assembly: `events::install`, `net::bring_up`, shared stratum session, task-shell macros, the `serve_all!` listener macro; consumed only by the `firmware/<board>` binaries |
 
 ## `host/` — std crates

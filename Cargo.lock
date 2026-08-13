@@ -4641,6 +4641,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubos-stm32"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "defmt 1.0.1",
+ "embassy-stm32",
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+ "portable-atomic",
+ "serial-baudrate",
+ "ubos-cooling",
+ "ubos-core",
+]
+
+[[package]]
 name = "ubos-temperature"
 version = "0.1.0"
 dependencies = [
