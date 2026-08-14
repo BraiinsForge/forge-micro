@@ -143,9 +143,9 @@ consts the machines wrap — so it cannot drift from the firmware.
 - **Runtime auto-detection** of attached hashboards / PSU / control
   board, and a **generic machine builder** that spawns tasks from a
   `MachineDescriptor` plus a `HardwareBindings` trait — the
-  formalized binding seam. The builder also hoists the shareable
-  per-MCU work (HAL init, memory layout) into a per-platform support
-  library so same-MCU binaries stop duplicating it.
+  formalized binding seam. The per-platform support crates now hold the
+  shareable per-MCU work: `ubos-rp`, `ubos-stm32`, `ubos-esp32` and
+  `ubos-build`. The builder no longer has to hoist it.
 - **Multiple hashboards per machine.** `MachineDescriptor.hashboard`
   is a single field, expanded to a collection when multi-board wiring
   actually lands.
