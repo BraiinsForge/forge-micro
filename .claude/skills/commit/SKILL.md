@@ -91,6 +91,9 @@ Interactive patch mode (`git add -p`) commands:
 
 ## Rules
 
+- **Commit as soon as the change is finished.** Finishing the work is the
+  trigger to invoke this skill, not a reason to ask whether to commit.
+  Nothing finished is left in the working tree for a later turn.
 - One logical change per commit, reviewable in isolation
 - Separate unrelated changes into different commits
 - The affected crate builds via its `nix develop` shell (skip if no Rust

@@ -126,13 +126,17 @@ explicitly when spawning parallel agents.
 ## Git Workflow
 
 Clarify → Plan → Implement → Commit → Review. **Wait for explicit user
-approval between steps, and never advance without it.**
+approval before starting to implement, and never advance past a plan
+without it.**
 
 - Present findings and the proposed approach, then wait.
 - Answer a question completely, then wait. A question is a question, not
   an implicit instruction.
 - One logical change per iteration.
 - Use plan mode for anything non-trivial.
+- **Committing needs no approval.** A finished change is committed
+  through `/commit` in the same turn that finishes it. Never leave
+  finished work uncommitted, and never ask whether to commit it.
 - **NEVER push to remote.** The user pushes when ready.
 
 A branch runs plan → implement → `/review-branch` → `/fix-review` →
