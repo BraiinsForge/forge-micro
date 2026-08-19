@@ -18,7 +18,7 @@
 // shall be considered distinct from the grant above.
 
 //! Braiins Axe board temperature: two TMP102 PCB sensors on the shared
-//! I2C0 bus, aggregated by `ubos_temperature::SensorArray` from the
+//! I2C0 bus, aggregated by `ubos_thermal::SensorArray` from the
 //! `ubos_machine::BRAIINS_AXE` sensor table. There is no die-attached remote
 //! diode on this board, so the safety gate runs on the PCB readings
 //! plus their PCB-to-die offset.
@@ -28,7 +28,7 @@ use embassy_rp::i2c::{Async, I2c};
 use embassy_rp::peripherals::I2C0;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use ubos_machine::BRAIINS_AXE as MACHINE;
-use ubos_temperature::SensorArray;
+use ubos_thermal::SensorArray;
 
 /// The I2C0 bus is shared between the PSU and temperature sensors via a
 /// bus mutex; each consumer gets an `I2cDevice` handle from the mutex.

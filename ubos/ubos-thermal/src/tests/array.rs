@@ -24,7 +24,7 @@ fn die_and_est_present() {
     // hashnode-ok: both die and PCB estimate available.
     let fused = fuse(Some(90_000), Some(80_000), true);
     assert_eq!(fused.safety.expect("safety present").millicelsius(), 90_000,);
-    assert_eq!(fused.safety_source, Some(crate::CHIP_SOURCE));
+    assert_eq!(fused.safety_source, Some(CHIP_SOURCE));
     assert_eq!(fused.pid.expect("pid present").millicelsius(), 80_000,);
 }
 
@@ -51,7 +51,7 @@ fn die_present_est_absent() {
     // Die ok, all PCB sensors failed.
     let fused = fuse(Some(95_000), None, true);
     assert_eq!(fused.safety.expect("safety present").millicelsius(), 95_000,);
-    assert_eq!(fused.safety_source, Some(crate::CHIP_SOURCE));
+    assert_eq!(fused.safety_source, Some(CHIP_SOURCE));
     assert!(fused.pid.is_none());
 }
 

@@ -22,15 +22,20 @@
 //! `ManagerMessage::DangerousTemperature` and `TemperatureNormal` on
 //! threshold and recovery edges; the manager is the sole caller of
 //! `MiningHandle::halt`/`resume`. This task is also the sole writer of
-//! the chip temperature gauge, in `metrics`.
+//! the chip temperature gauge, in `metrics`. `array` aggregates a
+//! board's I2C sensor table into the reading the task polls, over the
+//! drivers and the descriptor types in `ubos-temperature`.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 
+mod array;
 mod metrics;
 mod threshold;
+
+pub use array::SensorArray;
 
 #[cfg(test)]
 #[path = "tests/threshold.rs"]

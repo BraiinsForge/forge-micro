@@ -19,7 +19,7 @@
 
 //! Hashnode board temperature: a TMP461 remote-diode sensor on the ASIC
 //! die plus two TMP102 PCB sensors on the shared I2C1 bus, aggregated by
-//! `ubos_temperature::SensorArray` from the `ubos_machine::HASHNODE`
+//! `ubos_thermal::SensorArray` from the `ubos_machine::HASHNODE`
 //! sensor table.
 //!
 //! Note on `dangerous_temp_c`: the 90 °C runtime default in `ThermalConfig`
@@ -33,7 +33,7 @@ use embassy_rp::i2c::{Async, I2c};
 use embassy_rp::peripherals::I2C1;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use ubos_machine::HASHNODE as MACHINE;
-use ubos_temperature::SensorArray;
+use ubos_thermal::SensorArray;
 
 /// The I2C1 bus is shared between the PSU and temperature sensors via a
 /// bus mutex; each consumer gets an `I2cDevice` handle from the mutex.

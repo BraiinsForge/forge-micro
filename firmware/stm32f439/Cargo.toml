@@ -38,7 +38,6 @@ cortex-m            = { version = "0.7", features = ["inline-asm", "critical-sec
 cortex-m-rt         = "0.7"
 portable-atomic     = { workspace = true }
 stratum-client      = { workspace = true }
-ubos-temperature    = { workspace = true, features = ["defmt"] }
 ubos-thermal        = { workspace = true, features = ["defmt"] }
 ubos-manager        = { workspace = true, features = ["defmt"] }
 ubos-asic           = { workspace = true }

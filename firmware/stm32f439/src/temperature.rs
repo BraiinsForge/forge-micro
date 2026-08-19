@@ -20,13 +20,13 @@
 //! BMM101 hashboard temperature sensor array on the shared I2C1 bus.
 //!
 //! The board's LM75A sensors come from the machine descriptor's sensor
-//! table and are aggregated by `ubos_temperature::SensorArray`.
+//! table and are aggregated by `ubos_thermal::SensorArray`.
 
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_stm32::i2c::{I2c, Master};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use ubos_machine::MINIMINER_STM32F439 as MACHINE;
-use ubos_temperature::SensorArray;
+use ubos_thermal::SensorArray;
 
 /// The I2C1 bus is shared between the PSU and temperature sensors via a
 /// bus mutex; each consumer gets an `I2cDevice` handle from the mutex.
