@@ -13,6 +13,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
+# Braiins Systems s.r.o. reserves the right to grant any party a license
+# to this program, or any part thereof, under any terms, and such a grant
+# shall be considered distinct from the grant above.
+
 # Cargo runner for cross-compiled host-runner binaries: copies the binary
 # to a remote target via scp and runs it under ssh. Packaged with
 # writePython3Bin so pyflakes and its library deps come for free. It shells

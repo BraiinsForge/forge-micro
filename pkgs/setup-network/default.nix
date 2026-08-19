@@ -13,6 +13,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
+# Braiins Systems s.r.o. reserves the right to grant any party a license
+# to this program, or any part thereof, under any terms, and such a grant
+# shall be considered distinct from the grant above.
+
 # One-shot TAP + NAT setup for host-runner. Packaged as a
 # writeShellApplication so shellcheck and its PATH deps come for free.
 # `sudo` is deliberately left off runtimeInputs: it must be the system's

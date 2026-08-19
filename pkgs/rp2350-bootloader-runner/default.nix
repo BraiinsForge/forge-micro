@@ -13,6 +13,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
+# Braiins Systems s.r.o. reserves the right to grant any party a license
+# to this program, or any part thereof, under any terms, and such a grant
+# shall be considered distinct from the grant above.
+
 # Cargo runner for the rp2350-bootloader crate: forwards to probe-rs-runner
 # with an optional --probe selector. Packaged as a writeShellApplication so
 # shellcheck and the probe-rs-runner PATH dep come for free.
