@@ -1,6 +1,6 @@
 # Rusty Boards — Modularization Proposal
 
-Status: high-level design. Scope: the ubos-main workspace.
+Status: high-level design. Scope: the firmware workspace.
 
 The brief: name the modules, define their public surface, and pin down
 how they talk. This document is intentionally high-level — internal

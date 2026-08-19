@@ -220,7 +220,7 @@ design; do not collapse them into the macro's line.
 
 ## The `ubos-events` crate
 
-Under `boards/ubos-main/ubos/`, `no_std`, depends on `ubos-logging`
+Under `ubos/`, `no_std`, depends on `ubos-logging`
 (paired RTT line) and `embassy-sync` (`Mutex` + `CriticalSectionRawMutex`).
 No `linkme` dependency and no proc-macro crate.
 

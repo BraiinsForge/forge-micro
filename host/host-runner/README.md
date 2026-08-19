@@ -1,8 +1,8 @@
 # host-runner
 
-The ubos-main firmwares use the embassy net stack. To run them in Linux userspace
-you need a way to put raw packets onto the network. The transport is
-selected by target architecture:
+The firmwares in this workspace use the embassy net stack. To run them in
+Linux userspace you need a way to put raw packets onto the network. The
+transport is selected by target architecture:
 
 * `x86_64` (dev host) — TAP device, set up via `setup-network`. No
   root at runtime, default IP `192.168.69.2`.

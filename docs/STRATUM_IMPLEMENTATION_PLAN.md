@@ -5,8 +5,8 @@
 > been removed from the workspace. Phases 10–14 remain pending. The
 > phase descriptions below are kept in their original future tense as a
 > historical record of the plan; references to `ubos-backend` and the
-> intermediate `ubos-main` library crate describe the state at the time
-> the plan was written, not the current code.
+> intermediate library crate describe the state at the time the plan was
+> written, not the current code.
 
 ## Goal
 
@@ -22,7 +22,7 @@ its own adapter.
 
 - SV2 protocol implementation. That lives in `~/braiins/micro-sv2/`,
   a separate repository providing types, framing, messages, and
-  crypto. This document describes only how `ubos-main` consumes it.
+  crypto. This document describes only how this workspace consumes it.
 - New CPU solver behavior. Today's "always-zero extranonce_2" stays.
   The trait shape supports rolling but the implementation comes with
   the ASIC driver.
@@ -30,7 +30,7 @@ its own adapter.
 ## Crate layout
 
 ```
-ubos-main/
+.
   mining-protocol/    NEW — trait + borrowed domain types, no_std, no alloc
   stratum-v1/         restructured: V1 wire types + MiningClient impl
                       (renamed from stratum-v1-core)
@@ -44,8 +44,8 @@ ubos-main/
 External:
 
 - `~/braiins/micro-sv2/` — owns its types, framing, messages, and
-  crypto, including the Noise handshake. Has no awareness of
-  `ubos-main`.
+  crypto, including the Noise handshake. Has no awareness of this
+  workspace.
 
 ### Why one crate per protocol, not two
 
@@ -523,8 +523,8 @@ Mapping our trait API onto micro-sv2:
 | `ii_sv2::security::Clock` | Implemented in `ubos-net` against NTP-synced wall time. Required only for `ValidateTime` / `ValidateFull`. |
 
 The trait crate (`mining-protocol`) stays protocol-agnostic. Nothing
-above leaks into it. The V2 adapter is the only crate in the
-ubos-main workspace that depends on `ii-sv2`.
+above leaks into it. The V2 adapter is the only crate in this
+workspace that depends on `ii-sv2`.
 
 ### V2 transport bound
 

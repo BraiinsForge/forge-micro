@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Host-side runner for ubos-main tasks.
+//! Host-side runner for the firmware tasks.
 //!
 //! Brings up an embassy-net Stack over a host network device so the same
 //! tasks that run on the RP2350 can be exercised on a host. By default the

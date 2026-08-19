@@ -262,8 +262,8 @@ Matklad, same reference:
 > every Cargo command, and adds an exception to an otherwise
 > consistent structure.
 
-Previously `ubos-main` was both the workspace root and a library
-crate. The dual role conflated the directory name with the crate name
+Previously the workspace root was also a library crate. The dual role
+conflated the directory name with the crate name
 and forced `--workspace` on every cargo invocation. The five-crate
 split of `src/` removes the need for a root crate entirely.
 
@@ -315,10 +315,10 @@ keeping `cargo check` green for every affected crate:
    in lockstep.
 4. Every existing host crate moves into `host/`.
 5. Root `Cargo.toml` converts to a virtual manifest; the old root
-   library crate moves to `ubos/ubos-main/` as an intermediate step.
-6. `ubos-main` splits into four crates along domain lines:
+   library crate moves under `ubos/` as an intermediate step.
+6. That intermediate crate splits into four crates along domain lines:
    `ubos-display`, `ubos-core`, and finally `ubos-net` plus
    `ubos-metrics` together. The `run_http_server` task moves out of
    `net.rs` into `http.rs` during the final split to break the
    net→http back-reference.
-7. The empty `ubos-main` shell is deleted at the end of the split.
+7. The empty intermediate crate is deleted at the end of the split.

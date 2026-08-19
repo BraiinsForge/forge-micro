@@ -1,10 +1,10 @@
 # Testing
 
-`ubos-main` mixes pure `no_std` libraries, firmware binaries, host runners,
-frontend assets, and hardware behavior. A single workspace coverage number is
-not a useful signal: `cargo test --workspace` can unify incompatible embedded
-features, while firmware runtime behavior needs board builds and hardware smoke
-tests rather than host line coverage.
+The firmware workspace mixes pure `no_std` libraries, firmware binaries, host
+runners, frontend assets, and hardware behavior. A single workspace coverage
+number is not a useful signal: `cargo test --workspace` can unify incompatible
+embedded features, while firmware runtime behavior needs board builds and
+hardware smoke tests rather than host line coverage.
 
 Use layered checks instead. Each layer should have a clear owner, runtime, and
 failure meaning.

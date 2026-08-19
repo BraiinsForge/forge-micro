@@ -1,8 +1,8 @@
 # Overview
 
-`ubos-main` is a bare-metal Rust Ethernet workspace: per-board firmware
-crates, the libraries that back them, and a host-side runner that mirrors
-the firmware tasks against a Linux network device.
+The firmware workspace is bare-metal Rust for Ethernet boards. It holds
+per-board firmware crates, the libraries that back them, and a host-side
+runner that mirrors the firmware tasks against a Linux network device.
 
 ## Boards
 
