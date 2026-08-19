@@ -4646,7 +4646,6 @@ version = "0.1.0"
 dependencies = [
  "defmt 1.0.1",
  "embedded-hal-async",
- "ubos-core",
  "ubos-logging",
 ]
 

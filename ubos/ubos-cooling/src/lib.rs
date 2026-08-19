@@ -90,7 +90,7 @@ pub trait FanOutput {
 /// boards use to keep the historical unlabeled metric.
 ///
 /// `read_rpms` is async for the same reason
-/// [`ubos_temperature::TemperatureSensor::read`] is: a board whose tach lives
+/// [`ubos_thermal::TemperatureSensor::sample`] is: a board whose tach lives
 /// behind a bus has to await the transfer, and a synchronous signature would
 /// force it to poll on a task of its own and park each sample in a static for
 /// this loop to pick up. A board counting edges in hardware never awaits, so

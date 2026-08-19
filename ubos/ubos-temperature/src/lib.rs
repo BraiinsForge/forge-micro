@@ -17,12 +17,12 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Board-temperature sensor trait, the hardware drivers behind it, and
-//! the descriptor types a board uses to declare its sensor topology.
-//! The LM75A, TMP102 and TMP461 drivers live in sibling modules, and
-//! [`read_sensor`] takes one reading from whichever of them a
-//! descriptor names. `ubos-thermal` folds those readings, owns the
-//! sample loop, and writes every metric; nothing here publishes.
+//! Board-temperature hardware drivers and the descriptor types a board
+//! uses to declare its sensor topology. The LM75A, TMP102 and TMP461
+//! drivers live in sibling modules, and [`read_sensor`] takes one
+//! reading from whichever of them a descriptor names. `ubos-thermal`
+//! folds those readings, owns the sensor trait and the sample loop, and
+//! writes every metric; nothing here decides or publishes anything.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -33,61 +33,11 @@ pub mod tmp102;
 pub mod tmp461;
 
 use embedded_hal_async::i2c::I2c;
-use ubos_core::units::Temperature;
 use ubos_logging::error;
 
 use crate::lm75a::Lm75a;
 use crate::tmp102::Tmp102;
 use crate::tmp461::Tmp461;
-
-/// Source label marking a safety reading as the real die temperature rather
-/// than a PCB-derived approximation. The thermal layer keys the die-specific
-/// danger threshold off this exact label, so producer and consumer share it.
-pub const CHIP_SOURCE: &str = "chip";
-
-/// Internal die temperature sensor exposed by a board HAL.
-#[allow(async_fn_in_trait)]
-pub trait TemperatureSensor {
-    /// Read the current die temperature, or `None` if the reading
-    /// failed. This is the value that gates thermal shutdown. Implementations
-    /// may await on the underlying hardware conversion.
-    async fn read(&mut self) -> Option<Temperature>;
-
-    /// Temperature that should drive the cooling PID when it differs from
-    /// the safety reading returned by [`read`](Self::read), cached from the
-    /// most recent `read`. `None` means the PID uses the safety reading, so
-    /// single-sensor boards need not implement it.
-    fn pid_temperature(&self) -> Option<Temperature> {
-        None
-    }
-
-    /// Source label for the safety reading, or `None` to publish the
-    /// canonical gauge without a `source` label. Boards that report more
-    /// than one chip-temperature estimate distinguish them this way.
-    fn temperature_source(&self) -> Option<&'static str> {
-        None
-    }
-
-    /// Source label for [`pid_temperature`](Self::pid_temperature).
-    fn pid_temperature_source(&self) -> Option<&'static str> {
-        None
-    }
-
-    /// Whether a sensor that has stopped reading should halt mining.
-    ///
-    /// True for a board whose sensor is independent of what it measures,
-    /// where silence means the reading is gone and the board is running
-    /// unwatched. False for one whose only thermometer is inside the
-    /// chips it is trying to bring up, where silence is the normal state
-    /// until the chain answers and halting on it stops the very work that
-    /// would produce a reading.
-    ///
-    /// A board that returns false still logs the fault, still publishes
-    /// it, and still gets the fan forced to full. It just is not stopped.
-    fn halts_on_fault(&self) -> bool {
-        true
-    }
-}
 
 /// Which chip driver backs a sensor entry.
 #[derive(Clone, Copy)]

@@ -32,8 +32,8 @@ use embedded_i2c_unix::I2c as HostI2c;
 use log::{error, info};
 use ubos_core::units::Temperature;
 use ubos_machine::BMM101_SENSORS;
-use ubos_temperature::TemperatureSensor;
 use ubos_temperature::lm75a::{Error as Lm75aError, Lm75a};
+use ubos_thermal::{Sample, TemperatureSensor};
 
 use crate::psu::I2C_BUS_ENV;
 
@@ -72,7 +72,7 @@ impl HashboardTemperature {
 }
 
 impl TemperatureSensor for HashboardTemperature {
-    async fn read(&mut self) -> Option<Temperature> {
+    async fn sample(&mut self) -> Option<Sample> {
         let mut hottest: Option<i32> = None;
         for (desc, sensor) in BMM101_SENSORS.iter().zip(self.sensors.iter()) {
             let address = desc.address;
@@ -89,6 +89,11 @@ impl TemperatureSensor for HashboardTemperature {
                 }
             }
         }
-        hottest.map(Temperature::from_millicelsius)
+        // Every sensor here is a PCB LM75A with an offset, and the board
+        // carries no die sensor to contrast them against, so the hottest
+        // adjusted reading is the one estimate this board reports.
+        hottest
+            .map(Temperature::from_millicelsius)
+            .map(Sample::sole)
     }
 }

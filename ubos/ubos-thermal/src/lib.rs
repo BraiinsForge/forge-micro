@@ -41,6 +41,8 @@ pub use array::SensorArray;
 #[path = "tests/threshold.rs"]
 mod tests_threshold;
 
+use crate::metrics::publish_chip_temperature;
+use crate::threshold::{Action, evaluate};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{Duration, Instant, Ticker};
@@ -48,10 +50,6 @@ use ubos_config::ThermalConfig;
 use ubos_core::units::Temperature;
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_temperature::{CHIP_SOURCE, TemperatureSensor};
-
-use crate::metrics::publish_chip_temperature;
-use crate::threshold::{Action, evaluate};
 
 ubos_events::events! {
     critical_temperature(temp_c: i16)   error = "Critical temperature {} °C, mining halted",
@@ -70,6 +68,74 @@ fn temp_celsius_i16(temperature: Temperature) -> i16 {
 }
 
 type CSMutex = CriticalSectionRawMutex;
+
+/// What a safety reading measures. The value selects the danger
+/// threshold, and `metrics` turns it into the `source` label.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Source {
+    /// The only chip-temperature estimate the board reports. The gauge
+    /// carries no `source` label.
+    Sole,
+    /// A remote diode wired to a chip die. Selects
+    /// `dangerous_chip_temp_c`.
+    Chip,
+    /// A PCB reading plus an offset, published beside a real die
+    /// reading. Selects `dangerous_temp_c`.
+    Approximated,
+}
+
+/// One sample from a board temperature sensor.
+pub struct Sample {
+    /// The reading that gates thermal shutdown.
+    pub safety: Temperature,
+    /// What [`safety`](Self::safety) measures.
+    pub safety_source: Source,
+    /// The reading that drives the cooling PID, when the board reports a
+    /// second value. `None` means the PID tracks the safety reading.
+    pub pid: Option<Temperature>,
+}
+
+impl Sample {
+    /// A board that reports one estimate and nothing else. The gauge
+    /// carries no label and the PID tracks the same value.
+    #[must_use]
+    pub const fn sole(safety: Temperature) -> Self {
+        Self {
+            safety,
+            safety_source: Source::Sole,
+            pid: None,
+        }
+    }
+}
+
+/// Board temperature sensor. [`sample`](Self::sample) returns everything
+/// one tick needs, so no reading is cached between calls and no call
+/// order is implied.
+#[allow(async_fn_in_trait)]
+pub trait TemperatureSensor {
+    /// Take one sample, or `None` if the reading failed.
+    /// Implementations may await on the underlying hardware.
+    async fn sample(&mut self) -> Option<Sample>;
+
+    /// Whether a sensor that has stopped reading should halt mining.
+    ///
+    /// True for a board whose sensor is independent of what it measures,
+    /// where silence means the reading is gone and the board is running
+    /// unwatched. False for one whose only thermometer is inside the
+    /// chips it is trying to bring up, where silence is the normal state
+    /// until the chain answers and halting on it stops the very work that
+    /// would produce a reading.
+    ///
+    /// A board that returns false still logs the fault, still publishes
+    /// it, and still gets the fan forced to full. It just is not stopped.
+    ///
+    /// This is a fact about the sensor and not about any one reading, so
+    /// it stays a method rather than a [`Sample`] field: the fault path
+    /// asks it exactly when there is no sample to carry it.
+    fn halts_on_fault(&self) -> bool {
+        true
+    }
+}
 
 /// A single thermal sample from the board sensor.
 ///
@@ -163,20 +229,17 @@ pub fn publish_reading_for_test(reading: ThermalReading) {
 pub const SENSOR_FAULT_TICKS: u32 = 5;
 
 /// Publish the safety reading, and the cooling-PID estimate too when the
-/// board exposes a distinct one, each tagged with its source label. Returns
-/// the value the cooling PID should track: the estimate when present, else
+/// board reports a distinct one, each tagged with its source. Returns the
+/// value the cooling PID should track: the estimate when present, else
 /// the safety reading.
-async fn publish_chip_temperatures<S: TemperatureSensor>(
-    sensor: &S,
-    safety: Temperature,
-) -> Temperature {
-    publish_chip_temperature(safety, sensor.temperature_source()).await;
-    match sensor.pid_temperature() {
+async fn publish_chip_temperatures(sample: &Sample) -> Temperature {
+    publish_chip_temperature(sample.safety, sample.safety_source).await;
+    match sample.pid {
         Some(approximated) => {
-            publish_chip_temperature(approximated, sensor.pid_temperature_source()).await;
+            publish_chip_temperature(approximated, Source::Approximated).await;
             approximated
         }
-        None => safety,
+        None => sample.safety,
     }
 }
 
@@ -233,7 +296,7 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
         }
         prev_tick = now;
 
-        let Some(temp) = sensor.read().await else {
+        let Some(sample) = sensor.sample().await else {
             sensor_misses = sensor_misses.saturating_add(1);
             if sensor_misses == SENSOR_FAULT_TICKS {
                 crate::events::sensor_fault(sensor_misses);
@@ -274,25 +337,24 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
             }
         }
         sensor_misses = 0;
-        last_chip_max = Some(temp);
-        let pid_temp = publish_chip_temperatures(&sensor, temp).await;
+        last_chip_max = Some(sample.safety);
+        let pid_temp = publish_chip_temperatures(&sample).await;
         last_pid_temp = Some(pid_temp);
 
-        let dangerous = if sensor.temperature_source() == Some(CHIP_SOURCE) {
-            config.dangerous_chip_temp_c
-        } else {
-            config.dangerous_temp_c
+        let dangerous = match sample.safety_source {
+            Source::Chip => config.dangerous_chip_temp_c,
+            Source::Sole | Source::Approximated => config.dangerous_temp_c,
         };
         let action = evaluate(
-            temp.celsius_f32(),
+            sample.safety.celsius_f32(),
             halted,
             dangerous,
             config.cooldown_temp_c,
         );
-        apply_action(action, &mut halted, temp, &manager).await;
+        apply_action(action, &mut halted, sample.safety, &manager).await;
 
         publisher.send(ThermalReading {
-            chip_max: temp,
+            chip_max: sample.safety,
             pid_temp,
             timestamp_ms: now.as_millis(),
             sensor_fault: false,

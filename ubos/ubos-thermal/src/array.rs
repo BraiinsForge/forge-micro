@@ -32,13 +32,13 @@ use core::fmt::Write as _;
 use embedded_hal_async::i2c::I2c;
 use ubos_core::units::Temperature;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
-use ubos_temperature::{CHIP_SOURCE, SensorDescriptor, SensorKind, TemperatureSensor, read_sensor};
+use ubos_temperature::{SensorDescriptor, SensorKind, read_sensor};
+
+use crate::{Sample, Source, TemperatureSensor};
 
 #[cfg(test)]
 #[path = "tests/array.rs"]
 mod tests;
-
-const APPROXIMATED_SOURCE: &str = "approximated";
 
 /// Per-sensor gauge name for a driver, or `None` to publish no
 /// per-sensor metric. The match is exhaustive, so a new `SensorKind`
@@ -50,38 +50,32 @@ const fn sensor_metric_name(kind: SensorKind) -> Option<&'static str> {
     }
 }
 
-/// Fused board temperatures for one sample.
-struct Fused {
-    safety: Option<Temperature>,
-    safety_source: Option<&'static str>,
-    pid: Option<Temperature>,
-}
-
 /// Pure fold. `die` = hottest trustworthy die reading, `est` = hottest
 /// PCB-plus-offset estimate, `has_die_capable` = the table contains at
 /// least one die-wired sensor. Picks the safety value (real die if any,
 /// else the estimate), tags its source, and exposes the estimate as the
-/// PID input only when it is a distinct second series.
-fn fuse(die: Option<i32>, est: Option<i32>, has_die_capable: bool) -> Fused {
-    match die {
-        Some(mc) => Fused {
-            safety: Some(Temperature::from_millicelsius(mc)),
-            safety_source: Some(CHIP_SOURCE),
+/// PID input only when it is a distinct second series. `None` when
+/// nothing was readable.
+fn fuse(die: Option<i32>, est: Option<i32>, has_die_capable: bool) -> Option<Sample> {
+    if let Some(mc) = die {
+        return Some(Sample {
+            safety: Temperature::from_millicelsius(mc),
+            safety_source: Source::Chip,
             pid: est.map(Temperature::from_millicelsius),
-        },
-        None => Fused {
-            safety: est.map(Temperature::from_millicelsius),
-            // "approximated" only when there is a real die sensor to
-            // contrast against; a board with no die sensor publishes the
-            // canonical unlabeled gauge instead.
-            safety_source: if has_die_capable && est.is_some() {
-                Some(APPROXIMATED_SOURCE)
-            } else {
-                None
-            },
-            pid: None,
-        },
+        });
     }
+    Some(Sample {
+        safety: Temperature::from_millicelsius(est?),
+        // Approximated only when there is a real die sensor to contrast
+        // against. A board with no die sensor reports the one estimate it
+        // has, and its gauge carries no label.
+        safety_source: if has_die_capable {
+            Source::Approximated
+        } else {
+            Source::Sole
+        },
+        pid: None,
+    })
 }
 
 /// Publish a per-sensor metric labeled by I2C address.
@@ -105,19 +99,12 @@ async fn publish_sensor(name: &'static str, address: u8, millicelsius: i32) {
 pub struct SensorArray<Bus> {
     bus: Bus,
     sensors: &'static [SensorDescriptor],
-    pid_temp: Option<Temperature>,
-    safety_source: Option<&'static str>,
 }
 
 impl<Bus> SensorArray<Bus> {
     #[must_use]
     pub const fn new(bus: Bus, sensors: &'static [SensorDescriptor]) -> Self {
-        Self {
-            bus,
-            sensors,
-            pid_temp: None,
-            safety_source: None,
-        }
+        Self { bus, sensors }
     }
 }
 
@@ -125,7 +112,7 @@ impl<Bus> TemperatureSensor for SensorArray<Bus>
 where
     Bus: I2c,
 {
-    async fn read(&mut self) -> Option<Temperature> {
+    async fn sample(&mut self) -> Option<Sample> {
         let mut die: Option<i32> = None;
         let mut est: Option<i32> = None;
         let mut has_die_capable = false;
@@ -150,21 +137,6 @@ where
             }
         }
 
-        let fused = fuse(die, est, has_die_capable);
-        self.pid_temp = fused.pid;
-        self.safety_source = fused.safety_source;
-        fused.safety
-    }
-
-    fn pid_temperature(&self) -> Option<Temperature> {
-        self.pid_temp
-    }
-
-    fn temperature_source(&self) -> Option<&'static str> {
-        self.safety_source
-    }
-
-    fn pid_temperature_source(&self) -> Option<&'static str> {
-        self.pid_temp.map(|_| APPROXIMATED_SOURCE)
+        fuse(die, est, has_die_capable)
     }
 }

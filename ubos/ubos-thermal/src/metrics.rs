@@ -25,6 +25,8 @@
 use ubos_core::units::Temperature;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 
+use crate::Source;
+
 /// Gauge name. Prometheus convention prefers base SI units, which would
 /// make `_celsius` the canonical suffix. The firmware targets the RP2040
 /// among others, a Cortex-M0+ with no FPU, so a float-valued celsius
@@ -33,12 +35,22 @@ use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 /// soft-float, and the name reflects the unit carried on the wire.
 const METRIC_NAME: &str = "board_chip_temperature_millicelsius";
 
-/// Push a chip-temperature reading, optionally tagged with a `source`
-/// label so a board that reports more than one chip-temperature estimate
-/// keeps them as distinct series under one metric name.
-pub(crate) async fn publish_chip_temperature(temp: Temperature, source: Option<&'static str>) {
+/// The `source` label for a reading. The two label strings live here and
+/// nowhere else, so no comparison outside this module can turn on one.
+const fn source_label(source: Source) -> Option<&'static str> {
+    match source {
+        Source::Sole => None,
+        Source::Chip => Some("chip"),
+        Source::Approximated => Some("approximated"),
+    }
+}
+
+/// Push a chip-temperature reading, tagged with a `source` label so a
+/// board that reports more than one chip-temperature estimate keeps them
+/// as distinct series under one metric name.
+pub(crate) async fn publish_chip_temperature(temp: Temperature, source: Source) {
     let value = Value::Int(i64::from(temp.millicelsius()));
-    let Some(source) = source else {
+    let Some(source) = source_label(source) else {
         push(Metric::with_no_labels(METRIC_NAME, value)).await;
         return;
     };
