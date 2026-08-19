@@ -21,13 +21,15 @@
 //! `ThermalReading` via `Handle`. Sends
 //! `ManagerMessage::DangerousTemperature` and `TemperatureNormal` on
 //! threshold and recovery edges; the manager is the sole caller of
-//! `MiningHandle::halt`/`resume`.
+//! `MiningHandle::halt`/`resume`. This task is also the sole writer of
+//! the chip temperature gauge, in `metrics`.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 
+mod metrics;
 mod threshold;
 
 #[cfg(test)]
@@ -41,8 +43,9 @@ use ubos_config::ThermalConfig;
 use ubos_core::units::Temperature;
 use ubos_logging::{error, info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_temperature::{CHIP_SOURCE, TemperatureSensor, publish_board_temperature_with_source};
+use ubos_temperature::{CHIP_SOURCE, TemperatureSensor};
 
+use crate::metrics::publish_chip_temperature;
 use crate::threshold::{Action, evaluate};
 
 ubos_events::events! {
@@ -162,11 +165,10 @@ async fn publish_chip_temperatures<S: TemperatureSensor>(
     sensor: &S,
     safety: Temperature,
 ) -> Temperature {
-    publish_board_temperature_with_source(safety, sensor.temperature_source()).await;
+    publish_chip_temperature(safety, sensor.temperature_source()).await;
     match sensor.pid_temperature() {
         Some(approximated) => {
-            publish_board_temperature_with_source(approximated, sensor.pid_temperature_source())
-                .await;
+            publish_chip_temperature(approximated, sensor.pid_temperature_source()).await;
             approximated
         }
         None => safety,

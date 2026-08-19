@@ -116,15 +116,16 @@ impl ubos_core::watchdog::Watchdog for BoardWatchdog {
     }
 }
 
-/// TIM3 runs free as a TRGO source for the ADC. The timer peripheral is
-/// moved into this wrapper to keep its RCC clock alive for as long as the
-/// sensor lives. The field is never read.
-struct BoardTempSensor {
+/// The MCU internal thermometer, read through ADC1. TIM3 runs free as a
+/// TRGO source for that ADC, and the timer peripheral is moved into this
+/// wrapper to keep its RCC clock alive for as long as the sensor lives.
+/// The field is never read.
+struct McuTempSensor {
     ring: RingBufferedAdc<'static, ADC1>,
     _timer: LowLevelTimer<'static, embassy_stm32::peripherals::TIM3>,
 }
 
-impl ubos_temperature::TemperatureSensor for BoardTempSensor {
+impl ubos_metrics::mcu_temperature::McuTemperatureSensor for McuTempSensor {
     async fn read(&mut self) -> Option<ubos_core::units::Temperature> {
         // STM32F407 datasheet table 78: V_sense ≈ 0.76 V at 25 °C with an
         // average slope of 2.5 mV/°C, 12-bit ADC across VREF = 3.3 V.
@@ -190,8 +191,8 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 }
 
 #[embassy_executor::task]
-async fn temperature_task(sensor: BoardTempSensor) -> ! {
-    ubos_temperature::run_temperature(sensor).await
+async fn mcu_temperature_task(sensor: McuTempSensor) -> ! {
+    ubos_metrics::mcu_temperature::run_mcu_temperature(sensor).await
 }
 
 #[embassy_executor::task]
@@ -526,7 +527,7 @@ async fn boot(spawner: Spawner) {
         TIM3_TRGO,
         Exten::RISING_EDGE,
     );
-    spawner.spawn(unwrap!(temperature_task(BoardTempSensor {
+    spawner.spawn(unwrap!(mcu_temperature_task(McuTempSensor {
         ring: temp_ring,
         _timer: temp_timer,
     })));

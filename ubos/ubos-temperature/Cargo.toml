@@ -13,7 +13,6 @@ defmt   = ["dep:defmt", "ubos-logging/defmt", "ubos-metrics/defmt"]
 
 [dependencies]
 defmt              = { workspace = true, optional = true }
-embassy-time       = { workspace = true }
 embedded-hal-async = { workspace = true }
 ubos-core          = { workspace = true }
 ubos-logging       = { workspace = true }

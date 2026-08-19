@@ -17,10 +17,12 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Board-temperature sensor trait, periodic sampler task, and shared
-//! constants for the Prometheus temperature gauge. Hardware drivers
-//! (LM75A, etc.) live in sibling modules of this crate; board firmware
-//! crates supply their own die-sensor `TemperatureSensor` impl.
+//! Board-temperature sensor trait and the hardware drivers behind it.
+//! The LM75A, TMP102 and TMP461 drivers live in sibling modules, and
+//! `array` folds a board's whole sensor table into the readings the
+//! thermal layer needs. `ubos-thermal` owns the sample loop and the
+//! gauge; board firmware crates supply their own die-sensor
+//! `TemperatureSensor` impl.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -33,23 +35,7 @@ pub mod tmp461;
 
 pub use array::{SensorArray, SensorDescriptor, SensorKind};
 
-use embassy_time::{Duration, Ticker};
 use ubos_core::units::Temperature;
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
-
-/// Internal chip temperature sampling parameters.
-pub struct TemperatureParams;
-impl TemperatureParams {
-    pub const PERIOD: Duration = Duration::from_secs(1);
-    /// Prometheus convention prefers base SI units, which would make
-    /// `_celsius` the canonical suffix. This crate targets the RP2040
-    /// (Cortex-M0+, no FPU) among others, so a float-valued celsius
-    /// gauge would pull software floating-point into the exposition
-    /// path. Integer millicelsius preserves sub-degree resolution
-    /// without soft-float, and the name reflects the unit carried on
-    /// the wire.
-    pub const METRIC_NAME: &str = "board_chip_temperature_millicelsius";
-}
 
 /// Source label marking a safety reading as the real die temperature rather
 /// than a PCB-derived approximation. The thermal layer keys the die-specific
@@ -97,54 +83,5 @@ pub trait TemperatureSensor {
     /// it, and still gets the fan forced to full. It just is not stopped.
     fn halts_on_fault(&self) -> bool {
         true
-    }
-}
-
-/// Push a temperature reading as the canonical board-temperature gauge.
-/// Callers that already have a value in hand (e.g. `ubos-thermal`
-/// inside its sample loop) use this instead of running a second sampler.
-pub async fn publish_board_temperature(temp: Temperature) {
-    publish_board_temperature_with_source(temp, None).await;
-}
-
-/// Push a board-temperature reading, optionally tagged with a `source`
-/// label so a board that reports more than one chip-temperature estimate
-/// (real die versus approximated) keeps them as distinct series under one
-/// metric name.
-pub async fn publish_board_temperature_with_source(
-    temp: Temperature,
-    source: Option<&'static str>,
-) {
-    let value = Value::Int(i64::from(temp.millicelsius()));
-    let Some(source) = source else {
-        push(Metric::with_no_labels(
-            TemperatureParams::METRIC_NAME,
-            value,
-        ))
-        .await;
-        return;
-    };
-    let mut labels = Labels::new();
-    let _ = labels.push(Label {
-        name: "source",
-        value: LabelValue::Static(source),
-    });
-    push(Metric::with_labels(
-        TemperatureParams::METRIC_NAME,
-        labels,
-        value,
-    ))
-    .await;
-}
-
-/// Sample `sensor` at the shared period and push each reading as a
-/// gauge metric. Runs forever.
-pub async fn run_temperature<S: TemperatureSensor>(mut sensor: S) -> ! {
-    let mut ticker = Ticker::every(TemperatureParams::PERIOD);
-    loop {
-        if let Some(temp) = sensor.read().await {
-            publish_board_temperature(temp).await;
-        }
-        ticker.next().await;
     }
 }

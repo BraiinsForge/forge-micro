@@ -67,6 +67,50 @@ CPU usage with Rust Embassy"
 (<https://www.giacomocaironi.dev/posts/measuring-cpu-usage-with-rust-embassy/>,
 reference impl at <https://gitlab.com/giacomocaironi/embassy-cpu-usage>).
 
+## Board temperature
+
+Code: `ubos/ubos-thermal/src/metrics.rs`,
+`ubos/ubos-metrics/src/mcu_temperature.rs`,
+`ubos/ubos-temperature/src/array.rs`.
+
+Two gauges carry a temperature, and each one has a single writer:
+
+- `board_chip_temperature_millicelsius` is the hashboard chip
+  temperature. `ubos_thermal::run_thermal` writes it once per configured
+  sample interval, and the same value gates the thermal shutdown.
+- `board_mcu_temperature_millicelsius` is the temperature of the MCU die
+  on the control board. `ubos_metrics::mcu_temperature` writes it once
+  per second, on the boards whose MCU carries an internal thermometer:
+  esp32s3, stm32f407 and stm32f439.
+
+The two gauges measure different hardware. Under load a control board is
+tens of degrees cooler than a hashboard.
+
+### The `source` label
+
+A board that reports one chip-temperature estimate publishes
+`board_chip_temperature_millicelsius` with no label. A board that reports
+a real die reading and a PCB estimate publishes one series for each:
+
+- `source="chip"` comes from a remote diode wired to a chip die. This
+  series selects the `dangerous_chip_temp_c` threshold.
+- `source="approximated"` is a PCB reading plus the fixed offset that the
+  sensor table gives for that sensor.
+
+### Per-sensor series
+
+`SensorArray` publishes one series for each PCB sensor whose driver has a
+gauge name. Today the LM75A is the only such driver:
+`board_lm75a_temperature_millicelsius{addr="0x48"}`. The value carries
+the same PCB-to-die offset as the estimate above.
+
+### Units
+
+Every temperature gauge is an integer in millicelsius. The rp2040 is a
+Cortex-M0+ with no FPU, so a float-valued celsius gauge adds software
+floating-point to the exposition path. Millicelsius keeps sub-degree
+resolution without soft-float.
+
 ## Per-pool series
 
 Code: `ubos/stratum-client/src/publishers.rs`,

@@ -197,10 +197,11 @@ async fn hashrate_metrics_task() -> ! {
     ubos_metrics::hashrate::run_hashrate_publisher().await
 }
 
-/// Adapts `esp32s3_tsens::Tsens` to the `TemperatureSensor` trait.
-struct BoardTempSensor(esp32s3_tsens::Tsens<'static>);
+/// Adapts the MCU internal thermometer, `esp32s3_tsens::Tsens`, to the
+/// `McuTemperatureSensor` trait.
+struct McuTempSensor(esp32s3_tsens::Tsens<'static>);
 
-impl ubos_temperature::TemperatureSensor for BoardTempSensor {
+impl ubos_metrics::mcu_temperature::McuTemperatureSensor for McuTempSensor {
     async fn read(&mut self) -> Option<ubos_core::units::Temperature> {
         self.0
             .read_millicelsius()
@@ -210,8 +211,8 @@ impl ubos_temperature::TemperatureSensor for BoardTempSensor {
 }
 
 #[embassy_executor::task]
-async fn temperature_task(sensor: BoardTempSensor) -> ! {
-    ubos_temperature::run_temperature(sensor).await
+async fn mcu_temperature_task(sensor: McuTempSensor) -> ! {
+    ubos_metrics::mcu_temperature::run_mcu_temperature(sensor).await
 }
 
 #[embassy_executor::task]
@@ -671,7 +672,7 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(pool_weights_task()));
     // No LED blink task: board wiring does not include an accessible LED.
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
-    spawner.spawn(unwrap!(temperature_task(BoardTempSensor(tsens))));
+    spawner.spawn(unwrap!(mcu_temperature_task(McuTempSensor(tsens))));
 
     // SH1106 OLED on SPI3: reset pulse, then async DMA SPI.
     // The reset pin is moved into display_task so it stays driven high for the display's lifetime.

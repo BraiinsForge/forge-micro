@@ -16,6 +16,7 @@ defmt   = [
     "ubos-events/defmt",
     "ubos-logging/defmt",
     "ubos-manager/defmt",
+    "ubos-metrics/defmt",
     "ubos-temperature/defmt",
 ]
 # Exposes a hook that publishes a `ThermalReading` directly onto the
@@ -32,6 +33,7 @@ ubos-config      = { workspace = true, default-features = false }
 ubos-core        = { workspace = true }
 ubos-events      = { workspace = true, default-features = false }
 ubos-manager     = { workspace = true, default-features = false }
+ubos-metrics     = { workspace = true, default-features = false }
 ubos-temperature = { workspace = true, default-features = false }
 ubos-logging     = { workspace = true }
 
