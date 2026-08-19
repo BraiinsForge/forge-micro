@@ -71,15 +71,13 @@ in `docs/` or in a path-scoped `.claude/rules/` file instead.
 
 ## Licensing
 
-GPL-3.0-or-later throughout, and public. `assets/69-probe-rs.rules` and
-`ubos/ubos-webui/assets/icons.svg` are the two bundled files under a
-different licence; see `COPYING`.
-
-- New first-party sources (`.rs`, `.c`, `.nix`, `.py`, `.js`, `.sh`,
-  `.css`, `.html`) carry the GPL-3.0-or-later block, copied from a
-  neighbouring file. Prose header, no SPDX identifiers.
-- Vendored `patches/*` trees keep their upstream licence and get no
-  Braiins header.
+GPL-3.0-or-later throughout, and public. Every new first-party source
+carries the GPL block, and the `license-headers` check gates that rather
+than trusting it. Which extensions are in scope, what the second half of
+the block reserves and why it is load-bearing, which paths keep a licence
+that is not ours, and what the manifests say:
+`.claude/rules/licence-headers.md`, which loads with the sources it
+governs.
 
 Nothing here is confidential, so there is no strip step and no per-path
 exception to reason about. Product-specific driver code and the bench
