@@ -793,6 +793,86 @@ hostClippyChecks
     ''
   );
 
+  # The converse of the license-headers gate in the private repo that
+  # consumes this one. That gate fails when an open grant reaches a tree
+  # publishing nothing; this one fails when a first-party source here
+  # does not carry the GPL block that .claude/rules/licence-headers.md
+  # requires. The rule was prose alone until this gate, so nothing but
+  # the next reader stopped a file from omitting the block.
+  #
+  # Both halves are required. The grant is the first, and the sentence
+  # reserving the right to grant other terms is the second. The
+  # proprietary crates in the consuming repo link these sources on that
+  # reservation, so the grant alone is a gap rather than a formatting
+  # slip.
+  #
+  # The extension list is the scope, and it holds the exceptions named in
+  # CLAUDE.md out of it without an exemption list to keep level with
+  # them: assets/69-probe-rs.rules and ubos/ubos-webui/assets/icons.svg
+  # are under another licence, COPYING and assets/LICENSE-PROBE-RS are
+  # licence texts, and none of the four has a gated extension. Vendored
+  # patches/ trees keep upstream's licence and are dropped by path.
+  #
+  # Unlike its private twin, this check needs no split string literals.
+  # That one fails on a file carrying the phrases, so writing them in its
+  # own source made it fail on itself. This one fails on a file lacking
+  # them, and its own source carries the block, so it passes.
+  license-headers =
+    let
+      extensions = [
+        "c"
+        "css"
+        "html"
+        "js"
+        "nix"
+        "py"
+        "rs"
+        "sh"
+      ];
+      # The block is 18 lines. The rest of the budget covers a shebang or
+      # an attribute above it on a file that grows one.
+      headLines = 25;
+      grant = "GNU General Public License as published by";
+      reservation = "reserves the right to grant any party a license";
+      names = lib.concatMapStringsSep " -o " (e: "-name '*.${e}'") extensions;
+    in
+    pkgs.runCommand "license-headers" { } ''
+      # The report lands outside the source, which is read-only, and it
+      # carries the loop's findings past the pipeline's subshell.
+      report=$TMPDIR/missing-headers
+      : > "$report"
+      cd ${root}
+      find . -type f \( ${names} \) -not -path './patches/*' \
+        | sort \
+        | while read -r f; do
+            # Strip the comment leader of every language in the list,
+            # then join the lines, so one grep answers for all of them.
+            top=$(head -n ${toString headLines} "$f" \
+              | sed 's|^[[:space:]]*\(//\|#\|/\*\|\*\|<!--\|-->\)*[[:space:]]*||' \
+              | tr '\n' ' ')
+            note=
+            printf '%s' "$top" | grep -qF ${lib.escapeShellArg grant} \
+              || note="no grant"
+            printf '%s' "$top" | grep -qF ${lib.escapeShellArg reservation} \
+              || note="''${note:+$note, }no reservation"
+            if [ -n "$note" ]; then
+              echo "  $f ($note)" >> "$report"
+            fi
+          done
+      if [ -s "$report" ]; then
+        echo "These first-party sources do not carry the full GPL block:" >&2
+        cat "$report" >&2
+        echo "" >&2
+        echo "Copy the block from a neighbouring file in the same" >&2
+        echo "language. The block has two parts, and this gate needs" >&2
+        echo "both. The first part grants the GPL-3.0-or-later terms." >&2
+        echo "The second part reserves the right of Braiins Systems" >&2
+        echo "s.r.o. to grant a licence under other terms." >&2
+        exit 1
+      fi
+      touch $out
+    '';
+
   # CLAUDE.md is loaded into context at the start of every session, and
   # an agent's adherence to it drops as it grows: past a few hundred
   # lines the rules that matter get lost among the ones that do not.
