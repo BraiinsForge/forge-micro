@@ -26,15 +26,17 @@
 //!
 //! The STM32 GP timer cannot count external edges on TI4FP4 in external
 //! clock mode 1: RM0090 §18.3.3 restricts that mode to TI1FP1 and TI2FP2
-//! trigger sources. Instead, the tach task polls the CH4 capture interrupt
-//! flag (`CCxIF`) at `TACH_POLL_INTERVAL` intervals and counts rising-edge
-//! captures over `TACH_WINDOW`. Reading CCR4 clears `CCxIF` atomically
-//! (RM0090 §18.4.11), so no NVIC binding is required.
+//! trigger sources, and CH3 of this same timer is generating the PWM, so the
+//! counter is already the PWM time base. The edges are therefore counted in
+//! the NVIC handler for TIM4, which reads CCR4 to clear `CCxIF` (RM0090
+//! §18.4.11) and increments [`TACH_EDGES`]. `read_rpms` converts the edges
+//! since the previous read, so the caller's cadence sets the measurement
+//! window, the same shape every other board's tach reader has.
 //!
 //! Both channels are configured in `BoardFan::new` via the low-level `Timer`
-//! API on the single `Peri<'static, TIM4>`. `TachHardware` accesses the
-//! same timer registers via the PAC constant `embassy_stm32::pac::TIM4`
-//! so no peripheral singleton needs to be shared.
+//! API on the single `Peri<'static, TIM4>`. The handler reaches the same
+//! registers through the PAC constant `embassy_stm32::pac::TIM4`, so no
+//! peripheral singleton needs to be shared.
 
 use defmt::info;
 use embassy_stm32::Peri;
@@ -47,26 +49,39 @@ use embassy_stm32::timer::low_level::{
     CountingMode, FilterValue, InputCaptureMode, InputTISelection, OutputCompareMode, RoundTo,
     Timer,
 };
-use embassy_time::{Duration, Instant, Timer as EmbassyTimer};
-use portable_atomic::{AtomicU32, Ordering};
+// Two statements, not one `{self, InterruptExt}` group. The `#[interrupt]`
+// attribute macro and the `interrupt` module share this path in different
+// namespaces, and a plain `use` imports the name in every namespace it
+// occupies. The `self` form of a nested group resolves its prefix as a
+// module and imports that alone, so it leaves the attribute macro behind
+// and rustc rejects `#[interrupt]` below as a module rather than an
+// attribute.
+use embassy_stm32::interrupt;
+use embassy_stm32::interrupt::InterruptExt;
+use embassy_time::Instant;
+use portable_atomic::{AtomicU32, AtomicU64, Ordering};
 use ubos_cooling::{FanOutput, TachReader};
 use ubos_core::units::{FanPwm, FanRpm};
 
-/// Board-local RPM sample written by [`run_tach`] and read by [`Tach`].
-static FAN_RPM_SAMPLE: AtomicU32 = AtomicU32::new(0);
+/// Tach rising edges since the last [`BoardTach::read_rpms`]. Incremented in
+/// interrupt context by the TIM4 handler and reset to zero on each read.
+static TACH_EDGES: AtomicU32 = AtomicU32::new(0);
+
+/// Microsecond timestamp of the last counted tach edge, for the
+/// interrupt-side debounce. Written and read only by the TIM4 handler.
+static LAST_EDGE_US: AtomicU64 = AtomicU64::new(0);
 
 /// Target PWM frequency per Intel 4-wire fan specification.
 const FAN_PWM_FREQ: Hertz = Hertz(25_000);
 
-/// Tach sample window: accumulate edges for one second then report RPM.
-const TACH_WINDOW: Duration = Duration::from_secs(1);
-
-/// Poll interval for the tach edge-count loop. 1 ms gives sub-percent
-/// accuracy up to ~1000 Hz pulse rate (30 000 RPM at 2 pulses/rev).
-const TACH_POLL_INTERVAL: Duration = Duration::from_millis(1);
-
 /// Rising edges emitted by a 4-wire fan per revolution.
 const TACH_PULSES_PER_REV: u64 = 2;
+
+/// Shortest interval between two real tach pulses. The open-collector line
+/// rings around the input threshold, so edges closer together than this are
+/// chatter and are dropped in the handler. 500 us allows up to ~60 000 RPM at
+/// two pulses per revolution, far above any real fan.
+const TACH_MIN_PULSE_US: u64 = 500;
 
 /// Alternate function index for TIM4 on PB8 and PB9 (AF2 per RM0090 table 9).
 const TIM4_AF: u8 = 2;
@@ -75,8 +90,8 @@ const TIM4_AF: u8 = 2;
 ///
 /// The low-level `Timer` is held so the ARR / CCR3 shadow registers
 /// remain valid for the lifetime of the firmware. CH4 input capture for
-/// tach is also configured here; `TachHardware` accesses those registers
-/// via the PAC constant without needing the peripheral singleton.
+/// tach is also configured here, and its capture interrupt is armed, so the
+/// TIM4 handler counts edges for as long as the firmware runs.
 pub struct BoardFan {
     timer: Timer<'static, TIM4>,
     /// Cached ARR + 1; used to convert percent to absolute compare value.
@@ -139,8 +154,15 @@ impl BoardFan {
         // `set_frequency` writes PSC + ARR; ARR holds top − 1, so we add 1.
         let arr = u32::from(timer.regs_gp16().arr().read().arr()) + 1;
 
-        // Clear any stale capture flag before the tach task starts counting.
+        // Clear any edge latched during bring-up, then arm the capture
+        // interrupt so the handler counts from here on. `BoardTach::new`
+        // drops whatever accumulates before the first measurement window.
         timer.clear_input_interrupt(Channel::Ch4);
+        timer.enable_input_interrupt(Channel::Ch4, true);
+        // Safety: the handler only reads CCR4, which is the documented way to
+        // clear the flag, and updates two atomics. It touches no register this
+        // constructor or `FanOutput::set_pwm` writes.
+        unsafe { interrupt::TIM4.enable() };
 
         Self {
             timer,
@@ -161,68 +183,70 @@ impl FanOutput for BoardFan {
     }
 }
 
-/// Tach input hardware consumed by [`run_tach`].
+/// Count one tach edge per CH4 capture, then return.
 ///
-/// Holds no peripheral singleton: the PAC constant `pac::TIM4` gives
-/// register access without requiring a separate `Peri<'static, TIM4>`.
-/// All CH4 configuration was already applied in `BoardFan::new`.
-pub struct TachHardware;
+/// Reading CCR4 clears `CCxIF` per RM0090 §18.4.11, so the flag needs no
+/// separate write and the capture enable stays set. The handler is the entire
+/// per-pulse cost: there is no task wake and no re-arm.
+#[interrupt]
+fn TIM4() {
+    // Safety: the TIM4 PAC constant is a stable static register block. The
+    // read below both takes the captured value and clears this channel's own
+    // flag, so it aliases nothing `BoardFan` writes.
+    let _ = pac::TIM4.ccr(Channel::Ch4.index()).read();
 
-impl TachHardware {
-    /// Construct the tach hardware handle.
-    ///
-    /// Requires `board_fan` to already exist so CH4 is configured.
-    /// The `_board_fan` argument is only a proof-of-configuration; no
-    /// borrow escapes this constructor.
-    #[must_use]
-    pub fn new(_board_fan: &BoardFan) -> Self {
-        Self
-    }
-}
-
-/// Sample tach pulses and publish RPM as a gauge. Runs forever.
-///
-/// Polls `CCxIF` for TIM4 CH4 every `TACH_POLL_INTERVAL` via the PAC.
-/// Reading CCR4 via `get_capture_value` clears the flag per RM0090
-/// §18.4.11 so no separate flag-clear call is needed.
-pub async fn run_tach(_hardware: TachHardware) -> ! {
-    info!(
-        "fan tach: {} pulses/rev, window {} s",
-        TACH_PULSES_PER_REV,
-        TACH_WINDOW.as_secs(),
-    );
-
-    loop {
-        let deadline = Instant::now() + TACH_WINDOW;
-        let mut pulses: u64 = 0;
-
-        while Instant::now() < deadline {
-            EmbassyTimer::after(TACH_POLL_INTERVAL).await;
-            // Check CH4 capture interrupt flag (bit 4 of TIM4 SR).
-            // Safety: TIM4 PAC constant is valid; read-only to SR, then
-            // CCR4 read clears the flag atomically.
-            let ch4_flag = pac::TIM4.sr().read().ccif(Channel::Ch4.index());
-            if ch4_flag {
-                // Reading CCR4 atomically clears CCxIF per RM0090 §18.4.11.
-                let _ = pac::TIM4.ccr(Channel::Ch4.index()).read();
-                pulses += 1;
-            }
-        }
-
-        let rpm = pulses * 60 / TACH_PULSES_PER_REV / TACH_WINDOW.as_secs();
-        FAN_RPM_SAMPLE.store(u32::try_from(rpm).unwrap_or(u32::MAX), Ordering::Relaxed);
+    // Debounce: the open-collector line rings, so one real pulse can raise
+    // several edges. Count one only once TACH_MIN_PULSE_US has passed since
+    // the last counted edge.
+    let now_us = Instant::now().as_micros();
+    if now_us.wrapping_sub(LAST_EDGE_US.load(Ordering::Relaxed)) >= TACH_MIN_PULSE_US {
+        LAST_EDGE_US.store(now_us, Ordering::Relaxed);
+        TACH_EDGES.fetch_add(1, Ordering::Relaxed);
     }
 }
 
 /// Tach reader passed to [`ubos_cooling::run_cooling`].
 ///
-/// Reads the latest RPM sample written by [`run_tach`] into the cooling loop.
-pub struct Tach;
+/// Reads and resets [`TACH_EDGES`] and converts the edges since the previous
+/// read into RPM over the measured interval. Resetting the counter on read
+/// means the reader keeps no edge total of its own, so the reading depends
+/// only on the caller's cadence, which the cooling loop fixes at one second.
+pub struct BoardTach {
+    last: Instant,
+}
 
-impl TachReader<1> for Tach {
+impl BoardTach {
+    /// Open the first measurement window.
+    ///
+    /// Requires `board_fan` to already exist, which proves CH4 is configured
+    /// and its capture interrupt is armed. The argument is only that proof; no
+    /// borrow escapes this constructor.
+    ///
+    /// Edges counted between arming the interrupt and this baseline are
+    /// dropped, so the first read divides its edge count by a matching window
+    /// rather than by a shorter one.
+    #[must_use]
+    pub fn new(_board_fan: &BoardFan) -> Self {
+        info!("fan tach: {} pulses/rev", TACH_PULSES_PER_REV);
+        TACH_EDGES.store(0, Ordering::Relaxed);
+        Self {
+            last: Instant::now(),
+        }
+    }
+}
+
+impl TachReader<1> for BoardTach {
     const LABELS: [Option<&'static str>; 1] = [None];
 
     fn read_rpms(&mut self) -> [FanRpm; 1] {
-        [FanRpm::from_rpm(FAN_RPM_SAMPLE.load(Ordering::Relaxed))]
+        let now = Instant::now();
+        let edges = u64::from(TACH_EDGES.swap(0, Ordering::Relaxed));
+        let elapsed_us = (now - self.last).as_micros();
+        self.last = now;
+        // `checked_div` yields 0 when two reads land in the same microsecond.
+        let rpm = (edges * 60 * 1_000_000 / TACH_PULSES_PER_REV)
+            .checked_div(elapsed_us)
+            .unwrap_or(0);
+        [FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))]
     }
 }
