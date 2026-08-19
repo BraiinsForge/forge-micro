@@ -238,7 +238,7 @@ impl BoardTach {
 impl TachReader<1> for BoardTach {
     const LABELS: [Option<&'static str>; 1] = [None];
 
-    fn read_rpms(&mut self) -> [FanRpm; 1] {
+    async fn read_rpms(&mut self) -> [FanRpm; 1] {
         let now = Instant::now();
         let edges = u64::from(TACH_EDGES.swap(0, Ordering::Relaxed));
         let elapsed_us = (now - self.last).as_micros();

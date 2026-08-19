@@ -115,7 +115,7 @@ impl BoardTach {
 impl TachReader<1> for BoardTach {
     const LABELS: [Option<&'static str>; 1] = [None];
 
-    fn read_rpms(&mut self) -> [FanRpm; 1] {
+    async fn read_rpms(&mut self) -> [FanRpm; 1] {
         let now = Instant::now();
         let counts = u64::from(self.tach.counter());
         self.tach.set_counter(0);

@@ -177,7 +177,7 @@ struct NoTach;
 impl TachReader<0> for NoTach {
     const LABELS: [Option<&'static str>; 0] = [];
 
-    fn read_rpms(&mut self) -> [FanRpm; 0] {
+    async fn read_rpms(&mut self) -> [FanRpm; 0] {
         []
     }
 }

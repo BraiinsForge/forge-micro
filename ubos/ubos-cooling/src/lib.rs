@@ -88,9 +88,22 @@ pub trait FanOutput {
 /// `LABELS[i]` is the `fan` label attached to fan `i`'s `board_fan_rpm`
 /// series. `None` publishes that series with no label, which single-fan
 /// boards use to keep the historical unlabeled metric.
+///
+/// `read_rpms` is async for the same reason
+/// [`ubos_temperature::TemperatureSensor::read`] is: a board whose tach lives
+/// behind a bus has to await the transfer, and a synchronous signature would
+/// force it to poll on a task of its own and park each sample in a static for
+/// this loop to pick up. A board counting edges in hardware never awaits, so
+/// the keyword costs it nothing.
+///
+/// An implementation that can block must bound itself. This loop has no
+/// supervision of its own, but it commands the fan before it calls `read_rpms`,
+/// so a read that never returns stalls the RPM and not the duty; the RPM is
+/// telemetry and is worth no risk to the duty.
+#[allow(async_fn_in_trait)]
 pub trait TachReader<const N: usize> {
     const LABELS: [Option<&'static str>; N];
-    fn read_rpms(&mut self) -> [FanRpm; N];
+    async fn read_rpms(&mut self) -> [FanRpm; N];
 }
 
 const METRIC_FAN_PWM: &str = "board_fan_pwm_percent";
@@ -248,20 +261,16 @@ fn stale_timeout(thermal_sample_interval_ms: u32) -> Duration {
     scaled.max(MIN_STALE_TIMEOUT)
 }
 
-/// Command the fan and publish the [`FanState`] plus per-fan metrics for the
-/// given tachometer readings. The caller samples the tachometer on the control
-/// tick and passes the most recent readings here, so a thermal-driven wake
-/// republishes fresh PWM with the last sampled RPM rather than re-reading the
-/// counter over a short, uneven window.
-async fn emit_state<F, const N: usize>(
-    fan: &mut F,
+/// Publish the [`FanState`] plus per-fan metrics for the given tachometer
+/// readings. The caller commands the fan itself and samples the tachometer on
+/// the control tick, then passes the most recent readings here, so a
+/// thermal-driven wake republishes fresh PWM with the last sampled RPM rather
+/// than re-reading the counter over a short, uneven window.
+async fn publish_state<const N: usize>(
     pwm: FanPwm,
     rpms: &[FanRpm; N],
     tach_labels: &[Option<&'static str>; N],
-) where
-    F: FanOutput,
-{
-    fan.set_pwm(pwm);
+) {
     let fastest = rpms
         .iter()
         .copied()
@@ -331,9 +340,6 @@ where
     let mut control = TempControl::from_config(&config);
 
     let tach_labels = T::LABELS;
-    // Sample the tach once up front so boot telemetry is not a blank line; the
-    // control tick refreshes it every CONTROL_INTERVAL thereafter.
-    let mut last_rpms = tach.read_rpms();
 
     // Start the fan at the configured floor, or at the fixed duty when the
     // operator has taken the fan off the PID, and publish immediately so the
@@ -344,7 +350,12 @@ where
         FanMode::Auto => FanPwm::from_percent(config.pid.min_fan_pwm),
         FanMode::Fixed => fixed_pwm(&config),
     };
-    emit_state(&mut fan, last_pwm, &last_rpms, &tach_labels).await;
+    fan.set_pwm(last_pwm);
+
+    // Sample the tach once up front so boot telemetry is not a blank line; the
+    // control tick refreshes it every CONTROL_INTERVAL thereafter.
+    let mut last_rpms = tach.read_rpms().await;
+    publish_state(last_pwm, &last_rpms, &tach_labels).await;
     log_cooling("cooling: started", &config);
 
     let mut subscription = thermal.subscribe();
@@ -404,10 +415,11 @@ where
                         }
                     }
                 };
+                fan.set_pwm(last_pwm);
                 // Reuse the last sampled RPM; the tach is read on the control
                 // tick, not here, so its window stays nominally fixed: delayed,
                 // not skipped, if thermal readings monopolize the select.
-                emit_state(&mut fan, last_pwm, &last_rpms, &tach_labels).await;
+                publish_state(last_pwm, &last_rpms, &tach_labels).await;
             }
             Either::Second(()) => {
                 // Independent control tick. If the thermal task has gone
@@ -445,10 +457,14 @@ where
                         FanMode::Auto => last_pwm.max(FanPwm::from_percent(config.pid.min_fan_pwm)),
                     };
                 }
+                // Command the fan before the tach read: read_rpms can await a bus
+                // transfer that never completes, and this tick's duty, the
+                // staleness failsafe included, must not wait on it.
+                fan.set_pwm(last_pwm);
                 // Sample the tach once per tick: a nominally fixed CONTROL_INTERVAL
                 // window for the edge count, independent of the thermal-reading cadence.
-                last_rpms = tach.read_rpms();
-                emit_state(&mut fan, last_pwm, &last_rpms, &tach_labels).await;
+                last_rpms = tach.read_rpms().await;
+                publish_state(last_pwm, &last_rpms, &tach_labels).await;
             }
         }
     }

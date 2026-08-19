@@ -83,7 +83,7 @@ pub(crate) struct FakeTach;
 impl TachReader<1> for FakeTach {
     const LABELS: [Option<&'static str>; 1] = [None];
 
-    fn read_rpms(&mut self) -> [FanRpm; 1] {
+    async fn read_rpms(&mut self) -> [FanRpm; 1] {
         [FanRpm::from_rpm(0)]
     }
 }

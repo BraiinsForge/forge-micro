@@ -161,7 +161,7 @@ impl BoardTach {
 impl TachReader<TACH_COUNT> for BoardTach {
     const LABELS: [Option<&'static str>; TACH_COUNT] = [Some("a"), Some("b")];
 
-    fn read_rpms(&mut self) -> [FanRpm; TACH_COUNT] {
+    async fn read_rpms(&mut self) -> [FanRpm; TACH_COUNT] {
         [latest_rpm(&mut self.sm_a), latest_rpm(&mut self.sm_b)]
     }
 }

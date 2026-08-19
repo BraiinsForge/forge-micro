@@ -184,7 +184,7 @@ impl BoardTach {
 impl TachReader<1> for BoardTach {
     const LABELS: [Option<&'static str>; 1] = [None];
 
-    fn read_rpms(&mut self) -> [FanRpm; 1] {
+    async fn read_rpms(&mut self) -> [FanRpm; 1] {
         let now = Instant::now();
         // A negative value means a spurious decrement; treat as zero.
         let counts = u64::try_from(self.counter.get().max(0)).unwrap_or(0);
