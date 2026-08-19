@@ -1,4 +1,4 @@
-# ubos-main
+# Firmware workspace
 
 Open firmware for the ARM and Xtensa boards. Tree layout:
 `docs/STRUCTURE.md`.

@@ -1,4 +1,4 @@
-# ubos-main
+# Firmware workspace
 
 Bare-metal Rust miner firmware. The product board is the Braiins Forge
 Miner x4 (`firmware/hashnode`), an RP2350B driving a 4-chip BM1370
@@ -9,6 +9,16 @@ than shaped to one part. Each board serves a small HTTP dashboard that
 polls `/api/info` and renders uptime, DHCP-assigned IP, current
 hashrate from the on-board BM13xx ASIC via the `ubos-mining` driver,
 on-board temperature, fan speed and PWM duty, and UTC time via NTP.
+
+## Naming
+
+This repository has two names. On our GitLab instance it is `ubos-main`.
+A push mirror publishes it on GitHub as `forge-micro`. Both names are
+real, and both name this tree.
+
+No other file names either one. Prose in this tree calls it the firmware
+workspace, and calls the private repository that consumes it the internal
+repository.
 
 ## Start here
 
