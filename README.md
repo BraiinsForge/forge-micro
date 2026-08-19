@@ -48,3 +48,6 @@ configuration file and is not combined with the GPL-3.0-or-later sources.
 
 Braiins Systems s.r.o. reserves the right to license this program, or
 any part thereof, under separate terms.
+
+If you want to contribute, read [`CONTRIBUTING.md`](CONTRIBUTING.md)
+first. It states what that reservation means for your contribution.

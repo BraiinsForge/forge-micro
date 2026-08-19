@@ -2,6 +2,7 @@
 paths:
   - "docs/**/*.md"
   - "**/README.md"
+  - "**/CONTRIBUTING.md"
 ---
 
 # Prose
