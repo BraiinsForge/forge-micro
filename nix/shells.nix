@@ -100,7 +100,7 @@ in
 
       shellHook = ''
         ${linkPatchedCrates}
-        echo "ubos-main dev environment ready (ARM boards)"
+        echo "firmware workspace dev environment ready (ARM boards)"
         echo ""
         echo "  cd firmware/hashnode  && cargo build --release  # Hashnode RP2350B BM1370"
         echo "  cd firmware/bmm-pico  && cargo build --release  # BMM Adapter RP2350 W5500"
@@ -206,7 +206,7 @@ in
         export LIBCLANG_PATH="$LIBCLANG_TOOLCHAIN_PATH"
       fi
 
-      echo "ubos-main dev environment ready (ESP32-S3)"
+      echo "firmware workspace dev environment ready (ESP32-S3)"
       echo ""
       echo "  cd firmware/esp32s3 && cargo build --release  # Waveshare ESP32-S3-LCD-Driver-Board W5100S"
       echo ""
@@ -235,7 +235,7 @@ in
 
     shellHook = ''
       ${linkPatchedCrates}
-      echo "ubos-main dev environment ready (host-runner, native, TAP)"
+      echo "firmware workspace dev environment ready (host-runner, native, TAP)"
       echo ""
       echo "  cargo run -p host-runner"
       echo ""
@@ -268,7 +268,7 @@ in
 
     shellHook = ''
       ${linkPatchedCrates}
-      echo "ubos-main dev environment ready (host-runner, BMM/miniminer cross)"
+      echo "firmware workspace dev environment ready (host-runner, BMM/miniminer cross)"
       echo ""
       echo "  cd host/host-runner && cargo build --release"
       echo "                         cargo run --release -- --hostname <miner-ip>"
@@ -286,7 +286,7 @@ in
     ];
 
     shellHook = ''
-      echo "ubos-main — available development shells:"
+      echo "Available development shells:"
       echo ""
       echo "  nix develop .#arm   — ARM boards (RP2040, RP2350, STM32F407, STM32F439)"
       echo "  nix develop .#esp   — ESP32-S3 board"

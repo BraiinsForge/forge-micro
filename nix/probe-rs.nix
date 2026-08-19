@@ -180,9 +180,10 @@ rec {
       fi
       # Persist a copy of each session so a flash can be left
       # unattended and read back later. Logs land in the project's
-      # logs/ directory - the nearest ancestor holding flake.nix,
-      # i.e. ubos-main. PROBE_RS_LOG_DIR overrides this; a deployment
-      # that wants rotation layers it on top of that override.
+      # logs/ directory - the nearest ancestor holding flake.nix, i.e.
+      # the workspace root. PROBE_RS_LOG_DIR overrides this; a
+      # deployment that wants rotation layers it on top of that
+      # override.
       #
       # Named <firmware>[-<suffix>]-<timestamp>.log. The firmware
       # name is the crate directory we run from (rp2350, bmm-pico,

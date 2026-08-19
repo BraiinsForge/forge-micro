@@ -17,7 +17,7 @@
 # to this program, or any part thereof, under any terms, and such a grant
 # shall be considered distinct from the grant above.
 
-# The ubos-main bare-metal Rust firmware workspace flake.
+# The bare-metal Rust miner firmware workspace flake.
 #
 # Why: each board needs a specific Rust target and, for the ESP32-S3,
 # an Xtensa toolchain that is not in nixpkgs. This flake pins both so
@@ -31,7 +31,7 @@
 # output at the bottom re-exports those modules for a downstream repo
 # that builds its own workspace against these crates.
 {
-  description = "ubos-main bare-metal Rust firmware workspace";
+  description = "Bare-metal Rust miner firmware workspace";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
