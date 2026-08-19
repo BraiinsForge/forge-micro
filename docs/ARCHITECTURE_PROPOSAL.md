@@ -32,6 +32,7 @@ The migration phasing lives in **Appendix A**; the crate inventory in
 | Issue | Where | Effect |
 |---|---|---|
 | `ubos-monitor` does temperature sensing **and** PID fan control **and** thermal safety signaling in one task | resolved by the split into `ubos-thermal` (`run_thermal`) and `ubos-cooling` (`run_cooling`) | Three independent concerns share one loop |
+| `ubos-temperature` runs a second sampler that writes the same gauge as `ubos-thermal`, and a Prometheus label string selects the thermal shutdown threshold | resolved by moving the sensor trait, the fusion and the gauge into `ubos-thermal` and leaving the drivers behind, and by replacing both label strings with the `Source` enum the threshold matches on | Three boards wrote two values onto one series about once a second; a typo in either label string chose the wrong threshold silently |
 | `TEMPERATURE_C: AtomicU32` declared, read by API, **never written** | resolved by routing the API read through `ThermalHandle::current()` and removing the atomic | Dashboard always shows 0 °C |
 | No manager/supervisor | resolved by introducing `ubos-manager` (`run_manager` aggregates `PauseReasons` and drives `MiningHandle::halt`/`resume` on the empty/non-empty edge) | No central pause/resume, no way to act on config changes |
 | `STOP_MINING`, `MINER_IS_RUNNING` signals have no producer/consumer | resolved by deleting `MINER_IS_RUNNING` in favor of `MiningHandle::state()` and wiring `STOP_MINING` to host-runner's SIGINT handler and the work-loop selects | Pause API is a logging stub |
@@ -1014,10 +1015,11 @@ Async PSU driver. `Psu` trait + miniminer BMM101 I²C impl. Owned by
 the mining task as a value; no separate handle. Library only.
 
 ### `ubos-temperature`
-`TemperatureSensor` trait + sensor drivers (LM75A, board die sensors).
-Today runs its own periodic sampler that pushes to metrics; under this
-proposal the sampling task moves into `ubos-thermal` and this crate
-stays as the pure driver layer.
+Sensor drivers (LM75A, TMP102, TMP461) plus the descriptor types a board
+declares its sensor topology with. The sampler, the fusion and the
+`TemperatureSensor` trait moved to `ubos-thermal`, so this crate is the
+pure driver layer this proposal asked for. It owns no task and writes no
+metric.
 
 ### `ubos-net`
 Network framework — DHCP/smoltcp glue, NTP, and the `connect_stratum`
@@ -1112,8 +1114,9 @@ was removed.) The crate was later deleted with the BTC ticker;
   `ubos-net`'s BTC fetch task.
 
 ### `esp32s3-tsens`
-ESP32-S3 internal die-temperature sensor driver. Implements
-`ubos-temperature::TemperatureSensor`. Library only.
+ESP32-S3 internal die-temperature sensor driver. The board wraps it in
+its `ubos_metrics::mcu_temperature::McuTemperatureSensor` impl, which
+publishes the MCU gauge. Library only.
 
 ### `serial-baudrate`
 Pure helpers: BM1362 baud register encoding, MCU UART divisor math.

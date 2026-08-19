@@ -73,9 +73,10 @@ baud-rate switch; see [MINING.md](MINING.md).
 - `ubos/ubos-metrics/` -- HTTP server, metrics, CPU-load accounting,
   EWMA hashrate accounting.
 - `ubos/ubos-display/` -- SH1106 driver and render task.
-- `ubos/ubos-thermal/` -- sensor poll, `ThermalHandle` publisher,
-  safety trip asserted as `PauseReason::DangerousTemperature` on
-  `ManagerHandle`.
+- `ubos/ubos-thermal/` -- the `TemperatureSensor` trait, the sensor
+  fusion over a board's descriptor table, the sample loop and the chip
+  temperature gauge, `ThermalHandle` publisher, safety trip asserted as
+  `PauseReason::DangerousTemperature` on `ManagerHandle`.
 - `ubos/ubos-cooling/` -- fan control task, PID or fixed duty, and
   `FanOutput` HAL trait.
 - `ubos/ubos-logging/` -- macro facade that swaps between `defmt` and
@@ -101,8 +102,8 @@ baud-rate switch; see [MINING.md](MINING.md).
   path; generic over `embedded-hal-async::i2c`.
 - `ubos/ubos-psu/` -- async PSU driver for the BMM101 miniminer hashboard
   plus the INA230 current monitor; generic over `embedded-hal-async::i2c`.
-- `ubos/ubos-temperature/` -- temperature sensor abstraction and the
-  LM75A driver.
+- `ubos/ubos-temperature/` -- the LM75A, TMP102 and TMP461 drivers, and
+  the descriptor types a board declares its sensor topology with.
 - `ubos/serial-baudrate/` -- `BaudRate` trait, orthogonal to `embedded-io`,
   for runtime baud switching from a `&self` receiver.
 

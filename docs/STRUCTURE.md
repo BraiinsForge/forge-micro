@@ -88,11 +88,11 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-metrics`     | Prometheus exporter task, hashrate EWMA, CPU-load gauge, shared metric map |
 | `ubos-display`     | SH1106 OLED driver and render task                 |
 | `ubos-logging`     | `defmt`/`log` macro facade                         |
-| `ubos-thermal`     | sensor poll, `ThermalHandle` publisher, thermal guard |
+| `ubos-thermal`     | `TemperatureSensor` trait, descriptor-driven sensor fusion, sample loop, chip temperature gauge, `ThermalHandle` publisher, thermal guard |
 | `ubos-cooling`     | fan control task, PID or fixed duty, `FanOutput` HAL trait |
 | `ubos-mining`      | BM13xx chip-serial actor, miner state machine, `MiningHandle` |
 | `ubos-psu`         | async PSU driver over I2C                          |
-| `ubos-temperature` | temperature sampling and LM75A driver              |
+| `ubos-temperature` | LM75A, TMP102 and TMP461 drivers, and the sensor descriptor types a board declares its topology with. No task and no metric |
 | `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner |
 | `ubos-firmware`    | top-of-graph assembly: `EVENT_REGISTRY`, shared stratum session; consumed only by the `firmware/<board>` binaries |
 

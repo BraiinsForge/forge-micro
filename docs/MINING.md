@@ -169,7 +169,7 @@ the latest period per fan each control tick and publishes one labelled
 ## Temperature sensors
 
 Code: `firmware/hashnode/src/temperature.rs` binds
-`ubos_temperature::SensorArray` to the board's I2C1 bus from the
+`ubos_thermal::SensorArray` to the board's I2C1 bus from the
 `ubos_machine::HASHNODE` sensor table.
 
 The hashboard carries a TMP461 remote-diode sensor reading the ASIC die

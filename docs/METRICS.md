@@ -70,8 +70,8 @@ reference impl at <https://gitlab.com/giacomocaironi/embassy-cpu-usage>).
 ## Board temperature
 
 Code: `ubos/ubos-thermal/src/metrics.rs`,
-`ubos/ubos-metrics/src/mcu_temperature.rs`,
-`ubos/ubos-temperature/src/array.rs`.
+`ubos/ubos-thermal/src/array.rs`,
+`ubos/ubos-metrics/src/mcu_temperature.rs`.
 
 Two gauges carry a temperature, and each one has a single writer:
 
