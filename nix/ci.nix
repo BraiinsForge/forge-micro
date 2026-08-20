@@ -23,9 +23,15 @@
 # identical command locally. No shell wrapper sits between CI and nix.
 #
 # `classify` maps every check name to exactly one stage, so the
-# three groups partition `checks` with no overlap and no gaps:
-# the union of ci-format + ci-clippy + ci-check is precisely
-# `nix flake check`. ci-format is the formatting gate, ci-clippy
+# three groups partition `checks` with no overlap and no gaps, and
+# each group is a farm keyed by those same names: the union of
+# ci-format + ci-clippy + ci-check is then precisely
+# `nix flake check`. The farm has to be keyed by the check name and
+# not by the derivation name. Crane gives every check built from one
+# workspace the same derivation name, and a farm keyed by that name
+# keeps one entry per name and drops the rest, which left most of the
+# clippy and build checks unbuilt for as long as this used
+# `linkFarmFromDrvs`. ci-format is the formatting gate, ci-clippy
 # the per-crate clippy gate, and ci-check the comprehensive
 # remainder - host tests, firmware release builds, and the static
 # guards. A newly added check that matches neither the format set
@@ -49,7 +55,7 @@ let
     else
       "ci-check";
   grouped = pkgs.lib.groupBy classify (builtins.attrNames checks);
-  farm = stage: pkgs.linkFarmFromDrvs stage (map (name: checks.${name}) (grouped.${stage} or [ ]));
+  farm = stage: pkgs.linkFarm stage (pkgs.lib.getAttrs (grouped.${stage} or [ ]) checks);
 in
 {
   ci-format = farm "ci-format";
