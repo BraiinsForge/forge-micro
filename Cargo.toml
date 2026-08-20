@@ -103,7 +103,6 @@ rand_chacha       = { version = "0.3", default-features = false }
 embedded-graphics = { version = "0.8", default-features = false }
 profont           = { version = "0.7.0", default-features = false }
 format_no_std     = "1.2.0"
-nb                = "1"
 sha2              = { version = "0.10", default-features = false }
 crc               = { version = "3", default-features = false }
 bitfield-struct   = "0.13"
