@@ -76,5 +76,9 @@ The umbrella crate is a thin re-export shim — no original logic.
 
 ## License
 
-See the workspace `Cargo.toml` for the upstream BOSI license terms
-inherited by this project.
+This program is free software licensed under the terms of the GNU
+General Public License, version 3 or (at your option) any later version.
+See [`COPYING`](../COPYING) for the full text.
+
+Braiins Systems s.r.o. reserves the right to license this program, or
+any part thereof, under separate terms.
