@@ -39,7 +39,6 @@ use embassy_rp::peripherals::{DMA_CH2, PIN_15, PIN_26, PIN_27, PIN_28, PIN_29, S
 use embassy_time::Duration;
 
 /// Every peripheral singleton the board consumes, extracted in one place.
-#[allow(dead_code)]
 pub struct Board {
     pub watchdog: Peri<'static, WATCHDOG>,
     /// Status LED on GPIO6, active-low (10k pull-up to 3V3; DS-LED off when

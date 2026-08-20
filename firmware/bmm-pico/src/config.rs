@@ -36,6 +36,11 @@ use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, S
 use embassy_time::Duration;
 
 /// Every peripheral singleton the board consumes, extracted in one place.
+// This struct records the adapter's wiring rather than only the peripherals
+// the firmware reads today, so that a pin assignment is looked up here
+// instead of being rediscovered from the schematic as each feature lands.
+// The probe UART and the die sensor are unread on purpose, which is what
+// this attribute allows. Every other board's struct is under the lint.
 #[allow(dead_code)]
 pub struct Board {
     pub watchdog: Peri<'static, WATCHDOG>,

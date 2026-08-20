@@ -66,7 +66,6 @@ pub fn stm32_config() -> embassy_stm32::Config {
 }
 
 /// Every peripheral singleton the board consumes, extracted in one place.
-#[allow(dead_code)]
 pub struct Board {
     pub iwdg: Peri<'static, IWDG>,
     pub rng: Peri<'static, RNG>,

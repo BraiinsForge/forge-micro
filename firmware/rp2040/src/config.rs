@@ -38,7 +38,6 @@ use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, S
 use embassy_time::Duration;
 
 /// Every peripheral singleton the board consumes, extracted in one place.
-#[allow(dead_code)]
 pub struct Board {
     pub watchdog: Peri<'static, WATCHDOG>,
     pub led: Peri<'static, PIN_25>,
