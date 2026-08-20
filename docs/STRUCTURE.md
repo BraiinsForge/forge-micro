@@ -188,6 +188,47 @@ agents respectively; everything longer-form lives here.
   in a firmware crate's dep graph, and a `ubos/` crate must never
   pull in `std`.
 
+## What nothing reaches
+
+A survey read this tree for the parts that no code, no check and no
+document reaches. It ran at commit `e1d0ae3e` and asked six questions:
+
+1. Which tracked file does no other file name?
+2. Which path does a document name, but the tree does not hold?
+3. Which nix module, package, patch, and asset does the flake not reach?
+4. Which entry in `[workspace.dependencies]` does no member manifest
+   name?
+5. Which crate has no check in the flake?
+6. Which site holds an `#[allow(dead_code)]` attribute?
+
+This tree came out cleaner than the internal one. Five passes answered
+the survey, and the git history holds each one. What it found clean is
+recorded below, so that the next reader does not repeat the work. The
+table groups the results by area, not by question. The paragraph after
+the table answers the dead-code question.
+
+| Area | Result |
+|------|--------|
+| `nix/*.nix` | Every module is reached from `flake.nix` or from another module. |
+| `pkgs/*` | Every package is built by a check and by a dev shell. |
+| `patches/` | Every patch file is applied by `nix/patched-crates.nix` or `nix/probe-rs.nix`. |
+| `[workspace.dependencies]` | Every entry is in use. |
+| Per-crate checks | Every workspace crate has a check. Four have clippy but no build, because every board that uses them compiles them. |
+| Per-crate dependencies | The `cargo-machete` check gates every dependency a crate does not mark `ignored`. It cannot see the ignore list, and one entry there outlived the dependency it excused. |
+| `micro-sv2/` | The nested flake is gated. `flake.nix` re-exports its checks as `clippy-micro-sv2`, `micro-sv2-test`, and `micro-sv2-formatting`. |
+| `docs/upstream-prs/` | Three documents remain. Each one describes a workaround that a file still carries, or is named by the patch that carries its fix. |
+| Long-form design documents | `ARCHITECTURE_PROPOSAL.md`, `STRATUM_IMPLEMENTATION_PLAN.md`, and `MULTIPOOL_DESIGN.md` are cited from crate sources as the rationale for the code. They stay. |
+| Paths named in prose | Every path a document names exists, apart from the paths that describe a planned move, a file a plan has not created yet, a deletion that already happened, or a crate upstream of this tree. |
+
+Every board's peripheral struct is under the dead-code lint, apart from
+bmm-pico's. That one records the adapter's wiring rather than only the
+peripherals the firmware reads, so it keeps `#[allow(dead_code)]`. Three
+library sites keep the attribute too. Every one of these four states its
+reason on the site.
+
+A survey is a snapshot. Every answer above was true at the commit named,
+and a later reader must ask again rather than trust the table.
+
 ## Footprint
 
 Per-board RAM headroom after the multipool change (one stratum
