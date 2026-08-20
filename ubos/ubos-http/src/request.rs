@@ -81,6 +81,9 @@ where
         .headers()
         .map_err(|_| edge_http::io::Error::InvalidState)?;
 
+    // `edge_http::Method::as_str` is private upstream, so the canonical
+    // method string is reached through the `Display` impl instead. See
+    // `docs/upstream-prs/edge-http-method-as-str-public.md`.
     let mut method = String::<16>::new();
     let _ = core::write!(method, "{}", headers.method);
 

@@ -9,20 +9,20 @@ or forwarding — cannot call it directly. The only escape hatch is to go throug
 `Display` impl and format into an intermediate heap- or stack-allocation, which is wasteful
 and awkward in `no_std` contexts where all allocations are bounded and manual.
 
-In this workspace two crates independently work around the missing public accessor with
-the same pattern:
+In this workspace one function replaces the missing public accessor.
+`extract_request_parts` in `ubos/ubos-http/src/request.rs` formats the method through
+the `Display` impl into a bounded buffer:
 
 ```rust
-// dashboard.rs and metrics.rs both contain:
-let mut method = heapless::String::<16>::new();
+// `edge_http::Method::as_str` is private upstream, so the canonical
+// method string is reached through the `Display` impl instead. See
+// `docs/upstream-prs/edge-http-method-as-str-public.md`.
+let mut method = String::<16>::new();
 let _ = core::write!(method, "{}", headers.method);
-// then use method.as_str() for routing
 ```
 
-The explanatory comment appears in `dashboard.rs` next to that workaround:
-```rust
-// `Method::as_str` is private; use the `Display` impl.
-```
+Every caller that needs the method string reads it from the `RequestParts` that
+function returns, so the workaround exists once.
 
 ## Reproduction
 
