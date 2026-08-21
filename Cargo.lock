@@ -4485,9 +4485,6 @@ dependencies = [
 [[package]]
 name = "ubos-main-host"
 version = "0.1.0"
-dependencies = [
- "stratum-client",
-]
 
 [[package]]
 name = "ubos-manager"

@@ -6,11 +6,3 @@ version = "0.1.0"
 
 [lints]
 workspace = true
-
-[dependencies]
-stratum-client = { workspace = true }
-
-# stratum-client is used via re-exports and trait impls visible only at
-# link time; machete does not see through workspace re-export patterns.
-[package.metadata.cargo-machete]
-ignored = ["stratum-client"]

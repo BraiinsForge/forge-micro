@@ -17,9 +17,4 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Host-side integration harness for `stratum-client`.
-//!
-//! Drives the same Embassy stack that runs on the firmwares against a
-//! Linux TUN/TAP interface, so V1 and V2 mining sessions can be
-//! exercised end-to-end against a real pool without flashing a board.
-//! Host-only (uses std); not built into firmware images.
+//! Empty stub for the planned TUN/TAP integration harness.
