@@ -1,48 +1,59 @@
 import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { postConfig } from '../lib/api';
-import { toast } from '../lib/toast';
+import { toast, errMsg } from '../lib/toast';
 import type { PoolConfig, PoolProtocol } from '../lib/types';
-import Field from './Field';
-import Select from './Select';
-import Section from './Section';
 
 const ADDR_RE = /^([^:/]+)(?::(\d+))?$/;
-const URL_RE = /^(?:(stratum2?\+tcp):\/\/)?(.*)$/;
-const NAMES = ['Pool 1 — Primary', 'Pool 2 — Backup', 'Pool 3 — Backup'];
-const PROTOS = [
-  { value: 'stratum+tcp', label: 'stratum+tcp' },
-  { value: 'stratum2+tcp', label: 'stratum2+tcp' },
-];
+const URL_RE = /^(?:(stratum2?\+tcp):\/\/)?([^/]*)(?:\/(.*))?$/;
+const DEFAULT_PORT = 3333;
+const PUBKEY_LEN = 32;
 
-const bytesToHex = (bytes: number[]): string =>
-  Array.from(bytes, (v) => v.toString(16).padStart(2, '0')).join('');
+const bytesToB64 = (bytes: number[]): string => btoa(String.fromCharCode(...bytes));
 
-function hexToBytes(hex: string): number[] {
-  const bytes = [];
-  for (let i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.slice(i, i + 2), 16));
-  return bytes;
+function b64ToBytes(b64: string): number[] | null {
+  try {
+    const bytes = Array.from(atob(b64), (c) => c.charCodeAt(0));
+    return bytes.length === PUBKEY_LEN ? bytes : null;
+  } catch {
+    return null;
+  }
 }
 
 interface Slot {
-  proto: string;
-  addr: string;
+  url: string;
   user: string;
   pass: string;
+  on: boolean;
+}
+
+interface Parsed {
+  sv2: boolean;
+  hostport: string;
   key: string;
 }
 
-function initSlot(pool: PoolConfig | null | undefined): Slot {
-  if (!pool) return { proto: 'stratum+tcp', addr: '', user: '', pass: '', key: '' };
-  const protocol = pool.protocol;
-  const sv2 = protocol && 'Sv2' in protocol ? protocol.Sv2 : undefined;
-  const sv1 = protocol && 'Sv1' in protocol ? protocol.Sv1 : undefined;
+function parseUrl(url: string): Parsed {
+  const match = url.trim().match(URL_RE);
   return {
-    proto: sv2 ? 'stratum2+tcp' : 'stratum+tcp',
-    addr: pool.host + (pool.port ? ':' + pool.port : ''),
+    sv2: match?.[1] === 'stratum2+tcp',
+    hostport: match?.[2] ?? '',
+    key: match?.[3] ?? '',
+  };
+}
+
+function initSlot(pool: PoolConfig | null | undefined): Slot {
+  if (!pool) return { url: '', user: '', pass: '', on: false };
+  const sv2 = pool.protocol && 'Sv2' in pool.protocol ? pool.protocol.Sv2 : undefined;
+  const sv1 = pool.protocol && 'Sv1' in pool.protocol ? pool.protocol.Sv1 : undefined;
+  const proto = sv2 ? 'stratum2+tcp' : 'stratum+tcp';
+  const key = sv2?.pool_pubkey ? '/' + bytesToB64(sv2.pool_pubkey) : '';
+  const addr = pool.host + (pool.port ? ':' + pool.port : '');
+  return {
+    url: proto + '://' + addr + key,
     user: pool.user || '',
     pass: sv1?.password || '',
-    key: sv2?.pool_pubkey ? bytesToHex(sv2.pool_pubkey) : '',
+    on: pool.weight === undefined ? !!pool.host : pool.weight > 0,
   };
 }
 
@@ -55,37 +66,14 @@ interface PoolPatch {
   port: number;
   user: string;
   protocol: PoolProtocol;
+  weight: number;
 }
 
 export default function ConfigPools({ pools }: ConfigPoolsProps) {
   const [slots, setSlots] = useState(() => [0, 1, 2].map((i) => initSlot(pools[i])));
 
-  function patch(i: number, field: keyof Slot, value: string): void {
+  function patch(i: number, field: keyof Slot, value: string | boolean): void {
     setSlots((prev) => prev.map((slot, idx) => (idx === i ? { ...slot, [field]: value } : slot)));
-  }
-
-  function onPaste(i: number, e: JSX.TargetedEvent<HTMLInputElement, ClipboardEvent>): void {
-    const text = e.clipboardData?.getData('text').trim() ?? '';
-    const match = text.match(URL_RE);
-    if (match && match[1]) {
-      e.preventDefault();
-      const proto = match[1];
-      const slash = match[2].indexOf('/');
-      const addr = slash < 0 ? match[2] : match[2].slice(0, slash);
-      const key = slash < 0 ? '' : match[2].slice(slash + 1);
-      setSlots((prev) =>
-        prev.map((slot, idx) =>
-          idx === i ? { ...slot, proto, addr, key: key || slot.key } : slot,
-        ),
-      );
-    }
-  }
-
-  function onCopy(i: number, e: JSX.TargetedEvent<HTMLInputElement, ClipboardEvent>): void {
-    e.preventDefault();
-    const slot = slots[i];
-    const key = slot.proto === 'stratum2+tcp' && slot.key.trim() ? '/' + slot.key.trim() : '';
-    e.clipboardData?.setData('text/plain', slot.proto + '://' + slot.addr + key);
   }
 
   async function save(event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
@@ -93,89 +81,106 @@ export default function ConfigPools({ pools }: ConfigPoolsProps) {
     const pool: PoolPatch[] = [];
     for (let i = 0; i < 3; i++) {
       const slot = slots[i];
-      const addr = slot.addr.trim();
-      if (!addr) continue;
-      const match = addr.match(ADDR_RE);
+      const parsed = parseUrl(slot.url);
+      if (!parsed.hostport) continue;
+      const match = parsed.hostport.match(ADDR_RE);
       if (!match) {
         toast.err(`Invalid pool ${i + 1} address`);
         return;
       }
       const host = match[1];
-      const port = match[2] ? +match[2] : 3333;
+      const port = match[2] ? +match[2] : DEFAULT_PORT;
       const user = slot.user || '';
+      const weight = slot.on ? 1 : 0;
       let protocol: PoolProtocol;
-      if (slot.proto === 'stratum2+tcp') {
+      if (parsed.sv2) {
         let pool_pubkey: number[] | null = null;
-        const hex = slot.key.trim();
-        if (hex) {
-          if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
-            toast.err(`Pool ${i + 1}: pubkey must be 64 hex chars`);
+        if (parsed.key) {
+          pool_pubkey = b64ToBytes(parsed.key);
+          if (!pool_pubkey) {
+            toast.err(`Pool ${i + 1}: authority key must be 32 bytes of base64`);
             return;
           }
-          pool_pubkey = hexToBytes(hex);
         }
         protocol = { Sv2: { pool_pubkey } };
       } else {
         protocol = { Sv1: { password: slot.pass || null } };
       }
-      pool.push({ host, port, user, protocol });
+      pool.push({ host, port, user, protocol, weight });
     }
     try {
       await postConfig({ pool });
       toast.ok('Changes saved');
     } catch (error) {
-      toast.err('Save failed', error instanceof Error ? error.message : String(error));
+      toast.err('Save failed', errMsg(error));
     }
   }
 
   return (
-    <form onSubmit={save}>
-      {NAMES.map((name, i) => (
-        <Section title={name} key={i}>
-          <div class="pcfg" data-protocol={slots[i].proto === 'stratum2+tcp' ? 'sv2' : 'sv1'}>
-            <Field
-              label="URL"
-              class="urlRow"
-              value={slots[i].addr}
-              onInput={(e) => patch(i, 'addr', e.currentTarget.value)}
-              onPaste={(e) => onPaste(i, e)}
-              onCopy={(e) => onCopy(i, e)}
-              placeholder="host:port"
-              labelEnd={
-                <span class="urlProto">
-                  <Select
-                    value={slots[i].proto}
-                    onInput={(e) => patch(i, 'proto', e.currentTarget.value)}
-                    options={PROTOS}
-                  />
-                  <span class="urlSep">://</span>
-                </span>
-              }
-            />
-            <Field
-              label="Username"
-              value={slots[i].user}
-              onInput={(e) => patch(i, 'user', e.currentTarget.value)}
-            />
-            <Field
-              class="s1"
-              label="Password"
-              value={slots[i].pass}
-              onInput={(e) => patch(i, 'pass', e.currentTarget.value)}
-              type="password"
-            />
-            <Field
-              class="s2 wide"
-              label="Authority pubkey (optional)"
-              desc="64 hex characters. If left empty, trust pool (skip authority check)."
-              value={slots[i].key}
-              onInput={(e) => patch(i, 'key', e.currentTarget.value)}
-              placeholder="64 hex chars"
-            />
+    <>
+      <h2 class="cfgTitle">Pools</h2>
+      <form onSubmit={save}>
+        <div class="poolTable">
+          <div class="poolHead">
+            <span></span>
+            <span>Pool URL</span>
+            <span>Username</span>
+            <span>Password</span>
           </div>
-        </Section>
-      ))}
-      <button type="submit">Save</button>
-    </form>
+          {slots.map((slot, i) => {
+            const parsed = parseUrl(slot.url);
+            return (
+              <div class="poolRow" key={i}>
+                <label class="poolSw">
+                  <input
+                    type="checkbox"
+                    checked={slot.on}
+                    onInput={(e) => patch(i, 'on', e.currentTarget.checked)}
+                  />
+                  <span class="poolSwTrack"></span>
+                </label>
+                <input
+                  class="poolInp"
+                  value={slot.url}
+                  onInput={(e) => patch(i, 'url', e.currentTarget.value)}
+                  placeholder="stratum+tcp://host:port"
+                  disabled={!slot.on}
+                />
+                <input
+                  class="poolInp"
+                  value={slot.user}
+                  onInput={(e) => patch(i, 'user', e.currentTarget.value)}
+                  placeholder="Username"
+                  disabled={!slot.on}
+                />
+                {parsed.sv2 ? (
+                  parsed.key ? (
+                    <span class="poolKey" title={parsed.key}>
+                      {parsed.key}
+                    </span>
+                  ) : (
+                    <span class="poolTrust">
+                      Trust pool
+                      <br />
+                      (skip authority check)
+                    </span>
+                  )
+                ) : (
+                  <input
+                    class="poolInp"
+                    type="password"
+                    value={slot.pass}
+                    onInput={(e) => patch(i, 'pass', e.currentTarget.value)}
+                    placeholder="Password"
+                    disabled={!slot.on}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <button type="submit">Save</button>
+      </form>
+    </>
   );
 }

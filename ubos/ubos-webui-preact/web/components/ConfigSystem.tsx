@@ -2,13 +2,23 @@ import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { API, loginRedirect, postConfig, postOnce } from '../lib/api';
 import { useDash, startPoll, stopPoll } from '../lib/store';
-import { toast } from '../lib/toast';
+import { toast, errMsg } from '../lib/toast';
 import type { ApiCredentials } from '../lib/types';
-import type { BoardNotice } from './Config';
+import type { BoardNotice } from '../app';
 import Field from './Field';
 import Section from './Section';
 
 const OTA_MAX_DEFAULT = 952 * 1024;
+
+// Read the API's {message} from an error response, falling back to the
+// given default when the body is absent or not JSON.
+async function detailFromResponse(response: Response, fallback: string): Promise<string> {
+  try {
+    return (await response.json())?.message || fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
 
 export interface ConfigSystemProps {
   api?: ApiCredentials;
@@ -25,7 +35,7 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
       await postConfig({ api: { username: sysUser, password: sysPass } });
       toast.ok('Changes saved');
     } catch (error) {
-      toast.err('Save failed', error instanceof Error ? error.message : String(error));
+      toast.err('Save failed', errMsg(error));
     }
   }
 
@@ -144,11 +154,7 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
             true
           );
         }
-        let detail = 'HTTP ' + (response ? response.status : 'unknown');
-        try {
-          detail = (await response.json())?.message || detail;
-        } catch (_) {}
-        return otaFail(detail);
+        return otaFail(await detailFromResponse(response, 'HTTP ' + response.status));
       }
 
       if (response.status === 409) {
@@ -158,21 +164,15 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
       }
       if (response.status === 503 && offset === 0) {
         if (++miningRestarts > MAX_RESTARTS) {
-          let detail = 'Upload failed because the board could not stop mining.';
-          try {
-            detail = (await response.json())?.message || detail;
-          } catch (_) {}
-          return otaFail(detail);
+          return otaFail(
+            await detailFromResponse(response, 'Upload failed because the board could not stop mining.')
+          );
         }
         await new Promise((r) => setTimeout(r, 1000));
         continue;
       }
       if (!response.ok) {
-        let detail = 'HTTP ' + response.status;
-        try {
-          detail = (await response.json())?.message || detail;
-        } catch (_) {}
-        return otaFail(detail);
+        return otaFail(await detailFromResponse(response, 'HTTP ' + response.status));
       }
 
       let ack: { next?: number } = {};
@@ -211,8 +211,9 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
 
   return (
     <>
+      <h2 class="cfgTitle">System</h2>
       <form onSubmit={saveCreds}>
-        <Section title="System">
+        <div class="fldRows">
             <Field
               label="Username"
               value={sysUser}
@@ -228,53 +229,56 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
               maxlength={32}
               placeholder="leave blank to keep current"
             />
-        </Section>
+        </div>
         <button type="submit">Save</button>
       </form>
 
       {ota && (
-        <div class="psec sep">
-          <h3>Firmware update</h3>
-          <div class="panel">
-            <div>
-              <span class="fwLabel">Running slot:</span>
-              <span>{ota.runningSlot || '?'}</span>
-              <span class="fwLabel fwLabelGap">Version:</span>
-              <span>{ota.runningVersion != null ? ota.runningVersion : '?'}</span>
+        <>
+          <Section title="Firmware update" sep>
+            <label class="fld">
+              <span class="fldText"><span class="fldLabel">Running slot</span></span>
+              <span class="fldCtl"><span class="fwVal">{ota.runningSlot || '?'}</span></span>
+            </label>
+            <label class="fld">
+              <span class="fldText"><span class="fldLabel">Version</span></span>
+              <span class="fldCtl"><span class="fwVal">{ota.runningVersion != null ? ota.runningVersion : '?'}</span></span>
+            </label>
+            <label class="fld wide">
+              <span class="fldText"><span class="fldLabel">Firmware image</span></span>
+              <span class="fldCtl">
+                <input
+                  id="fwFile"
+                  type="file"
+                  accept=".bin,.aup"
+                  disabled={uploading}
+                  onChange={(e) => setFwFile(e.currentTarget.files)}
+                />
+                <button type="button" onClick={startOta} disabled={uploading}>
+                  Update…
+                </button>
+              </span>
+            </label>
+          </Section>
+          {uploading && (
+            <div id="fwProgWrap">
+              <div
+                id="fwProgBar"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progress}
+                style={{ width: progress + '%' }}
+              ></div>
             </div>
-            <div class="fwRow">
-              <label for="fwFile">Firmware image</label>
-              <input
-                id="fwFile"
-                type="file"
-                accept=".bin,.aup"
-                disabled={uploading}
-                onChange={(e) => setFwFile(e.currentTarget.files)}
-              />
-              <button type="button" onClick={startOta} disabled={uploading}>
-                Update…
-              </button>
-            </div>
-            {uploading && (
-              <div id="fwProgWrap">
-                <div
-                  id="fwProgBar"
-                  role="progressbar"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={progress}
-                  style={{ width: progress + '%' }}
-                ></div>
-              </div>
-            )}
-          </div>
-        </div>
+          )}
+        </>
       )}
 
       <div class="psec sep">
         <h3>Factory reset</h3>
         {!resetConfirm ? (
-          <button type="button" class="btnDanger" onClick={() => setResetConfirm(true)}>
+          <button type="button" class="btnDangerOutline" onClick={() => setResetConfirm(true)}>
             Reset to Factory Defaults
           </button>
         ) : (

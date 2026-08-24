@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { postConfig } from '../lib/api';
 import { fmtRange } from '../lib/format';
-import { toast } from '../lib/toast';
+import { toast, errMsg } from '../lib/toast';
 import type { CoolingBounds, CoolingConfig, Range, ThermalBounds, ThermalConfig } from '../lib/types';
 import Field from './Field';
 import Section from './Section';
@@ -45,13 +45,15 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
       });
       toast.ok('Changes saved');
     } catch (error) {
-      toast.err('Save failed', error instanceof Error ? error.message : String(error));
+      toast.err('Save failed', errMsg(error));
     }
   }
 
   return (
+    <>
+    <h2 class="cfgTitle">Temperature</h2>
     <form onSubmit={save}>
-      <Section title="Thermals">
+      <div class="fldRows">
           <Field
             label="Danger threshold"
             desc={fmtRange(danger.start, danger.end)}
@@ -85,8 +87,8 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
             min={cooldown.start}
             max={cooldown.end}
           />
-      </Section>
-      <Section title="Cooling">
+      </div>
+      <Section title="Cooling" sep>
           <Field
             label="Target temperature"
             desc={fmtRange(target.start, target.end)}
@@ -112,5 +114,6 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
       </Section>
       <button type="submit">Save</button>
     </form>
+    </>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { getJSON } from '../lib/api';
+import { toast, errMsg } from '../lib/toast';
 import { collectSnapshot } from '../lib/snapshot';
 import type { EventCatalogEntry, EventEntry, EventSeverity, EventsResponse } from '../lib/types';
 
@@ -10,11 +11,10 @@ interface EventDef {
   args: string[];
 }
 
-// A raw EventEntry decorated with its rendered message and CSS severity
-// class, computed once at decode time so sorting/filtering stays cheap.
+// A raw EventEntry decorated with its rendered message, computed once at
+// decode time so sorting/filtering stays cheap.
 interface DecoratedEvent extends EventEntry {
   message: string;
-  level: EventSeverity;
 }
 
 type SortCol = 'time' | 'severity';
@@ -55,20 +55,14 @@ function formatTime(ts: number): string {
   return ts >= 1000000000 ? new Date(ts * 1000).toLocaleString() : ts + 's (pre-sync)';
 }
 
-function severityClass(sev: EventSeverity): EventSeverity {
-  return sev === 'warn' ? 'warn' : sev === 'error' ? 'error' : 'info';
-}
-
 const SEV_RANK: Record<EventSeverity, number> = { error: 2, warn: 1, info: 0 };
 
 export default function Events() {
   const [records, setRecords] = useState<DecoratedEvent[]>([]); // newest-first, decoded
   const defsRef = useRef<Map<number, EventDef> | null>(null);
   const [dropped, setDropped] = useState(false);
-  const [statusText, setStatusText] = useState('');
-  const [statusError, setStatusError] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [filterSet, setFilterSet] = useState<Set<EventSeverity>>(new Set(SEVERITIES));
+  const [filter, setFilter] = useState<'all' | EventSeverity>('all');
   const [sortCol, setSortCol] = useState<SortCol>('time');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const recordsRef = useRef(records);
@@ -89,8 +83,7 @@ export default function Events() {
   function decorate(record: EventEntry): DecoratedEvent {
     const def = defsRef.current ? defsRef.current.get(record.code) : null;
     const message = def ? formatMessage(def.fmt, decodeArgs(record.args, def.args)) : 'event ' + record.code;
-    const level = severityClass(record.sev);
-    return { ...record, message, level };
+    return { ...record, message };
   }
 
   async function load(incremental: boolean): Promise<void> {
@@ -113,14 +106,12 @@ export default function Events() {
       const next = Array.from(bySeq.values()).sort((a, b) => b.seq - a.seq);
       setRecords(next);
       setDropped(nowDropped);
-      setStatusError(false);
-      setStatusText(next.length + ' events' + (nowDropped ? ' · older events dropped' : ''));
     } catch (error) {
-      setStatusError(true);
-      // `catch` binds `unknown` in strict mode; `error` is either a
-      // fetch/JSON failure (an Error) or, rarely, something else, so
-      // this mirrors lib/snapshot.ts's cast rather than trusting `.message`.
-      setStatusText('Load failed: ' + ((error && (error as Error).message) || 'unknown'));
+      // A user-driven load (mount or the reload button, both
+      // incremental=false) reports the failure; the 60 s background
+      // poll fails silently so an unreachable board does not stack
+      // persistent toasts.
+      if (!incremental) toast.err('Could not load events', errMsg(error));
     } finally {
       setLoading(false);
     }
@@ -168,7 +159,10 @@ export default function Events() {
     }
   }
 
-  const filtered = filterSet.size === 3 ? records : records.filter((r) => filterSet.has(r.sev));
+  const counts: Record<EventSeverity, number> = { info: 0, warn: 0, error: 0 };
+  for (const r of records) counts[r.sev] += 1;
+
+  const filtered = filter === 'all' ? records : records.filter((r) => r.sev === filter);
   const sign = sortDir === 'desc' ? 1 : -1;
   const visible = filtered.slice().sort((a, b) => {
     if (sortCol === 'severity') {
@@ -185,66 +179,60 @@ export default function Events() {
     return cls;
   }
 
-  function toggleFilter(level: EventSeverity): void {
-    const next = new Set(filterSet);
-    if (next.has(level)) {
-      if (next.size > 1) next.delete(level);
-    } else {
-      next.add(level);
-    }
-    setFilterSet(next);
-  }
-
-  const filterLabel =
-    visible.length + ' events' + (filterSet.size < 3 ? ' (filtered)' : '') + (dropped ? ' · older events dropped' : '');
-
   return (
     <section class="events">
       <div class="evhead">
-        <span id="evStatus" style={{ color: statusError ? 'var(--red)' : '' }}>
-          {statusError ? statusText : filterLabel}
-        </span>
-
-        <div class="seg" style={{ marginLeft: 'auto' }}>
-          {SEVERITIES.map((level) => (
-            <button
-              type="button"
-              key={level}
-              class={filterSet.has(level) ? 'active' : ''}
-              onClick={() => toggleFilter(level)}
-            >
-              <span class={'sev-dot ' + level} />
-              {level.charAt(0).toUpperCase() + level.slice(1)}
-            </button>
-          ))}
+        <h1 class="evTitle">Events</h1>
+        <div class="evActions">
+          <button
+            type="button"
+            id="evReload"
+            class={'navBtn evIcon' + (loading ? ' loading' : '')}
+            aria-label="Reload events"
+            title="Reload"
+            onClick={() => load(false)}
+          >
+            <svg class="evReloadIcon" aria-hidden="true">
+              <use href="#iRenew" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            id="evSave"
+            class="navBtn evIcon"
+            aria-label="Download snapshot"
+            title="Download snapshot"
+            disabled={saving}
+            onClick={saveSnapshot}
+          >
+            <svg class="evReloadIcon" aria-hidden="true">
+              <use href="#iSave" />
+            </svg>
+          </button>
         </div>
-
-        <button
-          type="button"
-          id="evReload"
-          class={'navBtn' + (loading ? ' loading' : '')}
-          aria-label="Reload events"
-          title="Reload"
-          onClick={() => load(false)}
-        >
-          <svg class="evReloadIcon" aria-hidden="true">
-            <use href="#iRenew" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          id="evSave"
-          class="navBtn"
-          aria-label="Download snapshot"
-          title="Download snapshot"
-          disabled={saving}
-          onClick={saveSnapshot}
-        >
-          <svg class="evReloadIcon" aria-hidden="true">
-            <use href="#iSave" />
-          </svg>
-        </button>
       </div>
+
+      <nav class="evTabs">
+        <button
+          type="button"
+          class={'evTab' + (filter === 'all' ? ' active' : '')}
+          onClick={() => setFilter('all')}
+        >
+          All <span class="evCount">{records.length}</span>
+        </button>
+        {SEVERITIES.map((level) => (
+          <button
+            type="button"
+            key={level}
+            class={'evTab' + (filter === level ? ' active' : '')}
+            onClick={() => setFilter(level)}
+          >
+            {level.charAt(0).toUpperCase() + level.slice(1)}{' '}
+            <span class="evCount">{counts[level]}</span>
+          </button>
+        ))}
+      </nav>
+
       <table class="evtab">
         <thead>
           <tr>
@@ -261,10 +249,10 @@ export default function Events() {
         </thead>
         <tbody>
           {visible.map((record) => (
-            <tr class={'sev-' + record.level} key={record.seq}>
+            <tr key={record.seq}>
               <td>{formatTime(record.ts)}</td>
               <td>
-                <span class={'badge ' + record.level}>{record.sev.toUpperCase()}</span>
+                <span class={'badge ' + record.sev}>{record.sev.toUpperCase()}</span>
               </td>
               <td>{record.message}</td>
             </tr>

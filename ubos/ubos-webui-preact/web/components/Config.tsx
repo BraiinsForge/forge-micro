@@ -2,17 +2,12 @@ import { useEffect, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { getConfig, getJSON, RETRY_DELAYS } from '../lib/api';
 import type { AsicBounds, CoolingBounds, Config as ConfigData, ThermalBounds } from '../lib/types';
+import type { BoardNotice } from '../app';
 import ConfigPools from './ConfigPools';
 import ConfigMining from './ConfigMining';
 import ConfigThermal from './ConfigThermal';
 import ConfigSystem from './ConfigSystem';
 import ConfigNetwork from './ConfigNetwork';
-
-// Shared with ConfigSystem.tsx: shows the board-unavailable overlay and,
-// when `poll` is set, polls until the board answers again. Defined here
-// (rather than imported) so the two files don't form a type-only import
-// cycle over something this small.
-export type BoardNotice = (title: string, text: string, poll: boolean) => void;
 
 interface TabRenderProps {
   config: ConfigData | null;

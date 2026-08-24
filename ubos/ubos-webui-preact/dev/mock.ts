@@ -55,8 +55,15 @@ const CONFIG = {
       port: 3333,
       user: 'worker.001',
       protocol: { Sv1: { password: 'x' } },
+      weight: 1,
     },
-    { host: 'backup.example.com', port: 3333, user: 'worker.002', protocol: { Sv2: { pool_pubkey: null } } },
+    {
+      host: 'backup.example.com',
+      port: 3333,
+      user: 'worker.002',
+      protocol: { Sv2: { pool_pubkey: null } },
+      weight: 0,
+    },
     null,
   ],
   thermal: {

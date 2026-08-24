@@ -5,7 +5,7 @@ import { niceStep } from '../lib/format';
 
 // Axis gutters, in coordinate-space pixels (1 unit = 1 CSS px because
 // the viewBox is set from the measured size).
-const PAD_LEFT = 52;
+const PAD_LEFT = 38;
 const PAD_RIGHT = 12;
 const PAD_TOP = 10;
 const PAD_BOTTOM = 20;
@@ -20,8 +20,6 @@ export interface ChartProps {
   lines: ChartLine[];
   min: number;
   max: number;
-  maj: number;
-  minTick: number;
   minSpan: number;
   axis: (v: number) => string;
   val: (v: number) => string;
@@ -65,7 +63,6 @@ interface Geo {
   viewBox: string;
   gridLines: GridLine[];
   yLabels: AxisLabel[];
-  yTicks: GridLine[];
   xLabels: AxisLabel[];
   paths: PathSeg[];
   tip: CursorTip | null;
@@ -89,8 +86,6 @@ export default function Chart({
   lines,
   min,
   max: maxProp,
-  maj: majProp,
-  minTick: minTickProp,
   minSpan,
   axis,
   val,
@@ -148,8 +143,6 @@ export default function Chart({
       }
     }
     let max = maxProp;
-    let maj = majProp;
-    let minTick = minTickProp;
     if (peak != null) {
       const frac = (peak - min) / (max - min);
       if (frac < 0.3 || frac > 0.95) {
@@ -157,34 +150,24 @@ export default function Chart({
         const majStep = niceStep(desiredSpan / 4);
         const divs = Math.max(2, Math.ceil(desiredSpan / majStep));
         max = min + majStep * divs;
-        maj = majStep;
-        minTick = majStep / 2;
       }
     }
 
     const span = max - min;
-    const steps = Math.round(span / minTick);
-    const majEvery = Math.round(maj / minTick);
+    const yBottom = plotTop + plotHeight;
 
     const gridLines: GridLine[] = [];
+    gridLines.push({ x1: plotLeft, y1: yBottom, x2: plotLeft + plotWidth, y2: yBottom });
+    gridLines.push({ x1: plotLeft, y1: plotTop, x2: plotLeft + plotWidth, y2: plotTop });
+
     const yLabels: AxisLabel[] = [];
-    const yTicks: GridLine[] = [];
-    for (let step = 0; step <= steps; step++) {
-      const y = plotTop + plotHeight - (step / steps) * plotHeight;
-      if (step % majEvery === 0) {
-        const value = min + step * minTick;
-        gridLines.push({ x1: plotLeft, y1: y, x2: plotLeft + plotWidth, y2: y });
-        yLabels.push({ x: plotLeft - 6, y: y + 3, text: axis(value) });
-      } else {
-        yTicks.push({ x1: plotLeft - 3, y1: y, x2: plotLeft, y2: y });
-      }
-    }
+    yLabels.push({ x: 0, y: yBottom + 3, text: axis(min) });
+    yLabels.push({ x: 0, y: plotTop + 3, text: axis(max) });
 
     const xLabels: AxisLabel[] = [];
     for (let minute = 0; minute <= 5; minute++) {
       const x = plotLeft + (minute / 5) * plotWidth;
-      gridLines.push({ x1: x, y1: plotTop, x2: x, y2: plotTop + plotHeight });
-      xLabels.push({ x, y: h - 6, text: `-${5 - minute}m` });
+      xLabels.push({ x, y: h - 6, text: minute === 5 ? 'Now' : `-${5 - minute}m` });
     }
 
     const paths: PathSeg[] = lines.map((line) => {
@@ -223,7 +206,7 @@ export default function Chart({
       tip = { x1: pixelX.toFixed(1), y1: plotTop, x2: pixelX.toFixed(1), y2: plotTop + plotHeight, dots };
     }
 
-    geo = { viewBox: `0 0 ${w} ${h}`, gridLines, yLabels, yTicks, xLabels, paths, tip };
+    geo = { viewBox: `0 0 ${w} ${h}`, gridLines, yLabels, xLabels, paths, tip };
   }
 
   let tooltip: Tooltip | null = null;
@@ -246,12 +229,12 @@ export default function Chart({
 
   return (
     <div class="chart">
+      <span class="lb">
+        {lines.map((line, i) => (
+          <span key={i} style={{ color: line.color }}>{line.label}</span>
+        ))}
+      </span>
       <div class="plot">
-        <span class="lb">
-          {lines.map((line, i) => (
-            <span key={i} style={{ color: line.color }}>{line.label}</span>
-          ))}
-        </span>
       <svg ref={svgRef} viewBox={geo?.viewBox} onPointerMove={handlePointerMove}>
         <g class="g">
           {geo &&
@@ -260,10 +243,9 @@ export default function Chart({
             ))}
         </g>
         <g class="y">
-          {geo && geo.yTicks.map((tick, i) => <line key={i} class="tk" x1={tick.x1} y1={tick.y1} x2={tick.x2} y2={tick.y2} />)}
           {geo &&
             geo.yLabels.map((t, i) => (
-              <text key={i} class="ax" x={t.x} y={t.y} text-anchor="end">
+              <text key={i} class="ax" x={t.x} y={t.y} text-anchor="start">
                 {t.text}
               </text>
             ))}

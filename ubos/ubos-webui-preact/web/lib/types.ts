@@ -48,6 +48,7 @@ export interface PoolConfig {
   port: number;
   user: string;
   protocol?: PoolProtocol;
+  weight?: number;
 }
 
 export interface ThermalConfig {

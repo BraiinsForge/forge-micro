@@ -22,7 +22,7 @@
      Carbon's border-subtle-01; this one underlines form fields. */
   --field-border: #6f6f6f;
 
-  /* Type scale. Four sizes, one emphasis weight, one tracking value
+  /* Type scale. Five sizes, one emphasis weight, one tracking value
      for uppercase labels. Every font-size in the webui resolves to
      one of these tokens so the page lines up visually and tunes from
      one place. Aligned with the Carbon Design System scale used by
@@ -32,6 +32,7 @@
   --fs-body: 0.875rem;
   --fs-val: 1rem;
   --fs-head: 1.25rem;
+  --fs-title: 1.5rem;
   --fw-emp: 600;
   --ls-cap: 0.1em;
   --ff-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -133,21 +134,14 @@ body {
   position: sticky;
   top: 0;
   z-index: 10;
-  box-shadow: 0 8px 0 var(--bg);
 }
 
-/* Footer overrides the .bar flex layout with a three-column grid so
-   the build-info text stays centered relative to the viewport even
-   though the theme toggle takes its own slot on the right. The
-   leading 1fr column is intentionally empty; together with the
-   trailing 1fr column it balances the build info into the middle. */
 .bar.ft {
   top: auto;
   bottom: 0;
-  box-shadow: 0 -8px 0 var(--bg);
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  height: 32px;
   align-items: center;
+  padding: 0 16px;
 }
 
 .sp {
@@ -155,30 +149,17 @@ body {
 }
 
 .bi {
-  color: var(--mute);
-  font-size: var(--fs-label);
-  letter-spacing: var(--ls-cap);
-  font-family: var(--ff-mono);
+  color: var(--field-border);
+  font-size: var(--fs-body);
+  line-height: 18px;
 }
 
-.bar.ft .bi {
-  grid-column: 2;
-}
 
-/* On a narrow phone the build-info line is wider than the bar. Drop
-   the three-column grid and the fixed 48px height so the footer
-   becomes a plain block that grows to fit the text, which then wraps
-   onto centered lines instead of spilling out of the strip. */
 @media (max-width: 480px) {
   .bar.ft {
-    display: block;
     height: auto;
-    padding: 8px 20px;
-  }
-
-  .bar.ft .bi {
-    display: block;
-    text-align: center;
+    flex-wrap: wrap;
+    padding: 6px 16px;
   }
 }
 
@@ -209,8 +190,7 @@ body {
 }
 
 .bar.ft .thm {
-  grid-column: 3;
-  justify-self: end;
+  margin-left: auto;
 }
 
 .thmIcon {

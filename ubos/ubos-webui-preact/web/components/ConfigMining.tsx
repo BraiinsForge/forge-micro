@@ -2,10 +2,10 @@ import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { postConfig } from '../lib/api';
 import { fmtRange } from '../lib/format';
-import { toast } from '../lib/toast';
+import { toast, errMsg } from '../lib/toast';
 import type { AsicBounds, Range, TuningConfig } from '../lib/types';
 import Field from './Field';
-import Section from './Section';
+
 
 export interface ConfigMiningProps {
   tuning?: TuningConfig;
@@ -25,13 +25,15 @@ export default function ConfigMining({ tuning, bounds }: ConfigMiningProps) {
       await postConfig({ tuning: { frequency_mhz: +freqMhz, voltage_mv: +voltMv } });
       toast.ok('Changes saved');
     } catch (error) {
-      toast.err('Save failed', error instanceof Error ? error.message : String(error));
+      toast.err('Save failed', errMsg(error));
     }
   }
 
   return (
+    <>
+    <h2 class="cfgTitle">Mining</h2>
     <form onSubmit={save}>
-      <Section title="Mining">
+      <div class="fldRows">
           <Field
             label="Frequency"
             desc={fmtRange(freq.start, freq.end)}
@@ -54,8 +56,9 @@ export default function ConfigMining({ tuning, bounds }: ConfigMiningProps) {
             min={volt.start}
             max={volt.end}
           />
-      </Section>
+      </div>
       <button type="submit">Save</button>
     </form>
+    </>
   );
 }

@@ -72,14 +72,6 @@
    the parent card class drives the colour through currentColor. The
    shared symbol defs come from a `?raw` import of icons.svg and are
    hidden by the .defs rule in common.css. */
-.dot {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  fill: currentColor;
-  color: var(--red);
-  transition: color 0.3s;
-}
 
 /* ---------- Page frame ----------
    Make the page at least viewport-tall and let the active view grow,
@@ -141,7 +133,7 @@ main > * {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  height: 584px;
+  height: 416px;
 }
 
 /* ---------- Charts ----------
@@ -152,11 +144,21 @@ main > * {
    reserve the axis-label gutters. */
 
 .chart {
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
-  padding: 12px;
+  padding: 4px 12px;
   position: relative;
   flex: 1;
   min-height: 0;
+}
+
+.chart:first-child {
+  padding-top: 12px;
+}
+
+.chart:last-child {
+  padding-bottom: 12px;
 }
 
 .chart:hover {
@@ -176,11 +178,6 @@ main > * {
   vector-effect: non-scaling-stroke;
 }
 
-.tk {
-  stroke: var(--mute);
-  stroke-width: 0.5;
-  vector-effect: non-scaling-stroke;
-}
 
 .cur {
   stroke: var(--mute);
@@ -200,17 +197,12 @@ main > * {
 
 .plot {
   position: relative;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .lb {
-  position: absolute;
-  left: 60px;
-  top: 10px;
-  transform: translateY(-50%);
-  z-index: 1;
   font-size: var(--fs-label);
-  pointer-events: none;
 }
 
 .lb span + span {
@@ -307,30 +299,87 @@ main > * {
 
 .pools {
   grid-column: 1 / -1;
+  background: transparent;
+  padding: 0;
+  margin-top: 8px;
 }
 
-.pools .k {
-  margin-bottom: 6px;
-}
-
-.pool {
+.ph {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 0;
-  border-top: 1px solid var(--border);
-  font-family: var(--ff-mono);
+  margin-bottom: 16px;
+}
+
+.ph .k {
+  margin: 0;
+  font-size: var(--fs-head);
+  font-weight: var(--fw-emp);
+  color: var(--fg);
+}
+
+.plink {
+  color: var(--accent);
+  font-size: var(--fs-body);
+  text-decoration: none;
+}
+
+.plink:hover {
+  color: var(--fg);
+}
+
+.ptr,
+.pool {
+  display: grid;
+  grid-template-columns: 5fr 2fr 3fr 2fr;
+  align-items: center;
   font-size: var(--fs-body);
 }
 
-.pools .pool:first-of-type {
-  border-top: 0;
+.ptr {
+  font-weight: var(--fw-emp);
+  background: var(--panel);
+  height: 40px;
+}
+
+.pool {
+  background: var(--panel);
+  height: 48px;
+  margin-top: 1px;
+}
+
+.ptr > span,
+.pool > span {
+  padding: 0 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ps {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.pd {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+}
+
+.pool.live .pd {
+  background: var(--green);
+}
+
+.pool.empty .pd {
+  background: var(--mute);
+}
+
+.pool.empty > span {
+  color: var(--mute);
 }
 
 .pt {
@@ -340,53 +389,23 @@ main > * {
   text-align: right;
 }
 
-.pool.live .pt,
-.pool.live .dot {
-  color: var(--green);
-}
-
-.pool.empty .dot {
-  display: none;
-}
-
-.pm {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.pi {
-  font-size: var(--fs-label);
-  color: var(--mute);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* Link card reuses the .ps/.pt structure but with bigger text. */
 .lkc .ps {
   margin-top: 4px;
 }
 
 .lkc .pt {
+  color: var(--fg);
   font-family: var(--ff-mono);
   font-size: var(--fs-body);
   min-width: auto;
   text-align: left;
 }
 
-.lkc.live .dot {
-  color: var(--green);
+.lkc.live .pd {
+  background: var(--green);
 }
 
-.lkc.live .pt {
-  color: var(--green);
-}
-
-.lkc.dead .pt {
-  color: var(--red);
-}
 
 /* Dashboard responsive breakpoints. These sit here, after all the base
    rules they override, on purpose: an @media block adds no specificity,
@@ -467,12 +486,21 @@ main > * {
   .card {
     padding: 10px 12px;
   }
+  .ptr,
   .pool {
     font-size: var(--fs-label);
-    padding: 6px 0;
+    grid-template-columns: 1fr 5em 1fr 6em;
   }
-  .pt {
-    font-size: var(--fs-label);
+  .ptr > span,
+  .pool > span,
+  .pool > .ps {
+    padding: 0 8px;
+  }
+  .ptr {
+    height: 32px;
+  }
+  .pool {
+    height: 40px;
   }
   /* The nav is one non-wrapping row: logo, three text links, then the
      action, theme and logout controls. On a narrow phone that row
@@ -494,6 +522,18 @@ main > * {
 
 /* Status card value: colored to match the mining state. Green while
    running, orange for a safety pause, muted for an operator stop. */
+.v.temp-ok {
+  color: var(--green);
+}
+
+.v.temp-warn {
+  color: var(--orange);
+}
+
+.v.temp-red {
+  color: var(--red);
+}
+
 .v.running {
   color: var(--green);
 }
@@ -507,28 +547,30 @@ main > * {
 }
 
 /* ---------- Configuration page ----------
-   Outer grid mirrors the dashboard `main` so a user toggling between
-   Dashboard and Configuration sees no horizontal shift: same outer
-   width, same sidebar column, same panel column. The nav rail uses
-   a 100vw box-shadow to bleed its dark background to the left
-   viewport edge; body { overflow-x: clip } in common.css contains
-   the shadow without promoting body to a scroll container. An outer
-   padding leaves visible body bg gaps between the rail and the
-   sticky header and footer. */
+   Full-width grid with a 256px sidebar flush against the left viewport
+   edge. The ::before pseudo-element paints the panel background for the
+   full column height; the sticky .cfgnav sits on top of it. */
 
 .cfg {
   display: grid;
-  grid-template-columns: 240px 1fr;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 16px;
-  column-gap: 16px;
+  grid-template-columns: 256px 1fr;
+  position: relative;
   min-height: calc(100vh - 96px);
+}
+
+.cfg::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 256px;
+  background: var(--panel);
 }
 
 @media (max-width: 480px) {
   .cfg {
-    padding: 16px 12px;
+    padding: 12px;
   }
 }
 
@@ -536,28 +578,23 @@ main > * {
   .cfg {
     grid-template-columns: 1fr;
     min-height: 0;
-    /* The page frame makes .cfg a flex: 1 filler. On mobile the nav
-       and panel stack as two grid rows; the default align-content
-       would split the leftover height between them and stretch the
-       nav row, dropping the active item's underline well below its
-       label, more so for shorter panels. Pack the rows at the top so
-       the nav keeps its natural height. */
+    padding: 16px;
     align-content: start;
+  }
+
+  .cfg::before {
+    display: none;
   }
 }
 
-/* Sticks to the left below the top bar (48px) plus the page's own
-   16px padding, so it stays in view while a long panel (e.g. Pools
-   with several entries) scrolls underneath it. */
 .cfgnav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 12px 8px;
+  gap: 0;
+  padding: 0;
   background: var(--panel);
-  box-shadow: -100vw 0 0 var(--panel);
   position: sticky;
-  top: 64px;
+  top: 56px;
   align-self: start;
 }
 
@@ -565,37 +602,43 @@ main > * {
   .cfgnav {
     position: static;
     flex-direction: row;
-    border-bottom: 1px solid var(--border);
-    padding: 0 8px 8px;
-    margin-bottom: 16px;
+    padding: 0 4px;
+    margin-bottom: 8px;
     gap: 0;
-    box-shadow: none;
-    background: transparent;
+    background: var(--panel);
   }
 }
 
 .cfgnav a {
   color: var(--mute);
   text-decoration: none;
-  padding: 7px 10px;
+  padding: 7px 13px;
   font-size: var(--fs-body);
-  border-left: 2px solid transparent;
+  font-weight: var(--fw-emp);
+  height: 32px;
+  display: flex;
+  align-items: center;
+  border-left: 3px solid transparent;
   cursor: pointer;
 }
 
 .cfgnav a:hover {
   color: var(--fg);
+  background: var(--hover-bg);
 }
 
 .cfgnav a.on {
   color: var(--fg);
   border-left-color: var(--accent);
+  background: rgba(141, 141, 141, 0.24);
 }
 
 @media (max-width: 760px) {
   .cfgnav a {
     border-left: 0;
     border-bottom: 2px solid transparent;
+    padding: 6px 8px;
+    font-size: var(--fs-label);
   }
 
   .cfgnav a.on {
@@ -605,6 +648,15 @@ main > * {
 
 .cfgpanel {
   min-width: 0;
+  padding: 16px 16px 16px 24px;
+  max-width: 960px;
+}
+
+@media (max-width: 760px) {
+  .cfgpanel {
+    padding: 0;
+    max-width: none;
+  }
 }
 
 .cfgsec {
@@ -623,12 +675,7 @@ main > * {
 .cfgsec form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.panel {
-  background: var(--panel);
-  padding: 16px 20px;
+  gap: 24px;
 }
 
 /* Section heading sits on body bg above its panel so it reads as the
@@ -637,21 +684,40 @@ main > * {
 .psec {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 24px;
+}
+
+/* Page titles share one type style; only the trailing gap differs
+   (.evTitle is the last block on its page and needs none). The .evTitle
+   margin override lives with the events rules further down. */
+.cfgTitle,
+.evTitle {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-emp);
+  color: var(--fg);
+  line-height: 1.3;
+}
+
+.cfgTitle {
+  margin: 0 0 24px;
 }
 
 .psec h3 {
   color: var(--fg);
   font-weight: var(--fw-emp);
   font-size: var(--fs-head);
+  line-height: 26px;
   letter-spacing: 0;
   margin: 0;
 }
 
 .psec.sep {
   margin-top: 24px;
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
+  gap: 16px;
+}
+
+.cfgsec form > .psec.sep {
+  margin-top: 0;
 }
 
 .cfgsec label {
@@ -764,10 +830,6 @@ main > * {
   gap: 3px;
 }
 
-.fldRows > .pcfg {
-  display: contents;
-}
-
 /* Zeroing the margin is what makes the 3px gap above the real gap. Each
    row is a <label>, so the generic .cfgsec label rule contributes
    10px top and 2px bottom, which would otherwise add to 15px. */
@@ -784,10 +846,6 @@ main > * {
     flex-direction: column;
     gap: 4px;
     align-items: stretch;
-  }
-
-  .urlRow .fldText {
-    max-width: unset !important;
   }
 }
 
@@ -814,6 +872,10 @@ main > * {
   flex: 1 1 0%;
   max-width: 290px;
   display: flex;
+}
+
+.fldRows .fldCtl input[type="file"] {
+  height: 100%;
 }
 
 .fldRows .wide .fldCtl,
@@ -899,7 +961,7 @@ main > * {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--fg);
+  color: var(--field-border);
   font-size: var(--fs-body);
   pointer-events: none;
 }
@@ -1025,59 +1087,150 @@ main > * {
   font-size: var(--fs-body);
 }
 
-/* URL row: "URL" label on the far left, protocol dropdown + "://" at
-   the right edge of the label half, flush against the input. .fldText
-   switches to a horizontal flex row so the label and .urlProto sit
-   side by side with the label growing to fill the gap. */
-.fldRows .urlRow .fldText {
-  flex-direction: row;
+/* Pools table: one row per slot as a four-column grid. The toggle
+   column sizes to the switch, the URL column takes twice the width of
+   the username and password columns. The header row reuses the .evtab
+   heading treatment. Rows are separated by the page background through a
+   3px grid gap, matching the .fldRows stack. */
+.poolTable {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 2fr) minmax(0, 0.85fr) minmax(0, 1fr);
+  gap: 3px 12px;
   align-items: center;
-  min-height: 0;
 }
 
-.fldRows .urlRow .fldCtl {
-  max-width: none;
-}
-
-.fldRows .urlRow .fldLabel {
-  flex: 1;
-}
-
-.urlProto {
-  display: flex;
-  flex-shrink: 0;
-}
-
-.urlProto .selCtl select {
-  padding-right: 32px;
-}
-
-.urlProto .selCtl svg {
-  right: 8px;
-}
-
-.urlSep {
-  display: flex;
+.poolHead,
+.poolRow {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  padding: 0 8px;
+}
+
+.poolRow {
+  padding: 12px 16px;
+  background: var(--panel);
+}
+
+.poolHead {
+  padding: 0 16px;
   height: 40px;
-  background: var(--field);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.poolHead span {
   color: var(--mute);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-emp);
+}
+
+.poolInp {
+  width: 100%;
+  height: 40px;
+  padding: 0 16px;
+  background: var(--field);
+  color: var(--fg);
+  border: 0;
   border-bottom: 1px solid var(--field-border);
-  border-left: 1px solid var(--field-border);
-  border-right: 1px solid var(--field-border);
+  border-radius: 0;
   font: var(--fs-body) var(--ff-mono);
-  flex-shrink: 0;
 }
 
-/* Per-pool form: protocol dropdown drives which subfields show.
-   .s1 fields are sv1-only, .s2 fields are sv2-only. */
-.pcfg:not([data-protocol="sv1"]) .s1 {
-  display: none;
+.poolInp:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
-.pcfg:not([data-protocol="sv2"]) .s2 {
-  display: none;
+.poolInp:disabled {
+  opacity: 0.5;
+}
+
+/* Password column stand-ins for Sv2 pools, which carry no password. The
+   authority key is edited inside the URL field; this cell only reports
+   it, truncating a set key and otherwise stating that the check is
+   skipped. */
+.poolTrust {
+  color: var(--mute);
+  font-size: var(--fs-body);
+  line-height: 1.3;
+}
+
+.poolKey {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font: var(--fs-body) var(--ff-mono);
+}
+
+/* On/off slider. The checkbox is hidden and the track carries the
+   colour, green when on and muted when off; the knob is a ::before that
+   slides on the checked state. */
+.poolSw {
+  display: inline-flex;
+  align-self: center;
+  justify-self: center;
+  cursor: pointer;
+}
+
+.poolSw input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.poolSwTrack {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--mute);
+  transition: background 0.15s;
+}
+
+.poolSwTrack::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.poolSw input:checked + .poolSwTrack {
+  background: var(--green);
+}
+
+.poolSw input:checked + .poolSwTrack::before {
+  transform: translateX(16px);
+}
+
+.poolSw input:focus-visible + .poolSwTrack {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Below the narrow breakpoint each row stacks into a card, the header
+   row is dropped, and the toggle sits above the fields. */
+@media (max-width: 760px) {
+  .poolTable {
+    grid-template-columns: 1fr;
+  }
+
+  .poolHead {
+    display: none;
+  }
+
+  .poolRow {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
 }
 
 /* Save button sits outside the panels on the body bg as a deliberate
@@ -1099,13 +1252,8 @@ main > * {
   font-size: var(--fs-body);
 }
 
-/* Braiins OS separates the submit control from the last panel by 32px.
-   The form's flex gap already contributes 12px of that, so only the
-   remaining 20px is added here. The direct-child selector is what keeps
-   the buttons that sit inside panels, such as the firmware update and
-   factory reset controls, from being pushed away from their own rows. */
 .cfgsec form > button {
-  margin-top: 20px;
+  margin-top: 0;
 }
 
 .cfgsec button:hover {
@@ -1302,6 +1450,18 @@ main > * {
   background: #b91c25;
 }
 
+.btnDangerOutline,
+.cfgsec .btnDangerOutline {
+  background: transparent;
+  color: var(--red);
+  border: 1px solid var(--red);
+}
+
+.btnDangerOutline:hover,
+.cfgsec .btnDangerOutline:hover {
+  background: rgba(217, 34, 44, 0.1);
+}
+
 .btnSecondary,
 .cfgsec .btnSecondary {
   background: transparent;
@@ -1417,20 +1577,35 @@ main > * {
 
 /* ---------- Firmware update card ---------- */
 
-.fwLabel {
+.fwVal {
+  text-align: right;
+  width: 100%;
+  color: var(--fg);
+  font-size: var(--fs-body);
+}
+
+input[type="file"] {
+  font-size: var(--fs-body);
   color: var(--mute);
-  font-size: var(--fs-label);
+  background: transparent;
+  border: 0;
 }
 
-.fwLabelGap {
-  margin-left: 16px;
+input[type="file"]::file-selector-button {
+  min-height: 48px;
+  padding: 8px 16px;
+  margin-right: 12px;
+  background: var(--field);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  font-size: var(--fs-body);
+  letter-spacing: 0.16px;
+  cursor: pointer;
 }
 
-.fwRow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
+input[type="file"]::file-selector-button:hover {
+  background: var(--border);
 }
 
 #fwProgWrap {
@@ -1452,42 +1627,36 @@ main > * {
 .events {
   flex: 1;
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 16px;
+  max-width: 1480px;
+  padding: 16px 16px 16px 24px;
 }
 
 .evhead {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  justify-content: space-between;
+  margin-bottom: 24px;
 }
 
-/* Reload and snapshot download are icon-only buttons so they stay out
-   of the way; they repeat the muted nav-icon treatment and sit as one
-   cluster at the row's right edge with the record count to its left. */
-#evReload,
-#evSave {
-  padding: 4px;
+/* Type style is shared with .cfgTitle above; only the margin is local. */
+.evTitle {
+  margin: 0;
 }
 
-.evhead .seg button {
-  height: 26px;
-  padding: 0 10px;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+.evActions {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
 }
 
-#evReload:hover,
-#evSave:hover {
+.evIcon {
+  padding: 8px;
+}
+
+.evIcon:hover {
   color: var(--fg);
 }
 
-/* Dimming is the only in-flight feedback for the snapshot download; a
-   spinning download arrow would read as activity on the wrong control. */
 #evSave:disabled {
   opacity: 0.5;
   cursor: default;
@@ -1500,8 +1669,6 @@ main > * {
   display: block;
 }
 
-/* Spin the glyph while a fetch is in flight; the icon is the button's
-   only feedback since the status text only settles once the load ends. */
 #evReload.loading .evReloadIcon {
   animation: evSpin 0.8s linear infinite;
 }
@@ -1512,9 +1679,49 @@ main > * {
   }
 }
 
-#evStatus {
-  font-size: var(--fs-body);
+/* Tab-style severity filter with per-tab event counts. */
+.evTabs {
+  display: flex;
+  background: var(--panel);
+  margin-bottom: 24px;
+}
+
+.evTab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  background: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
   color: var(--mute);
+  font-size: var(--fs-body);
+  cursor: pointer;
+  transition: color 0.11s;
+}
+
+.evTab:hover {
+  color: var(--fg);
+}
+
+.evTab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+.evCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  background: var(--bg);
+  color: var(--mute);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-emp);
 }
 
 .evtab {
@@ -1528,6 +1735,16 @@ main > * {
   white-space: nowrap;
 }
 
+.evtab th:first-child,
+.evtab td:first-child {
+  width: 280px;
+}
+
+.evtab th:nth-child(2),
+.evtab td:nth-child(2) {
+  width: 200px;
+}
+
 .evtab th:last-child,
 .evtab td:last-child {
   white-space: normal;
@@ -1539,7 +1756,8 @@ main > * {
   font-size: var(--fs-body);
   font-weight: var(--fw-emp);
   text-align: left;
-  padding: 8px 12px;
+  height: 40px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border);
   user-select: none;
 }
@@ -1580,23 +1798,17 @@ main > * {
 }
 
 .evtab td {
-  padding: 7px 12px;
+  height: 48px;
+  padding: 0 16px;
   font-size: var(--fs-body);
   border-bottom: 1px solid var(--border);
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .evtab tr:last-child td {
   border-bottom: 0;
 }
 
-.sev-warn td {
-  background: rgba(254, 132, 49, 0.06);
-}
-
-.sev-error td {
-  background: rgba(217, 34, 44, 0.08);
-}
 
 .badge {
   display: inline-block;
@@ -1617,24 +1829,5 @@ main > * {
 }
 
 .badge.error {
-  background: var(--red);
-}
-
-.sev-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.sev-dot.info {
-  background: var(--green);
-}
-
-.sev-dot.warn {
-  background: var(--orange);
-}
-
-.sev-dot.error {
   background: var(--red);
 }

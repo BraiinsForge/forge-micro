@@ -69,6 +69,40 @@ npm run build && brotli -q 11 -c dist/index.html | wc -c   # variant B
 Readability and state encapsulation can justify a component even when it
 costs a few bytes; shaving bytes alone rarely justifies one.
 
+## Page layout and spacing
+
+Type sizes are five tokens in `common.css` `:root`; every `font-size`
+resolves to one so the pages line up and tune from one place. Reuse a
+token, never hardcode a size.
+
+| Token | Size | Used for |
+|-------|------|----------|
+| `--fs-label` | 12px | uppercase captions, field labels |
+| `--fs-body` | 14px | body text, input text |
+| `--fs-val` | 16px | metric values |
+| `--fs-head` | 20px | section headings (`.psec h3`) |
+| `--fs-title` | 24px | page titles (`.cfgTitle`, `.evTitle`) |
+
+Page titles carry `--fw-emp` weight.
+
+### Configuration-page rhythm
+
+A config tab is a `<h2 class="cfgTitle">` over a `<form>` of stacked
+groups. The vertical rhythm is fixed by three rules — match it, do not
+add ad-hoc margins:
+
+- **Title → first group: 24px.** `.cfgTitle` is `margin: 0 0 24px`.
+- **Between groups and the Save button: 24px.** `.cfgsec form` is a
+  flex column with `gap: 24px`.
+- **Inside a group: 24px** from the 20px `h3` to its rows (`.psec`).
+  A group marked `sep` (`<Section title sep>`) tightens that to **16px**
+  and adds **24px** above itself, so it reads as a sub-group.
+- **Field labels: 12px**, muted, `margin: 10px 0 2px`.
+
+The first group of fields sits bare in a `<div class="fldRows">` with no
+heading; every later group is a `<Section title sep>`. `ConfigThermal.tsx`
+is the reference structure.
+
 ## Architecture
 
 Two independent Rsbuild HTML entries, each inlined into one
@@ -88,8 +122,12 @@ View state is the URL hash; there is no router dependency.
 - Config sub-tabs: `subOf(hash)` in `web/components/Config.tsx` matches
   `#config/<key>` against the `TABS` table.
 
-Add a view by extending `viewOf`/`TABS` and rendering on the match — do
-not reach for a router.
+Add a **top-level view**: extend `viewOf` (`app.tsx`) with the new hash,
+add a `TopNav` link, and render on the match — no router. Add a **config
+tab**: append one entry to `TABS` (`Config.tsx`) with `key`, `label`, and
+`render`; `subOf` and the nav build themselves from the table. A new page
+follows the config-page rhythm above and its own component; measure the
+Brotli delta (`## Size is the first constraint`) before committing.
 
 ### Fetching — one poll, one signal
 

@@ -113,8 +113,10 @@ export default function ConfigNetwork({ hostname: initialHostname }: ConfigNetwo
 
   return (
     <>
+      <h2 class="cfgTitle">Network</h2>
       <form onSubmit={openReview}>
-        <Section title="Hostname">
+        <div class="psec sep">
+          <div class="fldRows">
             <Field
               label="Hostname"
               placeholder="Default"
@@ -123,8 +125,9 @@ export default function ConfigNetwork({ hostname: initialHostname }: ConfigNetwo
               type="text"
               maxlength={32}
             />
-        </Section>
-        <Section title="Network">
+          </div>
+        </div>
+        <Section title="Network" sep>
             <div class="fld">
               <span class="fldText">
                 <span class="fldLabel">Protocol</span>

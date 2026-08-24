@@ -15,8 +15,6 @@ const PAUSE_LABEL: Record<string, string> = {
   userRequest: 'Stopped - User',
 };
 
-const POOL_NAMES = ['Pool 1 — Primary', 'Pool 2 — Backup', 'Pool 3 — Backup'];
-
 // A pool slot's display metadata, derived from GET /api/config. `null`
 // means the slot answered but is unconfigured; `undefined` (the initial
 // state) means the config fetch has not resolved yet.
@@ -60,15 +58,10 @@ function StatCard({ label, value, cls, wide }: StatCardProps) {
   );
 }
 
-interface StatusDotProps {
-  alive: boolean;
-  text: string;
-}
-
-function StatusDot({ alive, text }: StatusDotProps) {
+function StatusDot({ text }: { text: string }) {
   return (
     <span class="ps">
-      <svg class="dot"><use href={alive ? '#sok' : '#serr'} /></svg>
+      <span class="pd" />
       <span class="pt">{text}</span>
     </span>
   );
@@ -80,6 +73,7 @@ export default function Dashboard() {
   const status = statusOf(info);
 
   const [poolCfg, setPoolCfg] = useState<(PoolMeta | null | undefined)[]>([undefined, undefined, undefined]);
+  const [tempThresh, setTempThresh] = useState<[number, number] | null>(null);
   const [cursor, setCursor] = useState<number | null>(null);
 
   useEffect(() => {
@@ -99,11 +93,21 @@ export default function Dashboard() {
             };
           })
         );
+        if (data.thermal) {
+          setTempThresh([data.thermal.dangerous_temp_c, data.thermal.dangerous_chip_temp_c]);
+        }
       } catch (_) {
         /* leave labels blank; the poll still drives alive/dead */
       }
     })();
   }, []);
+
+  function tempCls(): string {
+    if (!info?.temperature || !tempThresh) return '';
+    if (info.temperature >= tempThresh[1]) return 'temp-red';
+    if (info.temperature >= tempThresh[0]) return 'temp-warn';
+    return 'temp-ok';
+  }
 
   function poolState(slot: number): Status {
     const mask = (info?.pools ?? 0) | 0;
@@ -118,43 +122,37 @@ export default function Dashboard() {
     <>
       <div class="left" onPointerLeave={() => setCursor(null)}>
         <Chart
-          lines={[{ buf: dash.hr, color: '#6b50ff', label: 'Hashrate' }]}
+          lines={[{ buf: dash.hr, color: '#6b50ff', label: 'Hashrate (TH/s)' }]}
           min={0}
           max={2e12}
-          maj={1e12}
-          minTick={5e11}
           minSpan={2e11}
           axis={(v) => {
             const t = v / 1e12;
-            return (Number.isInteger(t) ? t.toFixed(0) : t.toFixed(1)) + 'T';
+            return Number.isInteger(t) ? t.toFixed(0) : t.toFixed(1);
           }}
           val={fmtHr}
           cursor={cursor}
           onCursor={setCursor}
         />
         <Chart
-          lines={[{ buf: dash.tp, color: '#fe8431', label: 'Temperature' }]}
+          lines={[{ buf: dash.tp, color: '#fe8431', label: 'Temperature (°C)' }]}
           min={20}
           max={100}
-          maj={20}
-          minTick={10}
           minSpan={20}
-          axis={(v) => v + '°C'}
+          axis={(v) => String(v)}
           val={(v) => v + ' °C'}
           cursor={cursor}
           onCursor={setCursor}
         />
         <Chart
           lines={[
-            { buf: dash.pin, color: '#f9c74f', label: 'Power IN' },
-            { buf: dash.pout, color: '#4cc9f0', label: 'Power OUT' },
+            { buf: dash.pin, color: '#f9c74f', label: 'Power IN (W)' },
+            { buf: dash.pout, color: '#4cc9f0', label: 'Power OUT (W)' },
           ]}
           min={0}
           max={60}
-          maj={20}
-          minTick={10}
           minSpan={10}
-          axis={(v) => v + 'W'}
+          axis={(v) => String(v)}
           val={(v) => v.toFixed(0) + ' W'}
           cursor={cursor}
           onCursor={setCursor}
@@ -162,50 +160,52 @@ export default function Dashboard() {
       </div>
 
       <aside class="side">
-        <StatCard label="Hashrate" value={fmtHr(info?.hashrate)} />
-        <StatCard label="Temperature" value={info?.temperature ? info.temperature + ' °C' : '–'} />
-        <StatCard label="Status" value={status.text} cls={status.cls} />
-        <StatCard label="Uptime" value={fmtUp(info?.uptime)} />
-        <div class={'card lkc wide' + (!dash.link ? ' dead' : '') + (dash.link ? ' live' : '')}>
-          <div class="k">Link</div>
-          <StatusDot alive={dash.link} text={dash.link ? 'Live' : 'Dead'} />
-        </div>
-        <StatCard label="Time UTC" value={info?.time || '–'} wide />
+        <StatCard label="Real Hashrate" value={fmtHr(info?.hashrate)} />
+        <StatCard label="Chip Temperature" value={info?.temperature ? info.temperature + ' °C' : '–'} cls={tempCls()} />
         <StatCard
           label="Power in / out"
           value={<><span>{fmtPower(info?.power_in_mw)}</span> / <span>{fmtPower(info?.power_out_mw)}</span></>}
-          wide
         />
         <StatCard
           label="Voltage set / measured"
-          value={<><span>{fmtVolts(info?.voltage_set_mv)}</span> / <span>{fmtVolts(info?.voltage_measured_mv)}</span></>}
-          wide
+          value={<><span>{info?.voltage_set_mv ? Math.round(info.voltage_set_mv / 1000) + ' V' : '–'}</span> / <span>{fmtVolts(info?.voltage_measured_mv)}</span></>}
         />
         <StatCard
           label="Fan speed / PWM"
           value={<><span>{info?.fan_rpm ? info.fan_rpm + ' RPM' : '–'}</span> / <span>{info?.fan_pwm ? info.fan_pwm + ' %' : '–'}</span></>}
-          wide
         />
+        <StatCard label="Uptime" value={fmtUp(info?.uptime)} />
+        <div class={'card lkc' + (status.cls === 'running' ? ' live' : status.cls ? ' dead' : '')}>
+          <div class="k">Status</div>
+          <StatusDot text={status.text} />
+        </div>
+        <div class={'card lkc' + (dash.link ? ' live' : ' dead')}>
+          <div class="k">Link</div>
+          <StatusDot text={dash.link ? 'Live' : 'Dead'} />
+        </div>
+        <StatCard label="Time UTC" value={info?.time || '–'} wide />
       </aside>
 
       <div class="card pools">
-        <div class="k">Pools</div>
-        {POOL_NAMES.map((name, slot) => {
+        <div class="ph">
+          <div class="k">Pools</div>
+          <a class="plink" href="#config/pools">Configure</a>
+        </div>
+        <div class="ptr">
+          <span>URL</span>
+          <span>Protocol</span>
+          <span>User</span>
+          <span>Status</span>
+        </div>
+        {[0, 1, 2].map((slot) => {
           const st = poolState(slot);
           const meta = poolCfg[slot];
           return (
             <div class={'pool ' + st.cls} key={slot}>
-              <div class="pm">
-                <span>{name}</span>
-                <span class="pi">
-                  {meta
-                    ? `${meta.host}:${meta.port} · ${meta.sv2 ? 'SV2' : 'SV1'}${meta.user ? ` · ${meta.user}` : ''}`
-                    : meta === null
-                      ? 'not configured'
-                      : ''}
-                </span>
-              </div>
-              <StatusDot alive={st.cls === 'live'} text={st.text} />
+              <span>{meta ? `${meta.host}:${meta.port}` : meta === null ? 'not configured' : ''}</span>
+              <span>{meta ? (meta.sv2 ? 'SV2' : 'SV1') : '—'}</span>
+              <span>{meta?.user || '—'}</span>
+              <span class="ps"><span class="pd" />{st.text}</span>
             </div>
           );
         })}

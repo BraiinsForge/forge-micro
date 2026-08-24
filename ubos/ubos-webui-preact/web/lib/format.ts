@@ -34,7 +34,7 @@ export function fmtRange(min: Maybe, max: Maybe): string | undefined {
   return `Min: ${min} - Max: ${max}`;
 }
 
-export const fmtPower = (mw: Maybe): string => (mw ? (mw / 1000).toFixed(1) + ' W' : '–');
+export const fmtPower = (mw: Maybe): string => (mw ? (mw / 1000).toFixed(0) + ' W' : '–');
 export const fmtVolts = (mv: Maybe): string => (mv ? (mv / 1000).toFixed(3) + ' V' : '–');
 
 // Round a positive number up to the next 1, 2, or 5 times a power of

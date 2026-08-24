@@ -32,3 +32,6 @@ export const toast = {
   ok: (title: string, text?: string, ttl: number = SUCCESS_TTL) => push('success', title, text, ttl),
   err: (title: string, text?: string, ttl: number = 0) => push('error', title, text, ttl),
 };
+
+// Narrow an unknown throw to its message for a toast detail line.
+export const errMsg = (error: unknown): string => (error instanceof Error ? error.message : String(error));

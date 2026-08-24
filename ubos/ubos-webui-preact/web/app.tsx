@@ -101,8 +101,8 @@ export default function App() {
 
       <footer class="bar ft">
         <span class="bi">
-          <span>{dash.info?.ip || '–'}</span> · <span>{dash.info?.mac || '–'}</span> ·{' '}
-          <span>{buildRev}</span> · <span>{buildTime}</span>
+          IP: {dash.info?.ip || '–'} · MAC: {dash.info?.mac || '–'} · {buildRev} ·{' '}
+          {buildTime}
         </span>
       </footer>
 
