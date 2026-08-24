@@ -1,7 +1,6 @@
 ---
 name: commit
 description: Creates atomic git commits with chunk-based staging and the gitlint-gated message format. Use when committing staged or unstaged changes, or when the user asks to commit or to split work into commits.
-disable-model-invocation: true
 allowed-tools: Bash, Read, Grep, Glob
 ---
 
