@@ -70,6 +70,7 @@ let
   inherit (helpers)
     armCc
     webuiEnvAttrs
+    preactDistEnv
     espCrossEnv
     espRustflags
     ;
@@ -88,7 +89,8 @@ let
   # `artifacts` defaults to the shared host bag; `allTargets` is off for
   # crates whose tests or examples do not build on the host feature set;
   # `args` appends feature flags; `esbuild`/`webuiEnv` cover ubos-webui's
-  # build.rs.
+  # build.rs, and `preactDist` points ubos-webui-preact's build.rs at the
+  # hermetic dist.
   mkHostClippy =
     spec:
     craneLib.cargoClippy (
@@ -103,6 +105,7 @@ let
       }
       // lib.optionalAttrs (spec.esbuild or false) { nativeBuildInputs = [ pkgs.esbuild ]; }
       // lib.optionalAttrs (spec.webuiEnv or false) webuiEnvAttrs
+      // lib.optionalAttrs (spec.preactDist or false) preactDistEnv
     );
 
   # Host-side unit tests, dev profile so debug_assert! and
@@ -119,6 +122,7 @@ let
       }
       // lib.optionalAttrs (spec.esbuild or false) { nativeBuildInputs = [ pkgs.esbuild ]; }
       // lib.optionalAttrs (spec.webuiEnv or false) webuiEnvAttrs
+      // lib.optionalAttrs (spec.preactDist or false) preactDistEnv
     );
 
   hostClippyChecks = builtins.mapAttrs (_: mkHostClippy) {
@@ -174,6 +178,13 @@ let
       # build.rs runs `esbuild --minify` on the dashboard CSS/JS
       # before gzipping into OUT_DIR.
       esbuild = true;
+      webuiEnv = true;
+    };
+    clippy-ubos-webui-preact = {
+      crate = "ubos-webui-preact";
+      # build.rs reads the prebuilt Rsbuild pages from
+      # UBOS_WEBUI_PREACT_DIST and gzips them, so the sandbox needs no npm.
+      preactDist = true;
       webuiEnv = true;
     };
     clippy-ubos-thermal = {
@@ -254,6 +265,13 @@ let
       # build.rs runs `esbuild --minify` on the dashboard CSS/JS
       # before gzipping into OUT_DIR.
       esbuild = true;
+      webuiEnv = true;
+    };
+    test-ubos-webui-preact = {
+      crate = "ubos-webui-preact";
+      # build.rs reads the prebuilt Rsbuild pages from
+      # UBOS_WEBUI_PREACT_DIST and gzips them, so the sandbox needs no npm.
+      preactDist = true;
       webuiEnv = true;
     };
     test-host-runner = {
@@ -699,6 +717,7 @@ hostClippyChecks
     let
       fastTests = builtins.removeAttrs hostTestChecks [
         "test-ubos-webui"
+        "test-ubos-webui-preact"
         "test-host-runner"
       ];
     in
@@ -721,6 +740,7 @@ hostClippyChecks
       {
         nativeBuildInputs = [
           hostTestChecks.test-ubos-webui
+          hostTestChecks.test-ubos-webui-preact
           hostTestChecks.test-host-runner
         ];
       }

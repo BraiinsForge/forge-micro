@@ -91,12 +91,11 @@ fn main() {
 
     // Locate the built pages: a prebuilt hermetic dist wins; otherwise
     // build it here with Rsbuild.
-    let dist_dir = match env::var_os("UBOS_WEBUI_PREACT_DIST") {
-        Some(dir) => PathBuf::from(dir),
-        None => {
-            run_web_build(&manifest_dir, &build_rev, &build_time);
-            manifest_dir.join("dist")
-        }
+    let dist_dir = if let Some(dir) = env::var_os("UBOS_WEBUI_PREACT_DIST") {
+        PathBuf::from(dir)
+    } else {
+        run_web_build(&manifest_dir, &build_rev, &build_time);
+        manifest_dir.join("dist")
     };
 
     for name in ["index", "login"] {

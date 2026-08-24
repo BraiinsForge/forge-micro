@@ -28,6 +28,7 @@
 {
   pkgs,
   webuiBuildEnv,
+  webuiPreactDist,
   espToolchain,
   xtensaEspToolchain,
   patchedCrates,
@@ -64,6 +65,13 @@ rec {
 
   webuiEnvAttrs = {
     inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+  };
+
+  # Points ubos-webui-preact's build.rs at the hermetic Rsbuild output
+  # so the crate check never runs `npm` in the offline sandbox. build.rs
+  # reads the two prebuilt pages from this directory and gzips them.
+  preactDistEnv = {
+    UBOS_WEBUI_PREACT_DIST = "${webuiPreactDist}";
   };
 
   # Xtensa cross-build env every esp32s3 crane derivation carries:

@@ -158,12 +158,20 @@
         # copy. See nix/board-parity.nix.
         boardParity = import ./nix/board-parity.nix { inherit pkgs; };
 
+        # Hermetic Preact/Rsbuild dashboard build for ubos-webui-preact,
+        # threaded through nix/lib.nix into the checks as
+        # UBOS_WEBUI_PREACT_DIST. See nix/webui-preact.nix.
+        webuiPreactDist = pkgs.callPackage ./nix/webui-preact.nix {
+          inherit webuiBuildEnv;
+        };
+
         # Cross-CC and webui build-env helpers shared by the checks,
         # images, and shells modules. See nix/lib.nix.
         helpers = import ./nix/lib.nix {
           inherit
             pkgs
             webuiBuildEnv
+            webuiPreactDist
             espToolchain
             xtensaEspToolchain
             patchedCrates
