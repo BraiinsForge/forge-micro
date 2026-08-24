@@ -89,14 +89,10 @@ export default defineConfig({
           },
         }
       : {}),
-  },
-  dev: {
-    // The mock/CSRF middleware must run before Rsbuild's own handlers,
-    // so it is unshifted to the front of the stack.
-    setupMiddlewares: [
-      (middlewares) => {
-        middlewares.unshift(API_BASE ? boardCsrf(BOARD_80) : mockApi());
-      },
-    ],
+    // `server.setup` runs before Rsbuild's own handlers, so the mock/CSRF
+    // middleware registered here already precedes them.
+    setup({ server }) {
+      server.middlewares.use(API_BASE ? boardCsrf(BOARD_80) : mockApi());
+    },
   },
 });
