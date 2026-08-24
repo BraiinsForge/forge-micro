@@ -17,20 +17,20 @@
 # to this program, or any part thereof, under any terms, and such a grant
 # shall be considered distinct from the grant above.
 
-# Hermetic Rsbuild/Preact build for `ubos/ubos-webui-preact`.
+# Hermetic Rsbuild/Preact build for `ubos/ubos-webui`.
 #
 # This produces the two single-file pages the crate's build.rs embeds:
 # `$out/index.html` and `$out/login.html`. flake.nix builds this in the
 # per-system `let` block and threads it into nix/lib.nix as
-# `preactDistEnv`, which the ubos-webui-preact checks set as
-# `UBOS_WEBUI_PREACT_DIST` so the Rust check sandbox never needs Node —
-# build.rs just gzips these two files.
+# `webuiDistEnv`, which the ubos-webui checks set as
+# `UBOS_WEBUI_DIST` so the Rust check sandbox never needs Node —
+# build.rs Brotli-compresses these two files.
 #
 # `npmDepsHash` is a hash over package-lock.json's dependency set. It
 # needs a network fetch that only runs under Nix, so regenerate it
 # whenever the lockfile moves:
 #   nix run nixpkgs#prefetch-npm-deps -- \
-#     ubos/ubos-webui-preact/package-lock.json
+#     ubos/ubos-webui/package-lock.json
 # Paste the printed hash into `npmDepsHash` below. A stale hash fails
 # the build and prints the correct "got:" hash to copy.
 #
@@ -45,13 +45,13 @@
 }:
 
 buildNpmPackage {
-  pname = "ubos-webui-preact-dist";
+  pname = "ubos-webui-dist";
   version = "0.1.0";
 
   # Only the inputs the build reads; excludes node_modules, dist, and
   # the Rust side so a stray local build does not perturb the hash.
   src = lib.cleanSourceWith {
-    src = ../ubos/ubos-webui-preact;
+    src = ../ubos/ubos-webui;
     filter =
       path: _type:
       let
@@ -62,7 +62,7 @@ buildNpmPackage {
 
   # See the header for how to regenerate this when package-lock.json
   # moves.
-  npmDepsHash = "sha256-wdQXDZgRUEexyjuhLx1JS724mk4Susy7J2ULmD7dwX4=";
+  npmDepsHash = "sha256-nZh5RHCgu8TqnhBbfjY3Kt0ZhuKIYv7Hi693mnEKiYc=";
 
   # build.rs and rsbuild.config.ts read these for the footer; bake them
   # in here so the hermetic dist is stamped with the source revision.

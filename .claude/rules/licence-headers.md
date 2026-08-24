@@ -29,10 +29,10 @@ carrying the grant alone weakens the claim for that file.
 
 Two kinds of file keep a licence that is not ours to touch. Vendored
 `patches/*` trees keep upstream's. `assets/69-probe-rs.rules` and
-`ubos/ubos-webui/assets/icons.svg` are bundled material under another
+`ubos/ubos-webui/web/icons.svg` are bundled material under another
 licence, and each keeps its own licence text next to it:
 `assets/LICENSE-PROBE-RS` for the udev rules file and
-`ubos/ubos-webui/assets/LICENSE-CARBON` for the icon set.
+`ubos/ubos-webui/web/LICENSE-CARBON` for the icon set.
 
 The manifests are the other half of the statement. Every crate spells
 `license.workspace = true` and the root `[workspace.package]` supplies

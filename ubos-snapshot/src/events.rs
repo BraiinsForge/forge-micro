@@ -20,9 +20,10 @@
 //! Decoding for the packed event-log argument payload and message
 //! templates.
 //!
-//! Ported from the browser decoder in `ubos-webui/src/index.js`
-//! (`decodeArgs`, `formatMessage`, `formatTime`) so the CLI renders event
-//! rows identically to the dashboard, without a JS runtime.
+//! Ported from the browser decoder in
+//! `ubos-webui/web/components/Events.tsx` (`decodeArgs`,
+//! `formatMessage`, `formatTime`) so the CLI renders event rows
+//! identically to the dashboard, without a JS runtime.
 
 use std::error::Error;
 use std::fmt;
@@ -250,7 +251,7 @@ impl EventCodec {
     /// Howard Hinnant's date algorithm; valid for every value an `i64`
     /// day count can hold. Locals (`z`, `doe`, `yoe`, `doy`, `mp`) keep
     /// the names from the published reference so the implementation
-    /// reads against the paper. Ported from `ubos-webui/build.rs`.
+    /// reads against the paper.
     #[must_use]
     #[allow(
         clippy::cast_possible_truncation,

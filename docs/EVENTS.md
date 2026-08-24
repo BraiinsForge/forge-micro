@@ -520,28 +520,33 @@ at boot via `ubos_events::set_catalogs`; the handler reads them back through
 
 ## Web UI
 
-Source in `ubos/ubos-webui/src/`, built and gzipped at compile time by
-`build.rs`, served from flash on port 80.
+Source in `ubos/ubos-webui/web/`, built and Brotli-compressed at compile
+time by `build.rs`, served from flash on port 80.
 
-- **`index.html`** — an `<a href="#events" id="nEvents">Events</a>` after
-  the Configuration link, and a `<section class="events hide" id="events">`
-  alongside `<main id="dash">` and `<section id="cfg">`.
-- **`index.js`** — `route()` is a three-way dash/cfg/events toggle.
-  `loadEvents()` fetches `GET ${API}/api/system/events`; the defs table is
-  fetched and cached once on first tab open. A small decoder (tens of lines)
-  renders `code` + args to text using the positional `{}` convention from
-  the defs table, merges incoming records into the cached set by `seq`, and
-  sorts newest-first into a severity-coloured table (time, severity,
-  message). A reload icon refetches incrementally with `?since=<last_seq>`,
-  and while the tab is open a 60 s timer issues the same incremental fetch.
-  A higher-than-expected first `seq` on an incremental fetch latches a
-  "dropped events" notice, since the ring overwrote the gap before the
-  fetch.
-- **`index.css`** — table and severity-badge styles for the events section.
-  The existing `.bar a` / `.bar a.on` rules already style the new top-bar
-  link.
+Routing is hash-based, not a toggle in the page markup: `viewOf` in
+`web/app.tsx` maps the `#events` hash to the events view, `TopNav.tsx`
+renders the matching top-bar link, and `App` swaps in
+`<Events />` (`web/components/Events.tsx`) on a `hashchange`.
 
-The existing CSRF/auth and gzip handling need no change.
+`Events.tsx` fetches `GET /api/system/events/catalog` once per mount and
+caches the `{code, sev, fmt, args}` defs; `load(incremental)` then fetches
+`GET /api/system/events`, adding `?since=<seq>` when incremental. Each
+record is decoded against its catalog def — `decodeArgs` unpacks the
+positional args from the hex payload, `formatMessage` substitutes them
+into the `{}` template — and merged into a `Map` keyed by `seq`, so an
+incremental fetch appends rather than replaces. The table sorts
+newest-first by time or severity, both toggleable, into a
+severity-coloured row (time, severity badge, message); a reload button
+re-runs `load(false)` and, while the tab is mounted, a 60 s timer runs
+`load(true)` for the same incremental fetch. A higher-than-expected
+first `seq` on an incremental fetch — the ring overwrote the gap before
+the fetch — is tracked in component state; nothing renders it yet.
+
+Table and severity-badge styles live in `web/styles/index.css`
+(`.evtab`, `.badge`); the top-bar link reuses the existing nav styles.
+
+The existing CSRF/auth handling need no change; the Brotli
+`Content-Encoding` firmware already serves needs none either.
 
 ### Why polling, not streaming
 

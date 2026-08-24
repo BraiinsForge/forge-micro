@@ -1,5 +1,5 @@
 {
-  "name": "ubos-webui-preact",
+  "name": "ubos-webui",
   "private": true,
   "type": "module",
   "scripts": {

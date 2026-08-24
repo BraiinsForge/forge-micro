@@ -30,7 +30,7 @@
 //!   panel led by a Link status card, and a configuration form view.
 //! - `HEAD /` mirrors `GET /` but returns no body. The dashboard
 //!   uses it to refresh the single-use CSRF token between mutating
-//!   requests without re-downloading the gzipped HTML asset.
+//!   requests without re-downloading the compressed HTML asset.
 //! - `GET /login`, `POST /login`, `POST /logout` drive the session
 //!   cookie used by the SPA when it calls the REST listener.
 //! - `GET /logo.svg` serves the Braiins wordmark referenced by the
@@ -52,7 +52,7 @@ use embedded_io_async::{Read, Write};
 use heapless::Vec;
 
 use crate::consts::Http;
-use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG};
+use crate::{INDEX_HTML_BR, LOGIN_HTML_BR, LOGO_SVG_BR};
 use ubos_http::{
     MAX_RESPONSE_HEADERS, RequestParts, Service, extract_request_parts, format_content_length,
     read_body, write_status_only,
@@ -167,11 +167,11 @@ where
         .await
 }
 
-/// Write a static asset response (gzipped HTML or SVG) to `connection`.
+/// Write a static asset response (Brotli-compressed HTML or SVG) to `connection`.
 ///
 /// `content_type` is the MIME type. `cache_control` is the header value.
-/// `encoding` is the optional `Content-Encoding` value; pass `Some("gzip")`
-/// for gzip assets and `None` for plain assets.
+/// `encoding` is the optional `Content-Encoding` value; pass `Some("br")`
+/// for Brotli assets and `None` for plain assets.
 /// `extra_headers` may carry additional headers such as `X-CSRF-Token`.
 /// `body` is the raw asset bytes.
 async fn write_asset<T, const N: usize>(
@@ -458,9 +458,9 @@ impl Service for DashboardService {
                             connection,
                             "text/html; charset=utf-8",
                             "no-store",
-                            Some("gzip"),
+                            Some("br"),
                             &[("X-CSRF-Token", csrf_header_value)],
-                            INDEX_HTML_GZ,
+                            INDEX_HTML_BR,
                         )
                         .await
                     }
@@ -470,9 +470,9 @@ impl Service for DashboardService {
                             connection,
                             "text/html; charset=utf-8",
                             "no-store",
-                            Some("gzip"),
+                            Some("br"),
                             &[],
-                            INDEX_HTML_GZ,
+                            INDEX_HTML_BR,
                         )
                         .await
                     }
@@ -482,7 +482,7 @@ impl Service for DashboardService {
                 // Issues a fresh CSRF token in the response headers
                 // without serving the dashboard body, so the SPA can
                 // refresh its token between mutating requests without
-                // refetching the gzipped HTML asset. Content-Length is
+                // refetching the compressed HTML asset. Content-Length is
                 // 0 and Content-Encoding is omitted because edge-http
                 // finishes the response by checking advertised length
                 // against bytes written, and the client only consumes
@@ -504,9 +504,9 @@ impl Service for DashboardService {
                     connection,
                     "text/html; charset=utf-8",
                     "no-store",
-                    Some("gzip"),
+                    Some("br"),
                     &[],
-                    LOGIN_HTML_GZ,
+                    LOGIN_HTML_BR,
                 )
                 .await
             }
@@ -565,9 +565,9 @@ impl Service for DashboardService {
                     connection,
                     "image/svg+xml",
                     "public, max-age=86400",
-                    None,
+                    Some("br"),
                     &[],
-                    LOGO_SVG,
+                    LOGO_SVG_BR,
                 )
                 .await
             }

@@ -18,10 +18,11 @@ defmt   = ["dep:defmt", "ubos-auth/defmt", "ubos-config/defmt", "ubos-http/defmt
 ccmram-bss = ["ubos-core/ccmram-bss"]
 
 [build-dependencies]
-# Used by `build.rs` to gzip each composed page (`index.html`,
-# `login.html`) after esbuild has minified its CSS and JS, so the
-# firmware ships each page with `Content-Encoding: gzip`.
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# Used by `build.rs` to Brotli-compress each Vite single-file page
+# (`index.html`, `login.html`) so the firmware ships each page with
+# `Content-Encoding: br`. The `std` feature provides the `BrotliCompress`
+# io wrapper; `ffi-api` (a default) is not needed and stays off.
+brotli = { version = "7", default-features = false, features = ["std"] }
 
 [dependencies]
 edge-http         = { workspace = true, features = ["io"] }
@@ -39,7 +40,7 @@ ubos-mdns         = { workspace = true, default-features = false }
 ubos-net          = { workspace = true, default-features = false }
 
 [dev-dependencies]
-flate2           = { version = "1", default-features = false, features = ["rust_backend"] }
+brotli           = { version = "7", default-features = false, features = ["std"] }
 critical-section = { version = "1.2", features = ["std"] }
 
 # defmt is gated behind the defmt feature; ubos-logging is pulled only to

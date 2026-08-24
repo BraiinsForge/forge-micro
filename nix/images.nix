@@ -56,6 +56,7 @@ let
   inherit (helpers)
     armCc
     webuiEnvAttrs
+    webuiDistEnv
     espCrossEnv
     espRustflags
     ;
@@ -82,7 +83,6 @@ let
         cargoExtraArgs = "-p ${name} --target ${target}";
         nativeBuildInputs = [
           pkgs.gcc-arm-embedded
-          pkgs.esbuild
         ];
         UBOS_FW_VERSION = fwVersion;
         # Do not copy the cargo target directory into $out; we only
@@ -102,6 +102,7 @@ let
       }
       // armCc target
       // webuiEnvAttrs
+      // webuiDistEnv
     );
 
   # Bootloader ELF builder. The bootloader occupies flash offset
@@ -224,7 +225,6 @@ let
       cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
       nativeBuildInputs = [
         xtensaEspToolchain
-        pkgs.esbuild
         pkgs.espflash
       ];
       UBOS_FW_VERSION = fwVersion;
@@ -245,6 +245,7 @@ let
       };
     }
     // webuiEnvAttrs
+    // webuiDistEnv
   );
 
   # Bootloader for the rp2350, bmm-pico, and hashnode boards, all

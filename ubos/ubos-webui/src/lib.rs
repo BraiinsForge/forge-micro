@@ -17,25 +17,28 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Web-UI listener on port 80.
+//! Web-UI listener on port 80 (Preact build).
 //!
 //! Owns the dashboard SPA HTML, login form, and logout handler. The
 //! REST API surface (`/api/*`) lives in `ubos-api` on port 8080. mDNS
 //! announces `_http._tcp` on port 80 via `WEBUI_SERVICE`.
+//!
 #![no_std]
 
-/// Gzipped dashboard payload composed from `src/index.html`,
-/// `src/index.css`, `src/index.js`, `src/common.css`, `src/common.js`,
-/// and `assets/icons.svg` by the crate's `build.rs`.
-pub const INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
+/// Brotli-compressed dashboard payload. Built from the Preact project's
+/// `index` entry by the crate's `build.rs` (Vite single-file build, then
+/// Brotli quality 11).
+pub const INDEX_HTML_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.br"));
 
-/// Gzipped login-page payload composed from `src/login.html`,
-/// `src/login.css`, `src/login.js`, `src/common.css`, `src/common.js`,
-/// and `assets/icons.svg` by the crate's `build.rs`.
-pub const LOGIN_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login.html.gz"));
+/// Brotli-compressed login-page payload. Built from the Preact project's
+/// `login` entry by the crate's `build.rs` (Vite single-file build, then
+/// Brotli quality 11).
+pub const LOGIN_HTML_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login.html.br"));
 
-/// Braiins wordmark SVG served at `/logo.svg`.
-pub const LOGO_SVG: &[u8] = include_bytes!("logo.svg");
+/// Brotli-compressed Braiins wordmark SVG served at `/logo.svg`.
+/// Compressed by the crate's `build.rs` from `src/logo.svg` and served
+/// with `Content-Encoding: br`.
+pub const LOGO_SVG_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/logo.svg.br"));
 
 ubos_mdns::declare_service!(
     pub WEBUI_SERVICE = ubos_mdns::ServiceEntry {

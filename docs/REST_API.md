@@ -23,7 +23,7 @@ Discoverable via mDNS: `_http._tcp.local.` (port 80),
 | `ubos-http`    | TCP accept loop, per-connection state machine, `Service` trait; generic response helpers (`read_body`, `write_json_response`, `MAX_RESPONSE_HEADERS`) |
 | `ubos-auth`    | shared HTTP middleware: allow-list, auth, sessions, CSRF, CSPRNG          |
 | `ubos-api`     | REST handlers, `REST_API_SERVICE` mDNS entry, schema types                |
-| `ubos-webui`   | gzipped `index.html` / `login.html`, raw `logo.svg`; webui listener; `WEBUI_SERVICE` mDNS entry |
+| `ubos-webui`   | Brotli-compressed `index.html` / `login.html`, raw `logo.svg`; webui listener; `WEBUI_SERVICE` mDNS entry |
 | `ubos-mdns`    | DNS-SD responder; per-service registration via `declare_service!`         |
 | `ubos-metrics` | Prometheus exporter task and metric storage                               |
 
@@ -91,8 +91,8 @@ Every request on port 8080 passes through, in order:
 
 | Method | Path           | Auth        | Description                                                       |
 |--------|----------------|-------------|-------------------------------------------------------------------|
-| GET    | `/`            | session     | Dashboard SPA; gzipped; issues fresh `X-CSRF-Token` header        |
-| GET    | `/login`       | none        | Login form; gzipped                                               |
+| GET    | `/`            | session     | Dashboard SPA; Brotli-compressed; issues fresh `X-CSRF-Token` header |
+| GET    | `/login`       | none        | Login form; Brotli-compressed                                     |
 | POST   | `/login`       | none        | Form `username=&password=`; sets `session=` cookie on success     |
 | POST   | `/logout`      | session     | Invalidates session, clears cookie                                |
 | GET    | `/logo.svg`    | none        | Braiins wordmark; `Cache-Control: public, max-age=86400`          |
@@ -317,12 +317,12 @@ the `MDNS_HOSTNAME_BASE` const and the last MAC byte.
 
 | Asset            | Source                       | Encoding | Cache                       |
 |------------------|------------------------------|----------|-----------------------------|
-| Dashboard SPA    | `ubos-webui/src/index.html`  | gzip     | `Cache-Control: no-store`   |
-| Login form       | `ubos-webui/src/login.html`  | gzip     | `Cache-Control: no-store`   |
+| Dashboard SPA    | `ubos-webui/index.html`      | brotli   | `Cache-Control: no-store`   |
+| Login form       | `ubos-webui/login.html`      | brotli   | `Cache-Control: no-store`   |
 | Logo wordmark    | `ubos-webui/src/logo.svg`    | raw      | `public, max-age=86400`     |
 
-HTML is gzipped at build time by `ubos-webui/build.rs` and embedded
-via `include_bytes!`; no runtime compression cost.
+HTML is Brotli-compressed at build time by `ubos-webui/build.rs` and
+embedded via `include_bytes!`; no runtime compression cost.
 
 ## Limits and timeouts
 

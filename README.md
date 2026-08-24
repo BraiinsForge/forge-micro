@@ -36,9 +36,9 @@ Docs live in `docs/`:
 
 A few files in the tree are third-party material redistributed under
 their own licenses, each kept next to its own license text: the IBM
-Carbon icon set in `ubos/ubos-webui/assets/icons.svg` (Apache-2.0, full
+Carbon icon set in `ubos/ubos-webui/web/icons.svg` (Apache-2.0, full
 text in
-[`ubos/ubos-webui/assets/LICENSE-CARBON`](ubos/ubos-webui/assets/LICENSE-CARBON)),
+[`ubos/ubos-webui/web/LICENSE-CARBON`](ubos/ubos-webui/web/LICENSE-CARBON)),
 the probe-rs udev rules at `assets/69-probe-rs.rules` (GPL-2.0, full
 text in [`assets/LICENSE-PROBE-RS`](assets/LICENSE-PROBE-RS)), and the
 upstream sources the `patches/` series modify (see

@@ -117,14 +117,16 @@ rec {
   };
   hostArtifactsDev = dev hostArtifacts;
 
-  hostRunnerArtifacts = checkBag craneLib {
-    cargoExtraArgs = "-p host-runner";
-    # host-runner depends on `ubos-webui`, whose `build.rs` shells
-    # out to `esbuild` to minify the dashboard and login assets.
-    # `buildDepsOnly` still executes build scripts, so esbuild
-    # must be on PATH here too.
-    nativeBuildInputs = [ pkgs.esbuild ];
-  };
+  hostRunnerArtifacts = checkBag craneLib (
+    {
+      cargoExtraArgs = "-p host-runner";
+      # host-runner depends on `ubos-webui`, whose `build.rs` reads the
+      # prebuilt Rsbuild pages from the hermetic dist. `buildDepsOnly`
+      # still executes build scripts, so the dist env must be set here
+      # too.
+    }
+    // helpers.webuiDistEnv
+  );
   hostRunnerArtifactsDev = dev hostRunnerArtifacts;
 
   ubosThermalArtifacts = checkBag craneLib { cargoExtraArgs = "-p ubos-thermal"; };
@@ -229,17 +231,19 @@ rec {
     target = "thumbv8m.main-none-eabihf";
   };
 
-  bmmArtifacts = checkBag bmmCraneLib {
-    cargoExtraArgs = "-p host-runner --target arm-unknown-linux-musleabi";
-    # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
-    # runs as part of host-runner's dependency closure.
-    nativeBuildInputs = [
-      bmmCc
-      pkgs.esbuild
-    ];
-    CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
-    ${helpers.ccVar "arm-unknown-linux-musleabi"} = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
-  };
+  bmmArtifacts = checkBag bmmCraneLib (
+    {
+      cargoExtraArgs = "-p host-runner --target arm-unknown-linux-musleabi";
+      # ubos-webui's build.rs runs as part of host-runner's dependency
+      # closure, so it needs the hermetic dist too.
+      nativeBuildInputs = [
+        bmmCc
+      ];
+      CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
+      ${helpers.ccVar "arm-unknown-linux-musleabi"} = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
+    }
+    // helpers.webuiDistEnv
+  );
 
   # The esp deps bag stays check-only. crane's buildDepsOnly stubs the
   # esp32s3 bin with a dummy `main`, and a real `cargo build` fails to

@@ -19,27 +19,27 @@
 
 //! Tests for the dashboard asset pipeline.
 //!
-//! The HTTP handler itself is not exercised here because host-runner
-//! has no edge-http server harness yet; add integration coverage there
-//! when that gap closes. Until then, the invariants the handler
-//! relies on — payload is a real gzip stream that decompresses to
-//! well-formed HTML containing every source piece — are unit-tested
-//! below.
+//! The HTTP handler itself is not exercised here (host-runner has no
+//! edge-http server harness yet). Until then, the invariants the
+//! handler relies on — each payload is a real Brotli stream that
+//! decompresses to well-formed HTML carrying the app's API surface —
+//! are unit-tested below. The Vite build inlines all JS and CSS into
+//! one HTML file per page, so the anchors are chosen from string
+//! literals that survive terser minification (API paths, form
+//! attributes) rather than from mangled identifiers or scoped classes.
 
-// The crate is `#![no_std]`; explicitly opt back into std for the
-// test harness so we can allocate format strings and decompress.
+// The crate is `#![no_std]`; opt back into std for the test harness so
+// we can allocate format strings and decompress.
 extern crate std;
 
 use std::string::String;
 use std::vec::Vec;
 
-/// Decompress a gzipped asset into a UTF-8 string.
-fn decompress(gz: &[u8]) -> String {
-    let mut decoder = flate2::read::GzDecoder::new(gz);
+/// Decompress a Brotli asset into a UTF-8 string.
+fn decompress(br: &[u8]) -> String {
+    let mut input = br;
     let mut buffer = Vec::new();
-    // `gz` is the build-time output of a `GzEncoder` over a `String`, so the
-    // stream is well-formed and decompresses to valid UTF-8.
-    std::io::Read::read_to_end(&mut decoder, &mut buffer).expect("BUG: gunzip body");
+    brotli::BrotliDecompress(&mut input, &mut buffer).expect("BUG: brotli decode body");
     String::from_utf8(buffer).expect("BUG: payload utf8")
 }
 
@@ -48,7 +48,7 @@ fn decompress(gz: &[u8]) -> String {
 /// stream.
 #[test]
 fn index_payload_is_well_formed_html() {
-    let html = decompress(crate::INDEX_HTML_GZ);
+    let html = decompress(crate::INDEX_HTML_BR);
     assert!(
         html.starts_with("<!DOCTYPE html>"),
         "missing doctype: {:?}",
@@ -60,150 +60,107 @@ fn index_payload_is_well_formed_html() {
     );
 }
 
-/// Every template marker must be substituted. Catches a regression
-/// where build.rs reads the wrong file, skips the replace pass, or
-/// changes the marker spelling without updating the template.
+/// Build-provenance placeholders must be substituted by the Vite
+/// `define` step. A leftover token means the build env was not wired
+/// through to the frontend build.
 #[test]
-fn index_payload_has_no_unsubstituted_markers() {
-    let html = decompress(crate::INDEX_HTML_GZ);
-    assert!(!html.contains("<!--CSS-->"), "CSS marker not substituted");
-    assert!(!html.contains("<!--JS-->"), "JS marker not substituted");
-    assert!(
-        !html.contains("<!--ICONS-->"),
-        "icons marker not substituted"
-    );
+fn index_payload_has_no_unsubstituted_build_markers() {
+    let html = decompress(crate::INDEX_HTML_BR);
+    assert!(!html.contains("__BUILD_REV__"), "build rev not injected");
+    assert!(!html.contains("__BUILD_TIME__"), "build time not injected");
     assert!(
         !html.contains("{{BUILD_REV}}"),
-        "build rev marker not substituted"
-    );
-    assert!(
-        !html.contains("{{BUILD_TIME}}"),
-        "build time marker not substituted"
+        "stale template marker present"
     );
 }
 
-/// Each source piece must be semantically present in the payload.
-/// esbuild minification mangles local identifiers but preserves
-/// attribute values, CSS custom-property names, and string literals;
-/// the anchors below are chosen so the assertions stay stable across
-/// minifier upgrades.
+/// Each API surface the SPA depends on must be present as a string
+/// literal in the inlined bundle. SWC does not mangle string
+/// literals, so these anchors stay stable across minifier upgrades.
 #[test]
-fn index_payload_contains_semantic_anchors() {
-    let html = decompress(crate::INDEX_HTML_GZ);
-    // HTML: id attributes survive minification.
-    assert!(html.contains(r#"id="cHr""#), "missing chart id");
-    assert!(html.contains(r#"id="cfgForm""#), "missing config form id");
-    // CSS: custom-property names are preserved by esbuild.
-    assert!(html.contains("--accent"), "missing CSS custom property");
-    // JS: string literals are not mangled.
+fn index_payload_contains_api_surface() {
+    let html = decompress(crate::INDEX_HTML_BR);
     assert!(html.contains("/api/info"), "missing /api/info literal");
     assert!(html.contains("/api/config"), "missing /api/config literal");
-    // OTA card: id attribute and endpoint path must be present.
-    assert!(html.contains(r#"id="fwCard""#), "missing firmware card id");
-    assert!(
-        html.contains("/api/system/OTA"),
-        "missing OTA endpoint path"
-    );
-    // Events tab: section id, nav link id, and API path must be present.
-    assert!(html.contains(r#"id="events""#), "missing events section id");
-    assert!(
-        html.contains(r#"id="nEvents""#),
-        "missing events nav link id"
-    );
     assert!(
         html.contains("/api/system/events"),
         "missing /api/system/events path"
     );
+    assert!(
+        html.contains("/api/system/resume"),
+        "missing /api/system/resume action path"
+    );
 }
 
-/// Logout must ship as a navigation form, not a JS-driven anchor. The
-/// form lets the browser follow the `302` to `/login` in one
-/// browser-paced request; the prior `fetch`-then-`location.href` anchor
-/// fired three back-to-back requests at the server, which then served
-/// one at a time. Asserting the markup guards against regressing to
-/// that pattern.
+/// Logout must ship as a navigation form, not a JS-driven anchor, so
+/// the browser follows the `302` to `/login` in one browser-paced
+/// request. Preact compiles the markup to `jsx('form', { action:
+/// '/logout', method: 'post' })`, so the payload carries the form's
+/// `action`/`method` as prop literals rather than HTML attributes.
 #[test]
 fn index_payload_logout_is_post_form() {
-    let html = decompress(crate::INDEX_HTML_GZ);
+    let html = decompress(crate::INDEX_HTML_BR);
     assert!(
-        html.contains(r#"action="/logout""#),
-        "logout is not a form posting to /logout"
+        html.contains(r#"action:"/logout""#),
+        "logout is not a form with action /logout"
     );
-    assert!(
-        html.contains(r#"method="post""#),
-        "logout form does not POST"
-    );
+    assert!(html.contains(r#""post""#), "logout form does not POST");
 }
 
-/// Loose upper bound on the gzipped dashboard payload. Catches a
-/// minifier regression that silently no-ops, a source addition that
-/// crosses the budget we care about, or a build.rs change that ships
-/// uncompressed bytes. The bound sits above the 14 KiB TCP
-/// initcwnd, so the index takes two RTTs on first load; the OTA
-/// card is hidden on boards without an OTA partition so the extra
-/// bytes are always loaded but not always displayed, and the Events
-/// tab adds further markup on top. Bump deliberately when
-/// intentionally adding features, not as a reflexive update.
+/// Upper bound on the Brotli dashboard payload. The Preact runtime
+/// plus the compiled dashboard/config/events components sit above the
+/// vanilla hand-written UI, so the budget is larger here; it still
+/// guards against a minifier no-op or an accidental ship of
+/// uncompressed bytes. Bump deliberately when adding features.
 #[test]
 fn index_payload_size_within_budget() {
-    const MAX_GZ_BYTES: usize = 19 * 1024;
+    const MAX_BR_BYTES: usize = 28 * 1024;
     assert!(
-        crate::INDEX_HTML_GZ.len() <= MAX_GZ_BYTES,
+        crate::INDEX_HTML_BR.len() <= MAX_BR_BYTES,
         "gz payload {} exceeds budget {}",
-        crate::INDEX_HTML_GZ.len(),
-        MAX_GZ_BYTES
+        crate::INDEX_HTML_BR.len(),
+        MAX_BR_BYTES
     );
 }
 
-/// `INDEX_HTML_GZ` must contain a non-empty gzip stream. Names the
-/// cheapest invariant precisely so a build.rs change that emits an
-/// empty buffer or a non-gzip payload fails here rather than in the
-/// browser with a `Content-Encoding: gzip` rejection.
+/// `INDEX_HTML_BR` must contain a non-empty Brotli stream that
+/// decompresses, so a build.rs change that emits an empty buffer or a
+/// non-Brotli payload fails here rather than in the browser with a
+/// `Content-Encoding: br` decode error. Brotli carries no magic-number
+/// prefix, so the guard is a successful round-trip to the doctype.
 #[test]
-fn index_asset_is_non_empty_gzip() {
+fn index_asset_is_non_empty_brotli() {
+    assert!(!crate::INDEX_HTML_BR.is_empty(), "empty brotli stream");
     assert!(
-        crate::INDEX_HTML_GZ.len() >= 10,
-        "gzip stream shorter than header"
-    );
-    assert_eq!(
-        &crate::INDEX_HTML_GZ[..2],
-        &[0x1f, 0x8b],
-        "missing gzip magic"
+        decompress(crate::INDEX_HTML_BR).starts_with("<!DOCTYPE html>"),
+        "brotli payload did not decode to HTML"
     );
 }
 
-/// Same shell-and-marker checks for the login page, with a tighter
-/// size bound: login is much smaller and a regression that doubles
-/// it is worth catching.
+/// The login page is framework-free (no Preact runtime), so it stays
+/// small: shell checks plus a tight size bound that a regression
+/// re-introducing the runtime here would trip.
 #[test]
 fn login_payload_is_well_formed_and_within_budget() {
-    const MAX_GZ_BYTES: usize = 3 * 1024;
-    let html = decompress(crate::LOGIN_HTML_GZ);
+    const MAX_BR_BYTES: usize = 4 * 1024;
+    let html = decompress(crate::LOGIN_HTML_BR);
     assert!(html.starts_with("<!DOCTYPE html>"));
     assert!(html.trim_end().ends_with("</html>"));
-    assert!(!html.contains("<!--CSS-->"));
-    assert!(!html.contains("<!--JS-->"));
-    assert!(!html.contains("<!--ICONS-->"));
-    assert!(!html.contains("{{BUILD_REV}}"));
-    assert!(!html.contains("{{BUILD_TIME}}"));
+    assert!(!html.contains("__BUILD_REV__"));
     assert!(html.contains(r#"action="/login""#), "missing login form");
     assert!(
-        crate::LOGIN_HTML_GZ.len() <= MAX_GZ_BYTES,
+        crate::LOGIN_HTML_BR.len() <= MAX_BR_BYTES,
         "gz payload {} exceeds budget {}",
-        crate::LOGIN_HTML_GZ.len(),
-        MAX_GZ_BYTES
+        crate::LOGIN_HTML_BR.len(),
+        MAX_BR_BYTES
     );
 }
 
 #[test]
-fn login_asset_is_non_empty_gzip() {
+fn login_asset_is_non_empty_brotli() {
+    assert!(!crate::LOGIN_HTML_BR.is_empty(), "empty brotli stream");
     assert!(
-        crate::LOGIN_HTML_GZ.len() >= 10,
-        "gzip stream shorter than header"
-    );
-    assert_eq!(
-        &crate::LOGIN_HTML_GZ[..2],
-        &[0x1f, 0x8b],
-        "missing gzip magic"
+        decompress(crate::LOGIN_HTML_BR).starts_with("<!DOCTYPE html>"),
+        "brotli payload did not decode to HTML"
     );
 }

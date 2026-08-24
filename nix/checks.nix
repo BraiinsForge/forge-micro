@@ -70,7 +70,7 @@ let
   inherit (helpers)
     armCc
     webuiEnvAttrs
-    preactDistEnv
+    webuiDistEnv
     espCrossEnv
     espRustflags
     ;
@@ -88,9 +88,8 @@ let
   # Host-side clippy: one row per check. `crate` is the cargo package;
   # `artifacts` defaults to the shared host bag; `allTargets` is off for
   # crates whose tests or examples do not build on the host feature set;
-  # `args` appends feature flags; `esbuild`/`webuiEnv` cover ubos-webui's
-  # build.rs, and `preactDist` points ubos-webui-preact's build.rs at the
-  # hermetic dist.
+  # `args` appends feature flags; `webuiEnv` and `webuiDist` cover
+  # ubos-webui's build.rs, the latter pointing it at the hermetic dist.
   mkHostClippy =
     spec:
     craneLib.cargoClippy (
@@ -103,9 +102,8 @@ let
         }-- -D warnings";
         doInstallCargoArtifacts = false;
       }
-      // lib.optionalAttrs (spec.esbuild or false) { nativeBuildInputs = [ pkgs.esbuild ]; }
       // lib.optionalAttrs (spec.webuiEnv or false) webuiEnvAttrs
-      // lib.optionalAttrs (spec.preactDist or false) preactDistEnv
+      // lib.optionalAttrs (spec.webuiDist or false) webuiDistEnv
     );
 
   # Host-side unit tests, dev profile so debug_assert! and
@@ -120,9 +118,8 @@ let
         cargoExtraArgs = "-p ${spec.crate}${spec.args or ""}";
         doInstallCargoArtifacts = false;
       }
-      // lib.optionalAttrs (spec.esbuild or false) { nativeBuildInputs = [ pkgs.esbuild ]; }
       // lib.optionalAttrs (spec.webuiEnv or false) webuiEnvAttrs
-      // lib.optionalAttrs (spec.preactDist or false) preactDistEnv
+      // lib.optionalAttrs (spec.webuiDist or false) webuiDistEnv
     );
 
   hostClippyChecks = builtins.mapAttrs (_: mkHostClippy) {
@@ -175,16 +172,9 @@ let
     };
     clippy-ubos-webui = {
       crate = "ubos-webui";
-      # build.rs runs `esbuild --minify` on the dashboard CSS/JS
-      # before gzipping into OUT_DIR.
-      esbuild = true;
-      webuiEnv = true;
-    };
-    clippy-ubos-webui-preact = {
-      crate = "ubos-webui-preact";
-      # build.rs reads the prebuilt Rsbuild pages from
-      # UBOS_WEBUI_PREACT_DIST and gzips them, so the sandbox needs no npm.
-      preactDist = true;
+      # build.rs reads the prebuilt Rsbuild pages from UBOS_WEBUI_DIST
+      # and Brotli-compresses them, so the sandbox needs no npm.
+      webuiDist = true;
       webuiEnv = true;
     };
     clippy-ubos-thermal = {
@@ -221,9 +211,9 @@ let
     clippy-host-runner = {
       crate = "host-runner";
       artifacts = deps.hostRunnerArtifacts;
-      # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
-      # runs as part of host-runner's dependency closure.
-      esbuild = true;
+      # ubos-webui's build.rs runs as part of host-runner's dependency
+      # closure, so it needs the hermetic dist too.
+      webuiDist = true;
       webuiEnv = true;
     };
   };
@@ -262,24 +252,17 @@ let
     };
     test-ubos-webui = {
       crate = "ubos-webui";
-      # build.rs runs `esbuild --minify` on the dashboard CSS/JS
-      # before gzipping into OUT_DIR.
-      esbuild = true;
-      webuiEnv = true;
-    };
-    test-ubos-webui-preact = {
-      crate = "ubos-webui-preact";
-      # build.rs reads the prebuilt Rsbuild pages from
-      # UBOS_WEBUI_PREACT_DIST and gzips them, so the sandbox needs no npm.
-      preactDist = true;
+      # build.rs reads the prebuilt Rsbuild pages from UBOS_WEBUI_DIST
+      # and Brotli-compresses them, so the sandbox needs no npm.
+      webuiDist = true;
       webuiEnv = true;
     };
     test-host-runner = {
       crate = "host-runner";
       artifacts = deps.hostRunnerArtifactsDev;
-      # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
-      # runs as part of host-runner's dependency closure.
-      esbuild = true;
+      # ubos-webui's build.rs runs as part of host-runner's dependency
+      # closure, so it needs the hermetic dist too.
+      webuiDist = true;
       webuiEnv = true;
     };
     test-ubos-thermal = {
@@ -394,8 +377,9 @@ let
   # `secp256k1-sys` is an unconditional dep via `ii-sv2` and its C
   # build script requires a cross compiler; `cc-rs` otherwise falls
   # back to host `gcc` and fails on the thumb-specific flags, so every
-  # board check points it at arm-none-eabi-gcc. esbuild covers
-  # ubos-webui's build.rs in each board's dependency closure.
+  # board check points it at arm-none-eabi-gcc. The hermetic webui
+  # dist covers ubos-webui's build.rs in each board's dependency
+  # closure.
   mkBoardClippy =
     name: board:
     craneLib.cargoClippy (
@@ -407,11 +391,11 @@ let
         doInstallCargoArtifacts = false;
         nativeBuildInputs = [
           pkgs.gcc-arm-embedded
-          pkgs.esbuild
         ];
       }
       // armCc board.target
       // webuiEnvAttrs
+      // webuiDistEnv
     );
 
   # Release build of each firmware binary. cargo check and cargo
@@ -432,11 +416,11 @@ let
         cargoExtraArgs = "-p ${name} --target ${board.target}";
         nativeBuildInputs = [
           pkgs.gcc-arm-embedded
-          pkgs.esbuild
         ];
       }
       // armCc board.target
       // webuiEnvAttrs
+      // webuiDistEnv
       // lib.optionalAttrs (board.guard == "slot") {
         postBuild = slotGuard name board.target;
       }
@@ -451,7 +435,7 @@ let
   }) boards;
 
   # Bootloader crates: same clippy/build pair as the boards, but no
-  # esbuild or webui env, since ubos-webui is not in the closure, and
+  # webui env or dist, since ubos-webui is not in the closure, and
   # no image guard, since the bootloader carries no pool worker and
   # has its own flash region.
   mkBootloaderChecks =
@@ -490,7 +474,6 @@ let
     doInstallCargoArtifacts = false;
     nativeBuildInputs = [
       xtensaEspToolchain
-      pkgs.esbuild
     ];
   };
 
@@ -517,6 +500,7 @@ let
         cargoClippyExtraArgs = "-- -D warnings";
       }
       // webuiEnvAttrs
+      // webuiDistEnv
     );
 
     # No codegen bag to reuse; see the esp bag rationale in nix/deps.nix.
@@ -551,6 +535,7 @@ let
       }
       // espRustflags
       // webuiEnvAttrs
+      // webuiDistEnv
     );
 
     # Gate the OTA bootloader so a broken sdkconfig fails CI. This
@@ -574,6 +559,7 @@ let
         cargoClippyExtraArgs = "-- -D warnings";
       }
       // webuiEnvAttrs
+      // webuiDistEnv
     );
 
     clippy-esp32s3-tsens = espCraneLib.cargoClippy {
@@ -688,11 +674,10 @@ hostClippyChecks
       cargoExtraArgs = "-p host-runner --target arm-unknown-linux-musleabi";
       cargoClippyExtraArgs = "-- -D warnings";
       doInstallCargoArtifacts = false;
-      # `pkgs.esbuild` is needed for ubos-webui's build.rs, which
-      # runs as part of host-runner's dependency closure.
+      # ubos-webui's build.rs runs as part of host-runner's dependency
+      # closure, so it needs the hermetic dist too.
       nativeBuildInputs = [
         bmmCc
-        pkgs.esbuild
       ];
       CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
       # SV2 pulls in `secp256k1-sys`, whose C build script defers to
@@ -701,6 +686,7 @@ hostClippyChecks
       CC_arm_unknown_linux_musleabi = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
     }
     // webuiEnvAttrs
+    // webuiDistEnv
   );
 
   fmt = craneLib.cargoFmt {
@@ -711,13 +697,12 @@ hostClippyChecks
   # Aggregate over every host-testable crate check, so one build forces
   # them all; derived from the test table, a new test row joins
   # automatically. The web/host-runner tests sit in web-host instead:
-  # they additionally need the flake-provided esbuild and rebuild
-  # whenever the webui build env changes.
+  # they additionally need the hermetic webui dist and rebuild whenever
+  # the webui build env changes.
   fast-host =
     let
       fastTests = builtins.removeAttrs hostTestChecks [
         "test-ubos-webui"
-        "test-ubos-webui-preact"
         "test-host-runner"
       ];
     in
@@ -740,7 +725,6 @@ hostClippyChecks
       {
         nativeBuildInputs = [
           hostTestChecks.test-ubos-webui
-          hostTestChecks.test-ubos-webui-preact
           hostTestChecks.test-host-runner
         ];
       }
@@ -750,7 +734,7 @@ hostClippyChecks
           "ubos-main web/host-runner test aggregate" \
           "" \
           "Building this check forces the web UI and native host-runner tests to build/run." \
-          "These checks require the flake-provided esbuild dependency." \
+          "These checks require the hermetic webui dist dependency." \
           > "$out/README"
       '';
 
@@ -807,7 +791,7 @@ hostClippyChecks
 
   # The OTA image-size limit is hard-coded in several languages that
   # cannot share a definition: slotMaxBytes/esp32s3SlotBytes here,
-  # the OTA_MAX_IMAGE_BYTES default in ubos-api, OTA_MAX_BYTES in the
+  # the OTA_MAX_IMAGE_BYTES default in ubos-api, OTA_MAX_DEFAULT in the
   # webui, and Ota::MAX_IMAGE_BYTES in each board's config.rs. Grep
   # each source for the literal it must contain and fail on drift, so
   # the slot-size build guards, the per-board configs, and the
@@ -825,7 +809,9 @@ hostClippyChecks
       # ubos-api and web-UI copies are always present; the per-board
       # config checks are gated on the board being a member.
       check ${root + "/ubos/ubos-api/src/system.rs"}     '${toString slotMaxKiB} * 1024'
-      check ${root + "/ubos/ubos-webui/src/index.js"}    '${toString slotMaxKiB} * 1024'
+      check ${
+        root + "/ubos/ubos-webui/web/components/ConfigSystem.tsx"
+      }    '${toString slotMaxKiB} * 1024'
     ''
     + lib.optionalString (hasCrate "rp2040") "  check ${
         root + "/firmware/rp2040/src/config.rs"
@@ -866,7 +852,7 @@ hostClippyChecks
   #
   # The extension list is the scope, and it holds the exceptions named in
   # CLAUDE.md out of it without an exemption list to keep level with
-  # them: assets/69-probe-rs.rules and ubos/ubos-webui/assets/icons.svg
+  # them: assets/69-probe-rs.rules and ubos/ubos-webui/web/icons.svg
   # are under another licence, COPYING and assets/LICENSE-PROBE-RS are
   # licence texts, and none of the four has a gated extension. Vendored
   # patches/ trees keep upstream's licence and are dropped by path.

@@ -158,10 +158,10 @@
         # copy. See nix/board-parity.nix.
         boardParity = import ./nix/board-parity.nix { inherit pkgs; };
 
-        # Hermetic Preact/Rsbuild dashboard build for ubos-webui-preact,
+        # Hermetic Preact/Rsbuild dashboard build for ubos-webui,
         # threaded through nix/lib.nix into the checks as
-        # UBOS_WEBUI_PREACT_DIST. See nix/webui-preact.nix.
-        webuiPreactDist = pkgs.callPackage ./nix/webui-preact.nix {
+        # UBOS_WEBUI_DIST. See nix/webui.nix.
+        webuiDist = pkgs.callPackage ./nix/webui.nix {
           inherit webuiBuildEnv;
         };
 
@@ -171,7 +171,7 @@
           inherit
             pkgs
             webuiBuildEnv
-            webuiPreactDist
+            webuiDist
             espToolchain
             xtensaEspToolchain
             patchedCrates
@@ -207,7 +207,8 @@
         # The kibibyte count is the source of truth. The ota-image-limit
         # check greps both source files for "<slotMaxKiB> * 1024" so a drift
         # in OTA_MAX_IMAGE_BYTES (ubos/ubos-api/src/system.rs) or
-        # OTA_MAX_BYTES (ubos/ubos-webui/src/index.js) fails CI.
+        # OTA_MAX_DEFAULT (ubos/ubos-webui/web/components/ConfigSystem.tsx)
+        # fails CI.
         slotMaxKiB = 952;
         slotMaxBytes = slotMaxKiB * 1024;
 

@@ -78,11 +78,8 @@ in
         # below via helpers.armCc; cc-rs' fallback to host `gcc` does
         # not work for thumb targets.
         gcc-arm-embedded
-        # Used by ubos-webui's build.rs to minify the dashboard
-        # CSS/JS before gzipping into OUT_DIR.
-        esbuild
-        # ubos-webui-preact's Vite/Preact dev loop (`npm run dev`) and
-        # its build.rs dev-shell fallback (`npm run build`).
+        # ubos-webui's Rsbuild/Preact dev loop (`npm run dev`) and its
+        # build.rs dev-shell fallback (`npm run build`).
         nodejs
         # Unused-dependency lint, matching the cargo-machete check.
         cargo-machete
@@ -148,9 +145,6 @@ in
       libxml2
       openssl
       libffi
-      # Used by ubos-webui's build.rs to minify the dashboard
-      # CSS/JS before gzipping into OUT_DIR.
-      esbuild
       # Automatic fixup commits for the documented fixup workflow.
       git-absorb
     ]);
@@ -223,9 +217,6 @@ in
     buildInputs = [
       hostRustToolchain
       pkgs.cargo-llvm-cov
-      # Used by ubos-webui's build.rs to minify the dashboard
-      # CSS/JS before gzipping into OUT_DIR.
-      pkgs.esbuild
       # Unused-dependency lint, matching the cargo-machete check.
       pkgs.cargo-machete
       # Brings up tap0 for the native host-runner path.
@@ -255,9 +246,6 @@ in
       hostRunnerRun
       pkgs.openssh
       pkgs.sshpass
-      # Used by ubos-webui's build.rs to minify the dashboard
-      # CSS/JS before gzipping into OUT_DIR.
-      pkgs.esbuild
     ];
 
     CARGO_BUILD_TARGET = "arm-unknown-linux-musleabi";

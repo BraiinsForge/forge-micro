@@ -132,9 +132,11 @@ nix build .#checks.x86_64-linux.firmware-builds --no-link
 
 ## Web and host-runner tests
 
-`ubos-webui` requires `esbuild` in `PATH`; run it only in a devshell that
-provides the bundler. Keep this separate from the fast host Rust gate so a
-missing frontend tool does not hide library test failures.
+`ubos-webui` requires `nodejs` in `PATH`, or the hermetic
+`UBOS_WEBUI_DIST` env the flake checks set; run it only in a devshell
+that provides one of the two. Keep this separate from the fast host
+Rust gate so a missing frontend tool does not hide library test
+failures.
 
 `host-runner` should have two tracks:
 
@@ -210,7 +212,7 @@ Completed:
 - Firmware default-feature release builds are covered by per-board
   checks and the `firmware-builds` aggregate.
 - Web UI and native host-runner tests are covered by the `web-host` aggregate
-  with `esbuild` supplied by the flake.
+  with the hermetic webui dist supplied by the flake.
 - `cargo-llvm-cov` is available in the host devshell for per-crate coverage
   reporting.
 - `stratum-v2` has pure `V2SessionState` tests for defaults, job-id ring

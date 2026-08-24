@@ -1,6 +1,6 @@
-# ubos-webui-preact
+# ubos-webui
 
-Preact + Rsbuild rewrite of the `ubos-webui` dashboard. `build.rs` runs
+Preact + Rsbuild frontend for the miner's port-80 web UI. `build.rs` runs
 the Rsbuild build, Brotli-compresses the two resulting single-file pages
 (`index.html`, `login.html`) plus `src/logo.svg`, and `src/lib.rs`
 embeds them with `include_bytes!` for the firmware to serve.
@@ -20,11 +20,11 @@ src/                     Rust side: route table, asset serving, tests
 
 The frontend needs nothing but Node — Rsbuild wants `^20.19 || >=22.12`
 — so the dev loop and the production build run with a plain system or
-volta install. All commands below assume `ubos/ubos-webui-preact` as the
+volta install. All commands below assume `ubos/ubos-webui` as the
 working directory and `node_modules` already installed:
 
 ```sh
-cd ubos/ubos-webui-preact
+cd ubos/ubos-webui
 npm ci                    # first time only
 ```
 
@@ -36,7 +36,7 @@ The `arm` shell carries `nodejs` for the same commands, which is what
 instead of the system one:
 
 ```sh
-nix develop .#arm -c bash -c 'cd ubos/ubos-webui-preact && <command>'
+nix develop .#arm -c bash -c 'cd ubos/ubos-webui && <command>'
 ```
 
 Only `cargo build` genuinely needs the shell, and only for the Rust
@@ -145,7 +145,7 @@ npm run build
 single pass. `output.inlineScripts` and `output.inlineStyles` fold all
 JS and CSS into each page, and the SWC minifier shrinks the bundle.
 
-`build.rs` does this automatically: if `UBOS_WEBUI_PREACT_DIST` is set
+`build.rs` does this automatically: if `UBOS_WEBUI_DIST` is set
 it reads the two pages from that directory, otherwise it runs `npm ci`
 (when `node_modules` is missing) and `npm run build` itself. So a plain
 `cargo build` inside the `arm` shell is enough.
@@ -157,11 +157,11 @@ the system clock.
 
 ## Nix status
 
-`nix/webui-preact.nix` is the hermetic `buildNpmPackage` that would let
-the Rust checks build without Node, but it is **not yet imported by
-`flake.nix`**: its `npmDepsHash` is still `lib.fakeHash`. The file's
-header documents the one-time `prefetch-npm-deps` call and the wiring
-steps for `flake.nix` / `nix/checks.nix`. Until that lands, this crate
-has no `checks` entry and is gated only by whatever builds it locally.
-The derivation's `preBuild` runs `npm run typecheck`, so the type check
-gates the build once the module is wired.
+`nix/webui.nix` is the hermetic `buildNpmPackage` that lets the Rust
+checks build without Node: `flake.nix` builds it and threads the
+output through `nix/lib.nix` as `webuiDistEnv`, which
+`clippy-ubos-webui` and `test-ubos-webui` (`nix/checks.nix`) set as
+`UBOS_WEBUI_DIST` so `build.rs` never shells out to `npm` in the
+sandbox. The derivation's `preBuild` runs `npm run typecheck`, so the
+type check gates the build. The file's header documents the one-time
+`prefetch-npm-deps` call for when `package-lock.json` moves.

@@ -1,4 +1,4 @@
-# ubos-webui-preact
+# ubos-webui
 
 Preact + Rsbuild frontend for the miner's port-80 web UI. `build.rs`
 runs the Rsbuild build, Brotli-compresses the two single-file pages, and
@@ -237,10 +237,10 @@ npm run build          # production: dist/index.html + dist/login.html
 the Rust toolchain from the `arm` shell:
 
 ```sh
-nix develop .#arm -c bash -c 'cd ubos/ubos-webui-preact && cargo build'
+nix develop .#arm -c bash -c 'cd ubos/ubos-webui && cargo build'
 ```
 
-Run every frontend command from `ubos/ubos-webui-preact/` — invoking
+Run every frontend command from `ubos/ubos-webui/` — invoking
 Rsbuild from the repo root ignores the local install and 404s every
 route.
 
@@ -265,8 +265,8 @@ route.
 - `web/lib/format.ts` holds the shared value formatters (`fmtHr`,
   `fmtUp`, `fmtPower`, `niceStep`, …); reuse them rather than
   re-deriving display strings.
-- The crate has **no flake `checks` entry yet** (`nix/webui-preact.nix`
-  is unwired, `npmDepsHash` still `fakeHash`), so nothing gates this
-  automatically in CI — run `npm run typecheck` and build yourself. The
-  nix derivation's `preBuild` already runs the typecheck, so it gates
-  once the module is wired into `flake.nix`.
+- The crate is gated in CI hermetically: `nix/webui.nix` builds the two
+  pages under `buildNpmPackage`, whose `preBuild` runs `npm run
+  typecheck` before `npm run build`, and `clippy-ubos-webui` /
+  `test-ubos-webui` point the crate's `build.rs` at that prebuilt dist
+  through `UBOS_WEBUI_DIST` so the sandbox needs no `npm`.

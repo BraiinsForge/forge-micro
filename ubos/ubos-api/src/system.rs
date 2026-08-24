@@ -138,8 +138,9 @@ const OTA_DRAIN_DELAY_MS: u64 = 5;
 /// This is the default returned by [`crate::ota::OtaTarget::max_image_bytes`];
 /// a board with a larger inactive slot overrides that method and the
 /// handlers honour the per-target value (see [`max_image_bytes`]). Must
-/// stay in sync with `OTA_MAX_BYTES` in `ubos-webui/src/index.js` and the
-/// `slotMaxBytes` guard in `flake.nix`.
+/// stay in sync with `OTA_MAX_DEFAULT` in
+/// `ubos-webui/web/components/ConfigSystem.tsx` and the `slotMaxBytes`
+/// guard in `flake.nix`.
 pub(crate) const OTA_MAX_IMAGE_BYTES: u64 = 952 * 1024;
 
 /// Minimum firmware image size accepted by the OTA upload handler.
