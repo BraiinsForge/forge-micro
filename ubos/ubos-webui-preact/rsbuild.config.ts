@@ -1,3 +1,4 @@
+import type { ClientRequest } from 'node:http';
 import { defineConfig } from '@rsbuild/core';
 import { pluginPreact } from '@rsbuild/plugin-preact';
 import { mockApi } from './dev/mock';
@@ -19,11 +20,50 @@ const API_BASE = process.env.VITE_API_BASE;
 // port 80. Derive the port-80 origin from the API base.
 const BOARD_80 = API_BASE ? `${new URL(API_BASE).protocol}//${new URL(API_BASE).hostname}` : '';
 
+// TEMPORARY: remove once the firmware raises its request-header limit.
+//
+// The board parses at most sixteen request headers and resets the
+// connection on the seventeenth, which a current browser trips: a
+// navigation POST to /login or a fetch to /api carries client-hint and
+// fetch-metadata headers the firmware never reads. Dropping those before
+// the proxy forwards the request keeps the header count under the limit.
+// The board ignores every header removed here, so this changes nothing
+// but the count.
+//
+// This only masks the limit for the dev proxy; a browser talking to the
+// board directly still hits it. The real fix is in the firmware, and
+// this whole block comes out when that lands.
+const STRIP_HEADERS = [
+  'sec-ch-ua',
+  'sec-ch-ua-mobile',
+  'sec-ch-ua-platform',
+  'sec-fetch-site',
+  'sec-fetch-mode',
+  'sec-fetch-user',
+  'sec-fetch-dest',
+  'upgrade-insecure-requests',
+  'cache-control',
+  'pragma',
+  'accept-language',
+  'referer',
+  'priority',
+  'dnt',
+];
+
 // `cookieDomainRewrite: ''` strips the Domain attribute from the board's
 // Set-Cookie so the session cookie is stored for localhost; that lets a
 // login performed through the dev server authenticate the proxied /api
 // and CSRF requests that follow.
-const proxyToBoard = (target: string) => ({ target, changeOrigin: true, cookieDomainRewrite: '' });
+const proxyToBoard = (target: string) => ({
+  target,
+  changeOrigin: true,
+  cookieDomainRewrite: '',
+  on: {
+    proxyReq: (proxyReq: ClientRequest) => {
+      for (const header of STRIP_HEADERS) proxyReq.removeHeader(header);
+    },
+  },
+});
 
 export default defineConfig({
   plugins: [pluginPreact()],
