@@ -20,27 +20,45 @@
 //! State container and initialization gating shared by every PSU driver.
 //!
 //! This module is the support interface a PSU driver builds on, whether it
-//! lives in this crate, like [`crate::bmm`] and [`crate::bfm`], or out of tree. A
-//! driver is a handle over a
-//! `&'static Mutex<RawMutex, State<I, Config>>` plus a `&'static AtomicBool`
-//! termination flag, and it implements [`crate::Psu`]. The recurring shape is:
+//! lives in this crate, like [`crate::bmm`] and [`crate::bfm`], or out of tree.
+//! A driver is a handle over a `&'static Shared<D>` and it implements
+//! [`crate::Psu`]. The recurring shape is:
 //!
-//! - Hold [`State`], which owns the I2C bus [`State::i2c`] and the driver's
-//!   own config [`State::config`], and gates one-time device init.
-//! - Run the device init sequence once, guarded by [`State::cached_init`] and
-//!   recorded with [`State::record_init`]; check [`State::is_initialized`]
-//!   before touching the device on teardown.
+//! - Hold [`Shared`], which owns the lock, the termination flag, the I2C bus
+//!   and the driver's own config, and gates one-time device init.
+//! - Describe the device with [`Device`], whose [`Device::init`] is the one
+//!   part that differs between drivers.
+//! - Open every method with [`Shared::acquire`], which refuses a terminated
+//!   driver, takes the lock, runs init once, and hands back a [`Ready`].
+//!   Reach the bus and the config through [`Ready::split`] and never through
+//!   the guard.
 //! - Call [`crate::record_set_voltage`] after a successful `set_voltage` so the
 //!   shared telemetry publisher ([`crate::run_power_stats`]) reports the
 //!   commanded value.
 //!
+//! Two callers want a different protocol and get their own method.
+//! [`Shared::terminate`] must proceed where `acquire` refuses, and
+//! [`Shared::initialized`] must not bring the device up.
+//!
 //! The concrete init sequence and the register protocol are the driver's own;
-//! this module carries only the bus ownership and init bookkeeping every
-//! driver would otherwise duplicate.
+//! this module carries the lock protocol, the bus ownership and the init
+//! bookkeeping every driver would otherwise duplicate.
 
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::{Mutex, MutexGuard};
 use embedded_hal_async::i2c::ErrorKind;
+use portable_atomic::{AtomicBool, Ordering};
 
 use crate::Error;
+
+/// The raw mutex every PSU driver in this crate locks with.
+///
+/// One choice for the whole crate, so no board picks from its own sharing
+/// scope. A `critical_section` costs tens of cycles and the I2C transaction
+/// under it costs hundreds of microseconds, so the saving from a per-board
+/// choice is below a tenth of a percent, and the price is a per-board proof
+/// that one executor reaches the PSU.
+pub type RawMutex = CriticalSectionRawMutex;
 
 #[cfg(test)]
 #[path = "tests/state.rs"]
@@ -112,6 +130,172 @@ impl<I, C> State<I, C> {
     #[must_use]
     pub fn is_initialized(&self) -> bool {
         self.init == InitStatus::Initialized
+    }
+}
+
+/// The one part of the lock protocol that differs between drivers: the
+/// types the guarded state is built from, and the device init sequence.
+///
+/// A driver implements this on a marker type and holds a [`Shared`] over
+/// it. Everything else about locking, termination and init caching is
+/// [`Shared`]'s.
+pub trait Device {
+    /// The I2C bus the driver reaches the device over.
+    type Bus;
+    /// Driver-defined configuration and discovered device data.
+    type Config;
+    /// The bus error this driver reports.
+    type BusError: embedded_hal_async::i2c::Error;
+
+    /// Bring the device up. Runs at most once per [`Shared`], under the
+    /// lock, and the outcome is cached for every later caller.
+    ///
+    /// The config is mutable because device identification can discover a
+    /// value the driver stores back, such as a scaling constant.
+    async fn init(
+        bus: &mut Self::Bus,
+        config: &mut Self::Config,
+    ) -> Result<(), Error<Self::BusError>>;
+}
+
+/// The lock, the termination flag and the guarded state of one PSU
+/// driver. A driver holds a `&'static Shared<D>` and nothing else.
+///
+/// Both the lock and the flag are private, so the four-step prologue every
+/// driver method needs cannot be spelled by hand or partly forgotten.
+/// [`Shared::acquire`] is that prologue.
+pub struct Shared<D: Device> {
+    state: Mutex<RawMutex, State<D::Bus, D::Config>>,
+    /// Set by [`Shared::terminate`] before it takes the lock, and read
+    /// twice by [`Shared::acquire`] and once under the lock by
+    /// [`Shared::initialized`]. One storage location is the truth.
+    terminated: AtomicBool,
+}
+
+/// A held lock over a device that init has brought up. Returned by
+/// [`Shared::acquire`], and by [`Shared::terminate`] and
+/// [`Shared::initialized`] when the device is up.
+///
+/// The guard is private: a caller reaches the device through
+/// [`Ready::split`] and cannot reach the init gate or the raw state.
+pub struct Ready<'a, D: Device> {
+    guard: MutexGuard<'a, RawMutex, State<D::Bus, D::Config>>,
+}
+
+impl<D: Device> Shared<D> {
+    /// Build the guarded state. The device is not touched here; init runs
+    /// on the first [`Shared::acquire`].
+    pub fn new(bus: D::Bus, config: D::Config) -> Self {
+        Self {
+            state: Mutex::new(State::new(bus, config)),
+            terminated: AtomicBool::new(false),
+        }
+    }
+
+    /// Whether [`Shared::terminate`] has run. A hint outside the lock, and
+    /// the authoritative answer only where the lock is held.
+    #[must_use]
+    pub fn is_terminated(&self) -> bool {
+        self.terminated.load(Ordering::Acquire)
+    }
+
+    /// Refuse a terminated driver, take the lock, refuse it again, and run
+    /// the device init once.
+    ///
+    /// The flag is read twice on purpose, and both reads are of the same
+    /// storage. The first rejects a terminated caller before it queues on
+    /// the lock. The second is the authoritative one: [`Shared::terminate`]
+    /// sets the flag before it takes the lock, so a caller that queued
+    /// behind a termination sees it here instead of driving a device that
+    /// was deliberately stopped.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Terminated`] when the driver is stopped, on either read of
+    /// the flag. Whatever [`Device::init`] returned on the attempt that ran
+    /// the device init, or [`Error::InitFailed`] for every caller after an
+    /// attempt that failed.
+    pub async fn acquire(&self) -> Result<Ready<'_, D>, Error<D::BusError>> {
+        if self.is_terminated() {
+            return Err(Error::Terminated);
+        }
+        let mut guard = self.state.lock().await;
+        if self.is_terminated() {
+            return Err(Error::Terminated);
+        }
+        if let Some(cached) = guard.cached_init() {
+            cached?;
+        } else {
+            let result = {
+                let State { i2c, config, .. } = &mut *guard;
+                D::init(i2c, config).await
+            };
+            guard.record_init(&result);
+            result?;
+        }
+        Ok(Ready { guard })
+    }
+
+    /// Take the lock without running init, and hand back the device only
+    /// when a previous init succeeded.
+    ///
+    /// This is the watchdog's entry point. A heartbeat keeps a running
+    /// device alive and must never be what brings one up.
+    ///
+    /// Returns `None` for a terminated driver, read under the lock for the
+    /// same reason [`Shared::acquire`] reads it there. The init status is a
+    /// cache that [`Shared::terminate`] does not clear, so it cannot answer
+    /// this on its own: a heartbeat that queued before the termination would
+    /// otherwise reach a device that was deliberately stopped.
+    pub async fn initialized(&self) -> Option<Ready<'_, D>> {
+        let guard = self.state.lock().await;
+        if self.is_terminated() {
+            return None;
+        }
+        if guard.is_initialized() {
+            Some(Ready { guard })
+        } else {
+            None
+        }
+    }
+
+    /// Read from the driver config under the lock, without running init.
+    ///
+    /// The watchdog needs its own interval before the device is up, which
+    /// is the one read that neither [`Shared::acquire`] nor
+    /// [`Shared::initialized`] can serve.
+    pub async fn with_config<T>(&self, read: impl FnOnce(&D::Config) -> T) -> T {
+        read(&self.state.lock().await.config)
+    }
+
+    /// Stop the driver: set the flag, then take the lock.
+    ///
+    /// Returns the device only when init had succeeded and there is
+    /// therefore something on the bus to switch off, and `None` when the
+    /// device never came up or a previous call already terminated. This is
+    /// the one caller that must proceed where [`Shared::acquire`] refuses.
+    pub async fn terminate(&self) -> Option<Ready<'_, D>> {
+        if self.terminated.swap(true, Ordering::AcqRel) {
+            return None;
+        }
+        let guard = self.state.lock().await;
+        if guard.is_initialized() {
+            Some(Ready { guard })
+        } else {
+            None
+        }
+    }
+}
+
+impl<D: Device> Ready<'_, D> {
+    /// The bus and the config together.
+    ///
+    /// One call rather than two accessors, because a driver method needs
+    /// both at once: the bus borrows the guard mutably and the config
+    /// borrows it shared, and both borrows are live across the call.
+    pub fn split(&mut self) -> (&mut D::Bus, &D::Config) {
+        let State { i2c, config, .. } = &mut *self.guard;
+        (i2c, config)
     }
 }
 

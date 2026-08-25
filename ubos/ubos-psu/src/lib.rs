@@ -92,7 +92,7 @@ pub use bfm::{BfmPsu, BfmPsuDescriptor, BfmState};
 pub use bmm::{BmmPsu, RawMutex, run_watchdog};
 pub use braiins_axe::{BraiinsAxePsu, BraiinsAxePsuDescriptor, BraiinsAxeState};
 pub use config::BmmPsuDescriptor;
-pub use state::State;
+pub use state::{Device, Ready, Shared, State};
 
 /// The terminated flag every constructor here takes, re-exported so
 /// `i2c_psu!` can name it without the board declaring `portable-atomic`
