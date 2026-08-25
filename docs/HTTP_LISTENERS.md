@@ -1,7 +1,9 @@
 # HTTP listener concurrency
 
-Status: implemented. Scope: the `ubos-http` accept loop and its consumers
-(`ubos-webui` :80, `ubos-api` :8080, `ubos-metrics` :8081).
+Status: implemented. Scope: the `ubos-http` accept loop and its consumers.
+`ubos-webui` and `ubos-api` share one listener on port 80 behind
+`ubos_http::PrefixRouter`. `ubos-metrics` has its own listener on port
+8081.
 
 The firmware HTTP servers serve several connections at once through a
 fixed pool of accept-loop workers, sized per board. This note records the
@@ -23,9 +25,9 @@ task per worker:
 - each worker owns one socket from a `TcpBuffers<POOL, TX, RX>` pool,
   accepts a connection, serves it, and loops back to accept.
 
-The depth is a per-board constant (`WEBUI_HTTP_POOL` / `API_HTTP_POOL` /
-`METRICS_HTTP_POOL` in each `config.rs`) that sizes the `TcpBuffers`, the
-parse buffer, and the worker task pool. Because each worker is its own task with its own static
+The depth is a per-board constant (`http_pool` and `metrics_http_pool` in
+`ControlBoardDescriptor`) that sizes the `TcpBuffers`, the parse buffer,
+and the worker task pool. Because each worker is its own task with its own static
 future, the whole per-listener footprint is fixed and linker-checked; it
 does not depend on how deeply any single future is polled. An earlier
 design folded the whole worker pool into one `join_array` future, which
@@ -34,62 +36,69 @@ per-task structure removes that failure mode (see below).
 
 Two properties matter for capacity:
 
-- **Every response sends `Connection: close`.** There is no HTTP
-  keep-alive on any listener (confirmed on hardware: the authenticated
-  `200` to `GET /api/info` closes just like the `401`). So a worker is not
-  pinned to a client across polls — each poll is a fresh, short-lived
-  connection (~20 ms on the LAN), and the worker returns to `accept`
-  immediately after closing.
-- **Teardown is bounded.** A worker waits at most `IDLE_TIMEOUT` (5 s) for a
-  request to start arriving, and at most `REQUEST_TIMEOUT`
-  (`Net::SOCKET_TIMEOUT`, 10 s) for one exchange to complete. A completed
-  exchange that asked to close gets a bounded graceful close; every other
-  exit (idle past `IDLE_TIMEOUT`, a vanished peer, a timed-out request)
-  aborts with a reset. This is what
+- **The port 80 listener keeps a connection alive.** A response carries no
+  `Connection: close` header, so the browser reuses one connection for the
+  page assets and for every poll that follows. A worker is therefore
+  pinned to the client for as long as the page is open. The metrics
+  listener still closes after each scrape. An error response is safe on a
+  connection that stays open, because edge-http reads the rest of the
+  request body before it writes the status line, in `complete_request`.
+  No unread bytes stay in the stream.
+- **Each of the two waits is bounded on its own.** A worker waits at most
+  `Http::IDLE_TIMEOUT` (3 s) for a request to arrive on an open
+  connection, and the socket timeout `Http::SOCKET_TIMEOUT`
+  (`Net::SOCKET_TIMEOUT`, 10 s) bounds progress inside one exchange. An
+  upload therefore runs for as long as bytes keep arriving, and an
+  abandoned browser frees its worker after 3 s. One value cannot do both
+  jobs. A single 3 s aborts an OTA upload mid-sector, and a single 10 s
+  lets two abandoned tabs hold the whole HTTP surface of a tight board.
+  A completed exchange that asked to close gets a bounded graceful close.
+  Every other exit aborts with a reset. This is what
   removed the earlier ~30 s unreachable window after a live network apply,
   where a single graceful-closing socket blocked all new connections.
 
-Buffer sizes (`ubos/ubos-core/src/consts.rs`):
+Buffer sizes:
 
 | Listener | RX | TX | request-parse | per-connection |
 |----------|----|----|---------------|----------------|
-| :80 `Http` | 2 KiB | 2 KiB | 2 KiB | **6 KiB** |
-| :8080 `Api` | 2 KiB | 2 KiB | 2 KiB | **6 KiB** |
-| :8081 `Metrics` | 512 B | 1 KiB | 512 B | **2 KiB** |
+| :80 `ubos_http::consts::Http` | 2 KiB | 2 KiB | 2 KiB | **6 KiB** |
+| :8081 `ubos_metrics::consts::Metrics` | 512 B | 1 KiB | 512 B | **2 KiB** |
 
-Shipped pool depths are uniform per board and uniform across all three
-listeners: `WEBUI_HTTP_POOL`, `API_HTTP_POOL`, and `METRICS_HTTP_POOL` are
-each `5` on the ~512 KiB boards (bmm-pico, rp2350, esp32s3) and `1` on the
-RAM-constrained boards (rp2040, stm32f407, stm32f439). Each board takes the
-largest depth its RAM links: the tight boards do not link at `5` per
-listener (see "bounded at link time" below), so they drop to `1` rather
-than to an intermediate depth. The web UI gets the same depth as the API
-because a browser fans out several parallel connections to fetch the page
-assets on load; the REST API depth sets the live-watcher capacity (below).
-The metrics listener uses the same pool so a Prometheus scrape draws its
-own worker instead of contending for a single accept slot; a dedicated
-ingest task, not the accept loop, now drains the push channel into the
-shared metric map.
+Shipped pool depths are per board:
+
+| Board | `http_pool` | `metrics_http_pool` |
+|-------|-------------|---------------------|
+| bmm-pico, rp2350, hashnode, braiins-axe | 8 | 5 |
+| esp32s3 | 4 | 3 |
+| rp2040, stm32f439 | 2 | 1 |
+| stm32f407 | 1 | 1 |
+
+Each board takes the largest depth its RAM links. Two is the floor on
+every board that takes an OTA image, because one slot puts the recovery
+path behind whatever worker an open dashboard holds. `stm32f407` is the
+one board below the floor, and it registers no OTA target. The metrics
+listener keeps a pool of its own so a Prometheus scrape draws its own
+worker instead of contending for the shared pool. A dedicated ingest
+task, not the accept loop, drains the push channel into the shared metric
+map.
 
 ## Capacity model
 
-Because there is no keep-alive, the right metric is **peak simultaneous
-in-flight connections**, not the number of viewers. For `B` browsers each
-polling one endpoint every `P` seconds with request duration `D`:
+A connection that stays open holds its worker. The SPA polls every 2 s,
+so a browser holds one worker for as long as the page is open. The pool
+depth is therefore the ceiling on **simultaneous connections**, not on
+clients.
 
-- **Pool size** must cover the peak in-flight, which ranges from
-  `B × D/P` when clients are desynchronized up to `B` when they poll in
-  lockstep. A connection that cannot get a socket is refused, and the
-  client retries on its next poll.
-- **`StackResources<N>`** must cover the continuously held sockets plus the
-  TIME_WAIT backlog. The server is the active closer, so it holds the
-  TIME_WAIT; the close rate is about `B / P` per second, each lingering
-  until smoltcp reaps it.
+A client is not one connection. A browser opens a second one for the
+burst at page load. It is only a second one, because the `build.rs` of
+`ubos-webui` puts the CSS and the JS inside the gzipped HTML, so a page
+load is `/` and `/logo.svg` and nothing more. Count two connections for
+each browser and one for each machine client.
 
-The dashboard polls `/api/info` every 2 s (`ubos-webui/web/lib/store.ts`), so
-`P = 2 s` and `D ≈ 20 ms`. The web UI assets are fetched once at page load
-and not again, so in steady state a viewer exercises only the API
-listener.
+`StackResources<N>` must cover the continuously held sockets plus the
+TIME_WAIT backlog. The client is now the active closer, so the client
+holds the TIME_WAIT and the board holds fewer of them than it did before
+the merge.
 
 ## Single-connection transfer is window-limited by the TX buffer
 
@@ -119,10 +128,10 @@ Consequences:
   the user-visible load time. The "first paint must fit one 14 KiB
   initcwnd" rationale in `ubos-webui`'s size test and `build.rs` does not
   describe this firmware; the real wall is 2 KiB/RTT.
-- **Do not split assets to chase the budget.** Moving the dashboard JS into
-  a second request would add a full TCP handshake — every response is
-  `Connection: close`, so there is no warm connection to reuse — to save a
-  byte count that the TX buffer already makes irrelevant.
+- **Do not split assets to chase the budget.** The listener now keeps the
+  connection alive, so a second request reuses the warm connection and
+  costs no handshake. It still costs a round trip, and it saves a byte
+  count that the TX buffer already makes irrelevant.
 - **The lever for load time, if it ever matters, is `TX_BUFFER_SIZE`, not
   gz size.** Raising it (RAM permitting) widens the per-connection window;
   shrinking the payload does not change the 2 KiB/RTT ceiling. Note this
@@ -130,24 +139,24 @@ Consequences:
 
 ## Measured on bmm-pico (RP2350)
 
+CAUTION: The numbers below were measured before the two listeners merged.
+Do not read them as the current ceiling. They count clients against a
+listener that closed after every response, which made a worker free
+between polls. A worker is now held for as long as the connection is
+open, so the pool depth bounds connections rather than clients. Run the
+sweep again against the merged listener and replace this table.
+
 Measured as described under *How to measure*, with clients
 desynchronized by ±0.8 s of jitter:
 
-| `API_HTTP_POOL` | clean viewers (≥99%) | above the pool |
-|-----------------|----------------------|----------------|
+| pre-merge `API_HTTP_POOL` | clean viewers (≥99%) | above the pool |
+|---------------------------|----------------------|----------------|
 | 2 | 2 | degrades gracefully to ~85% |
 | 5 | 5 | degrades gracefully to ~91% at 8 |
 
-The clean concurrency ceiling tracks the pool size one-to-one. Above it,
-desynchronized clients degrade gracefully (a fraction of polls are refused
-and retried, ~5 ms median latency throughout) rather than collapsing, and
-the board stays up — an overloaded listener drops connections, it does not
-crash. Only perfectly synchronized clients hit the hard
-`success ≈ pool / clients` worst case.
-
-**Shipped target: 5 concurrent watchers** on the 512 KiB boards, verified
-on bmm-pico: boots, serves 5 clients at 100 %, and survives an 8-client
-overload with only dropped polls.
+The behaviour above the ceiling still holds. Desynchronized clients
+degrade gracefully rather than collapsing, and the board stays up. An
+overloaded listener drops connections. It does not crash.
 
 ## Pool size is bounded at link time
 
@@ -168,13 +177,26 @@ design:
   combined RAM.
 
 The dominant cost is the per-listener worker `TaskStorage` futures, which
-live in main SRAM regardless of where the buffers sit. That is why the
-three tight boards ship at `1` per listener and only the ~512 KiB boards
-(bmm-pico, rp2350, esp32s3) link at `5`; with the metrics listener on the
-same pool those boards now carry fifteen worker futures across the three
-listeners and still link. On stm32f407 and stm32f439 the TCP and parse
-buffers are placed in CCM (`.ccmram.bss`) so the depth-1 buffers stay off
-the tight main SRAM.
+live in main SRAM regardless of where the buffers sit. On stm32f407 and
+stm32f439 the TCP and parse buffers are placed in CCM (`.ccmram.bss`) so
+they stay off the tight main SRAM.
+
+**A merged slot costs more than either slot it replaced.** Every slot on
+port 80 must be able to serve the REST API, whose handler future is far
+larger than the dashboard's. Before the merge the board paid for that
+future once per API slot and paid a much smaller one per web UI slot.
+Measured with `cargo size --release -- -A` across the merge:
+
+| Board | Pools before | Pool after | `.bss` |
+|-------|--------------|------------|--------|
+| rp2350 | 5 + 5 | 8 | +15 040 B |
+| rp2040 | 1 + 1 | 2 | +12 240 B |
+| stm32f407 | 1 + 1 | 1 | −10 656 B |
+
+The merge is therefore not a way to reclaim RAM. It buys one origin, no
+CORS, one request for each API call instead of two, and one acceptor. It
+costs `.bss` on every board that keeps its slot count. `stm32f407` is
+the one board that saves, because it gave a slot up.
 
 This is a deliberate change from an earlier design that folded the
 whole worker pool into one `join_array` future. That future grew with the
@@ -207,16 +229,22 @@ corruption into an immediate, labelled fault:
 ## Further headroom
 
 - **Raise a pool where the board links it.** With the footprint
-  linker-checked, bumping `API_HTTP_POOL` is safe to try: it either links
+  linker-checked, raising `http_pool` is safe to try: it either links
   (and fits) or fails the build. Validate with a release build and the load
   test.
-- **Share one pool across :80 and :8080.** The web UI (bursty at page load)
-  and the API (steady low-rate polling) are largely used at different
-  times, so two separately sized pools reserve RAM for peaks that do not
-  coincide. A shared pool drawn from one `TcpBuffers` would serve more total
-  clients with less reserved RAM; the constraint is that `edge-nal-embassy`
-  binds an acceptor per port, so the two acceptors would have to draw from
-  one shared buffer pool.
+- **Shrink the REST handler future.** It is what makes a merged slot
+  expensive, and every slot pays it. The handler holds several large
+  buffers on the stack across an await, so each one counts once per
+  slot.
+- **Hoist the request parts into the worker.** `serve_worker` can call
+  `extract_request_parts` once and pass `&RequestParts` to
+  `Service::handle`. Both handlers call it themselves today, and each one
+  repeats the allow-list check and the `record_request` call.
+- **Take a slice if a fourth listener arrives.** `min_stack_sockets`
+  takes one argument for each pool, so every board main changes with the
+  arity. A `min_stack_sockets(pools: &[usize])` takes that change once
+  and never again. Two listeners is the shape the firmware has, so the
+  positional form stays until a third pool exists.
 
 ## Can the buffers be shared?
 
@@ -239,11 +267,14 @@ corruption into an immediate, labelled fault:
 The buffer sizes and pool depths are per board, because the RAM budget is
 not shared:
 
-- **bmm-pico / rp2350 (RP2350) / esp32s3:** ample SRAM; the 5-watcher
-  target fits at `5` per listener.
-- **rp2040 / stm32f407 / stm32f439:** the tight boards, which is why their
-  pools stay at `1` per listener. Raising them needs a buffer trim
-  elsewhere first, and the per-board `StackResources` must be re-checked.
+- **bmm-pico, rp2350, hashnode, braiins-axe:** ample SRAM, and the merged
+  pool sits at `8`.
+- **esp32s3:** `4` is the deepest merged pool that clears the stack floor
+  its `build.rs` link-time ASSERT enforces. The pool lives in `.bss`,
+  which shares `dram_seg` with the core-0 stack.
+- **rp2040, stm32f407, stm32f439:** the tight boards. Raising them needs a
+  buffer trim elsewhere first, and the per-board `StackResources` must be
+  re-checked.
 
 ## How to measure
 
@@ -254,12 +285,14 @@ representative: it desynchronizes the clients the way real browsers do,
 where a lockstep sweep would measure only the worst case and understate
 capacity.
 
+Each client must hold one connection open across its polls. A client
+that opens a fresh connection for each poll measures the model this
+listener no longer has, whatever the poll interval is.
+
 The numbers above were taken at port 8080 on `/api/info` with
 `root:root`, a 2 s poll interval, ±0.5 s of jitter, and a viability
-threshold of 99 % success — "clean viewers" is the highest `N` that
-stayed at or above that threshold. Find the board's address from its
-boot log (`ip address: …`) or over mDNS.
+threshold of 99 % success. The API answers on port 80 now. Find the
+board's address from its boot log (`ip address: …`) or over mDNS.
 
-Because the firmware sends `Connection: close` on every response, each
-poll is a fresh short-lived connection, so what the sweep bounds is the
-peak simultaneous connection count rather than sustained throughput.
+What the sweep bounds is the peak simultaneous connection count rather
+than sustained throughput. Divide by about two to get the browser count.

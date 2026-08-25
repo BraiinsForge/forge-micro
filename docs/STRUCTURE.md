@@ -56,10 +56,11 @@ hardware and protocol crates sit beside the chain without participating
 in it.
 
 `ubos-auth` depends on `ubos-logging` only and holds the shared HTTP
-middleware (allow-list, auth, sessions, CSRF, CSPRNG). Both listener
-crates `ubos-webui` (port 80) and `ubos-api` (port 8080) depend on
-`ubos-auth`, `ubos-http`, `ubos-mdns`, and `ubos-net`; neither depends
-on the other.
+middleware (allow-list, auth, sessions, CSRF, CSPRNG). Both handler
+crates `ubos-webui` and `ubos-api` depend on `ubos-auth`, `ubos-http`,
+`ubos-mdns`, and `ubos-net`; neither depends on the other. They share
+one listener on port 80 behind `ubos_http::PrefixRouter`, which
+`ubos-firmware` wires.
 
 `ubos-firmware` sits above everything above: it is the single library
 the `firmware/<board>` binaries depend on, and the only crate that may
@@ -80,10 +81,10 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-config`      | runtime `Config` watch, `ConfigHandle`, flash-backed `sequential-storage` persistence |
 | `ubos-manager`     | supervisor crate: routes `Message::Halt`/`Resume` to mining/cooling/thermal handles |
 | `ubos-net`         | DHCP, NTP sync; owns the cross-board atomics (IP, NTP offset, request count) and `wall_clock_secs` |
-| `ubos-http`        | HTTP/1.0 transport primitives: TCP accept loop, request parser, `Service` trait; generic response helpers (`read_body`, `write_json_response`, `MAX_RESPONSE_HEADERS`) |
+| `ubos-http`        | HTTP transport primitives: TCP accept loop, request parser, `Service` trait, `PrefixRouter`, the port 80 listener constants; generic response helpers (`read_body`, `write_json_response`, `MAX_RESPONSE_HEADERS`) |
 | `ubos-auth`        | shared HTTP middleware: IP allow-list, credential store, session table, CSRF tokens, CSPRNG |
-| `ubos-api`         | REST handlers, `REST_API_SERVICE` mDNS entry, schema types; serves `/api/*` on port 8080 |
-| `ubos-webui`       | Zopfli-gzipped `index.html` and `login.html` and `logo.svg`; webui listener (`run`) and `WEBUI_SERVICE` mDNS entry on port 80 |
+| `ubos-api`         | REST handlers, `REST_API_SERVICE` mDNS entry, schema types; serves `/api/*` on port 80 |
+| `ubos-webui`       | Zopfli-gzipped `index.html`, `login.html` and `logo.svg`; dashboard handler and `WEBUI_SERVICE` mDNS entry on port 80 |
 | `ubos-mdns`        | DNS-SD responder; per-service `declare_service!` macro composed by firmware |
 | `ubos-metrics`     | Prometheus exporter task, hashrate EWMA, CPU-load gauge, shared metric map |
 | `ubos-display`     | SH1106 OLED driver and render task                 |

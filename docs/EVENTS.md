@@ -502,11 +502,14 @@ Example response shape:
 
 `code` is the raw FNV-1a hash and `args` is the 11-byte payload as hex; the
 browser resolves the code against the cached defs table and reads only the
-arg widths that entry declares. The body is **streamed** close-delimited
-(`Connection: close`, no `Content-Length`): the handler captures the latest
-`seq`, then reads the ring in small `seq`-cursor batches and writes each
-record straight to the socket. No buffer scales with the ring capacity, so a
-full 128-entry ring needs no large per-connection allocation. The browser
+arg widths that entry declares. The body is **streamed** as chunked
+transfer encoding (`Transfer-Encoding: chunked`, no `Content-Length`): the
+handler captures the latest `seq`, then reads the ring in small `seq`-cursor
+batches and writes each record straight to the socket as one chunk. The
+connection stays open after the last chunk. A decoder must read the
+chunk-size line before each chunk and stop at the zero-length chunk. It must
+not wait for the socket to close. No buffer scales with the ring capacity, so
+a full 128-entry ring needs no large per-connection allocation. The browser
 sorts by `seq` for display.
 
 ### `GET /api/system/events/catalog`

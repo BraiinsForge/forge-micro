@@ -78,7 +78,7 @@ mechanism is the `OtaBackend` implementation `RpBackend` in
 
 ### Endpoint
 
-`POST /api/system/OTA/chunk` on port 8080. The client sends the image one sector
+`POST /api/system/OTA/chunk` on port 80. The client sends the image one sector
 at a time, waiting for a JSON ack before sending the next chunk.
 
 Required headers per request:
@@ -139,10 +139,9 @@ position and authentication method:
 - Basic-auth requests are fully CSRF-exempt, so curl-driven chunk uploads require
   no token.
 
-CORS preflight responses include `X-OTA-Offset` and `X-OTA-Final` in
-`Access-Control-Allow-Headers` so the WebUI's chunk POSTs pass preflight. The
-WebUI is served from a different port than the API's `:8080`, so the requests
-are cross-origin and the browser preflights them.
+The WebUI and the API answer on one port, so a chunk POST is same-origin.
+The browser sends no preflight, and the firmware sends no CORS headers.
+Each chunk therefore costs one request rather than two.
 
 ### Session lifecycle
 
@@ -262,7 +261,7 @@ version metadata.
 
 ## Diagnostics over HTTP
 
-`GET /api/info` (port 8080) includes an `ota` object when an OTA target is
+`GET /api/info` includes an `ota` object when an OTA target is
 registered. All fields are read lock-free from published atomics; the info
 endpoint never touches the upload mutex and stays readable during an active
 upload.

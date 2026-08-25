@@ -105,7 +105,7 @@ and one `SRV`/`TXT`/`PTR` set per service. Each TXT record carries
 | Service              | Port | Purpose                    |
 |----------------------|------|----------------------------|
 | `_http._tcp.local`   | 80   | Web UI (dashboard/login)   |
-| `_ubos._tcp.local`   | 8080 | JSON REST API              |
+| `_ubos._tcp.local`   | 80   | JSON REST API              |
 | `_prometheus._tcp.local` | 8081 | Prometheus scrape target |
 
 Browsing requires `avahi-daemon` on the workstation. On NixOS, enable
