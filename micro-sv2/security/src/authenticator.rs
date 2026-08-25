@@ -92,6 +92,24 @@ impl<'a, K: Clock, C: secp256k1::Verification> Authenticator for ValidateFull<'a
     }
 }
 
+/// Check that the certificate's validity window contains the present.
+///
+/// Half of what makes a pool certificate trustworthy. The other half is
+/// [`verify_signature`], and both must pass.
+///
+/// The window itself is checked first: a certificate whose `valid_from`
+/// is after its `not_valid_after` is rejected as broken rather than
+/// silently failing one of the two bounds. That ordering matters,
+/// because an inverted window can never contain any time and the reason
+/// a caller sees should say the certificate is malformed, not that the
+/// clock is wrong.
+///
+/// # Errors
+///
+/// Returns whatever the clock returns when it cannot supply a time,
+/// [`AuthenticationError::BrokenCertificate`] for an inverted window,
+/// and [`AuthenticationError::CertificateNotYetValid`] or
+/// [`AuthenticationError::CertificateNoMoreValid`] outside it.
 fn check_time<C: Clock>(clock: &C, hdr: &CertificateHeader) -> Result<(), AuthenticationError> {
     let now = clock.now_unix_secs()?;
     if hdr.valid_from > hdr.not_valid_after {
@@ -106,6 +124,23 @@ fn check_time<C: Clock>(clock: &C, hdr: &CertificateHeader) -> Result<(), Authen
     Ok(())
 }
 
+/// Check that `authority` signed this certificate header.
+///
+/// The other half of what makes a pool certificate trustworthy, beside
+/// [`check_time`]. The signature is Schnorr over the header's own hash,
+/// so a header altered in any field verifies against nothing.
+///
+/// Every length and parse failure maps to a rejection rather than
+/// propagating. A 64-byte signature that is not 64 bytes and an authority
+/// key that will not parse are both an untrusted certificate, and neither
+/// is a reason to treat the peer as authenticated.
+///
+/// # Errors
+///
+/// Returns [`AuthenticationError::SignatureInvalid`] when the signature
+/// is the wrong length or does not verify, and
+/// [`AuthenticationError::BadPublicKey`] when `authority` is not a valid
+/// x-only key.
 fn verify_signature<C: secp256k1::Verification>(
     authority: &PublicKey,
     ctx: &secp256k1::Secp256k1<C>,

@@ -188,6 +188,14 @@ impl FromStr for Signature {
     }
 }
 
+/// Write `input` to `f` as base58 with a checksum.
+///
+/// The form keys are printed in and parsed back from, so a key copied by
+/// hand is rejected on a single wrong character rather than accepted as
+/// a different key.
+///
+/// The receiver here is the formatter, which `core` declares, so no
+/// inherent `impl` in this crate can take it.
 fn encode_with_check(input: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let mut out = [0u8; ENCODED_MAX];
     let n = bs58::encode(input)
@@ -198,6 +206,14 @@ fn encode_with_check(input: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.write_str(s)
 }
 
+/// Write `input` to `f` as base58 with no checksum.
+///
+/// Signatures print this way and keys do not. A signature is carried by
+/// the protocol rather than retyped by a human, so it needs no
+/// transcription check, and the reference encoding for it has none.
+///
+/// The receiver here is the formatter, which `core` declares, so no
+/// inherent `impl` in this crate can take it.
 fn encode_plain(input: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let mut out = [0u8; SIG_ENCODED_MAX];
     let n = bs58::encode(input)
