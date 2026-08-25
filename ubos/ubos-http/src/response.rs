@@ -134,11 +134,11 @@ pub fn format_content_length(value: usize) -> String<CONTENT_LENGTH_DECIMAL_DIGI
     text
 }
 
-/// Write a 200 JSON response with `body` bytes.
+/// Write a JSON response with `body` bytes.
 ///
-/// Every caller sends the same three headers, so there is no header
-/// parameter; a response that needs more headers or another status
-/// builds them at its own call site.
+/// `status` and `reason` form the status line. Every caller sends the
+/// same three headers, so there is no header parameter; a response
+/// that needs more headers builds them at its own call site.
 ///
 /// # Errors
 ///
@@ -146,6 +146,8 @@ pub fn format_content_length(value: usize) -> String<CONTENT_LENGTH_DECIMAL_DIGI
 /// response or if the underlying socket write fails.
 pub async fn write_json_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
+    status: u16,
+    reason: &str,
     body: &[u8],
 ) -> Result<(), HttpError<T::Error>>
 where
@@ -160,7 +162,7 @@ where
     ];
 
     connection
-        .initiate_response(200, Some("OK"), &headers)
+        .initiate_response(status, Some(reason), &headers)
         .await?;
 
     embedded_io_async::Write::write_all(connection, body).await?;

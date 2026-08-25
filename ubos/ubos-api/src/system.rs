@@ -75,6 +75,7 @@ use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use heapless::String;
+use ubos_http::write_json_response;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_metrics::hashrate::hashrate;
@@ -197,51 +198,6 @@ fn build_time_string() -> String<24> {
     result
 }
 
-/// Maximum number of response headers built per system dispatch response.
-///
-/// Every response here writes the same three: Content-Type,
-/// Cache-Control and Content-Length. Eight slots leave headroom for
-/// future additions.
-const MAX_SYSTEM_RESPONSE_HEADERS: usize = 8;
-
-/// Write a JSON response to `connection` with the given status code and
-/// pre-serialized body bytes.
-///
-/// `status` is the numeric HTTP status code. `reason` is the reason phrase.
-/// `body` contains the serialized JSON bytes and determines the
-/// `Content-Length` header value.
-async fn write_json_response<T, const N: usize>(
-    connection: &mut Connection<'_, T, N>,
-    status: u16,
-    reason: &str,
-    body: &[u8],
-) -> Result<(), HttpError<T::Error>>
-where
-    T: Read + Write + TcpSplit,
-{
-    let content_length = ubos_http::format_content_length(body.len());
-
-    let mut headers: heapless::Vec<(&str, &str), MAX_SYSTEM_RESPONSE_HEADERS> =
-        heapless::Vec::new();
-    headers
-        .push(("Content-Type", "application/json"))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Cache-Control", "no-store"))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Content-Length", content_length.as_str()))
-        .expect("BUG: response header vec sized for max headers");
-
-    connection
-        .initiate_response(status, Some(reason), &headers)
-        .await?;
-
-    embedded_io_async::Write::write_all(connection, body).await?;
-
-    Ok(())
-}
-
 /// Write a 405 Method Not Allowed response carrying the required
 /// `Allow` header.
 ///
@@ -258,7 +214,7 @@ where
     let body = b"method not allowed";
     let content_length = ubos_http::format_content_length(body.len());
 
-    let mut headers: heapless::Vec<(&str, &str), MAX_SYSTEM_RESPONSE_HEADERS> =
+    let mut headers: heapless::Vec<(&str, &str), { ubos_http::MAX_RESPONSE_HEADERS }> =
         heapless::Vec::new();
     headers
         .push(("Allow", allowed))
@@ -1402,7 +1358,7 @@ async fn begin_streamed_json<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    let mut headers: heapless::Vec<(&str, &str), MAX_SYSTEM_RESPONSE_HEADERS> =
+    let mut headers: heapless::Vec<(&str, &str), { ubos_http::MAX_RESPONSE_HEADERS }> =
         heapless::Vec::new();
     headers
         .push(("Content-Type", "application/json"))
