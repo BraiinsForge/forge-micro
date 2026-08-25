@@ -19,6 +19,12 @@
 
 //! `run_stratum_client` — the integration loop.
 //!
+//! The pool-alive bitmap and the reconnect counter below are free
+//! functions over private statics in this module. There is one of each
+//! per firmware image, so a handle owning them would promise an instance
+//! no caller can choose, and the API and the metrics publisher both read
+//! them from tasks that hold nothing else.
+//!
 //! One async function that owns the protocol-side `MiningClient`
 //! adapter, the `StratumState` (visitor + rings), and a work generator
 //! that publishes fresh `WorkAssignment`s into the `AsicSession` —
@@ -210,6 +216,16 @@ fn pool_index<const N: usize>(asic: &PoolHandle<'_, N>) -> u8 {
     u8::try_from(asic.slot()).unwrap_or(u8::MAX)
 }
 
+/// The session loop proper, wrapped by [`run_stratum_client`].
+///
+/// The split exists so that every exit path, including the error ones,
+/// passes through one place that clears this pool's alive bit. Returning
+/// from here by any route leaves that bookkeeping to the wrapper, so a
+/// new `return` added inside cannot forget it.
+///
+/// The five parameters are peers. The client is the protocol adapter,
+/// the transport is the socket, the ASIC handle is where work goes, and
+/// the state is the visitor. `main` owns all of them separately.
 async fn run_stratum_client_inner<C, T, const N: usize>(
     client: &mut C,
     transport: &mut T,

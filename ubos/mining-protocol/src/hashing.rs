@@ -38,6 +38,20 @@ mod tests;
 /// internal byte order from a local double-SHA256 so it goes in raw.
 /// The caller converts stratum big-endian hex to `u32` once during
 /// notify parsing so the hot path only performs byte-layout work.
+///
+/// # No production caller
+///
+/// Nothing outside this crate's tests calls this, and that is
+/// deliberate. It is an independent reference implementation.
+/// `ubos_asic::chain::block_header` is the one the firmware uses, and it
+/// takes `prev_hash` already word-swapped, in canonical internal order.
+/// This one takes it in stratum wire order and swaps inside.
+///
+/// `ubos-asic/src/tests/chain.rs` asserts the two reach the same digest
+/// from those two byte orders. Two implementations written apart is what
+/// makes that check able to catch a byte-order error in either. Do not
+/// delete this for having no caller, and do not make either call the
+/// other.
 #[must_use]
 pub fn build_header(
     version: u32,
@@ -67,7 +81,16 @@ pub fn build_header(
     header
 }
 
-/// Double-SHA256 of the 80-byte block header produced by `build_header`.
+/// Double-SHA256 of the 80-byte block header produced by
+/// [`build_header`].
+///
+/// # No production caller
+///
+/// Like [`build_header`], this exists as the reference half of the
+/// cross-check in `ubos-asic/src/tests/chain.rs`, which compares it
+/// against `ubos_asic::chain::solution_hash`. It takes `prev_hash` in
+/// stratum wire order, and that test is the reason both spellings are
+/// kept.
 #[must_use]
 pub fn header_hash(
     version: u32,
@@ -96,6 +119,11 @@ pub fn hash_meets_target(hash: &[u8; 32], target: &[u8; 32]) -> bool {
     true
 }
 
+/// `SHA-256(SHA-256(data))`, the hash Bitcoin uses throughout.
+///
+/// Used by [`header_hash`] for the block header and by the merkle
+/// folding in `lazy_merkle`, which is why it is crate-visible rather
+/// than private to this module.
 pub(crate) fn double_sha256(data: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(data);

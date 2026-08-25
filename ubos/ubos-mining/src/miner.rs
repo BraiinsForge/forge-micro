@@ -571,6 +571,18 @@ async fn next_halt_change() -> bool {
     }
 }
 
+/// Put the chain in reset and drop its rail, then report it stopped.
+///
+/// The order matters. Reset is asserted before the rail goes, so the
+/// chips are held rather than losing power mid-transaction. A failure to
+/// disable the PSU is swallowed: the reset is already asserted, and a
+/// board that cannot drop its rail is in no better state for the caller
+/// knowing about it here.
+///
+/// The PSU and the reset pin are two generic parameters of equal
+/// standing, and neither is the receiver. No inherent `impl` in this
+/// crate can name either, and the caller owns both for the life of the
+/// mining loop.
 async fn cut_rail<P, R>(psu: &P, reset_pin: &mut R)
 where
     P: Psu,

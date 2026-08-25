@@ -24,6 +24,11 @@
 //! Implements `MiningClientVisitor` so the V1 / V2 adapter dispatch
 //! lands directly here. The same struct is also the work
 //! generator's source of truth for the latest job.
+//!
+//! The share counters below are free functions over private statics
+//! rather than fields of `StratumState`, and that is what keeps them
+//! across a reconnect. A reconnect builds a fresh `StratumState`, so a
+//! field would reset the lifetime totals every time a pool dropped.
 
 use mining_protocol::{MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
 use portable_atomic::{AtomicU64, Ordering};

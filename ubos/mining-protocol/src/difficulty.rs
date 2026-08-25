@@ -54,6 +54,14 @@ enum ApproxDifficulty {
     Value(u32),
 }
 
+/// Classify a 256-bit little-endian target into a rough difficulty.
+///
+/// Reads the top four bytes only, which is enough for a display figure
+/// and avoids 256-bit division. A target whose top word is larger than
+/// difficulty 1 classifies as [`ApproxDifficulty::BelowOne`], and one
+/// small enough to overflow `u32` classifies as
+/// [`ApproxDifficulty::OverflowMax`]. Both callers render those two
+/// cases rather than printing a wrong number.
 fn approx_difficulty(target_le: &[u8; 32]) -> ApproxDifficulty {
     let top4 = u32::from_le_bytes(
         target_le[28..32]

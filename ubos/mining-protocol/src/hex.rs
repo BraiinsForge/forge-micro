@@ -86,6 +86,11 @@ pub fn encode_block_hash_lower(input: &[u8; 32]) -> [u8; 64] {
 
 const HEX_LOWER: &[u8; 16] = b"0123456789abcdef";
 
+/// Value of one hex digit, or `None` when `byte` is not one.
+///
+/// Both letter cases are accepted on the way in, while
+/// [`encode_lower_to_slice`] only ever emits the lower one. Pools differ
+/// on which case they send and none of them cares which it receives.
 fn decode_nibble(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),

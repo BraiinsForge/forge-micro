@@ -19,6 +19,11 @@
 
 //! Hardware SHA-256 driver for the RP2350 on-chip accelerator.
 //!
+//! The three register helpers below are free functions because the chip
+//! has exactly one accelerator. There is nothing for a handle type to
+//! own that a second instance could hold differently, and the block's
+//! registers are reached through a fixed address either way.
+//!
 //! The peripheral processes 512-bit blocks: write 16 little-endian u32
 //! words to WDATA, then SUM0..SUM7 hold the running digest. Multi-block
 //! messages keep writing without re-asserting START. This crate exposes

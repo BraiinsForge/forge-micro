@@ -33,6 +33,14 @@
 //! diff-1 chip share feeds back into it so the delivered split tracks
 //! the scheduler's configured policy. Found shares submit back to the
 //! slot whose dispatch produced them via `AsicSession::submit_solution`.
+//!
+//! The core-1 park surface at the end of this module is the exception to
+//! all of that, and it is free functions on purpose. Those five reach
+//! cross-core signals in private statics, because every caller is on the
+//! other core from the actor and holds no [`Serial`]: `ubos-ota` parks
+//! core 1 before a flash write, and a board's `main` parks it at boot. A
+//! signal in a static is the only thing that crosses from core 0 to core
+//! 1, so a method on the handle could not serve them.
 
 use core::fmt;
 use core::ops::ControlFlow;
