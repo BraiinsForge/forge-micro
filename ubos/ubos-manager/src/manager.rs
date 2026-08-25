@@ -51,28 +51,19 @@ fn log_transition(was_halted: bool, now_halted: bool) {
     }
 }
 
-/// Apply a `Message` to the live mask, returning the new mask.
-fn apply(reasons: PauseReasons, message: Message) -> PauseReasons {
-    match message {
-        Message::DangerousTemperature => reasons.assert(PauseReason::DangerousTemperature),
-        Message::TemperatureNormal => reasons.clear(PauseReason::DangerousTemperature),
-        Message::BrokenFan => reasons.assert(PauseReason::BrokenFan),
-        Message::FanRestored => reasons.clear(PauseReason::BrokenFan),
-        Message::PoolUnreachable => reasons.assert(PauseReason::PoolUnreachable),
-        Message::PoolReachable => reasons.clear(PauseReason::PoolUnreachable),
-        Message::TunerFault => reasons.assert(PauseReason::TunerFault),
-        Message::TunerRecovered => reasons.clear(PauseReason::TunerFault),
-        Message::OtaBegin => reasons.assert(PauseReason::OtaUpdate),
-        Message::OtaEnd => reasons.clear(PauseReason::OtaUpdate),
-        Message::Stop => reasons.assert(PauseReason::UserRequest),
-        Message::Start => reasons.clear(PauseReason::UserRequest),
-    }
-}
-
-/// Map an asserting `Message` to the `PauseReason` it sets, or `None` for clearing messages.
+/// Map an asserting `Message` to the `PauseReason` it sets, or `None`
+/// for clearing messages.
 ///
-/// Used to capture the triggering reason before `apply` consumes the message,
-/// so the halt event can carry the discriminant of the newly-active reason.
+/// Used to capture the triggering reason before `PauseReasons::apply`
+/// consumes the message, so the halt event can carry the discriminant of
+/// the newly-active reason.
+///
+/// Free rather than a method on `Message`, though the receiver is clear
+/// and local. `message.rs` states the layering this would break: a
+/// sender constructs a `Message` and never spells `PauseReason`, which
+/// is manager-private vocabulary. Hanging this off `Message` would put
+/// the private half on the public type and hand every sender the
+/// mapping.
 fn halt_reason(message: Message) -> Option<PauseReason> {
     match message {
         Message::DangerousTemperature => Some(PauseReason::DangerousTemperature),
@@ -110,7 +101,7 @@ pub async fn run_manager(mining: MiningHandle) -> ! {
         let was_empty = reasons.is_empty();
         let was_danger = reasons.contains(PauseReason::DangerousTemperature);
         let triggering_reason = halt_reason(message);
-        reasons = apply(reasons, message);
+        reasons = reasons.apply(message);
         log_transition(
             was_danger,
             reasons.contains(PauseReason::DangerousTemperature),

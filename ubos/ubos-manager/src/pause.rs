@@ -24,6 +24,8 @@
 //! is halted. Both are manager-private vocabulary: only `run_manager`
 //! constructs them, from the `Message`s it receives.
 
+use crate::message::Message;
+
 /// Every condition that causes mining to halt.
 ///
 /// Each variant maps to one bit in `PauseReasons`. Any non-empty
@@ -80,6 +82,28 @@ impl PauseReason {
 pub struct PauseReasons(u16);
 
 impl PauseReasons {
+    /// Apply a `Message` to this mask, returning the new mask.
+    ///
+    /// Every arm asserts or clears exactly one [`PauseReason`], so the
+    /// mask is the whole of the manager's state and the message set is
+    /// the whole of what can move it.
+    pub(crate) fn apply(self, message: Message) -> Self {
+        match message {
+            Message::DangerousTemperature => self.assert(PauseReason::DangerousTemperature),
+            Message::TemperatureNormal => self.clear(PauseReason::DangerousTemperature),
+            Message::BrokenFan => self.assert(PauseReason::BrokenFan),
+            Message::FanRestored => self.clear(PauseReason::BrokenFan),
+            Message::PoolUnreachable => self.assert(PauseReason::PoolUnreachable),
+            Message::PoolReachable => self.clear(PauseReason::PoolUnreachable),
+            Message::TunerFault => self.assert(PauseReason::TunerFault),
+            Message::TunerRecovered => self.clear(PauseReason::TunerFault),
+            Message::OtaBegin => self.assert(PauseReason::OtaUpdate),
+            Message::OtaEnd => self.clear(PauseReason::OtaUpdate),
+            Message::Stop => self.assert(PauseReason::UserRequest),
+            Message::Start => self.clear(PauseReason::UserRequest),
+        }
+    }
+
     /// Set the bit for `reason`.
     #[must_use]
     pub fn assert(self, reason: PauseReason) -> Self {
