@@ -19,6 +19,14 @@
 
 //! `INA230` high-side current/power monitor.
 //!
+//! Every function here takes the bus as `&mut I` rather than hanging off
+//! a driver handle. Two things fix that shape. `I` is a generic
+//! parameter, so no inherent `impl` in this crate can name it, and the
+//! caller is a PSU handle that has already locked its `State` and drives
+//! this part alongside a converter and a watchdog on the same bus. A
+//! method that locked again would deadlock. `state.rs` holds the
+//! receiver these operations would otherwise want.
+//!
 //! Calibration math operates in integer microamps and microohms:
 //! `current_lsb_microamps = max_current_a * 1_000_000 / 32_768`
 //! `cal_value = 5_120_000_000 / (current_lsb_microamps * shunt_microohm)`
@@ -39,10 +47,25 @@ const BUS_VOLTAGE_LSB_MICROVOLTS: u32 = 1_250;
 /// shunt+bus. Bits laid out per datasheet Table 6-2.
 const CONFIG_VALUE: u16 = 0b0100_0001_0010_0111;
 
+/// Current LSB in microamps for a full-scale current of `max_current_a`.
+///
+/// The current register is signed 16-bit, so one LSB is the full-scale
+/// current divided by 2^15. Every other scaling here derives from this
+/// one value.
 pub(crate) const fn current_lsb_microamps(max_current_a: u32) -> u32 {
     max_current_a * 1_000_000 / 32_768
 }
 
+/// CALIBRATION register value for a current LSB and a shunt resistance.
+///
+/// Both inputs are in micro-units, and the constant folds the datasheet
+/// 5.12e-3 term and the two 1e-6 scalings into one integer numerator so
+/// the whole calculation stays in `u64` with no floating point.
+///
+/// Saturates at `u16::MAX` rather than wrapping. A shunt small enough to
+/// overflow this would be a descriptor error, and a saturated
+/// calibration reads high rather than reporting a wrapped small number
+/// as a healthy one.
 pub(crate) const fn calibration_value(current_lsb_microamps: u32, shunt_microohm: u32) -> u16 {
     // 5.12e-3 / (lsb_µA * 1e-6 * shunt_µΩ * 1e-6)
     //   = 5.12e9 / (lsb_µA * shunt_µΩ)
@@ -56,6 +79,12 @@ pub(crate) const fn calibration_value(current_lsb_microamps: u32, shunt_microohm
     }
 }
 
+/// Convert a POWER register reading to milliwatts.
+///
+/// The power LSB is fixed at 25 times the current LSB, so the result is
+/// `register * 25 * current_lsb_microamps` scaled from microwatts. The
+/// intermediate is `u64`, because the microwatt product overflows `u32`
+/// at the currents this part measures.
 pub(crate) const fn power_to_mw(power_register: u16, current_lsb_microamps: u32) -> u32 {
     // power_lsb_microwatts = 25 * current_lsb_microamps (datasheet)
     // power_milliwatts = power_register * power_lsb_microwatts / 1_000
@@ -63,6 +92,15 @@ pub(crate) const fn power_to_mw(power_register: u16, current_lsb_microamps: u32)
     (microwatts / 1_000) as u32
 }
 
+/// Program the CONFIG and CALIBRATION registers.
+///
+/// Runs once per boot, before any read. The part measures nothing useful
+/// until CALIBRATION is set, so a caller that skips this reads zeros
+/// rather than an error.
+///
+/// # Errors
+///
+/// Returns the bus error when either write fails.
 pub(crate) async fn init<I, E>(
     i2c: &mut I,
     address: u8,
@@ -84,6 +122,14 @@ where
     i2c.write(address, &cal_buffer).await
 }
 
+/// Read the POWER register and return milliwatts.
+///
+/// `max_current_a` must match what [`init`] was given, because the
+/// scaling is derived from it rather than read back from the part.
+///
+/// # Errors
+///
+/// Returns the bus error when the read fails.
 pub(crate) async fn read_power_mw<I, E>(
     i2c: &mut I,
     address: u8,

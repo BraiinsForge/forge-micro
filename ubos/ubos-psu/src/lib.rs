@@ -22,6 +22,13 @@
 //! Generic over `embedded_hal_async::i2c::I2c`. Runs unchanged on
 //! Linux (via `embedded-i2c-unix`) and on rp2040/rp2350 (via
 //! `embassy-rp::i2c`).
+//!
+//! The telemetry surface below is free functions over private statics,
+//! not methods on a type. There is one telemetry store per firmware
+//! image, so a handle owning it would promise an instance no caller can
+//! choose. [`handle`] returns a `Handle` that is `Copy` and carries no
+//! state, which makes it a token rather than an owner. Six other crates
+//! in this tree expose the same `handle()` shape for the same reason.
 
 #![cfg_attr(not(test), no_std)]
 // Embassy executors do not require `Send`; adding the bound to
@@ -288,6 +295,11 @@ async fn publish_measured_voltage(voltage: Voltage, source: Option<&'static str>
 /// consumers see a stable last-good sample plus a fault flag. Mirrors
 /// the publish pattern in `ubos_thermal::run_thermal`. Boards spawn it
 /// through [`power_stats_task`], because a task cannot be generic.
+///
+/// `psu` is a generic parameter rather than a receiver, so no inherent
+/// `impl` here can take it. A default method on the [`Psu`] trait could,
+/// and would put a publishing loop on the trait every implementor has to
+/// carry, so this stays a free function the macro wraps.
 // The function reads in a flat sequence (power, voltage, status) and
 // pushes metrics inline; splitting into helpers would force the `P:
 // Psu` bound and the publisher captures through each one.

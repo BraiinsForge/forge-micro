@@ -21,6 +21,18 @@
 //!
 //! All configuration is integer (mV / mA / °C). The chip address is
 //! supplied by the caller — this module is address-parameterized.
+//!
+//! Every operation here takes the bus as `&mut I` and the device config
+//! by reference, rather than hanging off a driver handle. Two things fix
+//! that. `I` is a generic parameter, so no inherent `impl` in this crate
+//! can name it. And the caller is a PSU handle that has already locked
+//! its `State` for the whole operation, so a method that locked again
+//! would deadlock.
+//!
+//! The receiver these would otherwise want already exists one layer up:
+//! `State<I, C>` in `state.rs` holds both the bus and the config, and
+//! the handle types wrap it. A newtype over the bus alone would not be
+//! it, because the config still travels by hand.
 
 use embedded_hal_async::i2c::I2c;
 

@@ -18,6 +18,14 @@
 // shall be considered distinct from the grant above.
 
 //! `TPS6287x` DC/DC converter register layout and bus operations.
+//!
+//! Every operation here takes the bus as `&mut I` and the board's
+//! descriptor as `&BmmPsuDescriptor`, rather than hanging off a driver
+//! handle. `I` is a generic parameter, so no inherent `impl` in this
+//! crate can name it, and the caller in `bmm.rs` has already locked its
+//! `State` and drives this converter alongside an `INA230` and a
+//! watchdog over the same bus. A method that locked again would
+//! deadlock. `state.rs` holds the receiver these would otherwise want.
 
 pub(crate) const REG_VSET: u8 = 0x00;
 pub(crate) const REG_CONTROL1: u8 = 0x01;
@@ -141,6 +149,10 @@ impl VoltageRange {
     }
 }
 
+/// VSET register write for a DAC code.
+///
+/// The code is what the caller's voltage range maps a millivolt target
+/// to, so this performs no range check of its own.
 pub(crate) fn encode_vset(dac: u8) -> [u8; 2] {
     [REG_VSET, dac]
 }
@@ -163,11 +175,23 @@ pub(crate) fn encode_control1_reset() -> [u8; 2] {
     [REG_CONTROL1, 1 << 7]
 }
 
+/// CONTROL2 register write carrying the voltage range and soft-start
+/// ramp time.
+///
+/// The voltage range sits in bits 3:2 and the ramp time in bits 1:0.
+/// Changing the range rescales every DAC code, so this is written during
+/// init and not again.
 pub(crate) fn encode_control2(vrange: VoltageRange, sstime: SoftStartRampTime) -> [u8; 2] {
     let value = (vrange.bits() << 2) | sstime.bits();
     [REG_CONTROL2, value]
 }
 
+/// Decode this part's STATUS byte into the shared [`crate::StatusFlags`].
+///
+/// The bit layout is this converter's own and is not the `PMBus`
+/// `STATUS_BYTE` that `sic45x.rs` and `tps53647.rs` decode: overvoltage
+/// is bit 0, undervoltage bit 1, thermal shutdown bit 2 and current
+/// limit bit 4. The two decoders look interchangeable and are not.
 pub(crate) fn decode_status(byte: u8) -> crate::StatusFlags {
     crate::StatusFlags {
         undervoltage: (byte & 0b0000_0010) != 0,
@@ -185,6 +209,17 @@ use crate::{BmmPsuDescriptor, Error};
 /// `t_d(EN)2` = 100 µs after the reset pulse before further writes.
 const SW_ENABLE_DELAY: Duration = Duration::from_micros(100);
 
+/// Reset the converter, program its range and ramp, and set the initial
+/// output voltage.
+///
+/// The output stays off. `enable` is what starts switching, so a board
+/// can program a rail before it energises it.
+///
+/// # Errors
+///
+/// Returns [`Error::OutOfRange`] when the descriptor's initial voltage
+/// falls outside its configured range, and [`Error::Bus`] on any I2C
+/// failure.
 pub(crate) async fn init<I, E>(i2c: &mut I, config: &BmmPsuDescriptor) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
@@ -206,6 +241,16 @@ where
         .map_err(Error::Bus)
 }
 
+/// Pulse the converter's software reset, then restore CONTROL1 with
+/// switching off.
+///
+/// The wait between the two writes is [`SW_ENABLE_DELAY`], which the
+/// part needs before it accepts another write. Skipping it drops the
+/// second write silently.
+///
+/// # Errors
+///
+/// Returns [`Error::Bus`] on any I2C failure.
 async fn reset<I, E>(i2c: &mut I, config: &BmmPsuDescriptor) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
@@ -223,6 +268,18 @@ where
     .map_err(Error::Bus)
 }
 
+/// Start switching and wait out the soft-start ramp.
+///
+/// Returns once the rail has had its configured soft-start time to come
+/// up, so a caller can read the output straight after. The STATUS read
+/// at the end is deliberate and its result is dropped: it clears the
+/// undervoltage bit that latches while the rail is still ramping. A real
+/// fault latches again and surfaces on the next `read_status`.
+///
+/// # Errors
+///
+/// Returns [`Error::Bus`] when the CONTROL1 write fails. A failure of
+/// the STATUS read is swallowed, because by then the rail is up.
 pub(crate) async fn enable<I, E>(i2c: &mut I, config: &BmmPsuDescriptor) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
@@ -242,6 +299,14 @@ where
     Ok(())
 }
 
+/// Stop switching, leaving the programmed voltage in place.
+///
+/// Output discharge stays enabled, so the rail is pulled down rather
+/// than left to decay through whatever load is on it.
+///
+/// # Errors
+///
+/// Returns [`Error::Bus`] on any I2C failure.
 pub(crate) async fn disable<I, E>(i2c: &mut I, config: &BmmPsuDescriptor) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
@@ -255,6 +320,15 @@ where
     .map_err(Error::Bus)
 }
 
+/// Command a new output voltage in millivolts.
+///
+/// The range programmed at init fixes what is reachable, and a target
+/// outside it is rejected before the bus is touched.
+///
+/// # Errors
+///
+/// Returns [`Error::OutOfRange`] when `millivolts` does not map to a DAC
+/// code in the configured range, and [`Error::Bus`] on I2C failure.
 pub(crate) async fn set_voltage<I, E>(
     i2c: &mut I,
     config: &BmmPsuDescriptor,
@@ -273,6 +347,14 @@ where
         .map_err(Error::Bus)
 }
 
+/// Read the STATUS register and decode the four shared fault flags.
+///
+/// Reading clears the latched bits, so two calls in a row report
+/// different things and the second is not the healthier answer.
+///
+/// # Errors
+///
+/// Returns [`Error::Bus`] on any I2C failure.
 pub(crate) async fn read_status<I, E>(
     i2c: &mut I,
     config: &BmmPsuDescriptor,
