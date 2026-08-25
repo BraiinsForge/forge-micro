@@ -26,11 +26,14 @@
 //! inner driver. The bus mutex is owned by `main` so other I2C consumers can
 //! take additional `I2cDevice` handles from the same mutex.
 
+use core::cell::RefCell;
+
 use embassy_embedded_hal::shared_bus::I2cDeviceError;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::Output;
 use embassy_rp::i2c::{Async, Error as I2cError, I2c};
 use embassy_rp::peripherals::I2C1;
+use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use static_cell::StaticCell;
@@ -68,7 +71,10 @@ static PSU: StaticCell<BoardPsu> = StaticCell::new();
 /// driver.
 pub struct BoardPsu {
     inner: InnerPsu,
-    sic_enable: Mutex<NoopRawMutex, Output<'static>>,
+    // A blocking mutex, not the async one above: the only operation on
+    // this pin is a synchronous GPIO write, so a lock that can await
+    // would claim a wait that never happens.
+    sic_enable: BlockingMutex<NoopRawMutex, RefCell<Output<'static>>>,
 }
 
 impl Psu for BoardPsu {
@@ -79,12 +85,12 @@ impl Psu for BoardPsu {
         // energising the rail. A read drives the inner lazy init, which
         // writes the limit registers.
         self.inner.read_status().await?;
-        self.sic_enable.lock().await.set_high();
+        self.sic_enable.lock(|pin| pin.borrow_mut().set_high());
         Ok(())
     }
 
     async fn disable(&self) -> Result<(), Error<BusError>> {
-        self.sic_enable.lock().await.set_low();
+        self.sic_enable.lock(|pin| pin.borrow_mut().set_low());
         Ok(())
     }
 
@@ -123,7 +129,7 @@ impl Psu for BoardPsu {
     async fn terminate(&self) {
         // Drop the rail first, then mark the inner driver terminated so the
         // power-stats loop parks.
-        self.sic_enable.lock().await.set_low();
+        self.sic_enable.lock(|pin| pin.borrow_mut().set_low());
         self.inner.terminate().await;
     }
 }
@@ -137,7 +143,7 @@ pub fn init(bus: &'static Bus, sic_enable: Output<'static>) -> &'static BoardPsu
     let inner = BfmPsu::new(shared);
     PSU.init(BoardPsu {
         inner,
-        sic_enable: Mutex::new(sic_enable),
+        sic_enable: BlockingMutex::new(RefCell::new(sic_enable)),
     })
 }
 

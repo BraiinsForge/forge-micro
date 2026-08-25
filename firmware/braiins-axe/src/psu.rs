@@ -28,11 +28,14 @@
 //! owned by `main` so other I2C consumers can take additional
 //! `I2cDevice` handles from the same mutex.
 
+use core::cell::RefCell;
+
 use embassy_embedded_hal::shared_bus::I2cDeviceError;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::{Input, Output};
 use embassy_rp::i2c::{Async, Error as I2cError, I2c};
 use embassy_rp::peripherals::I2C0;
+use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use static_cell::StaticCell;
@@ -69,8 +72,11 @@ const VR_RDY_SETTLE: embassy_time::Duration = embassy_time::Duration::from_milli
 /// signature.
 pub struct BoardPsu {
     inner: InnerPsu,
-    pwr_en: Mutex<NoopRawMutex, Output<'static>>,
-    ldo_en: Mutex<NoopRawMutex, Output<'static>>,
+    // A blocking mutex, not the async one above: the only operation on
+    // either pin is a synchronous GPIO write, so a lock that can await
+    // would claim a wait that never happens.
+    pwr_en: BlockingMutex<NoopRawMutex, RefCell<Output<'static>>>,
+    ldo_en: BlockingMutex<NoopRawMutex, RefCell<Output<'static>>>,
     vr_rdy: Input<'static>,
 }
 
@@ -85,8 +91,8 @@ impl Psu for BoardPsu {
         // Aux rails (0V8/1V2 LDOs) before the core rail, then the
         // ENABLE pin, then the OPERATION on-bit starts the soft-start
         // ramp (ON_OFF_CONFIG requires pin AND OPERATION).
-        self.ldo_en.lock().await.set_high();
-        self.pwr_en.lock().await.set_high();
+        self.ldo_en.lock(|pin| pin.borrow_mut().set_high());
+        self.pwr_en.lock(|pin| pin.borrow_mut().set_high());
         self.inner.enable().await?;
         embassy_time::Timer::after(VR_RDY_SETTLE).await;
         if self.vr_rdy.is_low() {
@@ -99,8 +105,8 @@ impl Psu for BoardPsu {
         // OPERATION off first so the controller ramps down, then drop
         // the enable pin and the aux rails.
         let result = self.inner.disable().await;
-        self.pwr_en.lock().await.set_low();
-        self.ldo_en.lock().await.set_low();
+        self.pwr_en.lock(|pin| pin.borrow_mut().set_low());
+        self.ldo_en.lock(|pin| pin.borrow_mut().set_low());
         result
     }
 
@@ -132,8 +138,8 @@ impl Psu for BoardPsu {
         // Drop the rails first, then mark the inner driver terminated
         // so the power-stats loop parks.
         let _ = self.inner.disable().await;
-        self.pwr_en.lock().await.set_low();
-        self.ldo_en.lock().await.set_low();
+        self.pwr_en.lock(|pin| pin.borrow_mut().set_low());
+        self.ldo_en.lock(|pin| pin.borrow_mut().set_low());
         self.inner.terminate().await;
     }
 }
@@ -153,8 +159,8 @@ pub fn init(
     let inner = BraiinsAxePsu::new(shared);
     PSU.init(BoardPsu {
         inner,
-        pwr_en: Mutex::new(pwr_en),
-        ldo_en: Mutex::new(ldo_en),
+        pwr_en: BlockingMutex::new(RefCell::new(pwr_en)),
+        ldo_en: BlockingMutex::new(RefCell::new(ldo_en)),
         vr_rdy,
     })
 }
