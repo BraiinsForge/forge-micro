@@ -490,6 +490,7 @@ fn main() {
                     buffer,
                     api_service,
                     ubos_api::consts::Api::SOCKET_TIMEOUT,
+                    ubos_api::consts::Api::IDLE_TIMEOUT,
                 )
                 .expect("BUG: api_worker_task token"),
             );
@@ -528,6 +529,7 @@ fn main() {
                     buffer,
                     &WEBUI_SERVICE,
                     ubos_webui::consts::Http::SOCKET_TIMEOUT,
+                    ubos_webui::consts::Http::IDLE_TIMEOUT,
                 )
                 .expect("BUG: webui_worker_task token"),
             );
@@ -566,6 +568,7 @@ fn main() {
                     buffer,
                     &METRICS_SERVICE,
                     ubos_metrics::consts::Metrics::SOCKET_TIMEOUT,
+                    ubos_metrics::consts::Metrics::IDLE_TIMEOUT,
                 )
                 .expect("BUG: metrics_worker_task token"),
             );

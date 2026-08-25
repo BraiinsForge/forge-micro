@@ -40,10 +40,15 @@ impl Api {
     pub const RX_BUFFER_SIZE: usize = 2048;
     pub const TX_BUFFER_SIZE: usize = 2048;
     pub const REQUEST_BUFFER_SIZE: usize = 2048;
-    /// Per-socket inactivity timeout for the REST listener. Held at the base
+    /// Per-socket progress timeout for the REST listener. Held at the base
     /// `Net::SOCKET_TIMEOUT` because an OTA upload streams here and each
     /// flash-write freeze stalls the socket; the timeout resets on progress,
-    /// so a slow link survives as long as bytes keep arriving. The listener
-    /// closes after every response, so keepalive reclaim does not apply.
+    /// so a slow link survives as long as bytes keep arriving.
     pub const SOCKET_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
+    /// Bound on the wait for the request headers. Held at the same base
+    /// value the progress timeout carries, which is what one socket timeout
+    /// gave this listener before the two waits were separated. The listener
+    /// closes after every response, so no connection reaches this bound
+    /// twice.
+    pub const IDLE_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
 }

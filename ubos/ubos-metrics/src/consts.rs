@@ -52,10 +52,15 @@ impl Metrics {
     /// headroom while staying within the rp2040 SRAM ceiling noted on
     /// `RX_BUFFER_SIZE`; 1024 overflowed that board by ~530 bytes.
     pub const REQUEST_BUFFER_SIZE: usize = 512;
-    /// Per-socket inactivity timeout for the scrape listener. The base
-    /// value; a scrape completes in one request and the listener closes, so
-    /// keepalive reclaim does not apply.
+    /// Per-socket progress timeout for the scrape listener. The base
+    /// value; a scrape completes in one request and the listener closes.
     pub const SOCKET_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
+    /// Bound on the wait for the request headers. Held at the same base
+    /// value the progress timeout carries, which is what one socket timeout
+    /// gave this listener before the two waits were separated. The two
+    /// listener macros read one constants type, so this listener declares
+    /// the bound even though a scrape never reaches it twice.
+    pub const IDLE_TIMEOUT: Duration = Net::SOCKET_TIMEOUT;
     pub const CHANNEL_DEPTH: usize = 32;
     /// Maximum number of distinct metric series held in the exposition
     /// map. Must be a power of two (heapless `FnvIndexMap` invariant).

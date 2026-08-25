@@ -34,12 +34,15 @@ impl Http {
     /// POST body alongside headers so the config form fits in a single
     /// read; the route line is parsed from the start of the same buffer.
     pub const REQUEST_BUFFER_SIZE: usize = 2048;
-    /// Per-socket inactivity timeout for the web-UI listener. Short on
+    /// Per-socket progress timeout for the web-UI listener. Short on
     /// purpose: every web-UI response is a small flash-backed asset served
-    /// in milliseconds, and the listener keeps connections alive, so a
-    /// browser that has finished loading the page must free its worker
-    /// quickly rather than pin one of the few pool slots for the full base
-    /// timeout. The timeout resets on each request, so a page's burst of
-    /// asset fetches keeps one connection alive throughout.
+    /// in milliseconds, so nothing here needs the full base timeout to make
+    /// progress.
     pub const SOCKET_TIMEOUT: Duration = Duration::from_secs(3);
+    /// Bound on the wait for the request headers. The listener keeps
+    /// connections alive, so a browser that has finished loading the page
+    /// must free its worker quickly rather than pin one of the few pool
+    /// slots. The bound restarts on each request, so a page's burst of
+    /// asset fetches keeps one connection alive throughout.
+    pub const IDLE_TIMEOUT: Duration = Duration::from_secs(3);
 }

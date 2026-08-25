@@ -30,7 +30,7 @@
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use edge_http::io::Error as HttpError;
-use edge_http::io::server::{Connection, handle_request};
+use edge_http::io::server::Connection;
 use edge_nal::{Close, TcpAccept as _, TcpBind as _, TcpShutdown as _};
 use edge_nal_embassy::{Tcp, TcpAccept};
 use embassy_time::{Duration, with_timeout};
@@ -45,12 +45,8 @@ use edge_nal::TcpSplit;
 /// browsers without inflating the per-connection stack frame.
 const MAX_HEADERS: usize = 16;
 
-/// Logging task identifier passed to `edge_http::io::server::handle_request`.
-///
-/// All concurrent accept-loop workers share this identifier; edge-http
-/// uses it only for log line tagging, so a single fixed value is
-/// sufficient.
-const TASK_ID: usize = 0;
+/// Body of the 500 response written when a handler returns an error.
+const INTERNAL_ERROR_BODY: &str = "INTERNAL ERROR";
 
 /// Application-level handler for a single edge-http connection.
 ///
@@ -114,7 +110,7 @@ pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'stati
 /// One accept-loop worker, suitable for use as an embassy task body.
 ///
 /// Loops forever: accepts one TCP connection, then serves requests on it
-/// until the handler asks to close, the peer goes idle past the socket
+/// until the handler asks to close, the peer goes idle past the idle
 /// timeout, or a protocol error occurs, then loops back to accept. A
 /// response that sends `Connection: close` ends the connection after one
 /// request; a response that omits it keeps the connection alive for the
@@ -131,19 +127,22 @@ pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'stati
 /// `#[embassy_executor::task]` wrappers that call this function.
 ///
 /// The exchange is driven here rather than via edge-http's
-/// `handle_connection` so the worker can install the caller-provided
-/// `socket_timeout` via `set_timeout`. That single inactivity timeout
-/// reclaims a connection that opens but never sends a request, one that
-/// stalls mid-exchange, and a kept-alive connection the peer leaves idle,
-/// while still allowing an actively-streaming upload to run as long as it
-/// keeps making progress. Listeners tune it per port: short on the web UI
-/// so a kept-alive browser socket frees its worker quickly, longer on the
-/// REST API so an OTA upload tolerates a slow link.
+/// `handle_connection` so the worker can bound each of its two waits
+/// separately. `socket_timeout` is installed via `set_timeout` and bounds
+/// progress: it reclaims a connection that stalls mid-exchange while
+/// still allowing an actively-streaming upload to run as long as bytes
+/// keep arriving. `idle_timeout` bounds the wait for the request headers,
+/// so a connection that opens and sends nothing, and a kept-alive
+/// connection the peer leaves idle, both free their worker on the shorter
+/// value. One timeout cannot do both jobs: the value that frees an
+/// abandoned browser socket quickly is shorter than the value an upload
+/// needs to survive a flash-write freeze.
 pub async fn serve_worker<S>(
     acceptor: TcpAccept<'static>,
     parse_buffer: &'static mut [u8],
     service: &'static S,
     socket_timeout: Duration,
+    idle_timeout: Duration,
 ) -> !
 where
     S: Service,
@@ -157,25 +156,22 @@ where
             }
         };
 
-        // Install the per-listener timeout so smoltcp reaps a stalled peer
-        // while letting an OTA upload stream as long as it keeps making
-        // progress. On a kept-alive connection it also bounds the wait for
-        // the next request, so an idle web-UI socket frees its worker after
-        // the web UI's short timeout rather than the base ten seconds.
+        // Install the per-listener progress timeout so smoltcp reaps a
+        // stalled peer while letting an OTA upload stream as long as it
+        // keeps making progress.
         socket.set_timeout(Some(socket_timeout));
-
-        let handler = AdaptedHandler::new(service, peer_addr.ip());
 
         // Serve requests on this connection until one asks to close. The
         // REST and metrics handlers always send `Connection: close`, so
         // `needs_close` is true after their first response; the web UI omits
         // it, so its connection is reused for the next request.
         loop {
-            match handle_request::<_, _, MAX_HEADERS>(
+            match serve_one(
                 &mut *parse_buffer,
                 &mut socket,
-                TASK_ID,
-                &handler,
+                service,
+                peer_addr.ip(),
+                idle_timeout,
             )
             .await
             {
@@ -189,10 +185,10 @@ where
                     let _ = with_timeout(socket_timeout, socket.close(Close::Both)).await;
                     break;
                 }
-                // A protocol error, or a kept-alive connection the peer left
-                // idle past the timeout, is reset: a graceful close would
-                // itself block draining toward an unresponsive peer.
-                Err(_) => {
+                // A protocol error, or a connection the peer left idle past
+                // the idle timeout, is reset: a graceful close would itself
+                // block draining toward an unresponsive peer.
+                Err(Ended) => {
                     let _ = socket.abort().await;
                     break;
                 }
@@ -201,43 +197,58 @@ where
     }
 }
 
-/// Adapts `Service` to the `edge_http::io::server::Handler` trait.
+/// The connection is over and the worker must reset the socket.
 ///
-/// One `AdaptedHandler` is constructed per accepted connection. It
-/// captures the peer IP extracted from the accept call and forwards it
-/// to `Service::handle` alongside the edge-http `Connection`.
-struct AdaptedHandler<'svc, S> {
-    service: &'svc S,
+/// One type covers every way a request can end the connection: the idle
+/// bound expires, the request does not parse, or the response cannot be
+/// written. The worker takes the same path for all three, so it needs no
+/// detail beyond the fact.
+struct Ended;
+
+/// Serve one request on `socket` and report whether the response asked to
+/// close the connection.
+///
+/// This is `edge_http::io::server::handle_request` unrolled, so that the
+/// wait for the request headers can carry `idle_timeout` on its own while
+/// the exchange that follows keeps only the socket timeout the caller
+/// installed. `handle_request` runs both steps in one call and therefore
+/// cannot bound the first alone.
+///
+/// # Errors
+///
+/// Returns `Ended` when the idle bound expires, when the request does not
+/// parse, or when the response cannot be written to the socket.
+async fn serve_one<S, T>(
+    parse_buffer: &mut [u8],
+    socket: T,
+    service: &S,
     peer_ip: IpAddr,
-}
-
-impl<'svc, S> AdaptedHandler<'svc, S> {
-    /// Wrap `service` for one accepted connection, capturing the peer IP
-    /// to forward to `Service::handle`.
-    fn new(service: &'svc S, peer_ip: IpAddr) -> Self {
-        Self { service, peer_ip }
-    }
-}
-
-impl<S> edge_http::io::server::Handler for AdaptedHandler<'_, S>
+    idle_timeout: Duration,
+) -> Result<bool, Ended>
 where
     S: Service,
+    T: Read + Write + TcpSplit,
 {
-    type Error<E>
-        = HttpError<E>
-    where
-        E: core::fmt::Debug;
+    // The idle bound expired, or the request did not parse. The
+    // connection is over either way and the caller resets the socket.
+    let Ok(Ok(mut connection)) = with_timeout(
+        idle_timeout,
+        Connection::<_, MAX_HEADERS>::new(parse_buffer, socket),
+    )
+    .await
+    else {
+        return Err(Ended);
+    };
 
-    async fn handle<T, const N: usize>(
-        &self,
-        _task_id: impl core::fmt::Display + Copy,
-        connection: &mut Connection<'_, T, N>,
-    ) -> Result<(), Self::Error<T::Error>>
-    where
-        T: Read + Write + TcpSplit,
-    {
-        self.service.handle(self.peer_ip, connection).await
+    // A handler error still owes the client a response, so write the 500
+    // rather than dropping the socket with nothing on it.
+    match service.handle(peer_ip, &mut connection).await {
+        Ok(()) => connection.complete().await,
+        Err(_) => connection.complete_err(INTERNAL_ERROR_BODY).await,
     }
+    .map_err(|_| Ended)?;
+
+    Ok(connection.needs_close())
 }
 
 /// Split a `'static mut` byte slice into `N` equal `'static mut` chunks.
@@ -296,7 +307,9 @@ pub fn split_work_buffer<const N: usize>(
 /// // Then in async main:
 /// for chunk in work_chunks {
 ///     spawner.spawn(unwrap!(webui_worker_task(
-///         acceptor, chunk, service, ubos_webui::consts::Http::SOCKET_TIMEOUT,
+///         acceptor, chunk, service,
+///         ubos_webui::consts::Http::SOCKET_TIMEOUT,
+///         ubos_webui::consts::Http::IDLE_TIMEOUT,
 ///     )));
 /// }
 /// ```
@@ -309,8 +322,16 @@ macro_rules! http_worker_task {
             parse_buffer: &'static mut [u8],
             service: &'static $service_type,
             socket_timeout: $crate::Duration,
+            idle_timeout: $crate::Duration,
         ) -> ! {
-            $crate::serve::serve_worker(acceptor, parse_buffer, service, socket_timeout).await
+            $crate::serve::serve_worker(
+                acceptor,
+                parse_buffer,
+                service,
+                socket_timeout,
+                idle_timeout,
+            )
+            .await
         }
     };
 }
@@ -329,8 +350,8 @@ macro_rules! http_worker_task {
 /// [`http_worker_task!`]). `service` is a `&'static` reference to the
 /// listener's [`Service`] handler; `consts_path` is a type path exposing
 /// the `TX_BUFFER_SIZE`, `RX_BUFFER_SIZE`, `REQUEST_BUFFER_SIZE`,
-/// `SOCKET_TIMEOUT`, and `PORT` associated constants, such as
-/// `ubos_webui::consts::Http`.
+/// `SOCKET_TIMEOUT`, `IDLE_TIMEOUT`, and `PORT` associated constants,
+/// such as `ubos_webui::consts::Http`.
 ///
 /// Each invocation expands to its own block, so the fixed static names do
 /// not collide when several listeners are set up in one function. The
@@ -385,14 +406,16 @@ macro_rules! serve_http_pool {
         for buffer in buffers {
             $crate::serve_http_pool!(
                 @spawn $mode; $spawner, $worker, acceptor, buffer, $service,
-                <$consts>::SOCKET_TIMEOUT
+                <$consts>::SOCKET_TIMEOUT, <$consts>::IDLE_TIMEOUT
             );
         }
     }};
-    (@spawn spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr, $timeout:expr) => {
-        $spawner.spawn(::defmt::unwrap!($worker($acceptor, $buffer, $service, $timeout)))
+    (@spawn spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr, $timeout:expr, $idle:expr) => {
+        $spawner.spawn(::defmt::unwrap!($worker(
+            $acceptor, $buffer, $service, $timeout, $idle
+        )))
     };
-    (@spawn must_spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr, $timeout:expr) => {
-        $spawner.must_spawn($worker($acceptor, $buffer, $service, $timeout))
+    (@spawn must_spawn; $spawner:expr, $worker:ident, $acceptor:expr, $buffer:expr, $service:expr, $timeout:expr, $idle:expr) => {
+        $spawner.must_spawn($worker($acceptor, $buffer, $service, $timeout, $idle))
     };
 }
