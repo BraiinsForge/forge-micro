@@ -31,9 +31,8 @@
 use embedded_io_async::{Read, Write};
 use ii_sv2::framing::{FrameCodec, FrameView, Header, MessageGroup};
 use ii_sv2::messages::{
-    DeviceInfo, MiningMessages, NewMiningJob, OpenStandardMiningChannel,
-    OpenStandardMiningChannelSuccess, SetNewPrevHash, SetTarget, SetupConnection,
-    SetupConnectionSuccess, SubmitSharesError, SubmitSharesStandard, SubmitSharesSuccess,
+    DeviceInfo, MiningMessages, OpenStandardMiningChannel, SetupConnection, SetupConnectionSuccess,
+    SubmitSharesError, SubmitSharesStandard, SubmitSharesSuccess,
 };
 use ii_sv2::security::{
     CryptoCtx, EncryptedCodec, EstablishedSession, PublicKey, Rng, ValidateNothing,
@@ -41,14 +40,14 @@ use ii_sv2::security::{
 };
 use ii_sv2::types::{Str0_255, Uint256};
 use mining_protocol::{
-    BIP320_VERSION_MASK, Error, LazyMerkle, MiningClient, MiningClientVisitor, MiningJob,
-    SessionRejection, SessionUpdate, Share, SubmitResult,
+    BIP320_VERSION_MASK, Error, MiningClient, MiningClientVisitor, SessionRejection, SessionUpdate,
+    Share, SubmitResult,
 };
 use ubos_logging::{info, warn};
 
 use crate::auth::AuthChoice;
 use crate::config::Sv2Config;
-use crate::state::{MAX_EXTRANONCE_PREFIX, PendingFutureJob, V2SessionState};
+use crate::state::{MAX_EXTRANONCE_PREFIX, V2SessionState};
 
 /// AEAD MAC bytes appended to each encrypted chunk.
 const MAC_BYTES: usize = 16;
@@ -600,17 +599,17 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                     );
                     self.state = V2State::Rejected(SessionRejection::ExtranonceTooLarge);
                 } else {
-                    handle_channel_open_success(session, &success, visitor);
+                    session.handle_channel_open_success(&success, visitor);
                 }
             }
             MiningMessages::SetTarget(set_target) => {
-                handle_set_target(session, &set_target, visitor);
+                session.handle_set_target(&set_target, visitor);
             }
             MiningMessages::SetNewPrevHash(snph) => {
-                handle_set_new_prev_hash(session, &snph, visitor);
+                session.handle_set_new_prev_hash(&snph, visitor);
             }
             MiningMessages::NewMiningJob(job) => {
-                handle_new_mining_job(session, &job, visitor);
+                session.handle_new_mining_job(&job, visitor);
             }
             MiningMessages::SubmitSharesSuccess(success) => {
                 handle_submit_success(&success, visitor);
@@ -625,204 +624,6 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
             | MiningMessages::SubmitSharesStandard(_) => {}
         }
     }
-}
-
-/// `OpenStandardMiningChannelSuccess` carries the operating
-/// `channel_id`, the initial `target`, and the `extranonce_prefix`
-/// the standard channel will use. All three are persisted on
-/// `session`; the visitor then sees `SetTarget` and `SetExtranonce`
-/// updates so the integration layer can stamp them into the next
-/// `MiningJob`.
-fn handle_channel_open_success<V: MiningClientVisitor>(
-    session: &mut V2SessionState,
-    success: &OpenStandardMiningChannelSuccess<'_>,
-    visitor: &mut V,
-) {
-    session.channel_id = Some(success.channel_id);
-    session.target.copy_from_slice(success.target.to_le_bytes());
-    let prefix = success.extranonce_prefix.as_slice();
-    // The accept-side validation rejects the session if
-    // `prefix.len() > MAX_EXTRANONCE_PREFIX`, so this fits exactly.
-    let prefix_len = prefix.len();
-    debug_assert!(prefix_len <= MAX_EXTRANONCE_PREFIX);
-    session.extranonce_prefix_len = prefix_len;
-    session.extranonce_prefix[..prefix_len].copy_from_slice(prefix);
-    {
-        let target_hex = mining_protocol::hex::encode_block_hash_lower(&session.target);
-        let diff = mining_protocol::difficulty::approx_string(&session.target);
-        let mut prefix_hex = [0u8; MAX_EXTRANONCE_PREFIX * 2];
-        let prefix_hex_len = prefix_len * 2;
-        let prefix_hex_ok = mining_protocol::hex::encode_lower_to_slice(
-            &session.extranonce_prefix[..prefix_len],
-            &mut prefix_hex[..prefix_hex_len],
-        );
-        debug_assert!(prefix_hex_ok);
-        info!(
-            "stratum-v2: channel-open-success channel={} prefix={} \
-             target={}... diff={}",
-            success.channel_id,
-            core::str::from_utf8(&prefix_hex[..prefix_hex_len]).expect("hex encoder emits ASCII"),
-            core::str::from_utf8(&target_hex[..32]).expect("hex encoder emits ASCII"),
-            diff.as_str(),
-        );
-    }
-    visitor.visit_session_update(SessionUpdate::SetTarget(&session.target));
-    visitor.visit_session_update(SessionUpdate::SetExtranonce {
-        prefix: &session.extranonce_prefix[..session.extranonce_prefix_len],
-        en2_size: 0,
-    });
-}
-
-/// Mid-session `SetTarget` overwrites the channel target.
-fn handle_set_target<V: MiningClientVisitor>(
-    session: &mut V2SessionState,
-    set_target: &SetTarget<'_>,
-    visitor: &mut V,
-) {
-    session
-        .target
-        .copy_from_slice(set_target.max_target.to_le_bytes());
-    {
-        let target_hex = mining_protocol::hex::encode_block_hash_lower(&session.target);
-        let diff = mining_protocol::difficulty::approx_string(&session.target);
-        info!(
-            "stratum-v2: set-target channel={} target={}... diff={}",
-            set_target.channel_id,
-            core::str::from_utf8(&target_hex[..32]).expect("hex encoder emits ASCII"),
-            diff.as_str(),
-        );
-    }
-    visitor.visit_session_update(SessionUpdate::SetTarget(&session.target));
-}
-
-/// `SetNewPrevHash` advances the chain tip. It records the new
-/// `prev_hash`, `nbits`, and `min_ntime` base, then activates any
-/// pending future job whose wire `job_id` matches.
-fn handle_set_new_prev_hash<V: MiningClientVisitor>(
-    session: &mut V2SessionState,
-    snph: &SetNewPrevHash<'_>,
-    visitor: &mut V,
-) {
-    session
-        .prev_hash
-        .copy_from_slice(snph.prev_hash.to_le_bytes());
-    session.have_prev_hash = true;
-    session.nbits = snph.nbits;
-    session.ntime_base = snph.min_ntime;
-    {
-        let prev_hex = mining_protocol::hex::encode_block_hash_lower(&session.prev_hash);
-        info!(
-            "stratum-v2: set-new-prev-hash channel={} job={} \
-             nbits={:#010x} ntime={:#010x} prev_hash={}",
-            snph.channel_id,
-            snph.job_id,
-            snph.nbits,
-            snph.min_ntime,
-            core::str::from_utf8(&prev_hex).expect("hex encoder emits ASCII"),
-        );
-    }
-
-    let Some(pending) = session.pending_future_job.take() else {
-        return;
-    };
-    if pending.wire_job_id != snph.job_id {
-        // Future job was for a different job_id — drop it; the
-        // pool will resend if it still applies.
-        warn!(
-            "stratum-v2: pending future job dropped, job_id mismatch \
-             (pending={}, snph={})",
-            pending.wire_job_id, snph.job_id,
-        );
-        return;
-    }
-    emit_mining_job(
-        session,
-        pending.wire_job_id,
-        pending.version,
-        &pending.merkle_root,
-        snph.min_ntime,
-        true,
-        visitor,
-    );
-}
-
-/// `NewMiningJob` either activates immediately (when `min_ntime` is
-/// `Some`, meaning the job applies to the current `prev_hash`) or
-/// is queued as a pending future job (when `min_ntime` is `None`,
-/// meaning it activates with a later `SetNewPrevHash`).
-fn handle_new_mining_job<V: MiningClientVisitor>(
-    session: &mut V2SessionState,
-    job: &NewMiningJob<'_>,
-    visitor: &mut V,
-) {
-    if let Some(ntime) = job.min_ntime {
-        if !session.have_prev_hash {
-            // Pool sent an active job before any prev hash — drop;
-            // the next `SetNewPrevHash` will reset state.
-            warn!(
-                "stratum-v2: new-mining-job dropped, no prev_hash yet (job={})",
-                job.job_id,
-            );
-            return;
-        }
-        info!(
-            "stratum-v2: new-mining-job channel={} job={} \
-             version={:#010x} ntime={:#010x}",
-            job.channel_id, job.job_id, job.version, ntime,
-        );
-        emit_mining_job(
-            session,
-            job.job_id,
-            job.version,
-            job.merkle_root.to_le_bytes(),
-            ntime,
-            false,
-            visitor,
-        );
-        return;
-    }
-
-    let mut merkle_root = [0u8; 32];
-    merkle_root.copy_from_slice(job.merkle_root.to_le_bytes());
-    info!(
-        "stratum-v2: new-mining-job pending channel={} job={} version={:#010x}",
-        job.channel_id, job.job_id, job.version,
-    );
-    session.pending_future_job = Some(PendingFutureJob {
-        wire_job_id: job.job_id,
-        version: job.version,
-        merkle_root,
-    });
-}
-
-/// Allocate a `JobId`, build the canonical `MiningJob`, and hand it
-/// to `visitor`. The `merkle_root` borrow can come from either the
-/// wire buffer (immediate `NewMiningJob`) or the pending-future
-/// slot — either is valid for the duration of the visitor call.
-fn emit_mining_job<V: MiningClientVisitor>(
-    session: &mut V2SessionState,
-    wire_job_id: u32,
-    version: u32,
-    merkle_root: &[u8; 32],
-    ntime: u32,
-    clean_jobs: bool,
-    visitor: &mut V,
-) {
-    let job_id = session.allocate_job_id(wire_job_id, version);
-    let mining_job = MiningJob {
-        id: job_id,
-        prev_hash: &session.prev_hash,
-        target: &session.target,
-        version,
-        nbits: session.nbits,
-        ntime,
-        clean_jobs,
-        // V2 standard channels do not carry `extranonce_2` —
-        // every share rolls only the nonce/ntime/version bits.
-        extranonce_2_size: 0,
-        merkle: LazyMerkle::Final(merkle_root),
-    };
-    visitor.visit_new_job(mining_job);
 }
 
 /// `SubmitSharesSuccess` covers one or more accepted shares; the

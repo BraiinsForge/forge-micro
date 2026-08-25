@@ -27,7 +27,10 @@
 //! `&[u8]` for the `MiningJob` and `SessionUpdate` slices the
 //! visitor receives.
 
+use ii_sv2::messages::{NewMiningJob, OpenStandardMiningChannelSuccess, SetNewPrevHash, SetTarget};
 use mining_protocol::JobId;
+use mining_protocol::{LazyMerkle, MiningClientVisitor, MiningJob, SessionUpdate};
+use ubos_logging::{info, warn};
 
 #[cfg(test)]
 #[path = "tests/state.rs"]
@@ -72,49 +75,243 @@ pub struct V2SessionState {
     /// `channel_id` from `OpenStandardMiningChannelSuccess`. `None`
     /// until the channel-open response arrives. `submit` errors
     /// with `Adapter` while this is `None`.
-    pub channel_id: Option<u32>,
+    pub(crate) channel_id: Option<u32>,
     /// Previous-block hash from the most recent `SetNewPrevHash`,
     /// in block-header byte order.
-    pub prev_hash: [u8; 32],
+    pub(crate) prev_hash: [u8; 32],
     /// Whether `prev_hash` has been populated. The first
     /// `NewMiningJob` cannot be emitted until `SetNewPrevHash` has
     /// supplied this.
-    pub have_prev_hash: bool,
+    pub(crate) have_prev_hash: bool,
     /// Most-recent share target, 256-bit little-endian. Initialised
     /// from `OpenStandardMiningChannelSuccess.target`; `SetTarget`
     /// overwrites.
-    pub target: [u8; 32],
+    pub(crate) target: [u8; 32],
     /// `extranonce_prefix` from the channel-open success. Up to
     /// `MAX_EXTRANONCE_PREFIX` bytes; valid through
     /// `extranonce_prefix_len`.
-    pub extranonce_prefix: [u8; MAX_EXTRANONCE_PREFIX],
-    pub extranonce_prefix_len: usize,
+    pub(crate) extranonce_prefix: [u8; MAX_EXTRANONCE_PREFIX],
+    pub(crate) extranonce_prefix_len: usize,
     /// `nbits` from the most-recent `SetNewPrevHash`.
-    pub nbits: u32,
+    pub(crate) nbits: u32,
     /// `min_ntime` from the most-recent `SetNewPrevHash` — the
     /// pool-supplied ntime base. Stored for the work generator
     /// after the `JobId`-to-wire-id ring lands with V2 submit.
     #[allow(dead_code)]
-    pub ntime_base: u32,
+    pub(crate) ntime_base: u32,
     /// `JobId` counter; increments on each `visit_new_job`.
-    pub next_job_id: u32,
+    pub(crate) next_job_id: u32,
     /// Per-channel `sequence_number` for outbound
     /// `SubmitSharesStandard`. The pool echoes the highest seen
     /// value back in `SubmitSharesSuccess.last_sequence_number`.
-    pub next_sequence_number: u32,
+    pub(crate) next_sequence_number: u32,
     /// Depth-`JOBID_MAP_DEPTH` ring mapping `JobId` to the V2
     /// wire u32 `job_id`. Rotates in lockstep with
     /// `stratum-client`'s `JobRing`. Submit looks up the wire id
     /// to populate `SubmitSharesStandard.job_id`.
-    pub job_id_ring: [Option<JobIdSlot>; JOBID_MAP_DEPTH],
-    pub job_id_write_index: usize,
+    pub(crate) job_id_ring: [Option<JobIdSlot>; JOBID_MAP_DEPTH],
+    pub(crate) job_id_write_index: usize,
     /// Pending future `NewMiningJob` (received with
     /// `min_ntime: None`) waiting for a matching `SetNewPrevHash`
     /// to activate it.
-    pub pending_future_job: Option<PendingFutureJob>,
+    pub(crate) pending_future_job: Option<PendingFutureJob>,
 }
 
 impl V2SessionState {
+    /// `OpenStandardMiningChannelSuccess` carries the operating
+    /// `channel_id`, the initial `target`, and the `extranonce_prefix`
+    /// the standard channel will use. All three are persisted on
+    /// `session`; the visitor then sees `SetTarget` and `SetExtranonce`
+    /// updates so the integration layer can stamp them into the next
+    /// `MiningJob`.
+    pub(crate) fn handle_channel_open_success<V: MiningClientVisitor>(
+        &mut self,
+        success: &OpenStandardMiningChannelSuccess<'_>,
+        visitor: &mut V,
+    ) {
+        self.channel_id = Some(success.channel_id);
+        self.target.copy_from_slice(success.target.to_le_bytes());
+        let prefix = success.extranonce_prefix.as_slice();
+        // The accept-side validation rejects the session if
+        // `prefix.len() > MAX_EXTRANONCE_PREFIX`, so this fits exactly.
+        let prefix_len = prefix.len();
+        debug_assert!(prefix_len <= MAX_EXTRANONCE_PREFIX);
+        self.extranonce_prefix_len = prefix_len;
+        self.extranonce_prefix[..prefix_len].copy_from_slice(prefix);
+        {
+            let target_hex = mining_protocol::hex::encode_block_hash_lower(&self.target);
+            let diff = mining_protocol::difficulty::approx_string(&self.target);
+            let mut prefix_hex = [0u8; MAX_EXTRANONCE_PREFIX * 2];
+            let prefix_hex_len = prefix_len * 2;
+            let prefix_hex_ok = mining_protocol::hex::encode_lower_to_slice(
+                &self.extranonce_prefix[..prefix_len],
+                &mut prefix_hex[..prefix_hex_len],
+            );
+            debug_assert!(prefix_hex_ok);
+            info!(
+                "stratum-v2: channel-open-success channel={} prefix={} \
+                 target={}... diff={}",
+                success.channel_id,
+                core::str::from_utf8(&prefix_hex[..prefix_hex_len])
+                    .expect("hex encoder emits ASCII"),
+                core::str::from_utf8(&target_hex[..32]).expect("hex encoder emits ASCII"),
+                diff.as_str(),
+            );
+        }
+        visitor.visit_session_update(SessionUpdate::SetTarget(&self.target));
+        visitor.visit_session_update(SessionUpdate::SetExtranonce {
+            prefix: &self.extranonce_prefix[..self.extranonce_prefix_len],
+            en2_size: 0,
+        });
+    }
+
+    /// Mid-session `SetTarget` overwrites the channel target.
+    pub(crate) fn handle_set_target<V: MiningClientVisitor>(
+        &mut self,
+        set_target: &SetTarget<'_>,
+        visitor: &mut V,
+    ) {
+        self.target
+            .copy_from_slice(set_target.max_target.to_le_bytes());
+        {
+            let target_hex = mining_protocol::hex::encode_block_hash_lower(&self.target);
+            let diff = mining_protocol::difficulty::approx_string(&self.target);
+            info!(
+                "stratum-v2: set-target channel={} target={}... diff={}",
+                set_target.channel_id,
+                core::str::from_utf8(&target_hex[..32]).expect("hex encoder emits ASCII"),
+                diff.as_str(),
+            );
+        }
+        visitor.visit_session_update(SessionUpdate::SetTarget(&self.target));
+    }
+
+    /// `SetNewPrevHash` advances the chain tip. It records the new
+    /// `prev_hash`, `nbits`, and `min_ntime` base, then activates any
+    /// pending future job whose wire `job_id` matches.
+    pub(crate) fn handle_set_new_prev_hash<V: MiningClientVisitor>(
+        &mut self,
+        snph: &SetNewPrevHash<'_>,
+        visitor: &mut V,
+    ) {
+        self.prev_hash.copy_from_slice(snph.prev_hash.to_le_bytes());
+        self.have_prev_hash = true;
+        self.nbits = snph.nbits;
+        self.ntime_base = snph.min_ntime;
+        {
+            let prev_hex = mining_protocol::hex::encode_block_hash_lower(&self.prev_hash);
+            info!(
+                "stratum-v2: set-new-prev-hash channel={} job={} \
+                 nbits={:#010x} ntime={:#010x} prev_hash={}",
+                snph.channel_id,
+                snph.job_id,
+                snph.nbits,
+                snph.min_ntime,
+                core::str::from_utf8(&prev_hex).expect("hex encoder emits ASCII"),
+            );
+        }
+
+        let Some(pending) = self.pending_future_job.take() else {
+            return;
+        };
+        if pending.wire_job_id != snph.job_id {
+            // Future job was for a different job_id — drop it; the
+            // pool will resend if it still applies.
+            warn!(
+                "stratum-v2: pending future job dropped, job_id mismatch \
+                 (pending={}, snph={})",
+                pending.wire_job_id, snph.job_id,
+            );
+            return;
+        }
+        self.emit_mining_job(
+            pending.wire_job_id,
+            pending.version,
+            &pending.merkle_root,
+            snph.min_ntime,
+            true,
+            visitor,
+        );
+    }
+
+    /// `NewMiningJob` either activates immediately (when `min_ntime` is
+    /// `Some`, meaning the job applies to the current `prev_hash`) or
+    /// is queued as a pending future job (when `min_ntime` is `None`,
+    /// meaning it activates with a later `SetNewPrevHash`).
+    pub(crate) fn handle_new_mining_job<V: MiningClientVisitor>(
+        &mut self,
+        job: &NewMiningJob<'_>,
+        visitor: &mut V,
+    ) {
+        if let Some(ntime) = job.min_ntime {
+            if !self.have_prev_hash {
+                // Pool sent an active job before any prev hash — drop;
+                // the next `SetNewPrevHash` will reset state.
+                warn!(
+                    "stratum-v2: new-mining-job dropped, no prev_hash yet (job={})",
+                    job.job_id,
+                );
+                return;
+            }
+            info!(
+                "stratum-v2: new-mining-job channel={} job={} \
+                 version={:#010x} ntime={:#010x}",
+                job.channel_id, job.job_id, job.version, ntime,
+            );
+            self.emit_mining_job(
+                job.job_id,
+                job.version,
+                job.merkle_root.to_le_bytes(),
+                ntime,
+                false,
+                visitor,
+            );
+            return;
+        }
+
+        let mut merkle_root = [0u8; 32];
+        merkle_root.copy_from_slice(job.merkle_root.to_le_bytes());
+        info!(
+            "stratum-v2: new-mining-job pending channel={} job={} version={:#010x}",
+            job.channel_id, job.job_id, job.version,
+        );
+        self.pending_future_job = Some(PendingFutureJob {
+            wire_job_id: job.job_id,
+            version: job.version,
+            merkle_root,
+        });
+    }
+
+    /// Allocate a `JobId`, build the canonical `MiningJob`, and hand it
+    /// to `visitor`. The `merkle_root` borrow can come from either the
+    /// wire buffer (immediate `NewMiningJob`) or the pending-future
+    /// slot — either is valid for the duration of the visitor call.
+    pub(crate) fn emit_mining_job<V: MiningClientVisitor>(
+        &mut self,
+        wire_job_id: u32,
+        version: u32,
+        merkle_root: &[u8; 32],
+        ntime: u32,
+        clean_jobs: bool,
+        visitor: &mut V,
+    ) {
+        let job_id = self.allocate_job_id(wire_job_id, version);
+        let mining_job = MiningJob {
+            id: job_id,
+            prev_hash: &self.prev_hash,
+            target: &self.target,
+            version,
+            nbits: self.nbits,
+            ntime,
+            clean_jobs,
+            // V2 standard channels do not carry `extranonce_2` —
+            // every share rolls only the nonce/ntime/version bits.
+            extranonce_2_size: 0,
+            merkle: LazyMerkle::Final(merkle_root),
+        };
+        visitor.visit_new_job(mining_job);
+    }
+
     #[must_use]
     pub const fn new() -> Self {
         Self {
