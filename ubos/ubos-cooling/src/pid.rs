@@ -19,10 +19,10 @@
 
 //! PID controller and thermal-target wrapper.
 //!
-//! Port of BOS `pid_control::PIDController` and
-//! `bosminer-hal::fan::pid::TempControl` to f32 on `no_std`. Only the
-//! `OnErrorWithSmoothing` derivative mode is kept: it is the only one
-//! used by the BOS hashboard profile this crate carries forward.
+//! Port of the BOS PID controller and its temperature-target wrapper to
+//! f32 on `no_std`. Only the `OnErrorWithSmoothing` derivative mode is
+//! kept: it is the only one used by the BOS hashboard profile this
+//! crate carries forward.
 
 use ubos_config::CoolingConfig;
 
@@ -77,9 +77,9 @@ impl<const CAP: usize> Default for RingBuffer<CAP> {
 
 /// PID controller with optional exponentially-smoothed derivative.
 ///
-/// Ported from BOS `pid_control::PIDController`. Only the
-/// `OnErrorWithSmoothing` derivative mode is kept: it is the only mode
-/// used by the BOS hashboard profile this crate carries forward.
+/// Ported from the BOS PID controller. Only the `OnErrorWithSmoothing`
+/// derivative mode is kept: it is the only mode used by the BOS
+/// hashboard profile this crate carries forward.
 /// Frozen integral runs at 15% gain to suppress quantization noise
 /// once the system has settled, matching the BOS implementation.
 pub(crate) struct PidController {
@@ -88,9 +88,9 @@ pub(crate) struct PidController {
     d_gain: f32,
     /// `exp(ln(0.5) / smoother_half_decay_secs)`, the per-tick decay
     /// factor for the exponential smoother. Pre-computed at construction
-    /// because `libm::expf` / `libm::logf` are not const fn. Matches BOS
-    /// `pid_control` numerics in the nominal `delta_t == 1 s` case the
-    /// cooling loop drives.
+    /// because `libm::expf` / `libm::logf` are not const fn. Matches the
+    /// BOS numerics in the nominal `delta_t == 1 s` case the cooling
+    /// loop drives.
     decay_lambda: f32,
     out_min: f32,
     out_max: f32,
@@ -187,7 +187,7 @@ impl PidController {
 ///
 /// Wraps `PidController` with a target setpoint, a stability detector
 /// (the ring buffer), and integer-percent output clamping. Mirrors the
-/// BOS `bosminer-hal::fan::pid::TempControl` single-input case.
+/// BOS temperature-target controller in its single-input case.
 pub struct TempControl {
     pid: PidController,
     history: RingBuffer<{ Self::HISTORY_SIZE }>,

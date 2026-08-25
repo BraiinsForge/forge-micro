@@ -20,8 +20,7 @@
 //! hwmon-based fan controller. Drives PID-modulated PWM via
 //! `ubos_cooling::run_cooling` fed by the BMM101 LM75A array.
 //!
-//! Ported from `bosminer-fan::hwmon::HwmonFanPwm` and
-//! `bosminer-hal::sysfs::hwmon_fan::FanHwmonController`. The kernel
+//! Ported from the BOS hwmon fan controller. The kernel
 //! `pwm-fan` driver wraps a raw PWM with an hwmon device, so there is
 //! no `pwmchipN/export` dance: each fan exposes a single 0..255
 //! `pwm1` attribute and the controller just walks
