@@ -114,9 +114,8 @@ pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'stati
 /// timeout, or a protocol error occurs, then loops back to accept. A
 /// response that sends `Connection: close` ends the connection after one
 /// request; a response that omits it keeps the connection alive for the
-/// next request. The REST and metrics handlers always close, so only the
-/// web UI reuses a connection across the burst of asset requests a browser
-/// issues per page load.
+/// next request. Only the metrics handler closes, so a browser reuses one
+/// connection across the page assets and the polls that follow them.
 ///
 /// The `acceptor` is `Copy` so each spawned task holds its own copy and
 /// all workers compete on the same bound port. `parse_buffer` is the
@@ -162,9 +161,10 @@ where
         socket.set_timeout(Some(socket_timeout));
 
         // Serve requests on this connection until one asks to close. The
-        // REST and metrics handlers always send `Connection: close`, so
-        // `needs_close` is true after their first response; the web UI omits
-        // it, so its connection is reused for the next request.
+        // metrics handler always sends `Connection: close`, so
+        // `needs_close` is true after its first response; the merged web
+        // UI and REST listener omits it, so its connection is reused for
+        // the next request.
         loop {
             match serve_one(
                 &mut *parse_buffer,
@@ -296,20 +296,24 @@ pub fn split_work_buffer<const N: usize>(
 /// Expands to an `#[embassy_executor::task(pool_size = POOL_CONST)]`
 /// async function named `task_name` that calls `serve_worker` with the
 /// given service type. `POOL_CONST` may be any `const` expression,
-/// including a path such as `config::Board::WEBUI_HTTP_POOL`.
+/// including a path such as `config::MACHINE.control_board.http_pool`.
 ///
 /// # Example
 ///
 /// ```ignore
 /// // In the board crate:
-/// ubos_http::http_worker_task!(webui_worker_task, ubos_webui::DashboardService, config::Board::WEBUI_HTTP_POOL);
+/// ubos_http::http_worker_task!(
+///     metrics_worker_task,
+///     ubos_metrics::metrics::PrometheusMetricsService,
+///     METRICS_POOL
+/// );
 ///
 /// // Then in async main:
 /// for chunk in work_chunks {
-///     spawner.spawn(unwrap!(webui_worker_task(
+///     spawner.spawn(unwrap!(metrics_worker_task(
 ///         acceptor, chunk, service,
-///         ubos_webui::consts::Http::SOCKET_TIMEOUT,
-///         ubos_webui::consts::Http::IDLE_TIMEOUT,
+///         ubos_metrics::consts::Metrics::SOCKET_TIMEOUT,
+///         ubos_metrics::consts::Metrics::IDLE_TIMEOUT,
 ///     )));
 /// }
 /// ```
@@ -351,7 +355,7 @@ macro_rules! http_worker_task {
 /// listener's [`Service`] handler; `consts_path` is a type path exposing
 /// the `TX_BUFFER_SIZE`, `RX_BUFFER_SIZE`, `REQUEST_BUFFER_SIZE`,
 /// `SOCKET_TIMEOUT`, `IDLE_TIMEOUT`, and `PORT` associated constants,
-/// such as `ubos_webui::consts::Http`.
+/// such as `ubos_metrics::consts::Metrics`.
 ///
 /// Each invocation expands to its own block, so the fixed static names do
 /// not collide when several listeners are set up in one function. The
@@ -361,12 +365,16 @@ macro_rules! http_worker_task {
 /// # Example
 ///
 /// ```ignore
-/// ubos_http::http_worker_task!(webui_worker_task, ubos_webui::DashboardService, config::Board::WEBUI_HTTP_POOL);
+/// ubos_http::http_worker_task!(
+///     metrics_worker_task,
+///     ubos_metrics::metrics::PrometheusMetricsService,
+///     METRICS_POOL
+/// );
 ///
 /// // In async main:
 /// ubos_http::serve_http_pool!(
-///     spawner, stack, webui_worker_task, &WEBUI_SERVICE,
-///     config::Board::WEBUI_HTTP_POOL, ubos_webui::consts::Http
+///     spawner, stack, metrics_worker_task, &METRICS_SERVICE,
+///     METRICS_POOL, ubos_metrics::consts::Metrics
 /// );
 /// ```
 ///

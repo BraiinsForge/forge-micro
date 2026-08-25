@@ -19,12 +19,12 @@
 
 //! Dashboard service and HTTP handler for the firmware web UI.
 //!
-//! Owns only the web-UI surface on port 80; the JSON `/api/*` surface
-//! moved to the REST listener in `crate::rest` on port 8080.
+//! Owns only the web-UI surface; the JSON `/api/*` surface is handled by
+//! `ubos-api` behind the router that shares the listener.
 //!
 //! - `GET /` returns the inlined HTML dashboard. The page is fully
 //!   static — every time-varying field is filled in client-side via
-//!   cross-origin fetches against the REST listener. Hash-routed SPA
+//!   same-origin fetches against the API surface. Hash-routed SPA
 //!   with a top nav bar, three single-axis charts for hashrate,
 //!   temperature, and input/output power, a right-side telemetry
 //!   panel led by a Link status card, and a configuration form view.
@@ -32,7 +32,7 @@
 //!   uses it to refresh the single-use CSRF token between mutating
 //!   requests without re-downloading the compressed HTML asset.
 //! - `GET /login`, `POST /login`, `POST /logout` drive the session
-//!   cookie used by the SPA when it calls the REST listener.
+//!   cookie used by the SPA when it calls the API surface.
 //! - `GET /logo.svg` serves the Braiins wordmark referenced by the
 //!   dashboard's nav bar. Kept as a separate cacheable asset rather
 //!   than inlined so the index response stays inside its buffer.
@@ -51,8 +51,8 @@ use edge_nal::TcpSplit;
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
 
-use crate::consts::Http;
 use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG_GZ};
+use ubos_http::consts::Http;
 use ubos_http::{
     MAX_RESPONSE_HEADERS, RequestParts, Service, extract_request_parts, format_content_length,
     read_body, write_status_only,
@@ -305,7 +305,7 @@ fn percent_decode(input: &str) -> Option<heapless::String<FORM_FIELD_MAX_LEN>> {
 
 /// Dashboard handler implementing `ubos_http::Service`.
 ///
-/// Serves the web-UI shell on port 80 (HTML, login, logout, logo).
+/// Serves the web-UI shell (HTML, login, logout, logo).
 /// Methods are enforced: wrong-method requests on known paths return
 /// 405. Every request that reaches this handler increments the request
 /// counter via `ubos_net::net::handle().record_request` regardless of

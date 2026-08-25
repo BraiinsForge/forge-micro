@@ -1,9 +1,10 @@
 // REST client for the board API.
 //
-// All data lives on the REST listener on port 8080 (cross-origin from
-// the port-80 page); the CSRF token is minted by a HEAD / against the
-// page origin (port 80). In dev, both are same-origin relative paths so
-// the Vite mock/proxy can intercept them.
+// The `/api/*` surface (ubos-api) shares the listener with the page, so
+// every call is a relative path on the page origin and the session
+// cookie rides along by default; the CSRF token is minted by a HEAD /
+// against the same origin. In dev, the mock/proxy intercepts the same
+// relative paths.
 //
 // The REST worker pool is shallow (often one connection deep), so every
 // mutating call retries with a short backoff, matching the vanilla UI.
@@ -11,9 +12,9 @@
 import { toast, errMsg } from './toast';
 import type { Config, ConfigPatch, Info } from './types';
 
-const API = import.meta.env.DEV
-  ? ''
-  : `${location.protocol}//${location.hostname}:8080`;
+// Empty rather than absent so the `API + path` call sites stay one
+// shape.
+const API = '';
 
 export const RETRY_DELAYS = [0, 250, 500, 1000];
 export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -32,10 +33,7 @@ export function loginRedirect(): void {
 
 // GET JSON from an API path. Throws on a non-ok response.
 export async function getJSON<T = unknown>(path: string): Promise<T> {
-  const response = await fetch(API + path, {
-    cache: 'no-store',
-    credentials: 'include',
-  });
+  const response = await fetch(API + path, { cache: 'no-store' });
   if (response.status === 401) {
     loginRedirect();
     throw new Error('unauthorized');
@@ -47,7 +45,7 @@ export async function getJSON<T = unknown>(path: string): Promise<T> {
 export const getInfo = (): Promise<Info> => getJSON<Info>('/api/info');
 export const getConfig = (): Promise<Config> => getJSON<Config>('/api/config');
 
-// Fetch the single-use CSRF token from the page origin (port 80).
+// Fetch the single-use CSRF token from the page origin.
 export async function csrfToken(): Promise<string> {
   const response = await fetch('/', { method: 'HEAD', cache: 'no-store' });
   return response.headers.get('X-CSRF-Token') || '';
@@ -66,7 +64,6 @@ export async function postJSON(path: string, body: unknown): Promise<Response> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
         body: JSON.stringify(body),
-        credentials: 'include',
       });
       if (response.ok) return response;
       // A 401 means the session died; redirect and stop retrying (the
@@ -125,7 +122,6 @@ export async function postOnce(path: string, { body, headers, signal, json }: Po
   const base = { 'X-CSRF-Token': csrf };
   const response = await fetch(API + path, {
     method: 'POST',
-    credentials: 'include',
     headers: json ? { 'Content-Type': 'application/json', ...base } : { ...base, ...headers },
     body: json ? JSON.stringify(json) : body,
     signal,

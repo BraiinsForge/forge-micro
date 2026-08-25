@@ -17,12 +17,12 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Web-UI listener on port 80 (Preact build).
+//! Web-UI handler for the firmware (Preact build).
 //!
-//! Owns the dashboard SPA HTML, login form, and logout handler. The
-//! REST API surface (`/api/*`) lives in `ubos-api` on port 8080. mDNS
-//! announces `_http._tcp` on port 80 via `WEBUI_SERVICE`.
-//!
+//! Owns the dashboard SPA HTML, login form, and logout handler. The REST
+//! API surface (`/api/*`) shares the listener and lives in `ubos-api`,
+//! and the listener's own tuning lives in `ubos-http`. mDNS announces
+//! `_http._tcp` via `WEBUI_SERVICE`.
 #![no_std]
 
 /// Gzipped dashboard payload. Built from the Preact project's `index`
@@ -43,13 +43,12 @@ pub const LOGO_SVG_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/logo.sv
 ubos_mdns::declare_service!(
     pub WEBUI_SERVICE = ubos_mdns::ServiceEntry {
         service: "_http",
-        port: consts::Http::PORT,
+        port: ubos_http::consts::Http::PORT,
         txt_keys: &["path"],
         txt_values: &["/"],
     }
 );
 
-pub mod consts;
 pub mod dashboard;
 pub use dashboard::{DashboardService, seed_webui_credentials};
 

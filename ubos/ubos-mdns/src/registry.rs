@@ -58,7 +58,7 @@ pub struct ServiceEntry {
 /// # Example
 ///
 /// ```rust,ignore
-/// use ubos_webui::consts::Http;
+/// use ubos_http::consts::Http;
 /// ubos_mdns::declare_service!(pub HTTP_API_SERVICE = ubos_mdns::ServiceEntry {
 ///     service: "_http",
 ///     port: Http::PORT,

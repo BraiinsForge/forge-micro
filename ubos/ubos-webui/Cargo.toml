@@ -29,7 +29,6 @@ zopfli = { version = "0.8", default-features = false, features = ["std", "gzip"]
 [dependencies]
 edge-http         = { workspace = true, features = ["io"] }
 edge-nal          = { workspace = true }
-embassy-time      = { workspace = true }
 embedded-io-async = { workspace = true }
 heapless          = { workspace = true }
 defmt             = { workspace = true, optional = true }

@@ -89,7 +89,7 @@ export async function collectSnapshot(): Promise<Record<string, unknown>> {
   };
   const jobs: [string, () => Promise<unknown>][] = SECTIONS.map(([key, path]) => [
     key,
-    () => fetchSectionWithRetry(API + path, { cache: 'no-store', credentials: 'include' }, (r) => r.json()),
+    () => fetchSectionWithRetry(API + path, { cache: 'no-store' }, (r) => r.json()),
   ]);
   // The metrics listener answers with a wildcard CORS header, which
   // browsers reject for credentialed requests, so omit credentials.

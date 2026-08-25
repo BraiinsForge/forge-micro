@@ -106,7 +106,6 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
           } else {
             response = await fetch(API + '/api/system/OTA/chunk', {
               method: 'POST',
-              credentials: 'include',
               headers,
               body: sector as BufferSource,
               signal: controller?.signal,

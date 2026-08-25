@@ -290,7 +290,7 @@ that owns the port:
 ubos_mdns::declare_service!(
     pub REST_API_SERVICE = ubos_mdns::ServiceEntry {
         service: "_ubos",
-        port: consts::Api::PORT,
+        port: ubos_http::consts::Http::PORT,
         txt_keys:   &["path"],
         txt_values: &["/api/"],
     }

@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The three HTTP listeners every board serves.
+//! The two HTTP listeners every board serves.
 
 /// Declare the listener bring-up every board runs once its stack is up.
 ///
@@ -33,11 +33,17 @@
 ///
 /// The expansion is one `async fn serve_all`, which seeds each
 /// listener's credentials, builds its service, binds its port and spawns
-/// its worker pool: the REST API on :8080, the Web UI on :80 and the
-/// Prometheus metrics on :8081. The three worker-pool shells live inside
+/// its worker pool: the web UI and the REST API together on :80, and the
+/// Prometheus metrics on :8081. The two worker-pool shells live inside
 /// that function, so a board declares no HTTP task of its own and the
 /// pool sizes stay where the rest of the board's shape is, in
 /// `$machine.control_board`.
+///
+/// The web UI and the REST API reach one pool behind a
+/// [`ubos_http::PrefixRouter`]. This crate wires that router rather than
+/// holding it: it depends on hardware-coupled crates, so it does not
+/// build on the host and carries no test, and routing is the part of the
+/// merged listener worth testing.
 ///
 /// It also spawns the credential-sync task, so a board that invokes this
 /// must invoke [`sync_credentials_task!`](crate::sync_credentials_task)
@@ -46,8 +52,8 @@
 #[macro_export]
 macro_rules! serve_all {
     ($machine:expr, $mining_info:expr, $bounds:expr $(,)?) => {
-        /// Bind the REST API, Web UI and metrics listeners, and spawn a
-        /// worker pool for each.
+        /// Bind the HTTP and metrics listeners, and spawn a worker pool
+        /// for each.
         ///
         /// Call once, after the stack has an address.
         #[allow(clippy::items_after_statements)]
@@ -61,25 +67,34 @@ macro_rules! serve_all {
             // attribute is an identifier. The pool sizes are const
             // expressions either way, and the pool footprint they size is
             // still checked at the link.
-            const API_POOL: usize = $machine.control_board.api_http_pool;
-            const WEBUI_POOL: usize = $machine.control_board.webui_http_pool;
+            const HTTP_POOL: usize = $machine.control_board.http_pool;
             const METRICS_POOL: usize = $machine.control_board.metrics_http_pool;
 
-            $crate::http_worker_task!(api_worker_task, ubos_api::RestApiService, API_POOL);
-            $crate::http_worker_task!(webui_worker_task, ubos_webui::DashboardService, WEBUI_POOL);
+            /// The web UI and the REST API behind one prefix, which is
+            /// what the one pool below serves.
+            type HttpService =
+                $crate::PrefixRouter<ubos_api::RestApiService, ubos_webui::DashboardService>;
+
+            $crate::http_worker_task!(http_worker_task, HttpService, HTTP_POOL);
             $crate::http_worker_task!(
                 metrics_worker_task,
                 ubos_metrics::metrics::PrometheusMetricsService,
                 METRICS_POOL
             );
 
-            // REST API on :8080. Seed credentials once, then spawn one worker
-            // task per pool slot so each has its own static TaskStorage.
+            // The web UI and the REST API on :80. Seed both credential
+            // stores once, then spawn one worker task per pool slot so
+            // each has its own static TaskStorage. A path under the API
+            // prefix reaches the API and every other path reaches the
+            // dashboard; the two route tables do not overlap, because the
+            // dashboard owns `/`, `/login`, `/logout` and `/logo.svg`.
             ubos_api::seed_api_credentials().await;
-            static API_SERVICE: static_cell::StaticCell<ubos_api::RestApiService> =
+            ubos_webui::seed_webui_credentials().await;
+            static HTTP_SERVICE: static_cell::StaticCell<HttpService> =
                 static_cell::StaticCell::new();
-            let api_service: &'static ubos_api::RestApiService =
-                API_SERVICE.init(ubos_api::RestApiService::new(
+            let http_service: &'static HttpService = HTTP_SERVICE.init($crate::PrefixRouter {
+                prefix: ubos_api::PATH_PREFIX,
+                matched: ubos_api::RestApiService::new(
                     $machine.control_board.name,
                     $mining_info,
                     $bounds,
@@ -87,29 +102,18 @@ macro_rules! serve_all {
                     manager,
                     ubos_psu::handle(),
                     stack,
-                ));
+                ),
+                fallback: ubos_webui::DashboardService,
+            });
             $crate::serve_http_pool!(
                 spawner,
                 stack,
-                api_worker_task,
-                api_service,
-                API_POOL,
-                ubos_api::consts::Api
+                http_worker_task,
+                http_service,
+                HTTP_POOL,
+                $crate::http_consts::Http
             );
             spawner.spawn(::defmt::unwrap!(sync_credentials_task()));
-
-            // Web UI on :80. Seed credentials once; the API listener's
-            // sync_credentials_task keeps them current after first boot.
-            ubos_webui::seed_webui_credentials().await;
-            static WEBUI_SERVICE: ubos_webui::DashboardService = ubos_webui::DashboardService;
-            $crate::serve_http_pool!(
-                spawner,
-                stack,
-                webui_worker_task,
-                &WEBUI_SERVICE,
-                WEBUI_POOL,
-                ubos_webui::consts::Http
-            );
 
             // Prometheus metrics on :8081.
             static METRICS_SERVICE: ubos_metrics::metrics::PrometheusMetricsService =

@@ -404,7 +404,13 @@ where
         404,
         "Not Found",
         "text/plain",
-        &[("Access-Control-Allow-Origin", "*")],
+        // `write_status_only` no longer closes on the caller's behalf, so
+        // this listener writes the header itself, as its success path
+        // already does.
+        &[
+            ("Connection", "close"),
+            ("Access-Control-Allow-Origin", "*"),
+        ],
         b"",
     )
     .await
@@ -422,7 +428,11 @@ where
         405,
         "Method Not Allowed",
         "text/plain",
-        &[("Allow", "GET"), ("Access-Control-Allow-Origin", "*")],
+        &[
+            ("Allow", "GET"),
+            ("Connection", "close"),
+            ("Access-Control-Allow-Origin", "*"),
+        ],
         b"",
     )
     .await

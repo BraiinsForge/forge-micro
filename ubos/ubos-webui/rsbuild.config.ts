@@ -12,13 +12,12 @@ import { boardCsrf } from './dev/board-proxy';
 const BUILD_REV = process.env.UBOS_WEBUI_BUILD_REV || 'dev';
 const BUILD_TIME = process.env.UBOS_WEBUI_BUILD_TIME || '0';
 
-// When VITE_API_BASE (e.g. http://192.168.1.50:8080) is set, the dev
-// server proxies to a live board; otherwise the mock middleware answers
-// from fixtures so the UI runs with no board attached.
+// When VITE_API_BASE (e.g. http://192.168.1.50) is set, the dev server
+// proxies to a live board; otherwise the mock middleware answers from
+// fixtures so the UI runs with no board attached. The board serves the
+// JSON API, the page, CSRF and login on one listener, so one origin
+// covers everything.
 const API_BASE = process.env.VITE_API_BASE;
-// The board serves JSON on the API port and the page/CSRF/login on
-// port 80. Derive the port-80 origin from the API base.
-const BOARD_80 = API_BASE ? `${new URL(API_BASE).protocol}//${new URL(API_BASE).hostname}` : '';
 
 // TEMPORARY: remove once the firmware raises its request-header limit.
 //
@@ -122,12 +121,11 @@ export default defineConfig({
     ...(API_BASE
       ? {
           proxy: {
-            // JSON API (port 8080).
             '/api': proxyToBoard(API_BASE),
-            // Session endpoints (port 80). Proxied so a login through the
-            // dev server yields a localhost-scoped session cookie.
-            '/login': proxyToBoard(BOARD_80),
-            '/logout': proxyToBoard(BOARD_80),
+            // Session endpoints. Proxied so a login through the dev
+            // server yields a localhost-scoped session cookie.
+            '/login': proxyToBoard(API_BASE),
+            '/logout': proxyToBoard(API_BASE),
             // CSRF `HEAD /` is handled by the boardCsrf middleware, not
             // here, because `/` also serves the dev app.
           },
@@ -136,7 +134,7 @@ export default defineConfig({
     // `server.setup` runs before Rsbuild's own handlers, so the mock/CSRF
     // middleware registered here already precedes them.
     setup({ server }) {
-      server.middlewares.use(API_BASE ? boardCsrf(BOARD_80) : mockApi());
+      server.middlewares.use(API_BASE ? boardCsrf(API_BASE) : mockApi());
     },
   },
 });

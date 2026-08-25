@@ -150,10 +150,10 @@ gzip delta (`## Size is the first constraint`) before committing.
 
 ### API client — `web/lib/api.ts`
 
-The board splits its surface across two ports; the client hides it:
-- JSON API on **:8080**, page/session/CSRF on **:80**. In prod
-  `API = location.hostname:8080`; in dev `API = ''` so same-origin
-  relative paths hit the dev mock/proxy.
+The board serves its whole surface — JSON API, page, session, CSRF —
+on one listener, so every call is a relative path on the page origin
+(`API = ''`) and the session cookie rides along by default. In dev the
+same relative paths hit the mock/proxy.
 - `getJSON(path)` — GET, throws on non-ok. Helpers: `getInfo`,
   `getConfig`.
 - `csrfToken()` — `HEAD /` on the page origin returns a **single-use**
@@ -164,25 +164,24 @@ The board splits its surface across two ports; the client hides it:
 - `postOnce(path, …)` — single-shot, no retry, for commands whose ack
   races the connection drop (restart, network switch, OTA chunks).
 
-| Call | Endpoint | Port |
-|------|----------|------|
-| `getInfo` | `GET /api/info` (the 2 s poll) | 8080 |
-| `getConfig` | `GET /api/config` | 8080 |
-| bounds/events | `GET /api/system/{asic,thermal,cooling,network,events,events/catalog}` | 8080 |
-| `postConfig` | `POST /api/config` (partial config) | 8080 |
-| CSRF | `HEAD /` → `X-CSRF-Token` | 80 |
-| session | `GET/POST /login`, `POST /logout` | 80 |
+| Call | Endpoint |
+|------|----------|
+| `getInfo` | `GET /api/info` (the 2 s poll) |
+| `getConfig` | `GET /api/config` |
+| bounds/events | `GET /api/system/{asic,thermal,cooling,network,events,events/catalog}` |
+| `postConfig` | `POST /api/config` (partial config) |
+| CSRF | `HEAD /` → `X-CSRF-Token` |
+| session | `GET/POST /login`, `POST /logout` |
 
-The firmware side of :80 (asset serving, login, CSRF issue/consume,
-session cookie) is `src/dashboard.rs`; `/api/*` on :8080 lives in the
-`ubos-api` crate, not here.
+The firmware side of the page routes (asset serving, login, CSRF
+issue/consume, session cookie) is `src/dashboard.rs`; `/api/*` lives in
+the `ubos-api` crate, not here.
 
 ### Session expiry — redirect on 401
 
 The session cookie can die while the SPA is loaded: it expires, is
 invalidated, or is cleared when the board reboots (sessions are in-RAM).
-`ubos-api` answers any `/api/*` from an anonymous request with a **401**
-(CORS headers attached so the cross-origin fetch can read the status).
+`ubos-api` answers any `/api/*` from an anonymous request with a **401**.
 The SPA treats that as "session gone": `loginRedirect()` in
 `web/lib/api.ts` does `location.replace('/login?expired=1')` — guarded so
 concurrent 401s navigate once, `replace` so the dead SPA leaves no
@@ -212,7 +211,7 @@ npm run dev            # http://localhost:5173  (dashboard at /, login at /login
 Against a live board instead:
 
 ```sh
-VITE_API_BASE=http://<board-ip>:8080 npm run dev   # default creds root/root
+VITE_API_BASE=http://<board-ip> npm run dev   # default creds root/root
 ```
 
 The mock is imported only by `rsbuild.config.ts`, never by the app, so

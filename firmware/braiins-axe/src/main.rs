@@ -507,8 +507,7 @@ async fn boot(spawner: Spawner) {
     const STACK_SOCKETS: usize = 24;
     ubos_net::assert_stack_sockets!(
         STACK_SOCKETS,
-        config::MACHINE.control_board.webui_http_pool,
-        config::MACHINE.control_board.api_http_pool,
+        config::MACHINE.control_board.http_pool,
         config::MACHINE.control_board.metrics_http_pool,
     );
     static RESOURCES: StaticCell<StackResources<STACK_SOCKETS>> = StaticCell::new();

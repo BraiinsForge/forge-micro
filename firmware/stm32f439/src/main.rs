@@ -320,17 +320,17 @@ async fn boot(spawner: Spawner) {
 
     // Socket-set capacity for the embassy-net stack. Seven sockets are
     // held continuously: DHCPv4, DNS, the stratum client, the mDNS
-    // responder, 1 webui listener socket on :80, and 1 REST API listener
-    // socket on :8080, plus the metrics listener on :8081. NTP sync opens
-    // a transient UDP socket every 60 s, and closed TCP connections
-    // linger in TIME_WAIT until smoltcp reaps them. 16 provides headroom.
-    // A 5/5 HTTP pool needs ten worker futures whose combined stack
-    // frames overflow this board's RAM, so it stays at 1/1.
+    // responder, 2 HTTP listener sockets on :80, plus the metrics
+    // listener on :8081. NTP sync opens a transient UDP socket every
+    // 60 s, and closed TCP connections linger in TIME_WAIT until smoltcp
+    // reaps them. 16 provides headroom. The pool depth the RP2350 boards
+    // run needs worker futures whose combined stack frames overflow this
+    // board's RAM, so the merged listener keeps only the two slots its
+    // two listeners held.
     const STACK_SOCKETS: usize = 16;
     ubos_net::assert_stack_sockets!(
         STACK_SOCKETS,
-        config::MACHINE.control_board.webui_http_pool,
-        config::MACHINE.control_board.api_http_pool,
+        config::MACHINE.control_board.http_pool,
         config::MACHINE.control_board.metrics_http_pool,
     );
     static RESOURCES: StaticCell<StackResources<STACK_SOCKETS>> = StaticCell::new();

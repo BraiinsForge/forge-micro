@@ -91,8 +91,9 @@ const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
 ///
 /// Per-connection stack cost is `CONFIG_RESPONSE_BUFFER_SIZE` bytes twice
 /// over, since [`BODY_READ_BUFFER_SIZE`] tracks this constant; both
-/// multiply by `API_HTTP_POOL` for concurrent connections. If you increase
-/// this constant, audit task-stack sizing for all ubos-api consumers.
+/// multiply by `ControlBoardDescriptor::http_pool` for concurrent
+/// connections. If you increase this constant, audit task-stack sizing for
+/// all ubos-api consumers.
 const CONFIG_RESPONSE_BUFFER_SIZE: usize = 3072;
 
 /// Buffer for reading POST/PATCH request bodies.

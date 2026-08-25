@@ -19,9 +19,9 @@
 
 //! Shared HTTP middleware: allow-list, authentication, sessions, CSRF, CSPRNG.
 //!
-//! Consumed by every listener crate (`ubos-webui` on port 80, `ubos-api`
-//! on port 8080) so the credential store, session table, and CSRF
-//! tokens are global to the firmware rather than per-port.
+//! Consumed by every handler crate, `ubos-webui` and `ubos-api` among
+//! them, so the credential store, session table, and CSRF tokens are
+//! global to the firmware rather than per-handler.
 
 #![no_std]
 

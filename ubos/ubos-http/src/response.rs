@@ -47,28 +47,28 @@ mod tests;
 pub const CONTENT_LENGTH_DECIMAL_DIGITS: usize = 20;
 
 /// Maximum number of extra headers a caller may attach to a status
-/// response on top of the three the helper writes itself
-/// (`Content-Type`, `Content-Length`, `Connection`).
+/// response on top of the two the helper writes itself
+/// (`Content-Type`, `Content-Length`).
 pub const MAX_EXTRA_STATUS_HEADERS: usize = 4;
 
 /// Maximum number of response headers built per request.
 ///
-/// Most responses use 4 headers (Content-Type, Cache-Control,
-/// Connection, Content-Length). Session responses need an additional
-/// Set-Cookie or X-CSRF-Token header. Eight slots cover the worst-case
-/// header count (4 fixed + 1 encoding + 1 extra = 6) with two slots to
-/// spare.
+/// Most responses use 3 headers (Content-Type, Cache-Control,
+/// Content-Length). Session responses need an additional Set-Cookie or
+/// X-CSRF-Token header. Eight slots cover the worst-case header count
+/// (3 fixed + 1 encoding + 1 extra = 5) with three slots to spare.
 pub const MAX_RESPONSE_HEADERS: usize = 8;
 
 /// Write a complete HTTP status response to `connection`.
 ///
-/// Sends `status` and `reason` as the status line, adds the
-/// caller-provided `content_type`, a `Content-Length` derived from
-/// `body`, and `Connection: close`. Any pairs in `extra_headers` are
-/// inserted before the three helper-managed headers so callers can
-/// attach response-specific fields such as `WWW-Authenticate`. Used
-/// for 4xx and 5xx replies where the body is a short string the
-/// caller has already assembled.
+/// Sends `status` and `reason` as the status line, and adds the
+/// caller-provided `content_type` and a `Content-Length` derived from
+/// `body`. Any pairs in `extra_headers` are inserted before the two
+/// helper-managed headers so callers can attach response-specific fields
+/// such as `WWW-Authenticate`, or a `Connection: close` on a listener
+/// that ends the connection after each response. Used for 4xx and 5xx
+/// replies where the body is a short string the caller has already
+/// assembled.
 ///
 /// # Errors
 ///
@@ -100,8 +100,8 @@ where
 
     let content_length = format_content_length(body.len());
 
-    let mut headers: [(&str, &str); MAX_EXTRA_STATUS_HEADERS + 3] =
-        [("", ""); MAX_EXTRA_STATUS_HEADERS + 3];
+    let mut headers: [(&str, &str); MAX_EXTRA_STATUS_HEADERS + 2] =
+        [("", ""); MAX_EXTRA_STATUS_HEADERS + 2];
     let mut cursor = 0;
     for &header in extra_headers {
         headers[cursor] = header;
@@ -110,8 +110,6 @@ where
     headers[cursor] = ("Content-Type", content_type);
     cursor += 1;
     headers[cursor] = ("Content-Length", content_length.as_str());
-    cursor += 1;
-    headers[cursor] = ("Connection", "close");
     cursor += 1;
 
     connection
@@ -138,8 +136,7 @@ pub fn format_content_length(value: usize) -> String<CONTENT_LENGTH_DECIMAL_DIGI
 
 /// Write a JSON response with `body` bytes and optional extra headers.
 ///
-/// The REST listener attaches CORS headers via `extra_headers`; pass
-/// `&[]` to send only the four fixed headers. The total must not
+/// Pass `&[]` to send only the three fixed headers. The total must not
 /// exceed `MAX_RESPONSE_HEADERS`.
 ///
 /// # Errors
@@ -150,9 +147,9 @@ pub fn format_content_length(value: usize) -> String<CONTENT_LENGTH_DECIMAL_DIGI
 /// # Panics
 ///
 /// Panics if `extra_headers.len()` would push the header count above
-/// `MAX_RESPONSE_HEADERS`. The four fixed headers (Content-Type,
-/// Cache-Control, Connection, Content-Length) are always emitted, so
-/// `extra_headers` must contain at most `MAX_RESPONSE_HEADERS - 4`
+/// `MAX_RESPONSE_HEADERS`. The three fixed headers (Content-Type,
+/// Cache-Control, Content-Length) are always emitted, so
+/// `extra_headers` must contain at most `MAX_RESPONSE_HEADERS - 3`
 /// entries.
 pub async fn write_json_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
@@ -170,9 +167,6 @@ where
         .expect("BUG: response header vec sized for max headers");
     headers
         .push(("Cache-Control", "no-store"))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Connection", "close"))
         .expect("BUG: response header vec sized for max headers");
     headers
         .push(("Content-Length", content_length.as_str()))

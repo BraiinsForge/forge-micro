@@ -230,18 +230,17 @@ fn main() -> ! {
 )]
 async fn boot(spawner: Spawner) {
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
-    // Socket-set capacity for the embassy-net stack. Thirteen sockets are
+    // Socket-set capacity for the embassy-net stack. Eleven sockets are
     // held continuously: DHCPv4, DNS, the stratum client, the mDNS
-    // responder, 3 webui listener sockets on :80, 3 REST API listener
-    // sockets on :8080, and 3 metrics listener sockets on :8081.
-    // NTP opens a transient UDP socket every 60 s, and closed TCP
-    // connections linger in TIME_WAIT until smoltcp reaps them.
-    // 24 provides headroom for concurrent connections and TIME_WAIT.
+    // responder, 4 HTTP listener sockets on :80, and 3 metrics listener
+    // sockets on :8081. NTP opens a transient UDP socket every 60 s, and
+    // closed TCP connections linger in TIME_WAIT until smoltcp reaps
+    // them. 24 provides headroom for concurrent connections and
+    // TIME_WAIT.
     const STACK_SOCKETS: usize = 24;
     ubos_net::assert_stack_sockets!(
         STACK_SOCKETS,
-        config::MACHINE.control_board.webui_http_pool,
-        config::MACHINE.control_board.api_http_pool,
+        config::MACHINE.control_board.http_pool,
         config::MACHINE.control_board.metrics_http_pool,
     );
     static RESOURCES: StaticCell<StackResources<STACK_SOCKETS>> = StaticCell::new();

@@ -17,27 +17,32 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! REST API listener on port 8080 for the firmware.
+//! REST API handler for the firmware.
 //!
-//! Serves the `/api/*` surface and the reference-miner-shaped read endpoints
-//! under `/api/system/*`. The web-UI shell on port 80 lives in
-//! `ubos-webui`. Transport primitives live in `ubos-http`.
+//! Serves the [`PATH_PREFIX`] surface and the reference-miner-shaped read
+//! endpoints under `/api/system/*`. The web-UI shell that shares the
+//! listener lives in `ubos-webui`, and the transport, the router that
+//! joins the two and the listener's own tuning live in `ubos-http`.
 //!
-//! `REST_API_SERVICE` advertises the REST listener on port 8080 via
-//! mDNS. Firmware includes it in the service list passed to
-//! [`ubos_mdns::run_mdns`].
+//! `REST_API_SERVICE` advertises the surface via mDNS. Firmware includes
+//! it in the service list passed to [`ubos_mdns::run_mdns`].
 #![no_std]
+
+/// The path prefix every route in this crate lives under.
+///
+/// `ubos_firmware::serve_all!` routes it to this handler, and the mDNS
+/// entry below reports it to a machine client that discovers the board.
+pub const PATH_PREFIX: &str = "/api/";
 
 ubos_mdns::declare_service!(
     pub REST_API_SERVICE = ubos_mdns::ServiceEntry {
         service: "_ubos",
-        port: consts::Api::PORT,
+        port: ubos_http::consts::Http::PORT,
         txt_keys: &["path"],
-        txt_values: &["/api/"],
+        txt_values: &[PATH_PREFIX],
     }
 );
 
-pub mod consts;
 pub mod hw_info;
 pub mod ota;
 pub mod rest;

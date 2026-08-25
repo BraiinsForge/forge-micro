@@ -19,8 +19,8 @@
 
 //! REST endpoints under `/api/system/*`.
 //!
-//! Dispatched from `RestApiService::handle` on the REST listener
-//! (port 8080). Each handler builds a value of the appropriate
+//! Dispatched from `RestApiService::handle`. Each handler builds a
+//! value of the appropriate
 //! schema struct, serializes it with `serde_json_core`, and wraps it
 //! in a JSON response via `write_json_response`.
 //!
@@ -103,8 +103,9 @@ mod tests;
 /// revisiting this constant.
 ///
 /// Per-connection stack cost is `SCRATCH_SIZE` bytes; this multiplies by
-/// `API_HTTP_POOL` for concurrent connections. If you increase this
-/// constant, audit task-stack sizing for all ubos-api consumers.
+/// `ControlBoardDescriptor::http_pool` for concurrent connections. If you
+/// increase this constant, audit task-stack sizing for all ubos-api
+/// consumers.
 const SCRATCH_SIZE: usize = 2048;
 
 /// OTA upload chunk size in bytes.
@@ -198,9 +199,9 @@ fn build_time_string() -> String<24> {
 
 /// Maximum number of response headers built per system dispatch response.
 ///
-/// Four fixed headers (Content-Type, Cache-Control, Connection,
-/// Content-Length) plus up to two CORS headers from the REST listener
-/// equals six. Eight slots leave headroom for future additions.
+/// Three fixed headers (Content-Type, Cache-Control, Content-Length)
+/// plus up to two CORS headers from the REST listener equals five.
+/// Eight slots leave headroom for future additions.
 const MAX_SYSTEM_RESPONSE_HEADERS: usize = 8;
 
 /// Write a JSON response to `connection` with the given status code and
@@ -229,9 +230,6 @@ where
         .expect("BUG: response header vec sized for max headers");
     headers
         .push(("Cache-Control", "no-store"))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Connection", "close"))
         .expect("BUG: response header vec sized for max headers");
     headers
         .push(("Content-Length", content_length.as_str()))
@@ -279,9 +277,6 @@ where
         .expect("BUG: response header vec sized for max headers");
     headers
         .push(("Content-Length", content_length.as_str()))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Connection", "close"))
         .expect("BUG: response header vec sized for max headers");
     for &header in extra_headers {
         headers
@@ -1526,11 +1521,12 @@ where
 
 /// Begin a streaming JSON response with no `Content-Length` header.
 ///
-/// Because every response already sends `Connection: close`, omitting
-/// `Content-Length` makes edge-http use a raw close-delimited body that
-/// accepts multiple subsequent writes. Callers write the body in pieces
-/// after this function returns. `extra_headers` carries caller-supplied
-/// headers such as CORS headers from the REST listener.
+/// edge-http upgrades a response that declares no `Content-Length` to
+/// chunked transfer encoding on a keep-alive HTTP/1.1 connection. That
+/// framing accepts multiple subsequent writes, each sent as its own chunk.
+/// Callers write the body in pieces after this function returns.
+/// `extra_headers` carries caller-supplied headers such as CORS headers
+/// from the REST listener.
 async fn begin_streamed_json<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     extra_headers: &[(&str, &str)],
@@ -1545,9 +1541,6 @@ where
         .expect("BUG: response header vec sized for max headers");
     headers
         .push(("Cache-Control", "no-store"))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Connection", "close"))
         .expect("BUG: response header vec sized for max headers");
     for &header in extra_headers {
         headers

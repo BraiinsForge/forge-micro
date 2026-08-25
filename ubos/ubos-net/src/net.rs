@@ -46,13 +46,13 @@ use crate::ntp::Ntp;
 /// [`min_stack_sockets`] and the `assert_stack_sockets!` macro.
 pub const FIXED_SOCKETS: usize = 5;
 
-/// Minimum `StackResources` capacity for a board running the three HTTP
+/// Minimum `StackResources` capacity for a board running the two HTTP
 /// pools plus the [`FIXED_SOCKETS`]. smoltcp panics ("adding a socket to a
 /// full `SocketSet`") when the stack is sized below the sockets bound at
 /// once, and the last HTTP listener to bind is what trips it.
 #[must_use]
-pub const fn min_stack_sockets(webui_pool: usize, api_pool: usize, metrics_pool: usize) -> usize {
-    webui_pool + api_pool + metrics_pool + FIXED_SOCKETS
+pub const fn min_stack_sockets(http_pool: usize, metrics_pool: usize) -> usize {
+    http_pool + metrics_pool + FIXED_SOCKETS
 }
 
 /// Maximum number of DNS A-record results retained for connect attempts.

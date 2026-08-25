@@ -111,7 +111,7 @@ export function mockApi(): Middleware {
     // never happens in dev; default to '/' so the split below is safe.
     const url = (req.url ?? '/').split('?')[0];
 
-    // CSRF token endpoint (port 80 in production).
+    // CSRF token endpoint.
     if (url === '/' && req.method === 'HEAD') {
       res.setHeader('X-CSRF-Token', 'dev-csrf-token');
       res.statusCode = 200;
@@ -119,7 +119,7 @@ export function mockApi(): Middleware {
       return;
     }
 
-    // Session endpoints (port 80 in production). The mock accepts any
+    // Session endpoints. The mock accepts any
     // credentials: POST /login arms the session and 302-redirects to
     // the dashboard, mirroring the board so the login form's native
     // submit lands on `/`; POST /logout clears it and returns to

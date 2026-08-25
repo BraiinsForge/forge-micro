@@ -62,7 +62,7 @@ error there fails the build.
 ## Dev loop against a live board
 
 ```sh
-VITE_API_BASE=http://192.0.2.111:8080 npm run dev
+VITE_API_BASE=http://192.0.2.111 npm run dev
 ```
 
 Serves on 5173; `npm run dev -- --port 5199` moves it.
@@ -74,15 +74,14 @@ session expires or the board reboots — makes the first `/api` call return
 401, and the SPA redirects to `/login?expired=1` (the login page then
 shows a "session expired" notice). See "Session expiry" below.
 
-`VITE_API_BASE` must be the **port 8080** URL. The board splits its
-surface across two ports, and `rsbuild.config.ts` derives the port-80
-origin from the hostname:
+`VITE_API_BASE` is the board's origin. The board serves its whole
+surface on one listener, so every dev route proxies to the same place:
 
 | Dev path | Proxied to | Purpose |
 |----------|------------|---------|
-| `/api/*` | `192.0.2.111:8080` | JSON API |
-| `/login`, `/logout` | `192.0.2.111:80` | session endpoints |
-| `HEAD /` | `192.0.2.111:80` | CSRF token, via `dev/board-proxy.ts` |
+| `/api/*` | `192.0.2.111` | JSON API |
+| `/login`, `/logout` | `192.0.2.111` | session endpoints |
+| `HEAD /` | `192.0.2.111` | CSRF token, via `dev/board-proxy.ts` |
 
 `HEAD /` cannot be a plain proxy entry because `/` also serves the dev
 app, so `boardCsrf` middleware special-cases it and copies the

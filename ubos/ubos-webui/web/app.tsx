@@ -56,10 +56,7 @@ export default function App() {
     for (let attempt = 0; attempt < 150; attempt++) {
       await sleep(2000);
       try {
-        const response = await fetch(API + '/api/info', {
-          cache: 'no-store',
-          credentials: 'include',
-        });
+        const response = await fetch(API + '/api/info', { cache: 'no-store' });
         // A reboot clears the in-RAM sessions, so the board answers the
         // recovery poll with 401 once it is back. Send the operator to
         // login rather than polling until the attempt cap.
