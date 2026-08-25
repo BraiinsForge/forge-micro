@@ -20,6 +20,15 @@
 //! `StratumV1Client` — implements `mining_protocol::MiningClient`
 //! by wrapping the wire layer in `crate::wire`.
 //!
+//! The dispatch functions below are free functions, and each takes three
+//! or four parameters that are peers rather than a receiver and its
+//! arguments. That is not a missed `&mut self`. A parsed message borrows
+//! out of `self.wire_buffer`, so any method on the client would hold the
+//! whole of `self` and collide with the message it was handed. The
+//! caller therefore splits `self` into the disjoint fields each
+//! dispatch needs and passes them separately. Read a long parameter list
+//! here as that split, and keep it when changing one.
+//!
 //! Architecture: `../../../docs/STRATUM_ARCHITECTURE.md`.
 //! Design rationale: `../../../docs/plan/STRATUM_IMPLEMENTATION_PLAN.md`.
 
@@ -450,6 +459,23 @@ impl MiningClient for StratumV1Client<'_> {
     }
 }
 
+/// Turn a `mining.notify` into a [`MiningJob`] and hand it to `visitor`.
+///
+/// Decodes the hex fields into `decode_scratch`, applies the V1
+/// `prev_hash` word swap so the trait surface sees canonical
+/// block-header bytes, allocates a [`JobId`] against `session`, then
+/// calls the visitor once.
+///
+/// A malformed field drops the job and returns without telling the
+/// visitor. That is deliberate: a pool that sends bad hex has sent no
+/// work, and a session that stayed up is better than one that failed
+/// over for a single bad line.
+///
+/// The four parameters are peers and none of them is a receiver. The
+/// notify is borrowed from the wire buffer, the scratch and the session
+/// are two disjoint pieces of state the caller holds, and the visitor is
+/// where the result goes. A method on any one of them would take the
+/// other three, so the call site keeps them apart.
 fn dispatch_notify<V: MiningClientVisitor>(
     notify: &Notify<'_>,
     decode_scratch: &mut DecodeScratch,
@@ -597,6 +623,13 @@ fn swap_prev_hash_words(prev_hash: &mut [u8; 32]) {
     }
 }
 
+/// Decode exactly eight hex characters as a big-endian `u32`.
+///
+/// The length is fixed rather than bounded, because every field this
+/// reads — `version`, `time` and `bits` — is a four-byte value the
+/// specification requires the pool to send zero-padded. A short field is
+/// a pool error and not a small number, so it returns `None` instead of
+/// a value the caller would go on to hash.
 fn decode_hex_u32_be(text: &str) -> Option<u32> {
     let bytes = text.as_bytes();
     if bytes.len() != 8 {
@@ -656,6 +689,20 @@ fn store_extranonce_1(session: &mut SessionState, hex: &str) -> bool {
     true
 }
 
+/// Stage the reply to a pool-initiated `mining.ping` in the outbound
+/// slot.
+///
+/// Writes nothing when the slot already holds an unsent message. A
+/// dropped ping reply costs nothing, because the pool sends another one
+/// if it is watching, and overwriting a pending submit would cost a
+/// share.
+///
+/// The three `&mut` parameters are one outbound slot taken apart: the
+/// buffer, the length and the offset. They arrive as three field borrows
+/// rather than as `&mut self`, because the parsed message the caller is
+/// acting on is itself borrowed out of `self.wire_buffer`. A method on
+/// the client would need the whole of `self` and collide with that
+/// borrow, so the caller splits it and this takes the pieces.
 fn queue_ping_response(
     encode_buffer: &mut [u8; ENCODE_BUFFER_BYTES],
     outbound_len: &mut usize,
@@ -679,6 +726,22 @@ fn queue_ping_response(
     *outbound_offset = 0;
 }
 
+/// Match a response to its pending request and apply what it carries.
+///
+/// Takes the pending entry for `response.id`, reads the result or the
+/// error against the request kind that entry records, updates `session`,
+/// and reports to `visitor`. Returns `Some` when the response ends the
+/// session, which is how an authorize or a subscribe failure reaches the
+/// caller as a state change rather than as a log line.
+///
+/// A response with no pending entry is dropped with one warning. Two
+/// things reach that arm: a pool answering something never asked, and a
+/// slot at `id % PENDING_DEPTH` evicted by a younger registration. The
+/// session is healthy in both cases.
+///
+/// Like [`dispatch_notify`], the three parameters are peers. The
+/// response is borrowed from the wire buffer, the session is the state
+/// it updates, and the visitor is where the result goes.
 #[allow(clippy::too_many_lines)]
 fn dispatch_response<V: MiningClientVisitor>(
     response: &Response<'_>,

@@ -50,6 +50,18 @@ struct RawResponse {
 #[derive(Deserialize)]
 struct ErrorArray<'a>(i32, &'a str, Option<&'a str>);
 
+/// Parse one newline-delimited JSON-RPC line into an [`Rpc`].
+///
+/// A first pass reads `id` and `method` only, which is what tells a
+/// response from a notification: a response carries `id` and no
+/// `method`, and a notification carries `method`. The parser chosen from
+/// that pair then reads the line again for the fields it needs.
+///
+/// # Errors
+///
+/// Returns [`ParseError::Json`] when the line is not JSON, and
+/// [`ParseError::InvalidShape`] when it carries neither an `id` nor a
+/// `method`.
 pub fn parse_incoming(line: &[u8]) -> Result<Rpc<'_>, ParseError<'_>> {
     let (probe, _): (Probe<'_>, _) = serde_json_core::from_slice(line).map_err(ParseError::Json)?;
 
@@ -60,6 +72,16 @@ pub fn parse_incoming(line: &[u8]) -> Result<Rpc<'_>, ParseError<'_>> {
     }
 }
 
+/// Parse a response line into [`Rpc::Response`].
+///
+/// `result` and `error` are captured as raw byte slices rather than
+/// deserialised, because either can hold any JSON shape and the caller
+/// is what decides how to read it.
+///
+/// # Errors
+///
+/// Returns [`ParseError::Json`] when the line is not JSON, and
+/// [`ParseError::InvalidShape`] when both fields are absent or null.
 fn parse_response(line: &[u8]) -> Result<Rpc<'_>, ParseError<'_>> {
     let (raw, _): (RawResponse, _) = serde_json_core::from_slice(line).map_err(ParseError::Json)?;
 
@@ -80,6 +102,17 @@ fn parse_response(line: &[u8]) -> Result<Rpc<'_>, ParseError<'_>> {
     }))
 }
 
+/// Parse the `error` field of a response into a [`StratumError`].
+///
+/// The standard shape is `[code, message]` or `[code, message, detail]`.
+/// Some pools send a bare JSON string instead, which arrives with no
+/// code, so the code reported for it is the generic one.
+///
+/// # Errors
+///
+/// Returns [`ParseError::InvalidShape`] on an empty slice, and
+/// [`ParseError::Json`] when the bytes are neither a string nor the
+/// expected array.
 fn parse_stratum_error(raw: &[u8]) -> Result<StratumError<'_>, ParseError<'_>> {
     if raw.is_empty() {
         return Err(ParseError::InvalidShape);
@@ -99,6 +132,19 @@ fn parse_stratum_error(raw: &[u8]) -> Result<StratumError<'_>, ParseError<'_>> {
     Ok(StratumError(error.0, error.1, error.2))
 }
 
+/// Parse a notification line into [`Rpc::Notification`].
+///
+/// The `params` value is located in the raw line and handed to the arm
+/// for the named method, because each method carries a different tuple
+/// and one deserialise cannot cover them all.
+///
+/// # Errors
+///
+/// Returns [`ParseError::MissingField`] when `method` or `params` is
+/// absent, [`ParseError::Json`] when `params` does not match the shape
+/// the method declares, and [`ParseError::UnknownMethod`] for a method
+/// this client does not handle. A client-side method name reaches that
+/// last arm too, since nothing pushes one at a client.
 fn parse_notification(line: &[u8]) -> Result<Rpc<'_>, ParseError<'_>> {
     let (probe, _): (Probe<'_>, _) = serde_json_core::from_slice(line).map_err(ParseError::Json)?;
 
@@ -160,6 +206,20 @@ fn parse_notification(line: &[u8]) -> Result<Rpc<'_>, ParseError<'_>> {
     }
 }
 
+/// Parse a `mining.subscribe` result into its three elements.
+///
+/// The wire shape is `[subscriptions, extra_nonce_1,
+/// extra_nonce_2_size]`. Element 0 is returned as raw bytes, because a
+/// subscription entry is itself an array of arrays and no consumer here
+/// reads it. All three are located by index rather than deserialised as
+/// a tuple, since holding one element back is not something
+/// `serde-json-core` can do.
+///
+/// # Errors
+///
+/// Returns [`ParseError::MissingField`] when any of the three elements
+/// is absent, and [`ParseError::Json`] when element 1 is not a string
+/// or element 2 is not a `u8`.
 pub fn parse_subscribe_result(body: &[u8]) -> Result<SubscribeResult<'_>, ParseError<'_>> {
     // Wire: [subscriptions_array, extra_nonce_1, extra_nonce_2_size]
     // We parse as a 3-tuple where element 0 is the subscriptions raw slice.
@@ -182,6 +242,16 @@ pub fn parse_subscribe_result(body: &[u8]) -> Result<SubscribeResult<'_>, ParseE
     Ok(SubscribeResult(subs, extra_nonce_1, extra_nonce_2_size))
 }
 
+/// Wrap a `mining.configure` result body for later reading.
+///
+/// The body stays raw, because the negotiated extensions are a flat
+/// object whose keys depend on what the client asked for.
+/// [`parse_version_rolling_mask`] reads the one key this client needs.
+///
+/// # Errors
+///
+/// None are produced today. The `Result` is in the signature so that a
+/// later extension can reject a body without moving every call site.
 pub fn parse_configure_result(body: &[u8]) -> Result<ConfigureResult<'_>, ParseError<'_>> {
     Ok(ConfigureResult(body))
 }
@@ -199,6 +269,11 @@ pub fn parse_version_rolling_mask(body: &[u8]) -> Option<u32> {
     parse_u32_hex(hex)
 }
 
+/// The bytes inside a JSON string token, without its quotes.
+///
+/// Returns `None` when `value` is not a quoted string. Escape sequences
+/// are left as they are: the one caller reads hex digits, and no pool
+/// escapes those.
 fn strip_json_string(value: &[u8]) -> Option<&[u8]> {
     if value.len() < 2 || value[0] != b'"' || value[value.len() - 1] != b'"' {
         return None;
@@ -206,6 +281,11 @@ fn strip_json_string(value: &[u8]) -> Option<&[u8]> {
     Some(&value[1..value.len() - 1])
 }
 
+/// Parse up to eight hex digits as a big-endian `u32`.
+///
+/// Returns `None` on an empty slice, on more than eight digits, and on
+/// any byte that is not a hex digit. Both letter cases are accepted,
+/// because the pool chooses which one it sends.
 fn parse_u32_hex(hex: &[u8]) -> Option<u32> {
     if hex.is_empty() || hex.len() > 8 {
         return None;
@@ -223,14 +303,29 @@ fn parse_u32_hex(hex: &[u8]) -> Option<u32> {
     Some(value)
 }
 
+/// Parse a result body that is a bare JSON boolean.
+///
+/// `mining.authorize` and `mining.submit` both answer this way.
+///
+/// # Errors
+///
+/// Returns [`ParseError::Json`] when the body is not a boolean.
 pub fn parse_boolean_result(body: &[u8]) -> Result<bool, ParseError<'_>> {
     let (value, _): (bool, _) = serde_json_core::from_slice(body).map_err(ParseError::Json)?;
     Ok(value)
 }
 
-// Returns a subslice of `json` that is the value of the named object field.
-// Finds `"<key>":` and returns the bytes of the value token (object, array,
-// string, or primitive) up to the next comma/brace at depth 0.
+/// Value of the named object field, as a subslice of `json`.
+///
+/// Finds `"<key>":` and returns the bytes of the value token, which can
+/// be an object, an array, a string or a primitive, up to the next comma
+/// or brace at depth 0. Returns `None` when the key is absent.
+///
+/// The scan is textual and tracks no object depth, so it answers with
+/// the first field of that name anywhere in the input, nested included.
+/// Every caller passes a whole line from the pool and asks for a
+/// top-level `result`, `error` or `params`, which no V1 message repeats
+/// inside a value.
 fn find_field<'a>(json: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
     let mut index = 0;
     while index < json.len() {
@@ -268,8 +363,11 @@ fn find_field<'a>(json: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
     None
 }
 
-// Returns the bytes of the element at `target_index` in a JSON array that
-// starts at `json[0] == '['`. Returns None when the array is shorter.
+/// Bytes of the element at `target_index` in a JSON array.
+///
+/// `json` must open with `[`, after optional whitespace. Returns `None`
+/// when the input is not an array, when the array holds fewer than
+/// `target_index + 1` elements, and when an element is malformed.
 fn find_array_element(json: &[u8], target_index: usize) -> Option<&[u8]> {
     let mut index = 0;
     while index < json.len() && is_ws(json[index]) {
@@ -311,8 +409,18 @@ fn find_array_element(json: &[u8], target_index: usize) -> Option<&[u8]> {
     }
 }
 
-// Advances past a JSON value starting at `start` and returns the exclusive
-// end index. Returns None on malformed input.
+/// Index one past the JSON value that starts at `start`.
+///
+/// Covers a string, an array, an object and a primitive. Nested brackets
+/// are counted, and a bracket inside a string is not. A primitive ends
+/// at the first delimiter or whitespace byte. Returns `None` when the
+/// value is unterminated.
+///
+/// This and [`skip_string_from`] are the two functions here that take
+/// the scanner's cursor as a `(slice, index)` pair and answer with a new
+/// index. That pair is the receiver they have no type for. A `Cursor`
+/// holding both, with the whitespace skip their callers write out by
+/// hand, is the shape to reach for if this scanner grows.
 fn skip_value(json: &[u8], start: usize) -> Option<usize> {
     let mut index = start;
     if index >= json.len() {
@@ -357,8 +465,10 @@ fn skip_value(json: &[u8], start: usize) -> Option<usize> {
     }
 }
 
-// Advances past a JSON string whose opening '"' is at `start`.
-// Returns the exclusive end index (one past the closing '"').
+/// Index one past the JSON string whose opening quote is at `start`.
+///
+/// A backslash escapes the byte after it, so an escaped quote does not
+/// close the string. Returns `None` when the string is unterminated.
 fn skip_string_from(json: &[u8], start: usize) -> Option<usize> {
     let mut index = start + 1;
     while index < json.len() {
@@ -371,10 +481,15 @@ fn skip_string_from(json: &[u8], start: usize) -> Option<usize> {
     None
 }
 
+/// Whether `byte` is whitespace that JSON allows between tokens.
 fn is_ws(byte: u8) -> bool {
     matches!(byte, b' ' | b'\t' | b'\r' | b'\n')
 }
 
+/// Whether `value` is the JSON `null` literal.
+///
+/// A pool sends `"result": null` beside a real `error`, and the two
+/// together are what [`parse_response`] has to tell apart.
 fn is_null(value: &[u8]) -> bool {
     value == b"null"
 }

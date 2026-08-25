@@ -241,6 +241,16 @@ impl Serialize for SubmitParams<'_> {
     }
 }
 
+/// Encode a `mining.subscribe` request into `buf`.
+///
+/// Params are `[agent_signature, extra_nonce_1]`. Returns the number of
+/// bytes written, which includes the trailing newline that delimits a V1
+/// message.
+///
+/// # Errors
+///
+/// Returns [`EncodeError::BufferFull`](crate::error::EncodeError) when
+/// `buf` cannot hold the request and its newline.
 pub fn encode_subscribe(
     buf: &mut [u8],
     id: u32,
@@ -254,6 +264,16 @@ pub fn encode_subscribe(
     encode_with_serde(buf, &req)
 }
 
+/// Encode a `mining.authorize` request into `buf`.
+///
+/// Params are `[name, password]`. The password goes on the wire in the
+/// clear, because V1 defines no other form for it. Returns the number of
+/// bytes written, newline included.
+///
+/// # Errors
+///
+/// Returns [`EncodeError::BufferFull`](crate::error::EncodeError) when
+/// `buf` cannot hold the request and its newline.
 pub fn encode_authorize(
     buf: &mut [u8],
     id: u32,
@@ -267,6 +287,18 @@ pub fn encode_authorize(
     encode_with_serde(buf, &req)
 }
 
+/// Encode a `mining.submit` request into `buf`.
+///
+/// Params are `[user_name, job_id, extra_nonce_2, time, nonce,
+/// version]`, in that order, which is the order the pool reads them in.
+/// Each of the last four is a hex string the caller has already
+/// formatted, because the pool compares them as text. Returns the number
+/// of bytes written, newline included.
+///
+/// # Errors
+///
+/// Returns [`EncodeError::BufferFull`](crate::error::EncodeError) when
+/// `buf` cannot hold the request and its newline.
 pub fn encode_submit(
     buf: &mut [u8],
     id: u32,
@@ -280,6 +312,17 @@ pub fn encode_submit(
     encode_with_serde(buf, &req)
 }
 
+/// Encode a `mining.extranonce.subscribe` request into `buf`.
+///
+/// Params are empty. Sending this asks the pool to push
+/// `mining.set_extranonce` when it rotates the prefix, instead of
+/// dropping the connection. Returns the number of bytes written, newline
+/// included.
+///
+/// # Errors
+///
+/// Returns [`EncodeError::BufferFull`](crate::error::EncodeError) when
+/// `buf` cannot hold the request and its newline.
 pub fn encode_extranonce_subscribe(
     buf: &mut [u8],
     id: u32,
@@ -292,6 +335,16 @@ pub fn encode_extranonce_subscribe(
     encode_with_serde(buf, &req)
 }
 
+/// Encode a client-initiated `mining.ping` request into `buf`.
+///
+/// Params are empty. Returns the number of bytes written, newline
+/// included. This is the request a client sends; the reply to a
+/// pool-initiated ping is [`encode_ping_response`].
+///
+/// # Errors
+///
+/// Returns [`EncodeError::BufferFull`](crate::error::EncodeError) when
+/// `buf` cannot hold the request and its newline.
 pub fn encode_ping(buf: &mut [u8], id: u32) -> Result<usize, crate::error::EncodeError> {
     let req = RequestEnvelope::<[&str; 0]> {
         id,
@@ -301,7 +354,19 @@ pub fn encode_ping(buf: &mut [u8], id: u32) -> Result<usize, crate::error::Encod
     encode_with_serde(buf, &req)
 }
 
-// Empty reply to a pool-initiated mining.ping: {"id":N,"result":null,"error":null}
+/// Encode the reply to a pool-initiated `mining.ping` into `buf`.
+///
+/// The reply is `{"id":N,"result":null,"error":null}`. Returns the number
+/// of bytes written, newline included.
+///
+/// The envelope is written by hand rather than through serde, because a
+/// null `result` beside a null `error` is what the pool expects and
+/// `serde-json-core` has no way to emit a raw null in a struct field.
+///
+/// # Errors
+///
+/// Returns [`EncodeError::BufferFull`](crate::error::EncodeError) when
+/// `buf` cannot hold the reply and its newline.
 pub fn encode_ping_response(buf: &mut [u8], id: u32) -> Result<usize, crate::error::EncodeError> {
     let mut w = BufWriter::new(buf);
     w.emit(br#"{"id":"#)?;
@@ -311,9 +376,24 @@ pub fn encode_ping_response(buf: &mut [u8], id: u32) -> Result<usize, crate::err
     Ok(w.pos)
 }
 
-// encode_configure writes the envelope manually. configure_map must be a
-// valid JSON object; it is embedded verbatim, not quoted. serde-json-core
-// has no raw-value serialisation path so we bypass serde here.
+/// Encode a `mining.configure` request into `buf`.
+///
+/// Params are `[features, configure_map]`, where `features` is the list
+/// of extension names and `configure_map` is the object carrying their
+/// parameters. Returns the number of bytes written, newline included.
+///
+/// The envelope is written by hand, because `serde-json-core` has no
+/// raw-value path and `configure_map` has to reach the wire as an object
+/// rather than as a quoted string.
+///
+/// `msg.configure_map` is embedded verbatim and is not validated or
+/// escaped here. A caller that puts anything but a well-formed JSON
+/// object in it sends a malformed request.
+///
+/// # Errors
+///
+/// Returns [`EncodeError::BufferFull`](crate::error::EncodeError) when
+/// `buf` cannot hold the request and its newline.
 pub fn encode_configure(
     buf: &mut [u8],
     id: u32,
@@ -338,6 +418,16 @@ pub fn encode_configure(
     Ok(w.pos)
 }
 
+/// Serialise `value` into `buf` and append the delimiting newline.
+///
+/// The shared tail of every encoder that has a serde shape. Returns the
+/// number of bytes written, newline included.
+///
+/// # Errors
+///
+/// Returns [`EncodeError::BufferFull`](crate::error::EncodeError) both
+/// when serde runs out of room and when the request fills `buf` exactly,
+/// since the newline then has nowhere to go.
 fn encode_with_serde<T: Serialize>(
     buf: &mut [u8],
     value: &T,
