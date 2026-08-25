@@ -30,6 +30,12 @@
 //! across a reconnect. A reconnect builds a fresh `StratumState`, so a
 //! field would reset the lifetime totals every time a pool dropped.
 
+use heapless::Vec;
+use ubos_logging::trace;
+
+use crate::asic_session::PoolHandle;
+use crate::run::NTIME_ROLL_MAX_SECS;
+use crate::work::{MAX_EXTRANONCE_2, OutstandingWork, WorkAssignment};
 use mining_protocol::{MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
 use portable_atomic::{AtomicU64, Ordering};
 use ubos_logging::{info, warn};
@@ -93,6 +99,73 @@ pub struct StratumState {
 }
 
 impl StratumState {
+    /// Build the next `WorkAssignment` from the current ring slot,
+    /// record an `OutstandingWork` so the eventual `Solution` can be
+    /// translated back to a `Share`, and publish into the handle's slot.
+    ///
+    /// `step` advances the slot's `ntime_offset` by that many seconds,
+    /// capped at [`NTIME_ROLL_MAX_SECS`], before publishing. The loop in
+    /// `run_stratum_client_inner` passes the roll period on each ticker
+    /// tick, or `0` for the one-shot publish that hands a freshly accepted
+    /// job to the ASIC when no ticker is running.
+    pub(crate) fn publish_work<const N: usize>(&mut self, asic: PoolHandle<'_, N>, step: u32) {
+        let extranonce_2_size = match self.job_ring.current() {
+            Some(slot) if slot.valid => slot.extranonce_2_size,
+            _ => return,
+        };
+
+        if let Some(slot) = self.job_ring.current_mut() {
+            slot.ntime_offset = slot
+                .ntime_offset
+                .saturating_add(step)
+                .min(NTIME_ROLL_MAX_SECS);
+        }
+
+        let work_id = self.next_work_id;
+        self.next_work_id = self.next_work_id.wrapping_add(1);
+
+        // Adapters reject the session with
+        // `SessionRejection::ExtranonceTooLarge` when the pool advertises
+        // an `extranonce_2_size` above the static `MAX_EXTRANONCE_2`,
+        // so this expect() can only fire on a violated invariant.
+        let mut extranonce_2: Vec<u8, MAX_EXTRANONCE_2> = Vec::new();
+        extranonce_2
+            .resize_default(usize::from(extranonce_2_size))
+            .expect(
+                "BUG: SetExtranonce validation should have rejected en2_size > MAX_EXTRANONCE_2",
+            );
+
+        self.work_ring.put(OutstandingWork {
+            work_id,
+            job_id: self
+                .job_ring
+                .current()
+                .expect("BUG: current() returned Some above")
+                .job_id,
+            extranonce_2,
+        });
+
+        let slot = self
+            .job_ring
+            .current()
+            .expect("BUG: current() returned Some above");
+        let assignment = WorkAssignment {
+            work_id,
+            prev_hash: slot.prev_hash,
+            merkle_root: slot.merkle_root,
+            target: slot.target,
+            version: slot.version,
+            nbits: slot.nbits,
+            ntime: slot.ntime_base.wrapping_add(slot.ntime_offset),
+            version_mask: self.version_mask,
+        };
+        trace!(
+            "stratum-client: publish work_id={} job={} ntime={:#010x}",
+            assignment.work_id, slot.job_id.0, assignment.ntime,
+        );
+        asic.publish_work(assignment);
+    }
+
     /// Build state for the given pool slot. `slot` is clamped to the
     /// last valid index if it does not fit [`POOL_INDEX_SPACE`].
     #[must_use]

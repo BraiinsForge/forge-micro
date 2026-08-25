@@ -55,12 +55,12 @@ disagree, the code wins and this file needs a patch.
    │   │     select3(                                            │       │
    │   │       client.drive(t)       → client.accept(state)      │       │
    │   │       asic.take_solution()  → handle_solution(state)    │       │
-   │   │       work_ticker (1 s)     → publish_work(state, asic) │       │
+   │   │       work_ticker (1 s) → state.publish_work(asic, step)│       │
    │   │     )                                                   │       │
    │   │   }                                                     │       │
    │   └─────────────────────────────────────────────────────────┘       │
    │                                                                     │
-   │   visit_new_job (Visitor):        publish_work (1 Hz tick):         │
+   │   visit_new_job (Visitor):        state.publish_work (1 Hz tick):   │
    │     slot = job_ring.next_slot()     slot = job_ring.current()?      │
    │     merkle.compute(en2 = zeros)     slot.ntime_offset += 1          │
    │       → slot.merkle_root              (capped NTIME_ROLL_MAX_SECS)  │
@@ -98,7 +98,7 @@ disagree, the code wins and this file needs a patch.
    │   └──────────────────────┘                                          │
    └─────────────────────┬────────────────────────────────────────┬──────┘
                          │                                        ▲
-                         │ PoolHandle::publish_work()             │
+                         │ StratumState::publish_work(asic, step) │
                          │   → work[slot] (unconditional)         │
                          ▼                                        │
    ┌─────────────────────────────────────────────────────────────────────┐
@@ -167,7 +167,7 @@ ASIC                              HOST                                 STRATUM
                       └────────────┬─────────────┘    slot owns a copy)
                                    │ 1 Hz: ntime_offset += 1
                                    ▼
-              WorkAssignment   publish_work()
+              WorkAssignment   state.publish_work()
  chip ◄══════ {work_id, header ┌──────────────────────────┐
  (Watch,       fields, ntime = │ work_ring.put(receipt:   │
   latest-wins) base + offset}  │  work_id → job_id + en2) │

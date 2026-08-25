@@ -142,6 +142,13 @@ pub struct PoolHandle<'a, const N: usize> {
 }
 
 impl<const N: usize> PoolHandle<'_, N> {
+    /// Bitmap index of the handle's slot. Slots past the bitmap saturate
+    /// to `u8::MAX`, which [`crate::run::set_pool_alive`] and
+    /// [`crate::run::record_reconnect_attempt`] ignore via their range guards.
+    pub(crate) fn index(&self) -> u8 {
+        u8::try_from(self.slot()).unwrap_or(u8::MAX)
+    }
+
     /// Slot index this handle publishes to and drains, doubling as
     /// the pool index for per-pool accounting (`set_pool_alive`,
     /// `record_reconnect_attempt`).

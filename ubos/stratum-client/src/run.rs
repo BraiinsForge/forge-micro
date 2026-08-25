@@ -40,10 +40,9 @@
 use embassy_futures::select::{Either3, select3};
 use embassy_time::{Duration, Ticker};
 use embedded_io_async::{Read, Write};
-use heapless::Vec;
 use mining_protocol::{Error, JobId, MiningClient, Share};
 use portable_atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
-use ubos_logging::{info, trace, warn};
+use ubos_logging::{info, warn};
 
 /// Pool-index space shared by the alive bitmap and every per-pool
 /// array keyed by pool index: [`STRATUM_RECONNECTS`] here, and
@@ -95,7 +94,7 @@ pub fn record_reconnect_attempt(pool_index: u8) {
 
 use crate::asic_session::PoolHandle;
 use crate::state::StratumState;
-use crate::work::{MAX_EXTRANONCE_2, OutstandingWork, Solution, WorkAssignment};
+use crate::work::Solution;
 
 #[cfg(test)]
 #[path = "tests/run.rs"]
@@ -183,8 +182,8 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 /// an updated `ntime` — restarts whatever nonce/version sweep the ASIC
 /// was mid-way through, so a chip that never completes a full sweep
 /// pass can never search past one period's coverage. `None` trades the
-/// rolling `ntime` for an uninterrupted sweep. See [`publish_work`]
-/// for the offset math.
+/// rolling `ntime` for an uninterrupted sweep. See
+/// [`crate::state::StratumState::publish_work`] for the offset math.
 ///
 /// # Errors
 ///
@@ -205,15 +204,8 @@ where
 {
     let result =
         run_stratum_client_inner(client, transport, asic, state, ntime_roll_period_secs).await;
-    set_pool_alive(pool_index(&asic), false);
+    set_pool_alive(asic.index(), false);
     result
-}
-
-/// Bitmap index of the handle's slot. Slots past the bitmap saturate
-/// to `u8::MAX`, which [`set_pool_alive`] and
-/// [`record_reconnect_attempt`] ignore via their range guards.
-fn pool_index<const N: usize>(asic: &PoolHandle<'_, N>) -> u8 {
-    u8::try_from(asic.slot()).unwrap_or(u8::MAX)
 }
 
 /// The session loop proper, wrapped by [`run_stratum_client`].
@@ -242,7 +234,7 @@ where
     // failed connect does not produce a transient "alive" blip in
     // `POOL_ALIVE_BITMAP` between this function's entry and the
     // `await?` returning Err.
-    set_pool_alive(pool_index(&asic), true);
+    set_pool_alive(asic.index(), true);
 
     // A caller passing `Some(0)` most likely means "publish as fast as
     // possible", not "don't roll" — that's what `None` is for.
@@ -278,7 +270,7 @@ where
                     // uninterrupted sweep needs: the assignment carries
                     // the job's base ntime and the chip sweeps it
                     // without ever being re-published.
-                    publish_work(state, asic, 0);
+                    state.publish_work(asic, 0);
                     last_published = Some(current_job_id);
                 }
             }
@@ -295,7 +287,7 @@ where
                 // apart the ticker spaces them; a period above one
                 // second therefore rolls ntime slower than wall clock,
                 // never faster.
-                publish_work(state, asic, 1);
+                state.publish_work(asic, 1);
             }
         }
     }
@@ -340,69 +332,4 @@ fn handle_solution<C: MiningClient>(
         extranonce_2: &outstanding.extranonce_2,
     };
     client.submit(&share)
-}
-
-/// Build the next `WorkAssignment` from the current ring slot,
-/// record an `OutstandingWork` so the eventual `Solution` can be
-/// translated back to a `Share`, and publish into the handle's slot.
-///
-/// `step` advances the slot's `ntime_offset` by that many seconds,
-/// capped at [`NTIME_ROLL_MAX_SECS`], before publishing. The loop in
-/// [`run_stratum_client_inner`] passes the roll period on each ticker
-/// tick, or `0` for the one-shot publish that hands a freshly accepted
-/// job to the ASIC when no ticker is running.
-fn publish_work<const N: usize>(state: &mut StratumState, asic: PoolHandle<'_, N>, step: u32) {
-    let extranonce_2_size = match state.job_ring.current() {
-        Some(slot) if slot.valid => slot.extranonce_2_size,
-        _ => return,
-    };
-
-    if let Some(slot) = state.job_ring.current_mut() {
-        slot.ntime_offset = slot
-            .ntime_offset
-            .saturating_add(step)
-            .min(NTIME_ROLL_MAX_SECS);
-    }
-
-    let work_id = state.next_work_id;
-    state.next_work_id = state.next_work_id.wrapping_add(1);
-
-    // Adapters reject the session with
-    // `SessionRejection::ExtranonceTooLarge` when the pool advertises
-    // an `extranonce_2_size` above the static `MAX_EXTRANONCE_2`,
-    // so this expect() can only fire on a violated invariant.
-    let mut extranonce_2: Vec<u8, MAX_EXTRANONCE_2> = Vec::new();
-    extranonce_2
-        .resize_default(usize::from(extranonce_2_size))
-        .expect("BUG: SetExtranonce validation should have rejected en2_size > MAX_EXTRANONCE_2");
-
-    state.work_ring.put(OutstandingWork {
-        work_id,
-        job_id: state
-            .job_ring
-            .current()
-            .expect("BUG: current() returned Some above")
-            .job_id,
-        extranonce_2,
-    });
-
-    let slot = state
-        .job_ring
-        .current()
-        .expect("BUG: current() returned Some above");
-    let assignment = WorkAssignment {
-        work_id,
-        prev_hash: slot.prev_hash,
-        merkle_root: slot.merkle_root,
-        target: slot.target,
-        version: slot.version,
-        nbits: slot.nbits,
-        ntime: slot.ntime_base.wrapping_add(slot.ntime_offset),
-        version_mask: state.version_mask,
-    };
-    trace!(
-        "stratum-client: publish work_id={} job={} ntime={:#010x}",
-        assignment.work_id, slot.job_id.0, assignment.ntime,
-    );
-    asic.publish_work(assignment);
 }

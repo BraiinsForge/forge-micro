@@ -207,6 +207,22 @@ const CRC5_INIT_WORK_RESPONSE: u8 = 0x06;
 pub struct Frame(HVec<u8, 16>);
 
 impl Frame {
+    /// Append a header, a payload and a CRC byte to this frame.
+    ///
+    /// The longest command this module builds is 11 bytes: 2 preamble
+    /// bytes, 8 payload bytes and 1 CRC byte for a write-register frame.
+    /// A `Frame` holds 16, so every in-module caller fits by
+    /// construction.
+    fn push(&mut self, header: &[u8], payload: &[u8], crc: u8) {
+        self.0
+            .extend_from_slice(header)
+            .expect("BUG: Frame capacity exceeded");
+        self.0
+            .extend_from_slice(payload)
+            .expect("BUG: Frame capacity exceeded");
+        self.0.push(crc).expect("BUG: Frame capacity exceeded");
+    }
+
     fn new() -> Self {
         Frame(HVec::new())
     }
@@ -333,21 +349,6 @@ impl ChipAddress {
     }
 }
 
-// The longest command this module builds is 11 bytes (2 preamble +
-// 8 payload + 1 CRC for a write-register frame); Frame is 16 bytes.
-// All in-module callers respect that bound.
-fn push_frame(frame: &mut Frame, header: &[u8], payload: &[u8], crc: u8) {
-    frame
-        .0
-        .extend_from_slice(header)
-        .expect("BUG: Frame capacity exceeded");
-    frame
-        .0
-        .extend_from_slice(payload)
-        .expect("BUG: Frame capacity exceeded");
-    frame.0.push(crc).expect("BUG: Frame capacity exceeded");
-}
-
 /// Build a write register command (`SetConfig`) — 11 bytes on wire.
 #[must_use]
 pub fn build_write_register(addr: ChipAddress, reg: u8, value: u32) -> Frame {
@@ -369,7 +370,7 @@ pub fn build_write_register(addr: ChipAddress, reg: u8, value: u32) -> Frame {
     let crc = crc5(&payload, 0x1F, true);
 
     let mut frame = Frame::new();
-    push_frame(&mut frame, &HEADER_TX, &payload, crc);
+    frame.push(&HEADER_TX, &payload, crc);
     frame
 }
 
@@ -384,7 +385,7 @@ pub fn build_read_register(addr: ChipAddress, reg: u8) -> Frame {
     let crc = crc5(&payload, 0x1F, true);
 
     let mut frame = Frame::new();
-    push_frame(&mut frame, &HEADER_TX, &payload, crc);
+    frame.push(&HEADER_TX, &payload, crc);
     frame
 }
 
@@ -401,7 +402,7 @@ pub fn build_command(command: ControlCommand) -> Frame {
     let crc = crc5(&payload, 0x1F, true);
 
     let mut frame = Frame::new();
-    push_frame(&mut frame, &HEADER_TX, &payload, crc);
+    frame.push(&HEADER_TX, &payload, crc);
     frame
 }
 
@@ -446,6 +447,24 @@ pub struct ResponseParser {
 }
 
 impl ResponseParser {
+    /// Copy `bytes` into `parser`'s free space in as many passes as needed,
+    /// popping nothing — the caller drains frames after each fill. Drops the
+    /// buffer if a fill cannot make progress, so a wedged stream cannot
+    /// deadlock the caller.
+    pub(crate) fn feed(&mut self, mut bytes: &[u8]) {
+        while !bytes.is_empty() {
+            let free = self.free();
+            if free.is_empty() {
+                self.clear();
+                continue;
+            }
+            let n = free.len().min(bytes.len());
+            free[..n].copy_from_slice(&bytes[..n]);
+            self.commit(n);
+            bytes = &bytes[n..];
+        }
+    }
+
     /// Create a new parser with an empty buffer and zero desync count.
     #[must_use]
     pub const fn new() -> Self {

@@ -66,7 +66,7 @@ fn offsets(step: u32, n: usize) -> heapless::Vec<u32, 16> {
 
     let mut out = heapless::Vec::new();
     for _ in 0..n {
-        publish_work(&mut state, asic.pool_handle(0), step);
+        state.publish_work(asic.pool_handle(0), step);
         let offset = state.job_ring.current().expect("slot present").ntime_offset;
         out.push(offset).expect("fits capacity");
     }
@@ -97,8 +97,8 @@ fn offset_caps_at_ntime_roll_max_secs() {
 
     // A period large enough that two ticks would overshoot the cap.
     let period = NTIME_ROLL_MAX_SECS / 2 + 100;
-    publish_work(&mut state, asic.pool_handle(0), period);
-    publish_work(&mut state, asic.pool_handle(0), period);
+    state.publish_work(asic.pool_handle(0), period);
+    state.publish_work(asic.pool_handle(0), period);
     assert_eq!(
         state.job_ring.current().expect("slot present").ntime_offset,
         NTIME_ROLL_MAX_SECS
@@ -118,8 +118,8 @@ fn offset_resets_on_new_job() {
     state.visit_new_job(sample_job(1));
     let asic: AsicSession = AsicSession::new();
 
-    publish_work(&mut state, asic.pool_handle(0), 1);
-    publish_work(&mut state, asic.pool_handle(0), 1);
+    state.publish_work(asic.pool_handle(0), 1);
+    state.publish_work(asic.pool_handle(0), 1);
     assert_eq!(
         state.job_ring.current().expect("slot present").ntime_offset,
         2
@@ -131,7 +131,7 @@ fn offset_resets_on_new_job() {
         0
     );
 
-    publish_work(&mut state, asic.pool_handle(0), 1);
+    state.publish_work(asic.pool_handle(0), 1);
     assert_eq!(
         state.job_ring.current().expect("slot present").ntime_offset,
         1
@@ -149,7 +149,7 @@ fn version_mask_reaches_the_published_work_assignment() {
     state.version_mask = 0x1FFF_E000;
     let asic: AsicSession = AsicSession::new();
 
-    publish_work(&mut state, asic.pool_handle(0), 0);
+    state.publish_work(asic.pool_handle(0), 0);
 
     let mut receiver = asic.work_receiver(0).expect("slot 0 has a receiver");
     let assignment = receiver

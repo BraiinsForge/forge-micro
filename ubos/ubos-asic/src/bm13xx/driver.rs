@@ -156,7 +156,7 @@ impl<T: Transport> ChipBus for TransportBus<'_, T> {
                 break;
             }
             budget = budget.saturating_sub(n);
-            feed_parser(&mut parser, &buf[..n]);
+            parser.feed(&buf[..n]);
             // `pop` needs a chip only to decode work-response work-ids;
             // register replies never hit that path, so any model decodes
             // them identically and the value here is immaterial.
@@ -211,24 +211,6 @@ impl<T: Transport> ChipBus for TransportBus<'_, T> {
 
     async fn delay_ms(&mut self, ms: u32) {
         self.io.delay_ms(ms).await;
-    }
-}
-
-/// Copy `bytes` into `parser`'s free space in as many passes as needed,
-/// popping nothing — the caller drains frames after each fill. Drops the
-/// buffer if a fill cannot make progress, so a wedged stream cannot
-/// deadlock the caller.
-fn feed_parser(parser: &mut ResponseParser, mut bytes: &[u8]) {
-    while !bytes.is_empty() {
-        let free = parser.free();
-        if free.is_empty() {
-            parser.clear();
-            continue;
-        }
-        let n = free.len().min(bytes.len());
-        free[..n].copy_from_slice(&bytes[..n]);
-        parser.commit(n);
-        bytes = &bytes[n..];
     }
 }
 
