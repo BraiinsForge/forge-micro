@@ -118,8 +118,8 @@ fn parse_stratum_error(raw: &[u8]) -> Result<StratumError<'_>, ParseError<'_>> {
         return Err(ParseError::InvalidShape);
     }
 
-    // Check if the pool sent a plain string instead of the standard error array
-    // (ckpool I'm looking at you)
+    // Some pools send a plain string here instead of the standard error
+    // array, so check for one before deserialising.
     if raw[0] == b'"' {
         let (msg, _): (&str, _) = serde_json_core::from_slice(raw).map_err(ParseError::Json)?;
         // Use 20 ("Other/Unknown") as a generic error code since none was provided

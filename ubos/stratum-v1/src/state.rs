@@ -36,7 +36,7 @@ use crate::scratch::MAX_EXTRANONCE_1;
 mod tests;
 
 /// Maximum ASCII length of a V1 wire `job_id`. Public pools we have
-/// observed stay well under this; ckpool emits 4–8 char hex.
+/// observed stay well under this, at 4–8 characters of hex.
 pub const MAX_JOB_ID_CHARS: usize = 32;
 
 /// Depth of the `JobId`-to-wire-id ring. Matches `stratum-client`'s

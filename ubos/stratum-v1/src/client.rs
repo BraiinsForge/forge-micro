@@ -84,7 +84,7 @@ const CONFIGURE_MAP: &[u8] = br#"{"version-rolling":{"mask":"1fffe000","min-bit-
 
 /// Bytes reserved for the `result` slice copied out of a handshake
 /// response. Public pools' configure / subscribe results stay well
-/// under this; ckpool emits ~80 bytes.
+/// under this; the largest we have observed is around 80 bytes.
 const HANDSHAKE_RESULT_BYTES: usize = 256;
 
 /// Stratum V1 protocol adapter.

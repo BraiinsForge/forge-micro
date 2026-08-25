@@ -33,11 +33,11 @@ mod tests;
 /// Build the 80-byte Bitcoin block header.
 ///
 /// `version`, `ntime`, and `nbits` serialise little-endian; `prev_hash`
-/// has each 4-byte word reversed in place to undo ckpool's `swap_256`
-/// convention; `merkle_root` is already in internal byte order from a
-/// local double-SHA256 so it goes in raw. The caller converts stratum
-/// big-endian hex to `u32` once during notify parsing so the hot path
-/// only performs byte-layout work.
+/// has each 4-byte word reversed in place, which undoes the per-word
+/// byte order V1 puts it on the wire in; `merkle_root` is already in
+/// internal byte order from a local double-SHA256 so it goes in raw.
+/// The caller converts stratum big-endian hex to `u32` once during
+/// notify parsing so the hot path only performs byte-layout work.
 #[must_use]
 pub fn build_header(
     version: u32,

@@ -29,8 +29,8 @@ use crate::job_id::JobId;
 /// `extranonce_2_size` exceeds this — otherwise we would silently
 /// produce undersized shares and waste all the chip's work.
 ///
-/// 16 bytes covers every V1 public pool we have observed (ckpool /
-/// btc.com / antpool / braiins use 4–8) with comfortable margin.
+/// 16 bytes covers every V1 public pool we have observed, which use
+/// 4–8, with comfortable margin.
 /// V2 standard channels don't roll `extranonce_2`, so the size
 /// lands at zero.
 pub const MAX_EXTRANONCE_2: usize = 16;
