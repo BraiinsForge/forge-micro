@@ -24,11 +24,9 @@
 //! spawn `run_stratum_metrics_publisher` from their own
 //! `#[embassy_executor::task]` wrapper.
 
-use core::fmt::Write as _;
-
 use embassy_time::{Duration, Ticker};
 use portable_atomic::Ordering;
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
+use ubos_metrics::metrics::{Value, push_slot_metric};
 
 use crate::run::{POOL_INDEX_SPACE, STRATUM_RECONNECTS};
 use crate::state::{SHARES_ACCEPTED, SHARES_REJECTED};
@@ -66,16 +64,4 @@ pub async fn run_stratum_metrics_publisher(pool_slots: usize) -> ! {
             .await;
         }
     }
-}
-
-/// Push one metric labeled `pool="<slot>"`.
-async fn push_slot_metric(name: &'static str, slot: usize, value: Value) {
-    let mut slot_str = heapless::String::<24>::new();
-    let _ = write!(slot_str, "{slot}");
-    let mut labels = Labels::new();
-    let _ = labels.push(Label {
-        name: "pool",
-        value: LabelValue::Short(slot_str),
-    });
-    push(Metric::with_labels(name, labels, value)).await;
 }

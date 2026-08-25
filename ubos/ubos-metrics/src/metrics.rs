@@ -257,6 +257,25 @@ pub async fn push(metric: Metric) {
     METRICS.send(metric).await;
 }
 
+/// Push one metric carrying a `pool="<slot>"` label.
+///
+/// The per-slot shape every pool-indexed series in this tree uses.
+/// `stratum-client` and `ubos-mining` both publish one series per pool
+/// slot, and both had their own copy of this until it moved here.
+///
+/// The slot renders through [`LabelValue::Short`], whose capacity bounds
+/// the rendered text. A slot index cannot approach that bound.
+pub async fn push_slot_metric(name: &'static str, slot: usize, value: Value) {
+    let mut slot_str = heapless::String::new();
+    let _ = write!(slot_str, "{slot}");
+    let mut labels = Labels::new();
+    let _ = labels.push(Label {
+        name: "pool",
+        value: LabelValue::Short(slot_str),
+    });
+    push(Metric::with_labels(name, labels, value)).await;
+}
+
 /// Consume pushed metrics into the shared map.
 ///
 /// The sole writer of [`struct@METRIC_MAP`]. Call this from a firmware

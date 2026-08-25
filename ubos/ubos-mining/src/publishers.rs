@@ -24,11 +24,9 @@
 //! spawn `run_miner_metrics_publisher` from their own
 //! `#[embassy_executor::task]` wrapper.
 
-use core::fmt::Write as _;
-
 use embassy_time::{Duration, Ticker};
 use portable_atomic::Ordering;
-use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
+use ubos_metrics::metrics::{Metric, Value, push, push_slot_metric};
 
 use crate::Handle as MiningHandle;
 use crate::serial::{POOL_WORK_SHARES, UART_DESYNC_BYTES};
@@ -83,18 +81,6 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
             .await;
         }
     }
-}
-
-/// Push one metric labeled `pool="<slot>"`.
-async fn push_slot_metric(name: &'static str, slot: usize, value: Value) {
-    let mut slot_str = heapless::String::<24>::new();
-    let _ = write!(slot_str, "{slot}");
-    let mut labels = Labels::new();
-    let _ = labels.push(Label {
-        name: "pool",
-        value: LabelValue::Short(slot_str),
-    });
-    push(Metric::with_labels(name, labels, value)).await;
 }
 
 /// Task shell around [`run_miner_metrics_publisher`]. Takes the board's
