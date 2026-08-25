@@ -236,8 +236,13 @@ let
     test-ubos-asic.crate = "ubos-asic";
     test-ubos-machine.crate = "ubos-machine";
     test-ubos-temperature.crate = "ubos-temperature";
+    # Host tests build with defmt off; see the test-ubos-api comment
+    # below. The router test drives a real edge-http `Connection` over a
+    # mock socket, and edge-http's own `defmt` calls hit the same
+    # undefined `_defmt_*` symbols once defmt is on.
     test-ubos-http = {
       crate = "ubos-http";
+      args = " --no-default-features";
       artifacts = deps.ubosHttpArtifactsDev;
     };
     # Host tests build with defmt off. ubos-api's default `defmt`

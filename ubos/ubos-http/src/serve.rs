@@ -43,7 +43,7 @@ use edge_nal::TcpSplit;
 ///
 /// Sixteen headers cover all headers sent by Prometheus scrapers and
 /// browsers without inflating the per-connection stack frame.
-const MAX_HEADERS: usize = 16;
+pub(crate) const MAX_HEADERS: usize = 16;
 
 /// Body of the 500 response written when a handler returns an error.
 const INTERNAL_ERROR_BODY: &str = "INTERNAL ERROR";

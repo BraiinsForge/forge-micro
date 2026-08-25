@@ -20,7 +20,11 @@ embedded-io-async = { workspace = true }
 heapless          = { workspace = true }
 static_cell       = { workspace = true }
 defmt             = { workspace = true, optional = true }
+ubos-core         = { workspace = true }
 ubos-logging      = { workspace = true }
+
+[dev-dependencies]
+embassy-futures   = { workspace = true }
 
 [package.metadata.cargo-machete]
 ignored = ["defmt"]
