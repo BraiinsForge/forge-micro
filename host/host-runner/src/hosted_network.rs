@@ -134,6 +134,15 @@ mod imp {
     const GATEWAY: Ipv4Address = Ipv4Address::new(192, 168, 69, 1);
     const DNS_SERVER: Ipv4Address = Ipv4Address::new(1, 1, 1, 1);
 
+    /// Open the TUN/TAP device and return it with a static IPv4 config.
+    ///
+    /// The non-ARM half of this module, and the one a developer meets:
+    /// running `host-runner` on a workstation takes this path. The ARM
+    /// half above opens a raw `AF_PACKET` socket on a real interface
+    /// instead, which is what a board in the rack wants.
+    ///
+    /// The addressing is fixed rather than discovered, because the peer
+    /// is a `tap0` the developer has already configured.
     pub fn open_host_device() -> (HostDevice, Config) {
         info!("host-runner: starting on tap device {TAP_NAME}");
         let device = TunTapDevice::new(TAP_NAME).expect("BUG: open TAP device");

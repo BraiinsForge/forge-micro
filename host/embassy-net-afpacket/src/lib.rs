@@ -88,6 +88,16 @@ impl Ifreq {
     }
 }
 
+/// Run one `ioctl` against `fd` and turn its `-1` into an `io::Error`.
+///
+/// The only place this crate calls the raw `libc` entry point, so every
+/// interface query goes through the same errno capture. `request` is
+/// both the input and the output: the kernel writes its answer back into
+/// the same struct.
+///
+/// The receiver would be the file descriptor, which is a bare
+/// `libc::c_int` that `std` declares, so no inherent `impl` here can
+/// take it.
 fn ioctl(fd: libc::c_int, command: libc::c_ulong, request: &mut Ifreq) -> io::Result<()> {
     let result = unsafe { libc::ioctl(fd, command as _, std::ptr::from_mut(request)) };
     if result == -1 {
@@ -234,6 +244,19 @@ impl AfPacket {
     }
 }
 
+/// Add the socket to the interface's promiscuous multicast membership.
+///
+/// The board this stands in for owns its interface outright, and its
+/// stack answers for a MAC the host kernel does not have. Without
+/// promiscuous mode the NIC drops every frame addressed to that MAC
+/// before the socket sees it, so the stack would come up and then hear
+/// nothing.
+///
+/// Membership is refcounted by the kernel and dropped with the socket,
+/// so this does not have to be undone.
+///
+/// The receiver would be the file descriptor, a bare `libc::c_int` that
+/// `std` declares, so no inherent `impl` here can take it.
 fn enable_promisc(fd: libc::c_int, ifindex: libc::c_int) -> io::Result<()> {
     let request = libc::packet_mreq {
         mr_ifindex: ifindex,
