@@ -22,19 +22,13 @@
 //! output monitor.
 
 use core::fmt::Write as _;
+use core::marker::PhantomData;
 
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
 use embedded_hal_async::i2c::I2c;
-use portable_atomic::{AtomicBool, Ordering};
 use ubos_core::units::{Power, Voltage};
 
-use crate::state::{InitStatus, State};
+use crate::state::{Device, Shared};
 use crate::{Error, Psu, ina230, sic45x};
-
-/// `RawMutex` choice exposed for callers that need to declare the
-/// `'static` mutex storage cell.
-pub type RawMutex = CriticalSectionRawMutex;
 
 /// Runtime configuration for `BfmPsu`.
 #[derive(Clone, Copy, Debug)]
@@ -64,33 +58,19 @@ impl BfmPsuDescriptor {
     };
 }
 
-/// State protected by the `BfmPsu` mutex. Type alias over the shared
-/// [`State`] container; the generic parameter is `BfmPsuDescriptor`.
-pub type BfmState<I> = State<I, BfmPsuDescriptor>;
+/// The BFM power stage as a [`Device`]. A marker type: it names the bus
+/// and the config the guarded state is built from, and carries the init
+/// sequence. Nothing constructs it.
+pub struct BfmDevice<I>(PhantomData<I>);
 
-/// Handle to the BFM PSU. Cheap to clone-by-reference; the
-/// underlying state lives behind a `'static` mutex supplied by the
-/// caller.
-pub struct BfmPsu<I: I2c + 'static> {
-    state: &'static Mutex<RawMutex, BfmState<I>>,
-    terminated: &'static AtomicBool,
-}
-
-impl<I: I2c + 'static> BfmPsu<I> {
-    /// Construct a handle from `'static` state and terminated flag.
-    pub fn new(
-        state: &'static Mutex<RawMutex, BfmState<I>>,
-        terminated: &'static AtomicBool,
-    ) -> Self {
-        Self { state, terminated }
-    }
+impl<I: I2c> Device for BfmDevice<I> {
+    type Bus = I;
+    type Config = BfmPsuDescriptor;
+    type BusError = I::Error;
 
     /// Initialization sequence for the BFM power stage: INA230 monitor,
     /// then the `SIC45x` converter.
-    pub(crate) async fn run_init(
-        i2c: &mut I,
-        config: &BfmPsuDescriptor,
-    ) -> Result<(), Error<I::Error>> {
+    async fn init(i2c: &mut I, config: &mut BfmPsuDescriptor) -> Result<(), Error<I::Error>> {
         // Why: the INA230's VS pin is powered by the SIC output rail.
         // The rail is off during init, so the INA is below its operating
         // voltage (~2.7 V). We attempt init optimistically and continue on
@@ -129,16 +109,23 @@ impl<I: I2c + 'static> BfmPsu<I> {
         }
         result
     }
+}
 
-    /// Replay a cached init outcome or run [`Self::run_init`] once and
-    /// cache it.
-    pub(crate) async fn ensure_initialized(state: &mut BfmState<I>) -> Result<(), Error<I::Error>> {
-        if let Some(cached) = state.cached_init() {
-            return cached;
-        }
-        let result = Self::run_init(&mut state.i2c, &state.config).await;
-        state.record_init(&result);
-        result
+/// The lock, the termination flag and the guarded state of a [`BfmPsu`].
+/// A board declares one of these and hands out `&'static` references.
+pub type BfmShared<I> = Shared<BfmDevice<I>>;
+
+/// Handle to the BFM PSU. Cheap to clone-by-reference; the
+/// underlying state lives behind a `'static` [`BfmShared`] supplied by
+/// the caller.
+pub struct BfmPsu<I: I2c + 'static> {
+    shared: &'static BfmShared<I>,
+}
+
+impl<I: I2c + 'static> BfmPsu<I> {
+    /// Construct a handle.
+    pub fn new(shared: &'static BfmShared<I>) -> Self {
+        Self { shared }
     }
 }
 
@@ -146,32 +133,20 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
     type BusError = I::Error;
 
     async fn enable(&self) -> Result<(), Error<I::Error>> {
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         sic45x::enable(i2c, &config.sic).await
     }
 
     async fn disable(&self) -> Result<(), Error<I::Error>> {
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         sic45x::disable(i2c, &config.sic).await
     }
 
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<I::Error>> {
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         let result = sic45x::set_voltage(i2c, &config.sic, voltage.mv()).await;
         // Record the commanded value so telemetry consumers can compare
         // it with the INA230 bus-voltage readback. Only on success: a
@@ -187,7 +162,7 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
         // only sensor (INA230) sits on the output rail and is reported by
         // read_output_power. Report zero so consumers leave "input" blank
         // rather than echoing the output reading under a wrong label.
-        if self.terminated.load(Ordering::Acquire) {
+        if self.shared.is_terminated() {
             return Err(Error::Terminated);
         }
         Ok(Power::from_mw(0))
@@ -197,12 +172,8 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
         // The INA230 measures the output (chip) rail directly and is the
         // accurate figure. The SIC's own READ_POUT is less accurate and
         // intentionally not reported.
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         ina230::read_power_mw(i2c, config.ina_address, config.ina_max_current_a)
             .await
             .map(Power::from_mw)
@@ -213,12 +184,8 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
         // Read from the SIC's own READ_VOUT, not the INA230: the INA is
         // powered off the output rail and is asleep until that rail
         // comes up, whereas the SIC reports VOUT as soon as VIN exists.
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         sic45x::read_vout_mv(i2c, &config.sic)
             .await
             .map(Voltage::from_mv)
@@ -229,14 +196,11 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
         // measurement of the same output rail. The INA is powered off that
         // rail, so this errors until the rail is up, and the caller drops the
         // series for that tick.
-        if self.terminated.load(Ordering::Acquire) {
-            return Some(Err(Error::Terminated));
-        }
-        let mut guard = self.state.lock().await;
-        if let Err(error) = Self::ensure_initialized(&mut guard).await {
-            return Some(Err(error));
-        }
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = match self.shared.acquire().await {
+            Ok(psu) => psu,
+            Err(error) => return Some(Err(error)),
+        };
+        let (i2c, config) = psu.split();
         Some(
             ina230::read_bus_voltage_mv(i2c, config.ina_address)
                 .await
@@ -258,22 +222,14 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
     }
 
     async fn read_status(&self) -> Result<crate::StatusFlags, Error<I::Error>> {
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         sic45x::read_status(i2c, &config.sic).await
     }
 
     async fn terminate(&self) {
-        if self.terminated.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let mut guard = self.state.lock().await;
-        if guard.init == InitStatus::Initialized {
-            let State { i2c, config, .. } = &mut *guard;
+        if let Some(mut psu) = self.shared.terminate().await {
+            let (i2c, config) = psu.split();
             let _ = sic45x::disable(i2c, &config.sic).await;
         }
     }

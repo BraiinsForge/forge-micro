@@ -21,19 +21,14 @@
 //! stage: one TPS53647 multiphase `PMBus` VRM. All telemetry comes
 //! from the controller itself — there is no separate output monitor.
 
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
+use core::marker::PhantomData;
+
 use embedded_hal_async::i2c::I2c;
-use portable_atomic::{AtomicBool, Ordering};
 use ubos_core::units::{Power, Voltage};
 
-use crate::state::{InitStatus, State};
+use crate::state::{Device, Shared};
 use crate::tps53647::{self, Tps53647Config};
 use crate::{Error, Psu};
-
-/// `RawMutex` choice exposed for callers that need to declare the
-/// `'static` mutex storage cell.
-pub type RawMutex = CriticalSectionRawMutex;
 
 /// Runtime configuration for `BraiinsAxePsu`.
 #[derive(Clone, Copy, Debug)]
@@ -49,36 +44,41 @@ impl BraiinsAxePsuDescriptor {
     };
 }
 
-/// State protected by the `BraiinsAxePsu` mutex.
-pub type BraiinsAxeState<I> = State<I, BraiinsAxePsuDescriptor>;
+/// The Braiins Axe power stage as a [`Device`]. A marker type: it names
+/// the bus and the config the guarded state is built from, and carries
+/// the init sequence. Nothing constructs it.
+pub struct BraiinsAxeDevice<I>(PhantomData<I>);
+
+impl<I: I2c> Device for BraiinsAxeDevice<I> {
+    type Bus = I;
+    type Config = BraiinsAxePsuDescriptor;
+    type BusError = I::Error;
+
+    /// Initialization sequence for the TPS53647 VRM.
+    async fn init(
+        i2c: &mut I,
+        config: &mut BraiinsAxePsuDescriptor,
+    ) -> Result<(), Error<I::Error>> {
+        tps53647::init(i2c, &config.tps).await
+    }
+}
+
+/// The lock, the termination flag and the guarded state of a
+/// [`BraiinsAxePsu`]. A board declares one of these and hands out
+/// `&'static` references.
+pub type BraiinsAxeShared<I> = Shared<BraiinsAxeDevice<I>>;
 
 /// Handle to the Braiins Axe PSU. Cheap to clone-by-reference; the underlying
-/// state lives behind a `'static` mutex supplied by the caller.
+/// state lives behind a `'static` [`BraiinsAxeShared`] supplied by the
+/// caller.
 pub struct BraiinsAxePsu<I: I2c + 'static> {
-    state: &'static Mutex<RawMutex, BraiinsAxeState<I>>,
-    terminated: &'static AtomicBool,
+    shared: &'static BraiinsAxeShared<I>,
 }
 
 impl<I: I2c + 'static> BraiinsAxePsu<I> {
-    /// Construct a handle from `'static` state and terminated flag.
-    pub fn new(
-        state: &'static Mutex<RawMutex, BraiinsAxeState<I>>,
-        terminated: &'static AtomicBool,
-    ) -> Self {
-        Self { state, terminated }
-    }
-
-    /// Replay a cached init outcome or run the TPS53647 init once and
-    /// cache it.
-    pub(crate) async fn ensure_initialized(
-        state: &mut BraiinsAxeState<I>,
-    ) -> Result<(), Error<I::Error>> {
-        if let Some(cached) = state.cached_init() {
-            return cached;
-        }
-        let result = tps53647::init(&mut state.i2c, &state.config.tps).await;
-        state.record_init(&result);
-        result
+    /// Construct a handle.
+    pub fn new(shared: &'static BraiinsAxeShared<I>) -> Self {
+        Self { shared }
     }
 }
 
@@ -86,32 +86,20 @@ impl<I: I2c + 'static> Psu for BraiinsAxePsu<I> {
     type BusError = I::Error;
 
     async fn enable(&self) -> Result<(), Error<I::Error>> {
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         tps53647::enable(i2c, &config.tps).await
     }
 
     async fn disable(&self) -> Result<(), Error<I::Error>> {
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         tps53647::disable(i2c, &config.tps).await
     }
 
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<I::Error>> {
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         let result = tps53647::set_voltage(i2c, &config.tps, voltage.mv()).await;
         // Record the commanded value so telemetry consumers can compare
         // it with the READ_VOUT readback. Only on success: a failed
@@ -123,36 +111,24 @@ impl<I: I2c + 'static> Psu for BraiinsAxePsu<I> {
     }
 
     async fn read_input_power(&self) -> Result<Power, Error<I::Error>> {
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         tps53647::read_pin_mw(i2c, &config.tps)
             .await
             .map(Power::from_mw)
     }
 
     async fn read_output_power(&self) -> Result<Power, Error<I::Error>> {
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         tps53647::read_pout_mw(i2c, &config.tps)
             .await
             .map(Power::from_mw)
     }
 
     async fn read_output_voltage(&self) -> Result<Voltage, Error<I::Error>> {
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         tps53647::read_vout_mv(i2c, &config.tps)
             .await
             .map(Voltage::from_mv)
@@ -163,22 +139,14 @@ impl<I: I2c + 'static> Psu for BraiinsAxePsu<I> {
     }
 
     async fn read_status(&self) -> Result<crate::StatusFlags, Error<I::Error>> {
-        if self.terminated.load(Ordering::Acquire) {
-            return Err(Error::Terminated);
-        }
-        let mut guard = self.state.lock().await;
-        Self::ensure_initialized(&mut guard).await?;
-        let State { i2c, config, .. } = &mut *guard;
+        let mut psu = self.shared.acquire().await?;
+        let (i2c, config) = psu.split();
         tps53647::read_status(i2c, &config.tps).await
     }
 
     async fn terminate(&self) {
-        if self.terminated.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let mut guard = self.state.lock().await;
-        if guard.init == InitStatus::Initialized {
-            let State { i2c, config, .. } = &mut *guard;
+        if let Some(mut psu) = self.shared.terminate().await {
+            let (i2c, config) = psu.split();
             let _ = tps53647::disable(i2c, &config.tps).await;
         }
     }

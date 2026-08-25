@@ -28,14 +28,10 @@ fn leak<T: 'static>(value: T) -> &'static T {
     Box::leak(Box::new(value))
 }
 
-fn make_handle(
-    bus: Mock,
-    config: BfmPsuDescriptor,
-    terminated_value: bool,
-) -> (BfmPsu<Mock>, &'static Mutex<RawMutex, BfmState<Mock>>) {
-    let state: &'static _ = leak(Mutex::<RawMutex, _>::new(BfmState::new(bus, config)));
-    let terminated: &'static _ = leak(AtomicBool::new(terminated_value));
-    (BfmPsu::new(state, terminated), state)
+fn make_handle(bus: Mock, config: BfmPsuDescriptor) -> (BfmPsu<Mock>, Mock) {
+    let bus_handle = bus.clone();
+    let shared: &'static _ = leak(BfmShared::new(bus, config));
+    (BfmPsu::new(shared), bus_handle)
 }
 
 /// `INA230` CONFIG word (averaging=Avg1, `VBus` CT=1.1ms, Shunt CT=1.1ms,
@@ -185,12 +181,11 @@ fn init_wire_sequence_ina_then_sic_then_enable() {
     transactions.extend_from_slice(&sic_enable_transactions());
 
     let bus = Mock::new(&transactions);
-    let (psu, state) = make_handle(bus, config, false);
+    let (psu, mut bus) = make_handle(bus, config);
 
     run(psu.enable()).expect("BUG: enable failed");
 
-    let mut guard = run(state.lock());
-    guard.i2c.done();
+    bus.done();
 }
 
 #[test]
@@ -209,12 +204,11 @@ fn set_voltage_happy_path() {
     ));
 
     let bus = Mock::new(&transactions);
-    let (psu, state) = make_handle(bus, config, false);
+    let (psu, mut bus) = make_handle(bus, config);
 
     run(psu.set_voltage(Voltage::from_mv(millivolts))).expect("BUG: set_voltage failed");
 
-    let mut guard = run(state.lock());
-    guard.i2c.done();
+    bus.done();
 }
 
 #[test]
@@ -223,14 +217,13 @@ fn set_voltage_out_of_range_runs_init_first_then_errors() {
     // Init still runs before the range check happens inside sic45x::set_voltage.
     let transactions = init_transactions(&config);
     let bus = Mock::new(&transactions);
-    let (psu, state) = make_handle(bus, config, false);
+    let (psu, mut bus) = make_handle(bus, config);
 
     // 300 mV is below the configured minimum (400 mV).
     let result = run(psu.set_voltage(Voltage::from_mv(300)));
     assert!(matches!(result, Err(Error::OutOfRange)));
 
-    let mut guard = run(state.lock());
-    guard.i2c.done();
+    bus.done();
 }
 
 #[test]
@@ -257,7 +250,7 @@ fn terminate_flips_flag_and_subsequent_calls_return_terminated() {
     transactions.push(Transaction::write(address, vec![OPERATION, 0x00]));
 
     let bus = Mock::new(&transactions);
-    let (psu, state) = make_handle(bus, config, false);
+    let (psu, mut bus) = make_handle(bus, config);
 
     run(psu.set_voltage(Voltage::from_mv(millivolts))).expect("BUG: set_voltage");
     run(psu.terminate());
@@ -265,8 +258,7 @@ fn terminate_flips_flag_and_subsequent_calls_return_terminated() {
     let post = run(psu.set_voltage(Voltage::from_mv(900)));
     assert!(matches!(post, Err(Error::Terminated)));
 
-    let mut guard = run(state.lock());
-    guard.i2c.done();
+    bus.done();
 }
 
 #[test]
@@ -275,13 +267,12 @@ fn read_input_power_reports_zero() {
     // returns zero without touching the bus so the UI leaves "input" blank.
     let config = BfmPsuDescriptor::DEFAULT;
     let bus = Mock::new(&[]);
-    let (psu, state) = make_handle(bus, config, false);
+    let (psu, mut bus) = make_handle(bus, config);
 
     let power = run(psu.read_input_power()).expect("BUG: read_input_power failed");
     assert_eq!(power.mw(), 0);
 
-    let mut guard = run(state.lock());
-    guard.i2c.done();
+    bus.done();
 }
 
 #[test]
@@ -297,13 +288,12 @@ fn read_output_power_reads_ina230_power_register() {
     ));
 
     let bus = Mock::new(&transactions);
-    let (psu, state) = make_handle(bus, config, false);
+    let (psu, mut bus) = make_handle(bus, config);
 
     let power = run(psu.read_output_power()).expect("BUG: read_output_power failed");
     // power_register=1000, current_lsb=30*1e6/32768=915 µA,
     // power_lsb=25*915=22875 µW/LSB; total=1000*22875=22_875_000 µW=22875 mW.
     assert_eq!(power.mw(), 22875);
 
-    let mut guard = run(state.lock());
-    guard.i2c.done();
+    bus.done();
 }

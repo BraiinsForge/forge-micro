@@ -33,13 +33,12 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::{Input, Output};
 use embassy_rp::i2c::{Async, Error as I2cError, I2c};
 use embassy_rp::peripherals::I2C0;
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
-use portable_atomic::AtomicBool;
 use static_cell::StaticCell;
 use ubos_core::units::{Power, Voltage};
 use ubos_machine::BRAIINS_AXE as MACHINE;
-use ubos_psu::{BraiinsAxePsu, BraiinsAxeState, Error, Psu, StatusFlags};
+use ubos_psu::{BraiinsAxePsu, BraiinsAxeShared, Error, Psu, StatusFlags};
 
 /// Bus mutex shared by every consumer on I2C0. `NoopRawMutex` is
 /// sufficient because every I2C consumer runs on the Core 0 executor.
@@ -51,17 +50,13 @@ pub type Bus = Mutex<NoopRawMutex, I2c<'static, I2C0, Async>>;
 /// Public because the hashboard sensor array takes one of these too.
 pub type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C0, Async>>;
 
-/// PSU state guarded by the raw mutex the TPS driver requires.
-type PsuStateInner = Mutex<CriticalSectionRawMutex, BraiinsAxeState<Device>>;
-
 /// I2C bus error surfaced by the shared-bus device.
 type BusError = I2cDeviceError<I2cError>;
 
 /// The shared TPS53647 `PMBus` driver instantiated for this board's bus.
 type InnerPsu = BraiinsAxePsu<Device>;
 
-static STATE: StaticCell<PsuStateInner> = StaticCell::new();
-static TERMINATED: StaticCell<AtomicBool> = StaticCell::new();
+static SHARED: StaticCell<BraiinsAxeShared<Device>> = StaticCell::new();
 static PSU: StaticCell<BoardPsu> = StaticCell::new();
 
 /// How long after `OPERATION` on before sampling `VR_RDY`. Covers the
@@ -145,25 +140,23 @@ impl Psu for BoardPsu {
 
 /// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`,
 /// taking ownership of the sequencing pins (both outputs passed in
-/// already driven low), and return the `'static` references the miner
+/// already driven low), and return the `'static` reference the miner
 /// and power-stats tasks need.
 pub fn init(
     bus: &'static Bus,
     pwr_en: Output<'static>,
     ldo_en: Output<'static>,
     vr_rdy: Input<'static>,
-) -> (&'static BoardPsu, &'static AtomicBool) {
+) -> &'static BoardPsu {
     let device = I2cDevice::new(bus);
-    let state: &'static _ = STATE.init(Mutex::new(BraiinsAxeState::new(device, MACHINE.psu)));
-    let terminated: &'static _ = TERMINATED.init(AtomicBool::new(false));
-    let inner = BraiinsAxePsu::new(state, terminated);
-    let psu: &'static _ = PSU.init(BoardPsu {
+    let shared: &'static _ = SHARED.init(BraiinsAxeShared::new(device, MACHINE.psu));
+    let inner = BraiinsAxePsu::new(shared);
+    PSU.init(BoardPsu {
         inner,
         pwr_en: Mutex::new(pwr_en),
         ldo_en: Mutex::new(ldo_en),
         vr_rdy,
-    });
-    (psu, terminated)
+    })
 }
 
 ubos_psu::power_stats_task!(BoardPsu);

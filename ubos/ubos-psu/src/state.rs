@@ -83,9 +83,9 @@ pub struct State<I, C> {
     /// stores its `BmmPsuDescriptor`; another driver might store a
     /// calibration constant it discovers during device identification.
     pub config: C,
-    // Init gate. `pub(crate)` so in-tree drivers read it directly;
-    // `InitStatus` stays crate-private, so out-of-tree drivers observe
-    // init state through [`Self::is_initialized`] and [`Self::cached_init`].
+    // Init gate. `pub(crate)` so [`Shared`]'s own methods reach it, and
+    // `InitStatus` stays crate-private, so every driver observes init
+    // state through [`Self::is_initialized`] and [`Self::cached_init`].
     pub(crate) init: InitStatus,
 }
 
@@ -125,8 +125,9 @@ impl<I, C> State<I, C> {
 
     /// Whether init has run and succeeded. An out-of-tree driver's `terminate`
     /// checks this before a final device-off command, so it does not touch the
-    /// bus for a device that never came up; the in-tree `bmm` and `bfm` drivers
-    /// gate the same way on the crate-private `InitStatus` directly.
+    /// bus for a device that never came up. The in-tree drivers get the same
+    /// check from [`Shared::terminate`] and [`Shared::initialized`], which call
+    /// this on their behalf.
     #[must_use]
     pub fn is_initialized(&self) -> bool {
         self.init == InitStatus::Initialized
@@ -304,12 +305,12 @@ pub(crate) mod test_support {
     use crate::BmmPsuDescriptor;
     use embedded_hal_mock::eh1::i2c::Transaction;
 
-    /// Build the I2C transaction sequence that `run_init` produces
+    const INA_CONFIG: u16 = 0b0100_0001_0010_0111;
+
+    /// Build the I2C transaction sequence that `Device::init` produces
     /// for a given `BmmPsuDescriptor`. Shared by the integration
     /// tests so the canonical init wire shape lives next to the
     /// implementation.
-    const INA_CONFIG: u16 = 0b0100_0001_0010_0111;
-
     pub fn init_transactions(config: &BmmPsuDescriptor) -> Vec<Transaction> {
         use crate::{ina230, tps6287x};
 

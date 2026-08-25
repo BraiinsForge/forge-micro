@@ -19,12 +19,11 @@
 
 //! BMM101 PSU integration over the shared I2C0 bus.
 //!
-//! Owns the static cells for the `BmmPsu` state, the terminated flag,
-//! and the PSU handle, all of which `ubos_psu::i2c_psu!` writes. The bus
-//! mutex is owned by `main`, so another consumer takes its own
-//! `I2cDevice` from the same mutex rather than one of these; what it
-//! does take from here is the [`Device`] alias that names the handle
-//! type.
+//! Owns the static cells for the shared `BmmPsu` state and the PSU
+//! handle, both of which `ubos_psu::i2c_psu!` writes. The bus mutex is
+//! owned by `main`, so another consumer takes its own `I2cDevice` from
+//! the same mutex rather than one of these; what it does take from here
+//! is the [`Device`] alias that names the handle type.
 
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;

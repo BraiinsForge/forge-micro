@@ -434,8 +434,8 @@ async fn boot(spawner: Spawner) {
             ubos_api::publish_hashboard_ids(ids);
         }
 
-        let (board_psu, psu_state, terminated) = psu::init(bus);
-        spawner.spawn(unwrap!(psu::watchdog_task(psu_state, terminated)));
+        let board_psu = psu::init(bus);
+        spawner.spawn(unwrap!(psu::watchdog_task(board_psu)));
         spawner.spawn(unwrap!(psu::power_stats_task(board_psu)));
 
         // Hashboard reset line (PE0, active-low).

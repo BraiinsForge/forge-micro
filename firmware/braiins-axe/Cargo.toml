@@ -25,7 +25,6 @@ embassy-sync         = { workspace = true, features = ["defmt"] }
 embassy-time         = { workspace = true, features = ["defmt"] }
 embedded-hal-bus     = { workspace = true, features = ["async"] }
 pio                  = "0.3"
-portable-atomic      = { workspace = true }
 smart-leds           = "0.4"
 static_cell          = { workspace = true }
 ubos-api             = { workspace = true, features = ["defmt"] }

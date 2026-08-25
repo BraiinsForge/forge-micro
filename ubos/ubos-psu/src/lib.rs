@@ -88,17 +88,11 @@ pub mod tps53647;
 pub mod tps6287x;
 pub mod watchdog;
 
-pub use bfm::{BfmPsu, BfmPsuDescriptor, BfmState};
-pub use bmm::{BmmPsu, RawMutex, run_watchdog};
-pub use braiins_axe::{BraiinsAxePsu, BraiinsAxePsuDescriptor, BraiinsAxeState};
+pub use bfm::{BfmDevice, BfmPsu, BfmPsuDescriptor, BfmShared};
+pub use bmm::{BmmDevice, BmmPsu, BmmShared};
+pub use braiins_axe::{BraiinsAxeDevice, BraiinsAxePsu, BraiinsAxePsuDescriptor, BraiinsAxeShared};
 pub use config::BmmPsuDescriptor;
-pub use state::{Device, Ready, Shared, State};
-
-/// The terminated flag every constructor here takes, re-exported so
-/// `i2c_psu!` can name it without the board declaring `portable-atomic`
-/// for that one reference. It is already part of this crate's public
-/// surface through `BmmPsu::new` and [`run_watchdog`].
-pub use portable_atomic::AtomicBool;
+pub use state::{Device, RawMutex, Ready, Shared, State};
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};

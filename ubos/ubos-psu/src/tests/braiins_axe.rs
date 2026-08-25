@@ -28,13 +28,10 @@ fn leak<T: 'static>(value: T) -> &'static T {
     Box::leak(Box::new(value))
 }
 
-fn make_handle(bus: Mock, terminated_value: bool) -> BraiinsAxePsu<Mock> {
-    let state: &'static _ = leak(Mutex::<RawMutex, _>::new(BraiinsAxeState::new(
-        bus,
-        BraiinsAxePsuDescriptor::DEFAULT,
-    )));
-    let terminated: &'static _ = leak(AtomicBool::new(terminated_value));
-    BraiinsAxePsu::new(state, terminated)
+fn make_handle(bus: Mock) -> (BraiinsAxePsu<Mock>, Mock) {
+    let bus_handle = bus.clone();
+    let shared: &'static _ = leak(BraiinsAxeShared::new(bus, BraiinsAxePsuDescriptor::DEFAULT));
+    (BraiinsAxePsu::new(shared), bus_handle)
 }
 
 /// The init wire sequence for `BraiinsAxePsuDescriptor::DEFAULT`, mirroring
@@ -86,16 +83,18 @@ fn first_call_runs_init_then_the_operation() {
         vec![READ_POUT],
         vec![raw[0], raw[1]],
     ));
-    let psu = make_handle(Mock::new(&transactions), false);
+    let (psu, mut bus) = make_handle(Mock::new(&transactions));
     let power = run(psu.read_output_power()).expect("read should succeed");
     assert_eq!(power.mw(), 50_000);
     let power = run(psu.read_output_power()).expect("read should succeed");
     assert_eq!(power.mw(), 50_000);
+    bus.done();
 }
 
 #[test]
 fn terminated_psu_rejects_operations() {
-    let psu = make_handle(Mock::new(&[]), true);
+    let (psu, mut bus) = make_handle(Mock::new(&[]));
+    run(psu.terminate());
     assert!(matches!(run(psu.enable()), Err(Error::Terminated)));
     assert!(matches!(
         run(psu.set_voltage(ubos_core::units::Voltage::from_mv(1200))),
@@ -106,6 +105,7 @@ fn terminated_psu_rejects_operations() {
         run(psu.read_input_power()),
         Err(Error::Terminated)
     ));
+    bus.done();
 }
 
 #[test]
@@ -119,17 +119,18 @@ fn terminate_disables_an_initialized_rail_once() {
         Transaction::write_read(address, vec![OPERATION], vec![0x80]),
         Transaction::write(address, vec![OPERATION, 0x00]),
     ]);
-    let psu = make_handle(Mock::new(&transactions), false);
+    let (psu, mut bus) = make_handle(Mock::new(&transactions));
     let voltage = run(psu.read_output_voltage()).expect("read should succeed");
     assert_eq!(voltage.mv(), 1200);
     run(psu.terminate());
     // Second terminate is a no-op; the mock would fail on extra I2C.
     run(psu.terminate());
+    bus.done();
 }
 
 #[test]
 fn voltage_source_names_the_part() {
-    let psu = make_handle(Mock::new(&[]), false);
+    let (psu, _bus) = make_handle(Mock::new(&[]));
     assert_eq!(psu.voltage_source(), Some("tps53647"));
     assert_eq!(psu.secondary_voltage_source(), None);
     assert!(run(psu.read_secondary_voltage()).is_none());

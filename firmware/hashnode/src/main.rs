@@ -353,9 +353,7 @@ async fn boot(spawner: Spawner) {
     }
 
     // SIC_EN starts low; the rail stays off until the miner task enables it.
-    // `_terminated` is intentionally discarded: nothing here polls the flag
-    // to surface a termination event.
-    let (board_psu, _terminated) = psu::init(bus, Output::new(hw.sic_en, Level::Low));
+    let board_psu = psu::init(bus, Output::new(hw.sic_en, Level::Low));
     spawner.spawn(unwrap!(psu::power_stats_task(board_psu)));
 
     // GPIO32: HIGH = enabled/out-of-reset; start LOW (in reset) until the

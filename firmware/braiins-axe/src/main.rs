@@ -340,9 +340,8 @@ async fn boot(spawner: Spawner) {
     }
 
     // PWR_EN and LDO_EN start low; the rails stay off until the miner task
-    // enables them. `_terminated` is intentionally discarded: nothing here
-    // polls the flag to surface a termination event.
-    let (board_psu, _terminated) = psu::init(
+    // enables them.
+    let board_psu = psu::init(
         bus,
         Output::new(hw.pwr_en, Level::Low),
         Output::new(hw.ldo_en, Level::Low),

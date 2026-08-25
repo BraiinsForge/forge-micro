@@ -18,36 +18,48 @@
 // shall be considered distinct from the grant above.
 
 use super::*;
-use crate::{BmmPsu, BmmPsuDescriptor};
+use crate::{BmmDevice, BmmPsuDescriptor};
 use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
 
 fn run<F: core::future::Future>(future: F) -> F::Output {
     embassy_futures::block_on(future)
 }
 
-#[test]
-fn ensure_initialized_runs_full_init_then_marks_initialized() {
-    let config = BmmPsuDescriptor::DEFAULT;
-    let bus = Mock::new(&test_support::init_transactions(&config));
-    let mut state = State::new(bus, config);
-    run(BmmPsu::ensure_initialized(&mut state)).expect("BUG: init failed");
-    assert_eq!(state.init, InitStatus::Initialized);
-    state.i2c.done();
+/// Build a `Shared` over a mock bus, and return a second handle on the
+/// same expectation queue. `Mock` clones share that queue through an
+/// `Arc`, so the clone is how a test calls `done()` without reaching
+/// past `Shared` for the bus it guards.
+fn shared_with_bus(
+    transactions: &[Transaction],
+    config: BmmPsuDescriptor,
+) -> (Shared<BmmDevice<Mock>>, Mock) {
+    let bus = Mock::new(transactions);
+    (Shared::new(bus.clone(), config), bus)
 }
 
 #[test]
-fn ensure_initialized_caches_success() {
+fn acquire_runs_the_full_init_sequence() {
     let config = BmmPsuDescriptor::DEFAULT;
-    let bus = Mock::new(&test_support::init_transactions(&config));
-    let mut state = State::new(bus, config);
-    run(BmmPsu::ensure_initialized(&mut state)).expect("BUG: first init failed");
-    // Second call must not touch the bus.
-    run(BmmPsu::ensure_initialized(&mut state)).expect("BUG: cached init returned error");
-    state.i2c.done();
+    let (shared, mut bus) = shared_with_bus(&test_support::init_transactions(&config), config);
+    run(shared.acquire()).expect("BUG: init failed");
+    bus.done();
 }
 
 #[test]
-fn ensure_initialized_caches_failure_kind() {
+fn acquire_runs_init_once_and_caches_the_success() {
+    let config = BmmPsuDescriptor::DEFAULT;
+    let (shared, mut bus) = shared_with_bus(&test_support::init_transactions(&config), config);
+    // The guard has to go before the second call: `acquire` takes the
+    // same lock and would otherwise wait on a future nothing wakes.
+    drop(run(shared.acquire()).expect("BUG: first init failed"));
+    // The mock holds exactly one init sequence, so a second run of it
+    // would fail here rather than at `done` below.
+    drop(run(shared.acquire()).expect("BUG: cached init returned error"));
+    bus.done();
+}
+
+#[test]
+fn acquire_caches_the_failure_kind() {
     let config = BmmPsuDescriptor::DEFAULT;
     // First transaction errors out: NACK on the watchdog write.
     let expectations = [
@@ -57,19 +69,17 @@ fn ensure_initialized_caches_failure_kind() {
             ),
         ),
     ];
-    let bus = Mock::new(&expectations);
-    let mut state = State::new(bus, config);
-    let first = run(BmmPsu::ensure_initialized(&mut state));
-    assert!(matches!(first, Err(Error::Bus(_))));
-    match state.init {
-        InitStatus::Failed(kind) => {
-            assert!(matches!(kind, ErrorKind::NoAcknowledge(_)));
-        }
-        other => panic!("BUG: expected Failed, got {other:?}"),
-    }
-    let second = run(BmmPsu::ensure_initialized(&mut state));
-    assert!(matches!(second, Err(Error::InitFailed(_))));
-    state.i2c.done();
+    let (shared, mut bus) = shared_with_bus(&expectations, config);
+    let first = run(shared.acquire());
+    assert!(matches!(first.err(), Some(Error::Bus(_))));
+    // The second caller never reaches the bus and reports the kind the
+    // first attempt recorded.
+    let second = run(shared.acquire());
+    assert!(matches!(
+        second.err(),
+        Some(Error::InitFailed(ErrorKind::NoAcknowledge(_)))
+    ));
+    bus.done();
 }
 
 /// An I2C bus that suspends once inside every transaction.

@@ -18,7 +18,7 @@
 // shall be considered distinct from the grant above.
 
 //! BMM101 PSU integration over the shared I2C1 bus. Owns the static
-//! cells for the `BmmPsu` state, terminated flag, and PSU handle.
+//! cells for the shared `BmmPsu` state and the PSU handle.
 //!
 //! Backend architecture: `../../../docs/MINING.md`.
 

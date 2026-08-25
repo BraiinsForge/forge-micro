@@ -566,9 +566,8 @@ fn main() {
             }
         }
         match psu::open() {
-            Some((miner_psu, state, terminated)) => {
-                spawner
-                    .spawn(psu::watchdog_task(state, terminated).expect("BUG: psu watchdog token"));
+            Some(miner_psu) => {
+                spawner.spawn(psu::watchdog_task(miner_psu).expect("BUG: psu watchdog token"));
                 spawner
                     .spawn(psu::power_stats_task(miner_psu).expect("BUG: psu power_stats token"));
                 spawner

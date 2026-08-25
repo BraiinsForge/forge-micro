@@ -29,26 +29,21 @@ fn leak<T: 'static>(value: T) -> &'static T {
     Box::leak(Box::new(value))
 }
 
-fn make_handle(
-    bus: Mock,
-    config: crate::BmmPsuDescriptor,
-    terminated_value: bool,
-) -> (
-    BmmPsu<Mock>,
-    &'static Mutex<RawMutex, State<Mock, crate::BmmPsuDescriptor>>,
-) {
-    let state: &'static _ = leak(Mutex::<RawMutex, _>::new(State::new(bus, config)));
-    let terminated: &'static _ = leak(AtomicBool::new(terminated_value));
-    (BmmPsu::new(state, terminated), state)
+fn make_handle(bus: Mock, config: crate::BmmPsuDescriptor) -> (BmmPsu<Mock>, Mock) {
+    let bus_handle = bus.clone();
+    let shared: &'static _ = leak(BmmShared::new(bus, config));
+    (BmmPsu::new(shared), bus_handle)
 }
 
 #[test]
 fn terminated_short_circuits_methods() {
     let bus = Mock::new(&[]);
     let config = crate::BmmPsuDescriptor::DEFAULT;
-    let (psu, _state) = make_handle(bus, config, true);
+    let (psu, mut bus) = make_handle(bus, config);
+    run(psu.terminate());
     let result = run(psu.set_voltage(Voltage::from_mv(700)));
     assert!(matches!(result, Err(Error::Terminated)));
+    bus.done();
 }
 
 #[test]
@@ -74,7 +69,7 @@ fn dropped_set_voltage_future_does_not_corrupt_bus() {
     ));
 
     let bus = Mock::new(&transactions);
-    let (psu, state) = make_handle(bus, config, false);
+    let (psu, mut bus) = make_handle(bus, config);
 
     // First call runs init then writes 700 mV.
     run(psu.set_voltage(Voltage::from_mv(700))).expect("BUG: first call");
@@ -91,8 +86,7 @@ fn dropped_set_voltage_future_does_not_corrupt_bus() {
     // Third call must complete cleanly with the bus advancing.
     run(psu.set_voltage(Voltage::from_mv(800))).expect("BUG: third call");
 
-    let mut guard = run(state.lock());
-    guard.i2c.done();
+    bus.done();
 }
 
 #[test]
@@ -116,7 +110,7 @@ fn terminate_disables_dcdc_and_short_circuits_subsequent_calls() {
     ));
 
     let bus = Mock::new(&transactions);
-    let (psu, state) = make_handle(bus, config, false);
+    let (psu, mut bus) = make_handle(bus, config);
 
     run(psu.set_voltage(Voltage::from_mv(700))).expect("BUG: set_voltage");
     run(psu.terminate());
@@ -124,6 +118,5 @@ fn terminate_disables_dcdc_and_short_circuits_subsequent_calls() {
     let post = run(psu.set_voltage(Voltage::from_mv(800)));
     assert!(matches!(post, Err(Error::Terminated)));
 
-    let mut guard = run(state.lock());
-    guard.i2c.done();
+    bus.done();
 }
