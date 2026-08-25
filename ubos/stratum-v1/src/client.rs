@@ -38,16 +38,14 @@ use embedded_io_async::{Read, Write};
 use heapless::String;
 
 use mining_protocol::{
-    Error, JobId, LazyMerkle, MAX_EXTRANONCE_2, MiningClient, MiningClientVisitor, MiningJob,
+    Error, LazyMerkle, MAX_EXTRANONCE_2, MiningClient, MiningClientVisitor, MiningJob,
     SessionRejection, SessionUpdate, Share, SubmitResult,
 };
 use ubos_logging::{info, warn};
 
 use crate::config::Sv1Config;
 use crate::scratch::{DecodeScratch, MAX_COINBASE_PART, MAX_MERKLE_BRANCHES};
-use crate::state::{
-    JOBID_MAP_DEPTH, JobIdSlot, MAX_JOB_ID_CHARS, PendingRequestKind, SessionState,
-};
+use crate::state::{MAX_JOB_ID_CHARS, PendingRequestKind, SessionState};
 use crate::target::target_from_diff;
 use crate::wire::line_buffer::LineBuffer;
 use crate::wire::messages::{
@@ -251,7 +249,10 @@ impl MiningClient for StratumV1Client<'_> {
         // Copy the wire-form job_id out of the ring so the immutable
         // borrow ends before we mutate session for the submit id.
         let mut wire_job_id = String::<MAX_JOB_ID_CHARS>::new();
-        let wire_borrow = lookup_wire_job_id(&self.session, share.id).ok_or(Error::UnknownJobId)?;
+        let wire_borrow = self
+            .session
+            .wire_job_id(share.id)
+            .ok_or(Error::UnknownJobId)?;
         wire_job_id
             .push_str(wire_borrow)
             .map_err(|_| Error::Adapter)?;
@@ -399,7 +400,9 @@ impl MiningClient for StratumV1Client<'_> {
                             set_extranonce.extra_nonce_2_size, MAX_EXTRANONCE_2,
                         );
                         self.state = V1State::Rejected(SessionRejection::ExtranonceTooLarge);
-                    } else if store_extranonce_1(&mut self.session, set_extranonce.extra_nonce_1)
+                    } else if self
+                        .session
+                        .store_extranonce_1(set_extranonce.extra_nonce_1)
                         && set_extranonce.extra_nonce_2_size as usize
                             <= crate::scratch::MAX_EXTRANONCE_1
                     {
@@ -522,7 +525,7 @@ fn dispatch_notify<V: MiningClientVisitor>(
 
     // Allocate a JobId and record the (generic, wire) mapping. Slot
     // rotation matches the depth-2 ring on the stratum-client side.
-    let job_id = allocate_job_id(session, notify.job_id);
+    let job_id = session.allocate_job_id(notify.job_id);
 
     let extranonce_2_size = session.extranonce_2_size;
     let extranonce_prefix = &session.extranonce_1[..session.extranonce_1_len];
@@ -642,53 +645,6 @@ fn decode_hex_u32_be(text: &str) -> Option<u32> {
     Some(u32::from_be_bytes(buf))
 }
 
-/// Translate a generic `JobId` back to the V1 wire-form string.
-/// Returns `None` if the `JobId` has been evicted from the depth-2
-/// ring.
-fn lookup_wire_job_id(session: &SessionState, generic: JobId) -> Option<&str> {
-    session
-        .job_id_ring
-        .iter()
-        .filter_map(|slot| slot.as_ref())
-        .find(|slot| slot.generic == generic)
-        .map(|slot| slot.wire.as_str())
-}
-
-/// Push the (`JobId`, wire `job_id`) pair onto the depth-2 ring.
-fn allocate_job_id(session: &mut SessionState, wire_id: &str) -> JobId {
-    let generic = JobId(session.next_job_id);
-    session.next_job_id = session.next_job_id.wrapping_add(1);
-
-    let mut wire = String::<MAX_JOB_ID_CHARS>::new();
-    let truncated = if wire_id.len() > MAX_JOB_ID_CHARS {
-        // Keep the prefix; longer wire ids indicate a misbehaving
-        // pool but we don't want to fail the job over it.
-        &wire_id[..MAX_JOB_ID_CHARS]
-    } else {
-        wire_id
-    };
-    let _ = wire.push_str(truncated);
-
-    let index = session.job_id_write_index;
-    session.job_id_ring[index] = Some(JobIdSlot { generic, wire });
-    session.job_id_write_index = (index + 1) % JOBID_MAP_DEPTH;
-
-    generic
-}
-
-fn store_extranonce_1(session: &mut SessionState, hex: &str) -> bool {
-    let hex_bytes = hex.as_bytes();
-    if hex_bytes.len() / 2 > session.extranonce_1.len() {
-        return false;
-    }
-    let len = hex_bytes.len() / 2;
-    if !decode_hex(hex_bytes, &mut session.extranonce_1[..len]) {
-        return false;
-    }
-    session.extranonce_1_len = len;
-    true
-}
-
 /// Stage the reply to a pool-initiated `mining.ping` in the outbound
 /// slot.
 ///
@@ -792,7 +748,7 @@ fn dispatch_response<V: MiningClientVisitor>(
                 );
                 return Some(SessionRejection::ExtranonceTooLarge);
             }
-            if !store_extranonce_1(session, parsed.1) {
+            if !session.store_extranonce_1(parsed.1) {
                 return None;
             }
             session.extranonce_2_size = parsed.2;

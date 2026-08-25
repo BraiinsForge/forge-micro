@@ -28,6 +28,7 @@
 
 use heapless::String;
 use mining_protocol::JobId;
+use mining_protocol::hex::decode_to_slice as decode_hex;
 
 use crate::scratch::MAX_EXTRANONCE_1;
 
@@ -148,8 +149,8 @@ pub struct JobIdSlot {
 pub struct SessionState {
     /// Binary-decoded `extranonce_1` from the subscribe response.
     /// Length valid up to `extranonce_1_len`.
-    pub extranonce_1: [u8; MAX_EXTRANONCE_1],
-    pub extranonce_1_len: usize,
+    pub(crate) extranonce_1: [u8; MAX_EXTRANONCE_1],
+    pub(crate) extranonce_1_len: usize,
     /// `extranonce_2` size assigned by the pool. Stamped into every
     /// `MiningJob::extranonce_2_size`.
     pub extranonce_2_size: u8,
@@ -161,15 +162,61 @@ pub struct SessionState {
     /// configure/subscribe/authorize/submit id constants.
     pub pending: PendingRequests<PENDING_DEPTH>,
     /// `JobId` counter; assigned in `visit_new_job` translation.
-    pub next_job_id: u32,
+    pub(crate) next_job_id: u32,
     /// Depth-`JOBID_MAP_DEPTH` ring mapping `JobId` to V1 wire
     /// `job_id` strings. Rotates in lockstep with
     /// `stratum-client`'s `JobRing`.
-    pub job_id_ring: [Option<JobIdSlot>; JOBID_MAP_DEPTH],
-    pub job_id_write_index: usize,
+    pub(crate) job_id_ring: [Option<JobIdSlot>; JOBID_MAP_DEPTH],
+    pub(crate) job_id_write_index: usize,
 }
 
 impl SessionState {
+    /// Translate a generic `JobId` back to the V1 wire-form string.
+    /// Returns `None` if the `JobId` has been evicted from the depth-2
+    /// ring.
+    pub(crate) fn wire_job_id(&self, generic: JobId) -> Option<&str> {
+        self.job_id_ring
+            .iter()
+            .filter_map(|slot| slot.as_ref())
+            .find(|slot| slot.generic == generic)
+            .map(|slot| slot.wire.as_str())
+    }
+
+    /// Push the (`JobId`, wire `job_id`) pair onto the depth-2 ring.
+    pub(crate) fn allocate_job_id(&mut self, wire_id: &str) -> JobId {
+        let generic = JobId(self.next_job_id);
+        self.next_job_id = self.next_job_id.wrapping_add(1);
+
+        let mut wire = String::<MAX_JOB_ID_CHARS>::new();
+        let truncated = if wire_id.len() > MAX_JOB_ID_CHARS {
+            // Keep the prefix; longer wire ids indicate a misbehaving
+            // pool but we don't want to fail the job over it.
+            &wire_id[..MAX_JOB_ID_CHARS]
+        } else {
+            wire_id
+        };
+        let _ = wire.push_str(truncated);
+
+        let index = self.job_id_write_index;
+        self.job_id_ring[index] = Some(JobIdSlot { generic, wire });
+        self.job_id_write_index = (index + 1) % JOBID_MAP_DEPTH;
+
+        generic
+    }
+
+    pub(crate) fn store_extranonce_1(&mut self, hex: &str) -> bool {
+        let hex_bytes = hex.as_bytes();
+        if hex_bytes.len() / 2 > self.extranonce_1.len() {
+            return false;
+        }
+        let len = hex_bytes.len() / 2;
+        if !decode_hex(hex_bytes, &mut self.extranonce_1[..len]) {
+            return false;
+        }
+        self.extranonce_1_len = len;
+        true
+    }
+
     #[must_use]
     pub const fn new() -> Self {
         Self {
