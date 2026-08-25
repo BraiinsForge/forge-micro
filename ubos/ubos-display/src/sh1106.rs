@@ -158,6 +158,19 @@ impl<SPI: embedded_hal::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
 
 // These methods use async SPI.
 impl<SPI: embedded_hal_async::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
+    /// Run the display loop forever, rendering once per second.
+    ///
+    /// Renders the screen into this panel's framebuffer through
+    /// [`crate::display::render`], then flushes it over async SPI.
+    /// Never returns, so a board spawns it as its own task.
+    pub async fn run(&mut self) -> ! {
+        loop {
+            let _ = crate::display::render(self);
+            let _ = self.flush_async().await;
+            embassy_time::Timer::after(embassy_time::Duration::from_secs(1)).await;
+        }
+    }
+
     /// Send the SH1106 initialization sequence asynchronously.
     ///
     /// # Errors

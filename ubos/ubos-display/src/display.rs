@@ -21,19 +21,15 @@
 //!
 //! Architecture: `../../../docs/OVERVIEW.md`.
 
-use embassy_time::{Duration, Timer};
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::Text;
-use embedded_hal::digital::OutputPin;
 use profont::PROFONT_12_POINT;
 
 use ubos_metrics::hashrate;
 use ubos_net::net::handle as net_handle;
 use ubos_net::ntp;
-
-use crate::sh1106::Sh1106;
 
 /// Render IP, UTC time, fan PWM and RPM where a fan is present, and
 /// hashrate onto the display.
@@ -107,21 +103,8 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(),
     Ok(())
 }
 
-/// Run the display loop. Renders the screen once per second and flushes
-/// via async SPI with DMA.
-pub async fn run<SPI, DC>(display: &mut Sh1106<SPI, DC>) -> !
-where
-    SPI: embedded_hal_async::spi::SpiDevice,
-    DC: OutputPin,
-{
-    loop {
-        let _ = render(display);
-        let _ = display.flush_async().await;
-        Timer::after(Duration::from_secs(1)).await;
-    }
-}
-
-/// Task shell around [`run`], which renders the OLED display.
+/// Task shell around [`crate::sh1106::Sh1106::run`], which renders the OLED
+/// display.
 ///
 /// The reset pin is moved in and held for the task's lifetime so the
 /// panel's RESET line stays driven; dropping it would release the pad and
@@ -134,7 +117,7 @@ macro_rules! display_task {
             mut display: $display,
             #[allow(clippy::used_underscore_binding)] _reset_pin: $reset,
         ) -> ! {
-            ubos_display::display::run(&mut display).await
+            display.run().await
         }
     };
 }
