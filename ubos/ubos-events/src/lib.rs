@@ -57,6 +57,7 @@ use core::cell::RefCell;
 
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::once_lock::OnceLock;
 
 pub use ubos_logging;
 
@@ -519,26 +520,35 @@ pub fn latest_seq() -> u32 {
 /// `/catalog` HTTP endpoint can serve the decode table. It is an empty slice
 /// until `set_catalogs` is called, so the endpoint returns an empty list
 /// rather than failing before boot wires it up.
-static CATALOGS: Mutex<CriticalSectionRawMutex, RefCell<&'static [&'static [EventDef]]>> =
-    Mutex::new(RefCell::new(&[]));
+///
+/// A `OnceLock` rather than a `Mutex`, because the slot is written once and
+/// read many times, and `catalogs()` should not pay a critical section for
+/// every read of a value that never changes after boot. `OnceLock::init`
+/// stores the value and then marks the slot ready with a relaxed store, and
+/// `try_get` reads that flag relaxed too, so a relaxed store does not by
+/// itself publish the value to another core. That is safe here only because
+/// every board starts its second core after `set_catalogs` runs, and a core
+/// start orders memory between the two cores.
+static CATALOGS: OnceLock<&'static [&'static [EventDef]]> = OnceLock::new();
 
 /// Installs the assembled per-crate catalogs. Called once at boot.
 ///
 /// Installs once: a stray second call keeps the first catalogs rather than
-/// replacing them, mirroring [`init`]'s install-once discipline.
+/// replacing them, mirroring [`init`]'s install-once discipline. `init`
+/// returns `Err` on a second call; that error is deliberately discarded.
 pub fn set_catalogs(catalogs: &'static [&'static [EventDef]]) {
-    CATALOGS.lock(|cell| {
-        let mut slot = cell.borrow_mut();
-        if slot.is_empty() {
-            *slot = catalogs;
-        }
-    });
+    let _ = CATALOGS.init(catalogs);
 }
 
 /// Returns the installed catalogs, or an empty slice before `set_catalogs`.
+///
+/// Uses `try_get`, not `get`: `get` returns a future that busy-polls the
+/// executor until the slot is filled, which is only useful for a value
+/// installed after other tasks start awaiting it. `try_get` is a single
+/// relaxed load and returns immediately either way.
 #[must_use]
 pub fn catalogs() -> &'static [&'static [EventDef]] {
-    CATALOGS.lock(|cell| *cell.borrow())
+    CATALOGS.try_get().copied().unwrap_or(&[])
 }
 
 /// Returns `true` if every event `code` across all catalogs in `registry` is
