@@ -35,6 +35,7 @@
 #![no_std]
 
 pub mod fan;
+pub mod pio_tach;
 pub mod uart;
 
 mod core1;

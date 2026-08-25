@@ -24,7 +24,6 @@ embassy-rp           = { version = "0.10.0", features = ["defmt", "unstable-pac"
 embassy-sync         = { workspace = true, features = ["defmt"] }
 embassy-time         = { workspace = true, features = ["defmt"] }
 embedded-hal-bus     = { workspace = true, features = ["async"] }
-pio                  = "0.3"
 smart-leds           = "0.4"
 static_cell          = { workspace = true }
 ubos-api             = { workspace = true, features = ["defmt"] }

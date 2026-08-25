@@ -148,7 +148,8 @@ both targets and the host build installs `env_logger`.
 
 ## Fan PWM and tachometers
 
-Code: `firmware/hashnode/src/fan.rs`.
+Code: `firmware/hashnode/src/fan.rs` for the PWM, `ubos/ubos-rp/src/pio_tach.rs`
+for the tachometer program the boards share.
 
 `PWM_SLICE5` drives both channel A (GPIO10) and channel B (GPIO11) at
 25 kHz, the Intel 4-wire fan spec rate. Both channels run the same duty
