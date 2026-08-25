@@ -39,6 +39,7 @@
 use embedded_hal_async::i2c::I2c;
 
 use crate::Error;
+use crate::pmbus::{decode_status, read_word, write_word};
 
 // Register addresses (PMBus command codes).
 pub(crate) const OPERATION: u8 = 0x01;
@@ -86,19 +87,6 @@ pub(crate) const fn decode_vid_mv(vid: u8) -> u32 {
     VID_FLOOR_MILLIVOLTS + (vid as u32 - 1) * VID_STEP_MILLIVOLTS
 }
 
-/// Decode the `STATUS_BYTE` register into the shared [`crate::StatusFlags`].
-///
-/// `PMBus` `STATUS_BYTE` bit mapping: bit5 = `VOUT_OV`, bit4 = `IOUT_OC`,
-/// bit3 = `VIN_UV`, bit2 = temperature fault.
-pub(crate) fn decode_status(byte: u8) -> crate::StatusFlags {
-    crate::StatusFlags {
-        overvoltage: (byte & (1 << 5)) != 0,
-        current_limit: (byte & (1 << 4)) != 0,
-        undervoltage: (byte & (1 << 3)) != 0,
-        thermal_shutdown: (byte & (1 << 2)) != 0,
-    }
-}
-
 /// Configuration for the TPS53647 VRM controller.
 ///
 /// No overcurrent fields: the F-IMAX pinstrap fixes IMAX in hardware
@@ -136,36 +124,6 @@ impl Tps53647Config {
         voltage_min_millivolts: VID_FLOOR_MILLIVOLTS,
         voltage_max_millivolts: VID_CEILING_MILLIVOLTS,
     };
-}
-
-/// Write a `PMBus` word register (register + 2 LE data bytes).
-async fn write_word<I, E>(
-    i2c: &mut I,
-    address: u8,
-    register: u8,
-    value: u16,
-) -> Result<(), Error<E>>
-where
-    I: I2c<Error = E>,
-    E: embedded_hal_async::i2c::Error,
-{
-    let [low_byte, high_byte] = value.to_le_bytes();
-    i2c.write(address, &[register, low_byte, high_byte])
-        .await
-        .map_err(Error::Bus)
-}
-
-/// Read a `PMBus` word register (2 LE data bytes).
-async fn read_word<I, E>(i2c: &mut I, address: u8, register: u8) -> Result<u16, Error<E>>
-where
-    I: I2c<Error = E>,
-    E: embedded_hal_async::i2c::Error,
-{
-    let mut buffer = [0u8; 2];
-    i2c.write_read(address, &[register], &mut buffer)
-        .await
-        .map_err(Error::Bus)?;
-    Ok(u16::from_le_bytes(buffer))
 }
 
 /// Verify the VID mode and program limits and the initial voltage.

@@ -89,6 +89,7 @@ pub mod bmm;
 pub mod braiins_axe;
 pub mod config;
 pub mod ina230;
+mod pmbus;
 pub mod sic45x;
 pub mod state;
 pub mod tps53647;

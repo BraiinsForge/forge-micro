@@ -37,6 +37,7 @@
 use embedded_hal_async::i2c::I2c;
 
 use crate::Error;
+use crate::pmbus::{decode_status, write_word};
 
 // Register addresses (PMBus command codes).
 pub(crate) const OPERATION: u8 = 0x01;
@@ -171,19 +172,6 @@ pub(crate) const fn decode_ulin11_milli(raw: u16) -> i32 {
     }
 }
 
-/// Decode the `STATUS_BYTE` register into the shared [`crate::StatusFlags`] type.
-///
-/// `SIC45x` `STATUS_BYTE` bit mapping: bit5 = `VOUT_OV`, bit4 = `IOUT_OC`,
-/// bit3 = `VIN_UV`, bit2 = temperature fault.
-pub(crate) fn decode_status(byte: u8) -> crate::StatusFlags {
-    crate::StatusFlags {
-        overvoltage: (byte & (1 << 5)) != 0,
-        current_limit: (byte & (1 << 4)) != 0,
-        undervoltage: (byte & (1 << 3)) != 0,
-        thermal_shutdown: (byte & (1 << 2)) != 0,
-    }
-}
-
 /// Configuration for the `SIC45x` `PMBus` DC/DC converter.
 ///
 /// All fields use integer units (mV, mA, °C). Embed this in a board
@@ -246,23 +234,6 @@ impl Sic45xConfig {
         voltage_min_millivolts: 400,
         voltage_max_millivolts: 2400,
     };
-}
-
-/// Write a `PMBus` word register (register + 2 LE data bytes) to the bus.
-async fn write_word<I, E>(
-    i2c: &mut I,
-    address: u8,
-    register: u8,
-    value: u16,
-) -> Result<(), Error<E>>
-where
-    I: I2c<Error = E>,
-    E: embedded_hal_async::i2c::Error,
-{
-    let [low_byte, high_byte] = value.to_le_bytes();
-    i2c.write(address, &[register, low_byte, high_byte])
-        .await
-        .map_err(Error::Bus)
 }
 
 /// Issue the full power-up register write sequence to the `SIC45x`.
