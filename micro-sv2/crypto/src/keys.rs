@@ -40,6 +40,28 @@ pub struct Secp256k1KeyPair {
 }
 
 impl SecretSecp256k1Key {
+    /// Sample a fresh secp256k1 private key from `rng`.
+    ///
+    /// Named `generate` rather than `new` because this type also builds
+    /// from bytes through its `TryFrom`, and the two differ in where the
+    /// key comes from.
+    ///
+    /// # Panics
+    ///
+    /// Panics after ten rejected samples. Every draw that fails is a
+    /// value outside the curve order, which a sound `Rng` produces with
+    /// negligible probability, so ten in a row means the `Rng` is
+    /// broken and a key must not be built from it.
+    pub fn generate<R: crate::Rng>(rng: &mut R) -> Self {
+        for _ in 0..10 {
+            let bytes = rng.next_256_bits();
+            if let Ok(sk) = secp256k1::SecretKey::from_byte_array(bytes) {
+                return Self(sk);
+            }
+        }
+        panic!("BUG: failed to generate secp256k1 private key after 10 tries");
+    }
+
     pub fn serialize(&self) -> [u8; SECP256_SECRET_KEY_LENGTH] {
         self.0.secret_bytes()
     }
@@ -71,6 +93,28 @@ impl From<Secp256k1Elligator> for PublicSecp256k1Key {
 }
 
 impl Secp256k1KeyPair {
+    /// Sample a fresh keypair from `rng`: secret, x-only public and
+    /// ellswift encoding.
+    ///
+    /// # Panics
+    ///
+    /// Panics for the reason [`SecretSecp256k1Key::generate`] does.
+    pub fn generate<R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification>(
+        rng: &mut R,
+        ctx: &crate::CryptoCtx<C>,
+    ) -> Self {
+        let sk = SecretSecp256k1Key::generate(rng);
+        let entropy = rng.next_256_bits();
+        let secp = ctx.as_secp256k1();
+        let (pk, _) = sk.0.x_only_public_key(secp);
+        let elligator = secp256k1::ellswift::ElligatorSwift::from_seckey(secp, sk.0, Some(entropy));
+        Self {
+            sk: sk.0,
+            pk,
+            elligator,
+        }
+    }
+
     /// Reconstruct a keypair from an existing secret key. Mixes in fresh
     /// entropy from `rng` for the elligator encoding.
     pub fn from_secret_key<R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification>(
@@ -152,36 +196,6 @@ impl TryFrom<[u8; SECP256_XONLY_PUBLIC_KEY_LENGTH]> for PublicSecp256k1Key {
     }
 }
 
-/// Sample a fresh secp256k1 private key. Tries up to 10 times; panics
-/// on persistent failure (cryptographically negligible — would mean the
-/// `Rng` is broken).
-pub fn new_private_key<R: crate::Rng>(rng: &mut R) -> SecretSecp256k1Key {
-    for _ in 0..10 {
-        let bytes = rng.next_256_bits();
-        if let Ok(sk) = secp256k1::SecretKey::from_byte_array(bytes) {
-            return SecretSecp256k1Key(sk);
-        }
-    }
-    panic!("BUG: failed to generate secp256k1 private key after 10 tries");
-}
-
-/// Sample a fresh keypair (secret + x-only public + ellswift encoding).
-pub fn new_keypair<R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification>(
-    rng: &mut R,
-    ctx: &crate::CryptoCtx<C>,
-) -> Secp256k1KeyPair {
-    let sk = new_private_key(rng);
-    let entropy = rng.next_256_bits();
-    let secp = ctx.as_secp256k1();
-    let (pk, _) = sk.0.x_only_public_key(secp);
-    let elligator = secp256k1::ellswift::ElligatorSwift::from_seckey(secp, sk.0, Some(entropy));
-    Secp256k1KeyPair {
-        sk: sk.0,
-        pk,
-        elligator,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,7 +214,7 @@ mod tests {
         let mut rng = MyRng;
         let ctx = CryptoCtx::new();
         for _ in 0..100 {
-            let secret1 = new_private_key(&mut rng);
+            let secret1 = SecretSecp256k1Key::generate(&mut rng);
             let public1 = PublicSecp256k1Key::from_secret_key(&secret1, ctx.as_secp256k1());
 
             let secret2 =
@@ -217,8 +231,8 @@ mod tests {
     fn ecdh_commutativity() {
         let mut rng = MyRng;
         let ctx = CryptoCtx::new();
-        let alice = new_keypair(&mut rng, &ctx);
-        let bob = new_keypair(&mut rng, &ctx);
+        let alice = Secp256k1KeyPair::generate(&mut rng, &ctx);
+        let bob = Secp256k1KeyPair::generate(&mut rng, &ctx);
 
         let alice_ecdh = alice.dh(bob.elligator, true);
         let bob_ecdh = bob.dh(alice.elligator, false);

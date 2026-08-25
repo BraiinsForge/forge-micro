@@ -31,7 +31,7 @@
 //!      application-level traffic.
 
 use embedded_io_adapters::tokio_1::FromTokio;
-use ii_sv2_crypto::{CryptoCtx, Rng, new_keypair};
+use ii_sv2_crypto::{CryptoCtx, Rng, Secp256k1KeyPair};
 use ii_sv2_security::{
     AuthenticationError, CertificateHeader, CertificateSigningRequest, CertificateWithPrivateKey,
     Clock, PublicKey, SecretKey, ValidateFull, accept, initiate,
@@ -68,12 +68,12 @@ async fn full_handshake_with_validated_certificate() {
     // is what the client trusts ahead of time and uses to validate
     // the server's certificate signature.
     let ctx = CryptoCtx::new();
-    let authority_kp = new_keypair(&mut TestRng, &ctx);
+    let authority_kp = Secp256k1KeyPair::generate(&mut TestRng, &ctx);
     let authority_pk = PublicKey::from(&authority_kp);
 
     // Step 3a: generate the server's static keypair. This is the
     // long-term identity bound into the certificate.
-    let server_kp = new_keypair(&mut TestRng, &ctx);
+    let server_kp = Secp256k1KeyPair::generate(&mut TestRng, &ctx);
 
     // Step 3b: assemble the certificate header (validity window plus
     // the server's pubkey) and have the authority sign it.
@@ -169,8 +169,8 @@ async fn expired_certificate_is_rejected() {
     const NOW: u32 = 1_700_000_000;
 
     let ctx = CryptoCtx::new();
-    let authority_kp = new_keypair(&mut TestRng, &ctx);
-    let server_kp = new_keypair(&mut TestRng, &ctx);
+    let authority_kp = Secp256k1KeyPair::generate(&mut TestRng, &ctx);
+    let server_kp = Secp256k1KeyPair::generate(&mut TestRng, &ctx);
 
     // Cert that expired one hour before NOW.
     let header = CertificateHeader {

@@ -165,7 +165,7 @@ mod tests {
     use crate::certificate::{CertificateHeader, CertificateSigningRequest};
     use crate::keys::SecretKey;
     use embedded_io_adapters::tokio_1::FromTokio;
-    use ii_sv2_crypto::{CryptoCtx, Rng, new_keypair};
+    use ii_sv2_crypto::{CryptoCtx, Rng, Secp256k1KeyPair};
 
     struct MyRng;
     impl Rng for MyRng {
@@ -187,8 +187,8 @@ mod tests {
 
         // Issue a self-signed certificate for the responder.
         let ctx = CryptoCtx::new();
-        let server_kp = new_keypair(&mut MyRng, &ctx);
-        let authority_kp = new_keypair(&mut MyRng, &ctx);
+        let server_kp = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
+        let authority_kp = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
         let header = CertificateHeader {
             version: 0,
             valid_from: 0,

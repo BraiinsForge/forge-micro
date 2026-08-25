@@ -185,7 +185,7 @@ mod tests {
     use super::*;
     use crate::certificate::{CertificateSigningRequest, CertificateWithPrivateKey};
     use crate::keys::SecretKey;
-    use ii_sv2_crypto::{CryptoCtx, Rng, new_keypair};
+    use ii_sv2_crypto::{CryptoCtx, Rng, Secp256k1KeyPair};
 
     /// Test fixture: returns a fixed unix timestamp (no real clock needed).
     struct FakeClock(u32);
@@ -234,8 +234,8 @@ mod tests {
     fn certificate_validators() {
         const NOW: u32 = 1_700_000_000;
         let ctx = CryptoCtx::new();
-        let ca_keypair = new_keypair(&mut MyRng, &ctx);
-        let static_kp = new_keypair(&mut MyRng, &ctx);
+        let ca_keypair = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
+        let static_kp = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
         let rspk = PublicKey::from(&static_kp);
         let ca_pub = PublicKey::from(&ca_keypair);
 
@@ -348,7 +348,7 @@ mod tests {
         assert_eq!(err, AuthenticationError::SignatureInvalid);
 
         // ---- Forged authority: signature fails against the wrong pubkey ----
-        let forged_authority = new_keypair(&mut MyRng, &ctx);
+        let forged_authority = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
         let cert = CertificateSigningRequest {
             header: cert_hdr(NOW, -1000, 1000, rspk),
         }
@@ -365,8 +365,8 @@ mod tests {
     #[test]
     fn cert_with_private_key_to_certificate() {
         let ctx = CryptoCtx::new();
-        let ca = new_keypair(&mut MyRng, &ctx);
-        let server_kp = new_keypair(&mut MyRng, &ctx);
+        let ca = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
+        let server_kp = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
         let header = CertificateHeader {
             version: 0,
             valid_from: 1,

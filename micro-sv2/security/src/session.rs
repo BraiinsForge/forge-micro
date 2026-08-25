@@ -194,7 +194,7 @@ mod tests {
     use crate::handshake::{accept, initiate};
     use crate::keys::{PublicKey, SecretKey};
     use embedded_io_adapters::tokio_1::FromTokio;
-    use ii_sv2_crypto::{CryptoCtx, Rng, new_keypair};
+    use ii_sv2_crypto::{CryptoCtx, Rng, Secp256k1KeyPair};
     use ii_sv2_framing::{FrameCodec, frame_to_message};
     use ii_sv2_messages::{DeviceInfo, SetupConnection};
     use ii_sv2_types::Str0_255;
@@ -216,8 +216,8 @@ mod tests {
         let mut b = FromTokio::new(b);
 
         let ctx = CryptoCtx::new();
-        let server_kp = new_keypair(&mut MyRng, &ctx);
-        let authority_kp = new_keypair(&mut MyRng, &ctx);
+        let server_kp = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
+        let authority_kp = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
         let header = CertificateHeader {
             version: 0,
             valid_from: 0,

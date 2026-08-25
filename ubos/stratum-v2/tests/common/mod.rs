@@ -33,7 +33,7 @@ use std::vec::Vec;
 use ii_sv2::framing::FrameCodec;
 use ii_sv2::security::{
     CertificateHeader, CertificateSigningRequest, CertificateWithPrivateKey, CryptoCtx,
-    EncryptedCodec, PublicKey, Rng as Sv2Rng, SecretKey, new_keypair, secp256k1,
+    EncryptedCodec, PublicKey, Rng as Sv2Rng, Secp256k1KeyPair, SecretKey, secp256k1,
 };
 use mining_protocol::{JobId, MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
 use tokio::io::AsyncWriteExt as _;
@@ -58,8 +58,8 @@ pub fn make_cert<R: Sv2Rng>(
     authority_rng: &mut R,
 ) -> CertificateWithPrivateKey {
     let ctx = crypto_ctx();
-    let server_keypair = new_keypair(server_rng, ctx);
-    let authority_keypair = new_keypair(authority_rng, ctx);
+    let server_keypair = Secp256k1KeyPair::generate(server_rng, ctx);
+    let authority_keypair = Secp256k1KeyPair::generate(authority_rng, ctx);
     let header = CertificateHeader {
         version: 0,
         valid_from: 0,

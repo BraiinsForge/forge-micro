@@ -33,7 +33,7 @@
 
 use ii_sv2_crypto::{
     CryptoCtx, EPHEMERAL_KEY_MSG_SIZE, HandShake, MAC_SIZE, Rng, STATIC_KEY_MSG_SIZE,
-    keys::new_keypair,
+    keys::Secp256k1KeyPair,
 };
 
 /// Step 1: a minimal `Rng` for tests. On real hardware this would wrap
@@ -60,7 +60,7 @@ fn nx_handshake_end_to_end() {
     // Step 2: generate the responder's long-term static keypair. Its public
     // half is what the initiator will recover from the handshake.
     let ctx = CryptoCtx::new();
-    let static_kp = new_keypair(&mut MyRng, &ctx);
+    let static_kp = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
     let expected_remote_pk = static_kp.xonly_public_key_bytes();
 
     // Step 3: set up both sides. The initiator does not have a static key

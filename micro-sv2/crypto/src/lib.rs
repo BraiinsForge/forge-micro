@@ -44,10 +44,7 @@ pub use handshake::{
     EPHEMERAL_KEY_MSG_SIZE, EPHEMERAL_KEY_SIZE, HandShake, PROTOCOL_NAME, PROTOCOL_NAME_HASH,
     PROTOCOL_NAME_HASH_HASH, STATIC_KEY_MSG_SIZE, STATIC_KEY_SIZE,
 };
-pub use keys::{
-    PublicSecp256k1Key, Secp256k1Elligator, Secp256k1KeyPair, SecretSecp256k1Key, new_keypair,
-    new_private_key,
-};
+pub use keys::{PublicSecp256k1Key, Secp256k1Elligator, Secp256k1KeyPair, SecretSecp256k1Key};
 pub use rng::Rng;
 pub use transport::TransportState;
 

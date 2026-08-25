@@ -189,7 +189,7 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
         if payload.len() < EPHEMERAL_KEY_MSG_SIZE + message.len() {
             return Err(NXError::TooSmallBuffer);
         }
-        let e = crate::keys::new_keypair(&mut self.rng, self.ctx);
+        let e = crate::keys::Secp256k1KeyPair::generate(&mut self.rng, self.ctx);
         let raw_e = e.ellswift_bytes();
         let h = mix_hash(&h, &raw_e);
         let h = mix_hash(&h, message);
@@ -297,7 +297,7 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
         }
         let mut bytes_processed = 0_usize;
 
-        let e = crate::keys::new_keypair(&mut self.rng, self.ctx);
+        let e = crate::keys::Secp256k1KeyPair::generate(&mut self.rng, self.ctx);
         let raw_e = e.ellswift_bytes();
         payload[..EPHEMERAL_KEY_MSG_SIZE].copy_from_slice(&raw_e);
         bytes_processed += EPHEMERAL_KEY_MSG_SIZE;
@@ -351,7 +351,7 @@ mod tests {
     use super::*;
     use crate::{
         CryptoCtx, Rng,
-        keys::{PublicSecp256k1Key, new_keypair},
+        keys::{PublicSecp256k1Key, Secp256k1KeyPair},
     };
     use rand::{Rng as _, RngCore};
     use sha2::{Digest, Sha256};
@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(s.h, PROTOCOL_NAME_HASH_HASH);
         assert_eq!(s.ck, PROTOCOL_NAME_HASH);
 
-        let static_kp = new_keypair(&mut MyRng, &ctx);
+        let static_kp = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
         let responder = HandShake::new_responder(MyRng, &ctx, static_kp);
         let NXState::ResponderStep0(s) = &responder.state else {
             panic!("BUG: responder must start in ResponderStep0");
@@ -394,7 +394,7 @@ mod tests {
     fn handshake_roundtrip() {
         const DUMMY_CERT_LEN: usize = 77;
         let ctx = CryptoCtx::new();
-        let static_private = new_keypair(&mut MyRng, &ctx);
+        let static_private = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
         let mut initiator = HandShake::new_initiator(MyRng, &ctx);
         let mut responder = HandShake::new_responder(MyRng, &ctx, static_private);
 
