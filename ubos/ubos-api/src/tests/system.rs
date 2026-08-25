@@ -326,7 +326,6 @@ fn run_chunk_handler(
             ota_offset,
             ota_final,
             manager,
-            &[],
         )
         .await
         .expect("BUG: handle_ota_chunk returned Err on mock socket — Infallible violated");

@@ -199,9 +199,9 @@ fn build_time_string() -> String<24> {
 
 /// Maximum number of response headers built per system dispatch response.
 ///
-/// Three fixed headers (Content-Type, Cache-Control, Content-Length)
-/// plus up to two CORS headers from the REST listener equals five.
-/// Eight slots leave headroom for future additions.
+/// Every response here writes the same three: Content-Type,
+/// Cache-Control and Content-Length. Eight slots leave headroom for
+/// future additions.
 const MAX_SYSTEM_RESPONSE_HEADERS: usize = 8;
 
 /// Write a JSON response to `connection` with the given status code and
@@ -209,14 +209,12 @@ const MAX_SYSTEM_RESPONSE_HEADERS: usize = 8;
 ///
 /// `status` is the numeric HTTP status code. `reason` is the reason phrase.
 /// `body` contains the serialized JSON bytes and determines the
-/// `Content-Length` header value. `extra_headers` carries caller-supplied
-/// headers such as CORS headers from the REST listener.
+/// `Content-Length` header value.
 async fn write_json_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     status: u16,
     reason: &str,
     body: &[u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -234,11 +232,6 @@ where
     headers
         .push(("Content-Length", content_length.as_str()))
         .expect("BUG: response header vec sized for max headers");
-    for &header in extra_headers {
-        headers
-            .push(header)
-            .expect("BUG: response header vec sized for max headers");
-    }
 
     connection
         .initiate_response(status, Some(reason), &headers)
@@ -254,12 +247,10 @@ where
 ///
 /// RFC 7231 §6.5.5 mandates the `Allow` header on every 405. The
 /// routing table populates `allowed` per route so each response advertises
-/// only the methods that route actually accepts. `extra_headers` carries
-/// caller-supplied headers such as CORS headers from the REST listener.
+/// only the methods that route actually accepts.
 async fn write_method_not_allowed<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     allowed: &'static str,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -278,11 +269,6 @@ where
     headers
         .push(("Content-Length", content_length.as_str()))
         .expect("BUG: response header vec sized for max headers");
-    for &header in extra_headers {
-        headers
-            .push(header)
-            .expect("BUG: response header vec sized for max headers");
-    }
 
     connection
         .initiate_response(405, Some("Method Not Allowed"), &headers)
@@ -297,19 +283,17 @@ where
 ///
 /// Falls back to a 500 plain-text response when `serde_json_core`
 /// returns an error; the schema structs are plain serde derivations
-/// so this path is treated as a firmware bug. `extra_headers` carries
-/// caller-supplied headers such as CORS headers from the REST listener.
+/// so this path is treated as a firmware bug.
 async fn serialize_and_respond<T, const N: usize, V: serde::Serialize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     value: &V,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     if let Ok(length) = serde_json_core::to_slice(value, scratch) {
-        write_json_response(connection, 200, "OK", &scratch[..length], extra_headers).await
+        write_json_response(connection, 200, "OK", &scratch[..length]).await
     } else {
         // BUG: serialization of a schema struct failed; the schemas are
         // plain serde derivations so this path should be unreachable.
@@ -320,7 +304,6 @@ where
             500,
             "Internal Server Error",
             b"{\"message\":\"serialization error\"}",
-            extra_headers,
         )
         .await
     }
@@ -331,8 +314,6 @@ where
 /// Populates all fields from the shared atomics and the thermal handle.
 /// When `ota` is `Some`, the `ota` field in the response carries the
 /// running-slot label, running version, and previous-image information.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_info<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -340,7 +321,6 @@ async fn handle_info<T, const N: usize>(
     psu: ubos_psu::Handle,
     mining_info: &'static ubos_config::MiningInfo,
     thermal: ThermalHandle,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -412,24 +392,21 @@ where
         hw_info,
     };
 
-    serialize_and_respond(connection, scratch, &info, extra_headers).await
+    serialize_and_respond(connection, scratch, &info).await
 }
 
 /// Handle `GET /api/system/asic`.
 ///
 /// Returns static capability metadata for the BM1362 chip.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_asic<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     mining_info: &'static ubos_config::MiningInfo,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    serialize_and_respond(connection, scratch, mining_info, extra_headers).await
+    serialize_and_respond(connection, scratch, mining_info).await
 }
 
 /// Handle `GET /api/system/thermal`.
@@ -437,23 +414,14 @@ where
 /// Returns the accepted ranges for the Temperature config section so the
 /// webui pulls its input `min`/`max` from the same source the firmware
 /// validates against, matching the `/api/system/asic` precedent.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_thermal<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    serialize_and_respond(
-        connection,
-        scratch,
-        &ubos_config::THERMAL_INFO,
-        extra_headers,
-    )
-    .await
+    serialize_and_respond(connection, scratch, &ubos_config::THERMAL_INFO).await
 }
 
 /// Handle `GET /api/system/cooling`.
@@ -463,35 +431,23 @@ where
 /// the firmware validates against. Mirrors `handle_thermal` for the
 /// cooling domain, following the `MiningInfo` precedent of keeping
 /// bounds metadata at a dedicated endpoint.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_cooling<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    serialize_and_respond(
-        connection,
-        scratch,
-        &ubos_config::COOLING_INFO,
-        extra_headers,
-    )
-    .await
+    serialize_and_respond(connection, scratch, &ubos_config::COOLING_INFO).await
 }
 
 /// Handle `GET /api/system/statistics`.
 ///
 /// Returns the fixed label set with an empty rows slice. A ring buffer
 /// will be wired in a later phase without a schema change.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_statistics<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -509,26 +465,23 @@ where
         statistics: &[],
     };
 
-    serialize_and_respond(connection, scratch, &statistics, extra_headers).await
+    serialize_and_respond(connection, scratch, &statistics).await
 }
 
 /// Handle `GET /api/system/scoreboard`.
 ///
 /// Serializes an empty `SystemScoreboardEntry` slice as a JSON array.
 /// The scoreboard ring buffer is wired in a later phase.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_scoreboard<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     let entries: &[SystemScoreboardEntry] = &[];
     if let Ok(length) = serde_json_core::to_slice(entries, scratch) {
-        write_json_response(connection, 200, "OK", &scratch[..length], extra_headers).await
+        write_json_response(connection, 200, "OK", &scratch[..length]).await
     } else {
         // BUG: serializing an empty slice failed; this is a serde_json_core
         // invariant violation.
@@ -537,7 +490,6 @@ where
             500,
             "Internal Server Error",
             b"{\"message\":\"serialization error\"}",
-            extra_headers,
         )
         .await
     }
@@ -545,27 +497,17 @@ where
 
 /// Handle a not-implemented endpoint with a 501 JSON response.
 ///
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_not_implemented<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     message: &str,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     let body = GenericResponse { message };
     if let Ok(length) = serde_json_core::to_slice(&body, scratch) {
-        write_json_response(
-            connection,
-            501,
-            "Not Implemented",
-            &scratch[..length],
-            extra_headers,
-        )
-        .await
+        write_json_response(connection, 501, "Not Implemented", &scratch[..length]).await
     } else {
         // BUG: serializing GenericResponse failed; the struct is a plain
         // serde derivation so this path is unreachable in practice.
@@ -574,7 +516,6 @@ where
             501,
             "Not Implemented",
             b"{\"message\":\"serialization error\"}",
-            extra_headers,
         )
         .await
     }
@@ -583,20 +524,17 @@ where
 /// Write a 200 OK response with `{"message":"ack"}` body.
 ///
 /// Shared by every stub action handler. The body signals that the
-/// request was received; no firmware state is changed. `extra_headers`
-/// carries caller-supplied headers such as CORS headers from the REST
-/// listener.
+/// request was received; no firmware state is changed.
 async fn write_ack_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     let body = GenericResponse { message: "ack" };
     if let Ok(length) = serde_json_core::to_slice(&body, scratch) {
-        write_json_response(connection, 200, "OK", &scratch[..length], extra_headers).await
+        write_json_response(connection, 200, "OK", &scratch[..length]).await
     } else {
         // BUG: serializing GenericResponse { message: "ack" } failed;
         // the struct is a plain serde derivation so this path is unreachable.
@@ -605,7 +543,6 @@ where
             500,
             "Internal Server Error",
             b"{\"message\":\"serialization error\"}",
-            extra_headers,
         )
         .await
     }
@@ -617,13 +554,10 @@ where
 /// countdown, and live address fields as a [`SystemNetwork`] JSON body.
 /// `stack` is the live embassy-net stack; `config_v4()` reads the current
 /// address without any global state or unsafe code.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_network_get<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     stack: Stack<'static>,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -662,7 +596,7 @@ where
         gateway,
         dns,
     };
-    serialize_and_respond(connection, scratch, &status, extra_headers).await
+    serialize_and_respond(connection, scratch, &status).await
 }
 
 /// Write a 400 Bad Request whose JSON body is `message`.
@@ -675,23 +609,15 @@ async fn write_bad_request<T, const N: usize>(
     scratch: &mut [u8],
     message: &str,
     fallback: &[u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     let error = GenericResponse { message };
     let Ok(length) = serde_json_core::to_slice(&error, scratch) else {
-        return write_json_response(connection, 400, "Bad Request", fallback, extra_headers).await;
+        return write_json_response(connection, 400, "Bad Request", fallback).await;
     };
-    write_json_response(
-        connection,
-        400,
-        "Bad Request",
-        &scratch[..length],
-        extra_headers,
-    )
-    .await
+    write_json_response(connection, 400, "Bad Request", &scratch[..length]).await
 }
 
 /// Request body for `POST /api/system/network`.
@@ -719,13 +645,10 @@ struct NetworkPostRequest {
 /// `confirm_after_switch` is `true`, a 120 s confirm-or-revert window
 /// is armed; when `false`, the change is persisted immediately with no
 /// window. Returns 400 on parse or validation error, 200 on success.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_network_post<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     body: &[u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -736,7 +659,6 @@ where
             scratch,
             "invalid JSON",
             b"{\"message\":\"invalid JSON\"}",
-            extra_headers,
         )
         .await;
     };
@@ -750,7 +672,6 @@ where
             scratch,
             message,
             b"{\"message\":\"validation error\"}",
-            extra_headers,
         )
         .await;
     }
@@ -766,7 +687,6 @@ where
             scratch,
             "static address changes require the confirm window",
             b"{\"message\":\"static address changes require the confirm window\"}",
-            extra_headers,
         )
         .await;
     }
@@ -774,9 +694,9 @@ where
         network,
         confirm: request.confirm_after_switch,
     }) {
-        return write_busy(connection, extra_headers).await;
+        return write_busy(connection).await;
     }
-    write_json_response(connection, 200, "OK", b"{\"ok\":true}", extra_headers).await
+    write_json_response(connection, 200, "OK", b"{\"ok\":true}").await
 }
 
 /// Write a 503 Service Unavailable when the apply queue is full.
@@ -786,7 +706,6 @@ where
 /// that never took effect.
 async fn write_busy<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -796,7 +715,6 @@ where
         503,
         "Service Unavailable",
         b"{\"message\":\"busy, retry\"}",
-        extra_headers,
     )
     .await
 }
@@ -804,39 +722,33 @@ where
 /// Handle `POST /api/system/network/confirm`.
 ///
 /// Forwards [`ubos_config::Message::ConfirmNetwork`] and returns 200 ack.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_network_confirm<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     if !ubos_config::handle().try_send(ubos_config::Message::ConfirmNetwork) {
-        return write_busy(connection, extra_headers).await;
+        return write_busy(connection).await;
     }
-    write_ack_response(connection, scratch, extra_headers).await
+    write_ack_response(connection, scratch).await
 }
 
 /// Handle `POST /api/system/network/revert`.
 ///
 /// Forwards [`ubos_config::Message::RevertNetwork`] and returns 200 ack.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_network_revert<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     if !ubos_config::handle().try_send(ubos_config::Message::RevertNetwork) {
-        return write_busy(connection, extra_headers).await;
+        return write_busy(connection).await;
     }
-    write_ack_response(connection, scratch, extra_headers).await
+    write_ack_response(connection, scratch).await
 }
 
 /// Handle a POST action endpoint (restart, identify,
@@ -845,19 +757,16 @@ where
 /// Logs one `info!` line naming the action and returns 200 with
 /// `{"message":"ack"}`. Pause and resume are handled separately
 /// by `dispatch` because they carry a `Manager` side-effect.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_action<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     action: &str,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     info!("api action: {}", action);
-    write_ack_response(connection, scratch, extra_headers).await
+    write_ack_response(connection, scratch).await
 }
 
 /// Handle `POST /api/system/factory_reset`.
@@ -869,12 +778,10 @@ where
 /// elapses and the MCU resets. The ack reaches the wire well ahead of that
 /// reset. Sessions are cleared up front so the operator's cookie cannot
 /// authenticate during the brief window before the reset fires, matching
-/// the live network apply. `extra_headers` carries caller-supplied headers
-/// such as CORS headers from the REST listener.
+/// the live network apply.
 async fn handle_factory_reset<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -883,7 +790,7 @@ where
     ubos_config::handle()
         .send(ubos_config::Message::FactoryReset)
         .await;
-    write_ack_response(connection, scratch, extra_headers).await
+    write_ack_response(connection, scratch).await
 }
 
 /// Handle `PATCH /api/system`.
@@ -893,19 +800,16 @@ where
 /// by `POST /api/config`. The body itself is not
 /// logged because legitimate clients may include credentials in the
 /// JSON payload, and the stub has no operational use for the contents.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_patch_system<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     body_len: usize,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     info!("api patch /api/system ({} bytes)", body_len);
-    write_ack_response(connection, scratch, extra_headers).await
+    write_ack_response(connection, scratch).await
 }
 
 /// Handle `POST /api/system/OTA` — streaming firmware upload.
@@ -927,14 +831,11 @@ where
 /// - 503 — mining failed to stop within the timeout.
 /// - 400 — premature EOF before `content_length` bytes were received.
 /// - 500 — `write_chunk` or `finish` error.
-///
-/// `extra_headers` carries caller-supplied CORS headers.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn handle_ota<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     content_length: Option<u64>,
     manager: ManagerHandle,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -947,7 +848,6 @@ where
             411,
             "Length Required",
             b"{\"message\":\"Content-Length required for OTA upload\"}",
-            extra_headers,
         )
         .await;
     };
@@ -958,7 +858,6 @@ where
             413,
             "Payload Too Large",
             b"{\"message\":\"image exceeds maximum slot size\"}",
-            extra_headers,
         )
         .await;
     }
@@ -972,7 +871,6 @@ where
             400,
             "Bad Request",
             b"{\"message\":\"image too small\"}",
-            extra_headers,
         )
         .await;
     }
@@ -986,7 +884,6 @@ where
             409,
             "Conflict",
             b"{\"message\":\"an update is already in progress\"}",
-            extra_headers,
         )
         .await;
     };
@@ -996,7 +893,6 @@ where
             501,
             "Not Implemented",
             b"{\"message\":\"OTA not available on this board\"}",
-            extra_headers,
         )
         .await;
     };
@@ -1018,7 +914,6 @@ where
             503,
             "Service Unavailable",
             b"{\"message\":\"mining did not stop in time; retry\"}",
-            extra_headers,
         )
         .await;
     }
@@ -1035,7 +930,6 @@ where
                 409,
                 "Conflict",
                 b"{\"message\":\"device not provisioned for OTA\"}",
-                extra_headers,
             )
             .await;
         }
@@ -1049,7 +943,6 @@ where
                 500,
                 "Internal Server Error",
                 b"{\"message\":\"OTA begin failed\"}",
-                extra_headers,
             )
             .await;
         }
@@ -1087,7 +980,6 @@ where
                         400,
                         "Bad Request",
                         b"{\"message\":\"upload truncated\"}",
-                        extra_headers,
                     )
                     .await;
                 }
@@ -1103,7 +995,6 @@ where
                         400,
                         "Bad Request",
                         b"{\"message\":\"read error during upload\"}",
-                        extra_headers,
                     )
                     .await;
                 }
@@ -1121,7 +1012,6 @@ where
                 500,
                 "Internal Server Error",
                 b"{\"message\":\"OTA write failed\"}",
-                extra_headers,
             )
             .await;
         }
@@ -1149,7 +1039,6 @@ where
             500,
             "Internal Server Error",
             b"{\"message\":\"OTA finish failed\"}",
-            extra_headers,
         )
         .await;
     }
@@ -1164,7 +1053,7 @@ where
     // ack write must not skip the reboot: that would leave mining stopped and
     // the swap pending. The reboot restarts mining on the new image, so a lost
     // ack is harmless and matches the client's expected connection drop.
-    let _ = write_json_response(connection, 200, "OK", b"{\"ok\":true}", extra_headers).await;
+    let _ = write_json_response(connection, 200, "OK", b"{\"ok\":true}").await;
 
     ota.reboot_into_new()
 }
@@ -1207,7 +1096,6 @@ where
 ///
 /// `ota_offset` is the parsed value of `X-OTA-Offset`.
 /// `ota_final` is `true` when `X-OTA-Final` equals `"1"`.
-/// `extra_headers` carries caller-supplied CORS headers.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn handle_ota_chunk<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
@@ -1215,7 +1103,6 @@ pub(crate) async fn handle_ota_chunk<T, const N: usize>(
     ota_offset: u64,
     ota_final: bool,
     manager: ManagerHandle,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -1228,7 +1115,6 @@ where
             411,
             "Length Required",
             b"{\"message\":\"Content-Length required for OTA chunk\"}",
-            extra_headers,
         )
         .await;
     };
@@ -1239,7 +1125,6 @@ where
             413,
             "Payload Too Large",
             b"{\"message\":\"chunk exceeds maximum sector size\"}",
-            extra_headers,
         )
         .await;
     }
@@ -1250,7 +1135,6 @@ where
             400,
             "Bad Request",
             b"{\"message\":\"empty chunk\"}",
-            extra_headers,
         )
         .await;
     }
@@ -1261,7 +1145,6 @@ where
             413,
             "Payload Too Large",
             b"{\"message\":\"image exceeds maximum slot size\"}",
-            extra_headers,
         )
         .await;
     }
@@ -1274,7 +1157,6 @@ where
             409,
             "Conflict",
             b"{\"message\":\"an update is already in progress\"}",
-            extra_headers,
         )
         .await;
     };
@@ -1284,7 +1166,6 @@ where
             501,
             "Not Implemented",
             b"{\"message\":\"OTA not available on this board\"}",
-            extra_headers,
         )
         .await;
     };
@@ -1311,7 +1192,6 @@ where
                 503,
                 "Service Unavailable",
                 b"{\"message\":\"mining did not stop in time; retry\"}",
-                extra_headers,
             )
             .await;
         }
@@ -1327,7 +1207,6 @@ where
                     409,
                     "Conflict",
                     b"{\"message\":\"device not provisioned for OTA\"}",
-                    extra_headers,
                 )
                 .await;
             }
@@ -1340,7 +1219,6 @@ where
                     500,
                     "Internal Server Error",
                     b"{\"message\":\"OTA begin failed\"}",
-                    extra_headers,
                 )
                 .await;
             }
@@ -1365,7 +1243,6 @@ where
                 409,
                 "Conflict",
                 b"{\"message\":\"chunk offset does not match write position; restart from offset 0\"}",
-                extra_headers,
             )
             .await;
         }
@@ -1388,7 +1265,6 @@ where
             400,
             "Bad Request",
             b"{\"message\":\"non-final chunk must be exactly one sector\"}",
-            extra_headers,
         )
         .await;
     }
@@ -1416,7 +1292,6 @@ where
                     400,
                     "Bad Request",
                     b"{\"message\":\"chunk upload truncated\"}",
-                    extra_headers,
                 )
                 .await;
             }
@@ -1431,7 +1306,6 @@ where
                     400,
                     "Bad Request",
                     b"{\"message\":\"read error during chunk upload\"}",
-                    extra_headers,
                 )
                 .await;
             }
@@ -1448,7 +1322,6 @@ where
             500,
             "Internal Server Error",
             b"{\"message\":\"OTA write failed\"}",
-            extra_headers,
         )
         .await;
     }
@@ -1471,7 +1344,6 @@ where
                 400,
                 "Bad Request",
                 b"{\"message\":\"image too small\"}",
-                extra_headers,
             )
             .await;
         }
@@ -1486,7 +1358,6 @@ where
                 500,
                 "Internal Server Error",
                 b"{\"message\":\"OTA finish failed\"}",
-                extra_headers,
             )
             .await;
         }
@@ -1503,7 +1374,7 @@ where
         // rebooting regardless of whether the ack reaches the client; a
         // lost ack matches the expected connection drop on reset, and a
         // failed ack must not skip the reboot or leave mining stopped.
-        let _ = write_json_response(connection, 200, "OK", b"{\"ok\":true}", extra_headers).await;
+        let _ = write_json_response(connection, 200, "OK", b"{\"ok\":true}").await;
         ota.reboot_into_new()
     } else {
         // Acknowledge the chunk and tell the client the next expected offset.
@@ -1515,7 +1386,7 @@ where
         // Safety: the format args are plain integers, so write! cannot fail.
         let _ = core::write!(writer, "{{\"ok\":true,\"next\":{next_offset}}}");
         let ack_len = writer.len();
-        write_json_response(connection, 200, "OK", &ack_buf[..ack_len], extra_headers).await
+        write_json_response(connection, 200, "OK", &ack_buf[..ack_len]).await
     }
 }
 
@@ -1525,11 +1396,8 @@ where
 /// chunked transfer encoding on a keep-alive HTTP/1.1 connection. That
 /// framing accepts multiple subsequent writes, each sent as its own chunk.
 /// Callers write the body in pieces after this function returns.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn begin_streamed_json<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -1542,11 +1410,6 @@ where
     headers
         .push(("Cache-Control", "no-store"))
         .expect("BUG: response header vec sized for max headers");
-    for &header in extra_headers {
-        headers
-            .push(header)
-            .expect("BUG: response header vec sized for max headers");
-    }
     connection
         .initiate_response(200, Some("OK"), &headers)
         .await
@@ -1603,8 +1466,7 @@ fn parse_since(path: &str) -> u32 {
 /// Streams the event ring as a JSON object `{"events":[...]}` with records
 /// in oldest-first order. An optional `?since=<seq>` query parameter returns
 /// only records whose `seq` is greater than `since`, so callers poll for new
-/// records. `extra_headers` carries caller-supplied headers such as CORS
-/// headers from the REST listener.
+/// records.
 ///
 /// The ring is read in small batches advanced by a `seq` cursor rather than
 /// copied whole, so no buffer scales with the ring capacity. The read is
@@ -1617,7 +1479,6 @@ fn parse_since(path: &str) -> u32 {
 async fn handle_events<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     path: &str,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -1625,7 +1486,7 @@ where
     let latest_seq = ubos_events::latest_seq();
     let mut cursor = parse_since(path);
 
-    begin_streamed_json(connection, extra_headers).await?;
+    begin_streamed_json(connection).await?;
     embedded_io_async::Write::write_all(connection, b"{\"events\":[").await?;
 
     let mut first_emitted = true;
@@ -1677,16 +1538,13 @@ where
 /// Streams the assembled event catalog as a JSON array. Each element
 /// carries the event `code`, `sev`, `fmt` string, and `args` width list.
 /// Returns `[]` until firmware installs the catalogs via `set_catalogs`.
-/// `extra_headers` carries caller-supplied headers such as CORS headers
-/// from the REST listener.
 async fn handle_events_catalog<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    begin_streamed_json(connection, extra_headers).await?;
+    begin_streamed_json(connection).await?;
     embedded_io_async::Write::write_all(connection, b"[").await?;
 
     let mut first_def = true;
@@ -1947,14 +1805,10 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
 /// the slice is all the body content available; callers must read it
 /// before calling this function.
 ///
-/// `extra_headers` is forwarded to every response writer. The REST
-/// listener passes its pre-built CORS slice when the request had an
-/// Origin header, and `&[]` otherwise.
-///
 /// Crate-private because the auth/CSRF/allow-list gates live in
 /// `RestApiService::handle`; exposing this directly would let an
 /// outside caller bypass those checks.
-// The argument count comes from threading `extra_headers` and `stack`
+// The argument count comes from threading `stack`
 // through the existing board_name/psu/thermal/manager set. A context
 // struct would reduce the count but add indirection without simplifying
 // the callers.
@@ -1970,7 +1824,6 @@ pub(crate) async fn dispatch<T, const N: usize>(
     thermal: ThermalHandle,
     manager: ManagerHandle,
     stack: Stack<'static>,
-    extra_headers: &[(&str, &str)],
 ) -> Result<bool, HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
@@ -1985,49 +1838,34 @@ where
     match route(method, path) {
         DispatchOutcome::NotFound => return Ok(false),
         DispatchOutcome::MethodNotAllowed { allowed } => {
-            write_method_not_allowed(connection, allowed, extra_headers).await?;
+            write_method_not_allowed(connection, allowed).await?;
         }
         DispatchOutcome::Handled(Route::SystemInfo) => {
-            handle_info(
-                connection,
-                scratch,
-                board_name,
-                psu,
-                mining_info,
-                thermal,
-                extra_headers,
-            )
-            .await?;
+            handle_info(connection, scratch, board_name, psu, mining_info, thermal).await?;
         }
         DispatchOutcome::Handled(Route::SystemAsic) => {
-            handle_asic(connection, scratch, mining_info, extra_headers).await?;
+            handle_asic(connection, scratch, mining_info).await?;
         }
         DispatchOutcome::Handled(Route::SystemThermal) => {
-            handle_thermal(connection, scratch, extra_headers).await?;
+            handle_thermal(connection, scratch).await?;
         }
         DispatchOutcome::Handled(Route::SystemCooling) => {
-            handle_cooling(connection, scratch, extra_headers).await?;
+            handle_cooling(connection, scratch).await?;
         }
         DispatchOutcome::Handled(Route::SystemStatistics) => {
-            handle_statistics(connection, scratch, extra_headers).await?;
+            handle_statistics(connection, scratch).await?;
         }
         DispatchOutcome::Handled(Route::SystemScoreboard) => {
-            handle_scoreboard(connection, scratch, extra_headers).await?;
+            handle_scoreboard(connection, scratch).await?;
         }
         DispatchOutcome::Handled(Route::SystemEvents) => {
-            handle_events(connection, path, extra_headers).await?;
+            handle_events(connection, path).await?;
         }
         DispatchOutcome::Handled(Route::SystemEventsCatalog) => {
-            handle_events_catalog(connection, extra_headers).await?;
+            handle_events_catalog(connection).await?;
         }
         DispatchOutcome::Handled(Route::SystemWifiScan | Route::SystemOtaWww) => {
-            handle_not_implemented(
-                connection,
-                scratch,
-                "unsupported on this platform",
-                extra_headers,
-            )
-            .await?;
+            handle_not_implemented(connection, scratch, "unsupported on this platform").await?;
         }
         DispatchOutcome::Handled(Route::SystemOta) => {
             // The streaming upload is intercepted in rest.rs before the body
@@ -2037,7 +1875,6 @@ where
                 connection,
                 scratch,
                 "OTA upload must use the streaming path",
-                extra_headers,
             )
             .await?;
         }
@@ -2049,48 +1886,47 @@ where
                 connection,
                 scratch,
                 "OTA chunk upload must use the streaming path",
-                extra_headers,
             )
             .await?;
         }
         DispatchOutcome::Handled(Route::PauseAck) => {
             crate::events::user_paused();
             manager.send(ManagerMessage::Stop).await;
-            handle_action(connection, scratch, "pause", extra_headers).await?;
+            handle_action(connection, scratch, "pause").await?;
         }
         DispatchOutcome::Handled(Route::ResumeAck) => {
             crate::events::user_resumed();
             manager.send(ManagerMessage::Start).await;
-            handle_action(connection, scratch, "resume", extra_headers).await?;
+            handle_action(connection, scratch, "resume").await?;
         }
         DispatchOutcome::Handled(Route::RestartAck) => {
             crate::events::user_restart();
-            handle_action(connection, scratch, "restart", extra_headers).await?;
+            handle_action(connection, scratch, "restart").await?;
             ubos_core::reboot::request_reboot();
         }
         DispatchOutcome::Handled(Route::IdentifyAck) => {
-            handle_action(connection, scratch, "identify", extra_headers).await?;
+            handle_action(connection, scratch, "identify").await?;
         }
         DispatchOutcome::Handled(Route::BlockFoundDismissAck) => {
-            handle_action(connection, scratch, "blockFound/dismiss", extra_headers).await?;
+            handle_action(connection, scratch, "blockFound/dismiss").await?;
         }
         DispatchOutcome::Handled(Route::PatchSystem) => {
-            handle_patch_system(connection, scratch, body.len(), extra_headers).await?;
+            handle_patch_system(connection, scratch, body.len()).await?;
         }
         DispatchOutcome::Handled(Route::FactoryReset) => {
-            handle_factory_reset(connection, scratch, extra_headers).await?;
+            handle_factory_reset(connection, scratch).await?;
         }
         DispatchOutcome::Handled(Route::NetworkGet) => {
-            handle_network_get(connection, scratch, stack, extra_headers).await?;
+            handle_network_get(connection, scratch, stack).await?;
         }
         DispatchOutcome::Handled(Route::NetworkPost) => {
-            handle_network_post(connection, scratch, body, extra_headers).await?;
+            handle_network_post(connection, scratch, body).await?;
         }
         DispatchOutcome::Handled(Route::NetworkConfirm) => {
-            handle_network_confirm(connection, scratch, extra_headers).await?;
+            handle_network_confirm(connection, scratch).await?;
         }
         DispatchOutcome::Handled(Route::NetworkRevert) => {
-            handle_network_revert(connection, scratch, extra_headers).await?;
+            handle_network_revert(connection, scratch).await?;
         }
     }
 

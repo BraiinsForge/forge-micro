@@ -36,8 +36,6 @@ use ubos_logging::warn;
 
 /// Owned method, path, and selected header values for one request.
 ///
-/// `origin` is the empty string when the `Origin` header is absent or
-/// would not fit; handlers that do not implement CORS ignore it.
 /// Oversize `Authorization`, `Cookie`, and `X-CSRF-Token` values are
 /// reported as `None` so the route falls through to its anonymous or
 /// unauthenticated branch.
@@ -52,7 +50,6 @@ pub struct RequestParts {
     pub authorization: Option<String<128>>,
     pub cookie: Option<String<256>>,
     pub csrf: Option<String<64>>,
-    pub origin: String<128>,
     pub content_length: Option<u64>,
     /// Decimal byte offset from `X-OTA-Offset`, or `None` when absent.
     pub ota_offset: Option<String<20>>,
@@ -64,8 +61,8 @@ pub struct RequestParts {
 /// into a `RequestParts` value that no longer borrows from it.
 ///
 /// Path values longer than 128 bytes are left empty so the route
-/// table falls through to a 404; oversize `Authorization`, `Cookie`,
-/// and `Origin` values are dropped with a `warn!` log.
+/// table falls through to a 404; oversize `Authorization` and `Cookie`
+/// values are dropped with a `warn!` log.
 ///
 /// # Errors
 ///
@@ -118,18 +115,6 @@ where
 
     let content_length = headers.headers.content_len();
 
-    let origin = headers
-        .headers
-        .get("Origin")
-        .map_or_else(String::new, |value| {
-            let mut owned = String::<128>::new();
-            if owned.push_str(value).is_err() {
-                warn!("Origin header truncated, treating as missing");
-                return String::new();
-            }
-            owned
-        });
-
     let ota_offset = headers.headers.get("X-OTA-Offset").and_then(|value| {
         let mut owned = String::<20>::new();
         owned.push_str(value).ok()?;
@@ -148,7 +133,6 @@ where
         authorization,
         cookie,
         csrf,
-        origin,
         content_length,
         ota_offset,
         ota_final,

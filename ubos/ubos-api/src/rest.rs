@@ -17,12 +17,12 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! REST API listener on port 8080.
+//! REST API handler.
 //!
-//! Sibling of `dashboard` but serves only `/api/*` and adds CORS headers
-//! so the SPA (loaded from port 80) can fetch cross-origin. Same auth
-//! profile as the dashboard: Basic for machine clients, session cookie
-//! for the SPA, CSRF for session-authenticated mutating requests.
+//! Sibling of `dashboard` and serves only the `/api/*` surface behind the
+//! router the two share. Same auth profile as the dashboard: Basic for
+//! machine clients, session cookie for the SPA, CSRF for
+//! session-authenticated mutating requests.
 
 use core::fmt::Write as _;
 
@@ -32,14 +32,12 @@ use edge_nal::TcpSplit;
 use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
-use heapless::Vec;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
 
 use ubos_http::{
-    MAX_RESPONSE_HEADERS, RequestParts, Service, extract_request_parts, read_body,
-    write_json_response, write_status_only,
+    RequestParts, Service, extract_request_parts, read_body, write_json_response, write_status_only,
 };
 
 #[cfg(test)]
@@ -128,10 +126,9 @@ const fn validate_board_name(name: &str) -> bool {
 
 /// REST API handler implementing `ubos_http::Service`.
 ///
-/// Serves only `/api/*` paths and attaches CORS headers to every
-/// response so the SPA loaded from port 80 can fetch cross-origin.
-/// Auth profile mirrors `DashboardService`: Basic or session cookie
-/// with CSRF enforcement on session-authenticated mutating requests.
+/// Serves only `/api/*` paths. Auth profile mirrors `DashboardService`:
+/// Basic or session cookie with CSRF enforcement on
+/// session-authenticated mutating requests.
 pub struct RestApiService {
     /// The control board's product name, e.g. `"W6100-EVB-Pico2"`.
     pub(crate) board_name: &'static str,
@@ -171,28 +168,11 @@ impl RestApiService {
     }
 }
 
-/// Build the CORS header slice for a response.
-///
-/// Returns a two-entry vec with `Access-Control-Allow-Origin` and
-/// `Access-Control-Allow-Credentials` when `origin` is present,
-/// or an empty vec for machine clients that did not send an Origin
-/// header (no browser context, no CORS headers needed).
-fn cors_headers(origin: &str) -> Vec<(&str, &str), 2> {
-    let mut headers: Vec<(&str, &str), 2> = Vec::new();
-    if !origin.is_empty() {
-        // Infallible: two pushes into a capacity-2 vec.
-        let _ = headers.push(("Access-Control-Allow-Origin", origin));
-        let _ = headers.push(("Access-Control-Allow-Credentials", "true"));
-    }
-    headers
-}
-
 impl Service for RestApiService {
     // The line count comes from the flat match dispatch table and the
     // duplicated-from-dashboard handler bodies. Splitting each route into
     // a helper would require threading the generic `Connection` parameter
-    // and the CORS slice through every call, adding noise without reducing
-    // complexity.
+    // through every call, adding noise without reducing complexity.
     #[allow(clippy::too_many_lines)]
     async fn handle<TcpSocket, const N: usize>(
         &self,
@@ -210,8 +190,6 @@ impl Service for RestApiService {
 
         // The allow-list is the compile-time default for now.
         if !ubos_auth::allow_list::is_allowed(peer_ip, ubos_auth::allow_list::DEFAULT_ALLOW_LIST) {
-            // No CORS headers: a request from outside the allow-list
-            // should not be able to read the API surface at all.
             return write_status_only(
                 connection,
                 401,
@@ -229,7 +207,6 @@ impl Service for RestApiService {
             authorization: authorization_buf,
             cookie: cookie_buf,
             csrf: csrf_buf,
-            origin: origin_buf,
             content_length,
             ota_offset: ota_offset_buf,
             ota_final: ota_final_buf,
@@ -239,60 +216,20 @@ impl Service for RestApiService {
         let path = path_buf.as_str();
         let authorization = authorization_buf.as_deref();
         let cookie = cookie_buf.as_deref();
-        let origin = origin_buf.as_str();
 
-        // Build the CORS header pair once; all response paths in this
-        // handler receive it.
-        let cors = cors_headers(origin);
-        let cors_slice = cors.as_slice();
-
-        // Handle OPTIONS preflight before auth so browsers can probe
-        // cross-origin before presenting credentials.
-        if method == "OPTIONS" && path.starts_with("/api/") {
-            // Five CORS headers exceed the `MAX_EXTRA_STATUS_HEADERS`
-            // limit of `write_status_only`, so the response is built
-            // directly through `initiate_response`.
-            let content_length_str = ubos_http::format_content_length(0);
-            let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
-            // The preflight response carries CORS headers only when an
-            // Origin was present; machine clients do not preflight.
-            if !origin.is_empty() {
-                let _ = headers.push(("Access-Control-Allow-Origin", origin));
-                let _ = headers.push(("Access-Control-Allow-Credentials", "true"));
-                let _ = headers.push(("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS"));
-                let _ = headers.push((
-                    "Access-Control-Allow-Headers",
-                    "Authorization, X-CSRF-Token, Content-Type, X-OTA-Offset, X-OTA-Final",
-                ));
-                let _ = headers.push(("Access-Control-Max-Age", "86400"));
-            }
-            let _ = headers.push(("Content-Length", content_length_str.as_str()));
-            let _ = headers.push(("Connection", "close"));
-            connection
-                .initiate_response(204, Some("No Content"), &headers)
-                .await?;
-            return Ok(());
-        }
-
-        // Every route on this listener requires auth; there are no
-        // anonymous endpoints on port 8080.
+        // Every route under this prefix requires auth; there are no
+        // anonymous endpoints on the API surface.
         let auth_ctx = ubos_auth::auth::authenticate(authorization, cookie)
             .await
             .unwrap_or(ubos_auth::auth::AuthCtx::Anonymous);
 
         if matches!(auth_ctx, ubos_auth::auth::AuthCtx::Anonymous) {
-            // Attach CORS headers so a browser can surface the 401 to JS.
-            let mut extra: Vec<(&str, &str), 4> = Vec::new();
-            let _ = extra.push(("WWW-Authenticate", "Basic realm=\"ubos\""));
-            for &header in cors_slice {
-                let _ = extra.push(header);
-            }
             return write_status_only(
                 connection,
                 401,
                 "Unauthorized",
                 "application/json",
-                extra.as_slice(),
+                &[("WWW-Authenticate", "Basic realm=\"ubos\"")],
                 b"{\"message\":\"unauthorized\"}",
             )
             .await;
@@ -324,7 +261,7 @@ impl Service for RestApiService {
                         413,
                         "Payload Too Large",
                         "text/plain",
-                        cors_slice,
+                        &[],
                         b"payload too large",
                     )
                     .await;
@@ -363,7 +300,7 @@ impl Service for RestApiService {
                     403,
                     "Forbidden",
                     "application/json",
-                    cors_slice,
+                    &[],
                     b"{\"message\":\"CSRF token invalid or missing\"}",
                 )
                 .await;
@@ -374,8 +311,7 @@ impl Service for RestApiService {
         // pre-read buffer, so it is dispatched here directly with the parsed
         // content length. Auth and CSRF have already been enforced above.
         if is_ota_upload {
-            return crate::system::handle_ota(connection, content_length, self.manager, cors_slice)
-                .await;
+            return crate::system::handle_ota(connection, content_length, self.manager).await;
         }
 
         // The OTA chunk upload also streams its body (one sector at a time).
@@ -401,7 +337,7 @@ impl Service for RestApiService {
                         400,
                         "Bad Request",
                         "application/json",
-                        cors_slice,
+                        &[],
                         b"{\"message\":\"X-OTA-Offset header missing or invalid\"}",
                     )
                     .await;
@@ -414,7 +350,6 @@ impl Service for RestApiService {
                 ota_offset,
                 ota_final,
                 self.manager,
-                cors_slice,
             )
             .await;
         }
@@ -432,7 +367,6 @@ impl Service for RestApiService {
                 self.thermal,
                 self.manager,
                 self.stack,
-                cors_slice,
             )
             .await?;
             if !handled {
@@ -441,7 +375,7 @@ impl Service for RestApiService {
                     404,
                     "Not Found",
                     "text/plain",
-                    cors_slice,
+                    &[],
                     b"not found",
                 )
                 .await;
@@ -631,7 +565,7 @@ impl Service for RestApiService {
                 let _ = writer.write_str("}");
                 let json_len = writer.len();
 
-                write_json_response(connection, &body_buf[..json_len], cors_slice).await
+                write_json_response(connection, &body_buf[..json_len], &[]).await
             }
             ("GET", "/api/config") => {
                 let mut body_buf = [0u8; CONFIG_RESPONSE_BUFFER_SIZE];
@@ -650,12 +584,12 @@ impl Service for RestApiService {
                         500,
                         "Internal Server Error",
                         "application/json",
-                        cors_slice,
+                        &[],
                         b"{\"message\":\"config serialize failed\"}",
                     )
                     .await;
                 };
-                write_json_response(connection, &body_buf[..length], cors_slice).await
+                write_json_response(connection, &body_buf[..length], &[]).await
             }
             ("POST", "/api/config") => {
                 info!("config update ({} bytes)", body.len());
@@ -668,7 +602,7 @@ impl Service for RestApiService {
                         400,
                         "Bad Request",
                         "application/json",
-                        cors_slice,
+                        &[],
                         b"{\"message\":\"invalid config update JSON\"}",
                     )
                     .await;
@@ -714,7 +648,7 @@ impl Service for RestApiService {
                         400,
                         "Bad Request",
                         "application/json",
-                        cors_slice,
+                        &[],
                         body,
                     )
                     .await;
@@ -725,7 +659,7 @@ impl Service for RestApiService {
                 config_handle
                     .send(ubos_config::Message::Update(new_config))
                     .await;
-                write_json_response(connection, CONFIG_ACK_BODY, cors_slice).await
+                write_json_response(connection, CONFIG_ACK_BODY, &[]).await
             }
             (_, "/api/info" | "/api/config") => {
                 write_status_only(
@@ -733,7 +667,7 @@ impl Service for RestApiService {
                     405,
                     "Method Not Allowed",
                     "text/plain",
-                    cors_slice,
+                    &[],
                     b"method not allowed",
                 )
                 .await
@@ -744,7 +678,7 @@ impl Service for RestApiService {
                     404,
                     "Not Found",
                     "text/plain",
-                    cors_slice,
+                    &[],
                     b"not found",
                 )
                 .await
