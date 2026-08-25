@@ -44,16 +44,18 @@ pub struct ControlBoardDescriptor {
     /// simultaneous connections rather than on clients. Count two
     /// connections for each browser and one for each machine client.
     ///
-    /// Two is the floor on every board that takes an OTA image. A single
-    /// slot puts the OTA recovery path behind whatever worker an open
-    /// dashboard holds, and that is the path a wedged board is recovered
-    /// over. `stm32f407` is the one board below that, and it registers no
-    /// OTA target; see its own comment.
+    /// Two is the floor on every board. A single slot puts the OTA
+    /// recovery path behind whatever worker an open dashboard holds, and
+    /// that is the path a wedged board is recovered over. It also leaves
+    /// a board with an open page unreachable to every other client,
+    /// because the 2 s poll holds the one worker.
     ///
     /// A slot costs more than the buffers it names. Every slot must be
     /// able to serve the REST API, whose handler future is far larger
     /// than the dashboard's, so a merged slot is dearer than either of
-    /// the two per-listener slots it replaces.
+    /// the two per-listener slots it replaces. On the two STM32 boards
+    /// the buffers come off main SRAM entirely, through the `ccmram-bss`
+    /// feature of `ubos-http`.
     pub http_pool: usize,
     /// Number of concurrent connections the metrics HTTP listener serves.
     pub metrics_http_pool: usize,
@@ -116,18 +118,16 @@ pub const CONTROL_BOARD_ESP32S3: ControlBoardDescriptor = ControlBoardDescriptor
 /// pools and the 32-entry event ring are sized down for this
 /// RAM-constrained board.
 ///
-/// The only board below the floor of two HTTP slots, and the only one
-/// that cannot reach it: a second merged slot overflows its 128 KiB of
-/// main SRAM, and the buffers cannot move to CCM. The floor exists for
-/// the OTA recovery path, and this board registers no OTA target, so
-/// nothing on it is put behind an open dashboard that was not already.
-/// The one slot still costs less than the two per-listener slots it
-/// replaces.
+/// The tightest board at 128 KiB of main SRAM. A second HTTP slot fits
+/// only because the pool buffers sit in CCM, which the `ccmram-bss`
+/// feature of `ubos-http` puts them in. That memory is shared with the
+/// stack on this board alone, so `memory.x` holds a floor under what is
+/// left of it.
 pub const CONTROL_BOARD_STM32F407: ControlBoardDescriptor = ControlBoardDescriptor {
     name: "DevEBox STM32F407 LAN8720",
     platform: STM32F407,
     mac_family: 0x06,
-    http_pool: 1,
+    http_pool: 2,
     metrics_http_pool: 1,
     event_log_capacity: 32,
 };

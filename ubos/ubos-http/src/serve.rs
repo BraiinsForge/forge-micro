@@ -340,6 +340,38 @@ macro_rules! http_worker_task {
     };
 }
 
+/// Declare one pool static, in CCM on a board that has it.
+///
+/// The two definitions are selected by **this** crate's `ccmram-bss`
+/// feature, which is why they are two `#[cfg]` definitions rather than
+/// one `#[cfg_attr]` inside the body. A `#[cfg_attr]` written in the
+/// body would read the feature set of the board crate that expands
+/// [`serve_http_pool!`], and the decision does not belong there.
+///
+/// The buffers qualify for CCM on two counts. The ethernet DMA reaches
+/// only the driver's own packet queue, and smoltcp copies between that
+/// queue and these buffers, so nothing here is a DMA target. And both
+/// statics are all-zero at rest, which is what `.ccmram.bss` requires:
+/// `TcpBuffers` is a pool of `Cell<bool>` flags that start `false` over
+/// a `MaybeUninit` payload, and the parse area is a zeroed array.
+#[cfg(feature = "ccmram-bss")]
+#[macro_export]
+macro_rules! http_pool_static {
+    ($name:ident: $ty:ty = $init:expr) => {
+        #[unsafe(link_section = ".ccmram.bss")]
+        static $name: $ty = $init;
+    };
+}
+
+/// Declare one pool static in main SRAM. See the `ccmram-bss` variant.
+#[cfg(not(feature = "ccmram-bss"))]
+#[macro_export]
+macro_rules! http_pool_static {
+    ($name:ident: $ty:ty = $init:expr) => {
+        static $name: $ty = $init;
+    };
+}
+
 /// Bind one HTTP listener and spawn its pool of `serve_worker` tasks.
 ///
 /// # Syntax
@@ -393,18 +425,18 @@ macro_rules! serve_http_pool {
         $crate::serve_http_pool!(@setup must_spawn; $spawner, $stack, $worker, $service, $pool, $consts)
     };
     (@setup $mode:ident; $spawner:expr, $stack:expr, $worker:ident, $service:expr, $pool:expr, $consts:path) => {{
-        static TCP_BUFFERS: $crate::ConstStaticCell<
+        $crate::http_pool_static!(TCP_BUFFERS: $crate::ConstStaticCell<
             $crate::TcpBuffers<
                 { $pool },
                 { <$consts>::TX_BUFFER_SIZE },
                 { <$consts>::RX_BUFFER_SIZE },
             >,
-        > = $crate::ConstStaticCell::new($crate::TcpBuffers::new());
+        > = $crate::ConstStaticCell::new($crate::TcpBuffers::new()));
         static TCP_NAL: $crate::StaticCell<$crate::Tcp<'static>> =
             $crate::StaticCell::new();
-        static WORK: $crate::ConstStaticCell<
+        $crate::http_pool_static!(WORK: $crate::ConstStaticCell<
             [u8; <$consts>::REQUEST_BUFFER_SIZE * $pool],
-        > = $crate::ConstStaticCell::new([0; <$consts>::REQUEST_BUFFER_SIZE * $pool]);
+        > = $crate::ConstStaticCell::new([0; <$consts>::REQUEST_BUFFER_SIZE * $pool]));
 
         let tcp: &'static $crate::Tcp<'static> =
             TCP_NAL.init($crate::Tcp::new($stack, TCP_BUFFERS.take()));

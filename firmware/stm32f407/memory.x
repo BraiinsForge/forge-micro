@@ -28,3 +28,15 @@ SECTIONS {
  * grows into the stack region now fails the link. */
 _stack_start = ORIGIN(CCMRAM) + LENGTH(CCMRAM);
 _stack_end = __eccmram_bss;
+
+/* cortex-m-rt's assert above catches only an overlap, so it fires when
+ * nothing is left at all. `.ccmram.bss` now carries the HTTP pool and
+ * the metrics pool buffers as well, and each pool slot added there
+ * takes 6 KiB of the stack's room, so hold a floor under what remains.
+ * Embassy keeps task state in each task's own static future rather than
+ * on the stack, so what this has to cover is the deepest single `poll`
+ * plus interrupt frames. 16K is well above the deepest measured and
+ * well below the ~29K the board links with today. */
+_min_stack = 16K;
+ASSERT(_stack_start - _stack_end >= _min_stack,
+  "stack below the floor: .ccmram.bss has crowded CCM; move a static back to main RAM or shrink the HTTP pool or the metrics pool");

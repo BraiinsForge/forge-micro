@@ -38,12 +38,11 @@ impl Http {
     pub const PORT: u16 = 80;
     /// Receive side of the connection socket. 2 KiB is ~1.4x the
     /// Ethernet MSS of 1460, so a full request segment plus headers fits
-    /// without inflating .bss on the 128 KiB stm32f407. It is also at or
-    /// below the W6100's 4 KiB on-chip RX buffer on purpose: each 4 KiB
-    /// DFU sector write during an OTA upload pauses both cores, and the
-    /// W6100 cannot be drained while frozen, so a window larger than the
-    /// chip buffer lets more data arrive than the chip can hold and
-    /// frames are dropped.
+    /// in one buffer. It is also at or below the W6100's 4 KiB on-chip RX
+    /// buffer on purpose: each 4 KiB DFU sector write during an OTA
+    /// upload pauses both cores, and the W6100 cannot be drained while
+    /// frozen, so a window larger than the chip buffer lets more data
+    /// arrive than the chip can hold and frames are dropped.
     pub const RX_BUFFER_SIZE: usize = 2048;
     /// Send side, held level with the receive side.
     pub const TX_BUFFER_SIZE: usize = 2048;

@@ -323,15 +323,15 @@ async fn boot(spawner: Spawner) {
     >(config::Board::MDNS_HOSTNAME_BASE, mac_addr[5])
     .await;
 
-    // Socket-set capacity for the embassy-net stack. Six sockets are
+    // Socket-set capacity for the embassy-net stack. Seven sockets are
     // held continuously: DHCPv4, DNS, the stratum client, the mDNS
-    // responder, 1 HTTP listener socket on :80, plus the metrics
+    // responder, 2 HTTP listener sockets on :80, plus the metrics
     // listener on :8081. NTP sync opens a transient UDP socket every
     // 60 s, and closed TCP connections linger in TIME_WAIT until smoltcp
     // reaps them. 16 provides headroom. The STM32F407 has only 128 KiB
-    // main SRAM, and the TcpBuffers are DMA-accessed so they cannot move
-    // to CCM; a second merged HTTP slot does not fit, which is why this
-    // is the one board below the floor of two.
+    // main SRAM, so the second HTTP slot fits only because the pool
+    // buffers sit in CCM, which the `ccmram-bss` feature this board
+    // enables puts them in.
     const STACK_SOCKETS: usize = 16;
     ubos_net::assert_stack_sockets!(
         STACK_SOCKETS,

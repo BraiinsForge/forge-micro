@@ -10,6 +10,13 @@ workspace = true
 [features]
 default = ["defmt"]
 defmt   = ["dep:defmt", "ubos-logging/defmt", "edge-http/defmt", "edge-nal-embassy/defmt"]
+# Opt-in for cortex-m boards whose linker exposes a `.ccmram.bss`
+# section. Relocates the listener's socket and parse buffers off main
+# SRAM. Pairs with the same feature on `ubos-core`, which is required so
+# the pre-init zeroing helper is compiled in. The buffers qualify because
+# the ethernet DMA reaches only the driver's own packet queue; see
+# `http_pool_static!` in `src/serve.rs`.
+ccmram-bss = []
 
 [dependencies]
 edge-http         = { workspace = true, features = ["io"] }
