@@ -33,6 +33,10 @@
 //! here: this test runs under `--no-default-features`, with defmt off and no
 //! log sink to count emissions against.
 
+// The crate is `#![no_std]`; explicitly opt back into std for the poisoned
+// `LOOP_MUTEX` recovery below.
+extern crate std;
+
 use core::cell::Cell;
 use core::pin::pin;
 use core::task::{Context, Waker};
@@ -45,7 +49,16 @@ use super::{CONTROL_INTERVAL, handle, run_cooling, stale_timeout};
 
 #[test]
 fn staleness_failsafe_forces_and_releases_full_fan() {
-    let _guard = LOOP_MUTEX.lock().expect("BUG: LOOP_MUTEX poisoned");
+    // A poisoned lock only means a previous test panicked while holding it.
+    // This test never leaves the config watch on a non-default value — see
+    // `fixed.rs`'s `RestoreDefaultConfig` for the one static that would
+    // otherwise need restoring — and everything it does read (the mock
+    // clock, the thermal reading) is reseeded below before use, so the
+    // poison carries no stale state for this test to inherit; `into_inner`
+    // just keeps testing.
+    let _guard = LOOP_MUTEX
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let driver = MockDriver::get();
     driver.reset();
 

@@ -47,7 +47,13 @@ use crate::{FanOutput, TachReader};
 /// concurrently would see each other's clock resets and published values.
 /// Holding this mutex for the whole test body keeps them sequential without
 /// needing `--test-threads=1`. A test that publishes a non-default config
-/// must restore the defaults before releasing it.
+/// must restore the defaults before releasing it, through a `Drop` guard
+/// declared after the lock so it runs on both the normal path and an
+/// unwind. A caller recovers a poisoned lock with `into_inner` rather than
+/// `expect`, because by the time it does, that guard has already restored
+/// the statics the panicking test left dirty; propagating the poison would
+/// only replace the failing test's own assertion with a message about the
+/// lock instead.
 pub(crate) static LOOP_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Number of times each phase polls `run_cooling` and the metrics ingest

@@ -26,6 +26,10 @@
 //! process-global too, so a [`RestoreDefaultConfig`] guard returns it to the
 //! defaults the other tests expect however this test ends.
 
+// The crate is `#![no_std]`; explicitly opt back into std for the poisoned
+// `LOOP_MUTEX` recovery below.
+extern crate std;
+
 use core::cell::Cell;
 use core::pin::pin;
 use core::task::{Context, Waker};
@@ -68,7 +72,13 @@ impl Drop for RestoreDefaultConfig {
 
 #[test]
 fn fixed_mode_holds_the_duty_under_the_failsafes() {
-    let _guard = LOOP_MUTEX.lock().expect("BUG: LOOP_MUTEX poisoned");
+    // A poisoned lock only means a previous test panicked while holding it,
+    // and `RestoreDefaultConfig` below already put the config watch back
+    // before that panic finished unwinding, so the poison carries no stale
+    // state for this test to inherit; `into_inner` just keeps testing.
+    let _guard = LOOP_MUTEX
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     // Declared after the lock, so it restores the defaults before the mutex
     // is released on both the normal path and an unwind.
     let _restore = RestoreDefaultConfig;

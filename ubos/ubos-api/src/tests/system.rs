@@ -345,17 +345,45 @@ fn run_chunk_handler(
 /// sequence keeps them sequential without needing `--test-threads=1`.
 static OTA_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Restores `OTA_TARGET` to its baseline of `None` on drop.
+///
+/// A test body that panics leaves `OTA_TARGET` holding a mock meant for
+/// the failing test, which would otherwise be inherited by whichever test
+/// runs next. Tying the reset to `Drop` runs it whether `body` in
+/// `with_ota_target` returned or unwound, so the static is clean before
+/// the poison from that panic can reach another test.
+struct OtaTargetReset;
+
+impl Drop for OtaTargetReset {
+    fn drop(&mut self) {
+        embassy_futures::block_on(async {
+            *crate::ota::target_mutex().lock().await = None;
+        });
+    }
+}
+
 /// Register `mock` as the OTA target, run `body`, then unregister it.
 ///
 /// Acquires `OTA_TEST_MUTEX` for the duration so concurrent OTA tests
-/// queue behind each other rather than racing on the shared static.
+/// queue behind each other rather than racing on the shared static. A
+/// poisoned lock only ever means a previous test panicked while holding
+/// it, and `OtaTargetReset` already restored `OTA_TARGET` before that
+/// panic finished unwinding, so recovering the value with `into_inner`
+/// loses no signal: the assertion that actually failed already reported
+/// it before this static existed to poison anything for.
 ///
 /// The mock is placed behind a `Box::leak` to satisfy the
 /// `&'static mut dyn OtaTarget` requirement of the mutex type. The
 /// leaked allocation is small and test-process-scoped, so the growth is
 /// bounded by the number of OTA tests.
 fn with_ota_target<F: FnOnce() -> u16>(mock: MockOtaTarget, body: F) -> u16 {
-    let _guard = OTA_TEST_MUTEX.lock().expect("BUG: OTA_TEST_MUTEX poisoned");
+    let _guard = OTA_TEST_MUTEX
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Declared after `_guard` so it drops first: the reset below runs
+    // while `OTA_TEST_MUTEX` is still held, before the next test can
+    // acquire it.
+    let _reset = OtaTargetReset;
 
     // Leak the mock to obtain a `&'static mut`.
     let leaked: &'static mut dyn crate::ota::OtaTarget =
@@ -364,14 +392,7 @@ fn with_ota_target<F: FnOnce() -> u16>(mock: MockOtaTarget, body: F) -> u16 {
         *crate::ota::target_mutex().lock().await = Some(leaked);
     });
 
-    let status = body();
-
-    // Clear the target after the test so the next test does not inherit it.
-    embassy_futures::block_on(async {
-        *crate::ota::target_mutex().lock().await = None;
-    });
-
-    status
+    body()
 }
 
 // ---------------------------------------------------------------------------
