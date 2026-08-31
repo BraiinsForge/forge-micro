@@ -371,17 +371,18 @@ entirely in the browser.
 
 ### Ring capacity: per-board config
 
-Ring capacity is a per-board compile-time constant `EVENT_LOG_CAPACITY:
-usize` placed on each board's `impl Board` in
-`firmware/<board>/src/config.rs`, alongside the existing `WEBUI_HTTP_POOL`,
-`API_HTTP_POOL`, and `Core1::STACK_BYTES` constants. It must be
-compile-time because it sizes a `static [EventRecord; N]` array. The
-RAM-rich boards (rp2350, bmm-pico, esp32s3) use 128; the rest (rp2040,
+Ring capacity is a per-board compile-time value. It is the field
+`event_log_capacity` on `ControlBoardDescriptor` in `ubos-machine`, next
+to `http_pool` and `metrics_http_pool`. Each board reads it as
+`config::MACHINE.control_board.event_log_capacity`. The capacity must be
+compile-time because it sizes a `static [EventRecord; N]` array.
+
+The RAM-rich boards (rp2350, bmm-pico, esp32s3) use 128; the rest (rp2040,
 stm32f407, stm32f439) use 32. At 24 bytes per record that is 3 KiB and
 768 B respectively. The rp2040 `*-build-release` flake derivation is the
 RAM-overflow canary that confirms 32 fits.
 
-| Board     | `EVENT_LOG_CAPACITY` | Ring size |
+| Board     | `event_log_capacity` | Ring size |
 |-----------|----------------------|-----------|
 | rp2350    | 128                  | 3 KiB     |
 | bmm-pico  | 128                  | 3 KiB     |
