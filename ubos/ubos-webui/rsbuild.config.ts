@@ -81,6 +81,10 @@ export default defineConfig({
     // Each entry keeps its own template (the pre-paint theme script and
     // page shell); Rsbuild injects the entry's inlined script into it.
     template: ({ entryName }) => (entryName === 'login' ? './login.html' : './index.html'),
+    // Inject into <body>, after the app div. Browsers ignore `defer` on
+    // inline scripts, so a head-injected inlined bundle runs before the
+    // mount point exists and the render crashes.
+    inject: 'body',
   },
   output: {
     // Inline everything so each page is a single self-contained file.
