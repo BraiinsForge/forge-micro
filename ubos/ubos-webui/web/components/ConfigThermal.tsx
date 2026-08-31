@@ -1,8 +1,7 @@
 import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
-import { postConfig } from '../lib/api';
+import { saveConfig } from '../lib/api';
 import { fmtRange } from '../lib/format';
-import { toast, errMsg } from '../lib/toast';
 import type { CoolingBounds, CoolingConfig, Range, ThermalBounds, ThermalConfig } from '../lib/types';
 import Field from './Field';
 import Section from './Section';
@@ -31,10 +30,9 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
   const cooldown: Partial<Range> = thermalBounds.cooldownTempC || {};
   const target: Partial<Range> = coolingBounds.targetTempC || {};
 
-  async function save(event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
-    event.preventDefault();
-    try {
-      await postConfig({
+  const save = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) =>
+    saveConfig(
+      {
         thermal: {
           sample_interval_ms: sampleMs,
           dangerous_temp_c: +dangerC,
@@ -42,12 +40,9 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
           dangerous_chip_temp_c: +chipC,
         },
         cooling: { target_temp_c: +targetC, min_fan_pwm: +minFanPwm },
-      });
-      toast.ok('Changes saved');
-    } catch (error) {
-      toast.err('Save failed', errMsg(error));
-    }
-  }
+      },
+      event
+    );
 
   return (
     <>

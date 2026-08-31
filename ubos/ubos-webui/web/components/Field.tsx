@@ -13,13 +13,7 @@ export interface FieldProps {
   max?: number | string;
   step?: number | string;
   maxlength?: number;
-  helper?: ComponentChildren;
-  invalid?: boolean;
-  error?: ComponentChildren;
   unit?: ComponentChildren;
-  labelEnd?: ComponentChildren;
-  onPaste?: JSX.ClipboardEventHandler<HTMLInputElement>;
-  onCopy?: JSX.ClipboardEventHandler<HTMLInputElement>;
   class?: string;
 }
 
@@ -35,24 +29,17 @@ export default function Field({
   max,
   step,
   maxlength,
-  helper,
-  invalid,
-  error,
   unit,
-  labelEnd,
-  onPaste,
-  onCopy,
   class: extra,
 }: FieldProps) {
   const isPassword = type === 'password';
   const [visible, setVisible] = useState(false);
 
   return (
-    <label class={'fld' + (invalid ? ' invalid' : '') + (extra ? ' ' + extra : '')}>
+    <label class={'fld' + (extra ? ' ' + extra : '')}>
       <span class="fldText">
         <span class="fldLabel">{label}</span>
         {desc ? <span class="fldDesc">{desc}</span> : null}
-        {labelEnd || null}
       </span>
       <span class={'fldCtl' + (unit ? ' hasUnit' : '') + (isPassword ? ' hasPw' : '')}>
         <input
@@ -65,8 +52,6 @@ export default function Field({
           max={max}
           step={step}
           maxlength={maxlength}
-          onPaste={onPaste}
-          onCopy={onCopy}
         />
         {isPassword ? (
           <button
@@ -90,11 +75,6 @@ export default function Field({
         ) : null}
         {unit ? <span class="fldUnit">{unit}</span> : null}
       </span>
-      {error && invalid ? (
-        <span class="fldErr">{error}</span>
-      ) : helper ? (
-        <span class="fldHelp">{helper}</span>
-      ) : null}
     </label>
   );
 }

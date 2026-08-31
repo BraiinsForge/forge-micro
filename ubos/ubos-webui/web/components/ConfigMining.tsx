@@ -1,8 +1,7 @@
 import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
-import { postConfig } from '../lib/api';
+import { saveConfig } from '../lib/api';
 import { fmtRange } from '../lib/format';
-import { toast, errMsg } from '../lib/toast';
 import type { AsicBounds, Range, TuningConfig } from '../lib/types';
 import Field from './Field';
 
@@ -19,15 +18,8 @@ export default function ConfigMining({ tuning, bounds }: ConfigMiningProps) {
   const freq: Partial<Range> = bounds.frequencyMhz || {};
   const volt: Partial<Range> = bounds.voltageMv || {};
 
-  async function save(event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
-    event.preventDefault();
-    try {
-      await postConfig({ tuning: { frequency_mhz: +freqMhz, voltage_mv: +voltMv } });
-      toast.ok('Changes saved');
-    } catch (error) {
-      toast.err('Save failed', errMsg(error));
-    }
-  }
+  const save = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) =>
+    saveConfig({ tuning: { frequency_mhz: +freqMhz, voltage_mv: +voltMv } }, event);
 
   return (
     <>

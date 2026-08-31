@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
-import { getConfig, getJSON, RETRY_DELAYS } from '../lib/api';
+import { getConfig, getJSON, RETRY_DELAYS, sleep } from '../lib/api';
 import type { AsicBounds, CoolingBounds, Config as ConfigData, ThermalBounds } from '../lib/types';
 import type { BoardNotice } from '../app';
 import ConfigPools from './ConfigPools';
@@ -77,7 +77,7 @@ export default function Config({ hash, boardNotice }: ConfigProps) {
     (async () => {
       let lastError: unknown;
       for (const wait of RETRY_DELAYS) {
-        if (wait) await new Promise((r) => setTimeout(r, wait));
+        if (wait) await sleep(wait);
         try {
           const [cfg, asic, thermal, cooling] = await Promise.all([
             getConfig(),

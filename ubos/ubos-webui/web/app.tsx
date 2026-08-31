@@ -12,7 +12,7 @@ import Events from './components/Events';
 import NetOverlays from './components/NetOverlays';
 import Toasts from './components/Toasts';
 import { startPoll, useDash } from './lib/store';
-import { API, loginRedirect } from './lib/api';
+import { API, loginRedirect, sleep } from './lib/api';
 
 // Hash-based view switch, no router. `#config[/sub]` -> config,
 // `#events` -> events, anything else -> dashboard.
@@ -54,7 +54,7 @@ export default function App() {
     setNotice({ title, text });
     if (!poll) return;
     for (let attempt = 0; attempt < 150; attempt++) {
-      await new Promise((r) => setTimeout(r, 2000));
+      await sleep(2000);
       try {
         const response = await fetch(API + '/api/info', {
           cache: 'no-store',

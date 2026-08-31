@@ -21,9 +21,110 @@
 /* Dashboard-specific styles. Built into index.html alongside
    common.css; do not duplicate the shared palette or base resets. */
 
-/* ---------- Top navigation bar ----------
-   .bar core lives in common.css; only the dashboard-specific link
-   styling lives here. */
+/* ---------- Top navigation bar ---------- */
+
+/* The shared SVG symbol library (icons.svg) is injected into the
+   dashboard page via a `?raw` import. It only holds <symbol> defs
+   reached by <use>, so collapse it to zero size and take it out of
+   flow; without this it lays out as a visible box and shoves page
+   content aside. */
+.defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+/* Sticky top header and bottom footer. The navigation links sit in
+   the .bar at the top and the .bar.ft variant at the bottom carries
+   build provenance. Both bars are pinned via position: sticky so
+   they stay on screen while the page scrolls. */
+.bar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  background: var(--panel);
+  padding: 0 14px;
+  height: 48px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.bar.ft {
+  top: auto;
+  bottom: 0;
+  height: 32px;
+  align-items: center;
+  padding: 0 16px;
+}
+
+.sp {
+  flex: 1;
+}
+
+.bi {
+  color: var(--field-border);
+  font-size: var(--fs-body);
+  line-height: 18px;
+}
+
+
+@media (max-width: 480px) {
+  .bar.ft {
+    height: auto;
+    flex-wrap: wrap;
+    padding: 6px 16px;
+  }
+}
+
+/* Theme toggle. Cycles the operator's preference between auto,
+   light, and dark on each click. Three SVG icons live inside the
+   button at all times; the [data-theme-pref] attribute on <html>
+   decides which one is visible, so the JS handler only flips one
+   attribute per click. The pref attribute is set by the boot
+   script before first paint, so a missing-attribute fallback is
+   not needed in practice. The button itself only carries visual
+   rules so it can sit equally well in the dashboard nav row and
+   in the login footer; the footer pins it to the right via the
+   .bar.ft .thm block further below. */
+.thm {
+  background: none;
+  border: 0;
+  color: var(--mute);
+  cursor: pointer;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  transition: background-color 0.11s, color 0.11s;
+}
+
+.thm:hover {
+  color: var(--fg);
+  background: var(--hover-bg);
+}
+
+.bar.ft .thm {
+  margin-left: auto;
+}
+
+.thmIcon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  display: none;
+}
+
+[data-theme-pref="auto"] .thmIcon.iAuto {
+  display: block;
+}
+
+[data-theme-pref="light"] .thmIcon.iSun {
+  display: block;
+}
+
+[data-theme-pref="dark"] .thmIcon.iMoon {
+  display: block;
+}
 
 .logo {
   margin-right: 128px;
@@ -91,7 +192,7 @@
 /* Status badge. Filled Carbon-style circle with a check or X cutout;
    the parent card class drives the colour through currentColor. The
    shared symbol defs come from a `?raw` import of icons.svg and are
-   hidden by the .defs rule in common.css. */
+   hidden by the .defs rule above. */
 
 /* ---------- Page frame ----------
    Make the page at least viewport-tall and let the active view grow,
@@ -784,13 +885,6 @@ main > * {
   outline-offset: -2px;
 }
 
-/* Invalid reuses the same inset ring in the error colour. Not wired to
-   any caller yet; the `invalid` prop exists for a later pass. */
-.fld.invalid input {
-  outline: 2px solid var(--red);
-  outline-offset: -2px;
-}
-
 .fld input::placeholder {
   color: var(--mute);
   opacity: 1;
@@ -824,18 +918,6 @@ main > * {
   color: var(--mute);
   font-size: var(--fs-label);
   margin-bottom: 8px; /* Carbon $spacing-03 */
-}
-
-.fldHelp,
-.fldErr {
-  display: block;
-  font-size: var(--fs-label);
-  margin-top: 4px; /* Carbon $spacing-02 */
-  color: var(--mute);
-}
-
-.fldErr {
-  color: var(--red);
 }
 
 /* Row layout: label and description stacked on the left, input on the
@@ -984,54 +1066,6 @@ main > * {
   color: var(--field-border);
   font-size: var(--fs-body);
   pointer-events: none;
-}
-
-/* Carbon select: native <select> with appearance stripped and a custom
-   chevron overlaid. Reuses .fld and .fldText/.fldLabel so the row
-   layout (.fldRows) works without extra rules. */
-.selCtl {
-  position: relative;
-  display: flex;
-}
-
-.selCtl select {
-  width: 100%;
-  height: 40px;
-  padding: 0 48px 0 16px;
-  background: var(--field);
-  color: var(--fg);
-  border: 0;
-  border-bottom: 1px solid var(--field-border);
-  border-radius: 0;
-  font: var(--fs-body) var(--ff-mono);
-  appearance: none;
-  cursor: pointer;
-}
-
-.selCtl select:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.selCtl select:disabled {
-  color: var(--mute);
-  border-bottom-color: transparent;
-  cursor: not-allowed;
-}
-
-.selCtl svg {
-  position: absolute;
-  right: 16px;
-  top: 0;
-  width: 16px;
-  height: 100%;
-  fill: var(--fg);
-  pointer-events: none;
-}
-
-.fldRows .selCtl {
-  flex: 1 1 0%;
-  max-width: 290px;
 }
 
 /* Carbon checkbox: a 16px box indented by padding-left, with the real

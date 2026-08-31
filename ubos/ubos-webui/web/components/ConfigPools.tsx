@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
-import { postConfig } from '../lib/api';
-import { toast, errMsg } from '../lib/toast';
+import { saveConfig } from '../lib/api';
+import { toast } from '../lib/toast';
 import type { PoolConfig, PoolProtocol } from '../lib/types';
 
 const ADDR_RE = /^([^:/]+)(?::(\d+))?$/;
@@ -108,12 +108,7 @@ export default function ConfigPools({ pools }: ConfigPoolsProps) {
       }
       pool.push({ host, port, user, protocol, weight });
     }
-    try {
-      await postConfig({ pool });
-      toast.ok('Changes saved');
-    } catch (error) {
-      toast.err('Save failed', errMsg(error));
-    }
+    await saveConfig({ pool });
   }
 
   return (

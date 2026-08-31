@@ -1,8 +1,8 @@
 import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
-import { API, loginRedirect, postConfig, postOnce } from '../lib/api';
+import { API, loginRedirect, postOnce, saveConfig, sleep } from '../lib/api';
 import { useDash, startPoll, stopPoll } from '../lib/store';
-import { toast, errMsg } from '../lib/toast';
+import { toast } from '../lib/toast';
 import type { ApiCredentials } from '../lib/types';
 import type { BoardNotice } from '../app';
 import Field from './Field';
@@ -29,15 +29,8 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
   const [sysUser, setSysUser] = useState(() => (api && api.username) || '');
   const [sysPass, setSysPass] = useState('');
 
-  async function saveCreds(event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
-    event.preventDefault();
-    try {
-      await postConfig({ api: { username: sysUser, password: sysPass } });
-      toast.ok('Changes saved');
-    } catch (error) {
-      toast.err('Save failed', errMsg(error));
-    }
-  }
+  const saveCreds = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) =>
+    saveConfig({ api: { username: sysUser, password: sysPass } }, event);
 
   const dash = useDash();
   const ota = dash.info?.ota;
@@ -89,10 +82,14 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
       const headers: Record<string, string> = { 'X-OTA-Offset': String(offset) };
       if (isFinal) headers['X-OTA-Final'] = '1';
 
-      let response: Response | null = null;
+      // Definite-assignment assertion: the retry loop below always exits
+      // with a response, because every failed attempt either returns out
+      // of the function or continues to another attempt. The assertion is
+      // erased at compile time, so no unreachable guard ships.
+      let response!: Response;
       const MAX_RETRIES = 3;
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        if (attempt > 0) await new Promise((r) => setTimeout(r, 500));
+        if (attempt > 0) await sleep(500);
         const controller = isFinal ? new AbortController() : null;
         const timer = controller ? setTimeout(() => controller.abort(), 3000) : null;
         try {
@@ -135,18 +132,11 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
         }
       }
 
-      // `response` is always set by this point: the loop above only falls
-      // through without it when the final attempt already returned above.
-      // The guard exists to satisfy strict null checks on the reads below.
-      if (!response) {
-        return otaFail('Upload failed because of a network error. The board will resume mining shortly.');
-      }
-
       // A 401 mid-upload means the session died; bounce to login.
-      if (response && response.status === 401) return loginRedirect();
+      if (response.status === 401) return loginRedirect();
 
       if (isFinal) {
-        if (response && response.ok) {
+        if (response.ok) {
           removeEventListener('beforeunload', blockUnload);
           return boardNotice(
             'Updating firmware',
@@ -168,7 +158,7 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
             await detailFromResponse(response, 'Upload failed because the board could not stop mining.')
           );
         }
-        await new Promise((r) => setTimeout(r, 1000));
+        await sleep(1000);
         continue;
       }
       if (!response.ok) {

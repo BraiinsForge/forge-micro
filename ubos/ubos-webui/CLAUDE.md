@@ -18,8 +18,8 @@ Current baseline (`npm run build`, then `brotli -q 11`):
 
 | Page | raw | brotli (embedded) |
 |------|-----|-------------------|
-| `dist/index.html` | ~75 KB | **~22.4 KB** |
-| `dist/login.html` | ~4.6 KB | **~1.6 KB** |
+| `dist/index.html` | ~75 KB | **~22.1 KB** |
+| `dist/login.html` | ~4.4 KB | **~1.6 KB** |
 
 Before/after any change that could move the needle, measure the delta:
 

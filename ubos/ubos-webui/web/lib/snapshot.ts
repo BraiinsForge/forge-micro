@@ -4,7 +4,7 @@
 // section that still fails is recorded under `errors` rather than
 // aborting the whole snapshot.
 
-import { API, RETRY_DELAYS, loginRedirect } from './api';
+import { API, RETRY_DELAYS, loginRedirect, sleep } from './api';
 
 const SECTIONS: [string, string][] = [
   ['info', '/api/info'],
@@ -56,7 +56,7 @@ async function fetchSectionWithRetry<T>(
 ): Promise<T | undefined> {
   let lastError: unknown;
   for (const wait of RETRY_DELAYS) {
-    if (wait) await new Promise((r) => setTimeout(r, wait));
+    if (wait) await sleep(wait);
     let response: Response;
     try {
       response = await fetch(url, options);

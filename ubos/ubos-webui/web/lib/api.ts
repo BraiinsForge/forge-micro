@@ -8,6 +8,7 @@
 // The REST worker pool is shallow (often one connection deep), so every
 // mutating call retries with a short backoff, matching the vanilla UI.
 
+import { toast, errMsg } from './toast';
 import type { Config, ConfigPatch, Info } from './types';
 
 const API = import.meta.env.DEV
@@ -15,7 +16,7 @@ const API = import.meta.env.DEV
   : `${location.protocol}//${location.hostname}:8080`;
 
 export const RETRY_DELAYS = [0, 250, 500, 1000];
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 // A 401 from the API means the session is gone — expired, invalidated,
 // or cleared by a reboot. Bounce to the login page with a marker so it
@@ -89,6 +90,20 @@ export async function postJSON(path: string, body: unknown): Promise<Response> {
 
 // Apply a partial config object via POST /api/config.
 export const postConfig = (body: ConfigPatch): Promise<Response> => postJSON('/api/config', body);
+
+// Submit handler shared by the config tabs: block the native form
+// navigation, apply the patch, and toast the outcome. A tab that
+// validates before building its patch calls preventDefault itself and
+// omits the event.
+export async function saveConfig(patch: ConfigPatch, event?: Event): Promise<void> {
+  event?.preventDefault();
+  try {
+    await postConfig(patch);
+    toast.ok('Changes saved');
+  } catch (error) {
+    toast.err('Save failed', errMsg(error));
+  }
+}
 
 // Options for a single-shot POST. `json` sends a JSON body (and sets the
 // content type); `body`/`headers` carry a raw payload for the OTA chunk
