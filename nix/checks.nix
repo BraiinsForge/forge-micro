@@ -173,7 +173,7 @@ let
     clippy-ubos-webui = {
       crate = "ubos-webui";
       # build.rs reads the prebuilt Rsbuild pages from UBOS_WEBUI_DIST
-      # and Brotli-compresses them, so the sandbox needs no npm.
+      # and gzips them, so the sandbox needs no npm.
       webuiDist = true;
       webuiEnv = true;
     };
@@ -253,7 +253,7 @@ let
     test-ubos-webui = {
       crate = "ubos-webui";
       # build.rs reads the prebuilt Rsbuild pages from UBOS_WEBUI_DIST
-      # and Brotli-compresses them, so the sandbox needs no npm.
+      # and gzips them, so the sandbox needs no npm.
       webuiDist = true;
       webuiEnv = true;
     };

@@ -69,7 +69,7 @@ rec {
 
   # Points ubos-webui's build.rs at the hermetic Rsbuild output so the
   # crate check never runs `npm` in the offline sandbox. build.rs reads
-  # the two prebuilt pages from this directory and Brotli-compresses
+  # the two prebuilt pages from this directory and gzips
   # them.
   webuiDistEnv = {
     UBOS_WEBUI_DIST = "${webuiDist}";

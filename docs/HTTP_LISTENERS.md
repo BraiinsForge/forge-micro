@@ -103,7 +103,7 @@ flight, because the server must retain unacked data for retransmission and
 that data lives in the socket TX buffer. With `Http::TX_BUFFER_SIZE =
 2048`, at most ~2 KiB is ever outstanding, so a single connection delivers
 about **2 KiB per round trip** regardless of how much the client will
-accept. The ~16 KiB Brotli-compressed dashboard therefore takes roughly **8 round
+accept. The ~24 KiB gzipped dashboard therefore takes roughly **12 round
 trips**, not the one or two a 14 KiB initcwnd would imply.
 
 The client receive window is never the bottleneck: Windows and macOS
@@ -113,8 +113,8 @@ laptop). All are far above the server's 2 KiB.
 
 Consequences:
 
-- **The Brotli-compressed-size budget is essentially academic on a LAN.** At a
-  sub-millisecond LAN RTT, 8 round trips is a few milliseconds. Whether the
+- **The compressed-size budget is essentially academic on a LAN.** At a
+  sub-millisecond LAN RTT, 12 round trips is a few milliseconds. Whether the
   page is 14 KiB or 17 KiB changes the round-trip count by one or two, not
   the user-visible load time. The "first paint must fit one 14 KiB
   initcwnd" rationale in `ubos-webui`'s size test and `build.rs` does not
@@ -231,7 +231,7 @@ corruption into an immediate, labelled fault:
   fallback. The shipped design keeps one parse slice per worker for
   simplicity.
 - **Right-sizing is independent of count.** Per-listener buffers can be
-  trimmed (the :80 shell is a small Brotli-compressed asset) to reclaim RAM
+  trimmed (the :80 shell is a small gzipped asset) to reclaim RAM
   regardless of the connection count.
 
 ## Per-board constraint

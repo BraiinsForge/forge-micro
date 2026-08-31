@@ -21,7 +21,7 @@
 //!
 //! The HTTP handler itself is not exercised here (host-runner has no
 //! edge-http server harness yet). Until then, the invariants the
-//! handler relies on — each payload is a real Brotli stream that
+//! handler relies on — each payload is a real gzip stream that
 //! decompresses to well-formed HTML carrying the app's API surface —
 //! are unit-tested below. The Vite build inlines all JS and CSS into
 //! one HTML file per page, so the anchors are chosen from string
@@ -32,15 +32,16 @@
 // we can allocate format strings and decompress.
 extern crate std;
 
+use std::io::Read;
 use std::string::String;
-use std::vec::Vec;
 
-/// Decompress a Brotli asset into a UTF-8 string.
-fn decompress(br: &[u8]) -> String {
-    let mut input = br;
-    let mut buffer = Vec::new();
-    brotli::BrotliDecompress(&mut input, &mut buffer).expect("BUG: brotli decode body");
-    String::from_utf8(buffer).expect("BUG: payload utf8")
+/// Decompress a gzipped asset into a UTF-8 string.
+fn decompress(gz: &[u8]) -> String {
+    let mut html = String::new();
+    flate2::read::GzDecoder::new(gz)
+        .read_to_string(&mut html)
+        .expect("BUG: gzip decode body");
+    html
 }
 
 /// Decompressed payload must look like real HTML at both ends. Catches
@@ -48,7 +49,7 @@ fn decompress(br: &[u8]) -> String {
 /// stream.
 #[test]
 fn index_payload_is_well_formed_html() {
-    let html = decompress(crate::INDEX_HTML_BR);
+    let html = decompress(crate::INDEX_HTML_GZ);
     assert!(
         html.starts_with("<!DOCTYPE html>"),
         "missing doctype: {:?}",
@@ -65,7 +66,7 @@ fn index_payload_is_well_formed_html() {
 /// through to the frontend build.
 #[test]
 fn index_payload_has_no_unsubstituted_build_markers() {
-    let html = decompress(crate::INDEX_HTML_BR);
+    let html = decompress(crate::INDEX_HTML_GZ);
     assert!(!html.contains("__BUILD_REV__"), "build rev not injected");
     assert!(!html.contains("__BUILD_TIME__"), "build time not injected");
     assert!(
@@ -79,7 +80,7 @@ fn index_payload_has_no_unsubstituted_build_markers() {
 /// literals, so these anchors stay stable across minifier upgrades.
 #[test]
 fn index_payload_contains_api_surface() {
-    let html = decompress(crate::INDEX_HTML_BR);
+    let html = decompress(crate::INDEX_HTML_GZ);
     assert!(html.contains("/api/info"), "missing /api/info literal");
     assert!(html.contains("/api/config"), "missing /api/config literal");
     assert!(
@@ -99,7 +100,7 @@ fn index_payload_contains_api_surface() {
 /// `action`/`method` as prop literals rather than HTML attributes.
 #[test]
 fn index_payload_logout_is_post_form() {
-    let html = decompress(crate::INDEX_HTML_BR);
+    let html = decompress(crate::INDEX_HTML_GZ);
     assert!(
         html.contains(r#"action:"/logout""#),
         "logout is not a form with action /logout"
@@ -107,33 +108,33 @@ fn index_payload_logout_is_post_form() {
     assert!(html.contains(r#""post""#), "logout form does not POST");
 }
 
-/// Upper bound on the Brotli dashboard payload. The Preact runtime
+/// Upper bound on the gzipped dashboard payload. The Preact runtime
 /// plus the compiled dashboard/config/events components sit above the
 /// vanilla hand-written UI, so the budget is larger here; it still
 /// guards against a minifier no-op or an accidental ship of
 /// uncompressed bytes. Bump deliberately when adding features.
 #[test]
 fn index_payload_size_within_budget() {
-    const MAX_BR_BYTES: usize = 28 * 1024;
+    const MAX_GZ_BYTES: usize = 28 * 1024;
     assert!(
-        crate::INDEX_HTML_BR.len() <= MAX_BR_BYTES,
+        crate::INDEX_HTML_GZ.len() <= MAX_GZ_BYTES,
         "gz payload {} exceeds budget {}",
-        crate::INDEX_HTML_BR.len(),
-        MAX_BR_BYTES
+        crate::INDEX_HTML_GZ.len(),
+        MAX_GZ_BYTES
     );
 }
 
-/// `INDEX_HTML_BR` must contain a non-empty Brotli stream that
+/// `INDEX_HTML_GZ` must contain a non-empty gzip stream that
 /// decompresses, so a build.rs change that emits an empty buffer or a
-/// non-Brotli payload fails here rather than in the browser with a
-/// `Content-Encoding: br` decode error. Brotli carries no magic-number
-/// prefix, so the guard is a successful round-trip to the doctype.
+/// non-gzip payload fails here rather than in the browser with a
+/// `Content-Encoding: gzip` decode error. The guard is a successful
+/// round-trip to the doctype rather than a magic-number check.
 #[test]
-fn index_asset_is_non_empty_brotli() {
-    assert!(!crate::INDEX_HTML_BR.is_empty(), "empty brotli stream");
+fn index_asset_is_non_empty_gzip() {
+    assert!(!crate::INDEX_HTML_GZ.is_empty(), "empty gzip stream");
     assert!(
-        decompress(crate::INDEX_HTML_BR).starts_with("<!DOCTYPE html>"),
-        "brotli payload did not decode to HTML"
+        decompress(crate::INDEX_HTML_GZ).starts_with("<!DOCTYPE html>"),
+        "gzip payload did not decode to HTML"
     );
 }
 
@@ -142,25 +143,25 @@ fn index_asset_is_non_empty_brotli() {
 /// re-introducing the runtime here would trip.
 #[test]
 fn login_payload_is_well_formed_and_within_budget() {
-    const MAX_BR_BYTES: usize = 4 * 1024;
-    let html = decompress(crate::LOGIN_HTML_BR);
+    const MAX_GZ_BYTES: usize = 4 * 1024;
+    let html = decompress(crate::LOGIN_HTML_GZ);
     assert!(html.starts_with("<!DOCTYPE html>"));
     assert!(html.trim_end().ends_with("</html>"));
     assert!(!html.contains("__BUILD_REV__"));
     assert!(html.contains(r#"action="/login""#), "missing login form");
     assert!(
-        crate::LOGIN_HTML_BR.len() <= MAX_BR_BYTES,
+        crate::LOGIN_HTML_GZ.len() <= MAX_GZ_BYTES,
         "gz payload {} exceeds budget {}",
-        crate::LOGIN_HTML_BR.len(),
-        MAX_BR_BYTES
+        crate::LOGIN_HTML_GZ.len(),
+        MAX_GZ_BYTES
     );
 }
 
 #[test]
-fn login_asset_is_non_empty_brotli() {
-    assert!(!crate::LOGIN_HTML_BR.is_empty(), "empty brotli stream");
+fn login_asset_is_non_empty_gzip() {
+    assert!(!crate::LOGIN_HTML_GZ.is_empty(), "empty gzip stream");
     assert!(
-        decompress(crate::LOGIN_HTML_BR).starts_with("<!DOCTYPE html>"),
-        "brotli payload did not decode to HTML"
+        decompress(crate::LOGIN_HTML_GZ).starts_with("<!DOCTYPE html>"),
+        "gzip payload did not decode to HTML"
     );
 }

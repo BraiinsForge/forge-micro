@@ -1,9 +1,11 @@
 # ubos-webui
 
 Preact + Rsbuild frontend for the miner's port-80 web UI. `build.rs` runs
-the Rsbuild build, Brotli-compresses the two resulting single-file pages
-(`index.html`, `login.html`) plus `src/logo.svg`, and `src/lib.rs`
-embeds them with `include_bytes!` for the firmware to serve.
+the Rsbuild build, gzips the two resulting single-file pages
+(`index.html`, `login.html`) plus `src/logo.svg` with Zopfli, and
+`src/lib.rs` embeds them with `include_bytes!` for the firmware to serve.
+Gzip rather than Brotli because browsers only advertise `br` over HTTPS
+and the board serves plain HTTP.
 
 ```
 index.html  login.html   HTML entries (Rsbuild roots)

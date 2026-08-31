@@ -81,6 +81,10 @@ in
         # ubos-webui's Rsbuild/Preact dev loop (`npm run dev`) and its
         # build.rs dev-shell fallback (`npm run build`).
         nodejs
+        # Byte-exact A/B size measurement of the ubos-webui pages; the
+        # crate's build.rs embeds Zopfli-gzipped bytes, so the CLI must
+        # match the encoder to make the crate CLAUDE.md numbers honest.
+        zopfli
         # Unused-dependency lint, matching the cargo-machete check.
         cargo-machete
         # Builds combined BOOTSEL UF2 images from app and bootloader.

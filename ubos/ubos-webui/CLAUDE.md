@@ -1,31 +1,35 @@
 # ubos-webui
 
 Preact + Rsbuild frontend for the miner's port-80 web UI. `build.rs`
-runs the Rsbuild build, Brotli-compresses the two single-file pages, and
+runs the Rsbuild build, gzips the two single-file pages with Zopfli, and
 `src/lib.rs` embeds them with `include_bytes!` for the firmware to serve.
+Gzip rather than Brotli: browsers only advertise `br` over HTTPS and on
+`localhost`, and the board is reached over plain HTTP.
 `README.md` covers the dev loops in depth; this file is the working
 contract — read it before touching `web/`.
 
 ## Size is the first constraint
 
 **Every byte of the built bundle ships in firmware flash.** The pages
-are Brotli-compressed at quality 11 and baked into the image via
-`include_bytes!` (`src/lib.rs`), so they compete with firmware for a
-fixed flash budget (OTA image cap is ~950 KiB). The number that matters
-is the **Brotli size of `dist/*.html`**, not the raw or minified size.
+are Zopfli-gzipped and baked into the image via `include_bytes!`
+(`src/lib.rs`), so they compete with firmware for a fixed flash budget
+(OTA image cap is ~950 KiB). The number that matters is the **Zopfli
+gzip size of `dist/*.html`**, not the raw or minified size.
 
-Current baseline (`npm run build`, then `brotli -q 11`):
+Current baseline (`npm run build`, then `zopfli --i1000`):
 
-| Page | raw | brotli (embedded) |
-|------|-----|-------------------|
-| `dist/index.html` | ~75 KB | **~22.1 KB** |
-| `dist/login.html` | ~4.4 KB | **~1.6 KB** |
+| Page | raw | gzip (embedded) |
+|------|-----|-----------------|
+| `dist/index.html` | ~75 KB | **~23.8 KB** |
+| `dist/login.html` | ~4.4 KB | **~2.1 KB** |
 
-Before/after any change that could move the needle, measure the delta:
+Before/after any change that could move the needle, measure the delta
+(the `zopfli` CLI is in the `arm` dev shell; `--i1000` matches the
+iteration count `build.rs` uses):
 
 ```sh
 npm run build
-brotli -q 11 -c dist/index.html | wc -c    # bytes the firmware embeds
+zopfli --i1000 -c dist/index.html | wc -c    # bytes the firmware embeds
 ```
 
 Guard the size:
@@ -36,20 +40,22 @@ Guard the size:
   byte** — keep it comment-free and minimal; every character lands in
   every page.
 - The login page is deliberately **framework-free** (`web/login.ts` is
-  plain DOM, no Preact) so `login.html` stays under 2 KB. Do not import
+  plain DOM, no Preact) so `login.html` stays near 2 KB. Do not import
   Preact or shared components into it.
 
 ## Component vs. inline: how to decide (size-wise)
 
-The bundle is SWC-minified then Brotli-compressed with a large
-window, so **Brotli already collapses repeated inline markup** — the
-second copy of a tag tree costs only a back-reference, not its full
-bytes. A Preact component adds a fixed cost that never compresses away:
-the function definition plus a props object at every call site.
+The bundle is SWC-minified then gzipped, so **DEFLATE already collapses
+repeated inline markup** — the second copy of a tag tree costs only a
+back-reference, not its full bytes. Caveat: the DEFLATE window is
+32 KiB and the raw bundle is larger than that, so only repeats within
+32 KiB of each other dedup; distant ones ship twice. A Preact component
+adds a fixed cost that never compresses away: the function definition
+plus a props object at every call site.
 
 Rule of thumb:
 - **1–2 uses of pure markup → inline it.** Extracting rarely wins on
-  size; you pay the definition overhead for repetition Brotli was
+  size; you pay the definition overhead for repetition DEFLATE was
   already deduping cheaply.
 - **~3+ uses, or the block owns state/logic (`useState`, handlers,
   validation) → extract a component.** Here the per-call `h(Comp, …)`
@@ -58,12 +64,12 @@ Rule of thumb:
   `Chart.tsx` are the model.
 
 When it is genuinely close, **measure, don't guess** — this is a
-"verify, don't trust" call. A/B the Brotli byte count:
+"verify, don't trust" call. A/B the gzip byte count:
 
 ```sh
-npm run build && brotli -q 11 -c dist/index.html | wc -c   # variant A
+npm run build && zopfli --i1000 -c dist/index.html | wc -c   # variant A
 # apply the other variant
-npm run build && brotli -q 11 -c dist/index.html | wc -c   # variant B
+npm run build && zopfli --i1000 -c dist/index.html | wc -c   # variant B
 ```
 
 Readability and state encapsulation can justify a component even when it
@@ -127,7 +133,7 @@ add a `TopNav` link, and render on the match — no router. Add a **config
 tab**: append one entry to `TABS` (`Config.tsx`) with `key`, `label`, and
 `render`; `subOf` and the nav build themselves from the table. A new page
 follows the config-page rhythm above and its own component; measure the
-Brotli delta (`## Size is the first constraint`) before committing.
+gzip delta (`## Size is the first constraint`) before committing.
 
 ### Fetching — one poll, one signal
 

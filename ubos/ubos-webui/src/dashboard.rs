@@ -52,7 +52,7 @@ use embedded_io_async::{Read, Write};
 use heapless::Vec;
 
 use crate::consts::Http;
-use crate::{INDEX_HTML_BR, LOGIN_HTML_BR, LOGO_SVG_BR};
+use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG_GZ};
 use ubos_http::{
     MAX_RESPONSE_HEADERS, RequestParts, Service, extract_request_parts, format_content_length,
     read_body, write_status_only,
@@ -167,11 +167,11 @@ where
         .await
 }
 
-/// Write a static asset response (Brotli-compressed HTML or SVG) to `connection`.
+/// Write a static asset response (gzipped HTML or SVG) to `connection`.
 ///
 /// `content_type` is the MIME type. `cache_control` is the header value.
-/// `encoding` is the optional `Content-Encoding` value; pass `Some("br")`
-/// for Brotli assets and `None` for plain assets.
+/// `encoding` is the optional `Content-Encoding` value; pass `Some("gzip")`
+/// for gzipped assets and `None` for plain assets.
 /// `extra_headers` may carry additional headers such as `X-CSRF-Token`.
 /// `body` is the raw asset bytes.
 async fn write_asset<T, const N: usize>(
@@ -458,9 +458,9 @@ impl Service for DashboardService {
                             connection,
                             "text/html; charset=utf-8",
                             "no-store",
-                            Some("br"),
+                            Some("gzip"),
                             &[("X-CSRF-Token", csrf_header_value)],
-                            INDEX_HTML_BR,
+                            INDEX_HTML_GZ,
                         )
                         .await
                     }
@@ -470,9 +470,9 @@ impl Service for DashboardService {
                             connection,
                             "text/html; charset=utf-8",
                             "no-store",
-                            Some("br"),
+                            Some("gzip"),
                             &[],
-                            INDEX_HTML_BR,
+                            INDEX_HTML_GZ,
                         )
                         .await
                     }
@@ -504,9 +504,9 @@ impl Service for DashboardService {
                     connection,
                     "text/html; charset=utf-8",
                     "no-store",
-                    Some("br"),
+                    Some("gzip"),
                     &[],
-                    LOGIN_HTML_BR,
+                    LOGIN_HTML_GZ,
                 )
                 .await
             }
@@ -565,9 +565,9 @@ impl Service for DashboardService {
                     connection,
                     "image/svg+xml",
                     "public, max-age=86400",
-                    Some("br"),
+                    Some("gzip"),
                     &[],
-                    LOGO_SVG_BR,
+                    LOGO_SVG_GZ,
                 )
                 .await
             }

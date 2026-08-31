@@ -25,20 +25,20 @@
 //!
 #![no_std]
 
-/// Brotli-compressed dashboard payload. Built from the Preact project's
-/// `index` entry by the crate's `build.rs` (Vite single-file build, then
-/// Brotli quality 11).
-pub const INDEX_HTML_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.br"));
+/// Gzipped dashboard payload. Built from the Preact project's `index`
+/// entry by the crate's `build.rs` (Vite single-file build, then
+/// Zopfli gzip).
+pub const INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 
-/// Brotli-compressed login-page payload. Built from the Preact project's
-/// `login` entry by the crate's `build.rs` (Vite single-file build, then
-/// Brotli quality 11).
-pub const LOGIN_HTML_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login.html.br"));
+/// Gzipped login-page payload. Built from the Preact project's `login`
+/// entry by the crate's `build.rs` (Vite single-file build, then
+/// Zopfli gzip).
+pub const LOGIN_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login.html.gz"));
 
-/// Brotli-compressed Braiins wordmark SVG served at `/logo.svg`.
-/// Compressed by the crate's `build.rs` from `src/logo.svg` and served
-/// with `Content-Encoding: br`.
-pub const LOGO_SVG_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/logo.svg.br"));
+/// Gzipped Braiins wordmark SVG served at `/logo.svg`. Compressed by
+/// the crate's `build.rs` from `src/logo.svg` and served with
+/// `Content-Encoding: gzip`.
+pub const LOGO_SVG_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/logo.svg.gz"));
 
 ubos_mdns::declare_service!(
     pub WEBUI_SERVICE = ubos_mdns::ServiceEntry {

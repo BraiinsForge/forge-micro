@@ -78,7 +78,7 @@ let
   # Crane's default filter keeps Cargo.toml, Cargo.lock, and .rs files.
   # We also need .cargo/config.toml, which holds per-crate target
   # settings, `.x` linker scripts, the two single-file HTML pages that
-  # ubos-webui's build.rs reads and Brotli-compresses into OUT_DIR, the
+  # ubos-webui's build.rs reads and gzips into OUT_DIR, the
   # Braiins wordmark served at /logo.svg via include_bytes!, the
   # build.rs sibling at the ubos-webui crate root, the stratum-v2
   # golden transcript fixtures that the replay tests pull in via

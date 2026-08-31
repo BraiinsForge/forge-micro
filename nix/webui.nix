@@ -24,7 +24,7 @@
 # per-system `let` block and threads it into nix/lib.nix as
 # `webuiDistEnv`, which the ubos-webui checks set as
 # `UBOS_WEBUI_DIST` so the Rust check sandbox never needs Node —
-# build.rs Brotli-compresses these two files.
+# build.rs gzips these two files with Zopfli.
 #
 # `npmDepsHash` is a hash over package-lock.json's dependency set. It
 # needs a network fetch that only runs under Nix, so regenerate it

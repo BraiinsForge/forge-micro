@@ -22,13 +22,16 @@
 //! The frontend is a Preact + Rsbuild project under `web/` with two HTML
 //! entries (`index.html`, `login.html`). `rsbuild build` emits one
 //! self-contained, minified HTML file per entry (all JS and CSS
-//! inlined). This script obtains those two files and Brotli-compresses
-//! each into `OUT_DIR/<name>.html.br`,
-//! which `src/lib.rs` embeds via `include_bytes!` and `dashboard.rs`
-//! serves with `Content-Encoding: br`, so first paint costs no runtime
-//! compression on the MCU. Brotli at quality 11 beats gzip -9 by ~11%
-//! on the dashboard bundle and ~21% on the login page; every browser
-//! that reaches a LAN miner advertises `br`, so no gzip fallback ships.
+//! inlined). This script obtains those two files and gzips each into
+//! `OUT_DIR/<name>.html.gz`, which `src/lib.rs` embeds via
+//! `include_bytes!` and `dashboard.rs` serves with `Content-Encoding:
+//! gzip`, so first paint costs no runtime compression on the MCU.
+//! Gzip rather than Brotli: browsers only advertise `br` in
+//! `Accept-Encoding` over HTTPS and on `localhost`, and the board is
+//! reached over plain HTTP by IP, so a Brotli response would never be
+//! requested. Zopfli is an exhaustive DEFLATE encoder whose output is
+//! a standard gzip stream a few percent smaller than flate2 level 9;
+//! build time does not matter here, embedded bytes do.
 //!
 //! Two ways to obtain the built pages:
 //!   * If `UBOS_WEBUI_DIST` is set, read `<dist>/index.html` and
@@ -48,24 +51,22 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use brotli::enc::BrotliEncoderParams;
+use std::num::NonZeroU64;
 
-/// Brotli-compress `bytes` at quality 11 and write to `dest`.
-fn brotli_to(bytes: &[u8], dest: &Path) {
-    // Quality 11 is the maximum; lgwin 24 is the largest window and
-    // never hurts, since inputs far smaller than the window simply do
-    // not reach the extra range. `BrotliCompress` finalizes the stream
-    // in one call, so there is no separate flush, and writing into a
-    // Vec never fails.
-    let params = BrotliEncoderParams {
-        quality: 11,
-        lgwin: 24,
+/// Zopfli iteration count. The upstream binary's `--i1000` setting for
+/// maximum compression; gains flatten well before this, and the inputs
+/// are small enough that build time stays in seconds.
+const ZOPFLI_ITERATIONS: u64 = 1000;
+
+/// Gzip `bytes` with Zopfli at maximum effort and write to `dest`.
+fn gzip_to(bytes: &[u8], dest: &Path) {
+    let options = zopfli::Options {
+        iteration_count: NonZeroU64::new(ZOPFLI_ITERATIONS).expect("BUG: iteration count is zero"),
         ..Default::default()
     };
-    let mut input = bytes;
     let mut compressed = Vec::new();
-    brotli::BrotliCompress(&mut input, &mut compressed, &params)
-        .expect("BUG: brotli encoder rejected HTML bytes");
+    zopfli::compress(options, zopfli::Format::Gzip, bytes, &mut compressed)
+        .expect("BUG: zopfli encoder rejected HTML bytes");
     fs::write(dest, compressed).unwrap_or_else(|_| panic!("BUG: write {}", dest.display()));
 }
 
@@ -121,15 +122,15 @@ fn main() {
         let src = dist_dir.join(format!("{name}.html"));
         let html =
             fs::read(&src).unwrap_or_else(|_| panic!("BUG: read built page {}", src.display()));
-        brotli_to(&html, &out_dir.join(format!("{name}.html.br")));
+        gzip_to(&html, &out_dir.join(format!("{name}.html.gz")));
     }
 
     // The logo is a standalone `/logo.svg` asset (referenced by an
     // `<img>`, not inlined in the bundle), so it does not pass through
-    // the bundler. Brotli-compress it here too, so the handler can serve
-    // it with `Content-Encoding: br` instead of the raw SVG.
+    // the bundler. Gzip it here too, so the handler can serve it with
+    // `Content-Encoding: gzip` instead of the raw SVG.
     let logo = fs::read(manifest_dir.join("src/logo.svg")).expect("BUG: read src/logo.svg");
-    brotli_to(&logo, &out_dir.join("logo.svg.br"));
+    gzip_to(&logo, &out_dir.join("logo.svg.gz"));
 
     // Rebuild when any frontend source or the build environment changes.
     for path in [

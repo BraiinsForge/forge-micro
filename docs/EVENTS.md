@@ -520,7 +520,7 @@ at boot via `ubos_events::set_catalogs`; the handler reads them back through
 
 ## Web UI
 
-Source in `ubos/ubos-webui/web/`, built and Brotli-compressed at compile
+Source in `ubos/ubos-webui/web/`, built and gzipped at compile
 time by `build.rs`, served from flash on port 80.
 
 Routing is hash-based, not a toggle in the page markup: `viewOf` in
@@ -545,7 +545,7 @@ the fetch — is tracked in component state; nothing renders it yet.
 Table and severity-badge styles live in `web/styles/index.css`
 (`.evtab`, `.badge`); the top-bar link reuses the existing nav styles.
 
-The existing CSRF/auth handling need no change; the Brotli
+The existing CSRF/auth handling need no change; the gzip
 `Content-Encoding` firmware already serves needs none either.
 
 ### Why polling, not streaming
