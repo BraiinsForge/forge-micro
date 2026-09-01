@@ -88,17 +88,31 @@ before running the gate.
 
 ### Phase 3: Per-commit review
 
-Work from the Phase 1 step 3 output. Every commit's message and its own
-patch are already there; do not re-read the branch.
+First run the format linter, exactly as CI's lint stage runs it:
 
-For each commit, verify against CLAUDE.md commit format rules:
-- Title: module prefix, imperative verb, high-level summary
+```bash
+nix shell nixpkgs#gitlint --command gitlint --commits "$BASE..HEAD" 2>&1; echo "GITLINT_EXIT=$?"
+```
+
+gitlint (`.gitlint` + `.gitlint-rules/`) settles the mechanical format:
+the title regex and length, the body line shape, trailers and
+signatures, the banned prefixes, and issue-tag placement. Each line it
+prints is a COMMITS finding quoting that line. Do not re-derive its
+rules by hand, and do not report a format violation it did not print —
+the rule set loads from the checkout, so what it enforces is the
+branch's own configuration, and hand-checking its domain is how a
+review disagrees with the pipeline.
+
+Then work from the Phase 1 step 3 output — every commit's message and
+its own patch are already there; do not re-read the branch — and judge
+what no linter can:
+
+- Title is imperative and a high-level what, not a file list
 - Body explains WHY the change was needed, not WHAT changed in the code
 - Body does NOT enumerate code changes the reviewer can see in the diff
 - One logical change per commit
 - Lock files not bundled with source changes
 - AI/tooling config not bundled with code changes
-- No Co-Authored-By, no AI signatures, no emojis
 
 **Diff-vs-body verification:**
 - Every claim in the commit body matches the actual diff
@@ -170,6 +184,7 @@ Before producing output, verify every category was checked. For each item below,
 
 - [ ] Gate result in hand — an own `FLAKE_CHECK_EXIT=` line, a caller-supplied result, or a recorded skip or timeout (Phase 2)
 - [ ] The branch was read once, in Phase 1 step 3, and not re-read since
+- [ ] gitlint run with its `GITLINT_EXIT=` line in hand (Phase 3)
 - [ ] Every commit message verified against its diff (Phase 3)
 - [ ] Every commit is a single logical change (Phase 3)
 - [ ] No bundled unrelated changes (Phase 3)
