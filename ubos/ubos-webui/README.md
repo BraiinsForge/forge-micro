@@ -62,7 +62,7 @@ error there fails the build.
 ## Dev loop against a live board
 
 ```sh
-VITE_API_BASE=http://192.168.89.111:8080 npm run dev
+VITE_API_BASE=http://192.0.2.111:8080 npm run dev
 ```
 
 Serves on 5173; `npm run dev -- --port 5199` moves it.
@@ -80,9 +80,9 @@ origin from the hostname:
 
 | Dev path | Proxied to | Purpose |
 |----------|------------|---------|
-| `/api/*` | `192.168.89.111:8080` | JSON API |
-| `/login`, `/logout` | `192.168.89.111:80` | session endpoints |
-| `HEAD /` | `192.168.89.111:80` | CSRF token, via `dev/board-proxy.ts` |
+| `/api/*` | `192.0.2.111:8080` | JSON API |
+| `/login`, `/logout` | `192.0.2.111:80` | session endpoints |
+| `HEAD /` | `192.0.2.111:80` | CSRF token, via `dev/board-proxy.ts` |
 
 `HEAD /` cannot be a plain proxy entry because `/` also serves the dev
 app, so `boardCsrf` middleware special-cases it and copies the
@@ -91,7 +91,7 @@ the `Domain` attribute from the board's `Set-Cookie`, so the session
 cookie is stored for `localhost` and authenticates the proxied `/api`
 and CSRF requests that follow.
 
-Verified working against 192.168.89.111: form POST to `/login` returns
+Verified working against 192.0.2.111: form POST to `/login` returns
 302 with a localhost-scoped `session` cookie, `GET /api/info` returns
 200, and `HEAD /` yields a fresh `X-CSRF-Token`.
 
