@@ -1,6 +1,6 @@
 ---
 name: review-branch
-description: Deep review of all branch changes against the review base (origin/master, or a stacked base via branch.<name>.reviewBase) — code, commits, and CI readiness
+description: Deep review of all branch changes against the review base (origin/master, or a stacked base via branch.<name>.reviewBase) — code, architecture, commits, and CI readiness
 context: fork
 disable-model-invocation: true
 allowed-tools: Bash, Read, Grep, Glob, Skill, Task, WebSearch, WebFetch
@@ -26,9 +26,10 @@ Deep, exhaustive review of all commits on the current branch compared to its rev
 2. `git diff --stat "$BASE"...HEAD` — the cumulative shape
 3. `git log -p --submodule=short "$BASE"..HEAD` — **the one full read of
    the branch.** Every commit's message followed by its own patch, in a
-   single output. This is the entire input to Phases 3 and 4; neither
-   reads the branch again. There is no separate full `git diff` and no
-   per-commit `git show`.
+   single output. This is the branch input to Phases 3 through 5; none
+   of them reads the branch again, though Phase 5 additionally reads
+   the architecture docs its reference routes to. There is no separate
+   full `git diff` and no per-commit `git show`.
 
    `--submodule=short` because a consumer may set `diff.submodule=log`,
    which expands a single gitlink change into the whole submodule
@@ -133,7 +134,22 @@ phase's work when they do not — do not hand-check the gate's domain.
 - Integer arithmetic for MCUs without FPU
 - Cooperative watchdog implementation
 
-### Phase 5: Style and cross-cutting
+### Phase 5: Architecture compliance
+
+Judge the diff against the architecture documented in `docs/`
+(`ubos-main/docs/` when reviewing the consumer repo). Which docs the
+touched paths route to, what is normative versus historical, the
+violation classes to hunt, and the doc-drift check are in
+[reference/architecture-gate.md](reference/architecture-gate.md) — read
+that before judging. When no crate changed, record
+`architecture gate: SKIPPED (no crate changed)` and move on.
+
+Findings from this phase are `ARCH`: a dependency edge against the
+layer map, cross-module traffic outside the communication contract, a
+module off the uniform template, I/O or policy on the wrong side of a
+documented seam, and behaviour changes that leave a routed doc stale.
+
+### Phase 6: Style and cross-cutting
 
 **CLAUDE.md compliance:**
 - Comments are proper sentences, no parenthetical asides, no size claims
@@ -148,7 +164,7 @@ phase's work when they do not — do not hand-check the gate's domain.
 - `.cargo/config.toml` runner and target settings correct
 - The `nix/toolchains.nix` targets match the target architecture
 
-### Phase 6: Verification checklist
+### Phase 7: Verification checklist
 
 Before producing output, verify every category was checked. For each item below, confirm it was evaluated for every commit and every changed file. If any item was skipped or only partially checked, go back and complete the relevant phase before continuing.
 
@@ -160,9 +176,11 @@ Before producing output, verify every category was checked. For each item below,
 - [ ] Logic errors and edge cases checked (Phase 4)
 - [ ] Security reviewed (Phase 4)
 - [ ] Rust patterns verified (Phase 4)
-- [ ] CLAUDE.md style rules checked (Phase 5)
-- [ ] Cross-cutting integration verified (Phase 5)
-- [ ] No stale references from renames (Phase 5)
+- [ ] Architecture judged against the docs the diff routes to, or the skip recorded (Phase 5)
+- [ ] Doc drift checked: behaviour changes still match the docs describing them (Phase 5)
+- [ ] CLAUDE.md style rules checked (Phase 6)
+- [ ] Cross-cutting integration verified (Phase 6)
+- [ ] No stale references from renames (Phase 6)
 
 Only produce the final output after all items are confirmed.
 
@@ -180,6 +198,7 @@ nix flake check . (all projects + formatting): PASS/FAIL/SKIPPED
 ### Findings
 
 CODE     src/foo.rs:42 -- off-by-one in length check
+ARCH     src/pid.rs:88 -- cooling writes mining.halt directly; only the manager writes halt/resume (ARCHITECTURE_PROPOSAL.md §5)
 BUILD    src/bar.rs:10 -- clippy: needless clone (-D warnings)
 DOCS     CLAUDE.md:88 -- stale flag in build recipe
 COMMENTS src/x.rs:5 -- comment contradicts code
@@ -189,6 +208,7 @@ COMMITS  a1b2c3d -- title exceeds 72 chars (gitlint UC rule)
 Categories — label each finding by the domain it lives in. Every finding
 is important and must be addressed; there is no severity ranking:
 - `CODE` — source logic, correctness, runtime behavior
+- `ARCH` — violations of the architecture in `docs/`, and behaviour changes that leave those docs stale; each cites the doc and section
 - `BUILD` — CI-gate failures: build errors, clippy under `-D warnings`, `cargo fmt`/nixfmt violations
 - `DOCS` — documentation, markdown, `CLAUDE.md`, skill files, rustdoc
 - `COMMENTS` — in-code comments that are wrong, stale, or misleading
