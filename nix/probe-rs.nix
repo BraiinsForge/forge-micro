@@ -56,6 +56,42 @@ rec {
   # crate as its own cache-backed fetchurl, so most come from cache.nixos.org
   # and the rest go through nix's throttled, retrying fetcher. The
   # lock has no git sources, so no outputHashes are required.
+  #
+  # The fetches go to static.crates.io rather than importCargoLock's
+  # default of the crates.io download API: that API now refuses curl user
+  # agents outright with a deterministic HTTP 403, which nix's fetchurl
+  # is one of, so a fresh fetch through it fails on every attempt. The
+  # CDN is the download endpoint the registry's own config.json names,
+  # serves the same path shape, and newer nixpkgs defaults to it; the
+  # mapping below overrides the default until the nixpkgs pin can move.
+  # The tarballs are identical, so the locked checksums still hold.
+  #
+  # importCargoLock also writes every extraRegistries key into the
+  # vendor's cargo config as its own source block. For this key that is
+  # a second definition of the crates.io index, which cargo rejects, and
+  # the block only restates the replace-with that the built-in
+  # [source.crates-io] block already carries, so it is dropped from the
+  # generated config after the fact. The whole workaround lives in this
+  # one function, which is exported because a consumer that re-vendors
+  # from a patched lock must carry the same override, and a second copy
+  # would drift from this one.
+  vendorCargoLock =
+    pkgs: lockFile:
+    let
+      cratesIoIndex = "https://github.com/rust-lang/crates.io-index";
+    in
+    (pkgs.rustPlatform.importCargoLock {
+      inherit lockFile;
+      extraRegistries = {
+        ${cratesIoIndex} = "https://static.crates.io/crates";
+      };
+    }).overrideAttrs
+      (old: {
+        buildCommand = old.buildCommand + ''
+          sed -i '\|^\[source\."${cratesIoIndex}"\]$|,+2d' $out/.cargo/config.toml
+        '';
+      });
+
   mkProbeRsTools =
     pkgs:
     let
@@ -85,9 +121,7 @@ rec {
         patches = extraPatches;
       };
 
-      cargoDeps = pkgs.rustPlatform.importCargoLock {
-        lockFile = "${baseSrc}/Cargo.lock";
-      };
+      cargoDeps = vendorCargoLock pkgs "${baseSrc}/Cargo.lock";
 
       buildAndTestSubdir = "probe-rs-tools";
 
