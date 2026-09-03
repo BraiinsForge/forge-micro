@@ -51,7 +51,9 @@ Functionally complete for **elementary mining over standard channels**.
 The four-crate stack ships 134+ passing tests including a handshake
 loopback and end-to-end frame round-trips.
 
-Out of scope (for now): extended/group channels, share submission, job
+Share submission over standard channels
+(`SubmitSharesStandard`/`Success`/`Error`) is implemented and consumed
+by `ubos/stratum-v2`. Out of scope: extended/group channels, job
 declaration, template distribution, channel housekeeping.
 
 ## Architecture

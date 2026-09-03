@@ -21,7 +21,7 @@ requires updating this file in the same change set.
 | Message | A typed Stratum V2 protocol value (`SetupConnection`, `NewMiningJob`, ...) that maps to a frame's payload | `Message` (trait), per-struct names like `SetupConnection` | `Cmd`, `Packet`, `Datagram` |
 | Extension | A namespace of related messages identified by `extension_type` (e.g. mining = `0x00`) | `extension_type`, `ExtType`, `MINING_EXTENSION_TYPE` | `protocol_id`, `kind` |
 | Job | A unit of mining work referenced by `job_id`, distributed via `NewMiningJob` | `job_id`, `NewMiningJob` | `task`, `work_unit` |
-| Share | A submission of work meeting a target threshold (out of scope for elementary mining; defined for future use) | `Share` (when added) | `SubmitWork`, `Submission` |
+| Share | A submission of work meeting a target threshold | `SubmitSharesStandard`, `SubmitSharesSuccess`, `SubmitSharesError` | `SubmitWork`, `Submission` |
 | Target | A 256-bit difficulty threshold; valid hashes must be ≤ target | `target`, `max_target`, `Uint256` | `difficulty_threshold`, `nbits` (distinct concept), `goal` |
 | nBits | Compact 32-bit encoding of difficulty used in block headers | `nbits` | `bits`, `compact_target` |
 | PrevHash | The previous block hash distributed via `SetNewPrevHash` to redirect mining onto a new chain tip | `prev_hash`, `SetNewPrevHash` | `previous`, `parent_hash`, `tip` |
@@ -81,7 +81,7 @@ requires updating this file in the same change set.
 
 ### When to add new terms
 
-- A new domain concept enters the system (e.g. when we add share submission).
+- A new domain concept enters the system.
 - A previously informal term needs a formal definition.
 - An onboarding reader gets confused by overloaded usage.
 
