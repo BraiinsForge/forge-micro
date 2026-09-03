@@ -105,6 +105,26 @@ requires the guard, so turning it on means an allow at each of those sites.
 Taking that trade, or recording why the allows cost more than the lint
 catches, is an open decision.
 
+## What a conversion costs
+
+`ubos-auth`'s four statics were the case rule 3 named and the exception
+did not cover, and they are now `blocking_mutex` plus `RefCell`. The
+conversion is recorded here because its shape repeats.
+
+`clippy::unused_async` is what decides the blast radius, and it is
+enforced. Making the four accessors synchronous emptied
+`authenticate_basic` of awaits, the lint refused it, and making that
+synchronous emptied `authenticate` in turn. So a conversion does not stop
+at the functions that touch the lock: it walks up every caller that had no
+other await, and the reach is the lint's to determine rather than the
+author's. Plan for the whole chain or expect the build to find it.
+
+Two spans moved out from under the lock rather than being converted with
+it. `random_token` draws its 24 bytes inside and encodes them outside,
+and `warn_if_default_credentials` compares inside and logs outside. A
+critical section is not the place for base64 arithmetic or an RTT write,
+and a blocking mutex makes that cost real where an async one hid it.
+
 ## The objects to copy
 
 - **`ubos_psu::state::Shared<D>`** — the lock, the termination flag and the
