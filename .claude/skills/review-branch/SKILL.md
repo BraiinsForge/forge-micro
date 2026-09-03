@@ -2,7 +2,6 @@
 name: review-branch
 description: Deep review of all branch changes against the review base (origin/master, or a stacked base via branch.<name>.reviewBase) — code, architecture, commits, and CI readiness
 context: fork
-disable-model-invocation: true
 allowed-tools: Bash, Read, Grep, Glob, Skill, Task, WebSearch, WebFetch
 ---
 
