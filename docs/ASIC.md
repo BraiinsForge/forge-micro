@@ -1,5 +1,8 @@
 # ASIC Mining Driver
 
+Status: implemented — the code wins. When this file and the code
+disagree, the code is right and this file needs a patch.
+
 Reference for the hashboard driver: the chip support split across
 `ubos-asic` (pure, sans-IO chip logic) and `ubos-mining` (the serial
 I/O edge plus tuning policy). The Bitmain **BM1362 / BM1366 / BM1370**

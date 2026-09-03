@@ -1,5 +1,8 @@
 # Repository Structure
 
+Status: implemented — the code wins. When this file and the code
+disagree, the code is right and this file needs a patch.
+
 Target layout for the repository tree. This document is the
 authoritative source for where new code, libraries, firmware crates,
 patches, and assets belong. It exists because the previous layout

@@ -1,5 +1,8 @@
 # Machine Descriptor Model
 
+Status: implemented — the code wins. When this file and the code
+disagree, the code is right and this file needs a patch.
+
 The miner is modeled as composed `const` data: every physical
 component — asic chip, hashboard, PSU, temperature-sensor group,
 control board, platform/MCU, machine — is described by a data

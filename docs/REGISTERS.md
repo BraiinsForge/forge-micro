@@ -1,5 +1,8 @@
 # BM1362 Register Reference
 
+Status: implemented — the code wins. When this file and the code
+disagree, the code is right and this file needs a patch.
+
 This document describes the typed BM1362 register set in
 `ubos_asic::bm13xx::registers`. Each section gives the register address,
 direction, and field layout. Field names are kept raw where no richer

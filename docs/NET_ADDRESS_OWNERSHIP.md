@@ -1,5 +1,8 @@
 # Network address ownership
 
+Status: implemented — the code wins. When this file and the code
+disagree, the code is right and this file needs a patch.
+
 Which crate owns the network address, the confirm-or-revert window, and
 the live stack reconfiguration. The split exists so that `ubos-api` stays
 a thin public interface rather than the owner of a live state machine,

@@ -1,5 +1,8 @@
 # REST API Reference
 
+Status: implemented — the code wins. When this file and the code
+disagree, the code is right and this file needs a patch.
+
 Documents the HTTP surface served by the firmware. Targets two audiences:
 operators driving the on-device SPA and machine clients (e.g. Braiins
 Deck) speaking REST. The schema is ours, not reference-device's; the shape mirrors

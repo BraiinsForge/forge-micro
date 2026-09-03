@@ -1,5 +1,8 @@
 # Hashboard EEPROM Support
 
+Status: implemented — the code wins. When this file and the code
+disagree, the code is right and this file needs a patch.
+
 Every hashboard (`BMM101_HASHBOARD` on the miniminers, `BFMX4_HASHBOARD`
 on the Hashnode) carries an EEPROM with factory-programmed operational
 data: product name, serial number, batch, ASIC type/count, and the

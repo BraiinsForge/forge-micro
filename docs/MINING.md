@@ -1,5 +1,8 @@
 # ubos-mining backend (BM1370 hashboard)
 
+Status: implemented — the code wins. When this file and the code
+disagree, the code is right and this file needs a patch.
+
 `firmware/hashnode` drives a 4-chip BM1370 hashboard through the
 workspace-shared `ubos/ubos-mining/` crate. This page covers how the
 board wires the driver up.

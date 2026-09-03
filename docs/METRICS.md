@@ -1,5 +1,8 @@
 # Metrics
 
+Status: implemented — the code wins. When this file and the code
+disagree, the code is right and this file needs a patch.
+
 Each firmware exposes a Prometheus text endpoint on
 `http://<board-ip>:<Metrics::PORT>/`. A Prometheus server scrapes it on
 an interval.

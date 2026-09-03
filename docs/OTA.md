@@ -1,5 +1,8 @@
 # OTA Firmware Update
 
+Status: implemented — the code wins. When this file and the code
+disagree, the code is right and this file needs a patch.
+
 Boards with an OTA backend — the hashnode among them — support over-the-network
 firmware updates via the REST API. An image is uploaded in 4 KiB chunks, written
 to a staging slot, and activated on the next boot. If the new image does not
