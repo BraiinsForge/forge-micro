@@ -21,7 +21,7 @@
 //! by wrapping the wire layer in `crate::wire`.
 //!
 //! Architecture: `../../../docs/STRATUM_ARCHITECTURE.md`.
-//! Design rationale: `../../../docs/STRATUM_IMPLEMENTATION_PLAN.md`.
+//! Design rationale: `../../../docs/plan/STRATUM_IMPLEMENTATION_PLAN.md`.
 
 use core::fmt::Write as _;
 

@@ -23,7 +23,7 @@
 //! `stratum-v2`) and the integration layer (`stratum-client`).
 //!
 //! Architecture: `../../../docs/STRATUM_ARCHITECTURE.md`.
-//! Design rationale: `../../../docs/STRATUM_IMPLEMENTATION_PLAN.md`.
+//! Design rationale: `../../../docs/plan/STRATUM_IMPLEMENTATION_PLAN.md`.
 
 #![no_std]
 

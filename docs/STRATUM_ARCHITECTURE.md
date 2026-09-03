@@ -1,7 +1,7 @@
 # Architecture: stratum-client + ASIC mock
 
 Visual reference for the stratum stack. This file is the picture;
-`STRATUM_IMPLEMENTATION_PLAN.md` is the historical rationale. Kept
+`plan/STRATUM_IMPLEMENTATION_PLAN.md` is the historical rationale. Kept
 aligned with the code in `ubos/stratum-client` — when the two
 disagree, the code wins and this file needs a patch.
 
