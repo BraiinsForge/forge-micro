@@ -362,7 +362,6 @@ impl Service for DashboardService {
         let cookie = cookie_buf.as_deref();
 
         let auth_ctx = ubos_auth::auth::authenticate(authorization, cookie)
-            .await
             .unwrap_or(ubos_auth::auth::AuthCtx::Anonymous);
 
         // Logout is idempotent and unauthenticated. The logout control is
@@ -430,7 +429,7 @@ impl Service for DashboardService {
         if needs_csrf && let ubos_auth::auth::AuthCtx::Session(ref session_id) = auth_ctx {
             let token_str = csrf_buf.as_deref().unwrap_or("");
             if token_str.is_empty()
-                || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str).await
+                || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str)
             {
                 return write_status_only(
                     connection,
@@ -451,8 +450,7 @@ impl Service for DashboardService {
                         write_redirect(connection, "/login").await
                     }
                     ubos_auth::auth::AuthCtx::Session(ref session_id) => {
-                        let csrf_token =
-                            ubos_auth::csrf::issue_csrf_token(session_id.as_str()).await;
+                        let csrf_token = ubos_auth::csrf::issue_csrf_token(session_id.as_str());
                         let csrf_header_value = csrf_token.as_str();
                         write_asset(
                             connection,
@@ -492,8 +490,7 @@ impl Service for DashboardService {
                         write_redirect(connection, "/login").await
                     }
                     ubos_auth::auth::AuthCtx::Session(ref session_id) => {
-                        let csrf_token =
-                            ubos_auth::csrf::issue_csrf_token(session_id.as_str()).await;
+                        let csrf_token = ubos_auth::csrf::issue_csrf_token(session_id.as_str());
                         write_head_ok(connection, &[("X-CSRF-Token", csrf_token.as_str())]).await
                     }
                     ubos_auth::auth::AuthCtx::Basic => write_head_ok(connection, &[]).await,
@@ -518,7 +515,7 @@ impl Service for DashboardService {
                 let supplied_username = form_field(body_str, "username").unwrap_or_default();
                 let supplied_password = form_field(body_str, "password").unwrap_or_default();
 
-                let stored = ubos_auth::auth::current_credentials().await;
+                let stored = ubos_auth::auth::current_credentials();
                 let username_ok = ubos_auth::auth::constant_time_eq(
                     stored.username.as_str(),
                     supplied_username.as_str(),
@@ -535,10 +532,10 @@ impl Service for DashboardService {
                     // outlive the current login.
                     let existing_session = ubos_auth::auth::extract_session_cookie_from_str(cookie);
                     if let Some(existing) = existing_session {
-                        ubos_auth::session::invalidate_session(existing).await;
+                        ubos_auth::session::invalidate_session(existing);
                     }
-                    let token = ubos_auth::csprng::random_token().await;
-                    ubos_auth::session::create_session(token.clone()).await;
+                    let token = ubos_auth::csprng::random_token();
+                    ubos_auth::session::create_session(token.clone());
                     // Build the Set-Cookie header value into a stack buffer.
                     // The `Secure` attribute is omitted because the device
                     // runs HTTP only with no TLS terminator; revisit if
@@ -556,7 +553,7 @@ impl Service for DashboardService {
             }
             ("POST", "/logout") => {
                 if let Some(token) = ubos_auth::auth::extract_session_cookie_from_str(cookie) {
-                    ubos_auth::session::invalidate_session(token).await;
+                    ubos_auth::session::invalidate_session(token);
                 }
                 write_logout_redirect(connection).await
             }
@@ -603,9 +600,9 @@ impl Service for DashboardService {
 /// authenticates against the operator's configured credentials. The REST
 /// API listener owns the config watch that keeps the shared credential
 /// store in sync on later changes.
-pub async fn seed_webui_credentials() {
+pub fn seed_webui_credentials() {
     let config = ubos_config::handle();
     let api = config.current().api;
-    ubos_auth::auth::set_credentials(&api.username, &api.password).await;
-    ubos_auth::auth::warn_if_default_credentials().await;
+    ubos_auth::auth::set_credentials(&api.username, &api.password);
+    ubos_auth::auth::warn_if_default_credentials();
 }

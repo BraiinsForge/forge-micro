@@ -49,8 +49,9 @@
 //! can fill the session table to flush legitimate sessions. Bounded by
 //! allow-list.
 
+use core::cell::RefCell;
+use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
 use heapless::String;
 use portable_atomic::{AtomicBool, Ordering};
 
@@ -132,9 +133,12 @@ impl Credentials {
 /// on each board but would silently break if a future maintainer added
 /// cross-core access; `CriticalSectionRawMutex` is the portable safe
 /// default and the per-request overhead is negligible at HTTP rates.
+///
+/// A blocking mutex, because nothing awaits while it is held. Every span
+/// over it is a field replacement or a 64-byte clone.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-pub(crate) static CREDENTIALS: Mutex<CriticalSectionRawMutex, Credentials> =
-    Mutex::new(Credentials::const_empty());
+pub(crate) static CREDENTIALS: Mutex<CriticalSectionRawMutex, RefCell<Credentials>> =
+    Mutex::new(RefCell::new(Credentials::const_empty()));
 
 /// Tracks whether the default-credentials warning has already been
 /// emitted so the log is not spammed on every request.
@@ -149,14 +153,16 @@ static DEFAULT_CREDS_WARNED: AtomicBool = AtomicBool::new(false);
 /// Called once at boot with the loaded config and again on each config
 /// watch publish so `POST /api/config` credential changes take effect
 /// at runtime and persist across reboots.
-pub async fn set_credentials(username: &str, password: &str) {
-    let mut guard = CREDENTIALS.lock().await;
-    guard.username.clear();
-    guard.password.clear();
-    // ApiConfig bounds both fields to CREDENTIAL_MAX_LEN, so push_str
-    // cannot return Err here.
-    let _ = guard.username.push_str(username);
-    let _ = guard.password.push_str(password);
+pub fn set_credentials(username: &str, password: &str) {
+    CREDENTIALS.lock(|cell| {
+        let mut guard = cell.borrow_mut();
+        guard.username.clear();
+        guard.password.clear();
+        // ApiConfig bounds both fields to CREDENTIAL_MAX_LEN, so push_str
+        // cannot return Err here.
+        let _ = guard.username.push_str(username);
+        let _ = guard.password.push_str(password);
+    });
 }
 
 /// Populate `CREDENTIALS` with the default `root`/`root` pair if the
@@ -172,19 +178,21 @@ pub async fn set_credentials(username: &str, password: &str) {
 /// Panics with `BUG: …` if `DEFAULT_USERNAME` or `DEFAULT_PASSWORD`
 /// exceeds `CREDENTIAL_MAX_LEN`. Both constants are shorter than the
 /// limit by construction; the assertion is unreachable in practice.
-pub async fn init_credentials() {
-    let mut guard = CREDENTIALS.lock().await;
-    if guard.username.is_empty() {
-        // DEFAULT_USERNAME and DEFAULT_PASSWORD fit in CREDENTIAL_MAX_LEN.
-        guard
-            .username
-            .push_str(DEFAULT_USERNAME)
-            .expect("BUG: DEFAULT_USERNAME exceeds CREDENTIAL_MAX_LEN");
-        guard
-            .password
-            .push_str(DEFAULT_PASSWORD)
-            .expect("BUG: DEFAULT_PASSWORD exceeds CREDENTIAL_MAX_LEN");
-    }
+pub fn init_credentials() {
+    CREDENTIALS.lock(|cell| {
+        let mut guard = cell.borrow_mut();
+        if guard.username.is_empty() {
+            // DEFAULT_USERNAME and DEFAULT_PASSWORD fit in CREDENTIAL_MAX_LEN.
+            guard
+                .username
+                .push_str(DEFAULT_USERNAME)
+                .expect("BUG: DEFAULT_USERNAME exceeds CREDENTIAL_MAX_LEN");
+            guard
+                .password
+                .push_str(DEFAULT_PASSWORD)
+                .expect("BUG: DEFAULT_PASSWORD exceeds CREDENTIAL_MAX_LEN");
+        }
+    });
 }
 
 /// Emit a boot warning when the credential store still holds the default
@@ -194,12 +202,15 @@ pub async fn init_credentials() {
 /// once per boot regardless of how many times this function is called.
 /// Call this after `set_credentials` or `init_credentials` so the check
 /// sees the credentials that will actually be used.
-pub async fn warn_if_default_credentials() {
-    let guard = CREDENTIALS.lock().await;
-    if guard.username.as_str() == DEFAULT_USERNAME
-        && guard.password.as_str() == DEFAULT_PASSWORD
-        && !DEFAULT_CREDS_WARNED.swap(true, Ordering::Relaxed)
-    {
+pub fn warn_if_default_credentials() {
+    // The comparison runs under the lock and the logging does not: a
+    // defmt write reaches the RTT buffer, which is not work to do with
+    // interrupts masked.
+    let is_default = CREDENTIALS.lock(|cell| {
+        let guard = cell.borrow();
+        guard.username.as_str() == DEFAULT_USERNAME && guard.password.as_str() == DEFAULT_PASSWORD
+    });
+    if is_default && !DEFAULT_CREDS_WARNED.swap(true, Ordering::Relaxed) {
         warn!(
             "default credentials root/root are in use; \
              change them via POST /api/config"
@@ -212,8 +223,9 @@ pub async fn warn_if_default_credentials() {
 /// Both HTTP listeners seed the store via `set_credentials` before
 /// their accept loop, so it is guaranteed populated by the time this
 /// runs.
-pub async fn current_credentials() -> Credentials {
-    CREDENTIALS.lock().await.clone()
+#[must_use]
+pub fn current_credentials() -> Credentials {
+    CREDENTIALS.lock(|cell| cell.borrow().clone())
 }
 
 /// The authentication context carried forward after a successful check.
@@ -263,15 +275,15 @@ pub enum AuthError {
 /// length exceeds `String<32>` — this is unreachable because
 /// `validate_session` only returns `true` for tokens already stored
 /// in the fixed-capacity session table.
-pub async fn authenticate(
+pub fn authenticate(
     authorization: Option<&str>,
     cookie: Option<&str>,
 ) -> Result<AuthCtx, AuthError> {
     if let Some(authorization_value) = authorization {
-        return authenticate_basic(authorization_value).await;
+        return authenticate_basic(authorization_value);
     }
     if let Some(token) = extract_session_cookie_from_str(cookie)
-        && crate::session::validate_session(token).await
+        && crate::session::validate_session(token)
     {
         let mut owned = String::new();
         // `validate_session` only returns true for tokens already
@@ -294,7 +306,7 @@ pub async fn authenticate(
 /// parse failure two `constant_time_eq` calls against fixed dummy buffers
 /// are still executed so the response time does not leak whether the
 /// header failed to parse or failed credential comparison.
-async fn authenticate_basic(authorization: &str) -> Result<AuthCtx, AuthError> {
+fn authenticate_basic(authorization: &str) -> Result<AuthCtx, AuthError> {
     // Decode buffer lives in the outer frame so slices into it can be
     // returned from the inner parse block without lifetime issues.
     let mut decoded = [0u8; BASIC_AUTH_DECODE_BUFFER_LEN];
@@ -314,7 +326,7 @@ async fn authenticate_basic(authorization: &str) -> Result<AuthCtx, AuthError> {
     // regardless of whether parsing succeeded. This prevents response-time
     // variation from leaking whether the failure was a parse error or a
     // credential mismatch.
-    let stored = current_credentials().await;
+    let stored = current_credentials();
     let (supplied_username, supplied_password) = match parse_result {
         Some((colon, length)) => {
             // `decoded` was written by `base64_decode` above; `length` and

@@ -220,7 +220,6 @@ impl Service for RestApiService {
         // Every route under this prefix requires auth; there are no
         // anonymous endpoints on the API surface.
         let auth_ctx = ubos_auth::auth::authenticate(authorization, cookie)
-            .await
             .unwrap_or(ubos_auth::auth::AuthCtx::Anonymous);
 
         if matches!(auth_ctx, ubos_auth::auth::AuthCtx::Anonymous) {
@@ -293,7 +292,7 @@ impl Service for RestApiService {
         {
             let token_str = csrf_buf.as_deref().unwrap_or("");
             if token_str.is_empty()
-                || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str).await
+                || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str)
             {
                 return write_status_only(
                     connection,
@@ -694,11 +693,11 @@ impl Service for RestApiService {
 /// Call once before spawning worker tasks so the first request
 /// authenticates against the operator's configured credentials. Warn
 /// when default credentials are still in place.
-pub async fn seed_api_credentials() {
+pub fn seed_api_credentials() {
     let config = ubos_config::handle();
     let api = config.current().api;
-    ubos_auth::auth::set_credentials(&api.username, &api.password).await;
-    ubos_auth::auth::warn_if_default_credentials().await;
+    ubos_auth::auth::set_credentials(&api.username, &api.password);
+    ubos_auth::auth::warn_if_default_credentials();
 }
 
 /// Subscribe to config changes and update the credential store on each
@@ -716,7 +715,7 @@ pub async fn run_sync_credentials() -> ! {
             let snapshot = subscription.changed().await;
             snapshot.api
         };
-        ubos_auth::auth::set_credentials(&credentials.username, &credentials.password).await;
+        ubos_auth::auth::set_credentials(&credentials.username, &credentials.password);
     }
 }
 

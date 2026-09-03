@@ -39,8 +39,9 @@
 //! one extra round-trip, no security loss. A per-session quota would
 //! avoid the retry but adds bookkeeping we have not needed.
 
+use core::cell::RefCell;
+use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
 use embassy_time::Instant;
 use heapless::String;
 use heapless::index_map::FnvIndexMap;
@@ -70,9 +71,15 @@ struct CsrfMeta {
 /// CSRF token table.
 ///
 /// See `auth::CREDENTIALS` for the rationale on the mutex flavour.
+///
+/// A blocking mutex, because nothing awaits while it is held. The token is
+/// drawn from the CSPRNG before the lock is taken, so the longest span is
+/// a scan of at most `MAX_TOKENS` entries.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-static CSRF_TOKENS: Mutex<CriticalSectionRawMutex, FnvIndexMap<String<32>, CsrfMeta, MAX_TOKENS>> =
-    Mutex::new(FnvIndexMap::new());
+static CSRF_TOKENS: Mutex<
+    CriticalSectionRawMutex,
+    RefCell<FnvIndexMap<String<32>, CsrfMeta, MAX_TOKENS>>,
+> = Mutex::new(RefCell::new(FnvIndexMap::new()));
 
 /// Generate a CSRF token for `session_id`, store it in the table, and
 /// return it.
@@ -87,8 +94,8 @@ static CSRF_TOKENS: Mutex<CriticalSectionRawMutex, FnvIndexMap<String<32>, CsrfM
 /// `session_id` is always a CSPRNG-issued 32-char string in the firmware
 /// call path, so this is unreachable in practice; the assertion is here
 /// to catch a future caller that passes a longer value.
-pub async fn issue_csrf_token(session_id: &str) -> String<32> {
-    let token = crate::csprng::random_token().await;
+pub fn issue_csrf_token(session_id: &str) -> String<32> {
+    let token = crate::csprng::random_token();
     let uptime = Instant::now().as_secs();
     let mut session_owned: String<32> = String::new();
     // Session ids are CSPRNG-issued 32-char strings sized to fit
@@ -99,29 +106,33 @@ pub async fn issue_csrf_token(session_id: &str) -> String<32> {
         .push_str(session_id)
         .expect("BUG: session_id exceeds String<32>");
 
-    let mut guard = CSRF_TOKENS.lock().await;
-    let map = &mut *guard;
+    CSRF_TOKENS.lock(|cell| {
+        let mut guard = cell.borrow_mut();
+        let map = &mut *guard;
 
-    if map.len() >= MAX_TOKENS {
-        let oldest_key = map
-            .iter()
-            .min_by_key(|(_, meta)| meta.created_uptime_secs)
-            .map(|(key, _)| key.clone());
-        if let Some(key) = oldest_key {
-            map.remove(&key);
+        if map.len() >= MAX_TOKENS {
+            let oldest_key = map
+                .iter()
+                .min_by_key(|(_, meta)| meta.created_uptime_secs)
+                .map(|(key, _)| key.clone());
+            if let Some(key) = oldest_key {
+                map.remove(&key);
+            }
         }
-    }
-    map.insert(
-        token.clone(),
-        CsrfMeta {
-            session_id: session_owned,
-            created_uptime_secs: uptime,
-        },
-    )
-    // The eviction above guarantees at least one free slot; if insert
-    // still fails the map capacity invariant has been violated.
-    .map_err(|_| ())
-    .expect("BUG: insert after eviction must succeed: map capacity guaranteed by eviction above");
+        map.insert(
+            token.clone(),
+            CsrfMeta {
+                session_id: session_owned,
+                created_uptime_secs: uptime,
+            },
+        )
+        // The eviction above guarantees at least one free slot; if insert
+        // still fails the map capacity invariant has been violated.
+        .map_err(|_| ())
+        .expect(
+            "BUG: insert after eviction must succeed: map capacity guaranteed by eviction above",
+        );
+    });
 
     token
 }
@@ -141,39 +152,41 @@ pub async fn issue_csrf_token(session_id: &str) -> String<32> {
 /// `iter().nth()` pass. This is unreachable: the index is recorded
 /// during the same locked scan, and the map is not mutated between the
 /// scan and the lookup.
-pub async fn consume_csrf_token(session_id: &str, token: &str) -> bool {
+pub fn consume_csrf_token(session_id: &str, token: &str) -> bool {
     let now = Instant::now().as_secs();
-    let mut guard = CSRF_TOKENS.lock().await;
-    let map = &mut *guard;
+    CSRF_TOKENS.lock(|cell| {
+        let mut guard = cell.borrow_mut();
+        let map = &mut *guard;
 
-    // Iterate every slot so the per-key compare time does not depend on
-    // which slot holds the matching token. `matched_valid` is accumulated
-    // unconditionally with `|=` so no short-circuit leaks position.
-    // `matched_index` records the slot index rather than cloning the key
-    // string, moving the heap-touching `String::clone` out of the loop
-    // and into a single post-scan key lookup.
-    let mut matched_index: Option<usize> = None;
-    let mut matched_valid = false;
-    for (index, (key, meta)) in map.iter().enumerate() {
-        let token_match = constant_time_eq(key.as_str(), token);
-        let session_match = constant_time_eq(meta.session_id.as_str(), session_id);
-        let live = now.saturating_sub(meta.created_uptime_secs) < CSRF_TTL_SECS;
-        matched_valid |= token_match & session_match & live;
-        if token_match & session_match && matched_index.is_none() {
-            matched_index = Some(index);
+        // Iterate every slot so the per-key compare time does not depend on
+        // which slot holds the matching token. `matched_valid` is accumulated
+        // unconditionally with `|=` so no short-circuit leaks position.
+        // `matched_index` records the slot index rather than cloning the key
+        // string, moving the heap-touching `String::clone` out of the loop
+        // and into a single post-scan key lookup.
+        let mut matched_index: Option<usize> = None;
+        let mut matched_valid = false;
+        for (index, (key, meta)) in map.iter().enumerate() {
+            let token_match = constant_time_eq(key.as_str(), token);
+            let session_match = constant_time_eq(meta.session_id.as_str(), session_id);
+            let live = now.saturating_sub(meta.created_uptime_secs) < CSRF_TTL_SECS;
+            matched_valid |= token_match & session_match & live;
+            if token_match & session_match && matched_index.is_none() {
+                matched_index = Some(index);
+            }
         }
-    }
 
-    let Some(index) = matched_index else {
-        return false;
-    };
-    // Look up the key by index after the full scan completes; the clone
-    // happens once outside the timing-sensitive loop.
-    let key = map
-        .iter()
-        .nth(index)
-        .map(|(key, _)| key.clone())
-        .expect("BUG: matched_index is within map bounds set during scan");
-    map.remove(&key);
-    matched_valid
+        let Some(index) = matched_index else {
+            return false;
+        };
+        // Look up the key by index after the full scan completes; the clone
+        // happens once outside the timing-sensitive loop.
+        let key = map
+            .iter()
+            .nth(index)
+            .map(|(key, _)| key.clone())
+            .expect("BUG: matched_index is within map bounds set during scan");
+        map.remove(&key);
+        matched_valid
+    })
 }

@@ -786,7 +786,7 @@ async fn handle_factory_reset<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    ubos_auth::session::clear_all_sessions().await;
+    ubos_auth::session::clear_all_sessions();
     ubos_config::handle()
         .send(ubos_config::Message::FactoryReset)
         .await;

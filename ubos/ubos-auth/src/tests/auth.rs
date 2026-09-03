@@ -33,9 +33,9 @@ fn basic_auth_root_root_accepted() {
     // at the top of each listener task at boot; tests have no boot path,
     // so each test that depends on the defaults invokes the helper
     // directly. It is idempotent, so cross-test ordering does not matter.
-    embassy_futures::block_on(crate::auth::init_credentials());
+    crate::auth::init_credentials();
     // "root:root" in base64 is "cm9vdDpyb290"
-    let result = embassy_futures::block_on(authenticate(Some("Basic cm9vdDpyb290"), None));
+    let result = authenticate(Some("Basic cm9vdDpyb290"), None);
     assert!(
         matches!(result, Ok(AuthCtx::Basic)),
         "root:root should authenticate as Basic"
@@ -45,7 +45,7 @@ fn basic_auth_root_root_accepted() {
 #[test]
 fn basic_auth_wrong_password_rejected() {
     // "root:wrong" in base64 is "cm9vdDp3cm9uZw=="
-    let result = embassy_futures::block_on(authenticate(Some("Basic cm9vdDp3cm9uZw=="), None));
+    let result = authenticate(Some("Basic cm9vdDp3cm9uZw=="), None);
     assert!(
         matches!(result, Err(AuthError::BadCredentials)),
         "wrong password should return BadCredentials"
@@ -54,7 +54,7 @@ fn basic_auth_wrong_password_rejected() {
 
 #[test]
 fn no_authorization_header_returns_anonymous() {
-    let result = embassy_futures::block_on(authenticate(None, None));
+    let result = authenticate(None, None);
     assert!(
         matches!(result, Ok(AuthCtx::Anonymous)),
         "missing header should return Anonymous"
@@ -64,7 +64,7 @@ fn no_authorization_header_returns_anonymous() {
 #[test]
 fn malformed_basic_header_rejected() {
     // Not valid base64.
-    let result = embassy_futures::block_on(authenticate(Some("Basic !!!notbase64!!!"), None));
+    let result = authenticate(Some("Basic !!!notbase64!!!"), None);
     assert!(
         matches!(result, Err(AuthError::BadFormat)),
         "invalid base64 should return BadFormat"
@@ -74,7 +74,7 @@ fn malformed_basic_header_rejected() {
 #[test]
 fn basic_header_missing_colon_rejected() {
     // "rootroot" has no colon separator; base64 of "rootroot" is "cm9vdHJvb3Q="
-    let result = embassy_futures::block_on(authenticate(Some("Basic cm9vdHJvb3Q="), None));
+    let result = authenticate(Some("Basic cm9vdHJvb3Q="), None);
     assert!(
         matches!(result, Err(AuthError::BadFormat)),
         "decoded value without colon should return BadFormat"
@@ -87,7 +87,7 @@ fn basic_header_missing_colon_rejected() {
 fn basic_header_equals_in_middle_rejected() {
     // `cm9v=Dpyb290` puts `=` in a non-terminal position. The decoder
     // must reject this rather than silently treating `=` as zero.
-    let result = embassy_futures::block_on(authenticate(Some("Basic cm9v=Dpyb290"), None));
+    let result = authenticate(Some("Basic cm9v=Dpyb290"), None);
     assert!(
         matches!(result, Err(AuthError::BadFormat)),
         "`=` mid-string must be rejected as malformed base64"
@@ -97,7 +97,7 @@ fn basic_header_equals_in_middle_rejected() {
 #[test]
 fn basic_header_three_pads_rejected() {
     // `Y===` is len-4 with three pads, which RFC 4648 disallows.
-    let result = embassy_futures::block_on(authenticate(Some("Basic Y==="), None));
+    let result = authenticate(Some("Basic Y==="), None);
     assert!(
         matches!(result, Err(AuthError::BadFormat)),
         "three-byte trailing padding must be rejected"
@@ -108,7 +108,7 @@ fn basic_header_three_pads_rejected() {
 fn basic_header_url_safe_alphabet_rejected() {
     // `-` and `_` are URL-safe base64. Standard HTTP Basic auth uses
     // the standard alphabet (`+`, `/`); URL-safe should not decode.
-    let result = embassy_futures::block_on(authenticate(Some("Basic cm9-vDpyb290"), None));
+    let result = authenticate(Some("Basic cm9-vDpyb290"), None);
     assert!(
         matches!(result, Err(AuthError::BadFormat)),
         "URL-safe alphabet must be rejected"
@@ -118,7 +118,7 @@ fn basic_header_url_safe_alphabet_rejected() {
 #[test]
 fn basic_header_non_multiple_of_four_rejected() {
     // `cm9vdDpyb290abc` is 15 chars (not a multiple of 4 after trim).
-    let result = embassy_futures::block_on(authenticate(Some("Basic cm9vdDpyb290abc"), None));
+    let result = authenticate(Some("Basic cm9vdDpyb290abc"), None);
     assert!(
         matches!(result, Err(AuthError::BadFormat)),
         "base64 with non-multiple-of-4 length must be rejected"

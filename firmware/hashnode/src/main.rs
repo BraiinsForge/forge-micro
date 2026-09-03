@@ -523,7 +523,7 @@ async fn boot(spawner: Spawner) {
         trng.fill_bytes(&mut csprng_seed).await;
         trng.fill_bytes(&mut sv2_seed).await;
     }
-    ubos_auth::csprng::seed_csprng(csprng_seed).await;
+    ubos_auth::csprng::seed_csprng(csprng_seed);
     let stratum_shared = ubos_firmware::init_stratum(sv2_seed);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));

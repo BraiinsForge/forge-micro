@@ -29,8 +29,9 @@
 //! the static can be const-initialised. `seed_csprng` must be called
 //! at firmware startup before any `random_token` call.
 
+use core::cell::RefCell;
+use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
 use heapless::String;
 use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
@@ -38,19 +39,23 @@ use rand_chacha::rand_core::{RngCore, SeedableRng};
 /// Shared CSPRNG instance.
 ///
 /// Seeded from hardware entropy at boot via `seed_csprng`; unset before
-/// that call. All `random_token` calls block until the mutex is
-/// released by the previous caller. See `auth::CREDENTIALS` for the
-/// rationale on the mutex flavour.
+/// that call. See `auth::CREDENTIALS` for the rationale on the mutex
+/// flavour.
+///
+/// A blocking mutex, because every span over it is one seed or one
+/// 24-byte draw and nothing awaits while it is held. The `RefCell` is
+/// what a blocking mutex needs to hand out a `&mut`, and it is reached
+/// only from inside the critical section.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-static CSPRNG: Mutex<CriticalSectionRawMutex, Option<ChaCha20Rng>> = Mutex::new(None);
+static CSPRNG: Mutex<CriticalSectionRawMutex, RefCell<Option<ChaCha20Rng>>> =
+    Mutex::new(RefCell::new(None));
 
 /// Seed the CSPRNG from 32 bytes of hardware entropy.
 ///
 /// Each call reseeds the stream; correctness does not depend on the
 /// number of calls.
-pub async fn seed_csprng(seed: [u8; 32]) {
-    let mut guard = CSPRNG.lock().await;
-    *guard = Some(ChaCha20Rng::from_seed(seed));
+pub fn seed_csprng(seed: [u8; 32]) {
+    CSPRNG.lock(|cell| *cell.borrow_mut() = Some(ChaCha20Rng::from_seed(seed)));
 }
 
 /// Generate a 32-character URL-safe base64 token for sessions and CSRF.
@@ -67,18 +72,21 @@ pub async fn seed_csprng(seed: [u8; 32]) {
 ///
 /// Panics if `seed_csprng` has not been called before the first call to
 /// this function.
-pub async fn random_token() -> String<32> {
+pub fn random_token() -> String<32> {
     const URL_SAFE_ALPHABET: &[u8; 64] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
+    // Only the draw runs under the lock. The encoding below is pure
+    // arithmetic on a local buffer, and holding a critical section across
+    // it would mask interrupts for no gain.
     let mut raw = [0u8; 24];
-    {
-        let mut guard = CSPRNG.lock().await;
+    CSPRNG.lock(|cell| {
+        let mut guard = cell.borrow_mut();
         let rng = guard
             .as_mut()
             .expect("BUG: random_token called before seed_csprng");
         rng.fill_bytes(&mut raw);
-    }
+    });
 
     // Encode 24 bytes → 32 base64url characters (no padding). Each
     // group of 3 bytes becomes 4 characters; eight groups produce

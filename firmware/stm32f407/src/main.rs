@@ -358,7 +358,7 @@ async fn boot(spawner: Spawner) {
     rng.async_fill_bytes(&mut csprng_seed)
         .await
         .expect("BUG: RNG fill failed");
-    ubos_auth::csprng::seed_csprng(csprng_seed).await;
+    ubos_auth::csprng::seed_csprng(csprng_seed);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_ingest_task()));

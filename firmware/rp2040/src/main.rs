@@ -431,7 +431,7 @@ async fn boot(spawner: Spawner) {
     // These boards are demonstration hardware per CLAUDE.md.
     let mut csprng_seed = [0u8; 32];
     rng.fill_bytes(&mut csprng_seed);
-    ubos_auth::csprng::seed_csprng(csprng_seed).await;
+    ubos_auth::csprng::seed_csprng(csprng_seed);
 
     // Independent entropy stream for the SV2 noise handshake, seeded from
     // the same RoscRng source as the session CSPRNG.

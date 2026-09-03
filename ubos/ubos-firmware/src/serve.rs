@@ -88,8 +88,8 @@ macro_rules! serve_all {
             // prefix reaches the API and every other path reaches the
             // dashboard; the two route tables do not overlap, because the
             // dashboard owns `/`, `/login`, `/logout` and `/logo.svg`.
-            ubos_api::seed_api_credentials().await;
-            ubos_webui::seed_webui_credentials().await;
+            ubos_api::seed_api_credentials();
+            ubos_webui::seed_webui_credentials();
             static HTTP_SERVICE: static_cell::StaticCell<HttpService> =
                 static_cell::StaticCell::new();
             let http_service: &'static HttpService = HTTP_SERVICE.init($crate::PrefixRouter {

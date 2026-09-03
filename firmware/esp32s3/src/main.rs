@@ -403,7 +403,7 @@ async fn boot(spawner: Spawner) {
         }
         seed
     };
-    ubos_auth::csprng::seed_csprng(csprng_seed).await;
+    ubos_auth::csprng::seed_csprng(csprng_seed);
 
     // Independent entropy stream for the SV2 noise handshake, drawn from
     // the same hardware RNG as the session CSPRNG.

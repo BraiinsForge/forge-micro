@@ -439,22 +439,20 @@ fn main() {
         // channel must always have a consumer.
         spawner.spawn(manager_task(mining_handle).expect("BUG: manager_task token"));
         // Seed the session CSPRNG before the HTTP server task can handle
-        // any request. Firmware boards seed in their async `boot` entry
-        // before spawning; host-runner has no async entry, so
-        // `block_on` is used here to match the boot-time ordering.
+        // any request, matching the firmware boards' boot-time ordering.
         let mut csprng_seed = [0u8; 32];
         OsRng.fill_bytes(&mut csprng_seed);
-        embassy_futures::block_on(ubos_auth::csprng::seed_csprng(csprng_seed));
+        ubos_auth::csprng::seed_csprng(csprng_seed);
 
         // The web UI and the REST API on :80 — seed both credential
         // stores once, then spawn one worker task per pool slot so each
         // has its own static TaskStorage. The executor closure is not
-        // async, so `block_on` drives the seeds and the infallible bind
-        // to match the firmware's boot-time ordering. This block and the
-        // metrics one below hand-expand `serve_http_pool!`, which assumes
-        // an async context; keep them in sync if that macro changes.
-        embassy_futures::block_on(ubos_api::seed_api_credentials());
-        embassy_futures::block_on(ubos_webui::seed_webui_credentials());
+        // async, so `block_on` drives the infallible bind to match the
+        // firmware's boot-time ordering. This block and the metrics one
+        // below hand-expand `serve_http_pool!`, which assumes an async
+        // context; keep them in sync if that macro changes.
+        ubos_api::seed_api_credentials();
+        ubos_webui::seed_webui_credentials();
         static HTTP_TCP_BUFFERS: ConstStaticCell<
             edge_nal_embassy::TcpBuffers<
                 HTTP_POOL,

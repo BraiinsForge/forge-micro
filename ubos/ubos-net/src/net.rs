@@ -487,7 +487,7 @@ pub async fn run_network_control(stack: Stack<'static>) -> ! {
                     // connection the apply request arrived on.
                     Timer::after(REPLY_FLUSH_DELAY).await;
                     stack.set_config_v4(to_config_v4(&new));
-                    ubos_auth::session::clear_all_sessions().await;
+                    ubos_auth::session::clear_all_sessions();
                     applied = new;
                     // Force the next poll to republish and, for DHCP, confirm
                     // the freshly acquired lease.
