@@ -62,6 +62,15 @@ The `claude-md-limit` gate holds this file at or under 200 lines: it
 loads on every session and adherence drops as it grows, so detail belongs
 in `docs/` or in a path-scoped `.claude/rules/` file instead.
 
+## Documentation
+
+Rustdoc and nix comments are the primary documentation. A fact about
+one crate lives in that crate's `//!` or `///` docs; a fact about one
+board lives in that board's crate or in `docs/BOARDS.md`. `docs/` holds
+only cross-crate architecture with a code-wins banner, hardware
+references, and runbooks. Plans live in `docs/plan/` and are deleted
+when their work lands.
+
 ## Licensing
 
 GPL-3.0-or-later throughout, and public. Every new first-party source
