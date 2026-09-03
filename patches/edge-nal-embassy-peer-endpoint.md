@@ -1,5 +1,9 @@
 # edge-nal-embassy: TcpAccept::accept() returns local endpoint instead of remote endpoint
 
+Status: fixed locally by
+`edge-nal-embassy-02-accept-peer-endpoint.patch` in this directory.
+This file is the upstream proposal for the same change.
+
 ## Problem
 
 `TcpAccept::accept()` in `edge-nal-embassy` returns the *local* (server-bound) socket

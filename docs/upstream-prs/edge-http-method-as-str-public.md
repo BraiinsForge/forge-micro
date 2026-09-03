@@ -1,5 +1,9 @@
 # edge-http: Make Method::as_str() public
 
+Status: not filed upstream. The workaround in
+`ubos/ubos-http/src/request.rs` stays until the pinned `edge-net`
+revision makes the accessor public.
+
 ## Problem
 
 `edge_http::Method::as_str()` exists and is used internally by the `Display` impl and by

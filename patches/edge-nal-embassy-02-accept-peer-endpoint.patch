@@ -6,7 +6,7 @@ disables IP-based allow-listing at the handler since every accepted
 connection reports the same server address. After a successful
 accept the socket is ESTABLISHED so remote_endpoint() is always
 Some. Upstream PR pending; see
-docs/upstream-prs/edge-nal-embassy-peer-endpoint.md.
+patches/edge-nal-embassy-peer-endpoint.md.
 
 diff --git a/src/tcp.rs b/src/tcp.rs
 index 6a46b0c6..dbd08b74 100644
