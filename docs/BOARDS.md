@@ -4,14 +4,15 @@ Board facts for the evaluation and adapter boards: the board table,
 wiring and pin assignments, size budget, build and flash commands, and
 per-board OTA specifics. These boards carry no product-specific
 support; they are what keeps the OS honest across five MCU parts.
-The hashnode product board and the rp2350-bootloader it flashes with
-are covered in [OVERVIEW.md](OVERVIEW.md), [SETUP.md](SETUP.md),
-[OTA.md](OTA.md), and [STRUCTURE.md](STRUCTURE.md).
+The hashnode and braiins-axe product boards and the rp2350-bootloader
+they flash with are covered in [OVERVIEW.md](OVERVIEW.md),
+[SETUP.md](SETUP.md), [OTA.md](OTA.md), and
+[STRUCTURE.md](STRUCTURE.md).
 
 ## Board table
 
 Split out of the table in [OVERVIEW.md](OVERVIEW.md), which keeps the
-hashnode row.
+product-board rows.
 
 | Crate | MCU | Ethernet | Target |
 |-------|-----|----------|--------|

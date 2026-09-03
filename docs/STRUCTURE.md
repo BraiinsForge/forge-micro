@@ -92,6 +92,17 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-thermal`     | `TemperatureSensor` trait, descriptor-driven sensor fusion, sample loop, chip temperature gauge, `ThermalHandle` publisher, thermal guard |
 | `ubos-cooling`     | fan control task, PID or fixed duty, `FanOutput` HAL trait |
 | `ubos-mining`      | BM13xx chip-serial actor, miner state machine, `MiningHandle` |
+| `ubos-asic`        | pure chip-protocol library: the vendor-neutral `ChainDriver` seam plus the BM13xx chip family |
+| `ubos-eeprom`      | hashboard EEPROM read trait and the BOS-compatible wire format |
+| `ubos-events`      | user-facing event log: a fixed-capacity RAM ring of encoded records, readable over HTTP |
+| `ubos-ota`         | board-agnostic OTA flash-write engine; each board supplies a backend |
+| `mining-protocol`  | protocol-agnostic mining client trait and the stratum-to-chip boundary types |
+| `stratum-client`   | integration layer between the protocol adapters and `AsicSession`: job ring, work ring, work generator |
+| `stratum-v1`       | no_std Stratum V1 wire types, parser, and adapter |
+| `stratum-v2`       | Stratum V2 adapter wrapping the vendored `micro-sv2` library |
+| `esp32s3-tsens`    | ESP32-S3 on-die temperature sensor driver          |
+| `rp235x-sha256`    | RP2350 hardware SHA-256 driver                     |
+| `serial-baudrate`  | trait for runtime baud-rate changes on a serial line |
 | `ubos-psu`         | async PSU driver over I2C                          |
 | `ubos-temperature` | LM75A, TMP102 and TMP461 drivers, and the sensor descriptor types a board declares its topology with. No task and no metric |
 | `ubos-machine`     | per-board `MachineDescriptor` consts composing the hashboard, PSU, and sensor descriptors with a control-board and platform descriptor; pure const data read by firmware and the host runner |
@@ -126,12 +137,22 @@ inside the crate directory so the per-crate config is picked up.
 
 ```
 firmware/
-└── hashnode/      thumbv8m.main-none-eabihf  (RP2350B)
+├── bmm-pico/            thumbv8m.main-none-eabihf  (RP2350A, BMM adapter)
+├── braiins-axe/         thumbv8m.main-none-eabihf  (RP2350A, BM1370 hashboard)
+├── esp32s3/             xtensa-esp32s3-none-elf    (ESP32-S3)
+├── esp32s3-bootloader/  xtensa-esp32s3-none-elf
+├── hashnode/            thumbv8m.main-none-eabihf  (RP2350B)
+├── rp2040/              thumbv6m-none-eabi         (RP2040)
+├── rp2040-bootloader/   thumbv6m-none-eabi
+├── rp2350/              thumbv8m.main-none-eabihf  (RP2350A)
+├── rp2350-bootloader/   thumbv8m.main-none-eabihf
+├── stm32f407/           thumbv7em-none-eabihf      (STM32F407VGT6)
+└── stm32f439/           thumbv7em-none-eabihf      (STM32F439ZIT6)
 ```
 
 Firmware crate names are the board name, unprefixed. The directory
-above the crate (`firmware/`) is the disambiguator. The evaluation and
-adapter board crates are enumerated in [BOARDS.md](BOARDS.md).
+above the crate (`firmware/`) is the disambiguator. Per-board wiring,
+pin assignments, and size budgets are in [BOARDS.md](BOARDS.md).
 
 ## `patches/` — upstream patches
 
@@ -160,10 +181,13 @@ consumes it as an ordinary path dependency, `ii-sv2 = { path =
 
 ## `docs/` — long-form documentation
 
-Architecture notes, implementation plans, this structure document,
-and any future ADR-style records. `README.md` and `CLAUDE.md` stay at
-the workspace root because they are entry points for humans and
-agents respectively; everything longer-form lives here.
+Cross-crate architecture notes, hardware references, and this
+structure document. Rustdoc is the primary documentation: a fact about
+one crate lives in that crate's `//!` docs, and a fact about one board
+lives in that board's crate or in [BOARDS.md](BOARDS.md). Plans live
+in `docs/plan/` and are deleted when their work lands. `README.md` and
+`CLAUDE.md` stay at the workspace root because they are entry points
+for humans and agents respectively.
 
 ## Conventions
 
@@ -188,47 +212,6 @@ agents respectively; everything longer-form lives here.
   target environment it builds for. A `host/` crate must never appear
   in a firmware crate's dep graph, and a `ubos/` crate must never
   pull in `std`.
-
-## What nothing reaches
-
-A survey read this tree for the parts that no code, no check and no
-document reaches. It ran at commit `e1d0ae3e` and asked six questions:
-
-1. Which tracked file does no other file name?
-2. Which path does a document name, but the tree does not hold?
-3. Which nix module, package, patch, and asset does the flake not reach?
-4. Which entry in `[workspace.dependencies]` does no member manifest
-   name?
-5. Which crate has no check in the flake?
-6. Which site holds an `#[allow(dead_code)]` attribute?
-
-This tree came out cleaner than the internal one. Five passes answered
-the survey, and the git history holds each one. What it found clean is
-recorded below, so that the next reader does not repeat the work. The
-table groups the results by area, not by question. The paragraph after
-the table answers the dead-code question.
-
-| Area | Result |
-|------|--------|
-| `nix/*.nix` | Every module is reached from `flake.nix` or from another module. |
-| `pkgs/*` | Every package is built by a check and by a dev shell. |
-| `patches/` | Every patch file is applied by `nix/patched-crates.nix` or `nix/probe-rs.nix`. |
-| `[workspace.dependencies]` | Every entry is in use. |
-| Per-crate checks | Every workspace crate has a check. Four have clippy but no build, because every board that uses them compiles them. |
-| Per-crate dependencies | The `cargo-machete` check gates every dependency a crate does not mark `ignored`. It cannot see the ignore list, and one entry there outlived the dependency it excused. |
-| `micro-sv2/` | The nested flake is gated. `flake.nix` re-exports its checks as `clippy-micro-sv2`, `micro-sv2-test`, and `micro-sv2-formatting`. |
-| `docs/upstream-prs/` | Three documents remain. Each one describes a workaround that a file still carries, or is named by the patch that carries its fix. |
-| Long-form design documents | `ARCHITECTURE.md`, `plan/STRATUM_IMPLEMENTATION_PLAN.md`, and `MULTIPOOL_DESIGN.md` are cited from crate sources as the rationale for the code. They stay. |
-| Paths named in prose | Every path a document names exists, apart from the paths that describe a planned move, a file a plan has not created yet, a deletion that already happened, or a crate upstream of this tree. |
-
-Every board's peripheral struct is under the dead-code lint, apart from
-bmm-pico's. That one records the adapter's wiring rather than only the
-peripherals the firmware reads, so it keeps `#[allow(dead_code)]`. Three
-library sites keep the attribute too. Every one of these four states its
-reason on the site.
-
-A survey is a snapshot. Every answer above was true at the commit named,
-and a later reader must ask again rather than trust the table.
 
 ## Footprint
 
@@ -346,28 +329,3 @@ Embassy (<https://embassy.dev/book/>) splits per-concern
 `embassy-nrf`). The same instinct shapes the `ubos-*` namespace
 here.
 
-## Migration plan
-
-> **Status.** Complete. The reorganization landed across the commits
-> described below; this section is kept as a historical record of the
-> sequence.
-
-The reorganization landed across a sequence of atomic commits, each
-keeping `cargo check` green for every affected crate:
-
-1. The support-host tree, since moved to the internal repo, takes a
-   role-based name; the rename is independent of the moves below.
-2. `firmware/embassy-net-wiznet-patch/` → `patches/embassy-net-wiznet/`
-   with the `[patch.crates-io]` path updated.
-3. Every existing `no_std` library crate moves from the workspace
-   root into `ubos/`; workspace members and dependencies paths updated
-   in lockstep.
-4. Every existing host crate moves into `host/`.
-5. Root `Cargo.toml` converts to a virtual manifest; the old root
-   library crate moves under `ubos/` as an intermediate step.
-6. That intermediate crate splits into four crates along domain lines:
-   `ubos-display`, `ubos-core`, and finally `ubos-net` plus
-   `ubos-metrics` together. The `run_http_server` task moves out of
-   `net.rs` into `http.rs` during the final split to break the
-   net→http back-reference.
-7. The empty intermediate crate is deleted at the end of the split.
