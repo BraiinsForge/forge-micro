@@ -498,7 +498,7 @@ pub trait Psu {
 ///
 /// Every board that reads a PSU spawns this, including the three whose
 /// power stage is their own wrapper rather than [`BmmPsu`]. Those three
-/// invoke it directly; the rest get it from [`i2c_psu`].
+/// invoke it directly; the rest get it from [`bmm_psu`].
 #[macro_export]
 macro_rules! power_stats_task {
     ($psu:ty) => {

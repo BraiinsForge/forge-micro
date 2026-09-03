@@ -214,7 +214,7 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
 /// A board whose power stage is its own wrapper rather than a [`BmmPsu`]
 /// keeps its module and invokes `ubos_psu::power_stats_task!` alone.
 #[macro_export]
-macro_rules! i2c_psu {
+macro_rules! bmm_psu {
     ($bus:ty, $device:ty, $descriptor:expr) => {
         /// Concrete `BmmPsu` for this board. Public so the `mining`
         /// module can spell it in `miner_task`'s signature.

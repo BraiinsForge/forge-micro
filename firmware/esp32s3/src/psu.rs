@@ -20,7 +20,7 @@
 //! BMM101 PSU integration over the shared I2C0 bus.
 //!
 //! Owns the static cells for the shared `BmmPsu` state and the PSU
-//! handle, both of which `ubos_psu::i2c_psu!` writes. The bus mutex is
+//! handle, both of which `ubos_psu::bmm_psu!` writes. The bus mutex is
 //! owned by `main`, so another consumer takes its own `I2cDevice` from
 //! the same mutex rather than one of these; what it does take from here
 //! is the [`Device`] alias that names the handle type.
@@ -42,4 +42,4 @@ pub type Bus = Mutex<NoopRawMutex, I2c<'static, esp_hal::Async>>;
 /// because the hashboard sensor array takes one of these too.
 pub type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, esp_hal::Async>>;
 
-ubos_psu::i2c_psu!(Bus, Device, crate::config::MACHINE.psu);
+ubos_psu::bmm_psu!(Bus, Device, crate::config::MACHINE.psu);

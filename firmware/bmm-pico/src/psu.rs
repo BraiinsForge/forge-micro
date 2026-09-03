@@ -40,4 +40,4 @@ pub type Bus = Mutex<NoopRawMutex, I2c<'static, I2C1, Async>>;
 /// because the hashboard sensor array takes one of these too.
 pub type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C1, Async>>;
 
-ubos_psu::i2c_psu!(Bus, Device, crate::config::MACHINE.psu);
+ubos_psu::bmm_psu!(Bus, Device, crate::config::MACHINE.psu);
