@@ -565,7 +565,7 @@ impl Service for RestApiService {
                 let _ = writer.write_str("}");
                 let json_len = writer.len();
 
-                write_json_response(connection, &body_buf[..json_len], &[]).await
+                write_json_response(connection, &body_buf[..json_len]).await
             }
             ("GET", "/api/config") => {
                 let mut body_buf = [0u8; CONFIG_RESPONSE_BUFFER_SIZE];
@@ -589,7 +589,7 @@ impl Service for RestApiService {
                     )
                     .await;
                 };
-                write_json_response(connection, &body_buf[..length], &[]).await
+                write_json_response(connection, &body_buf[..length]).await
             }
             ("POST", "/api/config") => {
                 info!("config update ({} bytes)", body.len());
@@ -659,7 +659,7 @@ impl Service for RestApiService {
                 config_handle
                     .send(ubos_config::Message::Update(new_config))
                     .await;
-                write_json_response(connection, CONFIG_ACK_BODY, &[]).await
+                write_json_response(connection, CONFIG_ACK_BODY).await
             }
             (_, "/api/info" | "/api/config") => {
                 write_status_only(

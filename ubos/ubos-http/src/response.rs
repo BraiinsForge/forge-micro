@@ -30,7 +30,7 @@ use core::fmt::Write as _;
 use edge_http::io::Error as HttpError;
 use edge_http::io::server::Connection;
 use embedded_io_async::{Read, Write};
-use heapless::{String, Vec};
+use heapless::String;
 
 use edge_nal::TcpSplit;
 
@@ -134,48 +134,30 @@ pub fn format_content_length(value: usize) -> String<CONTENT_LENGTH_DECIMAL_DIGI
     text
 }
 
-/// Write a JSON response with `body` bytes and optional extra headers.
+/// Write a 200 JSON response with `body` bytes.
 ///
-/// Pass `&[]` to send only the three fixed headers. The total must not
-/// exceed `MAX_RESPONSE_HEADERS`.
+/// Every caller sends the same three headers, so there is no header
+/// parameter; a response that needs more headers or another status
+/// builds them at its own call site.
 ///
 /// # Errors
 ///
 /// Returns an `HttpError` if the connection state machine rejects the
 /// response or if the underlying socket write fails.
-///
-/// # Panics
-///
-/// Panics if `extra_headers.len()` would push the header count above
-/// `MAX_RESPONSE_HEADERS`. The three fixed headers (Content-Type,
-/// Cache-Control, Content-Length) are always emitted, so
-/// `extra_headers` must contain at most `MAX_RESPONSE_HEADERS - 3`
-/// entries.
 pub async fn write_json_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     body: &[u8],
-    extra_headers: &[(&str, &str)],
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
     let content_length = format_content_length(body.len());
 
-    let mut headers: Vec<(&str, &str), MAX_RESPONSE_HEADERS> = Vec::new();
-    headers
-        .push(("Content-Type", "application/json"))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Cache-Control", "no-store"))
-        .expect("BUG: response header vec sized for max headers");
-    headers
-        .push(("Content-Length", content_length.as_str()))
-        .expect("BUG: response header vec sized for max headers");
-    for &header in extra_headers {
-        headers
-            .push(header)
-            .expect("BUG: response header vec sized for max headers");
-    }
+    let headers = [
+        ("Content-Type", "application/json"),
+        ("Cache-Control", "no-store"),
+        ("Content-Length", content_length.as_str()),
+    ];
 
     connection
         .initiate_response(200, Some("OK"), &headers)
