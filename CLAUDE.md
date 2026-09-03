@@ -37,16 +37,9 @@ A silent `cargo run`, probe recovery, and size and stack analysis:
 
 ## Targets
 
-| Crate | Shell | Target | MCU |
-|-------|-------|--------|-----|
-| braiins-axe | arm | thumbv8m.main-none-eabihf | RP2350A (Pico 2 module, Cortex-M33) |
-| bmm-pico | arm | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
-| rp2040 | arm | thumbv6m-none-eabi | RP2040 (Cortex-M0+) |
-| rp2350 | arm | thumbv8m.main-none-eabihf | RP2350A (Cortex-M33) |
-| hashnode | arm | thumbv8m.main-none-eabihf | RP2350B (Cortex-M33, 48 GPIO) |
-| stm32f407 | arm | thumbv7em-none-eabihf | STM32F407VGT6 (Cortex-M4F) |
-| stm32f439 | arm | thumbv7em-none-eabihf | STM32F439ZIT6 (Cortex-M4F) |
-| esp32s3 | esp | xtensa-esp32s3-none-elf | ESP32-S3 (Xtensa LX7) |
+Every firmware crate builds in the `arm` shell except `esp32s3` and
+`esp32s3-bootloader`, which build in `esp`. The per-crate target
+triples are in the firmware tree in `docs/STRUCTURE.md`.
 
 ## Verification
 
