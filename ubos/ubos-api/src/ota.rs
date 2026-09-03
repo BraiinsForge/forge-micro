@@ -380,6 +380,14 @@ pub async fn register_ota_target(target: &'static mut dyn OtaTarget) {
 }
 
 /// Accessor for the OTA handlers to acquire the registered target.
+///
+/// This hands out the mutex rather than the guarded value, which a typed
+/// accessor would normally hide. The upload holds one borrow across the
+/// whole read loop and rejects a second upload with `try_lock`, so the
+/// caller owns both the span and the refusal and there is no method
+/// boundary to put them behind. Kept `pub(crate)` so the callers stay in
+/// this crate and can be counted: `rest.rs` and `system.rs` are all of
+/// them, and each one uses `try_lock`.
 pub(crate) fn target_mutex()
 -> &'static Mutex<CriticalSectionRawMutex, Option<&'static mut dyn OtaTarget>> {
     &OTA_TARGET
