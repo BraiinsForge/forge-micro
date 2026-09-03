@@ -212,7 +212,7 @@ nix flake check . (all projects + formatting): PASS/FAIL/SKIPPED
 ### Findings
 
 CODE     src/foo.rs:42 -- off-by-one in length check
-ARCH     src/pid.rs:88 -- cooling writes mining.halt directly; only the manager writes halt/resume (ARCHITECTURE_PROPOSAL.md §5)
+ARCH     src/pid.rs:88 -- cooling writes mining.halt directly; only the manager writes halt/resume (ARCHITECTURE.md, communication rules)
 BUILD    src/bar.rs:10 -- clippy: needless clone (-D warnings)
 DOCS     CLAUDE.md:88 -- stale flag in build recipe
 COMMENTS src/x.rs:5 -- comment contradicts code

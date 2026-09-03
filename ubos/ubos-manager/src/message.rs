@@ -24,8 +24,8 @@
 //! `PauseReason` bit transition internally. Senders never spell
 //! `PauseReason`; it is manager-private vocabulary.
 //!
-//! See `docs/ARCHITECTURE_PROPOSAL.md` §2 principle 13 ("Domain
-//! messages, not bit-manipulation").
+//! See `docs/ARCHITECTURE.md` ("Domain messages, not
+//! bit-manipulation").
 
 /// Wire-level command sent to the manager via `Handle::send`.
 ///

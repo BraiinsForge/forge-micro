@@ -218,7 +218,7 @@ the table answers the dead-code question.
 | Per-crate dependencies | The `cargo-machete` check gates every dependency a crate does not mark `ignored`. It cannot see the ignore list, and one entry there outlived the dependency it excused. |
 | `micro-sv2/` | The nested flake is gated. `flake.nix` re-exports its checks as `clippy-micro-sv2`, `micro-sv2-test`, and `micro-sv2-formatting`. |
 | `docs/upstream-prs/` | Three documents remain. Each one describes a workaround that a file still carries, or is named by the patch that carries its fix. |
-| Long-form design documents | `ARCHITECTURE_PROPOSAL.md`, `plan/STRATUM_IMPLEMENTATION_PLAN.md`, and `MULTIPOOL_DESIGN.md` are cited from crate sources as the rationale for the code. They stay. |
+| Long-form design documents | `ARCHITECTURE.md`, `plan/STRATUM_IMPLEMENTATION_PLAN.md`, and `MULTIPOOL_DESIGN.md` are cited from crate sources as the rationale for the code. They stay. |
 | Paths named in prose | Every path a document names exists, apart from the paths that describe a planned move, a file a plan has not created yet, a deletion that already happened, or a crate upstream of this tree. |
 
 Every board's peripheral struct is under the dead-code lint, apart from

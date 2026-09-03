@@ -37,9 +37,10 @@ the phase costs one or two documents, not the directory.
 
 Always, when any `ubos-*` crate or firmware crate changed:
 
-- `docs/ARCHITECTURE_PROPOSAL.md` §2 (design principles), §3 (the layer
-  map), and §5 (the communication contract). These three sections are
-  the cross-cutting law; everything else is per-subsystem.
+- `docs/ARCHITECTURE.md`: the design principles and the communication
+  rules. That file is the cross-cutting law; everything else is
+  per-subsystem.
+- `docs/STRUCTURE.md` for the crate map and the dependency direction.
 
 Then per touched subsystem:
 
@@ -55,56 +56,45 @@ Then per touched subsystem:
 
 The general rule behind the table: `docs/` is indexed by subsystem, so a
 diff touching subsystem X reads the doc named for X when one exists.
-`ARCHITECTURE_PROPOSAL.md` §4 carries the per-module API shapes for the
-subsystems it covers; read the relevant module's entry when the diff
-changes that module's public surface.
+A module's API shape lives in that crate's `//!` docs; read them when
+the diff changes that module's public surface. The pause contract and
+its message vocabulary live in `ubos-manager`'s crate docs.
 
 ## Normative and historical
 
-`ARCHITECTURE_PROPOSAL.md` interleaves law with record. Judge against
-the law; never raise a finding from the record:
-
-- **Normative**: §2 (principles), §3 (layer map), §4 (module APIs),
-  §5 (communication contract and its rules), Appendix B (what each
-  crate is for).
-- **Historical**: §1 (the state the proposal started from) and
-  Appendix A (the migration steps, kept as a record of how the code got
-  here). A mismatch between Appendix A's intermediate states and the
-  final code is documented there and is not a finding.
-
-The other docs under `docs/` are reference documents and normative
-throughout.
+Every doc under `docs/` is normative, except `docs/plan/`: a plan is a
+record of intent, never law, and a mismatch between a plan and the
+code is not a finding.
 
 ## What to hunt
 
-Each class below is a §-reference into `ARCHITECTURE_PROPOSAL.md`
-unless another doc is named. Verify against the doc, not against this
-list's wording.
+Each class below is a reference into `ARCHITECTURE.md` unless another
+doc is named. Verify against the doc, not against this list's wording.
 
-- **A dependency edge against the layer map.** A new `Cargo.toml`
-  dependency or `use` that points upward or sideways across §3 — for
-  example `ubos-config` importing the manager or mining, or `ubos-asic`
-  importing `ubos-mining` (the arrow is `ubos-mining → ubos-asic`,
-  `ASIC.md`).
+- **A dependency edge against the crate map.** A new `Cargo.toml`
+  dependency or `use` that points upward or sideways across
+  `STRUCTURE.md`'s dependency direction — for example `ubos-config`
+  importing the manager or mining, or `ubos-asic` importing
+  `ubos-mining` (the arrow is `ubos-mining → ubos-asic`, `ASIC.md`).
 - **Cross-module traffic outside the contract.** A new channel, watch,
-  or signal between modules that §5's table does not carry, or a sender
-  reaching a module's private statics instead of its `…Handle`. The
-  table's own rule applies: if it is not on the list, the modules do
-  not talk.
-- **A `pub static` crossing a crate boundary.** §2 says handles, not
-  statics; the metrics push channel is the one sanctioned exception.
+  or signal between modules that no `…Handle` surface carries, or a
+  sender reaching a module's private statics instead of its handle.
+- **A `pub static` crossing a crate boundary.** The principles say
+  handles, not statics; the metrics push channel is the one sanctioned
+  exception.
 - **A second writer.** Two crates writing one piece of state, or any
   caller of `mining.halt`/`resume` other than the manager's `run`.
 - **A module off the template.** A new or reshaped subsystem that skips
-  the §2 principle-11 skeleton: the `Copy` handle over private statics,
-  one `run` task draining one command channel, no public trait.
+  the uniform-template skeleton: the `Copy` handle over private
+  statics, one `run` task draining one command channel, no public
+  trait.
 - **Scaffolding on the wire.** Public `Assert(Reason)`/`Clear(Reason)`
-  style commands instead of domain messages (§2 principle 13).
+  style commands instead of domain messages.
 - **I/O or policy on the wrong side of the sans-IO seam.** UART or
   other I/O inside `ubos-asic`, or tuning policy (voltage, ramp, work
   start) inside the vendor driver instead of the tuner (`ASIC.md`).
-- **Bare numbers at module APIs** where `ubos-core`'s typed units exist
-  (§2 principle 9).
+- **Bare numbers at module APIs** where `ubos-core`'s typed units
+  exist.
 
 A diff may violate the docs deliberately — the architecture does move.
 That is still an `ARCH` finding unless the same branch updates the doc;
@@ -125,7 +115,7 @@ stale.
 section they violate:
 
 ```
-ARCH ubos/ubos-cooling/src/pid.rs:88 -- cooling writes mining.halt directly; only the manager writes halt/resume (ARCHITECTURE_PROPOSAL.md §5)
+ARCH ubos/ubos-cooling/src/pid.rs:88 -- cooling writes mining.halt directly; only the manager writes halt/resume (ARCHITECTURE.md, communication rules)
 ARCH docs/ASIC.md:210 -- bring-up gained a step the doc's sequence does not carry (doc drift)
 ```
 
