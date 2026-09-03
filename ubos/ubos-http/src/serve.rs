@@ -41,9 +41,18 @@ use edge_nal::TcpSplit;
 
 /// Maximum number of HTTP headers parsed per request.
 ///
-/// Sixteen headers cover all headers sent by Prometheus scrapers and
-/// browsers without inflating the per-connection stack frame.
-pub(crate) const MAX_HEADERS: usize = 16;
+/// Sixteen was not enough: a browser request already carries around
+/// sixteen headers, and the `Authorization` header added after a
+/// credentials prompt pushed it over, so logging in failed. Thirty-two
+/// covers browsers and Prometheus scrapers with headroom, at 512 more
+/// bytes in each worker's stack frame.
+pub(crate) const MAX_HEADERS: usize = 32;
+
+/// Response written when a request carries more headers than
+/// [`MAX_HEADERS`]. Written to the socket raw, because the parse failed
+/// and no `Connection` exists to respond through.
+const HEADER_OVERFLOW_RESPONSE: &[u8] =
+    b"HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
 
 /// Body of the 500 response written when a handler returns an error.
 const INTERNAL_ERROR_BODY: &str = "INTERNAL ERROR";
@@ -185,10 +194,21 @@ where
                     let _ = with_timeout(socket_timeout, socket.close(Close::Both)).await;
                     break;
                 }
+                // The request overflowed the header arena. The client is a
+                // live browser owed an answer rather than a reset, so write
+                // the 431 raw and close gracefully; the progress timeout
+                // installed above bounds the write.
+                Err(Ended::TooManyHeaders) => {
+                    if socket.write_all(HEADER_OVERFLOW_RESPONSE).await.is_ok() {
+                        let _ = socket.flush().await;
+                    }
+                    let _ = with_timeout(socket_timeout, socket.close(Close::Both)).await;
+                    break;
+                }
                 // A protocol error, or a connection the peer left idle past
                 // the idle timeout, is reset: a graceful close would itself
                 // block draining toward an unresponsive peer.
-                Err(Ended) => {
+                Err(Ended::Reset) => {
                     let _ = socket.abort().await;
                     break;
                 }
@@ -197,13 +217,20 @@ where
     }
 }
 
-/// The connection is over and the worker must reset the socket.
+/// The connection is over, and how the worker must end it.
 ///
-/// One type covers every way a request can end the connection: the idle
-/// bound expires, the request does not parse, or the response cannot be
-/// written. The worker takes the same path for all three, so it needs no
-/// detail beyond the fact.
-struct Ended;
+/// Most failures need no detail: the idle bound expired, the request did
+/// not parse, or the response could not be written, and the worker resets
+/// the socket for all of them. The header overflow is the one exception,
+/// because the peer is a live client mid-request that deserves an answer
+/// rather than a reset.
+enum Ended {
+    /// Reset the socket without a response.
+    Reset,
+    /// The request carried more headers than [`MAX_HEADERS`]; answer
+    /// with a 431 before closing.
+    TooManyHeaders,
+}
 
 /// Serve one request on `socket` and report whether the response asked to
 /// close the connection.
@@ -229,15 +256,19 @@ where
     S: Service,
     T: Read + Write + TcpSplit,
 {
-    // The idle bound expired, or the request did not parse. The
-    // connection is over either way and the caller resets the socket.
-    let Ok(Ok(mut connection)) = with_timeout(
+    let mut connection = match with_timeout(
         idle_timeout,
         Connection::<_, MAX_HEADERS>::new(parse_buffer, socket),
     )
     .await
-    else {
-        return Err(Ended);
+    {
+        Ok(Ok(connection)) => connection,
+        // The request carried more headers than the parse arena holds.
+        // The caller still owns the socket and owes the client the 431.
+        Ok(Err(HttpError::TooManyHeaders)) => return Err(Ended::TooManyHeaders),
+        // The idle bound expired, or the request did not parse. The
+        // connection is over either way and the caller resets the socket.
+        _ => return Err(Ended::Reset),
     };
 
     // A handler error still owes the client a response, so write the 500
@@ -246,7 +277,7 @@ where
         Ok(()) => connection.complete().await,
         Err(_) => connection.complete_err(INTERNAL_ERROR_BODY).await,
     }
-    .map_err(|_| Ended)?;
+    .map_err(|_| Ended::Reset)?;
 
     Ok(connection.needs_close())
 }
