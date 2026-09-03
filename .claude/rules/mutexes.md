@@ -26,6 +26,13 @@ landed, so what is left here is the doctrine.
 3. **The primitive names the access pattern.** One writer with many
    readers is an `RwLock`. A slot written once is a `OnceLock`. A
    synchronous operation is a `blocking_mutex`, never an async `Mutex`.
+   One exception, and it needs the reason written at the site: a long
+   synchronous span under a `CriticalSectionRawMutex` masks interrupts for
+   the whole span, so a render or a sweep over a large structure is served
+   better by an async `Mutex`, which queues its waiters instead of stopping
+   the machine. `ubos-metrics`'s `METRIC_MAP` is that case, and it renders
+   2 KiB under the guard. The rule is that the primitive is chosen for the
+   span, not that it is always the blocking one.
 4. **A lock over `()` is a serialiser and needs a recorded reason.** The
    reason names the two callers it separates and the result if they
    interleave. Better still, give it the state the callers hand on to each
