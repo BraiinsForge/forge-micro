@@ -37,6 +37,8 @@ module: High-level what in imperative style
 - Answer WHY: motivation, problem solved, approach rationale
 - NO restating the diff, NO signatures, NO `Co-Authored-By`, NO emojis
   (rule UC2)
+- NO reference to a plan document, a step, or a stage of one (rule UC5):
+  the plan is deleted when the branch merges, so state the reason itself
 
 **Bad vs good:**
 ```

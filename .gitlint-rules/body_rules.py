@@ -114,3 +114,30 @@ class NoBannedContent(CommitRule):
             ))
 
         return violations or None
+
+
+# A plan document lives in docs/ until it lands, then it is deleted, so a
+# message that cites it, or a step or stage of it, points at nothing once
+# the branch merges.
+PLAN_REFERENCE_PATTERN = re.compile(
+    r"docs/plan/|[A-Z_]+_PLAN\.md|\b(?:step|stage)\b[^.]{0,20}?\bplan\b",
+    re.IGNORECASE,
+)
+
+
+class NoPlanReference(LineRule):
+    """Reject a body line that cites a plan document."""
+
+    name = "no-plan-reference"
+    id = "UC5"
+    target = CommitMessageBody
+
+    def validate(self, line, _commit):
+        match = PLAN_REFERENCE_PATTERN.search(line)
+        if match:
+            return [RuleViolation(
+                self.id,
+                f"body must not cite the plan ('{match.group()}'), "
+                "it is deleted when the branch merges, so state the reason "
+                "itself",
+            )]
