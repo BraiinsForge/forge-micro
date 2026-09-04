@@ -35,7 +35,7 @@ export function fmtRange(min: Maybe, max: Maybe): string | undefined {
 }
 
 export const fmtPower = (mw: Maybe): string => (mw ? (mw / 1000).toFixed(0) + ' W' : '–');
-export const fmtVolts = (mv: Maybe): string => (mv ? (mv / 1000).toFixed(3) + ' V' : '–');
+export const fmtVolts = (mv: Maybe): string => (mv ? parseFloat((mv / 1000).toFixed(3)) + ' V' : '–');
 
 // Round a positive number up to the next 1, 2, or 5 times a power of
 // ten so gridline intervals stay readable at any scale.

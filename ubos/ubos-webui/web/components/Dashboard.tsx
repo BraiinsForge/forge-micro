@@ -168,7 +168,7 @@ export default function Dashboard() {
         />
         <StatCard
           label="Voltage set / measured"
-          value={<><span>{info?.voltage_set_mv ? Math.round(info.voltage_set_mv / 1000) + ' V' : '–'}</span> / <span>{fmtVolts(info?.voltage_measured_mv)}</span></>}
+          value={<><span>{fmtVolts(info?.voltage_set_mv)}</span> / <span>{fmtVolts(info?.voltage_measured_mv)}</span></>}
         />
         <StatCard
           label="Fan speed / PWM"
