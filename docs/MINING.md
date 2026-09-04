@@ -148,27 +148,44 @@ both targets and the host build installs `env_logger`.
 
 ## Fan PWM and tachometers
 
-Code: `firmware/hashnode/src/fan.rs` for the PWM, `ubos/ubos-rp/src/pio_tach.rs`
-for the tachometer program the boards share.
+Code: `firmware/hashnode/src/fan.rs` for the board, and
+`ubos/ubos-rp/src/pio_tach.rs` for the tachometer program that the RP
+boards share.
 
-`PWM_SLICE5` drives both channel A (GPIO10) and channel B (GPIO11) at
-25 kHz, the Intel 4-wire fan spec rate. Both channels run the same duty
-so all three fan connectors track together. An inverting buffer sits
-between the RP2350 pad and the fan, so `set_pwm` inverts the commanded
-duty: a higher requested percent drives a lower GPIO duty, confirmed on
-hardware by a duty/RPM sweep.
+Three PWM channels drive the fan headers at 25 kHz, the rate that the
+Intel 4-wire fan specification gives. `PWM_SLICE5` channel A is GPIO10
+and channel B is GPIO11. `PWM_SLICE9` channel B is GPIO43 on the
+`FAN_CONTROL` header. Every channel runs the same duty, so all fans track
+together.
 
-Each connector has its own tachometer (GPIO24, GPIO25, GPIO23). None map
-to a `PWM` slice channel B, so the slice edge counter is unusable; each
-tach instead drives one `PIO0` state machine that times the pulse-to-
-pulse period in hardware. The tach RC network's slow rising edge chatters
-around the input threshold, so the PIO program only accepts an edge once
-the line has stayed high for 31 consecutive samples (~31 µs), longer than
-a chatter pulse yet far shorter than a real tach half-period. Standard
-4-wire fans emit two pulses per revolution, so
-`RPM = 60 × pio_hz / (ticks × cycles_per_tick × 2)`. `BoardTach` drains
-the latest period per fan each control tick and publishes one labelled
-`board_fan_rpm` series per connector.
+An inverter sits between the RP2350 pad and the fan, so `set_pwm` inverts
+the commanded duty. A higher requested percent drives a lower GPIO duty.
+A duty and RPM sweep on hardware confirmed this.
+
+Five connectors have a tachometer: GPIO24, GPIO25, GPIO23, GPIO38 and
+GPIO44. None of these is a channel B of a PWM slice, so the slice edge
+counter cannot count them. Each tach drives one PIO state machine, and
+the state machine measures the period between two pulses in hardware.
+
+A PIO block sees one window of 32 GPIOs. GPIO38 and GPIO44 sit above
+GPIO31, so the tachs split across the two blocks. `PIO0` takes GPIO23,
+GPIO24 and GPIO25, and `PIO1` takes GPIO38 and GPIO44. embassy-rp does
+not apply the window offset to the `jmp pin` of a state machine, so the
+driver corrects that register for `PIO1` by hand. Otherwise the program
+on `PIO1` never sees an edge.
+
+The tach RC network charges through a 4.7 kΩ pull-up, so the signal
+rises slowly through the input threshold and chatters. The PIO program
+accepts an edge only after the line stays high for 31 consecutive
+samples, about 31 µs. That window is longer than a chatter pulse and
+much shorter than half a real tach period.
+
+The pulses per revolution belong to the board, and the shared module
+takes them as a parameter. The hashnode fans give two pulses per
+revolution, so `RPM = 60 × pio_hz / (ticks × cycles_per_tick × 2)`.
+`BoardTach` drains the latest period for each fan on every control tick
+and publishes one labelled `board_fan_rpm` series per connector. An
+empty connector reads 0 rpm.
 
 ## Temperature sensors
 
