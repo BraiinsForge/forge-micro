@@ -209,6 +209,12 @@ let
     target = "thumbv8m.main-none-eabihf";
   };
 
+  braiinsAxeImage = mkArmImage {
+    name = "braiins-axe";
+    artifacts = deps.thumbv8mArtifacts;
+    target = "thumbv8m.main-none-eabihf";
+  };
+
   # Production esp32s3 firmware image. espflash converts the linked
   # ELF into the esp-idf app-image format the OTA endpoint writes into
   # an ota_N slot. The size guard uses the 3 MiB app-slot budget,
@@ -292,6 +298,13 @@ let
     family = "rp2350-arm-s";
   };
 
+  braiinsAxeUf2 = mkCombinedUf2 {
+    name = "braiins-axe";
+    appBin = "${braiinsAxeImage}/braiins-axe-v${fwVersion}.bin";
+    bootElf = rp2350Bootloader;
+    family = "rp2350-arm-s";
+  };
+
   # A raw image is gated on its board being a member; a combined UF2
   # additionally needs its bootloader crate. In this repo every crate is
   # a member and every output is present.
@@ -301,6 +314,7 @@ let
     // lib.optionalAttrs (hasCrate "bmm-pico") { bmm-pico-image = drvOf "bmm-pico-image"; }
     // lib.optionalAttrs (hasCrate "rp2040") { rp2040-image = drvOf "rp2040-image"; }
     // lib.optionalAttrs (hasCrate "hashnode") { hashnode-image = drvOf "hashnode-image"; }
+    // lib.optionalAttrs (hasCrate "braiins-axe") { braiins-axe-image = drvOf "braiins-axe-image"; }
     // lib.optionalAttrs (hasCrate "esp32s3") { esp32s3-image = drvOf "esp32s3-image"; }
     // lib.optionalAttrs (hasCrate "rp2350" && hasCrate "rp2350-bootloader") {
       rp2350-uf2 = drvOf "rp2350-uf2";
@@ -313,6 +327,9 @@ let
     }
     // lib.optionalAttrs (hasCrate "hashnode" && hasCrate "rp2350-bootloader") {
       hashnode-uf2 = drvOf "hashnode-uf2";
+    }
+    // lib.optionalAttrs (hasCrate "braiins-axe" && hasCrate "rp2350-bootloader") {
+      braiins-axe-uf2 = drvOf "braiins-axe-uf2";
     };
 
   # Package and app metadata per output key: the built derivation, the
@@ -339,6 +356,12 @@ let
     hashnode-image = {
       drv = hashnodeImage;
       name = "hashnode";
+      ext = "bin";
+      what = "image";
+    };
+    braiins-axe-image = {
+      drv = braiinsAxeImage;
+      name = "braiins-axe";
       ext = "bin";
       what = "image";
     };
@@ -369,6 +392,12 @@ let
     hashnode-uf2 = {
       drv = hashnodeUf2;
       name = "hashnode";
+      ext = "uf2";
+      what = "UF2";
+    };
+    braiins-axe-uf2 = {
+      drv = braiinsAxeUf2;
+      name = "braiins-axe";
       ext = "uf2";
       what = "UF2";
     };
