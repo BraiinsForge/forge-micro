@@ -496,9 +496,10 @@ pub trait Psu {
 
 /// Task shell around [`run_power_stats`]. Takes the board's PSU type.
 ///
-/// Every board that reads a PSU spawns this, including the three whose
-/// power stage is their own wrapper rather than [`BmmPsu`]. Those three
-/// invoke it directly; the rest get it from [`bmm_psu`].
+/// Every board that reads a PSU spawns this. A board on a [`BmmPsu`]
+/// gets it from [`bmm_psu`]; a board whose power stage is its own
+/// wrapper invokes it directly, or from a macro of its own that plays
+/// the same role for that wrapper.
 #[macro_export]
 macro_rules! power_stats_task {
     ($psu:ty) => {
