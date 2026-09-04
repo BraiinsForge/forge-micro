@@ -19,7 +19,14 @@
 
 //! Stratum V2 elementary mining messages — borrowed-first, `no_std`.
 //!
-//! See `docs/superpowers/specs/2026-05-06-messages-design.md`.
+//! One struct per wire message for connection setup
+//! ([`SetupConnection`] and its replies), standard-channel opening
+//! ([`OpenStandardMiningChannel`] and its replies), job distribution
+//! ([`NewMiningJob`], [`SetNewPrevHash`], [`SetTarget`]), and share
+//! submission ([`SubmitSharesStandard`] and its replies). Each
+//! implements `Encode`/`Decode` plus the `Message` trait with its
+//! static descriptor, and [`MiningMessages`] is the `MessageGroup`
+//! enum that dispatches a parsed frame into the right variant.
 
 #![no_std]
 #![forbid(unsafe_code)]

@@ -19,7 +19,13 @@
 
 //! Borrowed-first Stratum V2 type vocabulary for `no_std` environments.
 //!
-//! See `docs/superpowers/specs/2026-05-05-types-borrowed-design.md`.
+//! Holds the byte-level codec trait pair [`Encode`]/[`Decode`] with the
+//! [`encode_to_slice`]/[`from_slice`] helpers, and the bounded wire
+//! types every message field is built from: [`Uint256`] for hashes and
+//! targets, and the length-prefixed [`VarStr`] and [`VarBytes`]
+//! families with their common aliases such as [`Str0_255`]. All types
+//! hold `&'a [u8]`/`&'a str` references into a caller-owned buffer, so
+//! nothing here allocates. Primitives are little-endian on the wire.
 
 #![no_std]
 #![forbid(unsafe_code)]
