@@ -102,8 +102,9 @@ publishing the same address is safe.
 
 `network_applied` and `network_reverted` belong to `ubos-config`, beside
 the state machine that decides them. `ip_assigned` belongs to `ubos-net`,
-fired solely from the observer task. See `docs/EVENTS.md` for the
-catalog.
+fired solely from the observer task. The record format and the design
+rationale are in `ubos/ubos-events/src/lib.rs`. The served catalog is
+`GET /api/system/events/catalog`, described in `docs/REST_API.md`.
 
 ## Dependencies
 

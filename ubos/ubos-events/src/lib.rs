@@ -25,6 +25,52 @@
 //! every reset; the event ring is read over HTTP and survives warm resets
 //! on boards that place the backing buffer in retained RAM.
 //!
+//! # Design rationale
+//!
+//! "Logs" and "events" are kept strictly separate. Logs are the
+//! `defmt`/`ubos-logging` developer facade: volatile, probe-only,
+//! high-rate tracing. Events are curated user-facing state transitions
+//! with per-event severity declared in the catalog, never chosen at the
+//! call site. High-rate traces (every ramp hop) stay on RTT and never
+//! enter the ring. An `events::` call also emits a paired RTT line, but
+//! a subsystem may keep an additional manual `defmt` line beside it when
+//! the developer view needs richer detail or a different severity; such
+//! pairings are deliberate, so do not collapse them.
+//!
+//! The ring never touches flash. On dual-core boards a blocking flash
+//! write must hand-shake the mining core to a stop, and under load that
+//! handshake has been measured to stall past the hardware watchdog
+//! ceiling, so any flash write on a running miner risks a watchdog
+//! reset. The cost is durability across a true power-off; retained RAM
+//! recovers the resets that matter most (watchdog, software reset,
+//! crash-then-watchdog).
+//!
+//! The HTTP endpoint polls rather than streams. Server-Sent Events and
+//! `WebSockets` each hold a connection open per listener, and connections
+//! are scarce here: the API server runs only two workers, and a past
+//! "unreachable for minutes" bug traced to connection-pool starvation
+//! when TCP connections were not released. One open Events tab on SSE
+//! would pin a worker for its entire lifetime; incremental polling via
+//! `?since=<seq>` delivers only new events with no held connection and
+//! no worker pinned.
+//!
+//! Records are encoded, not text, in the same spirit as `defmt`: the
+//! record stores a stable code plus raw little-endian args, and the
+//! browser formats them against the catalog served from device rodata.
+//! The scheme is first-party rather than a defmt capture because reusing
+//! defmt would mean owning a version-pinned browser port of
+//! `defmt-decoder` covering defmt's whole format language; the
+//! first-party format is positional `{}` over six integer widths, so the
+//! browser decoder is tens of lines and stable. The code is a
+//! compile-time FNV-1a hash of the event's slug, stable across builds
+//! and OTA, so a ring written by old firmware still decodes; a removed
+//! event renders as unknown.
+//!
+//! Every record carries one `ts: u32` from the injected wall clock:
+//! seconds since boot before NTP sync, Unix-epoch seconds after. The
+//! magnitude discriminates the two, so there is no synced flag and no
+//! backfill. `seq` carries the total order; `ts` is display-only.
+//!
 //! # Usage
 //!
 //! Declare events in a subsystem crate with the [`events!`] macro:

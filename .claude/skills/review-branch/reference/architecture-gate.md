@@ -52,7 +52,8 @@ Then per touched subsystem:
 | OTA paths | `docs/OTA.md` |
 | `ubos/ubos-api`, HTTP surfaces | `docs/REST_API.md`, `docs/HTTP_LISTENERS.md` |
 | `ubos/ubos-net`, address handling | `docs/NET_ADDRESS_OWNERSHIP.md` |
-| metrics, events, machine model, EEPROM, multipool | the same-named doc under `docs/` |
+| metrics, machine model, EEPROM, multipool | the same-named doc under `docs/` |
+| events | `ubos-events`' crate docs |
 
 The general rule behind the table: `docs/` is indexed by subsystem, so a
 diff touching subsystem X reads the doc named for X when one exists.
