@@ -55,12 +55,12 @@ disagree, the code wins and this file needs a patch.
    │   │     select3(                                            │       │
    │   │       client.drive(t)       → client.accept(state)      │       │
    │   │       asic.take_solution()  → handle_solution(state)    │       │
-   │   │       work_ticker (1 s) → state.publish_work(asic, step)│       │
+   │   │       work_ticker → state.publish_work(asic, step)      │       │
    │   │     )                                                   │       │
    │   │   }                                                     │       │
    │   └─────────────────────────────────────────────────────────┘       │
    │                                                                     │
-   │   visit_new_job (Visitor):        state.publish_work (1 Hz tick):   │
+   │   visit_new_job (Visitor):        state.publish_work (work tick):   │
    │     slot = job_ring.next_slot()     slot = job_ring.current()?      │
    │     merkle.compute(en2 = zeros)     slot.ntime_offset += 1          │
    │       → slot.merkle_root              (capped NTIME_ROLL_MAX_SECS)  │
@@ -153,7 +153,12 @@ worlds also have different cardinalities and lifetimes — one
 long-lived job fans out into many short-lived work assignments, one
 per second, differing only in `ntime` (extranonce_2 is fixed at zeros
 and the merkle root is folded once at job arrival, so the ntime roll
-is the only thing making each second's assignment fresh work).
+is the only thing making each second's assignment fresh work). That
+cadence is the board's choice, `NtimeRoll`: a board whose chip searches
+the nonce alone passes `Host` and gets the roll above; a board whose
+chip searches ntime on its own passes `Chip`, and then each job is
+published once on arrival, `ntime_offset` stays zero, and the ntime a
+solution carries is the one the chip used.
 
 Downstream, pool → chip:
 
@@ -165,7 +170,7 @@ ASIC                              HOST                                 STRATUM
                       │ JobSlot: pool's job in   │◄———— MiningJob ——— notify /
                       │ canonical binary form    │   (borrowed; the   NewMiningJob
                       └────────────┬─────────────┘    slot owns a copy)
-                                   │ 1 Hz: ntime_offset += 1
+                                   │ tick: ntime_offset += 1
                                    ▼
               WorkAssignment   state.publish_work()
  chip ◄══════ {work_id, header ┌──────────────────────────┐
@@ -201,10 +206,12 @@ The ring depths encode the intended history windows:
 - `JobRing<2>` rotates: current + the job that just rotated out.
   Pools generally accept shares against the previous job unless
   `clean_jobs` says otherwise, so two slots is the useful history.
-- `WorkRing<8>` is a FIFO: at the 1 Hz publish cadence it bounds how
-  long a solution may sit in the chip FIFO plus the solution channel
-  before its submit context is forgotten — about eight seconds, with
-  no heap.
+- `WorkRing<8>` is a FIFO bounding how long a solution may sit in the
+  chip FIFO plus the solution channel before its submit context is
+  forgotten, with no heap. What eight slots buy follows the publish
+  cadence: `NtimeRoll::Host` republishes every second, so they are
+  about eight seconds; `NtimeRoll::Chip` publishes once per pool job,
+  so they are the last eight pool jobs and not a span of time.
 
 The `AsicSession` seam mirrors the same asymmetry. Work rides a
 `Watch` (latest-wins cell, never a backlog: a slow chip skips
@@ -237,7 +244,7 @@ cells, so a dead pool's last job is never re-fed to the chip.
 |------|--------|--------|
 | Pool I/O | event-driven | network bytes arriving / Solution arriving in `select3` |
 | Stratum visitor dispatch | per frame | inside `accept()` |
-| Work publish | 1 Hz | `work_ticker` arm of the same `select3` loop |
+| Work publish | 1 Hz with `NtimeRoll::Host`, once per job with `Chip` | `work_ticker` arm of the same `select3` loop |
 | ASIC poll for work change | ~100 ms | yield boundary in CPU mock; polling cadence in real driver |
 | ASIC produces solutions | as found | non-blocking `try_send` into the channel |
 | Pool switch takes effect | next work tick | `dispatch_work` asks the scheduler before each dispatch |

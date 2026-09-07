@@ -65,6 +65,23 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
   chain's core voltage and writes a summary to the log from inside
   `sample`, so no task exists for reporting alone.
 
+A poll family can fold its dispatch into the poll cycle. `send_work` then
+stores the job and programs what keeps each chip apart from the others,
+and `poll_results` writes the job to the chain after it has read every
+nonce buffer. A chip whose buffer is one snapshot that a work write or an
+update strobe replaces needs this order: a write between two reads
+destroys the finds that were not read yet. Every other sweep ends with a
+broadcast strobe, which hands over the finds without new work.
+
+Some chips also search ntime on their own and report the offset they
+chose. A host that moves ntime makes two headers of one job overlap, and
+the chip re-finds the same solutions when the write restarts its scan. So
+the driver writes work only when the pool assignment changes, and the
+board passes `NtimeRoll::Chip` to the stratum setup, which publishes each
+job once. Such a chip's search on one header repeats after a fixed number
+of hashes, so the driver moves each chip's version slice on before that,
+and the actor's work tick has no part in feeding the chain.
+
 Share verification is vendor-neutral: the actor rebuilds the header from
 the registry assignment and the driver-reported nonce / rolled version /
 ntime offset via `ubos_asic::solution_hash`.
