@@ -59,7 +59,7 @@ ubos_mining::serial_task!(
     ubos_stm32::uart::MinerUart,
     ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
     crate::config::BOARD,
-    crate::config::CHIP
+    ubos_asic::Bm13xxDriver
 );
 
 ubos_mining::miner_task!(crate::psu::BoardPsu, BoardResetPin, crate::config::BOARD);

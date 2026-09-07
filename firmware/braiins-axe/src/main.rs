@@ -301,7 +301,11 @@ async fn boot(spawner: Spawner) {
             // letting `run_cpu_load::<2>()` publish a real busy ratio for
             // this core instead of a constant 1.0.
             ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner: Spawner| {
-                core1_spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
+                core1_spawner.spawn(unwrap!(mining::serial_task(
+                    miner_serial,
+                    &ASIC_SESSION,
+                    ubos_asic::Bm13xxDriver::new(config::CHIP)
+                )));
             });
         },
     );

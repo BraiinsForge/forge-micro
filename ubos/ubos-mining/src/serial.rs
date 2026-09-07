@@ -1087,13 +1087,18 @@ pub static SERIAL: Serial = Serial::new();
 /// Rather than panic and reset the whole firmware, the shell then parks
 /// so the rest of the system keeps running and a human can pull logs.
 ///
-/// The session type is a parameter rather than a name in this crate,
-/// because the board composes it and its capacity is a per-board const.
+/// The session and driver types are parameters rather than names in
+/// this crate, because the board composes both: the session's capacity
+/// is a per-board const, and which chip family a board drives is its
+/// own business. The board builds the driver where it spawns the task
+/// and hands it in, so whatever the driver needs at construction, a
+/// chip constant or a reference to a board-owned store, is wired at the
+/// spawn site and the shell's signature is the same on every board.
 #[macro_export]
 macro_rules! serial_task {
-    ($uart:ty, $session:ty, $board:expr, $chip:expr) => {
+    ($uart:ty, $session:ty, $board:expr, $driver:ty) => {
         #[embassy_executor::task]
-        pub async fn serial_task(serial: $uart, session: &'static $session) -> ! {
+        pub async fn serial_task(serial: $uart, session: &'static $session, driver: $driver) -> ! {
             /// Park interval after the actor's loop returns.
             const PARK_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(60);
 
@@ -1102,7 +1107,7 @@ macro_rules! serial_task {
                     serial,
                     session,
                     $board,
-                    ubos_asic::Bm13xxDriver::new($chip),
+                    driver,
                     ubos_mining::scheduler::RatioScheduler::new(),
                 )
                 .await

@@ -272,7 +272,11 @@ async fn boot(spawner: Spawner) {
             let executor = APP_EXECUTOR.init(esp_rtos::embassy::Executor::new());
             executor.run_with_callbacks(
                 |app_spawner| {
-                    app_spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
+                    app_spawner.spawn(unwrap!(mining::serial_task(
+                        miner_serial,
+                        &ASIC_SESSION,
+                        ubos_asic::Bm13xxDriver::new(config::CHIP)
+                    )));
                 },
                 ubos_esp32::IdleAccounting::<1>::new(),
             );

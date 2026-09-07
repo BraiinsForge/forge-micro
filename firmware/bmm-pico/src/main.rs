@@ -269,7 +269,11 @@ async fn main(spawner: Spawner) {
         run = |miner_serial| {
             let executor = CORE1_EXECUTOR.init(Executor::new());
             executor.run(|core1_spawner: Spawner| {
-                core1_spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
+                core1_spawner.spawn(unwrap!(mining::serial_task(
+                    miner_serial,
+                    &ASIC_SESSION,
+                    ubos_asic::Bm13xxDriver::new(config::CHIP)
+                )));
             })
         },
     );

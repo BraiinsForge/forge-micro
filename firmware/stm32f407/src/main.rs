@@ -480,7 +480,11 @@ async fn boot(spawner: Spawner) {
         let (uart_tx, uart_rx) = uart.split();
         let ring_rx = uart_rx.into_ring_buffered(DMA_RX_BUF.init([0; 1024]));
         let miner_serial = ubos_stm32::uart::MinerUart::new(uart_tx, ring_rx);
-        spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
+        spawner.spawn(unwrap!(mining::serial_task(
+            miner_serial,
+            &ASIC_SESSION,
+            ubos_asic::Bm13xxDriver::new(config::CHIP)
+        )));
     }
 
     // SH1106 OLED on SPI3: reset pulse, then async TX-only SPI with DMA.

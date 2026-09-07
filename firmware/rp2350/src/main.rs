@@ -279,7 +279,11 @@ async fn boot(spawner: Spawner) {
         uart = (hw.uart, hw.uart_tx, hw.uart_rx),
         run = |miner_serial| {
             ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner: Spawner| {
-                core1_spawner.spawn(unwrap!(mining::serial_task(miner_serial, &ASIC_SESSION)));
+                core1_spawner.spawn(unwrap!(mining::serial_task(
+                    miner_serial,
+                    &ASIC_SESSION,
+                    ubos_asic::Bm13xxDriver::new(config::CHIP)
+                )));
             });
         },
     );
