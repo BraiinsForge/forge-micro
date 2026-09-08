@@ -420,10 +420,12 @@ pub trait ChainDriver {
 
     /// The share target the chip's own hardware filter enforces.
     /// Every solution the driver returns meets it, so the consumer
-    /// verifies against it as the floor and credits each solution at
-    /// its weight; a floor above difficulty one is how a chip family
-    /// keeps its result path from flooding a slow link.
-    fn floor_target(&self) -> ShareTarget;
+    /// verifies against it as the difficulty and credits each solution
+    /// at its weight; a difficulty above one is how a chip family keeps
+    /// its result path from flooding a slow link. A driver may move the
+    /// difficulty with the chain's hashrate, so the consumer reads it
+    /// for each batch it verifies rather than once.
+    fn difficulty_target(&self) -> ShareTarget;
 
     /// Push path: feed bytes freshly read from the line and return any
     /// complete solutions decoded from them. Stateful — the driver

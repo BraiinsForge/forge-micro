@@ -347,9 +347,9 @@ impl ChainDriver for Bm13xxDriver {
         ResultMode::Push
     }
 
-    fn floor_target(&self) -> ShareTarget {
+    fn difficulty_target(&self) -> ShareTarget {
         // The difficulty `configure` programs into the ticket mask, so
-        // the register and the reported floor cannot drift apart.
+        // the register and the reported difficulty cannot drift apart.
         ShareTarget::from_pow2_difficulty(u64::from(BRINGUP_DIFFICULTY))
     }
 

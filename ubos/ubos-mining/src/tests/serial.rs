@@ -228,19 +228,19 @@ impl<'a, const N: usize> Harness<'a, N> {
         ));
     }
 
-    fn process_solution(&mut self, solution: &ChainSolution, floor: &[u8; 32]) {
+    fn process_solution(&mut self, solution: &ChainSolution, difficulty: &[u8; 32]) {
         Serial::process_solution(
             solution,
             &self.registry,
             self.session,
             &mut self.scheduler,
-            floor,
+            difficulty,
         );
     }
 
     /// Independently rehash a solution against the registry and verify
-    /// it meets the given floor target.
-    fn assert_solution_meets_floor(&self, solution: &ChainSolution, floor: &[u8; 32]) {
+    /// it meets the given difficulty target.
+    fn assert_solution_meets_floor(&self, solution: &ChainSolution, difficulty: &[u8; 32]) {
         let slot = self
             .registry
             .get(solution.job_key as usize)
@@ -257,8 +257,8 @@ impl<'a, const N: usize> Harness<'a, N> {
             solution.nonce,
         );
         assert!(
-            hash_meets_target(&hash, floor),
-            "independently rehashed solution must meet the floor target"
+            hash_meets_target(&hash, difficulty),
+            "independently rehashed solution must meet the difficulty target"
         );
     }
 }
@@ -406,11 +406,11 @@ fn process_solution_bumps_the_originating_slots_pool_work_share_counter() {
     );
 }
 
-/// A floor harder than [`ShareTarget::DIFF_1`]: it clears the
+/// A difficulty harder than [`ShareTarget::DIFF_1`]: it clears the
 /// target's leading word down to a single low byte, `0x10` at index
 /// 26. The genesis solution's hash carries `0x19` at that same index
 /// (with every more-significant byte zero on both sides), so it fails
-/// this floor while still meeting `ShareTarget::DIFF_1` itself and
+/// this difficulty while still meeting `ShareTarget::DIFF_1` itself and
 /// any pool target at or looser than that.
 const HARDER_THAN_DIFF_1_FLOOR: [u8; 32] = {
     let mut bytes = [0u8; 32];
@@ -418,11 +418,11 @@ const HARDER_THAN_DIFF_1_FLOOR: [u8; 32] = {
     bytes
 };
 
-/// A solution between the pool target and a floor harder than
+/// A solution between the pool target and a difficulty harder than
 /// difficulty-1 is rejected outright: the floor check runs ahead of
 /// the credit block, so a solution failing it is dropped regardless of
 /// how loose the pool target is, and it never reaches the pool queue
-/// either. Crediting tracks whatever floor the driver reports rather
+/// either. Crediting tracks whatever difficulty the driver reports rather
 /// than a hardcoded threshold: the identical solution against
 /// `ShareTarget::DIFF_1`, which the pool target below already
 /// equals, is credited and does reach the queue.
@@ -442,11 +442,11 @@ fn process_solution_rejects_a_solution_between_the_pool_target_and_a_harder_floo
 
     assert!(
         harness.scheduler.accumulated.is_empty(),
-        "a solution below the driver's own floor must not be credited"
+        "a solution below the driver's own difficulty must not be credited"
     );
     assert!(
         session.pool_handle(0).try_take_solution().is_none(),
-        "a solution below the floor must never reach the pool queue either"
+        "a solution below the difficulty must never reach the pool queue either"
     );
 
     harness.assert_solution_meets_floor(&GENESIS_SOLUTION, &ShareTarget::DIFF_1);
@@ -456,12 +456,12 @@ fn process_solution_rejects_a_solution_between_the_pool_target_and_a_harder_floo
     assert_eq!(
         harness.scheduler.accumulated.as_slice(),
         &[0],
-        "the same solution against the loosened floor is credited"
+        "the same solution against the loosened difficulty is credited"
     );
     let submitted = session
         .pool_handle(0)
         .try_take_solution()
-        .expect("the solution reaches the pool queue once the floor no longer blocks it");
+        .expect("the solution reaches the pool queue once the difficulty no longer blocks it");
     assert_eq!(submitted.nonce, GENESIS_SOLUTION.nonce);
     assert_eq!(submitted.work_id, genesis_assignment().work_id);
 }
@@ -579,7 +579,7 @@ impl ChainDriver for StubDriver {
         self.mode
     }
 
-    fn floor_target(&self) -> ShareTarget {
+    fn difficulty_target(&self) -> ShareTarget {
         ShareTarget::DIFF_1
     }
 
@@ -1139,7 +1139,7 @@ impl ChainDriver for ResultDriver {
         self.mode
     }
 
-    fn floor_target(&self) -> ShareTarget {
+    fn difficulty_target(&self) -> ShareTarget {
         ShareTarget::DIFF_1
     }
 
