@@ -38,8 +38,8 @@ use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::{
-    AsicSession, NTIME_ROLL_PERIOD_SECS, PoolConnector, RECONNECT_DELAY, SESSION_REJECTED_DELAY,
-    SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE, SessionError, StratumState,
+    AsicSession, NtimeRoll, PoolConnector, RECONNECT_DELAY, SESSION_REJECTED_DELAY, SOCKET_TIMEOUT,
+    STRATUM_TCP_BUFFER_SIZE, SessionError, StratumState,
 };
 use ubos_logging::{Debug2Format, info, warn};
 
@@ -81,18 +81,24 @@ impl ii_sv2::security::Rng for Sv2BoardRng<'_> {
 }
 
 /// Boot-time stratum singletons, fanned out by value to every per-slot
-/// session task. `Copy`: holds a shared reference to the secp context
-/// and the 32-byte SV2 entropy seed.
+/// session task. `Copy`: holds a shared reference to the secp context,
+/// the 32-byte SV2 entropy seed, and the board's choice of who rolls
+/// ntime.
 #[derive(Clone, Copy)]
 pub struct StratumShared {
     secp_ctx:
         &'static ii_sv2::security::CryptoCtx<ii_sv2::security::secp256k1::AllPreallocated<'static>>,
     sv2_seed: [u8; 32],
+    ntime_roll: NtimeRoll,
 }
 
 /// Initialise the boot-time stratum singletons once, returning the
 /// [`StratumShared`] value each board hands to every
 /// [`run_stratum_session`] task.
+///
+/// `chip_rolls_ntime` is the chip descriptor's `rolls_ntime`: a chip
+/// that searches ntime itself gets each job published once, every
+/// other chip gets the host's ntime roll.
 ///
 /// `sv2_seed` must come from the board's hardware entropy source. Each
 /// slot's task derives its own `ChaCha20` stream from the one seed
@@ -108,13 +114,18 @@ pub struct StratumShared {
 /// if `SECP_CTX_SLOTS` undersizes the secp context (BUG-class,
 /// compile-time-sized invariant).
 #[must_use]
-pub fn init_stratum(sv2_seed: [u8; 32]) -> StratumShared {
+pub fn init_stratum(sv2_seed: [u8; 32], chip_rolls_ntime: bool) -> StratumShared {
+    let ntime_roll: NtimeRoll = chip_rolls_ntime.into();
     let secp_buffer = SECP_CTX_BUF.take();
     let secp_ctx: &'static _ = SECP_CTX.init(
         ii_sv2::security::CryptoCtx::preallocated(secp_buffer)
             .expect("BUG: SECP_CTX_SLOTS too small for AllPreallocated"),
     );
-    StratumShared { secp_ctx, sv2_seed }
+    StratumShared {
+        secp_ctx,
+        sv2_seed,
+        ntime_roll,
+    }
 }
 
 /// TCP transport source for one pool entry. Owns the stack handle and
@@ -261,7 +272,7 @@ pub async fn run_stratum_session<const N: usize>(
                         &mut client,
                         handle,
                         &mut state,
-                        Some(NTIME_ROLL_PERIOD_SECS),
+                        shared.ntime_roll.period_secs(),
                     )
                     .await
                 }
@@ -278,7 +289,7 @@ pub async fn run_stratum_session<const N: usize>(
                         &mut client,
                         handle,
                         &mut state,
-                        Some(NTIME_ROLL_PERIOD_SECS),
+                        shared.ntime_roll.period_secs(),
                     )
                     .await
                 }

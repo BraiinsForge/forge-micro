@@ -167,6 +167,13 @@ pub struct ChipDescriptor {
     /// The tuner ramps inside it and the register calculators reject
     /// targets outside it.
     pub frequency_range: FrequencyRange,
+    /// Whether the chip searches ntime on its own once it holds a
+    /// header. The work generator must then publish each job once and
+    /// leave ntime alone, since a republished header whose ntime window
+    /// overlaps the one the chip holds makes it re-find the same
+    /// solutions. A chip that searches the nonce alone needs the host
+    /// to roll ntime for it.
+    pub rolls_ntime: bool,
 }
 
 /// Upper bound on bytes a consumer feeds to a single

@@ -216,7 +216,7 @@ impl<T: Transport> ChipBus for TransportBus<'_, T> {
 
 impl ChainDriver for Bm13xxDriver {
     fn descriptor(&self) -> &'static ChipDescriptor {
-        &self.chip.descriptor().chain
+        &self.chip.descriptor().chip
     }
 
     fn boot_uart_rate(&self) -> u32 {
@@ -259,7 +259,7 @@ impl ChainDriver for Bm13xxDriver {
             "board.num_chips exceeds MAX_CHAIN_CHIPS"
         );
         let chip = self.chip;
-        let safe_boot = chip.descriptor().chain.frequency_range.min();
+        let safe_boot = chip.descriptor().chip.frequency_range.min();
         {
             let mut bus = TransportBus {
                 io,

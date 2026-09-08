@@ -135,7 +135,7 @@ impl HashboardDescriptor {
 /// `BmmPsuDescriptor::DEFAULT.dcdc_voltage_range` (`VRange2`, end
 /// 1675 mV).
 pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
-    chip: &BM1362.chain,
+    chip: &BM1362.chip,
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(1675),
@@ -160,7 +160,7 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
 /// domains stack in series; the femto reference design ran two domains at
 /// 2.4 V total (≈1.2 V per domain), so four need ≈4.8 V.
 pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
-    chip: &BM1370.chain,
+    chip: &BM1370.chip,
     num_voltage_domains: 4,
     num_chips: 4,
     max_psu_voltage: Voltage::from_mv(4800),
@@ -182,7 +182,7 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
 /// The Braiins Axe hashboard: four BM1370 in a single parallel voltage
 /// domain on a 1.2 V rail, driven by a TPS53647 multiphase VRM.
 pub const BRAIINS_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
-    chip: &BM1370.chain,
+    chip: &BM1370.chip,
     num_voltage_domains: 1,
     num_chips: 4,
     // Caps max_rail_voltage below the chip's 1250 mV policy ceiling;

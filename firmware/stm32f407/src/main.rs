@@ -242,7 +242,7 @@ async fn boot(spawner: Spawner) {
         rng.async_fill_bytes(&mut sv2_seed)
             .await
             .expect("BUG: RNG fill failed");
-        ubos_firmware::init_stratum(sv2_seed)
+        ubos_firmware::init_stratum(sv2_seed, config::CHIP.chip_descriptor().rolls_ntime)
     };
 
     // Enable the 50 MHz oscillator on the WT32-ETH01 board.

@@ -474,6 +474,7 @@ static POLL_CHIP: ChipDescriptor = ChipDescriptor {
     max_chip_voltage: Voltage::from_mv(1200),
     frequency_step: Frequency::from_mhz(5),
     frequency_range: FrequencyRange::new(Frequency::from_mhz(100), Frequency::from_mhz(400)),
+    rolls_ntime: false,
 };
 
 /// Minimal [`ChainDriver`] stub for the command-arm tests, with a

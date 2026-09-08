@@ -32,12 +32,7 @@ use ubos_mining::consts::INITIAL_BAUDRATE;
 use ubos_mining::serial::SERIAL;
 
 use crate::ASIC_SESSION;
-
-/// Path ubos-mining opens for chip-side traffic. Hard-coded because the BMM101
-/// hashboard always presents the same device under our udev rules; if a
-/// future host needs a different path, an env-var override would slot in
-/// next to `HOST_NET_AFPACKET`.
-const MINER_SERIAL_PATH: &str = "/dev/ttySTM1";
+use crate::config::{CHIP, MINER_SERIAL_PATH};
 
 #[embassy_executor::task]
 pub async fn miner_serial_task() -> ! {
@@ -62,10 +57,7 @@ pub async fn miner_serial_task() -> ! {
             serial,
             &ASIC_SESSION,
             crate::BOARD,
-            // host-runner has no `config` module, so it selects the chip
-            // here directly rather than through a `config::CHIP` const the
-            // way the firmware boards do.
-            ubos_asic::Bm13xxDriver::new(ubos_asic::Chip::Bm1362),
+            ubos_asic::Bm13xxDriver::new(CHIP),
             scheduler,
         )
         .await

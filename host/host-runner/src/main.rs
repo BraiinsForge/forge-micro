@@ -51,7 +51,7 @@ use rand_core::RngCore;
 use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::AsicSession;
 use stratum_client::{
-    NTIME_ROLL_PERIOD_SECS, PoolConnector, RECONNECT_DELAY, SESSION_REJECTED_DELAY, SOCKET_TIMEOUT,
+    NtimeRoll, PoolConnector, RECONNECT_DELAY, SESSION_REJECTED_DELAY, SOCKET_TIMEOUT,
     STRATUM_TCP_BUFFER_SIZE, SessionError, run_stratum_session,
 };
 use ubos_config::FileStorage;
@@ -59,6 +59,7 @@ use ubos_manager::Handle as ManagerHandle;
 use ubos_mining::Handle as MiningHandle;
 use ubos_net::net;
 
+mod config;
 mod cpu_mock;
 mod fan;
 mod gpiod;
@@ -295,6 +296,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                 tx_buffer: &mut *tx_buffer,
             };
             let mut state = stratum_client::StratumState::new(0);
+            let ntime_roll: NtimeRoll = config::CHIP.chip_descriptor().rolls_ntime.into();
 
             let result = match &entry.protocol {
                 ubos_config::ProtocolKind::Sv1 { password } => {
@@ -309,7 +311,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                         &mut client,
                         ASIC_SESSION.pool_handle(0),
                         &mut state,
-                        Some(NTIME_ROLL_PERIOD_SECS),
+                        ntime_roll.period_secs(),
                     )
                     .await
                 }
@@ -323,7 +325,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
                         &mut client,
                         ASIC_SESSION.pool_handle(0),
                         &mut state,
-                        Some(NTIME_ROLL_PERIOD_SECS),
+                        ntime_roll.period_secs(),
                     )
                     .await
                 }

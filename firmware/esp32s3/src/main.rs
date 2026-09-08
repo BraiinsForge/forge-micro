@@ -402,7 +402,8 @@ async fn boot(spawner: Spawner) {
     // Independent entropy stream for the SV2 noise handshake, drawn from
     // the same hardware RNG as the session CSPRNG.
     let sv2_seed = ubos_esp32::seed_from_rng(&mut rng);
-    let stratum_shared = ubos_firmware::init_stratum(sv2_seed);
+    let stratum_shared =
+        ubos_firmware::init_stratum(sv2_seed, config::CHIP.chip_descriptor().rolls_ntime);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_ingest_task()));

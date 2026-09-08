@@ -65,12 +65,45 @@ pub const STRATUM_TCP_BUFFER_SIZE: usize = 2048;
 /// survive a few missed pool pings without dropping the session.
 pub const SOCKET_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Production work-generator cadence in seconds: publish and roll
-/// ntime once per second, matching the behavior before the period
-/// became configurable. Firmware and host call sites pass
-/// `Some(NTIME_ROLL_PERIOD_SECS)` to `run_stratum_session`; `None`
-/// is reserved for test builds that must pin ntime to the job base.
+/// Work-generator cadence in seconds when the host rolls ntime: publish
+/// and advance ntime once per second. [`NtimeRoll::Host`] hands it to
+/// `run_stratum_session`.
 pub const NTIME_ROLL_PERIOD_SECS: u32 = 1;
+
+/// Who advances the header's ntime while a job is current.
+///
+/// A chip that searches only the nonce needs the host to hand it a new
+/// header every second, so the generator republishes with ntime moved on.
+/// A chip that searches ntime on its own must not: a header that overlaps
+/// the one it holds makes it re-find the same solutions once the write
+/// restarts its scan, so the generator publishes each job exactly once
+/// and the chip's driver reports the offset the chip chose.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NtimeRoll {
+    Host,
+    Chip,
+}
+
+impl From<bool> for NtimeRoll {
+    fn from(chip_rolls_ntime: bool) -> Self {
+        if chip_rolls_ntime {
+            Self::Chip
+        } else {
+            Self::Host
+        }
+    }
+}
+
+impl NtimeRoll {
+    /// The republish period, or `None` to publish each job once.
+    #[must_use]
+    pub const fn period_secs(self) -> Option<u32> {
+        match self {
+            Self::Host => Some(NTIME_ROLL_PERIOD_SECS),
+            Self::Chip => None,
+        }
+    }
+}
 
 pub use asic_session::{AsicSession, PoolHandle, SOLUTION_QUEUE_DEPTH};
 pub use connector::{PoolConnector, SessionError, run_stratum_session};

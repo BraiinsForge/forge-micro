@@ -241,7 +241,7 @@ async fn boot(spawner: Spawner) {
         rng.async_fill_bytes(&mut sv2_seed)
             .await
             .expect("BUG: RNG fill failed");
-        ubos_firmware::init_stratum(sv2_seed)
+        ubos_firmware::init_stratum(sv2_seed, config::CHIP.chip_descriptor().rolls_ntime)
     };
 
     // Derive a per-unit MAC from the 96-bit STM32 unique device id.

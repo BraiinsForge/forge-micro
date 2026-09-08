@@ -121,7 +121,7 @@ pub trait ChipBus {
 /// the `bm13xx` recipes and driver consume.
 pub struct BmDescriptor {
     /// Vendor-neutral capability bounds served through the chain seam.
-    pub chain: ChipDescriptor,
+    pub chip: ChipDescriptor,
     /// Model identifier the chip reports in `ChipIdReg.chip_id`
     /// (`0x1362`, `0x1366`, `0x1370`). Enumeration matches the value
     /// read off the chain against this to select the chip.
@@ -393,7 +393,7 @@ pub trait ChipProtocol {
     /// programs the PLL alone before the baud switch; the counting
     /// number follows on the fast UART via [`Self::set_hcn`].
     async fn set_pll(&self, bus: &mut impl ChipBus, freq: Frequency) -> Result<(), ChipError> {
-        let range = self.descriptor().chain.frequency_range;
+        let range = self.descriptor().chip.frequency_range;
         let pll = PllParameterReg::from_freq(freq.khz(), range)
             .ok_or(ChipError::UnsupportedFrequency(freq))?;
         let fence = Pll0DividerReg::zeroed();
@@ -418,7 +418,7 @@ pub trait ChipProtocol {
     /// only ever sends it on the fast UART, so bring-up programs it after
     /// the baud switch, never at the boot baud.
     async fn set_hcn(&self, bus: &mut impl ChipBus, freq: Frequency) -> Result<(), ChipError> {
-        let range = self.descriptor().chain.frequency_range;
+        let range = self.descriptor().chip.frequency_range;
         let hcn = HashCountingNumberReg::from_freq(freq.khz(), range)
             .ok_or(ChipError::UnsupportedFrequency(freq))?;
         bus.write_register(ChipAddress::All, hcn).await;
@@ -448,7 +448,7 @@ pub trait ChipProtocol {
 /// 6.25 MHz boundary the PLL calculator resolves exactly. The BM1366
 /// and BM1370 share this grid.
 pub static BM1362: BmDescriptor = BmDescriptor {
-    chain: ChipDescriptor {
+    chip: ChipDescriptor {
         asic_model: Chip::Bm1362.asic_model(),
         core_count: 514,
         max_chip_voltage: Chip::Bm1362.max_chip_voltage(),
@@ -457,6 +457,7 @@ pub static BM1362: BmDescriptor = BmDescriptor {
             Frequency::from_khz(50_000),
             Frequency::from_khz(1_000_000),
         ),
+        rolls_ntime: false,
     },
     chip_id: 0x1362,
     broadcast_clock_delay: 0x34,
@@ -469,7 +470,7 @@ pub static BM1362: BmDescriptor = BmDescriptor {
 /// `frequency_range` upper bound is a uniform 1000 MHz local
 /// tuning-policy envelope, not a chip limit.
 pub static BM1366: BmDescriptor = BmDescriptor {
-    chain: ChipDescriptor {
+    chip: ChipDescriptor {
         asic_model: Chip::Bm1366.asic_model(),
         core_count: 894,
         max_chip_voltage: Chip::Bm1366.max_chip_voltage(),
@@ -478,6 +479,7 @@ pub static BM1366: BmDescriptor = BmDescriptor {
             Frequency::from_khz(50_000),
             Frequency::from_khz(1_000_000),
         ),
+        rolls_ntime: false,
     },
     chip_id: 0x1366,
     broadcast_clock_delay: 0x34,
@@ -490,7 +492,7 @@ pub static BM1366: BmDescriptor = BmDescriptor {
 /// `frequency_range` upper bound is a uniform 1000 MHz local
 /// tuning-policy envelope, not a chip limit.
 pub static BM1370: BmDescriptor = BmDescriptor {
-    chain: ChipDescriptor {
+    chip: ChipDescriptor {
         asic_model: Chip::Bm1370.asic_model(),
         core_count: 2040,
         max_chip_voltage: Chip::Bm1370.max_chip_voltage(),
@@ -499,6 +501,7 @@ pub static BM1370: BmDescriptor = BmDescriptor {
             Frequency::from_khz(250_000),
             Frequency::from_khz(1_000_000),
         ),
+        rolls_ntime: false,
     },
     chip_id: 0x1370,
     broadcast_clock_delay: 0x34,
@@ -568,6 +571,13 @@ impl Chip {
             Chip::Bm1366 => Voltage::from_mv(1382),
             Chip::Bm1370 => Voltage::from_mv(1250),
         }
+    }
+
+    /// The vendor-neutral half of this chip's descriptor, for a board
+    /// that needs a chain fact before it has built a driver.
+    #[must_use]
+    pub fn chip_descriptor(self) -> &'static ChipDescriptor {
+        &self.descriptor().chip
     }
 
     /// Recover the job's work-id from byte 7 of a work response.

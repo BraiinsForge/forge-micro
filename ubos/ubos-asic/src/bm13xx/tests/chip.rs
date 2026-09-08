@@ -168,7 +168,7 @@ fn run_bringup(responders: u8) -> (heapless::Vec<Op, 512>, u8) {
 /// Synthetic eight-chip, two-domain hashboard for BM1366 multi-domain
 /// tests. Four chips per domain; addressing stride is 1.
 const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
-    chip: &BM1366.chain,
+    chip: &BM1366.chip,
     num_voltage_domains: 2,
     num_chips: 8,
     max_psu_voltage: ubos_core::units::Voltage::from_mv(5000),
@@ -188,7 +188,7 @@ const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
 /// test. Topology is intentionally minimal; the 0xb9 write does not
 /// depend on chip count or domain count.
 const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
-    chip: &BM1370.chain,
+    chip: &BM1370.chip,
     num_voltage_domains: 1,
     num_chips: 1,
     max_psu_voltage: ubos_core::units::Voltage::from_mv(5000),

@@ -488,7 +488,8 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(net_task(runner)));
 
     ubos_auth::csprng::seed_csprng(seeds.csprng);
-    let stratum_shared = ubos_firmware::init_stratum(seeds.sv2);
+    let stratum_shared =
+        ubos_firmware::init_stratum(seeds.sv2, config::CHIP.chip_descriptor().rolls_ntime);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_ingest_task()));
