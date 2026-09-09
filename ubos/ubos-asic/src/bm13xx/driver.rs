@@ -33,7 +33,7 @@ use ubos_core::units::Frequency;
 
 use crate::HashboardDescriptor;
 use crate::chain::{
-    ChainDriver, ChainSolution, ChipDescriptor, ChipError, MAX_INGEST_CHUNK,
+    BIP320_VERSION_MASK, ChainDriver, ChainSolution, ChipDescriptor, ChipError, MAX_INGEST_CHUNK,
     MAX_SOLUTIONS_PER_BATCH, PollBatch, PollProgress, ResultMode, ShareTarget, SolutionBatch,
     WorkJob,
 };
@@ -44,7 +44,7 @@ use super::framing::{
     ChipAddress, ControlCommand, HwWork, RESPONSE_LEN, Response, ResponseParser, build_command,
     build_read_register, build_write_register,
 };
-use super::registers::{Register, TicketMaskReg};
+use super::registers::{MidstateCalReg, Register, TicketMaskReg};
 
 #[cfg(test)]
 #[path = "tests/driver.rs"]
@@ -88,6 +88,11 @@ const READ_REPLY_BUDGET: usize = 1_024;
 // `MAX_INGEST_CHUNK` so the two cannot drift apart.
 const _: () = assert!(MAX_INGEST_CHUNK.div_ceil(RESPONSE_LEN) <= MAX_SOLUTIONS_PER_BATCH);
 
+/// Bit offset of the BIP320 version-rolling field within the version
+/// word. [`MidstateCalReg::version_rolled_bitmask`] holds the field
+/// shifted down by this amount, one register bit per field bit.
+const VERSION_FIELD_SHIFT: u32 = BIP320_VERSION_MASK.trailing_zeros();
+
 /// [`ChainDriver`] for one Bitmain chip model. Holds the streaming
 /// `ResponseParser` for the push solution path and a running desync
 /// count drained through [`ChainDriver::take_desync`].
@@ -95,6 +100,23 @@ pub struct Bm13xxDriver {
     chip: Chip,
     parser: ResponseParser,
     desync: u32,
+    /// The `version_rolled_bitmask` value last broadcast to the chain,
+    /// or `None` before any bring-up has run. Lets `send_work` skip the
+    /// register write when the job's mask has not changed since the
+    /// last one.
+    ///
+    /// The register is one value for the whole chain while the mask is a
+    /// property of each job, and the two disagree whenever a chain is
+    /// fed from two pool slots whose grants differ. The chips keep a job
+    /// resident in its work slot, so a job dispatched under a narrow
+    /// mask keeps rolling after a later job widens the register, and its
+    /// solutions come back with bits the consumer's per-job mask
+    /// excludes. Those shares fail their own difficulty check and are
+    /// dropped rather than mis-submitted, so the cost is lost shares on
+    /// a pool switch and never a bad submission. Draining the in-flight
+    /// work before widening is the fix and is not done: it needs a
+    /// bounded drain the seam has no room for today.
+    programmed_mask: Option<u16>,
 }
 
 impl Bm13xxDriver {
@@ -105,6 +127,7 @@ impl Bm13xxDriver {
             chip,
             parser: ResponseParser::new(),
             desync: 0,
+            programmed_mask: None,
         }
     }
 }
@@ -243,6 +266,11 @@ impl ChainDriver for Bm13xxDriver {
             desync: &mut self.desync,
         };
         chip.reset_chain(&mut bus).await;
+        // `reset_chain` broadcasts `MidstateCalReg::factory_default`,
+        // whose bitmask is the full 0xFFFF; recording it here means a
+        // job that grants the full BIP320 field causes no further
+        // register write in `send_work`.
+        self.programmed_mask = Some(MidstateCalReg::factory_default().version_rolled_bitmask());
         chip.enumerate_chips(&mut bus).await
     }
 
@@ -328,6 +356,25 @@ impl ChainDriver for Bm13xxDriver {
             (job.work_id as usize) < self.work_slots(),
             "BUG: work_id outside the chip's work-id range"
         );
+
+        // The register holds the BIP320 field shifted down to its own
+        // 16 bits; broadcast it only when the job actually narrows the
+        // grant from what is already programmed.
+        #[allow(clippy::cast_possible_truncation)]
+        let wanted = ((job.version_mask & BIP320_VERSION_MASK) >> VERSION_FIELD_SHIFT) as u16;
+        if self.programmed_mask != Some(wanted) {
+            let mut bus = TransportBus {
+                io,
+                desync: &mut self.desync,
+            };
+            bus.write_register(
+                ChipAddress::All,
+                MidstateCalReg::factory_default().with_version_rolled_bitmask(wanted),
+            )
+            .await;
+            self.programmed_mask = Some(wanted);
+        }
+
         let midstate = self.chip.descriptor().midstate_count;
         #[allow(clippy::cast_possible_truncation)]
         let work_id = (job.work_id as u8).wrapping_mul(midstate);

@@ -45,7 +45,7 @@
 //! that is genuinely in flight when it arrives.
 
 use super::*;
-use ubos_asic::{PollBatch, SolutionBatch};
+use ubos_asic::{PollBatch, SolutionBatch, rolled_version};
 
 use crate::consts::WORK_REGISTRY_SLOTS;
 use crate::registry::WorkRegistry;
@@ -59,7 +59,9 @@ use stratum_client::AsicSession;
 const POLL: ResultMode = ResultMode::Poll {
     period: embassy_time::Duration::from_millis(60),
 };
-use ubos_asic::{BMM101_HASHBOARD, Bm13xxDriver, Chip, ChipDescriptor, ShareTarget};
+use ubos_asic::{
+    BIP320_VERSION_MASK, BMM101_HASHBOARD, Bm13xxDriver, Chip, ChipDescriptor, ShareTarget,
+};
 use ubos_core::units::{FrequencyRange, Voltage};
 
 /// Fixed-slot scheduler stub: `evaluate` returns the pinned slot when
@@ -245,7 +247,11 @@ impl<'a, const N: usize> Harness<'a, N> {
             .registry
             .get(solution.work_id)
             .expect("solution's work_id must map to a populated registry slot");
-        let version = rolled_version(slot.assignment.version, solution.version_bits);
+        let version = rolled_version(
+            slot.assignment.version,
+            solution.version_bits,
+            BIP320_VERSION_MASK,
+        );
         let ntime = slot.assignment.ntime.wrapping_add(solution.ntime_offset);
         let hash = solution_hash(
             version,
@@ -727,7 +733,9 @@ fn reset_drains_the_desync_tally_before_clearing_the_driver() {
         let mut state = CommandState::new();
         state.work_ticker = Some(Ticker::every(Duration::from_millis(50)));
         state.poll_cadence = Some(PollCadence::every(Duration::from_millis(50)));
-        state.registry.place(assignment(1), 0);
+        state
+            .registry
+            .place(assignment(1), 0, JobVersion::pinned(0));
         let mut driver = StubDriver::new(POLL, 37);
         let baseline = UART_DESYNC_BYTES.load(Ordering::Relaxed);
 
@@ -742,7 +750,9 @@ fn reset_drains_the_desync_tally_before_clearing_the_driver() {
         assert!(state.poll_cadence.is_none());
         assert!(state.registry.get(0).is_none());
         assert_eq!(
-            state.registry.place(assignment(2), 0),
+            state
+                .registry
+                .place(assignment(2), 0, JobVersion::pinned(0)),
             0,
             "the work IDs start over"
         );

@@ -114,6 +114,9 @@ fn configure_fails_when_the_host_baud_switch_is_refused() {
 #[test]
 fn send_work_serializes_the_hw_work_frame() {
     let mut driver = Bm13xxDriver::new(Chip::Bm1362);
+    // Matches the job's zero version_mask below, so send_work writes
+    // only the work frame and no `MidstateCalReg` broadcast.
+    driver.programmed_mask = Some(0x0000);
     let mut io = MockTransport::new();
     let job = WorkJob {
         work_id: 2,
@@ -237,6 +240,9 @@ fn ingest_drops_the_batch_overflow_solution_in_a_single_oversized_call() {
 #[test]
 fn bm1370_work_id_packing_round_trips_through_the_driver() {
     let mut driver = Bm13xxDriver::new(Chip::Bm1370);
+    // Matches the job's zero version_mask below, so send_work writes
+    // only the work frame and no `MidstateCalReg` broadcast.
+    driver.programmed_mask = Some(0x0000);
     let mut io = MockTransport::new();
     let job = WorkJob {
         work_id: 3,
@@ -345,4 +351,128 @@ fn poll_results_is_empty_for_the_push_family() {
     let mut driver = Bm13xxDriver::new(Chip::Bm1362);
     let mut io = MockTransport::new();
     assert!(block_on(driver.poll_results(&mut io)).solutions.is_empty());
+}
+
+/// The 11-byte `MidstateCalReg` (`0xa4`) broadcast write `send_work`
+/// makes when the job narrows the version-rolling mask, so the tests
+/// below assert against exactly what the driver put on the wire.
+fn expected_midstate_cal_write(bitmask: u16) -> heapless::Vec<u8, 4096> {
+    use crate::bm13xx::registers::Register as _;
+    let value = u32::from_be_bytes(
+        crate::bm13xx::registers::MidstateCalReg::factory_default()
+            .with_version_rolled_bitmask(bitmask)
+            .to_be_bytes(),
+    );
+    let mut out: heapless::Vec<u8, 4096> = heapless::Vec::new();
+    out.extend_from_slice(
+        crate::bm13xx::framing::build_write_register(
+            crate::bm13xx::framing::ChipAddress::All,
+            0xa4,
+            value,
+        )
+        .as_slice(),
+    )
+    .expect("test frame fits");
+    out
+}
+
+/// A job whose `version_mask` narrows the BIP320 field to `0x0000_E000`
+/// broadcasts a `MidstateCalReg` write with bitmask `0x0007` (the field
+/// shifted down by 13) before the work frame.
+#[test]
+fn send_work_programs_the_narrowed_version_rolled_bitmask() {
+    let mut driver = Bm13xxDriver::new(Chip::Bm1362);
+    driver.programmed_mask = Some(0xFFFF);
+    let mut io = MockTransport::new();
+    let job = WorkJob {
+        work_id: 0,
+        nonce_start: 0,
+        nbits: 0x1703_1abc,
+        ntime: 0x6512_3456,
+        version: 0x2000_0000,
+        version_mask: 0x0000_E000,
+        merkle_root: [0x11; 32],
+        prev_hash: [0x22; 32],
+    };
+
+    block_on(driver.send_work(&mut io, &job)).expect("send_work is infallible for a valid job");
+
+    let expected_register_write = expected_midstate_cal_write(0x0007);
+    assert!(io.writes.starts_with(expected_register_write.as_slice()));
+}
+
+/// A second `send_work` with the same narrowed mask writes no further
+/// `MidstateCalReg` register — the driver remembers what it already
+/// programmed.
+#[test]
+fn send_work_skips_the_register_write_when_the_mask_is_unchanged() {
+    let mut driver = Bm13xxDriver::new(Chip::Bm1362);
+    driver.programmed_mask = Some(0xFFFF);
+    let mut io = MockTransport::new();
+    let job = WorkJob {
+        work_id: 0,
+        nonce_start: 0,
+        nbits: 0x1703_1abc,
+        ntime: 0x6512_3456,
+        version: 0x2000_0000,
+        version_mask: 0x0000_E000,
+        merkle_root: [0x11; 32],
+        prev_hash: [0x22; 32],
+    };
+
+    block_on(driver.send_work(&mut io, &job)).expect("send_work is infallible for a valid job");
+    let after_first = io.writes.len();
+    block_on(driver.send_work(&mut io, &job)).expect("send_work is infallible for a valid job");
+
+    // The second call appended only the work frame: no 0xa4 register
+    // write bytes were added.
+    let hw_work = HwWork {
+        work_id: 0,
+        nonce_start: job.nonce_start,
+        nbits: job.nbits,
+        ntime: job.ntime,
+        merkle_root: job.merkle_root,
+        prev_hash: job.prev_hash,
+        version: job.version,
+    }
+    .serialize();
+    assert_eq!(io.writes.len(), after_first + hw_work.len());
+    assert_eq!(&io.writes[after_first..], hw_work.as_slice());
+}
+
+/// A job that grants the full BIP320 field after `reset_and_enumerate`
+/// (which already broadcasts `MidstateCalReg::factory_default`, whose
+/// bitmask is the full `0xFFFF`) causes no register write at all.
+#[test]
+fn send_work_with_the_full_mask_after_reset_writes_no_register() {
+    let mut driver = Bm13xxDriver::new(Chip::Bm1362);
+    let mut io = MockTransport::with_reads(&BM1362_CHIP_ID_REPLY);
+    let board = crate::BMM101_HASHBOARD;
+    block_on(driver.reset_and_enumerate(&mut io, &board));
+    io.writes.clear();
+
+    let job = WorkJob {
+        work_id: 0,
+        nonce_start: 0,
+        nbits: 0x1703_1abc,
+        ntime: 0x6512_3456,
+        version: 0x2000_0000,
+        version_mask: crate::chain::BIP320_VERSION_MASK,
+        merkle_root: [0x11; 32],
+        prev_hash: [0x22; 32],
+    };
+
+    block_on(driver.send_work(&mut io, &job)).expect("send_work is infallible for a valid job");
+
+    let hw_work = HwWork {
+        work_id: 0,
+        nonce_start: job.nonce_start,
+        nbits: job.nbits,
+        ntime: job.ntime,
+        merkle_root: job.merkle_root,
+        prev_hash: job.prev_hash,
+        version: job.version,
+    }
+    .serialize();
+    assert_eq!(io.writes.as_slice(), hw_work.as_slice());
 }

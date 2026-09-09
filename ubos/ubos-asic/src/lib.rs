@@ -42,9 +42,10 @@ pub mod transport;
 pub use bm13xx::{chip::Chip, driver::Bm13xxDriver};
 pub use board::*;
 pub use chain::{
-    BIP320_VERSION_MASK, ChainDriver, ChainSolution, ChipDescriptor, ChipError, MAX_INGEST_CHUNK,
-    MAX_SOLUTIONS_PER_BATCH, PollBatch, PollProgress, ResultMode, ShareDifficulty, ShareTarget,
-    SolutionBatch, WorkJob, block_header, rolled_version, solution_hash,
+    BIP320_VERSION_MASK, ChainDriver, ChainSolution, ChipDescriptor, ChipError, JobVersion,
+    MAX_INGEST_CHUNK, MAX_SOLUTIONS_PER_BATCH, PollBatch, PollProgress, ResultMode,
+    ShareDifficulty, ShareTarget, SolutionBatch, VersionPartition, WorkJob, block_header,
+    partition_version_mask, rolled_version, solution_hash,
 };
 pub use pvt::{ChainPvt, TemperatureSummary, VoltageSummary};
 pub use transport::{BaudRateError, Transport};

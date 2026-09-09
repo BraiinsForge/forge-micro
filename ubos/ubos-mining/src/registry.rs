@@ -35,6 +35,7 @@ mod tests;
 
 use crate::consts::WORK_REGISTRY_SLOTS;
 use stratum_client::WorkAssignment;
+use ubos_asic::JobVersion;
 use ubos_logging::warn;
 
 /// In-flight work for a given `work_id` slot. Holds the assignment so an
@@ -49,6 +50,9 @@ pub(crate) struct WorkSlot {
     /// scheduler picks other slots while the chip is hashing, so a
     /// session keeps submitting its in-flight shares.
     pub(crate) session_slot: usize,
+    /// The version the job went out under, which a solution's echo is
+    /// merged into.
+    pub(crate) version: JobVersion,
 }
 
 /// The assignments in flight, indexed by hardware work ID. The ID is
@@ -102,8 +106,15 @@ impl WorkRegistry {
     /// Record a dispatch and return the hardware work ID. A repeat of
     /// the assignment the last dispatch carried, from the same pool slot,
     /// keeps that ID; anything else takes the next one and retires its
-    /// previous assignment.
-    pub(crate) fn place(&mut self, assignment: WorkAssignment, session_slot: usize) -> u32 {
+    /// previous assignment. `version` is what the job built from the
+    /// assignment carries, kept so a solution is merged under the same
+    /// partition it was dispatched with.
+    pub(crate) fn place(
+        &mut self,
+        assignment: WorkAssignment,
+        session_slot: usize,
+        version: JobVersion,
+    ) -> u32 {
         // The whole assignment, not just its assignment ID: a session mints its
         // assignment IDs from zero, so a reconnect on the same pool slot offers id
         // zero again for a job that is not the one in flight, and the
@@ -121,6 +132,7 @@ impl WorkRegistry {
         self.slots[work_id as usize] = Some(WorkSlot {
             assignment,
             session_slot,
+            version,
         });
         self.next_work_id = (work_id + 1) % self.work_slots;
         self.last_work_id = Some(work_id);

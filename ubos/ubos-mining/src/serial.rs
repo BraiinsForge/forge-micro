@@ -59,8 +59,8 @@ use portable_atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_asic::{
-    BaudRateError, ChainDriver, ChainSolution, ChipError, HashboardDescriptor, PollProgress,
-    ResultMode, Transport, WorkJob, rolled_version, solution_hash,
+    BaudRateError, ChainDriver, ChainSolution, ChipError, HashboardDescriptor, JobVersion,
+    PollProgress, ResultMode, Transport, WorkJob, solution_hash,
 };
 use ubos_core::units::Frequency;
 use ubos_logging::{Debug2Format, error, info, trace, warn};
@@ -324,6 +324,14 @@ impl PollCadence {
 /// to the seam's ingest contract so one full read can never decode into
 /// more solutions than a batch carries.
 const READ_CHUNK: usize = ubos_asic::MAX_INGEST_CHUNK;
+
+/// This actor's index among the machine's hashboards, and the total
+/// hashboard count, used to partition a pool-granted version-rolling
+/// mask so sibling chains never hash identical headers. Fixed at 0 of 1
+/// for now; a later change gives each `Serial` its own index once a
+/// board wires up more than one chain.
+const CHAIN: usize = 0;
+const CHAINS: usize = 1;
 
 /// Hex pretty-printer for trace logs. Wraps a byte slice and formats it
 /// as `"AA BB CC"` under both `core::fmt::Display` and `defmt::Format`,
@@ -873,14 +881,19 @@ impl Serial {
             available[slot] = false;
         };
 
-        let work_id = registry.place(assignment, session_slot);
+        // Narrow the pool's granted mask to this chain's own share
+        // before building the job, so sibling chains on the same
+        // machine never hash identical headers.
+        let job_version =
+            JobVersion::partitioned(assignment.version, assignment.version_mask, CHAIN, CHAINS);
+        let work_id = registry.place(assignment, session_slot, job_version);
         let job = WorkJob {
             work_id,
             nonce_start: 0,
             nbits: assignment.nbits,
             ntime: assignment.ntime,
-            version: assignment.version,
-            version_mask: assignment.version_mask,
+            version: job_version.version,
+            version_mask: job_version.rolled_mask,
             merkle_root: assignment.merkle_root,
             prev_hash: assignment.prev_hash,
         };
@@ -924,7 +937,11 @@ impl Serial {
         };
         let assignment = &slot.assignment;
 
-        let version = rolled_version(assignment.version, solution.version_bits);
+        // Merge the echo under the mask this chain was dispatched with,
+        // which the registry kept from the dispatch. A driver may echo
+        // only the rolled bits, or echo the whole field together with the
+        // fixed bits. Either way the same header version is reconstructed.
+        let version = slot.version.rolled(solution.version_bits);
         let ntime = assignment.ntime.wrapping_add(solution.ntime_offset);
         let hash = solution_hash(
             version,
@@ -970,11 +987,17 @@ impl Serial {
             slot.session_slot, solution.nonce, solution.work_id, solution.version_bits
         );
 
+        // The pool checks the submitted bits against its own grant, not
+        // this chain's narrowed slice: that echo style carries only
+        // the rolled index and is missing the fixed bits the pool still
+        // expects to see, so submit the reconstructed header version
+        // masked back down to the full grant instead of the driver's
+        // raw echo.
         let submitted = Solution {
             assignment_id: assignment.assignment_id,
             nonce: solution.nonce,
             ntime,
-            version_bits: solution.version_bits,
+            version_bits: version & assignment.version_mask,
         };
         if !session.submit_solution(slot.session_slot, submitted) {
             warn!("AsicSession solutions full, dropping submission");

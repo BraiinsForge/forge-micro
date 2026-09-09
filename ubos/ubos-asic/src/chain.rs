@@ -54,18 +54,117 @@ mod tests;
 /// BIP320 version-rolling field mask: bits 28:13 carry the rolled value.
 pub const BIP320_VERSION_MASK: u32 = 0x1FFF_E000;
 
-/// Merge the rolled version bits from a solution into a base version,
-/// replacing only the BIP320 field. `version_bits` is already masked to
-/// that field by the driver.
+/// Merge rolled version bits into a base version, replacing only the
+/// bits named by `rolled_mask`.
 ///
-/// The merge always spans the whole field, whatever
-/// [`WorkJob::version_mask`] granted: a compliant driver echoes only
-/// bits it was allowed to roll, so the wider merge is exact for it,
-/// and narrowing the merge to the grant would need the grant threaded
-/// to every caller before any driver misbehaves enough to matter.
+/// The merge covers only the bits the chain actually rolled, which is the
+/// [`VersionPartition::rolled_mask`] the chain was dispatched against:
+/// bits fixed by the chain's partition of the granted mask must survive
+/// whichever way the driver echoes them back. One kind of chip echoes
+/// only the bits it rolled, so `version_bits` there carries just the
+/// rolled index and the fixed bits must already be present in
+/// `base_version`; a chip that hashes from version slots echoes the whole
+/// field value, fixed bits included, so `version_bits` there carries them
+/// too but `rolled_mask` still narrows the merge to the bits that can
+/// legitimately differ.
 #[must_use]
-pub fn rolled_version(base_version: u32, version_bits: u32) -> u32 {
-    (base_version & !BIP320_VERSION_MASK) | (version_bits & BIP320_VERSION_MASK)
+pub fn rolled_version(base_version: u32, version_bits: u32, rolled_mask: u32) -> u32 {
+    (base_version & !rolled_mask) | (version_bits & rolled_mask)
+}
+
+/// The result of partitioning a pool-granted version-rolling mask across
+/// the chains of a multi-hashboard machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VersionPartition {
+    /// Bits within the granted mask this chain holds fixed, encoding the
+    /// chain's index. Zero for chain 0.
+    pub fixed_bits: u32,
+    /// Bits within the granted mask this chain is free to roll.
+    pub rolled_mask: u32,
+}
+
+/// Partition a pool-granted version-rolling mask so each of `chains`
+/// hashboards works a disjoint version space.
+///
+/// The highest set bits of `granted` are reserved to encode the chain
+/// index, as many as the count needs, and the highest reserved bit
+/// carries the index's own highest bit. Chain 0 therefore always gets
+/// `fixed_bits = 0`. Every other bit of `granted` becomes `rolled_mask`,
+/// the same for every chain. One chain reserves nothing and rolls the
+/// whole grant.
+///
+/// A `granted` mask with fewer set bits than the index needs cannot be
+/// partitioned: chain 0 keeps the whole mask to roll and every other
+/// chain gets nothing, pinning its version to the base value.
+#[must_use]
+pub fn partition_version_mask(granted: u32, chain: usize, chains: usize) -> VersionPartition {
+    debug_assert!(chain < chains.max(1), "BUG: chain index outside chains");
+    let index_bits = usize::BITS - chains.saturating_sub(1).leading_zeros();
+    if index_bits > granted.count_ones() {
+        return VersionPartition {
+            fixed_bits: 0,
+            rolled_mask: if chain == 0 { granted } else { 0 },
+        };
+    }
+    let mut fixed_bits = 0u32;
+    let mut rolled_mask = granted;
+    for index_bit in (0..index_bits).rev() {
+        // Take the highest bit still in the rolled mask for this
+        // position of the chain index.
+        let reserved = 1u32 << (u32::BITS - 1 - rolled_mask.leading_zeros());
+        rolled_mask &= !reserved;
+        if (chain >> index_bit) & 1 != 0 {
+            fixed_bits |= reserved;
+        }
+    }
+    VersionPartition {
+        fixed_bits,
+        rolled_mask,
+    }
+}
+
+/// The version one chain hashes one job under: the granted base with
+/// this chain's fixed bits folded in, and the bits the chain is left to
+/// roll. Built once at dispatch and kept with the in-flight work, so a
+/// solution is merged under exactly the partition it was hashed with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JobVersion {
+    /// The header version the job carries: the assignment's version
+    /// outside the granted mask, plus the chain's fixed bits inside it.
+    pub version: u32,
+    /// The bits within the granted mask this chain rolls; what a
+    /// solution's echo is merged under.
+    pub rolled_mask: u32,
+}
+
+impl JobVersion {
+    /// The version chain `chain` of `chains` hashes a job under, given
+    /// the pool's `version` and its `granted` rolling mask; see
+    /// [`partition_version_mask`] for how the grant is split.
+    #[must_use]
+    pub fn partitioned(version: u32, granted: u32, chain: usize, chains: usize) -> Self {
+        let partition = partition_version_mask(granted, chain, chains);
+        Self {
+            version: (version & !granted) | partition.fixed_bits,
+            rolled_mask: partition.rolled_mask,
+        }
+    }
+
+    /// A version with nothing to roll.
+    #[must_use]
+    pub const fn pinned(version: u32) -> Self {
+        Self {
+            version,
+            rolled_mask: 0,
+        }
+    }
+
+    /// The header version a solution hashed, from the bits the chip
+    /// echoed; see [`rolled_version`] for the two echo styles.
+    #[must_use]
+    pub fn rolled(&self, version_bits: u32) -> u32 {
+        rolled_version(self.version, version_bits, self.rolled_mask)
+    }
 }
 
 /// Assemble the canonical 80-byte block header. `prev_hash` and
@@ -233,11 +332,20 @@ pub struct WorkJob {
     pub version: u32,
     /// Mask of version bits the chip may roll; zero pins the version.
     ///
-    /// Only the drivers that opt in act on this; a driver that ignores
-    /// it keeps its family's fixed rolling behaviour, and the
-    /// reconstruction in [`rolled_version`] still assumes the full
-    /// BIP320 field either way. A pool that pins the version is
-    /// honoured by a driver that reads the mask, not by the seam.
+    /// The consumer narrows the pool-granted mask to this chain's own
+    /// share via [`partition_version_mask`] before building the job, so
+    /// this already excludes the bits other chains hold fixed.
+    /// Reconstruction in [`rolled_version`] merges under exactly this
+    /// mask, so it is exact under a partial mask whether the driver
+    /// echoes only the rolled bits or the whole field.
+    ///
+    /// A driver must honour this mask. The consumer rebuilds the header
+    /// it verifies and submits by merging the chip's echo under this
+    /// mask alone, so a chip that rolls a bit outside it hashes a header
+    /// the consumer cannot reconstruct: the share fails its own
+    /// difficulty check and is dropped. On a machine with more than one
+    /// chain, the bits outside the mask are the ones that keep the
+    /// chains off each other's version space.
     pub version_mask: u32,
     /// Merkle root in canonical Bitcoin internal byte order.
     pub merkle_root: [u8; 32],

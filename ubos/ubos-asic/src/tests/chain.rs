@@ -82,10 +82,149 @@ fn solution_hash_matches_mining_protocol_reference() {
 /// out-of-field bit of the base version.
 #[test]
 fn rolled_version_replaces_only_the_bip320_field() {
-    assert_eq!(rolled_version(0x2000_0000, 0), 0x2000_0000);
-    assert_eq!(rolled_version(0x2000_0000, 0x0027_0000), 0x2027_0000);
+    assert_eq!(
+        rolled_version(0x2000_0000, 0, BIP320_VERSION_MASK),
+        0x2000_0000
+    );
+    assert_eq!(
+        rolled_version(0x2000_0000, 0x0027_0000, BIP320_VERSION_MASK),
+        0x2027_0000
+    );
     // Out-of-field bits in the rolled value are masked away.
-    assert_eq!(rolled_version(0x2000_0000, !0), 0x3FFF_E000);
+    assert_eq!(
+        rolled_version(0x2000_0000, !0, BIP320_VERSION_MASK),
+        0x3FFF_E000
+    );
+}
+
+/// A partial rolled mask merges only its own bits; a fixed bit outside
+/// the rolled mask survives from the base version regardless of what
+/// the echoed value carries there.
+#[test]
+fn rolled_version_merges_only_the_rolled_mask() {
+    let base = 0x2004_0000;
+    let rolled_mask = 0x0000_E000;
+    let echoed = 0x1FFF_E000;
+    assert_eq!(rolled_version(base, echoed, rolled_mask), 0x2004_E000);
+}
+
+/// A single chain gets the whole granted mask to roll and no fixed
+/// bits.
+#[test]
+fn partition_version_mask_single_chain_keeps_whole_mask() {
+    let partition = partition_version_mask(BIP320_VERSION_MASK, 0, 1);
+    assert_eq!(partition.fixed_bits, 0);
+    assert_eq!(partition.rolled_mask, BIP320_VERSION_MASK);
+}
+
+/// Three chains share one rolled mask (the granted mask minus its top
+/// two set bits, since `index_bits` for 3 chains is 2) and differ only
+/// in which bits are fixed. The fixed bits are pairwise distinct and
+/// never overlap the shared rolled mask.
+#[test]
+fn partition_version_mask_three_chains_share_rolled_mask_and_differ_in_fixed_bits() {
+    let granted = BIP320_VERSION_MASK;
+    let chains = 3;
+    let partitions: heapless::Vec<_, 3> = (0..chains)
+        .map(|chain| partition_version_mask(granted, chain, chains))
+        .collect();
+
+    let rolled_mask = partitions[0].rolled_mask;
+    for partition in &partitions {
+        assert_eq!(partition.rolled_mask, rolled_mask);
+        assert_eq!(partition.fixed_bits & rolled_mask, 0);
+    }
+    assert_eq!(partitions[0].fixed_bits, 0);
+    assert_ne!(partitions[0].fixed_bits, partitions[1].fixed_bits);
+    assert_ne!(partitions[0].fixed_bits, partitions[2].fixed_bits);
+    assert_ne!(partitions[1].fixed_bits, partitions[2].fixed_bits);
+}
+
+/// An empty granted mask stays empty for every chain: nothing to fix
+/// and nothing to roll.
+#[test]
+fn partition_version_mask_empty_mask_stays_empty() {
+    for chain in 0..3 {
+        let partition = partition_version_mask(0, chain, 3);
+        assert_eq!(partition.fixed_bits, 0);
+        assert_eq!(partition.rolled_mask, 0);
+    }
+}
+
+/// A one-bit mask cannot supply the two index bits three chains need:
+/// chain 0 keeps the whole (one-bit) mask to roll, and every other
+/// chain gets nothing, pinning its version to the base value.
+#[test]
+fn partition_version_mask_too_few_bits_pins_every_chain_but_the_first() {
+    let granted = 0x0000_2000;
+    assert_eq!(
+        partition_version_mask(granted, 0, 3),
+        VersionPartition {
+            fixed_bits: 0,
+            rolled_mask: granted,
+        }
+    );
+    for chain in 1..3 {
+        assert_eq!(
+            partition_version_mask(granted, chain, 3),
+            VersionPartition {
+                fixed_bits: 0,
+                rolled_mask: 0,
+            }
+        );
+    }
+}
+
+/// One echo style: the chip returns only the bits it rolled, so
+/// `version_bits` carries just the rolled index and the fixed bits must
+/// already sit in the base version the consumer built at dispatch.
+#[test]
+fn rolled_version_reconstructs_a_rolled_bits_only_echo_for_a_partitioned_chain() {
+    let granted = BIP320_VERSION_MASK;
+    let base = 0x2000_0000;
+    let chain = 1;
+    let chains = 3;
+    let partition = partition_version_mask(granted, chain, chains);
+
+    // What WorkJob::version carries: the base with this chain's fixed
+    // bits already folded in.
+    let base_with_fixed = (base & !granted) | partition.fixed_bits;
+
+    // The chip rolls some index within its rolled_mask and echoes only
+    // that.
+    let rolled_index = 0x0000_4000 & partition.rolled_mask;
+    let echoed = rolled_index;
+
+    let header_version = rolled_version(base_with_fixed, echoed, partition.rolled_mask);
+
+    // Reconstructing the header the chip actually hashed: base outside
+    // the grant, this chain's fixed bits, and the rolled index.
+    let expected = (base & !granted) | partition.fixed_bits | rolled_index;
+    assert_eq!(header_version, expected);
+}
+
+/// Whole-field echo: the chip returns the whole field value, fixed
+/// bits included, but the rolled mask still narrows the merge to the
+/// bits that can legitimately differ, so the result is identical to the
+/// reconstruction the rolled-only echo above produces.
+#[test]
+fn rolled_version_reconstructs_a_whole_field_echo_for_a_partitioned_chain() {
+    let granted = BIP320_VERSION_MASK;
+    let base = 0x2000_0000;
+    let chain = 1;
+    let chains = 3;
+    let partition = partition_version_mask(granted, chain, chains);
+
+    let base_with_fixed = (base & !granted) | partition.fixed_bits;
+
+    let rolled_index = 0x0000_4000 & partition.rolled_mask;
+    // The whole field value, fixed bits included.
+    let echoed = partition.fixed_bits | rolled_index;
+
+    let header_version = rolled_version(base_with_fixed, echoed, partition.rolled_mask);
+
+    let expected = (base & !granted) | partition.fixed_bits | rolled_index;
+    assert_eq!(header_version, expected);
 }
 
 /// `from_pow2_difficulty` reproduces the hand-built byte arrays it

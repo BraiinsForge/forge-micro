@@ -328,6 +328,21 @@ Hardware version rolling is always on: `reset_chain` enables the full
 and each `HwSolution` carries a `version_idx` that maps to the BIP320
 version bits (28:13) for the local hash check.
 
+Every chain driver honors `WorkJob::version_mask`. On a
+machine with more than one hashboard, the consumer splits the pool's
+granted mask across chains before it builds a job: `partition_version_mask`
+reserves the top bits of the grant to encode each chain's index as fixed
+bits and gives every chain the same lower bits to roll, so sibling chains
+never hash identical headers. The chip's driver reprograms
+`MidstateCalReg`'s `version_rolled_bitmask` only when a job narrows the
+mask it already has broadcast, so a machine with one hashboard, which
+keeps the full grant, causes no extra register traffic. Reconstruction in
+`rolled_version` merges only under the mask the chain actually rolled, so
+it stays exact under a partial mask whichever way a chip echoes its
+bits back: a chip of that kind returns only the rolled index, a chip that
+hashes from version slots returns the whole field including the chain's
+fixed bits, and both reconstruct the same header version.
+
 The chip distributes version-rolling work into a fixed number of
 streams and tags each returned solution with a variant index in the low
 bits of the echoed `work_id`. That count — the **work-id variant

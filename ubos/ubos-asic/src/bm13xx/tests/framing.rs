@@ -85,7 +85,11 @@ fn work_response_rolled_version() {
         version_idx: 312,
     };
     assert_eq!(
-        crate::chain::rolled_version(0x2000_0000, response.version_bits()),
+        crate::chain::rolled_version(
+            0x2000_0000,
+            response.version_bits(),
+            crate::chain::BIP320_VERSION_MASK
+        ),
         0x2027_0000
     );
 }
