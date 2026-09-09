@@ -151,6 +151,30 @@ from, since a board can own more than one; see `ubos_mining::chain_stats`.
 There are no unlabelled duplicates of these series; board totals are
 `sum(...)` over the label.
 
+## Per-chain state
+
+Code: `ubos/ubos-mining/src/publishers.rs`.
+
+Four gauges are labelled `chain="i"`. Each is pushed once per chain the
+machine wired up, which `ChainStatsHandle::chain_count` reports. The
+unused slots of the `MAX_CHAINS`-sized table are never published, and
+no per-chain series is emitted before the miner has started:
+
+- `board_chain_chips` — the chain's chip count from its most recent
+  bring-up, or zero for a chain that is absent, faulted, or not yet
+  enumerated. A faulted chain keeps the count it found in
+  `ChainStats::presence()`. No gauge and no endpoint reports that count.
+- `board_chain_present` — 1 when `ChainStats::presence()` is `Present`,
+  0 otherwise (absent, faulted, or not yet enumerated).
+- `board_hashrate_hps` — the smoothed hashrate of the chain's own
+  estimator.
+- `board_shares_total` — the chain's lifetime count of diff-1 chip
+  shares.
+
+There are no unlabelled duplicates of the last two. A board total is
+`sum(...)` over the `chain` label, as for the per-pool series above.
+They describe chip output, not pool credit.
+
 ## Hashrate
 
 Code: `ubos/ubos-metrics/src/hashrate.rs`, `ubos/ubos-mining/src/chain_stats.rs`.

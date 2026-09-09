@@ -31,17 +31,26 @@ use crate::Handle as MiningHandle;
 use crate::chain_stats;
 
 /// Periodically push `board_uart_desync_bytes_total`,
-/// `board_miner_running`, `board_miner_frequency_khz`,
-/// `board_miner_voltage_mv`, and `board_pool_work_shares_total` to
-/// the metrics exposition channel. The frequency and voltage gauges
-/// track the tuner's live operating point — they update on every
-/// ramp step, not only at the configured target. The frequency gauge
-/// is exposed in kHz so the 6.25 MHz `FixedTuner` ramp granularity
-/// survives the integer cast. `board_uart_desync_bytes_total` and
-/// `board_pool_work_shares_total` are each labeled `chain="i"` and
-/// pushed once per chain the board owns; `board_pool_work_shares_total`
-/// is additionally labeled `pool="i"` and pushed once per pool slot
-/// below `pool_slots`, which callers pass as their board's `POOL_SLOTS`
+/// `board_chain_chips`, `board_chain_present`, `board_hashrate_hps`,
+/// `board_shares_total`, `board_miner_running`,
+/// `board_miner_frequency_khz`, `board_miner_voltage_mv`, and
+/// `board_pool_work_shares_total` to the metrics exposition channel.
+/// The frequency and voltage gauges track the tuner's live operating
+/// point — they update on every ramp step, not only at the configured
+/// target. The frequency gauge is exposed in kHz so the 6.25 MHz
+/// `FixedTuner` ramp granularity survives the integer cast.
+/// `board_uart_desync_bytes_total`, `board_chain_chips`,
+/// `board_chain_present`, `board_hashrate_hps`, and
+/// `board_shares_total` are each labeled `chain="i"` and pushed once
+/// per chain the machine wired up, which
+/// [`chain_stats::ChainStatsHandle::chain_count`] reports, so the unused
+/// slots of the table are never published at all. That count is zero
+/// until the miner starts, and until then no per-chain series is
+/// emitted. No unlabelled duplicate of the hashrate and share series is
+/// emitted; a machine total is the sum over the `chain` label.
+/// `board_pool_work_shares_total` is
+/// additionally labeled `pool="i"` and pushed once per pool slot below
+/// `pool_slots`, which callers pass as their board's `POOL_SLOTS`
 /// constant.
 pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize) -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(2));
@@ -53,6 +62,25 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
                 "board_uart_desync_bytes_total",
                 chain,
                 Value::Uint(u64::from(stats.desync_bytes())),
+            )
+            .await;
+            push_chain_metric(
+                "board_chain_chips",
+                chain,
+                Value::Uint(u64::from(stats.chips())),
+            )
+            .await;
+            push_chain_metric(
+                "board_chain_present",
+                chain,
+                Value::Uint(u64::from(stats.presence().is_present())),
+            )
+            .await;
+            push_chain_metric("board_hashrate_hps", chain, Value::Uint(stats.hashrate())).await;
+            push_chain_metric(
+                "board_shares_total",
+                chain,
+                Value::Uint(stats.share_count()),
             )
             .await;
             let limit = pool_slots.min(crate::consts::MAX_POOL_SLOTS);

@@ -688,6 +688,7 @@ fn default_hw_info() -> crate::schema::system_info::HwInfo {
         fan_controller_version: None,
         psu_model: None,
         hashboard_ids: None,
+        chains_present: 0,
     }
 }
 
@@ -786,13 +787,14 @@ fn system_info_hw_info_serializes_published_versions() {
         fan_controller_version: Some("12.34.56 build 777".parse().expect("BUG: fits in HwString")),
         psu_model: Some("PSU3300 rev a".parse().expect("BUG: fits in HwString")),
         hashboard_ids: Some(hashboard_ids),
+        chains_present: 2,
     };
     let json = serialize_system_info(false, None, hw_info);
     assert!(
         json.contains(
             "\"hwInfo\":{\"bootloaderVersion\":\"deadbeef\",\
              \"fanControllerVersion\":\"12.34.56 build 777\",\"psuModel\":\"PSU3300 rev a\",\
-             \"hashboardIds\":[\"SERIAL0\",null,\"SERIAL2\"]}"
+             \"hashboardIds\":[\"SERIAL0\",null,\"SERIAL2\"],\"chainsPresent\":2}"
         ),
         "expected populated hwInfo object in {json}"
     );
@@ -809,7 +811,7 @@ fn system_info_hw_info_serializes_unpublished_versions_as_null() {
     assert!(
         json.contains(
             "\"bootloaderVersion\":null,\"fanControllerVersion\":null,\"psuModel\":null,\
-             \"hashboardIds\":null"
+             \"hashboardIds\":null,\"chainsPresent\":0"
         ),
         "expected null bootloaderVersion, fanControllerVersion, and hashboardIds in {json}"
     );

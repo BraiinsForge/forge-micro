@@ -11,6 +11,16 @@ export interface Ota {
   maxImageBytes: number;
 }
 
+/** One hashboard chain slot, nested in the `GET /api/info` body. */
+export interface ChainInfo {
+  chain: number;
+  state: 'present' | 'absent' | 'faulted' | 'unknown';
+  chips: number;
+  frequency_mhz: number;
+  hashrate: number;
+  hottest_c: number | null;
+}
+
 /** `GET /api/info` — the body the dashboard polls every two seconds. */
 export interface Info {
   name: string;
@@ -36,6 +46,7 @@ export interface Info {
   mac?: string;
   time?: string;
   ota?: Ota;
+  chains: ChainInfo[];
 }
 
 // A pool's stratum protocol, a single-key tagged union in the JSON. The

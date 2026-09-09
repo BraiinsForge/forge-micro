@@ -85,6 +85,13 @@ fn validate_board_name_rejects_backslash() {
 /// - `running`: `true` (4 chars).
 /// - `paused`: `true` (4 chars).
 /// - `pause_reason`: `"dangerousTemperature"` (20 chars, longest variant).
+/// - `chains`: `ubos_machine::MAX_CHAINS` entries — the most any board
+///   can report, since [`ubos_mining::chain_stats::ChainStatsHandle::chain_count`]
+///   never exceeds the table it wraps — each with `chips` at `u16::MAX`
+///   (5 digits), `frequency_mhz` at `u32::MAX` (10 digits), `hashrate`
+///   at `u64::MAX` (20 digits), and `hottest_c` at `i32::MIN / 1000` (7
+///   digits including the sign), the widest `state` string
+///   (`"unknown"`/`"faulted"`, 7 chars).
 #[test]
 fn api_info_body_fits_in_buffer() {
     // Build the body using the same `format!` calls that `rest.rs` uses,
@@ -129,6 +136,32 @@ fn api_info_body_fits_in_buffer() {
          \"mac\":\"ff:ff:ff:ff:ff:ff\",\
          \"time\":\"23:59:59 UTC\""
     );
+
+    // Chains array: the handler emits one entry per
+    // `ChainStatsHandle::chain_count`, which never exceeds
+    // `ubos_machine::MAX_CHAINS`, so that bound is the worst case
+    // regardless of how many chains any one board actually owns.
+    let chain_chips = u16::MAX;
+    let chain_frequency_mhz = u32::MAX;
+    let chain_hashrate = u64::MAX;
+    let chain_hottest_c = i32::MIN / 1000;
+    let mut chains = std::string::String::from(",\"chains\":[");
+    for chain in 0..ubos_machine::MAX_CHAINS {
+        if chain > 0 {
+            chains.push(',');
+        }
+        let _ = write!(
+            chains,
+            "{{\"chain\":{chain},\
+             \"state\":\"unknown\",\
+             \"chips\":{chain_chips},\
+             \"frequency_mhz\":{chain_frequency_mhz},\
+             \"hashrate\":{chain_hashrate},\
+             \"hottest_c\":{chain_hottest_c}}}"
+        );
+    }
+    chains.push(']');
+    body.push_str(&chains);
 
     // OTA block with all fields populated.
     let running_slot = "ACTIVE";
@@ -335,5 +368,46 @@ fn config_response_body_fits_in_buffer() {
         len <= CONFIG_RESPONSE_BUFFER_SIZE,
         "worst-case GET /api/config body is {len} bytes, which overflows \
          CONFIG_RESPONSE_BUFFER_SIZE ({CONFIG_RESPONSE_BUFFER_SIZE})"
+    );
+}
+
+// --- write_chains renders the real chains array ---
+
+/// Drives [`super::write_chains`] itself, rather than rebuilding its
+/// JSON output by hand, so a typo in the handler's literal fails this
+/// test instead of only ever landing in the live response.
+#[test]
+fn write_chains_renders_the_chains_array() {
+    static CHAINS: [ubos_mining::chain_stats::ChainStats; 2] = [
+        ubos_mining::chain_stats::ChainStats::new(),
+        ubos_mining::chain_stats::ChainStats::new(),
+    ];
+    CHAINS[0].set_presence(ubos_mining::presence::ChainPresence::Present { chips: 105 });
+    CHAINS[0].set_frequency(ubos_core::units::Frequency::from_mhz(650));
+    CHAINS[0].set_hottest(Some(72_000));
+    CHAINS[1].set_presence(ubos_mining::presence::ChainPresence::Absent);
+
+    let handle = ubos_mining::chain_stats::ChainStatsHandle::new(&CHAINS);
+    let mut buffer = [0u8; 512];
+    let mut writer = ubos_http::BufferWriter::new(&mut buffer);
+    super::write_chains(&mut writer, handle);
+    let len = writer.len();
+    let json = std::str::from_utf8(&buffer[..len]).expect("write_chains emits valid UTF-8");
+
+    assert!(
+        json.starts_with(",\"chains\":[") && json.ends_with(']'),
+        "unexpected chains array framing: {json}"
+    );
+    assert!(
+        json.contains("\"chain\":0,\"state\":\"present\",\"chips\":105,\"frequency_mhz\":650"),
+        "chain 0 fields missing or wrong: {json}"
+    );
+    assert!(
+        json.contains("\"hottest_c\":72"),
+        "chain 0 hottest_c missing or wrong: {json}"
+    );
+    assert!(
+        json.contains("\"chain\":1,\"state\":\"absent\",\"chips\":0"),
+        "chain 1 fields missing or wrong: {json}"
     );
 }

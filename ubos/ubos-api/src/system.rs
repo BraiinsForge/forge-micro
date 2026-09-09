@@ -78,7 +78,7 @@ use heapless::String;
 use ubos_http::write_json_response;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_mining::chain_stats::{machine_hashrate, machine_share_count};
+use ubos_mining::chain_stats;
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::ota::{OtaError, ota_session};
@@ -318,6 +318,7 @@ where
         fan_controller_version: crate::hw_info::fan_controller_version(),
         psu_model: psu.model(),
         hashboard_ids: crate::hw_info::hashboard_ids(),
+        chains_present: chain_stats.present_chain_count(),
     };
 
     let info = SystemInfo {

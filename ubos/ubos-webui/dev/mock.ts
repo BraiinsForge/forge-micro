@@ -5,6 +5,7 @@
 // board. It is registered through Rsbuild's `dev.setupMiddlewares`.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ChainInfo } from '../web/lib/types';
 
 type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void;
 
@@ -21,7 +22,10 @@ let authed = true;
 function info() {
   tick += 1;
   uptime += 2;
-  const hashrate = 1.15e12 + Math.sin(tick / 6) * 7e10 + (tick % 5) * 3e9;
+  // The machine hashrate is the chains' own hashrates summed, rather than
+  // an independent figure, so the dashboard's total and per-chain rows
+  // never disagree.
+  const hashrate = CHAINS.reduce((sum, chain) => sum + chain.hashrate, 0);
   const temperature = 62 + Math.round(Math.sin(tick / 9) * 3);
   const powerIn = 3200 + Math.round(Math.sin(tick / 7) * 120);
   return {
@@ -46,8 +50,20 @@ function info() {
     mac: 'de:ad:be:ef:00:01',
     time: new Date().toISOString().slice(0, 19).replace('T', ' '),
     ota: { runningSlot: 'A', runningVersion: 42, maxImageBytes: 952 * 1024 },
+    chains: CHAINS,
   };
 }
+
+// One present, one absent, one faulted, and one unknown chain, so the
+// dev loop shows every state the Hashboards card renders. Four entries
+// is one more than MAX_CHAINS allows; a real board never reports the
+// fourth. The mock runs the whole card, not the machine limit.
+const CHAINS: ChainInfo[] = [
+  { chain: 0, state: 'present', chips: 105, frequency_mhz: 500, hashrate: 6e11, hottest_c: 68 },
+  { chain: 1, state: 'absent', chips: 0, frequency_mhz: 0, hashrate: 0, hottest_c: null },
+  { chain: 2, state: 'faulted', chips: 0, frequency_mhz: 0, hashrate: 0, hottest_c: null },
+  { chain: 3, state: 'unknown', chips: 0, frequency_mhz: 0, hashrate: 0, hottest_c: null },
+];
 
 const CONFIG = {
   pool: [

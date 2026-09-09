@@ -50,14 +50,18 @@ mod tests;
 /// 17-byte MAC string + 16-byte time string + OTA static fields +
 /// OTA diagnostic fields including the `resetWritePhase` string +
 /// `running` bool + `paused` bool + `pause_reason` string up to
-/// `"dangerousTemperature"` + JSON framing). The
-/// `api_info_body_fits_in_buffer` test builds the absolute worst case
-/// with every numeric field at its maximum decimal width and measures
-/// ~790 bytes. 512 bytes overflowed once the OTA diagnostic fields were
-/// added, silently truncating the tail; 896 bytes covers the synthetic
-/// worst case and leaves room for future fields while staying on the
-/// stack.
-const API_INFO_BODY_BUFFER_SIZE: usize = 896;
+/// `"dangerousTemperature"` + a `chains` array with one entry per
+/// chain the board actually owns, up to `ubos_machine::MAX_CHAINS` +
+/// JSON framing). The `api_info_body_fits_in_buffer` test builds the
+/// absolute worst case — every numeric field at its maximum decimal
+/// width and a `chains` array at `ubos_machine::MAX_CHAINS` entries,
+/// the most any board can report — and measures 1187 bytes. 512 bytes
+/// overflowed once the OTA diagnostic fields were added, silently
+/// truncating the tail; 1280 bytes covers the synthetic worst case,
+/// which grew past the earlier 896-byte figure once the per-chain
+/// `chains` array was added, and leaves room for future fields while
+/// staying on the stack.
+const API_INFO_BODY_BUFFER_SIZE: usize = 1280;
 
 /// Body buffer for the POST /api/config acknowledgement.
 const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
@@ -164,6 +168,51 @@ impl RestApiService {
             stack,
         }
     }
+}
+
+/// Write the `/api/info` `chains` array: one entry per chain the
+/// board actually owns, which is what `chain_stats.chains()` yields,
+/// rather than one entry per slot in the fixed-size table `chain_stats`
+/// is backed by. A single-chain board must not advertise phantom chains
+/// 1 and 2.
+fn write_chains(
+    writer: &mut ubos_http::BufferWriter<'_>,
+    chain_stats: ubos_mining::chain_stats::ChainStatsHandle,
+) {
+    let _ = writer.write_str(",\"chains\":[");
+    for (chain, stats) in chain_stats.chains().enumerate() {
+        if chain > 0 {
+            let _ = writer.write_str(",");
+        }
+        let state = match stats.presence() {
+            ubos_mining::presence::ChainPresence::Unknown => "unknown",
+            ubos_mining::presence::ChainPresence::Present { .. } => "present",
+            ubos_mining::presence::ChainPresence::Absent => "absent",
+            ubos_mining::presence::ChainPresence::Faulted { .. } => "faulted",
+        };
+        let _ = core::write!(
+            writer,
+            "{{\"chain\":{chain},\
+             \"state\":\"{state}\",\
+             \"chips\":{},\
+             \"frequency_mhz\":{},\
+             \"hashrate\":{},\
+             \"hottest_c\":",
+            stats.chips(),
+            stats.frequency().mhz(),
+            stats.hashrate(),
+        );
+        match stats.hottest_mc() {
+            Some(hottest_mc) => {
+                let _ = core::write!(writer, "{}", hottest_mc / 1000);
+            }
+            None => {
+                let _ = writer.write_str("null");
+            }
+        }
+        let _ = writer.write_str("}");
+    }
+    let _ = writer.write_str("]");
 }
 
 impl Service for RestApiService {
@@ -441,6 +490,8 @@ impl Service for RestApiService {
                         let _ = writer.write_str("null");
                     }
                 }
+                write_chains(&mut writer, chain_stats);
+
                 let _ = writer.write_str(",\"ip\":\"");
 
                 let net_state = ubos_net::net::handle().current();

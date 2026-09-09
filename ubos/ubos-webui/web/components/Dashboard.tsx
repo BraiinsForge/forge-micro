@@ -4,7 +4,7 @@ import Chart from './Chart';
 import { useDash } from '../lib/store';
 import { getConfig } from '../lib/api';
 import { fmtHr, fmtUp, fmtPower, fmtVolts } from '../lib/format';
-import type { Info } from '../lib/types';
+import type { ChainInfo, Info } from '../lib/types';
 
 const PAUSE_LABEL: Record<string, string> = {
   dangerousTemperature: 'Stopped - Overheating',
@@ -40,6 +40,25 @@ function statusOf(info: Info | null): Status {
   }
   if (!info.running) return { text: 'Stopped', cls: 'stopped' };
   return { text: 'Running', cls: 'running' };
+}
+
+// The board reports one entry per chain it actually owns, so the card
+// shows every entry the API returns.
+function visibleChains(info: Info | null): ChainInfo[] {
+  return info?.chains ?? [];
+}
+
+function chainStatus(state: ChainInfo['state']): Status {
+  switch (state) {
+    case 'present':
+      return { cls: 'live', text: 'Live' };
+    case 'absent':
+      return { cls: 'empty', text: 'Absent' };
+    case 'faulted':
+      return { cls: 'fault', text: 'Faulted' };
+    default:
+      return { cls: 'unknown', text: '—' };
+  }
 }
 
 interface StatCardProps {
@@ -211,6 +230,36 @@ export default function Dashboard() {
           );
         })}
       </div>
+
+      {visibleChains(info).length > 0 && (
+        <div class="card hbs">
+          <div class="ph">
+            <div class="k">Hashboards</div>
+          </div>
+          <div class="htr">
+            <span>Chain</span>
+            <span>Chips</span>
+            <span>Frequency</span>
+            <span>Hashrate</span>
+            <span>Hottest</span>
+            <span>Status</span>
+          </div>
+          {visibleChains(info).map((chain) => {
+            const st = chainStatus(chain.state);
+            const present = chain.state === 'present';
+            return (
+              <div class={'hb ' + st.cls} key={chain.chain}>
+                <span>{chain.chain}</span>
+                <span>{present ? chain.chips : '—'}</span>
+                <span>{present ? chain.frequency_mhz + ' MHz' : '—'}</span>
+                <span>{present ? fmtHr(chain.hashrate) : '—'}</span>
+                <span>{chain.hottest_c == null ? '—' : chain.hottest_c + ' °C'}</span>
+                <StatusDot text={st.text} />
+              </div>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 }

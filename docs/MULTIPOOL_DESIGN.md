@@ -348,13 +348,16 @@ prometheus exposition and the logs:
   `board_stratum_reconnects_total{pool="0"}`. No unlabelled
   duplicates are emitted; the REST `system_info` totals sum the
   arrays in code, so its schema is unchanged.
-- `ubos-mining` counts delivered diff-1 shares per originating slot
-  (`POOL_WORK_SHARES`, bumped next to the scheduler's
-  `accumulate_share`) and publishes
-  `board_pool_work_shares_total{pool="0"}` — the ratio between
-  these series is the split the scheduler actually delivered.
-  `board_shares_total` and the hashrate EWMA stay global: they
-  describe chip output, not pool credit.
+- `ubos-mining` counts delivered diff-1 shares per chain and per
+  originating slot (the `pool_shares` array in `ChainStats`, bumped
+  next to the scheduler's `accumulate_share`) and publishes
+  `board_pool_work_shares_total{chain="0",pool="0"}` — the ratio
+  between these series is the split the scheduler actually
+  delivered. The hashrate EWMA and the share count are per chain as
+  well. Each `ChainStats` owns a `HashrateEstimator`, and the two
+  series are `board_hashrate_hps{chain="0"}` and
+  `board_shares_total{chain="0"}`. They describe chip output, not
+  pool credit, so a machine total is the sum over the `chain` label.
 - Logs carry `pool {slot}` at the session and state layers: the
   `StratumState` visitor lines (new job, accepted, rejected,
   session updates), the submit and solution-drop lines in `run.rs`,

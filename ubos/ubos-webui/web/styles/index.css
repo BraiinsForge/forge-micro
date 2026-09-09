@@ -450,27 +450,42 @@ main > * {
 }
 
 .ptr,
-.pool {
+.pool,
+.htr,
+.hb {
   display: grid;
-  grid-template-columns: 5fr 2fr 3fr 2fr;
   align-items: center;
   font-size: var(--fs-body);
 }
 
-.ptr {
+.ptr,
+.pool {
+  grid-template-columns: 5fr 2fr 3fr 2fr;
+}
+
+.htr,
+.hb {
+  grid-template-columns: 2fr 2fr 2fr 3fr 2fr 2fr;
+}
+
+.ptr,
+.htr {
   font-weight: var(--fw-emp);
   background: var(--panel);
   height: 40px;
 }
 
-.pool {
+.pool,
+.hb {
   background: var(--panel);
   height: 48px;
   margin-top: 1px;
 }
 
 .ptr > span,
-.pool > span {
+.pool > span,
+.htr > span,
+.hb > span {
   padding: 0 16px;
   white-space: nowrap;
   overflow: hidden;
@@ -491,15 +506,20 @@ main > * {
   flex-shrink: 0;
 }
 
-.pool.live .pd {
+.pool.live .pd,
+.hb.live .pd {
   background: var(--green);
 }
 
-.pool.empty .pd {
+.pool.empty .pd,
+.hb.empty .pd,
+.hb.unknown .pd {
   background: var(--mute);
 }
 
-.pool.empty > span {
+.pool.empty > span,
+.hb.empty > span,
+.hb.unknown > span {
   color: var(--mute);
 }
 
@@ -508,6 +528,25 @@ main > * {
   font-size: var(--fs-label);
   min-width: 3em;
   text-align: right;
+}
+
+/* ---------- Hashboards card ---------- */
+/* Reuses .card/.ph/.ptr/.pool/.ps/.pd/.pt from the pools card above;
+   only the column count and the "fault"/"unknown" status colors differ. */
+
+.hbs {
+  grid-column: 1 / -1;
+  background: transparent;
+  padding: 0;
+  margin-top: 8px;
+}
+
+.hb.fault .pd {
+  background: var(--red);
+}
+
+.hb.fault .pt {
+  color: var(--red);
 }
 
 /* Link card reuses the .ps/.pt structure but with bigger text. */
@@ -621,6 +660,22 @@ main > * {
     height: 32px;
   }
   .pool {
+    height: 40px;
+  }
+  .htr,
+  .hb {
+    font-size: var(--fs-label);
+    grid-template-columns: 3em 3em 4em 1fr 3em 4em;
+  }
+  .htr > span,
+  .hb > span,
+  .hb > .ps {
+    padding: 0 8px;
+  }
+  .htr {
+    height: 32px;
+  }
+  .hb {
     height: 40px;
   }
   /* The nav is one non-wrapping row: logo, three text links, then the

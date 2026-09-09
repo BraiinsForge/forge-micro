@@ -87,6 +87,10 @@ pub struct HwInfo {
     /// whole field is `null` until the boot-time read publishes, and
     /// stays `null` forever on a board with no EEPROM producer wired up.
     pub hashboard_ids: Option<HashboardIds>,
+    /// Count of chains whose most recently recorded presence is
+    /// `Present`, from
+    /// `ubos_mining::chain_stats::ChainStatsHandle::present_chains`.
+    pub chains_present: u8,
 }
 
 /// Full system-info snapshot for `GET /api/system/info`.

@@ -180,7 +180,12 @@ the setter divides by the rate and would otherwise panic.
 A board owns a static array of `Serial`, one per hashboard chain it
 wires up; `ubos_mining::chain_stats::CHAIN_STATS` holds one `ChainStats`
 per chain in the same order, so each chain's hashrate, share count, and
-desync bytes are tracked and published separately. `Serial::new(chain,
+desync bytes are tracked and published separately. The table has
+`ubos_machine::MAX_CHAINS` slots; `ChainStatsHandle::chain_count` says
+how many of them the board wired up, and `GET /api/info` carries a
+`chains` array with one entry per wired chain, so a single-chain board
+reports one entry and never a phantom chain. The dashboard's Hashboards
+card renders this array. `Serial::new(chain,
 chains)` takes this chain's index and the board's total chain count so
 sibling chains never hash identical headers.
 
