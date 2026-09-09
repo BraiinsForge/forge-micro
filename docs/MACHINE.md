@@ -26,6 +26,15 @@ the crate that owns the component:
 | `ControlBoardDescriptor` | `ubos-machine` | `CONTROL_BOARD_*` |
 | `MachineDescriptor<Psu>` | `ubos-machine` | `MINIMINER_*`, `HASHNODE` |
 
+`MachineDescriptor.chains` is the connector count: how many hashboard
+chains the machine has. Every chain carries the same `hashboard`, so
+`chains` is a count rather than a per-chain descriptor list. Every
+descriptor asserts `chains <= ubos_machine::MAX_CHAINS` at compile time.
+`MAX_CHAINS` is the ceiling every per-chain table in `ubos/` sizes
+itself to: the chain accounting in `ubos-mining`, the hashboard serial
+vector in `ubos-api`, and the work receiver budget in `stratum-client`.
+A machine with more chains raises `MAX_CHAINS` and nothing else.
+
 Two placements are deliberate:
 
 - **The hashboard descriptor stays in `ubos-asic`.**
@@ -64,8 +73,11 @@ three ways:
 
 - **Tier 1 — genuinely data (the descriptor):** i2c addresses (they
   go on the wire, never into a type), voltage/frequency bounds,
-  chip/domain counts, MAC family, HTTP pool sizes, event-log
-  capacity, names.
+  chip/domain/chain counts, MAC family, HTTP pool sizes, event-log
+  capacity, names. A chain count is data even though `ubos/` still
+  sizes its per-chain tables to the fixed `ubos_machine::MAX_CHAINS`
+  ceiling rather than reading `chains` directly; see [Follow-up
+  work](#follow-up-work-not-in-this-model-yet).
 - **Tier 2 — data-shaped but the mechanism stays code:** GPIO can be
   type-erased (`p.PIN_6.degrade()`), so a descriptor could hold
   "reset = pin index 3", but the index only resolves through a
@@ -149,8 +161,13 @@ consts the machines wrap — so it cannot drift from the firmware.
   formalized binding seam. The per-platform support crates now hold the
   shareable per-MCU work: `ubos-rp`, `ubos-stm32`, `ubos-esp32` and
   `ubos-build`. The builder no longer has to hoist it.
-- **Multiple hashboards per machine.** `MachineDescriptor.hashboard`
-  is a single field, expanded to a collection when multi-board wiring
-  actually lands.
+- **`MAX_CHAINS` is a fixed ceiling, not a per-machine size.** Every
+  per-chain table in `ubos/` — the chain accounting in `ubos-mining`,
+  the hashboard serial vector in `ubos-api`, the work receiver budget
+  in `stratum-client` — is sized to `ubos_machine::MAX_CHAINS` rather
+  than to a given machine's own `chains` count, so a one-chain machine
+  still carries the three-chain tables. Sizing each table from the
+  descriptor's `chains` field instead, so a board pays only for the
+  chains it has, is the remaining refactor.
 - **New control boards.** The `PlatformDescriptor` shape
   anticipates them.

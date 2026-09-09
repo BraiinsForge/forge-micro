@@ -31,6 +31,14 @@ use crate::control_board::{
     CONTROL_BOARD_STM32F439, ControlBoardDescriptor,
 };
 
+/// The most chains one machine drives. The per-chain tables the library
+/// crates own cannot see a board's descriptor, so they are sized to this
+/// ceiling: the chain accounting in `ubos-mining`, the hashboard serial
+/// vector in `ubos-api`, and the work receiver budget in `stratum-client`.
+/// Every descriptor asserts its `chains` fits under it at compile time. A
+/// machine with more chains raises it here and nowhere else.
+pub const MAX_CHAINS: usize = 3;
+
 /// A complete miner: the control board plus the hashboard, PSU, and
 /// temperature-sensor group it drives.
 ///
@@ -51,8 +59,15 @@ pub struct MachineDescriptor<Psu: Copy> {
     pub model: &'static str,
     /// The board the firmware runs on.
     pub control_board: ControlBoardDescriptor,
-    /// The hashboard the machine drives.
+    /// The hashboard the machine drives. Every chain of the machine
+    /// carries this same board, because one firmware image drives one
+    /// chip model.
     pub hashboard: HashboardDescriptor,
+    /// How many hashboard connectors the machine has. Each is a chain
+    /// with its own serial actor, and every chain is enumerated at each
+    /// bring-up, so a connector with no board answers zero chips and is
+    /// marked absent.
+    pub chains: usize,
     /// The PSU powering the hashboard rail.
     pub psu: Psu,
     /// The hashboard temperature-sensor topology.
@@ -96,10 +111,16 @@ impl MachineDescriptor<BmmPsuDescriptor> {
     /// topology; only the control board varies.
     #[must_use]
     pub const fn miniminer(control_board: ControlBoardDescriptor) -> Self {
+        const CHAINS: usize = 1;
+        const _: () = assert!(
+            CHAINS <= MAX_CHAINS,
+            "the miniminer has more chains than MAX_CHAINS"
+        );
         Self {
             model: "miniminer",
             control_board,
             hashboard: ubos_asic::BMM101_HASHBOARD,
+            chains: CHAINS,
             psu: BmmPsuDescriptor::DEFAULT,
             temp: &BMM101_SENSORS,
         }
@@ -204,9 +225,14 @@ pub const HASHNODE: MachineDescriptor<BfmPsuDescriptor> = MachineDescriptor {
     model: "Braiins Forge Miner x4",
     control_board: CONTROL_BOARD_HASHNODE,
     hashboard: ubos_asic::BFMX4_HASHBOARD,
+    chains: 1,
     psu: HASHNODE_PSU,
     temp: &BFMX4_SENSORS,
 };
+const _: () = assert!(
+    HASHNODE.chains <= MAX_CHAINS,
+    "the Hashnode has more chains than MAX_CHAINS"
+);
 
 /// The Braiins Axe's two TMP102 PCB sensors. There is no die-attached
 /// remote diode on this board; both sensors drive the cooling estimate
@@ -247,6 +273,11 @@ pub const BRAIINS_AXE: MachineDescriptor<BraiinsAxePsuDescriptor> = MachineDescr
     model: "Braiins Axe",
     control_board: CONTROL_BOARD_BRAIINS_AXE,
     hashboard: ubos_asic::BRAIINS_AXE_HASHBOARD,
+    chains: 1,
     psu: BRAIINS_AXE_PSU,
     temp: &BRAIINS_AXE_SENSORS,
 };
+const _: () = assert!(
+    BRAIINS_AXE.chains <= MAX_CHAINS,
+    "the Braiins Axe has more chains than MAX_CHAINS"
+);
