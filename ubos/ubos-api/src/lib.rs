@@ -56,7 +56,7 @@ ubos_events::events! {
 }
 
 pub use hw_info::{
-    HW_STRING_LEN, HashboardIds, HwString, MAX_HASHBOARDS, publish_bootloader_version,
+    HW_STRING_LEN, HashboardIds, HwString, publish_bootloader_version,
     publish_fan_controller_version, publish_hashboard_id, publish_hashboard_ids,
 };
 pub use ota::{

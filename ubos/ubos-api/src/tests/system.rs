@@ -775,13 +775,11 @@ fn system_info_hw_info_serializes_published_versions() {
     let mut hashboard_ids: crate::hw_info::HashboardIds = heapless::Vec::new();
     hashboard_ids
         .push(Some("SERIAL0".parse().expect("BUG: fits in HwString")))
-        .expect("BUG: fits in MAX_HASHBOARDS");
-    hashboard_ids
-        .push(None)
-        .expect("BUG: fits in MAX_HASHBOARDS");
+        .expect("BUG: fits in HashboardIds");
+    hashboard_ids.push(None).expect("BUG: fits in HashboardIds");
     hashboard_ids
         .push(Some("SERIAL2".parse().expect("BUG: fits in HwString")))
-        .expect("BUG: fits in MAX_HASHBOARDS");
+        .expect("BUG: fits in HashboardIds");
 
     let hw_info = crate::schema::system_info::HwInfo {
         bootloader_version: Some("deadbeef".parse().expect("BUG: fits in HwString")),

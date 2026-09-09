@@ -31,10 +31,10 @@ fn publish_and_read_round_trip_each_cell() {
     let fan: HwString = "12.34.56 build 777".parse().expect("BUG: fits in HwString");
     let mut ids: HashboardIds = Vec::new();
     ids.push(Some("SERIAL0".parse().expect("BUG: fits in HwString")))
-        .expect("BUG: fits in MAX_HASHBOARDS");
-    ids.push(None).expect("BUG: fits in MAX_HASHBOARDS");
+        .expect("BUG: fits in HashboardIds");
+    ids.push(None).expect("BUG: fits in HashboardIds");
     ids.push(Some("SERIAL2".parse().expect("BUG: fits in HwString")))
-        .expect("BUG: fits in MAX_HASHBOARDS");
+        .expect("BUG: fits in HashboardIds");
 
     publish_bootloader_version(bootloader.clone());
     publish_fan_controller_version(fan.clone());

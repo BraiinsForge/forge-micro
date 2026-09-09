@@ -119,10 +119,10 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 /// `client.drive()`. `client.submit()` errors are logged and
 /// otherwise swallowed — a single bad submit must not tear down
 /// the whole session.
-pub async fn run_stratum_client<C, T, const N: usize>(
+pub async fn run_stratum_client<C, T, const N: usize, const CHAINS: usize>(
     client: &mut C,
     transport: &mut T,
-    asic: PoolHandle<'_, N>,
+    asic: PoolHandle<'_, N, CHAINS>,
     state: &mut StratumState,
     ntime_roll_period_secs: Option<u32>,
 ) -> Result<(), Error>
@@ -146,10 +146,10 @@ where
 /// The five parameters are peers. The client is the protocol adapter,
 /// the transport is the socket, the ASIC handle is where work goes, and
 /// the state is the visitor. `main` owns all of them separately.
-async fn run_stratum_client_inner<C, T, const N: usize>(
+async fn run_stratum_client_inner<C, T, const N: usize, const CHAINS: usize>(
     client: &mut C,
     transport: &mut T,
-    asic: PoolHandle<'_, N>,
+    asic: PoolHandle<'_, N, CHAINS>,
     state: &mut StratumState,
     ntime_roll_period_secs: Option<u32>,
 ) -> Result<(), Error>

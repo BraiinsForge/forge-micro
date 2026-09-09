@@ -50,25 +50,24 @@ mod tests;
 /// want to tune.
 pub const SOLUTION_QUEUE_DEPTH: usize = 8;
 
-/// Per-slot `Watch` capacity: one reader (the ASIC dispatcher) plus
-/// one spare. Senders do not consume receiver slots.
-const WATCH_RECEIVERS: usize = 2;
-
 /// Polled host↔ASIC handoff with one channel pair per pool slot.
 ///
-/// `N` is the pool-slot capacity. It defaults to 1 so single-pool
-/// consumers (host tooling, tests) can keep writing plain
-/// `AsicSession`; firmware instantiates the config-sized alias from
-/// `ubos-firmware`. `static` lifetime is the intended use: the
-/// firmware allocates one in a `static` and passes `&'static
-/// AsicSession<N>` to both the host-side stratum tasks (as
-/// [`PoolHandle`]s) and the ASIC-side worker.
-pub struct AsicSession<const N: usize = 1> {
-    work: [Watch<CriticalSectionRawMutex, WorkAssignment, WATCH_RECEIVERS>; N],
+/// `N` is the pool-slot capacity. `CHAINS` is the receiver budget of
+/// each slot's work cell: every chain's serial actor takes one receiver
+/// from every slot, so it is the number of chains the session feeds.
+/// Both default to 1 so single-pool, single-chain consumers (host
+/// tooling, tests) can keep writing plain `AsicSession`; firmware
+/// instantiates the alias from `ubos-firmware`, which fixes `CHAINS` at
+/// the machine ceiling. `static` lifetime is the intended use: the firmware
+/// allocates one in a `static` and passes `&'static AsicSession<N,
+/// CHAINS>` to both the host-side stratum tasks (as [`PoolHandle`]s)
+/// and the ASIC-side worker.
+pub struct AsicSession<const N: usize = 1, const CHAINS: usize = 1> {
+    work: [Watch<CriticalSectionRawMutex, WorkAssignment, CHAINS>; N],
     solutions: [Channel<CriticalSectionRawMutex, Solution, SOLUTION_QUEUE_DEPTH>; N],
 }
 
-impl<const N: usize> AsicSession<N> {
+impl<const N: usize, const CHAINS: usize> AsicSession<N, CHAINS> {
     #[must_use]
     pub const fn new() -> Self {
         const { assert!(N > 0, "AsicSession needs at least one slot") };
@@ -87,7 +86,7 @@ impl<const N: usize> AsicSession<N> {
     ///
     /// Panics if `slot` is not below `N`.
     #[must_use]
-    pub fn pool_handle(&self, slot: usize) -> PoolHandle<'_, N> {
+    pub fn pool_handle(&self, slot: usize) -> PoolHandle<'_, N, CHAINS> {
         assert!(slot < N, "pool slot out of range");
         PoolHandle {
             session: self,
@@ -97,16 +96,16 @@ impl<const N: usize> AsicSession<N> {
 
     // ---- ASIC side ----
 
-    /// Receiver handle for one slot's work cell. Returns `None` if
-    /// the `Watch`'s receiver budget is exhausted (won't happen in
-    /// practice with `WATCH_RECEIVERS = 2` and one ASIC consumer per
-    /// slot).
+    /// Receiver handle for one slot's work cell. The budget is one
+    /// receiver per chain per slot, `CHAINS` in all, and the call
+    /// returns `None` once a slot has handed out that many.
     ///
     /// # Panics
     ///
     /// Panics if `slot` is not below `N`.
     #[must_use]
     pub fn work_receiver(&self, slot: usize) -> Option<DynReceiver<'_, WorkAssignment>> {
+        assert!(slot < N, "pool slot out of range");
         self.work[slot].dyn_receiver()
     }
 
@@ -126,7 +125,7 @@ impl<const N: usize> AsicSession<N> {
     }
 }
 
-impl<const N: usize> Default for AsicSession<N> {
+impl<const N: usize, const CHAINS: usize> Default for AsicSession<N, CHAINS> {
     fn default() -> Self {
         Self::new()
     }
@@ -134,14 +133,14 @@ impl<const N: usize> Default for AsicSession<N> {
 
 /// One pool slot's face of the [`AsicSession`] — the only view a
 /// stratum session task gets. `Copy`: the firmware creates one per
-/// session task from the shared `&'static AsicSession<N>`.
+/// session task from the shared `&'static AsicSession<N, CHAINS>`.
 #[derive(Clone, Copy)]
-pub struct PoolHandle<'a, const N: usize> {
-    session: &'a AsicSession<N>,
+pub struct PoolHandle<'a, const N: usize, const CHAINS: usize> {
+    session: &'a AsicSession<N, CHAINS>,
     slot: usize,
 }
 
-impl<const N: usize> PoolHandle<'_, N> {
+impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
     /// Slot index this handle publishes to and drains, doubling as
     /// the pool index into [`crate::metrics::POOL_METRICS`].
     #[must_use]

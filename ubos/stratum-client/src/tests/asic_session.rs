@@ -132,3 +132,21 @@ fn pool_handle_rejects_out_of_range_slot() {
     let session: AsicSession<2> = AsicSession::new();
     let _ = session.pool_handle(2);
 }
+
+#[test]
+fn a_slot_hands_out_one_work_receiver_per_chain_and_no_more() {
+    const CHAINS: usize = 3;
+    let session: AsicSession<1, CHAINS> = AsicSession::new();
+    let receivers: heapless::Vec<_, CHAINS> = (0..CHAINS)
+        .map(|_| {
+            session
+                .work_receiver(0)
+                .expect("receiver within the chain budget")
+        })
+        .collect();
+    assert_eq!(receivers.len(), CHAINS);
+    assert!(
+        session.work_receiver(0).is_none(),
+        "a receiver past the chain budget must be refused"
+    );
+}

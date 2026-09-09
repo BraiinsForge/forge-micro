@@ -95,7 +95,11 @@ impl StratumState {
     /// `run_stratum_client_inner` passes the roll period on each ticker
     /// tick, or `0` for the one-shot publish that hands a freshly accepted
     /// job to the ASIC when no ticker is running.
-    pub(crate) fn publish_work<const N: usize>(&mut self, asic: PoolHandle<'_, N>, step: u32) {
+    pub(crate) fn publish_work<const N: usize, const CHAINS: usize>(
+        &mut self,
+        asic: PoolHandle<'_, N, CHAINS>,
+        step: u32,
+    ) {
         let extranonce_2_size = match self.job_ring.current() {
             Some(slot) if slot.valid => slot.extranonce_2_size,
             _ => return,

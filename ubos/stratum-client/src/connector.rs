@@ -103,10 +103,10 @@ impl<E> SessionError<E> {
 /// [`SessionError::Connect`] when `connector.connect()` fails.
 /// [`SessionError::Session`] when the connected [`run_stratum_client`]
 /// does; see its docs for the exact conditions.
-pub async fn run_stratum_session<P, C, const N: usize>(
+pub async fn run_stratum_session<P, C, const N: usize, const CHAINS: usize>(
     connector: &mut P,
     client: &mut C,
-    asic: PoolHandle<'_, N>,
+    asic: PoolHandle<'_, N, CHAINS>,
     state: &mut StratumState,
     ntime_roll_period_secs: Option<u32>,
 ) -> Result<(), SessionError<P::Error>>

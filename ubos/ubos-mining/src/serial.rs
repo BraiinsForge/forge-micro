@@ -676,10 +676,10 @@ impl Serial {
     /// wiring a board descriptor against the wrong driver panics here
     /// instead of tuning the wrong chip's frequency envelope.
     #[allow(clippy::too_many_lines)]
-    pub async fn run<S, C, const N: usize, Sch: Scheduler<N>>(
+    pub async fn run<S, C, const N: usize, const CHAINS: usize, Sch: Scheduler<N>>(
         &self,
         mut serial: S,
-        session: &'static AsicSession<N>,
+        session: &'static AsicSession<N, CHAINS>,
         board: &'static HashboardDescriptor,
         mut driver: C,
         mut scheduler: Sch,
@@ -899,10 +899,10 @@ impl Serial {
     /// driver-reported nonce, rolled version, and ntime offset, and the
     /// difficulty comes from the driver, since a chip family may filter
     /// harder than difficulty one to keep a slow link clear.
-    fn process_solutions<const N: usize, Sch: Scheduler<N>>(
+    fn process_solutions<const N: usize, const CHAINS: usize, Sch: Scheduler<N>>(
         batch: &[ChainSolution],
         registry: &WorkRegistry,
-        session: &AsicSession<N>,
+        session: &AsicSession<N, CHAINS>,
         scheduler: &mut Sch,
         difficulty: &[u8; 32],
     ) {
@@ -911,10 +911,10 @@ impl Serial {
         }
     }
 
-    fn process_solution<const N: usize, Sch: Scheduler<N>>(
+    fn process_solution<const N: usize, const CHAINS: usize, Sch: Scheduler<N>>(
         solution: &ChainSolution,
         registry: &WorkRegistry,
-        session: &AsicSession<N>,
+        session: &AsicSession<N, CHAINS>,
         scheduler: &mut Sch,
         difficulty: &[u8; 32],
     ) {

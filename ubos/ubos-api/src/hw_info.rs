@@ -44,14 +44,12 @@ pub type HwString = String<HW_STRING_LEN>;
 static BOOTLOADER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static FAN_CONTROLLER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 
-/// Capacity of the per-slot serial vector below, sized for the largest
-/// chain count this API has to describe rather than for any board in
-/// this tree, all of which drive a single hashboard. A machine with
-/// more chains raises it; a board with fewer leaves the tail empty.
-pub const MAX_HASHBOARDS: usize = 3;
-
 /// Per-slot hashboard serials; the index is the physical chain number.
-pub type HashboardIds = Vec<Option<HwString>, MAX_HASHBOARDS>;
+/// One slot for every chain a machine can drive, the same
+/// `ubos_machine::MAX_CHAINS` ceiling the stratum session sizes its
+/// receiver budget from; neither derives from the other. A board with
+/// fewer chains leaves the tail empty.
+pub type HashboardIds = Vec<Option<HwString>, { ubos_machine::MAX_CHAINS }>;
 
 static HASHBOARD_IDS: Watch<CriticalSectionRawMutex, HashboardIds, 1> = Watch::new();
 
@@ -87,7 +85,10 @@ pub fn publish_hashboard_ids(ids: HashboardIds) {
 /// board with one chain calls this after its EEPROM read; a multi-chain
 /// board fills the array itself and calls [`publish_hashboard_ids`].
 pub fn publish_hashboard_id(serial: Option<HwString>) {
-    const _: () = assert!(MAX_HASHBOARDS >= 1, "one slot must fit the one serial");
+    const _: () = assert!(
+        ubos_machine::MAX_CHAINS >= 1,
+        "one slot must fit the one serial"
+    );
     let mut ids = HashboardIds::new();
     // The array holds at least one slot, per the assertion above.
     let _ = ids.push(serial);

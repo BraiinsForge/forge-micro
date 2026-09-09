@@ -32,13 +32,14 @@
 //! are initialised once via [`init_stratum`] and fanned out to the
 //! per-slot tasks as a [`StratumShared`] value.
 
+use crate::AsicSession;
 use embassy_futures::select::{Either, select};
 use embassy_time::Timer;
 use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::{
-    AsicSession, NtimeRoll, PoolConnector, RECONNECT_DELAY, SESSION_REJECTED_DELAY, SOCKET_TIMEOUT,
+    NtimeRoll, PoolConnector, RECONNECT_DELAY, SESSION_REJECTED_DELAY, SOCKET_TIMEOUT,
     STRATUM_TCP_BUFFER_SIZE, SessionError, StratumState,
 };
 use ubos_logging::{Debug2Format, info, warn};

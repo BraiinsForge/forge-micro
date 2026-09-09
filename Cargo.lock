@@ -4286,6 +4286,7 @@ dependencies = [
  "ubos-events",
  "ubos-http",
  "ubos-logging",
+ "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
  "ubos-metrics",
@@ -4461,6 +4462,7 @@ dependencies = [
  "ubos-events",
  "ubos-http",
  "ubos-logging",
+ "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
  "ubos-mining",
@@ -4591,6 +4593,7 @@ dependencies = [
  "ubos-core",
  "ubos-events",
  "ubos-logging",
+ "ubos-machine",
  "ubos-metrics",
  "ubos-psu",
 ]

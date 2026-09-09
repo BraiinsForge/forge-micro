@@ -62,6 +62,7 @@ ubos-config    = { workspace = true, default-features = false }
 ubos-events    = { workspace = true, default-features = false }
 ubos-http      = { workspace = true, default-features = false }
 ubos-manager   = { workspace = true, default-features = false }
+ubos-machine   = { workspace = true, default-features = false }
 ubos-mdns      = { workspace = true, default-features = false }
 ubos-mining    = { workspace = true, default-features = false }
 ubos-net       = { workspace = true, default-features = false }

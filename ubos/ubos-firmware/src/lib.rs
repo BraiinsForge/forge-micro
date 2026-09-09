@@ -39,9 +39,11 @@ pub mod stratum;
 pub mod tasks;
 
 pub use stratum::{MAX_POOLS, StratumShared, init_stratum, run_stratum_session};
-/// Re-exported so board binaries can name `AsicSession<POOL_SLOTS>`
-/// without a direct `stratum-client` dependency.
-pub use stratum_client::AsicSession;
+/// The session a board allocates, named `AsicSession<POOL_SLOTS>`
+/// without a direct `stratum-client` dependency. The alias fills in the
+/// work receiver budget, one per chain up to the machine ceiling, so the
+/// protocol crate never reads the hardware descriptor.
+pub type AsicSession<const N: usize> = stratum_client::AsicSession<N, { ubos_machine::MAX_CHAINS }>;
 /// Re-exported for the same reason, and because
 /// [`stratum_metrics_task`](crate::stratum_metrics_task) expands to a call
 /// on it. Reaching it through this crate is what lets a board spawn the

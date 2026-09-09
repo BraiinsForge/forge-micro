@@ -34,7 +34,8 @@ use crate::control_board::{
 /// The most chains one machine drives. The per-chain tables the library
 /// crates own cannot see a board's descriptor, so they are sized to this
 /// ceiling: the chain accounting in `ubos-mining`, the hashboard serial
-/// vector in `ubos-api`, and the work receiver budget in `stratum-client`.
+/// vector in `ubos-api`, and the work receiver budget `ubos-firmware`
+/// sizes into the stratum session.
 /// Every descriptor asserts its `chains` fits under it at compile time. A
 /// machine with more chains raises it here and nowhere else.
 pub const MAX_CHAINS: usize = 3;
