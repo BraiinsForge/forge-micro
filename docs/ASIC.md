@@ -49,13 +49,15 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
 - `result_mode` + `ingest` (push) / `poll_results` (poll) — collect
   `ChainSolution`s. Push families stream nonce frames unsolicited; poll
   families read a nonce FIFO, so the actor branches its steady-state loop
-  on `result_mode`. Bitmain is a push family.
+  on `result_mode`, and the poll variant carries the period the family
+  wants between two reads of one chip, which the actor's ticker takes.
+  Bitmain is a push family.
 - `reset` — re-arm the driver to its freshly-constructed state, keeping
   the chip identity; the actor calls it on a `Reset` command.
 - `status_turn` / `pvt_sweep` — one status reading, or one pass over
   every chip, recorded into a `ChainPvt` the board owns. The
   driver picks the chip and the quantity; the actor sets the cadence,
-  one turn every few polls, and the tuner asks for the sweep right after
+  one turn per 480 ms of polling, and the tuner asks for the sweep right after
   `configure` so the thermal loop has a reading before the ramp. Both
   default to no-ops for a family whose chips carry no sensors.
   On a board whose chips are its only thermometer,

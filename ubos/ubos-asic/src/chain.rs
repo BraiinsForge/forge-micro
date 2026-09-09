@@ -219,8 +219,11 @@ pub enum ResultMode {
     /// consumer feeds freshly-read UART bytes to [`ChainDriver::ingest`].
     Push,
     /// The host must read a nonce FIFO to collect solutions. The
-    /// consumer calls [`ChainDriver::poll_results`] on a ticker.
-    Poll,
+    /// consumer calls [`ChainDriver::poll_results`] on a ticker of
+    /// `period`, the shortest interval the family wants between two
+    /// reads of one chip. A pass over a long chain may take longer, and
+    /// then the wire sets the pace.
+    Poll { period: embassy_time::Duration },
 }
 
 /// A vendor-neutral mining job handed to [`ChainDriver::send_work`].

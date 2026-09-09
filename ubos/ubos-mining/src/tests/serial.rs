@@ -53,6 +53,11 @@ use embassy_futures::block_on;
 use embassy_futures::join::join;
 use embassy_futures::yield_now;
 use stratum_client::AsicSession;
+
+/// The poll mode of a chip read every sixty milliseconds.
+const POLL: ResultMode = ResultMode::Poll {
+    period: embassy_time::Duration::from_millis(60),
+};
 use ubos_asic::{BMM101_HASHBOARD, Bm13xxDriver, Chip, ChipDescriptor, ShareTarget};
 use ubos_core::units::{FrequencyRange, Voltage};
 
@@ -601,7 +606,7 @@ impl ChainDriver for StubDriver {
 /// The `Serial::run` locals the command arm mutates, bundled per test.
 struct CommandState {
     work_ticker: Option<Ticker>,
-    poll_ticker: Option<Ticker>,
+    poll_cadence: Option<PollCadence>,
     registry: WorkRegistry,
 }
 
@@ -609,7 +614,7 @@ impl CommandState {
     fn new() -> Self {
         Self {
             work_ticker: None,
-            poll_ticker: None,
+            poll_cadence: None,
             registry: WorkRegistry::new(WORK_REGISTRY_SLOTS),
         }
     }
@@ -631,7 +636,7 @@ fn run_command(
         driver,
         &BMM101_HASHBOARD,
         &mut state.work_ticker,
-        &mut state.poll_ticker,
+        &mut state.poll_cadence,
         &mut state.registry,
     ));
     assert!(flow.is_continue(), "only Terminate breaks the loop");
@@ -641,11 +646,11 @@ fn run_command(
 }
 
 #[test]
-fn start_sending_work_arms_the_poll_ticker_only_for_a_poll_driver() {
+fn start_sending_work_arms_the_poll_cadence_only_for_a_poll_driver() {
     let actor = Serial::new();
 
     let mut state = CommandState::new();
-    let mut poll = StubDriver::new(ResultMode::Poll, 0);
+    let mut poll = StubDriver::new(POLL, 0);
     let period = Duration::from_millis(100);
     let reply = run_command(
         &actor,
@@ -655,7 +660,7 @@ fn start_sending_work_arms_the_poll_ticker_only_for_a_poll_driver() {
     );
     assert!(matches!(reply, Reply::Unit(Ok(()))));
     assert!(state.work_ticker.is_some());
-    assert!(state.poll_ticker.is_some());
+    assert!(state.poll_cadence.is_some());
 
     let mut state = CommandState::new();
     let mut push = StubDriver::new(ResultMode::Push, 0);
@@ -667,14 +672,14 @@ fn start_sending_work_arms_the_poll_ticker_only_for_a_poll_driver() {
     );
     assert!(matches!(reply, Reply::Unit(Ok(()))));
     assert!(state.work_ticker.is_some());
-    assert!(state.poll_ticker.is_none(), "push drivers poll nothing");
+    assert!(state.poll_cadence.is_none(), "push drivers poll nothing");
 }
 
 #[test]
-fn stop_sending_work_clears_the_poll_ticker_armed_by_start_sending_work() {
+fn stop_sending_work_clears_the_poll_cadence_armed_by_start_sending_work() {
     let actor = Serial::new();
     let mut state = CommandState::new();
-    let mut poll = StubDriver::new(ResultMode::Poll, 0);
+    let mut poll = StubDriver::new(POLL, 0);
     let period = Duration::from_millis(100);
 
     let reply = run_command(
@@ -685,7 +690,7 @@ fn stop_sending_work_clears_the_poll_ticker_armed_by_start_sending_work() {
     );
     assert!(matches!(reply, Reply::Unit(Ok(()))));
     assert!(state.work_ticker.is_some());
-    assert!(state.poll_ticker.is_some());
+    assert!(state.poll_cadence.is_some());
 
     let reply = run_command(
         &actor,
@@ -697,7 +702,7 @@ fn stop_sending_work_clears_the_poll_ticker_armed_by_start_sending_work() {
     assert!(matches!(reply, Reply::Unit(Ok(()))));
     assert!(state.work_ticker.is_none());
     assert!(
-        state.poll_ticker.is_none(),
+        state.poll_cadence.is_none(),
         "stop must clear the poll ticker a poll driver armed"
     );
 }
@@ -716,9 +721,9 @@ fn reset_drains_the_desync_tally_before_clearing_the_driver() {
         let actor = Serial::new();
         let mut state = CommandState::new();
         state.work_ticker = Some(Ticker::every(Duration::from_millis(50)));
-        state.poll_ticker = Some(Ticker::every(Duration::from_millis(50)));
+        state.poll_cadence = Some(PollCadence::every(Duration::from_millis(50)));
         state.registry.place(assignment(1), 0);
-        let mut driver = StubDriver::new(ResultMode::Poll, 37);
+        let mut driver = StubDriver::new(POLL, 37);
         let baseline = UART_DESYNC_BYTES.load(Ordering::Relaxed);
 
         let reply = run_command(&actor, SerialMessage::Reset, &mut driver, &mut state);
@@ -729,7 +734,7 @@ fn reset_drains_the_desync_tally_before_clearing_the_driver() {
         // of dying with the driver state.
         assert_eq!(UART_DESYNC_BYTES.load(Ordering::Relaxed), baseline + 37);
         assert!(state.work_ticker.is_none());
-        assert!(state.poll_ticker.is_none());
+        assert!(state.poll_cadence.is_none());
         assert!(state.registry.get(0).is_none());
         assert_eq!(
             state.registry.place(assignment(2), 0),
@@ -744,7 +749,7 @@ fn reset_enumerate_replies_with_the_drivers_chip_count_and_drains_desync() {
     with_desync_metric_lock(|| {
         let actor = Serial::new();
         let mut state = CommandState::new();
-        let mut driver = StubDriver::new(ResultMode::Poll, 5).with_enumerate_count(3);
+        let mut driver = StubDriver::new(POLL, 5).with_enumerate_count(3);
         let baseline = UART_DESYNC_BYTES.load(Ordering::Relaxed);
 
         let reply = run_command(
@@ -763,7 +768,7 @@ fn reset_enumerate_replies_with_the_drivers_chip_count_and_drains_desync() {
 fn configure_replies_with_a_unit_result_on_success() {
     let actor = Serial::new();
     let mut state = CommandState::new();
-    let mut driver = StubDriver::new(ResultMode::Poll, 0);
+    let mut driver = StubDriver::new(POLL, 0);
 
     let reply = run_command(&actor, SerialMessage::Configure, &mut driver, &mut state);
 
@@ -775,8 +780,8 @@ fn configure_propagates_the_drivers_baud_switch_error_and_still_drains_desync() 
     with_desync_metric_lock(|| {
         let actor = Serial::new();
         let mut state = CommandState::new();
-        let mut driver = StubDriver::new(ResultMode::Poll, 7)
-            .with_configure_err(ChipError::BaudSwitch(3_000_000));
+        let mut driver =
+            StubDriver::new(POLL, 7).with_configure_err(ChipError::BaudSwitch(3_000_000));
         let baseline = UART_DESYNC_BYTES.load(Ordering::Relaxed);
 
         let reply = run_command(&actor, SerialMessage::Configure, &mut driver, &mut state);
@@ -795,7 +800,7 @@ fn configure_propagates_the_drivers_baud_switch_error_and_still_drains_desync() 
 fn set_frequency_replies_with_a_unit_result_on_success() {
     let actor = Serial::new();
     let mut state = CommandState::new();
-    let mut driver = StubDriver::new(ResultMode::Poll, 0);
+    let mut driver = StubDriver::new(POLL, 0);
 
     let reply = run_command(
         &actor,
@@ -812,8 +817,8 @@ fn set_frequency_propagates_the_drivers_unsupported_frequency_error() {
     let actor = Serial::new();
     let mut state = CommandState::new();
     let freq = Frequency::from_mhz(900);
-    let mut driver = StubDriver::new(ResultMode::Poll, 0)
-        .with_set_frequency_err(ChipError::UnsupportedFrequency(freq));
+    let mut driver =
+        StubDriver::new(POLL, 0).with_set_frequency_err(ChipError::UnsupportedFrequency(freq));
 
     let reply = run_command(
         &actor,
@@ -1240,7 +1245,7 @@ fn read_line_error_recovers_the_parser_and_the_actor_keeps_serving_commands() {
 }
 
 #[test]
-fn poll_ticker_collects_a_solution_through_process_solutions_without_calling_ingest() {
+fn a_poll_collects_a_solution_through_process_solutions_without_calling_ingest() {
     static SESSION: AsicSession<1> = AsicSession::new();
     static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
     static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
@@ -1256,15 +1261,15 @@ fn poll_ticker_collects_a_solution_through_process_solutions_without_calling_ing
     SESSION.pool_handle(0).publish_work(assignment);
 
     let actor = Serial::new();
-    let driver = ResultDriver::new(ResultMode::Poll, &LINE_ERRORS, &INGEST_CALLS)
-        .with_poll_solution(GENESIS_SOLUTION);
+    let driver =
+        ResultDriver::new(POLL, &LINE_ERRORS, &INGEST_CALLS).with_poll_solution(GENESIS_SOLUTION);
     let scheduler = Pinned::new(0);
     let serial = ScriptedSerial::quiet();
 
     let caller = async {
         // A fast work tick dispatches the published assignment into the
         // registry under job_key 0 well before the poll ticker, which
-        // is fixed at `POLL_PERIOD`, gets a chance to fire.
+        // runs at the driver's period, gets a chance to fire.
         let start_result = actor.start_sending_work(Duration::from_millis(1)).await;
         assert!(matches!(start_result, Ok(())));
         let solution = SESSION.pool_handle(0).take_solution().await;
@@ -1441,7 +1446,7 @@ fn a_command_arriving_during_an_in_flight_poll_is_honoured_and_the_solution_surv
     SESSION.pool_handle(0).publish_work(assignment);
 
     let actor = Serial::new();
-    let driver = ResultDriver::new(ResultMode::Poll, &LINE_ERRORS, &INGEST_CALLS)
+    let driver = ResultDriver::new(POLL, &LINE_ERRORS, &INGEST_CALLS)
         .with_poll_solution(GENESIS_SOLUTION)
         .with_poll_rendezvous(&POLL_ENTERED, &POLL_GATE);
     let scheduler = Pinned::new(0);

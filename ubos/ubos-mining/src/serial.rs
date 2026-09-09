@@ -254,27 +254,63 @@ fn park_if_requested(serial: &mut impl BaudRate) -> bool {
 use crate::registry::WorkRegistry;
 use crate::scheduler::Scheduler;
 
-/// How often the actor polls the nonce FIFO for poll-delivery chips
-/// while work is active.
-///
-/// Calibrated on hardware against a poll driver whose sweep also feeds
-/// each chip its next work: a chip consumes a feed faster than the
-/// hundred-millisecond cadence delivered the next one, and the idle
-/// tail was a third of the chain's throughput. At this period the
-/// ticker adds no idle between sweeps — a sweep of a full chain takes
-/// longer than the period, so the wire is the pace — while a short
-/// chain still polls no faster than this.
-const POLL_PERIOD: Duration = Duration::from_millis(60);
-
-/// Polls between status turns on a poll chip.
+/// Polling time between status turns on a poll chip.
 ///
 /// The chain's own sensors are a board's only thermometer on some
 /// families, so the readings cannot be dropped, but they share the wire
-/// with work. One turn per this many polls keeps a full run over a short
-/// chain inside the thermal loop's staleness window and no more; on a
-/// long chain the sweep itself outlasts the poll period, and the turn
-/// lands once per sweep.
-const STATUS_TURN_POLLS: u8 = 8;
+/// with work. One turn per this much polling is every eighth poll on a
+/// chip polled at sixty milliseconds and every poll on one polled at
+/// this period or slower; on a long chain the sweep itself outlasts the
+/// poll period, and the turn lands once per sweep.
+const STATUS_TURN_PERIOD: Duration = Duration::from_millis(480);
+
+/// The steady state of a poll family: the ticker between two reads of
+/// one chip, and how many of those reads are left before the next
+/// status turn. One object because the reload holds them together: a
+/// countdown that reaches zero takes the turn and starts again at the
+/// count the period implies.
+struct PollCadence {
+    ticker: Ticker,
+    polls_per_turn: u8,
+    countdown: u8,
+}
+
+impl PollCadence {
+    /// The cadence a family's stated poll period implies.
+    ///
+    /// # Panics
+    ///
+    /// Panics on a zero period, which would divide by zero below and is
+    /// a driver bug rather than a runtime condition.
+    fn every(period: Duration) -> Self {
+        assert!(
+            period.as_ticks() > 0,
+            "BUG: poll family states a zero period"
+        );
+        // A family polled at or slower than the status period takes a
+        // turn on every poll.
+        let polls_per_turn = u8::try_from(STATUS_TURN_PERIOD.as_ticks() / period.as_ticks())
+            .unwrap_or(u8::MAX)
+            .max(1);
+        Self {
+            ticker: Ticker::every(period),
+            polls_per_turn,
+            countdown: polls_per_turn,
+        }
+    }
+
+    /// Wait for the next poll, and say whether it is the one that takes
+    /// a status turn as well.
+    async fn next(&mut self) -> bool {
+        self.ticker.next().await;
+        self.countdown -= 1;
+        if self.countdown > 0 {
+            return false;
+        }
+        self.countdown = self.polls_per_turn;
+        true
+    }
+}
 
 /// Scratch buffer size for a single UART read on the push path. Pinned
 /// to the seam's ingest contract so one full read can never decode into
@@ -665,8 +701,7 @@ impl Serial {
             });
         let mut registry = WorkRegistry::new(driver.job_slots());
         let mut work_ticker: Option<Ticker> = None;
-        let mut poll_ticker: Option<Ticker> = None;
-        let mut status_countdown: u8 = STATUS_TURN_POLLS;
+        let mut poll_cadence: Option<PollCadence> = None;
         let mut read_buf = [0u8; READ_CHUNK];
         SERIAL_WORKER_LIVE.store(true, Ordering::Release);
 
@@ -713,26 +748,23 @@ impl Serial {
                         let outcome = serial.read(&mut read_buf).await.map_err(|e| e.kind());
                         ResultEvent::Read(outcome)
                     }
-                    ResultMode::Poll => {
-                        if let Some(t) = poll_ticker.as_mut() {
-                            t.next().await;
-                            let mut io = SerialIo {
-                                serial: &mut serial,
-                            };
-                            // The turn comes before the sweep, not after
-                            // it: the sweep ends in the write that gives the
-                            // chips their work, and a chip answers no
-                            // register read for a while after loading, so a
-                            // reading taken right after the sweep is lost.
-                            status_countdown = status_countdown.saturating_sub(1);
-                            if status_countdown == 0 {
-                                status_countdown = STATUS_TURN_POLLS;
-                                driver.status_turn(&mut io).await;
-                            }
-                            ResultEvent::Polled(driver.poll_results(&mut io).await)
-                        } else {
-                            core::future::pending::<ResultEvent>().await
+                    ResultMode::Poll { .. } => {
+                        let Some(cadence) = poll_cadence.as_mut() else {
+                            return core::future::pending::<ResultEvent>().await;
+                        };
+                        let status_turn = cadence.next().await;
+                        let mut io = SerialIo {
+                            serial: &mut serial,
+                        };
+                        // The turn comes before the sweep, not after it:
+                        // the sweep ends in the write that gives the
+                        // chips their work, and a chip answers no
+                        // register read for a while after loading, so a
+                        // reading taken right after the sweep is lost.
+                        if status_turn {
+                            driver.status_turn(&mut io).await;
                         }
+                        ResultEvent::Polled(driver.poll_results(&mut io).await)
                     }
                 }
             };
@@ -797,7 +829,7 @@ impl Serial {
                             &mut driver,
                             board,
                             &mut work_ticker,
-                            &mut poll_ticker,
+                            &mut poll_cadence,
                             &mut registry,
                         )
                         .await
@@ -967,7 +999,7 @@ impl Serial {
         driver: &mut impl ChainDriver,
         board: &'static HashboardDescriptor,
         work_ticker: &mut Option<Ticker>,
-        poll_ticker: &mut Option<Ticker>,
+        poll_cadence: &mut Option<PollCadence>,
         registry: &mut WorkRegistry,
     ) -> ControlFlow<()>
     where
@@ -976,7 +1008,7 @@ impl Serial {
         match msg {
             SerialMessage::Reset => {
                 *work_ticker = None;
-                *poll_ticker = None;
+                *poll_cadence = None;
                 registry.reset();
                 // Drain the desync tally before the reset below zeroes
                 // it with the rest of the driver state, then reset the
@@ -1029,14 +1061,14 @@ impl Serial {
             }
             SerialMessage::StartSendingWork(period) => {
                 *work_ticker = Some(Ticker::every(period));
-                if driver.result_mode() == ResultMode::Poll {
-                    *poll_ticker = Some(Ticker::every(POLL_PERIOD));
+                if let ResultMode::Poll { period } = driver.result_mode() {
+                    *poll_cadence = Some(PollCadence::every(period));
                 }
                 self.reply.signal((seq, Reply::Unit(Ok(()))));
             }
             SerialMessage::StopSendingWork => {
                 *work_ticker = None;
-                *poll_ticker = None;
+                *poll_cadence = None;
                 self.reply.signal((seq, Reply::Unit(Ok(()))));
             }
             SerialMessage::Terminate => {
