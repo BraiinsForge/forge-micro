@@ -53,3 +53,40 @@ libraries. These load only when working under `firmware/` or `ubos/`.
   `IdleAccounting::<1>` so `IDLE_TICKS[1]` is populated for cpu-load
   metrics. The S3's 128-byte hardware FIFO absorbs the ETH-ISR-class
   jitter that overran the 1-byte USART holding register on stm32f407.
+
+## Free functions
+
+A function at module level, with no receiver, is correct in six cases
+and a method otherwise. The Rust API Guidelines decide the line:
+C-METHOD asks for a clear receiver, and names what the method form
+gains — no import at the call site, an automatic borrow, and one place
+in `rustdoc` where a reader finds the operation. A conversion that gains
+none of the three gains nothing, so `crc8(bytes)` stays free and a
+function that threads one parameter through eight call sites by hand
+becomes a method on it.
+
+1. **Pure transform.** Primitives or wire bytes in, primitives or wire
+   bytes out, and no state. `str::from_utf8` is the precedent.
+2. **One instance by construction.** A facade over a private `static`,
+   or a hardware singleton reached through a peripheral token, such as
+   a board's `init`.
+3. **The receiver cannot be a local type.** An inherent `impl` needs a
+   type the crate declares. A foreign type or a generic parameter cannot
+   take one, and the remedies — an extension trait or a newtype — each
+   add an item. The free function stays correct until the module accepts
+   one of them.
+4. **Fixed by a framework.** Entry points, interrupt handlers, tasks, and
+   everything else whose shape a macro or the linker fixes.
+5. **A split borrow under one lock.** The caller takes the lock once and
+   hands each helper a disjoint field of the locked state. A method on
+   the handle takes the lock again and deadlocks.
+6. **Two peer parameters.** The operation drives two values of equal
+   standing, such as a chain driver and its transport, and neither one
+   is the receiver.
+
+A class-1 function needs no note: the signature carries the argument.
+Classes 2, 3, 5 and 6 are invisible from the signature, so the reason is
+written down. A reason that covers several functions in one module goes
+in the module doc, once. A reason that belongs to one signature goes on
+that function. A constructor is an associated function on its type,
+`Type::new`, never a free `new_type()`.

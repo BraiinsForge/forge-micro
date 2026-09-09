@@ -203,6 +203,50 @@ Suggested policy:
 Coverage should fail only when it points to missing meaningful behavior tests,
 not because generated or board-only wiring code drags down a global percentage.
 
+## Documentation coverage
+
+Two checks find the functions that a documentation audit missed. The
+compiler answers both, because a script that reads the source can miss a
+declaration.
+
+**Which free functions does a crate declare?** `rustdoc` lists every
+item that a crate declares. With private items included, the `all.html`
+page names the free functions and not the methods:
+
+```sh
+cargo doc -p <crate> --document-private-items --no-deps
+```
+
+Three reasons put a name on that page against no source line, and none
+of them is a miss: a macro emits the function, the crate re-exports it
+from another crate, or a `#[cfg]` hides the declaration from the run.
+
+**Which items have no doc comment?** Two lints answer this. Add both to
+the crate root as a temporary edit, then run clippy for that crate:
+
+```rust
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
+```
+
+Both lints are needed. `rustc` reads `missing_docs` for public items
+alone, and the clippy lint covers the private items. Neither one reads a
+`//` comment as documentation. The two lints also warn on modules,
+constants, statics, fields and variants, so read past the other kinds.
+
+CAUTION: Remove the two attributes before you commit. A permanent gate
+for them is a separate decision. It costs far more than the functions
+did, because both trees carry hundreds of fields, constants and variants
+with no doc comment.
+
+Run each crate on its own, from the crate directory, in the shell for
+its target. Do not pass several crates to one `cargo doc`. That unions
+their features, and `critical-section` then fails to build. One run
+covers one compiled configuration. A `#[cfg]` that is off is invisible
+to it, so a crate with features, or with more than one target, needs
+one run for each configuration that ships. `ubos-ota`, `ubos-core`,
+`ubos-thermal` and `ubos-config` are the crates where that limit bites.
+
 ## Roadmap
 
 Completed:
