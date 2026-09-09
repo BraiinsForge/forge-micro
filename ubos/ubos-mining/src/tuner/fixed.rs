@@ -249,6 +249,10 @@ impl<M: MinerControl> Tuner<M> for FixedTuner {
         // Configure the chain to the safe-boot operating point on the fast
         // UART; the driver owns the register sequence and the baud switch.
         miner.configure().await?;
+        // The ramp that follows is the longest stretch in which nothing
+        // else reads the chain, and the thermal loop must not spend it
+        // blind; one pass over every chip gives it a reading to hold.
+        miner.pvt_sweep().await?;
         miner
             .start_sending_work(Self::WORK_PERIOD)
             .await

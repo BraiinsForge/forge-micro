@@ -155,6 +155,10 @@ pub trait MinerControl {
     /// register sequence and baud switch.
     async fn configure(&self) -> Result<(), MinerError>;
 
+    /// Read every chip's temperature and core voltage once, so the
+    /// thermal loop has a reading before the ramp starts.
+    async fn pvt_sweep(&self) -> Result<(), MinerError>;
+
     /// Program the hash-clock frequency for one ramp step.
     async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError>;
 
@@ -529,6 +533,10 @@ where
 
     async fn configure(&self) -> Result<(), MinerError> {
         SERIAL.configure().await.map_err(MinerError::from)
+    }
+
+    async fn pvt_sweep(&self) -> Result<(), MinerError> {
+        SERIAL.pvt_sweep().await.map_err(MinerError::Serial)
     }
 
     async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError> {

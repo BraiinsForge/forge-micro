@@ -266,6 +266,16 @@ use crate::scheduler::Scheduler;
 /// chain still polls no faster than this.
 const POLL_PERIOD: Duration = Duration::from_millis(60);
 
+/// Polls between status turns on a poll chip.
+///
+/// The chain's own sensors are a board's only thermometer on some
+/// families, so the readings cannot be dropped, but they share the wire
+/// with work. One turn per this many polls keeps a full run over a short
+/// chain inside the thermal loop's staleness window and no more; on a
+/// long chain the sweep itself outlasts the poll period, and the turn
+/// lands once per sweep.
+const STATUS_TURN_POLLS: u8 = 8;
+
 /// Scratch buffer size for a single UART read on the push path. Pinned
 /// to the seam's ingest contract so one full read can never decode into
 /// more solutions than a batch carries.
@@ -335,6 +345,9 @@ pub enum SerialMessage {
     /// Configure the enumerated chain to its safe-boot operating point,
     /// switching to the fast UART.
     Configure,
+    /// Read every chip's temperature and core voltage once, for the
+    /// first reading after enumeration.
+    PvtSweep,
     /// Program the hash-clock frequency.
     SetFrequency(Frequency),
     /// Begin dispatching work at `period`. The ticker's first tick, and
@@ -551,6 +564,11 @@ impl Serial {
         }
     }
 
+    /// Read every chip's temperature and core voltage once.
+    pub async fn pvt_sweep(&self) -> Result<(), ErrorKind> {
+        Self::unit(self.cmd_reply(SerialMessage::PvtSweep).await)
+    }
+
     /// Program the hash-clock frequency.
     pub async fn set_frequency(&self, freq: Frequency) -> Result<(), ChipError> {
         match self.cmd_reply(SerialMessage::SetFrequency(freq)).await {
@@ -675,6 +693,7 @@ impl Serial {
         let job_slots = slots.min(WORK_REGISTRY_SLOTS) as u32;
         let mut work_ticker: Option<Ticker> = None;
         let mut poll_ticker: Option<Ticker> = None;
+        let mut status_countdown: u8 = STATUS_TURN_POLLS;
         let mut next_job_key: u32 = 0;
         let mut registry: [Option<WorkSlot>; WORK_REGISTRY_SLOTS] =
             [const { None }; WORK_REGISTRY_SLOTS];
@@ -735,6 +754,16 @@ impl Serial {
                             let mut io = SerialIo {
                                 serial: &mut serial,
                             };
+                            // The turn comes before the sweep, not after
+                            // it: the sweep ends in the write that gives the
+                            // chips their work, and a chip answers no
+                            // register read for a while after loading, so a
+                            // reading taken right after the sweep is lost.
+                            status_countdown = status_countdown.saturating_sub(1);
+                            if status_countdown == 0 {
+                                status_countdown = STATUS_TURN_POLLS;
+                                driver.status_turn(&mut io).await;
+                            }
                             ResultEvent::Polled(driver.poll_results(&mut io).await)
                         } else {
                             core::future::pending::<ResultEvent>().await
@@ -1031,6 +1060,14 @@ impl Serial {
                 };
                 UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
                 self.reply.signal((seq, Reply::Freq(result)));
+            }
+            SerialMessage::PvtSweep => {
+                {
+                    let mut io = SerialIo { serial };
+                    driver.pvt_sweep(&mut io).await;
+                }
+                UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
+                self.reply.signal((seq, Reply::Unit(Ok(()))));
             }
             SerialMessage::SetFrequency(freq) => {
                 let result = {
