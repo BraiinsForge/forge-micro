@@ -426,6 +426,19 @@ pub trait ChainDriver {
     /// Poll path: read the chip's nonce FIFO over `io` and return the
     /// decoded solutions. A no-op (empty batch) for Push drivers.
     async fn poll_results(&mut self, io: &mut impl Transport) -> SolutionBatch;
+    /// One status reading over `io`: the driver picks the chip and the
+    /// quantity, rotating so that a run of turns covers every chip, and
+    /// records into the chain's [`ChainPvt`](crate::ChainPvt).
+    /// The consumer sets the cadence, calling this between polls, because
+    /// the readings share the wire with work and how much of it they may
+    /// take is the consumer's to decide. A no-op for a family whose
+    /// chips carry no sensors.
+    async fn status_turn(&mut self, _io: &mut impl Transport) {}
+    /// Every chip's readings once, over `io`, for a consumer that has
+    /// just enumerated and needs a first reading now rather than after a
+    /// full run of turns. A no-op for a family whose chips carry no
+    /// sensors.
+    async fn pvt_sweep(&mut self, _io: &mut impl Transport) {}
 
     /// Reset the driver to its freshly-constructed state: clear the
     /// streaming parser, any cached masks, and the desync tally, keeping

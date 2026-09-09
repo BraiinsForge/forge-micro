@@ -36,6 +36,7 @@ mod test_support;
 pub mod bm13xx;
 pub mod board;
 pub mod chain;
+pub mod pvt;
 pub mod transport;
 
 pub use bm13xx::{chip::Chip, driver::Bm13xxDriver};
@@ -45,4 +46,5 @@ pub use chain::{
     MAX_SOLUTIONS_PER_BATCH, ResultMode, ShareTarget, SolutionBatch, WorkJob, block_header,
     rolled_version, solution_hash,
 };
+pub use pvt::{ChainPvt, VoltageSummary};
 pub use transport::{BaudRateError, Transport};

@@ -13,10 +13,17 @@ defmt   = ["dep:defmt"]
 
 [dependencies]
 bitfield-struct = { workspace = true }
+embassy-sync    = { workspace = true }
+embassy-time    = { workspace = true }
 defmt           = { workspace = true, optional = true }
 heapless        = { workspace = true }
 sha2            = { workspace = true }
 ubos-core       = { workspace = true }
 
 [dev-dependencies]
-mining-protocol = { workspace = true }
+# The store keeps a chip's silence on `Instant`, so the host tests need
+# the standard time driver, and its mutex needs a critical-section
+# backend on the host.
+embassy-time     = { workspace = true, features = ["std"] }
+critical-section = { version = "1.2", features = ["std"] }
+mining-protocol  = { workspace = true }

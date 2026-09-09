@@ -50,6 +50,12 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
   on `result_mode`. Bitmain is a push family.
 - `reset` — re-arm the driver to its freshly-constructed state, keeping
   the chip identity; the actor calls it on a `Reset` command.
+- `status_turn` / `pvt_sweep` — one status reading, or one pass over
+  every chip, recorded into a `ChainPvt` the board owns. The
+  driver picks the chip and the quantity; the actor sets the cadence,
+  one turn every few polls, and the tuner asks for the sweep right after
+  `configure` so the thermal loop has a reading before the ramp. Both
+  default to no-ops for a family whose chips carry no sensors.
 
 Share verification is vendor-neutral: the actor rebuilds the header from
 the registry assignment and the driver-reported nonce / rolled version /
