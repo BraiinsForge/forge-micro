@@ -43,7 +43,9 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
   operating point on the fast UART; `configure` owns the baud switch.
 - `set_frequency` — one ramp step, vendor-specific PLL programming.
 - `send_work` — dispatch a neutral `WorkJob`; the driver maps the
-  consumer-assigned `job_key` onto the chip's echo field.
+  consumer-assigned `job_key` onto the chip's echo field. A key names
+  an assignment, reissued while that assignment stands, so a driver
+  may skip the write for a header the chain already holds.
 - `result_mode` + `ingest` (push) / `poll_results` (poll) — collect
   `ChainSolution`s. Push families stream nonce frames unsolicited; poll
   families read a nonce FIFO, so the actor branches its steady-state loop

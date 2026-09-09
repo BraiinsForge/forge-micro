@@ -33,7 +33,7 @@ pub use mining_protocol::MAX_EXTRANONCE_2;
 /// — direct memcpy into the corresponding `[u8; 80]` header slots.
 /// `extranonce_2` is intentionally absent: it has already been
 /// folded into `merkle_root` before the assignment is published.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct WorkAssignment {
     /// Adapter-stamped correlation token. The ASIC echoes it back
     /// in the `Solution` so the host can recover the matching

@@ -236,7 +236,11 @@ so a solution returns to the session that owns the work even if the
 scheduler moved on while the chip was hashing; that session still
 submits its in-flight shares over its open connection. A session
 clears its cell on teardown, and the dispatcher routes around empty
-cells, so a dead pool's last job is never re-fed to the chip.
+cells, so a dead pool's last job is never re-fed to the chip. A job
+key names an assignment, not a tick: a tick that repeats the
+assignment in flight goes out under the same key, so the keys advance
+with the work, and a chip family that keeps one header for a whole
+pool job never has the key it is still echoing retired under it.
 
 ## Cycle frequencies
 

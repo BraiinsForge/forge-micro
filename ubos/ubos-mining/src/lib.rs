@@ -35,6 +35,7 @@ pub mod consts;
 mod control;
 pub mod miner;
 pub mod publishers;
+mod registry;
 pub mod reset;
 pub mod scheduler;
 pub mod serial;

@@ -251,7 +251,7 @@ fn park_if_requested(serial: &mut impl BaudRate) -> bool {
     true
 }
 
-use crate::consts::WORK_REGISTRY_SLOTS;
+use crate::registry::WorkRegistry;
 use crate::scheduler::Scheduler;
 
 /// How often the actor polls the nonce FIFO for poll-delivery chips
@@ -400,20 +400,6 @@ pub struct Serial {
     /// number. `CriticalSectionRawMutex` rather than `NoopRawMutex` so
     /// `Serial` is `Sync` and can live as a workspace `static`.
     caller: Mutex<CriticalSectionRawMutex, u32>,
-}
-
-/// In-flight work for a given `job_key` slot. Holds the assignment so an
-/// incoming [`ChainSolution`] can be verified and mapped back to the
-/// originating job. The assignment is captured at dispatch time because
-/// the session's `Watch` publishes fresh assignments mid-job; shares are
-/// credited against the assignment the chip was actually scanning.
-struct WorkSlot {
-    assignment: WorkAssignment,
-    /// Pool slot whose work cell this dispatch was drawn from. The
-    /// eventual solution routes back to this slot even if the
-    /// scheduler picks other slots while the chip is hashing, so a
-    /// session keeps submitting its in-flight shares.
-    session_slot: usize,
 }
 
 /// [`Transport`] over the actor's UART. Frames written by the driver go
@@ -677,26 +663,10 @@ impl Serial {
                     .work_receiver(slot)
                     .expect("BUG: AsicSession Watch must have a free receiver slot")
             });
-        // Registry index space; the driver contract guarantees at least
-        // one job slot, so only the ceiling needs clamping here. The
-        // driver maps job_key onto the chip's echo field within this
-        // range, and the clamp keeps the cast lossless.
-        let slots = driver.job_slots();
-        assert!(slots >= 1, "BUG: driver reports zero job slots");
-        if slots > WORK_REGISTRY_SLOTS {
-            warn!(
-                "Driver offers {} job slots, registry truncates to {}",
-                slots, WORK_REGISTRY_SLOTS
-            );
-        }
-        #[allow(clippy::cast_possible_truncation)]
-        let job_slots = slots.min(WORK_REGISTRY_SLOTS) as u32;
+        let mut registry = WorkRegistry::new(driver.job_slots());
         let mut work_ticker: Option<Ticker> = None;
         let mut poll_ticker: Option<Ticker> = None;
         let mut status_countdown: u8 = STATUS_TURN_POLLS;
-        let mut next_job_key: u32 = 0;
-        let mut registry: [Option<WorkSlot>; WORK_REGISTRY_SLOTS] =
-            [const { None }; WORK_REGISTRY_SLOTS];
         let mut read_buf = [0u8; READ_CHUNK];
         SERIAL_WORKER_LIVE.store(true, Ordering::Release);
 
@@ -775,8 +745,6 @@ impl Serial {
                         &mut serial,
                         &mut scheduler,
                         &mut driver,
-                        &mut next_job_key,
-                        job_slots,
                         &mut registry,
                         &mut work_receivers,
                     )
@@ -830,7 +798,6 @@ impl Serial {
                             board,
                             &mut work_ticker,
                             &mut poll_ticker,
-                            &mut next_job_key,
                             &mut registry,
                         )
                         .await
@@ -851,14 +818,11 @@ impl Serial {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn dispatch_work<S, const N: usize, Sch: Scheduler<N>>(
         serial: &mut S,
         scheduler: &mut Sch,
         driver: &mut impl ChainDriver,
-        next_job_key: &mut u32,
-        job_slots: u32,
-        registry: &mut [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
+        registry: &mut WorkRegistry,
         work_receivers: &mut [DynReceiver<'_, WorkAssignment>; N],
     ) where
         S: Read + Write + BaudRate,
@@ -886,7 +850,7 @@ impl Serial {
             available[slot] = false;
         };
 
-        let job_key = *next_job_key;
+        let job_key = registry.place(assignment, session_slot);
         let job = WorkJob {
             job_key,
             nonce_start: 0,
@@ -897,17 +861,6 @@ impl Serial {
             merkle_root: assignment.merkle_root,
             prev_hash: assignment.prev_hash,
         };
-        // The registry slot mirrors `job_key`; the driver maps `job_key`
-        // to and from the chip's echo field, so a returned solution finds
-        // this same slot.
-        registry[job_key as usize] = Some(WorkSlot {
-            assignment,
-            session_slot,
-        });
-        // `job_slots` is bounded by WORK_REGISTRY_SLOTS and is at least 1,
-        // so this stays a valid registry index.
-        *next_job_key = (job_key + 1) % job_slots;
-
         let mut io = SerialIo { serial };
         // No current driver returns an error from send_work — a raw write
         // failure surfaces one layer down in SerialIo — but the trait
@@ -925,7 +878,7 @@ impl Serial {
     /// harder than difficulty one to keep a slow link clear.
     fn process_solutions<const N: usize, Sch: Scheduler<N>>(
         batch: &[ChainSolution],
-        registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
+        registry: &WorkRegistry,
         session: &AsicSession<N>,
         scheduler: &mut Sch,
         difficulty: &[u8; 32],
@@ -937,18 +890,12 @@ impl Serial {
 
     fn process_solution<const N: usize, Sch: Scheduler<N>>(
         solution: &ChainSolution,
-        registry: &[Option<WorkSlot>; WORK_REGISTRY_SLOTS],
+        registry: &WorkRegistry,
         session: &AsicSession<N>,
         scheduler: &mut Sch,
         difficulty: &[u8; 32],
     ) {
-        // `job_key` derives from the chip-returned echo field, so a stray
-        // reply can land past the registry. `get` keeps that off the wire
-        // from panicking; it folds into the missing-assignment path.
-        let Some(slot) = registry
-            .get(solution.job_key as usize)
-            .and_then(Option::as_ref)
-        else {
+        let Some(slot) = registry.get(solution.job_key) else {
             warn!("No WorkAssignment for job_key={}", solution.job_key);
             return;
         };
@@ -1021,8 +968,7 @@ impl Serial {
         board: &'static HashboardDescriptor,
         work_ticker: &mut Option<Ticker>,
         poll_ticker: &mut Option<Ticker>,
-        next_job_key: &mut u32,
-        registry: &mut [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
+        registry: &mut WorkRegistry,
     ) -> ControlFlow<()>
     where
         S: Read + Write + BaudRate,
@@ -1031,10 +977,7 @@ impl Serial {
             SerialMessage::Reset => {
                 *work_ticker = None;
                 *poll_ticker = None;
-                *next_job_key = 0;
-                for slot in registry.iter_mut() {
-                    *slot = None;
-                }
+                registry.reset();
                 // Drain the desync tally before the reset below zeroes
                 // it with the rest of the driver state, then reset the
                 // driver to clear its parser and mask cache and re-arm

@@ -46,6 +46,9 @@
 
 use super::*;
 
+use crate::consts::WORK_REGISTRY_SLOTS;
+use crate::registry::WorkRegistry;
+
 use embassy_futures::block_on;
 use embassy_futures::join::join;
 use embassy_futures::yield_now;
@@ -188,18 +191,13 @@ struct Harness<'a, const N: usize> {
     serial: MockSerial,
     driver: Bm13xxDriver,
     scheduler: Pinned,
-    next_job_key: u32,
-    job_slots: u32,
-    registry: [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
+    registry: WorkRegistry,
 }
 
 impl<'a, const N: usize> Harness<'a, N> {
     fn new(session: &'a AsicSession<N>, pinned_slot: usize) -> Self {
         let driver = Bm13xxDriver::new(Chip::Bm1362);
-        // Mirror `run`'s registry sizing so job keys stay valid indices.
-        let job_slots = u32::try_from(driver.job_slots().min(WORK_REGISTRY_SLOTS))
-            .unwrap_or(1)
-            .max(1);
+        let registry = WorkRegistry::new(driver.job_slots());
         Self {
             session,
             receivers: core::array::from_fn(|slot| {
@@ -210,9 +208,7 @@ impl<'a, const N: usize> Harness<'a, N> {
             serial: MockSerial::new(),
             driver,
             scheduler: Pinned::new(pinned_slot),
-            next_job_key: 0,
-            job_slots,
-            registry: [const { None }; WORK_REGISTRY_SLOTS],
+            registry,
         }
     }
 
@@ -221,8 +217,6 @@ impl<'a, const N: usize> Harness<'a, N> {
             &mut self.serial,
             &mut self.scheduler,
             &mut self.driver,
-            &mut self.next_job_key,
-            self.job_slots,
             &mut self.registry,
             &mut self.receivers,
         ));
@@ -243,8 +237,7 @@ impl<'a, const N: usize> Harness<'a, N> {
     fn assert_solution_meets_floor(&self, solution: &ChainSolution, difficulty: &[u8; 32]) {
         let slot = self
             .registry
-            .get(solution.job_key as usize)
-            .and_then(Option::as_ref)
+            .get(solution.job_key)
             .expect("solution's job_key must map to a populated registry slot");
         let version = rolled_version(slot.assignment.version, solution.version_bits);
         let ntime = slot.assignment.ntime.wrapping_add(solution.ntime_offset);
@@ -272,7 +265,7 @@ fn dispatch_reads_the_pinned_slot() {
     let mut harness = Harness::new(&session, 1);
     harness.dispatch();
 
-    let slot = harness.registry[0].as_ref().expect("work dispatched");
+    let slot = harness.registry.get(0).expect("work dispatched");
     assert_eq!(slot.assignment.work_id, 20);
     assert_eq!(slot.session_slot, 1);
     assert!(!harness.serial.written.is_empty(), "frame reached the chip");
@@ -286,9 +279,13 @@ fn dispatch_skips_the_tick_when_no_slot_has_work() {
     let mut harness = Harness::new(&session, 1);
     harness.dispatch();
 
-    assert!(harness.registry.iter().all(Option::is_none));
+    assert!(harness.registry.get(0).is_none());
     assert!(harness.serial.written.is_empty());
-    assert_eq!(harness.next_job_key, 0, "skipped tick burns no job key");
+
+    // The skipped tick burnt no key: the next dispatch takes the first.
+    session.pool_handle(1).publish_work(assignment(20));
+    harness.dispatch();
+    assert!(harness.registry.get(0).is_some());
 }
 
 #[test]
@@ -300,7 +297,7 @@ fn dispatch_falls_back_to_an_available_slot_when_the_pinned_slot_is_empty() {
     let mut harness = Harness::new(&session, 1);
     harness.dispatch();
 
-    let slot = harness.registry[0].as_ref().expect("fallback dispatch");
+    let slot = harness.registry.get(0).expect("fallback dispatch");
     assert_eq!(slot.assignment.work_id, 10);
     assert_eq!(slot.session_slot, 0);
     assert!(!harness.serial.written.is_empty(), "frame reached the chip");
@@ -315,7 +312,7 @@ fn dispatch_skips_a_tick_when_the_pinned_slot_was_cleared() {
     let mut harness = Harness::new(&session, 0);
     harness.dispatch();
 
-    assert!(harness.registry.iter().all(Option::is_none));
+    assert!(harness.registry.get(0).is_none());
     assert!(harness.serial.written.is_empty());
 }
 
@@ -332,8 +329,8 @@ fn registry_pins_the_dispatch_time_slot_across_a_pin_change() {
     harness.scheduler.slot = 1;
     harness.dispatch();
 
-    let first = harness.registry[0].as_ref().expect("first dispatch");
-    let second = harness.registry[1].as_ref().expect("second dispatch");
+    let first = harness.registry.get(0).expect("first dispatch");
+    let second = harness.registry.get(1).expect("second dispatch");
     // The first entry still routes to slot 0: a solution arriving for
     // it after the pin change goes back to the session that owns the
     // work, not to the newly pinned one.
@@ -605,8 +602,7 @@ impl ChainDriver for StubDriver {
 struct CommandState {
     work_ticker: Option<Ticker>,
     poll_ticker: Option<Ticker>,
-    next_job_key: u32,
-    registry: [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
+    registry: WorkRegistry,
 }
 
 impl CommandState {
@@ -614,8 +610,7 @@ impl CommandState {
         Self {
             work_ticker: None,
             poll_ticker: None,
-            next_job_key: 0,
-            registry: [const { None }; WORK_REGISTRY_SLOTS],
+            registry: WorkRegistry::new(WORK_REGISTRY_SLOTS),
         }
     }
 }
@@ -637,7 +632,6 @@ fn run_command(
         &BMM101_HASHBOARD,
         &mut state.work_ticker,
         &mut state.poll_ticker,
-        &mut state.next_job_key,
         &mut state.registry,
     ));
     assert!(flow.is_continue(), "only Terminate breaks the loop");
@@ -723,11 +717,7 @@ fn reset_drains_the_desync_tally_before_clearing_the_driver() {
         let mut state = CommandState::new();
         state.work_ticker = Some(Ticker::every(Duration::from_millis(50)));
         state.poll_ticker = Some(Ticker::every(Duration::from_millis(50)));
-        state.next_job_key = 3;
-        state.registry[0] = Some(WorkSlot {
-            assignment: assignment(1),
-            session_slot: 0,
-        });
+        state.registry.place(assignment(1), 0);
         let mut driver = StubDriver::new(ResultMode::Poll, 37);
         let baseline = UART_DESYNC_BYTES.load(Ordering::Relaxed);
 
@@ -740,8 +730,12 @@ fn reset_drains_the_desync_tally_before_clearing_the_driver() {
         assert_eq!(UART_DESYNC_BYTES.load(Ordering::Relaxed), baseline + 37);
         assert!(state.work_ticker.is_none());
         assert!(state.poll_ticker.is_none());
-        assert_eq!(state.next_job_key, 0);
-        assert!(state.registry.iter().all(Option::is_none));
+        assert!(state.registry.get(0).is_none());
+        assert_eq!(
+            state.registry.place(assignment(2), 0),
+            0,
+            "the keys start over"
+        );
     });
 }
 
