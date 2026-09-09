@@ -271,8 +271,12 @@ let
       webuiDist = true;
       webuiEnv = true;
     };
+    # Host tests build with defmt off, as ubos-cooling's do: the chain
+    # sensor's tests link `ubos_logging` calls that have no `_defmt_*`
+    # provider on the host.
     test-ubos-thermal = {
       crate = "ubos-thermal";
+      args = " --no-default-features";
       artifacts = deps.ubosThermalArtifactsDev;
     };
     # Host tests build with defmt off; see the test-ubos-api comment

@@ -56,6 +56,14 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
   one turn every few polls, and the tuner asks for the sweep right after
   `configure` so the thermal loop has a reading before the ramp. Both
   default to no-ops for a family whose chips carry no sensors.
+  On a board whose chips are its only thermometer,
+  `ubos_thermal::ChainTemperature` is the `TemperatureSensor` over that
+  store. It reports the hottest die that any chip has reported. It
+  judges the chain and not one chip: a chip answers a turn only once
+  per pass, which is minutes on a long chain. The chain is silent only
+  if no chip has answered for 60 seconds. The sensor publishes the
+  chain's core voltage and writes a summary to the log from inside
+  `sample`, so no task exists for reporting alone.
 
 Share verification is vendor-neutral: the actor rebuilds the header from
 the registry assignment and the driver-reported nonce / rolled version /

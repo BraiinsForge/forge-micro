@@ -26,11 +26,13 @@ defmt   = [
 test-util = []
 
 [dependencies]
+embassy-futures    = { workspace = true }
 embassy-sync       = { workspace = true }
 embassy-time       = { workspace = true }
 embedded-hal-async = { workspace = true }
 defmt              = { workspace = true, optional = true }
 heapless           = { workspace = true }
+ubos-asic          = { workspace = true }
 ubos-config        = { workspace = true, default-features = false }
 ubos-core          = { workspace = true }
 ubos-events        = { workspace = true, default-features = false }
@@ -38,6 +40,13 @@ ubos-manager       = { workspace = true, default-features = false }
 ubos-metrics       = { workspace = true, default-features = false }
 ubos-temperature   = { workspace = true, default-features = false }
 ubos-logging       = { workspace = true }
+
+[dev-dependencies]
+# The chain sensor keeps its silence clocks on `Instant`, so the host tests
+# need the standard time driver, and the PVT store's atomics need a
+# critical-section backend on the host.
+embassy-time     = { workspace = true, features = ["std"] }
+critical-section = { version = "1.2", features = ["std"] }
 
 [package.metadata.cargo-machete]
 ignored = ["defmt"]

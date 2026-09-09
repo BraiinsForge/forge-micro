@@ -31,6 +31,11 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 
+#[cfg(test)]
+extern crate std;
+
+pub mod chain;
+pub use chain::ChainTemperature;
 mod array;
 mod metrics;
 mod threshold;
