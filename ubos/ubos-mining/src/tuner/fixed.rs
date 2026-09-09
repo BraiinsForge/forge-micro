@@ -224,6 +224,7 @@ impl<M: MinerControl> Tuner<M> for FixedTuner {
         // retry / count-check policy.
         for attempt in 1..=Self::ENUMERATE_ATTEMPTS {
             let found = miner.reset_and_enumerate().await;
+            crate::events::chain_enumerated(found, self.board.num_chips);
             if found == self.board.num_chips {
                 break;
             }

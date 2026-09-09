@@ -52,6 +52,7 @@ ubos_events::events! {
     psu_enabled()                                 info  = "PSU enabled",
     tuner_initialised()                           info  = "Tuner initialised",
     tuner_fault()                                 error = "Tuner fault",
+    chain_enumerated(found: u8, expected: u8)     info  = "Chain enumerated: {} of {} chips",
     chip_count_mismatch(found: u8, expected: u8)  error = "Chip count {} differs from expected {}",
     frequency_ramp_started(freq_khz: u32)         info  = "Frequency ramp started to {} kHz",
     frequency_ramp_complete(freq_khz: u32)        info  = "Frequency ramp complete at {} kHz",
