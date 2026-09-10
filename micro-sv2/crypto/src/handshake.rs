@@ -134,15 +134,14 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
     /// Walk one step of the state machine, writing a handshake message.
     pub fn write_message(&mut self, message: &[u8], payload: &mut [u8]) -> Result<usize, NXError> {
         let current = core::mem::replace(&mut self.state, NXState::Failed);
-        let mut bytes_written = 0_usize;
-        let new_state = match current {
+        let (new_state, bytes_written) = match current {
             NXState::InitiatorStep0(s) => {
-                let s = self.initiator_step0(s, message, payload, &mut bytes_written)?;
-                NXState::InitiatorStep1(s)
+                let (s, n) = self.initiator_step0(s, message, payload)?;
+                (NXState::InitiatorStep1(s), n)
             }
             NXState::ResponderStep1(s) => {
-                let t = self.responder_step1(s, message, payload, &mut bytes_written)?;
-                NXState::Finished(t)
+                let (t, n) = self.responder_step1(s, message, payload)?;
+                (NXState::Finished(t), n)
             }
             _ => return Err(NXError::InvalidState),
         };
@@ -153,15 +152,14 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
     /// Walk one step of the state machine, reading a handshake message.
     pub fn read_message(&mut self, payload: &[u8], message: &mut [u8]) -> Result<usize, NXError> {
         let current = core::mem::replace(&mut self.state, NXState::Failed);
-        let mut bytes_written = 0_usize;
-        let new_state = match current {
+        let (new_state, bytes_written) = match current {
             NXState::ResponderStep0(s) => {
-                let s = self.responder_step0(s, payload, message, &mut bytes_written)?;
-                NXState::ResponderStep1(s)
+                let (s, n) = self.responder_step0(s, payload, message)?;
+                (NXState::ResponderStep1(s), n)
             }
             NXState::InitiatorStep1(s) => {
-                let t = self.initiator_step1(s, payload, message, &mut bytes_written)?;
-                NXState::Finished(t)
+                let (t, n) = self.initiator_step1(s, payload, message)?;
+                (NXState::Finished(t), n)
             }
             _ => return Err(NXError::InvalidState),
         };
@@ -183,8 +181,7 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
         state: InitiatorState0,
         message: &[u8],
         payload: &mut [u8],
-        bytes_written: &mut usize,
-    ) -> Result<InitiatorState1, NXError> {
+    ) -> Result<(InitiatorState1, usize), NXError> {
         let InitiatorState0 { h, ck } = state;
         if payload.len() < EPHEMERAL_KEY_MSG_SIZE + message.len() {
             return Err(NXError::TooSmallBuffer);
@@ -196,8 +193,10 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
         payload[..EPHEMERAL_KEY_MSG_SIZE].copy_from_slice(&raw_e);
         payload[EPHEMERAL_KEY_MSG_SIZE..EPHEMERAL_KEY_MSG_SIZE + message.len()]
             .copy_from_slice(message);
-        *bytes_written += EPHEMERAL_KEY_MSG_SIZE + message.len();
-        Ok(InitiatorState1 { h, ck, e })
+        Ok((
+            InitiatorState1 { h, ck, e },
+            EPHEMERAL_KEY_MSG_SIZE + message.len(),
+        ))
     }
 
     fn initiator_step1(
@@ -205,8 +204,7 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
         state: InitiatorState1,
         payload: &[u8],
         message: &mut [u8],
-        bytes_written: &mut usize,
-    ) -> Result<TransportState, NXError> {
+    ) -> Result<(TransportState, usize), NXError> {
         if payload.len() < EPHEMERAL_KEY_MSG_SIZE + STATIC_KEY_MSG_SIZE {
             return Err(NXError::NotEnoughBytes);
         }
@@ -244,18 +242,20 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
         buf.copy_from_slice(raw_sig_noise_msg);
         let handshake_hash = mix_hash(&h, buf);
         cipher.decrypt_with_ad(&h, buf)?;
-        *bytes_written += encrypted_data_len - MAC_SIZE;
 
         // Split: initiator's sealing direction is initiator -> responder.
         let (k_i_to_r, k_r_to_i) = hkdf(&ck, &[]);
         let sealing_state = SealingCipherState::initialize(k_i_to_r)?;
         let opening_state = OpeningCipherState::initialize(k_r_to_i)?;
 
-        Ok(TransportState::new(
-            Some(rs_pk.into()),
-            handshake_hash,
-            sealing_state,
-            opening_state,
+        Ok((
+            TransportState::new(
+                Some(rs_pk.into()),
+                handshake_hash,
+                sealing_state,
+                opening_state,
+            ),
+            encrypted_data_len - MAC_SIZE,
         ))
     }
 
@@ -264,8 +264,7 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
         state: ResponderState0,
         payload: &[u8],
         message: &mut [u8],
-        bytes_written: &mut usize,
-    ) -> Result<ResponderState1, NXError> {
+    ) -> Result<(ResponderState1, usize), NXError> {
         if payload.len() < EPHEMERAL_KEY_MSG_SIZE {
             return Err(NXError::NotEnoughBytes);
         }
@@ -279,8 +278,7 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
         }
         let h = mix_hash(&h, plaintext);
         message[..plaintext.len()].copy_from_slice(plaintext);
-        *bytes_written += plaintext.len();
-        Ok(ResponderState1 { h, ck, s, re_pk })
+        Ok((ResponderState1 { h, ck, s, re_pk }, plaintext.len()))
     }
 
     fn responder_step1(
@@ -288,8 +286,7 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
         state: ResponderState1,
         message: &[u8],
         payload: &mut [u8],
-        bytes_written: &mut usize,
-    ) -> Result<TransportState, NXError> {
+    ) -> Result<(TransportState, usize), NXError> {
         let ResponderState1 { h, ck, s, re_pk } = state;
         let total = EPHEMERAL_KEY_MSG_SIZE + STATIC_KEY_MSG_SIZE + message.len() + MAC_SIZE;
         if payload.len() < total {
@@ -326,14 +323,16 @@ impl<'ctx, R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification> HandS
         cipher.encrypt_with_ad(&h, outbuf, message.len())?;
         let h = mix_hash(&h, outbuf);
         bytes_processed += msg_size;
-        *bytes_written += bytes_processed;
 
         // Split: responder's sealing direction is responder -> initiator.
         let (k_i_to_r, k_r_to_i) = hkdf(&ck, &[]);
         let sealing_state = SealingCipherState::initialize(k_r_to_i)?;
         let opening_state = OpeningCipherState::initialize(k_i_to_r)?;
 
-        Ok(TransportState::new(None, h, sealing_state, opening_state))
+        Ok((
+            TransportState::new(None, h, sealing_state, opening_state),
+            bytes_processed,
+        ))
     }
 }
 

@@ -72,21 +72,16 @@ pub struct Certificate {
 }
 
 impl Certificate {
-    /// Serialize the public part of this certificate into its noise
-    /// signature message form (74 bytes: version, validity window, and
-    /// signature; the static public key is conveyed via the noise
-    /// handshake itself).
-    ///
-    /// Panics if `output.len() < NOISE_SIG_SIZE`.
-    pub(crate) fn serialize_noise_signature_msg(&self, output: &mut [u8]) {
-        assert!(
-            output.len() >= NOISE_SIG_SIZE,
-            "BUG: output buffer too small for noise signature message"
-        );
+    /// The public part of this certificate in its noise signature message
+    /// form: version, validity window and signature. The static public key
+    /// is conveyed by the noise handshake itself.
+    pub(crate) fn noise_signature_msg(&self) -> [u8; NOISE_SIG_SIZE] {
+        let mut output = [0u8; NOISE_SIG_SIZE];
         output[..2].copy_from_slice(&self.header.version.to_le_bytes());
         output[2..6].copy_from_slice(&self.header.valid_from.to_le_bytes());
         output[6..10].copy_from_slice(&self.header.not_valid_after.to_le_bytes());
-        output[10..NOISE_SIG_SIZE].copy_from_slice(self.signature.as_ref());
+        output[10..].copy_from_slice(self.signature.as_ref());
+        output
     }
 
     /// Parse the noise signature message bytes the responder sent over the

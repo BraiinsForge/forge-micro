@@ -37,9 +37,7 @@ use ii_sv2_crypto::{
 };
 
 use crate::authenticator::Authenticator;
-use crate::certificate::{
-    Certificate, CertificateWithPrivateKey, NOISE_SIG_MSG_SIZE, NOISE_SIG_SIZE,
-};
+use crate::certificate::{Certificate, CertificateWithPrivateKey, NOISE_SIG_MSG_SIZE};
 use crate::error::{InitializationError, KeyParseError};
 use crate::keys::{PublicKey, SessionId};
 
@@ -140,10 +138,8 @@ where
     handshake.read_message(&buf[..EPHEMERAL_KEY_MSG_SIZE], &mut [])?;
 
     // <- e, ee, s, es, [signed_cert_msg]
-    let mut sig_msg_buf = [0u8; NOISE_SIG_SIZE];
-    let public_cert = Certificate::from(*cert);
-    public_cert.serialize_noise_signature_msg(&mut sig_msg_buf);
-    let m_len = handshake.write_message(&sig_msg_buf, &mut buf)?;
+    let sig_msg = Certificate::from(*cert).noise_signature_msg();
+    let m_len = handshake.write_message(&sig_msg, &mut buf)?;
     debug_assert_eq!(m_len, HANDSHAKE_BUF_LEN);
     io.write_all(&buf).await.map_err(InitializationError::Io)?;
 
