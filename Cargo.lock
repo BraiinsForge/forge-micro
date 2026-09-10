@@ -4663,6 +4663,7 @@ dependencies = [
  "serial-baudrate",
  "ubos-cooling",
  "ubos-core",
+ "ubos-metrics",
 ]
 
 [[package]]

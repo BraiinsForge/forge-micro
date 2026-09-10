@@ -34,19 +34,15 @@
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
-use embassy_stm32::adc::{Adc, AdcChannel, Exten, RingBufferedAdc, SampleTime};
 use embassy_stm32::flash::{Blocking as FlashBlocking, Flash};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{Config as I2cConfig, I2c};
 #[cfg(feature = "display")]
 use embassy_stm32::peripherals::DMA2_CH3;
-use embassy_stm32::peripherals::{ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0};
+use embassy_stm32::peripherals::{DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0};
 use embassy_stm32::rng::Rng;
 #[cfg(feature = "display")]
 use embassy_stm32::spi::{self, Spi};
-use embassy_stm32::time::Hertz;
-use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer as LowLevelTimer};
-use embassy_stm32::triggers::TIM3_TRGO;
 use embassy_stm32::usart::{Config as UartConfig, InterruptHandler as UsartInterruptHandler, Uart};
 use embassy_stm32::{bind_interrupts, dma, eth, peripherals, rng};
 use embassy_sync::mutex::Mutex;
@@ -92,37 +88,6 @@ bind_interrupts!(struct Irqs {
     DMA2_STREAM3 => dma::InterruptHandler<DMA2_CH3>;
 });
 
-/// The MCU internal thermometer, read through ADC1. TIM3 runs free as a
-/// TRGO source for that ADC, and the timer peripheral is moved into this
-/// wrapper to keep its RCC clock alive for as long as the sensor lives.
-/// The field is never read.
-struct McuTempSensor {
-    ring: RingBufferedAdc<'static, ADC1>,
-    _timer: LowLevelTimer<'static, embassy_stm32::peripherals::TIM3>,
-}
-
-impl ubos_metrics::mcu_temperature::McuTemperatureSensor for McuTempSensor {
-    async fn read(&mut self) -> Option<ubos_core::units::Temperature> {
-        // STM32F439 datasheet, F43x electrical characteristics: V_sense ≈ 0.76 V
-        // at 25 °C with an average slope of 2.5 mV/°C, 12-bit ADC across
-        // VREF = 3.3 V. T_mC = 25000 + (Vsense_uV - 760000) * 1000 / 2500.
-        // i64 keeps raw * VREF_UV from overflowing i32.
-        const VREF_UV: i64 = 3_300_000;
-        const ADC_FULL_SCALE: i64 = 4095;
-        const V25_UV: i64 = 760_000;
-        const SLOPE_UV_PER_C: i64 = 2_500;
-        const CALIBRATION_MC: i64 = 25_000;
-
-        let mut samples = [0u16; 1];
-        self.ring.read(&mut samples).await.ok()?;
-        let vsense_uv = i64::from(samples[0]) * VREF_UV / ADC_FULL_SCALE;
-        let millicelsius = CALIBRATION_MC + (vsense_uv - V25_UV) * 1000 / SLOPE_UV_PER_C;
-        i32::try_from(millicelsius)
-            .ok()
-            .map(ubos_core::units::Temperature::from_millicelsius)
-    }
-}
-
 ubos_firmware::net_task!(ubos_stm32::Device);
 
 ubos_core::watchdog_task!(ubos_stm32::BoardWatchdog);
@@ -151,7 +116,7 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
     .await
 }
 
-ubos_metrics::mcu_temperature_task!(McuTempSensor);
+ubos_metrics::mcu_temperature_task!(ubos_stm32::mcu_temp::McuTempSensor);
 
 #[embassy_executor::task]
 async fn cpu_load_task() -> ! {
@@ -359,29 +324,15 @@ async fn boot(spawner: Spawner) {
     spawner.spawn(unwrap!(hashrate_metrics_task()));
     spawner.spawn(unwrap!(pool_weights_task()));
 
-    // TIM3 emits TRGO once per second via master-mode UPDATE; the ADC runs
-    // single-shot conversions on each rising edge, so the DMA ring buffer
-    // receives exactly one temperature sample per trigger.
-    let temp_timer = LowLevelTimer::new(hw.temp_trigger_timer);
-    temp_timer.set_frequency(Hertz(1), RoundTo::Slower);
-    temp_timer.set_master_mode(MasterMode::UPDATE);
-    temp_timer.start();
-
-    let adc = Adc::new(hw.adc);
-    let temp_channel = adc.enable_temperature();
     static TEMP_RING_BUF: StaticCell<[u16; 2]> = StaticCell::new();
-    let temp_ring = adc.into_ring_buffered(
+    let mcu_temp_sensor = ubos_stm32::mcu_temp::McuTempSensor::new(
+        hw.adc,
         hw.adc_dma,
+        hw.temp_trigger_timer,
         TEMP_RING_BUF.init([0u16; 2]),
         Irqs,
-        [(temp_channel.degrade_adc(), SampleTime::CYCLES480)].into_iter(),
-        TIM3_TRGO,
-        Exten::RISING_EDGE,
     );
-    spawner.spawn(unwrap!(mcu_temperature_task(McuTempSensor {
-        ring: temp_ring,
-        _timer: temp_timer,
-    })));
+    spawner.spawn(unwrap!(mcu_temperature_task(mcu_temp_sensor)));
 
     // Hashboard plug-detect input (PE1, pull-up). Hold the binding at
     // function scope so the GPIO stays driven for the lifetime of the

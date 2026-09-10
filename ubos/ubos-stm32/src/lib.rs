@@ -19,12 +19,13 @@
 
 //! Per-platform support for the STM32F407 and STM32F439 control boards.
 //!
-//! The crate holds the fan, miner-serial, watchdog and Ethernet device code
-//! that both STM32 boards carried one copy of: the timer-based fan PWM and
-//! the tachometer that counts capture edges in the TIM4 handler, the
-//! `MinerUart` newtype, the `BoardWatchdog` wrapper, and the `Device` type
-//! alias with its `ethernet_device!` macro. A board depends on this crate
-//! and deletes its own copies.
+//! The crate holds the fan, miner-serial, watchdog, Ethernet device and MCU
+//! temperature code that both STM32 boards carried one copy of: the
+//! timer-based fan PWM and the tachometer that counts capture edges in the
+//! TIM4 handler, the `MinerUart` newtype, the `BoardWatchdog` wrapper, the
+//! `Device` type alias with its `ethernet_device!` macro, and the ADC1/TIM3
+//! wiring for the die thermometer. A board depends on this crate and
+//! deletes its own copies.
 //!
 //! Both boards are single-core, so there is no core-1 spawn macro here, and
 //! neither declares a `#[panic_handler]` or a `HardFault` handler, so there
@@ -33,6 +34,7 @@
 #![no_std]
 
 pub mod fan;
+pub mod mcu_temp;
 pub mod uart;
 
 mod eth;
