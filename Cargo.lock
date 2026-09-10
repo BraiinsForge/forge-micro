@@ -315,6 +315,7 @@ dependencies = [
  "ubos-eeprom",
  "ubos-events",
  "ubos-firmware",
+ "ubos-led",
  "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
@@ -357,6 +358,7 @@ dependencies = [
  "ubos-eeprom",
  "ubos-events",
  "ubos-firmware",
+ "ubos-led",
  "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
@@ -2256,6 +2258,7 @@ dependencies = [
  "ubos-eeprom",
  "ubos-events",
  "ubos-firmware",
+ "ubos-led",
  "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
@@ -3342,6 +3345,7 @@ dependencies = [
  "ubos-eeprom",
  "ubos-events",
  "ubos-firmware",
+ "ubos-led",
  "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
@@ -3402,6 +3406,7 @@ dependencies = [
  "ubos-eeprom",
  "ubos-events",
  "ubos-firmware",
+ "ubos-led",
  "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
@@ -3866,6 +3871,7 @@ dependencies = [
  "ubos-eeprom",
  "ubos-events",
  "ubos-firmware",
+ "ubos-led",
  "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
@@ -3906,6 +3912,7 @@ dependencies = [
  "ubos-eeprom",
  "ubos-events",
  "ubos-firmware",
+ "ubos-led",
  "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
@@ -4477,6 +4484,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubos-led"
+version = "0.1.0"
+dependencies = [
+ "embassy-time",
+ "embedded-hal 1.0.0",
+ "smart-leds",
+]
+
+[[package]]
 name = "ubos-logging"
 version = "0.1.0"
 dependencies = [
@@ -4649,10 +4665,11 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "pio",
  "serial-baudrate",
+ "smart-leds",
  "ubos-api",
  "ubos-cooling",
  "ubos-core",
- "ubos-net",
+ "ubos-led",
  "ubos-ota",
 ]
 

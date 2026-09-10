@@ -38,6 +38,7 @@ pub mod boot;
 pub mod fan;
 pub mod i2c;
 pub mod pio_tach;
+pub mod rgb;
 pub mod uart;
 
 mod core1;

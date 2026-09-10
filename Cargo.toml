@@ -34,6 +34,7 @@ members = [
     "ubos/ubos-core",
     "ubos/ubos-display",
     "ubos/ubos-http",
+    "ubos/ubos-led",
     "ubos/ubos-logging",
     "ubos/ubos-machine",
     "ubos/ubos-manager",
@@ -129,6 +130,7 @@ ubos-asic         = { path = "ubos/ubos-asic" }
 ubos-auth         = { path = "ubos/ubos-auth", default-features = false }
 ubos-build        = { path = "host/ubos-build" }
 ubos-core         = { path = "ubos/ubos-core" }
+ubos-led          = { path = "ubos/ubos-led" }
 ubos-display      = { path = "ubos/ubos-display" }
 ubos-http         = { path = "ubos/ubos-http", default-features = false }
 ubos-logging      = { path = "ubos/ubos-logging", default-features = false }

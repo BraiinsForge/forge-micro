@@ -119,7 +119,7 @@ ubos_firmware::net_task!(Device<'static>);
 
 ubos_core::watchdog_task!(ubos_rp::BoardWatchdog);
 
-ubos_core::led_blink_task!(Output<'static>);
+ubos_led::led_blink_task!(Output<'static>);
 
 ubos_net::ntp_sync_task!();
 

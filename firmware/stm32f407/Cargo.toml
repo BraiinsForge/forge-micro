@@ -31,6 +31,7 @@ ubos-auth            = { workspace = true, features = ["defmt", "ccmram-bss"] }
 ubos-config          = { workspace = true, features = ["defmt"] }
 ubos-cooling         = { workspace = true, features = ["defmt"] }
 ubos-core            = { workspace = true, features = ["ccmram-bss"] }
+ubos-led             = { workspace = true }
 ubos-display         = { workspace = true }
 ubos-eeprom          = { workspace = true, features = ["defmt"] }
 ubos-events          = { workspace = true, features = ["defmt"] }

@@ -124,6 +124,7 @@ let
 
   hostClippyChecks = builtins.mapAttrs (_: mkHostClippy) {
     clippy-ubos-core.crate = "ubos-core";
+    clippy-ubos-led.crate = "ubos-led";
     clippy-ubos-http.crate = "ubos-http";
     clippy-ubos-api.crate = "ubos-api";
     clippy-ubos-auth.crate = "ubos-auth";

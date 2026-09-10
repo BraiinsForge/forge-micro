@@ -1,0 +1,13 @@
+[package]
+license.workspace = true
+name    = "ubos-led"
+edition.workspace = true
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+embassy-time = { workspace = true }
+embedded-hal = { workspace = true }
+smart-leds   = "0.4"

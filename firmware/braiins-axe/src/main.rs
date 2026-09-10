@@ -64,6 +64,7 @@ use ubos_config::{FlashStorage, SyncFlash};
 #[cfg(feature = "display")]
 use ubos_display::sh1106::{Rotation, Sh1106};
 use ubos_eeprom::HashboardEeprom as _;
+use ubos_rp::rgb::Ws2812Ring;
 
 use ubos_net::net;
 
@@ -382,15 +383,15 @@ async fn boot(spawner: Spawner) {
         ..
     } = Pio::new(hw.pio1, Irqs);
     let rgb_program = PioWs2812Program::new(&mut rgb_common);
-    let status_ring: rgb::Ring = PioWs2812::new(
+    let status_ring: rgb::Ring = Ws2812Ring(PioWs2812::new(
         &mut rgb_common,
         rgb_sm,
         hw.rgb_dma,
         Irqs,
         hw.rgb_data,
         &rgb_program,
-    );
-    spawner.spawn(unwrap!(rgb::rgb_task(status_ring)));
+    ));
+    spawner.spawn(unwrap!(rgb::rgb_task(status_ring, rgb::COLOR)));
 
     // --- 7. Config — always ---------------------------------------------------
     let config_storage = FlashStorage::new(

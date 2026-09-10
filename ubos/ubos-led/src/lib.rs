@@ -17,28 +17,16 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Status LED blink loop. Toggles any `StatefulOutputPin` at 500 ms intervals.
+//! The board's indicator LEDs: the status blink on a plain output pin and
+//! the breathing colour on an addressable RGB string.
+//!
+//! Every board has at least one of the two, and neither depends on
+//! anything but a pin or a frame writer and a clock, so the loops and
+//! their task shells live here rather than in the framework core. A
+//! platform crate adapts its LED driver to [`rgb::RgbFrame`]; a board
+//! names the pin or ring type and the colour and spawns the shell.
 
-use embassy_time::{Duration, Ticker};
-use embedded_hal::digital::StatefulOutputPin;
+#![no_std]
 
-/// Blink an LED at a fixed 500 ms interval. Runs forever.
-pub async fn run_led_blink<P: StatefulOutputPin>(mut led: P) -> ! {
-    let mut ticker = Ticker::every(Duration::from_millis(500));
-    loop {
-        let _ = led.toggle();
-        ticker.next().await;
-    }
-}
-
-/// Task shell around [`run_led_blink`]. Takes the board's HAL output
-/// type, which is the only thing that differs between boards.
-#[macro_export]
-macro_rules! led_blink_task {
-    ($led:ty) => {
-        #[embassy_executor::task]
-        async fn led_blink_task(led: $led) -> ! {
-            ubos_core::led::run_led_blink(led).await
-        }
-    };
-}
+pub mod blink;
+pub mod rgb;
