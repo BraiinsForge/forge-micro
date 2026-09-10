@@ -60,7 +60,7 @@ use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::InterruptExt;
 use embassy_time::Instant;
 use portable_atomic::{AtomicU32, AtomicU64, Ordering};
-use ubos_cooling::{FanOutput, TachReader};
+use ubos_cooling::{FanOutput, TachReader, pulses_to_rpm};
 use ubos_core::units::{FanPwm, FanRpm};
 
 /// Tach rising edges since the last [`BoardTach::read_rpms`]. Incremented in
@@ -243,10 +243,6 @@ impl TachReader<1> for BoardTach {
         let edges = u64::from(TACH_EDGES.swap(0, Ordering::Relaxed));
         let elapsed_us = (now - self.last).as_micros();
         self.last = now;
-        // `checked_div` yields 0 when two reads land in the same microsecond.
-        let rpm = (edges * 60 * 1_000_000 / TACH_PULSES_PER_REV)
-            .checked_div(elapsed_us)
-            .unwrap_or(0);
-        [FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))]
+        [pulses_to_rpm(edges, TACH_PULSES_PER_REV, elapsed_us)]
     }
 }

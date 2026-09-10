@@ -56,6 +56,10 @@ mod tests_failsafe;
 #[path = "tests/fixed.rs"]
 mod tests_fixed;
 
+#[cfg(test)]
+#[path = "tests/rpm.rs"]
+mod tests_rpm;
+
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
@@ -104,6 +108,26 @@ pub trait FanOutput {
 pub trait TachReader<const N: usize> {
     const LABELS: [Option<&'static str>; N];
     async fn read_rpms(&mut self) -> [FanRpm; N];
+}
+
+const SECONDS_PER_MINUTE: u64 = 60;
+const MICROS_PER_SECOND: u64 = 1_000_000;
+
+/// Convert tachometer pulses counted over `elapsed_us` into RPM.
+///
+/// Every edge-counting [`TachReader`] ends in this formula: the pulses seen
+/// in one measurement window, divided by the pulses one revolution emits,
+/// scaled from the window length to a minute. A zero window reports 0 rather
+/// than dividing by it, which is what the first read after construction may
+/// see, and so does a zero `pulses_per_rev`, which no real fan has. A result
+/// past `u32::MAX` saturates.
+#[must_use]
+pub fn pulses_to_rpm(pulses: u64, pulses_per_rev: u64, elapsed_us: u64) -> FanRpm {
+    let rpm = (pulses * SECONDS_PER_MINUTE * MICROS_PER_SECOND)
+        .checked_div(pulses_per_rev)
+        .and_then(|per_rev| per_rev.checked_div(elapsed_us))
+        .unwrap_or(0);
+    FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))
 }
 
 const METRIC_FAN_PWM: &str = "board_fan_pwm_percent";
