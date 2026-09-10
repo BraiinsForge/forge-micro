@@ -37,6 +37,7 @@ use embassy_rp::pio::{
     Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, StateMachine,
 };
 use embassy_rp::pio_programs::clock_divider::calculate_pio_clock_divider;
+use ubos_cooling::pulses_to_rpm;
 use ubos_core::units::FanRpm;
 
 /// PIO state-machine clock. The counting loops are exactly
@@ -49,6 +50,9 @@ pub const TACH_PIO_HZ: u32 = 3_000_000;
 /// to this exact length so elapsed ticks map linearly to time regardless
 /// of the input duty cycle.
 pub const TACH_CYCLES_PER_ITER: u32 = 3;
+
+/// Microseconds in a second, for the period-to-window conversion.
+const MICROS_PER_SECOND: u64 = 1_000_000;
 
 /// Fastest RPM accepted as a real measurement; no fan on this board
 /// approaches it.
@@ -64,12 +68,18 @@ pub const TACH_MAX_PLAUSIBLE_RPM: u64 = 30_000;
 /// wired to a two-pulse fan and one wired to a four-pulse fan disagree
 /// on what a given tick count means. Passing it keeps a board from
 /// reading half or double its real speed.
+///
+/// A zero `pulses_per_rev` yields `u32::MAX`, so every pulse is discarded
+/// rather than the divisor reaching zero.
 // Fits u32: the divisor is far larger than can push the quotient past 2^32.
 #[allow(clippy::cast_possible_truncation)]
 #[must_use]
 pub const fn min_iters(pulses_per_rev: u64) -> u32 {
-    (60 * TACH_PIO_HZ as u64
-        / (TACH_MAX_PLAUSIBLE_RPM * TACH_CYCLES_PER_ITER as u64 * pulses_per_rev)) as u32
+    let ticks_per_pulse = TACH_MAX_PLAUSIBLE_RPM * TACH_CYCLES_PER_ITER as u64 * pulses_per_rev;
+    match (60 * TACH_PIO_HZ as u64).checked_div(ticks_per_pulse) {
+        Some(iters) => iters as u32,
+        None => u32::MAX,
+    }
 }
 
 /// Build the tach period-counter program.
@@ -178,11 +188,11 @@ pub fn latest_rpm<P: Instance, const SM: usize>(
     let Some(iters) = iters else {
         return FanRpm::from_rpm(0);
     };
-    // rpm = 60 * pio_hz / (ticks * cycles_per_tick * pulses_per_rev). One
-    // measured period spans one pulse, and there are TACH_PULSES_PER_REV
-    // pulses per revolution.
-    let numerator = 60u64 * u64::from(TACH_PIO_HZ);
-    let denominator = u64::from(iters) * u64::from(TACH_CYCLES_PER_ITER) * pulses_per_rev;
-    #[allow(clippy::cast_possible_truncation)]
-    FanRpm::from_rpm((numerator / denominator) as u32)
+    // One measured period spans one pulse. The period is in ticks of
+    // TACH_CYCLES_PER_ITER PIO cycles, so its length in microseconds is
+    // ticks × cycles / pio_hz × 10^6. pulses_to_rpm finishes the
+    // conversion, the same tail every other tach reader uses.
+    let elapsed_us = u64::from(iters) * u64::from(TACH_CYCLES_PER_ITER) * MICROS_PER_SECOND
+        / u64::from(TACH_PIO_HZ);
+    pulses_to_rpm(1, pulses_per_rev, elapsed_us)
 }
