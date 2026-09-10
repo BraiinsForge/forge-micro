@@ -94,7 +94,11 @@ and rebuilds it; other tuning edits apply on the next bring-up.
 
 ## Mining state machine
 
-`Miner::run` repeats:
+`Miner::run` first disables the rail once, before the first reset. This
+puts every board in a known-off state before its first bring-up, no matter
+what the last boot cycle left behind.
+
+Then `Miner::run` repeats:
 
 1. Read the live `ubos-config` snapshot and select the tuner by
    `miner.algorithm`.

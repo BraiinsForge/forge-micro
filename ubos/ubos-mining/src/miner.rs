@@ -241,6 +241,18 @@ where
         // from firing a spurious restart against the just-read target.
         config_subscription.changed().await;
 
+        // Park the rail off before the first reset, so every board
+        // begins bring-up from a known-off supply regardless of what
+        // the previous boot cycle left it in. A failure is logged and
+        // bring-up goes on: the enable that follows the reset sets the
+        // rail either way.
+        if let Err(error) = self.psu.disable().await {
+            warn!(
+                "psu disable before the first reset failed: {:?}",
+                Debug2Format(&error)
+            );
+        }
+
         loop {
             let snapshot = config_handle.current();
             let target = TuningConfig {
