@@ -29,7 +29,10 @@ pub mod allow_list;
 pub mod auth;
 pub mod csprng;
 pub mod csrf;
+pub mod gate;
 pub mod session;
+
+pub use gate::{Policy, Rejection, check_csrf, gate_identity};
 
 #[cfg(test)]
 mod test_time_stubs {
