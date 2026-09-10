@@ -90,14 +90,12 @@ impl<I: I2c> Device for BfmDevice<I> {
 
         let result = sic45x::init(i2c, &config.sic).await;
         if result.is_ok() {
-            // Identity probe: logs the SIC450's identity registers so
-            // bench captures can settle the word-vs-block framing
-            // question, and yields the IC_DEVICE_ID word. The register's
-            // NVM default is 0x0000 and catalog parts may ship
-            // unprogrammed, so only a real value is published; a blank
-            // or unreadable ID leaves the API model null. Does not
-            // affect the init outcome.
-            if let Some(id) = sic45x::log_identity(i2c, config.sic.address).await
+            // Identity probe: reads the IC_DEVICE_ID word for the
+            // published model string. The register's NVM default is
+            // 0x0000 and catalog parts may ship unprogrammed, so only a
+            // real value is published; a blank or unreadable ID leaves
+            // the API model null. Does not affect the init outcome.
+            if let Some(id) = sic45x::read_device_id(i2c, config.sic.address).await
                 && id != 0x0000
                 && id != 0xFFFF
             {
