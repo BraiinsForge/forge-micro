@@ -53,6 +53,13 @@ libraries. These load only when working under `firmware/` or `ubos/`.
   `IdleAccounting::<1>` so core 1's idle ticks are recorded for cpu-load
   metrics. The S3's 128-byte hardware FIFO absorbs the ETH-ISR-class
   jitter that overran the 1-byte USART holding register on stm32f407.
+- A function returns the value it produces, or `Option` or `Result` of
+  it. It does not fill a caller's `&mut` argument and report success
+  separately. A `&mut` buffer is fine when the caller owns it for its
+  whole lifetime and chooses its length, when the function transforms it
+  in place, or when a trait or a HAL dictates the signature. Where our
+  code calls such a HAL, the platform crate wraps the call in a function
+  that returns the value, as `ubos_rp::boot::flash_unique_id` does.
 
 ## Free functions
 
