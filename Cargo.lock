@@ -3292,6 +3292,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1376b15f3ff160e9b1e8ea564ce427f2f6fcf77528cc0a8bf405cb476f9cea7"
 
 [[package]]
+name = "rp-bootloader"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt 1.0.1",
+ "defmt-rtt",
+ "embassy-boot-rp",
+ "embassy-rp",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+]
+
+[[package]]
 name = "rp-pac"
 version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3355,14 +3369,9 @@ dependencies = [
 name = "rp2040-bootloader"
 version = "0.1.0"
 dependencies = [
- "cortex-m",
  "cortex-m-rt",
- "defmt 1.0.1",
- "defmt-rtt",
- "embassy-boot-rp",
  "embassy-rp",
- "embassy-sync 0.8.0",
- "embassy-time",
+ "rp-bootloader",
  "ubos-build",
 ]
 
@@ -3411,14 +3420,9 @@ dependencies = [
 name = "rp2350-bootloader"
 version = "0.1.0"
 dependencies = [
- "cortex-m",
  "cortex-m-rt",
- "defmt 1.0.1",
- "defmt-rtt",
- "embassy-boot-rp",
  "embassy-rp",
- "embassy-sync 0.8.0",
- "embassy-time",
+ "rp-bootloader",
  "ubos-build",
 ]
 

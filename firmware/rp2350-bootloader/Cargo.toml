@@ -8,14 +8,9 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-embassy-boot-rp    = { version = "0.10.0" }
-embassy-rp         = { version = "0.10.0", features = ["rp235xa"] }
-embassy-sync       = { version = "0.8", default-features = false }
-embassy-time       = { version = "0.5.1", default-features = false }
-cortex-m           = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
-cortex-m-rt        = "0.7"
-defmt              = { workspace = true, optional = true }
-defmt-rtt          = { workspace = true, optional = true }
+rp-bootloader = { workspace = true }
+embassy-rp    = { version = "0.10.0", features = ["rp235xa"] }
+cortex-m-rt   = "0.7"
 
 [build-dependencies]
 ubos-build = { workspace = true }
@@ -23,13 +18,12 @@ ubos-build = { workspace = true }
 [features]
 default = []
 defmt   = [
-    "dep:defmt",
-    "dep:defmt-rtt",
-    "embassy-boot-rp/defmt",
+    "rp-bootloader/defmt",
     "embassy-rp/defmt",
 ]
 
-# defmt is an optional dep gated behind the defmt feature flag; machete
-# does not follow feature-gated paths.
+# embassy-rp is named only to select the chip feature the shared boot
+# sequence compiles against; the source imports nothing from it, so
+# machete would report it unused.
 [package.metadata.cargo-machete]
-ignored = ["defmt"]
+ignored = ["embassy-rp"]

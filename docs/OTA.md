@@ -46,6 +46,11 @@ sector as swap scratch space. `DFU` ends exactly where `CONFIG` begins
 `secure_exe`) so the bootrom boots it on every reset — warm or cold — without
 consulting the bootrom partition table.
 
+`firmware/rp2040-bootloader` and `firmware/rp2350-bootloader` both call
+`rp_bootloader::boot`, the shared entry point in `ubos/rp-bootloader`. Each
+crate's `main.rs` only picks the flash size and stays chip-specific; the
+`embassy-boot-rp` sequence below is common to both.
+
 The bootloader's startup sequence:
 
 1. Wraps the FLASH peripheral in a `WatchdogFlash` with an 8 s watchdog timeout.

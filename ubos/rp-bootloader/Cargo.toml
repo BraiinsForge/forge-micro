@@ -1,0 +1,38 @@
+[package]
+license.workspace = true
+name    = "rp-bootloader"
+edition.workspace = true
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+embassy-boot-rp = { version = "0.10.0" }
+# No chip feature here: the crate builds under both rp2040 (thumbv6m) and
+# rp235xa (thumbv8m), so the bootloader binary or the flake check selects
+# the chip.
+embassy-rp      = { version = "0.10.0", default-features = false }
+embassy-sync    = { version = "0.8", default-features = false }
+embassy-time    = { version = "0.5.1", default-features = false }
+# critical-section-single-core avoids the embassy-rp/critical-section-impl
+# feature that would conflict with the main firmware's feature unification
+# when both are in the same buildDepsOnly bag.
+cortex-m        = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt     = "0.7"
+defmt           = { workspace = true, optional = true }
+defmt-rtt       = { workspace = true, optional = true }
+
+[features]
+default = []
+defmt   = [
+    "dep:defmt",
+    "dep:defmt-rtt",
+    "embassy-boot-rp/defmt",
+    "embassy-rp/defmt",
+]
+
+# defmt is an optional dep gated behind the defmt feature flag; machete
+# does not follow feature-gated paths.
+[package.metadata.cargo-machete]
+ignored = ["defmt"]

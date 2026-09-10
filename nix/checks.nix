@@ -639,6 +639,21 @@ hostClippyChecks
     CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
   };
 
+  # rp-bootloader is linted here for the same reason as ubos-rp: both
+  # bootloader crates depend on it and each build compiles it
+  # transitively, so it has no standalone build derivation of its own.
+  # clippy selects a chip on the CLI because the crate pins none. Only the
+  # rp235xa half is linted; the rp2040 bootloader build compiles the other
+  # without `-D warnings`.
+  clippy-rp-bootloader = craneLib.cargoClippy {
+    src = srcFor [ "rp-bootloader" ];
+    cargoArtifacts = deps.thumbv8mBootloaderArtifacts;
+    cargoExtraArgs = "-p rp-bootloader --target thumbv8m.main-none-eabihf --features embassy-rp/rp235xa";
+    cargoClippyExtraArgs = "-- -D warnings";
+    doInstallCargoArtifacts = false;
+    CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
+  };
+
   # ubos-stm32 is linted here for the same reason as ubos-rp: both STM32
   # boards depend on it, so each board build compiles it transitively.
   # clippy selects a chip on the CLI because the crate pins none, so the

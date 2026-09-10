@@ -22,6 +22,7 @@ members = [
     "ubos/mining-protocol",
     "ubos/ubos-asic",
     "ubos/ubos-mining",
+    "ubos/rp-bootloader",
     "ubos/rp235x-sha256",
     "ubos/serial-baudrate",
     "ubos/stratum-client",
@@ -116,6 +117,7 @@ embedded-storage       = { version = "0.3", default-features = false }
 embedded-storage-async = { version = "0.4", default-features = false }
 esp32s3-tsens     = { path = "ubos/esp32s3-tsens" }
 mining-protocol   = { path = "ubos/mining-protocol" }
+rp-bootloader     = { path = "ubos/rp-bootloader" }
 serial-baudrate   = { path = "ubos/serial-baudrate" }
 stratum-client    = { path = "ubos/stratum-client" }
 stratum-v1        = { path = "ubos/stratum-v1" }
