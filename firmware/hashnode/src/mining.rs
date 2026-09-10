@@ -26,35 +26,15 @@
 //! operation: there is no SIGINT on bare metal, so `STOP_MINING` is never
 //! raised and `ubos_mining::Miner::run` parks inside its bring-up loop.
 
-use embassy_rp::gpio::Output;
-
-/// Drives the hashboard reset line through an embassy-rp GPIO.
-pub struct BoardResetPin {
-    pin: Output<'static>,
-}
-
-impl BoardResetPin {
-    #[must_use]
-    pub fn new(pin: Output<'static>) -> Self {
-        Self { pin }
-    }
-}
-
-impl ubos_mining::reset::ResetPin for BoardResetPin {
-    async fn enter_reset(&mut self) {
-        self.pin.set_low();
-    }
-
-    async fn exit_reset(&mut self) {
-        self.pin.set_high();
-    }
-}
-
 ubos_mining::serial_task!(
     ubos_rp::uart::MinerUart,
     ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
     crate::config::BOARD,
     ubos_asic::Bm13xxDriver
 );
+
+/// The reset line is one push-pull output with no timings, so the shared
+/// newtype drives it.
+pub type BoardResetPin = ubos_mining::reset::OutputResetPin<embassy_rp::gpio::Output<'static>>;
 
 ubos_mining::miner_task!(crate::psu::BoardPsu, BoardResetPin, crate::config::BOARD);

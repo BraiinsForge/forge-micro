@@ -30,6 +30,8 @@
 //! EXIO5), which needs an async bus transaction. GPIO-backed boards
 //! implement them as plain non-awaiting bodies.
 
+use embedded_hal::digital::OutputPin;
+
 // async fn in a public trait: the only implementors are the per-board
 // reset pins, consumed by `Miner` through a generic bound, never across
 // an auto-trait boundary, so the Send-leakage caveat does not apply.
@@ -55,4 +57,35 @@ pub trait ResetPin {
     /// mode line leaves it in the configuring state there and moves it
     /// here.
     async fn enter_work_mode(&mut self) {}
+}
+
+/// A reset line driven straight from one GPIO output.
+///
+/// The `ResetPin` trait carries no timings, so a board whose reset line is
+/// a plain push-pull pad needs nothing beyond two level writes. Every such
+/// board wraps its HAL output in this type instead of writing the same
+/// impl again. A board whose line needs settle times or a mode line writes
+/// its own impl.
+///
+/// The pin writes are infallible on every HAL this crate targets, so a
+/// reported error is dropped, as the trait doc says.
+pub struct OutputResetPin<P: OutputPin> {
+    pin: P,
+}
+
+impl<P: OutputPin> OutputResetPin<P> {
+    #[must_use]
+    pub fn new(pin: P) -> Self {
+        Self { pin }
+    }
+}
+
+impl<P: OutputPin> ResetPin for OutputResetPin<P> {
+    async fn enter_reset(&mut self) {
+        let _ = self.pin.set_low();
+    }
+
+    async fn exit_reset(&mut self) {
+        let _ = self.pin.set_high();
+    }
 }

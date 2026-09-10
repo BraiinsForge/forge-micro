@@ -28,6 +28,8 @@ defmt             = { workspace = true, optional = true }
 embassy-futures   = { workspace = true }
 embassy-sync      = { workspace = true }
 embassy-time      = { workspace = true }
+# `OutputResetPin` drives any HAL output through the `OutputPin` trait.
+embedded-hal      = { workspace = true }
 embedded-io       = "0.7"
 embedded-io-async = { workspace = true }
 heapless          = { workspace = true }
