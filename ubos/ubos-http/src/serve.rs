@@ -39,6 +39,8 @@ use ubos_logging::{Debug2Format, warn};
 
 use edge_nal::TcpSplit;
 
+use crate::request::RequestParts;
+
 /// Maximum number of HTTP headers parsed per request.
 ///
 /// Sixteen was not enough: a browser request already carries around
@@ -64,24 +66,28 @@ const INTERNAL_ERROR_BODY: &str = "INTERNAL ERROR";
 /// the value to `serve_worker` (typically via the `http_worker_task!`
 /// macro); the accept loop calls `handle` once per accepted TCP
 /// connection after the HTTP request headers have been parsed by
-/// edge-http.
+/// edge-http and copied into a `RequestParts`.
 ///
 /// `peer_ip` carries the remote address extracted from the accepted
 /// socket so that handlers can enforce IP allow-lists without depending
-/// on embassy-net types directly.
+/// on embassy-net types directly. `parts` is the method, path, and
+/// tracked header values, extracted once by the worker via
+/// `extract_request_parts` before `handle` is called.
 #[allow(async_fn_in_trait)]
 pub trait Service {
     /// Handle one edge-http connection.
     ///
     /// `peer_ip` is the remote IP address of the accepted TCP
-    /// connection. `connection` is the edge-http state machine for the
-    /// request-response cycle; the handler reads request headers via
-    /// `connection.headers()` and writes the response via
-    /// `connection.initiate_response` followed by writes to the
-    /// connection writer.
+    /// connection. `parts` carries the request's method, path, and
+    /// tracked headers, already extracted by the worker. `connection`
+    /// is the edge-http state machine for the request-response cycle;
+    /// the handler reads the request body, if any, through it and
+    /// writes the response via `connection.initiate_response` followed
+    /// by writes to the connection writer.
     async fn handle<TcpSocket, const N: usize>(
         &self,
         peer_ip: IpAddr,
+        parts: &RequestParts,
         connection: &mut Connection<'_, TcpSocket, N>,
     ) -> Result<(), HttpError<TcpSocket::Error>>
     where
@@ -271,9 +277,23 @@ where
         _ => return Err(Ended::Reset),
     };
 
+    // Copy the method, path, and tracked headers out once here so every
+    // `Service` implementor shares the same extraction instead of each
+    // repeating it. The extraction fails only when the connection is not
+    // in the headers state, which cannot happen straight after `new`, but
+    // the client is still owed a response, so it gets the 500 rather than
+    // a silent reset.
+    let Ok(parts) = crate::request::extract_request_parts(&mut connection) else {
+        connection
+            .complete_err(INTERNAL_ERROR_BODY)
+            .await
+            .map_err(|_| Ended::Reset)?;
+        return Ok(connection.needs_close());
+    };
+
     // A handler error still owes the client a response, so write the 500
     // rather than dropping the socket with nothing on it.
-    match service.handle(peer_ip, &mut connection).await {
+    match service.handle(peer_ip, &parts, &mut connection).await {
         Ok(()) => connection.complete().await,
         Err(_) => connection.complete_err(INTERNAL_ERROR_BODY).await,
     }

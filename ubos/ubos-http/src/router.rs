@@ -30,6 +30,7 @@ use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
 use embedded_io_async::{Read, Write};
 
+use crate::request::RequestParts;
 use crate::serve::Service;
 
 #[cfg(test)]
@@ -59,24 +60,18 @@ where
     async fn handle<TcpSocket, const N: usize>(
         &self,
         peer_ip: IpAddr,
+        parts: &RequestParts,
         connection: &mut Connection<'_, TcpSocket, N>,
     ) -> Result<(), HttpError<TcpSocket::Error>>
     where
         TcpSocket: Read + Write + TcpSplit,
     {
-        // Propagate the read failure rather than treating it as a miss. A
-        // connection in the wrong state is an error, and sending it to the
-        // fallback service reports that error one step away from its cause.
-        //
-        // The borrow ends with this statement, so the router holds no copy
-        // of the path. The handler copies it into an owned string a moment
-        // later, and a second copy here buys nothing.
-        let matched = connection.headers()?.path.starts_with(self.prefix);
-
-        if matched {
-            self.matched.handle(peer_ip, connection).await
+        // The worker already extracted `parts` once, so routing reads
+        // the path from it rather than borrowing `connection` again.
+        if parts.path.starts_with(self.prefix) {
+            self.matched.handle(peer_ip, parts, connection).await
         } else {
-            self.fallback.handle(peer_ip, connection).await
+            self.fallback.handle(peer_ip, parts, connection).await
         }
     }
 }

@@ -24,7 +24,6 @@
 use core::fmt::Write as _;
 use core::net::IpAddr;
 
-use edge_http::Method;
 use edge_http::io::Error as HttpError;
 use edge_http::io::server::Connection;
 use edge_nal::TcpSplit;
@@ -37,7 +36,7 @@ use embedded_io_async::{Read, Write};
 use ubos_logging::warn;
 
 use crate::consts::Metrics;
-use ubos_http::{BufferWriter, Service, format_content_length};
+use ubos_http::{BufferWriter, RequestParts, Service, format_content_length};
 
 /// A metric value.
 #[derive(Clone, Copy)]
@@ -335,32 +334,20 @@ impl Service for PrometheusMetricsService {
     async fn handle<TcpSocket, const N: usize>(
         &self,
         _peer_ip: IpAddr,
+        parts: &RequestParts,
         connection: &mut Connection<'_, TcpSocket, N>,
     ) -> Result<(), HttpError<TcpSocket::Error>>
     where
         TcpSocket: Read + Write + TcpSplit,
     {
-        let (is_get, path) = {
-            let headers = connection.headers().map_err(|_| HttpError::InvalidState)?;
+        // The worker already extracted `parts`, so no second copy of the
+        // method and path is needed here. A path over the 128-byte cap
+        // arrives empty, which falls through the match below exactly as
+        // the oversize path used to once it was replaced with `/`: neither
+        // ever equals `/metrics`.
+        let is_get = parts.method.as_str() == "GET";
 
-            // Compare method before the borrow on `headers` ends; the
-            // result is a plain bool that does not hold any reference.
-            let is_get = headers.method == Method::Get;
-
-            let mut path_buf = heapless::String::<128>::new();
-            let path_too_long = headers.path.len() > 128;
-            if path_too_long {
-                warn!(
-                    "metrics: request path {} bytes exceeds 128 cap; replaced with `/`",
-                    headers.path.len()
-                );
-            }
-            let _ = path_buf.push_str(if path_too_long { "/" } else { headers.path });
-
-            (is_get, path_buf)
-        };
-
-        match (is_get, path.as_str()) {
+        match (is_get, parts.path.as_str()) {
             (true, "/metrics") => serve_metrics(connection).await,
             (false, "/metrics") => serve_method_not_allowed(connection).await,
             _ => serve_not_found(connection).await,

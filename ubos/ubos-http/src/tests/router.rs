@@ -37,6 +37,7 @@ use embassy_futures::block_on;
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 
 use super::PrefixRouter;
+use crate::request::{RequestParts, extract_request_parts};
 use crate::response::write_status_only;
 use crate::serve::{MAX_HEADERS, Service};
 
@@ -194,6 +195,7 @@ impl Service for Recorder {
     async fn handle<TcpSocket, const N: usize>(
         &self,
         _peer_ip: IpAddr,
+        _parts: &RequestParts,
         connection: &mut Connection<'_, TcpSocket, N>,
     ) -> Result<(), HttpError<TcpSocket::Error>>
     where
@@ -227,8 +229,9 @@ fn route(request: &[u8]) -> (bool, bool) {
         let mut connection = Connection::<_, MAX_HEADERS>::new(&mut parse_buffer, &mut socket)
             .await
             .expect("the mock request parses");
+        let parts = extract_request_parts(&mut connection).expect("the parts extract");
         router
-            .handle(PEER_IP, &mut connection)
+            .handle(PEER_IP, &parts, &mut connection)
             .await
             .expect("the recorder answers");
     });

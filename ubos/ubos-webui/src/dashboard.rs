@@ -54,8 +54,8 @@ use heapless::Vec;
 use crate::{INDEX_HTML_GZ, LOGIN_HTML_GZ, LOGO_SVG_GZ};
 use ubos_http::consts::Http;
 use ubos_http::{
-    MAX_RESPONSE_HEADERS, RequestParts, Service, extract_request_parts, format_content_length,
-    read_body, write_status_only,
+    MAX_RESPONSE_HEADERS, RequestParts, Service, format_content_length, read_body,
+    write_status_only,
 };
 
 #[cfg(test)]
@@ -322,6 +322,7 @@ impl Service for DashboardService {
     async fn handle<TcpSocket, const N: usize>(
         &self,
         peer_ip: core::net::IpAddr,
+        parts: &RequestParts,
         connection: &mut Connection<'_, TcpSocket, N>,
     ) -> Result<(), HttpError<TcpSocket::Error>>
     where
@@ -333,8 +334,25 @@ impl Service for DashboardService {
         // dropped before its request is parsed is never counted.
         ubos_net::net::handle().record_request();
 
-        // The allow-list is the compile-time default for now.
-        if !ubos_auth::allow_list::is_allowed(peer_ip, ubos_auth::allow_list::DEFAULT_ALLOW_LIST) {
+        let method = parts.method.as_str();
+        let path = parts.path.as_str();
+        let authorization = parts.authorization.as_deref();
+        let cookie = parts.cookie.as_deref();
+        let content_length = parts.content_length;
+
+        // The dashboard admits anonymous requests, since an unauthenticated
+        // browser must still reach `/login`. The CSRF check runs separately
+        // below, once the request body has been read, so an oversized body
+        // does not burn the session's CSRF token.
+        let identity_policy = ubos_auth::Policy {
+            allow_anonymous: true,
+        };
+        // Anonymous requests are admitted by the policy above, so the only
+        // rejection left is the allow-list, and it is answered with 401
+        // whichever variant names it.
+        let Ok(auth_ctx) =
+            ubos_auth::gate_identity(peer_ip, authorization, cookie, &identity_policy)
+        else {
             return write_status_only(
                 connection,
                 401,
@@ -344,25 +362,7 @@ impl Service for DashboardService {
                 b"{\"message\":\"Client not in allowed network range\"}",
             )
             .await;
-        }
-
-        let RequestParts {
-            method: method_buf,
-            path: path_buf,
-            authorization: authorization_buf,
-            cookie: cookie_buf,
-            csrf: csrf_buf,
-            content_length,
-            ..
-        } = extract_request_parts(connection)?;
-
-        let method = method_buf.as_str();
-        let path = path_buf.as_str();
-        let authorization = authorization_buf.as_deref();
-        let cookie = cookie_buf.as_deref();
-
-        let auth_ctx = ubos_auth::auth::authenticate(authorization, cookie)
-            .unwrap_or(ubos_auth::auth::AuthCtx::Anonymous);
+        };
 
         // Logout is idempotent and unauthenticated. The logout control is
         // a navigation form, so a top-level POST that arrives without a
@@ -425,22 +425,21 @@ impl Service for DashboardService {
         // exactly like the login form; a form POST cannot send the
         // X-CSRF-Token header, and a forced logout is a low-value CSRF
         // target that exposes no state and changes no credentials.
+        //
+        // The check takes the identity resolved above rather than
+        // resolving it again, so the body read between the two cannot
+        // change who is being checked.
         let needs_csrf = path == "/login" && is_mutating;
-        if needs_csrf && let ubos_auth::auth::AuthCtx::Session(ref session_id) = auth_ctx {
-            let token_str = csrf_buf.as_deref().unwrap_or("");
-            if token_str.is_empty()
-                || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str)
-            {
-                return write_status_only(
-                    connection,
-                    403,
-                    "Forbidden",
-                    "application/json",
-                    &[],
-                    b"{\"message\":\"CSRF token invalid or missing\"}",
-                )
-                .await;
-            }
+        if needs_csrf && ubos_auth::check_csrf(&auth_ctx, parts.csrf.as_deref()).is_err() {
+            return write_status_only(
+                connection,
+                403,
+                "Forbidden",
+                "application/json",
+                &[],
+                b"{\"message\":\"CSRF token invalid or missing\"}",
+            )
+            .await;
         }
 
         match (method, path) {

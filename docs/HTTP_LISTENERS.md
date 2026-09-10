@@ -25,6 +25,30 @@ task per worker:
 - each worker owns one socket from a `TcpBuffers<POOL, TX, RX>` pool,
   accepts a connection, serves it, and loops back to accept.
 
+The worker calls `extract_request_parts` once per request and hands the
+resulting `&RequestParts` to `Service::handle` alongside the peer address
+and the edge-http `Connection`. Every `Service` implementor reads its
+method, path, and tracked headers from that one `RequestParts` value
+instead of copying them out again, and `PrefixRouter` routes on
+`parts.path` rather than a second borrow of the connection.
+
+The allow-list, authentication, and CSRF sequencing that used to be
+copied into each handler now lives in `ubos_auth::gate`. A caller passes
+`gate_identity` the peer address, the `Authorization` and `Cookie`
+header values, and a `Policy` naming whether an anonymous request is
+admitted; it returns either the authenticated identity to proceed with
+or a rejection to answer. REST and the dashboard differ only in that
+`Policy`: REST never admits an anonymous request, and the dashboard
+admits one so a browser can reach `/login`. Both handlers read a
+mutating request's body before the CSRF step, so an oversized body
+answers 413 without spending the single-use token, then call
+`check_csrf` with the identity already resolved and the request's token.
+The identity is resolved once, so a session that lapses during the body
+read is still checked as the session it was admitted as. `ubos-auth`
+reaches no crate above `ubos-logging`, so both functions take these
+values as plain arguments rather than depending on `ubos-http`'s
+`RequestParts` type.
+
 The depth is a per-board constant (`http_pool` and `metrics_http_pool` in
 `ControlBoardDescriptor`) that sizes the `TcpBuffers`, the parse buffer,
 and the worker task pool. Because each worker is its own task with its own static
@@ -268,10 +292,6 @@ corruption into an immediate, labelled fault:
   expensive, and every slot pays it. The handler holds several large
   buffers on the stack across an await, so each one counts once per
   slot.
-- **Hoist the request parts into the worker.** `serve_worker` can call
-  `extract_request_parts` once and pass `&RequestParts` to
-  `Service::handle`. Both handlers call it themselves today, and each one
-  repeats the allow-list check and the `record_request` call.
 - **Take a slice if a fourth listener arrives.** `min_stack_sockets`
   takes one argument for each pool, so every board main changes with the
   arity. A `min_stack_sockets(pools: &[usize])` takes that change once

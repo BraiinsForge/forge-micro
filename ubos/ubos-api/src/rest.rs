@@ -36,9 +36,7 @@ use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_thermal::Handle as ThermalHandle;
 
-use ubos_http::{
-    RequestParts, Service, extract_request_parts, read_body, write_json_response, write_status_only,
-};
+use ubos_http::{RequestParts, Service, read_body, write_json_response, write_status_only};
 
 #[cfg(test)]
 #[path = "tests/rest.rs"]
@@ -177,6 +175,7 @@ impl Service for RestApiService {
     async fn handle<TcpSocket, const N: usize>(
         &self,
         peer_ip: core::net::IpAddr,
+        parts: &RequestParts,
         connection: &mut Connection<'_, TcpSocket, N>,
     ) -> Result<(), HttpError<TcpSocket::Error>>
     where
@@ -188,51 +187,45 @@ impl Service for RestApiService {
         // dropped before its request is parsed is never counted.
         ubos_net::net::handle().record_request();
 
-        // The allow-list is the compile-time default for now.
-        if !ubos_auth::allow_list::is_allowed(peer_ip, ubos_auth::allow_list::DEFAULT_ALLOW_LIST) {
-            return write_status_only(
-                connection,
-                401,
-                "Unauthorized",
-                "application/json",
-                &[],
-                b"{\"message\":\"Client not in allowed network range\"}",
-            )
-            .await;
-        }
-
-        let RequestParts {
-            method: method_buf,
-            path: path_buf,
-            authorization: authorization_buf,
-            cookie: cookie_buf,
-            csrf: csrf_buf,
-            content_length,
-            ota_offset: ota_offset_buf,
-            ota_final: ota_final_buf,
-        } = extract_request_parts(connection)?;
-
-        let method = method_buf.as_str();
-        let path = path_buf.as_str();
-        let authorization = authorization_buf.as_deref();
-        let cookie = cookie_buf.as_deref();
+        let method = parts.method.as_str();
+        let path = parts.path.as_str();
+        let authorization = parts.authorization.as_deref();
+        let cookie = parts.cookie.as_deref();
+        let content_length = parts.content_length;
 
         // Every route under this prefix requires auth; there are no
-        // anonymous endpoints on the API surface.
-        let auth_ctx = ubos_auth::auth::authenticate(authorization, cookie)
-            .unwrap_or(ubos_auth::auth::AuthCtx::Anonymous);
-
-        if matches!(auth_ctx, ubos_auth::auth::AuthCtx::Anonymous) {
-            return write_status_only(
-                connection,
-                401,
-                "Unauthorized",
-                "application/json",
-                &[("WWW-Authenticate", "Basic realm=\"ubos\"")],
-                b"{\"message\":\"unauthorized\"}",
-            )
-            .await;
-        }
+        // anonymous endpoints on the API surface. The CSRF check runs
+        // separately below, once the request body has been read, so an
+        // oversized body does not burn the session's CSRF token.
+        let identity_policy = ubos_auth::Policy {
+            allow_anonymous: false,
+        };
+        let auth_ctx =
+            match ubos_auth::gate_identity(peer_ip, authorization, cookie, &identity_policy) {
+                Err(ubos_auth::Rejection::NotAllowed) => {
+                    return write_status_only(
+                        connection,
+                        401,
+                        "Unauthorized",
+                        "application/json",
+                        &[],
+                        b"{\"message\":\"Client not in allowed network range\"}",
+                    )
+                    .await;
+                }
+                Err(_) => {
+                    return write_status_only(
+                        connection,
+                        401,
+                        "Unauthorized",
+                        "application/json",
+                        &[("WWW-Authenticate", "Basic realm=\"ubos\"")],
+                        b"{\"message\":\"unauthorized\"}",
+                    )
+                    .await;
+                }
+                Ok(auth_ctx) => auth_ctx,
+            };
 
         let is_mutating = matches!(method, "POST" | "PATCH" | "DELETE");
 
@@ -279,31 +272,30 @@ impl Service for RestApiService {
         // OTA without a token, and a forged continuation only corrupts an in-flight
         // upload (fails validation -> auto-rollback), never installs firmware.
         let is_ota_continuation = is_ota_chunk_upload
-            && ota_offset_buf
+            && parts
+                .ota_offset
                 .as_deref()
                 .and_then(|value| value.parse::<u64>().ok())
                 .is_some_and(|offset| offset > 0);
 
         // Session-authenticated mutating requests require a valid CSRF
-        // token. Basic-authenticated requests are exempt.
+        // token. Basic-authenticated requests are exempt, since only a
+        // session cookie can be forged cross-site. The check takes the
+        // identity resolved above rather than resolving it again, so the
+        // body read between the two cannot change who is being checked.
         if is_mutating
             && !is_ota_continuation
-            && let ubos_auth::auth::AuthCtx::Session(ref session_id) = auth_ctx
+            && ubos_auth::check_csrf(&auth_ctx, parts.csrf.as_deref()).is_err()
         {
-            let token_str = csrf_buf.as_deref().unwrap_or("");
-            if token_str.is_empty()
-                || !ubos_auth::csrf::consume_csrf_token(session_id.as_str(), token_str)
-            {
-                return write_status_only(
-                    connection,
-                    403,
-                    "Forbidden",
-                    "application/json",
-                    &[],
-                    b"{\"message\":\"CSRF token invalid or missing\"}",
-                )
-                .await;
-            }
+            return write_status_only(
+                connection,
+                403,
+                "Forbidden",
+                "application/json",
+                &[],
+                b"{\"message\":\"CSRF token invalid or missing\"}",
+            )
+            .await;
         }
 
         // The OTA upload streams its body from the connection rather than a
@@ -325,7 +317,8 @@ impl Service for RestApiService {
         if is_ota_chunk_upload {
             // Parse the decimal offset from X-OTA-Offset; missing or
             // unparseable offset is treated as a bad request.
-            let ota_offset: u64 = match ota_offset_buf
+            let ota_offset: u64 = match parts
+                .ota_offset
                 .as_deref()
                 .and_then(|value| value.parse().ok())
             {
@@ -342,7 +335,7 @@ impl Service for RestApiService {
                     .await;
                 }
             };
-            let ota_final = ota_final_buf.as_deref() == Some("1");
+            let ota_final = parts.ota_final.as_deref() == Some("1");
             return crate::system::handle_ota_chunk(
                 connection,
                 content_length,

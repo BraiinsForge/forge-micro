@@ -87,6 +87,8 @@ where
     let mut path = String::<128>::new();
     if headers.path.len() <= 128 {
         let _ = path.push_str(headers.path);
+    } else {
+        warn!("request path truncated, treating as empty");
     }
 
     let authorization = headers.headers.get("Authorization").and_then(|value| {
