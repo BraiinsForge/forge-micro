@@ -41,56 +41,13 @@ use embassy_futures::select::{Either3, select3};
 use embassy_time::{Duration, Ticker};
 use embedded_io_async::{Read, Write};
 use mining_protocol::{Error, JobId, MiningClient, Share};
-use portable_atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use ubos_logging::{info, warn};
 
-/// Pool-index space shared by the alive bitmap and every per-pool
-/// array keyed by pool index: [`STRATUM_RECONNECTS`] here, and
-/// `SHARES_ACCEPTED` / `SHARES_REJECTED` in `state.rs`. A `u8` pool
-/// index fits this space by construction, since the bitmap holds one
-/// bit per index.
+/// Pool-index space shared by every per-pool counter keyed by pool
+/// index: [`crate::metrics::POOL_METRICS`]. A `u8` pool index fits
+/// this space by construction, since the reachability bitmap built
+/// from it holds one bit per index.
 pub(crate) const POOL_INDEX_SPACE: usize = 8;
-
-/// Lifetime-monotonic count of times the stratum reconnect path has
-/// been entered AFTER the initial connection attempt, one counter per
-/// pool slot. The first attempt after boot is intentionally not
-/// counted so a prometheus alert `board_stratum_reconnects_total > 0`
-/// only fires when the firmware has actually had to re-establish the
-/// link — not on a clean first boot.
-///
-/// `AtomicU32` (rather than `AtomicU64` like the share counters) is
-/// sized for reconnect cadence: a continuous reconnect-once-per-second
-/// loop would take ~136 years to overflow 32 bits.
-pub(crate) static STRATUM_RECONNECTS: [AtomicU32; POOL_INDEX_SPACE] =
-    [const { AtomicU32::new(0) }; POOL_INDEX_SPACE];
-
-/// Increment the given pool's slot in [`STRATUM_RECONNECTS`] on every
-/// call past the first for that pool.
-///
-/// Each pool session task invokes this at the top of its outer
-/// reconnect loop with its own `pool_index` (0-based, matching
-/// [`set_pool_alive`]). The very first call after boot is a no-op per
-/// pool so a successful first connection does not register as a
-/// reconnect; every subsequent loop entry adds one to that slot's
-/// counter, capturing both TCP-level connect failures and
-/// session-level disconnects. Out-of-range indexes are ignored, like
-/// in [`set_pool_alive`].
-pub fn record_reconnect_attempt(pool_index: u8) {
-    // Sized to the `POOL_ALIVE_BITMAP` index space so the two per-pool
-    // accounting paths stay bounds-consistent.
-    static FIRST_ATTEMPT: [AtomicBool; POOL_INDEX_SPACE] =
-        [const { AtomicBool::new(true) }; POOL_INDEX_SPACE];
-    debug_assert!(
-        usize::from(pool_index) < POOL_INDEX_SPACE,
-        "pool_index must fit the pool-index space"
-    );
-    let Some(first_attempt) = FIRST_ATTEMPT.get(usize::from(pool_index)) else {
-        return;
-    };
-    if !first_attempt.swap(false, Ordering::Relaxed) {
-        STRATUM_RECONNECTS[usize::from(pool_index)].fetch_add(1, Ordering::Relaxed);
-    }
-}
 
 use crate::asic_session::PoolHandle;
 use crate::state::StratumState;
@@ -100,50 +57,20 @@ use crate::work::Solution;
 #[path = "tests/run.rs"]
 mod tests;
 
-/// Per-pool reachability bitmap, one bit per pool index. Set bits render
-/// as `Alive` on the dashboard; cleared bits as `Dead`. Pool reachability
-/// is a stratum concern, so it is owned here rather than in `ubos-net`.
-///
-/// Each pool session task drives its own bit, indexed by its
-/// `PoolHandle` slot. Bits of unconfigured slots stay zero and render
-/// `Dead`.
-static POOL_ALIVE_BITMAP: AtomicU8 = AtomicU8::new(0);
-
-/// Current per-pool reachability bitmap. The only path across the crate
-/// boundary; the backing atomic stays private.
+/// Current per-pool reachability bitmap, one bit per pool index. Set
+/// bits render as `Alive` on the dashboard; cleared bits as `Dead`.
+/// Pool reachability is a stratum concern, so it is owned here rather
+/// than in `ubos-net`. Bits of unconfigured slots stay zero and
+/// render `Dead`.
 #[must_use]
 pub fn pool_alive_bitmap() -> u8 {
-    POOL_ALIVE_BITMAP.load(Ordering::Relaxed)
-}
-
-/// Set or clear the reachability bit for `pool_index` (0 = primary).
-///
-/// Thread-safe; uses a relaxed RMW so the bitmap stays coherent even when
-/// multiple tasks race on separate pool indexes.
-pub fn set_pool_alive(pool_index: u8, alive: bool) {
-    // The debug_assert traps a bad index in tests; the guard keeps an
-    // out-of-range shift from writing a bogus bit in release firmware.
-    debug_assert!(
-        usize::from(pool_index) < POOL_INDEX_SPACE,
-        "pool_index must fit the pool-index space"
-    );
-    if usize::from(pool_index) >= POOL_INDEX_SPACE {
-        return;
-    }
-    let bit = 1u8 << pool_index;
-    if alive {
-        POOL_ALIVE_BITMAP.fetch_or(bit, Ordering::Relaxed);
-    } else {
-        // `fetch_and` returns the bitmap value before the clear. If the
-        // corresponding bit was set, this is a genuine alive→dead transition
-        // worth recording. Without this guard the event would fire on every
-        // call that already has the bit clear (e.g. the initial boot state
-        // before a first successful connect).
-        let previous = POOL_ALIVE_BITMAP.fetch_and(!bit, Ordering::Relaxed);
-        if previous & bit != 0 {
-            crate::events::pool_unreachable();
+    let mut bitmap = 0u8;
+    for (pool_index, metrics) in crate::metrics::POOL_METRICS.iter().enumerate() {
+        if metrics.snapshot().alive {
+            bitmap |= 1u8 << pool_index;
         }
     }
+    bitmap
 }
 
 /// Maximum `ntime` roll, in seconds, past the pool's published
@@ -154,13 +81,14 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 
 /// Run the integration loop forever (until the transport errors).
 ///
-/// Sets the `POOL_ALIVE_BITMAP` bit of the handle's slot only after
+/// Sets the reachability bit of the handle's slot only after
 /// `client.connect()` completes the protocol handshake successfully,
 /// and clears it on return. A handshake-level failure therefore never
 /// appears as a fleeting "alive" state on the dashboard. Callers
-/// should invoke [`record_reconnect_attempt`] at the top of their
-/// outer reconnect loop so the counter reflects re-establishment
-/// attempts rather than the very first boot connection.
+/// should invoke [`PoolHandle::record_reconnect_attempt`] at the top
+/// of their outer reconnect loop so the counter reflects
+/// re-establishment attempts rather than the very first boot
+/// connection.
 ///
 /// Returns `Err` when the underlying `MiningClient` does — the
 /// firmware's outer reconnect loop drops `client` and `transport`,
@@ -204,7 +132,7 @@ where
 {
     let result =
         run_stratum_client_inner(client, transport, asic, state, ntime_roll_period_secs).await;
-    set_pool_alive(asic.index(), false);
+    asic.set_alive(false);
     result
 }
 
@@ -231,10 +159,10 @@ where
 {
     client.connect(transport).await?;
     // Handshake completed; only now mark the pool as alive so a
-    // failed connect does not produce a transient "alive" blip in
-    // `POOL_ALIVE_BITMAP` between this function's entry and the
+    // failed connect does not produce a transient "alive" blip in the
+    // reachability bitmap between this function's entry and the
     // `await?` returning Err.
-    set_pool_alive(asic.index(), true);
+    asic.set_alive(true);
 
     // A caller passing `Some(0)` most likely means "publish as fast as
     // possible", not "don't roll" — that's what `None` is for.

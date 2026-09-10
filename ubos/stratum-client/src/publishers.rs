@@ -25,11 +25,9 @@
 //! `#[embassy_executor::task]` wrapper.
 
 use embassy_time::{Duration, Ticker};
-use portable_atomic::Ordering;
 use ubos_metrics::metrics::{Value, push_slot_metric};
 
-use crate::run::{POOL_INDEX_SPACE, STRATUM_RECONNECTS};
-use crate::state::{SHARES_ACCEPTED, SHARES_REJECTED};
+use crate::run::POOL_INDEX_SPACE;
 
 /// Periodically push `board_shares_accepted_total`,
 /// `board_shares_rejected_total`, and `board_stratum_reconnects_total`
@@ -44,22 +42,26 @@ pub async fn run_stratum_metrics_publisher(pool_slots: usize) -> ! {
     loop {
         ticker.next().await;
         for slot in 0..pool_slots.min(POOL_INDEX_SPACE) {
+            let Some(metrics) = crate::metrics::for_slot(slot) else {
+                continue;
+            };
+            let snapshot = metrics.snapshot();
             push_slot_metric(
                 "board_shares_accepted_total",
                 slot,
-                Value::Uint(SHARES_ACCEPTED[slot].load(Ordering::Relaxed)),
+                Value::Uint(snapshot.shares_accepted),
             )
             .await;
             push_slot_metric(
                 "board_shares_rejected_total",
                 slot,
-                Value::Uint(SHARES_REJECTED[slot].load(Ordering::Relaxed)),
+                Value::Uint(snapshot.shares_rejected),
             )
             .await;
             push_slot_metric(
                 "board_stratum_reconnects_total",
                 slot,
-                Value::Uint(u64::from(STRATUM_RECONNECTS[slot].load(Ordering::Relaxed))),
+                Value::Uint(u64::from(snapshot.reconnects)),
             )
             .await;
         }

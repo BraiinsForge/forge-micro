@@ -276,7 +276,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
         // session backs it, and drop the alive bit that a config-change
         // cancellation of `run_stratum_client` never cleared.
         ASIC_SESSION.pool_handle(0).clear_work();
-        stratum_client::set_pool_alive(0, false);
+        ASIC_SESSION.pool_handle(0).set_alive(false);
 
         let snapshot = config_handle.current();
         let Some(entry) = snapshot.pool.first() else {
@@ -286,7 +286,7 @@ async fn stratum_client_task(stack: Stack<'static>) -> ! {
         };
 
         let one_session = async {
-            stratum_client::record_reconnect_attempt(0);
+            ASIC_SESSION.pool_handle(0).record_reconnect_attempt();
             let mut connector = TcpConnector {
                 stack,
                 host: entry.host.as_str(),

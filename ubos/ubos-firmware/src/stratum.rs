@@ -39,8 +39,7 @@ use rand_chacha::rand_core::{RngCore, SeedableRng};
 use static_cell::{ConstStaticCell, StaticCell};
 use stratum_client::{
     AsicSession, NTIME_ROLL_PERIOD_SECS, PoolConnector, RECONNECT_DELAY, SESSION_REJECTED_DELAY,
-    SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE, SessionError, StratumState, record_reconnect_attempt,
-    set_pool_alive,
+    SOCKET_TIMEOUT, STRATUM_TCP_BUFFER_SIZE, SessionError, StratumState,
 };
 use ubos_logging::{Debug2Format, info, warn};
 
@@ -210,7 +209,6 @@ pub async fn run_stratum_session<const N: usize>(
     sv2_prng.set_stream(slot as u64);
 
     let handle = session.pool_handle(slot);
-    let pool_index = u8::try_from(slot).expect("BUG: MAX_POOLS fits the u8 pool index");
 
     let config_handle = ubos_config::handle();
     let mut config_generation = config_handle.subscribe_generation();
@@ -225,7 +223,7 @@ pub async fn run_stratum_session<const N: usize>(
         // `one_session` mid-await, so `run_stratum_client` never
         // reaches its own on-return clear, and a slot parked on a
         // removed entry would otherwise stay "Alive" forever.
-        set_pool_alive(pool_index, false);
+        handle.set_alive(false);
 
         let snapshot = config_handle.current();
         let Some(entry) = snapshot.pool.get(slot) else {
@@ -240,7 +238,7 @@ pub async fn run_stratum_session<const N: usize>(
         };
 
         let one_session = async {
-            record_reconnect_attempt(pool_index);
+            handle.record_reconnect_attempt();
             let mut connector = TcpConnector {
                 stack,
                 host: entry.host.as_str(),

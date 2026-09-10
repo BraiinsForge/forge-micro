@@ -116,20 +116,28 @@ fn set_target_does_not_patch_current_slot() {
 #[test]
 fn accepted_shares_route_to_their_own_slot() {
     let baseline = [
-        SHARES_ACCEPTED[0].load(Ordering::Relaxed),
-        SHARES_ACCEPTED[1].load(Ordering::Relaxed),
+        crate::metrics::for_slot(0)
+            .expect("slot 0 in range")
+            .shares_accepted(),
+        crate::metrics::for_slot(1)
+            .expect("slot 1 in range")
+            .shares_accepted(),
     ];
 
     let mut state = StratumState::new(1);
     state.visit_submit_result(SubmitResult::Accepted { count: 3, work: 1 });
 
     assert_eq!(
-        SHARES_ACCEPTED[1].load(Ordering::Relaxed),
+        crate::metrics::for_slot(1)
+            .expect("slot 1 in range")
+            .shares_accepted(),
         baseline[1] + 3,
         "slot 1's counter records the accepted shares"
     );
     assert_eq!(
-        SHARES_ACCEPTED[0].load(Ordering::Relaxed),
+        crate::metrics::for_slot(0)
+            .expect("slot 0 in range")
+            .shares_accepted(),
         baseline[0],
         "slot 0's counter is untouched by slot 1's shares"
     );

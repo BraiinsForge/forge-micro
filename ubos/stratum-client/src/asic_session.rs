@@ -142,16 +142,8 @@ pub struct PoolHandle<'a, const N: usize> {
 }
 
 impl<const N: usize> PoolHandle<'_, N> {
-    /// Bitmap index of the handle's slot. Slots past the bitmap saturate
-    /// to `u8::MAX`, which [`crate::run::set_pool_alive`] and
-    /// [`crate::run::record_reconnect_attempt`] ignore via their range guards.
-    pub(crate) fn index(&self) -> u8 {
-        u8::try_from(self.slot()).unwrap_or(u8::MAX)
-    }
-
     /// Slot index this handle publishes to and drains, doubling as
-    /// the pool index for per-pool accounting (`set_pool_alive`,
-    /// `record_reconnect_attempt`).
+    /// the pool index into [`crate::metrics::POOL_METRICS`].
     #[must_use]
     pub fn slot(&self) -> usize {
         self.slot
@@ -180,5 +172,30 @@ impl<const N: usize> PoolHandle<'_, N> {
     #[must_use]
     pub fn try_take_solution(&self) -> Option<Solution> {
         self.session.solutions[self.slot].try_receive().ok()
+    }
+
+    /// Set or clear this slot's reachability flag.
+    ///
+    /// Fires [`crate::events::pool_unreachable`] on a genuine
+    /// alive-to-dead transition, never on a call that finds the slot
+    /// already dead — such as the initial boot state before a first
+    /// successful connect.
+    pub fn set_alive(&self, alive: bool) {
+        let Some(metrics) = crate::metrics::for_slot(self.slot) else {
+            return;
+        };
+        let previous = metrics.set_alive(alive);
+        if previous && !alive {
+            crate::events::pool_unreachable();
+        }
+    }
+
+    /// Increment this slot's reconnect counter on every call past the
+    /// first. The pool session task calls this at the top of its
+    /// outer reconnect loop; see [`crate::metrics::PoolMetrics::record_reconnect_attempt`].
+    pub fn record_reconnect_attempt(&self) {
+        if let Some(metrics) = crate::metrics::for_slot(self.slot) {
+            metrics.record_reconnect_attempt();
+        }
     }
 }

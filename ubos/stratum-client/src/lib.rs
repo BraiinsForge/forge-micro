@@ -34,6 +34,7 @@ use embassy_time::Duration;
 pub mod asic_session;
 pub mod connector;
 pub mod job_ring;
+pub mod metrics;
 pub mod publishers;
 pub mod run;
 pub mod state;
@@ -74,10 +75,7 @@ pub const NTIME_ROLL_PERIOD_SECS: u32 = 1;
 pub use asic_session::{AsicSession, PoolHandle, SOLUTION_QUEUE_DEPTH};
 pub use connector::{PoolConnector, SessionError, run_stratum_session};
 pub use job_ring::{JOB_RING_DEPTH, JobRing, JobSlot, JobSlotError};
-pub use run::{
-    NTIME_ROLL_MAX_SECS, pool_alive_bitmap, record_reconnect_attempt, run_stratum_client,
-    set_pool_alive,
-};
+pub use run::{NTIME_ROLL_MAX_SECS, pool_alive_bitmap, run_stratum_client};
 pub use state::StratumState;
 pub use state::{shares_accepted, shares_rejected};
 pub use work::{MAX_EXTRANONCE_2, OutstandingWork, Solution, WorkAssignment};

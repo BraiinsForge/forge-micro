@@ -37,31 +37,18 @@ use crate::asic_session::PoolHandle;
 use crate::run::NTIME_ROLL_MAX_SECS;
 use crate::work::{MAX_EXTRANONCE_2, OutstandingWork, WorkAssignment};
 use mining_protocol::{MiningClientVisitor, MiningJob, SessionUpdate, SubmitResult};
-use portable_atomic::{AtomicU64, Ordering};
 use ubos_logging::{info, warn};
 
 use crate::run::POOL_INDEX_SPACE;
 
-/// Lifetime-monotonic count of shares the pool accepted, one counter
-/// per pool slot. Incremented in [`StratumState::visit_submit_result`]
-/// on the `Accepted` arm, indexed by [`StratumState::slot`].
-pub(crate) static SHARES_ACCEPTED: [AtomicU64; POOL_INDEX_SPACE] =
-    [const { AtomicU64::new(0) }; POOL_INDEX_SPACE];
-
-/// Lifetime-monotonic count of shares the pool rejected, one counter
-/// per pool slot. Incremented in [`StratumState::visit_submit_result`]
-/// on the `Rejected` arm, indexed by [`StratumState::slot`].
-pub(crate) static SHARES_REJECTED: [AtomicU64; POOL_INDEX_SPACE] =
-    [const { AtomicU64::new(0) }; POOL_INDEX_SPACE];
-
 /// Shares the pool has accepted since boot, summed across every pool
 /// slot. The only path across the crate boundary; the per-slot
-/// counters stay crate-private.
+/// counters in [`crate::metrics::POOL_METRICS`] stay crate-private.
 #[must_use]
 pub fn shares_accepted() -> u64 {
-    SHARES_ACCEPTED
+    crate::metrics::POOL_METRICS
         .iter()
-        .map(|counter| counter.load(Ordering::Relaxed))
+        .map(crate::metrics::PoolMetrics::shares_accepted)
         .sum()
 }
 
@@ -69,9 +56,9 @@ pub fn shares_accepted() -> u64 {
 /// slot.
 #[must_use]
 pub fn shares_rejected() -> u64 {
-    SHARES_REJECTED
+    crate::metrics::POOL_METRICS
         .iter()
-        .map(|counter| counter.load(Ordering::Relaxed))
+        .map(crate::metrics::PoolMetrics::shares_rejected)
         .sum()
 }
 
@@ -210,7 +197,9 @@ impl MiningClientVisitor for StratumState {
                     "stratum-client: pool {} {} share(s) accepted, +{} work",
                     self.slot, count, work,
                 );
-                SHARES_ACCEPTED[self.slot].fetch_add(u64::from(count), Ordering::Relaxed);
+                if let Some(metrics) = crate::metrics::for_slot(self.slot) {
+                    metrics.record_shares_accepted(count);
+                }
             }
             SubmitResult::Rejected {
                 error_code,
@@ -220,7 +209,9 @@ impl MiningClientVisitor for StratumState {
                     "stratum-client: pool {} share rejected code={:?} message={:?}",
                     self.slot, error_code, error_message,
                 );
-                SHARES_REJECTED[self.slot].fetch_add(1, Ordering::Relaxed);
+                if let Some(metrics) = crate::metrics::for_slot(self.slot) {
+                    metrics.record_share_rejected();
+                }
             }
         }
     }
