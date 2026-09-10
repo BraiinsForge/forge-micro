@@ -27,6 +27,7 @@ pub mod button;
 #[cfg(feature = "ccmram-bss")]
 pub mod ccmram;
 pub mod consts;
+pub mod i2c;
 pub mod led;
 pub mod reboot;
 pub mod units;

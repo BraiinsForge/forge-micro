@@ -80,7 +80,7 @@ typed `TaskPool` static and so rejects generic task functions.
 
 | Crate              | Purpose                                            |
 |--------------------|----------------------------------------------------|
-| `ubos-core`        | shared constants, watchdog feed loop, status LED, typed units |
+| `ubos-core`        | shared constants, watchdog feed loop, status LED, typed units, I2C bus clear |
 | `ubos-config`      | runtime `Config` watch, `ConfigHandle`, flash-backed `sequential-storage` persistence |
 | `ubos-manager`     | supervisor crate: routes `Message::Halt`/`Resume` to mining/cooling/thermal handles |
 | `ubos-net`         | DHCP, NTP sync; owns the cross-board atomics (IP, NTP offset, request count) and `wall_clock_secs` |
