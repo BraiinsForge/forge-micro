@@ -40,7 +40,7 @@ use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::ChainPvt;
 use ubos_core::units::Temperature;
 use ubos_logging::{debug, warn};
-use ubos_metrics::metrics::{Metric, Value, push};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 
 #[cfg(test)]
 #[path = "tests/chain.rs"]
@@ -56,10 +56,15 @@ pub const MAX_SILENCE: Duration = Duration::from_secs(60);
 /// How often the chain's summary is logged and its voltage published.
 const REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
-/// The chain's core voltage as the chips report it. The hottest die is
-/// not published here: the thermal loop already publishes the sample it
-/// takes from this sensor.
+/// The chain's core voltage as the chips report it.
 const CHAIN_VOLTAGE_METRIC: &str = "hashboard_chain_core_voltage_microvolts";
+
+/// The spread of die temperatures across the chain, one series per
+/// statistic under the `stat` label. The thermal loop already publishes
+/// the hottest die as the sample it took, so this is here for the
+/// spread: whether one die is running away from the rest, which a
+/// single reading cannot say.
+const CHAIN_TEMPERATURE_METRIC: &str = "hashboard_chain_chip_temperature_millicelsius";
 
 /// The thermal loop's view of a chain whose chips are its thermometer.
 pub struct ChainTemperature<const CHIPS: usize> {
@@ -115,6 +120,19 @@ impl<const CHIPS: usize> ChainTemperature<CHIPS> {
             return;
         }
         self.reported_answer = answered;
+        if let Some(temperature) = self.pvt.temperature_summary() {
+            let mean = temperature.total_millicelsius / i32::from(temperature.chips);
+            Self::publish_stat("lowest", temperature.lowest_millicelsius).await;
+            Self::publish_stat("mean", mean).await;
+            Self::publish_stat("highest", temperature.highest_millicelsius).await;
+            debug!(
+                "chain pvt: {} chips report {} to {} mC, mean {} mC",
+                temperature.chips,
+                temperature.lowest_millicelsius,
+                temperature.highest_millicelsius,
+                mean
+            );
+        }
         let Some(voltage) = self.pvt.voltage_summary() else {
             warn!("chain pvt: no chip has reported a voltage");
             return;
@@ -125,13 +143,27 @@ impl<const CHIPS: usize> ChainTemperature<CHIPS> {
         ))
         .await;
         debug!(
-            "chain pvt: {} chips, string {} mV, chips {} to {} mV, hottest {} mC",
-            voltage.chips,
+            "chain pvt: string {} mV, chips {} to {} mV",
             voltage.total_microvolts / 1000,
             voltage.lowest_microvolts / 1000,
-            voltage.highest_microvolts / 1000,
-            self.pvt.hottest_millicelsius().unwrap_or(0)
+            voltage.highest_microvolts / 1000
         );
+    }
+
+    /// One die-temperature statistic, tagged with the `stat` label so the
+    /// three share a metric name.
+    async fn publish_stat(stat: &'static str, millicelsius: i32) {
+        let mut labels = Labels::new();
+        let _ = labels.push(Label {
+            name: "stat",
+            value: LabelValue::Static(stat),
+        });
+        push(Metric::with_labels(
+            CHAIN_TEMPERATURE_METRIC,
+            labels,
+            Value::Int(i64::from(millicelsius)),
+        ))
+        .await;
     }
 }
 

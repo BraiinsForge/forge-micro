@@ -28,6 +28,11 @@ fn the_store() {
     store.record(0, Some(41.5), Some(300.0));
     store.record(1, Some(38.0), Some(290.0));
     assert_eq!(store.hottest_millicelsius(), Some(41_500));
+    let dies = store.temperature_summary().expect("two chips reported");
+    assert_eq!(dies.chips, 2);
+    assert_eq!(dies.total_millicelsius, 79_500);
+    assert_eq!(dies.lowest_millicelsius, 38_000);
+    assert_eq!(dies.highest_millicelsius, 41_500);
     let summary = store.voltage_summary().expect("two chips reported");
     assert_eq!(summary.chips, 2);
     assert_eq!(summary.total_microvolts, 590_000);

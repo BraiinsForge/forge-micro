@@ -46,5 +46,5 @@ pub use chain::{
     MAX_SOLUTIONS_PER_BATCH, ResultMode, ShareTarget, SolutionBatch, WorkJob, block_header,
     rolled_version, solution_hash,
 };
-pub use pvt::{ChainPvt, VoltageSummary};
+pub use pvt::{ChainPvt, TemperatureSummary, VoltageSummary};
 pub use transport::{BaudRateError, Transport};

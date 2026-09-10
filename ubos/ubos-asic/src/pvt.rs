@@ -137,6 +137,36 @@ impl<const CHIPS: usize> ChainPvt<CHIPS> {
         })
     }
 
+    /// The chips that reported a temperature, with their sum and spread.
+    /// The hottest alone drives the thermal loop; the spread is what says
+    /// whether one die is running away from the rest.
+    #[must_use]
+    pub fn temperature_summary(&self) -> Option<TemperatureSummary> {
+        self.readings.lock(|readings| {
+            let mut total = 0i32;
+            let mut lowest = i32::MAX;
+            let mut highest = i32::MIN;
+            let mut chips = 0u8;
+            for value in readings
+                .borrow()
+                .chips
+                .iter()
+                .filter_map(|entry| entry.temperature_millicelsius)
+            {
+                total = total.saturating_add(value);
+                lowest = lowest.min(value);
+                highest = highest.max(value);
+                chips += 1;
+            }
+            (chips > 0).then_some(TemperatureSummary {
+                chips,
+                total_millicelsius: total,
+                lowest_millicelsius: lowest,
+                highest_millicelsius: highest,
+            })
+        })
+    }
+
     #[must_use]
     pub fn voltage_summary(&self) -> Option<VoltageSummary> {
         self.readings.lock(|readings| {
@@ -169,6 +199,16 @@ impl<const CHIPS: usize> Default for ChainPvt<CHIPS> {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The chips that reported a die temperature, with their sum and spread.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TemperatureSummary {
+    pub chips: u8,
+    pub total_millicelsius: i32,
+    pub lowest_millicelsius: i32,
+    pub highest_millicelsius: i32,
 }
 
 /// The chips that reported a core voltage, with their sum and spread.
