@@ -361,16 +361,14 @@ async fn main(spawner: Spawner) {
     );
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     let state = STATE.init(State::<8, 8>::new());
-    let (device, runner) = embassy_net_wiznet::new(
+    let (device, runner) = ubos_rp::boot::wiznet_or_reset(
         mac_addr,
         state,
         ExclusiveDevice::new(spi, chip_select, Delay),
         phy_int,
         phy_reset,
     )
-    .await
-    // Initialization succeeds when the chip is wired correctly and responds on SPI.
-    .expect("BUG: W5500 initialization failed");
+    .await;
     spawner.spawn(unwrap!(ethernet_task(runner)));
 
     let seeds = ubos_rp::boot::seeds_from_trng(hw.trng, Irqs).await;

@@ -454,28 +454,14 @@ async fn boot(spawner: Spawner) {
     );
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     let state = STATE.init(State::<8, 8>::new());
-    let (device, runner) = match embassy_net_wiznet::new(
+    let (device, runner) = ubos_rp::boot::wiznet_or_reset(
         mac_addr,
         state,
         ExclusiveDevice::new(spi, chip_select, Delay),
         phy_int,
         phy_reset,
     )
-    .await
-    {
-        Ok(pair) => pair,
-        Err(error) => {
-            // A correctly wired W5500 does not fail here. On a hardware fault,
-            // park instead of panicking: a panic would reset-loop forever with
-            // no network to surface the breadcrumb, whereas parking keeps the
-            // board alive (LED heartbeat, watchdog fed) and probe-debuggable.
-            defmt::error!(
-                "W5500 init failed: {:?}; parking with no network",
-                defmt::Debug2Format(&error)
-            );
-            core::future::pending().await
-        }
-    };
+    .await;
     spawner.spawn(unwrap!(ethernet_task(runner)));
 
     let seeds = ubos_rp::boot::seeds_from_trng(hw.trng, Irqs).await;
