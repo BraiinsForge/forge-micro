@@ -40,7 +40,6 @@ use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
-use embassy_rp::clocks::RoscRng;
 use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config as I2cConfig, I2c};
@@ -229,31 +228,15 @@ async fn boot(spawner: Spawner) {
     // in .uninit, so the startup code does not zero it and a warm reset
     // preserves its contents.
     ubos_firmware::events::install(unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) });
-    let mut rng = RoscRng;
 
     // Read the flash unique id before moving the peripheral into the shared
-    // mutex; `blocking_unique_id` is an inherent method on `Flash` and is
-    // not reachable through the `NorFlash` trait exposed by
-    // `SharedBlockingFlash`. Derive the MAC from the id, then move the
-    // same `Flash` into the mutex so all later flash consumers (config
-    // store and OTA updater) share the one driver.
+    // mutex, then move the same `Flash` into the mutex so all later flash
+    // consumers share the one driver.
     let mut flash = Flash::<_, FlashBlocking, { config::Flash::SIZE }>::new_blocking(hw.flash);
-    let mac_addr = {
-        let mut uid = [0u8; 8];
-        if flash.blocking_unique_id(&mut uid).is_err() {
-            defmt::warn!("flash unique id read failed; MAC hash falls back to zero");
-        }
-        ubos_net::mac::derive_mac(
-            ubos_net::mac::DUMMY_OUI,
-            config::MACHINE.control_board.mac_family,
-            &uid,
-        )
-    };
-    info!(
-        "mac {=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}",
-        mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5],
+    let mac_addr = ubos_net::mac::publish_mac(
+        config::MACHINE.control_board.mac_family,
+        &ubos_rp::boot::flash_unique_id(&mut flash),
     );
-    ubos_net::net::handle().set_mac(mac_addr);
 
     // Place the flash driver in the shared mutex. Both the OTA target and
     // the config store reference this mutex, serialising individual flash
@@ -400,7 +383,7 @@ async fn boot(spawner: Spawner) {
     .expect("BUG: W5500 initialization failed");
     spawner.spawn(unwrap!(ethernet_task(runner)));
 
-    let seed = rng.next_u64();
+    let seeds = ubos_rp::boot::seeds_from_rosc();
 
     let (net_config, mdns_hostname) = ubos_firmware::net::bring_up::<
         { config::Board::MDNS_HOSTNAME_BASE.len() },
@@ -426,22 +409,12 @@ async fn boot(spawner: Spawner) {
         device,
         net_config,
         RESOURCES.init(StackResources::new()),
-        seed,
+        seeds.net,
     );
     spawner.spawn(unwrap!(net_task(runner)));
 
-    // Seed the session CSPRNG. RP2040 has no hardware TRNG, so the seed
-    // comes from RoscRng (ring-oscillator bits with no health checks).
-    // These boards are demonstration hardware per CLAUDE.md.
-    let mut csprng_seed = [0u8; 32];
-    rng.fill_bytes(&mut csprng_seed);
-    ubos_auth::csprng::seed_csprng(csprng_seed);
-
-    // Independent entropy stream for the SV2 noise handshake, seeded from
-    // the same RoscRng source as the session CSPRNG.
-    let mut sv2_seed = [0u8; 32];
-    rng.fill_bytes(&mut sv2_seed);
-    let stratum_shared = ubos_firmware::init_stratum(sv2_seed);
+    ubos_auth::csprng::seed_csprng(seeds.csprng);
+    let stratum_shared = ubos_firmware::init_stratum(seeds.sv2);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_ingest_task()));

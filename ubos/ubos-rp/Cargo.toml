@@ -4,6 +4,11 @@ name = "ubos-rp"
 edition.workspace = true
 version = "0.1.0"
 
+[features]
+# The RP2350 has an OTP chip id and a hardware TRNG that the RP2040 lacks;
+# the boot glue reads both behind this feature.
+rp235x = []
+
 [lints]
 workspace = true
 
@@ -23,3 +28,9 @@ embassy-rp = { version = "0.10.0", default-features = false, features = ["unstab
 pio = "0.3"
 cortex-m = { version = "0.7", features = ["inline-asm"] }
 cortex-m-rt = "0.7"
+
+# The boot glue derives the MAC, draws the seeds and brings the WIZnet chip
+# up for every RP board.
+embassy-net-wiznet = { workspace = true }
+embedded-hal       = { workspace = true }
+embedded-hal-async = { workspace = true }

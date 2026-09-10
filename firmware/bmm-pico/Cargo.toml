@@ -50,7 +50,7 @@ ubos-mining          = { workspace = true, features = ["defmt"] }
 ubos-net             = { workspace = true, features = ["defmt"] }
 ubos-ota             = { workspace = true, features = ["defmt", "rp"] }
 ubos-psu             = { workspace = true, features = ["defmt"] }
-ubos-rp              = { workspace = true }
+ubos-rp              = { workspace = true, features = ["rp235x"] }
 ubos-thermal         = { workspace = true, features = ["defmt"] }
 ubos-webui           = { workspace = true, features = ["defmt"] }
 

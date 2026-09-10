@@ -4642,14 +4642,18 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.0.1",
+ "embassy-net-wiznet",
  "embassy-rp",
  "embassy-time",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
  "embedded-io-async 0.7.0",
  "pio",
  "serial-baudrate",
  "ubos-api",
  "ubos-cooling",
  "ubos-core",
+ "ubos-net",
  "ubos-ota",
 ]
 

@@ -34,6 +34,7 @@
 
 #![no_std]
 
+pub mod boot;
 pub mod fan;
 pub mod i2c;
 pub mod pio_tach;

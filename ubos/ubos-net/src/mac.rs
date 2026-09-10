@@ -87,3 +87,26 @@ pub fn derive_mac(oui: [u8; 3], family: u8, uid: &[u8]) -> [u8; 6] {
     let [hash_hi, hash_lo] = fnv1a_16(uid);
     [oui[0], oui[1], oui[2], family, hash_hi, hash_lo]
 }
+
+/// Derive the board MAC from a per-chip id, log it and publish it to the
+/// network handle. No control board carries a factory address, so the
+/// firmware supplies one; `mac_family` is the descriptor's byte for this
+/// control board and `chip_id` is whatever unique id the chip offers.
+///
+/// Free rather than a method because the two inputs are peers and the
+/// handle it publishes to is a private static.
+#[must_use]
+pub fn publish_mac(mac_family: u8, chip_id: &[u8]) -> [u8; 6] {
+    let mac = derive_mac(DUMMY_OUI, mac_family, chip_id);
+    ubos_logging::info!(
+        "mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        mac[0],
+        mac[1],
+        mac[2],
+        mac[3],
+        mac[4],
+        mac[5],
+    );
+    crate::net::handle().set_mac(mac);
+    mac
+}

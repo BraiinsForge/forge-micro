@@ -346,16 +346,10 @@ async fn boot(spawner: Spawner) {
     // Fold the ESP32-S3 factory eFuse MAC into a stable per-unit MAC.
     // The WIZnet chip has no factory address; derive_mac keeps the fleet
     // MAC scheme consistent across all board families.
-    let mac_addr = ubos_net::mac::derive_mac(
-        ubos_net::mac::DUMMY_OUI,
+    let mac_addr = ubos_net::mac::publish_mac(
         config::MACHINE.control_board.mac_family,
         esp_hal::efuse::base_mac_address().as_bytes(),
     );
-    info!(
-        "mac {=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}",
-        mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5],
-    );
-    ubos_net::net::handle().set_mac(mac_addr);
     let state = STATE.init(State::<8, 8>::new());
     let (device, runner) = embassy_net_wiznet::new(
         mac_addr,

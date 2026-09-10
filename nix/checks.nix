@@ -628,12 +628,13 @@ hostClippyChecks
 
   # ubos-rp is linted here and, like ubos-ota, has no standalone build
   # derivation: every RP board depends on it, so each board build compiles it
-  # transitively. clippy selects a chip on the CLI because the crate pins none,
-  # so the same source builds under both rp2040 and rp235xa.
+  # transitively. clippy selects a chip on the CLI because the crate pins none.
+  # Only the rp235xa half is linted: the rp2040 half is compiled by the rp2040
+  # board builds, which run without `-D warnings`.
   clippy-ubos-rp = craneLib.cargoClippy {
     src = srcFor [ "ubos-rp" ];
     cargoArtifacts = deps.ubosOtaArtifacts;
-    cargoExtraArgs = "-p ubos-rp --target thumbv8m.main-none-eabihf --features embassy-rp/rp235xa,embassy-rp/imagedef-none";
+    cargoExtraArgs = "-p ubos-rp --target thumbv8m.main-none-eabihf --features rp235x,embassy-rp/rp235xa,embassy-rp/imagedef-none";
     cargoClippyExtraArgs = "-- -D warnings";
     doInstallCargoArtifacts = false;
     CC_thumbv8m_main_none_eabihf = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";

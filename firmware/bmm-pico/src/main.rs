@@ -27,14 +27,13 @@
 #![no_main]
 
 use core::cell::RefCell;
-use defmt::{info, unwrap, warn};
+use defmt::{info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Executor;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
-use embassy_rp::clocks::RoscRng;
 use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config as I2cConfig, I2c};
@@ -42,7 +41,7 @@ use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI0, TRNG, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
-use embassy_rp::trng::{self, Trng};
+use embassy_rp::trng;
 use embassy_rp::uart::BufferedInterruptHandler;
 use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{bind_interrupts, dma, i2c};
@@ -217,7 +216,6 @@ async fn main(spawner: Spawner) {
     // in .uninit, so the startup code does not zero it and a warm reset
     // preserves its contents.
     ubos_firmware::events::install(unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) });
-    let mut rng = RoscRng;
 
     // Build the single blocking FLASH driver and place it in a `'static`
     // mutex shared by the config store and the OTA updater. Both the
@@ -357,24 +355,10 @@ async fn main(spawner: Spawner) {
     let phy_int = Input::new(hw.phy_int, Pull::Up);
     let phy_reset = Output::new(hw.phy_reset, Level::High);
 
-    // Fold the RP2350 OTP chip id into a stable per-board MAC. The WIZnet
-    // chip has no factory address, so the firmware supplies one.
-    let mac_addr = {
-        let chip_id = embassy_rp::otp::get_chipid().unwrap_or_else(|_| {
-            warn!("OTP chip id read failed; MAC hash falls back to zero");
-            0
-        });
-        ubos_net::mac::derive_mac(
-            ubos_net::mac::DUMMY_OUI,
-            config::MACHINE.control_board.mac_family,
-            &chip_id.to_be_bytes(),
-        )
-    };
-    info!(
-        "mac {=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}:{=u8:02x}",
-        mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5],
+    let mac_addr = ubos_net::mac::publish_mac(
+        config::MACHINE.control_board.mac_family,
+        &ubos_rp::boot::chip_id(),
     );
-    ubos_net::net::handle().set_mac(mac_addr);
     static STATE: StaticCell<State<8, 8>> = StaticCell::new();
     let state = STATE.init(State::<8, 8>::new());
     let (device, runner) = embassy_net_wiznet::new(
@@ -389,7 +373,7 @@ async fn main(spawner: Spawner) {
     .expect("BUG: W5500 initialization failed");
     spawner.spawn(unwrap!(ethernet_task(runner)));
 
-    let seed = rng.next_u64();
+    let seeds = ubos_rp::boot::seeds_from_trng(hw.trng, Irqs).await;
 
     let (net_config, mdns_hostname) = ubos_firmware::net::bring_up::<
         { config::Board::MDNS_HOSTNAME_BASE.len() },
@@ -414,32 +398,12 @@ async fn main(spawner: Spawner) {
         device,
         net_config,
         RESOURCES.init(StackResources::new()),
-        seed,
+        seeds.net,
     );
     spawner.spawn(unwrap!(net_task(runner)));
 
-    // Seed the session CSPRNG from the RP2350 hardware TRNG, not the
-    // ring-oscillator-bit `RoscRng`. The TRNG runs three built-in
-    // entropy health checks per draw and is NIST-aligned; `RoscRng`
-    // takes one ROSC randombit per read with no oracle. The TRNG is
-    // only used at boot, so the peripheral is dropped right after the
-    // seed is taken.
-    let mut csprng_seed = [0u8; 32];
-    let mut sv2_seed = [0u8; 32];
-    {
-        // Datasheet § 12.12.2: sample counts of 20-25 minimise generation
-        // time but fail the on-die NIST entropy checks often enough to
-        // log every boot. 100 trades a few hundred extra microseconds for
-        // a quiet boot; the TRNG seeds both the session CSPRNG and the
-        // SV2 handshake PRNG.
-        let mut trng_config = trng::Config::default();
-        trng_config.sample_count = 100;
-        let mut trng = Trng::new(hw.trng, Irqs, trng_config);
-        trng.fill_bytes(&mut csprng_seed).await;
-        trng.fill_bytes(&mut sv2_seed).await;
-    }
-    ubos_auth::csprng::seed_csprng(csprng_seed);
-    let stratum_shared = ubos_firmware::init_stratum(sv2_seed);
+    ubos_auth::csprng::seed_csprng(seeds.csprng);
+    let stratum_shared = ubos_firmware::init_stratum(seeds.sv2);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
     spawner.spawn(unwrap!(metrics_ingest_task()));

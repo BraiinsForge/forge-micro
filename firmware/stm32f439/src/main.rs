@@ -245,8 +245,7 @@ async fn boot(spawner: Spawner) {
     };
 
     // Derive a per-unit MAC from the 96-bit STM32 unique device id.
-    let mac_addr = ubos_net::mac::derive_mac(
-        ubos_net::mac::DUMMY_OUI,
+    let mac_addr = ubos_net::mac::publish_mac(
         config::MACHINE.control_board.mac_family,
         &embassy_stm32::uid::uid(),
     );
@@ -267,7 +266,6 @@ async fn boot(spawner: Spawner) {
         mdio = hw.mdio,
         mdc = hw.mdc,
     );
-    ubos_net::net::handle().set_mac(mac_addr);
 
     let manager_handle = ubos_manager::handle();
     let mining_handle = ubos_mining::handle();
