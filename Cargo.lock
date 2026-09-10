@@ -4411,7 +4411,6 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "esp-hal",
  "esp-rtos",
- "portable-atomic",
  "serial-baudrate",
  "static_cell",
  "tca9554",

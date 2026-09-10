@@ -30,7 +30,7 @@ requires the browser to fetch without credentials.
 Code: `ubos/ubos-metrics/src/cpu_load.rs`.
 
 Each board brackets its executor's idle wait with `Instant::now()` and
-adds the elapsed ticks to the per-core slot in `IDLE_TICKS`. The publisher
+adds the elapsed ticks to the per-core slot through `record_idle`. The publisher
 task periodically diffs each slot against wall-clock ticks and pushes
 `1.0 - idle / elapsed` as `board_cpu_busy_ratio`, labelled `cpu="0"`,
 `cpu="1"`, ..., up to the per-board active-core count. The ratio falls

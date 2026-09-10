@@ -21,11 +21,10 @@
 
 use embassy_time::Instant;
 use esp_rtos::embassy::Callbacks;
-use portable_atomic::Ordering;
 
 /// Brackets `flags.wait()` inside `esp_rtos::embassy::Executor::run_with_callbacks`.
 /// `on_idle` records the entry instant; `before_poll` accumulates the
-/// elapsed ticks on the next iteration into `IDLE_TICKS[CPU_INDEX]`.
+/// elapsed ticks on the next iteration through `record_idle` for `CPU_INDEX`.
 /// `run_with_callbacks` only fires `on_idle` when the wait will
 /// actually block, so spurious wakes do not skew the count.
 pub struct IdleAccounting<const CPU_INDEX: usize> {
@@ -55,7 +54,7 @@ impl<const CPU_INDEX: usize> Callbacks for IdleAccounting<CPU_INDEX> {
     fn before_poll(&mut self) {
         if let Some(start) = self.idle_start.take() {
             let elapsed = (Instant::now() - start).as_ticks();
-            ubos_metrics::cpu_load::IDLE_TICKS[CPU_INDEX].fetch_add(elapsed, Ordering::Relaxed);
+            ubos_metrics::cpu_load::record_idle(CPU_INDEX, elapsed);
         }
     }
 

@@ -50,7 +50,7 @@ libraries. These load only when working under `firmware/` or `ubos/`.
   ubos-mining `serial_task` to Core 1 so embassy-net on Core 0 stays
   responsive; the shared `ASIC_SESSION` uses `CriticalSectionRawMutex`,
   so cross-core sharing is free. On esp32s3, Core 1's executor also runs
-  `IdleAccounting::<1>` so `IDLE_TICKS[1]` is populated for cpu-load
+  `IdleAccounting::<1>` so core 1's idle ticks are recorded for cpu-load
   metrics. The S3's 128-byte hardware FIFO absorbs the ETH-ISR-class
   jitter that overran the 1-byte USART holding register on stm32f407.
 

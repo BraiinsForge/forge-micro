@@ -28,8 +28,8 @@
 /// The `run` arm carries the executor and idle-accounting choice: it builds
 /// the second core's executor, spawns the miner-serial task onto it, and
 /// runs it through `run_with_callbacks` with
-/// [`IdleAccounting`](crate::IdleAccounting)`::<1>` so `IDLE_TICKS[1]` is
-/// populated for the cpu-load metric.
+/// [`IdleAccounting`](crate::IdleAccounting)`::<1>` so core 1's idle ticks
+/// are recorded for the cpu-load metric.
 ///
 /// ```ignore
 /// ubos_esp32::spawn_miner_core1!(

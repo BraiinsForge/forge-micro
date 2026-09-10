@@ -20,7 +20,6 @@ embassy-time = { workspace = true, features = ["defmt"] }
 embassy-sync = { workspace = true, features = ["defmt"] }
 embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
 defmt = { workspace = true }
-portable-atomic = { workspace = true }
 static_cell = { workspace = true }
 tca9554 = { workspace = true, features = ["defmt"] }
 

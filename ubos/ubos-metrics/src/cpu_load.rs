@@ -28,14 +28,20 @@ use portable_atomic::{AtomicU64, Ordering};
 
 use crate::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 
-/// Maximum number of cores tracked by [`IDLE_TICKS`]. Each board
+/// Maximum number of cores tracked by [`record_idle`]. Each board
 /// declares how many of these slots it populates by passing `N_CPUS`
 /// to [`run_cpu_load`].
 pub const MAX_CPUS: usize = 2;
 
 /// Total `embassy_time` ticks spent halted in each core's idle wait.
 /// Boards add to slot `N` from the idle hook running on core `N`.
-pub static IDLE_TICKS: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
+static IDLE_TICKS: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
+
+/// Adds `ticks` spent halted on core `cpu` to that core's idle total. An
+/// idle hook calls this once per wake with the ticks it measured.
+pub fn record_idle(cpu: usize, ticks: u64) {
+    IDLE_TICKS[cpu].fetch_add(ticks, Ordering::Relaxed);
+}
 
 /// Static `cpu` label values, indexed by core ID. Avoids per-window
 /// integer-to-string formatting on the publish path.
@@ -113,16 +119,15 @@ fn busy_ratio(idle: u64, elapsed: u64) -> f32 {
 pub use cortex_m_executor::run_cortex_m_executor;
 
 /// Cortex-M-specific seam between `cortex_m_rt::entry` and the
-/// `raw::Executor` poll/wfe loop that feeds [`IDLE_TICKS`]. Gated
+/// `raw::Executor` poll/wfe loop that feeds [`record_idle`]. Gated
 /// to ARM so the shared library still compiles for ESP32-S3.
 #[cfg(target_arch = "arm")]
 mod cortex_m_executor {
     use embassy_executor::Spawner;
     use embassy_time::Instant;
-    use portable_atomic::Ordering;
     use static_cell::StaticCell;
 
-    use super::{IDLE_TICKS, MAX_CPUS};
+    use super::{MAX_CPUS, record_idle};
 
     /// Sentinel value the `embassy-executor` cortex-m pender treats as
     /// thread mode. The pender issues `sev` for this branch, which
@@ -130,7 +135,7 @@ mod cortex_m_executor {
     const THREAD_PENDER: usize = usize::MAX;
 
     /// Drive an embassy `raw::Executor` on Cortex-M, accumulating the
-    /// time spent halted in `wfe` into `IDLE_TICKS[CPU_INDEX]`.
+    /// time spent halted in `wfe` through `record_idle` for `CPU_INDEX`.
     ///
     /// `spawn` is invoked once with the executor's [`Spawner`] so the
     /// firmware can spawn its boot task. The function never returns.
@@ -159,7 +164,7 @@ mod cortex_m_executor {
             let before = Instant::now();
             cortex_m::asm::wfe();
             let after = Instant::now();
-            IDLE_TICKS[CPU_INDEX].fetch_add((after - before).as_ticks(), Ordering::Relaxed);
+            record_idle(CPU_INDEX, (after - before).as_ticks());
         }
     }
 }
