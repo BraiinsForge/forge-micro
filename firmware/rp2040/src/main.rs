@@ -300,10 +300,11 @@ async fn boot(spawner: Spawner) {
     let led = Output::new(hw.led, Level::Low);
     spawner.spawn(unwrap!(led_blink_task(led)));
 
-    // Hashboard plug-detect input (GPIO3, pull-up). Hold the binding at
-    // function scope so the GPIO stays driven for the lifetime of the
-    // firmware; dropping `Input` would clear the pad and pull setting.
-    let _hb_plug = Input::new(hw.hb_plug, Pull::Up);
+    // Hashboard plug-detect input on GPIO3, pulled up. `boot` returns once the
+    // listeners are spawned, and dropping the input would release the pad
+    // and clear the pull-up, so the binding is leaked: the pad keeps its
+    // configuration for the firmware's lifetime and nothing else claims it.
+    core::mem::forget(Input::new(hw.hb_plug, Pull::Up));
 
     // BMM101 hashboard PSU on I2C1: shared bus, PSU watchdog, power
     // stats, and the miner bring-up task all run on core 0 so the I2C

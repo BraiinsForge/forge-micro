@@ -512,7 +512,10 @@ async fn boot(spawner: Spawner) {
         spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
     }
 
-    // Plug-detect input; hold the peripheral so it is not reclaimed.
+    // Hashboard plug-detect input on GPIO5, pulled up. `boot` returns once the
+    // listeners are spawned and the binding drops there, but esp-hal gives
+    // `Input` no `Drop`, so the pad keeps its configuration and the pull-up
+    // for the firmware's lifetime. Nothing else claims the pad.
     let _hb_plug = Input::new(hw.hb_plug, InputConfig::default().with_pull(Pull::Up));
 
     info!("waiting for dhcp");

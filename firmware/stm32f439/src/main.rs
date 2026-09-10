@@ -332,10 +332,12 @@ async fn boot(spawner: Spawner) {
     );
     spawner.spawn(unwrap!(mcu_temperature_task(mcu_temp_sensor)));
 
-    // Hashboard plug-detect input (PE1, pull-up). Hold the binding at
-    // function scope so the GPIO stays driven for the lifetime of the
-    // firmware; dropping `Input` would clear the PUPDR pull setting.
-    let _hb_plug = Input::new(hw.hb_plug, Pull::Up);
+    // Hashboard plug-detect input on PE1, pulled up. `boot` returns once the
+    // listeners are spawned, and dropping the input would release the pad
+    // and clear the PUPDR pull setting, so the binding is leaked: the pad
+    // keeps its configuration for the firmware's lifetime and nothing else
+    // claims it.
+    core::mem::forget(Input::new(hw.hb_plug, Pull::Up));
 
     let thermal = ubos_thermal::handle();
 
