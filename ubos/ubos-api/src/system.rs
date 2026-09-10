@@ -81,9 +81,7 @@ use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
 use ubos_metrics::hashrate::hashrate;
 use ubos_thermal::Handle as ThermalHandle;
 
-use crate::ota::{
-    OtaError, record_chunk_written, record_error, record_rebooting, record_session_begin,
-};
+use crate::ota::{OtaError, ota_session};
 use crate::schema::{
     API_VARIANT, GenericResponse, SystemInfo, SystemNetwork, SystemScoreboardEntry,
     SystemStatistics, system_info::HwInfo, system_statistics::LABELS,
@@ -768,6 +766,49 @@ where
     write_ack_response(connection, scratch).await
 }
 
+/// Outcome of a failed [`read_chunk`] call, carrying the bytes read
+/// before the failure so the caller can log the position.
+enum ChunkReadError {
+    /// The connection closed before the expected byte count arrived.
+    Eof { read_so_far: usize },
+    /// The underlying read returned an error.
+    Io { read_so_far: usize },
+}
+
+/// Fills `buffer[..want]` from `connection`, looping over short reads.
+///
+/// Shared by [`handle_ota`] and [`handle_ota_chunk`], which differ only in
+/// how they log and respond to a failure; this returns the failure
+/// verbatim rather than acting on it, so both callers keep their own
+/// wording. Free rather than a method because `Connection` is `edge-http`'s
+/// type.
+async fn read_chunk<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    buffer: &mut [u8],
+    want: usize,
+) -> Result<(), ChunkReadError>
+where
+    T: Read + Write + TcpSplit,
+{
+    let mut chunk_read = 0usize;
+    while chunk_read < want {
+        match embedded_io_async::Read::read(connection, &mut buffer[chunk_read..want]).await {
+            Ok(0) => {
+                return Err(ChunkReadError::Eof {
+                    read_so_far: chunk_read,
+                });
+            }
+            Ok(read) => chunk_read += read,
+            Err(_) => {
+                return Err(ChunkReadError::Io {
+                    read_so_far: chunk_read,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Handle `POST /api/system/OTA` — streaming firmware upload.
 ///
 /// Streams the request body directly from the TCP connection into the
@@ -876,7 +917,7 @@ where
 
     match ota.begin() {
         Ok(()) => {
-            record_session_begin();
+            ota_session().begin();
         }
         Err(OtaError::NoPartitionTable) => {
             // Resume mining so the board keeps hashing after a failed update.
@@ -891,7 +932,7 @@ where
         }
         Err(error) => {
             warn!("OTA begin failed: {:?}", error);
-            record_error(error);
+            ota_session().record_error(error);
             // Resume mining so the board keeps hashing after a failed update.
             manager.send(ManagerMessage::OtaEnd).await;
             return write_json_response(
@@ -911,56 +952,48 @@ where
 
     while bytes_written < total_bytes {
         let want = (total_bytes - bytes_written).min(OTA_CHUNK_SIZE);
-        let mut chunk_read = 0usize;
 
         // Fill the chunk buffer before calling write_chunk. Chunks are
         // OTA_CHUNK_SIZE bytes except the final chunk, which carries the
         // remainder; the target accepts a sub-sector final write.
-        while chunk_read < want {
-            match embedded_io_async::Read::read(connection, &mut chunk_buffer[chunk_read..want])
-                .await
-            {
-                Ok(0) => {
-                    // Premature EOF: the client closed before sending all bytes.
-                    warn!(
-                        "OTA: premature EOF at {}/{} bytes",
-                        bytes_written + chunk_read,
-                        total_bytes,
-                    );
-                    record_error(OtaError::ShortUpload);
-                    ota.abort();
-                    // Resume mining so the board keeps hashing after a failed update.
-                    manager.send(ManagerMessage::OtaEnd).await;
-                    return write_json_response(
-                        connection,
-                        400,
-                        "Bad Request",
-                        b"{\"message\":\"upload truncated\"}",
-                    )
-                    .await;
-                }
-                Ok(read) => chunk_read += read,
-                Err(_) => {
-                    warn!("OTA: read error after {} bytes", bytes_written);
-                    record_error(OtaError::Flash);
-                    ota.abort();
-                    // Resume mining so the board keeps hashing after a failed update.
-                    manager.send(ManagerMessage::OtaEnd).await;
-                    return write_json_response(
-                        connection,
-                        400,
-                        "Bad Request",
-                        b"{\"message\":\"read error during upload\"}",
-                    )
-                    .await;
-                }
+        match read_chunk(connection, &mut chunk_buffer, want).await {
+            Ok(()) => {}
+            Err(ChunkReadError::Eof { read_so_far }) => {
+                // Premature EOF: the client closed before sending all bytes.
+                warn!(
+                    "OTA: premature EOF at {}/{} bytes",
+                    bytes_written + read_so_far,
+                    total_bytes,
+                );
+                ota_session().fail(ota, OtaError::ShortUpload);
+                // Resume mining so the board keeps hashing after a failed update.
+                manager.send(ManagerMessage::OtaEnd).await;
+                return write_json_response(
+                    connection,
+                    400,
+                    "Bad Request",
+                    b"{\"message\":\"upload truncated\"}",
+                )
+                .await;
+            }
+            Err(ChunkReadError::Io { .. }) => {
+                warn!("OTA: read error after {} bytes", bytes_written);
+                ota_session().fail(ota, OtaError::Flash);
+                // Resume mining so the board keeps hashing after a failed update.
+                manager.send(ManagerMessage::OtaEnd).await;
+                return write_json_response(
+                    connection,
+                    400,
+                    "Bad Request",
+                    b"{\"message\":\"read error during upload\"}",
+                )
+                .await;
             }
         }
 
-        if let Err(error) = ota.write_chunk(&chunk_buffer[..chunk_read]) {
+        if let Err(error) = ota.write_chunk(&chunk_buffer[..want]) {
             warn!("OTA write_chunk failed: {:?}", error);
-            record_error(error);
-            ota.abort();
+            ota_session().fail(ota, error);
             // Resume mining so the board keeps hashing after a failed update.
             manager.send(ManagerMessage::OtaEnd).await;
             return write_json_response(
@@ -971,9 +1004,9 @@ where
             )
             .await;
         }
-        bytes_written += chunk_read;
+        bytes_written += want;
         #[allow(clippy::cast_possible_truncation)]
-        record_chunk_written(bytes_written as u32);
+        ota_session().chunk_written(bytes_written as u32);
         // Pause briefly between sector writes rather than yielding once. The
         // flash write pauses both cores, and the W6100 cannot be drained while
         // frozen, so a single yield is not enough for the network task to empty
@@ -986,8 +1019,7 @@ where
 
     if let Err(error) = ota.finish() {
         warn!("OTA finish failed: {:?}", error);
-        record_error(error);
-        ota.abort();
+        ota_session().fail(ota, error);
         // Resume mining so the board keeps hashing after a failed update.
         manager.send(ManagerMessage::OtaEnd).await;
         return write_json_response(
@@ -1003,7 +1035,7 @@ where
         "OTA upload complete ({} bytes); rebooting into new slot",
         total_bytes
     );
-    record_rebooting();
+    ota_session().rebooting();
     // The image is staged and finish() marked the swap, so commit it by
     // rebooting regardless of whether the ack reaches the client. A failed
     // ack write must not skip the reboot: that would leave mining stopped and
@@ -1154,7 +1186,7 @@ where
 
         match ota.begin() {
             Ok(()) => {
-                record_session_begin();
+                ota_session().begin();
             }
             Err(OtaError::NoPartitionTable) => {
                 manager.send(ManagerMessage::OtaEnd).await;
@@ -1168,7 +1200,7 @@ where
             }
             Err(error) => {
                 warn!("OTA chunk begin failed: {:?}", error);
-                record_error(error);
+                ota_session().record_error(error);
                 manager.send(ManagerMessage::OtaEnd).await;
                 return write_json_response(
                     connection,
@@ -1229,49 +1261,41 @@ where
     // sized to OTA_CHUNK_SIZE so the largest legal chunk fits without
     // reallocation.
     let mut chunk_buffer = [0u8; OTA_CHUNK_SIZE];
-    let mut chunk_read = 0usize;
 
-    while chunk_read < chunk_size {
-        match embedded_io_async::Read::read(connection, &mut chunk_buffer[chunk_read..chunk_size])
-            .await
-        {
-            Ok(0) => {
-                warn!(
-                    "OTA chunk: premature EOF at {}/{} bytes",
-                    chunk_read, chunk_size,
-                );
-                record_error(OtaError::ShortUpload);
-                ota.abort();
-                manager.send(ManagerMessage::OtaEnd).await;
-                return write_json_response(
-                    connection,
-                    400,
-                    "Bad Request",
-                    b"{\"message\":\"chunk upload truncated\"}",
-                )
-                .await;
-            }
-            Ok(read) => chunk_read += read,
-            Err(_) => {
-                warn!("OTA chunk: read error after {} bytes", chunk_read);
-                record_error(OtaError::Flash);
-                ota.abort();
-                manager.send(ManagerMessage::OtaEnd).await;
-                return write_json_response(
-                    connection,
-                    400,
-                    "Bad Request",
-                    b"{\"message\":\"read error during chunk upload\"}",
-                )
-                .await;
-            }
+    match read_chunk(connection, &mut chunk_buffer, chunk_size).await {
+        Ok(()) => {}
+        Err(ChunkReadError::Eof { read_so_far }) => {
+            warn!(
+                "OTA chunk: premature EOF at {}/{} bytes",
+                read_so_far, chunk_size,
+            );
+            ota_session().fail(ota, OtaError::ShortUpload);
+            manager.send(ManagerMessage::OtaEnd).await;
+            return write_json_response(
+                connection,
+                400,
+                "Bad Request",
+                b"{\"message\":\"chunk upload truncated\"}",
+            )
+            .await;
+        }
+        Err(ChunkReadError::Io { read_so_far }) => {
+            warn!("OTA chunk: read error after {} bytes", read_so_far);
+            ota_session().fail(ota, OtaError::Flash);
+            manager.send(ManagerMessage::OtaEnd).await;
+            return write_json_response(
+                connection,
+                400,
+                "Bad Request",
+                b"{\"message\":\"read error during chunk upload\"}",
+            )
+            .await;
         }
     }
 
-    if let Err(error) = ota.write_chunk(&chunk_buffer[..chunk_read]) {
+    if let Err(error) = ota.write_chunk(&chunk_buffer[..chunk_size]) {
         warn!("OTA chunk write_chunk failed: {:?}", error);
-        record_error(error);
-        ota.abort();
+        ota_session().fail(ota, error);
         manager.send(ManagerMessage::OtaEnd).await;
         return write_json_response(
             connection,
@@ -1282,18 +1306,17 @@ where
         .await;
     }
 
-    // `ota_offset` + `chunk_read` is the number of bytes written so far.
+    // `ota_offset` + `chunk_size` is the number of bytes written so far.
     // Both are bounded by the target's max image size (fits in u32 on all targets).
     #[allow(clippy::cast_possible_truncation)]
-    record_chunk_written((ota_offset as u32).saturating_add(chunk_read as u32));
+    ota_session().chunk_written((ota_offset as u32).saturating_add(chunk_size as u32));
 
     if ota_final {
-        // `ota_offset` + `chunk_read` is the total image size delivered.
+        // `ota_offset` + `chunk_size` is the total image size delivered.
         // Both are bounded by the target's max image size (fits in u64 on all targets).
-        let total_image_bytes = ota_offset.saturating_add(chunk_read as u64);
+        let total_image_bytes = ota_offset.saturating_add(chunk_size as u64);
         if total_image_bytes < OTA_MIN_IMAGE_BYTES {
-            record_error(OtaError::ShortUpload);
-            ota.abort();
+            ota_session().fail(ota, OtaError::ShortUpload);
             manager.send(ManagerMessage::OtaEnd).await;
             return write_json_response(
                 connection,
@@ -1306,8 +1329,7 @@ where
 
         if let Err(error) = ota.finish() {
             warn!("OTA chunk finish failed: {:?}", error);
-            record_error(error);
-            ota.abort();
+            ota_session().fail(ota, error);
             manager.send(ManagerMessage::OtaEnd).await;
             return write_json_response(
                 connection,
@@ -1320,12 +1342,12 @@ where
 
         // `ota_offset` is bounded by the target's max image size (fits in usize on all targets).
         #[allow(clippy::cast_possible_truncation)]
-        let total_bytes = ota_offset as usize + chunk_read;
+        let total_bytes = ota_offset as usize + chunk_size;
         info!(
             "OTA chunk upload complete ({} bytes); rebooting into new slot",
             total_bytes,
         );
-        record_rebooting();
+        ota_session().rebooting();
         // The image is staged and finish() marked the swap. Commit it by
         // rebooting regardless of whether the ack reaches the client; a
         // lost ack matches the expected connection drop on reset, and a
@@ -1336,7 +1358,7 @@ where
         // Acknowledge the chunk and tell the client the next expected offset.
         // `ota_offset` is bounded by the target's max image size (fits in usize on all targets).
         #[allow(clippy::cast_possible_truncation)]
-        let next_offset = ota_offset as usize + chunk_read;
+        let next_offset = ota_offset as usize + chunk_size;
         let mut ack_buf = [0u8; 40];
         let mut writer = ubos_http::BufferWriter::new(&mut ack_buf);
         // Safety: the format args are plain integers, so write! cannot fail.

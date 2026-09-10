@@ -507,7 +507,7 @@ impl Service for RestApiService {
 
                     // Live upload session state: readable lock-free even
                     // while an upload holds the target mutex.
-                    let session = crate::ota::ota_session_snapshot();
+                    let session = crate::ota::ota_session().snapshot();
                     let phase_str = match session.phase {
                         crate::ota::OtaPhase::Idle => "idle",
                         crate::ota::OtaPhase::Uploading => "uploading",
@@ -751,7 +751,7 @@ pub async fn run_ota_session_watchdog() -> ! {
     loop {
         Timer::after(OTA_SESSION_IDLE_TIMEOUT).await;
 
-        let snapshot = crate::ota::ota_session_snapshot();
+        let snapshot = crate::ota::ota_session().snapshot();
 
         // Session is alive if it is not uploading or if new chunks arrived.
         if snapshot.phase != crate::ota::OtaPhase::Uploading || snapshot.chunks != last_seen_chunks
@@ -769,13 +769,13 @@ pub async fn run_ota_session_watchdog() -> ! {
         };
 
         // Re-check under the lock to avoid racing a chunk that was just acked.
-        let snapshot = crate::ota::ota_session_snapshot();
+        let snapshot = crate::ota::ota_session().snapshot();
         if snapshot.phase == crate::ota::OtaPhase::Uploading && snapshot.chunks == last_seen_chunks
         {
             if let Some(ota) = guard.as_deref_mut() {
                 ota.abort();
             }
-            crate::ota::record_session_timeout();
+            crate::ota::ota_session().timeout();
             // Resume mining while still holding the target mutex. A fresh
             // offset-0 chunk arriving between this abort and the resume would
             // otherwise take the mutex, stop mining, and then be resumed by

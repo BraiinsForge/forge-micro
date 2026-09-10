@@ -74,6 +74,19 @@ pub enum OtaPhase {
     Rebooting = 3,
 }
 
+impl OtaPhase {
+    /// The phase a stored discriminant names; anything unknown reads as
+    /// idle, which is the default a fresh boot starts in.
+    const fn from_u8(raw: u8) -> Self {
+        match raw {
+            raw if raw == Self::Uploading as u8 => Self::Uploading,
+            raw if raw == Self::Error as u8 => Self::Error,
+            raw if raw == Self::Rebooting as u8 => Self::Rebooting,
+            _ => Self::Idle,
+        }
+    }
+}
+
 /// Error code mapping for [`OtaError`] variants.
 ///
 /// Zero is reserved for "no error". Each nonzero code identifies one
@@ -102,18 +115,9 @@ impl OtaErrorCode {
     }
 }
 
-/// Phase of the OTA upload, readable without holding the upload mutex.
-static OTA_PHASE: AtomicU8 = AtomicU8::new(OtaPhase::Idle as u8);
-/// Number of bytes written in the current or last upload session.
-static OTA_BYTES_WRITTEN: AtomicU32 = AtomicU32::new(0);
-/// Number of chunks written in the current or last upload session.
-static OTA_CHUNK_COUNT: AtomicU32 = AtomicU32::new(0);
-/// Error code from the last failed upload session, or 0 when none.
-static OTA_LAST_ERROR: AtomicU8 = AtomicU8::new(0);
-
 /// Snapshot of the live upload session state.
 ///
-/// Returned by [`ota_session_snapshot`] for the `/api/info` response
+/// Returned by [`OtaSession::snapshot`] for the `/api/info` response
 /// writer. All fields are derived from atomics and are consistent only
 /// on a per-field basis; no cross-field ordering is guaranteed.
 #[derive(Clone, Copy)]
@@ -128,78 +132,123 @@ pub(crate) struct OtaSessionSnapshot {
     pub last_error: u8,
 }
 
-/// Returns a snapshot of the live upload session state.
+/// Live state of the current or most recent OTA upload session.
 ///
-/// Lock-free: never touches the upload mutex, so it stays readable
-/// while an upload holds the target.
-pub(crate) fn ota_session_snapshot() -> OtaSessionSnapshot {
-    // Each field is loaded with Relaxed ordering. This is sufficient for
-    // diagnostic reads: the values are eventually consistent and the
-    // reader (the info endpoint) only needs a plausible current picture,
-    // not a strictly synchronized one.
-    let phase_raw = OTA_PHASE.load(Ordering::Relaxed);
-    let phase = match phase_raw {
-        1 => OtaPhase::Uploading,
-        2 => OtaPhase::Error,
-        3 => OtaPhase::Rebooting,
-        _ => OtaPhase::Idle,
-    };
-    OtaSessionSnapshot {
-        phase,
-        bytes_written: OTA_BYTES_WRITTEN.load(Ordering::Relaxed),
-        chunks: OTA_CHUNK_COUNT.load(Ordering::Relaxed),
-        last_error: OTA_LAST_ERROR.load(Ordering::Relaxed),
+/// The four fields are independent atomics rather than one lock: the
+/// info endpoint reads them without ever touching the upload mutex, so an
+/// upload in progress never blocks a status read. Each method updates the
+/// fields its caller's transition requires and no others, matching the
+/// state machine described on [`OtaPhase`].
+pub(crate) struct OtaSession {
+    /// Phase of the OTA upload, readable without holding the upload mutex.
+    phase: AtomicU8,
+    /// Number of bytes written in the current or last upload session.
+    bytes_written: AtomicU32,
+    /// Number of chunks written in the current or last upload session.
+    chunk_count: AtomicU32,
+    /// Error code from the last failed upload session, or 0 when none.
+    last_error: AtomicU8,
+}
+
+/// The single upload session state, reached through [`ota_session`].
+static OTA_SESSION: OtaSession = OtaSession {
+    phase: AtomicU8::new(OtaPhase::Idle as u8),
+    bytes_written: AtomicU32::new(0),
+    chunk_count: AtomicU32::new(0),
+    last_error: AtomicU8::new(0),
+};
+
+/// Returns the live OTA upload session state. A free facade over the
+/// private static, so the session has one home and every caller reaches
+/// it the same way.
+pub(crate) fn ota_session() -> &'static OtaSession {
+    &OTA_SESSION
+}
+
+impl OtaSession {
+    /// Returns a snapshot of the live upload session state.
+    ///
+    /// Lock-free: never touches the upload mutex, so it stays readable
+    /// while an upload holds the target.
+    pub(crate) fn snapshot(&self) -> OtaSessionSnapshot {
+        // Each field is loaded with Relaxed ordering. This is sufficient
+        // for diagnostic reads: the values are eventually consistent and
+        // the reader, the info endpoint, only needs a plausible current
+        // picture, not a strictly synchronized one.
+        let phase = OtaPhase::from_u8(self.phase.load(Ordering::Relaxed));
+        OtaSessionSnapshot {
+            phase,
+            bytes_written: self.bytes_written.load(Ordering::Relaxed),
+            chunks: self.chunk_count.load(Ordering::Relaxed),
+            last_error: self.last_error.load(Ordering::Relaxed),
+        }
     }
-}
 
-/// Called by the handler when a new upload session begins (offset == 0,
-/// `begin()` succeeded).
-///
-/// Resets bytes and chunk count to zero, clears the error code, and sets
-/// the phase to `Uploading`.
-pub(crate) fn record_session_begin() {
-    OTA_BYTES_WRITTEN.store(0, Ordering::Relaxed);
-    OTA_CHUNK_COUNT.store(0, Ordering::Relaxed);
-    OTA_LAST_ERROR.store(0, Ordering::Relaxed);
-    OTA_PHASE.store(OtaPhase::Uploading as u8, Ordering::Relaxed);
-}
+    /// Called by the handler when a new upload session begins (offset == 0,
+    /// `begin()` succeeded).
+    ///
+    /// Resets bytes and chunk count to zero, clears the error code, and
+    /// sets the phase to `Uploading`.
+    pub(crate) fn begin(&self) {
+        self.bytes_written.store(0, Ordering::Relaxed);
+        self.chunk_count.store(0, Ordering::Relaxed);
+        self.last_error.store(0, Ordering::Relaxed);
+        self.phase
+            .store(OtaPhase::Uploading as u8, Ordering::Relaxed);
+    }
 
-/// Called by the handler after each successful `write_chunk` call.
-///
-/// Sets the absolute byte count to `total_bytes_written` (not a delta)
-/// and increments the chunk counter by one.
-pub(crate) fn record_chunk_written(total_bytes_written: u32) {
-    OTA_BYTES_WRITTEN.store(total_bytes_written, Ordering::Relaxed);
-    OTA_CHUNK_COUNT.fetch_add(1, Ordering::Relaxed);
-}
+    /// Called by the handler after each successful `write_chunk` call.
+    ///
+    /// Sets the absolute byte count to `total_bytes_written` (not a delta)
+    /// and increments the chunk counter by one.
+    pub(crate) fn chunk_written(&self, total_bytes_written: u32) {
+        self.bytes_written
+            .store(total_bytes_written, Ordering::Relaxed);
+        self.chunk_count.fetch_add(1, Ordering::Relaxed);
+    }
 
-/// Called by the handler on any error-return path after a session has
-/// started.
-///
-/// Sets the phase to `Error` and records the mapped error code. Bytes and
-/// chunk count are left unchanged so diagnostics reflect progress at the
-/// time of failure.
-pub(crate) fn record_error(error: OtaError) {
-    OTA_LAST_ERROR.store(OtaErrorCode::from_error(error).value(), Ordering::Relaxed);
-    OTA_PHASE.store(OtaPhase::Error as u8, Ordering::Relaxed);
-}
+    /// Records an upload error on any error-return path after a session
+    /// has started.
+    ///
+    /// Sets the phase to `Error` and records the mapped error code. Bytes
+    /// and chunk count are left unchanged so diagnostics reflect progress
+    /// at the time of failure.
+    pub(crate) fn record_error(&self, error: OtaError) {
+        self.last_error
+            .store(OtaErrorCode::from_error(error).value(), Ordering::Relaxed);
+        self.phase.store(OtaPhase::Error as u8, Ordering::Relaxed);
+    }
 
-/// Called by the handler just before `reboot_into_new()`.
-///
-/// Sets the phase to `Rebooting`. The board will reset before any further
-/// state changes are possible, so this is the terminal state.
-pub(crate) fn record_rebooting() {
-    OTA_PHASE.store(OtaPhase::Rebooting as u8, Ordering::Relaxed);
-}
+    /// Records the error and aborts the target's in-progress write.
+    ///
+    /// This is the block every handler runs when a write, a read, or
+    /// `finish()` fails partway through a session: the error is recorded
+    /// first so a client that polls `/api/info` mid-abort sees the cause,
+    /// then the target is told to discard the write it cannot complete.
+    pub(crate) fn fail(&self, ota: &mut dyn OtaTarget, error: OtaError) {
+        self.record_error(error);
+        ota.abort();
+    }
 
-/// Called by the session watcher when an upload made no progress for the
-/// idle window, after the target has been aborted and mining resumed.
-///
-/// Resets the phase to `Idle` so the upload state machine is back to
-/// normal; bytes and chunk count are left unchanged for post-mortem
-/// diagnostics via the info endpoint.
-pub(crate) fn record_session_timeout() {
-    OTA_PHASE.store(OtaPhase::Idle as u8, Ordering::Relaxed);
+    /// Called by the handler just before `reboot_into_new()`.
+    ///
+    /// Sets the phase to `Rebooting`. The board will reset before any
+    /// further state changes are possible, so this is the terminal state.
+    pub(crate) fn rebooting(&self) {
+        self.phase
+            .store(OtaPhase::Rebooting as u8, Ordering::Relaxed);
+    }
+
+    /// Called by the session watcher when an upload made no progress for
+    /// the idle window, after the target has been aborted and mining
+    /// resumed.
+    ///
+    /// Resets the phase to `Idle` so the upload state machine is back to
+    /// normal; bytes and chunk count are left unchanged for post-mortem
+    /// diagnostics via the info endpoint.
+    pub(crate) fn timeout(&self) {
+        self.phase.store(OtaPhase::Idle as u8, Ordering::Relaxed);
+    }
 }
 
 // ---------------------------------------------------------------------------
