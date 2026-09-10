@@ -27,8 +27,8 @@
 //! merkle root (`extranonce_1`).
 
 use heapless::String;
-use mining_protocol::JobId;
 use mining_protocol::hex::decode_to_slice as decode_hex;
+use mining_protocol::{JobId, JobIdRing};
 
 use crate::scratch::MAX_EXTRANONCE_1;
 
@@ -138,12 +138,6 @@ impl<const N: usize> Default for PendingRequests<N> {
     }
 }
 
-/// One row of the JobId-to-wire-id translation ring.
-pub struct JobIdSlot {
-    pub generic: JobId,
-    pub wire: String<MAX_JOB_ID_CHARS>,
-}
-
 /// Adapter session state: extranonce, version mask, `JobId` map,
 /// and the in-flight request map.
 pub struct SessionState {
@@ -161,13 +155,10 @@ pub struct SessionState {
     /// allocation as well; replaces the earlier hardwired
     /// configure/subscribe/authorize/submit id constants.
     pub pending: PendingRequests<PENDING_DEPTH>,
-    /// `JobId` counter; assigned in `visit_new_job` translation.
-    pub(crate) next_job_id: u32,
     /// Depth-`JOBID_MAP_DEPTH` ring mapping `JobId` to V1 wire
     /// `job_id` strings. Rotates in lockstep with
     /// `stratum-client`'s `JobRing`.
-    pub(crate) job_id_ring: [Option<JobIdSlot>; JOBID_MAP_DEPTH],
-    pub(crate) job_id_write_index: usize,
+    job_id_ring: JobIdRing<String<MAX_JOB_ID_CHARS>, JOBID_MAP_DEPTH>,
 }
 
 impl SessionState {
@@ -176,17 +167,12 @@ impl SessionState {
     /// ring.
     pub(crate) fn wire_job_id(&self, generic: JobId) -> Option<&str> {
         self.job_id_ring
-            .iter()
-            .filter_map(|slot| slot.as_ref())
-            .find(|slot| slot.generic == generic)
-            .map(|slot| slot.wire.as_str())
+            .lookup(generic)
+            .map(heapless::String::as_str)
     }
 
     /// Push the (`JobId`, wire `job_id`) pair onto the depth-2 ring.
     pub(crate) fn allocate_job_id(&mut self, wire_id: &str) -> JobId {
-        let generic = JobId(self.next_job_id);
-        self.next_job_id = self.next_job_id.wrapping_add(1);
-
         let mut wire = String::<MAX_JOB_ID_CHARS>::new();
         let truncated = if wire_id.len() > MAX_JOB_ID_CHARS {
             // Keep the prefix; longer wire ids indicate a misbehaving
@@ -197,11 +183,7 @@ impl SessionState {
         };
         let _ = wire.push_str(truncated);
 
-        let index = self.job_id_write_index;
-        self.job_id_ring[index] = Some(JobIdSlot { generic, wire });
-        self.job_id_write_index = (index + 1) % JOBID_MAP_DEPTH;
-
-        generic
+        self.job_id_ring.allocate(wire)
     }
 
     pub(crate) fn store_extranonce_1(&mut self, hex: &str) -> bool {
@@ -225,9 +207,7 @@ impl SessionState {
             extranonce_2_size: 0,
             target: PERMISSIVE_TARGET,
             pending: PendingRequests::new(),
-            next_job_id: 0,
-            job_id_ring: [const { None }; JOBID_MAP_DEPTH],
-            job_id_write_index: 0,
+            job_id_ring: JobIdRing::new(),
         }
     }
 }

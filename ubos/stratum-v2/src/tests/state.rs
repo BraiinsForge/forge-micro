@@ -43,7 +43,6 @@ fn allocate_job_id_returns_monotonic_generic_ids() {
 
     assert_eq!(first, JobId(0));
     assert_eq!(second, JobId(1));
-    assert_eq!(state.next_job_id, 2);
 }
 
 #[test]
@@ -75,7 +74,6 @@ fn job_id_ring_rotates_after_depth() {
 
     assert_eq!(state.lookup_job(first).map(|slot| slot.wire), Some(10));
     assert_eq!(state.lookup_job(second).map(|slot| slot.wire), Some(11));
-    assert_eq!(state.job_id_write_index, 0);
 
     let third = state.allocate_job_id(12, 0x2000_0000);
 
@@ -83,7 +81,6 @@ fn job_id_ring_rotates_after_depth() {
     assert_eq!(state.lookup_job(first).map(|slot| slot.wire), None);
     assert_eq!(state.lookup_job(second).map(|slot| slot.wire), Some(11));
     assert_eq!(state.lookup_job(third).map(|slot| slot.wire), Some(12));
-    assert_eq!(state.job_id_write_index, 1);
 }
 
 #[test]
@@ -93,19 +90,6 @@ fn lookup_unknown_job_id_returns_none() {
     state.allocate_job_id(10, 0x2000_0000);
 
     assert_eq!(state.lookup_job(JobId(999)).map(|slot| slot.wire), None);
-}
-
-#[test]
-fn job_id_counter_wraps() {
-    let mut state = V2SessionState::new();
-    state.next_job_id = u32::MAX;
-
-    let last = state.allocate_job_id(10, 0x2000_0000);
-    let wrapped = state.allocate_job_id(11, 0x2000_0000);
-
-    assert_eq!(last, JobId(u32::MAX));
-    assert_eq!(wrapped, JobId(0));
-    assert_eq!(state.next_job_id, 1);
 }
 
 #[test]
