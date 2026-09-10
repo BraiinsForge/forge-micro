@@ -82,6 +82,13 @@ mechanism is the `OtaBackend` implementation `RpBackend` in
 (`ubos_ota::SharedFlashMutex`) that the ubos-config store also uses.
 `RpOtaTarget` is the type alias `OtaEngine<RpBackend<…>>`.
 
+A board can also implement `ubos_api::OtaTarget` directly, without the
+engine. The engine assumes a staging slot and a swap on the next boot; a
+board whose stock bootloader mirrors one live slot and verifies it on boot
+has neither, so it writes the payload in place and answers the trait
+itself. Such a target still shares `ubos_ota::SharedFlashMutex` with the
+config store, because that is what keeps two drivers off one chip.
+
 ## Upload flow
 
 ### Endpoint
