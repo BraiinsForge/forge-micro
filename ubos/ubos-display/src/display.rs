@@ -103,6 +103,22 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(),
     Ok(())
 }
 
+/// Task shell around [`crate::sh1106::Sh1106::run_blocking`], for a board
+/// whose display bus is blocking. The reset pin is held for the same reason
+/// as in [`display_task!`].
+#[macro_export]
+macro_rules! blocking_display_task {
+    ($display:ty, $reset:ty) => {
+        #[embassy_executor::task]
+        async fn display_task(
+            mut display: $display,
+            #[allow(clippy::used_underscore_binding)] _reset_pin: $reset,
+        ) -> ! {
+            display.run_blocking().await
+        }
+    };
+}
+
 /// Task shell around [`crate::sh1106::Sh1106::run`], which renders the OLED
 /// display.
 ///

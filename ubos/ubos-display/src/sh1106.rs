@@ -25,6 +25,9 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_hal::digital::OutputPin;
 
+/// How often the display loops re-render, blocking and async alike.
+const RENDER_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(1);
+
 const WIDTH: u32 = 128;
 const HEIGHT: u32 = 64;
 const WIDTH_USIZE: usize = WIDTH as usize;
@@ -154,6 +157,24 @@ impl<SPI: embedded_hal::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
         }
         Ok(())
     }
+
+    /// Run the display loop forever over a blocking SPI bus, rendering once
+    /// per second.
+    ///
+    /// For a board whose DMA channels are all claimed, so the display bus
+    /// cannot go async. Initialises the panel once, then renders through
+    /// [`crate::display::render`] and flushes. Each flush stalls the
+    /// executor for one full-frame transfer, about two milliseconds at the
+    /// usual clock, once per second. Every result is dropped because a
+    /// transient SPI fault must not stop the display for good.
+    pub async fn run_blocking(&mut self) -> ! {
+        let _ = self.init();
+        loop {
+            let _ = crate::display::render(self);
+            let _ = self.flush();
+            embassy_time::Timer::after(RENDER_INTERVAL).await;
+        }
+    }
 }
 
 // These methods use async SPI.
@@ -167,7 +188,7 @@ impl<SPI: embedded_hal_async::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
         loop {
             let _ = crate::display::render(self);
             let _ = self.flush_async().await;
-            embassy_time::Timer::after(embassy_time::Duration::from_secs(1)).await;
+            embassy_time::Timer::after(RENDER_INTERVAL).await;
         }
     }
 
