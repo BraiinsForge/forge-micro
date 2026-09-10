@@ -9,6 +9,7 @@ description = "no_std async PSU driver, generic over embedded-hal-async I2C."
 workspace = true
 
 [dependencies]
+embedded-hal       = { workspace = true }
 embedded-hal-async = { workspace = true }
 embassy-sync       = { workspace = true }
 embassy-time       = { workspace = true }

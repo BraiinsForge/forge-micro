@@ -19,29 +19,23 @@
 
 //! Braiins Axe PSU integration over the shared I2C0 bus.
 //!
-//! Wraps the shared TPS53647 `PMBus` driver in [`BraiinsAxePsu`] and owns the
-//! three power-sequencing GPIOs: `PWR_EN` (TPS53647 ENABLE), `LDO_EN`
-//! (0V8/1V2 aux LDOs), and the `VR_RDY` power-good input. The TPS
-//! requires both the ENABLE pin and the `OPERATION` on-bit
-//! (`ON_OFF_CONFIG` 17h), so `enable` raises the pins and then
-//! delegates to the inner driver's `OPERATION` write. The bus mutex is
-//! owned by `main` so other I2C consumers can take additional
-//! `I2cDevice` handles from the same mutex.
+//! Wraps the shared TPS53647 `PMBus` driver in [`GatedPsu`], which owns
+//! the two power-sequencing GPIOs and the `VR_RDY` power-good input:
+//! `PWR_EN` (TPS53647 ENABLE) is raised after `LDO_EN` (0V8/1V2 aux
+//! LDOs), the TPS requires both the ENABLE pin and the `OPERATION`
+//! on-bit, so `GatedPsu` also drives the inner driver's `OPERATION`
+//! write. The bus mutex is owned by `main` so other I2C consumers can
+//! take additional `I2cDevice` handles from the same mutex.
 
-use core::cell::RefCell;
-
-use embassy_embedded_hal::shared_bus::I2cDeviceError;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::{Input, Output};
-use embassy_rp::i2c::{Async, Error as I2cError, I2c};
+use embassy_rp::i2c::{Async, I2c};
 use embassy_rp::peripherals::I2C0;
-use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use static_cell::StaticCell;
-use ubos_core::units::{Power, Voltage};
 use ubos_machine::BRAIINS_AXE as MACHINE;
-use ubos_psu::{BraiinsAxePsu, BraiinsAxeShared, Error, Psu, StatusFlags};
+use ubos_psu::{BraiinsAxePsu, BraiinsAxeShared, GatedPsu, InnerGate};
 
 /// Bus mutex shared by every consumer on I2C0. `NoopRawMutex` is
 /// sufficient because every I2C consumer runs on the Core 0 executor.
@@ -53,96 +47,21 @@ pub type Bus = Mutex<NoopRawMutex, I2c<'static, I2C0, Async>>;
 /// Public because the hashboard sensor array takes one of these too.
 pub type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C0, Async>>;
 
-/// I2C bus error surfaced by the shared-bus device.
-type BusError = I2cDeviceError<I2cError>;
-
 /// The shared TPS53647 `PMBus` driver instantiated for this board's bus.
 type InnerPsu = BraiinsAxePsu<Device>;
+
+/// Board power stage: the TPS53647 driver gated by `PWR_EN`/`LDO_EN`
+/// with a `VR_RDY` power-good check. Public so the `mining` module can
+/// spell it in `miner_task`'s signature.
+pub type BoardPsu = GatedPsu<InnerPsu, Output<'static>, Input<'static>, 2>;
 
 static SHARED: StaticCell<BraiinsAxeShared<Device>> = StaticCell::new();
 static PSU: StaticCell<BoardPsu> = StaticCell::new();
 
-/// How long after `OPERATION` on before sampling `VR_RDY`. Covers the
-/// soft-start ramp; the exact timing is a hardware-validation item.
+/// How long after raising the enable pins and setting `OPERATION` before
+/// sampling `VR_RDY`. Covers the soft-start ramp; the exact timing is a
+/// hardware-validation item.
 const VR_RDY_SETTLE: embassy_time::Duration = embassy_time::Duration::from_millis(10);
-
-/// Braiins Axe power stage: the TPS53647 `PMBus` driver plus the
-/// `PWR_EN` / `LDO_EN` outputs and the `VR_RDY` power-good input.
-/// Public so the `mining` module can spell it in `miner_task`'s
-/// signature.
-pub struct BoardPsu {
-    inner: InnerPsu,
-    // A blocking mutex, not the async one above: the only operation on
-    // either pin is a synchronous GPIO write, so a lock that can await
-    // would claim a wait that never happens.
-    pwr_en: BlockingMutex<NoopRawMutex, RefCell<Output<'static>>>,
-    ldo_en: BlockingMutex<NoopRawMutex, RefCell<Output<'static>>>,
-    vr_rdy: Input<'static>,
-}
-
-impl Psu for BoardPsu {
-    type BusError = BusError;
-
-    async fn enable(&self) -> Result<(), Error<BusError>> {
-        // Program the limits and confirm the TPS answers before
-        // energising any rail. A read drives the inner lazy init,
-        // which runs with ENABLE still low and the output off.
-        self.inner.read_status().await?;
-        // Aux rails (0V8/1V2 LDOs) before the core rail, then the
-        // ENABLE pin, then the OPERATION on-bit starts the soft-start
-        // ramp (ON_OFF_CONFIG requires pin AND OPERATION).
-        self.ldo_en.lock(|pin| pin.borrow_mut().set_high());
-        self.pwr_en.lock(|pin| pin.borrow_mut().set_high());
-        self.inner.enable().await?;
-        embassy_time::Timer::after(VR_RDY_SETTLE).await;
-        if self.vr_rdy.is_low() {
-            defmt::warn!("psu VR_RDY still low after enable");
-        }
-        Ok(())
-    }
-
-    async fn disable(&self) -> Result<(), Error<BusError>> {
-        // OPERATION off first so the controller ramps down, then drop
-        // the enable pin and the aux rails.
-        let result = self.inner.disable().await;
-        self.pwr_en.lock(|pin| pin.borrow_mut().set_low());
-        self.ldo_en.lock(|pin| pin.borrow_mut().set_low());
-        result
-    }
-
-    async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<BusError>> {
-        self.inner.set_voltage(voltage).await
-    }
-
-    async fn read_input_power(&self) -> Result<Power, Error<BusError>> {
-        self.inner.read_input_power().await
-    }
-
-    async fn read_output_power(&self) -> Result<Power, Error<BusError>> {
-        self.inner.read_output_power().await
-    }
-
-    async fn read_output_voltage(&self) -> Result<Voltage, Error<BusError>> {
-        self.inner.read_output_voltage().await
-    }
-
-    fn voltage_source(&self) -> Option<&'static str> {
-        self.inner.voltage_source()
-    }
-
-    async fn read_status(&self) -> Result<StatusFlags, Error<BusError>> {
-        self.inner.read_status().await
-    }
-
-    async fn terminate(&self) {
-        // Drop the rails first, then mark the inner driver terminated
-        // so the power-stats loop parks.
-        let _ = self.inner.disable().await;
-        self.pwr_en.lock(|pin| pin.borrow_mut().set_low());
-        self.ldo_en.lock(|pin| pin.borrow_mut().set_low());
-        self.inner.terminate().await;
-    }
-}
 
 /// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`,
 /// taking ownership of the sequencing pins (both outputs passed in
@@ -157,12 +76,15 @@ pub fn init(
     let device = I2cDevice::new(bus);
     let shared: &'static _ = SHARED.init(BraiinsAxeShared::new(device, MACHINE.psu));
     let inner = BraiinsAxePsu::new(shared);
-    PSU.init(BoardPsu {
+    // Aux rail (0V8/1V2 LDOs) before the core rail, matching the array
+    // order below: GatedPsu raises enable pins in array order.
+    PSU.init(GatedPsu::new(
         inner,
-        pwr_en: BlockingMutex::new(RefCell::new(pwr_en)),
-        ldo_en: BlockingMutex::new(RefCell::new(ldo_en)),
-        vr_rdy,
-    })
+        [ldo_en, pwr_en],
+        Some(vr_rdy),
+        Some(VR_RDY_SETTLE),
+        InnerGate::DriveOperation,
+    ))
 }
 
 ubos_psu::power_stats_task!(BoardPsu);

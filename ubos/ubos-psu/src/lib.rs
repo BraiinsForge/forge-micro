@@ -88,6 +88,7 @@ pub mod bfm;
 pub mod bmm;
 pub mod braiins_axe;
 pub mod config;
+pub mod gated;
 pub mod ina230;
 mod pmbus;
 pub mod sic45x;
@@ -100,6 +101,7 @@ pub use bfm::{BfmDevice, BfmPsu, BfmPsuDescriptor, BfmShared};
 pub use bmm::{BmmDevice, BmmPsu, BmmShared};
 pub use braiins_axe::{BraiinsAxeDevice, BraiinsAxePsu, BraiinsAxePsuDescriptor, BraiinsAxeShared};
 pub use config::BmmPsuDescriptor;
+pub use gated::{GatedPsu, InnerGate};
 pub use state::{Device, RawMutex, Ready, Shared, State};
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
