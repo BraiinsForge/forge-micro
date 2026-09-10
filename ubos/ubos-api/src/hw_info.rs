@@ -83,6 +83,17 @@ pub fn publish_hashboard_ids(ids: HashboardIds) {
     HASHBOARD_IDS.sender().send(ids);
 }
 
+/// Publishes the one serial of a single-chain board in slot 0. Every
+/// board with one chain calls this after its EEPROM read; a multi-chain
+/// board fills the array itself and calls [`publish_hashboard_ids`].
+pub fn publish_hashboard_id(serial: Option<HwString>) {
+    const _: () = assert!(MAX_HASHBOARDS >= 1, "one slot must fit the one serial");
+    let mut ids = HashboardIds::new();
+    // The array holds at least one slot, per the assertion above.
+    let _ = ids.push(serial);
+    publish_hashboard_ids(ids);
+}
+
 /// Returns the published hashboard serials, or `None` before
 /// publication and on boards that never publish any.
 pub(crate) fn hashboard_ids() -> Option<HashboardIds> {

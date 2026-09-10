@@ -347,9 +347,7 @@ async fn boot(spawner: Spawner) {
         let serial = ubos_eeprom::i2c::I2cEeprom::new(address, &mut device)
             .log_identity()
             .await;
-        let mut ids = ubos_api::HashboardIds::new();
-        unwrap!(ids.push(serial).map_err(|_| ()));
-        ubos_api::publish_hashboard_ids(ids);
+        ubos_api::publish_hashboard_id(serial);
     }
 
     // SIC_EN starts low; the rail stays off until the miner task enables it.
