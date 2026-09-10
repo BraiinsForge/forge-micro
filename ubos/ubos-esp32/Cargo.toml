@@ -12,11 +12,17 @@ ubos-core = { workspace = true }
 ubos-api = { workspace = true, features = ["defmt"] }
 ubos-events = { workspace = true, features = ["defmt"] }
 ubos-metrics = { workspace = true, features = ["defmt"] }
+ubos-cooling = { workspace = true, features = ["defmt"] }
+ubos-mining = { workspace = true, features = ["defmt"] }
 serial-baudrate = { workspace = true }
 embedded-io-async = { workspace = true }
 embassy-time = { workspace = true, features = ["defmt"] }
+embassy-sync = { workspace = true, features = ["defmt"] }
+embassy-embedded-hal = { version = "0.6.0", default-features = false, features = ["defmt"] }
 defmt = { workspace = true }
 portable-atomic = { workspace = true }
+static_cell = { workspace = true }
+tca9554 = { workspace = true, features = ["defmt"] }
 
 # The crate is ESP32-S3-only, so the chip feature is pinned here rather
 # than selected by the board.

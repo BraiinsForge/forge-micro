@@ -35,6 +35,9 @@
 
 #![no_std]
 
+pub mod expander;
+pub mod fan;
+pub mod i2c;
 pub mod uart;
 pub mod watchdog;
 
@@ -47,3 +50,15 @@ pub use idle::IdleAccounting;
 pub use reset::capture_reset_diag;
 pub use ring::PersistentRing;
 pub use watchdog::BoardWatchdog;
+
+/// Fill a 32-byte seed from the hardware RNG, one `u32` call at a time.
+///
+/// Free rather than a method because `Rng` is `esp-hal`'s type.
+#[must_use]
+pub fn seed_from_rng(rng: &mut esp_hal::rng::Rng) -> [u8; 32] {
+    let mut seed = [0u8; 32];
+    for chunk in seed.chunks_exact_mut(4) {
+        chunk.copy_from_slice(&rng.random().to_le_bytes());
+    }
+    seed
+}

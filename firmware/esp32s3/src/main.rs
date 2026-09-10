@@ -75,7 +75,6 @@ static mut EVENT_LOG_BACKING: ubos_esp32::PersistentRing<
 > = ubos_esp32::PersistentRing(ubos_events::RetainedRing::new());
 
 mod config;
-mod fan;
 mod mining;
 mod psu;
 
@@ -162,7 +161,7 @@ type BoardConfigStorage = FlashStorage<SyncFlash<ubos_ota::EspSharedFlash>>;
 
 ubos_config::config_task!(BoardConfigStorage, config::BOARD);
 
-ubos_cooling::cooling_task!(fan::BoardFan, fan::BoardTach);
+ubos_cooling::cooling_task!(ubos_esp32::fan::BoardFan, ubos_esp32::fan::BoardTach);
 
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
@@ -191,6 +190,10 @@ ubos_api::ota_watchdog_task!();
 /// capacity; this board has the RAM for a session task per pool slot.
 /// RAM-constrained boards may choose fewer (see stm32f407).
 pub(crate) const POOL_SLOTS: usize = ubos_firmware::MAX_POOLS;
+
+/// Rising edges the fan tach pin emits per revolution, per the Intel
+/// 4-wire fan specification.
+const TACH_PULSES_PER_REV: u64 = 2;
 
 /// Shared ASIC session: the bridge between the per-slot stratum sessions and
 /// the BM1362 serial worker. One instance per binary; referenced by every
@@ -382,7 +385,7 @@ async fn boot(spawner: Spawner) {
         config::Ota::MAX_IMAGE_BYTES,
     ));
 
-    let rng = Rng::new();
+    let mut rng = Rng::new();
     let seed = u64::from(rng.random()) << 32 | u64::from(rng.random());
 
     let (net_config, mdns_hostname) = ubos_firmware::net::bring_up::<
@@ -398,26 +401,13 @@ async fn boot(spawner: Spawner) {
     );
     spawner.spawn(unwrap!(net_task(runner)));
 
-    // Seed the session CSPRNG. esp-hal Rng produces one u32 per call;
-    // 8 calls fill the 32-byte seed.
-    let csprng_seed = {
-        let mut seed = [0u8; 32];
-        for chunk in seed.chunks_exact_mut(4) {
-            chunk.copy_from_slice(&rng.random().to_le_bytes());
-        }
-        seed
-    };
+    // Seed the session CSPRNG from the hardware RNG.
+    let csprng_seed = ubos_esp32::seed_from_rng(&mut rng);
     ubos_auth::csprng::seed_csprng(csprng_seed);
 
     // Independent entropy stream for the SV2 noise handshake, drawn from
     // the same hardware RNG as the session CSPRNG.
-    let sv2_seed = {
-        let mut seed = [0u8; 32];
-        for chunk in seed.chunks_exact_mut(4) {
-            chunk.copy_from_slice(&rng.random().to_le_bytes());
-        }
-        seed
-    };
+    let sv2_seed = ubos_esp32::seed_from_rng(&mut rng);
     let stratum_shared = ubos_firmware::init_stratum(sv2_seed);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
@@ -516,14 +506,15 @@ async fn boot(spawner: Spawner) {
         // Hashboard reset: active-low, driven through the carrier TCA9554
         // expander on EXIO5. Asserted (held low) here until the miner
         // task sequences the release during bring-up.
-        let reset = mining::BoardResetPin::new(bus).await;
+        let reset = ubos_esp32::expander::ExpanderResetPin::new(bus, mining::RESET_BIT).await;
         spawner.spawn(unwrap!(mining::miner_task(board_psu, reset)));
 
         // Temperature and fan monitor via shared I2C0 bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
         let hashboard_temp = ubos_thermal::SensorArray::new(temp_device, config::MACHINE.temp);
-        let board_fan = fan::BoardFan::new(hw.ledc, hw.fan_pwm_pin);
-        let board_tach = fan::BoardTach::new(hw.pcnt, hw.fan_tach_pin);
+        let board_fan = ubos_esp32::fan::BoardFan::new(hw.ledc, hw.fan_pwm_pin);
+        let board_tach =
+            ubos_esp32::fan::BoardTach::new(hw.pcnt, hw.fan_tach_pin, TACH_PULSES_PER_REV);
         spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
         spawner.spawn(unwrap!(manager_task(mining_handle)));
         spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));

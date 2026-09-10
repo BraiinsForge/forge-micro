@@ -58,7 +58,6 @@ defmt-rtt              = "1.1.0"
 # `esp_app_desc!` is used from here, which does not need the feature.
 esp-bootloader-esp-idf = { version = "0.5.0", default-features = false, features = ["esp32s3"] }
 esp-storage            = { version = "0.9.0", default-features = false, features = ["esp32s3", "critical-section"] }
-tca9554                = { workspace = true, features = ["defmt"] }
 
 # critical-section is pulled in by esp-storage and esp-hal feature unification;
 # rand_core is required by secp256k1 / ii-sv2 but not directly imported.

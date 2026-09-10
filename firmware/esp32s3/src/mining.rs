@@ -30,63 +30,11 @@
 //! the rp2350/bmm-pico dual-core split. `ASIC_SESSION` uses a
 //! `CriticalSectionRawMutex`, so the cross-core share needs no extra pipe.
 
-use defmt::warn;
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use esp_hal::i2c::master::I2c;
-use tca9554::{Address, Tca9554};
-
-use crate::psu::Bus;
-
-/// `embedded-hal-async` handle for one consumer of the shared I2C0 bus.
-type ExpanderDevice = I2cDevice<'static, NoopRawMutex, I2c<'static, esp_hal::Async>>;
-
 /// EXIO5 (P4) on the carrier's TCA9554 drives the hashboard reset line.
 /// The EXIO labels are 1-based on the carrier silkscreen while the TCA9554
 /// pins are 0-based, so EXIO5 maps to pin P4. Confirm this offset against
 /// the carrier schematic if the expander wiring ever changes.
-const RESET_BIT: u8 = 1 << 4;
-
-/// Drives the hashboard reset line through the carrier's TCA9554 I/O
-/// expander (0x20) on EXIO5. Active-low: low holds the chain in reset,
-/// high releases it.
-pub struct BoardResetPin {
-    expander: Tca9554<ExpanderDevice>,
-}
-
-impl BoardResetPin {
-    /// Carve an expander handle from the shared I2C0 bus, configure EXIO5
-    /// as an output and assert reset (drive low) so the miner task
-    /// controls release timing. A failed expander write is logged and
-    /// ignored, per [`ubos_mining::reset::ResetPin`].
-    pub async fn new(bus: &'static Bus) -> Self {
-        let mut expander = Tca9554::new(I2cDevice::new(bus), Address::standard());
-        // Drive EXIO5 low before switching it to an output. The TCA9554 output
-        // latch powers up at 0xFF, so writing the direction first would briefly
-        // drive EXIO5 high and deassert reset before the output write lands.
-        // Output register: 0 = low on every pin. Direction register: 0 = output.
-        if expander.write_output(0).await.is_err()
-            || expander.write_direction(!RESET_BIT).await.is_err()
-        {
-            warn!("expander: TCA9554 0x20 reset-pin init failed");
-        }
-        Self { expander }
-    }
-}
-
-impl ubos_mining::reset::ResetPin for BoardResetPin {
-    async fn enter_reset(&mut self) {
-        if self.expander.write_output(0).await.is_err() {
-            warn!("expander: TCA9554 0x20 enter_reset write failed");
-        }
-    }
-
-    async fn exit_reset(&mut self) {
-        if self.expander.write_output(RESET_BIT).await.is_err() {
-            warn!("expander: TCA9554 0x20 exit_reset write failed");
-        }
-    }
-}
+pub const RESET_BIT: u8 = 1 << 4;
 
 ubos_mining::serial_task!(
     ubos_esp32::uart::MinerUart,
@@ -95,4 +43,8 @@ ubos_mining::serial_task!(
     ubos_asic::Bm13xxDriver
 );
 
-ubos_mining::miner_task!(crate::psu::BoardPsu, BoardResetPin, crate::config::BOARD);
+ubos_mining::miner_task!(
+    crate::psu::BoardPsu,
+    ubos_esp32::expander::ExpanderResetPin,
+    crate::config::BOARD
+);

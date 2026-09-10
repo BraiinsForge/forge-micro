@@ -17,10 +17,11 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Fan PWM drive and tachometer readback for the ESP32-S3.
+//! Fan PWM drive and tachometer readback for the ESP32-S3 control board.
 //!
-//! LEDC drives the 25 kHz PWM signal on `GPIO10` (`LowSpeed` Timer0, Channel0).
-//! PCNT Unit0 counts rising edges from the tach input pin.
+//! LEDC drives the 25 kHz PWM signal on GPIO10, the fan PWM pin (`LowSpeed`
+//! Timer0, Channel0). PCNT Unit0 counts rising edges from the tach input
+//! pin.
 //!
 //! `BoardFan` implements `ubos_cooling::FanOutput::set_pwm`. The
 //! LEDC timer uses 10-bit duty resolution (1024 steps), giving a duty
@@ -31,7 +32,8 @@
 //! edge of the tach signal with no control signal (counter always runs).
 //! The high-limit wrap is set to `i16::MAX` to defer overflow handling.
 //! `BoardTach` snapshots and resets the counter on each `read_rpm` call
-//! and converts pulse count to RPM over the elapsed interval.
+//! and converts pulse count to RPM over the elapsed interval via
+//! `ubos_cooling::pulses_to_rpm`.
 
 use defmt::info;
 use embassy_time::Instant;
@@ -44,7 +46,7 @@ use esp_hal::pcnt::channel::{CtrlMode, EdgeMode};
 use esp_hal::peripherals::{GPIO10, GPIO11, LEDC, PCNT};
 use esp_hal::time::Rate;
 use static_cell::StaticCell;
-use ubos_cooling::{FanOutput, TachReader};
+use ubos_cooling::{FanOutput, TachReader, pulses_to_rpm};
 use ubos_core::units::{FanPwm, FanRpm};
 
 /// Target PWM frequency per Intel 4-wire fan specification.
@@ -53,10 +55,7 @@ const FAN_PWM_FREQ: Rate = Rate::from_khz(25);
 /// Duty resolution: 10-bit gives 1024 steps at 25 kHz.
 const DUTY_BITS: esp_hal::ledc::timer::config::Duty = esp_hal::ledc::timer::config::Duty::Duty10Bit;
 
-/// Rising edges emitted by a 4-wire fan per revolution.
-const TACH_PULSES_PER_REV: u64 = 2;
-
-/// Fan PWM output backed by LEDC `LowSpeed` Timer0, Channel0 (`GPIO10`).
+/// Fan PWM output backed by LEDC `LowSpeed` Timer0, Channel0.
 ///
 /// The LEDC peripheral and timer are held so duty updates stay valid for
 /// the lifetime of the firmware.
@@ -65,12 +64,18 @@ pub struct BoardFan {
 }
 
 impl BoardFan {
-    /// Construct a `BoardFan` from the LEDC peripheral and GPIO10 for PWM.
+    /// Construct a `BoardFan` from the LEDC peripheral and the fan PWM pin,
+    /// which is GPIO10 on every carrier this crate serves.
     ///
     /// LEDC peripheral ownership is consumed here; it must be obtained from
     /// `Board::take` so it is not double-claimed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the LEDC timer or channel rejects its configuration,
+    /// which cannot happen for the fixed 25 kHz, 10-bit setup used here.
     #[must_use]
-    pub fn new(ledc: LEDC<'static>, gpio10: GPIO10<'static>) -> Self {
+    pub fn new(ledc: LEDC<'static>, pwm_pin: GPIO10<'static>) -> Self {
         static LEDC_CELL: StaticCell<Ledc<'static>> = StaticCell::new();
         static TIMER_CELL: StaticCell<esp_hal::ledc::timer::Timer<'static, LowSpeed>> =
             StaticCell::new();
@@ -93,7 +98,7 @@ impl BoardFan {
             .expect("BUG: LEDC timer configuration failed");
         let lstimer0_ref: &'static _ = TIMER_CELL.init(lstimer0);
 
-        let mut channel0 = ledc_ref.channel(esp_hal::ledc::channel::Number::Channel0, gpio10);
+        let mut channel0 = ledc_ref.channel(esp_hal::ledc::channel::Number::Channel0, pwm_pin);
         // Valid timer reference and 0 % duty; cannot fail.
         channel0
             .configure(esp_hal::ledc::channel::config::Config {
@@ -122,8 +127,8 @@ impl FanOutput for BoardFan {
 ///
 /// Holds the PCNT driver so Unit0 stays configured for the firmware
 /// lifetime, and a cloned `Counter` handle for reading edge counts.
-/// `read_rpm` snapshots and resets the counter, then computes RPM over
-/// the elapsed time since the previous call.
+/// `read_rpm` snapshots and resets the counter, then converts it to RPM
+/// over the elapsed time since the previous call.
 pub struct BoardTach {
     /// Owned to keep PCNT Unit0 configured for the lifetime of the reader.
     pcnt: Pcnt<'static>,
@@ -131,15 +136,23 @@ pub struct BoardTach {
     counter: esp_hal::pcnt::unit::Counter<'static, 0>,
     /// Wall time of the previous `read_rpm` call for elapsed-time RPM math.
     last: Instant,
+    /// Rising edges the tach pin emits per fan revolution.
+    pulses_per_rev: u64,
 }
 
 impl BoardTach {
-    /// Configure PCNT Unit0 to count rising tach edges on `tach_pin`.
+    /// Configure PCNT Unit0 to count rising tach edges on `tach_pin`, which
+    /// is GPIO11 on every carrier this crate serves.
     ///
     /// PCNT peripheral ownership is consumed here; it must be obtained from
     /// `Board::take` so it is not double-claimed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if PCNT rejects the high limit or the filter setting,
+    /// which cannot happen for the fixed values used here.
     #[must_use]
-    pub fn new(pcnt: PCNT<'static>, tach_pin: GPIO11<'static>) -> Self {
+    pub fn new(pcnt: PCNT<'static>, tach_pin: GPIO11<'static>, pulses_per_rev: u64) -> Self {
         // Configure PCNT Unit0 to count rising edges on the tach pin.
         // No control signal: set ctrl to always-Keep so the counter always
         // increments on the positive edge.
@@ -172,11 +185,12 @@ impl BoardTach {
         // Counter clone for reads; the Unit itself stays here.
         let counter = pcnt_driver.unit0.counter.clone();
 
-        info!("fan tach: {} pulses/rev", TACH_PULSES_PER_REV);
+        info!("fan tach: {} pulses/rev", pulses_per_rev);
         Self {
             pcnt: pcnt_driver,
             counter,
             last: Instant::now(),
+            pulses_per_rev,
         }
     }
 }
@@ -191,13 +205,6 @@ impl TachReader<1> for BoardTach {
         self.pcnt.unit0.clear();
         let elapsed_us = (now - self.last).as_micros();
         self.last = now;
-        // The first call may see a near-zero interval; report 0 rather
-        // than dividing by it.
-        let rpm = if elapsed_us == 0 {
-            0
-        } else {
-            counts * 60 * 1_000_000 / TACH_PULSES_PER_REV / elapsed_us
-        };
-        [FanRpm::from_rpm(u32::try_from(rpm).unwrap_or(u32::MAX))]
+        [pulses_to_rpm(counts, self.pulses_per_rev, elapsed_us)]
     }
 }

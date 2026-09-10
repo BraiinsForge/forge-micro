@@ -112,7 +112,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-rp`          | per-platform support for the RP2040 and RP2350 control boards: the `#[panic_handler]` and `HardFault` symbols, reset diagnostic, `BoardWatchdog`, fan PWM and tachometer, `MinerUart`, and the `spawn_miner_core1!` macro |
 | `rp-bootloader`    | the `embassy-boot-rp` swap sequence shared by `rp2040-bootloader` and `rp2350-bootloader`; no `ubos` library above it |
 | `ubos-stm32`       | per-platform support for the STM32F407 and STM32F439 control boards: fan PWM and tachometer, `MinerUart`, `BoardWatchdog`, and the Ethernet `Device` type with the `ethernet_device!` macro |
-| `ubos-esp32`       | per-platform support for the ESP32-S3 control board: reset diagnostic, idle-accounting executor callbacks, the persistent event ring, `BoardWatchdog`, `MinerUart`, and the `spawn_miner_core1!` macro |
+| `ubos-esp32`       | per-platform support for the ESP32-S3 control board: reset diagnostic, idle-accounting executor callbacks, the persistent event ring, `BoardWatchdog`, `MinerUart`, fan PWM and tachometer, the shared I2C bus aliases, the expander-driven reset pin, and the `spawn_miner_core1!` macro |
 | `ubos-firmware`    | top-of-graph assembly: `events::install`, `net::bring_up`, shared stratum session, task-shell macros, the `serve_all!` listener macro; consumed only by the `firmware/<board>` binaries |
 
 ## `host/` — std crates
