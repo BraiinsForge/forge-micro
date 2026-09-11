@@ -36,11 +36,14 @@
 //!
 //! The core-1 park surface at the end of this module is the exception to
 //! all of that, and it is free functions on purpose. Those five reach
-//! cross-core signals in private statics, because every caller is on the
+//! cross-core state in private statics, because every caller is on the
 //! other core from the actor and holds no [`Serial`]: `ubos-ota` parks
 //! core 1 before a flash write, and a board's `main` parks it at boot. A
-//! signal in a static is the only thing that crosses from core 0 to core
-//! 1, so a method on the handle could not serve them.
+//! static is the only thing that crosses from core 0 to core 1, so a
+//! method on the handle could not serve them. The park is addressed to
+//! every chain at once rather than to one actor, so the wake is a
+//! [`embassy_sync::watch::Watch`] with a receiver per actor rather than
+//! a `Signal`, which keeps one waker and so would wake one actor only.
 
 use core::fmt;
 use core::ops::ControlFlow;
@@ -50,12 +53,12 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
-use embassy_sync::watch::DynReceiver;
+use embassy_sync::watch::{DynReceiver, Watch};
 use embassy_time::{Duration, Instant, Ticker, Timer, with_timeout};
 use embedded_io::ErrorKind;
 use embedded_io_async::{Error as _, Read, Write};
 use mining_protocol::hashing::hash_meets_target;
-use portable_atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use portable_atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_asic::{
@@ -65,39 +68,20 @@ use ubos_asic::{
 use ubos_core::units::Frequency;
 use ubos_logging::{Debug2Format, error, info, trace, warn};
 
+use crate::chain_stats::ChainStats;
+
 #[cfg(test)]
 #[path = "tests/serial.rs"]
 mod tests;
-
-/// Lifetime-monotonic count of bytes discarded while scanning for a frame
-/// preamble in the UART byte stream. Survives serial-actor recoveries;
-/// useful for detecting sustained desync or noise. Drained from the
-/// active [`ChainDriver`] after every interaction that can buffer bytes:
-/// solution collections, line errors, and the command arms that run the
-/// driver.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-pub(crate) static UART_DESYNC_BYTES: AtomicU32 = AtomicU32::new(0);
-
-/// Lifetime-monotonic count of difficulty-1 shares per pool slot,
-/// indexed by the slot the work was dispatched for. The per-slot view
-/// of delivered work: the ratio between these counters is the ratio
-/// the scheduler actually achieved.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-pub(crate) static POOL_WORK_SHARES: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
 
 // ---------------------------------------------------------------------------
 // Core-1 park primitives
 //
 // These three items coordinate a cooperative pause of the serial worker
-// so a different core can run flash operations safely. The park loop uses
-// a plain busy-spin so the code is portable across ARM (rp2350) and
-// Xtensa (esp32s3) targets. `wfe` is only a power optimisation and is
-// not needed for correctness; omitting it keeps `cortex_m` out of the
-// ubos-mining dependency graph, satisfying the esp32s3 build constraint.
-// The request functions are called from the OTA flash path and, on the
-// boards that have one, from the firmware-reset path; a board that
-// exercises neither leaves the park loop dormant for the image's
-// lifetime.
+// so a different core can run flash operations safely. The request
+// functions are called from the OTA flash path and, on the boards that
+// have one, from the firmware-reset path; a board that exercises
+// neither leaves the park loop dormant for the image's lifetime.
 // ---------------------------------------------------------------------------
 
 /// Outstanding park requests. Non-zero means the serial worker should
@@ -110,50 +94,61 @@ pub(crate) static POOL_WORK_SHARES: [AtomicU64; 8] = [const { AtomicU64::new(0) 
 /// count is non-zero, so an inner release cannot drop an outer park.
 pub(crate) static PARK_REQUESTED: AtomicU32 = AtomicU32::new(0);
 
-/// Ack flag: `true` means the serial worker is currently spinning in the
-/// park loop and will not attempt any flash or UART access.
+/// Count of serial actors currently running [`Serial::run`] on any core,
+/// across every chain a board owns.
 ///
-/// Set to `true` immediately before the worker enters the busy-spin and
-/// back to `false` after it exits. Callers that need exclusive flash
-/// access should poll this with [`core1_is_parked`] after calling
-/// [`request_core1_park`].
-pub(crate) static PARKED: AtomicBool = AtomicBool::new(false);
-
-/// `true` while [`Serial::run`] is on core 1 and able to answer a park
-/// request.
-///
-/// A flash write that lands when this is `false` has nothing to park, and
+/// A flash write that lands when this is `0` has nothing to park, and
 /// waiting for an ack that can never come would fail the write. The case
 /// that matters is a worker that has exited on serial EOF: its task then
 /// idles forever, so every later config save would burn the writer's whole
 /// park budget and fail. `run` masks the chip-UART RX interrupt on its way
-/// out, so once this clears there is no interrupt left to wake core 1 out
-/// of the flash-pause `wfe` either.
+/// out, so once an actor's count is dropped there is no interrupt left to
+/// wake its core out of the flash-pause `wfe` either.
 ///
-/// The flag is `false` for a short window at boot too, between core 1
-/// arming the UART interrupt and reaching `run`. Nothing writes flash
-/// there: config saves come from the API, which needs the network up.
-static SERIAL_WORKER_LIVE: AtomicBool = AtomicBool::new(false);
+/// The count is `0` for a short window at boot too, between a core arming
+/// the UART interrupt and reaching `run`. Nothing writes flash there:
+/// config saves come from the API, which needs the network up.
+static LIVE_ACTORS: AtomicUsize = AtomicUsize::new(0);
 
-/// Wakes the serial worker's `select` loop when a park is requested.
+/// Count of serial actors currently spinning in [`Serial::park_if_requested`]'s
+/// park loop.
 ///
-/// The worker may be blocked inside `serial.read` waiting for UART data when
-/// a park request arrives. Signalling this wakes the `select4` so the
-/// park arm fires promptly rather than waiting for the next UART byte.
-/// Module-private: external callers park through [`request_core1_park`]
-/// and friends, never by touching the signal directly.
-static PARK_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+/// [`core1_is_parked`] compares this against [`LIVE_ACTORS`] so a park
+/// requester can wait for every live chain to park, not just one.
+static PARKED_ACTORS: AtomicUsize = AtomicUsize::new(0);
 
-/// Requests that the core-1 serial worker enter its park loop.
+/// Wakes every running serial worker's `select` loop when a park is
+/// requested.
 ///
-/// Increments [`PARK_REQUESTED`] with `Release` ordering and signals
-/// [`PARK_SIGNAL`] to wake the worker's `select` loop immediately. After
-/// this call, poll [`core1_is_parked`] to wait for the ack; flash
-/// operations must not begin until the ack is observed. Pair every call
-/// with exactly one [`release_core1_park`].
+/// A worker may be blocked inside `serial.read` waiting for UART data
+/// when a park request arrives. A send here wakes every worker's
+/// `select4` so the park arm fires promptly rather than waiting for the
+/// next UART byte. The value carried is the outstanding request count at
+/// the time of the send; a worker acts on [`PARK_REQUESTED`] itself, so
+/// what the send is for is the wake rather than the value.
+///
+/// A `Watch` rather than a `Signal` because a board drives one worker
+/// per chain and the park is addressed to all of them. A `Signal` keeps
+/// a single waker, so two workers awaiting one would displace each
+/// other's waker on every poll and only one of them would be woken. A
+/// `Watch` keeps a waker per receiver, and a worker takes its receiver
+/// in [`Serial::run`] and drops it on the way out, so a chain whose task
+/// never started or has already exited holds none and a send still
+/// reaches every worker that is running. Module-private: external
+/// callers park through [`request_core1_park`] and friends, never by
+/// touching the watch directly.
+static PARK_WATCH: Watch<CriticalSectionRawMutex, u32, { ubos_machine::MAX_CHAINS }> = Watch::new();
+
+/// Requests that the core-1 serial workers enter their park loop.
+///
+/// Increments [`PARK_REQUESTED`] with `Release` ordering and sends on
+/// [`PARK_WATCH`] to wake every running worker's `select` loop
+/// immediately. After this call, poll [`core1_is_parked`] to wait for
+/// the ack; flash operations must not begin until the ack is observed.
+/// Pair every call with exactly one [`release_core1_park`].
 pub fn request_core1_park() {
-    PARK_REQUESTED.fetch_add(1, Ordering::Release);
-    PARK_SIGNAL.signal(());
+    let requested = PARK_REQUESTED.fetch_add(1, Ordering::Release) + 1;
+    PARK_WATCH.sender().send(requested);
 }
 
 /// Releases one core-1 park request.
@@ -169,86 +164,49 @@ pub fn release_core1_park() {
     });
 }
 
-/// Re-wakes the serial worker for a park that is already requested.
+/// Re-wakes every serial worker for a park that is already requested.
 ///
-/// Signals [`PARK_SIGNAL`] without touching [`PARK_REQUESTED`], so a
+/// Sends on [`PARK_WATCH`] without touching [`PARK_REQUESTED`], so a
 /// requester polling for the ack can retry a cross-core wake that was lost
 /// while core 1 sat in `wfe` with interrupts briefly disabled. Calling
 /// [`request_core1_park`] again instead would leave an increment behind
 /// that no release balances.
 pub fn signal_core1_park() {
-    PARK_SIGNAL.signal(());
+    PARK_WATCH
+        .sender()
+        .send(PARK_REQUESTED.load(Ordering::Acquire));
 }
 
-/// Returns `true` while the core-1 serial worker is running and able to
-/// answer a park request.
+/// Returns `true` while at least one chain's serial worker is running and
+/// able to answer a park request.
 ///
 /// A flash writer must check this before waiting on [`core1_is_parked`]:
 /// when it returns `false` there is no worker to park, and no chip-UART
-/// interrupt armed on core 1 either, so the write is safe to run
-/// unparked. See [`SERIAL_WORKER_LIVE`].
+/// interrupt armed on any core either, so the write is safe to run
+/// unparked. See [`LIVE_ACTORS`].
 #[must_use]
 pub fn core1_serial_running() -> bool {
-    SERIAL_WORKER_LIVE.load(Ordering::Acquire)
+    LIVE_ACTORS.load(Ordering::Acquire) > 0
 }
 
-/// Returns `true` while the core-1 serial worker is spinning in the park
-/// loop.
+/// Returns `true` while every live chain's serial worker is spinning in
+/// the park loop.
 ///
-/// Loads [`PARKED`] with `Acquire` ordering. Flash operations may proceed
-/// once this returns `true`; the worker will not leave the park loop until
-/// [`release_core1_park`] is called.
+/// Reads [`PARKED_ACTORS`] before [`LIVE_ACTORS`]. An actor that dies
+/// between the two loads (its `run` returns and decrements both counts)
+/// can only make this check stricter, never looser: the parked count read
+/// first can undercount relative to the live count read second, so a
+/// borderline case reports not-yet-parked rather than falsely reporting
+/// every actor parked while a live, unparked actor still runs. A dead
+/// actor must never be allowed to block a flash write by appearing to
+/// still need parking. Flash operations may proceed once this returns
+/// `true`; no worker leaves the park loop until [`release_core1_park`]
+/// is called.
 #[must_use]
 pub fn core1_is_parked() -> bool {
-    PARKED.load(Ordering::Acquire)
-}
-
-/// If a park was requested, spin until it is released and return `true`.
-///
-/// Called at the top of the actor loop, before the select. `select4` is
-/// biased by arm order, so when the UART RX buffer is continuously ready
-/// the read arm starves the park arm and the worker never parks within
-/// the requesting core's timeout. A chip that floods or browns out right
-/// after a rail cut drives exactly that continuously-ready condition.
-/// Checking here first guarantees the park is
-/// taken after at most one read is processed. The poll path keeps the
-/// same boundary: a bounded poll chunk finishes before parking. Cancelling
-/// a chunk could discard collected finds or interrupt a snapshot write.
-/// A park whose timeout is shorter than a chunk fails closed. Commands are the exception: a bring-up command holds the actor
-/// in `handle_command` for its full duration, and `ResetEnumerate` and
-/// `Configure` run for seconds across reset gaps, reply windows, and
-/// baud drains, so a park requested meanwhile is honoured only when the
-/// command finishes — an OTA colliding with a bring-up times out and
-/// fails closed rather than parking promptly. That fail-closed is
-/// deliberate, not a budget oversight: the OTA park-wait in
-/// `ubos-ota`'s `PARK_POLL_MAX_ATTEMPTS` is a synchronous core-0
-/// busy-wait, so — unlike a board reset task's budget, which awaits a
-/// timer and can be widened to sit through a bring-up — the OTA budget
-/// is left short on purpose: sizing it to a multi-second bring-up would
-/// stall embassy-net on core 0 for that whole window. The busy-spin uses
-/// `core::hint::spin_loop()` only so it compiles for esp32s3 (Xtensa) and
-/// keeps interrupts enabled, leaving the SIO FIFO ISR responsive on RP
-/// boards. The spin never yields to the executor, so a cooperative
-/// single-threaded test harness cannot drive both this loop and the task
-/// that releases it; the park handshake is exercised by the on-hardware
-/// core-split bring-up rather than the unit suite.
-fn park_if_requested(serial: &mut impl BaudRate) -> bool {
-    if PARK_REQUESTED.load(Ordering::Acquire) == 0 {
-        return false;
-    }
-    // Mask the RX interrupt before acking the park. The requester runs a
-    // flash erase/program with XIP suspended; a pending chip-UART RX
-    // interrupt would otherwise wake this core out of the flash driver's
-    // `wfe` pause and fault it fetching the pause loop from suspended
-    // flash. Restored on release.
-    serial.set_rx_irq_enabled(false);
-    PARKED.store(true, Ordering::Release);
-    while PARK_REQUESTED.load(Ordering::Acquire) > 0 {
-        core::hint::spin_loop();
-    }
-    PARKED.store(false, Ordering::Release);
-    serial.set_rx_irq_enabled(true);
-    true
+    let parked = PARKED_ACTORS.load(Ordering::Acquire);
+    let live = LIVE_ACTORS.load(Ordering::Acquire);
+    live > 0 && parked == live
 }
 
 use crate::registry::WorkRegistry;
@@ -324,14 +282,6 @@ impl PollCadence {
 /// to the seam's ingest contract so one full read can never decode into
 /// more solutions than a batch carries.
 const READ_CHUNK: usize = ubos_asic::MAX_INGEST_CHUNK;
-
-/// This actor's index among the machine's hashboards, and the total
-/// hashboard count, used to partition a pool-granted version-rolling
-/// mask so sibling chains never hash identical headers. Fixed at 0 of 1
-/// for now; a later change gives each `Serial` its own index once a
-/// board wires up more than one chain.
-const CHAIN: usize = 0;
-const CHAINS: usize = 1;
 
 /// Hex pretty-printer for trace logs. Wraps a byte slice and formats it
 /// as `"AA BB CC"` under both `core::fmt::Display` and `defmt::Format`,
@@ -410,9 +360,6 @@ pub enum SerialMessage {
     /// with the work, so results still latched in its nonce FIFO are not
     /// collected until work restarts.
     StopSendingWork,
-    /// Replace the scheduler's per-slot dispatch weights.
-    /// Fire-and-forget: no reply is signalled.
-    SetPoolWeights([u32; 8]),
     /// Tell the server task to exit its loop.
     Terminate,
 }
@@ -452,6 +399,30 @@ pub struct Serial {
     /// number. `CriticalSectionRawMutex` rather than `NoopRawMutex` so
     /// `Serial` is `Sync` and can live as a workspace `static`.
     caller: Mutex<CriticalSectionRawMutex, u32>,
+    /// This actor's index among the machine's hashboards, used to
+    /// partition a pool-granted version-rolling mask so sibling chains
+    /// never hash identical headers, and to index into
+    /// [`crate::chain_stats::CHAIN_STATS`].
+    chain: usize,
+    /// Total hashboard count this machine has wired up, the other half
+    /// of the version-mask partition.
+    chains: usize,
+    /// Latest pool dispatch weights, which the actor applies to its
+    /// scheduler on its next pass through the loop.
+    ///
+    /// A `Watch` rather than a command, because the publisher is the
+    /// pool-weights watcher and a command would make it wait behind a
+    /// bring-up on the caller mutex, which runs for seconds. `send` takes
+    /// a critical section and no await, so the watcher never blocks; the
+    /// whole array moves under that one lock, so the actor cannot read a
+    /// half-written set. One receiver, which the actor takes in
+    /// [`Serial::run`].
+    pool_weights: Watch<CriticalSectionRawMutex, [u32; crate::consts::MAX_POOL_SLOTS], 1>,
+    /// `true` while this actor is parked. Set and cleared by
+    /// [`Serial::park_if_requested`]; read back by [`Serial::stand_down`]
+    /// so an actor that dies mid-park still releases its
+    /// [`PARKED_ACTORS`] count.
+    parked: AtomicBool,
 }
 
 /// [`Transport`] over the actor's UART. Frames written by the driver go
@@ -535,13 +506,35 @@ where
 }
 
 impl Serial {
+    /// Construct a `Serial` for hashboard index `chain` of `chains` total
+    /// chains the board wires up.
     #[must_use]
-    pub const fn new() -> Self {
+    pub const fn new(chain: usize, chains: usize) -> Self {
         Self {
             cmd: Channel::new(),
             reply: Signal::new(),
             caller: Mutex::new(0),
+            chain,
+            chains,
+            pool_weights: Watch::new(),
+            parked: AtomicBool::new(false),
         }
+    }
+
+    /// This actor's index among the machine's hashboards.
+    #[must_use]
+    pub const fn chain(&self) -> usize {
+        self.chain
+    }
+
+    /// The machine's hashboard count as this actor was built with it.
+    /// [`crate::Miner::new`] checks it against the count the board
+    /// declares, since an actor that partitions the version mask for a
+    /// different number of chains would hand a sibling chain the same
+    /// headers to hash.
+    #[must_use]
+    pub const fn chains(&self) -> usize {
+        self.chains
     }
 
     /// Take the caller mutex, push a command stamped with a fresh
@@ -582,6 +575,23 @@ impl Serial {
         }
     }
 
+    pub async fn terminate(&self) -> Result<(), ErrorKind> {
+        Self::unit(self.cmd_reply(SerialMessage::Terminate).await)
+    }
+
+    /// Replace the scheduler's per-slot dispatch weights.
+    ///
+    /// Publishes to [`Self::pool_weights`] instead of sending a command,
+    /// so it neither waits for a reply nor takes the caller mutex: the
+    /// weights watcher must not sit behind a bring-up that runs for
+    /// seconds. The actor applies them on its next pass through the loop,
+    /// so a stopped chain picks them up when it next runs.
+    pub fn set_pool_weights(&self, weights: [u32; crate::consts::MAX_POOL_SLOTS]) {
+        self.pool_weights.sender().send(weights);
+    }
+
+    /// Re-arm the line at the chip's boot baud and clear pending work
+    /// and driver state.
     pub async fn reset(&self) -> Result<(), ErrorKind> {
         Self::unit(self.cmd_reply(SerialMessage::Reset).await)
     }
@@ -615,6 +625,7 @@ impl Serial {
         }
     }
 
+    /// Begin dispatching work at `period`.
     pub async fn start_sending_work(&self, period: Duration) -> Result<(), ErrorKind> {
         Self::unit(
             self.cmd_reply(SerialMessage::StartSendingWork(period))
@@ -622,56 +633,98 @@ impl Serial {
         )
     }
 
+    /// Stop dispatching work.
     pub async fn stop_sending_work(&self) -> Result<(), ErrorKind> {
         Self::unit(self.cmd_reply(SerialMessage::StopSendingWork).await)
     }
 
-    pub async fn terminate(&self) -> Result<(), ErrorKind> {
-        Self::unit(self.cmd_reply(SerialMessage::Terminate).await)
-    }
-
-    /// Replace the scheduler's per-slot dispatch weights without
-    /// waiting for a reply. Applied directly in `run`'s command arm
-    /// rather than through `handle_command`, so no reply is signalled
-    /// for the sequence number this stamps. The send still takes the
-    /// shared `caller` mutex, so it can wait behind an in-flight
-    /// command's full round trip.
-    pub async fn set_pool_weights(&self, weights: [u32; 8]) {
-        let mut next_seq = self.caller.lock().await;
-        let seq = *next_seq;
-        *next_seq = seq.wrapping_add(1);
-        self.cmd
-            .send((seq, SerialMessage::SetPoolWeights(weights)))
-            .await;
-    }
-
     /// Retires the worker: masks the chip-UART RX interrupt for good, then
-    /// clears [`SERIAL_WORKER_LIVE`].
+    /// decrements [`LIVE_ACTORS`].
     ///
-    /// Once `run` returns nothing on core 1 drains the UART, but the RX
-    /// interrupt stays armed on core 1's NVIC and a chip byte would still
-    /// pend it — enough to wake core 1 out of the flash-pause `wfe` and
-    /// fault it on suspended XIP. Masking removes that hazard for the rest
-    /// of the image's life, which is what lets a flash write skip the park
-    /// once [`core1_serial_running`] reads `false`. The mask is published
-    /// before the flag so an observer of `false` cannot race an armed
-    /// interrupt.
-    fn stand_down(serial: &mut impl BaudRate) {
+    /// Once `run` returns nothing drains the UART, but the RX interrupt
+    /// stays armed on the NVIC and a chip byte would still pend it —
+    /// enough to wake the core out of the flash-pause `wfe` and fault it
+    /// on suspended XIP. Masking removes that hazard for the rest of the
+    /// image's life, which is what lets a flash write skip the park once
+    /// [`core1_serial_running`] no longer counts this actor. The mask is
+    /// published before the count so an observer cannot race an armed
+    /// interrupt. If this actor was parked when it died, its
+    /// [`PARKED_ACTORS`] count and `self.parked` flag are cleared too, so
+    /// a park request cannot wait forever on an actor that died mid-park.
+    fn stand_down(&self, serial: &mut impl BaudRate) {
         serial.set_rx_irq_enabled(false);
-        SERIAL_WORKER_LIVE.store(false, Ordering::Release);
+        if self.parked.swap(false, Ordering::Release) {
+            PARKED_ACTORS.fetch_sub(1, Ordering::Release);
+        }
+        LIVE_ACTORS.fetch_sub(1, Ordering::Release);
+    }
+
+    /// If a park was requested, park this actor until it is released and
+    /// return `true`.
+    ///
+    /// Called at the top of the actor loop, before the select. `select4`
+    /// is biased by arm order, so when the UART RX buffer is continuously
+    /// ready the read arm starves the park arm and the worker never parks
+    /// within the requesting core's timeout. A chip that floods or browns
+    /// out right after a rail cut drives exactly that continuously-ready
+    /// condition. Checking here first guarantees the park is taken after
+    /// at most one read is processed. The poll path keeps the same
+    /// boundary: a bounded poll chunk finishes before parking. Cancelling
+    /// a chunk could discard collected finds or interrupt a snapshot
+    /// write. A park whose timeout is shorter than a chunk fails closed.
+    /// Commands are the exception: a bring-up command holds the actor in
+    /// `handle_command` for its full duration, and `ResetEnumerate` and
+    /// `Configure` run for seconds across reset gaps, reply windows, and
+    /// baud drains, so a park requested meanwhile is honoured only when
+    /// the command finishes — an OTA colliding with a bring-up times out
+    /// and fails closed rather than parking promptly. That fail-closed is
+    /// deliberate, not a budget oversight: the OTA park-wait in
+    /// `ubos-ota`'s `PARK_POLL_MAX_ATTEMPTS` is a synchronous core-0
+    /// busy-wait, so — unlike a board reset task's budget, which awaits a
+    /// timer and can be widened to sit through a bring-up — the OTA
+    /// budget is left short on purpose: sizing it to a multi-second
+    /// bring-up would stall embassy-net on core 0 for that whole window.
+    /// The park loop yields to the embassy executor on every iteration
+    /// via `embassy_futures::yield_now`, so every other task pending on
+    /// the same core's executor gets a chance to run and reach its own
+    /// park point in turn; a board with more than one chain on the same
+    /// core relies on that to park all of them, and on [`PARK_WATCH`]
+    /// holding a waker per actor so the request wakes each of them out
+    /// of its select rather than only the one that registered last.
+    /// Because the loop yields
+    /// rather than busy-spinning, a test can also drive it by polling the
+    /// returned future manually instead of needing on-hardware bring-up.
+    async fn park_if_requested(&self, serial: &mut impl BaudRate) -> bool {
+        if PARK_REQUESTED.load(Ordering::Acquire) == 0 {
+            return false;
+        }
+        // Mask the RX interrupt before acking the park. The requester runs a
+        // flash erase/program with XIP suspended; a pending chip-UART RX
+        // interrupt would otherwise wake this core out of the flash driver's
+        // `wfe` pause and fault it fetching the pause loop from suspended
+        // flash. Restored on release.
+        serial.set_rx_irq_enabled(false);
+        self.parked.store(true, Ordering::Release);
+        PARKED_ACTORS.fetch_add(1, Ordering::Release);
+        while PARK_REQUESTED.load(Ordering::Acquire) > 0 {
+            embassy_futures::yield_now().await;
+        }
+        PARKED_ACTORS.fetch_sub(1, Ordering::Release);
+        self.parked.store(false, Ordering::Release);
+        serial.set_rx_irq_enabled(true);
+        true
     }
 
     /// Server entry point. Owns the byte stream and the work registry;
     /// holds a work receiver for every pool slot and asks `scheduler`
     /// which one to dispatch from on each work tick, then submits found
     /// shares back to the slot whose dispatch produced them through
-    /// `session.submit_solution`. Bumps
-    /// `ubos_metrics::hashrate::record_share` for every diff-1 chip
-    /// share so the existing hashrate task picks them up, feeds the
-    /// same shares to `scheduler.accumulate_share` so the delivered
-    /// split tracks its configured policy, and bumps
-    /// [`POOL_WORK_SHARES`] for the originating slot so the split is
-    /// observable through metrics.
+    /// `session.submit_solution`. Reports every diff-1 chip share into
+    /// `stats`, the chain's own [`ChainStats`], feeds the same shares to
+    /// `scheduler.accumulate_share` so the delivered split tracks its
+    /// configured policy, and records the chip count and desync bytes
+    /// into `stats` too, so the split and the line health are observable
+    /// through metrics per chain.
     ///
     /// Returns `Ok(())` when a [`SerialMessage::Terminate`] command was
     /// honoured, and `Err(BrokenPipe)` only on serial EOF. Line-level read
@@ -691,6 +744,7 @@ impl Serial {
         board: &'static HashboardDescriptor,
         mut driver: C,
         mut scheduler: Sch,
+        stats: &'static ChainStats,
     ) -> Result<(), ErrorKind>
     where
         S: Read + Write + BaudRate,
@@ -719,12 +773,30 @@ impl Serial {
         let mut work_ticker: Option<Ticker> = None;
         let mut poll_cadence: Option<PollCadence> = None;
         let mut read_buf = [0u8; READ_CHUNK];
-        SERIAL_WORKER_LIVE.store(true, Ordering::Release);
+        // The version mask the last dispatched assignment granted, so a
+        // grant this chain cannot split is reported once per grant
+        // rather than once per work tick.
+        let mut last_version_mask: Option<u32> = None;
+        let mut park_wake = PARK_WATCH
+            .receiver()
+            .expect("BUG: park watch must have a receiver slot per chain");
+        let mut pool_weights = self
+            .pool_weights
+            .receiver()
+            .expect("BUG: a Serial's pool weights watch serves one actor");
+        LIVE_ACTORS.fetch_add(1, Ordering::Release);
 
         loop {
             // Honor a park request before the select; see park_if_requested.
-            if park_if_requested(&mut serial) {
+            if self.park_if_requested(&mut serial).await {
                 continue;
+            }
+
+            // Weights the pool watcher published since the last pass.
+            // Read here rather than in a command, so the watcher never
+            // waits on this actor; see `Serial::set_pool_weights`.
+            if let Some(weights) = pool_weights.try_changed() {
+                scheduler.set_weights(&weights);
             }
 
             let result_mode = driver.result_mode();
@@ -758,23 +830,24 @@ impl Serial {
                 }
             };
             let cmd_arm = self.cmd.receive();
-            let park_arm = PARK_SIGNAL.wait();
+            let park_arm = park_wake.changed();
 
             match select4(cmd_arm, park_arm, tick_arm, result_arm).await {
                 Either4::Third(()) => {
-                    Self::dispatch_work(
+                    self.dispatch_work(
                         &mut serial,
                         &mut scheduler,
                         &mut driver,
                         &mut registry,
                         &mut work_receivers,
+                        &mut last_version_mask,
                     )
                     .await;
                 }
                 Either4::Fourth(ResultEvent::Read(Ok(0))) => {
                     error!("Serial port EOF");
-                    UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
-                    Self::stand_down(&mut serial);
+                    stats.add_desync_bytes(driver.take_desync());
+                    self.stand_down(&mut serial);
                     return Err(ErrorKind::BrokenPipe);
                 }
                 Either4::Fourth(ResultEvent::Read(Ok(n))) => {
@@ -785,8 +858,9 @@ impl Serial {
                         session,
                         &mut scheduler,
                         &driver.difficulty_target(),
+                        stats,
                     );
-                    UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
+                    stats.add_desync_bytes(driver.take_desync());
                 }
                 Either4::Fourth(ResultEvent::Read(Err(kind))) => {
                     warn!("Serial read error: {:?} (recovering)", Debug2Format(&kind));
@@ -794,7 +868,7 @@ impl Serial {
                     // the bytes that follow it into a checksum-passing
                     // ghost; drop the driver's buffered partial frame.
                     driver.line_error();
-                    UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
+                    stats.add_desync_bytes(driver.take_desync());
                 }
                 Either4::Fourth(ResultEvent::PollDue(status_turn)) => {
                     let mut io = SerialIo {
@@ -810,14 +884,12 @@ impl Serial {
                         session,
                         &mut scheduler,
                         &batch.difficulty,
+                        stats,
                     );
                     if let Some(cadence) = poll_cadence.as_mut() {
                         cadence.progress = batch.progress;
                     }
-                    UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
-                }
-                Either4::First((_, SerialMessage::SetPoolWeights(weights))) => {
-                    scheduler.set_weights(&weights);
+                    stats.add_desync_bytes(driver.take_desync());
                 }
                 Either4::First((seq, msg)) => {
                     if let ControlFlow::Break(()) = self
@@ -830,14 +902,15 @@ impl Serial {
                             &mut work_ticker,
                             &mut poll_cadence,
                             &mut registry,
+                            stats,
                         )
                         .await
                     {
-                        Self::stand_down(&mut serial);
+                        self.stand_down(&mut serial);
                         return Ok(());
                     }
                 }
-                Either4::Second(()) => {
+                Either4::Second(_requested) => {
                     // A park was requested while the worker was idle-blocked in
                     // the select. Just loop: the top-of-loop check performs the
                     // actual park, keeping the spin logic in one place.
@@ -849,12 +922,20 @@ impl Serial {
         }
     }
 
+    /// Dispatch one work tick.
+    ///
+    /// `last_version_mask` carries the grant the previous dispatch saw,
+    /// so a grant this chain cannot split is reported once per grant
+    /// rather than once per tick. `run` owns it, since it lives for one
+    /// run of the actor rather than for the life of the handle.
     async fn dispatch_work<S, const N: usize, Sch: Scheduler<N>>(
+        &self,
         serial: &mut S,
         scheduler: &mut Sch,
         driver: &mut impl ChainDriver,
         registry: &mut WorkRegistry,
         work_receivers: &mut [DynReceiver<'_, WorkAssignment>; N],
+        last_version_mask: &mut Option<u32>,
     ) where
         S: Read + Write + BaudRate,
     {
@@ -884,9 +965,43 @@ impl Serial {
         // Narrow the pool's granted mask to this chain's own share
         // before building the job, so sibling chains on the same
         // machine never hash identical headers.
-        let job_version =
-            JobVersion::partitioned(assignment.version, assignment.version_mask, CHAIN, CHAINS);
+        let job_version = JobVersion::partitioned(
+            assignment.version,
+            assignment.version_mask,
+            self.chain,
+            self.chains,
+        );
         let work_id = registry.place(assignment, session_slot, job_version);
+        // A grant with fewer bits than the chain count needs leaves
+        // every chain but the first with nothing to roll, and those
+        // chains then hash the headers chain 0 is already hashing, from
+        // the same nonce start. The machine does the work of one chain
+        // and submits each share once per chain, which a pool counts as
+        // duplicates.
+        //
+        // The version field is the only axis the chains are split on, so
+        // there is nothing to fall back to here: the miner may vary only
+        // the bits the pool granted, and moving a bit outside the grant
+        // would have the pool rebuild a header the chain never hashed
+        // and reject the share outright. Splitting `nonce_start` per
+        // chain instead is the way out and is owed bench work; see
+        // `docs/ASIC.md`.
+        //
+        // The client asks for `min-bit-count: 2`, so a pool that
+        // supports version rolling at all grants enough. This is the
+        // pool that declines the extension, which leaves the negotiated
+        // mask at zero. Reported at error level because the machine
+        // silently loses the hashrate of every chain but the first, and
+        // once per grant rather than once per work tick.
+        if *last_version_mask != Some(assignment.version_mask) {
+            *last_version_mask = Some(assignment.version_mask);
+            if self.chain != 0 && job_version.rolled_mask == 0 {
+                error!(
+                    "chain {}: the pool granted the version mask 0x{:08X}. It has too few bits for {} chains. This chain rolls no version bits, hashes the same headers as chain 0, and its shares are duplicates.",
+                    self.chain, assignment.version_mask, self.chains
+                );
+            }
+        }
         let job = WorkJob {
             work_id,
             nonce_start: 0,
@@ -918,9 +1033,10 @@ impl Serial {
         session: &AsicSession<N, CHAINS>,
         scheduler: &mut Sch,
         difficulty: &[u8; 32],
+        stats: &ChainStats,
     ) {
         for solution in batch {
-            Self::process_solution(solution, registry, session, scheduler, difficulty);
+            Self::process_solution(solution, registry, session, scheduler, difficulty, stats);
         }
     }
 
@@ -930,6 +1046,7 @@ impl Serial {
         session: &AsicSession<N, CHAINS>,
         scheduler: &mut Sch,
         difficulty: &[u8; 32],
+        stats: &ChainStats,
     ) {
         let Some(slot) = registry.get(solution.work_id) else {
             warn!("No WorkAssignment for work_id={}", solution.work_id);
@@ -962,15 +1079,12 @@ impl Serial {
             return;
         }
 
-        // Credit one share against the chip's difficulty target so the shared
-        // hashrate EWMA reflects the actual chip work rather than only
-        // pool-passing shares. The estimator weights by target, so a
+        // Credit one share against the chip's difficulty target so the
+        // chain's hashrate EWMA reflects the actual chip work rather than
+        // only pool-passing shares. The estimator weights by target, so a
         // harder difficulty makes each collected solution count for more.
-        ubos_metrics::hashrate::record_share(difficulty);
+        stats.record_share(difficulty, slot.session_slot);
         scheduler.accumulate_share(slot.session_slot);
-        if let Some(counter) = POOL_WORK_SHARES.get(slot.session_slot) {
-            counter.fetch_add(1, Ordering::Relaxed);
-        }
 
         if !hash_meets_target(&hash, &assignment.target) {
             trace!(
@@ -1015,6 +1129,7 @@ impl Serial {
         work_ticker: &mut Option<Ticker>,
         poll_cadence: &mut Option<PollCadence>,
         registry: &mut WorkRegistry,
+        stats: &ChainStats,
     ) -> ControlFlow<()>
     where
         S: Read + Write + BaudRate,
@@ -1028,8 +1143,9 @@ impl Serial {
                 // it with the rest of the driver state, then reset the
                 // driver to clear its parser and mask cache and re-arm
                 // the line at the chip's boot baud.
-                UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
+                stats.add_desync_bytes(driver.take_desync());
                 driver.reset();
+                stats.clear();
                 let rate = driver.boot_uart_rate();
                 let result = serial.set_baudrate(rate);
                 match &result {
@@ -1046,7 +1162,11 @@ impl Serial {
                     let mut io = SerialIo { serial };
                     driver.reset_and_enumerate(&mut io, board).await
                 };
-                UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
+                stats.add_desync_bytes(driver.take_desync());
+                // The count goes back to the miner, which stores it
+                // with the presence it decides from it. Storing it here
+                // as well would let the two disagree while the miner
+                // retries a short chain.
                 self.reply.signal((seq, Reply::Count(count)));
             }
             SerialMessage::Configure => {
@@ -1054,7 +1174,7 @@ impl Serial {
                     let mut io = SerialIo { serial };
                     driver.configure(&mut io, board).await
                 };
-                UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
+                stats.add_desync_bytes(driver.take_desync());
                 self.reply.signal((seq, Reply::Freq(result)));
             }
             SerialMessage::PvtSweep => {
@@ -1062,7 +1182,7 @@ impl Serial {
                     let mut io = SerialIo { serial };
                     driver.pvt_sweep(&mut io).await;
                 }
-                UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
+                stats.add_desync_bytes(driver.take_desync());
                 self.reply.signal((seq, Reply::Unit(Ok(()))));
             }
             SerialMessage::SetFrequency(freq) => {
@@ -1070,7 +1190,10 @@ impl Serial {
                     let mut io = SerialIo { serial };
                     driver.set_frequency(&mut io, freq).await
                 };
-                UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
+                stats.add_desync_bytes(driver.take_desync());
+                if result.is_ok() {
+                    stats.set_frequency(freq);
+                }
                 self.reply.signal((seq, Reply::Freq(result)));
             }
             SerialMessage::StartSendingWork(period) => {
@@ -1089,10 +1212,6 @@ impl Serial {
                 self.reply.signal((seq, Reply::Unit(Ok(()))));
                 return ControlFlow::Break(());
             }
-            SerialMessage::SetPoolWeights(_) => {
-                // Intercepted in `run`'s command arm before it reaches
-                // `handle_command`; never actually matched here.
-            }
         }
         ControlFlow::Continue(())
     }
@@ -1104,48 +1223,56 @@ enum ResultEvent {
     PollDue(bool),
 }
 
-impl Default for Serial {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Single workspace serial actor. One ASIC chain per process; matches
-/// `ubos_mining::psu::PSU` in shape so consumers reach in directly rather than
-/// wiring a static through every task constructor.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-pub static SERIAL: Serial = Serial::new();
-
-/// Task shell that owns the UART and drives [`SERIAL`] for the lifetime
-/// of the firmware.
+/// Task shell that owns the UART and drives `actor` for the lifetime of
+/// the firmware.
 ///
 /// It never returns under normal operation: there is no SIGINT on bare
 /// metal, so the actor only leaves its loop on a fatal serial error.
 /// Rather than panic and reset the whole firmware, the shell then parks
 /// so the rest of the system keeps running and a human can pull logs.
 ///
-/// The session and driver types are parameters rather than names in
-/// this crate, because the board composes both: the session's capacity
-/// is a per-board const, and which chip family a board drives is its
-/// own business. The board builds the driver where it spawns the task
-/// and hands it in, so whatever the driver needs at construction, a
-/// chip constant or a reference to a board-owned store, is wired at the
-/// spawn site and the shell's signature is the same on every board.
+/// Each board writes its own `static` array of `Serial`, one per
+/// hashboard chain, and passes it as `chains`. This crate cannot build
+/// that array for the board: every element needs its own index, so the
+/// `[const { .. }; N]` form cannot serve, and a `const fn` cannot write
+/// the elements one by one either, because `Serial` holds wakers and
+/// const evaluation refuses to drop the value an assignment overwrites.
+/// The task pool takes its size from that array's length, so the two
+/// cannot disagree, and [`crate::Miner::new`] checks each actor's own
+/// index and chain count against the array before the machine mines.
+///
+/// `actor` is which entry of `chains` this instance of the task
+/// drives, and the task asks
+/// [`ubos_mining::chain_stats::ChainStatsHandle::chain`] for
+/// `actor.chain()` to find that chain's accounting. The session and
+/// driver types are parameters rather than names in this crate, because
+/// the board composes both: the session's capacity is a per-board
+/// const, and which chip family a board drives is its own business.
+/// The board builds the driver where it spawns the task and hands it
+/// in, so whatever the driver needs at construction, a chip constant
+/// or a reference to a board-owned store, is wired at the spawn site
+/// and the shell's signature is the same on every board.
 #[macro_export]
 macro_rules! serial_task {
-    ($uart:ty, $session:ty, $board:expr, $driver:ty) => {
-        #[embassy_executor::task]
-        pub async fn serial_task(serial: $uart, session: &'static $session, driver: $driver) -> ! {
+    (chains = $chains:expr, $uart:ty, $session:ty, $board:expr, $driver:ty) => {
+        #[embassy_executor::task(pool_size = $chains.len())]
+        pub async fn serial_task(
+            actor: &'static ubos_mining::serial::Serial,
+            serial: $uart,
+            session: &'static $session,
+            driver: $driver,
+        ) -> ! {
             /// Park interval after the actor's loop returns.
             const PARK_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(60);
 
-            match ubos_mining::serial::SERIAL
+            match actor
                 .run(
                     serial,
                     session,
                     $board,
                     driver,
                     ubos_mining::scheduler::RatioScheduler::new(),
+                    ubos_mining::chain_stats::handle().chain(actor.chain()),
                 )
                 .await
             {

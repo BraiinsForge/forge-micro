@@ -40,9 +40,9 @@
 //! a function these tests could call directly. A scripted serial mock
 //! and a driver stub built for that arm cover the push arm's
 //! end-of-stream and line-error paths and a full poll-ticker cycle that
-//! collects a solution through `process_solutions`, the `SetPoolWeights`
-//! interception ahead of `handle_command`, and a command racing a poll
-//! that is genuinely in flight when it arrives.
+//! collects a solution through `process_solutions`, the published pool
+//! weights reaching the scheduler, and a command racing a poll that is
+//! genuinely in flight when it arrives.
 
 use super::*;
 use ubos_asic::{PollBatch, SolutionBatch, rolled_version};
@@ -63,6 +63,12 @@ use ubos_asic::{
     BIP320_VERSION_MASK, BMM101_HASHBOARD, Bm13xxDriver, Chip, ChipDescriptor, ShareTarget,
 };
 use ubos_core::units::{FrequencyRange, Voltage};
+
+use crate::chain_stats::ChainStats;
+
+/// Shared `ChainStats` for the tests that drive `Serial::run` and don't
+/// care about its contents beyond having somewhere to report to.
+static TEST_STATS: ChainStats = ChainStats::new();
 
 /// Fixed-slot scheduler stub: `evaluate` returns the pinned slot when
 /// it is available, otherwise the lowest available slot, so both the
@@ -192,14 +198,17 @@ fn genesis_assignment() -> WorkAssignment {
 
 /// Per-test dispatch harness: one `AsicSession<N>`, its receivers,
 /// the chain driver, a `Pinned` scheduler stub, and the counters
-/// `dispatch_work` mutates.
+/// `dispatch_work` mutates. The actor is the single-chain one, so the
+/// version mask is never partitioned away from a test's assignment.
 struct Harness<'a, const N: usize> {
+    actor: Serial,
     session: &'a AsicSession<N>,
     receivers: [DynReceiver<'a, WorkAssignment>; N],
     serial: MockSerial,
     driver: Bm13xxDriver,
     scheduler: Pinned,
     registry: WorkRegistry,
+    last_version_mask: Option<u32>,
 }
 
 impl<'a, const N: usize> Harness<'a, N> {
@@ -207,6 +216,7 @@ impl<'a, const N: usize> Harness<'a, N> {
         let driver = Bm13xxDriver::new(Chip::Bm1362);
         let registry = WorkRegistry::new(driver.work_slots());
         Self {
+            actor: Serial::new(0, 1),
             session,
             receivers: core::array::from_fn(|slot| {
                 session
@@ -217,16 +227,18 @@ impl<'a, const N: usize> Harness<'a, N> {
             driver,
             scheduler: Pinned::new(pinned_slot),
             registry,
+            last_version_mask: None,
         }
     }
 
     fn dispatch(&mut self) {
-        block_on(Serial::dispatch_work(
+        block_on(self.actor.dispatch_work(
             &mut self.serial,
             &mut self.scheduler,
             &mut self.driver,
             &mut self.registry,
             &mut self.receivers,
+            &mut self.last_version_mask,
         ));
     }
 
@@ -237,6 +249,7 @@ impl<'a, const N: usize> Harness<'a, N> {
             self.session,
             &mut self.scheduler,
             difficulty,
+            &TEST_STATS,
         );
     }
 
@@ -360,28 +373,22 @@ fn process_solution_credits_the_scheduler_on_a_diff_1_share() {
     let mut harness = Harness::new(&session, 0);
     harness.dispatch();
 
+    let chain_stats = ChainStats::new();
     Serial::process_solution(
         &GENESIS_SOLUTION,
         &harness.registry,
         harness.session,
         &mut harness.scheduler,
         &ShareTarget::DIFF_1,
+        &chain_stats,
     );
 
     assert_eq!(harness.scheduler.accumulated.as_slice(), &[0]);
 }
 
-/// A diff-1 chip share also bumps the originating slot's
-/// `POOL_WORK_SHARES` counter, leaving an unrelated slot untouched.
-/// The counters are process-wide statics shared across the whole test
-/// binary, so the assertions baseline against the current value
-/// first rather than an absolute count. Dispatch is pinned to slot 1
-/// and the untouched check reads slot 2 — slot 0 is exercised by the
-/// sibling `process_solution_credits_the_scheduler_on_a_diff_1_share`
-/// test, and under the default parallel runner that test's mutation
-/// could otherwise land inside this test's baseline-to-assert window.
-/// Any future test added here that also drives `process_solution`
-/// should pick another still-untouched slot rather than reusing 0-2.
+/// A diff-1 chip share also bumps the originating slot's `ChainStats`
+/// pool-share counter, leaving an unrelated slot untouched. `stats` is
+/// a fresh, test-local `ChainStats` so the counts start at zero.
 #[test]
 fn process_solution_bumps_the_originating_slots_pool_work_share_counter() {
     let session: AsicSession<2> = AsicSession::new();
@@ -390,27 +397,24 @@ fn process_solution_bumps_the_originating_slots_pool_work_share_counter() {
     let mut harness = Harness::new(&session, 1);
     harness.dispatch();
 
-    let baseline = [
-        POOL_WORK_SHARES[1].load(Ordering::Relaxed),
-        POOL_WORK_SHARES[2].load(Ordering::Relaxed),
-    ];
-
+    let chain_stats = ChainStats::new();
     Serial::process_solution(
         &GENESIS_SOLUTION,
         &harness.registry,
         harness.session,
         &mut harness.scheduler,
         &ShareTarget::DIFF_1,
+        &chain_stats,
     );
 
     assert_eq!(
-        POOL_WORK_SHARES[1].load(Ordering::Relaxed),
-        baseline[0] + 1,
+        chain_stats.pool_shares(1),
+        1,
         "the originating slot's counter records the diff-1 share"
     );
     assert_eq!(
-        POOL_WORK_SHARES[2].load(Ordering::Relaxed),
-        baseline[1],
+        chain_stats.pool_shares(2),
+        0,
         "an unrelated slot's counter is untouched"
     );
 }
@@ -500,6 +504,9 @@ struct StubDriver {
     enumerate_count: u8,
     configure_err: Option<ChipError>,
     set_frequency_err: Option<ChipError>,
+    /// The last job `send_work` was handed, for the dispatch tests that
+    /// read the job a chain built rather than the frame it wrote.
+    last_job: Option<WorkJob>,
 }
 
 impl StubDriver {
@@ -511,6 +518,7 @@ impl StubDriver {
             enumerate_count: 0,
             configure_err: None,
             set_frequency_err: None,
+            last_job: None,
         }
     }
 
@@ -579,8 +587,9 @@ impl ChainDriver for StubDriver {
     async fn send_work(
         &mut self,
         _io: &mut impl Transport,
-        _job: &WorkJob,
+        job: &WorkJob,
     ) -> Result<(), ChipError> {
+        self.last_job = Some(job.clone());
         Ok(())
     }
 
@@ -638,6 +647,7 @@ fn run_command(
     msg: SerialMessage,
     driver: &mut impl ChainDriver,
     state: &mut CommandState,
+    chain_stats: &ChainStats,
 ) -> Reply {
     let mut serial = MockSerial::new();
     let flow = block_on(actor.handle_command(
@@ -649,6 +659,7 @@ fn run_command(
         &mut state.work_ticker,
         &mut state.poll_cadence,
         &mut state.registry,
+        chain_stats,
     ));
     assert!(flow.is_continue(), "only Terminate breaks the loop");
     let (seq, reply) = actor.reply.try_take().expect("every command is answered");
@@ -658,7 +669,8 @@ fn run_command(
 
 #[test]
 fn start_sending_work_arms_the_poll_cadence_only_for_a_poll_driver() {
-    let actor = Serial::new();
+    let actor = Serial::new(0, 1);
+    let chain_stats = ChainStats::new();
 
     let mut state = CommandState::new();
     let mut poll = StubDriver::new(POLL, 0);
@@ -668,6 +680,7 @@ fn start_sending_work_arms_the_poll_cadence_only_for_a_poll_driver() {
         SerialMessage::StartSendingWork(period),
         &mut poll,
         &mut state,
+        &chain_stats,
     );
     assert!(matches!(reply, Reply::Unit(Ok(()))));
     assert!(state.work_ticker.is_some());
@@ -680,6 +693,7 @@ fn start_sending_work_arms_the_poll_cadence_only_for_a_poll_driver() {
         SerialMessage::StartSendingWork(period),
         &mut push,
         &mut state,
+        &chain_stats,
     );
     assert!(matches!(reply, Reply::Unit(Ok(()))));
     assert!(state.work_ticker.is_some());
@@ -688,7 +702,8 @@ fn start_sending_work_arms_the_poll_cadence_only_for_a_poll_driver() {
 
 #[test]
 fn stop_sending_work_clears_the_poll_cadence_armed_by_start_sending_work() {
-    let actor = Serial::new();
+    let actor = Serial::new(0, 1);
+    let chain_stats = ChainStats::new();
     let mut state = CommandState::new();
     let mut poll = StubDriver::new(POLL, 0);
     let period = Duration::from_millis(100);
@@ -698,6 +713,7 @@ fn stop_sending_work_clears_the_poll_cadence_armed_by_start_sending_work() {
         SerialMessage::StartSendingWork(period),
         &mut poll,
         &mut state,
+        &chain_stats,
     );
     assert!(matches!(reply, Reply::Unit(Ok(()))));
     assert!(state.work_ticker.is_some());
@@ -708,6 +724,7 @@ fn stop_sending_work_clears_the_poll_cadence_armed_by_start_sending_work() {
         SerialMessage::StopSendingWork,
         &mut poll,
         &mut state,
+        &chain_stats,
     );
 
     assert!(matches!(reply, Reply::Unit(Ok(()))));
@@ -718,102 +735,113 @@ fn stop_sending_work_clears_the_poll_cadence_armed_by_start_sending_work() {
     );
 }
 
-/// Serializes the tests that assert exact baseline deltas on the shared
-/// `UART_DESYNC_BYTES` metric so they cannot interleave under the
-/// parallel test runner. The std critical-section implementation nests,
-/// so the sections `run_command` takes internally are unaffected.
-fn with_desync_metric_lock<R>(f: impl FnOnce() -> R) -> R {
-    critical_section::with(|_| f())
-}
-
 #[test]
 fn reset_drains_the_desync_tally_before_clearing_the_driver() {
-    with_desync_metric_lock(|| {
-        let actor = Serial::new();
-        let mut state = CommandState::new();
-        state.work_ticker = Some(Ticker::every(Duration::from_millis(50)));
-        state.poll_cadence = Some(PollCadence::every(Duration::from_millis(50)));
+    let actor = Serial::new(0, 1);
+    let chain_stats = ChainStats::new();
+    let mut state = CommandState::new();
+    state.work_ticker = Some(Ticker::every(Duration::from_millis(50)));
+    state.poll_cadence = Some(PollCadence::every(Duration::from_millis(50)));
+    state
+        .registry
+        .place(assignment(1), 0, JobVersion::pinned(0));
+    let mut driver = StubDriver::new(POLL, 37);
+
+    let reply = run_command(
+        &actor,
+        SerialMessage::Reset,
+        &mut driver,
+        &mut state,
+        &chain_stats,
+    );
+
+    assert!(matches!(reply, Reply::Unit(Ok(()))));
+    assert_eq!(driver.resets, 1);
+    // The tally accumulated before the reset reaches the chain's stats
+    // instead of dying with the driver state.
+    assert_eq!(chain_stats.desync_bytes(), 37);
+    assert!(state.work_ticker.is_none());
+    assert!(state.poll_cadence.is_none());
+    assert!(state.registry.get(0).is_none());
+    assert_eq!(
         state
             .registry
-            .place(assignment(1), 0, JobVersion::pinned(0));
-        let mut driver = StubDriver::new(POLL, 37);
-        let baseline = UART_DESYNC_BYTES.load(Ordering::Relaxed);
-
-        let reply = run_command(&actor, SerialMessage::Reset, &mut driver, &mut state);
-
-        assert!(matches!(reply, Reply::Unit(Ok(()))));
-        assert_eq!(driver.resets, 1);
-        // The tally accumulated before the reset reaches the metric instead
-        // of dying with the driver state.
-        assert_eq!(UART_DESYNC_BYTES.load(Ordering::Relaxed), baseline + 37);
-        assert!(state.work_ticker.is_none());
-        assert!(state.poll_cadence.is_none());
-        assert!(state.registry.get(0).is_none());
-        assert_eq!(
-            state
-                .registry
-                .place(assignment(2), 0, JobVersion::pinned(0)),
-            0,
-            "the work IDs start over"
-        );
-    });
+            .place(assignment(2), 0, JobVersion::pinned(0)),
+        0,
+        "the work IDs start over"
+    );
 }
 
 #[test]
 fn reset_enumerate_replies_with_the_drivers_chip_count_and_drains_desync() {
-    with_desync_metric_lock(|| {
-        let actor = Serial::new();
-        let mut state = CommandState::new();
-        let mut driver = StubDriver::new(POLL, 5).with_enumerate_count(3);
-        let baseline = UART_DESYNC_BYTES.load(Ordering::Relaxed);
+    let actor = Serial::new(0, 1);
+    let chain_stats = ChainStats::new();
+    let mut state = CommandState::new();
+    let mut driver = StubDriver::new(POLL, 5).with_enumerate_count(3);
 
-        let reply = run_command(
-            &actor,
-            SerialMessage::ResetEnumerate,
-            &mut driver,
-            &mut state,
-        );
+    let reply = run_command(
+        &actor,
+        SerialMessage::ResetEnumerate,
+        &mut driver,
+        &mut state,
+        &chain_stats,
+    );
 
-        assert!(matches!(reply, Reply::Count(3)));
-        assert_eq!(UART_DESYNC_BYTES.load(Ordering::Relaxed), baseline + 5);
-    });
+    assert!(matches!(reply, Reply::Count(3)));
+    assert_eq!(chain_stats.desync_bytes(), 5);
+    assert_eq!(
+        chain_stats.chips(),
+        0,
+        "the count goes back to the miner, which is the only writer of it"
+    );
 }
 
 #[test]
 fn configure_replies_with_a_unit_result_on_success() {
-    let actor = Serial::new();
+    let actor = Serial::new(0, 1);
+    let chain_stats = ChainStats::new();
     let mut state = CommandState::new();
     let mut driver = StubDriver::new(POLL, 0);
 
-    let reply = run_command(&actor, SerialMessage::Configure, &mut driver, &mut state);
+    let reply = run_command(
+        &actor,
+        SerialMessage::Configure,
+        &mut driver,
+        &mut state,
+        &chain_stats,
+    );
 
     assert!(matches!(reply, Reply::Freq(Ok(()))));
 }
 
 #[test]
 fn configure_propagates_the_drivers_baud_switch_error_and_still_drains_desync() {
-    with_desync_metric_lock(|| {
-        let actor = Serial::new();
-        let mut state = CommandState::new();
-        let mut driver =
-            StubDriver::new(POLL, 7).with_configure_err(ChipError::BaudSwitch(3_000_000));
-        let baseline = UART_DESYNC_BYTES.load(Ordering::Relaxed);
+    let actor = Serial::new(0, 1);
+    let chain_stats = ChainStats::new();
+    let mut state = CommandState::new();
+    let mut driver = StubDriver::new(POLL, 7).with_configure_err(ChipError::BaudSwitch(3_000_000));
 
-        let reply = run_command(&actor, SerialMessage::Configure, &mut driver, &mut state);
+    let reply = run_command(
+        &actor,
+        SerialMessage::Configure,
+        &mut driver,
+        &mut state,
+        &chain_stats,
+    );
 
-        assert!(matches!(
-            reply,
-            Reply::Freq(Err(ChipError::BaudSwitch(3_000_000)))
-        ));
-        // The tally still reaches the metric on a failed bring-up: the
-        // chip has already moved baud and needs a reset either way.
-        assert_eq!(UART_DESYNC_BYTES.load(Ordering::Relaxed), baseline + 7);
-    });
+    assert!(matches!(
+        reply,
+        Reply::Freq(Err(ChipError::BaudSwitch(3_000_000)))
+    ));
+    // The tally still reaches the chain's stats on a failed bring-up: the
+    // chip has already moved baud and needs a reset either way.
+    assert_eq!(chain_stats.desync_bytes(), 7);
 }
 
 #[test]
 fn set_frequency_replies_with_a_unit_result_on_success() {
-    let actor = Serial::new();
+    let actor = Serial::new(0, 1);
+    let chain_stats = ChainStats::new();
     let mut state = CommandState::new();
     let mut driver = StubDriver::new(POLL, 0);
 
@@ -822,6 +850,7 @@ fn set_frequency_replies_with_a_unit_result_on_success() {
         SerialMessage::SetFrequency(Frequency::from_mhz(400)),
         &mut driver,
         &mut state,
+        &chain_stats,
     );
 
     assert!(matches!(reply, Reply::Freq(Ok(()))));
@@ -829,7 +858,8 @@ fn set_frequency_replies_with_a_unit_result_on_success() {
 
 #[test]
 fn set_frequency_propagates_the_drivers_unsupported_frequency_error() {
-    let actor = Serial::new();
+    let actor = Serial::new(0, 1);
+    let chain_stats = ChainStats::new();
     let mut state = CommandState::new();
     let freq = Frequency::from_mhz(900);
     let mut driver =
@@ -840,6 +870,7 @@ fn set_frequency_propagates_the_drivers_unsupported_frequency_error() {
         SerialMessage::SetFrequency(freq),
         &mut driver,
         &mut state,
+        &chain_stats,
     );
 
     assert!(matches!(
@@ -850,7 +881,7 @@ fn set_frequency_propagates_the_drivers_unsupported_frequency_error() {
 
 #[test]
 fn cmd_reply_discards_an_orphaned_predecessor_reply() {
-    let actor = Serial::new();
+    let actor = Serial::new(0, 1);
     let caller = actor.cmd_reply(SerialMessage::StopSendingWork);
     let server = async {
         let (seq, _msg) = actor.cmd.receive().await;
@@ -1191,132 +1222,174 @@ impl ChainDriver for ResultDriver {
 
 #[test]
 fn read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command() {
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
-    static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
+    // Serializes against every other test that drives `Serial::run`,
+    // since `run` counts itself into the module-global `LIVE_ACTORS`
+    // for the park handshake, and two runs live at once would make
+    // that count meaningless to any test that reads it.
+    critical_section::with(|_| {
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
+        static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
 
-    let actor = Serial::new();
-    let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS);
-    let scheduler = Pinned::new(0);
-    let serial = ScriptedSerial::new(ReadStep::Eof);
+        let actor = Serial::new(0, 1);
+        let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS);
+        let scheduler = Pinned::new(0);
+        let serial = ScriptedSerial::new(ReadStep::Eof);
 
-    let result = block_on(actor.run(serial, &SESSION, &BMM101_HASHBOARD, driver, scheduler));
+        let result = block_on(actor.run(
+            serial,
+            &SESSION,
+            &BMM101_HASHBOARD,
+            driver,
+            scheduler,
+            &TEST_STATS,
+        ));
 
-    assert!(
-        matches!(result, Err(ErrorKind::BrokenPipe)),
-        "a zero-byte push read is end-of-stream, not a quiet line"
-    );
-    assert_eq!(
-        INGEST_CALLS.load(Ordering::Relaxed),
-        0,
-        "the empty read must never reach ingest as if it carried a frame"
-    );
+        assert!(
+            matches!(result, Err(ErrorKind::BrokenPipe)),
+            "a zero-byte push read is end-of-stream, not a quiet line"
+        );
+        assert_eq!(
+            INGEST_CALLS.load(Ordering::Relaxed),
+            0,
+            "the empty read must never reach ingest as if it carried a frame"
+        );
 
-    // A supervisor that restarts `run` on the same actor after this EOF
-    // exit still gets a working command round trip: the caller mutex,
-    // reply signal, and command channel were left in a clean state.
-    let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS);
-    let scheduler = Pinned::new(0);
-    let serial = ScriptedSerial::quiet();
+        // A supervisor that restarts `run` on the same actor after this EOF
+        // exit still gets a working command round trip: the caller mutex,
+        // reply signal, and command channel were left in a clean state.
+        let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS);
+        let scheduler = Pinned::new(0);
+        let serial = ScriptedSerial::quiet();
 
-    let (terminate_result, run_result) = block_on(join(
-        actor.terminate(),
-        actor.run(serial, &SESSION, &BMM101_HASHBOARD, driver, scheduler),
-    ));
+        let (terminate_result, run_result) = block_on(join(
+            actor.terminate(),
+            actor.run(
+                serial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                driver,
+                scheduler,
+                &TEST_STATS,
+            ),
+        ));
 
-    assert!(matches!(terminate_result, Ok(())));
-    assert!(matches!(run_result, Ok(())));
+        assert!(matches!(terminate_result, Ok(())));
+        assert!(matches!(run_result, Ok(())));
+    });
 }
 
 #[test]
 fn read_line_error_recovers_the_parser_and_the_actor_keeps_serving_commands() {
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
-    static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
+    // See the comment on
+    // `read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command`.
+    critical_section::with(|_| {
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
+        static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
 
-    let actor = Serial::new();
-    let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS);
-    let scheduler = Pinned::new(0);
-    let serial = ScriptedSerial::new(ReadStep::Error(ErrorKind::Other));
+        let actor = Serial::new(0, 1);
+        let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS);
+        let scheduler = Pinned::new(0);
+        let serial = ScriptedSerial::new(ReadStep::Error(ErrorKind::Other));
 
-    let caller = async {
-        while LINE_ERRORS.load(Ordering::Relaxed) == 0 {
-            yield_now().await;
-        }
-        actor.terminate().await
-    };
-    let (terminate_result, run_result) = block_on(join(
-        caller,
-        actor.run(serial, &SESSION, &BMM101_HASHBOARD, driver, scheduler),
-    ));
+        let caller = async {
+            while LINE_ERRORS.load(Ordering::Relaxed) == 0 {
+                yield_now().await;
+            }
+            actor.terminate().await
+        };
+        let (terminate_result, run_result) = block_on(join(
+            caller,
+            actor.run(
+                serial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                driver,
+                scheduler,
+                &TEST_STATS,
+            ),
+        ));
 
-    assert!(matches!(terminate_result, Ok(())));
-    assert!(
-        matches!(run_result, Ok(())),
-        "a line-level fault must not end the run the way end-of-stream does"
-    );
-    assert_eq!(
-        LINE_ERRORS.load(Ordering::Relaxed),
-        1,
-        "the fault must reset the driver's buffered partial frame"
-    );
-    assert_eq!(
-        INGEST_CALLS.load(Ordering::Relaxed),
-        0,
-        "a faulted read must never be decoded as data"
-    );
+        assert!(matches!(terminate_result, Ok(())));
+        assert!(
+            matches!(run_result, Ok(())),
+            "a line-level fault must not end the run the way end-of-stream does"
+        );
+        assert_eq!(
+            LINE_ERRORS.load(Ordering::Relaxed),
+            1,
+            "the fault must reset the driver's buffered partial frame"
+        );
+        assert_eq!(
+            INGEST_CALLS.load(Ordering::Relaxed),
+            0,
+            "a faulted read must never be decoded as data"
+        );
+    });
 }
 
 #[test]
 fn a_poll_collects_a_solution_through_process_solutions_without_calling_ingest() {
-    const HARDWARE_DIFFICULTY: u64 = 1 << 63;
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
-    static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
+    // See the comment on
+    // `read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command`.
+    critical_section::with(|_| {
+        const HARDWARE_DIFFICULTY: u64 = 1 << 63;
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
+        static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
 
-    // The pool target is the diff-1 difficulty itself, so the genesis header
-    // GENESIS_SOLUTION solves also clears the pool target and the
-    // solution reaches the session's solution channel rather than only
-    // the scheduler's diff-1 credit.
-    let assignment = WorkAssignment {
-        target: *ShareTarget::DIFF_1,
-        ..genesis_assignment()
-    };
-    SESSION.pool_handle(0).publish_work(assignment);
+        // The pool target is the diff-1 difficulty itself, so the genesis header
+        // GENESIS_SOLUTION solves also clears the pool target and the
+        // solution reaches the session's solution channel rather than only
+        // the scheduler's diff-1 credit.
+        let assignment = WorkAssignment {
+            target: *ShareTarget::DIFF_1,
+            ..genesis_assignment()
+        };
+        SESSION.pool_handle(0).publish_work(assignment);
 
-    let actor = Serial::new();
-    let mut driver =
-        ResultDriver::new(POLL, &LINE_ERRORS, &INGEST_CALLS).with_poll_solution(GENESIS_SOLUTION);
-    // The chip has moved to a harder filter while its snapshot still
-    // contains this difficulty-one solution. Use the batch's difficulty.
-    driver.hardware_difficulty = HARDWARE_DIFFICULTY;
-    let scheduler = Pinned::new(0);
-    let serial = ScriptedSerial::quiet();
+        let actor = Serial::new(0, 1);
+        let mut driver = ResultDriver::new(POLL, &LINE_ERRORS, &INGEST_CALLS)
+            .with_poll_solution(GENESIS_SOLUTION);
+        // The chip has moved to a harder filter while its snapshot still
+        // contains this difficulty-one solution. Use the batch's difficulty.
+        driver.hardware_difficulty = HARDWARE_DIFFICULTY;
+        let scheduler = Pinned::new(0);
+        let serial = ScriptedSerial::quiet();
 
-    let caller = async {
-        // A fast work tick dispatches the published assignment into the
-        // registry under work_id 0 well before the poll ticker, which
-        // runs at the driver's period, gets a chance to fire.
-        let start_result = actor.start_sending_work(Duration::from_millis(1)).await;
-        assert!(matches!(start_result, Ok(())));
-        let solution = SESSION.pool_handle(0).take_solution().await;
-        let terminate_result = actor.terminate().await;
-        assert!(matches!(terminate_result, Ok(())));
-        solution
-    };
+        let caller = async {
+            // A fast work tick dispatches the published assignment into the
+            // registry under work_id 0 well before the poll ticker, which
+            // runs at the driver's period, gets a chance to fire.
+            let start_result = actor.start_sending_work(Duration::from_millis(1)).await;
+            assert!(matches!(start_result, Ok(())));
+            let solution = SESSION.pool_handle(0).take_solution().await;
+            let terminate_result = actor.terminate().await;
+            assert!(matches!(terminate_result, Ok(())));
+            solution
+        };
 
-    let (solution, run_result) = block_on(join(
-        caller,
-        actor.run(serial, &SESSION, &BMM101_HASHBOARD, driver, scheduler),
-    ));
+        let (solution, run_result) = block_on(join(
+            caller,
+            actor.run(
+                serial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                driver,
+                scheduler,
+                &TEST_STATS,
+            ),
+        ));
 
-    assert!(matches!(run_result, Ok(())));
-    assert_eq!(solution.nonce, GENESIS_SOLUTION.nonce);
-    assert_eq!(
-        INGEST_CALLS.load(Ordering::Relaxed),
-        0,
-        "the poll path must never call ingest"
-    );
+        assert!(matches!(run_result, Ok(())));
+        assert_eq!(solution.nonce, GENESIS_SOLUTION.nonce);
+        assert_eq!(
+            INGEST_CALLS.load(Ordering::Relaxed),
+            0,
+            "the poll path must never call ingest"
+        );
+    });
 }
 
 /// A driver that reports more work slots than the registry holds must
@@ -1330,68 +1403,79 @@ fn a_poll_collects_a_solution_through_process_solutions_without_calling_ingest()
 /// driver stub can say which assignment the last job came from.
 #[test]
 fn run_clamps_a_driver_reporting_more_work_slots_than_the_registry_holds() {
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
-    static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
-    static LAST_WORK_ID: AtomicU32 = AtomicU32::new(0);
-    static LAST_NTIME: AtomicU32 = AtomicU32::new(0);
-    static SEND_CALLS: AtomicU32 = AtomicU32::new(0);
+    // See the comment on
+    // `read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command`.
+    critical_section::with(|_| {
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
+        static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
+        static LAST_WORK_ID: AtomicU32 = AtomicU32::new(0);
+        static LAST_NTIME: AtomicU32 = AtomicU32::new(0);
+        static SEND_CALLS: AtomicU32 = AtomicU32::new(0);
 
-    let registry_slots =
-        u32::try_from(WORK_REGISTRY_SLOTS).expect("registry size fits a u32 in any test build");
-    let numbered = |n: u32| WorkAssignment {
-        ntime: n,
-        ..assignment(n)
-    };
-    // Two assignments past a full lap, so the last work ID is on the
-    // second lap.
-    let last = registry_slots + 2;
-    SESSION.pool_handle(0).publish_work(numbered(1));
+        let registry_slots =
+            u32::try_from(WORK_REGISTRY_SLOTS).expect("registry size fits a u32 in any test build");
+        let numbered = |n: u32| WorkAssignment {
+            ntime: n,
+            ..assignment(n)
+        };
+        // Two assignments past a full lap, so the last work ID is on the
+        // second lap.
+        let last = registry_slots + 2;
+        SESSION.pool_handle(0).publish_work(numbered(1));
 
-    let actor = Serial::new();
-    let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS)
-        .with_work_slots(WORK_REGISTRY_SLOTS + 8)
-        .with_send_work_tracking(SendWorkTracking {
-            last_work_id: &LAST_WORK_ID,
-            last_ntime: &LAST_NTIME,
-            calls: &SEND_CALLS,
-        });
-    let scheduler = Pinned::new(0);
-    let serial = ScriptedSerial::quiet();
+        let actor = Serial::new(0, 1);
+        let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS)
+            .with_work_slots(WORK_REGISTRY_SLOTS + 8)
+            .with_send_work_tracking(SendWorkTracking {
+                last_work_id: &LAST_WORK_ID,
+                last_ntime: &LAST_NTIME,
+                calls: &SEND_CALLS,
+            });
+        let scheduler = Pinned::new(0);
+        let serial = ScriptedSerial::quiet();
 
-    let caller = async {
-        let start_result = actor.start_sending_work(Duration::from_millis(1)).await;
-        assert!(matches!(start_result, Ok(())));
-        // Publish assignment `n` only after a send was observed since
-        // the previous publish. Every send after a publish carries that
-        // assignment, so each one goes out at least once and in order,
-        // whatever the tick timing.
-        for n in 2..=last {
-            let sent = SEND_CALLS.load(Ordering::Relaxed);
-            while SEND_CALLS.load(Ordering::Relaxed) == sent {
+        let caller = async {
+            let start_result = actor.start_sending_work(Duration::from_millis(1)).await;
+            assert!(matches!(start_result, Ok(())));
+            // Publish assignment `n` only after a send was observed since
+            // the previous publish. Every send after a publish carries that
+            // assignment, so each one goes out at least once and in order,
+            // whatever the tick timing.
+            for n in 2..=last {
+                let sent = SEND_CALLS.load(Ordering::Relaxed);
+                while SEND_CALLS.load(Ordering::Relaxed) == sent {
+                    yield_now().await;
+                }
+                SESSION.pool_handle(0).publish_work(numbered(n));
+            }
+            while LAST_NTIME.load(Ordering::Relaxed) != last {
                 yield_now().await;
             }
-            SESSION.pool_handle(0).publish_work(numbered(n));
-        }
-        while LAST_NTIME.load(Ordering::Relaxed) != last {
-            yield_now().await;
-        }
-        let terminate_result = actor.terminate().await;
-        assert!(matches!(terminate_result, Ok(())));
-    };
+            let terminate_result = actor.terminate().await;
+            assert!(matches!(terminate_result, Ok(())));
+        };
 
-    let ((), run_result) = block_on(join(
-        caller,
-        actor.run(serial, &SESSION, &BMM101_HASHBOARD, driver, scheduler),
-    ));
+        let ((), run_result) = block_on(join(
+            caller,
+            actor.run(
+                serial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                driver,
+                scheduler,
+                &TEST_STATS,
+            ),
+        ));
 
-    assert!(matches!(run_result, Ok(())));
-    assert_eq!(LAST_NTIME.load(Ordering::Relaxed), last);
-    assert_eq!(
-        LAST_WORK_ID.load(Ordering::Relaxed),
-        (last - 1) % registry_slots,
-        "work IDs must wrap at the registry size, not the driver's claimed slot count"
-    );
+        assert!(matches!(run_result, Ok(())));
+        assert_eq!(LAST_NTIME.load(Ordering::Relaxed), last);
+        assert_eq!(
+            LAST_WORK_ID.load(Ordering::Relaxed),
+            (last - 1) % registry_slots,
+            "work IDs must wrap at the registry size, not the driver's claimed slot count"
+        );
+    });
 }
 
 /// Scheduler stub that only records the weights `set_weights` last
@@ -1423,109 +1507,132 @@ impl<const N: usize> Scheduler<N> for WeightsRecorder {
     }
 }
 
-/// `SetPoolWeights` is matched in `run`'s own command arm and applied to
-/// the scheduler directly; the arm of the same name inside
-/// `handle_command` is dead code by construction, since `run` never
-/// forwards that variant there. This test exercises the reachable path:
-/// the weights reach `scheduler.set_weights` and the actor still
-/// answers a later command normally.
+/// Pool weights are published to the actor's own watch rather than sent
+/// as a command, so the publisher never waits on the caller mutex. This
+/// test drives that path: the weights reach `scheduler.set_weights` on
+/// the actor's next pass through its loop, and the actor still answers a
+/// later command normally.
 #[test]
-fn set_pool_weights_is_applied_to_the_scheduler_ahead_of_handle_command() {
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
-    static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
-    static RECORDED: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
+fn published_pool_weights_reach_the_scheduler() {
+    // See the comment on
+    // `read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command`.
+    critical_section::with(|_| {
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
+        static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
+        static RECORDED: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
 
-    let actor = Serial::new();
-    let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS);
-    let scheduler = WeightsRecorder::new(&RECORDED);
-    let serial = ScriptedSerial::quiet();
-    let weights = [5, 0, 3, 0, 0, 0, 0, 1];
+        let actor = Serial::new(0, 1);
+        let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS);
+        let scheduler = WeightsRecorder::new(&RECORDED);
+        let serial = ScriptedSerial::quiet();
+        let weights = [5, 0, 3, 0, 0, 0, 0, 1];
 
-    let caller = async {
-        // Fire-and-forget: `set_pool_weights` signals no reply, so
-        // sending it is all there is to await before the next command.
-        actor.set_pool_weights(weights).await;
-        let terminate_result = actor.terminate().await;
-        assert!(matches!(terminate_result, Ok(())));
-    };
+        let caller = async {
+            // Fire-and-forget and synchronous: the publish takes no lock
+            // and waits for nothing, so the terminate that follows is
+            // what gives the actor the pass through its loop that
+            // applies the weights.
+            actor.set_pool_weights(weights);
+            let terminate_result = actor.terminate().await;
+            assert!(matches!(terminate_result, Ok(())));
+        };
 
-    let ((), run_result) = block_on(join(
-        caller,
-        actor.run(serial, &SESSION, &BMM101_HASHBOARD, driver, scheduler),
-    ));
+        let ((), run_result) = block_on(join(
+            caller,
+            actor.run(
+                serial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                driver,
+                scheduler,
+                &TEST_STATS,
+            ),
+        ));
 
-    assert!(matches!(run_result, Ok(())));
-    for (slot, &expected) in weights.iter().enumerate() {
-        assert_eq!(
-            RECORDED[slot].load(Ordering::Relaxed),
-            expected,
-            "run's command arm must apply SetPoolWeights to the scheduler"
-        );
-    }
+        assert!(matches!(run_result, Ok(())));
+        for (slot, &expected) in weights.iter().enumerate() {
+            assert_eq!(
+                RECORDED[slot].load(Ordering::Relaxed),
+                expected,
+                "the actor must apply the published weights to the scheduler"
+            );
+        }
+    });
 }
 
 /// A command waits for a selected chunk, including its solution delivery.
 #[test]
 fn a_command_waits_for_an_in_flight_poll_and_the_solution_survives() {
-    static SESSION: AsicSession<1> = AsicSession::new();
-    static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
-    static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
-    static POLL_ENTERED: PollGate = Signal::new();
-    static POLL_GATE: PollGate = Signal::new();
+    // See the comment on
+    // `read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command`.
+    critical_section::with(|_| {
+        static SESSION: AsicSession<1> = AsicSession::new();
+        static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
+        static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
+        static POLL_ENTERED: PollGate = Signal::new();
+        static POLL_GATE: PollGate = Signal::new();
 
-    // The pool target is the diff-1 difficulty itself, so the genesis header
-    // GENESIS_SOLUTION solves also clears the pool target and the
-    // solution reaches the session's solution channel, proving it was
-    // not merely decoded but actually delivered.
-    let assignment = WorkAssignment {
-        target: *ShareTarget::DIFF_1,
-        ..genesis_assignment()
-    };
-    SESSION.pool_handle(0).publish_work(assignment);
-
-    let actor = Serial::new();
-    let driver = ResultDriver::new(POLL, &LINE_ERRORS, &INGEST_CALLS)
-        .with_poll_solution(GENESIS_SOLUTION)
-        .with_poll_rendezvous(&POLL_ENTERED, &POLL_GATE);
-    let scheduler = Pinned::new(0);
-    let serial = ScriptedSerial::quiet();
-
-    let caller = async {
-        let start_result = actor.start_sending_work(Duration::from_millis(1)).await;
-        assert!(matches!(start_result, Ok(())));
-
-        // Wait until a poll tick has entered `poll_results` and parked on
-        // the gate, so the command below races a poll that is genuinely
-        // in flight rather than one that has not started yet.
-        POLL_ENTERED.wait().await;
-
-        // Leave the chunk pending across several work ticks. The command
-        // cannot complete until the gate releases the original chunk.
-        let command = actor.set_frequency(Frequency::from_mhz(400));
-        let release = async {
-            Timer::after(Duration::from_millis(20)).await;
-            POLL_GATE.signal(());
+        // The pool target is the diff-1 difficulty itself, so the genesis header
+        // GENESIS_SOLUTION solves also clears the pool target and the
+        // solution reaches the session's solution channel, proving it was
+        // not merely decoded but actually delivered.
+        let assignment = WorkAssignment {
+            target: *ShareTarget::DIFF_1,
+            ..genesis_assignment()
         };
-        let (freq_result, ()) = join(command, release).await;
-        assert!(matches!(freq_result, Ok(())));
+        SESSION.pool_handle(0).publish_work(assignment);
 
-        let solution = SESSION.pool_handle(0).take_solution().await;
-        let terminate_result = actor.terminate().await;
-        assert!(matches!(terminate_result, Ok(())));
-        solution
-    };
+        let actor = Serial::new(0, 1);
+        let driver = ResultDriver::new(POLL, &LINE_ERRORS, &INGEST_CALLS)
+            .with_poll_solution(GENESIS_SOLUTION)
+            .with_poll_rendezvous(&POLL_ENTERED, &POLL_GATE);
+        let scheduler = Pinned::new(0);
+        let serial = ScriptedSerial::quiet();
 
-    let (solution, run_result) = block_on(join(
-        caller,
-        actor.run(serial, &SESSION, &BMM101_HASHBOARD, driver, scheduler),
-    ));
+        let caller = async {
+            let start_result = actor.start_sending_work(Duration::from_millis(1)).await;
+            assert!(matches!(start_result, Ok(())));
 
-    assert!(matches!(run_result, Ok(())));
-    assert_eq!(
-        solution.nonce, GENESIS_SOLUTION.nonce,
-        "the solution collected before the wait still reaches the session"
-    );
+            // Wait until a poll tick has entered `poll_results` and parked on
+            // the gate, so the command below races a poll that is genuinely
+            // in flight rather than one that has not started yet.
+            POLL_ENTERED.wait().await;
+
+            // Leave the chunk pending across several work ticks. The command
+            // cannot complete until the gate releases the original chunk.
+            let command = actor.set_frequency(Frequency::from_mhz(400));
+            let release = async {
+                Timer::after(Duration::from_millis(20)).await;
+                POLL_GATE.signal(());
+            };
+            let (freq_result, ()) = join(command, release).await;
+            assert!(matches!(freq_result, Ok(())));
+
+            let solution = SESSION.pool_handle(0).take_solution().await;
+            let terminate_result = actor.terminate().await;
+            assert!(matches!(terminate_result, Ok(())));
+            solution
+        };
+
+        let (solution, run_result) = block_on(join(
+            caller,
+            actor.run(
+                serial,
+                &SESSION,
+                &BMM101_HASHBOARD,
+                driver,
+                scheduler,
+                &TEST_STATS,
+            ),
+        ));
+
+        assert!(matches!(run_result, Ok(())));
+        assert_eq!(
+            solution.nonce, GENESIS_SOLUTION.nonce,
+            "the solution collected before the wait still reaches the session"
+        );
+    });
 }
 
 /// Serial mock for driving [`SerialIo::read`] directly: the first read
@@ -1585,5 +1692,248 @@ fn transport_read_consumes_a_line_error_and_returns_the_bytes_behind_it() {
     assert_eq!(
         serial.reads, 2,
         "the error consumed one attempt, the bytes came on the next"
+    );
+}
+
+/// Drives the park handshake end to end by polling
+/// `park_if_requested`'s future manually with a no-op waker, rather than
+/// through a real embassy executor. Serializes against every test that
+/// drives `Serial::run` with the same critical section those tests now
+/// take too, since all of them read or write the module's shared
+/// `PARK_REQUESTED`/`LIVE_ACTORS`/`PARKED_ACTORS` statics and a
+/// concurrent run would otherwise observe this test's in-flight
+/// request, or this test would observe another run's live actor.
+#[test]
+fn park_if_requested_parks_and_unparks_across_release() {
+    use core::future::Future;
+
+    critical_section::with(|_| {
+        let actor = Serial::new(0, 1);
+        let mut serial = MockSerial::new();
+        let waker = core::task::Waker::noop();
+        let mut cx = core::task::Context::from_waker(waker);
+
+        // Nothing requested yet: the future resolves immediately to
+        // `false` on its very first poll.
+        {
+            let mut fut = core::pin::pin!(actor.park_if_requested(&mut serial));
+            match fut.as_mut().poll(&mut cx) {
+                core::task::Poll::Ready(parked) => assert!(!parked, "no park was requested"),
+                core::task::Poll::Pending => {
+                    panic!("an unrequested park must resolve immediately")
+                }
+            }
+        }
+
+        request_core1_park();
+        LIVE_ACTORS.fetch_add(1, Ordering::Release);
+
+        let mut fut = core::pin::pin!(actor.park_if_requested(&mut serial));
+        for _ in 0..3 {
+            assert_eq!(
+                fut.as_mut().poll(&mut cx),
+                core::task::Poll::Pending,
+                "the actor stays parked while a park is outstanding"
+            );
+            assert_eq!(
+                PARKED_ACTORS.load(Ordering::Acquire),
+                1,
+                "exactly one actor is parked"
+            );
+            assert!(core1_is_parked());
+        }
+
+        release_core1_park();
+
+        match fut.as_mut().poll(&mut cx) {
+            core::task::Poll::Ready(parked) => assert!(parked, "the release must unpark it"),
+            core::task::Poll::Pending => panic!("a released park must resolve"),
+        }
+        assert_eq!(
+            PARKED_ACTORS.load(Ordering::Acquire),
+            0,
+            "unparking drops the parked count back to zero"
+        );
+
+        LIVE_ACTORS.fetch_sub(1, Ordering::Release);
+    });
+}
+
+/// One park request reaches every running actor, not just the one that
+/// registered its waker last. The receivers stand for the two actors a
+/// two-chain board runs; taking them here is what `Serial::run` does on
+/// entry. Serializes with the other park and `run` tests for the reason
+/// given on `park_if_requested_parks_and_unparks_across_release`.
+#[test]
+fn one_park_request_wakes_every_running_actor() {
+    use core::future::Future;
+
+    critical_section::with(|_| {
+        let first = Serial::new(0, 2);
+        let second = Serial::new(1, 2);
+        let mut first_serial = MockSerial::new();
+        let mut second_serial = MockSerial::new();
+        let waker = core::task::Waker::noop();
+        let mut cx = core::task::Context::from_waker(waker);
+
+        let mut first_wake = PARK_WATCH.receiver().expect("a receiver slot per chain");
+        let mut second_wake = PARK_WATCH.receiver().expect("a receiver slot per chain");
+        // Drop whatever an earlier park left in the watch, so what the
+        // assertions below see is this test's own request.
+        let _ = first_wake.try_changed();
+        let _ = second_wake.try_changed();
+
+        request_core1_park();
+        LIVE_ACTORS.fetch_add(2, Ordering::Release);
+
+        assert!(
+            first_wake.try_changed().is_some(),
+            "the first actor must be woken by the request"
+        );
+        assert!(
+            second_wake.try_changed().is_some(),
+            "the second actor must be woken by the same request"
+        );
+
+        let mut first_park = core::pin::pin!(first.park_if_requested(&mut first_serial));
+        let mut second_park = core::pin::pin!(second.park_if_requested(&mut second_serial));
+        assert_eq!(first_park.as_mut().poll(&mut cx), core::task::Poll::Pending);
+        assert_eq!(
+            second_park.as_mut().poll(&mut cx),
+            core::task::Poll::Pending
+        );
+        assert_eq!(
+            PARKED_ACTORS.load(Ordering::Acquire),
+            2,
+            "both actors park against the one request"
+        );
+        assert!(core1_is_parked(), "every live actor is parked");
+
+        release_core1_park();
+
+        assert_eq!(
+            first_park.as_mut().poll(&mut cx),
+            core::task::Poll::Ready(true)
+        );
+        assert_eq!(
+            second_park.as_mut().poll(&mut cx),
+            core::task::Poll::Ready(true)
+        );
+        assert_eq!(PARKED_ACTORS.load(Ordering::Acquire), 0);
+
+        LIVE_ACTORS.fetch_sub(2, Ordering::Release);
+    });
+}
+
+/// A `WorkAssignment` whose pool grant is the full BIP320 mask and whose
+/// target accepts any hash, so both chains' rebuilt headers reach the
+/// submit path and the test reads what each chain rolled rather than
+/// how hard it hashed.
+fn granted_assignment() -> WorkAssignment {
+    WorkAssignment {
+        target: [0xFF; 32],
+        version_mask: BIP320_VERSION_MASK,
+        ..genesis_assignment()
+    }
+}
+
+/// Dispatch one work tick for `chain` of `chains` against `session`, and
+/// report the job it built together with the solution it submitted for a
+/// chip echo of `version_bits`.
+fn dispatch_and_submit(
+    session: &AsicSession<1>,
+    chain: usize,
+    chains: usize,
+    version_bits: u32,
+) -> (WorkJob, Solution) {
+    let actor = Serial::new(chain, chains);
+    let mut serial = MockSerial::new();
+    let mut driver = StubDriver::new(ResultMode::Push, 0);
+    let mut scheduler = Pinned::new(0);
+    let mut registry = WorkRegistry::new(driver.work_slots());
+    let mut receivers: [DynReceiver<'_, WorkAssignment>; 1] = core::array::from_fn(|slot| {
+        session
+            .work_receiver(slot)
+            .expect("test session has a free receiver per slot")
+    });
+    let mut last_version_mask = None;
+
+    block_on(actor.dispatch_work(
+        &mut serial,
+        &mut scheduler,
+        &mut driver,
+        &mut registry,
+        &mut receivers,
+        &mut last_version_mask,
+    ));
+    let job = driver.last_job.take().expect("the tick dispatched a job");
+
+    let solution = ChainSolution {
+        version_bits,
+        ..GENESIS_SOLUTION
+    };
+    let stats = ChainStats::new();
+    Serial::process_solution(
+        &solution,
+        &registry,
+        session,
+        &mut scheduler,
+        &[0xFF; 32],
+        &stats,
+    );
+    let submitted = session
+        .pool_handle(0)
+        .try_take_solution()
+        .expect("a solution over a target that accepts every hash is submitted");
+    (job, submitted)
+}
+
+/// Two chains of the same machine, given one assignment, hash different
+/// headers and each reconstructs its own solution. Chain 1 holds the
+/// mask's top bit fixed and rolls what is left; chain 0 holds nothing
+/// fixed and rolls the same bits. The version each submits is the header
+/// it actually hashed, masked back down to the pool's whole grant, so
+/// the pool sees the bits it granted rather than one chain's slice.
+#[test]
+fn two_chains_hash_different_versions_and_each_rebuilds_its_own_solution() {
+    // The chip echo: a rolled index inside both chains' rolled mask.
+    const ECHO: u32 = 0x0000_2000;
+
+    let session: AsicSession<1> = AsicSession::new();
+    let assignment = granted_assignment();
+    session.pool_handle(0).publish_work(assignment);
+
+    let (first_job, first_submitted) = dispatch_and_submit(&session, 0, 2, ECHO);
+    session.pool_handle(0).publish_work(assignment);
+    let (second_job, second_submitted) = dispatch_and_submit(&session, 1, 2, ECHO);
+
+    assert_ne!(
+        first_job.version, second_job.version,
+        "sibling chains must not hash the same header"
+    );
+    assert_eq!(
+        first_job.version_mask, second_job.version_mask,
+        "both chains roll the same bits; only the fixed bits differ"
+    );
+    assert_eq!(
+        first_job.version_mask | (first_job.version ^ second_job.version),
+        assignment.version_mask,
+        "the rolled bits and the reserved index bits together are the whole grant"
+    );
+
+    for (job, submitted) in [
+        (&first_job, &first_submitted),
+        (&second_job, &second_submitted),
+    ] {
+        let expected = rolled_version(job.version, ECHO, job.version_mask);
+        assert_eq!(
+            submitted.version_bits,
+            expected & assignment.version_mask,
+            "each chain submits the header it hashed, under the pool's grant"
+        );
+    }
+    assert_ne!(
+        first_submitted.version_bits, second_submitted.version_bits,
+        "the two chains' submissions carry their own index bits"
     );
 }

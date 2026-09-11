@@ -49,6 +49,10 @@ pub trait ChainControl {
     /// switching to the fast UART.
     async fn configure(&self) -> Result<(), MinerError>;
 
+    /// Read every chip's temperature and core voltage once, so the
+    /// thermal loop has a reading before the ramp starts.
+    async fn pvt_sweep(&self) -> Result<(), MinerError>;
+
     /// Program the hash-clock frequency.
     async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError>;
 

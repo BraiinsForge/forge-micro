@@ -49,19 +49,21 @@
 //! "empty pool" state that `Pool::new()` constructs).
 //!
 //! The `ubos-mining` mailbox statics relocated on stm32f407
-//! (`SERIAL`, `STATE_WATCH`, `COMMAND_CHANNEL`, `STOP_MINING`,
-//! `UART_DESYNC_BYTES`) add the embassy-sync 0.6.2 async primitives
-//! `Signal`, `Watch`, `Channel`, and `Mutex`, plus the `AtomicU32`
-//! desync counter. `SERIAL` is a `Serial` struct composed solely of
-//! those primitives. Each is bit-equivalent to all-zero after its
-//! `new()`: `Signal::new()` is the `State::None` discriminant 0;
-//! `Watch` and `Channel` zero to `Option::None`, an empty `Deque`, a
-//! `WakerRegistration::None`, and a len-0 `heapless::Vec`; the async
-//! `Mutex` zeroes to `locked: false, waker: None`; and `AtomicU32`
-//! holds 0. Anything not on
-//! this list MUST be audited before it gains
+//! (`STATE_WATCH`, `COMMAND_CHANNEL`, `STOP_MINING`) add the
+//! embassy-sync 0.6.2 async primitives `Signal`, `Watch`, and
+//! `Channel`. Each is bit-equivalent to all-zero after its `new()`:
+//! `Signal::new()` is the `State::None` discriminant 0, and `Watch`
+//! and `Channel` zero to `Option::None`, an empty `Deque`, a
+//! `WakerRegistration::None`, and a len-0 `heapless::Vec`. Anything
+//! not on this list MUST be audited before it gains
 //! `link_section = ".ccmram.bss"`, since the compiler will not catch a
 //! mismatch.
+//!
+//! The per-chain statics of `ubos-mining` stay out on purpose.
+//! `CHAIN_STATS` starts its hottest-die field at the `NO_TEMPERATURE`
+//! sentinel, which is not zero, and each board's `CHAINS` array of
+//! `Serial` stores the chain's own index, which is zero only for the
+//! first chain. Zeroing either at boot would silently corrupt them.
 //!
 //! The Rust language does not guarantee that `Option<T>::None` is
 //! represented as all-zero bytes for an arbitrary `T`; that depends on

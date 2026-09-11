@@ -30,7 +30,7 @@ driver is exercised without a hashboard on the bench.
 
 | Task | Owner | Role |
 |------|-------|------|
-| `serial_task` | `mining.rs` | Drives `ubos_mining::serial::SERIAL.run(...)`. Single actor for chip-side serial: command dispatch, parser, in-flight work registry, baud-rate switch. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
+| `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
 | `miner_task` | `mining.rs` | Drives `Miner::new(psu, reset, BOARD).run()` against the tuner selected by `MinerConfig::algorithm` (`FixedTuner` by default; see `TuningAlgorithm`). Bring-up / teardown state machine: PSU up, reset sequence, tuner init, mine, tuner deinit, PSU off. |
 | `power_stats_task` | `psu.rs` | Drives `ubos_psu::run_power_stats`. Polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes them. |
 
@@ -132,15 +132,31 @@ touches I2C. If a future I2C consumer moves to Core 1, bump it to
 
 ## UART baud-rate switching
 
-The BM1370 boots at one baud rate and the host bumps it after init. The
-actor owns one full-duplex instance, so `ubos_mining::serial::Serial::run`
-takes a single UART by `&mut self`, and the board wraps its
-`BufferedUart` as one `MinerUart` implementing `serial_baudrate::BaudRate`.
-The wrapper delegates to embassy-rp's `BufferedUart::set_baudrate` rather
-than poking divisor registers directly; that path runs the full PL011
+The BM1370 boots at one baud rate and the host bumps it after init. Each
+chain's actor owns one full-duplex instance, so `Serial::run` takes a
+single UART by `&mut self`, and the board wraps its `BufferedUart` as one
+`MinerUart` implementing `serial_baudrate::BaudRate`. The wrapper
+delegates to embassy-rp's `BufferedUart::set_baudrate` rather than
+poking divisor registers directly; that path runs the full PL011
 reconfigure dance (disable, 15-baud settle, restore) a bare register
 write would skip. A zero baud rate is rejected once in the actor, since
 the setter divides by the rate and would otherwise panic.
+
+## Multiple chains and the core-1 park
+
+A board owns a static array of `Serial`, one per hashboard chain it
+wires up; `ubos_mining::chain_stats::CHAIN_STATS` holds one `ChainStats`
+per chain in the same order, so each chain's hashrate, share count, and
+desync bytes are tracked and published separately. `Serial::new(chain,
+chains)` takes this chain's index and the board's total chain count so
+sibling chains never hash identical headers.
+
+A flash write that needs exclusive access to the chip UARTs calls
+`request_core1_park()` and waits for `core1_is_parked()`, which is
+`true` only once every live chain's actor has parked. Each actor's park
+loop yields to the embassy executor on every iteration instead of
+busy-spinning, so on a board with more than one chain pinned to the same
+core, every actor gets a turn to reach its own park point.
 
 ## Logging facade
 

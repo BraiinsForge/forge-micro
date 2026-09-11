@@ -22,8 +22,8 @@ the bring-up sequence, and the per-chip differences.
   `Bm1362` / `Bm1366` / `Bm1370` recipes) implementing `ChainDriver` as
   `Bm13xxDriver`. Other vendor drivers implement the same `ChainDriver`
   from their own crates; the consumer injects one concrete driver.
-- **`ubos-mining`** — owns the serial actor (`SERIAL`) that drives the
-  UART halves and implements `Transport` over them, the tuner that
+- **`ubos-mining`** — owns the per-chain serial actor (`Serial`) that
+  drives the UART halves and implements `Transport` over them, the tuner that
   applies bring-up and the V²·f ramp, and the work dispatch / share
   verification path.
 
@@ -342,6 +342,32 @@ it stays exact under a partial mask whichever way a chip echoes its
 bits back: a chip of that kind returns only the rolled index, a chip that
 hashes from version slots returns the whole field including the chain's
 fixed bits, and both reconstruct the same header version.
+
+### A pool that grants no version mask
+
+The split needs as many bits of the grant as the chain index takes: two
+bits for two or three chains. The client asks for `min-bit-count: 2` in
+`mining.configure`, so a pool that supports version rolling grants
+enough, and the split always works there.
+
+A pool that does not support the extension omits the mask from its
+reply, and the negotiated mask stays zero. There is then nothing to
+split. Chain 0 keeps the empty grant and every other chain gets nothing
+to roll, so all of them hash the same headers from the same nonce start.
+An N-chain machine then does the work of one chain and submits each
+share N times, which the pool counts as duplicates. `ubos-mining` logs
+this at error level, once per grant.
+
+The version field is the only axis the chains are split on, and there is
+no fallback inside it: a miner may vary only the bits the pool granted,
+so a chain that moved a bit outside the grant would have the pool
+rebuild a header the chain never hashed and reject the share. The way
+out is to split `WorkJob::nonce_start` per chain instead, which the
+field already carries to the wire. It is not done yet: the chips of one
+chain already divide a 16-bit nonce offset among themselves through
+`ChipNonceOffsetReg`, and whether a per-chain start composes with that
+split or aliases against it has to be measured on the bench before the
+work path can depend on it.
 
 The chip distributes version-rolling work into a fixed number of
 streams and tags each returned solution with a variant index in the low
