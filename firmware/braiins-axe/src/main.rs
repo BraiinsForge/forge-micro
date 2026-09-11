@@ -178,8 +178,6 @@ ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
 
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
-ubos_metrics::hashrate_metrics_task!();
-
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
     ExclusiveDevice<Spi<'static, SPI1, Async>, Output<'static>, embedded_hal_bus::spi::NoDelay>,
@@ -298,6 +296,7 @@ async fn boot(spawner: Spawner) {
             // this core instead of a constant 1.0.
             ubos_metrics::cpu_load::run_cortex_m_executor::<1, _>(|core1_spawner: Spawner| {
                 core1_spawner.spawn(unwrap!(mining::serial_task(
+                    &mining::CHAINS[0],
                     miner_serial,
                     &ASIC_SESSION,
                     ubos_asic::Bm13xxDriver::new(config::CHIP)
@@ -352,7 +351,10 @@ async fn boot(spawner: Spawner) {
     // GPIO2: HIGH = enabled/out-of-reset; start LOW (in reset) until the
     // miner task is ready to bring up the hashboard.
     let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));
-    spawner.spawn(unwrap!(mining::miner_task(board_psu, reset)));
+    spawner.spawn(unwrap!(mining::miner_task(
+        board_psu,
+        ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
+    )));
 
     // Temperature and fan monitor via shared I2C bus.
     let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
@@ -501,7 +503,6 @@ async fn boot(spawner: Spawner) {
 
     spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
     spawner.spawn(unwrap!(stratum_metrics_task()));
-    spawner.spawn(unwrap!(hashrate_metrics_task()));
 
     info!("waiting for dhcp");
     let config = net::wait_for_config(stack).await;

@@ -125,11 +125,9 @@ async fn cpu_load_task() -> ! {
 
 ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
 
-ubos_mining::pool_weights_task!();
+ubos_mining::pool_weights_task!(&mining::CHAINS);
 
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
-
-ubos_metrics::hashrate_metrics_task!();
 
 ubos_thermal::thermal_task!(ubos_thermal::SensorArray<psu::Device>);
 
@@ -330,7 +328,6 @@ async fn boot(spawner: Spawner) {
 
     spawner.spawn(unwrap!(cpu_load_task()));
     spawner.spawn(unwrap!(stratum_metrics_task()));
-    spawner.spawn(unwrap!(hashrate_metrics_task()));
     spawner.spawn(unwrap!(pool_weights_task()));
 
     static TEMP_RING_BUF: StaticCell<[u16; 2]> = StaticCell::new();
@@ -390,7 +387,10 @@ async fn boot(spawner: Spawner) {
         // Hashboard reset line (PE0, active-low).
         let reset_pin = Output::new(hw.hb_rst, Level::Low, Speed::Low);
         let reset = mining::BoardResetPin::new(reset_pin);
-        spawner.spawn(unwrap!(mining::miner_task(board_psu, reset)));
+        spawner.spawn(unwrap!(mining::miner_task(
+            board_psu,
+            ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
+        )));
 
         // Temperature and fan monitor via shared I2C1 bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
@@ -430,6 +430,7 @@ async fn boot(spawner: Spawner) {
         let ring_rx = uart_rx.into_ring_buffered(DMA_RX_BUF.init([0; 1024]));
         let miner_serial = ubos_stm32::uart::MinerUart::new(uart_tx, ring_rx);
         spawner.spawn(unwrap!(mining::serial_task(
+            &mining::CHAINS[0],
             miner_serial,
             &ASIC_SESSION,
             ubos_asic::Bm13xxDriver::new(config::CHIP)

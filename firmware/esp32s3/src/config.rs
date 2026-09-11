@@ -25,6 +25,11 @@
 
 pub use ubos_machine::MINIMINER_ESP32S3 as MACHINE;
 
+/// How many hashboard chains this board drives. Every array sized over
+/// the chains takes its length from here, so a machine that gains a
+/// chain fails to build until each is wired.
+pub const CHAINS: usize = MACHINE.chains;
+
 use esp_hal::peripherals::{
     CPU_CTRL, FLASH, GPIO1, GPIO2, GPIO5, GPIO7, GPIO10, GPIO11, GPIO15, GPIO39, GPIO40, GPIO41,
     GPIO42, GPIO43, GPIO44, I2C0, LEDC, PCNT, SENS, SPI2, SW_INTERRUPT, TIMG0, TIMG1, UART0,

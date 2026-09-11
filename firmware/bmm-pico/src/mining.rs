@@ -22,7 +22,12 @@
 //!
 //! Backend architecture: `../../../docs/MINING.md`.
 
+/// The board's single hashboard chain.
+pub static CHAINS: [ubos_mining::serial::Serial; crate::config::CHAINS] =
+    ubos_mining::serial::Serial::table();
+
 ubos_mining::serial_task!(
+    chains = CHAINS,
     ubos_rp::uart::MinerUart,
     ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
     crate::config::BOARD,
@@ -33,4 +38,9 @@ ubos_mining::serial_task!(
 /// newtype drives it.
 pub type BoardResetPin = ubos_mining::reset::OutputResetPin<embassy_rp::gpio::Output<'static>>;
 
-ubos_mining::miner_task!(crate::psu::BoardPsu, BoardResetPin, crate::config::BOARD);
+ubos_mining::miner_task!(
+    crate::psu::BoardPsu,
+    BoardResetPin,
+    crate::config::BOARD,
+    crate::config::CHAINS
+);

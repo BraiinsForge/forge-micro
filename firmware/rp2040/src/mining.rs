@@ -20,13 +20,19 @@
 //! BM1362 chip-side wiring: hashboard reset pin and the two long-running
 //! tasks the ubos-mining backend needs.
 //!
-//! `serial_task` owns the UART and drives `ubos_mining::serial::SERIAL` for
-//! the lifetime of the firmware; `miner_task` runs the bring-up / teardown
-//! state machine in `ubos_mining::Miner::run`. Neither ever returns under normal
-//! operation: there is no SIGINT on bare metal, so `STOP_MINING` is never
-//! raised and `ubos_mining::Miner::run` parks inside its bring-up loop.
+//! `serial_task` owns the UART and drives the board's single entry in
+//! [`CHAINS`] for the lifetime of the firmware; `miner_task` runs the
+//! bring-up / teardown state machine in `ubos_mining::Miner::run`. Neither
+//! ever returns under normal operation: there is no SIGINT on bare metal,
+//! so `STOP_MINING` is never raised and `ubos_mining::Miner::run` parks
+//! inside its bring-up loop.
+
+/// The board's single hashboard chain.
+pub static CHAINS: [ubos_mining::serial::Serial; crate::config::CHAINS] =
+    ubos_mining::serial::Serial::table();
 
 ubos_mining::serial_task!(
+    chains = CHAINS,
     ubos_rp::uart::MinerUart,
     ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
     crate::config::BOARD,
@@ -37,4 +43,9 @@ ubos_mining::serial_task!(
 /// newtype drives it.
 pub type BoardResetPin = ubos_mining::reset::OutputResetPin<embassy_rp::gpio::Output<'static>>;
 
-ubos_mining::miner_task!(crate::psu::BoardPsu, BoardResetPin, crate::config::BOARD);
+ubos_mining::miner_task!(
+    crate::psu::BoardPsu,
+    BoardResetPin,
+    crate::config::BOARD,
+    crate::config::CHAINS
+);

@@ -31,6 +31,11 @@
 
 pub use ubos_machine::MINIMINER_STM32F439 as MACHINE;
 
+/// How many hashboard chains this board drives. Every array sized over
+/// the chains takes its length from here, so a machine that gains a
+/// chain fails to build until each is wired.
+pub const CHAINS: usize = MACHINE.chains;
+
 use embassy_stm32::Peri;
 use embassy_stm32::peripherals::{
     ADC1, DMA1_CH0, DMA1_CH1, DMA1_CH3, DMA1_CH6, DMA2_CH0, ETH, ETH_SMA, FLASH, I2C1, IWDG, PA1,

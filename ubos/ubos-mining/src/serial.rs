@@ -521,6 +521,49 @@ impl Serial {
         }
     }
 
+    /// One actor per chain of a machine with `N` chains, as the `static`
+    /// a board owns: `static CHAINS: [Serial; N] = Serial::table();`.
+    ///
+    /// The repeat expression builds `N` actors that all claim chain
+    /// zero, and the loop then writes each its own index. Only the index
+    /// is assigned, so nothing the repeat built is overwritten whole and
+    /// const evaluation has no value to drop. `ubos_metrics::chain`'s
+    /// `CHAIN_STATS` table is built the same way.
+    #[must_use]
+    pub const fn table<const N: usize>() -> [Self; N] {
+        let mut slots = [const { Self::new(0, N) }; N];
+        let mut chain = 0;
+        while chain < N {
+            slots[chain].chain = chain;
+            chain += 1;
+        }
+        slots
+    }
+
+    /// Pair each actor of a board's [`Self::table`] with the reset pin
+    /// in the same position, in the shape [`crate::Miner::new`] takes.
+    ///
+    /// A board states its chain order once, as the order of `resets`,
+    /// instead of writing an index per chain into a literal array of
+    /// pairs. That literal is where a wiring slip can put one chain's
+    /// actor against another's reset pin, which `Miner::new` then
+    /// catches only at boot; here there is no index to get wrong.
+    ///
+    /// `array::map` applies in order, so element `chain` of the result
+    /// pairs actor `chain` with reset pin `chain`.
+    #[must_use]
+    pub fn wire<R, const N: usize>(
+        actors: &'static [Self; N],
+        resets: [R; N],
+    ) -> [(&'static Self, R); N] {
+        let mut chain = 0;
+        resets.map(|reset| {
+            let actor = &actors[chain];
+            chain += 1;
+            (actor, reset)
+        })
+    }
+
     /// This actor's index among the machine's hashboards.
     #[must_use]
     pub const fn chain(&self) -> usize {
@@ -1231,13 +1274,9 @@ enum ResultEvent {
 /// Rather than panic and reset the whole firmware, the shell then parks
 /// so the rest of the system keeps running and a human can pull logs.
 ///
-/// Each board writes its own `static` array of `Serial`, one per
-/// hashboard chain, and passes it as `chains`. This crate cannot build
-/// that array for the board: every element needs its own index, so the
-/// `[const { .. }; N]` form cannot serve, and a `const fn` cannot write
-/// the elements one by one either, because `Serial` holds wakers and
-/// const evaluation refuses to drop the value an assignment overwrites.
-/// The task pool takes its size from that array's length, so the two
+/// Each board owns a `static` array of `Serial`, one per hashboard
+/// chain, built by [`Serial::table`], and passes it as `chains`. The
+/// task pool takes its size from that array's length, so the two
 /// cannot disagree, and [`crate::Miner::new`] checks each actor's own
 /// index and chain count against the array before the machine mines.
 ///

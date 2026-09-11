@@ -20,15 +20,19 @@
 //! BM1362 chip-side wiring: hashboard reset pin and the two long-running
 //! tasks the ubos-mining backend needs.
 //!
-//! `serial_task` owns the UART and drives `ubos_mining::serial::SERIAL` for
-//! the lifetime of the firmware; `miner_task` runs the bring-up / teardown
-//! state machine in `ubos_mining::Miner::run`. Neither ever returns under normal
-//! operation.
+//! `serial_task` owns the UART and drives the board's single entry in
+//! [`CHAINS`] for the lifetime of the firmware; `miner_task` runs the
+//! bring-up / teardown state machine in `ubos_mining::Miner::run`. Neither
+//! ever returns under normal operation.
 //!
 //! The ubos-mining `serial_task` runs on Core 1 (the `APP_CPU` embassy executor)
 //! while embassy-net and the mining state machine run on Core 0, mirroring
 //! the rp2350/bmm-pico dual-core split. `ASIC_SESSION` uses a
 //! `CriticalSectionRawMutex`, so the cross-core share needs no extra pipe.
+
+/// The board's single hashboard chain.
+pub static CHAINS: [ubos_mining::serial::Serial; crate::config::CHAINS] =
+    ubos_mining::serial::Serial::table();
 
 /// EXIO5 (P4) on the carrier's TCA9554 drives the hashboard reset line.
 /// The EXIO labels are 1-based on the carrier silkscreen while the TCA9554
@@ -37,6 +41,7 @@
 pub const RESET_BIT: u8 = 1 << 4;
 
 ubos_mining::serial_task!(
+    chains = CHAINS,
     ubos_esp32::uart::MinerUart,
     ubos_firmware::AsicSession<{ crate::POOL_SLOTS }>,
     crate::config::BOARD,
@@ -46,5 +51,6 @@ ubos_mining::serial_task!(
 ubos_mining::miner_task!(
     crate::psu::BoardPsu,
     ubos_esp32::expander::ExpanderResetPin,
-    crate::config::BOARD
+    crate::config::BOARD,
+    crate::config::CHAINS
 );

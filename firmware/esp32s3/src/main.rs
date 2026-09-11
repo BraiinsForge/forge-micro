@@ -129,11 +129,9 @@ async fn cpu_load_task() -> ! {
 
 ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
 
-ubos_mining::pool_weights_task!();
+ubos_mining::pool_weights_task!(&mining::CHAINS);
 
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
-
-ubos_metrics::hashrate_metrics_task!();
 
 /// Adapts the MCU internal thermometer, `esp32s3_tsens::Tsens`, to the
 /// `McuTemperatureSensor` trait.
@@ -276,6 +274,7 @@ async fn boot(spawner: Spawner) {
             executor.run_with_callbacks(
                 |app_spawner| {
                     app_spawner.spawn(unwrap!(mining::serial_task(
+                        &mining::CHAINS[0],
                         miner_serial,
                         &ASIC_SESSION,
                         ubos_asic::Bm13xxDriver::new(config::CHIP)
@@ -412,7 +411,6 @@ async fn boot(spawner: Spawner) {
 
     spawner.spawn(unwrap!(cpu_load_task()));
     spawner.spawn(unwrap!(stratum_metrics_task()));
-    spawner.spawn(unwrap!(hashrate_metrics_task()));
     spawner.spawn(unwrap!(pool_weights_task()));
     // No LED blink task: board wiring does not include an accessible LED.
     let tsens = esp32s3_tsens::Tsens::new(hw.sens, esp32s3_tsens::Range::Standard).await;
@@ -500,7 +498,10 @@ async fn boot(spawner: Spawner) {
         // expander on EXIO5. Asserted (held low) here until the miner
         // task sequences the release during bring-up.
         let reset = ubos_esp32::expander::ExpanderResetPin::new(bus, mining::RESET_BIT).await;
-        spawner.spawn(unwrap!(mining::miner_task(board_psu, reset)));
+        spawner.spawn(unwrap!(mining::miner_task(
+            board_psu,
+            ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
+        )));
 
         // Temperature and fan monitor via shared I2C0 bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);

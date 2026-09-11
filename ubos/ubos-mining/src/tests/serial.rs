@@ -1937,3 +1937,15 @@ fn two_chains_hash_different_versions_and_each_rebuilds_its_own_solution() {
         "the two chains' submissions carry their own index bits"
     );
 }
+
+/// `Serial::table` gives every element its own position as its chain
+/// index and the table's length as its chain count, which is what
+/// `Miner::new` checks each actor against.
+#[test]
+fn table_numbers_each_actor_by_its_position() {
+    static TABLE: [Serial; 3] = Serial::table();
+    for (position, actor) in TABLE.iter().enumerate() {
+        assert_eq!(actor.chain(), position);
+        assert_eq!(actor.chains(), TABLE.len());
+    }
+}

@@ -27,6 +27,11 @@
 
 pub use ubos_machine::MINIMINER_RP2040 as MACHINE;
 
+/// How many hashboard chains this board drives. Every array sized over
+/// the chains takes its length from here, so a machine that gains a
+/// chain fails to build until each is wired.
+pub const CHAINS: usize = MACHINE.chains;
+
 use embassy_rp::Peri;
 use embassy_rp::peripherals::{
     CORE1, DMA_CH0, DMA_CH1, FLASH, I2C1, PIN_2, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8, PIN_15,

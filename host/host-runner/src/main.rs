@@ -187,7 +187,9 @@ async fn heartbeat_task(stack: Stack<'static>) {
     loop {
         Timer::after(Duration::from_secs(10)).await;
         let address = stack.config_v4().map(|config| config.address);
-        let hashrate = ubos_metrics::hashrate::HashrateDisplay(ubos_metrics::hashrate::hashrate());
+        let hashrate = ubos_metrics::hashrate::HashrateDisplay(
+            ubos_mining::chain_stats::handle().machine_hashrate(),
+        );
         info!("host-runner: tick, address={address:?}, hashrate={hashrate}");
     }
 }
@@ -367,13 +369,8 @@ async fn miner_metrics_task(mining: MiningHandle) -> ! {
 }
 
 #[embassy_executor::task]
-async fn hashrate_metrics_task() -> ! {
-    ubos_metrics::hashrate::run_hashrate_publisher().await
-}
-
-#[embassy_executor::task]
 async fn pool_weights_task() -> ! {
-    ubos_mining::scheduler::run_pool_weights_watcher().await
+    ubos_mining::scheduler::run_pool_weights_watcher(&miner_serial::CHAINS).await
 }
 
 #[allow(
@@ -427,7 +424,6 @@ fn main() {
         spawner.spawn(mdns_task(stack).expect("BUG: mdns_task token"));
         spawner.spawn(miner_metrics_task(mining_handle).expect("BUG: miner_metrics_task token"));
         spawner.spawn(stratum_metrics_task().expect("BUG: stratum_metrics_task token"));
-        spawner.spawn(hashrate_metrics_task().expect("BUG: hashrate_metrics_task token"));
         spawner.spawn(pool_weights_task().expect("BUG: pool_weights_task token"));
         let config_storage = FileStorage::new(
             std::env::var_os("UBOS_CONFIG_DIR")

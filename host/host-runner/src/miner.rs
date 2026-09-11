@@ -36,7 +36,11 @@ pub async fn miner_task(psu: &'static HostPsu) -> ! {
         }
     };
     info!("host-runner: miner bringup");
-    let mut miner = ubos_mining::Miner::new(psu, reset_pin, crate::BOARD);
+    let mut miner = ubos_mining::Miner::new(
+        psu,
+        crate::BOARD,
+        [(&crate::miner_serial::CHAINS[0], reset_pin)],
+    );
     miner.run().await;
     info!("host-runner: miner exited; shutting down");
     Timer::after(Duration::from_secs(1)).await;

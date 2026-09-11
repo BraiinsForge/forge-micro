@@ -158,11 +158,9 @@ ubos_cooling::cooling_task!(ubos_rp::fan::BoardFan, ubos_rp::fan::BoardTach);
 
 ubos_firmware::stratum_metrics_task!(POOL_SLOTS);
 
-ubos_mining::pool_weights_task!();
+ubos_mining::pool_weights_task!(&mining::CHAINS);
 
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
-
-ubos_metrics::hashrate_metrics_task!();
 
 #[cfg(feature = "display")]
 type OledDisplay = Sh1106<
@@ -268,6 +266,7 @@ async fn main(spawner: Spawner) {
             let executor = CORE1_EXECUTOR.init(Executor::new());
             executor.run(|core1_spawner: Spawner| {
                 core1_spawner.spawn(unwrap!(mining::serial_task(
+                    &mining::CHAINS[0],
                     miner_serial,
                     &ASIC_SESSION,
                     ubos_asic::Bm13xxDriver::new(config::CHIP)
@@ -322,7 +321,10 @@ async fn main(spawner: Spawner) {
         spawner.spawn(unwrap!(psu::watchdog_task(board_psu)));
         spawner.spawn(unwrap!(psu::power_stats_task(board_psu)));
         let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));
-        spawner.spawn(unwrap!(mining::miner_task(board_psu, reset)));
+        spawner.spawn(unwrap!(mining::miner_task(
+            board_psu,
+            ubos_mining::serial::Serial::wire(&mining::CHAINS, [reset])
+        )));
 
         // Temperature + fan monitor via shared I2C bus.
         let temp_device = embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice::new(bus);
@@ -410,7 +412,6 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(miner_metrics_task(mining_handle)));
     spawner.spawn(unwrap!(stratum_metrics_task()));
-    spawner.spawn(unwrap!(hashrate_metrics_task()));
     spawner.spawn(unwrap!(pool_weights_task()));
 
     // SH1106 OLED on SPI1: reset pulse, then async TX-only SPI with DMA.

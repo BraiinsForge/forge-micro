@@ -29,10 +29,14 @@ use embassy_time::{Duration, Timer};
 use embedded_serial_unix::Serial;
 use log::{error, info};
 use ubos_mining::consts::INITIAL_BAUDRATE;
-use ubos_mining::serial::SERIAL;
 
 use crate::ASIC_SESSION;
 use crate::config::{CHIP, MINER_SERIAL_PATH};
+
+/// The runner's single hashboard chain. The count is a literal because the
+/// runner has no machine descriptor to read it from: it drives one serial
+/// device, named by `MINER_SERIAL_PATH`, and stands for no product.
+pub static CHAINS: [ubos_mining::serial::Serial; 1] = ubos_mining::serial::Serial::table();
 
 #[embassy_executor::task]
 pub async fn miner_serial_task() -> ! {
@@ -52,13 +56,14 @@ pub async fn miner_serial_task() -> ! {
     // always serving slot 0 when it has work. `new`'s fallback
     // default already weights slot 0, so no reweight is needed.
     let scheduler = ubos_mining::scheduler::RatioScheduler::new();
-    match SERIAL
+    match CHAINS[0]
         .run(
             serial,
             &ASIC_SESSION,
             crate::BOARD,
             ubos_asic::Bm13xxDriver::new(CHIP),
             scheduler,
+            ubos_mining::chain_stats::handle().chain(0),
         )
         .await
     {
