@@ -19,20 +19,24 @@
 
 //! ASIC mining main loop over the firmware-injected chain driver.
 //!
-//! Each iteration brings the chip up (PSU, reset sequencing,
-//! `tuner.init`), waits on [`STOP_MINING`] or a [`Message`] delivered
-//! on the command channel, and tears it down (`tuner.deinit`, work
-//! stop, PSU off). On a fatal init failure (chip goes silent at a
-//! new line rate, etc.) the iteration cuts the rail, sleeps, and
-//! starts over so a transient bring-up failure does not leave the
-//! chip powered without supervision.
+//! One [`Miner`] owns the PSU rail and every chain of the machine.
+//! Each bring-up iteration powers the rail up, resets every chain,
+//! enumerates every chain at once, then runs `tuner.init` over the chains
+//! that answered present. A connector with no board behind it, or one
+//! whose chip count never settles on the board's expected value, is
+//! parked in reset and left out of the ramp instead of stopping the
+//! whole machine; only a bring-up where no chain is present cuts the
+//! rail and retries.
 //!
-//! `Message::Halt` is the thermal-emergency path: when delivered
-//! the loop drops the rail immediately (no `tuner.deinit`, the board
-//! is already over `dangerous_temp_c`) and waits for
-//! `Message::Resume` before attempting bring-up again. `STOP_MINING`
-//! remains the orderly-shutdown path that runs `tuner.deinit`.
+//! `Message::Halt` is the thermal-emergency path: when delivered the
+//! loop stops work dispatch on every present chain and drops the rail,
+//! then waits for `Message::Resume` before attempting bring-up again.
+//! It runs no `tuner.deinit` ramp, because the board is already over
+//! `dangerous_temp_c` and a ramp holds the rail up for the length of the
+//! walk. `STOP_MINING` remains the orderly-shutdown path that runs
+//! `tuner.deinit`.
 
+use embassy_futures::join::join_array;
 use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
@@ -44,11 +48,14 @@ use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, error, info, warn};
 use ubos_psu::{Error as PsuError, Psu};
 
+use crate::chain_control::ChainControl;
+use crate::chain_stats::ChainStats;
 use crate::control::{COMMAND_CHANNEL, Message, MiningState, STATE_WATCH};
+use crate::presence::{self, Action, ChainPresence};
 use crate::reset::ResetPin;
-use crate::serial::SERIAL;
+use crate::serial::Serial;
 use crate::tuner::fixed::FixedTuner;
-use crate::tuner::{Tuner, TunerError, TuningConfig};
+use crate::tuner::{Tuner, TuningConfig};
 
 /// Raise once to stop the miner. The run loop awaits this between init
 /// and deinit; signalling it triggers the teardown sequence and the
@@ -84,6 +91,12 @@ impl From<ubos_asic::ChipError> for MinerError {
             // rate itself is already logged by the transport.
             ubos_asic::ChipError::BaudSwitch(_) => MinerError::Serial(ErrorKind::Other),
         }
+    }
+}
+
+impl From<embedded_io::ErrorKind> for MinerError {
+    fn from(kind: embedded_io::ErrorKind) -> Self {
+        MinerError::Serial(kind)
     }
 }
 
@@ -130,60 +143,114 @@ impl defmt::Format for MinerError {
     }
 }
 
-/// Chip-control surface used by `Tuner` implementations. Implemented
-/// by [`Miner`]; defined as a trait so tuner implementations do not
-/// need to be generic over the `(P, R)` parameters of `Miner`.
+/// Machine-wide control surface used by `Tuner` implementations.
+/// Implemented by [`Miner`]; defined as a trait so tuner
+/// implementations do not need to be generic over the `(P, R, CHAINS)`
+/// parameters of `Miner`.
 ///
-/// Each method is `async` to allow the underlying serial actor to
-/// drive the bus without blocking.
+/// Voltage is one value for the whole machine, set through the shared
+/// PSU rail. Frequency and every other per-chain operation reach a
+/// chain only through [`Self::Chain`], returned by
+/// [`Self::present_chains`]; a tuner never addresses a chain by index.
 // The async-fn-in-trait pattern matches the project-wide convention
 // established by `ubos_psu::Psu`. Send bounds are not required on
 // this embedded target; the trait is only called from a single-task
 // context.
 #[allow(async_fn_in_trait)]
 pub trait MinerControl {
+    /// The chain-facing handle this miner hands out. A tuner reaches a
+    /// chain only through this type's `ChainControl` methods.
+    type Chain: ChainControl;
+
     /// Set the core voltage through the PSU driver.
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), MinerError>;
 
-    /// Reset and enumerate the chain, returning the chip count. The
-    /// driver owns the vendor reset/enumerate sequence; the tuner keeps
-    /// the retry and count-check policy.
-    async fn reset_and_enumerate(&self) -> u8;
+    /// Chains the most recent enumeration found present, in board
+    /// order. A tuner ramps every item this iterator yields; a chain
+    /// left out has no hashboard behind it or never settled on the
+    /// board's expected chip count.
+    fn present_chains(&self) -> impl Iterator<Item = &Self::Chain>;
+}
 
-    /// Configure the enumerated chain to its safe-boot operating point,
-    /// including the switch to the fast UART. The driver owns the vendor
-    /// register sequence and baud switch.
-    async fn configure(&self) -> Result<(), MinerError>;
+/// One chain's serial actor, accounting, and reset pin, bundled behind
+/// the [`ChainControl`] surface a tuner drives.
+///
+/// The reset pin is folded in here, rather than left in a parallel
+/// array on `Miner`, because the miner always has to walk a chain's
+/// reset pin and its serial actor together during bring-up and
+/// teardown.
+pub struct ChainHandle<R: ResetPin> {
+    serial: &'static Serial,
+    stats: &'static ChainStats,
+    reset: R,
+    presence: ChainPresence,
+}
 
-    /// Read every chip's temperature and core voltage once, so the
-    /// thermal loop has a reading before the ramp starts.
-    async fn pvt_sweep(&self) -> Result<(), MinerError>;
+/// The serial actor answers in the transport's own error types; this
+/// impl is where they become the one [`MinerError`] a tuner handles.
+impl<R: ResetPin> ChainControl for ChainHandle<R> {
+    fn chain(&self) -> usize {
+        self.serial.chain()
+    }
 
-    /// Program the hash-clock frequency for one ramp step.
-    async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError>;
+    async fn reset(&self) -> Result<(), MinerError> {
+        self.serial.reset().await.map_err(MinerError::from)
+    }
 
-    /// Start the periodic work-send loop in the serial actor.
-    async fn start_sending_work(&self, period: Duration) -> Result<(), MinerError>;
+    async fn reset_and_enumerate(&self) -> u8 {
+        self.serial.reset_and_enumerate().await
+    }
+
+    async fn configure(&self) -> Result<(), MinerError> {
+        self.serial.configure().await.map_err(MinerError::from)
+    }
+
+    async fn pvt_sweep(&self) -> Result<(), MinerError> {
+        self.serial.pvt_sweep().await.map_err(MinerError::from)
+    }
+
+    /// Program the hash-clock frequency. The serial actor records it
+    /// in this chain's accounting on success.
+    async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError> {
+        self.serial
+            .set_frequency(freq)
+            .await
+            .map_err(MinerError::from)
+    }
+
+    async fn start_sending_work(&self, period: Duration) -> Result<(), MinerError> {
+        self.serial
+            .start_sending_work(period)
+            .await
+            .map_err(MinerError::from)
+    }
+
+    async fn stop_sending_work(&self) -> Result<(), MinerError> {
+        self.serial
+            .stop_sending_work()
+            .await
+            .map_err(MinerError::from)
+    }
 }
 
 /// The ASIC mining state machine driving the injected chain driver.
 ///
-/// Owns the PSU reference and the reset pin. Firmware constructs this
-/// with [`Miner::new`] and calls [`Miner::run`] to enter the bring-up
-/// loop. The `'a` lifetime covers the PSU reference which today is
-/// always `'static` at the firmware call site.
-pub struct Miner<'a, P, R>
+/// Owns the PSU reference and every chain of the machine. Firmware
+/// constructs this with [`Miner::new`] and calls [`Miner::run`] to
+/// enter the bring-up loop. The `'a` lifetime covers the PSU reference
+/// which today is always `'static` at the firmware call site.
+pub struct Miner<'a, P, R, const CHAINS: usize>
 where
     P: Psu,
     R: ResetPin,
 {
     psu: &'a P,
-    reset_pin: R,
     board: &'static HashboardDescriptor,
+    chains: [ChainHandle<R>; CHAINS],
     halted: bool,
 }
 
-impl<'a, P, R> Miner<'a, P, R>
+impl<'a, P, R, const CHAINS: usize> Miner<'a, P, R, CHAINS>
 where
     P: Psu,
     R: ResetPin,
@@ -197,16 +264,63 @@ where
     /// board glitch to clear.
     const RETRY_DELAY: Duration = Duration::from_secs(5);
 
-    /// Construct a `Miner` from a PSU reference, a reset pin, and the
-    /// board descriptor whose chip facts drive the tuner.
+    /// Construct a `Miner` from a PSU reference, the board descriptor
+    /// whose chip facts drive the tuner, and one serial actor with its
+    /// reset pin per chain of the machine, in chain order.
+    ///
+    /// A `Serial` declares its own index and its own view of the
+    /// machine's chain count, and both are checked against its position
+    /// in `chains`. The reset pin travels in the same pair as its actor,
+    /// so a board names the two together and there is no second array
+    /// whose order could drift from the first.
     ///
     /// The PSU is borrowed for lifetime `'a`; on all current firmware
     /// targets `'a` is `'static` because the PSU lives in a static.
-    pub fn new(psu: &'a P, reset_pin: R, board: &'static HashboardDescriptor) -> Self {
+    ///
+    /// # Panics
+    ///
+    /// Panics if a `Serial` declares an index other than its position
+    /// in `chains`, or a chain count other than `CHAINS`: an actor that
+    /// counts the machine's chains differently partitions the version
+    /// mask differently, and two chains would hash the same headers.
+    /// Both fire in a release build, because a machine that is wired
+    /// wrong must not mine. `CHAINS` above `ubos_machine::MAX_CHAINS`,
+    /// which the per-chain accounting table has no slot for, fails to
+    /// compile.
+    pub fn new(
+        psu: &'a P,
+        board: &'static HashboardDescriptor,
+        chains: [(&'static Serial, R); CHAINS],
+    ) -> Self {
+        const {
+            assert!(
+                CHAINS <= ubos_machine::MAX_CHAINS,
+                "the machine has more chains than MAX_CHAINS"
+            );
+        }
+        let chains = chains.map(|(serial, reset)| ChainHandle {
+            serial,
+            stats: &crate::chain_stats::CHAIN_STATS[serial.chain()],
+            reset,
+            presence: ChainPresence::Unknown,
+        });
+        for (position, chain) in chains.iter().enumerate() {
+            assert_eq!(
+                chain.serial.chain(),
+                position,
+                "BUG: chain {position} wired to a Serial that declares another index"
+            );
+            assert_eq!(
+                chain.serial.chains(),
+                CHAINS,
+                "BUG: chain {position} wired to a Serial that counts another number of chains"
+            );
+        }
+        crate::chain_stats::set_chain_count(CHAINS);
         Self {
             psu,
-            reset_pin,
             board,
+            chains,
             halted: false,
         }
     }
@@ -282,12 +396,60 @@ where
         }
     }
 
+    /// Reset and enumerate every chain, all at once, cancellable by
+    /// STOP and HALT the same way `tuner_init_phase` is.
+    ///
+    /// A chain that answers zero chips is marked absent; one whose
+    /// count never settles on `self.board.num_chips` within the retry
+    /// budget is marked faulted. Either way the chain is parked in
+    /// reset and left out of the ramp, and the other chains carry on:
+    /// only a bring-up where no chain comes up present cuts the rail.
+    async fn enumerate_phase(&mut self) -> InitPhase {
+        let expected = self.board.num_chips;
+        match select3(
+            enumerate_all(&mut self.chains, expected),
+            STOP_MINING.wait(),
+            next_halt_change(),
+        )
+        .await
+        {
+            Either3::First(EnumerateOutcome::Done) => InitPhase::Done,
+            Either3::First(EnumerateOutcome::NonePresent) => {
+                error!("mining: no chain present; cutting rail and retrying");
+                cut_rail(self.psu, &mut self.chains).await;
+                match select3(
+                    Timer::after(Self::RETRY_DELAY),
+                    STOP_MINING.wait(),
+                    next_halt_change(),
+                )
+                .await
+                {
+                    Either3::First(()) => InitPhase::Retry,
+                    Either3::Second(()) => {
+                        info!("mining: stop signalled during recovery");
+                        InitPhase::Stop
+                    }
+                    Either3::Third(value) => InitPhase::Halt(value),
+                }
+            }
+            Either3::Second(()) => {
+                info!("mining: stop signalled during enumeration; cutting rail");
+                cut_rail(self.psu, &mut self.chains).await;
+                InitPhase::Stop
+            }
+            Either3::Third(value) => {
+                warn!("mining: halt asserted during enumeration; cutting rail");
+                cut_rail(self.psu, &mut self.chains).await;
+                InitPhase::Halt(value)
+            }
+        }
+    }
+
     /// Drive `tuner.init` with STOP and HALT cancellation.
     ///
-    /// Resets the serial link before calling `tuner.init` because the chip
-    /// must be at the baseline baud rate on entry. Any `tuner.init` error
-    /// cuts the rail and applies a `Self::RETRY_DELAY` settle (cancellable) before
-    /// reporting `Retry`. The live config subscription means an off-grid
+    /// Any `tuner.init` error cuts the rail and applies a
+    /// `Self::RETRY_DELAY` settle (cancellable) before reporting
+    /// `Retry`. The live config subscription means an off-grid
     /// frequency or transient PSU fault can recover once the operator edits
     /// the target rather than permanently disabling mining. STOP and HALT
     /// also cut the rail before returning so the caller only dispatches on
@@ -296,8 +458,6 @@ where
     where
         T: Tuner<Self>,
     {
-        let _ = SERIAL.reset().await;
-
         info!("mining: running tuner init");
         // The `&*self` shared borrow is held only for the duration of the
         // select; all match arms that follow can take mutable field refs.
@@ -312,22 +472,13 @@ where
                 crate::events::tuner_initialised();
                 InitPhase::Done
             }
-            Either3::First(Err(TunerError::ChipCountMismatch { found, expected })) => {
-                error!(
-                    "mining: chain has {} chips, expected {}; stopping (not retrying)",
-                    found, expected
-                );
-                crate::events::chip_count_mismatch(found, expected);
-                cut_rail(self.psu, &mut self.reset_pin).await;
-                InitPhase::Stop
-            }
             Either3::First(Err(error)) => {
                 error!(
                     "mining: tuner init error ({:?}); cutting rail and retrying",
                     Debug2Format(&error)
                 );
                 crate::events::tuner_fault();
-                cut_rail(self.psu, &mut self.reset_pin).await;
+                cut_rail(self.psu, &mut self.chains).await;
                 match select3(
                     Timer::after(Self::RETRY_DELAY),
                     STOP_MINING.wait(),
@@ -345,12 +496,12 @@ where
             }
             Either3::Second(()) => {
                 info!("mining: stop signalled during tuner init; cutting rail");
-                cut_rail(self.psu, &mut self.reset_pin).await;
+                cut_rail(self.psu, &mut self.chains).await;
                 InitPhase::Stop
             }
             Either3::Third(value) => {
                 warn!("mining: halt asserted during tuner init; cutting rail");
-                cut_rail(self.psu, &mut self.reset_pin).await;
+                cut_rail(self.psu, &mut self.chains).await;
                 InitPhase::Halt(value)
             }
         }
@@ -358,12 +509,12 @@ where
 
     /// One bring-up + mine cycle for a single tuner instance.
     ///
-    /// Runs the PSU-reset-settle-init sequence, then delegates to
-    /// `mine_phase` for the steady-state select loop. Returns
-    /// `CycleOutcome::Stop` when `STOP_MINING` fires; returns
-    /// `CycleOutcome::Continue` on halt, halt-clear, a mining-target
-    /// change (algorithm or frequency/voltage), or a transient init
-    /// failure that has already cut the rail.
+    /// Runs the PSU-reset-settle-enumerate-init sequence over every
+    /// chain, then delegates to `mine_phase` for the steady-state
+    /// select loop. Returns `CycleOutcome::Stop` when `STOP_MINING`
+    /// fires; returns `CycleOutcome::Continue` on halt, halt-clear, a
+    /// mining-target change (algorithm or frequency/voltage), or a
+    /// transient init failure that has already cut the rail.
     async fn bring_up_cycle<T: Tuner<Self>>(
         &mut self,
         target: TuningConfig,
@@ -390,8 +541,10 @@ where
 
         info!("mining: entering reset");
         crate::events::miner_reset();
-        self.reset_pin.enter_reset().await;
-        match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.reset_pin).await {
+        for chain in &mut self.chains {
+            chain.reset.enter_reset().await;
+        }
+        match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.chains).await {
             Settled::Continue => {}
             Settled::Stop => return CycleOutcome::Stop,
             Settled::Halt(value) => {
@@ -402,12 +555,14 @@ where
 
         info!("mining: enabling PSU");
         crate::events::psu_enabled();
-        let _ = self.psu.enable().await;
+        if let Err(error) = self.psu.enable().await {
+            warn!("psu enable failed: {:?}", Debug2Format(&error));
+        }
         // Fans follow the rail, not the tuner init completion: the
         // chip is dissipating power as soon as the PSU is on, and
         // init can take long enough for thermals to climb.
         publish_running(true);
-        match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.reset_pin).await {
+        match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.chains).await {
             Settled::Continue => {}
             Settled::Stop => return CycleOutcome::Stop,
             Settled::Halt(value) => {
@@ -417,14 +572,26 @@ where
         }
 
         info!("mining: exiting reset");
-        self.reset_pin.exit_reset().await;
-        match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.reset_pin).await {
+        for chain in &mut self.chains {
+            chain.reset.exit_reset().await;
+        }
+        match settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.chains).await {
             Settled::Continue => {}
             Settled::Stop => return CycleOutcome::Stop,
             Settled::Halt(value) => {
                 self.halted = value;
                 return CycleOutcome::Continue;
             }
+        }
+
+        match self.enumerate_phase().await {
+            InitPhase::Done => {}
+            InitPhase::Stop => return CycleOutcome::Stop,
+            InitPhase::Halt(value) => {
+                self.halted = value;
+                return CycleOutcome::Continue;
+            }
+            InitPhase::Retry => return CycleOutcome::Continue,
         }
 
         match self.tuner_init_phase(tuner, target).await {
@@ -437,10 +604,14 @@ where
             InitPhase::Retry => return CycleOutcome::Continue,
         }
 
-        // The chain is enumerated, configured and clocked; from here it
-        // only hashes. A board that addresses it differently for the two
-        // moves its mode line now.
-        self.reset_pin.enter_work_mode().await;
+        // Every present chain is enumerated, configured and clocked;
+        // from here it only hashes. A board that addresses it
+        // differently for the two moves its mode line now.
+        for chain in &mut self.chains {
+            if chain.presence.is_present() {
+                chain.reset.enter_work_mode().await;
+            }
+        }
 
         self.mine_phase(current_algorithm, target, tuner, config_subscription)
             .await
@@ -474,15 +645,15 @@ where
                     // Orderly teardown.
                     info!("mining: running tuner deinit");
                     let _ = tuner.deinit(&*self).await;
-                    let _ = SERIAL.stop_sending_work().await;
-                    let _ = SERIAL.reset().await;
-                    cut_rail(self.psu, &mut self.reset_pin).await;
+                    self.stop_present_chains().await;
+                    cut_rail(self.psu, &mut self.chains).await;
                     info!("mining: stopped");
                     return CycleOutcome::Stop;
                 }
                 Either3::Second(true) => {
                     warn!("mining: halt asserted while mining; cutting rail");
-                    cut_rail(self.psu, &mut self.reset_pin).await;
+                    self.stop_present_chains().await;
+                    cut_rail(self.psu, &mut self.chains).await;
                     self.halted = true;
                     return CycleOutcome::Continue;
                 }
@@ -504,22 +675,36 @@ where
                     if new_config.miner.algorithm != current_algorithm || tuning_changed {
                         info!("mining: mining target changed; ramping down to restart");
                         let _ = tuner.deinit(&*self).await;
-                        let _ = SERIAL.stop_sending_work().await;
-                        let _ = SERIAL.reset().await;
-                        cut_rail(self.psu, &mut self.reset_pin).await;
+                        self.stop_present_chains().await;
+                        cut_rail(self.psu, &mut self.chains).await;
                         return CycleOutcome::Continue;
                     }
                 }
             }
         }
     }
+
+    /// Stop work dispatch and reset every chain the most recent
+    /// enumeration found present. Called at both teardown sites in
+    /// `mine_phase` before `cut_rail` puts every chain, present or
+    /// not, back into hardware reset.
+    async fn stop_present_chains(&mut self) {
+        for chain in &self.chains {
+            if chain.presence.is_present() {
+                let _ = chain.serial.stop_sending_work().await;
+                let _ = chain.serial.reset().await;
+            }
+        }
+    }
 }
 
-impl<P, R> MinerControl for Miner<'_, P, R>
+impl<P, R, const CHAINS: usize> MinerControl for Miner<'_, P, R, CHAINS>
 where
     P: Psu,
     R: ResetPin,
 {
+    type Chain = ChainHandle<R>;
+
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), MinerError> {
         self.psu
             .set_voltage(voltage)
@@ -527,28 +712,106 @@ where
             .map_err(|error| MinerError::Psu(error.into()))
     }
 
-    async fn reset_and_enumerate(&self) -> u8 {
-        SERIAL.reset_and_enumerate().await
+    fn present_chains(&self) -> impl Iterator<Item = &Self::Chain> {
+        self.chains
+            .iter()
+            .filter(|chain| chain.presence.is_present())
     }
+}
 
-    async fn configure(&self) -> Result<(), MinerError> {
-        SERIAL.configure().await.map_err(MinerError::from)
+/// Reset and enumerate every chain, concurrently. Free function
+/// rather than a `Miner` method so it can sit as one arm of the
+/// `select3` in `enumerate_phase` while `self.psu` stays available for
+/// the other arms' `cut_rail` calls.
+async fn enumerate_all<R: ResetPin, const CHAINS: usize>(
+    chains: &mut [ChainHandle<R>; CHAINS],
+    expected: u8,
+) -> EnumerateOutcome {
+    join_array(
+        chains
+            .each_mut()
+            .map(|chain| enumerate_chain(chain, expected)),
+    )
+    .await;
+    if chains.iter().any(|chain| chain.presence.is_present()) {
+        EnumerateOutcome::Done
+    } else {
+        EnumerateOutcome::NonePresent
     }
+}
 
-    async fn pvt_sweep(&self) -> Result<(), MinerError> {
-        SERIAL.pvt_sweep().await.map_err(MinerError::Serial)
+/// Reset and enumerate one chain; the body of [`enumerate_all`] for a
+/// single chain, run once per chain and concurrently with its siblings.
+async fn enumerate_chain<R: ResetPin>(chain: &mut ChainHandle<R>, expected: u8) {
+    let _ = chain.serial.reset().await;
+    let mut attempt = 1u8;
+    let presence = loop {
+        let found = chain.serial.reset_and_enumerate().await;
+        // Every attempt, so a chain that came up short of its
+        // descriptor is readable from the event log rather than only
+        // over the debug link.
+        crate::events::chain_enumerated_chips(
+            truncate_chain(chain.serial.chain()),
+            found,
+            expected,
+        );
+        let (presence, action) = presence::transition(found, expected, attempt);
+        match action {
+            Action::Continue | Action::Park => break presence,
+            Action::Retry => {
+                warn!(
+                    "mining: chain {} enumerated {} chips, expected {} (attempt {})",
+                    chain.serial.chain(),
+                    found,
+                    expected,
+                    attempt
+                );
+                attempt += 1;
+            }
+        }
+    };
+    chain.presence = presence;
+    chain.stats.set_presence(presence);
+    match presence {
+        ChainPresence::Present { .. } => {}
+        ChainPresence::Absent => {
+            chain.reset.enter_reset().await;
+            crate::events::chain_absent(truncate_chain(chain.serial.chain()));
+        }
+        ChainPresence::Faulted { found } => {
+            chain.reset.enter_reset().await;
+            error!(
+                "mining: chain {} has {} chips, expected {}; parking",
+                chain.serial.chain(),
+                found,
+                expected
+            );
+            crate::events::chain_chip_count_mismatch(
+                truncate_chain(chain.serial.chain()),
+                found,
+                expected,
+            );
+        }
+        ChainPresence::Unknown => {
+            unreachable!("BUG: enumeration loop exits only on Continue or Park")
+        }
     }
+}
 
-    async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError> {
-        SERIAL.set_frequency(freq).await.map_err(MinerError::from)
-    }
+/// Narrow a chain index to the `u8` the event catalog carries. Board
+/// chain counts are single digits; this only guards against a future
+/// board exceeding that.
+fn truncate_chain(chain: usize) -> u8 {
+    u8::try_from(chain).unwrap_or(u8::MAX)
+}
 
-    async fn start_sending_work(&self, period: Duration) -> Result<(), MinerError> {
-        SERIAL
-            .start_sending_work(period)
-            .await
-            .map_err(MinerError::Serial)
-    }
+/// Outcome of [`enumerate_all`].
+enum EnumerateOutcome {
+    /// At least one chain came up present. An absent or faulted chain
+    /// elsewhere does not change this outcome; it is only parked.
+    Done,
+    /// No chain came up present.
+    NonePresent,
 }
 
 /// Idle counterpart to [`Miner::run`] for deployments without a real chip.
@@ -566,17 +829,15 @@ pub async fn run_idle() -> ! {
     }
 }
 
-/// Publish a `MiningState` reflecting the rail flag. `chip_count` is
-/// a placeholder until chain enumeration runs. Frequency and voltage
-/// carry forward from the prior publish so the tuner ramp telemetry
-/// isn't clobbered by a halt edge.
+/// Publish a `MiningState` reflecting the rail flag. Frequency and
+/// voltage carry forward from the prior publish so the tuner ramp
+/// telemetry isn't clobbered by a halt edge.
 fn publish_running(running: bool) {
     let prior = STATE_WATCH
         .try_get()
         .unwrap_or(crate::control::MiningState::IDLE);
     STATE_WATCH.sender().send(MiningState {
         running,
-        chip_count: 0,
         frequency: prior.frequency,
         voltage: prior.voltage,
     });
@@ -591,25 +852,30 @@ async fn next_halt_change() -> bool {
     }
 }
 
-/// Put the chain in reset and drop its rail, then report it stopped.
+/// Put every chain in reset and drop the rail, then report them stopped.
 ///
 /// The order matters. Reset is asserted before the rail goes, so the
 /// chips are held rather than losing power mid-transaction. A failure to
-/// disable the PSU is swallowed: the reset is already asserted, and a
-/// board that cannot drop its rail is in no better state for the caller
-/// knowing about it here.
+/// disable the PSU is logged and not returned: the reset is already
+/// asserted, and a board that cannot drop its rail is in no better state
+/// for the caller dispatching on the error here. The log line is what a
+/// rail that stayed up leaves behind.
 ///
-/// The PSU and the reset pin are two generic parameters of equal
+/// The PSU and the chain handles are two generic parameters of equal
 /// standing, and neither is the receiver. No inherent `impl` in this
 /// crate can name either, and the caller owns both for the life of the
 /// mining loop.
-async fn cut_rail<P, R>(psu: &P, reset_pin: &mut R)
+async fn cut_rail<P, R>(psu: &P, chains: &mut [ChainHandle<R>])
 where
     P: Psu,
     R: ResetPin,
 {
-    reset_pin.enter_reset().await;
-    let _ = psu.disable().await;
+    for chain in chains.iter_mut() {
+        chain.reset.enter_reset().await;
+    }
+    if let Err(error) = psu.disable().await {
+        warn!("psu disable failed: {:?}", Debug2Format(&error));
+    }
     publish_running(false);
 }
 
@@ -645,9 +911,9 @@ async fn wait_halt_clear_or_stop() -> Resumed {
     }
 }
 
-/// Outcome of the tuner init phase. Mirrors the three actions the
-/// run loop must take afterwards plus a `Retry` for a transient
-/// init failure that has already cut the rail.
+/// Outcome of the enumeration or tuner init phase. Mirrors the three
+/// actions the run loop must take afterwards plus a `Retry` for a
+/// transient failure that has already cut the rail.
 enum InitPhase {
     Done,
     Stop,
@@ -674,7 +940,15 @@ enum Settled {
 /// does not keep climbing toward `enable_PSU` after a thermal trip.
 /// `Stop` and `Halt` outcomes drop the rail before returning so the
 /// caller only needs to dispatch on the variant.
-async fn settle_or_abort<P, R>(duration: Duration, psu: &P, reset_pin: &mut R) -> Settled
+///
+/// The PSU and the chain handles are two generic parameters of equal
+/// standing, and neither is the receiver, the same shape as
+/// [`cut_rail`], which this function calls on both abort paths.
+async fn settle_or_abort<P, R>(
+    duration: Duration,
+    psu: &P,
+    chains: &mut [ChainHandle<R>],
+) -> Settled
 where
     P: Psu,
     R: ResetPin,
@@ -688,32 +962,35 @@ where
     {
         Either3::First(()) => Settled::Continue,
         Either3::Second(()) => {
-            cut_rail(psu, reset_pin).await;
+            cut_rail(psu, chains).await;
             Settled::Stop
         }
         Either3::Third(value) => {
-            cut_rail(psu, reset_pin).await;
+            cut_rail(psu, chains).await;
             Settled::Halt(value)
         }
     }
 }
 
 /// Task shell that runs the [`Miner`] bring-up and teardown state
-/// machine. Takes the board's PSU and reset-pin types, and the
-/// descriptor whose chip facts drive the tuner.
+/// machine. Takes the board's PSU and reset-pin types, the descriptor
+/// whose chip facts drive the tuner, and the machine's chain count.
 ///
 /// [`Miner::run`] returns only when `STOP_MINING` fires, which on bare
 /// metal never happens. The shell parks afterwards for the same reason
 /// `ubos_mining::serial_task` does.
 #[macro_export]
 macro_rules! miner_task {
-    ($psu:ty, $reset:ty, $board:expr) => {
+    ($psu:ty, $reset:ty, $board:expr, $chains:expr) => {
         #[embassy_executor::task]
-        pub async fn miner_task(psu: &'static $psu, reset: $reset) -> ! {
+        pub async fn miner_task(
+            psu: &'static $psu,
+            chains: [(&'static ubos_mining::serial::Serial, $reset); $chains],
+        ) -> ! {
             /// Park interval after the state machine returns.
             const PARK_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(60);
 
-            let mut miner = ubos_mining::Miner::new(psu, reset, $board);
+            let mut miner = ubos_mining::Miner::new(psu, $board, chains);
             miner.run().await;
             defmt::info!("ubos-mining miner exited");
             loop {

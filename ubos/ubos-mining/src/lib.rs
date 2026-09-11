@@ -46,7 +46,7 @@ pub mod tuner;
 
 pub use chain_control::ChainControl;
 pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
-pub use miner::{Miner, MinerControl, MinerError, PsuErrorKind};
+pub use miner::{ChainHandle, Miner, MinerControl, MinerError, PsuErrorKind};
 pub use presence::ChainPresence;
 pub use serial::{
     core1_is_parked, core1_serial_running, release_core1_park, request_core1_park,
@@ -58,8 +58,11 @@ ubos_events::events! {
     psu_enabled()                                 info  = "PSU enabled",
     tuner_initialised()                           info  = "Tuner initialised",
     tuner_fault()                                 error = "Tuner fault",
-    chain_enumerated(found: u8, expected: u8)     info  = "Chain enumerated: {} of {} chips",
-    chip_count_mismatch(found: u8, expected: u8)  error = "Chip count {} differs from expected {}",
+    chain_enumerated_chips(chain: u8, found: u8, expected: u8)
+                                                   info  = "Chain {} enumerated {} of {} chips",
+    chain_chip_count_mismatch(chain: u8, found: u8, expected: u8)
+                                                   error = "Chain {} has {} chips, expected {}",
+    chain_absent(chain: u8)                       info  = "Chain {} has no hashboard",
     frequency_ramp_started(freq_khz: u32)         info  = "Frequency ramp started to {} kHz",
     frequency_ramp_complete(freq_khz: u32)        info  = "Frequency ramp complete at {} kHz",
 }

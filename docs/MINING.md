@@ -31,7 +31,7 @@ driver is exercised without a hashboard on the bench.
 | Task | Owner | Role |
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
-| `miner_task` | `mining.rs` | Drives `Miner::new(psu, reset, BOARD).run()` against the tuner selected by `MinerConfig::algorithm` (`FixedTuner` by default; see `TuningAlgorithm`). Bring-up / teardown state machine: PSU up, reset sequence, tuner init, mine, tuner deinit, PSU off. |
+| `miner_task` | `mining.rs` | Drives `Miner::new(psu, BOARD, chains, resets).run()` against the tuner selected by `MinerConfig::algorithm` (`FixedTuner` by default; see `TuningAlgorithm`). Bring-up / teardown state machine: PSU up, reset sequence, per-chain enumeration, tuner init, mine, tuner deinit, PSU off. |
 | `power_stats_task` | `psu.rs` | Drives `ubos_psu::run_power_stats`. Polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes them. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
@@ -94,6 +94,8 @@ and rebuilds it; other tuning edits apply on the next bring-up.
 
 ## Mining state machine
 
+One `Miner` owns the PSU rail and every chain of the machine.
+
 `Miner::run` first disables the rail once, before the first reset. This
 puts every board in a known-off state before its first bring-up, no matter
 what the last boot cycle left behind.
@@ -104,20 +106,51 @@ Then `Miner::run` repeats:
    `miner.algorithm`.
 2. Bring the rail up via `BoardPsu` (raises `SIC_EN` once the SIC45x
    answers a status read).
-3. Sequence the BM1370 reset pin (low to assert, high to release).
-4. Run `tuner.init` against the chip chain (cancellable by `STOP_MINING`
-   or `Message::Halt`).
-5. Mine until `STOP_MINING` fires, a `Message::Halt` edge arrives, or the
+3. Sequence every chain's reset pin together (low to assert, high to
+   release).
+4. Reset and enumerate every chain at once. See "Chain presence" below.
+5. Run `tuner.init` against every chain the enumeration step found
+   present (cancellable by `STOP_MINING` or `Message::Halt`).
+6. Mine until `STOP_MINING` fires, a `Message::Halt` edge arrives, or the
    configured algorithm changes.
-6. On `Message::Halt`: cut the rail immediately, then block on
+7. On `Message::Halt`: cut the rail immediately, then block on
    `wait_halt_clear_or_stop` until `Message::Resume`.
-7. On an algorithm change: run `tuner.deinit`, cut the rail, and rebuild
+8. On an algorithm change: run `tuner.deinit`, cut the rail, and rebuild
    the tuner on the next iteration.
-8. On `STOP_MINING`: run `tuner.deinit` and drop the rail.
+9. On `STOP_MINING`: run `tuner.deinit` and drop the rail.
 
 A fatal init failure -- chip silent at the new line rate, register
 mismatch, etc. -- cuts the rail, sleeps, and restarts. The chip is never
 left powered without supervision.
+
+## Chain presence
+
+A machine can have more hashboard connectors than boards plugged into
+them, so enumeration is a per-chain question. `Miner` resets and
+enumerates every chain at the same time, each over its own UART, and
+records one of four states in that chain's `ChainStats`:
+
+| State | Meaning | What the miner does |
+|-------|---------|----------------------|
+| `Unknown` | No enumeration attempt has completed yet. | Not a resting state; only seen mid-attempt. |
+| `Present` | The chain answered with the board's expected chip count. | The tuner ramps this chain. |
+| `Absent` | The connector answered with zero chips: no hashboard is attached. | Parked in reset; left out of the ramp. |
+| `Faulted` | The chain answered a chip count other than expected on every attempt up to the retry budget. | Parked in reset; left out of the ramp. |
+
+An empty connector is parked on the first attempt with no retry: retrying
+it on every bring-up would cost the machine its bring-up time for
+nothing. A chip-count mismatch gets `ENUMERATE_ATTEMPTS` retries before
+it is parked, in case the mismatch was a transient chain glitch. Only a
+bring-up where no chain comes up present cuts the rail and retries the
+whole machine; one absent or faulted chain does not stop the others.
+
+Voltage and frequency are one value for the whole machine today: the
+PSU rail is shared, and the tuner steps every present chain's frequency
+in lockstep so the rail sees one load profile instead of one chain
+climbing at a time. The tuner reaches a chain only through the
+`ChainControl` handle `MinerControl::present_chains` yields, never
+through an index, so it can never address a chain the miner did not
+find present.
 
 ## I2C bus sharing
 

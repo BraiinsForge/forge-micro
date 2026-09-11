@@ -30,9 +30,14 @@
 //!
 //! Tuner implementations live in submodules: `fixed::FixedTuner` is
 //! the typed open-loop ramp that steps toward arbitrary targets via
-//! `MinerControl::set_frequency`, behind which the vendor-neutral
-//! chain driver owns the PLL programming. The active tuner is
-//! runtime-selectable via `MinerConfig::algorithm`.
+//! `ChainControl::set_frequency` on every chain `MinerControl::present_chains`
+//! yields, behind which the vendor-neutral chain driver owns the PLL
+//! programming. The active tuner is runtime-selectable via
+//! `MinerConfig::algorithm`.
+//!
+//! Enumeration, chain presence, and the enumeration retry policy are
+//! the miner's business, not the tuner's: a tuner only ever sees the
+//! chains the miner already found present.
 
 use ubos_core::units::{Frequency, Voltage};
 
@@ -75,17 +80,10 @@ pub trait Tuner<M: MinerControl> {
 ///
 /// `Miner` wraps every serial-bus error into [`MinerError::Serial`]
 /// before it reaches the tuner, so `TunerError::Miner` covers every
-/// chip-side failure. `ChipCountMismatch` is terminal: the miner stops
-/// rather than retrying when the chain does not match the board.
+/// chip-side failure a chain's `ChainControl` methods can return.
 #[derive(Debug)]
 pub enum TunerError {
     Miner(MinerError),
-    /// Enumeration kept finding a chip count other than the board's
-    /// expected `num_chips` after every retry.
-    ChipCountMismatch {
-        found: u8,
-        expected: u8,
-    },
 }
 
 impl From<MinerError> for TunerError {

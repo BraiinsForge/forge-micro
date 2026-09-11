@@ -168,14 +168,14 @@ impl<const N: usize> Scheduler<N> for RatioScheduler<N> {
     }
 }
 
-/// Maps a configured pool list to the `[u32; 8]` shape
+/// Maps a configured pool list to the `[u32; MAX_POOL_SLOTS]` shape
 /// [`crate::serial::Serial::set_pool_weights`] takes: each entry's
 /// weight lands in its slot index, and slots beyond the list stay
 /// zero. A pure helper so the mapping is unit-testable independently
 /// of the watcher's task loop.
 #[must_use]
-pub fn pool_weights(pool: &[ubos_config::PoolEntry]) -> [u32; 8] {
-    let mut weights = [0u32; 8];
+pub fn pool_weights(pool: &[ubos_config::PoolEntry]) -> [u32; crate::consts::MAX_POOL_SLOTS] {
+    let mut weights = [0u32; crate::consts::MAX_POOL_SLOTS];
     for (slot, entry) in weights.iter_mut().zip(pool) {
         *slot = entry.weight;
     }
@@ -183,22 +183,30 @@ pub fn pool_weights(pool: &[ubos_config::PoolEntry]) -> [u32; 8] {
 }
 
 /// Watches the config generation and pushes the mapped pool weights
-/// to the serial actor whenever they actually change.
+/// to every chain in `actors` whenever they actually change.
 ///
 /// The `last_sent` equality guard means unrelated config updates
 /// (thermal, fan) never disturb the scheduler: only an edit that
 /// changes a pool's weight reaches it. The first iteration runs
 /// before the first `changed()` await, so the configured weights
-/// reach the scheduler at boot rather than waiting for a later
-/// config edit.
-pub async fn run_pool_weights_watcher() -> ! {
+/// reach every chain at boot rather than waiting for a later config
+/// edit.
+///
+/// [`crate::serial::Serial::set_pool_weights`] publishes rather than
+/// sending a command, so this loop never waits on an actor: a chain
+/// part-way through a bring-up holds its caller mutex for seconds, and a
+/// watcher blocked on the first chain would leave the rest of them on
+/// the old split for that whole window.
+pub async fn run_pool_weights_watcher(actors: &'static [crate::serial::Serial]) -> ! {
     let handle = ubos_config::handle();
     let mut generation = handle.subscribe_generation();
-    let mut last_sent: Option<[u32; 8]> = None;
+    let mut last_sent: Option<[u32; crate::consts::MAX_POOL_SLOTS]> = None;
     loop {
         let weights = pool_weights(&handle.current().pool);
         if last_sent != Some(weights) {
-            crate::serial::SERIAL.set_pool_weights(weights).await;
+            for actor in actors {
+                actor.set_pool_weights(weights);
+            }
             last_sent = Some(weights);
         }
         generation.changed().await;
@@ -206,13 +214,14 @@ pub async fn run_pool_weights_watcher() -> ! {
 }
 
 /// Task shell around [`run_pool_weights_watcher`], which watches the
-/// configured pool weights and re-derives the work split.
+/// configured pool weights and re-derives the work split for every
+/// chain in `actors`.
 #[macro_export]
 macro_rules! pool_weights_task {
-    () => {
+    ($actors:expr) => {
         #[embassy_executor::task]
         async fn pool_weights_task() -> ! {
-            ubos_mining::scheduler::run_pool_weights_watcher().await
+            ubos_mining::scheduler::run_pool_weights_watcher($actors).await
         }
     };
 }

@@ -144,6 +144,10 @@ board pool slot, labelled `pool="0"`, `pool="1"`, ...:
   originating slot; the ratio between these series is the work
   split the dispatch scheduler actually delivered.
 
+`board_uart_desync_bytes_total` and `board_pool_work_shares_total` also
+carry a `chain="i"` label identifying the hashboard chain they came
+from, since a board can own more than one; see `ubos_mining::chain_stats`.
+
 There are no unlabelled duplicates of these series; board totals are
 `sum(...)` over the label.
 

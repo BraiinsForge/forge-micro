@@ -25,11 +25,10 @@
 //! `#[embassy_executor::task]` wrapper.
 
 use embassy_time::{Duration, Ticker};
-use portable_atomic::Ordering;
-use ubos_metrics::metrics::{Metric, Value, push, push_slot_metric};
+use ubos_metrics::metrics::{Metric, Value, push};
 
 use crate::Handle as MiningHandle;
-use crate::serial::{POOL_WORK_SHARES, UART_DESYNC_BYTES};
+use crate::chain_stats;
 
 /// Periodically push `board_uart_desync_bytes_total`,
 /// `board_miner_running`, `board_miner_frequency_khz`,
@@ -38,20 +37,35 @@ use crate::serial::{POOL_WORK_SHARES, UART_DESYNC_BYTES};
 /// track the tuner's live operating point — they update on every
 /// ramp step, not only at the configured target. The frequency gauge
 /// is exposed in kHz so the 6.25 MHz `FixedTuner` ramp granularity
-/// survives the integer cast. `board_pool_work_shares_total` is
-/// pushed once per pool slot below `pool_slots`, labeled `pool="i"`;
-/// `pool_slots` is clamped to [`POOL_WORK_SHARES`]'s capacity, so
-/// callers can pass their board's `POOL_SLOTS` constant directly.
+/// survives the integer cast. `board_uart_desync_bytes_total` and
+/// `board_pool_work_shares_total` are each labeled `chain="i"` and
+/// pushed once per chain the board owns; `board_pool_work_shares_total`
+/// is additionally labeled `pool="i"` and pushed once per pool slot
+/// below `pool_slots`, which callers pass as their board's `POOL_SLOTS`
+/// constant.
 pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize) -> ! {
     let mut ticker = Ticker::every(Duration::from_secs(2));
     loop {
         ticker.next().await;
-        let desync = u64::from(UART_DESYNC_BYTES.load(Ordering::Relaxed));
-        push(Metric::with_no_labels(
-            "board_uart_desync_bytes_total",
-            Value::Uint(desync),
-        ))
-        .await;
+        let stats_handle = chain_stats::handle();
+        for (chain, stats) in stats_handle.chains().enumerate() {
+            push_chain_metric(
+                "board_uart_desync_bytes_total",
+                chain,
+                Value::Uint(u64::from(stats.desync_bytes())),
+            )
+            .await;
+            let limit = pool_slots.min(crate::consts::MAX_POOL_SLOTS);
+            for slot in 0..limit {
+                push_chain_pool_metric(
+                    "board_pool_work_shares_total",
+                    chain,
+                    slot,
+                    Value::Uint(stats.pool_shares(slot)),
+                )
+                .await;
+            }
+        }
         let state = mining.state();
         let running = u64::from(state.is_some_and(|state| state.running));
         push(Metric::with_no_labels(
@@ -71,16 +85,18 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
             Value::Uint(voltage_mv),
         ))
         .await;
-        let limit = pool_slots.min(POOL_WORK_SHARES.len());
-        for (slot, counter) in POOL_WORK_SHARES.iter().enumerate().take(limit) {
-            push_slot_metric(
-                "board_pool_work_shares_total",
-                slot,
-                Value::Uint(counter.load(Ordering::Relaxed)),
-            )
-            .await;
-        }
     }
+}
+
+/// Push one metric labeled `chain="<chain>"`.
+async fn push_chain_metric(name: &'static str, chain: usize, value: Value) {
+    ubos_metrics::metrics::push_indexed_metric(name, "chain", chain, value).await;
+}
+
+/// Push one metric labeled `chain="<chain>"` and `pool="<slot>"`.
+async fn push_chain_pool_metric(name: &'static str, chain: usize, slot: usize, value: Value) {
+    ubos_metrics::metrics::push_indexed_metrics(name, &[("chain", chain), ("pool", slot)], value)
+        .await;
 }
 
 /// Task shell around [`run_miner_metrics_publisher`]. Takes the board's

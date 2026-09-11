@@ -19,22 +19,29 @@
 
 //! `FixedTuner` — chip bring-up plus a constant-power-curve ramp.
 //!
-//! Drives the chain bring-up through [`MinerControl`] — reset and
-//! enumerate with a retry policy, then configure — and then walks a
-//! coupled voltage / frequency ramp from the chip's open-core voltage at the
-//! safe-boot frequency to the configured `(voltage, frequency)` target.
-//! The ramp preserves `V^2 * f` along the walk so the chain never
-//! exceeds the target power at any intermediate step. Host-side policy
-//! — PSU voltage, enumeration retries, and the ramp — stays here; the
-//! vendor register sequence and the UART baud switch live in the
-//! `ubos_asic::ChainDriver` impl behind [`MinerControl::configure`].
+//! Configures every chain [`MinerControl::present_chains`] yields and
+//! starts its work dispatch, then walks a coupled voltage / frequency
+//! ramp from the chip's open-core voltage at the safe-boot frequency
+//! to the configured `(voltage, frequency)` target. Voltage is one
+//! value for the whole machine, programmed once per step through
+//! [`MinerControl::set_voltage`]; frequency is programmed on every
+//! present chain in turn before each step's settle, so every chain
+//! climbs within the same step rather than one chain reaching the
+//! target before the next starts. The ramp preserves
+//! `V^2 * f` along the walk so the chain never exceeds the target
+//! power at any intermediate step. Enumeration and chain presence are
+//! the miner's business; this tuner never sees an absent or faulted
+//! chain. Host-side policy — PSU voltage and the ramp — stays here;
+//! the vendor register sequence and the UART baud switch live in the
+//! `ubos_asic::ChainDriver` impl behind [`crate::chain_control::ChainControl::configure`].
 
 use embassy_time::{Duration, Timer};
 use libm::sqrtf;
 use ubos_asic::HashboardDescriptor;
 use ubos_core::units::{Frequency, Voltage};
-use ubos_logging::{debug, error, warn};
+use ubos_logging::debug;
 
+use crate::chain_control::ChainControl;
 use crate::control::publish_tuner_step;
 use crate::miner::MinerControl;
 
@@ -87,10 +94,6 @@ impl FixedTuner {
 
     /// Period between consecutive work-frame sends.
     const WORK_PERIOD: Duration = Duration::from_secs(1);
-
-    /// Reset + enumerate attempts before a chip-count mismatch is treated
-    /// as terminal.
-    const ENUMERATE_ATTEMPTS: u8 = 3;
 
     /// Post-reset anchor frequency: the chip's minimum operating clock,
     /// taken from its descriptor. `init` anchors the chain here before
@@ -155,7 +158,9 @@ impl FixedTuner {
                 next.khz(),
                 voltage_now.mv()
             );
-            miner.set_frequency(next).await?;
+            for chain in miner.present_chains() {
+                chain.set_frequency(next).await?;
+            }
             publish_tuner_step(next, voltage_now);
             frequency_now = next;
             Timer::after(settle).await;
@@ -185,7 +190,9 @@ impl FixedTuner {
                 next_frequency.khz()
             );
             miner.set_voltage(next_voltage).await?;
-            miner.set_frequency(next_frequency).await?;
+            for chain in miner.present_chains() {
+                chain.set_frequency(next_frequency).await?;
+            }
             publish_tuner_step(next_frequency, next_voltage);
             voltage_now = next_voltage;
             frequency_now = next_frequency;
@@ -217,47 +224,20 @@ impl<M: MinerControl> Tuner<M> for FixedTuner {
             voltage: open_core,
         };
 
-        // Reset and enumerate, retrying a transient chain glitch a few
-        // times. A persistent count mismatch is terminal: the miner must
-        // not run a board whose chain it cannot account for. The driver
-        // owns the vendor bring-up sequence; the tuner keeps only the
-        // retry / count-check policy.
-        for attempt in 1..=Self::ENUMERATE_ATTEMPTS {
-            let found = miner.reset_and_enumerate().await;
-            crate::events::chain_enumerated(found, self.board.num_chips);
-            if found == self.board.num_chips {
-                break;
-            }
-            if attempt == Self::ENUMERATE_ATTEMPTS {
-                error!(
-                    "fixed-tuner: chain count {} != expected {}; stopping",
-                    found, self.board.num_chips
-                );
-                return Err(TunerError::ChipCountMismatch {
-                    found,
-                    expected: self.board.num_chips,
-                });
-            }
-            warn!(
-                "fixed-tuner: enumerated {} chips, expected {} (attempt {}/{})",
-                found,
-                self.board.num_chips,
-                attempt,
-                Self::ENUMERATE_ATTEMPTS
-            );
+        // Configure every present chain to the safe-boot operating point
+        // on the fast UART and start its work dispatch; the driver owns
+        // the register sequence and the baud switch, and the miner has
+        // already enumerated the chain and left absent or faulted chains
+        // out of `present_chains`.
+        for chain in miner.present_chains() {
+            chain.configure().await?;
+            // The ramp that follows is the longest stretch in which
+            // nothing else reads the chain, and the thermal loop must not
+            // spend it blind; one pass over every chip gives it a reading
+            // to hold.
+            chain.pvt_sweep().await?;
+            chain.start_sending_work(Self::WORK_PERIOD).await?;
         }
-
-        // Configure the chain to the safe-boot operating point on the fast
-        // UART; the driver owns the register sequence and the baud switch.
-        miner.configure().await?;
-        // The ramp that follows is the longest stretch in which nothing
-        // else reads the chain, and the thermal loop must not spend it
-        // blind; one pass over every chip gives it a reading to hold.
-        miner.pvt_sweep().await?;
-        miner
-            .start_sending_work(Self::WORK_PERIOD)
-            .await
-            .map_err(TunerError::Miner)?;
 
         self.walk_to_target(miner, target, Self::RAMP_SETTLE).await
     }
