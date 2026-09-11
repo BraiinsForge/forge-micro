@@ -4289,7 +4289,6 @@ dependencies = [
  "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
- "ubos-metrics",
  "ubos-mining",
  "ubos-net",
  "ubos-psu",
@@ -4394,6 +4393,7 @@ dependencies = [
  "profont",
  "ubos-cooling",
  "ubos-metrics",
+ "ubos-mining",
  "ubos-net",
 ]
 

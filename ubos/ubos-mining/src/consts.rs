@@ -34,3 +34,8 @@ pub const WORK_REGISTRY_SLOTS: usize = 256 / 8;
 /// today; a chip booting at a different rate would need this to become
 /// per-board.
 pub const INITIAL_BAUDRATE: u32 = 115_200;
+
+/// Number of pool slots a chain's work split and share accounting
+/// track: the fixed width of `SerialMessage::SetPoolWeights` and of
+/// the `pool_shares` array in `ChainStats`.
+pub const MAX_POOL_SLOTS: usize = 8;

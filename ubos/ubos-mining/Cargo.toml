@@ -11,6 +11,7 @@ defmt   = [
     "stratum-client/defmt",
     "ubos-events/defmt",
     "ubos-logging/defmt",
+    "ubos-machine/defmt",
     "ubos-psu/defmt",
 ]
 # Opt-in for cortex-m boards whose linker exposes a `.ccmram.bss`
@@ -47,6 +48,7 @@ mining-protocol   = { workspace = true }
 stratum-client    = { workspace = true }
 ubos-asic         = { workspace = true }
 ubos-logging      = { workspace = true }
+ubos-machine      = { workspace = true }
 ubos-psu          = { workspace = true }
 
 [dev-dependencies]

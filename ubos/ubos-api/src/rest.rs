@@ -378,7 +378,8 @@ impl Service for RestApiService {
         match (method, path) {
             ("GET", "/api/info") => {
                 let uptime_secs = Instant::now().as_secs();
-                let hashrate = ubos_metrics::hashrate::hashrate();
+                let chain_stats = ubos_mining::chain_stats::handle();
+                let hashrate = chain_stats.machine_hashrate();
                 let thermal_reading = self.thermal.current();
                 let chain_voltage_mv = thermal_reading
                     .as_ref()

@@ -32,6 +32,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod chain_control;
+pub mod chain_stats;
 pub mod consts;
 mod control;
 pub mod miner;

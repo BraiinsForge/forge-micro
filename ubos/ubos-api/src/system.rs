@@ -78,7 +78,7 @@ use heapless::String;
 use ubos_http::write_json_response;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_metrics::hashrate::hashrate;
+use ubos_mining::chain_stats::{machine_hashrate, machine_share_count};
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::ota::{OtaError, ota_session};
@@ -280,7 +280,8 @@ where
     T: Read + Write + TcpSplit,
 {
     let uptime_seconds = Instant::now().as_secs();
-    let hashrate_hps = hashrate();
+    let chain_stats = chain_stats::handle();
+    let hashrate_hps = chain_stats.machine_hashrate();
     #[allow(clippy::cast_possible_truncation)]
     let temperature_celsius = thermal
         .current()
@@ -291,7 +292,7 @@ where
     let pools_bitmap = stratum_client::pool_alive_bitmap();
     let shares_accepted = stratum_client::shares_accepted();
     let shares_rejected = stratum_client::shares_rejected();
-    let shares_total = ubos_metrics::hashrate::share_count();
+    let shares_total = chain_stats.machine_share_count();
     // Extract the configured hostname before building SystemInfo so the
     // full Config snapshot is dropped before the serialize_and_respond
     // await, keeping the response future small.
