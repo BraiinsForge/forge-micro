@@ -17,10 +17,11 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for the pure helpers behind [`super::record_share`].
-//! `record_share` itself is coupled to [`embassy_time::Instant`] and
-//! the module-level statics, so the tests exercise the extracted
-//! `hashes_per_share` and `next_ewma` functions instead.
+//! Tests for the pure helpers behind
+//! [`super::HashrateEstimator::record_share`]. `record_share` itself
+//! is coupled to [`embassy_time::Instant`] and the instance's own
+//! fields, so the tests exercise the extracted `hashes_per_share` and
+//! `next_ewma` functions instead.
 
 use super::{
     BUCKET_MS, EWMA_ALPHA_SHIFT, MAX_DECAY_STEPS, decay_silent, hashes_per_share, next_ewma,

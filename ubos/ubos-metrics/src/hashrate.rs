@@ -17,29 +17,16 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Bucketed EWMA hashrate accounting shared by every firmware.
+//! Bucketed EWMA hashrate accounting, instantiated once per estimator.
 //!
 //! Metrics: `../../../docs/METRICS.md`.
 
-use embassy_time::{Duration, Instant, Ticker};
+use embassy_time::Instant;
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
-
-use crate::metrics::{Metric, Value, push};
 
 #[cfg(test)]
 #[path = "tests/hashrate.rs"]
 mod tests;
-
-/// Total shares observed by [`record_share`] since boot. Monotonic;
-/// rendered as inline text on the firmware HTTP status page.
-static SHARE_COUNT: AtomicU64 = AtomicU64::new(0);
-
-/// Total shares observed since boot. The only path across the crate
-/// boundary; the backing counter stays private.
-#[must_use]
-pub fn share_count() -> u64 {
-    SHARE_COUNT.load(Ordering::Relaxed)
-}
 
 /// EWMA smoothing factor exponent: shift right by this many bits to
 /// scale the per-bucket delta. 3 → α = 1/8 → roughly an 8-bucket
@@ -48,81 +35,145 @@ const EWMA_ALPHA_SHIFT: u32 = 3;
 
 /// Width of the rate-accumulation bucket. Computing instant rate as
 /// `hashes_per_share / Δt_per_share` is biased high on a Poisson
-/// process, so [`record_share`] sums hashes over `BUCKET_MS` and
-/// only feeds the resulting average rate into the EWMA. With 1 s
-/// buckets and α = 1/8 the smoothing window is ~8 s.
+/// process, so [`HashrateEstimator::record_share`] sums hashes over
+/// `BUCKET_MS` and only feeds the resulting average rate into the
+/// EWMA. With 1 s buckets and α = 1/8 the smoothing window is ~8 s.
 const BUCKET_MS: u64 = 1_000;
 
-/// Beyond this many missed buckets the read-side decay in [`hashrate`]
-/// clamps to zero. 64 steps of α = 1/8 reduce any starting value to
-/// less than 0.02% of the original, which rounds to zero in u64.
+/// Beyond this many missed buckets the read-side decay in
+/// [`HashrateEstimator::hashrate`] clamps to zero. 64 steps of α = 1/8
+/// reduce any starting value to less than 0.02% of the original, which
+/// rounds to zero in u64.
 const MAX_DECAY_STEPS: u64 = 64;
 
-/// Smoothed hashrate in H/s. Updated when a bucket's worth of hashes
-/// has accumulated; read by [`hashrate`].
-static EWMA_HASHRATE: AtomicU64 = AtomicU64::new(0);
-
-/// Hashes credited to the in-progress bucket. Drained when the bucket
-/// elapses, see [`record_share`].
-static BUCKET_HASHES: AtomicU64 = AtomicU64::new(0);
-
-/// Uptime ms at which the in-progress bucket started. Only valid
-/// once [`BUCKET_PRIMED`] is true.
-static BUCKET_START_MS: AtomicU64 = AtomicU64::new(0);
-
-/// False until the first share has been recorded; gates the
-/// "first share primes the bucket" branch in [`record_share`] so the
-/// branch is not retriggered if [`Instant::now`] happens to read 0 ms
-/// at the moment the first share lands.
-static BUCKET_PRIMED: AtomicBool = AtomicBool::new(false);
-
-/// Bump the share counter and credit this share's hashes toward the
-/// current bucket. When the bucket has run for at least `BUCKET_MS`,
-/// finalize it: compute the average rate over the elapsed window and
-/// fold that into the EWMA. The first share just primes the bucket.
+/// A single instance's bucketed EWMA hashrate accounting.
 ///
-/// Single-writer so the load/store sequences on `BUCKET_*` and
-/// `EWMA_HASHRATE` cannot interleave with themselves; readers of
-/// [`hashrate`] only see the post-store value.
-pub fn record_share(target: &[u8; 32]) {
-    SHARE_COUNT.fetch_add(1, Ordering::Relaxed);
+/// One instance per chain, expected to be written by exactly one
+/// actor calling [`record_share`](Self::record_share); readers of
+/// [`hashrate`](Self::hashrate) only see the post-store value, and the
+/// load/store sequences on the fields below cannot interleave with
+/// themselves as long as that single-writer invariant holds.
+pub struct HashrateEstimator {
+    /// Total shares observed by [`record_share`](Self::record_share)
+    /// since this instance was created.
+    share_count: AtomicU64,
+    /// Smoothed hashrate in H/s. Updated when a bucket's worth of
+    /// hashes has accumulated; read by [`hashrate`](Self::hashrate).
+    ewma: AtomicU64,
+    /// Hashes credited to the in-progress bucket. Drained when the
+    /// bucket elapses, see [`record_share`](Self::record_share).
+    bucket_hashes: AtomicU64,
+    /// Uptime ms at which the in-progress bucket started. Only valid
+    /// once [`bucket_primed`](Self::bucket_primed) is true.
+    bucket_start_ms: AtomicU64,
+    /// False until the first share has been recorded; gates the
+    /// "first share primes the bucket" branch in
+    /// [`record_share`](Self::record_share) so the branch is not
+    /// retriggered if [`Instant::now`] happens to read 0 ms at the
+    /// moment the first share lands.
+    bucket_primed: AtomicBool,
+}
 
-    let hashes = hashes_per_share(target);
-    let now_ms = Instant::now().as_millis();
-
-    // First share after boot: prime the bucket and return; we need a
-    // second share before there is any elapsed time to compute over.
-    if !BUCKET_PRIMED.swap(true, Ordering::Relaxed) {
-        BUCKET_START_MS.store(now_ms, Ordering::Relaxed);
-        BUCKET_HASHES.store(hashes, Ordering::Relaxed);
-        return;
+impl HashrateEstimator {
+    /// Construct an estimator with no shares recorded yet.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            share_count: AtomicU64::new(0),
+            ewma: AtomicU64::new(0),
+            bucket_hashes: AtomicU64::new(0),
+            bucket_start_ms: AtomicU64::new(0),
+            bucket_primed: AtomicBool::new(false),
+        }
     }
 
-    let bucket_start = BUCKET_START_MS.load(Ordering::Relaxed);
-    let elapsed_ms = now_ms.saturating_sub(bucket_start);
-    if elapsed_ms < BUCKET_MS {
-        BUCKET_HASHES.fetch_add(hashes, Ordering::Relaxed);
-        return;
+    /// Total shares observed since this instance was created.
+    #[must_use]
+    pub fn share_count(&self) -> u64 {
+        self.share_count.load(Ordering::Relaxed)
     }
 
-    // Finalize the bucket. Swap so concurrent readers still see a
-    // coherent snapshot.
-    let bucket_total = BUCKET_HASHES.swap(hashes, Ordering::Relaxed);
-    BUCKET_START_MS.store(now_ms, Ordering::Relaxed);
-    let stored = EWMA_HASHRATE.load(Ordering::Relaxed);
-    // When a share arrives after silence, decay the stored EWMA across
-    // the missed buckets first so the resumed value is consistent with
-    // what hashrate() was returning during the quiet period.
-    let (previous, fold_window) = if elapsed_ms >= 2 * BUCKET_MS {
-        let silent_buckets = (elapsed_ms - BUCKET_MS) / BUCKET_MS;
-        (decay_silent(stored, silent_buckets), BUCKET_MS)
-    } else {
-        (stored, elapsed_ms)
-    };
-    EWMA_HASHRATE.store(
-        next_ewma(bucket_total, fold_window, previous),
-        Ordering::Relaxed,
-    );
+    /// Bump the share counter and credit this share's hashes toward
+    /// the current bucket. When the bucket has run for at least
+    /// `BUCKET_MS`, finalize it: compute the average rate over the
+    /// elapsed window and fold that into the EWMA. The first share
+    /// just primes the bucket.
+    pub fn record_share(&self, target: &[u8; 32]) {
+        self.share_count.fetch_add(1, Ordering::Relaxed);
+
+        let hashes = hashes_per_share(target);
+        let now_ms = Instant::now().as_millis();
+
+        // First share after creation: prime the bucket and return; we
+        // need a second share before there is any elapsed time to
+        // compute over.
+        if !self.bucket_primed.swap(true, Ordering::Relaxed) {
+            self.bucket_start_ms.store(now_ms, Ordering::Relaxed);
+            self.bucket_hashes.store(hashes, Ordering::Relaxed);
+            return;
+        }
+
+        let bucket_start = self.bucket_start_ms.load(Ordering::Relaxed);
+        let elapsed_ms = now_ms.saturating_sub(bucket_start);
+        if elapsed_ms < BUCKET_MS {
+            self.bucket_hashes.fetch_add(hashes, Ordering::Relaxed);
+            return;
+        }
+
+        // Finalize the bucket. Swap so concurrent readers still see a
+        // coherent snapshot.
+        let bucket_total = self.bucket_hashes.swap(hashes, Ordering::Relaxed);
+        self.bucket_start_ms.store(now_ms, Ordering::Relaxed);
+        let stored = self.ewma.load(Ordering::Relaxed);
+        // When a share arrives after silence, decay the stored EWMA across
+        // the missed buckets first so the resumed value is consistent with
+        // what hashrate() was returning during the quiet period.
+        let (previous, fold_window) = if elapsed_ms >= 2 * BUCKET_MS {
+            let silent_buckets = (elapsed_ms - BUCKET_MS) / BUCKET_MS;
+            (decay_silent(stored, silent_buckets), BUCKET_MS)
+        } else {
+            (stored, elapsed_ms)
+        };
+        self.ewma.store(
+            next_ewma(bucket_total, fold_window, previous),
+            Ordering::Relaxed,
+        );
+    }
+
+    /// Smoothed hashrate in hashes per second. Zero until the first
+    /// bucket finalizes, `BUCKET_MS` after the first share.
+    ///
+    /// When shares stop arriving the stored EWMA goes stale because
+    /// only [`record_share`](Self::record_share) writes it. This
+    /// function applies read-side decay: for every full `BUCKET_MS`
+    /// window of staleness beyond the first two, it folds a zero-rate
+    /// bucket into the EWMA. The result is never written back,
+    /// preserving the single-writer invariant.
+    #[must_use]
+    pub fn hashrate(&self) -> u64 {
+        let stored = self.ewma.load(Ordering::Relaxed);
+        if stored == 0 || !self.bucket_primed.load(Ordering::Relaxed) {
+            return stored;
+        }
+
+        let bucket_start = self.bucket_start_ms.load(Ordering::Relaxed);
+        let now_ms = Instant::now().as_millis();
+        let stale_ms = now_ms.saturating_sub(bucket_start);
+
+        // The current bucket is still accumulating or just barely overdue.
+        if stale_ms < 2 * BUCKET_MS {
+            return stored;
+        }
+
+        let missed = (stale_ms - BUCKET_MS) / BUCKET_MS;
+        decay_silent(stored, missed)
+    }
+}
+
+impl Default for HashrateEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Apply `missed` consecutive zero-rate EWMA steps to `value`. Returns 0
@@ -152,70 +203,6 @@ fn next_ewma(bucket_total: u64, elapsed_ms: u64, previous: u64) -> u64 {
     let delta = i128::from(bucket_rate) - i128::from(previous);
     let next = i128::from(previous) + (delta >> EWMA_ALPHA_SHIFT);
     u64::try_from(next.max(0)).unwrap_or(u64::MAX)
-}
-
-/// Smoothed hashrate in hashes per second. Zero until the first
-/// bucket finalizes, `BUCKET_MS` after the first share.
-///
-/// When shares stop arriving the stored EWMA goes stale because
-/// only [`record_share`] writes it. This function applies read-side
-/// decay: for every full `BUCKET_MS` window of staleness beyond the
-/// first two, it folds a zero-rate bucket into the EWMA. The result
-/// is never written back, preserving the single-writer invariant.
-#[must_use]
-pub fn hashrate() -> u64 {
-    let stored = EWMA_HASHRATE.load(Ordering::Relaxed);
-    if stored == 0 || !BUCKET_PRIMED.load(Ordering::Relaxed) {
-        return stored;
-    }
-
-    let bucket_start = BUCKET_START_MS.load(Ordering::Relaxed);
-    let now_ms = Instant::now().as_millis();
-    let stale_ms = now_ms.saturating_sub(bucket_start);
-
-    // The current bucket is still accumulating or just barely overdue.
-    if stale_ms < 2 * BUCKET_MS {
-        return stored;
-    }
-
-    let missed = (stale_ms - BUCKET_MS) / BUCKET_MS;
-    decay_silent(stored, missed)
-}
-
-/// Periodically push `board_hashrate_hps` and `board_shares_total` to
-/// the metrics exposition channel.
-///
-/// Reads the same atomics as [`hashrate`] and [`SHARE_COUNT`]. Boards
-/// spawn it through [`hashrate_metrics_task`].
-pub async fn run_hashrate_publisher() -> ! {
-    let mut ticker = Ticker::every(Duration::from_secs(2));
-    loop {
-        ticker.next().await;
-        push(Metric::with_no_labels(
-            "board_hashrate_hps",
-            Value::Uint(hashrate()),
-        ))
-        .await;
-        // ASIC-reported share count, distinct from the upstream pool's
-        // accepted/rejected acknowledgements (`board_shares_accepted_total`
-        // and `board_shares_rejected_total` published by stratum-client).
-        push(Metric::with_no_labels(
-            "board_shares_total",
-            Value::Uint(SHARE_COUNT.load(Ordering::Relaxed)),
-        ))
-        .await;
-    }
-}
-
-/// Task shell around [`run_hashrate_publisher`].
-#[macro_export]
-macro_rules! hashrate_metrics_task {
-    () => {
-        #[embassy_executor::task]
-        async fn hashrate_metrics_task() -> ! {
-            ubos_metrics::hashrate::run_hashrate_publisher().await
-        }
-    };
 }
 
 /// `Display` adapter for a hashrate in H/s. Renders rates below 1 GH/s
