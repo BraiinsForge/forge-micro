@@ -20,7 +20,10 @@
 //! Reset pin driven through the carrier's TCA9554 I/O expander.
 //!
 //! One line of the expander holds a hashboard's reset signal. Active-low:
-//! low holds the chain in reset, high releases it.
+//! low holds the chain in reset, high releases it. The other seven lines
+//! belong to whatever else the carrier wires to the expander, so every
+//! write here changes this pin's bit alone and leaves the rest as the
+//! device last reported them.
 
 use defmt::warn;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
@@ -28,11 +31,17 @@ use tca9554::{Address, Tca9554};
 
 use crate::i2c::{Bus, Device};
 
+/// The direction register's power-on value: every line an input.
+const ALL_INPUTS: u8 = 0xFF;
+
 /// Drives a hashboard reset line through the carrier's TCA9554 I/O
 /// expander on the given pin.
 pub struct ExpanderResetPin {
     expander: Tca9554<Device>,
     pin_bit: u8,
+    /// The output register as last written, so a transition can change
+    /// this pin's bit and nothing else. Seeded from the device in `new`.
+    outputs: u8,
 }
 
 impl ExpanderResetPin {
@@ -42,30 +51,49 @@ impl ExpanderResetPin {
     /// logged and ignored, per [`ubos_mining::reset::ResetPin`].
     pub async fn new(bus: &'static Bus, pin_bit: u8) -> Self {
         let mut expander = Tca9554::new(I2cDevice::new(bus), Address::standard());
-        // The pin is driven low before it is switched to an output. The
-        // TCA9554 output latch powers up at 0xFF, so writing the direction
-        // first would briefly drive the pin high and deassert reset before
-        // the output write lands.
-        // Output register: 0 = low on every pin. Direction register: 0 = output.
-        if expander.write_output(0).await.is_err()
-            || expander.write_direction(!pin_bit).await.is_err()
+        // Both registers are read back first so the other lines keep
+        // whatever state the carrier gave them. The pin is driven low
+        // before it is switched to an output: the output latch powers up
+        // high, so writing the direction first would briefly drive the
+        // pin high and deassert reset before the output write lands.
+        let outputs = expander.read_output().await.unwrap_or(0) & !pin_bit;
+        let direction = expander.read_direction().await.unwrap_or(ALL_INPUTS) & !pin_bit;
+        if expander.write_output(outputs).await.is_err()
+            || expander.write_direction(direction).await.is_err()
         {
             warn!("expander: TCA9554 reset-pin init failed");
         }
-        Self { expander, pin_bit }
+        Self {
+            expander,
+            pin_bit,
+            outputs,
+        }
+    }
+
+    /// Write the port with this pin's bit set to `high` and the other
+    /// bits as last written. The shadow follows the device only on a
+    /// successful write, so a failed transition is retried from the
+    /// state the device still holds.
+    async fn set_pin(&mut self, high: bool, what: &str) {
+        let outputs = if high {
+            self.outputs | self.pin_bit
+        } else {
+            self.outputs & !self.pin_bit
+        };
+        if self.expander.write_output(outputs).await.is_err() {
+            warn!("expander: TCA9554 {} write failed", what);
+            return;
+        }
+        self.outputs = outputs;
     }
 }
 
 impl ubos_mining::reset::ResetPin for ExpanderResetPin {
     async fn enter_reset(&mut self) {
-        if self.expander.write_output(0).await.is_err() {
-            warn!("expander: TCA9554 enter_reset write failed");
-        }
+        self.set_pin(false, "enter_reset").await;
     }
 
     async fn exit_reset(&mut self) {
-        if self.expander.write_output(self.pin_bit).await.is_err() {
-            warn!("expander: TCA9554 exit_reset write failed");
-        }
+        self.set_pin(true, "exit_reset").await;
     }
 }
