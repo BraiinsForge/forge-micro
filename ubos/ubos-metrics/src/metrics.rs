@@ -38,6 +38,10 @@ use ubos_logging::warn;
 use crate::consts::Metrics;
 use ubos_http::{BufferWriter, RequestParts, Service, format_content_length};
 
+#[cfg(test)]
+#[path = "tests/metrics.rs"]
+mod tests;
+
 /// A metric value.
 #[derive(Clone, Copy)]
 #[non_exhaustive]
@@ -158,13 +162,30 @@ struct StoredValue {
 /// Labels are sorted so that `{a="1",b="2"}` and `{b="2",a="1"}` map to
 /// the same key.
 ///
-/// Budget: 49 bytes covers the longest emitted key,
-/// `board_lm75a_temperature_millicelsius{addr="0x4c"}`, including the
-/// full label-expanded form with braces and quoted value. The remaining
-/// 15 bytes fit one additional short label before `upsert_metric` hits
-/// the cap and emits a `warn!`. If a new long-name metric is added,
-/// raise `KEY_CAPACITY` instead of relying on the runtime drop.
-const KEY_CAPACITY: usize = 64;
+/// Budget: the longest key any metric renders is
+/// [`LONGEST_RENDERED_KEY`], and the capacity is checked against it
+/// below rather than against a length restated here. A prose budget is
+/// what went stale last time: it named a 49-byte key while a longer one
+/// was already being emitted, and the two-label per-chain series that
+/// followed overran the cap and was dropped at runtime for a `warn!`.
+///
+/// Each byte costs [`Metrics::MAX_METRICS`] bytes of static map, so this
+/// is raised deliberately rather than rounded up. A metric longer than
+/// the constant below must move both, and the test beside it is what
+/// catches one that does not.
+const KEY_CAPACITY: usize = 80;
+
+/// The longest key the tree renders, in the label-expanded form
+/// [`MetricKey::from_metric`] builds: `hashboard_chain_chip_temperature_millicelsius`
+/// with the `chain` and `stat` labels `ubos-thermal` gives it. A chain
+/// index is one digit for every `MAX_CHAINS` below ten.
+const LONGEST_RENDERED_KEY: &str =
+    "hashboard_chain_chip_temperature_millicelsius{chain=\"0\",stat=\"highest\"}";
+
+const _: () = assert!(
+    LONGEST_RENDERED_KEY.len() <= KEY_CAPACITY,
+    "KEY_CAPACITY is below the longest key a metric renders"
+);
 
 #[derive(PartialEq, Eq, Hash)]
 struct MetricKey(heapless::String<KEY_CAPACITY>);

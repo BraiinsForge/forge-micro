@@ -63,13 +63,18 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
   `configure` so the thermal loop has a reading before the ramp. Both
   default to no-ops for a family whose chips carry no sensors.
   On a board whose chips are its only thermometer,
-  `ubos_thermal::ChainTemperature` is the `TemperatureSensor` over that
-  store. It reports the hottest die that any chip has reported. It
-  judges the chain and not one chip: a chip answers a turn only once
-  per pass, which is minutes on a long chain. The chain is silent only
-  if no chip has answered for 60 seconds. The sensor publishes the
-  chain's core voltage and writes a summary to the log from inside
-  `sample`, so no task exists for reporting alone.
+  `ubos_thermal::ChainTemperature` is the `TemperatureSensor` over those
+  stores, one per chain. It reports the hottest die that any chip of any
+  present chain has reported. It judges a chain and not one chip: a chip
+  answers a turn only once per pass, which is minutes on a long chain. A
+  chain is silent only if no chip of that chain has answered for 60
+  seconds. It reads only the chains that `ChainStats` reports as present,
+  because an absent connector has no chip to run a PVT block and must not
+  halt the board. Each present chain's hottest die goes back into that
+  chain's `ChainStats`, which is the temperature the API and the dashboard
+  show per chain. The sensor publishes each chain's core voltage and
+  writes a summary to the log from inside `sample`, so no task exists for
+  reporting alone.
 
 A poll family can fold its dispatch into the poll cycle. `send_work` then
 stores the job and programs what keeps each chip apart from the others,
@@ -183,9 +188,13 @@ ubos-asic  (sans-IO: no UART, no direct I/O)
       Bm13xxDriver             (bridges ChipProtocol onto Transport)
   (other vendor drivers implement ChainDriver from their own crates)
 ubos-mining
-  serial actor (SERIAL)      ← owns UART halves + select loop; is Transport
-                               runs the concrete driver the consumer injects
-  tuner (policy)             ← drives ChainDriver ops; PSU + V²·f ramp
+  serial actors (one per chain) ← each owns one chain's UART halves +
+                                   select loop; each is Transport and runs
+                                   the concrete driver the consumer injects
+  Miner                      ← owns one ChainHandle per chain; enumerates
+                               every chain and retries a bad chip count
+  tuner (policy)             ← drives ChainControl ops per chain; PSU +
+                               V²·f ramp
 ```
 
 ### Chip selection
@@ -207,13 +216,14 @@ from.
 
 ### The serial actor
 
-`SERIAL` owns the UART read and write halves, implements `Transport` over
+A board owns a static array of `Serial`, one actor per chain. Each actor
+owns its chain's UART read and write halves, implements `Transport` over
 them, and runs a `select` loop over four arms: a work tick (periodic work
 send via `ChainDriver::send_work`), a result arm (a UART read fed to
 `ChainDriver::ingest` for push chips, or a poll ticker that
 returns readiness for poll chips), a command channel (reset, reset-and-
 enumerate, configure, set-frequency, start/stop work, terminate), and the
-park signal. On dual-core boards the actor is pinned to Core 1 so the
+park signal. On dual-core boards every actor is pinned to Core 1 so the
 network stack on Core 0 stays responsive; the shared session uses a
 `CriticalSectionRawMutex`.
 
@@ -404,10 +414,13 @@ tuning-policy envelope, not a chip limit.
 
 ## Tuners
 
-- **`FixedTuner`** — the default. Drives the `ChainDriver` bring-up
-  (`reset_and_enumerate` / `configure`) through `MinerControl`, anchors
-  the open-core voltage, and walks the V²·f curve to the configured
-  target on the chip's frequency-step grid.
+- **`FixedTuner`** — the default. The `Miner` holds one `ChainHandle` per
+  chain and owns enumeration: it resets and enumerates every chain,
+  retrying a chain whose chip count does not match the board's expected
+  count up to the retry budget before parking it. Once a chain is
+  present, the tuner ramps it through `ChainControl` — `configure`,
+  anchoring the open-core voltage, and walking the V²·f curve to the
+  configured target on the chip's frequency-step grid.
 
 ## Verification
 

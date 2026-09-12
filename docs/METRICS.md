@@ -175,6 +175,25 @@ There are no unlabelled duplicates of the last two. A board total is
 `sum(...)` over the `chain` label, as for the per-pool series above.
 They describe chip output, not pool credit.
 
+## Per-chain PVT series
+
+Code: `ubos/ubos-thermal/src/chain.rs`.
+
+On a board whose chips are its only thermometer, `ChainTemperature`
+publishes two more gauges every ten seconds, from inside the thermal
+sample. Both are labelled `chain="i"`, and only a present chain reports:
+
+- `hashboard_chain_voltage_microvolts` — the sum of the core
+  voltages the chain's chips report about themselves. The chips sit in
+  series across one rail, so this is the string voltage.
+- `hashboard_chain_chip_temperature_millicelsius{stat=...}` — the spread
+  of die temperatures across the chain, as three series: `lowest`, `mean`
+  and `highest`.
+
+The spread is what says whether one die is running away from the rest.
+The hottest die itself is not here: the thermal loop already publishes it
+as `board_chip_temperature_millicelsius`, the sample it took.
+
 ## Hashrate
 
 Code: `ubos/ubos-metrics/src/hashrate.rs`, `ubos/ubos-mining/src/chain_stats.rs`.

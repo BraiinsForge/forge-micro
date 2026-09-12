@@ -17,6 +17,7 @@ defmt   = [
     "ubos-logging/defmt",
     "ubos-manager/defmt",
     "ubos-metrics/defmt",
+    "ubos-mining/defmt",
     "ubos-temperature/defmt",
 ]
 # Exposes a hook that publishes a `ThermalReading` directly onto the
@@ -38,15 +39,24 @@ ubos-core          = { workspace = true }
 ubos-events        = { workspace = true, default-features = false }
 ubos-manager       = { workspace = true, default-features = false }
 ubos-metrics       = { workspace = true, default-features = false }
+# The sensor reads each chain's presence and publishes its hottest die
+# through `ChainStats`. The edge is already there by way of
+# `ubos-manager`, which this crate halts mining through.
+ubos-mining        = { workspace = true, default-features = false }
 ubos-temperature   = { workspace = true, default-features = false }
 ubos-logging       = { workspace = true }
 
 [dev-dependencies]
 # The chain sensor keeps its silence clocks on `Instant`, so the host tests
 # need the standard time driver, and the PVT store's atomics need a
-# critical-section backend on the host.
-embassy-time     = { workspace = true, features = ["std"] }
+# critical-section backend on the host. The sensor's report awaits a real
+# `Ticker`, which needs a queue implementation, so `generic-queue-8` joins
+# `std` here the same way `ubos-mining` and `ubos-cooling` already carry it.
+embassy-time     = { workspace = true, features = ["std", "generic-queue-8"] }
 critical-section = { version = "1.2", features = ["std"] }
+# The accounting handle the tests build takes its wired-chain count as an
+# atomic of the same crate `ubos-mining` uses.
+portable-atomic  = { workspace = true }
 
 [package.metadata.cargo-machete]
 ignored = ["defmt"]

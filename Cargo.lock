@@ -4723,6 +4723,7 @@ dependencies = [
  "embassy-time",
  "embedded-hal-async",
  "heapless 0.9.2",
+ "portable-atomic",
  "ubos-asic",
  "ubos-config",
  "ubos-core",
@@ -4730,6 +4731,7 @@ dependencies = [
  "ubos-logging",
  "ubos-manager",
  "ubos-metrics",
+ "ubos-mining",
  "ubos-temperature",
 ]
 
