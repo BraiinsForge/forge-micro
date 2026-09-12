@@ -56,3 +56,16 @@ fn a_failed_read_does_not_hold_the_chain_open() {
     pvt.record(0, None, None);
     assert!(sensor.chain_is_silent(answered + MAX_SILENCE));
 }
+
+#[test]
+fn chain_voltage_requires_every_chip_and_converts_microvolts_to_millivolts() {
+    let pvt = store();
+    let sensor = ChainTemperature::new(pvt);
+    assert_eq!(sensor.chain_voltage_mv(), None);
+    for chip in 0..3 {
+        pvt.record(chip, Some(50.0), Some(303.0));
+    }
+    assert_eq!(sensor.chain_voltage_mv(), None);
+    pvt.record(3, Some(50.0), Some(306.0));
+    assert_eq!(sensor.chain_voltage_mv(), Some(1215));
+}

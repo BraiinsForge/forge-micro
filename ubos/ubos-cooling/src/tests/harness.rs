@@ -100,6 +100,7 @@ pub(crate) fn moderate_reading(sensor_fault: bool) -> ThermalReading {
     // temperature unambiguously demonstrates the fan leaving FULL.
     let temp = Temperature::from_millicelsius(50_000);
     ThermalReading {
+        chain_voltage_mv: None,
         chip_max: temp,
         pid_temp: temp,
         timestamp_ms: 0,

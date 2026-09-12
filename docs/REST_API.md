@@ -123,6 +123,12 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 | GET    | `/api/config`  | any         | `ConfigUpdate` snapshot: `pool`, `thermal`, `cooling` (`mode`, `target_temp_c`, `fixed_fan_pwm`, `min_fan_pwm`), `miner`, `tuning`, `api` (password blanked), `network` |
 | POST   | `/api/config`  | any +CSRF   | Partial `ConfigUpdate` (any subset of those fields); returns `{"ok":true}` |
 
+`/api/info` keeps PSU and chip-derived voltage separate.
+`psu_voltage_measured_mv` is the physical PSU output reading;
+`chain_voltage_mv` is the sum of core voltages reported by every
+chip, or zero until the full chain has reported. The dashboard uses the
+chain value only when the PSU reading is unavailable.
+
 ### `/api/system/*`
 
 | Method | Path                              | Auth      | Status | Description                                                              |

@@ -33,8 +33,9 @@ function info() {
     fan_pwm: 65,
     power_in_mw: powerIn * 1000,
     power_out_mw: (powerIn - 180) * 1000,
-    voltage_set_mv: 12000,
-    voltage_measured_mv: 11940,
+    psu_voltage_set_mv: 12000,
+    psu_voltage_measured_mv: 11940,
+    chain_voltage_mv: 0,
     psu_fault: false,
     pools: 0b001, // slot 0 alive
     net_confirm_seconds: 0,

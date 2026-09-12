@@ -122,6 +122,12 @@ pub trait TemperatureSensor {
     /// Implementations may await on the underlying hardware.
     async fn sample(&mut self) -> Option<Sample>;
 
+    /// Sum of chip core voltages when this sensor also observes the chain.
+    /// `None` means the sensor cannot provide a complete chain measurement.
+    fn chain_voltage_mv(&self) -> Option<u32> {
+        None
+    }
+
     /// Whether a sensor that has stopped reading should halt mining.
     ///
     /// True for a board whose sensor is independent of what it measures,
@@ -154,6 +160,8 @@ pub struct ThermalReading {
     /// Temperature that drives the cooling PID. PCB-plus-
     /// offset estimate rather than the real die reading.
     pub pid_temp: Temperature,
+    /// Chip-derived voltage sum, separate from a measured PSU output rail.
+    pub chain_voltage_mv: Option<u32>,
     /// Monotonic timestamp of this reading in milliseconds since boot.
     pub timestamp_ms: u64,
     /// True when the sensor has been unreadable for `SENSOR_FAULT_TICKS`
@@ -325,6 +333,7 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
                     pid_temp: last_pid_temp.unwrap_or(Temperature::from_millicelsius(0)),
                     timestamp_ms: now.as_millis(),
                     sensor_fault: true,
+                    chain_voltage_mv: None,
                 });
             }
             continue;
@@ -363,6 +372,7 @@ pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHa
             pid_temp,
             timestamp_ms: now.as_millis(),
             sensor_fault: false,
+            chain_voltage_mv: sensor.chain_voltage_mv(),
         });
     }
 }

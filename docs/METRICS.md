@@ -70,6 +70,20 @@ CPU usage with Rust Embassy"
 (<https://www.giacomocaironi.dev/posts/measuring-cpu-usage-with-rust-embassy/>,
 reference impl at <https://gitlab.com/giacomocaironi/embassy-cpu-usage>).
 
+## Voltage
+
+Code: `ubos/ubos-psu/src/lib.rs`,
+`ubos/ubos-mining/src/publishers.rs`,
+`ubos/ubos-thermal/src/chain.rs`.
+
+`board_psu_output_voltage_set_mv` is the commanded hashboard rail.
+`board_psu_output_voltage_measured_mv` is a physical reading of that rail;
+a zero value on a board without a voltage sensor means unavailable.
+`board_miner_voltage_mv` is the active tuner target and normally equals
+the PSU set value. `hashboard_chain_voltage_microvolts` is different:
+it sums the on-die core voltages reported by the chips. It remains a
+separate metric because it is not a PSU rail measurement.
+
 ## Board temperature
 
 Code: `ubos/ubos-thermal/src/metrics.rs`,

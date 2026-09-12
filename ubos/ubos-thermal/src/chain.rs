@@ -57,7 +57,7 @@ pub const MAX_SILENCE: Duration = Duration::from_secs(60);
 const REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
 /// The chain's core voltage as the chips report it.
-const CHAIN_VOLTAGE_METRIC: &str = "hashboard_chain_core_voltage_microvolts";
+const CHAIN_VOLTAGE_METRIC: &str = "hashboard_chain_voltage_microvolts";
 
 /// The spread of die temperatures across the chain, one series per
 /// statistic under the `stat` label. The thermal loop already publishes
@@ -168,6 +168,18 @@ impl<const CHIPS: usize> ChainTemperature<CHIPS> {
 }
 
 impl<const CHIPS: usize> TemperatureSensor for ChainTemperature<CHIPS> {
+    fn chain_voltage_mv(&self) -> Option<u32> {
+        if self.chain_is_silent(Instant::now()) {
+            return None;
+        }
+        let voltage = self.pvt.voltage_summary()?;
+        // A partial sum would look like severe rail droop during bring-up.
+        if usize::from(voltage.chips) != CHIPS {
+            return None;
+        }
+        u32::try_from(voltage.total_microvolts / 1000).ok()
+    }
+
     async fn sample(&mut self) -> Option<Sample> {
         self.report().await;
         if self.chain_is_silent(Instant::now()) {

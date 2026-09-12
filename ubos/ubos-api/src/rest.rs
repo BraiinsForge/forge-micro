@@ -379,11 +379,13 @@ impl Service for RestApiService {
             ("GET", "/api/info") => {
                 let uptime_secs = Instant::now().as_secs();
                 let hashrate = ubos_metrics::hashrate::hashrate();
+                let thermal_reading = self.thermal.current();
+                let chain_voltage_mv = thermal_reading
+                    .as_ref()
+                    .and_then(|reading| reading.chain_voltage_mv)
+                    .unwrap_or(0);
                 #[allow(clippy::cast_possible_truncation)]
-                let temperature = self
-                    .thermal
-                    .current()
-                    .map_or(0i32, |r| r.chip_max.celsius_f32() as i32);
+                let temperature = thermal_reading.map_or(0i32, |r| r.chip_max.celsius_f32() as i32);
                 let fan = ubos_cooling::handle().current();
                 let fan_rpm = fan.map_or(0, |f| f.rpm.rpm());
                 let fan_pwm = fan.map_or(0, |f| f.pwm.percent());
@@ -391,8 +393,8 @@ impl Service for RestApiService {
                 let psu_reading = self.psu.current();
                 let power_in_mw = psu_reading.map_or(0u32, |r| r.input_power.mw());
                 let power_out_mw = psu_reading.map_or(0u32, |r| r.output_power.mw());
-                let voltage_set_mv = psu_reading.map_or(0u32, |r| r.output_voltage_set.mv());
-                let voltage_measured_mv =
+                let psu_voltage_set_mv = psu_reading.map_or(0u32, |r| r.output_voltage_set.mv());
+                let psu_voltage_measured_mv =
                     psu_reading.map_or(0u32, |r| r.output_voltage_measured.mv());
                 let psu_fault = psu_reading.is_some_and(|r| r.sensor_fault);
                 // Seconds left in the network confirm window, or 0 when nothing is pending.
@@ -419,8 +421,9 @@ impl Service for RestApiService {
                      \"fan_pwm\":{fan_pwm},\
                      \"power_in_mw\":{power_in_mw},\
                      \"power_out_mw\":{power_out_mw},\
-                     \"voltage_set_mv\":{voltage_set_mv},\
-                     \"voltage_measured_mv\":{voltage_measured_mv},\
+                     \"psu_voltage_set_mv\":{psu_voltage_set_mv},\
+                     \"psu_voltage_measured_mv\":{psu_voltage_measured_mv},\
+                     \"chain_voltage_mv\":{chain_voltage_mv},\
                      \"psu_fault\":{psu_fault},\
                      \"pools\":{pools},\
                      \"net_confirm_seconds\":{net_confirm_seconds},\

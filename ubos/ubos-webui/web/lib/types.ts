@@ -21,8 +21,10 @@ export interface Info {
   fan_pwm?: number;
   power_in_mw?: number;
   power_out_mw?: number;
-  voltage_set_mv?: number;
-  voltage_measured_mv?: number;
+  psu_voltage_set_mv?: number;
+  psu_voltage_measured_mv?: number;
+  /** Sum of chip core voltages; not a PSU output-rail measurement. */
+  chain_voltage_mv?: number;
   psu_fault?: boolean;
   /** Bitmask of live pool slots: bit N set means slot N is alive. */
   pools?: number;

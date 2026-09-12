@@ -97,8 +97,9 @@ fn api_info_body_fits_in_buffer() {
     let fan_pwm = u8::MAX;
     let power_in_mw = u32::MAX;
     let power_out_mw = u32::MAX;
-    let voltage_set_mv = u32::MAX;
-    let voltage_measured_mv = u32::MAX;
+    let psu_voltage_set_mv = u32::MAX;
+    let psu_voltage_measured_mv = u32::MAX;
+    let chain_voltage_mv = u32::MAX;
     let psu_fault = true;
     let pools = u8::MAX;
     let net_confirm_seconds = u64::MAX;
@@ -115,8 +116,9 @@ fn api_info_body_fits_in_buffer() {
          \"fan_pwm\":{fan_pwm},\
          \"power_in_mw\":{power_in_mw},\
          \"power_out_mw\":{power_out_mw},\
-         \"voltage_set_mv\":{voltage_set_mv},\
-         \"voltage_measured_mv\":{voltage_measured_mv},\
+         \"psu_voltage_set_mv\":{psu_voltage_set_mv},\
+         \"psu_voltage_measured_mv\":{psu_voltage_measured_mv},\
+         \"chain_voltage_mv\":{chain_voltage_mv},\
          \"psu_fault\":{psu_fault},\
          \"pools\":{pools},\
          \"net_confirm_seconds\":{net_confirm_seconds},\

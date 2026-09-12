@@ -71,6 +71,7 @@ export default function Dashboard() {
   const dash = useDash();
   const info = dash.info;
   const status = statusOf(info);
+  const measuredVoltage = info?.psu_voltage_measured_mv || info?.chain_voltage_mv;
 
   const [poolCfg, setPoolCfg] = useState<(PoolMeta | null | undefined)[]>([undefined, undefined, undefined]);
   const [tempThresh, setTempThresh] = useState<[number, number] | null>(null);
@@ -168,7 +169,7 @@ export default function Dashboard() {
         />
         <StatCard
           label="Voltage set / measured"
-          value={<><span>{fmtVolts(info?.voltage_set_mv)}</span> / <span>{fmtVolts(info?.voltage_measured_mv)}</span></>}
+          value={<><span>{fmtVolts(info?.psu_voltage_set_mv)}</span> / <span>{fmtVolts(measuredVoltage)}</span></>}
         />
         <StatCard
           label="Fan speed / PWM"
