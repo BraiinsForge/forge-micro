@@ -221,7 +221,7 @@ where
     }
 }
 
-/// Look up the outstanding work for `solution.work_id`, verify the
+/// Look up the outstanding work for `solution.assignment_id`, verify the
 /// originating `JobId` is still valid, and submit the share.
 /// Stale shares get dropped before they hit the wire.
 fn handle_solution<C: MiningClient>(
@@ -229,12 +229,12 @@ fn handle_solution<C: MiningClient>(
     state: &mut StratumState,
     solution: Solution,
 ) -> Result<(), Error> {
-    let outstanding = state.work_ring.lookup(solution.work_id);
+    let outstanding = state.work_ring.lookup(solution.assignment_id);
     let Some(outstanding) = outstanding else {
-        // Ring rotated past this work_id — pool would reject anyway.
+        // Ring rotated past this assignment_id — pool would reject anyway.
         warn!(
-            "stratum-client: pool {} solution drop, work_id={} not in ring",
-            state.slot, solution.work_id,
+            "stratum-client: pool {} solution drop, assignment_id={} not in ring",
+            state.slot, solution.assignment_id,
         );
         return Ok(());
     };

@@ -17,12 +17,12 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! `WorkAssignment` and `Solution` — the host↔ASIC contract.
+//! `WorkAssignment` and `Solution` — the stratum↔mining contract.
 //!
-//! `WorkAssignment` carries everything an ASIC needs to mine on a
-//! single header (after en2 has been absorbed pool-side via the
-//! merkle root). `Solution` echoes back the `work_id` so the host can
-//! reconstruct the full submit context from its `WorkRing`.
+//! `WorkAssignment` carries one concrete header to the mining actor after
+//! extranonce2 has been folded into the merkle root. The actor maps it to a
+//! bounded hardware `work_id`, then restores `assignment_id` on the returned
+//! `Solution` so the stratum session can recover its submit context.
 
 use mining_protocol::JobId;
 pub use mining_protocol::MAX_EXTRANONCE_2;
@@ -35,10 +35,10 @@ pub use mining_protocol::MAX_EXTRANONCE_2;
 /// folded into `merkle_root` before the assignment is published.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct WorkAssignment {
-    /// Adapter-stamped correlation token. The ASIC echoes it back
-    /// in the `Solution` so the host can recover the matching
-    /// per-share state from the `WorkRing`.
-    pub work_id: u32,
+    /// Stratum-session correlation token. The mining actor restores it
+    /// after resolving the hardware `work_id`, allowing the session to find
+    /// the matching per-share state in its `WorkRing`.
+    pub assignment_id: u32,
     pub prev_hash: [u8; 32],
     pub merkle_root: [u8; 32],
     pub target: [u8; 32],
@@ -54,7 +54,7 @@ pub struct WorkAssignment {
 /// Found nonce returned from the ASIC.
 #[derive(Clone, Copy)]
 pub struct Solution {
-    pub work_id: u32,
+    pub assignment_id: u32,
     pub nonce: u32,
     pub ntime: u32,
     pub version_bits: u32,
@@ -66,7 +66,7 @@ pub struct Solution {
 /// values it actually used directly in the `Solution`.
 #[derive(Clone)]
 pub struct OutstandingWork {
-    pub work_id: u32,
+    pub assignment_id: u32,
     pub job_id: JobId,
     pub extranonce_2: heapless::Vec<u8, MAX_EXTRANONCE_2>,
 }

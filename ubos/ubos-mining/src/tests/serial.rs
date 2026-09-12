@@ -45,6 +45,7 @@
 //! that is genuinely in flight when it arrives.
 
 use super::*;
+use ubos_asic::{PollBatch, SolutionBatch};
 
 use crate::consts::WORK_REGISTRY_SLOTS;
 use crate::registry::WorkRegistry;
@@ -138,9 +139,9 @@ impl BaudRate for MockSerial {
     }
 }
 
-fn assignment(work_id: u32) -> WorkAssignment {
+fn assignment(assignment_id: u32) -> WorkAssignment {
     WorkAssignment {
-        work_id,
+        assignment_id,
         prev_hash: [0x11; 32],
         merkle_root: [0x33; 32],
         target: [0x22; 32],
@@ -161,10 +162,10 @@ const GENESIS_MERKLE_ROOT: [u8; 32] = [
     0x7f, 0xc8, 0x1b, 0xc3, 0x88, 0x8a, 0x51, 0x32, 0x3a, 0x9f, 0xb8, 0xaa, 0x4b, 0x1e, 0x5e, 0x4a,
 ];
 
-/// The genesis block's nonce as a [`ChainSolution`] for job key 0,
+/// The genesis block's nonce as a [`ChainSolution`] for work ID 0,
 /// with no version rolling and no ntime roll.
 const GENESIS_SOLUTION: ChainSolution = ChainSolution {
-    job_key: 0,
+    work_id: 0,
     nonce: 0x7C2B_AC1D,
     ntime_offset: 0,
     version_bits: 0,
@@ -176,7 +177,7 @@ const GENESIS_SOLUTION: ChainSolution = ChainSolution {
 /// credit from the submit path.
 fn genesis_assignment() -> WorkAssignment {
     WorkAssignment {
-        work_id: 1,
+        assignment_id: 1,
         prev_hash: [0u8; 32],
         merkle_root: GENESIS_MERKLE_ROOT,
         target: [0u8; 32],
@@ -202,7 +203,7 @@ struct Harness<'a, const N: usize> {
 impl<'a, const N: usize> Harness<'a, N> {
     fn new(session: &'a AsicSession<N>, pinned_slot: usize) -> Self {
         let driver = Bm13xxDriver::new(Chip::Bm1362);
-        let registry = WorkRegistry::new(driver.job_slots());
+        let registry = WorkRegistry::new(driver.work_slots());
         Self {
             session,
             receivers: core::array::from_fn(|slot| {
@@ -242,8 +243,8 @@ impl<'a, const N: usize> Harness<'a, N> {
     fn assert_solution_meets_floor(&self, solution: &ChainSolution, difficulty: &[u8; 32]) {
         let slot = self
             .registry
-            .get(solution.job_key)
-            .expect("solution's job_key must map to a populated registry slot");
+            .get(solution.work_id)
+            .expect("solution's work_id must map to a populated registry slot");
         let version = rolled_version(slot.assignment.version, solution.version_bits);
         let ntime = slot.assignment.ntime.wrapping_add(solution.ntime_offset);
         let hash = solution_hash(
@@ -271,7 +272,7 @@ fn dispatch_reads_the_pinned_slot() {
     harness.dispatch();
 
     let slot = harness.registry.get(0).expect("work dispatched");
-    assert_eq!(slot.assignment.work_id, 20);
+    assert_eq!(slot.assignment.assignment_id, 20);
     assert_eq!(slot.session_slot, 1);
     assert!(!harness.serial.written.is_empty(), "frame reached the chip");
 }
@@ -287,7 +288,7 @@ fn dispatch_skips_the_tick_when_no_slot_has_work() {
     assert!(harness.registry.get(0).is_none());
     assert!(harness.serial.written.is_empty());
 
-    // The skipped tick burnt no key: the next dispatch takes the first.
+    // The skipped tick consumed no work ID: the next dispatch takes the first.
     session.pool_handle(1).publish_work(assignment(20));
     harness.dispatch();
     assert!(harness.registry.get(0).is_some());
@@ -303,7 +304,7 @@ fn dispatch_falls_back_to_an_available_slot_when_the_pinned_slot_is_empty() {
     harness.dispatch();
 
     let slot = harness.registry.get(0).expect("fallback dispatch");
-    assert_eq!(slot.assignment.work_id, 10);
+    assert_eq!(slot.assignment.assignment_id, 10);
     assert_eq!(slot.session_slot, 0);
     assert!(!harness.serial.written.is_empty(), "frame reached the chip");
 }
@@ -340,9 +341,9 @@ fn registry_pins_the_dispatch_time_slot_across_a_pin_change() {
     // it after the pin change goes back to the session that owns the
     // work, not to the newly pinned one.
     assert_eq!(first.session_slot, 0);
-    assert_eq!(first.assignment.work_id, 10);
+    assert_eq!(first.assignment.assignment_id, 10);
     assert_eq!(second.session_slot, 1);
-    assert_eq!(second.assignment.work_id, 20);
+    assert_eq!(second.assignment.assignment_id, 20);
 }
 
 #[test]
@@ -421,7 +422,7 @@ const HARDER_THAN_DIFF_1_FLOOR: [u8; 32] = {
 };
 
 /// A solution between the pool target and a difficulty harder than
-/// difficulty-1 is rejected outright: the floor check runs ahead of
+/// difficulty-1 is rejected outright: the difficulty check runs ahead of
 /// the credit block, so a solution failing it is dropped regardless of
 /// how loose the pool target is, and it never reaches the pool queue
 /// either. Crediting tracks whatever difficulty the driver reports rather
@@ -465,7 +466,7 @@ fn process_solution_rejects_a_solution_between_the_pool_target_and_a_harder_floo
         .try_take_solution()
         .expect("the solution reaches the pool queue once the difficulty no longer blocks it");
     assert_eq!(submitted.nonce, GENESIS_SOLUTION.nonce);
-    assert_eq!(submitted.work_id, genesis_assignment().work_id);
+    assert_eq!(submitted.assignment_id, genesis_assignment().assignment_id);
 }
 
 /// Capability constants for [`StubDriver`]. The values are arbitrary:
@@ -535,7 +536,7 @@ impl ChainDriver for StubDriver {
         115_200
     }
 
-    fn job_slots(&self) -> usize {
+    fn work_slots(&self) -> usize {
         1
     }
 
@@ -589,8 +590,12 @@ impl ChainDriver for StubDriver {
         SolutionBatch::new()
     }
 
-    async fn poll_results(&mut self, _io: &mut impl Transport) -> SolutionBatch {
-        SolutionBatch::new()
+    async fn poll_results(&mut self, _io: &mut impl Transport) -> PollBatch {
+        PollBatch {
+            solutions: SolutionBatch::new(),
+            difficulty: self.difficulty_target(),
+            progress: PollProgress::Complete,
+        }
     }
 
     fn reset(&mut self) {
@@ -739,7 +744,7 @@ fn reset_drains_the_desync_tally_before_clearing_the_driver() {
         assert_eq!(
             state.registry.place(assignment(2), 0),
             0,
-            "the keys start over"
+            "the work IDs start over"
         );
     });
 }
@@ -1013,20 +1018,17 @@ struct ResultDriver {
     /// Solution `poll_results` hands back on its first call. Cleared
     /// after that call, so a second poll tick returns an empty batch.
     poll_solution: Option<ChainSolution>,
-    /// `job_slots()` to report. Defaults to 1; overridable so a test can
+    hardware_difficulty: u64,
+    /// `work_slots()` to report. Defaults to 1; overridable so a test can
     /// drive `run`'s registry-size clamp with a driver that claims more
     /// slots than the registry holds.
-    job_slots: usize,
-    /// Job key and call count from the most recent `send_work` call, for
-    /// the job-slots clamp test to confirm the dispatched key wraps
+    work_slots: usize,
+    /// Work ID and call count from the most recent `send_work` call, for
+    /// the work-slots clamp test to confirm the dispatched work ID wraps
     /// within the registry instead of overrunning it.
     send_work_tracking: Option<(&'static AtomicU32, &'static AtomicU32)>,
-    /// Rendezvous pair for a `poll_results` call that pends until the
-    /// test releases it, for driving `run`'s in-flight-cancellation
-    /// path. `entered` is signalled the instant `poll_results` starts,
-    /// before it touches `poll_solution`, so a test can wait until the
-    /// call has genuinely begun; `gate` then pends until the test
-    /// signals it, letting the call proceed and collect the solution.
+    /// Pause after the result enters the local batch, so a work tick or
+    /// command that cancels the call would lose an already collected find.
     poll_rendezvous: Option<(&'static PollGate, &'static PollGate)>,
 }
 
@@ -1041,7 +1043,8 @@ impl ResultDriver {
             line_errors,
             ingest_calls,
             poll_solution: None,
-            job_slots: 1,
+            hardware_difficulty: 1,
+            work_slots: 1,
             send_work_tracking: None,
             poll_rendezvous: None,
         }
@@ -1053,28 +1056,25 @@ impl ResultDriver {
         self
     }
 
-    /// Report `slots` from `job_slots()` instead of the default of 1.
-    fn with_job_slots(mut self, slots: usize) -> Self {
-        self.job_slots = slots;
+    /// Report `slots` from `work_slots()` instead of the default of 1.
+    fn with_work_slots(mut self, slots: usize) -> Self {
+        self.work_slots = slots;
         self
     }
 
-    /// Record each `send_work` call's job key into `last_job_key` and
+    /// Record each `send_work` call's work ID into `last_work_id` and
     /// bump `call_count`, both `'static` so a test can read them after
     /// `run` consumes and drops the driver.
     fn with_send_work_tracking(
         mut self,
-        last_job_key: &'static AtomicU32,
+        last_work_id: &'static AtomicU32,
         call_count: &'static AtomicU32,
     ) -> Self {
-        self.send_work_tracking = Some((last_job_key, call_count));
+        self.send_work_tracking = Some((last_work_id, call_count));
         self
     }
 
-    /// Make `poll_results` signal `entered` on start and then pend on
-    /// `gate` before collecting `poll_solution`, so a test can catch the
-    /// call genuinely in flight and cancel it by winning `run`'s select
-    /// with a command instead.
+    /// Pause a collected chunk while work ticks and commands arrive.
     fn with_poll_rendezvous(mut self, entered: &'static PollGate, gate: &'static PollGate) -> Self {
         self.poll_rendezvous = Some((entered, gate));
         self
@@ -1094,8 +1094,8 @@ impl ChainDriver for ResultDriver {
         115_200
     }
 
-    fn job_slots(&self) -> usize {
-        self.job_slots
+    fn work_slots(&self) -> usize {
+        self.work_slots
     }
 
     async fn reset_and_enumerate(
@@ -1127,8 +1127,8 @@ impl ChainDriver for ResultDriver {
         _io: &mut impl Transport,
         job: &WorkJob,
     ) -> Result<(), ChipError> {
-        if let Some((last_job_key, call_count)) = self.send_work_tracking {
-            last_job_key.store(job.job_key, Ordering::Relaxed);
+        if let Some((last_work_id, call_count)) = self.send_work_tracking {
+            last_work_id.store(job.work_id, Ordering::Relaxed);
             call_count.fetch_add(1, Ordering::Relaxed);
         }
         Ok(())
@@ -1139,7 +1139,7 @@ impl ChainDriver for ResultDriver {
     }
 
     fn difficulty_target(&self) -> ShareTarget {
-        ShareTarget::DIFF_1
+        ShareTarget::from_pow2_difficulty(self.hardware_difficulty)
     }
 
     fn ingest(&mut self, _bytes: &[u8]) -> SolutionBatch {
@@ -1147,22 +1147,22 @@ impl ChainDriver for ResultDriver {
         SolutionBatch::new()
     }
 
-    async fn poll_results(&mut self, _io: &mut impl Transport) -> SolutionBatch {
-        if let Some((entered, gate)) = self.poll_rendezvous {
-            entered.signal(());
-            // Pends here, before `poll_solution` is touched, so a
-            // cancelled call (the whole future dropped by `run`'s select
-            // choosing a different arm) leaves it untouched for the next
-            // poll tick to collect.
-            gate.wait().await;
-        }
+    async fn poll_results(&mut self, _io: &mut impl Transport) -> PollBatch {
         let mut batch = SolutionBatch::new();
         if let Some(solution) = self.poll_solution.take() {
             batch
                 .push(solution)
                 .expect("a fresh batch always has room for one solution");
         }
-        batch
+        if let Some((entered, gate)) = self.poll_rendezvous {
+            entered.signal(());
+            gate.wait().await;
+        }
+        PollBatch {
+            solutions: batch,
+            difficulty: ShareTarget::DIFF_1,
+            progress: PollProgress::Complete,
+        }
     }
 
     fn reset(&mut self) {}
@@ -1222,8 +1222,14 @@ fn read_line_error_recovers_the_parser_and_the_actor_keeps_serving_commands() {
     let scheduler = Pinned::new(0);
     let serial = ScriptedSerial::new(ReadStep::Error(ErrorKind::Other));
 
+    let caller = async {
+        while LINE_ERRORS.load(Ordering::Relaxed) == 0 {
+            yield_now().await;
+        }
+        actor.terminate().await
+    };
     let (terminate_result, run_result) = block_on(join(
-        actor.terminate(),
+        caller,
         actor.run(serial, &SESSION, &BMM101_HASHBOARD, driver, scheduler),
     ));
 
@@ -1246,11 +1252,12 @@ fn read_line_error_recovers_the_parser_and_the_actor_keeps_serving_commands() {
 
 #[test]
 fn a_poll_collects_a_solution_through_process_solutions_without_calling_ingest() {
+    const HARDWARE_DIFFICULTY: u64 = 1 << 63;
     static SESSION: AsicSession<1> = AsicSession::new();
     static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
     static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
 
-    // The pool target is the diff-1 floor itself, so the genesis header
+    // The pool target is the diff-1 difficulty itself, so the genesis header
     // GENESIS_SOLUTION solves also clears the pool target and the
     // solution reaches the session's solution channel rather than only
     // the scheduler's diff-1 credit.
@@ -1261,14 +1268,17 @@ fn a_poll_collects_a_solution_through_process_solutions_without_calling_ingest()
     SESSION.pool_handle(0).publish_work(assignment);
 
     let actor = Serial::new();
-    let driver =
+    let mut driver =
         ResultDriver::new(POLL, &LINE_ERRORS, &INGEST_CALLS).with_poll_solution(GENESIS_SOLUTION);
+    // The chip has moved to a harder filter while its snapshot still
+    // contains this difficulty-one solution. Use the batch's difficulty.
+    driver.hardware_difficulty = HARDWARE_DIFFICULTY;
     let scheduler = Pinned::new(0);
     let serial = ScriptedSerial::quiet();
 
     let caller = async {
         // A fast work tick dispatches the published assignment into the
-        // registry under job_key 0 well before the poll ticker, which
+        // registry under work_id 0 well before the poll ticker, which
         // runs at the driver's period, gets a chance to fire.
         let start_result = actor.start_sending_work(Duration::from_millis(1)).await;
         assert!(matches!(start_result, Ok(())));
@@ -1292,14 +1302,14 @@ fn a_poll_collects_a_solution_through_process_solutions_without_calling_ingest()
     );
 }
 
-/// A driver that reports more job slots than the registry holds must
+/// A driver that reports more work slots than the registry holds must
 /// still dispatch safely: `run` clamps to `WORK_REGISTRY_SLOTS` up
-/// front, so the job key wraps back to 0 there instead of walking past
+/// front, so the work ID wraps back to 0 there instead of walking past
 /// the registry's last index. Running past that wrap point is the only
 /// way to tell the clamped behavior apart from the driver's own claim,
 /// since a single dispatch looks identical either way.
 #[test]
-fn run_clamps_a_driver_reporting_more_job_slots_than_the_registry_holds() {
+fn run_clamps_a_driver_reporting_more_work_slots_than_the_registry_holds() {
     static SESSION: AsicSession<1> = AsicSession::new();
     static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
     static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
@@ -1312,7 +1322,7 @@ fn run_clamps_a_driver_reporting_more_job_slots_than_the_registry_holds() {
 
     let actor = Serial::new();
     let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS)
-        .with_job_slots(WORK_REGISTRY_SLOTS + 8)
+        .with_work_slots(WORK_REGISTRY_SLOTS + 8)
         .with_send_work_tracking(&LAST_JOB_KEY, &SEND_CALLS);
     let scheduler = Pinned::new(0);
     let serial = ScriptedSerial::quiet();
@@ -1320,7 +1330,7 @@ fn run_clamps_a_driver_reporting_more_job_slots_than_the_registry_holds() {
     let caller = async {
         let start_result = actor.start_sending_work(Duration::from_millis(1)).await;
         assert!(matches!(start_result, Ok(())));
-        // Wait past one full lap of the registry so the job key wraps at
+        // Wait past one full lap of the registry so the work ID wraps at
         // least once: an unclamped driver would index the registry past
         // its last slot right at this point instead.
         while SEND_CALLS.load(Ordering::Relaxed) <= registry_slots {
@@ -1341,11 +1351,11 @@ fn run_clamps_a_driver_reporting_more_job_slots_than_the_registry_holds() {
         calls > registry_slots,
         "the test must run long enough to observe a wrap"
     );
-    let expected_job_key = (calls - 1) % registry_slots;
+    let expected_work_id = (calls - 1) % registry_slots;
     assert_eq!(
         LAST_JOB_KEY.load(Ordering::Relaxed),
-        expected_job_key,
-        "job keys must wrap at the registry size, not the driver's claimed slot count"
+        expected_work_id,
+        "work IDs must wrap at the registry size, not the driver's claimed slot count"
     );
 }
 
@@ -1420,22 +1430,16 @@ fn set_pool_weights_is_applied_to_the_scheduler_ahead_of_handle_command() {
     }
 }
 
-/// A command sent while a poll-mode result arm is genuinely in flight
-/// must still be honoured promptly, and the solution the cancelled poll
-/// attempt never collected must not be lost: `ResultDriver`'s rendezvous
-/// pends `poll_results` after it has already signalled that it started,
-/// so the test can send a command while the call is provably parked
-/// mid-await, then release it and confirm the solution the earlier
-/// attempt left untouched still reaches the session on the next tick.
+/// A command waits for a selected chunk, including its solution delivery.
 #[test]
-fn a_command_arriving_during_an_in_flight_poll_is_honoured_and_the_solution_survives() {
+fn a_command_waits_for_an_in_flight_poll_and_the_solution_survives() {
     static SESSION: AsicSession<1> = AsicSession::new();
     static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
     static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
     static POLL_ENTERED: PollGate = Signal::new();
     static POLL_GATE: PollGate = Signal::new();
 
-    // The pool target is the diff-1 floor itself, so the genesis header
+    // The pool target is the diff-1 difficulty itself, so the genesis header
     // GENESIS_SOLUTION solves also clears the pool target and the
     // solution reaches the session's solution channel, proving it was
     // not merely decoded but actually delivered.
@@ -1461,15 +1465,16 @@ fn a_command_arriving_during_an_in_flight_poll_is_honoured_and_the_solution_surv
         // in flight rather than one that has not started yet.
         POLL_ENTERED.wait().await;
 
-        // `select4` must cancel the parked poll arm rather than queue
-        // this command behind it.
-        let freq_result = actor.set_frequency(Frequency::from_mhz(400)).await;
+        // Leave the chunk pending across several work ticks. The command
+        // cannot complete until the gate releases the original chunk.
+        let command = actor.set_frequency(Frequency::from_mhz(400));
+        let release = async {
+            Timer::after(Duration::from_millis(20)).await;
+            POLL_GATE.signal(());
+        };
+        let (freq_result, ()) = join(command, release).await;
         assert!(matches!(freq_result, Ok(())));
 
-        // Release the gate: the next poll tick runs a fresh `poll_results`
-        // call that collects the solution the cancelled attempt never
-        // took.
-        POLL_GATE.signal(());
         let solution = SESSION.pool_handle(0).take_solution().await;
         let terminate_result = actor.terminate().await;
         assert!(matches!(terminate_result, Ok(())));
@@ -1484,7 +1489,7 @@ fn a_command_arriving_during_an_in_flight_poll_is_honoured_and_the_solution_surv
     assert!(matches!(run_result, Ok(())));
     assert_eq!(
         solution.nonce, GENESIS_SOLUTION.nonce,
-        "the solution left untouched by the cancelled poll still reaches the session"
+        "the solution collected before the wait still reaches the session"
     );
 }
 

@@ -35,7 +35,7 @@ fn nonce_meets_target(work: &WorkAssignment, nonce: u32) -> bool {
 
 fn fixture(target: [u8; 32]) -> WorkAssignment {
     WorkAssignment {
-        work_id: 1,
+        assignment_id: 1,
         prev_hash: [0; 32],
         merkle_root: [0; 32],
         target,
@@ -65,7 +65,7 @@ fn hash_misses_zero_target() {
 #[test]
 fn build_header_layout_is_canonical() {
     let work = WorkAssignment {
-        work_id: 0,
+        assignment_id: 0,
         prev_hash: [0xAA; 32],
         merkle_root: [0xBB; 32],
         target: [0; 32],

@@ -116,7 +116,7 @@ fn send_work_serializes_the_hw_work_frame() {
     let mut driver = Bm13xxDriver::new(Chip::Bm1362);
     let mut io = MockTransport::new();
     let job = WorkJob {
-        job_key: 2,
+        work_id: 2,
         nonce_start: 0,
         nbits: 0x1703_1abc,
         ntime: 0x6512_3456,
@@ -128,7 +128,7 @@ fn send_work_serializes_the_hw_work_frame() {
 
     block_on(driver.send_work(&mut io, &job)).expect("send_work is infallible for a valid job");
 
-    // job_key 2 strided by the BM1362 midstate count (8) is work-id 16.
+    // work_id 2 strided by the BM1362 midstate count (8) is work-id 16.
     let expected = HwWork {
         work_id: 16,
         nonce_start: 0,
@@ -161,15 +161,15 @@ fn work_response(nonce: u32, work_id: u8, version_idx: u16) -> [u8; 11] {
 }
 
 #[test]
-fn ingest_decodes_a_solution_and_recovers_the_job_key() {
+fn ingest_decodes_a_solution_and_recovers_the_work_id() {
     let mut driver = Bm13xxDriver::new(Chip::Bm1362);
-    // work-id 16 divided by the BM1362 midstate stride (8) is job_key 2.
+    // work-id 16 divided by the BM1362 midstate stride (8) is work_id 2.
     let frame = work_response(0x1234_5678, 16, 0);
 
     let batch = driver.ingest(&frame);
 
     assert_eq!(batch.len(), 1);
-    assert_eq!(batch[0].job_key, 2);
+    assert_eq!(batch[0].work_id, 2);
     assert_eq!(batch[0].nonce, 0x1234_5678);
     assert_eq!(batch[0].ntime_offset, 0);
 }
@@ -184,8 +184,8 @@ fn ingest_reassembles_a_frame_split_across_reads() {
     let batch = driver.ingest(&frame[5..]);
 
     assert_eq!(batch.len(), 1);
-    // work-id 24 / midstate 8 = job_key 3.
-    assert_eq!(batch[0].job_key, 3);
+    // work-id 24 / midstate 8 = work_id 3.
+    assert_eq!(batch[0].work_id, 3);
     assert_eq!(batch[0].nonce, 0xdead_beef);
 }
 
@@ -239,7 +239,7 @@ fn bm1370_work_id_packing_round_trips_through_the_driver() {
     let mut driver = Bm13xxDriver::new(Chip::Bm1370);
     let mut io = MockTransport::new();
     let job = WorkJob {
-        job_key: 3,
+        work_id: 3,
         nonce_start: 0,
         nbits: 0x1703_1abc,
         ntime: 0x6512_3456,
@@ -251,7 +251,7 @@ fn bm1370_work_id_packing_round_trips_through_the_driver() {
 
     block_on(driver.send_work(&mut io, &job)).expect("send_work is infallible for a valid job");
 
-    // job_key 3 strided by the BM1370 midstate count (16) is work-id 48.
+    // work_id 3 strided by the BM1370 midstate count (16) is work-id 48.
     let expected = HwWork {
         work_id: 48,
         nonce_start: 0,
@@ -266,12 +266,12 @@ fn bm1370_work_id_packing_round_trips_through_the_driver() {
 
     // The BM1370 response packs the id into the high nibble as
     // `(work_id << 1) | small_core_id`; work-id 48 from small core 5
-    // arrives as 0x65 and must decode back to job_key 3.
+    // arrives as 0x65 and must decode back to work_id 3.
     let frame = work_response(0xdead_beef, 0x65, 0);
     let batch = driver.ingest(&frame);
 
     assert_eq!(batch.len(), 1);
-    assert_eq!(batch[0].job_key, 3);
+    assert_eq!(batch[0].work_id, 3);
     assert_eq!(batch[0].nonce, 0xdead_beef);
 }
 
@@ -329,9 +329,9 @@ fn capability_metadata_matches_the_chip_model() {
 
     assert_eq!(bm1362.boot_uart_rate(), 115_200);
     // BM1362: 256 work-ids / midstate 8 = 32 slots.
-    assert_eq!(bm1362.job_slots(), 32);
+    assert_eq!(bm1362.work_slots(), 32);
     // BM1370: 128 usable work-ids / midstate 16 = 8 slots.
-    assert_eq!(bm1370.job_slots(), 8);
+    assert_eq!(bm1370.work_slots(), 8);
     // The chain seam serves the neutral half of the Bitmain descriptor;
     // core counts differ per model, so they pin the driver-to-descriptor
     // wiring.
@@ -344,5 +344,5 @@ fn capability_metadata_matches_the_chip_model() {
 fn poll_results_is_empty_for_the_push_family() {
     let mut driver = Bm13xxDriver::new(Chip::Bm1362);
     let mut io = MockTransport::new();
-    assert!(block_on(driver.poll_results(&mut io)).is_empty());
+    assert!(block_on(driver.poll_results(&mut io)).solutions.is_empty());
 }

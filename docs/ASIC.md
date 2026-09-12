@@ -42,10 +42,12 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
 - `reset_and_enumerate` / `configure` — bring the chain up to a safe-boot
   operating point on the fast UART; `configure` owns the baud switch.
 - `set_frequency` — one ramp step, vendor-specific PLL programming.
-- `send_work` — dispatch a neutral `WorkJob`; the driver maps the
-  consumer-assigned `job_key` onto the chip's echo field. A key names
-  an assignment, reissued while that assignment stands, so a driver
-  may skip the write for a header the chain already holds.
+- `send_work` — dispatch a neutral `WorkJob`; its consumer-assigned
+  `work_id` is the bounded local registry index mapped onto the chip's echo
+  field, matching BOS terminology. `WorkAssignment::assignment_id` correlates
+  the concrete header with the stratum session's work ring, while `job_id`
+  identifies the originating pool job. A hardware work ID is reused while its
+  assignment stands, so a driver may skip writing a header the chain holds.
 - `result_mode` + `ingest` (push) / `poll_results` (poll) — collect
   `ChainSolution`s. Push families stream nonce frames unsolicited; poll
   families read a nonce FIFO, so the actor branches its steady-state loop
@@ -104,7 +106,7 @@ The open `bm13xx` module implements `ChainDriver` for the Bitmain family:
 
 A vendor whose framing, work model, or solution delivery differs
 implements the same `ChainDriver` in its own crate — the seam's
-`result_mode`, `boot_uart_rate`, and `job_slots` carry the varying
+`result_mode`, `boot_uart_rate`, and `work_slots` carry the varying
 facts, and each driver's `configure` applies its own fast-baud switch
 internally, so the actor drives every family through the one contract.
 
@@ -208,12 +210,24 @@ from.
 `SERIAL` owns the UART read and write halves, implements `Transport` over
 them, and runs a `select` loop over four arms: a work tick (periodic work
 send via `ChainDriver::send_work`), a result arm (a UART read fed to
-`ChainDriver::ingest` for push chips, or a poll ticker that calls
-`poll_results` for poll chips), a command channel (reset, reset-and-
+`ChainDriver::ingest` for push chips, or a poll ticker that
+returns readiness for poll chips), a command channel (reset, reset-and-
 enumerate, configure, set-frequency, start/stop work, terminate), and the
 park signal. On dual-core boards the actor is pinned to Core 1 so the
 network stack on Core 0 stays responsive; the shared session uses a
 `CriticalSectionRawMutex`.
+
+A selected poll chunk runs to completion outside the select. Its
+`PollBatch` carries the snapshot's verification floor and says whether
+more chips remain. The actor delivers the results before taking another
+command or chunk. The driver retains its sweep cursor and closes the
+snapshot only after the last chip. Commands and park requests take
+priority between chunks; they never cancel a frame or discard a local
+result batch. A park timeout shorter than a chunk fails closed.
+
+The poll ticker skips missed ticks after a slow sweep. `poll_delay`
+adds any remaining chip-specific wait before the next chunk, so a fast
+sweep following a slow one cannot read a chip too early.
 
 ### Policy stays in the consumer
 

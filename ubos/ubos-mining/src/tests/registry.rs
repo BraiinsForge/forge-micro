@@ -19,9 +19,9 @@
 
 use super::*;
 
-fn assignment(work_id: u32) -> WorkAssignment {
+fn assignment(assignment_id: u32) -> WorkAssignment {
     WorkAssignment {
-        work_id,
+        assignment_id,
         prev_hash: [0; 32],
         merkle_root: [0; 32],
         target: [0; 32],
@@ -33,33 +33,33 @@ fn assignment(work_id: u32) -> WorkAssignment {
 }
 
 #[test]
-fn a_repeat_of_the_work_in_flight_keeps_its_key() {
+fn a_repeat_of_the_work_in_flight_keeps_its_work_id() {
     let mut registry = WorkRegistry::new(4);
     assert_eq!(registry.place(assignment(10), 0), 0);
     assert_eq!(registry.place(assignment(10), 0), 0);
-    assert!(registry.get(1).is_none(), "the repeat took no key");
+    assert!(registry.get(1).is_none(), "the repeat reused the work ID");
 }
 
 #[test]
-fn new_work_takes_the_next_key() {
+fn new_work_takes_the_next_work_id() {
     let mut registry = WorkRegistry::new(4);
     assert_eq!(registry.place(assignment(10), 0), 0);
     assert_eq!(registry.place(assignment(11), 0), 1);
     assert_eq!(
-        registry.get(0).map(|slot| slot.assignment.work_id),
+        registry.get(0).map(|slot| slot.assignment.assignment_id),
         Some(10)
     );
     assert_eq!(
-        registry.get(1).map(|slot| slot.assignment.work_id),
+        registry.get(1).map(|slot| slot.assignment.assignment_id),
         Some(11)
     );
 }
 
 #[test]
-fn a_session_that_restarts_its_work_ids_brings_other_work() {
+fn a_session_that_restarts_its_assignment_ids_brings_other_work() {
     let mut registry = WorkRegistry::new(4);
     assert_eq!(registry.place(assignment(0), 0), 0);
-    // A reconnect mints the work ids from zero again, so the id alone
+    // A reconnect mints assignment IDs from zero again, so the assignment ID alone
     // cannot tell the new pool job from the one still in flight.
     let mut reconnected = assignment(0);
     reconnected.merkle_root = [1; 32];
@@ -71,7 +71,7 @@ fn a_session_that_restarts_its_work_ids_brings_other_work() {
 }
 
 #[test]
-fn the_same_work_id_from_another_pool_is_other_work() {
+fn the_same_assignment_id_from_another_pool_is_other_work() {
     let mut registry = WorkRegistry::new(4);
     assert_eq!(registry.place(assignment(10), 0), 0);
     assert_eq!(registry.place(assignment(10), 1), 1);
@@ -87,28 +87,31 @@ fn only_the_last_dispatch_counts_as_in_flight() {
 }
 
 #[test]
-fn keys_wrap_at_the_drivers_slot_count() {
+fn work_ids_wrap_at_the_drivers_slot_count() {
     let mut registry = WorkRegistry::new(2);
     assert_eq!(registry.place(assignment(1), 0), 0);
     assert_eq!(registry.place(assignment(2), 0), 1);
     assert_eq!(registry.place(assignment(3), 0), 0);
-    assert_eq!(registry.get(0).map(|slot| slot.assignment.work_id), Some(3));
+    assert_eq!(
+        registry.get(0).map(|slot| slot.assignment.assignment_id),
+        Some(3)
+    );
 }
 
 #[test]
 fn the_slot_count_is_clamped_to_the_capacity() {
     let registry = WorkRegistry::new(WORK_REGISTRY_SLOTS * 4);
-    assert_eq!(registry.job_slots as usize, WORK_REGISTRY_SLOTS);
+    assert_eq!(registry.work_slots as usize, WORK_REGISTRY_SLOTS);
 }
 
 #[test]
-fn a_key_past_the_registry_names_nothing() {
+fn a_work_id_past_the_registry_names_nothing() {
     let registry = WorkRegistry::new(4);
     assert!(registry.get(u32::MAX).is_none());
 }
 
 #[test]
-fn reset_starts_the_keys_over() {
+fn reset_starts_the_work_ids_over() {
     let mut registry = WorkRegistry::new(4);
     assert_eq!(registry.place(assignment(10), 0), 0);
     assert_eq!(registry.place(assignment(11), 0), 1);

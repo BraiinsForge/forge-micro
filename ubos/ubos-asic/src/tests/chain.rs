@@ -108,3 +108,21 @@ fn from_pow2_difficulty_places_the_mantissa() {
         diff_eight
     );
 }
+
+#[test]
+fn share_difficulty_obeys_chain_and_chip_record_limits() {
+    let period = embassy_time::Duration::from_millis(480);
+
+    assert_eq!(
+        ShareDifficulty::for_chain(1_216, 12, Frequency::from_mhz(210), period, 128, 1),
+        ShareDifficulty::from_pow2(32)
+    );
+    assert_eq!(
+        ShareDifficulty::for_chain(1_216, 160, Frequency::from_mhz(660), period, 128, 1),
+        ShareDifficulty::from_pow2(256)
+    );
+    assert_eq!(
+        ShareDifficulty::for_chain(1_216, 0, Frequency::from_mhz(1), period, 128, 1),
+        ShareDifficulty::ONE
+    );
+}

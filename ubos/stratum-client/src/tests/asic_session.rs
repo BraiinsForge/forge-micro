@@ -27,9 +27,9 @@
 
 use super::*;
 
-fn assignment(work_id: u32) -> WorkAssignment {
+fn assignment(assignment_id: u32) -> WorkAssignment {
     WorkAssignment {
-        work_id,
+        assignment_id,
         prev_hash: [0x11; 32],
         merkle_root: [0x33; 32],
         target: [0x22; 32],
@@ -40,9 +40,9 @@ fn assignment(work_id: u32) -> WorkAssignment {
     }
 }
 
-fn solution(work_id: u32) -> Solution {
+fn solution(assignment_id: u32) -> Solution {
     Solution {
-        work_id,
+        assignment_id,
         nonce: 0xdead_beef,
         ntime: 0x6000_0001,
         version_bits: 0,
@@ -59,9 +59,21 @@ fn work_publishes_stay_in_their_slot() {
     let mut receiver_1 = session.work_receiver(1).expect("receiver slot free");
     let mut receiver_2 = session.work_receiver(2).expect("receiver slot free");
 
-    assert_eq!(receiver_0.try_get().expect("slot 0 published").work_id, 100);
+    assert_eq!(
+        receiver_0
+            .try_get()
+            .expect("slot 0 published")
+            .assignment_id,
+        100
+    );
     assert!(receiver_1.try_get().is_none());
-    assert_eq!(receiver_2.try_get().expect("slot 2 published").work_id, 200);
+    assert_eq!(
+        receiver_2
+            .try_get()
+            .expect("slot 2 published")
+            .assignment_id,
+        200
+    );
 }
 
 #[test]
@@ -72,7 +84,7 @@ fn work_cell_is_latest_wins_per_slot() {
     handle.publish_work(assignment(2));
 
     let mut receiver = session.work_receiver(1).expect("receiver slot free");
-    assert_eq!(receiver.try_get().expect("published").work_id, 2);
+    assert_eq!(receiver.try_get().expect("published").assignment_id, 2);
 }
 
 #[test]
@@ -86,7 +98,7 @@ fn clear_work_empties_only_the_cleared_slot() {
     let mut receiver_0 = session.work_receiver(0).expect("receiver slot free");
     let mut receiver_1 = session.work_receiver(1).expect("receiver slot free");
     assert!(receiver_0.try_get().is_none());
-    assert_eq!(receiver_1.try_get().expect("untouched").work_id, 2);
+    assert_eq!(receiver_1.try_get().expect("untouched").assignment_id, 2);
 }
 
 #[test]
@@ -100,7 +112,7 @@ fn solutions_route_to_the_submitted_slot() {
         .pool_handle(1)
         .try_take_solution()
         .expect("routed to slot 1");
-    assert_eq!(routed.work_id, 7);
+    assert_eq!(routed.assignment_id, 7);
     // Drained: the queue holds no second copy.
     assert!(session.pool_handle(1).try_take_solution().is_none());
 }

@@ -187,27 +187,10 @@ pub const MAX_INGEST_CHUNK: usize = 256;
 /// Upper bound on solutions a single [`ChainDriver::poll_results`] or
 /// [`ChainDriver::ingest`] call returns.
 ///
-/// Sized to the poll family's worst case: a sixteen-chip chain whose
-/// every nonce FIFO holds its full eight records. It has to hold a
-/// whole sweep, because a poll driver that runs out of batch stops its
-/// sweep early, and on the bench that break landed unevenly — the
-/// chips a broken sweep never reached missed the work feed that rides
-/// on their FIFO read, their FIFOs then filled, and the fuller FIFOs
-/// broke the next sweep sooner, a cycle that held a third of the chain
-/// at half its feed rate and cost a quarter of the hashrate.
-///
-/// The push path's worst case — a [`MAX_INGEST_CHUNK`]-byte
-/// read plus the parser's carry-over decodes at most 24 of its
-/// 11-byte frames, a bound the driver pins with a compile-time
-/// assertion beside its frame length — fits inside the same bound.
-/// The consumer drains the returned batch before the next call.
-///
-/// The batch holds [`MAX_SOLUTIONS_PER_BATCH`] solutions of sixteen bytes
-/// each, about two kilobytes carried inline in the value a poll or ingest
-/// call returns, so it lands on the consumer's serial-worker stack rather
-/// than the heap. Every current consumer runs that worker on a
-/// thirty-two-kilobyte stack, which holds the batch at well under a tenth
-/// of the budget.
+/// Poll drivers return bounded chunks and retain their sweep cursor between
+/// calls. The consumer processes each chunk before requesting another, so
+/// chain length does not increase the batch's stack allocation. Push drivers
+/// must fit all frames from one ingest chunk in this capacity.
 pub const MAX_SOLUTIONS_PER_BATCH: usize = 128;
 
 /// How a chip family delivers found nonces, so the consumer can shape its
@@ -230,16 +213,16 @@ pub enum ResultMode {
 ///
 /// Header fields are in canonical Bitcoin internal byte order, matching
 /// the former `HwWork`; the stratum adapter word-swaps on arrival.
-/// `job_key` is the consumer-assigned correlation token: the driver
+/// `work_id` is the consumer-assigned correlation token: the driver
 /// encodes it into the wire frame in whatever vendor-specific way the
-/// chip echoes back, and returns it in [`ChainSolution::job_key`] so the
+/// chip echoes back, and returns it in [`ChainSolution::work_id`] so the
 /// consumer can recover the originating assignment. The consumer keeps
-/// `job_key` within the range the chip's echo field can carry; the driver
+/// `work_id` within the range the chip's echo field can carry; the driver
 /// owns the mapping to and from the on-wire id.
 #[derive(Debug, Clone)]
 pub struct WorkJob {
-    /// Correlation token echoed back in [`ChainSolution::job_key`].
-    pub job_key: u32,
+    /// Correlation token echoed back in [`ChainSolution::work_id`].
+    pub work_id: u32,
     /// Starting nonce value for this work item.
     pub nonce_start: u32,
     /// Encoded difficulty target (`nBits` field).
@@ -264,14 +247,14 @@ pub struct WorkJob {
 
 /// A found nonce a [`ChainDriver`] decoded off the chain.
 ///
-/// The consumer maps `job_key` back to the originating assignment,
+/// The consumer maps `work_id` back to the originating assignment,
 /// reconstructs the header, re-verifies the share against target, and
 /// submits it. The driver reports only what the chip returned; the base
 /// header fields come from the consumer's registry.
 #[derive(Debug, Clone, Copy)]
 pub struct ChainSolution {
-    /// Correlation token from the originating [`WorkJob::job_key`].
-    pub job_key: u32,
+    /// Correlation token from the originating [`WorkJob::work_id`].
+    pub work_id: u32,
     /// Nonce value found by the chip.
     pub nonce: u32,
     /// Seconds added to the job's `ntime` by a chip that rolls the
@@ -286,10 +269,92 @@ pub struct ChainSolution {
 /// A batch of solutions returned by a single collection call.
 pub type SolutionBatch = Vec<ChainSolution, MAX_SOLUTIONS_PER_BATCH>;
 
+/// Whether a poll chunk finished the current sweep.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PollProgress {
+    More,
+    Complete,
+}
+
+/// One bounded poll chunk and the target under which its finds were collected.
+/// The target travels with the results because closing a snapshot or changing
+/// frequency may already have advanced the driver's current hardware target.
+pub struct PollBatch {
+    pub solutions: SolutionBatch,
+    pub difficulty: ShareTarget,
+    pub progress: PollProgress,
+}
+
+/// A power-of-two share difficulty used by a chip's hardware filter.
+///
+/// The type owns the vendor-neutral rate calculation and conversion to a
+/// [`ShareTarget`]. Drivers supply their own link and snapshot budgets, then
+/// encode the resulting target in their vendor-specific register format.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct ShareDifficulty(u64);
+
+impl ShareDifficulty {
+    /// Hashes represented by one difficulty-one solution.
+    const HASHES_PER_DIFF_1: u64 = 1 << 32;
+    /// Hashes one core makes per second per kilohertz of hash clock.
+    const HASHES_PER_KHZ_SECOND: u64 = 1_000;
+
+    /// Difficulty one, the loosest hardware share filter.
+    pub const ONE: Self = Self(1);
+
+    /// Construct a validated power-of-two difficulty.
+    ///
+    /// # Panics
+    ///
+    /// When `difficulty` is not a power of two.
+    #[must_use]
+    pub const fn from_pow2(difficulty: u64) -> Self {
+        assert!(difficulty.is_power_of_two());
+        Self(difficulty)
+    }
+
+    /// Select the smallest power-of-two difficulty satisfying both limits.
+    ///
+    /// `chain_records_per_second` bounds the aggregate solution stream;
+    /// `chip_records_per_period` bounds one chip's expected records over
+    /// `period`, which lets a polling driver protect a finite snapshot.
+    ///
+    /// # Panics
+    ///
+    /// When either record limit is zero.
+    #[must_use]
+    pub fn for_chain(
+        cores: u32,
+        chips: u8,
+        frequency: Frequency,
+        period: embassy_time::Duration,
+        chain_records_per_second: u64,
+        chip_records_per_period: u64,
+    ) -> Self {
+        assert!(chain_records_per_second > 0);
+        assert!(chip_records_per_period > 0);
+
+        let chip_hashes =
+            u64::from(cores) * u64::from(frequency.khz()) * Self::HASHES_PER_KHZ_SECOND;
+        let chain_hashes = chip_hashes * u64::from(chips.max(1));
+        let for_chain = chain_hashes.div_ceil(chain_records_per_second * Self::HASHES_PER_DIFF_1);
+        let chip_hashes_per_period = chip_hashes * period.as_millis() / 1_000;
+        let for_chip =
+            chip_hashes_per_period.div_ceil(chip_records_per_period * Self::HASHES_PER_DIFF_1);
+        Self(for_chain.max(for_chip).max(1).next_power_of_two())
+    }
+
+    /// The target the consumer verifies and credits against.
+    #[must_use]
+    pub const fn target(self) -> ShareTarget {
+        ShareTarget::from_pow2_difficulty(self.0)
+    }
+}
+
 /// A 256-bit share target in little-endian byte order.
 ///
 /// Wraps the raw bytes the chip's hardware filter and the consumer's
-/// floor check both compare against, so the constant lives in one
+/// difficulty check both compare against, so the constant lives in one
 /// place and the type documents intent at the trait boundary.
 pub struct ShareTarget([u8; 32]);
 
@@ -367,14 +432,14 @@ pub trait ChainDriver {
     fn boot_uart_rate(&self) -> u32;
 
     /// Number of concurrent jobs the consumer may keep in flight, i.e.
-    /// the valid range of [`WorkJob::job_key`] (`0..job_slots`). The
-    /// driver maps each `job_key` to and from the chip's on-wire echo
+    /// the valid range of [`WorkJob::work_id`] (`0..work_slots`). The
+    /// driver maps each `work_id` to and from the chip's on-wire echo
     /// field, so the consumer sizes its work registry to this and never
     /// touches the wire id. An implementation returns at least 1; the
     /// consumer sizes its work registry to this value and asserts the
     /// lower bound at bring-up rather than trusting a registry of zero
     /// slots.
-    fn job_slots(&self) -> usize;
+    fn work_slots(&self) -> usize;
 
     /// Reset the chain to a known state and enumerate it, at the boot
     /// baud. Returns the number of chips that answered. Idempotent and
@@ -421,13 +486,9 @@ pub trait ChainDriver {
     /// (Poll).
     fn result_mode(&self) -> ResultMode;
 
-    /// The share target the chip's own hardware filter enforces.
-    /// Every solution the driver returns meets it, so the consumer
-    /// verifies against it as the difficulty and credits each solution
-    /// at its weight; a difficulty above one is how a chip family keeps
-    /// its result path from flooding a slow link. A driver may move the
-    /// difficulty with the chain's hashrate, so the consumer reads it
-    /// for each batch it verifies rather than once.
+    /// Current hardware filter target. Push batches are verified and credited
+    /// against it immediately after ingest. Poll results carry their own difficulty
+    /// in `PollBatch`, since a readable snapshot can predate a filter change.
     fn difficulty_target(&self) -> ShareTarget;
 
     /// Push path: feed bytes freshly read from the line and return any
@@ -435,9 +496,17 @@ pub trait ChainDriver {
     /// buffers partial frames across calls. A no-op for Poll drivers.
     fn ingest(&mut self, bytes: &[u8]) -> SolutionBatch;
 
-    /// Poll path: read the chip's nonce FIFO over `io` and return the
-    /// decoded solutions. A no-op (empty batch) for Push drivers.
-    async fn poll_results(&mut self, io: &mut impl Transport) -> SolutionBatch;
+    /// Minimum delay before the next poll chunk may start. Re-evaluated after
+    /// interruption, so a cancelled wait cannot shorten a chip's read interval.
+    fn poll_delay(&self) -> embassy_time::Duration {
+        embassy_time::Duration::from_ticks(0)
+    }
+
+    /// Collect a bounded chunk. The caller must finish this future and process
+    /// its results before another driver operation. It must not cancel a chunk:
+    /// reads, snapshot writes and result delivery form one transaction.
+    /// Return `More` to continue the sweep without waiting another poll period.
+    async fn poll_results(&mut self, io: &mut impl Transport) -> PollBatch;
     /// One status reading over `io`: the driver picks the chip and the
     /// quantity, rotating so that a run of turns covers every chip, and
     /// records into the chain's [`ChainPvt`](crate::ChainPvt).

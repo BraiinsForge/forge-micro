@@ -73,9 +73,9 @@ mod tests;
 pub struct StratumState {
     pub job_ring: JobRing<JOB_RING_DEPTH>,
     pub work_ring: WorkRing<WORK_RING_DEPTH>,
-    /// Counter for `WorkAssignment::work_id` allocation in the work
+    /// Counter for `WorkAssignment::assignment_id` allocation in the work
     /// generator.
-    pub next_work_id: u32,
+    pub next_assignment_id: u32,
     /// This session's pool slot, used to index the per-slot share and
     /// reconnect counters and to prefix every visitor log line so
     /// concurrent sessions are distinguishable.
@@ -108,8 +108,8 @@ impl StratumState {
                 .min(NTIME_ROLL_MAX_SECS);
         }
 
-        let work_id = self.next_work_id;
-        self.next_work_id = self.next_work_id.wrapping_add(1);
+        let assignment_id = self.next_assignment_id;
+        self.next_assignment_id = self.next_assignment_id.wrapping_add(1);
 
         // Adapters reject the session with
         // `SessionRejection::ExtranonceTooLarge` when the pool advertises
@@ -123,7 +123,7 @@ impl StratumState {
             );
 
         self.work_ring.put(OutstandingWork {
-            work_id,
+            assignment_id,
             job_id: self
                 .job_ring
                 .current()
@@ -137,7 +137,7 @@ impl StratumState {
             .current()
             .expect("BUG: current() returned Some above");
         let assignment = WorkAssignment {
-            work_id,
+            assignment_id,
             prev_hash: slot.prev_hash,
             merkle_root: slot.merkle_root,
             target: slot.target,
@@ -147,8 +147,8 @@ impl StratumState {
             version_mask: self.version_mask,
         };
         trace!(
-            "stratum-client: publish work_id={} job={} ntime={:#010x}",
-            assignment.work_id, slot.job_id.0, assignment.ntime,
+            "stratum-client: publish assignment_id={} job={} ntime={:#010x}",
+            assignment.assignment_id, slot.job_id.0, assignment.ntime,
         );
         asic.publish_work(assignment);
     }
@@ -164,7 +164,7 @@ impl StratumState {
         Self {
             job_ring: JobRing::new(),
             work_ring: WorkRing::new(),
-            next_work_id: 0,
+            next_assignment_id: 0,
             slot: slot.min(POOL_INDEX_SPACE - 1),
             version_mask: 0,
         }

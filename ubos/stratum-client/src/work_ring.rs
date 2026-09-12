@@ -19,13 +19,13 @@
 
 //! `WorkRing<N>` — outstanding ASIC work.
 //!
-//! Each slot pairs a `work_id` (stamped into the `WorkAssignment`
-//! published to the ASIC) with the per-share context the host needs
+//! Each slot pairs an `assignment_id` (stamped into the `WorkAssignment`
+//! published to the mining actor) with the per-share context the host needs
 //! to encode a wire submit (`extranonce_2`, `ntime`,
 //! `version_bits`, plus the originating `JobId`).
 //!
-//! When a `Solution` returns from the ASIC, the host looks up the
-//! matching `work_id`. Eviction is FIFO — older outstanding work
+//! When a `Solution` returns from the mining actor, the host looks up the
+//! matching `assignment_id`. Eviction is FIFO — older outstanding work
 //! drops off the ring once the depth is exceeded.
 
 use crate::work::OutstandingWork;
@@ -58,14 +58,14 @@ impl<const N: usize> WorkRing<N> {
         self.write_index = (self.write_index + 1) % N;
     }
 
-    /// Return a reference to the slot whose `work_id` matches.
+    /// Return a reference to the slot whose `assignment_id` matches.
     /// `None` if the ring rotated past it.
     #[must_use]
-    pub fn lookup(&self, work_id: u32) -> Option<&OutstandingWork> {
+    pub fn lookup(&self, assignment_id: u32) -> Option<&OutstandingWork> {
         self.slots
             .iter()
             .filter_map(|slot| slot.as_ref())
-            .find(|work| work.work_id == work_id)
+            .find(|work| work.assignment_id == assignment_id)
     }
 }
 

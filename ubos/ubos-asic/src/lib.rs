@@ -43,8 +43,8 @@ pub use bm13xx::{chip::Chip, driver::Bm13xxDriver};
 pub use board::*;
 pub use chain::{
     BIP320_VERSION_MASK, ChainDriver, ChainSolution, ChipDescriptor, ChipError, MAX_INGEST_CHUNK,
-    MAX_SOLUTIONS_PER_BATCH, ResultMode, ShareTarget, SolutionBatch, WorkJob, block_header,
-    rolled_version, solution_hash,
+    MAX_SOLUTIONS_PER_BATCH, PollBatch, PollProgress, ResultMode, ShareDifficulty, ShareTarget,
+    SolutionBatch, WorkJob, block_header, rolled_version, solution_hash,
 };
 pub use pvt::{ChainPvt, TemperatureSummary, VoltageSummary};
 pub use transport::{BaudRateError, Transport};

@@ -19,10 +19,10 @@
 
 //! Tunables for the mining serial backends.
 
-/// Capacity of the in-memory registry that holds per-`job_key` context
+/// Capacity of the in-memory registry that holds per-`work_id` context
 /// for matching returned `ChainSolution`s back to the originating job.
-/// The active slot count is the driver's `job_slots`, capped at this
-/// capacity; sized to the largest `job_slots` a supported driver
+/// The active slot count is the driver's `work_slots`, capped at this
+/// capacity; sized to the largest `work_slots` a supported driver
 /// reports, the BM1362/BM1366 `256 / 8`.
 pub const WORK_REGISTRY_SLOTS: usize = 256 / 8;
 

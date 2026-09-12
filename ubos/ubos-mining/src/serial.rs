@@ -59,8 +59,8 @@ use portable_atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use serial_baudrate::BaudRate;
 use stratum_client::{AsicSession, Solution, WorkAssignment};
 use ubos_asic::{
-    BaudRateError, ChainDriver, ChainSolution, ChipError, HashboardDescriptor, ResultMode,
-    SolutionBatch, Transport, WorkJob, rolled_version, solution_hash,
+    BaudRateError, ChainDriver, ChainSolution, ChipError, HashboardDescriptor, PollProgress,
+    ResultMode, Transport, WorkJob, rolled_version, solution_hash,
 };
 use ubos_core::units::Frequency;
 use ubos_logging::{Debug2Format, error, info, trace, warn};
@@ -212,9 +212,9 @@ pub fn core1_is_parked() -> bool {
 /// after a rail cut drives exactly that continuously-ready condition.
 /// Checking here first guarantees the park is
 /// taken after at most one read is processed. The poll path keeps the
-/// same bound: the nonce-FIFO poll runs inside the select, so the park
-/// signal cancels an in-flight poll rather than waiting out its read
-/// loop. Commands are the exception: a bring-up command holds the actor
+/// same boundary: a bounded poll chunk finishes before parking. Cancelling
+/// a chunk could discard collected finds or interrupt a snapshot write.
+/// A park whose timeout is shorter than a chunk fails closed. Commands are the exception: a bring-up command holds the actor
 /// in `handle_command` for its full duration, and `ResetEnumerate` and
 /// `Configure` run for seconds across reset gaps, reply windows, and
 /// baud drains, so a park requested meanwhile is honoured only when the
@@ -273,6 +273,7 @@ struct PollCadence {
     ticker: Ticker,
     polls_per_turn: u8,
     countdown: u8,
+    progress: PollProgress,
 }
 
 impl PollCadence {
@@ -296,13 +297,20 @@ impl PollCadence {
             ticker: Ticker::every(period),
             polls_per_turn,
             countdown: polls_per_turn,
+            progress: PollProgress::Complete,
         }
     }
 
     /// Wait for the next poll, and say whether it is the one that takes
     /// a status turn as well.
     async fn next(&mut self) -> bool {
+        if self.progress == PollProgress::More {
+            return false;
+        }
         self.ticker.next().await;
+        // Skip missed ticks after a slow sweep instead of catching up.
+        self.ticker.reset();
+        self.progress = PollProgress::More;
         self.countdown -= 1;
         if self.countdown > 0 {
             return false;
@@ -699,7 +707,7 @@ impl Serial {
                     .work_receiver(slot)
                     .expect("BUG: AsicSession Watch must have a free receiver slot")
             });
-        let mut registry = WorkRegistry::new(driver.job_slots());
+        let mut registry = WorkRegistry::new(driver.work_slots());
         let mut work_ticker: Option<Ticker> = None;
         let mut poll_cadence: Option<PollCadence> = None;
         let mut read_buf = [0u8; READ_CHUNK];
@@ -723,25 +731,9 @@ impl Serial {
                     core::future::pending::<()>().await;
                 }
             };
-            // The result arm differs by delivery model: push chips are read
-            // passively off the line; poll chips wait a ticker then read
-            // their nonce FIFO. The whole poll runs inside the arm so a
-            // command or park signal cancels a slow poll instead of
-            // queueing behind its read loop: the driver's parser and the
-            // UART ring buffer persist across a dropped poll, so no data
-            // is lost and the next tick collects it. A request write
-            // cancelled mid-frame costs one chip-side resync. `serial`
-            // and `driver` are only borrowed for the duration of the
-            // select. The `BrokenPipe` EOF exit below exists only on the
-            // push arm: the poll arm reads through `Transport::read`,
-            // whose contract folds end-of-stream into the same `0` as a
-            // quiet line, so a poll-mode chain cannot observe stream
-            // death and keeps collecting empty batches. A poll-family
-            // driver that needs a dead link to restart mining must
-            // detect the silence itself, for example via a
-            // consecutive-empty-poll threshold surfaced through its own
-            // error path. The push-arm `BrokenPipe` supervisor restart
-            // does not cover it.
+            // Only readiness waits are cancellable. Once selected, a poll
+            // chunk finishes and its results are processed before another
+            // work tick, command or park can touch the driver.
             let result_arm = async {
                 match result_mode {
                     ResultMode::Push => {
@@ -752,27 +744,16 @@ impl Serial {
                         let Some(cadence) = poll_cadence.as_mut() else {
                             return core::future::pending::<ResultEvent>().await;
                         };
-                        let status_turn = cadence.next().await;
-                        let mut io = SerialIo {
-                            serial: &mut serial,
-                        };
-                        // The turn comes before the sweep, not after it:
-                        // the sweep ends in the write that gives the
-                        // chips their work, and a chip answers no
-                        // register read for a while after loading, so a
-                        // reading taken right after the sweep is lost.
-                        if status_turn {
-                            driver.status_turn(&mut io).await;
-                        }
-                        ResultEvent::Polled(driver.poll_results(&mut io).await)
+                        Timer::after(driver.poll_delay()).await;
+                        ResultEvent::PollDue(cadence.next().await)
                     }
                 }
             };
             let cmd_arm = self.cmd.receive();
             let park_arm = PARK_SIGNAL.wait();
 
-            match select4(tick_arm, result_arm, cmd_arm, park_arm).await {
-                Either4::First(()) => {
+            match select4(cmd_arm, park_arm, tick_arm, result_arm).await {
+                Either4::Third(()) => {
                     Self::dispatch_work(
                         &mut serial,
                         &mut scheduler,
@@ -782,13 +763,13 @@ impl Serial {
                     )
                     .await;
                 }
-                Either4::Second(ResultEvent::Read(Ok(0))) => {
+                Either4::Fourth(ResultEvent::Read(Ok(0))) => {
                     error!("Serial port EOF");
                     UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
                     Self::stand_down(&mut serial);
                     return Err(ErrorKind::BrokenPipe);
                 }
-                Either4::Second(ResultEvent::Read(Ok(n))) => {
+                Either4::Fourth(ResultEvent::Read(Ok(n))) => {
                     let batch = driver.ingest(&read_buf[..n]);
                     Self::process_solutions(
                         &batch,
@@ -799,7 +780,7 @@ impl Serial {
                     );
                     UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
                 }
-                Either4::Second(ResultEvent::Read(Err(kind))) => {
+                Either4::Fourth(ResultEvent::Read(Err(kind))) => {
                     warn!("Serial read error: {:?} (recovering)", Debug2Format(&kind));
                     // A frame truncated by the fault must not splice with
                     // the bytes that follow it into a checksum-passing
@@ -807,20 +788,30 @@ impl Serial {
                     driver.line_error();
                     UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
                 }
-                Either4::Second(ResultEvent::Polled(batch)) => {
+                Either4::Fourth(ResultEvent::PollDue(status_turn)) => {
+                    let mut io = SerialIo {
+                        serial: &mut serial,
+                    };
+                    if status_turn {
+                        driver.status_turn(&mut io).await;
+                    }
+                    let batch = driver.poll_results(&mut io).await;
                     Self::process_solutions(
-                        &batch,
+                        &batch.solutions,
                         &registry,
                         session,
                         &mut scheduler,
-                        &driver.difficulty_target(),
+                        &batch.difficulty,
                     );
+                    if let Some(cadence) = poll_cadence.as_mut() {
+                        cadence.progress = batch.progress;
+                    }
                     UART_DESYNC_BYTES.fetch_add(driver.take_desync(), Ordering::Relaxed);
                 }
-                Either4::Third((_, SerialMessage::SetPoolWeights(weights))) => {
+                Either4::First((_, SerialMessage::SetPoolWeights(weights))) => {
                     scheduler.set_weights(&weights);
                 }
-                Either4::Third((seq, msg)) => {
+                Either4::First((seq, msg)) => {
                     if let ControlFlow::Break(()) = self
                         .handle_command(
                             seq,
@@ -838,7 +829,7 @@ impl Serial {
                         return Ok(());
                     }
                 }
-                Either4::Fourth(()) => {
+                Either4::Second(()) => {
                     // A park was requested while the worker was idle-blocked in
                     // the select. Just loop: the top-of-loop check performs the
                     // actual park, keeping the spin logic in one place.
@@ -882,9 +873,9 @@ impl Serial {
             available[slot] = false;
         };
 
-        let job_key = registry.place(assignment, session_slot);
+        let work_id = registry.place(assignment, session_slot);
         let job = WorkJob {
-            job_key,
+            work_id,
             nonce_start: 0,
             nbits: assignment.nbits,
             ntime: assignment.ntime,
@@ -927,8 +918,8 @@ impl Serial {
         scheduler: &mut Sch,
         difficulty: &[u8; 32],
     ) {
-        let Some(slot) = registry.get(solution.job_key) else {
-            warn!("No WorkAssignment for job_key={}", solution.job_key);
+        let Some(slot) = registry.get(solution.work_id) else {
+            warn!("No WorkAssignment for work_id={}", solution.work_id);
             return;
         };
         let assignment = &slot.assignment;
@@ -946,9 +937,9 @@ impl Serial {
 
         if !hash_meets_target(&hash, difficulty) {
             warn!(
-                "nonce=0x{:08X} job_key={} below the chip's difficulty (hash={})",
+                "nonce=0x{:08X} work_id={} below the chip's difficulty (hash={})",
                 solution.nonce,
-                solution.job_key,
+                solution.work_id,
                 BlockHash(&hash)
             );
             return;
@@ -966,21 +957,21 @@ impl Serial {
 
         if !hash_meets_target(&hash, &assignment.target) {
             trace!(
-                "nonce=0x{:08X} job_key={} below pool target (hash={})",
+                "nonce=0x{:08X} work_id={} below pool target (hash={})",
                 solution.nonce,
-                solution.job_key,
+                solution.work_id,
                 BlockHash(&hash)
             );
             return;
         }
 
         info!(
-            "Submitting share: pool {} nonce=0x{:08X} job_key={} ver_bits=0x{:08X}",
-            slot.session_slot, solution.nonce, solution.job_key, solution.version_bits
+            "Submitting share: pool {} nonce=0x{:08X} work_id={} ver_bits=0x{:08X}",
+            slot.session_slot, solution.nonce, solution.work_id, solution.version_bits
         );
 
         let submitted = Solution {
-            work_id: assignment.work_id,
+            assignment_id: assignment.assignment_id,
             nonce: solution.nonce,
             ntime,
             version_bits: solution.version_bits,
@@ -1084,14 +1075,10 @@ impl Serial {
     }
 }
 
-/// What the result arm produced: bytes read on the push path, or the
-/// solution batch a nonce-FIFO poll collected.
-// No heap on this target, so the batch cannot be boxed; it is a
-// transient stack value on the same path that always held one.
-#[allow(clippy::large_enum_variant)]
+/// Readiness on the poll path, or bytes read on the push path.
 enum ResultEvent {
     Read(Result<usize, ErrorKind>),
-    Polled(SolutionBatch),
+    PollDue(bool),
 }
 
 impl Default for Serial {

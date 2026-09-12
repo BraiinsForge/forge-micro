@@ -508,7 +508,7 @@ pub static BM1370: BmDescriptor = BmDescriptor {
     midstate_count: 16,
 };
 
-// The driver divides by `midstate_count` unguarded — `job_slots` and the
+// The driver divides by `midstate_count` unguarded — `work_slots` and the
 // work-id decode rely on a nonzero stride that divides the echoed byte's
 // range exactly. Enforce both invariants where the descriptors are
 // defined, at compile time, so a future descriptor cannot reintroduce

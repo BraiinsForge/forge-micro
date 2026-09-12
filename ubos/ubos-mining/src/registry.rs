@@ -17,14 +17,14 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The in-flight work registry: which assignment each job key names.
+//! The in-flight work registry: which assignment each hardware work ID names.
 //!
-//! A chip echoes the key of the work it holds, and a driver that writes
+//! A chip echoes the work ID of the assignment it holds, and a driver that writes
 //! the chain only when the header changes leaves every chip echoing one
-//! key for as long as a pool job lasts. So a key names an assignment,
+//! work ID for as long as a pool job lasts. So a work ID names an assignment,
 //! not a work tick: a tick that repeats the whole assignment the last
-//! key went out under reuses that key, and the keys advance with the
-//! work. Taking a key per tick retired the slot a whole chain was still
+//! work ID went out under reuses that ID, and work IDs advance with the
+//! work. Taking a work ID per tick retired the slot a whole chain was still
 //! reporting under once the counter came round, and every solution from
 //! then until the chips took the next job verified against another
 //! job's header.
@@ -37,7 +37,7 @@ use crate::consts::WORK_REGISTRY_SLOTS;
 use stratum_client::WorkAssignment;
 use ubos_logging::warn;
 
-/// In-flight work for a given `job_key` slot. Holds the assignment so an
+/// In-flight work for a given `work_id` slot. Holds the assignment so an
 /// incoming solution can be verified and mapped back to the originating
 /// job. The assignment is captured at dispatch time because the
 /// session's `Watch` publishes fresh assignments mid-job; shares are
@@ -51,83 +51,86 @@ pub(crate) struct WorkSlot {
     pub(crate) session_slot: usize,
 }
 
-/// The assignments in flight, indexed by job key. The key is the slot
-/// index: the driver maps it to and from the chip's echo field, so a
+/// The assignments in flight, indexed by hardware work ID. The ID is
+/// the slot index: the driver maps it to and from the chip's echo field, so a
 /// returned solution finds the assignment it was found on.
 pub(crate) struct WorkRegistry {
     slots: [Option<WorkSlot>; WORK_REGISTRY_SLOTS],
-    /// Keys the driver's echo field can carry, `1..=WORK_REGISTRY_SLOTS`.
-    job_slots: u32,
-    next_key: u32,
-    /// Key the last dispatch went out under, so a repeat of that
+    /// Work IDs the driver's echo field can carry, `1..=WORK_REGISTRY_SLOTS`.
+    work_slots: u32,
+    next_work_id: u32,
+    /// Work ID the last dispatch went out under, so a repeat of that
     /// assignment finds it. `None` before the first dispatch and after
     /// a reset.
-    last_key: Option<u32>,
+    last_work_id: Option<u32>,
 }
 
 impl WorkRegistry {
-    /// Size the key space to what the driver's echo field carries,
+    /// Size the work-ID space to what the driver's echo field carries,
     /// within this registry's capacity.
-    pub(crate) fn new(driver_slots: usize) -> Self {
-        assert!(driver_slots >= 1, "BUG: driver reports zero job slots");
-        if driver_slots > WORK_REGISTRY_SLOTS {
+    pub(crate) fn new(driver_work_slots: usize) -> Self {
+        assert!(
+            driver_work_slots >= 1,
+            "BUG: driver reports zero work slots"
+        );
+        if driver_work_slots > WORK_REGISTRY_SLOTS {
             warn!(
-                "Driver offers {} job slots, registry truncates to {}",
-                driver_slots, WORK_REGISTRY_SLOTS
+                "Driver offers {} work slots, registry truncates to {}",
+                driver_work_slots, WORK_REGISTRY_SLOTS
             );
         }
-        let job_slots = u32::try_from(driver_slots.min(WORK_REGISTRY_SLOTS))
+        let work_slots = u32::try_from(driver_work_slots.min(WORK_REGISTRY_SLOTS))
             .expect("BUG: the registry capacity fits a u32");
         Self {
             slots: [const { None }; WORK_REGISTRY_SLOTS],
-            job_slots,
-            next_key: 0,
-            last_key: None,
+            work_slots,
+            next_work_id: 0,
+            last_work_id: None,
         }
     }
 
-    /// Forget every assignment and start the keys over, for a chain
+    /// Forget every assignment and start the work IDs over, for a chain
     /// that was reset and holds no work.
     pub(crate) fn reset(&mut self) {
         for slot in &mut self.slots {
             *slot = None;
         }
-        self.next_key = 0;
-        self.last_key = None;
+        self.next_work_id = 0;
+        self.last_work_id = None;
     }
 
-    /// Record a dispatch and say which key it goes out under. A repeat
-    /// of the assignment the last dispatch carried, the same pool slot
-    /// and the same work, keeps that key; anything else takes the next
-    /// one, retiring whatever that key named before.
+    /// Record a dispatch and return the hardware work ID. A repeat of
+    /// the assignment the last dispatch carried, from the same pool slot,
+    /// keeps that ID; anything else takes the next one and retires its
+    /// previous assignment.
     pub(crate) fn place(&mut self, assignment: WorkAssignment, session_slot: usize) -> u32 {
-        // The whole assignment and not its work id: a session mints its
-        // ids from zero, so a reconnect on the same pool slot offers id
+        // The whole assignment, not just its assignment ID: a session mints its
+        // assignment IDs from zero, so a reconnect on the same pool slot offers id
         // zero again for a job that is not the one in flight, and the
-        // key would then name the header the previous session was
+        // work ID would then name the header the previous session was
         // hashing while the chips took the new one.
-        let repeat = self.last_key.filter(|&key| {
-            self.slots[key as usize].as_ref().is_some_and(|held| {
+        let repeat = self.last_work_id.filter(|&work_id| {
+            self.slots[work_id as usize].as_ref().is_some_and(|held| {
                 held.session_slot == session_slot && held.assignment == assignment
             })
         });
-        if let Some(key) = repeat {
-            return key;
+        if let Some(work_id) = repeat {
+            return work_id;
         }
-        let key = self.next_key;
-        self.slots[key as usize] = Some(WorkSlot {
+        let work_id = self.next_work_id;
+        self.slots[work_id as usize] = Some(WorkSlot {
             assignment,
             session_slot,
         });
-        self.next_key = (key + 1) % self.job_slots;
-        self.last_key = Some(key);
-        key
+        self.next_work_id = (work_id + 1) % self.work_slots;
+        self.last_work_id = Some(work_id);
+        work_id
     }
 
-    /// The assignment a job key names. The key comes from the chip's
-    /// echo field, so a stray reply can name a key past the registry or
+    /// The assignment a hardware work ID names. The ID comes from the
+    /// chip's echo field, so a stray reply can name an ID past the registry or
     /// one that holds nothing; both read as absent.
-    pub(crate) fn get(&self, job_key: u32) -> Option<&WorkSlot> {
-        self.slots.get(job_key as usize).and_then(Option::as_ref)
+    pub(crate) fn get(&self, work_id: u32) -> Option<&WorkSlot> {
+        self.slots.get(work_id as usize).and_then(Option::as_ref)
     }
 }

@@ -34,7 +34,8 @@ use ubos_core::units::Frequency;
 use crate::HashboardDescriptor;
 use crate::chain::{
     ChainDriver, ChainSolution, ChipDescriptor, ChipError, MAX_INGEST_CHUNK,
-    MAX_SOLUTIONS_PER_BATCH, ResultMode, ShareTarget, SolutionBatch, WorkJob,
+    MAX_SOLUTIONS_PER_BATCH, PollBatch, PollProgress, ResultMode, ShareTarget, SolutionBatch,
+    WorkJob,
 };
 use crate::transport::Transport;
 
@@ -223,7 +224,7 @@ impl ChainDriver for Bm13xxDriver {
         BOOT_UART_RATE
     }
 
-    fn job_slots(&self) -> usize {
+    fn work_slots(&self) -> usize {
         // The chip echoes the work-id in one byte, strided by
         // midstate_count; the usable range is `(max_work_id + 1) /
         // midstate_count`. BM1362/BM1366: 256/8 = 32; BM1370: 128/16 = 8.
@@ -318,18 +319,18 @@ impl ChainDriver for Bm13xxDriver {
     }
 
     async fn send_work(&mut self, io: &mut impl Transport, job: &WorkJob) -> Result<(), ChipError> {
-        // Map the neutral job_key onto the chip's strided work-id byte.
-        // The consumer keeps job_key within job_slots, so the product
+        // Map the neutral work_id onto the chip's strided work-id byte.
+        // The consumer keeps work_id within work_slots, so the product
         // stays inside the chip's usable work-id range. A violation is
         // a caller bug, never a runtime condition like the ChipError
         // cases, so it panics instead of growing an error variant.
         assert!(
-            (job.job_key as usize) < self.job_slots(),
-            "BUG: job_key outside the chip's work-id range"
+            (job.work_id as usize) < self.work_slots(),
+            "BUG: work_id outside the chip's work-id range"
         );
         let midstate = self.chip.descriptor().midstate_count;
         #[allow(clippy::cast_possible_truncation)]
-        let work_id = (job.job_key as u8).wrapping_mul(midstate);
+        let work_id = (job.work_id as u8).wrapping_mul(midstate);
         let hw_work = HwWork {
             work_id,
             nonce_start: job.nonce_start,
@@ -373,10 +374,10 @@ impl ChainDriver for Bm13xxDriver {
             remaining = &remaining[n..];
             while let Some(response) = self.parser.pop(self.chip) {
                 if let Response::HwSolution(solution) = response {
-                    // pop() already decoded the work-id; recover the job
-                    // key by undoing the midstate stride.
+                    // pop() already decoded the work-id; recover the hardware
+                    // work ID by undoing the midstate stride.
                     let sol = ChainSolution {
-                        job_key: u32::from(solution.work_id / midstate),
+                        work_id: u32::from(solution.work_id / midstate),
                         nonce: solution.nonce,
                         ntime_offset: 0,
                         version_bits: solution.version_bits(),
@@ -410,9 +411,12 @@ impl ChainDriver for Bm13xxDriver {
         out
     }
 
-    async fn poll_results(&mut self, _io: &mut impl Transport) -> SolutionBatch {
-        // BM13xx pushes solution frames; nothing to poll.
-        SolutionBatch::new()
+    async fn poll_results(&mut self, _io: &mut impl Transport) -> PollBatch {
+        PollBatch {
+            solutions: SolutionBatch::new(),
+            difficulty: self.difficulty_target(),
+            progress: PollProgress::Complete,
+        }
     }
 
     fn reset(&mut self) {

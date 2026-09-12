@@ -132,7 +132,7 @@ pub async fn run_asic_cpu(asic: &'static AsicSession) -> ! {
             let hash = sha256d(&header);
             if hash_meets_target(&hash, &current.target) {
                 let solution = Solution {
-                    work_id: current.work_id,
+                    assignment_id: current.assignment_id,
                     nonce,
                     ntime: current.ntime,
                     version_bits: 0,
