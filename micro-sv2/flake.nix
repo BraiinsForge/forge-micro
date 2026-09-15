@@ -49,7 +49,18 @@
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
 
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+        # The same version that nix/toolchains.nix names one directory up.
+        # A flake reads no path outside its own root, so this crate cannot
+        # import that binding and states the version itself. The
+        # `micro-sv2-rust-version` check holds the two together.
+        #
+        # This toolchain is not only a standalone convenience. The parent
+        # flake re-exports the checks below, so it compiles this crate,
+        # and `stable.latest` here meant the gate set carried a second
+        # compiler that no file named.
+        rustVersion = "1.98.1";
+
+        rustToolchain = pkgs.rust-bin.stable.${rustVersion}.default.override {
           extensions = [
             "rust-src"
             "rust-analyzer"
