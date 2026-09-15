@@ -51,8 +51,9 @@ map and the dependency direction.
     `Clear(Reason)` scaffolding crosses a crate boundary.
 13. **Concern separation is by module.** Configuration is a
     `ubos-config` concern, pause aggregation a `ubos-manager` concern,
-    tuning a `ubos-mining` concern. Control flows one way: config does
-    not import the manager, and the manager does not import config.
+    tuning a `ubos-mining` concern over the tuner trait in `ubos-tuner`.
+    Control flows one way: config does not import the manager, and the
+    manager does not import config.
 14. **Ack is opt-in.** A fire-and-forget handle method queues a
     command and returns `()`. A handle method that must return a
     `Result` carries an internal `Signal<Result>` and a serialising
