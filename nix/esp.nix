@@ -27,6 +27,9 @@
   crane,
   system,
   nixpkgs-esp-dev,
+  # The one rust version nix/toolchains.nix pins. The esp-rs release
+  # below is a build of it.
+  rustVersion,
 }:
 rec {
   # Xtensa-LX7 Rust toolchain for the ESP32-S3. Upstream rustc does
@@ -35,7 +38,11 @@ rec {
   # a Nix build is non-deterministic, so flake checks fetch the
   # release tarballs directly with pinned hashes.
   #
-  # When bumping espToolchainVersion:
+  # esp-rs names a release after the rust version it builds, with a
+  # build counter appended, so the version here is the pinned one plus
+  # that counter and not a second copy of it. A rust bump in
+  # nix/toolchains.nix moves this toolchain with it, and needs the
+  # counter of the matching esp-rs release and fresh hashes:
   #   nix-prefetch-url <rust tarball url>
   #   nix-prefetch-url <rust-src tarball url>
   #   nix hash convert --to sri --hash-algo sha256 <each base32>
@@ -43,7 +50,8 @@ rec {
   # the compressed tarball directly.
   # Update the hashes below and retest both flake checks and the
   # esp devshell in the same commit.
-  espToolchainVersion = "1.94.0.2";
+  espBuild = "0";
+  espToolchainVersion = "${rustVersion}.${espBuild}";
 
   espToolchain = pkgs.stdenv.mkDerivation {
     pname = "esp-rust-xtensa";
@@ -52,11 +60,11 @@ rec {
     srcs = [
       (pkgs.fetchurl {
         url = "https://github.com/esp-rs/rust-build/releases/download/v${espToolchainVersion}/rust-${espToolchainVersion}-x86_64-unknown-linux-gnu.tar.xz";
-        hash = "sha256-bOG2jBJtHuDBfUWejEg7kXaAAfzpzCz4lfbGiMMmKxU=";
+        hash = "sha256-u38+zDa3QdyfVlVGKST+k6hiDXw0nFn5moZIkoztmpo=";
       })
       (pkgs.fetchurl {
         url = "https://github.com/esp-rs/rust-build/releases/download/v${espToolchainVersion}/rust-src-${espToolchainVersion}.tar.xz";
-        hash = "sha256-A8J1ScXW8c39Tw/6KKYsC6+XnCgkGewSGnfxttKxz4c=";
+        hash = "sha256-wZ5aQKYl32SEVKlyovsvMDFE1CcEraeHzco6D1nKDMw=";
       })
     ];
 

@@ -47,7 +47,15 @@ let
   };
 in
 rec {
-  rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+  # The one Rust version every universe here compiles with. A consumer
+  # that extends this set reads it for its own toolchains too, so the
+  # version is exported rather than spelled at each use. `stable.latest`
+  # stood here before, which let any rust-overlay bump move the compiler
+  # under the firmware without a line of this repo changing. A version
+  # written down moves when someone decides to move it.
+  rustVersion = "1.98.1";
+
+  rustToolchain = pkgs.rust-bin.stable.${rustVersion}.default.override {
     extensions = [
       "rust-src"
       "rust-analyzer"
@@ -61,14 +69,14 @@ rec {
     ];
   };
 
-  espRustToolchain = pkgs.rust-bin.stable.latest.default.override {
+  espRustToolchain = pkgs.rust-bin.stable.${rustVersion}.default.override {
     extensions = [
       "rust-src"
       "rust-analyzer"
     ];
   };
 
-  hostRustToolchain = pkgs.rust-bin.stable.latest.default.override {
+  hostRustToolchain = pkgs.rust-bin.stable.${rustVersion}.default.override {
     extensions = [
       "rust-src"
       "rust-analyzer"
@@ -77,7 +85,7 @@ rec {
     ];
   };
 
-  bmmRustToolchain = pkgs.rust-bin.stable.latest.default.override {
+  bmmRustToolchain = pkgs.rust-bin.stable.${rustVersion}.default.override {
     extensions = [
       "rust-src"
       "rust-analyzer"

@@ -120,7 +120,7 @@
         # toolchain, its crane instance, and the second-stage
         # bootloader. See nix/esp.nix.
         esp = import ./nix/esp.nix {
-          inherit pkgs system;
+          inherit pkgs system rustVersion;
           inherit (inputs) crane nixpkgs-esp-dev;
         };
         inherit (esp)
