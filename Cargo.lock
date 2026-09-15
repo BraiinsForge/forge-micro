@@ -4731,6 +4731,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubos-tuner"
+version = "0.1.0"
+dependencies = [
+ "embassy-time",
+ "ubos-core",
+ "ubos-psu",
+]
+
+[[package]]
 name = "ubos-webui"
 version = "0.1.0"
 dependencies = [

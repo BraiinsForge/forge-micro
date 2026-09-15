@@ -139,6 +139,7 @@ let
     clippy-ubos-mining.crate = "ubos-mining";
     clippy-mining-protocol.crate = "mining-protocol";
     clippy-ubos-asic.crate = "ubos-asic";
+    clippy-ubos-tuner.crate = "ubos-tuner";
     clippy-stratum-v1.crate = "stratum-v1";
     clippy-stratum-v2.crate = "stratum-v2";
     clippy-stratum-client.crate = "stratum-client";
@@ -235,6 +236,7 @@ let
     test-stratum-client.crate = "stratum-client";
     test-mining-protocol.crate = "mining-protocol";
     test-ubos-asic.crate = "ubos-asic";
+    test-ubos-tuner.crate = "ubos-tuner";
     test-ubos-machine.crate = "ubos-machine";
     test-ubos-temperature.crate = "ubos-temperature";
     # Host tests build with defmt off; see the test-ubos-api comment

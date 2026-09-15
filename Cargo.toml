@@ -41,6 +41,7 @@ members = [
     "ubos/ubos-metrics",
     "ubos/ubos-cooling",
     "ubos/ubos-thermal",
+    "ubos/ubos-tuner",
     "ubos/ubos-config",
     "ubos/ubos-eeprom",
     "ubos/ubos-events",
@@ -139,6 +140,7 @@ ubos-machine      = { path = "ubos/ubos-machine" }
 ubos-metrics      = { path = "ubos/ubos-metrics", default-features = false }
 ubos-cooling      = { path = "ubos/ubos-cooling", default-features = false }
 ubos-thermal      = { path = "ubos/ubos-thermal", default-features = false }
+ubos-tuner        = { path = "ubos/ubos-tuner" }
 ubos-config       = { path = "ubos/ubos-config", default-features = false }
 ubos-eeprom       = { path = "ubos/ubos-eeprom", default-features = false }
 ubos-events       = { path = "ubos/ubos-events", default-features = false }

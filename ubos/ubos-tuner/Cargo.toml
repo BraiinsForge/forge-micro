@@ -1,0 +1,13 @@
+[package]
+license.workspace = true
+name    = "ubos-tuner"
+edition.workspace = true
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+embassy-time = { workspace = true }
+ubos-core    = { workspace = true }
+ubos-psu     = { workspace = true }

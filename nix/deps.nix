@@ -113,6 +113,7 @@ rec {
       "-p ubos-psu"
       "-p ubos-snapshot"
       "-p ubos-temperature"
+      "-p ubos-tuner"
     ];
   };
   hostArtifactsDev = dev hostArtifacts;

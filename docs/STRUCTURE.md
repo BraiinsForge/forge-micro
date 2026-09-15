@@ -97,6 +97,7 @@ typed `TaskPool` static and so rejects generic task functions.
 | `ubos-cooling`     | fan control task, PID or fixed duty, `FanOutput` HAL trait |
 | `ubos-mining`      | BM13xx chip-serial actor, miner state machine, `MiningHandle` |
 | `ubos-asic`        | pure chip-protocol library: the vendor-neutral `ChainDriver` seam plus the BM13xx chip family |
+| `ubos-tuner`       | the tuner trait and the types it takes and returns. No loop and no tuner |
 | `ubos-eeprom`      | hashboard EEPROM read trait and the BOS-compatible wire format |
 | `ubos-events`      | user-facing event log: a fixed-capacity RAM ring of encoded records, readable over HTTP |
 | `ubos-ota`         | board-agnostic OTA flash-write engine; each board supplies a backend |
