@@ -53,6 +53,9 @@
   esp32s3Bootloader,
   guards,
   helpers,
+  # The one rust version, from nix/toolchains.nix, for the drift gate
+  # over micro-sv2, which cannot import it.
+  rustVersion,
   slotMaxKiB,
   slotMaxBytes,
   esp32s3SlotBytes,
@@ -976,6 +979,21 @@ hostClippyChecks
     if [ "$lines" -gt ${toString claudeMdMaxLines} ]; then
       echo "ERROR: CLAUDE.md is $lines lines; the limit is ${toString claudeMdMaxLines}." >&2
       echo "Move detail into docs/ or .claude/rules/ instead of growing it." >&2
+      exit 1
+    fi
+    touch $out
+  '';
+
+  # micro-sv2 is a flake of its own, and a flake reads no path outside
+  # its root, so it cannot import the `rustVersion` that nix/toolchains.nix
+  # binds. It states the version itself, and this gate is what keeps the
+  # two from drifting. The flake above re-exports that crate's checks, so
+  # a drift here is a second compiler in one gate set.
+  micro-sv2-rust-version = pkgs.runCommand "micro-sv2-rust-version" { } ''
+    wanted='rustVersion = "${rustVersion}";'
+    if ! grep -qF "$wanted" ${root + "/micro-sv2/flake.nix"}; then
+      echo "Rust version drift: micro-sv2/flake.nix does not say $wanted" >&2
+      echo "nix/toolchains.nix names ${rustVersion}, and both must agree." >&2
       exit 1
     fi
     touch $out

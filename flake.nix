@@ -112,6 +112,7 @@
         };
         inherit (toolchains)
           bmmCc
+          rustVersion
           craneLib
           bmmCraneLib
           ;
@@ -274,6 +275,7 @@
               guards
               boardParity
               helpers
+              rustVersion
               slotMaxKiB
               slotMaxBytes
               esp32s3SlotBytes
