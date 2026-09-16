@@ -4596,6 +4596,7 @@ dependencies = [
  "ubos-logging",
  "ubos-metrics",
  "ubos-psu",
+ "ubos-tuner",
 ]
 
 [[package]]

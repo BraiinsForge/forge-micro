@@ -48,6 +48,7 @@ stratum-client    = { workspace = true }
 ubos-asic         = { workspace = true }
 ubos-logging      = { workspace = true }
 ubos-psu          = { workspace = true }
+ubos-tuner        = { workspace = true }
 
 [dev-dependencies]
 # The dispatch tests construct an `AsicSession`, whose `Watch`/`Channel`
