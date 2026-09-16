@@ -1011,6 +1011,19 @@ type PollGate = Signal<CriticalSectionRawMutex, ()>;
 /// Chain-driver stub for the result-arm tests. `line_errors` and
 /// `ingest_calls` are `&'static` counters rather than owned fields so a
 /// test can still read them after `run` consumes and drops the driver.
+/// What `ResultDriver::send_work` records, in `'static` cells a test
+/// reads after `run` drops the driver.
+#[derive(Clone, Copy)]
+struct SendWorkTracking {
+    /// Work ID of the last job sent.
+    last_work_id: &'static AtomicU32,
+    /// `ntime` of the last job sent, which the clamp test uses to name
+    /// the assignment the job came from.
+    last_ntime: &'static AtomicU32,
+    /// Number of `send_work` calls.
+    calls: &'static AtomicU32,
+}
+
 struct ResultDriver {
     mode: ResultMode,
     line_errors: &'static AtomicU32,
@@ -1023,10 +1036,9 @@ struct ResultDriver {
     /// drive `run`'s registry-size clamp with a driver that claims more
     /// slots than the registry holds.
     work_slots: usize,
-    /// Work ID and call count from the most recent `send_work` call, for
-    /// the work-slots clamp test to confirm the dispatched work ID wraps
-    /// within the registry instead of overrunning it.
-    send_work_tracking: Option<(&'static AtomicU32, &'static AtomicU32)>,
+    /// Counters the work-slots clamp test reads after `run` drops the
+    /// driver.
+    send_work_tracking: Option<SendWorkTracking>,
     /// Pause after the result enters the local batch, so a work tick or
     /// command that cancels the call would lose an already collected find.
     poll_rendezvous: Option<(&'static PollGate, &'static PollGate)>,
@@ -1062,15 +1074,9 @@ impl ResultDriver {
         self
     }
 
-    /// Record each `send_work` call's work ID into `last_work_id` and
-    /// bump `call_count`, both `'static` so a test can read them after
-    /// `run` consumes and drops the driver.
-    fn with_send_work_tracking(
-        mut self,
-        last_work_id: &'static AtomicU32,
-        call_count: &'static AtomicU32,
-    ) -> Self {
-        self.send_work_tracking = Some((last_work_id, call_count));
+    /// Record every `send_work` call into `tracking`.
+    fn with_send_work_tracking(mut self, tracking: SendWorkTracking) -> Self {
+        self.send_work_tracking = Some(tracking);
         self
     }
 
@@ -1127,9 +1133,10 @@ impl ChainDriver for ResultDriver {
         _io: &mut impl Transport,
         job: &WorkJob,
     ) -> Result<(), ChipError> {
-        if let Some((last_work_id, call_count)) = self.send_work_tracking {
-            last_work_id.store(job.work_id, Ordering::Relaxed);
-            call_count.fetch_add(1, Ordering::Relaxed);
+        if let Some(tracking) = self.send_work_tracking {
+            tracking.last_work_id.store(job.work_id, Ordering::Relaxed);
+            tracking.last_ntime.store(job.ntime, Ordering::Relaxed);
+            tracking.calls.fetch_add(1, Ordering::Relaxed);
         }
         Ok(())
     }
@@ -1305,35 +1312,58 @@ fn a_poll_collects_a_solution_through_process_solutions_without_calling_ingest()
 /// A driver that reports more work slots than the registry holds must
 /// still dispatch safely: `run` clamps to `WORK_REGISTRY_SLOTS` up
 /// front, so the work ID wraps back to 0 there instead of walking past
-/// the registry's last index. Running past that wrap point is the only
-/// way to tell the clamped behavior apart from the driver's own claim,
-/// since a single dispatch looks identical either way.
+/// the registry's last index. The registry hands a fresh work ID only
+/// to a new assignment and keeps the ID for a repeat, so the test
+/// publishes the next assignment after each send it observes and runs
+/// past one full lap of the registry. Assignment `n` carries `n` in
+/// `ntime`, the one assignment field that reaches the job, so the
+/// driver stub can say which assignment the last job came from.
 #[test]
 fn run_clamps_a_driver_reporting_more_work_slots_than_the_registry_holds() {
     static SESSION: AsicSession<1> = AsicSession::new();
     static LINE_ERRORS: AtomicU32 = AtomicU32::new(0);
     static INGEST_CALLS: AtomicU32 = AtomicU32::new(0);
-    static LAST_JOB_KEY: AtomicU32 = AtomicU32::new(0);
+    static LAST_WORK_ID: AtomicU32 = AtomicU32::new(0);
+    static LAST_NTIME: AtomicU32 = AtomicU32::new(0);
     static SEND_CALLS: AtomicU32 = AtomicU32::new(0);
 
-    SESSION.pool_handle(0).publish_work(assignment(1));
     let registry_slots =
         u32::try_from(WORK_REGISTRY_SLOTS).expect("registry size fits a u32 in any test build");
+    let numbered = |n: u32| WorkAssignment {
+        ntime: n,
+        ..assignment(n)
+    };
+    // Two assignments past a full lap, so the last work ID is on the
+    // second lap.
+    let last = registry_slots + 2;
+    SESSION.pool_handle(0).publish_work(numbered(1));
 
     let actor = Serial::new();
     let driver = ResultDriver::new(ResultMode::Push, &LINE_ERRORS, &INGEST_CALLS)
         .with_work_slots(WORK_REGISTRY_SLOTS + 8)
-        .with_send_work_tracking(&LAST_JOB_KEY, &SEND_CALLS);
+        .with_send_work_tracking(SendWorkTracking {
+            last_work_id: &LAST_WORK_ID,
+            last_ntime: &LAST_NTIME,
+            calls: &SEND_CALLS,
+        });
     let scheduler = Pinned::new(0);
     let serial = ScriptedSerial::quiet();
 
     let caller = async {
         let start_result = actor.start_sending_work(Duration::from_millis(1)).await;
         assert!(matches!(start_result, Ok(())));
-        // Wait past one full lap of the registry so the work ID wraps at
-        // least once: an unclamped driver would index the registry past
-        // its last slot right at this point instead.
-        while SEND_CALLS.load(Ordering::Relaxed) <= registry_slots {
+        // Publish assignment `n` only after a send was observed since
+        // the previous publish. Every send after a publish carries that
+        // assignment, so each one goes out at least once and in order,
+        // whatever the tick timing.
+        for n in 2..=last {
+            let sent = SEND_CALLS.load(Ordering::Relaxed);
+            while SEND_CALLS.load(Ordering::Relaxed) == sent {
+                yield_now().await;
+            }
+            SESSION.pool_handle(0).publish_work(numbered(n));
+        }
+        while LAST_NTIME.load(Ordering::Relaxed) != last {
             yield_now().await;
         }
         let terminate_result = actor.terminate().await;
@@ -1346,15 +1376,10 @@ fn run_clamps_a_driver_reporting_more_work_slots_than_the_registry_holds() {
     ));
 
     assert!(matches!(run_result, Ok(())));
-    let calls = SEND_CALLS.load(Ordering::Relaxed);
-    assert!(
-        calls > registry_slots,
-        "the test must run long enough to observe a wrap"
-    );
-    let expected_work_id = (calls - 1) % registry_slots;
+    assert_eq!(LAST_NTIME.load(Ordering::Relaxed), last);
     assert_eq!(
-        LAST_JOB_KEY.load(Ordering::Relaxed),
-        expected_work_id,
+        LAST_WORK_ID.load(Ordering::Relaxed),
+        (last - 1) % registry_slots,
         "work IDs must wrap at the registry size, not the driver's claimed slot count"
     );
 }
