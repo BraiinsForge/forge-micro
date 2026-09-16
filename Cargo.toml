@@ -158,6 +158,12 @@ ubos-webui        = { path = "ubos/ubos-webui", default-features = false }
 [workspace.lints.clippy]
 pedantic     = { level = "warn", priority = -1 }
 unwrap_used  = "deny"
+# A trait declares a method `async` for the impls that await in it. An
+# impl that reaches no await still states the shape the trait gave it,
+# and the rewrite the lint asks for, a plain `fn` returning `ready`,
+# would bury that. The position holds for every such impl, so it is
+# stated once here and at no site.
+unused_async_trait_impl = "allow"
 
 [profile.dev]
 opt-level = "s"
