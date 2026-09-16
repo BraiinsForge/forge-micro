@@ -95,7 +95,7 @@ pub fn random_token() -> String<32> {
     // bottom localises the contract: a future change to `raw` size,
     // chunk width, or the buffer cap surfaces in one place.
     let mut token: String<32> = String::new();
-    for chunk in raw.chunks_exact(3) {
+    for chunk in raw.as_chunks::<3>().0 {
         let triple = (u32::from(chunk[0]) << 16) | (u32::from(chunk[1]) << 8) | u32::from(chunk[2]);
         // Each shift extracts exactly 6 bits; the index into a 64-entry
         // table is always in bounds.

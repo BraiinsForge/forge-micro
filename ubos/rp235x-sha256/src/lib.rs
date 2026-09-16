@@ -73,7 +73,7 @@ impl HardwareSha256d {
         // Copy 80 bytes as 20 u32 words from the header. Each four-byte
         // chunk is assembled via from_le_bytes so no alignment requirement
         // is placed on the header slice.
-        for (slot, chunk) in pass1_buffer[..20].iter_mut().zip(header.chunks_exact(4)) {
+        for (slot, chunk) in pass1_buffer[..20].iter_mut().zip(header.as_chunks::<4>().0) {
             *slot = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         }
         // Padding for an 80-byte message under BSWAP=1: byte stream

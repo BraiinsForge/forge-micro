@@ -57,8 +57,8 @@ pub use watchdog::BoardWatchdog;
 #[must_use]
 pub fn seed_from_rng(rng: &mut esp_hal::rng::Rng) -> [u8; 32] {
     let mut seed = [0u8; 32];
-    for chunk in seed.chunks_exact_mut(4) {
-        chunk.copy_from_slice(&rng.random().to_le_bytes());
+    for chunk in seed.as_chunks_mut::<4>().0 {
+        *chunk = rng.random().to_le_bytes();
     }
     seed
 }

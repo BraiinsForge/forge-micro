@@ -464,7 +464,7 @@ fn base64_decode(input: &[u8], output: &mut [u8]) -> Option<usize> {
     }
     let mut output_pos = 0;
     let last_chunk_index = chunks.saturating_sub(1);
-    for (chunk_index, chunk) in input_stripped.chunks_exact(4).enumerate() {
+    for (chunk_index, chunk) in input_stripped.as_chunks::<4>().0.iter().enumerate() {
         // Only the final chunk may contain `=` padding bytes, and only
         // in its last one or two positions. `decode_char` rejects `=`
         // unconditionally; substitute zero for the padded slots and
