@@ -215,13 +215,13 @@ let
 
   hashnodeImage = mkArmImage {
     name = "hashnode";
-    artifacts = deps.hashnodeArtifacts;
+    artifacts = deps.rp235xbArtifacts;
     target = "thumbv8m.main-none-eabihf";
   };
 
   forgeAxeImage = mkArmImage {
     name = "forge-axe";
-    artifacts = deps.thumbv8mArtifacts;
+    artifacts = deps.rp235xbArtifacts;
     target = "thumbv8m.main-none-eabihf";
   };
 

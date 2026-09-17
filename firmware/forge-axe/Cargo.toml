@@ -20,7 +20,7 @@ embassy-embedded-hal = { version = "0.6.0", default-features = false, features =
 embassy-executor     = { workspace = true, features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-net          = { workspace = true, features = ["defmt", "tcp", "udp", "dhcpv4", "medium-ethernet", "dns"] }
 embassy-net-wiznet   = { workspace = true, features = ["defmt"] }
-embassy-rp           = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa"] }
+embassy-rp           = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xb"] }
 embassy-sync         = { workspace = true, features = ["defmt"] }
 embassy-time         = { workspace = true, features = ["defmt"] }
 embedded-hal-bus     = { workspace = true, features = ["async"] }

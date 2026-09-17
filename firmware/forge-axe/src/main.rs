@@ -17,10 +17,10 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Firmware entry point for the Forge Axe, a Raspberry Pi Pico 2
-//! (RP2350A) with a W5500 ethernet controller, the ubos-mining backend
-//! driving a four-chip single-domain BM1370 hashboard, and a
-//! TPS53647-based `ForgeAxePsu` power stage.
+//! Firmware entry point for the Forge Axe, an RP2350B with a W5500
+//! ethernet controller, the ubos-mining backend driving a four-chip
+//! single-domain BM1370 hashboard, and a TPS53647-based
+//! `ForgeAxePsu` power stage.
 //!
 //! Initialises SPI at 33 MHz, brings the W5500 up via `embassy-net-wiznet`,
 //! starts the embassy-net stack with DHCP, and spawns the watchdog,

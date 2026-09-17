@@ -342,7 +342,7 @@ let
   # is looking for.
   boardTable = {
     forge-axe = {
-      artifacts = deps.thumbv8mArtifacts;
+      artifacts = deps.rp235xbArtifacts;
       target = "thumbv8m.main-none-eabihf";
       guard = "slot";
     };
@@ -362,7 +362,7 @@ let
       guard = "slot";
     };
     hashnode = {
-      artifacts = deps.hashnodeArtifacts;
+      artifacts = deps.rp235xbArtifacts;
       target = "thumbv8m.main-none-eabihf";
       guard = "slot";
     };

@@ -190,19 +190,21 @@ rec {
   thumbv8mArtifacts = armBag {
     crates = builtins.filter (c: builtins.elem c members) [
       "bmm-pico"
-      "forge-axe"
       "rp2350"
       "rp235x-sha256"
     ];
     target = "thumbv8m.main-none-eabihf";
   };
 
-  # hashnode cannot share the thumbv8m bag: it selects
-  # embassy-rp/rp235xb while the bag's crates select rp235xa, so
-  # the bag's embassy-rp would never match and every consumer of
-  # a unified bag would rebuild it.
-  hashnodeArtifacts = armBag {
-    crates = [ "hashnode" ];
+  # The RP2350B boards cannot share the thumbv8m bag: they select
+  # embassy-rp/rp235xb while the bag's crates select rp235xa, and
+  # cargo's per-invocation feature unification activates both, which
+  # embassy-rp rejects with duplicate definitions.
+  rp235xbArtifacts = armBag {
+    crates = builtins.filter (c: builtins.elem c members) [
+      "forge-axe"
+      "hashnode"
+    ];
     target = "thumbv8m.main-none-eabihf";
   };
 

@@ -17,9 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Board constants and peripheral extraction for the Forge Axe, a
-//! Raspberry Pi Pico 2 (RP2350A) with a W5500 driving a four-chip
-//! single-domain BM1370 hashboard and a TPS53647-based `ForgeAxePsu`.
+//! Board constants and peripheral extraction for the Forge Axe, an
+//! RP2350B with a W5500 driving a four-chip single-domain BM1370
+//! hashboard and a TPS53647-based `ForgeAxePsu`.
 //! `Board::take` consumes the RP2350 `Peripherals` once and returns
 //! every singleton the board's schematic claims, keeping pin
 //! assignments in one place rather than scattered through `main`.

@@ -159,9 +159,10 @@ pub const CONTROL_BOARD_HASHNODE: ControlBoardDescriptor = ControlBoardDescripto
 };
 
 /// The Forge Axe: control board and hashboard are one integrated
-/// product, so the name matches `ubos_asic::FORGE_AXE_HASHBOARD.model`. The
-/// MCU is a Raspberry Pi Pico 2 module (RP2350A), the same platform as
-/// the other RP2350 boards.
+/// product, so the name matches `ubos_asic::FORGE_AXE_HASHBOARD.model`.
+/// Reuses the RP2350 platform: the Forge Axe's RP2350B has the same
+/// Cortex-M33 core and target as the RP2350A the rp2350 and bmm-pico
+/// boards use, and differs only in package and GPIO count.
 pub const CONTROL_BOARD_FORGE_AXE: ControlBoardDescriptor = ControlBoardDescriptor {
     name: "Forge Axe",
     platform: RP2350,
