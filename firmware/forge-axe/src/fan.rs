@@ -19,14 +19,14 @@
 
 //! Fan PWM drive and tachometer readback.
 //!
-//! `PWM_SLICE4` channels A (GPIO8) and B (GPIO9) drive the two fan
+//! `PWM_SLICE5` channels A (GPIO10) and B (GPIO11) drive the two fan
 //! connectors' PWM inputs at 25 kHz, the rate specified by the Intel
 //! 4-wire fan spec. `BoardFan` exposes the PWM output behind the
 //! `ubos_cooling::FanOutput` trait so the cooling task can drive duty
 //! cycle from a PID loop.
 //!
-//! The two fan connectors each expose a tachometer: GPIO27
-//! (`RP_TACHO1`) and GPIO28 (`RP_TACHO2`). Neither maps to a
+//! The two fan connectors each expose a tachometer: GPIO21
+//! (`RP_TACHO1`) and GPIO25 (`RP_TACHO2`). Neither maps to a
 //! `PWM_SLICE` channel B, so the PWM slice edge counter is
 //! unusable; instead each tach drives one PIO state machine on `PIO0`
 //! that measures the pulse-to-pulse period in hardware and pushes it to
@@ -43,7 +43,7 @@
 //! chatter pulse yet far shorter than a real tach half-period.
 
 use embassy_rp::Peri;
-use embassy_rp::peripherals::{PIN_8, PIN_9, PIN_27, PIN_28, PIO0, PWM_SLICE4};
+use embassy_rp::peripherals::{PIN_10, PIN_11, PIN_21, PIN_25, PIO0, PWM_SLICE5};
 use embassy_rp::pio::{Common, StateMachine};
 use embassy_rp::pwm::{Config as PwmConfig, Pwm};
 use ubos_cooling::{FanOutput, TachReader};
@@ -65,13 +65,13 @@ pub struct BoardFan {
 impl BoardFan {
     #[must_use]
     pub fn new(
-        slice: Peri<'static, PWM_SLICE4>,
-        pin_a: Peri<'static, PIN_8>,
-        pin_b: Peri<'static, PIN_9>,
+        slice: Peri<'static, PWM_SLICE5>,
+        pin_a: Peri<'static, PIN_10>,
+        pin_b: Peri<'static, PIN_11>,
     ) -> Self {
         let mut pwm_config = PwmConfig::default();
         pwm_config.top = Fan::PWM_TOP;
-        // GPIO8 (RP_PWM1) and GPIO9 (RP_PWM2) are both channels of PWM_SLICE4;
+        // GPIO10 (RP_PWM1) and GPIO11 (RP_PWM2) are both channels of PWM_SLICE5;
         // driving both at one duty keeps the two fan connectors in step.
         let pwm = Pwm::new_output_ab(slice, pin_a, pin_b, pwm_config);
         Self {
@@ -95,7 +95,7 @@ impl FanOutput for BoardFan {
         // u16 cast safe: compare <= self.top, which fits in u16.
         #[allow(clippy::cast_possible_truncation)]
         {
-            // Both channels (GPIO8/GPIO9) get the same duty.
+            // Both channels (GPIO10/GPIO11) get the same duty.
             config.compare_a = compare as u16;
             config.compare_b = compare as u16;
         }
@@ -123,8 +123,8 @@ impl BoardTach {
         common: &mut Common<'static, PIO0>,
         sm0: StateMachine<'static, PIO0, 0>,
         sm1: StateMachine<'static, PIO0, 1>,
-        pin_a: Peri<'static, PIN_27>,
-        pin_b: Peri<'static, PIN_28>,
+        pin_a: Peri<'static, PIN_21>,
+        pin_b: Peri<'static, PIN_25>,
     ) -> Self {
         let program = tach_program(common);
         let sm_a = setup_tach(common, sm0, pin_a, &program);

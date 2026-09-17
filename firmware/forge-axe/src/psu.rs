@@ -17,12 +17,11 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Forge Axe PSU integration over the shared I2C0 bus.
+//! Forge Axe PSU integration over the shared I2C1 bus.
 //!
 //! Wraps the shared TPS53647 `PMBus` driver in [`GatedPsu`], which owns
-//! the two power-sequencing GPIOs and the `VR_RDY` power-good input:
-//! `PWR_EN` (TPS53647 ENABLE) is raised after `LDO_EN` (0V8/1V2 aux
-//! LDOs), the TPS requires both the ENABLE pin and the `OPERATION`
+//! the `PWR_EN` (TPS53647 ENABLE) GPIO and the `VR_RDY` power-good
+//! input. The TPS requires both the ENABLE pin and the `OPERATION`
 //! on-bit, so `GatedPsu` also drives the inner driver's `OPERATION`
 //! write. The bus mutex is owned by `main` so other I2C consumers can
 //! take additional `I2cDevice` handles from the same mutex.
@@ -30,30 +29,30 @@
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::{Input, Output};
 use embassy_rp::i2c::{Async, I2c};
-use embassy_rp::peripherals::I2C0;
+use embassy_rp::peripherals::I2C1;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use static_cell::StaticCell;
 use ubos_machine::FORGE_AXE as MACHINE;
 use ubos_psu::{ForgeAxePsu, ForgeAxeShared, GatedPsu, InnerGate};
 
-/// Bus mutex shared by every consumer on I2C0. `NoopRawMutex` is
+/// Bus mutex shared by every consumer on I2C1. `NoopRawMutex` is
 /// sufficient because every I2C consumer runs on the Core 0 executor.
 /// The chip-serial actor (`mining::serial_task`) runs on Core 1 but
 /// does not touch I2C, so there is no cross-core contention.
-pub type Bus = Mutex<NoopRawMutex, I2c<'static, I2C0, Async>>;
+pub type Bus = Mutex<NoopRawMutex, I2c<'static, I2C1, Async>>;
 
 /// `embedded-hal-async` device handle for one consumer of the shared bus.
 /// Public because the hashboard sensor array takes one of these too.
-pub type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C0, Async>>;
+pub type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C1, Async>>;
 
 /// The shared TPS53647 `PMBus` driver instantiated for this board's bus.
 type InnerPsu = ForgeAxePsu<Device>;
 
-/// Board power stage: the TPS53647 driver gated by `PWR_EN`/`LDO_EN`
-/// with a `VR_RDY` power-good check. Public so the `mining` module can
-/// spell it in `miner_task`'s signature.
-pub type BoardPsu = GatedPsu<InnerPsu, Output<'static>, Input<'static>, 2>;
+/// Board power stage: the TPS53647 driver gated by `PWR_EN` with a
+/// `VR_RDY` power-good check. Public so the `mining` module can spell it
+/// in `miner_task`'s signature.
+pub type BoardPsu = GatedPsu<InnerPsu, Output<'static>, Input<'static>, 1>;
 
 static SHARED: StaticCell<ForgeAxeShared<Device>> = StaticCell::new();
 static PSU: StaticCell<BoardPsu> = StaticCell::new();
@@ -64,23 +63,20 @@ static PSU: StaticCell<BoardPsu> = StaticCell::new();
 const VR_RDY_SETTLE: embassy_time::Duration = embassy_time::Duration::from_millis(10);
 
 /// Construct the `BoardPsu` over an `I2cDevice` carved from `bus`,
-/// taking ownership of the sequencing pins (both outputs passed in
-/// already driven low), and return the `'static` reference the miner
+/// taking ownership of `PWR_EN` (passed in already driven low), and
+/// return the `'static` reference the miner
 /// and power-stats tasks need.
 pub fn init(
     bus: &'static Bus,
     pwr_en: Output<'static>,
-    ldo_en: Output<'static>,
     vr_rdy: Input<'static>,
 ) -> &'static BoardPsu {
     let device = I2cDevice::new(bus);
     let shared: &'static _ = SHARED.init(ForgeAxeShared::new(device, MACHINE.psu));
     let inner = ForgeAxePsu::new(shared);
-    // Aux rail (0V8/1V2 LDOs) before the core rail, matching the array
-    // order below: GatedPsu raises enable pins in array order.
     PSU.init(GatedPsu::new(
         inner,
-        [ldo_en, pwr_en],
+        [pwr_en],
         Some(vr_rdy),
         Some(VR_RDY_SETTLE),
         InnerGate::DriveOperation,

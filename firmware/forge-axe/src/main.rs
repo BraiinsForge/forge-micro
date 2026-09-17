@@ -23,8 +23,8 @@
 //! `ForgeAxePsu` power stage.
 //!
 //! Initialises SPI at 33 MHz, brings the W5500 up via `embassy-net-wiznet`,
-//! starts the embassy-net stack with DHCP, and spawns the watchdog,
-//! ethernet runner, NTP sync, and ubos-mining mining tasks
+//! starts the embassy-net stack with DHCP, and spawns the watchdog, LED
+//! blink, ethernet runner, NTP sync, and ubos-mining mining tasks
 //! before entering the HTTP server loop. Built with `cargo build` from
 //! this crate inside `nix develop .#arm`.
 //!
@@ -43,7 +43,7 @@ use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, DMA_CH3, I2C0, PIO0, PIO1, SPI0, TRNG, UART1};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, DMA_CH3, I2C1, PIO0, PIO1, SPI0, TRNG, UART1};
 #[cfg(feature = "display")]
 use embassy_rp::peripherals::{DMA_CH2, SPI1};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
@@ -103,7 +103,7 @@ bind_interrupts!(struct Irqs {
         dma::InterruptHandler<DMA_CH3>,
         #[cfg(feature = "display")]
         dma::InterruptHandler<DMA_CH2>;
-    I2C0_IRQ => i2c::InterruptHandler<I2C0>;
+    I2C1_IRQ => i2c::InterruptHandler<I2C1>;
     UART1_IRQ => BufferedInterruptHandler<UART1>;
     TRNG_IRQ => trng::InterruptHandler<TRNG>;
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
@@ -123,6 +123,8 @@ ubos_firmware::ethernet_task!(EthernetRunner);
 ubos_firmware::net_task!(Device<'static>);
 
 ubos_core::watchdog_task!(ubos_rp::BoardWatchdog);
+
+ubos_led::led_blink_task!(Output<'static>);
 
 ubos_net::ntp_sync_task!();
 
@@ -305,29 +307,38 @@ async fn boot(spawner: Spawner) {
         },
     );
 
-    // --- 3. Watchdog — always (no status LED on this board) -------------------
+    // --- 3. Watchdog + LED — always -------------------------------------------
     spawner.spawn(unwrap!(watchdog_task(ubos_rp::BoardWatchdog::new(
         Watchdog::new(hw.watchdog),
         config::Watchdog::TIMEOUT,
     ))));
     spawner.spawn(unwrap!(reset_task()));
 
+    // The LEDs are active-low; start HIGH (LED off) so the initial blink
+    // phase matches the active-low convention.
+    let led = Output::new(hw.led_green1, Level::High);
+    spawner.spawn(unwrap!(led_blink_task(led)));
+    // The other three LEDs have no meaning yet. Forgetting the outputs
+    // keeps them driven off, because dropping one would release the pin.
+    core::mem::forget(Output::new(hw.led_red1, Level::High));
+    core::mem::forget(Output::new(hw.led_red2, Level::High));
+    core::mem::forget(Output::new(hw.led_green2, Level::High));
+
     // --- 4. Handle refs — always (compiled even when gated tasks are off) -----
     let thermal = ubos_thermal::handle();
     let manager_handle = ubos_manager::handle();
     let mining_handle = ubos_mining::handle();
 
-    // I2C0 bus + PSU + mining + sensors.
-    // The TPS53647 rail is gated by PWR_EN (GPIO0, ENABLE pin) plus the
-    // OPERATION on-bit; the 0V8/1V2 LDOs by LDO_EN (GPIO1). The BoardPsu
-    // owns those pins; only the miner task raises them, during bring-up,
-    // and drops them again when mining halts, so an idle board never
-    // holds the chip powered in reset.
+    // I2C1 bus + PSU + mining + sensors.
+    // The TPS53647 rail is gated by PWR_EN (GPIO33, ENABLE pin) plus the
+    // OPERATION on-bit. The BoardPsu owns that pin; only the miner task
+    // raises it, during bring-up, and drops it again when mining halts, so
+    // an idle board never holds the chip powered in reset.
     use embassy_rp::i2c::{Config as I2cConfig, I2c};
 
-    static I2C0_BUS: StaticCell<psu::Bus> = StaticCell::new();
+    static I2C1_BUS: StaticCell<psu::Bus> = StaticCell::new();
     let i2c = I2c::new_async(hw.i2c, hw.scl, hw.sda, Irqs, I2cConfig::default());
-    let bus: &'static psu::Bus = I2C0_BUS.init(Mutex::new(i2c));
+    let bus: &'static psu::Bus = I2C1_BUS.init(Mutex::new(i2c));
 
     // Read the hashboard EEPROM once, before powering anything up, so its
     // identity is in the log even if bring-up later fails.
@@ -338,17 +349,16 @@ async fn boot(spawner: Spawner) {
             .await;
     }
 
-    // PWR_EN and LDO_EN start low; the rails stay off until the miner task
-    // enables them.
+    // PWR_EN starts low; the rail stays off until the miner task enables
+    // it.
     let board_psu = psu::init(
         bus,
         Output::new(hw.pwr_en, Level::Low),
-        Output::new(hw.ldo_en, Level::Low),
         Input::new(hw.vr_rdy, Pull::None),
     );
     spawner.spawn(unwrap!(psu::power_stats_task(board_psu)));
 
-    // GPIO2: HIGH = enabled/out-of-reset; start LOW (in reset) until the
+    // GPIO32: HIGH = enabled/out-of-reset; start LOW (in reset) until the
     // miner task is ready to bring up the hashboard.
     let reset = mining::BoardResetPin::new(Output::new(hw.hb_rst, Level::Low));
     spawner.spawn(unwrap!(mining::miner_task(

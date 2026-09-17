@@ -38,17 +38,25 @@ pub const CHAINS: usize = MACHINE.chains;
 
 use embassy_rp::Peri;
 use embassy_rp::peripherals::{
-    CORE1, DMA_CH0, DMA_CH1, DMA_CH3, FLASH, I2C0, PIN_0, PIN_1, PIN_2, PIN_3, PIN_4, PIN_5, PIN_6,
-    PIN_8, PIN_9, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_22, PIN_26, PIN_27, PIN_28,
-    PIO0, PIO1, PWM_SLICE4, SPI0, TRNG, UART1, WATCHDOG,
+    CORE1, DMA_CH0, DMA_CH1, DMA_CH3, FLASH, I2C1, PIN_2, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8,
+    PIN_9, PIN_10, PIN_11, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_24, PIN_25, PIN_30,
+    PIN_32, PIN_33, PIN_45, PIO0, PIO1, PWM_SLICE5, SPI0, TRNG, UART1, WATCHDOG,
 };
 #[cfg(feature = "display")]
-use embassy_rp::peripherals::{DMA_CH2, PIN_10, PIN_11, PIN_12, PIN_13, PIN_14, SPI1};
+use embassy_rp::peripherals::{DMA_CH2, PIN_15, PIN_26, PIN_27, PIN_28, PIN_29, SPI1};
 use embassy_time::Duration;
 
 /// Every peripheral singleton the board consumes, extracted in one place.
 pub struct Board {
     pub watchdog: Peri<'static, WATCHDOG>,
+    /// Status LEDs, assumed active-low like the Hashnode GPIO6 LED: each
+    /// is off when driven high. Green #1 (GPIO6) carries the heartbeat
+    /// blink; red #1 (GPIO7), red #2 (GPIO8) and green #2 (GPIO9) are
+    /// held off until firmware gives them a meaning.
+    pub led_green1: Peri<'static, PIN_6>,
+    pub led_red1: Peri<'static, PIN_7>,
+    pub led_red2: Peri<'static, PIN_8>,
+    pub led_green2: Peri<'static, PIN_9>,
     pub spi: Peri<'static, SPI0>,
     /// W5500 SPI0: SCLK=GPIO18, MOSI=GPIO19, MISO=GPIO16.
     pub sck: Peri<'static, PIN_18>,
@@ -56,54 +64,50 @@ pub struct Board {
     pub miso: Peri<'static, PIN_16>,
     /// W5500 chip-select (GPIO17, active-low; driven as GPIO Output).
     pub cs: Peri<'static, PIN_17>,
-    /// W5500 interrupt line (GPIO22, active-low input).
-    pub phy_int: Peri<'static, PIN_22>,
-    /// W5500 reset line (GPIO26, active-low output).
-    pub phy_reset: Peri<'static, PIN_26>,
+    /// W5500 interrupt line (GPIO20, active-low input).
+    pub phy_int: Peri<'static, PIN_20>,
+    /// W5500 reset line (GPIO24, active-low output).
+    pub phy_reset: Peri<'static, PIN_24>,
     pub rx_dma: Peri<'static, DMA_CH0>,
     pub tx_dma: Peri<'static, DMA_CH1>,
     /// UART1 drives the BM1370 chip serial: TX=GPIO4, RX=GPIO5.
     pub uart: Peri<'static, UART1>,
     pub uart_tx: Peri<'static, PIN_4>,
     pub uart_rx: Peri<'static, PIN_5>,
-    /// Power I2C0 bus: SDA=GPIO20, SCL=GPIO21. Devices: TPS53647
+    /// Power I2C1 bus: SDA=GPIO2, SCL=GPIO3. Devices: TPS53647
     /// `PMBus`, TMP102 ×2.
-    pub i2c: Peri<'static, I2C0>,
-    pub sda: Peri<'static, PIN_20>,
-    pub scl: Peri<'static, PIN_21>,
-    /// Hashboard reset (GPIO2). HIGH = enabled / out-of-reset;
+    pub i2c: Peri<'static, I2C1>,
+    pub sda: Peri<'static, PIN_2>,
+    pub scl: Peri<'static, PIN_3>,
+    /// Hashboard reset (GPIO32). HIGH = enabled / out-of-reset;
     /// LOW = held in reset. Drive LOW at boot until the miner task
     /// is ready to bring up the hashboard.
-    pub hb_rst: Peri<'static, PIN_2>,
-    /// TPS53647 ENABLE (GPIO0, active-high output). Held low at boot;
+    pub hb_rst: Peri<'static, PIN_32>,
+    /// TPS53647 ENABLE (GPIO33, active-high output). Held low at boot;
     /// the PSU wrapper raises it during miner bring-up.
-    pub pwr_en: Peri<'static, PIN_0>,
-    /// 0V8/1V2 LDO enable (GPIO1, active-high output). Raised together
-    /// with `PWR_EN` during miner bring-up.
-    pub ldo_en: Peri<'static, PIN_1>,
-    /// TPS53647 `VR_RDY` power-good (GPIO3, input). Logged after enable;
+    pub pwr_en: Peri<'static, PIN_33>,
+    /// TPS53647 `VR_RDY` power-good (GPIO30, input). Logged after enable;
     /// no gating logic until hardware behavior is known.
-    pub vr_rdy: Peri<'static, PIN_3>,
-    /// Fan PWM outputs (25 kHz). `PWM_SLICE4` channel A = GPIO8,
-    /// channel B = GPIO9. Both run at the same duty so the two fans
+    pub vr_rdy: Peri<'static, PIN_30>,
+    /// Fan PWM outputs (25 kHz). `PWM_SLICE5` channel A = GPIO10,
+    /// channel B = GPIO11. Both run at the same duty so the two fans
     /// track together.
-    pub fan_pwm_slice: Peri<'static, PWM_SLICE4>,
-    pub fan_pwm_pin: Peri<'static, PIN_8>,
-    pub fan_pwm_pin_b: Peri<'static, PIN_9>,
-    /// Fan tachometer inputs: GPIO27 (fan 1), GPIO28 (fan 2). Neither
+    pub fan_pwm_slice: Peri<'static, PWM_SLICE5>,
+    pub fan_pwm_pin: Peri<'static, PIN_10>,
+    pub fan_pwm_pin_b: Peri<'static, PIN_11>,
+    /// Fan tachometer inputs: GPIO21 (fan 1), GPIO25 (fan 2). Neither
     /// maps to a `PWM` `ChannelB`, so each is measured by a `PIO0`
     /// state machine.
-    pub fan_tach_pin_a: Peri<'static, PIN_27>,
-    pub fan_tach_pin_b: Peri<'static, PIN_28>,
+    pub fan_tach_pin_a: Peri<'static, PIN_21>,
+    pub fan_tach_pin_b: Peri<'static, PIN_25>,
     /// PIO block driving the two tachometer period counters.
     pub pio: Peri<'static, PIO0>,
     /// PIO block clocking the WS2812 status ring. The ring cannot share
     /// PIO0: the tach program plus the WS2812 program overflow the
     /// 32-instruction memory by one.
     pub pio1: Peri<'static, PIO1>,
-    /// ARGB header data line (GPIO6; the `DISP_SDA` net doubles as the
-    /// ring's WS2812 data input).
-    pub rgb_data: Peri<'static, PIN_6>,
+    /// ARGB header data line (GPIO45).
+    pub rgb_data: Peri<'static, PIN_45>,
     /// DMA channel feeding the WS2812 PIO FIFO.
     pub rgb_dma: Peri<'static, DMA_CH3>,
     /// FLASH peripheral for the on-board QSPI; ubos-config persists the
@@ -111,20 +115,20 @@ pub struct Board {
     pub flash: Peri<'static, FLASH>,
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
-    /// Display SPI1: SCK=GPIO10, MOSI=GPIO11.
+    /// Display SPI1: SCK=GPIO26, MOSI=GPIO27.
     #[cfg(feature = "display")]
-    pub display_sck: Peri<'static, PIN_10>,
+    pub display_sck: Peri<'static, PIN_26>,
     #[cfg(feature = "display")]
-    pub display_mosi: Peri<'static, PIN_11>,
-    /// Display data/command select (GPIO12).
+    pub display_mosi: Peri<'static, PIN_27>,
+    /// Display data/command select (GPIO28).
     #[cfg(feature = "display")]
-    pub display_dc: Peri<'static, PIN_12>,
-    /// Display SPI CS (GPIO13, active-low, driven as GPIO Output).
+    pub display_dc: Peri<'static, PIN_28>,
+    /// Display SPI CS (GPIO29, active-low, driven as GPIO Output).
     #[cfg(feature = "display")]
-    pub display_cs: Peri<'static, PIN_13>,
-    /// Display reset (GPIO14, active-low output).
+    pub display_cs: Peri<'static, PIN_29>,
+    /// Display reset (GPIO15, active-low output).
     #[cfg(feature = "display")]
-    pub display_rst: Peri<'static, PIN_14>,
+    pub display_rst: Peri<'static, PIN_15>,
     #[cfg(feature = "display")]
     pub display_tx_dma: Peri<'static, DMA_CH2>,
     pub core1: Peri<'static, CORE1>,
@@ -157,47 +161,50 @@ impl Board {
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {
             watchdog: peripherals.WATCHDOG,
+            led_green1: peripherals.PIN_6,
+            led_red1: peripherals.PIN_7,
+            led_red2: peripherals.PIN_8,
+            led_green2: peripherals.PIN_9,
             spi: peripherals.SPI0,
             sck: peripherals.PIN_18,
             mosi: peripherals.PIN_19,
             miso: peripherals.PIN_16,
             cs: peripherals.PIN_17,
-            phy_int: peripherals.PIN_22,
-            phy_reset: peripherals.PIN_26,
+            phy_int: peripherals.PIN_20,
+            phy_reset: peripherals.PIN_24,
             rx_dma: peripherals.DMA_CH0,
             tx_dma: peripherals.DMA_CH1,
             uart: peripherals.UART1,
             uart_tx: peripherals.PIN_4,
             uart_rx: peripherals.PIN_5,
-            i2c: peripherals.I2C0,
-            sda: peripherals.PIN_20,
-            scl: peripherals.PIN_21,
-            hb_rst: peripherals.PIN_2,
-            pwr_en: peripherals.PIN_0,
-            ldo_en: peripherals.PIN_1,
-            vr_rdy: peripherals.PIN_3,
-            fan_pwm_slice: peripherals.PWM_SLICE4,
-            fan_pwm_pin: peripherals.PIN_8,
-            fan_pwm_pin_b: peripherals.PIN_9,
-            fan_tach_pin_a: peripherals.PIN_27,
-            fan_tach_pin_b: peripherals.PIN_28,
+            i2c: peripherals.I2C1,
+            sda: peripherals.PIN_2,
+            scl: peripherals.PIN_3,
+            hb_rst: peripherals.PIN_32,
+            pwr_en: peripherals.PIN_33,
+            vr_rdy: peripherals.PIN_30,
+            fan_pwm_slice: peripherals.PWM_SLICE5,
+            fan_pwm_pin: peripherals.PIN_10,
+            fan_pwm_pin_b: peripherals.PIN_11,
+            fan_tach_pin_a: peripherals.PIN_21,
+            fan_tach_pin_b: peripherals.PIN_25,
             pio: peripherals.PIO0,
             pio1: peripherals.PIO1,
-            rgb_data: peripherals.PIN_6,
+            rgb_data: peripherals.PIN_45,
             rgb_dma: peripherals.DMA_CH3,
             flash: peripherals.FLASH,
             #[cfg(feature = "display")]
             display_spi: peripherals.SPI1,
             #[cfg(feature = "display")]
-            display_sck: peripherals.PIN_10,
+            display_sck: peripherals.PIN_26,
             #[cfg(feature = "display")]
-            display_mosi: peripherals.PIN_11,
+            display_mosi: peripherals.PIN_27,
             #[cfg(feature = "display")]
-            display_dc: peripherals.PIN_12,
+            display_dc: peripherals.PIN_28,
             #[cfg(feature = "display")]
-            display_cs: peripherals.PIN_13,
+            display_cs: peripherals.PIN_29,
             #[cfg(feature = "display")]
-            display_rst: peripherals.PIN_14,
+            display_rst: peripherals.PIN_15,
             #[cfg(feature = "display")]
             display_tx_dma: peripherals.DMA_CH2,
             core1: peripherals.CORE1,
