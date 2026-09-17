@@ -54,16 +54,14 @@ pub(crate) static STATE_WATCH: Watch<CSMutex, MiningState, WATCH_CAPACITY> = Wat
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, CMD_CHANNEL_DEPTH> = Channel::new();
 
-/// Snapshot of slow-changing operational state. Share counters and
-/// hashrate live in `ubos-metrics`; placing them here would wake
-/// every subscriber on every share.
+/// Snapshot of slow-changing operational state. Share counters, the
+/// hashrate and the per-chain chip counts live in
+/// [`crate::chain_stats`]; placing them here would wake every
+/// subscriber on every share.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MiningState {
     /// Bring-up completed and the chip is accepting work.
     pub running: bool,
-    /// Chips detected on the serial bus during the most recent
-    /// bring-up. Zero before the first bring-up completes.
-    pub chip_count: u8,
     /// PLL frequency the tuner most recently programmed. Updated
     /// on every `FixedTuner` ramp step so the publisher surfaces the
     /// live operating point, not just the configured target.
@@ -80,16 +78,15 @@ impl MiningState {
     /// visibly-distinct "not-yet-mining" value on a dashboard.
     pub const IDLE: Self = Self {
         running: false,
-        chip_count: 0,
         frequency: Frequency::from_khz(0),
         voltage: Voltage::from_mv(0),
     };
 }
 
 /// Update the published frequency / voltage without touching the
-/// `running` / `chip_count` fields. Called by the tuner after every
-/// ramp step so the metrics gauges and any UI subscribers track the
-/// live operating point.
+/// `running` flag. Called by the tuner after every ramp step so the
+/// metrics gauges and any UI subscribers track the live operating
+/// point.
 pub(crate) fn publish_tuner_step(frequency: Frequency, voltage: Voltage) {
     let mut state = STATE_WATCH.try_get().unwrap_or(MiningState::IDLE);
     state.frequency = frequency;
