@@ -277,23 +277,49 @@ pub async fn push(metric: Metric) {
     METRICS.send(metric).await;
 }
 
+/// Push one metric carrying one `<label>="<index>"` tag per entry of
+/// `indices`, in the order given.
+///
+/// The shape every index-tagged series in this tree uses: a pool slot, a
+/// hashboard chain, or both on one series. Each index renders through
+/// [`LabelValue::Short`], whose capacity bounds the rendered text. An
+/// index cannot approach that bound. Entries beyond the label capacity
+/// are dropped, as [`Labels`] drops them everywhere.
+pub async fn push_indexed_metrics(
+    name: &'static str,
+    indices: &[(&'static str, usize)],
+    value: Value,
+) {
+    let mut labels = Labels::new();
+    for &(label, index) in indices {
+        let mut index_str = heapless::String::new();
+        let _ = write!(index_str, "{index}");
+        let _ = labels.push(Label {
+            name: label,
+            value: LabelValue::Short(index_str),
+        });
+    }
+    push(Metric::with_labels(name, labels, value)).await;
+}
+
+/// Push one metric carrying a single `<label>="<index>"` tag.
+///
+/// `stratum-client`, `ubos-mining`, and `ubos-thermal` each had their
+/// own copy of this loop until it moved here.
+pub async fn push_indexed_metric(
+    name: &'static str,
+    label: &'static str,
+    index: usize,
+    value: Value,
+) {
+    push_indexed_metrics(name, &[(label, index)], value).await;
+}
+
 /// Push one metric carrying a `pool="<slot>"` label.
 ///
 /// The per-slot shape every pool-indexed series in this tree uses.
-/// `stratum-client` and `ubos-mining` both publish one series per pool
-/// slot, and both had their own copy of this until it moved here.
-///
-/// The slot renders through [`LabelValue::Short`], whose capacity bounds
-/// the rendered text. A slot index cannot approach that bound.
 pub async fn push_slot_metric(name: &'static str, slot: usize, value: Value) {
-    let mut slot_str = heapless::String::new();
-    let _ = write!(slot_str, "{slot}");
-    let mut labels = Labels::new();
-    let _ = labels.push(Label {
-        name: "pool",
-        value: LabelValue::Short(slot_str),
-    });
-    push(Metric::with_labels(name, labels, value)).await;
+    push_indexed_metric(name, "pool", slot, value).await;
 }
 
 /// Consume pushed metrics into the shared map.
