@@ -173,12 +173,18 @@ Each chunk therefore costs one request rather than two.
 2. `begin()` verifies the running image is in the confirmed booted state, then
    calls `park_core1_and_wait()`. This spin-polls `ubos_mining::core1_is_parked`
    (with a 50 ms budget, 100 µs per poll) after repeatedly calling
-   `ubos_mining::request_core1_park()`. The pre-emptive park is necessary because
-   the `portable-atomic` `AtomicU64` seqlock fallback disables interrupts during
-   reads; `embassy-rp`'s `pause_core1()` uses `SIO_IRQ_FIFO` which is blocked
-   during those windows, causing the handshake to stall for over 15 s. With core
-   1 pre-parked, `pause_core1()` finds the worker already idle and returns
-   immediately.
+   `ubos_mining::request_core1_park()`. A board with more than one chain runs
+   one serial actor per chain on core 1, and `core1_is_parked` returns `true`
+   only once every live actor has reached its own park point; see [Multiple
+   chains and the core-1 park](MINING.md#multiple-chains-and-the-core-1-park).
+   The 50 ms budget and the 100 µs poll interval must cover every actor's
+   park, not just one, because each actor yields to the executor on its own
+   turn rather than parking synchronously with the others. The pre-emptive
+   park is necessary because the `portable-atomic` `AtomicU64` seqlock
+   fallback disables interrupts during reads; `embassy-rp`'s `pause_core1()`
+   uses `SIO_IRQ_FIFO` which is blocked during those windows, causing the
+   handshake to stall for over 15 s. With core 1 pre-parked, `pause_core1()`
+   finds every actor already idle and returns immediately.
    `begin()` also writes the OTA breadcrumb to watchdog SCRATCH0 (magic
    `0x4F54_5541`), SCRATCH1 (current write offset), and SCRATCH2 (write phase),
    so a crash during the upload is diagnosable at the next boot.

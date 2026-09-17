@@ -106,25 +106,27 @@ disagree, the code wins and this file needs a patch.
    │      [in stratum-client; passed as &'static to both sides;          │
    │       each session sees only its slot through a PoolHandle]         │
    │                                                                     │
-   │   work:      [Watch<CSRawMutex, WorkAssignment, 2>; N]              │
-   │              session slot writes latest  →  dispatcher reads the    │
-   │              scheduler-chosen slot's cell per work tick (the pool   │
-   │              switch; sessions stay policy-free)                     │
+   │   work: [Watch<CSRawMutex, WorkAssignment, MAX_CHAINS>; N]          │
+   │         session slot writes latest  →  each chain's own serial      │
+   │         actor reads the scheduler-chosen slot's cell per work tick  │
+   │         (the pool switch; sessions stay policy-free); the receiver  │
+   │         count is `ubos_machine::MAX_CHAINS`, one per chain per slot │
    │                                                                     │
    │   solutions: [Channel<CSRawMutex, Solution, 8>; N]                  │
    │              ASIC routes each solution to the slot that dispatched  │
    │              the originating work  →  that session submits it       │
    └─────────────────────────────────────────────────────────────────────┘
                          │                                        ▲
-                         │ work_receivers[scheduler.evaluate()]   │
+                         │ each chain's receiver reads             │
+                         │   work[scheduler.evaluate()]           │
                          │   .try_get() per work tick             │
                          │   (nothing dispatchable → skip tick)   │
                          ▼                                        │
    ┌─────────────────────────────────────────────────────────────────────┐
-   │           BM1362 hashboard driver (ubos-mining) or inline CPU mock   │
+   │  one serial actor per chain (ubos-mining) or inline CPU mock         │
    │   [ubos-mining crate on hardware; host-runner::cpu_mock as fallback] │
    │                                                                     │
-   │   Loop:                                                             │
+   │   Each chain's actor loop:                                          │
    │     if work_receiver.try_changed() {                                │
    │         current = new_work; nonce_start = 0                         │
    │     }                                                               │
@@ -224,18 +226,18 @@ task on core 1.
 Multipool multiplies the seam, not the loop: `AsicSession<N>` holds
 one work/solution pair per pool slot, every configured pool runs its
 own unchanged `run_stratum_client` session against its `PoolHandle`,
-and the runtime pool switch lives entirely on the consumer side —
-`dispatch_work` asks its `Scheduler` at each work tick which slot to
-serve and pulls from that slot's cell. The `RatioScheduler` splits
-delivered work between the slots at the per-pool `weight` ratio set
-in the config, fed back by difficulty-1 chip shares; weight-0 slots
+and the runtime pool switch lives entirely on the consumer side — each
+chain's own serial actor asks its `Scheduler` at each work tick which
+slot to serve and pulls from that slot's cell. The `RatioScheduler`
+splits delivered work between the slots at the per-pool `weight` ratio
+set in the config, fed back by difficulty-1 chip shares; weight-0 slots
 are failover backups (see `docs/MULTIPOOL_DESIGN.md`, work-scheduler
-and config-driven weights sections). The
-serial worker's registry records which slot each dispatch came from,
+and config-driven weights sections). Each chain's serial actor keeps
+its own registry that records which slot each dispatch came from,
 so a solution returns to the session that owns the work even if the
 scheduler moved on while the chip was hashing; that session still
 submits its in-flight shares over its open connection. A session
-clears its cell on teardown, and the dispatcher routes around empty
+clears its cell on teardown, and every chain's actor routes around empty
 cells, so a dead pool's last job is never re-fed to the chip. A job
 key names an assignment, not a tick: a tick that repeats the
 assignment in flight goes out under the same key, so the keys advance

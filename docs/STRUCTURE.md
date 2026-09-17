@@ -56,7 +56,11 @@ The firmware framework is split along domain lines. `ubos-core`,
 runs strictly one-way above them. `ubos-manager` sits beside the chain
 and supervises the thermal/cooling/mining handles via watch channels;
 hardware and protocol crates sit beside the chain without participating
-in it.
+in it. `ubos-machine`'s pure descriptor data sits below the mining and
+protocol crates that read it: `ubos-mining`, `stratum-client`, and
+`ubos-api` each depend on `ubos-machine` for `MAX_CHAINS` and the
+per-board descriptor. `ubos-thermal` and `ubos-display` each depend on
+`ubos-mining` to read its per-chain chain stats and presence table.
 
 `ubos-auth` depends on `ubos-logging` only and holds the shared HTTP
 middleware (allow-list, auth, sessions, CSRF, CSPRNG). Both handler
