@@ -27,6 +27,11 @@
 //! transport's errors. Every method here reports [`MinerError`] instead,
 //! so a tuner handles one error type and never takes on `embedded_io`
 //! or `ubos_asic` error vocabulary.
+//!
+//! Bring-up is not on this surface. Reset, enumeration and the
+//! safe-boot configuration are the miner's, and a chain reaches a
+//! tuner only after they are done: configured, on the fast UART, with
+//! one temperature reading taken. What is left is the ramp.
 
 use embassy_time::Duration;
 use ubos_core::units::Frequency;
@@ -37,21 +42,6 @@ use crate::miner::MinerError;
 pub trait ChainControl {
     /// This chain's index among the machine's hashboards.
     fn chain(&self) -> usize;
-
-    /// Re-arm the line at the chip's boot baud and clear pending work
-    /// and driver state.
-    async fn reset(&self) -> Result<(), MinerError>;
-
-    /// Reset and enumerate the chain, returning the chip count.
-    async fn reset_and_enumerate(&self) -> u8;
-
-    /// Configure the enumerated chain to its safe-boot operating point,
-    /// switching to the fast UART.
-    async fn configure(&self) -> Result<(), MinerError>;
-
-    /// Read every chip's temperature and core voltage once, so the
-    /// thermal loop has a reading before the ramp starts.
-    async fn pvt_sweep(&self) -> Result<(), MinerError>;
 
     /// Program the hash-clock frequency.
     async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError>;

@@ -208,8 +208,6 @@ fn walk_floors_off_grid_target_onto_step_grid() {
 /// `ChainControl` method.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Call {
-    Configure,
-    PvtSweep,
     SetFrequency(u32),
     StartSendingWork,
 }
@@ -229,30 +227,6 @@ struct MockChain<'a> {
 impl ChainControl for MockChain<'_> {
     fn chain(&self) -> usize {
         self.chain
-    }
-
-    async fn reset(&self) -> Result<(), MinerError> {
-        Ok(())
-    }
-
-    async fn reset_and_enumerate(&self) -> u8 {
-        0
-    }
-
-    async fn configure(&self) -> Result<(), MinerError> {
-        self.log
-            .borrow_mut()
-            .push((self.chain, Call::Configure))
-            .expect("BUG: call log capacity exceeded");
-        Ok(())
-    }
-
-    async fn pvt_sweep(&self) -> Result<(), MinerError> {
-        self.log
-            .borrow_mut()
-            .push((self.chain, Call::PvtSweep))
-            .expect("BUG: call log capacity exceeded");
-        Ok(())
     }
 
     async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError> {
@@ -296,7 +270,7 @@ impl<'a> MinerControl for MockMiner<'a> {
 }
 
 #[test]
-fn init_configures_and_starts_work_on_every_present_chain() {
+fn init_starts_work_on_every_present_chain() {
     let log = CallLog::default();
     let miner = MockMiner {
         chains: heapless::Vec::from_array([
@@ -318,24 +292,19 @@ fn init_configures_and_starts_work_on_every_present_chain() {
 
     embassy_futures::block_on(tuner.init(&miner, target)).expect("BUG: init against the mock");
 
+    // The target is the safe-boot state itself, so the walk is empty
+    // and the log holds only what init does before the ramp. The chain
+    // arrives from the miner configured and swept; the tuner's one
+    // bring-up step is to start work, once per present chain.
     let calls = log.borrow();
     for chain in 0..2 {
-        let position = |wanted: Call| {
-            calls
-                .iter()
-                .position(|(c, call)| *c == chain && *call == wanted)
-        };
-        let configured = position(Call::Configure).expect("chain was never configured");
-        let swept = position(Call::PvtSweep).expect("chain was never swept");
-        let working = position(Call::StartSendingWork).expect("chain never started work");
-        // The sweep gives the thermal loop a reading to hold through the
-        // ramp, so it belongs after the chain answers on the fast line
-        // and before work starts.
-        assert!(
-            configured < swept && swept < working,
-            "chain {chain} swept out of order"
-        );
+        let started = calls
+            .iter()
+            .filter(|(c, call)| *c == chain && *call == Call::StartSendingWork)
+            .count();
+        assert_eq!(started, 1, "chain {chain} started work {started} times");
     }
+    assert_eq!(calls.len(), 2, "init did more than start work: {calls:?}");
 }
 
 #[test]
@@ -367,7 +336,7 @@ fn frequency_steps_interleave_across_present_chains() {
         .iter()
         .filter_map(|(chain, call)| match call {
             Call::SetFrequency(khz) => Some((*chain, *khz)),
-            _ => None,
+            Call::StartSendingWork => None,
         })
         .collect();
     assert!(

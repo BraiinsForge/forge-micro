@@ -19,10 +19,14 @@
 
 //! Tests for [`ChainStats`]: share and pool-slot accounting, the
 //! temperature sentinel round trip, `clear`'s lifetime-counter
-//! exemption, presence storage, and summing share counts across
-//! chains.
+//! exemption, presence storage, and [`ChainStatsHandle`]: the wired
+//! prefix it walks, the clamp on the published chain count, and the
+//! sums it takes across chains.
 
 use super::*;
+extern crate std;
+use std::boxed::Box;
+
 use crate::chain::presence::ChainPresence;
 
 /// An arbitrary target used only to drive `record_share`; the exact
@@ -108,34 +112,74 @@ fn presence_round_trips_and_updates_chips() {
     assert_eq!(stats.chips(), 0);
 }
 
-#[test]
-fn present_chains_counts_only_present() {
-    let present = ChainStats::new();
-    present.set_presence(ChainPresence::Present { chips: 12 });
-    let absent = ChainStats::new();
-    absent.set_presence(ChainPresence::Absent);
-    let faulted = ChainStats::new();
-    faulted.set_presence(ChainPresence::Faulted { found: 5 });
+/// A three-slot table of the caller's own, with `active` leading slots
+/// wired, built the way a board's `handle()` would see it.
+fn table(active: u8) -> ChainStatsHandle {
+    let stats: &'static [ChainStats; 3] = Box::leak(Box::new([const { ChainStats::new() }; 3]));
+    let active: &'static AtomicU8 = Box::leak(Box::new(AtomicU8::new(active)));
+    ChainStatsHandle::new(stats, active)
+}
 
-    let chains = [present, absent, faulted];
-    let present_count = chains.iter().filter(|c| c.presence().is_present()).count();
-    assert_eq!(present_count, 1);
+#[test]
+fn handle_walks_no_slot_before_the_chain_count_is_published() {
+    let handle = table(0);
+    handle.chain(0).record_share(&some_target(), 0);
+
+    assert_eq!(handle.slots(), 3);
+    assert_eq!(handle.chain_count(), 0);
+    assert_eq!(handle.chains().count(), 0);
+    assert_eq!(handle.machine_hashrate(), 0);
+    assert_eq!(handle.machine_share_count(), 0);
+}
+
+#[test]
+fn handle_walks_only_the_wired_prefix() {
+    let handle = table(2);
+    handle
+        .chain(2)
+        .set_presence(ChainPresence::Present { chips: 12 });
+    handle.chain(2).record_share(&some_target(), 0);
+
+    assert_eq!(handle.chain_count(), 2);
+    assert_eq!(handle.chains().count(), 2);
+    assert_eq!(handle.present_chain_count(), 0);
+    assert_eq!(handle.machine_share_count(), 0);
+}
+
+#[test]
+fn handle_clamps_the_chain_count_to_the_table() {
+    let handle = table(u8::MAX);
+
+    assert_eq!(handle.chain_count(), 3);
+    assert_eq!(handle.chains().count(), 3);
+}
+
+#[test]
+fn present_chain_count_counts_only_present() {
+    let handle = table(3);
+    handle
+        .chain(0)
+        .set_presence(ChainPresence::Present { chips: 12 });
+    handle.chain(1).set_presence(ChainPresence::Absent);
+    handle
+        .chain(2)
+        .set_presence(ChainPresence::Faulted { found: 5 });
+
+    assert_eq!(handle.present_chain_count(), 1);
 }
 
 #[test]
 fn share_counts_sum_across_chains() {
-    let first = ChainStats::new();
-    let second = ChainStats::new();
-
+    let handle = table(3);
     for _ in 0..3 {
-        first.record_share(&some_target(), 0);
+        handle.chain(0).record_share(&some_target(), 0);
     }
     for _ in 0..5 {
-        second.record_share(&some_target(), 0);
+        handle.chain(1).record_share(&some_target(), 0);
     }
 
-    let summed = first.share_count() + second.share_count();
-    assert_eq!(summed, 8);
-    assert_eq!(first.share_count(), 3);
-    assert_eq!(second.share_count(), 5);
+    assert_eq!(handle.machine_share_count(), 8);
+    assert_eq!(handle.chain(0).share_count(), 3);
+    assert_eq!(handle.chain(1).share_count(), 5);
+    assert_eq!(handle.chain(2).share_count(), 0);
 }

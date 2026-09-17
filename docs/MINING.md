@@ -31,7 +31,7 @@ driver is exercised without a hashboard on the bench.
 | Task | Owner | Role |
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
-| `miner_task` | `mining.rs` | Drives `Miner::new(psu, BOARD, chains, resets).run()` against the tuner selected by `MinerConfig::algorithm` (`FixedTuner` by default; see `TuningAlgorithm`). Bring-up / teardown state machine: PSU up, reset sequence, per-chain enumeration, tuner init, mine, tuner deinit, PSU off. |
+| `miner_task` | `mining.rs` | Drives `Miner::new(psu, BOARD, chains, resets).run()` against the tuner selected by `MinerConfig::algorithm` (`FixedTuner` by default; see `TuningAlgorithm`). Bring-up / teardown state machine: PSU up, reset sequence, per-chain enumeration, per-chain safe-boot configuration, tuner init, mine, tuner deinit, PSU off. |
 | `power_stats_task` | `psu.rs` | Drives `ubos_psu::run_power_stats`. Polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes them. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
@@ -108,7 +108,12 @@ Then `Miner::run` repeats:
    answers a status read).
 3. Sequence every chain's reset pin together (low to assert, high to
    release).
-4. Reset and enumerate every chain at once. See "Chain presence" below.
+4. Reset, enumerate and configure every chain at once: a chain that
+   answers the expected chip count is brought to its safe-boot
+   operating point on the fast UART and every chip's temperature is
+   read once, so the thermal loop has a value before the ramp. A short
+   count or a refused configuration spends one attempt of the same
+   budget. See "Chain presence" below.
 5. Run `tuner.init` against every chain the enumeration step found
    present (cancellable by `STOP_MINING` or `Message::Halt`).
 6. Mine until `STOP_MINING` fires, a `Message::Halt` edge arrives, or the
@@ -135,22 +140,45 @@ records one of four states in that chain's `ChainStats`:
 | `Unknown` | No enumeration attempt has completed yet. | Not a resting state; only seen mid-attempt. |
 | `Present` | The chain answered with the board's expected chip count. | The tuner ramps this chain. |
 | `Absent` | The connector answered with zero chips: no hashboard is attached. | Parked in reset; left out of the ramp. |
-| `Faulted` | The chain answered a chip count other than expected on every attempt up to the retry budget. | Parked in reset; left out of the ramp. |
+| `Faulted` | The chain answered a chip count other than expected, or refused its safe-boot configuration, on every attempt up to the retry budget. | Parked in reset; left out of the ramp. |
 
 An empty connector is parked on the first attempt with no retry: retrying
 it on every bring-up would cost the machine its bring-up time for
-nothing. A chip-count mismatch gets `ENUMERATE_ATTEMPTS` retries before
-it is parked, in case the mismatch was a transient chain glitch. Only a
-bring-up where no chain comes up present cuts the rail and retries the
-whole machine; one absent or faulted chain does not stop the others.
+nothing. A chip-count mismatch or a refused configuration gets
+`ENUMERATE_ATTEMPTS` attempts in all before it is parked, in case the
+failure was a transient chain glitch. Only a bring-up where no chain
+comes up present cuts the rail and retries the whole machine; one absent
+or faulted chain does not stop the others.
+
+### Tolerance ends at bring-up
+
+That tolerance is a property of enumeration and of nothing after it. A
+chain is written as `Present`, `Absent` or `Faulted` only by the
+bring-up loop and by the rail cut, so once the machine is mining there
+is no path that moves a chain out of the ramp. Two runtime faults
+therefore take the whole machine down:
+
+- **A present chain that goes silent.** `ChainTemperature::sample` stops
+  answering when any present chain has been silent for its budget, and
+  the thermal loop faults the board. The other chains are hashing and
+  are stopped with it. The sensor cannot do otherwise today: it reads
+  presence and does not write it, and an unread die is the greater risk.
+- **A present chain that refuses a ramp step.** The tuner steps every
+  present chain in lockstep and reports the first error, so the miner
+  cuts the rail and retries the whole bring-up. A chain that enumerates
+  clean and then refuses `set_frequency` on every attempt keeps the
+  machine in that loop, and the other chains never mine.
+
+Giving the miner a way to demote a chain after bring-up is the work
+this needs, and it is not done.
 
 Voltage and frequency are one value for the whole machine today: the
 PSU rail is shared, and the tuner steps every present chain's frequency
-in lockstep so the rail sees one load profile instead of one chain
-climbing at a time. The tuner reaches a chain only through the
-`ChainControl` handle `MinerControl::present_chains` yields, never
-through an index, so it can never address a chain the miner did not
-find present.
+in lockstep, one chain after another within each step, so no chain
+reaches the target before the next starts. The tuner reaches a chain
+only through the `ChainControl` handle `MinerControl::present_chains`
+yields, never through an index, so it can never address a chain the
+miner did not find present.
 
 ## I2C bus sharing
 

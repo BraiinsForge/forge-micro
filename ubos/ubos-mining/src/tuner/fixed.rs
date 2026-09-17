@@ -17,23 +17,24 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! `FixedTuner` — chip bring-up plus a constant-power-curve ramp.
+//! `FixedTuner` — a constant-power-curve ramp.
 //!
-//! Configures every chain [`MinerControl::present_chains`] yields and
-//! starts its work dispatch, then walks a coupled voltage / frequency
-//! ramp from the chip's open-core voltage at the safe-boot frequency
-//! to the configured `(voltage, frequency)` target. Voltage is one
-//! value for the whole machine, programmed once per step through
+//! Starts work dispatch on every chain [`MinerControl::present_chains`]
+//! yields, then walks a coupled voltage / frequency ramp from the
+//! chip's open-core voltage at the safe-boot frequency to the
+//! configured `(voltage, frequency)` target. Voltage is one value for
+//! the whole machine, programmed once per step through
 //! [`MinerControl::set_voltage`]; frequency is programmed on every
 //! present chain in turn before each step's settle, so every chain
 //! climbs within the same step rather than one chain reaching the
 //! target before the next starts. The ramp preserves
 //! `V^2 * f` along the walk so the chain never exceeds the target
-//! power at any intermediate step. Enumeration and chain presence are
-//! the miner's business; this tuner never sees an absent or faulted
-//! chain. Host-side policy — PSU voltage and the ramp — stays here;
-//! the vendor register sequence and the UART baud switch live in the
-//! `ubos_asic::ChainDriver` impl behind [`crate::chain::control::ChainControl::configure`].
+//! power at any intermediate step. Bring-up is the miner's business:
+//! every chain this tuner sees is present, configured to safe-boot on
+//! the fast UART, and has one temperature reading behind it. Host-side
+//! policy — PSU voltage and the ramp — stays here; the vendor register
+//! sequence and the UART baud switch live in the `ubos_asic::ChainDriver`
+//! impl the miner drives before handing over.
 
 use embassy_time::{Duration, Timer};
 use libm::sqrtf;
@@ -43,9 +44,9 @@ use ubos_logging::debug;
 
 use crate::chain::control::ChainControl;
 use crate::control::publish_tuner_step;
-use crate::miner::MinerControl;
+use crate::miner::{MinerControl, MinerError};
 
-use super::{Tuner, TunerError, TuningConfig};
+use super::{Tuner, TuningConfig};
 
 /// Upper bound on the number of ramp steps any single transition
 /// produces. The chain's safe operating range spans 50..=1000 MHz; at
@@ -119,7 +120,7 @@ impl FixedTuner {
         miner: &M,
         target: TuningConfig,
         settle: Duration,
-    ) -> Result<(), TunerError> {
+    ) -> Result<(), MinerError> {
         let step = self.board.chip.frequency_step;
         // Floor the configured frequency onto the chip's PLL grid so
         // every programmed step is exactly representable and telemetry
@@ -206,7 +207,7 @@ impl FixedTuner {
 }
 
 impl<M: MinerControl> Tuner<M> for FixedTuner {
-    async fn init(&mut self, miner: &M, target: TuningConfig) -> Result<(), TunerError> {
+    async fn init(&mut self, miner: &M, target: TuningConfig) -> Result<(), MinerError> {
         // Open-core voltage anchors the curve at the chip's safe
         // headroom; cores get clocked at the safe-boot baseline and the
         // walk then trades voltage for frequency along V^2 * f.
@@ -224,25 +225,18 @@ impl<M: MinerControl> Tuner<M> for FixedTuner {
             voltage: open_core,
         };
 
-        // Configure every present chain to the safe-boot operating point
-        // on the fast UART and start its work dispatch; the driver owns
-        // the register sequence and the baud switch, and the miner has
-        // already enumerated the chain and left absent or faulted chains
-        // out of `present_chains`.
+        // Every present chain arrives already at the safe-boot operating
+        // point on the fast UART, so the only step before the ramp is to
+        // start its work dispatch. Work flows before the first frequency
+        // step so no step runs on an idle chain.
         for chain in miner.present_chains() {
-            chain.configure().await?;
-            // The ramp that follows is the longest stretch in which
-            // nothing else reads the chain, and the thermal loop must not
-            // spend it blind; one pass over every chip gives it a reading
-            // to hold.
-            chain.pvt_sweep().await?;
             chain.start_sending_work(Self::WORK_PERIOD).await?;
         }
 
         self.walk_to_target(miner, target, Self::RAMP_SETTLE).await
     }
 
-    async fn deinit(&mut self, miner: &M) -> Result<(), TunerError> {
+    async fn deinit(&mut self, miner: &M) -> Result<(), MinerError> {
         let safe = TuningConfig {
             frequency: self.safe_boot(),
             voltage: self.board.max_rail_voltage(),

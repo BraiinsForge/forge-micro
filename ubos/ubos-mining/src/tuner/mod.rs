@@ -54,42 +54,33 @@ pub struct TuningConfig {
     pub voltage: Voltage,
 }
 
-/// Two-phase contract: `init` brings the chip from the post-reset
-/// state to the configured target; `deinit` returns the chip to a
-/// state where the PSU can be dropped cleanly.
+/// Two-phase contract: `init` brings the chip from the safe-boot
+/// state the miner leaves it in to the configured target; `deinit`
+/// returns the chip to a state where the PSU can be dropped cleanly.
 ///
 /// Each method takes `&impl MinerControl`. The tuner never sees the
 /// serial actor, never subscribes to `Config`, never selects on
 /// signals; the miner drives both methods imperatively. Live tuning
 /// updates on a running chip are not part of the contract; tuning
 /// changes apply on the next bring-up.
+///
+/// Both methods report [`MinerError`] and there is no tuner-specific
+/// error type. `Miner` folds every serial-bus and PSU failure into that
+/// one enum before a tuner can see one, and enumeration, which was the
+/// only failure a tuner used to own, is the miner's now.
 // The async-fn-in-trait pattern matches the project-wide convention
 // established by `ubos_psu::Psu` and `crate::miner::MinerControl`.
 // Send bounds are not required on this embedded target; the trait is
 // only called from a single-task context.
 #[allow(async_fn_in_trait)]
 pub trait Tuner<M: MinerControl> {
-    /// Bring the chip from the post-reset baseline to `target`.
-    async fn init(&mut self, miner: &M, target: TuningConfig) -> Result<(), TunerError>;
+    /// Bring the chip from the safe-boot baseline to `target`. Every
+    /// chain `miner.present_chains()` yields is configured, on the fast
+    /// UART, and has one temperature reading behind it when this runs.
+    async fn init(&mut self, miner: &M, target: TuningConfig) -> Result<(), MinerError>;
 
     /// Return the chip to a state where the PSU can be dropped.
-    async fn deinit(&mut self, miner: &M) -> Result<(), TunerError>;
-}
-
-/// Failure modes a tuner method can surface to the miner.
-///
-/// `Miner` wraps every serial-bus error into [`MinerError::Serial`]
-/// before it reaches the tuner, so `TunerError::Miner` covers every
-/// chip-side failure a chain's `ChainControl` methods can return.
-#[derive(Debug)]
-pub enum TunerError {
-    Miner(MinerError),
-}
-
-impl From<MinerError> for TunerError {
-    fn from(error: MinerError) -> Self {
-        Self::Miner(error)
-    }
+    async fn deinit(&mut self, miner: &M) -> Result<(), MinerError>;
 }
 
 pub mod fixed;

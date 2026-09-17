@@ -44,8 +44,11 @@ pub enum ChainPresence {
     /// The connector answered with zero chips: no hashboard is
     /// attached.
     Absent,
-    /// The chain answered with a chip count other than expected, on
-    /// every attempt up to the retry budget.
+    /// The chain answered with a chip count other than expected, or
+    /// answered the expected count and then refused its safe-boot
+    /// configuration, on every attempt up to the retry budget. `found`
+    /// is the count of the last attempt, so it equals the expected count
+    /// for a chain that failed configuration.
     Faulted { found: u8 },
 }
 
@@ -137,14 +140,36 @@ pub enum Action {
 /// the machine its bring-up time for nothing. A non-zero count that
 /// does not match `expected` is retried up to [`ENUMERATE_ATTEMPTS`]
 /// before it is parked as `Faulted`.
+///
+/// A zero `expected` is a descriptor that claims no chips, and no count
+/// can match it: the empty answer is read as the absent connector it is
+/// rather than as a chain that met its target, so a board wired to such
+/// a descriptor parks rather than ramping nothing.
 #[must_use]
 pub fn transition(found: u8, expected: u8, attempt: u8) -> (ChainPresence, Action) {
-    if found == expected {
-        return (ChainPresence::Present { chips: found }, Action::Continue);
-    }
     if found == 0 {
         return (ChainPresence::Absent, Action::Park);
     }
+    if found == expected {
+        return (ChainPresence::Present { chips: found }, Action::Continue);
+    }
+    if attempt < ENUMERATE_ATTEMPTS {
+        (ChainPresence::Unknown, Action::Retry)
+    } else {
+        (ChainPresence::Faulted { found }, Action::Park)
+    }
+}
+
+/// Decide what to do after a chain that enumerated `found` chips, the
+/// expected count, refused its safe-boot configuration on the 1-based
+/// `attempt`.
+///
+/// The chain gets the same [`ENUMERATE_ATTEMPTS`] budget a short count
+/// does, because a refused baud switch or register write after a good
+/// enumeration is the same class of transient glitch. On the last
+/// attempt it is parked as `Faulted`, carrying the count it answered.
+#[must_use]
+pub fn configure_failed(found: u8, attempt: u8) -> (ChainPresence, Action) {
     if attempt < ENUMERATE_ATTEMPTS {
         (ChainPresence::Unknown, Action::Retry)
     } else {

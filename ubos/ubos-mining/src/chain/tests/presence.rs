@@ -20,7 +20,7 @@
 //! Coverage for every `transition` outcome and the retry budget
 //! boundary.
 
-use super::{Action, ChainPresence, ENUMERATE_ATTEMPTS, transition};
+use super::{Action, ChainPresence, ENUMERATE_ATTEMPTS, configure_failed, transition};
 
 const EXPECTED: u8 = 4;
 
@@ -102,4 +102,28 @@ fn code_round_trips_through_present_and_faulted() {
         ChainPresence::from_code(ChainPresence::Unknown.as_code(), 0),
         ChainPresence::Unknown
     );
+}
+
+#[test]
+fn configure_failure_retries_below_the_attempt_budget() {
+    let (presence, action) = configure_failed(EXPECTED, ENUMERATE_ATTEMPTS - 1);
+    assert_eq!(presence, ChainPresence::Unknown);
+    assert_eq!(action, Action::Retry);
+}
+
+#[test]
+fn configure_failure_at_the_attempt_budget_is_faulted_with_the_full_count() {
+    let (presence, action) = configure_failed(EXPECTED, ENUMERATE_ATTEMPTS);
+    assert_eq!(presence, ChainPresence::Faulted { found: EXPECTED });
+    assert_eq!(action, Action::Park);
+}
+
+/// A descriptor claiming no chips cannot be met by any answer, so the
+/// empty connector is read as absent rather than as a chain that
+/// reached its target.
+#[test]
+fn a_zero_chip_descriptor_reads_an_empty_connector_as_absent() {
+    let (presence, action) = transition(0, 0, 1);
+    assert_eq!(presence, ChainPresence::Absent);
+    assert_eq!(action, Action::Park);
 }
