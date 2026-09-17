@@ -20,11 +20,15 @@
 # Small helpers shared by more than one flake module: the
 # `CC_<target>` env-var name cc-rs expects, the ARM cross-CC attrset
 # every ARM crane derivation carries, the xtensa cross-build env every
-# esp32s3 crane derivation carries, and the ubos-webui build-env attrs
-# that every derivation and dev shell touching the dashboard must set
-# so build.rs stamps a consistent rev and time. Defined once here so
-# the copies in checks.nix, images.nix, and shells.nix cannot drift
-# apart.
+# esp32s3 crane derivation carries, and the ubos-webui build-env attrs:
+# the dist path every derivation compiling the dashboard sets, and the
+# revision and time stamps the images set so the footer of a flashed
+# image names the commit that built it. The gates and the dev shells
+# leave the stamps unset: a gate stamped with the commit would rebuild
+# on every commit, and a shell stamped from a dirty tree gave a new
+# time on every run, so the build script stamps a dev build itself when
+# it runs. Defined once here so the copies in checks.nix and images.nix
+# cannot drift apart.
 {
   pkgs,
   webuiBuildEnv,

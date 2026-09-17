@@ -72,7 +72,6 @@ let
   inherit (pkgs) lib;
   inherit (helpers)
     armCc
-    webuiEnvAttrs
     webuiDistEnv
     espCrossEnv
     espRustflags
@@ -91,8 +90,11 @@ let
   # Host-side clippy: one row per check. `crate` is the cargo package;
   # `artifacts` defaults to the shared host bag; `allTargets` is off for
   # crates whose tests or examples do not build on the host feature set;
-  # `args` appends feature flags; `webuiEnv` and `webuiDist` cover
-  # ubos-webui's build.rs, the latter pointing it at the hermetic dist.
+  # `args` appends feature flags; `webuiDist` points ubos-webui's
+  # build.rs at the hermetic dist. No gate takes the revision and time
+  # stamps: they change with every commit, and a gate stamped with them
+  # would rebuild on every commit for a footer nothing reads. Only the
+  # images in nix/images.nix carry them.
   mkHostClippy =
     spec:
     craneLib.cargoClippy (
@@ -105,7 +107,6 @@ let
         }-- -D warnings";
         doInstallCargoArtifacts = false;
       }
-      // lib.optionalAttrs (spec.webuiEnv or false) webuiEnvAttrs
       // lib.optionalAttrs (spec.webuiDist or false) webuiDistEnv
     );
 
@@ -121,7 +122,6 @@ let
         cargoExtraArgs = "-p ${spec.crate}${spec.args or ""}";
         doInstallCargoArtifacts = false;
       }
-      // lib.optionalAttrs (spec.webuiEnv or false) webuiEnvAttrs
       // lib.optionalAttrs (spec.webuiDist or false) webuiDistEnv
     );
 
@@ -180,7 +180,6 @@ let
       # build.rs reads the prebuilt Rsbuild pages from UBOS_WEBUI_DIST
       # and gzips them, so the sandbox needs no npm.
       webuiDist = true;
-      webuiEnv = true;
     };
     clippy-ubos-thermal = {
       crate = "ubos-thermal";
@@ -219,7 +218,6 @@ let
       # ubos-webui's build.rs runs as part of host-runner's dependency
       # closure, so it needs the hermetic dist too.
       webuiDist = true;
-      webuiEnv = true;
     };
   };
 
@@ -266,7 +264,6 @@ let
       # build.rs reads the prebuilt Rsbuild pages from UBOS_WEBUI_DIST
       # and gzips them, so the sandbox needs no npm.
       webuiDist = true;
-      webuiEnv = true;
     };
     test-host-runner = {
       crate = "host-runner";
@@ -274,7 +271,6 @@ let
       # ubos-webui's build.rs runs as part of host-runner's dependency
       # closure, so it needs the hermetic dist too.
       webuiDist = true;
-      webuiEnv = true;
     };
     # Host tests build with defmt off, as ubos-cooling's do: the chain
     # sensor's tests link `ubos_logging` calls that have no `_defmt_*`
@@ -409,7 +405,6 @@ let
         ];
       }
       // armCc board.target
-      // webuiEnvAttrs
       // webuiDistEnv
     );
 
@@ -434,7 +429,6 @@ let
         ];
       }
       // armCc board.target
-      // webuiEnvAttrs
       // webuiDistEnv
       // lib.optionalAttrs (board.guard == "slot") {
         postBuild = slotGuard name board.target;
@@ -514,7 +508,6 @@ let
         cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
         cargoClippyExtraArgs = "-- -D warnings";
       }
-      // webuiEnvAttrs
       // webuiDistEnv
     );
 
@@ -549,7 +542,6 @@ let
         '';
       }
       // espRustflags
-      // webuiEnvAttrs
       // webuiDistEnv
     );
 
@@ -573,7 +565,6 @@ let
           + "esp-storage/critical-section,esp-bootloader-esp-idf/esp32s3";
         cargoClippyExtraArgs = "-- -D warnings";
       }
-      // webuiEnvAttrs
       // webuiDistEnv
     );
 
@@ -716,7 +707,6 @@ hostClippyChecks
       # uses so the C objects share the target ABI.
       CC_arm_unknown_linux_musleabi = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
     }
-    // webuiEnvAttrs
     // webuiDistEnv
   );
 

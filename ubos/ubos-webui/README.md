@@ -151,10 +151,17 @@ it reads the two pages from that directory, otherwise it runs `npm ci`
 (when `node_modules` is missing) and `npm run build` itself. So a plain
 `cargo build` inside the `arm` shell is enough.
 
-`UBOS_WEBUI_BUILD_REV` and `UBOS_WEBUI_BUILD_TIME` are forwarded into
-the Rsbuild child and injected into the footer via `source.define`; the
-dev shells set both, and `build.rs` falls back to `git rev-parse` and
-the system clock.
+The footer's revision and time are not in the bundle. `source.define`
+puts two fixed tokens there, and `build.rs` replaces them with
+`UBOS_WEBUI_BUILD_REV` and `UBOS_WEBUI_BUILD_TIME` when it embeds the
+pages. So the same dist serves every commit and nix caches it, while
+each firmware still shows the revision that built it. The image builds
+set both variables. The dev shells and the flake checks set neither,
+and there `build.rs` reads `git rev-parse` and the system clock when
+it runs. A dev shell that set them from the flake gave a new time on
+every run of a dirty tree, and that rebuilt this crate and every
+firmware behind it on every run. With nothing set, a tree with no
+change builds nothing and keeps the stamp of the last build.
 
 ## Nix status
 

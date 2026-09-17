@@ -35,7 +35,7 @@
 let
   # The linkPatchedCrates hook materializes the pinned-and-patched
   # upstream crates at patches/<crate> on shell entry; see nix/lib.nix.
-  inherit (helpers) webuiEnvAttrs linkPatchedCrates;
+  inherit (helpers) linkPatchedCrates;
   inherit (toolchains)
     rustToolchain
     hostRustToolchain
@@ -99,8 +99,6 @@ in
       ];
 
       RUST_ANALYZER_SERVER_PATH = "${rustToolchain}/bin/rust-analyzer";
-
-      inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
       shellHook = ''
         ${linkPatchedCrates}
@@ -166,8 +164,6 @@ in
     RUST_ANALYZER_SERVER_PATH = "${espRustToolchain}/bin/rust-analyzer";
     LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
-    inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-
     shellHook = ''
       ${linkPatchedCrates}
       export RUSTUP_HOME="$PWD/.rustup"
@@ -229,8 +225,6 @@ in
 
     RUST_ANALYZER_SERVER_PATH = "${hostRustToolchain}/bin/rust-analyzer";
 
-    inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-
     shellHook = ''
       ${linkPatchedCrates}
       echo "firmware workspace dev environment ready (host-runner, native, TAP)"
@@ -258,8 +252,6 @@ in
     # working-tree script, so it needs no $PWD resolution.
     CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_RUNNER = pkgs.lib.getExe hostRunnerRun;
     RUST_ANALYZER_SERVER_PATH = "${bmmRustToolchain}/bin/rust-analyzer";
-
-    inherit (webuiEnvAttrs) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
 
     shellHook = ''
       ${linkPatchedCrates}

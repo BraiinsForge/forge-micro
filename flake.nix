@@ -162,9 +162,7 @@
         # Hermetic Preact/Rsbuild dashboard build for ubos-webui,
         # threaded through nix/lib.nix into the checks as
         # UBOS_WEBUI_DIST. See nix/webui.nix.
-        webuiDist = pkgs.callPackage ./nix/webui.nix {
-          inherit webuiBuildEnv;
-        };
+        webuiDist = pkgs.callPackage ./nix/webui.nix { };
 
         # Cross-CC and webui build-env helpers shared by the checks,
         # images, and shells modules. See nix/lib.nix.

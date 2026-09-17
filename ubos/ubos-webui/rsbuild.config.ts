@@ -7,10 +7,18 @@ import { boardCsrf } from './dev/board-proxy';
 // Build config for both HTML entries. Rsbuild inlines each page's JS and
 // CSS into one self-contained file (output.inlineScripts/inlineStyles),
 // so `rsbuild build` emits dist/index.html and dist/login.html directly
-// — build.rs then Brotli-compresses those two and embeds them.
+// — build.rs then gzips those two and embeds them.
 
-const BUILD_REV = process.env.UBOS_WEBUI_BUILD_REV || 'dev';
-const BUILD_TIME = process.env.UBOS_WEBUI_BUILD_TIME || '0';
+// Build provenance is not known here. A production bundle carries
+// these two tokens and build.rs replaces them with the revision and
+// the time when it embeds the pages. A bundle stamped at this step
+// would change with every commit, and every build that embeds it
+// would follow. The dev server embeds nothing and runs no build.rs,
+// so its footer says `dev` rather than showing the tokens.
+const provenance = (env: string) =>
+  env === 'production'
+    ? { rev: '@UBOS_WEBUI_BUILD_REV@', time: '@UBOS_WEBUI_BUILD_TIME@' }
+    : { rev: 'dev', time: '0' };
 
 // When VITE_API_BASE (e.g. http://192.168.1.50) is set, the dev server
 // proxies to a live board; otherwise the mock middleware answers from
@@ -64,7 +72,7 @@ const proxyToBoard = (target: string) => ({
   },
 });
 
-export default defineConfig({
+export default defineConfig(({ env }) => ({
   plugins: [pluginPreact()],
   source: {
     entry: {
@@ -72,8 +80,8 @@ export default defineConfig({
       login: './web/login.ts',
     },
     define: {
-      __BUILD_REV__: JSON.stringify(BUILD_REV),
-      __BUILD_TIME__: JSON.stringify(BUILD_TIME),
+      __BUILD_REV__: JSON.stringify(provenance(env).rev),
+      __BUILD_TIME__: JSON.stringify(provenance(env).time),
     },
   },
   html: {
@@ -137,4 +145,4 @@ export default defineConfig({
       server.middlewares.use(API_BASE ? boardCsrf(API_BASE) : mockApi());
     },
   },
-});
+}));

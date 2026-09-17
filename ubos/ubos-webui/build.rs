@@ -42,8 +42,11 @@
 //!     in the crate directory and read the resulting `dist/`.
 //!
 //! Build provenance (`UBOS_WEBUI_BUILD_REV`, `UBOS_WEBUI_BUILD_TIME`)
-//! is forwarded into the Rsbuild child environment; `rsbuild.config.ts`
-//! injects it into the footer via `source.define`.
+//! is stamped here, not in the bundle: `rsbuild.config.ts` defines the
+//! footer's revision and time as the two tokens below, and this script
+//! replaces them in each page before compressing it. So the built dist
+//! is the same for every commit and is cached across them, while the
+//! pages a firmware embeds still carry the revision that built them.
 
 use std::env;
 use std::fs;
@@ -70,26 +73,42 @@ fn gzip_to(bytes: &[u8], dest: &Path) {
     fs::write(dest, compressed).unwrap_or_else(|_| panic!("BUG: write {}", dest.display()));
 }
 
-/// Run `npm run build` in the crate directory, forwarding build
-/// provenance so the `source.define` step can stamp the footer. Installs
-/// dependencies first when `node_modules` is absent so a fresh checkout
-/// builds without a manual `npm ci`.
-fn run_web_build(manifest_dir: &Path, build_rev: &str, build_time: &str) {
+/// The tokens `rsbuild.config.ts` defines the footer's revision and
+/// time as, replaced by [`stamp`] in each built page.
+const REV_TOKEN: &str = "@UBOS_WEBUI_BUILD_REV@";
+const TIME_TOKEN: &str = "@UBOS_WEBUI_BUILD_TIME@";
+
+/// The built pages, each beside the provenance tokens it must carry.
+/// Only the dashboard shows them, in its footer, so the login page
+/// names none. A page that is missing a token it names was built from a
+/// config that no longer matches this script, so that is a bug rather
+/// than a page to ship unstamped.
+const PAGES: [(&str, &[&str]); 2] = [("index", &[REV_TOKEN, TIME_TOKEN]), ("login", &[])];
+
+/// Replace the provenance tokens in a built page. A page that carries
+/// neither token comes back unchanged.
+fn stamp(html: &str, build_rev: &str, build_time: &str) -> String {
+    html.replace(REV_TOKEN, build_rev)
+        .replace(TIME_TOKEN, build_time)
+}
+
+/// Run `npm run build` in the crate directory. Installs dependencies
+/// first when `node_modules` is absent so a fresh checkout builds
+/// without a manual `npm ci`.
+fn run_web_build(manifest_dir: &Path) {
     // `npm` is on PATH in the Nix dev shells that add `nodejs`. This
     // path is never taken in the flake checks: those set
     // `UBOS_WEBUI_DIST` to a prebuilt hermetic dist instead.
     if !manifest_dir.join("node_modules").exists() {
-        run_npm(manifest_dir, &["ci"], build_rev, build_time);
+        run_npm(manifest_dir, &["ci"]);
     }
-    run_npm(manifest_dir, &["run", "build"], build_rev, build_time);
+    run_npm(manifest_dir, &["run", "build"]);
 }
 
-fn run_npm(manifest_dir: &Path, args: &[&str], build_rev: &str, build_time: &str) {
+fn run_npm(manifest_dir: &Path, args: &[&str]) {
     let status = Command::new("npm")
         .args(args)
         .current_dir(manifest_dir)
-        .env("UBOS_WEBUI_BUILD_REV", build_rev)
-        .env("UBOS_WEBUI_BUILD_TIME", build_time)
         .status()
         .unwrap_or_else(|_| {
             panic!(
@@ -114,15 +133,22 @@ fn main() {
     let dist_dir = if let Some(dir) = env::var_os("UBOS_WEBUI_DIST") {
         PathBuf::from(dir)
     } else {
-        run_web_build(&manifest_dir, &build_rev, &build_time);
+        run_web_build(&manifest_dir);
         manifest_dir.join("dist")
     };
 
-    for name in ["index", "login"] {
+    for (name, tokens) in PAGES {
         let src = dist_dir.join(format!("{name}.html"));
-        let html =
-            fs::read(&src).unwrap_or_else(|_| panic!("BUG: read built page {}", src.display()));
-        gzip_to(&html, &out_dir.join(format!("{name}.html.gz")));
+        let html = fs::read_to_string(&src)
+            .unwrap_or_else(|_| panic!("BUG: read built page {}", src.display()));
+        for token in tokens {
+            assert!(
+                html.contains(token),
+                "BUG: built page {name}.html carries no {token}; rsbuild.config.ts and build.rs disagree"
+            );
+        }
+        let html = stamp(&html, &build_rev, &build_time);
+        gzip_to(html.as_bytes(), &out_dir.join(format!("{name}.html.gz")));
     }
 
     // The logo is a standalone `/logo.svg` asset (referenced by an
@@ -152,10 +178,11 @@ fn main() {
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_TIME");
 }
 
-/// Resolve the short commit hash for the build-info footer. The flake
-/// passes `UBOS_WEBUI_BUILD_REV` because the nix sandbox has no `.git`
-/// directory; outside the sandbox the dev shell falls back to `git
-/// rev-parse` against the crate's manifest directory.
+/// Resolve the short commit hash for the build-info footer. The image
+/// builds pass `UBOS_WEBUI_BUILD_REV` because the nix sandbox has no
+/// `.git` directory. A dev shell sets nothing, so the build reads `git
+/// rev-parse` against the crate's manifest directory when it runs, and
+/// an unchanged tree keeps the stamp it has.
 fn resolve_build_rev(manifest_dir: &Path) -> String {
     if let Ok(rev) = env::var("UBOS_WEBUI_BUILD_REV") {
         let trimmed = rev.trim();
@@ -185,10 +212,14 @@ fn git_short_rev(manifest_dir: &Path) -> Option<String> {
 }
 
 /// Resolve the build timestamp as a unix-epoch string. Prefers
-/// `UBOS_WEBUI_BUILD_TIME` (the flake sets it to `self.lastModified`);
-/// falls back to the system clock for dev-shell rebuilds.
-/// `SOURCE_DATE_EPOCH` is intentionally ignored: nix-shell pins it to
-/// 1980-01-01, which would freeze every dev-shell page at that date.
+/// `UBOS_WEBUI_BUILD_TIME`, which the image builds set to
+/// `self.lastModified`; falls back to the system clock. A dev shell
+/// leaves the variable unset on purpose: in a dirty tree the flake's
+/// value is the moment of evaluation, and a value that changed on
+/// every run rebuilt this crate and every firmware behind it on every
+/// run. `SOURCE_DATE_EPOCH` is intentionally ignored: nix-shell pins
+/// it to 1980-01-01, which would freeze every dev-shell page at that
+/// date.
 fn resolve_build_time() -> String {
     if let Ok(value) = env::var("UBOS_WEBUI_BUILD_TIME") {
         let trimmed = value.trim();

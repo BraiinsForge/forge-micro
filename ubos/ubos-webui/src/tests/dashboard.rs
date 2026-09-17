@@ -61,14 +61,24 @@ fn index_payload_is_well_formed_html() {
     );
 }
 
-/// Build-provenance placeholders must be substituted by the Vite
-/// `define` step. A leftover token means the build env was not wired
-/// through to the frontend build.
+/// Build-provenance markers must be gone from the embedded page: the
+/// bundler's `define` step replaces the source identifiers with the
+/// stamp tokens, and build.rs replaces the tokens with the revision and
+/// the time. A leftover of either kind means one of the two steps did
+/// not run.
 #[test]
 fn index_payload_has_no_unsubstituted_build_markers() {
     let html = decompress(crate::INDEX_HTML_GZ);
     assert!(!html.contains("__BUILD_REV__"), "build rev not injected");
     assert!(!html.contains("__BUILD_TIME__"), "build time not injected");
+    assert!(
+        !html.contains("@UBOS_WEBUI_BUILD_REV@"),
+        "build rev not stamped"
+    );
+    assert!(
+        !html.contains("@UBOS_WEBUI_BUILD_TIME@"),
+        "build time not stamped"
+    );
     assert!(
         !html.contains("{{BUILD_REV}}"),
         "stale template marker present"
@@ -148,6 +158,7 @@ fn login_payload_is_well_formed_and_within_budget() {
     assert!(html.starts_with("<!DOCTYPE html>"));
     assert!(html.trim_end().ends_with("</html>"));
     assert!(!html.contains("__BUILD_REV__"));
+    assert!(!html.contains("@UBOS_WEBUI_BUILD_REV@"));
     assert!(html.contains(r#"action="/login""#), "missing login form");
     assert!(
         crate::LOGIN_HTML_GZ.len() <= MAX_GZ_BYTES,

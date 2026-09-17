@@ -41,7 +41,6 @@
 {
   lib,
   buildNpmPackage,
-  webuiBuildEnv,
 }:
 
 buildNpmPackage {
@@ -64,9 +63,10 @@ buildNpmPackage {
   # moves.
   npmDepsHash = "sha256-nZh5RHCgu8TqnhBbfjY3Kt0ZhuKIYv7Hi693mnEKiYc=";
 
-  # build.rs and rsbuild.config.ts read these for the footer; bake them
-  # in here so the hermetic dist is stamped with the source revision.
-  inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
+  # No revision or time is baked in here. The bundle carries two fixed
+  # tokens for them, and the crate's build.rs stamps the pages when it
+  # embeds them, so this derivation depends on the frontend sources
+  # alone and one build of it serves every commit.
 
   # Gate the strict TypeScript types before the bundle is built, so a
   # type error fails the hermetic build here rather than reaching a

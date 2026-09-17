@@ -26,7 +26,9 @@ function formatBuildTime(raw: string): string {
   return new Date(seconds * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
 }
 
-// Build provenance injected by Vite `define` (see vite.config.ts).
+// Build provenance. `define` in rsbuild.config.ts turns these into
+// tokens, and the crate's build.rs stamps the revision and time over
+// the tokens when it embeds the page.
 const buildRev = __BUILD_REV__;
 const buildTime = formatBuildTime(__BUILD_TIME__);
 
