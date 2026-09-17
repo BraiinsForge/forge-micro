@@ -31,12 +31,10 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 
-pub mod chain_control;
-pub mod chain_stats;
+pub mod chain;
 pub mod consts;
 mod control;
 pub mod miner;
-pub mod presence;
 pub mod publishers;
 mod registry;
 pub mod reset;
@@ -44,10 +42,9 @@ pub mod scheduler;
 pub mod serial;
 pub mod tuner;
 
-pub use chain_control::ChainControl;
+pub use chain::{ChainControl, ChainHandle, ChainPresence};
 pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
-pub use miner::{ChainHandle, Miner, MinerControl, MinerError, PsuErrorKind};
-pub use presence::ChainPresence;
+pub use miner::{Miner, MinerControl, MinerError, PsuErrorKind};
 pub use serial::{
     core1_is_parked, core1_serial_running, release_core1_park, request_core1_park,
     signal_core1_park,

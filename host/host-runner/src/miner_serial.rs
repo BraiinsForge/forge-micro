@@ -63,7 +63,7 @@ pub async fn miner_serial_task() -> ! {
             crate::BOARD,
             ubos_asic::Bm13xxDriver::new(CHIP),
             scheduler,
-            ubos_mining::chain_stats::handle().chain(0),
+            ubos_mining::chain::stats::handle().chain(0),
         )
         .await
     {

@@ -23,7 +23,7 @@
 //! chains.
 
 use super::*;
-use crate::presence::ChainPresence;
+use crate::chain::presence::ChainPresence;
 
 /// An arbitrary target used only to drive `record_share`; the exact
 /// leading-zero count is irrelevant to these tests, which check the

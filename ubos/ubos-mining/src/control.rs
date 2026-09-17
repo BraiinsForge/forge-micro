@@ -56,7 +56,7 @@ pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, CMD_CHANNEL_DEPTH> 
 
 /// Snapshot of slow-changing operational state. Share counters, the
 /// hashrate and the per-chain chip counts live in
-/// [`crate::chain_stats`]; placing them here would wake every
+/// [`crate::chain::stats`]; placing them here would wake every
 /// subscriber on every share.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MiningState {

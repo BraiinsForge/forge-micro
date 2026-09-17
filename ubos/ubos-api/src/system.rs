@@ -78,7 +78,6 @@ use heapless::String;
 use ubos_http::write_json_response;
 use ubos_logging::{info, warn};
 use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage};
-use ubos_mining::chain_stats;
 use ubos_thermal::Handle as ThermalHandle;
 
 use crate::ota::{OtaError, ota_session};
@@ -280,7 +279,7 @@ where
     T: Read + Write + TcpSplit,
 {
     let uptime_seconds = Instant::now().as_secs();
-    let chain_stats = chain_stats::handle();
+    let chain_stats = ubos_mining::chain::stats::handle();
     let hashrate_hps = chain_stats.machine_hashrate();
     #[allow(clippy::cast_possible_truncation)]
     let temperature_celsius = thermal

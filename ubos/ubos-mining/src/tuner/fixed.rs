@@ -33,7 +33,7 @@
 //! the miner's business; this tuner never sees an absent or faulted
 //! chain. Host-side policy — PSU voltage and the ramp — stays here;
 //! the vendor register sequence and the UART baud switch live in the
-//! `ubos_asic::ChainDriver` impl behind [`crate::chain_control::ChainControl::configure`].
+//! `ubos_asic::ChainDriver` impl behind [`crate::chain::control::ChainControl::configure`].
 
 use embassy_time::{Duration, Timer};
 use libm::sqrtf;
@@ -41,7 +41,7 @@ use ubos_asic::HashboardDescriptor;
 use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::debug;
 
-use crate::chain_control::ChainControl;
+use crate::chain::control::ChainControl;
 use crate::control::publish_tuner_step;
 use crate::miner::MinerControl;
 

@@ -48,10 +48,9 @@ use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, error, info, warn};
 use ubos_psu::{Error as PsuError, Psu};
 
-use crate::chain_control::ChainControl;
-use crate::chain_stats::ChainStats;
+use crate::chain::presence::{self, Action};
+use crate::chain::{ChainControl, ChainHandle, ChainPresence};
 use crate::control::{COMMAND_CHANNEL, Message, MiningState, STATE_WATCH};
-use crate::presence::{self, Action, ChainPresence};
 use crate::reset::ResetPin;
 use crate::serial::Serial;
 use crate::tuner::fixed::FixedTuner;
@@ -172,67 +171,6 @@ pub trait MinerControl {
     fn present_chains(&self) -> impl Iterator<Item = &Self::Chain>;
 }
 
-/// One chain's serial actor, accounting, and reset pin, bundled behind
-/// the [`ChainControl`] surface a tuner drives.
-///
-/// The reset pin is folded in here, rather than left in a parallel
-/// array on `Miner`, because the miner always has to walk a chain's
-/// reset pin and its serial actor together during bring-up and
-/// teardown.
-pub struct ChainHandle<R: ResetPin> {
-    serial: &'static Serial,
-    stats: &'static ChainStats,
-    reset: R,
-    presence: ChainPresence,
-}
-
-/// The serial actor answers in the transport's own error types; this
-/// impl is where they become the one [`MinerError`] a tuner handles.
-impl<R: ResetPin> ChainControl for ChainHandle<R> {
-    fn chain(&self) -> usize {
-        self.serial.chain()
-    }
-
-    async fn reset(&self) -> Result<(), MinerError> {
-        self.serial.reset().await.map_err(MinerError::from)
-    }
-
-    async fn reset_and_enumerate(&self) -> u8 {
-        self.serial.reset_and_enumerate().await
-    }
-
-    async fn configure(&self) -> Result<(), MinerError> {
-        self.serial.configure().await.map_err(MinerError::from)
-    }
-
-    async fn pvt_sweep(&self) -> Result<(), MinerError> {
-        self.serial.pvt_sweep().await.map_err(MinerError::from)
-    }
-
-    /// Program the hash-clock frequency. The serial actor records it
-    /// in this chain's accounting on success.
-    async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError> {
-        self.serial
-            .set_frequency(freq)
-            .await
-            .map_err(MinerError::from)
-    }
-
-    async fn start_sending_work(&self, period: Duration) -> Result<(), MinerError> {
-        self.serial
-            .start_sending_work(period)
-            .await
-            .map_err(MinerError::from)
-    }
-
-    async fn stop_sending_work(&self) -> Result<(), MinerError> {
-        self.serial
-            .stop_sending_work()
-            .await
-            .map_err(MinerError::from)
-    }
-}
-
 /// The ASIC mining state machine driving the injected chain driver.
 ///
 /// Owns the PSU reference and every chain of the machine. Firmware
@@ -300,7 +238,7 @@ where
         }
         let chains = chains.map(|(serial, reset)| ChainHandle {
             serial,
-            stats: &crate::chain_stats::CHAIN_STATS[serial.chain()],
+            stats: &crate::chain::stats::CHAIN_STATS[serial.chain()],
             reset,
             presence: ChainPresence::Unknown,
         });
@@ -316,7 +254,7 @@ where
                 "BUG: chain {position} wired to a Serial that counts another number of chains"
             );
         }
-        crate::chain_stats::set_chain_count(CHAINS);
+        crate::chain::stats::set_chain_count(CHAINS);
         Self {
             psu,
             board,
@@ -688,6 +626,15 @@ where
     /// enumeration found present. Called at both teardown sites in
     /// `mine_phase` before `cut_rail` puts every chain, present or
     /// not, back into hardware reset.
+    ///
+    /// The actor's reset clears the chain's published accounting, so a
+    /// chain stopped here reads as `Unknown` until the next enumeration
+    /// decides it again, while an absent or faulted chain keeps its
+    /// verdict. That is deliberate: the thermal sensor reads the
+    /// published presence to pick the chains it may treat as silent, and
+    /// a stopped chain answers no status turn. Left published as present
+    /// it would be read as a stalled chain and halt the machine it was
+    /// just parked on.
     async fn stop_present_chains(&mut self) {
         for chain in &self.chains {
             if chain.presence.is_present() {

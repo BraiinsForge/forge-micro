@@ -28,7 +28,7 @@ use embassy_time::{Duration, Ticker};
 use ubos_metrics::metrics::{Metric, Value, push};
 
 use crate::Handle as MiningHandle;
-use crate::chain_stats;
+use crate::chain::stats;
 
 /// Periodically push `board_uart_desync_bytes_total`,
 /// `board_chain_chips`, `board_chain_present`, `board_hashrate_hps`,
@@ -43,7 +43,7 @@ use crate::chain_stats;
 /// `board_chain_present`, `board_hashrate_hps`, and
 /// `board_shares_total` are each labeled `chain="i"` and pushed once
 /// per chain the machine wired up, which
-/// [`chain_stats::ChainStatsHandle::chain_count`] reports, so the unused
+/// [`stats::ChainStatsHandle::chain_count`] reports, so the unused
 /// slots of the table are never published at all. That count is zero
 /// until the miner starts, and until then no per-chain series is
 /// emitted. No unlabelled duplicate of the hashrate and share series is
@@ -56,7 +56,7 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
     let mut ticker = Ticker::every(Duration::from_secs(2));
     loop {
         ticker.next().await;
-        let stats_handle = chain_stats::handle();
+        let stats_handle = stats::handle();
         for (chain, stats) in stats_handle.chains().enumerate() {
             push_chain_metric(
                 "board_uart_desync_bytes_total",

@@ -177,7 +177,7 @@ impl RestApiService {
 /// 1 and 2.
 fn write_chains(
     writer: &mut ubos_http::BufferWriter<'_>,
-    chain_stats: ubos_mining::chain_stats::ChainStatsHandle,
+    chain_stats: ubos_mining::chain::stats::ChainStatsHandle,
 ) {
     let _ = writer.write_str(",\"chains\":[");
     for (chain, stats) in chain_stats.chains().enumerate() {
@@ -185,10 +185,10 @@ fn write_chains(
             let _ = writer.write_str(",");
         }
         let state = match stats.presence() {
-            ubos_mining::presence::ChainPresence::Unknown => "unknown",
-            ubos_mining::presence::ChainPresence::Present { .. } => "present",
-            ubos_mining::presence::ChainPresence::Absent => "absent",
-            ubos_mining::presence::ChainPresence::Faulted { .. } => "faulted",
+            ubos_mining::chain::presence::ChainPresence::Unknown => "unknown",
+            ubos_mining::chain::presence::ChainPresence::Present { .. } => "present",
+            ubos_mining::chain::presence::ChainPresence::Absent => "absent",
+            ubos_mining::chain::presence::ChainPresence::Faulted { .. } => "faulted",
         };
         let _ = core::write!(
             writer,
@@ -427,7 +427,7 @@ impl Service for RestApiService {
         match (method, path) {
             ("GET", "/api/info") => {
                 let uptime_secs = Instant::now().as_secs();
-                let chain_stats = ubos_mining::chain_stats::handle();
+                let chain_stats = ubos_mining::chain::stats::handle();
                 let hashrate = chain_stats.machine_hashrate();
                 let thermal_reading = self.thermal.current();
                 let chain_voltage_mv = thermal_reading

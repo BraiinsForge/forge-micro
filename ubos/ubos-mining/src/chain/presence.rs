@@ -79,7 +79,7 @@ impl ChainPresence {
     /// `Faulted` one, zero otherwise. Unlike [`Self::chips`] it keeps
     /// the `Faulted` count, so a stored fault still says what was found.
     #[must_use]
-    pub fn payload(self) -> u8 {
+    pub(crate) fn payload(self) -> u8 {
         match self {
             Self::Present { chips } => chips,
             Self::Faulted { found } => found,
@@ -91,7 +91,7 @@ impl ChainPresence {
     /// no `found`/`chips` payload; the caller stores [`Self::payload`]
     /// separately and reattaches it in [`Self::from_code`].
     #[must_use]
-    pub fn as_code(self) -> u8 {
+    pub(crate) fn as_code(self) -> u8 {
         match self {
             Self::Unknown => CODE_UNKNOWN,
             Self::Present { .. } => CODE_PRESENT,
@@ -106,7 +106,7 @@ impl ChainPresence {
     /// ignored otherwise; an unrecognized code falls back to `Unknown`
     /// so a store read before its first write never panics.
     #[must_use]
-    pub fn from_code(code: u8, payload: u8) -> Self {
+    pub(crate) fn from_code(code: u8, payload: u8) -> Self {
         match code {
             CODE_PRESENT => Self::Present { chips: payload },
             CODE_ABSENT => Self::Absent,

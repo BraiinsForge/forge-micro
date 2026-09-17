@@ -32,7 +32,7 @@ use ubos_asic::bm13xx::registers::PllParameterReg;
 use ubos_core::units::{Frequency, Voltage};
 use ubos_psu::BmmPsuDescriptor;
 
-use crate::chain_control::ChainControl;
+use crate::chain::control::ChainControl;
 use crate::miner::{MinerControl, MinerError};
 
 use super::super::Tuner;

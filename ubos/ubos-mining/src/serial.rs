@@ -68,7 +68,7 @@ use ubos_asic::{
 use ubos_core::units::Frequency;
 use ubos_logging::{Debug2Format, error, info, trace, warn};
 
-use crate::chain_stats::ChainStats;
+use crate::chain::stats::ChainStats;
 
 #[cfg(test)]
 #[path = "tests/serial.rs"]
@@ -402,7 +402,7 @@ pub struct Serial {
     /// This actor's index among the machine's hashboards, used to
     /// partition a pool-granted version-rolling mask so sibling chains
     /// never hash identical headers, and to index into
-    /// [`crate::chain_stats::CHAIN_STATS`].
+    /// [`crate::chain::stats::CHAIN_STATS`].
     chain: usize,
     /// Total hashboard count this machine has wired up, the other half
     /// of the version-mask partition.
@@ -802,6 +802,18 @@ impl Serial {
         assert!(
             core::ptr::eq(board.chip, driver.descriptor()),
             "BUG: board descriptor and chain driver disagree on the chip"
+        );
+        // `stats` is a parameter so a test can hand in a table of its
+        // own. A board passes its slot of the shared table, and a board
+        // that passed another chain's slot would credit that chain's
+        // shares to this one; the table says which slot this is.
+        let table_slot = crate::chain::stats::CHAIN_STATS
+            .iter()
+            .position(|slot| core::ptr::eq(slot, stats));
+        assert!(
+            table_slot.is_none_or(|slot| slot == self.chain),
+            "BUG: chain {} serial actor was handed another chain's accounting",
+            self.chain
         );
         // One receiver per pool slot; `dispatch_work` asks the scheduler
         // which cell to read at each work tick, so a pool switch needs no
@@ -1282,7 +1294,7 @@ enum ResultEvent {
 ///
 /// `actor` is which entry of `chains` this instance of the task
 /// drives, and the task asks
-/// [`ubos_mining::chain_stats::ChainStatsHandle::chain`] for
+/// [`ubos_mining::chain::stats::ChainStatsHandle::chain`] for
 /// `actor.chain()` to find that chain's accounting. The session and
 /// driver types are parameters rather than names in this crate, because
 /// the board composes both: the session's capacity is a per-board
@@ -1311,7 +1323,7 @@ macro_rules! serial_task {
                     $board,
                     driver,
                     ubos_mining::scheduler::RatioScheduler::new(),
-                    ubos_mining::chain_stats::handle().chain(actor.chain()),
+                    ubos_mining::chain::stats::handle().chain(actor.chain()),
                 )
                 .await
             {

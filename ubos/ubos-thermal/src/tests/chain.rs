@@ -18,8 +18,9 @@
 // shall be considered distinct from the grant above.
 
 use super::*;
-use ubos_mining::chain_stats::ChainStats;
-use ubos_mining::presence::ChainPresence;
+use portable_atomic::AtomicU8;
+use ubos_mining::chain::presence::ChainPresence;
+use ubos_mining::chain::stats::ChainStats;
 
 const TEST_CHIPS: usize = 4;
 const TEST_CHAINS: usize = 2;

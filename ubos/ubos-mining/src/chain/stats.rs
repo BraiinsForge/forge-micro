@@ -49,11 +49,11 @@ use portable_atomic::{AtomicI32, AtomicU8, AtomicU16, AtomicU32, AtomicU64, Orde
 use ubos_core::units::Frequency;
 use ubos_metrics::hashrate::HashrateEstimator;
 
+use crate::chain::presence::ChainPresence;
 use crate::consts::MAX_POOL_SLOTS;
-use crate::presence::ChainPresence;
 
 #[cfg(test)]
-#[path = "tests/chain_stats.rs"]
+#[path = "tests/stats.rs"]
 mod tests;
 
 /// Sentinel stored in `hottest_mc` when no temperature reading has
@@ -268,23 +268,21 @@ pub(crate) fn set_chain_count(chains: usize) {
 pub struct ChainStatsHandle {
     stats: &'static [ChainStats],
     /// How many leading slots carry a wired chain. The board's table reads
-    /// [`ACTIVE_CHAINS`]; a caller-owned table has no unused slots and
-    /// counts them all.
-    active: Option<&'static AtomicU8>,
+    /// [`ACTIVE_CHAINS`]; a caller-owned table reads the counter the
+    /// caller gave it.
+    active: &'static AtomicU8,
 }
 
 impl ChainStatsHandle {
-    /// Build a handle over a table the caller owns.
+    /// Build a handle over a table the caller owns, with `active` as
+    /// the count of its leading slots that carry a chain.
     ///
     /// [`handle`] is what a board uses. This is for a test that needs a
     /// table of its own, so one test's counters cannot be read by the
     /// next.
     #[must_use]
-    pub const fn new(stats: &'static [ChainStats]) -> Self {
-        Self {
-            stats,
-            active: None,
-        }
+    pub const fn new(stats: &'static [ChainStats], active: &'static AtomicU8) -> Self {
+        Self { stats, active }
     }
 
     /// How many chain slots the table holds, wired up or not.
@@ -296,16 +294,13 @@ impl ChainStatsHandle {
     /// How many chains the machine wired up, and so how many leading
     /// slots of the table carry a real chain.
     ///
-    /// For the board's table, zero until the miner starts: the chain count reaches this
-    /// module when [`crate::Miner::new`] runs, so a reader that walks
-    /// this many slots walks none before that. A caller-owned table counts
-    /// every slot. Never larger than
-    /// [`Self::slots`].
+    /// For the board's table, zero until the miner starts: the chain
+    /// count reaches this module when [`crate::Miner::new`] runs, so a
+    /// reader that walks this many slots walks none before that. Never
+    /// larger than [`Self::slots`].
     #[must_use]
     pub fn chain_count(&self) -> usize {
-        self.active.map_or(self.slots(), |active| {
-            usize::from(active.load(Ordering::Relaxed)).min(self.slots())
-        })
+        usize::from(self.active.load(Ordering::Relaxed)).min(self.slots())
     }
 
     /// One chain's accounting.
@@ -348,13 +343,12 @@ impl ChainStatsHandle {
     /// Count of chains whose most recently recorded presence is
     /// `Present`.
     #[must_use]
-    pub fn present_chains(&self) -> u8 {
-        #[allow(clippy::cast_possible_truncation)]
+    pub fn present_chain_count(&self) -> u8 {
         let count = self
             .chains()
             .filter(|chain| chain.presence().is_present())
-            .count() as u8;
-        count
+            .count();
+        u8::try_from(count).unwrap_or(u8::MAX)
     }
 }
 
@@ -366,6 +360,6 @@ impl ChainStatsHandle {
 pub fn handle() -> ChainStatsHandle {
     ChainStatsHandle {
         stats: &CHAIN_STATS,
-        active: Some(&ACTIVE_CHAINS),
+        active: &ACTIVE_CHAINS,
     }
 }

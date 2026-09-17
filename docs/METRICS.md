@@ -146,7 +146,7 @@ board pool slot, labelled `pool="0"`, `pool="1"`, ...:
 
 `board_uart_desync_bytes_total` and `board_pool_work_shares_total` also
 carry a `chain="i"` label identifying the hashboard chain they came
-from, since a board can own more than one; see `ubos_mining::chain_stats`.
+from, since a board can own more than one; see `ubos_mining::chain::stats`.
 
 There are no unlabelled duplicates of these series; board totals are
 `sum(...)` over the label.
@@ -196,7 +196,7 @@ as `board_chip_temperature_millicelsius`, the sample it took.
 
 ## Hashrate
 
-Code: `ubos/ubos-metrics/src/hashrate.rs`, `ubos/ubos-mining/src/chain_stats.rs`.
+Code: `ubos/ubos-metrics/src/hashrate.rs`, `ubos/ubos-mining/src/chain/stats.rs`.
 
 `HashrateEstimator::record_share` feeds a share's difficulty into an
 EWMA-smoothed bucketed estimator over 1-second buckets with α = 1/8
@@ -205,6 +205,7 @@ read-side decay so the displayed rate drops toward zero when shares stop
 arriving. Each board hashboard chain owns one estimator, inside that
 chain's `ChainStats`; the ubos-mining serial actor calls `record_share`
 on its own chain's `ChainStats` for every diff-1 chip share it consumes.
-`ubos_mining::chain_stats::machine_hashrate` and `machine_share_count`
+`ChainStatsHandle::machine_hashrate` and `machine_share_count`, in the
+same module,
 sum every chain's estimator for the board-wide figures the REST API and
 the OLED display show.

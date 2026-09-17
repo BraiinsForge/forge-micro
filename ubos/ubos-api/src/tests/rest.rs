@@ -86,7 +86,7 @@ fn validate_board_name_rejects_backslash() {
 /// - `paused`: `true` (4 chars).
 /// - `pause_reason`: `"dangerousTemperature"` (20 chars, longest variant).
 /// - `chains`: `ubos_machine::MAX_CHAINS` entries — the most any board
-///   can report, since [`ubos_mining::chain_stats::ChainStatsHandle::chain_count`]
+///   can report, since [`ubos_mining::chain::stats::ChainStatsHandle::chain_count`]
 ///   never exceeds the table it wraps — each with `chips` at `u16::MAX`
 ///   (5 digits), `frequency_mhz` at `u32::MAX` (10 digits), `hashrate`
 ///   at `u64::MAX` (20 digits), and `hottest_c` at `i32::MIN / 1000` (7
@@ -378,16 +378,19 @@ fn config_response_body_fits_in_buffer() {
 /// test instead of only ever landing in the live response.
 #[test]
 fn write_chains_renders_the_chains_array() {
-    static CHAINS: [ubos_mining::chain_stats::ChainStats; 2] = [
-        ubos_mining::chain_stats::ChainStats::new(),
-        ubos_mining::chain_stats::ChainStats::new(),
+    static CHAINS: [ubos_mining::chain::stats::ChainStats; 2] = [
+        ubos_mining::chain::stats::ChainStats::new(),
+        ubos_mining::chain::stats::ChainStats::new(),
     ];
-    CHAINS[0].set_presence(ubos_mining::presence::ChainPresence::Present { chips: 105 });
+    CHAINS[0].set_presence(ubos_mining::chain::presence::ChainPresence::Present { chips: 105 });
     CHAINS[0].set_frequency(ubos_core::units::Frequency::from_mhz(650));
     CHAINS[0].set_hottest(Some(72_000));
-    CHAINS[1].set_presence(ubos_mining::presence::ChainPresence::Absent);
+    CHAINS[1].set_presence(ubos_mining::chain::presence::ChainPresence::Absent);
 
-    let handle = ubos_mining::chain_stats::ChainStatsHandle::new(&CHAINS);
+    let active = std::boxed::Box::leak(std::boxed::Box::new(portable_atomic::AtomicU8::new(
+        u8::try_from(CHAINS.len()).expect("BUG: the test table fits a u8"),
+    )));
+    let handle = ubos_mining::chain::stats::ChainStatsHandle::new(&CHAINS, active);
     let mut buffer = [0u8; 512];
     let mut writer = ubos_http::BufferWriter::new(&mut buffer);
     super::write_chains(&mut writer, handle);

@@ -178,7 +178,7 @@ the setter divides by the rate and would otherwise panic.
 ## Multiple chains and the core-1 park
 
 A board owns a static array of `Serial`, one per hashboard chain it
-wires up; `ubos_mining::chain_stats::CHAIN_STATS` holds one `ChainStats`
+wires up; `ubos_mining::chain::stats::CHAIN_STATS` holds one `ChainStats`
 per chain in the same order, so each chain's hashrate, share count, and
 desync bytes are tracked and published separately. The table has
 `ubos_machine::MAX_CHAINS` slots; `ChainStatsHandle::chain_count` says
