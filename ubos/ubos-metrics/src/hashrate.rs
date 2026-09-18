@@ -128,12 +128,8 @@ impl HashrateEstimator {
         // When a share arrives after silence, decay the stored EWMA across
         // the missed buckets first so the resumed value is consistent with
         // what hashrate() was returning during the quiet period.
-        let (previous, fold_window) = if elapsed_ms >= 2 * BUCKET_MS {
-            let silent_buckets = (elapsed_ms - BUCKET_MS) / BUCKET_MS;
-            (decay_silent(stored, silent_buckets), BUCKET_MS)
-        } else {
-            (stored, elapsed_ms)
-        };
+        let (silent_buckets, fold_window) = resume_split(elapsed_ms);
+        let previous = decay_silent(stored, silent_buckets);
         self.ewma.store(
             next_ewma(bucket_total, fold_window, previous),
             Ordering::Relaxed,
@@ -174,6 +170,27 @@ impl Default for HashrateEstimator {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Split the gap since the last finalised bucket into the zero-rate
+/// buckets to decay across and the window the arriving bucket's hashes
+/// accrued over.
+///
+/// A gap shorter than two buckets is one window with nothing silent
+/// behind it. Beyond that, the silent stretch is whole buckets and what
+/// is left is the real window, which is where this used to take a whole
+/// `BUCKET_MS` instead: shares arrive at random times, so the two agree
+/// only when the gap is an exact multiple, and a short window reports
+/// the resumed rate high by the ratio between them. The returned window
+/// is `elapsed_ms` below two buckets and in `BUCKET_MS..2 * BUCKET_MS`
+/// above, so it is zero only if `elapsed_ms` is, which a finalising
+/// bucket never is.
+fn resume_split(elapsed_ms: u64) -> (u64, u64) {
+    if elapsed_ms < 2 * BUCKET_MS {
+        return (0, elapsed_ms);
+    }
+    let silent_buckets = (elapsed_ms - BUCKET_MS) / BUCKET_MS;
+    (silent_buckets, elapsed_ms - silent_buckets * BUCKET_MS)
 }
 
 /// Apply `missed` consecutive zero-rate EWMA steps to `value`. Returns 0

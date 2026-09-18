@@ -25,6 +25,7 @@
 
 use super::{
     BUCKET_MS, EWMA_ALPHA_SHIFT, MAX_DECAY_STEPS, decay_silent, hashes_per_share, next_ewma,
+    resume_split,
 };
 
 fn target_with_leading_zero_bytes(zero_bytes: usize) -> [u8; 32] {
@@ -150,4 +151,47 @@ fn record_share_resume_does_not_exceed_displayed_value() {
         stored_after <= displayed_before + (bucket_total / 8 + 1),
         "post-resume stored {stored_after} jumped above pre-resume displayed {displayed_before}",
     );
+}
+
+/// A gap shorter than two buckets has nothing silent behind it and
+/// folds over the whole gap.
+#[test]
+fn resume_split_below_two_buckets_folds_the_whole_gap() {
+    for elapsed in [1, BUCKET_MS, 2 * BUCKET_MS - 1] {
+        assert_eq!(resume_split(elapsed), (0, elapsed), "elapsed {elapsed}");
+    }
+}
+
+/// The fold window is what is left of the gap once the silent buckets
+/// are taken out, not a whole bucket. A gap that is not an exact
+/// multiple used to fold over `BUCKET_MS` and report the resumed rate
+/// high by the ratio between the two.
+#[test]
+fn resume_split_folds_over_the_true_remainder() {
+    let half = BUCKET_MS / 2;
+    assert_eq!(resume_split(2 * BUCKET_MS + half), (1, BUCKET_MS + half));
+    assert_eq!(resume_split(5 * BUCKET_MS + half), (4, BUCKET_MS + half));
+}
+
+/// An exact multiple has no remainder to carry, so the window is one
+/// whole bucket. This is the case the old code was right for.
+#[test]
+fn resume_split_on_an_exact_multiple_folds_one_bucket() {
+    for buckets in 2..8u64 {
+        assert_eq!(
+            resume_split(buckets * BUCKET_MS),
+            (buckets - 1, BUCKET_MS),
+            "{buckets} buckets"
+        );
+    }
+}
+
+/// The window never reaches zero for a gap that finalises a bucket, so
+/// the rate division below it cannot divide by zero.
+#[test]
+fn resume_split_never_returns_a_zero_window() {
+    for elapsed in (1..40u64).map(|n| n * BUCKET_MS / 3) {
+        let (_, window) = resume_split(elapsed);
+        assert!(window > 0, "elapsed {elapsed} produced a zero fold window");
+    }
 }
