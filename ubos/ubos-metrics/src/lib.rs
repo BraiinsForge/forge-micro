@@ -41,6 +41,7 @@ ubos_mdns::declare_service!(
     }
 );
 
+pub mod chain;
 pub mod consts;
 pub mod cpu_load;
 pub mod hashrate;

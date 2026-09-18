@@ -51,10 +51,10 @@ mod tests;
 /// OTA diagnostic fields including the `resetWritePhase` string +
 /// `running` bool + `paused` bool + `pause_reason` string up to
 /// `"dangerousTemperature"` + a `chains` array with one entry per
-/// chain the board actually owns, up to `ubos_machine::MAX_CHAINS` +
+/// chain the board actually owns, up to `ubos_metrics::chain::MAX_CHAINS` +
 /// JSON framing). The `api_info_body_fits_in_buffer` test builds the
 /// absolute worst case — every numeric field at its maximum decimal
-/// width and a `chains` array at `ubos_machine::MAX_CHAINS` entries,
+/// width and a `chains` array at `ubos_metrics::chain::MAX_CHAINS` entries,
 /// the most any board can report — and measures 1187 bytes. 512 bytes
 /// overflowed once the OTA diagnostic fields were added, silently
 /// truncating the tail; 1280 bytes covers the synthetic worst case,
@@ -177,7 +177,7 @@ impl RestApiService {
 /// 1 and 2.
 fn write_chains(
     writer: &mut ubos_http::BufferWriter<'_>,
-    chain_stats: ubos_mining::chain::stats::ChainStatsHandle,
+    chain_stats: ubos_metrics::chain::ChainStatsHandle,
 ) {
     let _ = writer.write_str(",\"chains\":[");
     for (chain, stats) in chain_stats.chains().enumerate() {
@@ -185,10 +185,10 @@ fn write_chains(
             let _ = writer.write_str(",");
         }
         let state = match stats.presence() {
-            ubos_mining::chain::presence::ChainPresence::Unknown => "unknown",
-            ubos_mining::chain::presence::ChainPresence::Present { .. } => "present",
-            ubos_mining::chain::presence::ChainPresence::Absent => "absent",
-            ubos_mining::chain::presence::ChainPresence::Faulted { .. } => "faulted",
+            ubos_metrics::chain::ChainPresence::Unknown => "unknown",
+            ubos_metrics::chain::ChainPresence::Present { .. } => "present",
+            ubos_metrics::chain::ChainPresence::Absent => "absent",
+            ubos_metrics::chain::ChainPresence::Faulted { .. } => "faulted",
         };
         let _ = core::write!(
             writer,
@@ -427,7 +427,7 @@ impl Service for RestApiService {
         match (method, path) {
             ("GET", "/api/info") => {
                 let uptime_secs = Instant::now().as_secs();
-                let chain_stats = ubos_mining::chain::stats::handle();
+                let chain_stats = ubos_metrics::chain::handle();
                 let hashrate = chain_stats.machine_hashrate();
                 let thermal_reading = self.thermal.current();
                 let chain_voltage_mv = thermal_reading

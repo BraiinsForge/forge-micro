@@ -42,7 +42,7 @@ pub mod scheduler;
 pub mod serial;
 pub mod tuner;
 
-pub use chain::{ChainControl, ChainHandle, ChainPresence};
+pub use chain::{ChainControl, ChainHandle};
 pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
 pub use miner::{Miner, MinerControl, MinerError, PsuErrorKind};
 pub use serial::{

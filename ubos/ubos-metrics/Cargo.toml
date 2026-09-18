@@ -32,6 +32,13 @@ ubos-logging      = { workspace = true }
 ubos-mdns         = { workspace = true, default-features = false }
 ubos-net          = { workspace = true, default-features = false }
 
+[dev-dependencies]
+# The chain table tests record shares, which stamps them with `Instant`,
+# so the host tests need the standard time driver, and the table's atomics
+# need a critical-section backend on the host.
+embassy-time     = { workspace = true, features = ["std"] }
+critical-section = { version = "1.2", features = ["std"] }
+
 # Cortex-M boards drive embassy's `raw::Executor` directly via
 # `cpu_load::run_cortex_m_executor`. Gated to ARM so the ESP32-S3
 # build does not pull in the cortex-m crate.

@@ -28,7 +28,7 @@ use embassy_time::{Duration, Ticker};
 use ubos_metrics::metrics::{Metric, Value, push};
 
 use crate::Handle as MiningHandle;
-use crate::chain::stats;
+use ubos_metrics::chain as stats;
 
 /// Periodically push `board_uart_desync_bytes_total`,
 /// `board_chain_chips`, `board_chain_present`, `board_hashrate_hps`,

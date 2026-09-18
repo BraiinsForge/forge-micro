@@ -67,44 +67,6 @@ fn mismatched_count_at_the_attempt_budget_is_faulted_and_parks() {
 }
 
 #[test]
-fn presence_helpers_agree_with_the_variant() {
-    assert!(ChainPresence::Present { chips: 4 }.is_present());
-    assert!(!ChainPresence::Unknown.is_present());
-    assert!(!ChainPresence::Absent.is_present());
-    assert!(!ChainPresence::Faulted { found: 2 }.is_present());
-
-    assert_eq!(ChainPresence::Present { chips: 4 }.chips(), 4);
-    assert_eq!(ChainPresence::Unknown.chips(), 0);
-    assert_eq!(ChainPresence::Absent.chips(), 0);
-    assert_eq!(ChainPresence::Faulted { found: 2 }.chips(), 0);
-}
-
-#[test]
-fn code_round_trips_through_present_and_faulted() {
-    let present = ChainPresence::Present { chips: 7 };
-    assert_eq!(
-        ChainPresence::from_code(present.as_code(), present.payload()),
-        present
-    );
-
-    let faulted = ChainPresence::Faulted { found: 3 };
-    assert_eq!(faulted.payload(), 3);
-    assert_eq!(
-        ChainPresence::from_code(faulted.as_code(), faulted.payload()),
-        faulted
-    );
-
-    assert_eq!(
-        ChainPresence::from_code(ChainPresence::Absent.as_code(), 0),
-        ChainPresence::Absent
-    );
-    assert_eq!(
-        ChainPresence::from_code(ChainPresence::Unknown.as_code(), 0),
-        ChainPresence::Unknown
-    );
-}
-
-#[test]
 fn configure_failure_retries_below_the_attempt_budget() {
     let (presence, action) = configure_failed(EXPECTED, ENUMERATE_ATTEMPTS - 1);
     assert_eq!(presence, ChainPresence::Unknown);

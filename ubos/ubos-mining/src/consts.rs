@@ -36,6 +36,6 @@ pub const WORK_REGISTRY_SLOTS: usize = 256 / 8;
 pub const INITIAL_BAUDRATE: u32 = 115_200;
 
 /// Number of pool slots a chain's work split and share accounting
-/// track: the fixed width of `SerialMessage::SetPoolWeights` and of
-/// the `pool_shares` array in `ChainStats`.
-pub const MAX_POOL_SLOTS: usize = 8;
+/// track, the fixed width of `SerialMessage::SetPoolWeights`; owned by
+/// the per-chain table it also sizes.
+pub use ubos_metrics::chain::MAX_POOL_SLOTS;

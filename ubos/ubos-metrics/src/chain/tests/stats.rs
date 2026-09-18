@@ -27,7 +27,7 @@ use super::*;
 extern crate std;
 use std::boxed::Box;
 
-use crate::chain::presence::ChainPresence;
+use super::ChainPresence;
 
 /// An arbitrary target used only to drive `record_share`; the exact
 /// leading-zero count is irrelevant to these tests, which check the
@@ -182,4 +182,15 @@ fn share_counts_sum_across_chains() {
     assert_eq!(handle.chain(0).share_count(), 3);
     assert_eq!(handle.chain(1).share_count(), 5);
     assert_eq!(handle.chain(2).share_count(), 0);
+}
+
+/// The desync counter takes bytes at the line rate, so it is the one
+/// that can reach its ceiling. It holds there instead of wrapping,
+/// which would read as the line recovering.
+#[test]
+fn desync_bytes_saturate_instead_of_wrapping() {
+    let stats = ChainStats::new();
+    stats.add_desync_bytes(u32::MAX - 1);
+    stats.add_desync_bytes(8);
+    assert_eq!(stats.desync_bytes(), u32::MAX);
 }

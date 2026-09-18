@@ -279,7 +279,7 @@ where
     T: Read + Write + TcpSplit,
 {
     let uptime_seconds = Instant::now().as_secs();
-    let chain_stats = ubos_mining::chain::stats::handle();
+    let chain_stats = ubos_metrics::chain::handle();
     let hashrate_hps = chain_stats.machine_hashrate();
     #[allow(clippy::cast_possible_truncation)]
     let temperature_celsius = thermal

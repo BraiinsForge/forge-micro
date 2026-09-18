@@ -17,7 +17,15 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Per-chain accounting, one instance per chain slot.
+//! Per-chain accounting, one instance per chain slot, and the ceiling
+//! on how many chains a machine drives.
+//!
+//! [`MAX_CHAINS`] lives here because this table is what it sizes, and
+//! this crate sits below every consumer of the table: `ubos-mining`
+//! writes it, `ubos-thermal`, `ubos-display` and `ubos-api` read it, and
+//! `ubos-machine` re-exports the ceiling for the descriptors that assert
+//! against it.
+//!
 //!
 //! Each `ChainStats` is owned by the board. That chain's serial actor
 //! and the miner write it, the thermal loop is the one producer of
@@ -36,7 +44,7 @@
 //! private, so no consumer holds a second door to it.
 //!
 //! [`CHAIN_STATS`] carries no `ccmram-bss` link section, unlike the
-//! mining mailbox statics in `crate::control`. A static in that section
+//! mining mailbox statics in `ubos_mining::control`. A static in that section
 //! is zeroed before main and then handed out as fully initialised, so
 //! `ubos-core`'s contract is that its all-zero image must equal what
 //! `new()` builds. [`ChainStats::new`] starts `hottest_mc` at
@@ -45,16 +53,31 @@
 //! millidegrees on every chain instead of no reading at all. Do not add
 //! the attribute.
 
+use crate::hashrate::HashrateEstimator;
 use portable_atomic::{AtomicI32, AtomicU8, AtomicU16, AtomicU32, AtomicU64, Ordering};
 use ubos_core::units::Frequency;
-use ubos_metrics::hashrate::HashrateEstimator;
 
-use crate::chain::presence::ChainPresence;
-use crate::consts::MAX_POOL_SLOTS;
+pub mod presence;
+
+pub use presence::ChainPresence;
 
 #[cfg(test)]
-#[path = "tests/stats.rs"]
+#[path = "chain/tests/stats.rs"]
 mod tests;
+
+/// The most chains one machine drives. The per-chain tables the library
+/// crates own cannot see a board's descriptor, so they are sized to this
+/// ceiling: [`CHAIN_STATS`] here, the hashboard serial vector in
+/// `ubos-api`, and the work receiver budget `ubos-firmware` sizes into
+/// the stratum session. Every machine descriptor in `ubos-machine`
+/// asserts its chain count fits under it at compile time. A machine with
+/// more chains raises it here and nowhere else.
+pub const MAX_CHAINS: usize = 3;
+
+/// Number of pool slots a chain's work split and share accounting
+/// track: the fixed width of the `pool_shares` array in [`ChainStats`]
+/// and of the weights `ubos-mining` hands its scheduler.
+pub const MAX_POOL_SLOTS: usize = 8;
 
 /// Sentinel stored in `hottest_mc` when no temperature reading has
 /// landed yet. `i32::MIN` is outside any temperature a real sensor
@@ -235,20 +258,19 @@ impl Default for ChainStats {
 }
 
 /// One `ChainStats` per chain slot a board can own.
-pub(crate) static CHAIN_STATS: [ChainStats; ubos_machine::MAX_CHAINS] =
-    [const { ChainStats::new() }; ubos_machine::MAX_CHAINS];
+static CHAIN_STATS: [ChainStats; MAX_CHAINS] = [const { ChainStats::new() }; MAX_CHAINS];
 
 /// How many of [`CHAIN_STATS`]'s slots the machine actually wired up.
 ///
-/// Zero until [`crate::Miner::new`] stores the board's chain count, so
+/// Zero until `ubos_mining::Miner::new` stores the board's chain count, so
 /// a reader that walks this many slots reports nothing before the miner
 /// starts rather than reporting the unused slots of the table.
 static ACTIVE_CHAINS: AtomicU8 = AtomicU8::new(0);
 
 /// Record how many chains the machine wired up. Called once by
-/// [`crate::Miner::new`], which is the only place that knows the
+/// `ubos_mining::Miner::new`, which is the only place that knows the
 /// board's chain count.
-pub(crate) fn set_chain_count(chains: usize) {
+pub fn set_chain_count(chains: usize) {
     ACTIVE_CHAINS.store(u8::try_from(chains).unwrap_or(u8::MAX), Ordering::Relaxed);
 }
 
@@ -295,7 +317,7 @@ impl ChainStatsHandle {
     /// slots of the table carry a real chain.
     ///
     /// For the board's table, zero until the miner starts: the chain
-    /// count reaches this module when [`crate::Miner::new`] runs, so a
+    /// count reaches this module when `ubos_mining::Miner::new` runs, so a
     /// reader that walks this many slots walks none before that. Never
     /// larger than [`Self::slots`].
     #[must_use]
@@ -306,12 +328,18 @@ impl ChainStatsHandle {
     /// One chain's accounting.
     ///
     /// Indexes the whole table, not the wired prefix: a serial task
-    /// looks its own slot up before [`crate::Miner::new`] has published
+    /// looks its own slot up before `ubos_mining::Miner::new` has published
     /// the chain count, so the bound here is [`Self::slots`].
     ///
     /// # Panics
     ///
-    /// Panics if `chain` is at or beyond [`Self::slots`].
+    /// Panics if `chain` is at or beyond [`Self::slots`]. Every caller
+    /// today passes an index a board constant bounds, which
+    /// `MachineDescriptor`'s own `chains <= MAX_CHAINS` assertion holds
+    /// under the table's length at compile time. An index that comes
+    /// from a request path or a config field has no such bound and must
+    /// be checked against [`Self::chain_count`] before it reaches here,
+    /// since a panic on this target restarts the board.
     #[must_use]
     pub fn chain(&self, chain: usize) -> &'static ChainStats {
         &self.stats[chain]

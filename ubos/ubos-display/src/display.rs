@@ -91,9 +91,9 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D) -> Result<(),
     }
 
     // Line 4: current hashrate. Sums every chain's EWMA in
-    // `ubos_mining::chain::stats`. `HashrateDisplay` switches to GH/s at
+    // `ubos_metrics::chain`. `HashrateDisplay` switches to GH/s at
     // 1 GH/s, so 24 bytes covers both representations.
-    let hashrate = HashrateDisplay(ubos_mining::chain::stats::handle().machine_hashrate());
+    let hashrate = HashrateDisplay(ubos_metrics::chain::handle().machine_hashrate());
     let mut hashrate_buffer = [0u8; 24];
     if let Ok(text) = format_no_std::show(&mut hashrate_buffer, format_args!("{hashrate}")) {
         Text::new(text, Point::new(0, 61), style).draw(display)?;

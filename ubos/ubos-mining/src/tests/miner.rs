@@ -36,8 +36,9 @@ use embassy_futures::join::{join, join3};
 use ubos_asic::{BMM101_HASHBOARD, ChainDriver, ChipDescriptor, ChipError, HashboardDescriptor};
 use ubos_asic::{PollBatch, PollProgress, ResultMode, ShareTarget, SolutionBatch, Transport};
 use ubos_core::units::Frequency;
+use ubos_metrics::chain::{ChainPresence, ChainStats, ChainStatsHandle};
 
-use crate::chain::{ChainHandle, ChainPresence, ChainStats, ChainStatsHandle};
+use crate::chain::ChainHandle;
 use crate::reset::ResetPin;
 use crate::scheduler::Scheduler;
 use crate::serial::Serial;

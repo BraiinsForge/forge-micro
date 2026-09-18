@@ -89,7 +89,7 @@ pub struct HwInfo {
     pub hashboard_ids: Option<HashboardIds>,
     /// Count of chains whose most recently recorded presence is
     /// `Present`, from
-    /// `ubos_mining::chain::stats::ChainStatsHandle::present_chain_count`.
+    /// `ubos_metrics::chain::ChainStatsHandle::present_chain_count`.
     pub chains_present: u8,
 }
 

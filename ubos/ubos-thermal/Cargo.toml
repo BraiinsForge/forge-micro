@@ -17,7 +17,6 @@ defmt   = [
     "ubos-logging/defmt",
     "ubos-manager/defmt",
     "ubos-metrics/defmt",
-    "ubos-mining/defmt",
     "ubos-temperature/defmt",
 ]
 # Exposes a hook that publishes a `ThermalReading` directly onto the
@@ -39,10 +38,6 @@ ubos-core          = { workspace = true }
 ubos-events        = { workspace = true, default-features = false }
 ubos-manager       = { workspace = true, default-features = false }
 ubos-metrics       = { workspace = true, default-features = false }
-# The sensor reads each chain's presence and publishes its hottest die
-# through `ChainStats`. The edge is already there by way of
-# `ubos-manager`, which this crate halts mining through.
-ubos-mining        = { workspace = true, default-features = false }
 ubos-temperature   = { workspace = true, default-features = false }
 ubos-logging       = { workspace = true }
 
@@ -55,7 +50,7 @@ ubos-logging       = { workspace = true }
 embassy-time     = { workspace = true, features = ["std", "generic-queue-8"] }
 critical-section = { version = "1.2", features = ["std"] }
 # The accounting handle the tests build takes its wired-chain count as an
-# atomic of the same crate `ubos-mining` uses.
+# atomic of the same crate `ubos-metrics` uses.
 portable-atomic  = { workspace = true }
 
 [package.metadata.cargo-machete]

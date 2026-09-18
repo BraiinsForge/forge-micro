@@ -25,8 +25,8 @@
 //! outcome, walked together through bring-up and teardown. A tuner
 //! sees the same handle only through [`ChainControl`], which the
 //! submodule [`control`] defines. [`presence`] is the pure decision
-//! table the enumeration loop drives, and [`stats`] the per-chain
-//! accounting the API, the display and the metrics publisher read.
+//! table the enumeration loop drives. The per-chain accounting the API,
+//! the display and the metrics publisher read is `ubos_metrics::chain`.
 
 use embassy_time::{Duration, Timer};
 use ubos_core::units::Frequency;
@@ -35,14 +35,12 @@ use ubos_logging::{Debug2Format, error, warn};
 use crate::miner::MinerError;
 use crate::reset::ResetPin;
 use crate::serial::Serial;
+use ubos_metrics::chain::{ChainPresence, ChainStats};
 
 pub mod control;
 pub mod presence;
-pub mod stats;
 
 pub use control::ChainControl;
-pub use presence::ChainPresence;
-pub use stats::{ChainStats, ChainStatsHandle};
 
 use presence::Action;
 

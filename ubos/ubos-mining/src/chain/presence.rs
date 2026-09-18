@@ -30,94 +30,11 @@
 #[path = "tests/presence.rs"]
 mod tests;
 
+use ubos_metrics::chain::ChainPresence;
+
 /// Reset and enumerate attempts a chain gets before its answer is
 /// treated as final.
 pub const ENUMERATE_ATTEMPTS: u8 = 3;
-
-/// A chain's enumeration outcome.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ChainPresence {
-    /// No enumeration attempt has completed yet.
-    Unknown,
-    /// The chain answered with the expected chip count.
-    Present { chips: u8 },
-    /// The connector answered with zero chips: no hashboard is
-    /// attached.
-    Absent,
-    /// The chain answered with a chip count other than expected, or
-    /// answered the expected count and then refused its safe-boot
-    /// configuration, on every attempt up to the retry budget. `found`
-    /// is the count of the last attempt, so it equals the expected count
-    /// for a chain that failed configuration.
-    Faulted { found: u8 },
-}
-
-/// Discriminant codes for [`ChainPresence`], used to store the state in
-/// a `ChainStats` atomic. `found`/`chips` are not part of the code; the
-/// caller stores [`ChainPresence::payload`] alongside it.
-const CODE_UNKNOWN: u8 = 0;
-const CODE_PRESENT: u8 = 1;
-const CODE_ABSENT: u8 = 2;
-const CODE_FAULTED: u8 = 3;
-
-impl ChainPresence {
-    /// True for a chain the miner should ramp and mine on.
-    #[must_use]
-    pub fn is_present(self) -> bool {
-        matches!(self, Self::Present { .. })
-    }
-
-    /// The chip count this chain answered with, or zero for any state
-    /// that is not `Present`.
-    #[must_use]
-    pub fn chips(self) -> u8 {
-        match self {
-            Self::Present { chips } => chips,
-            Self::Unknown | Self::Absent | Self::Faulted { .. } => 0,
-        }
-    }
-
-    /// The per-variant payload to store next to [`Self::as_code`]: the
-    /// chip count of a `Present` chain, the mismatched count of a
-    /// `Faulted` one, zero otherwise. Unlike [`Self::chips`] it keeps
-    /// the `Faulted` count, so a stored fault still says what was found.
-    #[must_use]
-    pub(crate) fn payload(self) -> u8 {
-        match self {
-            Self::Present { chips } => chips,
-            Self::Faulted { found } => found,
-            Self::Unknown | Self::Absent => 0,
-        }
-    }
-
-    /// Discriminant code for storage in a `ChainStats` atomic. Carries
-    /// no `found`/`chips` payload; the caller stores [`Self::payload`]
-    /// separately and reattaches it in [`Self::from_code`].
-    #[must_use]
-    pub(crate) fn as_code(self) -> u8 {
-        match self {
-            Self::Unknown => CODE_UNKNOWN,
-            Self::Present { .. } => CODE_PRESENT,
-            Self::Absent => CODE_ABSENT,
-            Self::Faulted { .. } => CODE_FAULTED,
-        }
-    }
-
-    /// Reconstruct a `ChainPresence` from a stored code and the
-    /// [`Self::payload`] the same store keeps alongside it. The payload
-    /// becomes `chips` for `Present`, `found` for `Faulted`, and is
-    /// ignored otherwise; an unrecognized code falls back to `Unknown`
-    /// so a store read before its first write never panics.
-    #[must_use]
-    pub(crate) fn from_code(code: u8, payload: u8) -> Self {
-        match code {
-            CODE_PRESENT => Self::Present { chips: payload },
-            CODE_ABSENT => Self::Absent,
-            CODE_FAULTED => Self::Faulted { found: payload },
-            _ => Self::Unknown,
-        }
-    }
-}
 
 /// What the miner does next after one reset-and-enumerate attempt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

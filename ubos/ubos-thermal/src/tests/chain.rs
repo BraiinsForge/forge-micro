@@ -19,8 +19,8 @@
 
 use super::*;
 use portable_atomic::AtomicU8;
-use ubos_mining::chain::presence::ChainPresence;
-use ubos_mining::chain::stats::ChainStats;
+use ubos_metrics::chain::ChainPresence;
+use ubos_metrics::chain::ChainStats;
 
 const TEST_CHIPS: usize = 4;
 const TEST_CHAINS: usize = 2;

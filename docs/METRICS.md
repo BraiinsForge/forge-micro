@@ -146,7 +146,7 @@ board pool slot, labelled `pool="0"`, `pool="1"`, ...:
 
 `board_uart_desync_bytes_total` and `board_pool_work_shares_total` also
 carry a `chain="i"` label identifying the hashboard chain they came
-from, since a board can own more than one; see `ubos_mining::chain::stats`.
+from, since a board can own more than one; see `ubos_metrics::chain`.
 
 There are no unlabelled duplicates of these series; board totals are
 `sum(...)` over the label.
@@ -196,7 +196,7 @@ as `board_chip_temperature_millicelsius`, the sample it took.
 
 ## Hashrate
 
-Code: `ubos/ubos-metrics/src/hashrate.rs`, `ubos/ubos-mining/src/chain/stats.rs`.
+Code: `ubos/ubos-metrics/src/hashrate.rs`, `ubos/ubos-metrics/src/chain.rs`.
 
 `HashrateEstimator::record_share` feeds a share's difficulty into an
 EWMA-smoothed bucketed estimator over 1-second buckets with α = 1/8

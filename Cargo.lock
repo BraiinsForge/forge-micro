@@ -4286,9 +4286,9 @@ dependencies = [
  "ubos-events",
  "ubos-http",
  "ubos-logging",
- "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
+ "ubos-metrics",
  "ubos-mining",
  "ubos-net",
  "ubos-psu",
@@ -4393,7 +4393,6 @@ dependencies = [
  "profont",
  "ubos-cooling",
  "ubos-metrics",
- "ubos-mining",
  "ubos-net",
 ]
 
@@ -4462,9 +4461,9 @@ dependencies = [
  "ubos-events",
  "ubos-http",
  "ubos-logging",
- "ubos-machine",
  "ubos-manager",
  "ubos-mdns",
+ "ubos-metrics",
  "ubos-mining",
  "ubos-net",
  "ubos-psu",
@@ -4510,6 +4509,7 @@ name = "ubos-machine"
 version = "0.1.0"
 dependencies = [
  "ubos-asic",
+ "ubos-metrics",
  "ubos-psu",
  "ubos-temperature",
 ]
@@ -4553,6 +4553,7 @@ name = "ubos-metrics"
 version = "0.1.0"
 dependencies = [
  "cortex-m",
+ "critical-section",
  "defmt 1.0.1",
  "edge-http",
  "edge-nal",
@@ -4593,7 +4594,6 @@ dependencies = [
  "ubos-core",
  "ubos-events",
  "ubos-logging",
- "ubos-machine",
  "ubos-metrics",
  "ubos-psu",
 ]
@@ -4731,7 +4731,6 @@ dependencies = [
  "ubos-logging",
  "ubos-manager",
  "ubos-metrics",
- "ubos-mining",
  "ubos-temperature",
 ]
 

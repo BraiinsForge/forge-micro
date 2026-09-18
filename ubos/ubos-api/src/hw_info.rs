@@ -46,10 +46,10 @@ static FAN_CONTROLLER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Wat
 
 /// Per-slot hashboard serials; the index is the physical chain number.
 /// One slot for every chain a machine can drive, the same
-/// `ubos_machine::MAX_CHAINS` ceiling the stratum session sizes its
+/// `ubos_metrics::chain::MAX_CHAINS` ceiling the stratum session sizes its
 /// receiver budget from; neither derives from the other. A board with
 /// fewer chains leaves the tail empty.
-pub type HashboardIds = Vec<Option<HwString>, { ubos_machine::MAX_CHAINS }>;
+pub type HashboardIds = Vec<Option<HwString>, { ubos_metrics::chain::MAX_CHAINS }>;
 
 static HASHBOARD_IDS: Watch<CriticalSectionRawMutex, HashboardIds, 1> = Watch::new();
 
@@ -86,7 +86,7 @@ pub fn publish_hashboard_ids(ids: HashboardIds) {
 /// board fills the array itself and calls [`publish_hashboard_ids`].
 pub fn publish_hashboard_id(serial: Option<HwString>) {
     const _: () = assert!(
-        ubos_machine::MAX_CHAINS >= 1,
+        ubos_metrics::chain::MAX_CHAINS >= 1,
         "one slot must fit the one serial"
     );
     let mut ids = HashboardIds::new();

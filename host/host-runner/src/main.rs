@@ -188,7 +188,7 @@ async fn heartbeat_task(stack: Stack<'static>) {
         Timer::after(Duration::from_secs(10)).await;
         let address = stack.config_v4().map(|config| config.address);
         let hashrate = ubos_metrics::hashrate::HashrateDisplay(
-            ubos_mining::chain::stats::handle().machine_hashrate(),
+            ubos_metrics::chain::handle().machine_hashrate(),
         );
         info!("host-runner: tick, address={address:?}, hashrate={hashrate}");
     }

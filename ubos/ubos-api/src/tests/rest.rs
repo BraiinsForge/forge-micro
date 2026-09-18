@@ -85,8 +85,8 @@ fn validate_board_name_rejects_backslash() {
 /// - `running`: `true` (4 chars).
 /// - `paused`: `true` (4 chars).
 /// - `pause_reason`: `"dangerousTemperature"` (20 chars, longest variant).
-/// - `chains`: `ubos_machine::MAX_CHAINS` entries — the most any board
-///   can report, since [`ubos_mining::chain::stats::ChainStatsHandle::chain_count`]
+/// - `chains`: `ubos_metrics::chain::MAX_CHAINS` entries — the most any board
+///   can report, since [`ubos_metrics::chain::ChainStatsHandle::chain_count`]
 ///   never exceeds the table it wraps — each with `chips` at `u16::MAX`
 ///   (5 digits), `frequency_mhz` at `u32::MAX` (10 digits), `hashrate`
 ///   at `u64::MAX` (20 digits), and `hottest_c` at `i32::MIN / 1000` (7
@@ -139,14 +139,14 @@ fn api_info_body_fits_in_buffer() {
 
     // Chains array: the handler emits one entry per
     // `ChainStatsHandle::chain_count`, which never exceeds
-    // `ubos_machine::MAX_CHAINS`, so that bound is the worst case
+    // `ubos_metrics::chain::MAX_CHAINS`, so that bound is the worst case
     // regardless of how many chains any one board actually owns.
     let chain_chips = u16::MAX;
     let chain_frequency_mhz = u32::MAX;
     let chain_hashrate = u64::MAX;
     let chain_hottest_c = i32::MIN / 1000;
     let mut chains = std::string::String::from(",\"chains\":[");
-    for chain in 0..ubos_machine::MAX_CHAINS {
+    for chain in 0..ubos_metrics::chain::MAX_CHAINS {
         if chain > 0 {
             chains.push(',');
         }
@@ -378,19 +378,19 @@ fn config_response_body_fits_in_buffer() {
 /// test instead of only ever landing in the live response.
 #[test]
 fn write_chains_renders_the_chains_array() {
-    static CHAINS: [ubos_mining::chain::stats::ChainStats; 2] = [
-        ubos_mining::chain::stats::ChainStats::new(),
-        ubos_mining::chain::stats::ChainStats::new(),
+    static CHAINS: [ubos_metrics::chain::ChainStats; 2] = [
+        ubos_metrics::chain::ChainStats::new(),
+        ubos_metrics::chain::ChainStats::new(),
     ];
-    CHAINS[0].set_presence(ubos_mining::chain::presence::ChainPresence::Present { chips: 105 });
+    CHAINS[0].set_presence(ubos_metrics::chain::ChainPresence::Present { chips: 105 });
     CHAINS[0].set_frequency(ubos_core::units::Frequency::from_mhz(650));
     CHAINS[0].set_hottest(Some(72_000));
-    CHAINS[1].set_presence(ubos_mining::chain::presence::ChainPresence::Absent);
+    CHAINS[1].set_presence(ubos_metrics::chain::ChainPresence::Absent);
 
     let active = std::boxed::Box::leak(std::boxed::Box::new(portable_atomic::AtomicU8::new(
         u8::try_from(CHAINS.len()).expect("BUG: the test table fits a u8"),
     )));
-    let handle = ubos_mining::chain::stats::ChainStatsHandle::new(&CHAINS, active);
+    let handle = ubos_metrics::chain::ChainStatsHandle::new(&CHAINS, active);
     let mut buffer = [0u8; 512];
     let mut writer = ubos_http::BufferWriter::new(&mut buffer);
     super::write_chains(&mut writer, handle);

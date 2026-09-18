@@ -59,7 +59,7 @@
 //! `link_section = ".ccmram.bss"`, since the compiler will not catch a
 //! mismatch.
 //!
-//! The per-chain statics of `ubos-mining` stay out on purpose.
+//! The per-chain statics stay out on purpose. `ubos-metrics`'s
 //! `CHAIN_STATS` starts its hottest-die field at the `NO_TEMPERATURE`
 //! sentinel, which is not zero, and each board's `CHAINS` array of
 //! `Serial` stores the chain's own index, which is zero only for the

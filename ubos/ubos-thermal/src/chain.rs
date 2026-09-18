@@ -55,8 +55,8 @@ use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::ChainPvt;
 use ubos_core::units::Temperature;
 use ubos_logging::{debug, warn};
+use ubos_metrics::chain::ChainStatsHandle;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push, push_indexed_metric};
-use ubos_mining::chain::stats::ChainStatsHandle;
 
 #[cfg(test)]
 #[path = "tests/chain.rs"]
