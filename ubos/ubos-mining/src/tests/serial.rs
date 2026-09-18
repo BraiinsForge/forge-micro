@@ -1938,6 +1938,59 @@ fn two_chains_hash_different_versions_and_each_rebuilds_its_own_solution() {
     );
 }
 
+/// A pool that grants no version mask leaves every chain but the first
+/// with nothing of its own to roll. Such a chain dispatches no work, so
+/// it cannot repeat chain 0's headers and submit its shares again.
+#[test]
+fn a_chain_with_nothing_to_roll_dispatches_no_work() {
+    let session: AsicSession<1> = AsicSession::new();
+    let assignment = WorkAssignment {
+        target: [0xFF; 32],
+        version_mask: 0,
+        ..genesis_assignment()
+    };
+
+    for chain in 1..3 {
+        session.pool_handle(0).publish_work(assignment);
+        assert!(
+            dispatch_job(&session, chain, 3).is_none(),
+            "chain {chain} has no version bits of its own and must stay idle"
+        );
+    }
+
+    session.pool_handle(0).publish_work(assignment);
+    assert!(
+        dispatch_job(&session, 0, 3).is_some(),
+        "chain 0 keeps the whole grant and goes on mining"
+    );
+}
+
+/// Dispatch one work tick for `chain` of `chains` and report the job it
+/// built, or `None` when the tick sent nothing.
+fn dispatch_job(session: &AsicSession<1>, chain: usize, chains: usize) -> Option<WorkJob> {
+    let actor = Serial::new(chain, chains);
+    let mut serial = MockSerial::new();
+    let mut driver = StubDriver::new(ResultMode::Push, 0);
+    let mut scheduler = Pinned::new(0);
+    let mut registry = WorkRegistry::new(driver.work_slots());
+    let mut receivers: [DynReceiver<'_, WorkAssignment>; 1] = core::array::from_fn(|slot| {
+        session
+            .work_receiver(slot)
+            .expect("test session has a free receiver per slot")
+    });
+    let mut last_version_mask = None;
+
+    block_on(actor.dispatch_work(
+        &mut serial,
+        &mut scheduler,
+        &mut driver,
+        &mut registry,
+        &mut receivers,
+        &mut last_version_mask,
+    ));
+    driver.last_job.take()
+}
+
 /// `Serial::table` gives every element its own position as its chain
 /// index and the table's length as its chain count, which is what
 /// `Miner::new` checks each actor against.

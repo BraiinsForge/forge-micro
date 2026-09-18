@@ -363,10 +363,15 @@ enough, and the split always works there.
 A pool that does not support the extension omits the mask from its
 reply, and the negotiated mask stays zero. There is then nothing to
 split. Chain 0 keeps the empty grant and every other chain gets nothing
-to roll, so all of them hash the same headers from the same nonce start.
-An N-chain machine then does the work of one chain and submits each
-share N times, which the pool counts as duplicates. `ubos-mining` logs
-this at error level, once per grant.
+to roll, so every chain would hash the same headers from the same nonce
+start and submit each share once per chain, which the pool counts as
+duplicates.
+
+A chain with nothing to roll is therefore left idle: `ubos-mining` skips
+its work dispatch instead of sending it chain 0's job. The machine loses
+no hashrate by this, because those chains could only repeat work chain 0
+already does, and the pool sees one copy of each share rather than N.
+`ubos-mining` logs the idle chain at error level, once per grant.
 
 The version field is the only axis the chains are split on, and there is
 no fallback inside it: a miner may vary only the bits the pool granted,

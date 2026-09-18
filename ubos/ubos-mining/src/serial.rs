@@ -1018,37 +1018,42 @@ impl Serial {
             self.chain,
             self.chains,
         );
-        let work_id = registry.place(assignment, session_slot, job_version);
         // A grant with fewer bits than the chain count needs leaves
-        // every chain but the first with nothing to roll, and those
-        // chains then hash the headers chain 0 is already hashing, from
-        // the same nonce start. The machine does the work of one chain
-        // and submits each share once per chain, which a pool counts as
-        // duplicates.
+        // every chain but the first with nothing to roll. Such a chain
+        // would hash the headers chain 0 is already hashing, from the
+        // same nonce start, and submit every share chain 0 submits, so
+        // it is left idle instead: it can win the machine no hashrate
+        // chain 0 is not already winning, and a pool counts what it
+        // would send as duplicate shares.
         //
         // The version field is the only axis the chains are split on, so
         // there is nothing to fall back to here: the miner may vary only
         // the bits the pool granted, and moving a bit outside the grant
         // would have the pool rebuild a header the chain never hashed
         // and reject the share outright. Splitting `nonce_start` per
-        // chain instead is the way out and is owed bench work; see
-        // `docs/ASIC.md`.
+        // chain instead is what would put these chains back to work, and
+        // is owed bench work; see `docs/ASIC.md`.
         //
         // The client asks for `min-bit-count: 2`, so a pool that
         // supports version rolling at all grants enough. This is the
         // pool that declines the extension, which leaves the negotiated
         // mask at zero. Reported at error level because the machine
-        // silently loses the hashrate of every chain but the first, and
-        // once per grant rather than once per work tick.
+        // loses the hashrate of every chain but the first, and once per
+        // grant rather than once per work tick.
+        let unsplittable = self.chain != 0 && self.chains > 1 && job_version.rolled_mask == 0;
         if *last_version_mask != Some(assignment.version_mask) {
             *last_version_mask = Some(assignment.version_mask);
-            if self.chain != 0 && job_version.rolled_mask == 0 {
+            if unsplittable {
                 error!(
-                    "chain {}: the pool granted the version mask 0x{:08X}. It has too few bits for {} chains. This chain rolls no version bits, hashes the same headers as chain 0, and its shares are duplicates.",
+                    "chain {}: the pool granted the version mask 0x{:08X}. It has too few bits for {} chains. This chain rolls no version bits, so it is left idle rather than hashing the same headers as chain 0 and submitting duplicate shares.",
                     self.chain, assignment.version_mask, self.chains
                 );
             }
         }
+        if unsplittable {
+            return;
+        }
+        let work_id = registry.place(assignment, session_slot, job_version);
         let job = WorkJob {
             work_id,
             nonce_start: 0,
