@@ -82,9 +82,9 @@ impl<R: ResetPin> ChainHandle<R> {
     /// enumerates the chain, and, when the count matches, configures it
     /// to its safe-boot operating point on the fast UART and reads every
     /// chip's temperature and core voltage once, so the thermal loop is
-    /// not blind through the ramp that follows. A short count or a
-    /// refused configuration spends one attempt of the same budget.
-    /// Between two attempts the chain's hardware reset
+    /// not blind through the ramp that follows. A short count, a refused
+    /// configuration, or a sweep no chip answered spends one attempt of
+    /// the same budget. Between two attempts the chain's hardware reset
     /// is pulsed and the line is re-armed at the boot baud, so the next
     /// attempt starts from the chip's own boot state: a refused
     /// configuration can leave the chip on the fast UART, where a
@@ -176,6 +176,12 @@ impl<R: ResetPin> ChainHandle<R> {
     /// Configure this enumerated chain to its safe-boot operating point
     /// on the fast UART, then read every chip's temperature and core
     /// voltage once.
+    ///
+    /// A sweep that no chip answered fails here rather than passing, so
+    /// the caller spends an attempt on it. Presence is what the thermal
+    /// loop measures a chain's silence from, and a chain that reached
+    /// `Present` with nothing read would have the loop hold the reading
+    /// from before its last rail cut through the whole ramp.
     async fn configure(&self) -> Result<(), MinerError> {
         self.serial.configure().await?;
         self.serial.pvt_sweep().await?;

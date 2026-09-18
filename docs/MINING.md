@@ -112,8 +112,9 @@ Then `Miner::run` repeats:
    answers the expected chip count is brought to its safe-boot
    operating point on the fast UART and every chip's temperature is
    read once, so the thermal loop has a value before the ramp. A short
-   count or a refused configuration spends one attempt of the same
-   budget. See "Chain presence" below.
+   count, a refused configuration, or a temperature read no chip
+   answered spends one attempt of the same budget. See "Chain presence"
+   below.
 5. Run `tuner.init` against every chain the enumeration step found
    present (cancellable by `STOP_MINING` or `Message::Halt`).
 6. Mine until `STOP_MINING` fires, a `Message::Halt` edge arrives, or the
@@ -140,15 +141,23 @@ records one of four states in that chain's `ChainStats`:
 | `Unknown` | No enumeration attempt has completed yet. | Not a resting state; only seen mid-attempt. |
 | `Present` | The chain answered with the board's expected chip count. | The tuner ramps this chain. |
 | `Absent` | The connector answered with zero chips: no hashboard is attached. | Parked in reset; left out of the ramp. |
-| `Faulted` | The chain answered a chip count other than expected, or refused its safe-boot configuration, on every attempt up to the retry budget. | Parked in reset; left out of the ramp. |
+| `Faulted` | The chain answered a chip count other than expected, refused its safe-boot configuration, or answered no temperature read, on every attempt up to the retry budget. | Parked in reset; left out of the ramp. |
 
 An empty connector is parked on the first attempt with no retry: retrying
 it on every bring-up would cost the machine its bring-up time for
-nothing. A chip-count mismatch or a refused configuration gets
-`ENUMERATE_ATTEMPTS` attempts in all before it is parked, in case the
-failure was a transient chain glitch. Only a bring-up where no chain
-comes up present cuts the rail and retries the whole machine; one absent
-or faulted chain does not stop the others.
+nothing. A chip-count mismatch, a refused configuration, or a silent
+temperature read gets `ENUMERATE_ATTEMPTS` attempts in all before it is
+parked, in case the failure was a transient chain glitch. Only a bring-up
+where no chain comes up present cuts the rail and retries the whole
+machine; one absent or faulted chain does not stop the others.
+
+The temperature read is part of the budget because presence is what the
+thermal loop measures a chain's silence from. `ChainTemperature` restarts
+that clock when a chain turns present, and the per-chip readings are
+never cleared, so a chain that reached `Present` with nothing read would
+have the loop hold the reading from before the last rail cut for the
+whole ramp. Failing the bring-up step instead keeps the rule that a chain
+the tuner sees has one reading of its own behind it.
 
 ### Tolerance ends at bring-up
 

@@ -99,6 +99,7 @@ struct BringUpDriver {
     counts: &'static [u8],
     call: usize,
     configure_err: bool,
+    silent_sweep: bool,
 }
 
 impl BringUpDriver {
@@ -107,11 +108,19 @@ impl BringUpDriver {
             counts,
             call: 0,
             configure_err: false,
+            silent_sweep: false,
         }
     }
 
     fn with_configure_err(mut self) -> Self {
         self.configure_err = true;
+        self
+    }
+
+    /// A driver whose chips enumerate and configure but answer no PVT
+    /// read, which is what a chain with a dead sensor path looks like.
+    fn with_silent_sweep(mut self) -> Self {
+        self.silent_sweep = true;
         self
     }
 }
@@ -149,6 +158,10 @@ impl ChainDriver for BringUpDriver {
         } else {
             Ok(())
         }
+    }
+
+    async fn pvt_sweep(&mut self, _io: &mut impl Transport) -> bool {
+        !self.silent_sweep
     }
 
     async fn set_frequency(
@@ -382,6 +395,41 @@ fn a_refused_configure_spends_the_same_budget_and_ends_faulted_with_the_expected
     assert_eq!(
         fixture.stats.presence(),
         ChainPresence::Faulted { found: EXPECTED }
+    );
+    assert_eq!(
+        *chain
+            .reset
+            .log
+            .last()
+            .expect("bring_up always logs at least one reset call"),
+        ResetCall::Enter,
+        "the faulted chain is left in reset"
+    );
+}
+
+#[test]
+fn a_chain_whose_pvt_sweep_reads_nothing_is_faulted_rather_than_present() {
+    static ACTOR: Serial = Serial::new(0, 1);
+    static SESSION: AsicSession<1> = AsicSession::new();
+    static STATS: [ChainStats; 1] = [ChainStats::new()];
+    static ACTIVE: AtomicU8 = AtomicU8::new(1);
+
+    const EXPECTED: u8 = 4;
+    let fixture = ChainFixture {
+        actor: &ACTOR,
+        session: &SESSION,
+        stats: ChainStatsHandle::new(&STATS, &ACTIVE).chain(0),
+    };
+    // The chain enumerates its full count and takes its configuration;
+    // only the temperature read answers nothing.
+    let driver = BringUpDriver::new(&[EXPECTED]).with_silent_sweep();
+
+    let chain = run_bring_up_chain(&fixture, driver, EXPECTED);
+
+    assert_eq!(
+        fixture.stats.presence(),
+        ChainPresence::Faulted { found: EXPECTED },
+        "a chain with no reading behind it must not reach the ramp"
     );
     assert_eq!(
         *chain

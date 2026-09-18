@@ -625,9 +625,18 @@ pub trait ChainDriver {
     async fn status_turn(&mut self, _io: &mut impl Transport) {}
     /// Every chip's readings once, over `io`, for a consumer that has
     /// just enumerated and needs a first reading now rather than after a
-    /// full run of turns. A no-op for a family whose chips carry no
-    /// sensors.
-    async fn pvt_sweep(&mut self, _io: &mut impl Transport) {}
+    /// full run of turns.
+    ///
+    /// Returns whether any chip answered. The consumer treats a sweep
+    /// that read nothing as a failed bring-up step, because the reading
+    /// this call is for is the one the thermal loop holds through the
+    /// ramp that follows, and a chain that enumerates but reads no
+    /// temperature would ramp with a stale one. A family whose chips
+    /// carry no sensors reads nothing and expects to, so the default
+    /// reports success.
+    async fn pvt_sweep(&mut self, _io: &mut impl Transport) -> bool {
+        true
+    }
 
     /// Reset the driver to its freshly-constructed state: clear the
     /// streaming parser, any cached masks, and the desync tally, keeping

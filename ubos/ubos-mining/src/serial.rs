@@ -349,7 +349,8 @@ pub enum SerialMessage {
     /// switching to the fast UART.
     Configure,
     /// Read every chip's temperature and core voltage once, for the
-    /// first reading after enumeration.
+    /// first reading after enumeration. The reply fails when no chip
+    /// answered.
     PvtSweep,
     /// Program the hash-clock frequency.
     SetFrequency(Frequency),
@@ -656,7 +657,9 @@ impl Serial {
         }
     }
 
-    /// Read every chip's temperature and core voltage once.
+    /// Read every chip's temperature and core voltage once. Reports
+    /// `TimedOut` when no chip answered, which the miner treats as a
+    /// failed bring-up step.
     pub async fn pvt_sweep(&self) -> Result<(), ErrorKind> {
         Self::unit(self.cmd_reply(SerialMessage::PvtSweep).await)
     }
@@ -1222,12 +1225,21 @@ impl Serial {
                 self.reply.signal((seq, Reply::Freq(result)));
             }
             SerialMessage::PvtSweep => {
-                {
+                let answered = {
                     let mut io = SerialIo { serial };
-                    driver.pvt_sweep(&mut io).await;
-                }
+                    driver.pvt_sweep(&mut io).await
+                };
                 stats.add_desync_bytes(driver.take_desync());
-                self.reply.signal((seq, Reply::Unit(Ok(()))));
+                // A sweep that read nothing is reported as a timeout
+                // rather than as success. The miner spends a bring-up
+                // attempt on it, so a chain only reaches `Present` once
+                // a chip has actually answered.
+                let result = if answered {
+                    Ok(())
+                } else {
+                    Err(ErrorKind::TimedOut)
+                };
+                self.reply.signal((seq, Reply::Unit(result)));
             }
             SerialMessage::SetFrequency(freq) => {
                 let result = {
