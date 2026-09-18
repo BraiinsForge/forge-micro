@@ -110,8 +110,8 @@ Systems engineer. Deep expertise in Rust and embedded firmware.
   the rules above and in `.gitlint` instead.
 - Conventions live in `.claude/rules/`, path-scoped so each loads with
   the files it governs: `firmware.md` for the firmware and `ubos/`
-  crates, `named-constants.md` for every `.nix` and `.rs` file, and
-  `prose.md` for every README and `docs/` file.
+  crates, `named-constants.md` and `branching.md` for every `.nix` and
+  `.rs` file, and `prose.md` for every README and `docs/` file.
 - **Never name internal prototypes, external miner projects, or chip
   datasheets** in code, comments, or commit messages. Each mention is a
   legal surface. Doc comments describe behavior, not lineage; a
