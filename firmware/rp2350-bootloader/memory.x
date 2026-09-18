@@ -27,7 +27,10 @@ SECTIONS {
 
 } INSERT AFTER .vector_table;
 
-_stext = ADDR(.start_block) + SIZEOF(.start_block);
+/* Rounded up so .text starts 8-aligned: the block before it is 4-aligned
+   and its size is not a multiple of 8, and the linker warns when a section
+   asks for more alignment than its address has. */
+_stext = ALIGN(ADDR(.start_block) + SIZEOF(.start_block), 8);
 
 SECTIONS {
     /* ### Boot ROM extra info
