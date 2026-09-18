@@ -53,8 +53,9 @@ let
 
   # The remaining script packages, the same self-linting
   # writeShellApplication/writePython3Bin wrappers with their PATH deps
-  # baked in: the rp2350-bootloader cargo runner, the host-runner TAP
+  # baked in: the two bootloader cargo runners, the host-runner TAP
   # setup, and the host-runner cross-build cargo runner.
+  rp2040BootloaderRunner = pkgs.callPackage ../pkgs/rp2040-bootloader-runner { };
   rp2350BootloaderRunner = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };
   setupNetwork = pkgs.callPackage ../pkgs/setup-network { };
   hostRunnerRun = pkgs.callPackage ../pkgs/host-runner-run { };
@@ -91,7 +92,9 @@ in
         picotool
         # Automatic fixup commits for the documented fixup workflow.
         git-absorb
-        # rp2350-bootloader's cargo runner.
+        # The cargo runner of each bootloader crate. Each names its own
+        # chip, so there is one per crate.
+        rp2040BootloaderRunner
         rp2350BootloaderRunner
         # The shared cargo runner the other ARM boards' .cargo/config.toml
         # point their `runner` at.

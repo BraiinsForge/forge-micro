@@ -1,2 +1,17 @@
+[target.thumbv6m-none-eabi]
+runner = "rp2040-bootloader-run"
+
 [build]
 target = "thumbv6m-none-eabi"
+
+# `cargo run` flashes the bootloader, and it is flashed once per board
+# before the application is ever written: the application links into the
+# ACTIVE partition, so the bootrom reaches it only through the boot2 and
+# the bootloader this crate carries. A board that has only ever had the
+# application flashed to it boots whatever stands at the bootloader's
+# place instead, and the application never runs.
+#
+# A bare `cargo run` auto-selects when only one probe is plugged into
+# this machine. Export $PROBE_SERIAL to pin one of several, or use the
+# root `run-N` alias to reach the board racked in slot N, which resolves
+# to the same probe as the rp2040 application crate.

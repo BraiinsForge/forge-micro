@@ -1009,6 +1009,7 @@ hostClippyChecks
   # so building each one is its own lint gate — no tree-wide shell sweep
   # is needed, and a new package is gated the moment it is wired here.
   probe-rs-board-run = pkgs.callPackage ../pkgs/probe-rs-board-runner { };
+  rp2040-bootloader-run = pkgs.callPackage ../pkgs/rp2040-bootloader-runner { };
   rp2350-bootloader-run = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };
   setup-network = pkgs.callPackage ../pkgs/setup-network { };
   host-runner-run = pkgs.callPackage ../pkgs/host-runner-run { };
