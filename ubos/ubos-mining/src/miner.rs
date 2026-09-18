@@ -588,6 +588,16 @@ where
                 Either3::Second(false) => {
                     // Halt cleared while already mining; stale edge.
                     // Absorb it rather than tear down a healthy chip.
+                    //
+                    // The bring-up phases answer the same edge the other
+                    // way, through `settle_or_abort` and `leave_cycle`:
+                    // there it cuts the rail and restarts the cycle.
+                    // Neither arm can fire today, because `ubos-manager`
+                    // sends `Resume` only on the transition out of its
+                    // last pause reason, which the miner has already
+                    // consumed in `wait_halt_clear_or_stop`. A change to
+                    // that guard makes both arms live and has to settle
+                    // which answer is the right one.
                 }
                 Either3::Third(new_config) => {
                     // Reprogram the ASIC when the operating target moved: an
