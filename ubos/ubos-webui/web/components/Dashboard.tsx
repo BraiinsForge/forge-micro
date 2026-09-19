@@ -81,7 +81,7 @@ function StatusDot({ text }: { text: string }) {
   return (
     <span class="ps">
       <span class="pd" />
-      <span class="pt">{text}</span>
+      {text}
     </span>
   );
 }
@@ -255,7 +255,7 @@ export default function Dashboard() {
               <span>{meta ? `${meta.host}:${meta.port}` : meta === null ? 'not configured' : ''}</span>
               <span>{meta ? (meta.sv2 ? 'SV2' : 'SV1') : '—'}</span>
               <span>{meta?.user || '—'}</span>
-              <span class="ps"><span class="pd" />{st.text}</span>
+              <StatusDot text={st.text} />
             </div>
           );
         })}

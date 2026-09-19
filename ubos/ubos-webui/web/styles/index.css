@@ -523,16 +523,11 @@ main > * {
   color: var(--mute);
 }
 
-.pt {
-  color: var(--mute);
-  font-size: var(--fs-label);
-  min-width: 3em;
-  text-align: right;
-}
-
 /* ---------- Hashboards card ---------- */
-/* Reuses .card/.ph/.ptr/.pool/.ps/.pd/.pt from the pools card above;
-   only the column count and the "fault"/"unknown" status colors differ. */
+/* The rows carry .htr and .hb, which share every rule above with the
+   pools card's .ptr and .pool, the grid tracks included. Only the
+   "fault" and "unknown" status colors below are the hashboards card's
+   own. */
 
 .hbs {
   grid-column: 1 / -1;
@@ -545,21 +540,15 @@ main > * {
   background: var(--red);
 }
 
-.hb.fault .pt {
+.hb.fault > .ps {
   color: var(--red);
 }
 
-/* Link card reuses the .ps/.pt structure but with bigger text. */
+/* The Status and Link cards show the same dot and text as a table row,
+   in the monospaced face the cards use for a value. */
 .lkc .ps {
   margin-top: 4px;
-}
-
-.lkc .pt {
-  color: var(--fg);
   font-family: var(--ff-mono);
-  font-size: var(--fs-body);
-  min-width: auto;
-  text-align: left;
 }
 
 .lkc.live .pd {
