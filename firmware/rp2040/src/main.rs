@@ -17,10 +17,10 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Firmware entry point for the W5500-EVB-Pico (RP2040 + W5500) with the
+//! Firmware entry point for the W6100-EVB-Pico (RP2040 + W6100) with the
 //! ubos-mining backend.
 //!
-//! Initialises SPI at 33 MHz, brings the W5500 up via `embassy-net-wiznet`,
+//! Initialises SPI at 33 MHz, brings the W6100 up via `embassy-net-wiznet`,
 //! starts the embassy-net stack with DHCP, and spawns the watchdog, LED
 //! blink, ethernet runner, NTP sync, and ubos-mining mining tasks before
 //! entering the HTTP server loop. Built with `cargo build` from this
@@ -38,7 +38,7 @@ use defmt::{info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
-use embassy_net_wiznet::chip::W5500;
+use embassy_net_wiznet::chip::W6100;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_rp::flash::{Blocking as FlashBlocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
@@ -101,7 +101,7 @@ bind_interrupts!(struct Irqs {
 
 type EthernetRunner = Runner<
     'static,
-    W5500,
+    W6100,
     ExclusiveDevice<Spi<'static, SPI0, Async>, Output<'static>, Delay>,
     Input<'static>,
     Output<'static>,

@@ -125,7 +125,7 @@ impl MachineDescriptor<BmmPsuDescriptor> {
     }
 }
 
-/// The miniminer on the W5500-EVB-Pico control board.
+/// The miniminer on the W6100-EVB-Pico control board.
 pub const MINIMINER_RP2040: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_RP2040);
 

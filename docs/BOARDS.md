@@ -16,7 +16,7 @@ product-board rows.
 
 | Crate | MCU | Ethernet | Target |
 |-------|-----|----------|--------|
-| `firmware/rp2040` | RP2040 | W5500 (SPI) | `thumbv6m-none-eabi` |
+| `firmware/rp2040` | RP2040 | W6100 (SPI) | `thumbv6m-none-eabi` |
 | `firmware/rp2350` | RP2350A | W6100 (SPI) | `thumbv8m.main-none-eabihf` |
 | `firmware/bmm-pico` | RP2350A (BMM Adapter) | W5500 (SPI) | `thumbv8m.main-none-eabihf` |
 | `firmware/stm32f407` | STM32F407VGT6 | LAN8720 (RMII, WT32-ETH01 cannibalized) | `thumbv7em-none-eabihf` |
@@ -55,7 +55,7 @@ SWD I/O levels. The target must be powered separately via USB.
 
 ## Pin assignments
 
-### W5500-EVB-Pico (rp2040)
+### W6100-EVB-Pico (rp2040)
 
 | Function | GPIO | SPI0 |
 |----------|------|------|
@@ -72,7 +72,7 @@ that carrier, see [Fan connector](#fan-connector).
 
 ### W6100-EVB-Pico-2 (rp2350)
 
-Same pinout as the W5500-EVB-Pico, with a W6100 in place of the W5500.
+Same pinout and the same W6100 as the W6100-EVB-Pico, on an RP2350.
 This board also runs on the BMM Adapter carrier. For the fan wiring on
 that carrier, see [Fan connector](#fan-connector).
 

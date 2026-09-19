@@ -63,10 +63,10 @@ pub struct ControlBoardDescriptor {
     pub event_log_capacity: usize,
 }
 
-/// The W5500-EVB-Pico control board. The HTTP pools and the 32-entry
+/// The W6100-EVB-Pico control board. The HTTP pools and the 32-entry
 /// event ring are sized down for this RAM-constrained board.
 pub const CONTROL_BOARD_RP2040: ControlBoardDescriptor = ControlBoardDescriptor {
-    name: "W5500-EVB-Pico",
+    name: "W6100-EVB-Pico",
     platform: RP2040,
     mac_family: 0x01,
     http_pool: 2,

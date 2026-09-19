@@ -54,9 +54,11 @@ Fixing this first kept the EEPROM work from naming the wrong board:
   - `CONTROL_BOARD_ESP32S3.name`: `"ESP32-S3 W5100S"` →
     `"Waveshare ESP32-S3-LCD-Driver-Board W5100S"`, matching the real
     hardware named in that board's SPI-wiring comment.
-  - `CONTROL_BOARD_RP2040` (`"W5500-EVB-Pico"`), STM32F407
-    (`"DevEBox STM32F407 LAN8720"`), and STM32F439
+  - STM32F407 (`"DevEBox STM32F407 LAN8720"`) and STM32F439
     (`"Nucleo-F439ZI LAN8742A"`) were already accurate — no change.
+  - `CONTROL_BOARD_RP2040` read `"W5500-EVB-Pico"` and the audit
+    accepted it. A register read off the racked board shows a W6100.
+    The name is now `"W6100-EVB-Pico"`.
 
 ## EEPROM wire format
 
