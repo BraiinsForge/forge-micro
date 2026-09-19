@@ -242,7 +242,7 @@ export default function Dashboard() {
           <a class="plink" href="#config/pools">Configure</a>
         </div>
         <div class="ptr">
-          <span>URL</span>
+          <span class="purl">URL</span>
           <span>Protocol</span>
           <span>User</span>
           <span>Status</span>
@@ -252,7 +252,7 @@ export default function Dashboard() {
           const meta = poolCfg[slot];
           return (
             <div class={'pool ' + st.cls} key={slot}>
-              <span>{meta ? `${meta.host}:${meta.port}` : meta === null ? 'not configured' : ''}</span>
+              <span class="purl">{meta ? `${meta.host}:${meta.port}` : meta === null ? 'not configured' : ''}</span>
               <span>{meta ? (meta.sv2 ? 'SV2' : 'SV1') : '—'}</span>
               <span>{meta?.user || '—'}</span>
               <StatusDot text={st.text} />

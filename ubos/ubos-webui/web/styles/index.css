@@ -449,6 +449,11 @@ main > * {
   color: var(--fg);
 }
 
+/* Both tables run on one six-track grid, so the column edges of the
+   pools card line up with those of the hashboards card above it. The
+   pools row fills the first three tracks with its URL cell, which the
+   hashboards row spends on the chain, the chip count and the
+   frequency. */
 .ptr,
 .pool,
 .htr,
@@ -456,16 +461,14 @@ main > * {
   display: grid;
   align-items: center;
   font-size: var(--fs-body);
+  grid-template-columns: 3fr 3fr 5fr 4fr 6fr 4fr;
 }
 
-.ptr,
-.pool {
-  grid-template-columns: 5fr 2fr 3fr 2fr;
-}
-
-.htr,
-.hb {
-  grid-template-columns: 2fr 2fr 2fr 3fr 2fr 2fr;
+/* The span and the track count above are one statement written in two
+   places, and nothing checks that they agree: a seventh hashboards
+   column pulls the two cards' edges apart again. */
+.purl {
+  grid-column: span 3;
 }
 
 .ptr,
@@ -615,6 +618,17 @@ main > * {
   .side .card {
     height: auto;
   }
+
+  /* Both cards are full width and stacked from this width down, so
+     their column edges read against each other, but each track is now
+     thin enough that the wide cell padding takes a large part of it.
+     Half the padding keeps every header on one line. */
+  .ptr > span,
+  .pool > span,
+  .htr > span,
+  .hb > span {
+    padding: 0 8px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -628,35 +642,41 @@ main > * {
   .card {
     padding: 10px 12px;
   }
+  /* The two cards still stand one above the other here, but the width
+     each needs its tracks to hold pulls them apart: the hashboards row
+     wants two tracks of three characters, and the pools row wants its
+     two long strings to share the width evenly. Holding one grid across
+     both costs more than the aligned edges buy, so each card weights
+     its own from this width down. */
   .ptr,
-  .pool {
-    font-size: var(--fs-label);
-    grid-template-columns: 1fr 5em 1fr 6em;
-  }
-  .ptr > span,
-  .pool > span,
-  .pool > .ps {
-    padding: 0 8px;
-  }
-  .ptr {
-    height: 32px;
-  }
-  .pool {
-    height: 40px;
-  }
+  .pool,
   .htr,
   .hb {
     font-size: var(--fs-label);
-    grid-template-columns: 3em 3em 4em 1fr 3em 4em;
   }
-  .htr > span,
-  .hb > span,
-  .hb > .ps {
-    padding: 0 8px;
+  /* The pools row is one cell per track again, so the URL spans
+     nothing. It and the user name are the two long strings the card
+     holds, and they take equal shares of what the protocol and the
+     status leave. */
+  .ptr,
+  .pool {
+    grid-template-columns: 1fr 5em 1fr 6em;
   }
+  .purl {
+    grid-column: auto;
+  }
+  /* The chain and the chip count hold at most three characters. The
+     hashrate is the longest value the card holds, so it takes the
+     largest share of what those two fixed tracks leave. */
+  .htr,
+  .hb {
+    grid-template-columns: 3em 3em 1fr 1.5fr 1fr 6em;
+  }
+  .ptr,
   .htr {
     height: 32px;
   }
+  .pool,
   .hb {
     height: 40px;
   }
