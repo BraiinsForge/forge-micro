@@ -1029,18 +1029,30 @@ hostClippyChecks
     touch $out
   '';
 
-  # micro-sv2 is a flake of its own, and a flake reads no path outside
-  # its root, so it cannot import the `rustVersion` that nix/toolchains.nix
-  # binds. It states the version itself, and this gate is what keeps the
-  # two from drifting. The flake above re-exports that crate's checks, so
-  # a drift here is a second compiler in one gate set.
-  micro-sv2-rust-version = pkgs.runCommand "micro-sv2-rust-version" { } ''
-    wanted='rustVersion = "${rustVersion}";'
-    if ! grep -qF "$wanted" ${root + "/micro-sv2/flake.nix"}; then
-      echo "Rust version drift: micro-sv2/flake.nix does not say $wanted" >&2
-      echo "nix/toolchains.nix names ${rustVersion}, and both must agree." >&2
-      exit 1
-    fi
+  # nix/toolchains.nix names the Rust version once and every toolchain
+  # there reads that name. Two files cannot reach it and must state it
+  # again: micro-sv2 is a flake of its own, and a flake reads no path
+  # outside its root, and stratum-v1's rust-toolchain.toml is rustup's
+  # format rather than nix's. Grep each for the literal and fail on
+  # drift, the same method ota-image-limit uses. The flake above
+  # re-exports the micro-sv2 checks, so a drift there is a second
+  # compiler in one gate set. A drift in stratum-v1 reaches no build
+  # this repo sanctions, because each of those goes through a
+  # `nix develop` shell where cargo is nix's and reads no rustup file.
+  # It reaches rust-analyzer, and anyone who builds that crate through
+  # rustup outside a shell, and it is worth gating for them.
+  rust-version-agreement = pkgs.runCommand "rust-version-agreement" { } ''
+    check() {
+      if ! grep -qF "$2" "$1"; then
+        echo "The Rust version is not the same in all files." >&2
+        echo "nix/toolchains.nix names ${rustVersion}." >&2
+        echo "This file does not have '$2':" >&2
+        echo "  $1" >&2
+        exit 1
+      fi
+    }
+    check ${root + "/micro-sv2/flake.nix"} 'rustVersion = "${rustVersion}";'
+    check ${root + "/ubos/stratum-v1/rust-toolchain.toml"} 'channel = "${rustVersion}"'
     touch $out
   '';
 

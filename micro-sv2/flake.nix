@@ -52,7 +52,7 @@
         # The same version that nix/toolchains.nix names one directory up.
         # A flake reads no path outside its own root, so this crate cannot
         # import that binding and states the version itself. The
-        # `micro-sv2-rust-version` check holds the two together.
+        # `rust-version-agreement` check holds the two together.
         #
         # This toolchain is not only a standalone convenience. The parent
         # flake re-exports the checks below, so it compiles this crate,
