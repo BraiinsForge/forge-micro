@@ -206,31 +206,6 @@ export default function Dashboard() {
         <StatCard label="Time UTC" value={info?.time || '–'} wide />
       </aside>
 
-      <div class="card pools">
-        <div class="ph">
-          <div class="k">Pools</div>
-          <a class="plink" href="#config/pools">Configure</a>
-        </div>
-        <div class="ptr">
-          <span>URL</span>
-          <span>Protocol</span>
-          <span>User</span>
-          <span>Status</span>
-        </div>
-        {[0, 1, 2].map((slot) => {
-          const st = poolState(slot);
-          const meta = poolCfg[slot];
-          return (
-            <div class={'pool ' + st.cls} key={slot}>
-              <span>{meta ? `${meta.host}:${meta.port}` : meta === null ? 'not configured' : ''}</span>
-              <span>{meta ? (meta.sv2 ? 'SV2' : 'SV1') : '—'}</span>
-              <span>{meta?.user || '—'}</span>
-              <span class="ps"><span class="pd" />{st.text}</span>
-            </div>
-          );
-        })}
-      </div>
-
       {visibleChains(info).length > 0 && (
         <div class="card hbs">
           <div class="ph">
@@ -260,6 +235,31 @@ export default function Dashboard() {
           })}
         </div>
       )}
+
+      <div class="card pools">
+        <div class="ph">
+          <div class="k">Pools</div>
+          <a class="plink" href="#config/pools">Configure</a>
+        </div>
+        <div class="ptr">
+          <span>URL</span>
+          <span>Protocol</span>
+          <span>User</span>
+          <span>Status</span>
+        </div>
+        {[0, 1, 2].map((slot) => {
+          const st = poolState(slot);
+          const meta = poolCfg[slot];
+          return (
+            <div class={'pool ' + st.cls} key={slot}>
+              <span>{meta ? `${meta.host}:${meta.port}` : meta === null ? 'not configured' : ''}</span>
+              <span>{meta ? (meta.sv2 ? 'SV2' : 'SV1') : '—'}</span>
+              <span>{meta?.user || '—'}</span>
+              <span class="ps"><span class="pd" />{st.text}</span>
+            </div>
+          );
+        })}
+      </div>
     </>
   );
 }
