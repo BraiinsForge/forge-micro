@@ -45,10 +45,27 @@ Deep, exhaustive review of all commits on the current branch compared to its rev
 ### Phase 2: Run all checks
 
 If the caller states the gate has already been run for this tree and
-gives its result, record that result and go to Phase 3. Run no `nix` and
-no `cargo`, and report no BUILD findings — they belong to whoever ran the
-gate. A caller that gates several trees in one invocation does this, and
-it owns the whole of the reasoning below.
+gives its result, record that result and go to Phase 3. Report no BUILD
+findings — they belong to whoever ran the gate. A caller that gates
+several trees in one invocation does this, and it owns the whole of the
+reasoning below.
+
+What the caller's gate settles is the build, so do not build again: no
+`nix flake check`, no `nix build` of this tree's checks, and no
+`cargo build`, `check`, `clippy` or `test` over its crates.
+
+Investigation is not a build, and that prohibition does not reach it.
+`nix eval`, `nix flake metadata`, `shellcheck`, `bash -n`, a `--dry-run`,
+and an experiment built from nothing in a temporary directory each answer
+a question the diff cannot, and a green gate says nothing about any of
+them. A claim about what a tool does to a tree is settled by doing it to
+a tree that was made for the purpose. Build that experiment in the
+temporary directory and never in the checkout: evaluating a writable tree
+can write a lock file back into it, and the tree under review must hold
+only what the branch put there.
+
+Investigation is open to a review that runs its own gate as well. What
+this branch of Phase 2 withholds is the second build, not the questions.
 
 Otherwise the gate is this phase's to run. First decide whether the flake
 check applies. The flake checks compile
