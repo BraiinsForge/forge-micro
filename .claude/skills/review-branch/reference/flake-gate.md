@@ -1,9 +1,9 @@
 # The Flake Gate
 
-How to run `nix flake check .` as a review gate, and the ways of running
-it that have failed. Read this before running the gate. A caller that
-supplies the gate result does not need this file at all — its Phase 2
-stands down and nothing here applies.
+How to run the gate for a review, and the ways of running it that have
+failed. Read this before running the gate. A caller that supplies the
+gate result does not need this file at all — its Phase 2 stands down and
+nothing here applies.
 
 ## Contents
 
@@ -16,15 +16,24 @@ stands down and nothing here applies.
 ## Why one command, and which one
 
 ```
-nix flake check .
+nix run .#gate
 ```
 
-The repo-root flake aggregates every project's checks (clippy, firmware
-builds, host tests, DRC, ERC) under a `<project>-` prefix, plus the
-repo-wide treefmt formatting check. This is the entire CI `check` stage
-(`.gitlab/ci/lint.yml`), so one command covers what the pipeline gates,
-and running it identically to CI is what stops the local result
-disagreeing with the pipeline.
+This is the gate for a review. It builds every check of every tree of the
+checkout and prints one table. It judges the committed tree, so it
+refuses a tree that has uncommitted changes, and it names each failing
+check as that check fails. `docs/GATE.md` holds what it refuses, what it
+covers and how to read the table.
+
+The checks it builds are the entire CI `check` stage, so one command
+covers what the pipeline gates, and building the same derivations CI
+builds is what stops the local result disagreeing with the pipeline.
+
+Against `nix flake check .` the gate is the wider command: it builds the
+checks of every submodule that carries a flake, and it runs in a pair
+mid-branch, neither of which `nix flake check .` does. The one output it
+does not reach is `nixosConfigurations`, and `docs/GATE.md` carries that
+gap together with the rule that closes it.
 
 Do not run per-flake `nix flake check <path>`; the root check already
 includes them, and the root is the only place the nix-formatting check
@@ -43,15 +52,21 @@ check does not run, the environment is wrong — fix it and run the check.
 ## Running it: foreground, blocking, with the exit line
 
 Run it as **one foreground, blocking `Bash` call** with a long `timeout`
-(the 600000 ms maximum). `2>&1` is a redirection, not a pipe, so `$?` is
-nix's own exit status; capture it on the last line:
+(the 600000 ms maximum). `2>&1` is a redirection and not a pipe, so the
+exit status stays the command's own:
 
 ```bash
-nix flake check . 2>&1; echo "FLAKE_CHECK_EXIT=$?"
+nix run .#gate 2>&1
 ```
 
-A foreground call blocks the same turn until nix exits, so the exit
-status is in hand before the call returns.
+Add nothing else to that line. `.claude/hooks/gate-invocation` holds the
+gate to its approved invocations and prints the whole rule when it
+refuses one, so the list is not repeated here. There is nothing to
+capture by hand: the gate prints its own verdict as the last line of the
+run.
+
+A foreground call blocks the same turn until nix exits, so the result is
+in hand before the call returns.
 
 ## Three ways that have failed
 
@@ -69,20 +84,22 @@ so once it returns its final message it cannot be re-entered.
 
 ## Reading the result
 
-Read the last line of the output: PASS if it is `FLAKE_CHECK_EXIT=0`,
-otherwise FAIL with each failing check name and the relevant error lines.
+Read the last line of the output. It is `gate: PASS` or `gate: FAIL`.
+On a failure, name each failing check and the error
+lines that explain it. The gate's table already names them, and
+`nix run .#gate -- log <check>` prints one check's build log.
 
-If the call hits its timeout before the exit line appears, the store was
-cold. Record the flake check as `TIMED OUT (re-run manually)` and note
-that the branch is not gated until it is re-run, rather than dropping the
-report. Do not emit the final report until this exit line is in hand or
-the timeout is recorded.
+If the call hits its timeout before that line appears, the store was
+cold. Record the result as `TIMED OUT (re-run manually)` and note that
+the branch is not gated until it is re-run, rather than dropping the
+report. Do not emit the final report until the line is in hand or the
+timeout is recorded.
 
 ## What must never be substituted
 
 Never substitute an ad-hoc `nixfmt`, `treefmt`, or per-crate
-`cargo fmt --check`. Only the flake check uses the formatter version
-pinned in `flake.lock`, so only it matches CI exactly; a locally
+`cargo fmt --check`. Only a check built from the flake uses the formatter
+version pinned in `flake.lock`, so only it matches CI exactly; a locally
 installed formatter can be a different version and pass while CI fails.
 
 `cargo check` and `cargo clippy` per changed crate are fine for fast

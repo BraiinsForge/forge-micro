@@ -112,16 +112,25 @@ rewrite it around `grep`: the host grep may be ugrep, whose `-q -v`
 exits 1 whenever any line matches the pattern even though non-matching
 lines exist, which silently skipped this gate on mixed diffs. When
 `FLAKE_RELEVANT=0`, skip the check and record
-`nix flake check .: SKIPPED (no flake inputs changed)` in the output,
+`gate: SKIPPED (no flake inputs changed)` in the output,
 then move to Phase 3.
 
-When `FLAKE_RELEVANT=1`, the gate is `nix flake check .` at the repo root
-and nothing narrower. It is the entire CI `check` stage, it must run as
-one foreground blocking `Bash` call, and the exit line must be in hand
-before the report. How to run it, the three ways of running it that have
-failed, how to read the result, and what must never be substituted for it
-are in [reference/flake-gate.md](reference/flake-gate.md) — read that
-before running the gate.
+When `FLAKE_RELEVANT=1`, the gate is `nix run .#gate` at the repository
+root. It builds every check of every tree of the checkout, it must run as
+one foreground blocking `Bash` call, and its verdict must be in hand
+before the report.
+
+The gate does not force `nixosConfigurations`, and `docs/GATE.md`
+carries that gap with the rule that closes it. A tree that breaks the
+rule is a finding against the tree, and not a reason to reach for a
+wider command: `nix flake check .` cannot stand in for the gate in a
+pair, and the outer tree's `.claude/pair/gate.md` says why.
+
+Substitute nothing narrower. How to run it, the three ways of running it
+that have failed, how to read the result, and what must never be
+substituted for it are in
+[reference/flake-gate.md](reference/flake-gate.md) — read that before
+running the gate.
 
 ### Phase 3: Per-commit review
 
@@ -281,7 +290,7 @@ one it stands next to.
 
 Before producing output, verify every category was checked. For each item below, confirm it was evaluated for every commit and every changed file. If any item was skipped or only partially checked, go back and complete the relevant phase before continuing.
 
-- [ ] Gate result in hand — an own `FLAKE_CHECK_EXIT=` line, a caller-supplied result, or a recorded skip or timeout (Phase 2)
+- [ ] Gate result in hand — an own `gate:` verdict line, a caller-supplied result, or a recorded skip or timeout (Phase 2)
 - [ ] The branch was read once, in Phase 1 step 3, and not re-read since
 - [ ] Every file the branch adds was read whole (Phase 1 step 4)
 - [ ] gitlint run with its `GITLINT_EXIT=` line in hand (Phase 3)
@@ -311,7 +320,7 @@ Only produce the final output after all items are confirmed.
 
 cargo check <crate>: PASS/FAIL
 cargo clippy <crate>: PASS/FAIL
-nix flake check . (all projects + formatting): PASS/FAIL/SKIPPED
+gate (every check of every tree): PASS/FAIL/SKIPPED
 
 ### Findings
 
@@ -339,7 +348,7 @@ If no issues are found, output: `No issues found. Branch is merge-ready.`
 ## Rules
 
 - Review ALL commits on the branch, not just the latest
-- Run `nix flake check .` (repo root) as one foreground, blocking `Bash` call whenever the diff touches flake inputs — it is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, or when the caller supplied the gate result, and record which in the output
+- Run `nix run .#gate` (repo root) as one foreground, blocking `Bash` call whenever the diff touches flake inputs — it builds every check of every tree of the checkout, which is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, or when the caller supplied the gate result, and record which in the output
 - Read the branch exactly once, with the Phase 1 step 3 `git log -p`. Later phases judge that output; they do not run their own `git show` or `git diff`
 - Read a file the branch adds in full, once, in Phase 1 step 4. That is the file and not the branch, so it does not breach the rule above, and no later phase judges a new mechanism from the patch alone
 - Every finding MUST include a file:line reference (or commit hash for commit message issues)
