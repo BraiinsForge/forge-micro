@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# Copyright (C) 2026  Braiins Systems s.r.o.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Braiins Systems s.r.o. reserves the right to grant any party a license
+# to this program, or any part thereof, under any terms, and such a grant
+# shall be considered distinct from the grant above.
+
+# PreToolUse hook: hold `nix run .#gate` to its approved invocations.
+#
+# The gate names one way to start a run and one way to read it. That
+# text is context rather than enforcement, so a session can compose a
+# variant anyway, and a pipe into `tail` holds every line until the run
+# stops. This hook is the enforcement that text is not, over the
+# spellings a session writes by hand.
+#
+# It lives beside the gate rather than beside either tree's doctrine,
+# because the gate is the thing it constrains and both halves of a
+# nested checkout run the same one.
+set -euo pipefail
+
+invocation=$(jq -r '.tool_input.command // ""')
+
+# Each line is tested on its own, because a command is a list of lines
+# and the gate can start on any of them. Testing the whole string at
+# once let a newline carry the run past both tests below: the pre-filter
+# looked for a separator it never found, and the approved form is
+# anchored to the ends of what it is given.
+#
+# The flake reference that names this app. It is `.#gate` from this
+# repository's own root, and a path to this repository from the root
+# above it, which in a pair is `./ubos-main#gate`. Both name the same
+# app, and the script resolves the whole checkout from the caller's
+# directory rather than from the flake's, so both gate both trees.
+#
+# It is one name because the two patterns below have to agree about
+# what a gate invocation looks like. A ref the pre-filter knows and the
+# approved form does not would refuse every spelling of it.
+gate_ref='\.(/[A-Za-z0-9._-]+)*#gate'
+
+# The pre-filter has to fire on every spelling that starts a gate, and
+# the approved form below is what narrows those down again. So it errs
+# wide: a spelling it fires on and the approved form does not admit is
+# refused, which is the safe direction.
+#
+# Command position is the test: the start of a line, or just after a
+# separator. The separators are the ones that compose a call — `&&`,
+# `||`, `;`, a pipe, an opening subshell and an opening brace group. A
+# brace group was the hole this list had: a run wrapped in one, or in a
+# function body, reached the shell with its pipe intact.
+#
+# A no-op wrapper is a word before `nix` that changes nothing about the
+# command: `command`, `time`, `env` and `builtin`. A pattern anchored
+# to the literal `nix` never saw the `nix` standing behind one, so
+# `time nix run .#gate | tail` composed a run this hook missed. The
+# approved form admits no wrapper, so a bare `time nix run .#gate` is
+# refused too. That is over-refusal of something harmless, and it keeps
+# one spelling.
+#
+# What no test of a line can catch is a run composed inside a second
+# shell. `bash -c`, `sh -c`, `eval` and `xargs` each build their
+# command from a string, and that string is data here. Those spellings
+# reach the shell with a pipe intact. This hook holds the spellings a
+# session writes directly, which is what a session writes; it is not a
+# sandbox, and nothing here should be read as one.
+#
+# A heredoc that writes these commands into a file is refused as well,
+# because its body lines begin at the start of a line and nothing here
+# tells a body apart from a command. That is over-refusal rather than a
+# bypass, so it is the safe direction, and writing such a file needs a
+# tool other than the shell.
+#
+# The name ends where the pre-filter says it ends. Without the trailing
+# boundary the ref matched as a prefix, so `nix run .#gateway` fired the
+# pre-filter, failed the approved form, and was refused under the gate's
+# own message. The boundary belongs here and not in the ref, because the
+# approved form splices the ref against its own subcommands and would
+# then need a second separator where it already has one. A separator is
+# a boundary as much as a space is: `{ nix run .#gate; }` ends the name
+# with the semicolon, and with only whitespace admitted there the brace
+# group this list was widened for still reached the shell.
+in_command_position="(^|[&|;({])[[:space:]]*((command|time|env|builtin)[[:space:]]+)*([A-Z_]+=[^[:space:]]+[[:space:]]+)*nix[[:space:]]+run[[:space:]]+$gate_ref([[:space:]&|;)}]|\$)"
+
+# The three subcommands of nix/gate.nix, with what may stand around
+# them. Nothing here composes: each addition is a fixed word or a
+# number, and none of them holds the run's output back.
+#
+# No `cd` prefix is admitted, because none is needed: the ref above
+# names this app from the root above as well as from this one. A
+# `cd ubos-main && nix run .#gate` is therefore refused, and the
+# refusal names the spelling that replaces it. That form worked, so
+# this is a real refusal rather than an over-refusal, and it is what
+# leaves one spelling for each root instead of two for one of them.
+#
+# A trailing `2>&1` is a redirection and not a pipe, so the exit status
+# stays the gate's own. It is how an agent reads a refusal, which the
+# gate writes to stderr, beside the table it writes to stdout.
+#
+# The two overrides may repeat, because each is one name and one
+# integer: a repeat changes which value the shell exports and never the
+# command that runs.
+#
+# A check name carries a slash whenever it came from a submodule, which
+# is every check of the inner tree, so the log form has to admit one.
+# Without it the hook refused the only spelling that reaches half the
+# gate's failures.
+approved="^[[:space:]]*(GATE_MAX_JOBS=[0-9]+ |GATE_CORES=[0-9]+ )*nix run $gate_ref( -- status| -- log [A-Za-z0-9._/-]+)?( 2>&1)?[[:space:]]*\$"
+
+refuse() {
+  cat >&2 <<'MESSAGE'
+ERROR: This is not an approved invocation of the gate.
+
+The gate app belongs to this repository. Name it with the reference that
+is correct from the directory you are in. Both of them gate every tree of
+the checkout, so there is nothing to change directory for:
+
+  nix run .#gate              from this repository's root
+  nix run ./ubos-main#gate    from the root above it, in a pair
+
+Read a run that is going, from this turn or from a later one:
+
+  nix run .#gate -- status
+
+Read one failing check:
+
+  nix run .#gate -- log <check>
+
+You can put `GATE_MAX_JOBS=<number>` or `GATE_CORES=<number>` before
+`nix run`, and `2>&1` after the command. Add nothing else.
+
+Do not add a pipe, a redirect to a file, or a trailing ampersand. A pipe
+keeps all of the output until the run stops. It also makes the exit
+status the last command's and not the gate's. To start the gate and
+continue to work, run it in the background. Then read the table later
+with `-- status`.
+MESSAGE
+  exit 2
+}
+
+# The quotes around the flake reference come off before either test. A
+# quoted attribute is the same invocation to the shell, so it has to
+# reach the approved form rather than slip the pre-filter, which is what
+# `nix run '.#gate' | tail` did while the pattern held the bare spelling
+# only.
+#
+# Every other quoted region goes whole, with its quotes. Stripping the
+# quotes alone turned data into a command: a separator inside a quoted
+# argument, as in `echo 'cd ubos-main && nix run .#gate'`, was left
+# standing before `nix` once its quotes were gone, and prose about the
+# gate was refused as a run of it. Nothing inside quotes composes, so
+# dropping the region loses no pipe the shell would see, and a quote
+# with no partner is left as it is, which is the safe direction.
+quoted_ref="['\"]($gate_ref)['\"]"
+quoted="'[^']*'|\"[^\"]*\""
+while IFS= read -r line; do
+  while [[ $line =~ $quoted_ref ]]; do
+    line=${line/"${BASH_REMATCH[0]}"/${BASH_REMATCH[1]}}
+  done
+  while [[ $line =~ $quoted ]]; do
+    line=${line/"${BASH_REMATCH[0]}"/}
+  done
+  if [[ $line =~ $in_command_position ]] && [[ ! $line =~ $approved ]]; then
+    refuse
+  fi
+done <<< "$invocation"
+
+exit 0

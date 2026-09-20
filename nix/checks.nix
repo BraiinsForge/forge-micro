@@ -894,12 +894,20 @@ hostClippyChecks
         "rs"
         "sh"
       ];
+      # A first-party source the extension list cannot name. An agent
+      # hook is bash with no suffix, because the tool that runs it names
+      # the file and never the language, so the scope has to reach it by
+      # path instead. Without this the one first-party source in the
+      # tree that carries no extension was ungated.
+      paths = [ "./.claude/hooks/*" ];
       # The block is 18 lines. The rest of the budget covers a shebang or
       # an attribute above it on a file that grows one.
       headLines = 25;
       grant = "GNU General Public License as published by";
       reservation = "reserves the right to grant any party a license";
-      names = lib.concatMapStringsSep " -o " (e: "-name '*.${e}'") extensions;
+      names =
+        lib.concatMapStringsSep " -o " (e: "-name '*.${e}'") extensions
+        + lib.concatMapStrings (p: " -o -path '${p}'") paths;
     in
     pkgs.runCommand "license-headers" { } ''
       # The report lands outside the source, which is read-only, and it
@@ -955,6 +963,30 @@ hostClippyChecks
       braiins-axe = [ "rgb_task" ];
     };
   };
+
+  # The hook that holds `nix run .#gate` to its approved invocations. It
+  # runs in the session's own shell, so it is loose text rather than a
+  # package, and a lost executable bit would retire it without a word.
+  # The regex is its whole content, so shellcheck is the only test it
+  # can carry here.
+  gate-hook =
+    let
+      hookPath = ".claude/hooks/gate-invocation";
+    in
+    pkgs.runCommand "gate-hook"
+      {
+        nativeBuildInputs = [ pkgs.shellcheck ];
+      }
+      ''
+        hook=${root + "/${hookPath}"}
+        shellcheck "$hook"
+        if [ ! -x "$hook" ]; then
+          echo "ERROR: ${hookPath} is not executable." >&2
+          echo "A hook without that bit never runs and reports nothing." >&2
+          exit 1
+        fi
+        touch $out
+      '';
 
   # The gate's own script, which nothing else here builds. `nix flake
   # check` reads an app's schema and never builds its program, so the

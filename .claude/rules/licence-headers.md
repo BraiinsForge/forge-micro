@@ -49,3 +49,11 @@ list, because none of them has a gated extension.
 A source in the internal repo is the opposite case and carries no licence
 header at all, gated there by a `license-headers` check that fails on any
 open grant. Neither tree's rule rests on the next edit noticing.
+
+A file of this tree that the internal repo symlinks into its own tree
+stays this tree's file, and it carries the block. The link is a name and
+not a copy, and the check there reads with `grep -r`, which does not
+descend a symlink it meets in recursion, so the two gates never meet over
+one file. `.claude/hooks/gate-invocation` is the one of them today.
+Copying such a file instead of linking it is what would need an exemption
+there, and it is the reason to link it.
