@@ -70,7 +70,7 @@ SWD I/O levels. The target must be powered separately via USB.
 This board also runs on the BMM Adapter carrier. For the fan wiring on
 that carrier, see [Fan connector](#fan-connector).
 
-### W6100-EVB-Pico-2 (rp2350)
+### W6100-EVB-Pico2 (rp2350)
 
 Same pinout and the same W6100 as the W6100-EVB-Pico, on an RP2350.
 This board also runs on the BMM Adapter carrier. For the fan wiring on

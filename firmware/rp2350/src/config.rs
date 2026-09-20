@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Board constants and peripheral extraction for the W6100-EVB-Pico-2
+//! Board constants and peripheral extraction for the W6100-EVB-Pico2
 //! (RP2350) running the ubos-mining backend. `Board::take` consumes the RP2350
 //! `Peripherals` once and returns every singleton the board's schematic
 //! claims, keeping pin assignments in one place rather than scattered

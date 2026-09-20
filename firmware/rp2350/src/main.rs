@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Firmware entry point for the W6100-EVB-Pico-2 (RP2350 + W6100) with the
+//! Firmware entry point for the W6100-EVB-Pico2 (RP2350 + W6100) with the
 //! ubos-mining backend.
 //!
 //! Initialises SPI at 33 MHz, brings the W6100 up via `embassy-net-wiznet`,
