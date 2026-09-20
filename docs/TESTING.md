@@ -68,8 +68,14 @@ with no hardware, web bundler, network service, or probe dependency.
 Run the layer through flake checks from the repository root:
 
 ```sh
-nix flake check
+nix run .#gate
 ```
+
+`nix run .#gate` is the entry point. It builds every check of every tree
+in the checkout and prints one table. It judges the committed tree, so
+it refuses a tree that has uncommitted changes. See `docs/GATE.md`.
+`nix flake check` builds the same checks of this tree alone, and it does
+not refuse a dirty tree.
 
 The fast host layer is represented by individual `test-*` flake checks rather
 than a shell script. CI can build the whole flake or select named checks such as

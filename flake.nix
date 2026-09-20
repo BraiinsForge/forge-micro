@@ -326,7 +326,15 @@
 
         # Copy apps: `nix run .#<image>` writes the built image or UF2
         # into the repo's build/ directory. See nix/images.nix.
-        apps = images.apps;
+        #
+        # `nix run .#gate` is the deterministic gate: every check of
+        # this tree, and of any submodule carrying a flake, in one
+        # observable run. See nix/gate.nix. It discovers what to gate
+        # from the checkout, so the same command serves this repo
+        # standalone and a checkout that nests it.
+        apps = images.apps // {
+          gate = import ./nix/gate.nix { inherit pkgs system; };
+        };
 
         # `nix fmt` entry point, matching the nixfmt check in
         # nix/checks.nix.
@@ -351,6 +359,7 @@
         ci = ./nix/ci.nix;
         crate-graph = ./nix/crate-graph.nix;
         deps = ./nix/deps.nix;
+        gate = ./nix/gate.nix;
         guards = ./nix/guards.nix;
         helpers = ./nix/lib.nix;
         patched-crates = ./nix/patched-crates.nix;

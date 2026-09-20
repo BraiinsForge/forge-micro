@@ -47,8 +47,10 @@ Every crate, library crates included, must be gated by the flake
 `checks`: a `cargo build`/`cargo check` derivation and a
 `cargo clippy -- -D warnings` one. **A crate that is not in `checks` is
 not gated.** CI runs those checks as staged groups whose union is exactly
-`nix flake check`, and the same commands run locally — there is no
-wrapper script:
+`nix flake check`. `nix run .#gate` builds all of them and prints a
+table; it judges the committed tree and refuses a dirty one, and what it
+refuses, what it covers and how to read the table is `docs/GATE.md`. The
+same commands also run one at a time:
 
 ```sh
 nix build .#ci-format                  # cargo fmt + nixfmt

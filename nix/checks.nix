@@ -956,6 +956,29 @@ hostClippyChecks
     };
   };
 
+  # The gate's own script, which nothing else here builds. `nix flake
+  # check` reads an app's schema and never builds its program, so the
+  # shellcheck that `writeShellApplication` runs would only ever have
+  # run when somebody used the gate. Naming the program is what builds
+  # it, the same way `test -x` does for the apps of the repo that
+  # consumes this one.
+  #
+  # The image apps are deliberately not covered: each interpolates the
+  # firmware derivation it copies, so naming them would build every
+  # image again under a second name. The checks that build those images
+  # already exist.
+  gate-app =
+    let
+      gate = import ./gate.nix {
+        inherit pkgs;
+        inherit (pkgs.stdenv.hostPlatform) system;
+      };
+    in
+    pkgs.runCommand "gate-app" { } ''
+      test -x ${gate.program}
+      touch $out
+    '';
+
   # CLAUDE.md is loaded into context at the start of every session, and
   # an agent's adherence to it drops as it grows: past a few hundred
   # lines the rules that matter get lost among the ones that do not.
