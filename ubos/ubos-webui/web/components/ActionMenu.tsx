@@ -11,7 +11,8 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
   const dash = useDash();
 
   const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false); // restart confirm step
+  // Which action is waiting on its confirm step, if any.
+  const [confirming, setConfirming] = useState<'restart' | 'thermal' | null>(null);
   const [inFlight, setInFlight] = useState(false);
   const [msg, setMsg] = useState('');
   const wrapRef = useRef<HTMLDivElement>(null); // menu wrapper, for outside-click detection
@@ -21,14 +22,26 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
   const paused = dash.info?.paused;
   const running = dash.info?.running;
   const reason = dash.info?.pause_reason;
-  const startDisabled = paused == null ? false : paused ? reason === 'otaUpdate' : running;
+  // See "Two ways out of an overheat halt" in docs/MINING.md. An
+  // overheat stop does not answer to Start; clear it with the item
+  // below.
+  const overheated = reason === 'dangerousTemperature';
+  // Start is equally inert against an unreadable-sensor stop, and the
+  // same section says why this menu offers no control for it.
+  const unreadable = reason === 'temperatureUnreadable';
+  // `pause_reason` is the manager's dominant reason, and `userRequest`
+  // is lowest priority: it is reported only when no other reason is
+  // also active. So Start answers only when the halt is the operator's
+  // own pause and nothing else; every other reason (including a fan or
+  // pool fault that an allowlist could miss) leaves it disabled.
+  const startDisabled = paused == null ? false : paused ? reason !== 'userRequest' : running;
   // Stop does not consult running: it asserts the operator pause, which
   // also interrupts bring-up and the automatic retries before mining starts.
   const stopDisabled = paused ?? false;
 
   function close() {
     setOpen(false);
-    setConfirming(false);
+    setConfirming(null);
     setMsg('');
   }
 
@@ -129,11 +142,32 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
           </svg>
           <span>Stop</span>
         </button>
+        {overheated && (
+          <button
+            type="button"
+            class={'actItem' + (confirming ? ' hide' : '')}
+            onClick={() => {
+              setConfirming('thermal');
+              setMsg('');
+            }}
+          >
+            <svg class="navIcon" aria-hidden="true">
+              <use href="#iPlay" />
+            </svg>
+            <span>Clear overheat stop…</span>
+          </button>
+        )}
+        {unreadable && (
+          <p class={'actMsg' + (confirming ? ' hide' : '')} role="status">
+            No temperature reading. This stop clears by itself when the sensor answers again or
+            when the board has nothing powered left to read.
+          </p>
+        )}
         <button
           type="button"
           class={'actItem' + (confirming ? ' hide' : '')}
           onClick={() => {
-            setConfirming(true);
+            setConfirming('restart');
             setMsg('');
           }}
         >
@@ -143,14 +177,37 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
           <span>Restart…</span>
         </button>
 
-        <div class={'actConfirm' + (confirming ? '' : ' hide')}>
+        <div class={'actConfirm' + (confirming === 'thermal' ? '' : ' hide')}>
+          <p class="actConfirmText">
+            {dash.info?.chip_reading_stale
+              ? 'The chip temperature stopped when the board stopped. It cannot show if the chips are cool now.' +
+                (dash.info?.ambient != null
+                  ? ' The ambient temperature still updates, but it shows the air around the board and not the chips.'
+                  : '')
+              : 'The chips still report the temperature that tripped this stop.'}{' '}
+            Check the fans and the airflow by hand before clearing it. Mining starts again unless
+            another problem still stops it. If the chips are still hot, it stops again.
+          </p>
+          <button
+            type="button"
+            class="actItem btnDanger"
+            onClick={() => act('/api/system/thermal/clear', 'Clear overheat stop')}
+          >
+            Clear and start mining
+          </button>
+          <button type="button" class="actItem btnSecondary" onClick={() => setConfirming(null)}>
+            Cancel
+          </button>
+        </div>
+
+        <div class={'actConfirm' + (confirming === 'restart' ? '' : ' hide')}>
           <p class="actConfirmText">
             Restarts the entire board. Mining stops until the board comes back (~30 s).
           </p>
           <button type="button" class="actItem btnDanger" onClick={confirmRestart}>
             Confirm restart
           </button>
-          <button type="button" class="actItem btnSecondary" onClick={() => setConfirming(false)}>
+          <button type="button" class="actItem btnSecondary" onClick={() => setConfirming(null)}>
             Cancel
           </button>
         </div>

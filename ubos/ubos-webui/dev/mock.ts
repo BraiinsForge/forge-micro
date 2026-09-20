@@ -5,7 +5,7 @@
 // board. It is registered through Rsbuild's `dev.setupMiddlewares`.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { ChainInfo } from '../web/lib/types';
+import type { ChainInfo, PauseReason } from '../web/lib/types';
 
 type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void;
 
@@ -18,6 +18,9 @@ let tick = 0;
 // re-arms it.
 let authed = true;
 
+// The halt states `info()` cycles through, `null` (running) included.
+const PAUSE_CYCLE: Array<PauseReason | null> = [null, 'dangerousTemperature', 'temperatureUnreadable'];
+
 // A plausible /api/info body with light jitter so the chart animates.
 function info() {
   tick += 1;
@@ -29,6 +32,10 @@ function info() {
   const temperature = 62 + Math.round(Math.sin(tick / 9) * 3);
   const ambient = 28 + Math.round(Math.sin(tick / 13) * 2);
   const powerIn = 3200 + Math.round(Math.sin(tick / 7) * 120);
+  // Cycles the halt so the thermal clear control and the
+  // temperatureUnreadable label stay reachable against the mock, the
+  // same way `ambient` cycles above without a live board.
+  const pauseReason = PAUSE_CYCLE[Math.floor(tick / 20) % PAUSE_CYCLE.length];
   return {
     // The board name the API reports, not the brand: the brand reaches
     // the page from the declared brand directory, and a fixture that
@@ -48,9 +55,9 @@ function info() {
     psu_fault: false,
     pools: 0b001, // slot 0 alive
     net_confirm_seconds: 0,
-    running: true,
-    paused: false,
-    pause_reason: null,
+    running: pauseReason === null,
+    paused: pauseReason !== null,
+    pause_reason: pauseReason,
     ip: '192.168.1.50',
     mac: 'de:ad:be:ef:00:01',
     time: new Date().toISOString().slice(0, 19).replace('T', ' '),
