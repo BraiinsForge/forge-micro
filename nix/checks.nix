@@ -315,7 +315,7 @@ let
   # enforces the OTA slot budget, "elf" greps the ELF for the pool
   # worker only; boards that are not OTA targets have no slot budget.
   boards = lib.filterAttrs (name: _: hasCrate name) {
-    braiins-axe = {
+    forge-axe = {
       artifacts = deps.thumbv8mArtifacts;
       target = "thumbv8m.main-none-eabihf";
       guard = "slot";
@@ -846,8 +846,8 @@ hostClippyChecks
     + lib.optionalString (hasCrate "hashnode") "  check ${
         root + "/firmware/hashnode/src/config.rs"
       }    '${toString slotMaxKiB} * 1024'\n"
-    + lib.optionalString (hasCrate "braiins-axe") "  check ${
-        root + "/firmware/braiins-axe/src/config.rs"
+    + lib.optionalString (hasCrate "forge-axe") "  check ${
+        root + "/firmware/forge-axe/src/config.rs"
       } '${toString slotMaxKiB} * 1024'\n"
     # esp32s3: the 3 MiB app slot, not the shared RP budget.
     + lib.optionalString (hasCrate "esp32s3") "  check ${
@@ -960,7 +960,7 @@ hostClippyChecks
       "rp2350-bootloader"
     ];
     holders = {
-      braiins-axe = [ "rgb_task" ];
+      forge-axe = [ "rgb_task" ];
     };
   };
 

@@ -190,7 +190,7 @@ rec {
   thumbv8mArtifacts = armBag {
     crates = builtins.filter (c: builtins.elem c members) [
       "bmm-pico"
-      "braiins-axe"
+      "forge-axe"
       "rp2350"
       "rp235x-sha256"
     ];

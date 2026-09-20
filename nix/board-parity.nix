@@ -74,7 +74,7 @@ let
   # and the gate would fail on all ten.
   #
   # After the attribute, further attributes and blank lines are allowed
-  # before the function: braiins-axe writes its `boot` attribute above a
+  # before the function: forge-axe writes its `boot` attribute above a
   # comment block and an `#[allow]`. Any other line ends the search, so
   # an attribute that names no task cannot attach itself to a function
   # further down the file.

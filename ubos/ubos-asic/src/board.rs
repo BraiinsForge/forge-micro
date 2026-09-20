@@ -179,9 +179,9 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     eeprom_i2c_address: Some(0x57),
 };
 
-/// The Braiins Axe hashboard: four BM1370 in a single parallel voltage
+/// The Forge Axe hashboard: four BM1370 in a single parallel voltage
 /// domain on a 1.2 V rail, driven by a TPS53647 multiphase VRM.
-pub const BRAIINS_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
+pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     chip: &BM1370.chip,
     num_voltage_domains: 1,
     num_chips: 4,
@@ -197,6 +197,6 @@ pub const BRAIINS_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
         min_fan_pwm: 20,
     },
     dangerous_chip_temp_c: 110.0,
-    model: "Braiins Axe",
+    model: "Forge Axe",
     eeprom_i2c_address: None,
 };

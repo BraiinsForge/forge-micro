@@ -13,7 +13,7 @@ network device. The crate map and the dependency direction are in
 | Crate | MCU | Ethernet | Target |
 |-------|-----|----------|--------|
 | `firmware/hashnode` | RP2350B (Braiins Forge Miner x4) | W5500 (SPI) | `thumbv8m.main-none-eabihf` |
-| `firmware/braiins-axe` | RP2350A (Pico 2, BM1370 hashboard) | W5500 (SPI) | `thumbv8m.main-none-eabihf` |
+| `firmware/forge-axe` | RP2350A (Pico 2, BM1370 hashboard) | W5500 (SPI) | `thumbv8m.main-none-eabihf` |
 
 The evaluation and adapter board table lives in
 [BOARDS.md](BOARDS.md).

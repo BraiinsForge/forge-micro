@@ -28,13 +28,13 @@ fn leak<T: 'static>(value: T) -> &'static T {
     Box::leak(Box::new(value))
 }
 
-fn make_handle(bus: Mock) -> (BraiinsAxePsu<Mock>, Mock) {
+fn make_handle(bus: Mock) -> (ForgeAxePsu<Mock>, Mock) {
     let bus_handle = bus.clone();
-    let shared: &'static _ = leak(BraiinsAxeShared::new(bus, BraiinsAxePsuDescriptor::DEFAULT));
-    (BraiinsAxePsu::new(shared), bus_handle)
+    let shared: &'static _ = leak(ForgeAxeShared::new(bus, ForgeAxePsuDescriptor::DEFAULT));
+    (ForgeAxePsu::new(shared), bus_handle)
 }
 
-/// The init wire sequence for `BraiinsAxePsuDescriptor::DEFAULT`, mirroring
+/// The init wire sequence for `ForgeAxePsuDescriptor::DEFAULT`, mirroring
 /// `tests/tps53647.rs::init_transactions`.
 fn init_transactions() -> Vec<Transaction> {
     use crate::tps53647::{

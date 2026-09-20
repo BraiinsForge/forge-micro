@@ -11,6 +11,11 @@ runner = [
 # board descriptor and config defaults, not build-time env.
 [env]
 DEFMT_LOG = "info,embassy_net=info,smoltcp=info"
+# A dev-flash worker for the test pool, and the one name the board's
+# rename did not move: it is an operator-facing identity on a pool
+# account, so changing it is a decision for whoever owns that account
+# rather than a substitution. No shipped image carries it, which
+# nix/guards.nix proves by grepping every image for the string.
 POOL_USER = "braiinstest.axe"
 
 [build]

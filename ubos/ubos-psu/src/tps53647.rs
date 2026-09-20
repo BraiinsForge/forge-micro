@@ -113,7 +113,7 @@ pub struct Tps53647Config {
 }
 
 impl Tps53647Config {
-    /// Default TPS53647 configuration. The address is the Braiins Axe
+    /// Default TPS53647 configuration. The address is the Forge Axe
     /// ADDR-TRISE strap candidate, pending hardware confirmation.
     pub const DEFAULT: Self = Self {
         address: 0x71,

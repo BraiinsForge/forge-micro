@@ -86,8 +86,8 @@ pub enum Error<E> {
 /// platform; consumers stay generic over `Psu`.
 pub mod bfm;
 pub mod bmm;
-pub mod braiins_axe;
 pub mod config;
+pub mod forge_axe;
 pub mod gated;
 pub mod ina230;
 mod pmbus;
@@ -99,8 +99,8 @@ pub mod watchdog;
 
 pub use bfm::{BfmDevice, BfmPsu, BfmPsuDescriptor, BfmShared};
 pub use bmm::{BmmDevice, BmmPsu, BmmShared};
-pub use braiins_axe::{BraiinsAxeDevice, BraiinsAxePsu, BraiinsAxePsuDescriptor, BraiinsAxeShared};
 pub use config::BmmPsuDescriptor;
+pub use forge_axe::{ForgeAxeDevice, ForgeAxePsu, ForgeAxePsuDescriptor, ForgeAxeShared};
 pub use gated::{GatedPsu, InnerGate};
 pub use state::{Device, RawMutex, Ready, Shared, State};
 

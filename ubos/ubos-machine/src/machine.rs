@@ -22,11 +22,11 @@
 use ubos_asic::HashboardDescriptor;
 use ubos_psu::sic45x::{LoopScale, Sic45xConfig};
 use ubos_psu::tps53647::Tps53647Config;
-use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor, BraiinsAxePsuDescriptor};
+use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor, ForgeAxePsuDescriptor};
 use ubos_temperature::{SensorDescriptor, SensorKind};
 
 use crate::control_board::{
-    CONTROL_BOARD_BMM_ADAPTER, CONTROL_BOARD_BRAIINS_AXE, CONTROL_BOARD_ESP32S3,
+    CONTROL_BOARD_BMM_ADAPTER, CONTROL_BOARD_ESP32S3, CONTROL_BOARD_FORGE_AXE,
     CONTROL_BOARD_HASHNODE, CONTROL_BOARD_RP2040, CONTROL_BOARD_RP2350, CONTROL_BOARD_STM32F407,
     CONTROL_BOARD_STM32F439, ControlBoardDescriptor,
 };
@@ -232,11 +232,11 @@ const _: () = assert!(
     "the Hashnode has more chains than MAX_CHAINS"
 );
 
-/// The Braiins Axe's two TMP102 PCB sensors. There is no die-attached
+/// The Forge Axe's two TMP102 PCB sensors. There is no die-attached
 /// remote diode on this board; both sensors drive the cooling estimate
 /// with the PCB-to-die offset. Addresses are the schematic strap
 /// candidates, pending hardware confirmation.
-pub const BRAIINS_AXE_SENSORS: [SensorDescriptor; 2] = [
+pub const FORGE_AXE_SENSORS: [SensorDescriptor; 2] = [
     SensorDescriptor {
         kind: SensorKind::Tmp102,
         address: 0x48,
@@ -251,31 +251,29 @@ pub const BRAIINS_AXE_SENSORS: [SensorDescriptor; 2] = [
     },
 ];
 
-/// TPS53647 configuration for the Braiins Axe 1.2 V rail. The `PMBus`
+/// TPS53647 configuration for the Forge Axe 1.2 V rail. The `PMBus`
 /// address is the ADDR-TRISE strap candidate (R1 16.5k / R2 24.3k),
 /// pending hardware confirmation.
-const BRAIINS_AXE_TPS: Tps53647Config = Tps53647Config {
+const FORGE_AXE_TPS: Tps53647Config = Tps53647Config {
     // Single-sourced from the board descriptor so the regulator
     // ceiling and the tuner's `max_rail_voltage()` can never disagree.
-    voltage_max_millivolts: ubos_asic::BRAIINS_AXE_HASHBOARD.max_psu_voltage.mv(),
+    voltage_max_millivolts: ubos_asic::FORGE_AXE_HASHBOARD.max_psu_voltage.mv(),
     ..Tps53647Config::DEFAULT
 };
 
-const BRAIINS_AXE_PSU: BraiinsAxePsuDescriptor = BraiinsAxePsuDescriptor {
-    tps: BRAIINS_AXE_TPS,
-};
+const FORGE_AXE_PSU: ForgeAxePsuDescriptor = ForgeAxePsuDescriptor { tps: FORGE_AXE_TPS };
 
-/// The Braiins Axe: four BM1370 in one parallel voltage domain on an
+/// The Forge Axe: four BM1370 in one parallel voltage domain on an
 /// integrated Pico 2 control board, with a TPS53647 multiphase VRM.
-pub const BRAIINS_AXE: MachineDescriptor<BraiinsAxePsuDescriptor> = MachineDescriptor {
-    model: "Braiins Axe",
-    control_board: CONTROL_BOARD_BRAIINS_AXE,
-    hashboard: ubos_asic::BRAIINS_AXE_HASHBOARD,
+pub const FORGE_AXE: MachineDescriptor<ForgeAxePsuDescriptor> = MachineDescriptor {
+    model: "Forge Axe",
+    control_board: CONTROL_BOARD_FORGE_AXE,
+    hashboard: ubos_asic::FORGE_AXE_HASHBOARD,
     chains: 1,
-    psu: BRAIINS_AXE_PSU,
-    temp: &BRAIINS_AXE_SENSORS,
+    psu: FORGE_AXE_PSU,
+    temp: &FORGE_AXE_SENSORS,
 };
 const _: () = assert!(
-    BRAIINS_AXE.chains <= MAX_CHAINS,
-    "the Braiins Axe has more chains than MAX_CHAINS"
+    FORGE_AXE.chains <= MAX_CHAINS,
+    "the Forge Axe has more chains than MAX_CHAINS"
 );

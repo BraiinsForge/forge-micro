@@ -97,7 +97,7 @@ Shipped pool depths are per board:
 
 | Board | `http_pool` | `metrics_http_pool` |
 |-------|-------------|---------------------|
-| bmm-pico, rp2350, hashnode, braiins-axe | 8 | 5 |
+| bmm-pico, rp2350, hashnode, forge-axe | 8 | 5 |
 | esp32s3 | 4 | 3 |
 | rp2040, stm32f407, stm32f439 | 2 | 1 |
 
@@ -319,7 +319,7 @@ corruption into an immediate, labelled fault:
 The buffer sizes and pool depths are per board, because the RAM budget is
 not shared:
 
-- **bmm-pico, rp2350, hashnode, braiins-axe:** ample SRAM, and the merged
+- **bmm-pico, rp2350, hashnode, forge-axe:** ample SRAM, and the merged
   pool sits at `8`.
 - **esp32s3:** `4` is the deepest merged pool that clears the stack floor
   its `build.rs` link-time ASSERT enforces. The pool lives in `.bss`,

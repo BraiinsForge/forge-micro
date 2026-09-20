@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Braiins Axe PSU integration over the shared I2C0 bus.
+//! Forge Axe PSU integration over the shared I2C0 bus.
 //!
 //! Wraps the shared TPS53647 `PMBus` driver in [`GatedPsu`], which owns
 //! the two power-sequencing GPIOs and the `VR_RDY` power-good input:
@@ -34,8 +34,8 @@ use embassy_rp::peripherals::I2C0;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use static_cell::StaticCell;
-use ubos_machine::BRAIINS_AXE as MACHINE;
-use ubos_psu::{BraiinsAxePsu, BraiinsAxeShared, GatedPsu, InnerGate};
+use ubos_machine::FORGE_AXE as MACHINE;
+use ubos_psu::{ForgeAxePsu, ForgeAxeShared, GatedPsu, InnerGate};
 
 /// Bus mutex shared by every consumer on I2C0. `NoopRawMutex` is
 /// sufficient because every I2C consumer runs on the Core 0 executor.
@@ -48,14 +48,14 @@ pub type Bus = Mutex<NoopRawMutex, I2c<'static, I2C0, Async>>;
 pub type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C0, Async>>;
 
 /// The shared TPS53647 `PMBus` driver instantiated for this board's bus.
-type InnerPsu = BraiinsAxePsu<Device>;
+type InnerPsu = ForgeAxePsu<Device>;
 
 /// Board power stage: the TPS53647 driver gated by `PWR_EN`/`LDO_EN`
 /// with a `VR_RDY` power-good check. Public so the `mining` module can
 /// spell it in `miner_task`'s signature.
 pub type BoardPsu = GatedPsu<InnerPsu, Output<'static>, Input<'static>, 2>;
 
-static SHARED: StaticCell<BraiinsAxeShared<Device>> = StaticCell::new();
+static SHARED: StaticCell<ForgeAxeShared<Device>> = StaticCell::new();
 static PSU: StaticCell<BoardPsu> = StaticCell::new();
 
 /// How long after raising the enable pins and setting `OPERATION` before
@@ -74,8 +74,8 @@ pub fn init(
     vr_rdy: Input<'static>,
 ) -> &'static BoardPsu {
     let device = I2cDevice::new(bus);
-    let shared: &'static _ = SHARED.init(BraiinsAxeShared::new(device, MACHINE.psu));
-    let inner = BraiinsAxePsu::new(shared);
+    let shared: &'static _ = SHARED.init(ForgeAxeShared::new(device, MACHINE.psu));
+    let inner = ForgeAxePsu::new(shared);
     // Aux rail (0V8/1V2 LDOs) before the core rail, matching the array
     // order below: GatedPsu raises enable pins in array order.
     PSU.init(GatedPsu::new(

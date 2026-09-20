@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "firmware/braiins-axe",
+    "firmware/forge-axe",
     "firmware/bmm-pico",
     "firmware/rp2040",
     "firmware/rp2040-bootloader",

@@ -17,17 +17,19 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Board constants and peripheral extraction for the Braiins Axe, a
+//! Board constants and peripheral extraction for the Forge Axe, a
 //! Raspberry Pi Pico 2 (RP2350A) with a W5500 driving a four-chip
-//! single-domain BM1370 hashboard and a TPS53647-based `BraiinsAxePsu`.
+//! single-domain BM1370 hashboard and a TPS53647-based `ForgeAxePsu`.
 //! `Board::take` consumes the RP2350 `Peripherals` once and returns
 //! every singleton the board's schematic claims, keeping pin
 //! assignments in one place rather than scattered through `main`.
 //!
 //! Pin source: `BRAIINS_AXE.kicad_sch` rev 1.00 and the `HASHNODEx4`
-//! to BRAIINS AXE firmware GPIO diff.
+//! to FORGE AXE firmware GPIO diff. That file keeps the name it was
+//! drawn under, because a hardware file does not follow a software
+//! rename; renaming the schematic is a hardware decision.
 
-pub use ubos_machine::BRAIINS_AXE as MACHINE;
+pub use ubos_machine::FORGE_AXE as MACHINE;
 
 /// How many hashboard chains this board drives. Every array sized over
 /// the chains takes its length from here, so a machine that gains a
@@ -132,7 +134,7 @@ pub struct Board {
 }
 
 /// The board descriptor this firmware targets: the four-chip
-/// single-domain BM1370 Braiins Axe. Every crate that needs board
+/// single-domain BM1370 Forge Axe. Every crate that needs board
 /// facts takes this explicitly rather than selecting a board behind a
 /// cargo feature.
 pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
@@ -150,7 +152,7 @@ pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD,
 impl Board {
     /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
     /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
-    pub const MDNS_HOSTNAME_BASE: &str = "braiins-axe";
+    pub const MDNS_HOSTNAME_BASE: &str = "forge-axe";
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
         Self {

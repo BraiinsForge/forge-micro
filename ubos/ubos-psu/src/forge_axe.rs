@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! `BraiinsAxePsu` handle and `Psu` trait impl for the Braiins Axe power
+//! `ForgeAxePsu` handle and `Psu` trait impl for the Forge Axe power
 //! stage: one TPS53647 multiphase `PMBus` VRM. All telemetry comes
 //! from the controller itself — there is no separate output monitor.
 
@@ -30,59 +30,56 @@ use crate::state::{Device, Shared};
 use crate::tps53647::{self, Tps53647Config};
 use crate::{Error, Psu};
 
-/// Runtime configuration for `BraiinsAxePsu`.
+/// Runtime configuration for `ForgeAxePsu`.
 #[derive(Clone, Copy, Debug)]
-pub struct BraiinsAxePsuDescriptor {
+pub struct ForgeAxePsuDescriptor {
     /// TPS53647 VRM configuration.
     pub tps: Tps53647Config,
 }
 
-impl BraiinsAxePsuDescriptor {
-    /// Default configuration for the Braiins Axe board.
+impl ForgeAxePsuDescriptor {
+    /// Default configuration for the Forge Axe board.
     pub const DEFAULT: Self = Self {
         tps: Tps53647Config::DEFAULT,
     };
 }
 
-/// The Braiins Axe power stage as a [`Device`]. A marker type: it names
+/// The Forge Axe power stage as a [`Device`]. A marker type: it names
 /// the bus and the config the guarded state is built from, and carries
 /// the init sequence. Nothing constructs it.
-pub struct BraiinsAxeDevice<I>(PhantomData<I>);
+pub struct ForgeAxeDevice<I>(PhantomData<I>);
 
-impl<I: I2c> Device for BraiinsAxeDevice<I> {
+impl<I: I2c> Device for ForgeAxeDevice<I> {
     type Bus = I;
-    type Config = BraiinsAxePsuDescriptor;
+    type Config = ForgeAxePsuDescriptor;
     type BusError = I::Error;
 
     /// Initialization sequence for the TPS53647 VRM.
-    async fn init(
-        i2c: &mut I,
-        config: &mut BraiinsAxePsuDescriptor,
-    ) -> Result<(), Error<I::Error>> {
+    async fn init(i2c: &mut I, config: &mut ForgeAxePsuDescriptor) -> Result<(), Error<I::Error>> {
         tps53647::init(i2c, &config.tps).await
     }
 }
 
 /// The lock, the termination flag and the guarded state of a
-/// [`BraiinsAxePsu`]. A board declares one of these and hands out
+/// [`ForgeAxePsu`]. A board declares one of these and hands out
 /// `&'static` references.
-pub type BraiinsAxeShared<I> = Shared<BraiinsAxeDevice<I>>;
+pub type ForgeAxeShared<I> = Shared<ForgeAxeDevice<I>>;
 
-/// Handle to the Braiins Axe PSU. Cheap to clone-by-reference; the underlying
-/// state lives behind a `'static` [`BraiinsAxeShared`] supplied by the
+/// Handle to the Forge Axe PSU. Cheap to clone-by-reference; the underlying
+/// state lives behind a `'static` [`ForgeAxeShared`] supplied by the
 /// caller.
-pub struct BraiinsAxePsu<I: I2c + 'static> {
-    shared: &'static BraiinsAxeShared<I>,
+pub struct ForgeAxePsu<I: I2c + 'static> {
+    shared: &'static ForgeAxeShared<I>,
 }
 
-impl<I: I2c + 'static> BraiinsAxePsu<I> {
+impl<I: I2c + 'static> ForgeAxePsu<I> {
     /// Construct a handle.
-    pub fn new(shared: &'static BraiinsAxeShared<I>) -> Self {
+    pub fn new(shared: &'static ForgeAxeShared<I>) -> Self {
         Self { shared }
     }
 }
 
-impl<I: I2c + 'static> Psu for BraiinsAxePsu<I> {
+impl<I: I2c + 'static> Psu for ForgeAxePsu<I> {
     type BusError = I::Error;
 
     async fn enable(&self) -> Result<(), Error<I::Error>> {
@@ -153,5 +150,5 @@ impl<I: I2c + 'static> Psu for BraiinsAxePsu<I> {
 }
 
 #[cfg(test)]
-#[path = "tests/braiins_axe.rs"]
+#[path = "tests/forge_axe.rs"]
 mod tests;

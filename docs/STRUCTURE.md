@@ -150,7 +150,7 @@ inside the crate directory so the per-crate config is picked up.
 ```
 firmware/
 ├── bmm-pico/            thumbv8m.main-none-eabihf  (RP2350A, BMM adapter)
-├── braiins-axe/         thumbv8m.main-none-eabihf  (RP2350A, BM1370 hashboard)
+├── forge-axe/           thumbv8m.main-none-eabihf  (RP2350A, BM1370 hashboard)
 ├── esp32s3/             xtensa-esp32s3-none-elf    (ESP32-S3)
 ├── esp32s3-bootloader/  xtensa-esp32s3-none-elf
 ├── hashnode/            thumbv8m.main-none-eabihf  (RP2350B)

@@ -1,4 +1,4 @@
-/* The Braiins Axe carries a Raspberry Pi Pico 2 module with 4 MB of
+/* The Forge Axe carries a Raspberry Pi Pico 2 module with 4 MB of
    QSPI flash. It reuses the rp2350-bootloader, so the partition layout
    below follows the shared 2 MB scheme; the remaining flash is left
    unused. */
@@ -9,7 +9,7 @@ MEMORY {
     FLASH_ZERO       : ORIGIN = 0x10000000, LENGTH = 0
 
     /* Partition layout — must match the bootloader's memory.x exactly.
-       The Braiins Axe reuses the rp2350-bootloader, so the regions are
+       The Forge Axe reuses the rp2350-bootloader, so the regions are
        identical to firmware/rp2350/memory.x. */
     BOOTLOADER       : ORIGIN = 0x10000000, LENGTH = 128K
     BOOTLOADER_STATE : ORIGIN = 0x10020000, LENGTH = 4K
