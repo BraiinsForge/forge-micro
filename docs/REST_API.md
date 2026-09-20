@@ -247,10 +247,13 @@ clients. Credentials are compared in constant time.
 
 **Session cookie** — `POST /login` with a form body issues a 32-char
 base64url token in `Set-Cookie: session=<token>; HttpOnly;
-SameSite=Strict; Path=/`. The token is looked up in a fixed
+SameSite=Lax; Path=/`. The token is looked up in a fixed
 `FnvIndexMap<_, _, 8>` with 24 h TTL; the oldest entry is evicted on
 overflow so a tab refresh cannot lock out parallel tabs. See
 `ubos-auth/src/session.rs`.
+Lax still sends the cookie on a cross-site top-level GET navigation,
+and a cookie ignores the port. So every GET route on the dashboard and
+on the API server must have no side effects.
 
 Credentials are plaintext, not hashed. They are seeded from the
 persisted `config.api` section at boot and refreshed whenever the
@@ -280,7 +283,8 @@ port 8080 echoed the request origin with
 had read access to the API.
 
 The session cookie was not what that echo reached, because
-`dashboard.rs` sets it `SameSite=Strict`. It reached the `Basic`
+`dashboard.rs` sets it `SameSite=Lax`, which a cross-site fetch
+never carries. It reached the `Basic`
 credentials. The API answers a 401 with
 `WWW-Authenticate: Basic realm="ubos"`, so the browser sends the
 credentials it holds for that origin on its own. One origin needs no such

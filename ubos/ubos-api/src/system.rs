@@ -1674,6 +1674,12 @@ pub(crate) enum DispatchOutcome {
 /// The function is pure (no I/O, no state reads) so it can be called
 /// from host unit tests. `dispatch()` calls this first and then drives
 /// the `Connection` based on the result.
+///
+/// Every `GET` arm here must stay free of side effects. The session
+/// cookie is `SameSite=Lax`, so a cross-site link into the board carries
+/// it on a top-level `GET`, and a `GET` that acted would act for the
+/// site that linked. Nothing checks this; it holds by convention. The
+/// cookie is issued in `ubos-webui`, which states the reason in full.
 pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
     // Strip any query string so routes always match on the path only.
     let path = path.split_once('?').map_or(path, |(prefix, _)| prefix);

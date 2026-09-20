@@ -104,7 +104,7 @@ where
                 ("Location", "/login"),
                 (
                     "Set-Cookie",
-                    "session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
+                    "session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
                 ),
                 ("Content-Length", "0"),
             ],
@@ -541,11 +541,19 @@ impl Service for DashboardService {
                     // Build the Set-Cookie header value into a stack buffer.
                     // The `Secure` attribute is omitted because the device
                     // runs HTTP only with no TLS terminator; revisit if
-                    // HTTPS support is added.
+                    // HTTPS support is added. `SameSite=Lax` rather than
+                    // `Strict`: a link from another site, such as the bench
+                    // signpost, is a cross-site top-level navigation, and
+                    // `Strict` withholds the cookie on it. The board then
+                    // bounces a live session to the login page, whose form
+                    // POST is same-site and does carry the cookie, so the
+                    // login is CSRF-gated and the form has no way to pass.
+                    // `Lax` sends the cookie on a top-level navigation and
+                    // still withholds it on a cross-site POST or fetch.
                     let mut set_cookie_value = heapless::String::<128>::new();
                     let _ = core::write!(
                         set_cookie_value,
-                        "session={}; Path=/; HttpOnly; SameSite=Strict",
+                        "session={}; Path=/; HttpOnly; SameSite=Lax",
                         token.as_str()
                     );
                     write_login_success_redirect(connection, set_cookie_value.as_str()).await
