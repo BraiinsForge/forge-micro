@@ -73,6 +73,7 @@ fn validate_board_name_rejects_backslash() {
 /// - All `u64` numeric fields: `u64::MAX` (20 decimal digits).
 /// - All `u32` numeric fields: `u32::MAX` (10 decimal digits).
 /// - `temperature` (`i32`): `i32::MIN` (11 chars including the sign).
+/// - `ambient` (`Option<i32>`): `Some(i32::MIN)` (11 chars), wider than `null`.
 /// - `fan_pwm`/`pools` (`u8`/`u8`): `u8::MAX` = 255 (3 digits).
 /// - `psu_fault`/`hasPreviousImage`/`resetOtaActive`: `true` (4 chars).
 /// - `ip`: `"255.255.255.255"` (15 chars).
@@ -84,7 +85,7 @@ fn validate_board_name_rejects_backslash() {
 /// - `previousVersion`: `Some(u32::MAX)` (10 digits, longer than `null`).
 /// - `running`: `true` (4 chars).
 /// - `paused`: `true` (4 chars).
-/// - `pause_reason`: `"dangerousTemperature"` (20 chars, longest variant).
+/// - `pause_reason`: `"temperatureUnreadable"` (21 chars, longest variant).
 /// - `chains`: `ubos_metrics::chain::MAX_CHAINS` entries — the most any board
 ///   can report, since [`ubos_metrics::chain::ChainStatsHandle::chain_count`]
 ///   never exceeds the table it wraps — each with `chips` at `u16::MAX`
@@ -93,6 +94,7 @@ fn validate_board_name_rejects_backslash() {
 ///   digits including the sign), the widest `state` string
 ///   (`"unknown"`/`"faulted"`, 7 chars).
 #[test]
+#[allow(clippy::too_many_lines)]
 fn api_info_body_fits_in_buffer() {
     // Build the body using the same `format!` calls that `rest.rs` uses,
     // with every variable-width field set to its maximum-width value.
@@ -100,6 +102,7 @@ fn api_info_body_fits_in_buffer() {
     let hashrate = u64::MAX;
     let uptime_secs = u64::MAX;
     let temperature = i32::MIN;
+    let ambient = i32::MIN;
     let fan_rpm = u32::MAX;
     let fan_pwm = u8::MAX;
     let power_in_mw = u32::MAX;
@@ -112,13 +115,14 @@ fn api_info_body_fits_in_buffer() {
     let net_confirm_seconds = u64::MAX;
     let running = true;
     let paused = true;
-    let pause_reason = "dangerousTemperature";
+    let pause_reason = "temperatureUnreadable";
 
     let mut body = std::format!(
         "{{\"name\":\"{board_name}\",\
          \"hashrate\":{hashrate},\
          \"uptime\":{uptime_secs},\
          \"temperature\":{temperature},\
+         \"ambient\":{ambient},\
          \"fan_rpm\":{fan_rpm},\
          \"fan_pwm\":{fan_pwm},\
          \"power_in_mw\":{power_in_mw},\

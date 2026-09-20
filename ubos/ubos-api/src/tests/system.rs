@@ -707,6 +707,7 @@ fn serialize_system_info(
         hashrate: 0,
         uptime_seconds: 0,
         temperature_celsius: 0,
+        ambient_celsius: None,
         fan_speed_rpm: 0,
         fan_pwm_percent: 0,
         pools_bitmap: 0,

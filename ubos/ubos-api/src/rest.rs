@@ -55,7 +55,7 @@ mod tests;
 /// JSON framing). The `api_info_body_fits_in_buffer` test builds the
 /// absolute worst case — every numeric field at its maximum decimal
 /// width and a `chains` array at `ubos_metrics::chain::MAX_CHAINS` entries,
-/// the most any board can report — and measures 1187 bytes. 512 bytes
+/// the most any board can report — and measures 1248 bytes. 512 bytes
 /// overflowed once the OTA diagnostic fields were added, silently
 /// truncating the tail; 1280 bytes covers the synthetic worst case,
 /// which grew past the earlier 896-byte figure once the per-chain
@@ -435,6 +435,11 @@ impl Service for RestApiService {
                     .and_then(|reading| reading.chain_voltage_mv)
                     .unwrap_or(0);
                 #[allow(clippy::cast_possible_truncation)]
+                let ambient = thermal_reading
+                    .as_ref()
+                    .and_then(|r| r.ambient)
+                    .map(|t| t.celsius_f32() as i32);
+                #[allow(clippy::cast_possible_truncation)]
                 let temperature = thermal_reading
                     .and_then(|r| r.chip_max)
                     .map_or(0i32, |t| t.celsius_f32() as i32);
@@ -472,7 +477,20 @@ impl Service for RestApiService {
                      \"hashrate\":{hashrate},\
                      \"uptime\":{uptime_secs},\
                      \"temperature\":{temperature},\
-                     \"fan_rpm\":{fan_rpm},\
+                     \"ambient\":",
+                    self.board_name
+                );
+                match ambient {
+                    Some(ambient) => {
+                        let _ = core::write!(writer, "{ambient}");
+                    }
+                    None => {
+                        let _ = writer.write_str("null");
+                    }
+                }
+                let _ = core::write!(
+                    writer,
+                    ",\"fan_rpm\":{fan_rpm},\
                      \"fan_pwm\":{fan_pwm},\
                      \"power_in_mw\":{power_in_mw},\
                      \"power_out_mw\":{power_out_mw},\
@@ -484,8 +502,7 @@ impl Service for RestApiService {
                      \"net_confirm_seconds\":{net_confirm_seconds},\
                      \"running\":{running},\
                      \"paused\":{paused},\
-                     \"pause_reason\":",
-                    self.board_name
+                     \"pause_reason\":"
                 );
                 match pause_reasons.dominant() {
                     Some(reason) => {

@@ -281,11 +281,17 @@ where
     let uptime_seconds = Instant::now().as_secs();
     let chain_stats = ubos_metrics::chain::handle();
     let hashrate_hps = chain_stats.machine_hashrate();
+    let thermal_reading = thermal.current();
     #[allow(clippy::cast_possible_truncation)]
-    let temperature_celsius = thermal
-        .current()
+    let temperature_celsius = thermal_reading
+        .as_ref()
         .and_then(|r| r.chip_max)
         .map_or(0i32, |t| t.celsius_f32() as i32);
+    #[allow(clippy::cast_possible_truncation)]
+    let ambient_celsius = thermal_reading
+        .as_ref()
+        .and_then(|r| r.ambient)
+        .map(|t| t.celsius_f32() as i32);
     let fan = ubos_cooling::handle().current();
     let fan_speed_rpm = fan.map_or(0, |f| f.rpm.rpm());
     let fan_pwm_percent = fan.map_or(0, |f| f.pwm.percent());
@@ -328,6 +334,7 @@ where
         hashrate: hashrate_hps,
         uptime_seconds,
         temperature_celsius,
+        ambient_celsius,
         fan_speed_rpm,
         fan_pwm_percent,
         pools_bitmap,
