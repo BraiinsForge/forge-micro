@@ -27,6 +27,7 @@ function info() {
   // never disagree.
   const hashrate = CHAINS.reduce((sum, chain) => sum + chain.hashrate, 0);
   const temperature = 62 + Math.round(Math.sin(tick / 9) * 3);
+  const ambient = 28 + Math.round(Math.sin(tick / 13) * 2);
   const powerIn = 3200 + Math.round(Math.sin(tick / 7) * 120);
   return {
     // The board name the API reports, not the brand: the brand reaches
@@ -36,6 +37,7 @@ function info() {
     hashrate,
     uptime,
     temperature,
+    ambient,
     fan_rpm: 4200,
     fan_pwm: 65,
     power_in_mw: powerIn * 1000,

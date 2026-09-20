@@ -203,7 +203,8 @@ export default function Dashboard() {
           <div class="k">Link</div>
           <StatusDot text={dash.link ? 'Live' : 'Dead'} />
         </div>
-        <StatCard label="Time UTC" value={info?.time || '–'} wide />
+        <StatCard label="Time UTC" value={info?.time ? info.time.replace(/ UTC$/, '') : '–'} />
+        <StatCard label="Ambient Temperature" value={info?.ambient != null ? info.ambient + ' °C' : '–'} />
       </aside>
 
       {visibleChains(info).length > 0 && (

@@ -27,6 +27,8 @@ export interface Info {
   hashrate?: number;
   uptime?: number;
   temperature?: number;
+  /** Ambient temperature near the board. `null` on a board without a sensor for it. */
+  ambient?: number | null;
   fan_rpm?: number;
   fan_pwm?: number;
   power_in_mw?: number;
