@@ -109,13 +109,8 @@ pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
 pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
 
 impl Board {
-    /// DNS-safe base hostname for mDNS. The runtime appends a per-unit
-    /// suffix derived from the last octet of the derived MAC so multiple
-    /// rp2040 boards on the same LAN do not collide on
-    /// `_prometheus._tcp.local.` and trigger RFC 6762 §9
-    /// conflict-resolution renames on every boot. `MACHINE.control_board.name`
-    /// is human-readable and contains spaces, so it cannot be used directly
-    /// in a DNS label.
+    /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`
+    /// for the per-unit suffix and RFC 6762 §9 conflict-resolution semantics.
     pub const MDNS_HOSTNAME_BASE: &str = "rp2040";
 
     pub fn take(peripherals: embassy_rp::Peripherals) -> Self {
