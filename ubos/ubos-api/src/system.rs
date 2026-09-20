@@ -1643,6 +1643,8 @@ pub(crate) enum Route {
     PauseAck,
     /// `POST /api/system/resume`
     ResumeAck,
+    /// `POST /api/system/thermal/clear`
+    ThermalClearAck,
     /// `POST /api/system/restart`
     RestartAck,
     /// `POST /api/system/identify`
@@ -1746,6 +1748,10 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
         },
         "/api/system/resume" => match method {
             "POST" => DispatchOutcome::Handled(Route::ResumeAck),
+            _ => DispatchOutcome::MethodNotAllowed { allowed: "POST" },
+        },
+        "/api/system/thermal/clear" => match method {
+            "POST" => DispatchOutcome::Handled(Route::ThermalClearAck),
             _ => DispatchOutcome::MethodNotAllowed { allowed: "POST" },
         },
         "/api/system/restart" => match method {
@@ -1891,6 +1897,12 @@ where
             crate::events::user_resumed();
             manager.send(ManagerMessage::Start).await;
             handle_action(connection, scratch, "resume").await?;
+        }
+        DispatchOutcome::Handled(Route::ThermalClearAck) => {
+            // See "Two ways out of an overheat halt" in docs/MINING.md.
+            crate::events::user_cleared_thermal_halt();
+            manager.send(ManagerMessage::TemperatureAcknowledged).await;
+            handle_action(connection, scratch, "thermal/clear").await?;
         }
         DispatchOutcome::Handled(Route::RestartAck) => {
             crate::events::user_restart();

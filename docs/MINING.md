@@ -87,11 +87,20 @@ Where a reading survives the rail cut, the thermal loop sees the
 cooldown itself and sends `TemperatureNormal`. Where the chips
 themselves are the thermometer, the trip cuts the rail those chips
 answer on: the board cools where nothing can see it, no reading can
-report the cooldown, and only the operator's `TemperatureAcknowledged`
-message clears the halt.
+report the cooldown, and only the operator's acknowledgement
+(`POST /api/system/thermal/clear`) clears the halt. The API sends
+`TemperatureAcknowledged` to the manager itself, the same as `Start`
+and `Stop`; the thermal loop reads the halt back from the manager's
+mask on every tick, so the release reaches it the same way its own
+would.
 
 The unreadable halt is different from both: the loop retracts it
-itself, once a reading returns or the board goes idle.
+itself, once a reading returns or the board goes idle, and no operator
+control exists for it because there is nothing to acknowledge. A
+sensor that never answers again -- a `SensorArray` on a dead I2C bus,
+for example -- is a hardware fault. The halt stands until the bus
+answers, and a reboot does not cure it: the loop spends its tolerance
+budget again and halts again.
 
 Domain producers raise typed messages; they never name a `PauseReason`.
 Manager translates and serialises the halt/resume sequence so mining

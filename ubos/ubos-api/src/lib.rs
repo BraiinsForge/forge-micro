@@ -50,9 +50,10 @@ pub mod schema;
 pub mod system;
 
 ubos_events::events! {
-    user_paused()       info = "User paused mining",
-    user_resumed()      info = "User resumed mining",
-    user_restart()      warn = "User-requested restart",
+    user_paused()               info = "User paused mining",
+    user_resumed()              info = "User resumed mining",
+    user_restart()              warn = "User-requested restart",
+    user_cleared_thermal_halt() warn = "User cleared the dangerous-temperature halt",
 }
 
 pub use hw_info::{

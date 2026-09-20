@@ -40,7 +40,7 @@ pub enum Message {
     /// Thermal: chip-max returned below the cooldown threshold.
     TemperatureNormal,
     /// API: the operator has seen the dangerous-temperature halt and
-    /// accepts the restart.
+    /// accepts the restart, via `POST /api/system/thermal/clear`.
     ///
     /// See "Two ways out of an overheat halt" in `docs/MINING.md`.
     TemperatureAcknowledged,

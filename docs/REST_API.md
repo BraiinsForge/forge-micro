@@ -150,6 +150,7 @@ chain value only when the PSU reading is unavailable.
 | POST   | `/api/system/OTAWWW`              | any       | 501    | `{"message":"unsupported on this platform"}`                             |
 | POST   | `/api/system/pause`               | any +CSRF | 200    | Stub: logs + sends `Manager::Stop`; returns `{"message":"ack"}`          |
 | POST   | `/api/system/resume`              | any +CSRF | 200    | Stub: logs + sends `Manager::Start`; returns `{"message":"ack"}`         |
+| POST   | `/api/system/thermal/clear`       | any +CSRF | 200    | Clears a `dangerousTemperature` halt on the operator's word; returns `{"message":"ack"}` |
 | POST   | `/api/system/restart`             | any +CSRF | 200    | Writes the ack, then calls `request_reboot` to reset the MCU once the socket drains |
 | POST   | `/api/system/factory_reset`       | any +CSRF | 200    | Sends `FactoryReset` to the config task; writes the ack, then the config task wipes persisted config to defaults and requests the reboot once persisted |
 | POST   | `/api/system/identify`            | any +CSRF | 200    | Stub: logs only; returns `{"message":"ack"}`                             |
@@ -214,8 +215,10 @@ fan again from the first thermal reading after the mode returns to
 `"auto"`. Until that reading lands, the control tick raises the duty to
 `min_fan_pwm` but never lowers it. A fixed duty below the floor does not
 survive the switch. A duty above the floor is held until the PID takes
-over. The cooling failsafes do not depend on the mode — a sensor fault
-and a stalled thermal task force the fan to full under either.
+over. The cooling failsafes do not depend on the mode — a sensor fault,
+a stalled thermal task and an idle board force the fan to full under
+either. An idle board does so from its first idle tick, because it
+publishes no temperature to steer by.
 
 | Struct                  | Endpoint(s)                                        |
 |-------------------------|----------------------------------------------------|

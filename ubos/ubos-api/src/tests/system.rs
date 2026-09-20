@@ -422,6 +422,7 @@ const ROUTES: &[(&str, &str, Route)] = &[
     ("POST", "/api/system/OTAWWW", Route::SystemOtaWww),
     ("POST", "/api/system/pause", Route::PauseAck),
     ("POST", "/api/system/resume", Route::ResumeAck),
+    ("POST", "/api/system/thermal/clear", Route::ThermalClearAck),
     ("POST", "/api/system/restart", Route::RestartAck),
     ("POST", "/api/system/identify", Route::IdentifyAck),
     (
