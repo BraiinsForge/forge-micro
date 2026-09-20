@@ -8,8 +8,8 @@ nothing here applies.
 ## Contents
 
 - Why one command, and which one
-- Running it: foreground, blocking, with the exit line
-- Three ways that have failed
+- Running it: in the background, with the exit line
+- Two ways that have failed
 - Reading the result
 - What must never be substituted
 
@@ -49,11 +49,11 @@ built by nix. So the gate runs every board's checks with no host setup,
 the same way CI does. There is no "missing toolchain" to skip over; if a
 check does not run, the environment is wrong — fix it and run the check.
 
-## Running it: foreground, blocking, with the exit line
+## Running it: in the background, with the exit line
 
-Run it as **one foreground, blocking `Bash` call** with a long `timeout`
-(the 600000 ms maximum). `2>&1` is a redirection and not a pipe, so the
-exit status stays the command's own:
+Run it as **one `Bash` call in the background**, with the tool's own
+background mode and no trailing ampersand. `2>&1` is a redirection and
+not a pipe, so the exit status stays the command's own:
 
 ```bash
 nix run .#gate 2>&1
@@ -65,22 +65,27 @@ refuses one, so the list is not repeated here. There is nothing to
 capture by hand: the gate prints its own verdict as the last line of the
 run.
 
-A foreground call blocks the same turn until nix exits, so the result is
-in hand before the call returns.
+A background run overlaps the phases that follow instead of preceding
+them, and it is the run's wall clock: a cold store takes it past the
+longest foreground timeout, which used to end a review with the branch
+ungated. Its completion notification is the whole of the wait, and it
+re-enters this session on whatever turn it lands in, so the report is
+emitted from that turn. `nix run .#gate -- status` reprints the newest
+run's table from a later turn or a second terminal; `docs/GATE.md` says
+how to read it and what it reports before there is a table.
 
-## Three ways that have failed
+## Two ways that have failed
 
-Do not background it, do not delegate it to a `Task` subagent, and do not
-poll a log for a completion sentinel. Each has failed in a way rooted in
-the review skill's forked context (`context: fork`): a fork is one-shot,
-so once it returns its final message it cannot be re-entered.
+Do not delegate the run to a `Task` subagent, and do not poll a log for
+a completion sentinel. One invariant explains both failures: the
+execution instance that reads the exit line must be the instance that
+continues into Phase 3, and it reads that line from the notification
+rather than from a loop.
 
-- **Backgrounded**: the completion notification lands in the main loop,
-  never in the finished fork, so the report gate is unreachable and the
-  review ends with no report.
 - **`Task` subagent**: returns before the check finishes.
 - **Hand-rolled `until grep …; do sleep; done` waiter**: spins whenever
-  its sentinel never lands.
+  its sentinel never lands, and holds a shell for the whole run to learn
+  nothing the notification would not have delivered.
 
 ## Reading the result
 
@@ -89,8 +94,8 @@ On a failure, name each failing check and the error
 lines that explain it. The gate's table already names them, and
 `nix run .#gate -- log <check>` prints one check's build log.
 
-If the call hits its timeout before that line appears, the store was
-cold. Record the result as `TIMED OUT (re-run manually)` and note that
+If the run ends without that line, it was stopped before it could write
+one. Record the result as `TIMED OUT (re-run manually)` and note that
 the branch is not gated until it is re-run, rather than dropping the
 report. Do not emit the final report until the line is in hand or the
 timeout is recorded.

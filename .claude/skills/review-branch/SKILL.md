@@ -1,7 +1,6 @@
 ---
 name: review-branch
 description: Deep review of all branch changes against the review base (origin/master, or a stacked base via branch.<name>.reviewBase) — code, architecture, commits, and CI readiness
-context: fork
 allowed-tools: Bash, Read, Grep, Glob, Skill, Task, WebSearch, WebFetch
 ---
 
@@ -116,9 +115,11 @@ lines exist, which silently skipped this gate on mixed diffs. When
 then move to Phase 3.
 
 When `FLAKE_RELEVANT=1`, the gate is `nix run .#gate` at the repository
-root. It builds every check of every tree of the checkout, it must run as
-one foreground blocking `Bash` call, and its verdict must be in hand
-before the report.
+root. It builds every check of every tree of the checkout. Start it in
+the background, go on with the phases below while it runs, and emit no
+report until its verdict is in hand: the completion notification is the
+whole of the wait, and `nix run .#gate -- status` reprints the newest
+run's table from any later turn.
 
 The gate does not force `nixosConfigurations`, and `docs/GATE.md`
 carries that gap with the rule that closes it. A tree that breaks the
@@ -126,9 +127,9 @@ rule is a finding against the tree, and not a reason to reach for a
 wider command: `nix flake check .` cannot stand in for the gate in a
 pair, and the outer tree's `.claude/pair/gate.md` says why.
 
-Substitute nothing narrower. How to run it, the three ways of running it
-that have failed, how to read the result, and what must never be
-substituted for it are in
+Substitute nothing narrower. How to run it, the ways of running it that
+have failed, how to read the result, and what must never be substituted
+for it are in
 [reference/flake-gate.md](reference/flake-gate.md) — read that before
 running the gate.
 
@@ -348,7 +349,7 @@ If no issues are found, output: `No issues found. Branch is merge-ready.`
 ## Rules
 
 - Review ALL commits on the branch, not just the latest
-- Run `nix run .#gate` (repo root) as one foreground, blocking `Bash` call whenever the diff touches flake inputs — it builds every check of every tree of the checkout, which is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, or when the caller supplied the gate result, and record which in the output
+- Run `nix run .#gate` (repo root) in the background whenever the diff touches flake inputs, and report nothing until its verdict is in hand — it builds every check of every tree of the checkout, which is the entire CI check stage; never swap in a narrower command. Skip it only when Phase 2 detection shows an all-inert diff, or when the caller supplied the gate result, and record which in the output
 - Read the branch exactly once, with the Phase 1 step 3 `git log -p`. Later phases judge that output; they do not run their own `git show` or `git diff`
 - Read a file the branch adds in full, once, in Phase 1 step 4. That is the file and not the branch, so it does not breach the rule above, and no later phase judges a new mechanism from the patch alone
 - Every finding MUST include a file:line reference (or commit hash for commit message issues)
