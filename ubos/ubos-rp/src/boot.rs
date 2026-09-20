@@ -132,8 +132,12 @@ pub async fn seeds_from_trng<T: embassy_rp::trng::Instance>(
 
 /// Bring the `WIZnet` chip up, or reset the board and try again.
 ///
-/// A failed version read is almost always transient, a brownout garbling
-/// the SPI read rather than a wiring fault. `new` consumes the SPI, both
+/// A failed SPI read is almost always transient, a brownout garbling the
+/// bus rather than a wiring fault. A chip-version mismatch is not
+/// transient: it means the wrong driver type or a dead chip, and no reset
+/// clears it. The reset loop is still what runs, because a headless board
+/// has no channel to report on before its network is up, and the driver
+/// logs both version bytes over the probe. `new` consumes the SPI, both
 /// pins and the init-once `State`, so it cannot be retried in place, and a
 /// panic here records a crash marker the OTA path may act on for what is
 /// not a firmware fault. A dead chip loops through this reset, the same
