@@ -81,10 +81,24 @@ documentation or harness config (`.claude/`, `*.md`, `.gitlint*`) feeds
 into none of them, so running the check would rebuild every board
 without validating any of the change under review.
 
+Two paths in that inert set are not inert, and both are carved back out
+below. `.claude/hooks/gate-invocation` is gated by `gate-hook`, which
+shellchecks it and holds its executable bit, and `CLAUDE.md` is gated by
+`claude-md-limit`, which reads that one file and no other `*.md`. A diff
+confined to either one would otherwise skip the only check that reads it.
+
+Both carve-outs name a check of this tree. `gate-hook` is this tree's,
+and the outer tree of a pair reaches the same file through a symlink and
+gates it nowhere, so a standalone review of that tree forces the check on
+for a path none of its own checks reads. That costs a build and is the
+safe direction, and a paired review never meets it, because the pair gate
+supplies the result and Phase 2 stands down.
+
 ```bash
 FLAKE_RELEVANT=0
 while IFS= read -r f; do
   case "$f" in
+    .claude/hooks/*|CLAUDE.md|*/CLAUDE.md) FLAKE_RELEVANT=1; break ;;
     .claude/*|*.md|.gitlint*) ;;
     *) FLAKE_RELEVANT=1; break ;;
   esac
