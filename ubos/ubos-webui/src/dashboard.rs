@@ -499,6 +499,12 @@ impl Service for DashboardService {
                 }
             }
             ("GET", "/login") => {
+                // A live session has nothing to sign in to, and the form
+                // it would post is CSRF-gated with no way to carry the
+                // token. Send it to the dashboard instead.
+                if matches!(auth_ctx, ubos_auth::auth::AuthCtx::Session(_)) {
+                    return write_redirect(connection, "/").await;
+                }
                 write_asset(
                     connection,
                     "text/html; charset=utf-8",
