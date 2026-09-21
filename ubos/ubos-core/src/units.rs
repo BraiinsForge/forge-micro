@@ -56,6 +56,38 @@ impl Frequency {
         self.0
     }
 
+    /// Round down to a multiple of `step` so the frequency fits a discrete clock grid.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `step` is zero.
+    #[must_use]
+    pub fn snap_down(self, step: Self) -> Self {
+        assert!(step.0 != 0, "BUG: frequency step must be nonzero");
+        Self(self.0 / step.0 * step.0)
+    }
+
+    /// Move toward `target` by at most `step`, without crossing the target.
+    ///
+    /// The comparison runs in integer kHz, so the walk converges even
+    /// when `target` came from float rounding inside the V^2 * f math.
+    /// A float comparison would tail-loop on the last fraction of a step.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `step` is zero.
+    #[must_use]
+    pub fn step_toward(self, target: Self, step: Self) -> Self {
+        use core::cmp::Ordering;
+
+        assert!(step.0 != 0, "BUG: frequency step must be nonzero");
+        match self.cmp(&target) {
+            Ordering::Less => Self(self.0.saturating_add(step.0).min(target.0)),
+            Ordering::Greater => Self(self.0.saturating_sub(step.0).max(target.0)),
+            Ordering::Equal => self,
+        }
+    }
+
     /// Convert to megahertz as `f32`. The tuner's V^2*f curve walk
     /// needs fractional MHz to compute the next step's voltage from
     /// the constant-power invariant; the integer `mhz()` rounds.

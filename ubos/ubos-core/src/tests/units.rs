@@ -39,3 +39,45 @@ fn frequency_range_reports_its_inclusive_bounds() {
     assert_eq!(range.min(), Frequency::from_mhz(50));
     assert_eq!(range.max(), Frequency::from_mhz(1000));
 }
+
+/// Clock-grid rounding must preserve aligned values and floor fractional MHz.
+#[test]
+fn frequency_snap_down_floors_to_step_grid() {
+    let step = Frequency::from_khz(6_250);
+    for (input, expected) in [(0, 0), (6_249, 0), (550_000, 550_000), (551_000, 550_000)] {
+        assert_eq!(Frequency::from_khz(input).snap_down(step).khz(), expected);
+    }
+}
+
+/// Ramps must converge from either direction without crossing the target or wrapping.
+#[test]
+fn frequency_step_toward_moves_without_overshoot() {
+    for (current, target, step, expected) in [
+        (100, 200, 25, 125),
+        (200, 100, 25, 175),
+        (100, 110, 25, 110),
+        (110, 100, 25, 100),
+        (100, 100, 25, 100),
+        (10, 0, 25, 0),
+        (u32::MAX - 10, u32::MAX, 25, u32::MAX),
+    ] {
+        assert_eq!(
+            Frequency::from_khz(current)
+                .step_toward(Frequency::from_khz(target), Frequency::from_khz(step))
+                .khz(),
+            expected,
+        );
+    }
+}
+
+#[test]
+#[should_panic(expected = "BUG: frequency step must be nonzero")]
+fn frequency_snap_down_rejects_zero() {
+    let _ = Frequency::from_khz(100).snap_down(Frequency::from_khz(0));
+}
+
+#[test]
+#[should_panic(expected = "BUG: frequency step must be nonzero")]
+fn frequency_step_toward_rejects_zero() {
+    let _ = Frequency::from_khz(100).step_toward(Frequency::from_khz(200), Frequency::from_khz(0));
+}
