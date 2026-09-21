@@ -4,16 +4,8 @@ import Chart from './Chart';
 import { useDash } from '../lib/store';
 import { getConfig } from '../lib/api';
 import { fmtHr, fmtUp, fmtPower, fmtVolts } from '../lib/format';
+import { PAUSE_LABEL } from '../lib/types';
 import type { ChainInfo, Info } from '../lib/types';
-
-const PAUSE_LABEL: Record<string, string> = {
-  dangerousTemperature: 'Stopped - Overheating',
-  brokenFan: 'Stopped - Fan fault',
-  poolUnreachable: 'Stopped - Pools down',
-  otaUpdate: 'Stopped - Updating',
-  tunerFault: 'Stopped - Tuner fault',
-  userRequest: 'Stopped - User',
-};
 
 // A pool slot's display metadata, derived from GET /api/config. `null`
 // means the slot answered but is unconfigured; `undefined` (the initial
@@ -34,7 +26,11 @@ function statusOf(info: Info | null): Status {
   if (!info || info.paused == null) return { text: '–', cls: '' };
   if (info.paused) {
     return {
-      text: PAUSE_LABEL[info.pause_reason ?? ''] || 'Stopped',
+      // The union covers the reasons this page knows. The string comes
+      // from the board, and a firmware ahead of its bundled dashboard
+      // sends one the map lacks, so that reads as a plain stop rather
+      // than an empty status.
+      text: info.pause_reason ? (PAUSE_LABEL[info.pause_reason] ?? 'Stopped') : 'Stopped',
       cls: info.pause_reason === 'userRequest' ? 'stopped' : 'warn',
     };
   }

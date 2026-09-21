@@ -43,13 +43,42 @@ export interface Info {
   net_confirm_seconds?: number;
   running?: boolean;
   paused?: boolean;
-  pause_reason?: string | null;
+  /** The manager's dominant reason for the halt; `null` when running. */
+  pause_reason?: PauseReason | null;
   ip?: string;
   mac?: string;
   time?: string;
   ota?: Ota;
   chains: ChainInfo[];
 }
+
+// The reasons the board halts mining for, as the API spells them. The
+// board treats these strings as an enum and the manager's
+// `PauseReason::as_api_str` is their source; a rename there is a schema
+// change. Every reader of `pause_reason` types against this union and
+// takes its label from the map below, so a misspelling on this page is
+// a type error rather than a control that silently never enables. The
+// guard is one-sided: it covers what this page writes, not what the
+// board sends, so a reader that displays a reason still falls back for
+// one the map lacks.
+export type PauseReason =
+  | 'dangerousTemperature'
+  | 'temperatureUnreadable'
+  | 'brokenFan'
+  | 'poolUnreachable'
+  | 'otaUpdate'
+  | 'tunerFault'
+  | 'userRequest';
+
+export const PAUSE_LABEL: Record<PauseReason, string> = {
+  dangerousTemperature: 'Stopped - Overheating',
+  temperatureUnreadable: 'Stopped - No temperature reading',
+  brokenFan: 'Stopped - Fan fault',
+  poolUnreachable: 'Stopped - Pools down',
+  otaUpdate: 'Stopped - Updating',
+  tunerFault: 'Stopped - Tuner fault',
+  userRequest: 'Stopped - User',
+};
 
 // A pool's stratum protocol, a single-key tagged union in the JSON. The
 // board carries the Sv2 pubkey as raw bytes and accepts a null Sv1
