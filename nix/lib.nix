@@ -79,6 +79,17 @@ rec {
     UBOS_WEBUI_DIST = "${webuiDist}";
   };
 
+  # The derivation itself, for the check that holds its input list
+  # level with build.rs.
+  inherit webuiDist;
+
+  # The same variable on an interactive shell, so a `cargo build` in it
+  # embeds the pages a check does and never runs `npm`; the header of
+  # nix/shells.nix says why every Rust shell carries it. Written once
+  # here because the pair's other flake hosts shells of its own and
+  # wraps them with this.
+  withWebuiDist = shell: shell.overrideAttrs (_: webuiDistEnv);
+
   # Xtensa cross-build env every esp32s3 crane derivation carries:
   # rust-src for -Z build-std, the espressif cross-gcc for the
   # secp256k1-sys C build script, and -mlongcalls so its memset/memcpy

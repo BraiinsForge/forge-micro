@@ -34,30 +34,48 @@
 # Paste the printed hash into `npmDepsHash` below. A stale hash fails
 # the build and prints the correct "got:" hash to copy.
 #
-# The dev shells already carry `nodejs` (nix/shells.nix), so
-# `npm run dev` and build.rs's dev-shell fallback work without this
-# derivation; this module is only for the gated, offline flake build.
+# The dev shells set the same variable; the header of nix/shells.nix
+# says why.
 
 {
   lib,
   buildNpmPackage,
 }:
 
+let
+  inputs = [
+    "web"
+    "dev"
+    "index.html"
+    "login.html"
+    "rsbuild.config.ts"
+    "tsconfig.json"
+    "globals.d.ts"
+    "package.json"
+    "package-lock.json"
+  ];
+in
 buildNpmPackage {
   pname = "ubos-webui-dist";
   version = "0.1.0";
 
-  # Only the inputs the build reads; excludes node_modules, dist, and
-  # the Rust side so a stray local build does not perturb the hash.
+  # Only the inputs the build reads, the same list build.rs names in
+  # its rerun-if-changed lines; the webui-inputs check holds the two
+  # equal. Every shell carries this store path, so a file admitted here
+  # that the build never reads would still move the path and relink
+  # every firmware that embeds the pages.
   src = lib.cleanSourceWith {
     src = ../ubos/ubos-webui;
     filter =
       path: _type:
       let
-        base = baseNameOf path;
+        root = toString ../ubos/ubos-webui + "/";
+        rel = lib.removePrefix root (toString path);
       in
-      base != "node_modules" && base != "dist" && base != "target";
+      lib.any (input: rel == input || lib.hasPrefix (input + "/") rel) inputs;
   };
+
+  passthru = { inherit inputs; };
 
   # See the header for how to regenerate this when package-lock.json
   # moves.

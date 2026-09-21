@@ -35,11 +35,12 @@
 //!
 //! Two ways to obtain the built pages:
 //!   * If `UBOS_WEBUI_DIST` is set, read `<dist>/index.html` and
-//!     `<dist>/login.html`. The flake sets this to a hermetic
-//!     `buildNpmPackage` derivation output, so the Rust check sandbox
-//!     needs no Node.
-//!   * Otherwise (a dev shell with Node on PATH) run `npm run build`
-//!     in the crate directory and read the resulting `dist/`.
+//!     `<dist>/login.html`. The flake checks and the dev shells set
+//!     this to a hermetic `buildNpmPackage` derivation output; the
+//!     header of `nix/shells.nix` says why the shells do.
+//!   * Otherwise run `npm run build` in the crate directory and read
+//!     the resulting `dist/`. This is the path for a build outside
+//!     every shell that sets the variable, with Node on PATH.
 //!
 //! Build provenance (`UBOS_WEBUI_BUILD_REV`, `UBOS_WEBUI_BUILD_TIME`)
 //! is stamped here, not in the bundle: `rsbuild.config.ts` defines the
@@ -194,9 +195,7 @@ fn icon_data_uri(dir: &Path) -> String {
 /// first when `node_modules` is absent so a fresh checkout builds
 /// without a manual `npm ci`.
 fn run_web_build(manifest_dir: &Path) {
-    // `npm` is on PATH in the Nix dev shells that add `nodejs`. This
-    // path is never taken in the flake checks: those set
-    // `UBOS_WEBUI_DIST` to a prebuilt hermetic dist instead.
+    // The second of the two ways the module doc names.
     if !manifest_dir.join("node_modules").exists() {
         run_npm(manifest_dir, &["ci"]);
     }

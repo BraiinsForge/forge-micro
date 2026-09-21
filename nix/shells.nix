@@ -22,6 +22,19 @@
 # arrive as arguments so every shell stays consistent with the flake
 # checks.
 #
+# Every shell here sets UBOS_WEBUI_DIST to the hermetic dashboard build
+# the checks read, so a `cargo build` in a shell embeds the same pages a
+# check does and never runs `npm`. The one path the checks do not
+# exercise is the one that broke: a half-finished `npm ci` left a
+# `node_modules` that build.rs took for an install, and every shell
+# build failed while every gate stayed green. The variable is applied
+# to the whole set this file returns rather than per shell, so a shell
+# added to that set cannot miss it. That guarantee stops at this file:
+# a consuming repo that hosts shells of its own wraps them itself, and
+# `helpers.withWebuiDist` is exported for that. The dist
+# depends on the frontend sources alone, so its store path moves only
+# when they do and a dirty Rust tree rebuilds nothing on its account.
+#
 # These shells flash over a probe attached to the machine they run on.
 # `probe-rs-runner` takes the probe from `--probe`, or from
 # `$PROBE_SERIAL` when several are plugged in, and auto-selects
@@ -60,7 +73,8 @@ let
   setupNetwork = pkgs.callPackage ../pkgs/setup-network { };
   hostRunnerRun = pkgs.callPackage ../pkgs/host-runner-run { };
 in
-{
+# The hermetic dashboard build, on every shell; see the header.
+pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
   arm = pkgs.mkShell (
     {
       buildInputs = with pkgs; [
@@ -79,8 +93,9 @@ in
         # below via helpers.armCc; cc-rs' fallback to host `gcc` does
         # not work for thumb targets.
         gcc-arm-embedded
-        # ubos-webui's Rsbuild/Preact dev loop (`npm run dev`) and its
-        # build.rs dev-shell fallback (`npm run build`).
+        # ubos-webui's Rsbuild/Preact dev loop (`npm run dev`). Not for
+        # build.rs: every shell hands it the hermetic dist, see the
+        # header.
         nodejs
         # Byte-exact A/B size measurement of the ubos-webui pages; the
         # crate's build.rs embeds Zopfli-gzipped bytes, so the CLI must

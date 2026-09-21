@@ -265,9 +265,10 @@ npm run typecheck      # tsc --noEmit, strict; gate before any commit
 npm run build          # production: dist/index.html + dist/login.html
 ```
 
-`cargo build` re-runs `build.rs`, which shells out to `npm` (running
-`npm ci` if `node_modules` is missing) and re-embeds the pages. It needs
-the Rust toolchain from the `arm` shell:
+`cargo build` embeds the hermetic dashboard build that `UBOS_WEBUI_DIST`
+names, which every dev shell sets, so it never runs `npm`; the commands
+above are the only ones that do. It needs the Rust toolchain from the
+`arm` shell:
 
 ```sh
 nix develop .#arm -c bash -c 'cd ubos/ubos-webui && cargo build'

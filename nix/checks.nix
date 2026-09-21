@@ -78,6 +78,7 @@ let
   inherit (pkgs) lib;
   inherit (helpers)
     armCc
+    webuiDist
     webuiDistEnv
     espCrossEnv
     espRustflags
@@ -848,6 +849,22 @@ hostClippyChecks
         cargo-machete ./scan-src
         touch $out
       '';
+
+  # nix/webui.nix admits only the files it lists into the dashboard
+  # build, and build.rs lists the same files as its rebuild triggers.
+  # Neither can read the other, and a file added to build.rs alone is
+  # dropped from the hermetic dist without a word, so the two lists are
+  # compared here and any difference fails.
+  webui-inputs = pkgs.runCommand "webui-inputs" { } ''
+    sed -n '/for path in \[/,/\]/p' ${root + "/ubos/ubos-webui/build.rs"} \
+      | grep -o '"[^"]*"' | tr -d '"' | sort > from-build-rs
+    printf '%s\n' ${lib.escapeShellArgs webuiDist.inputs} | sort > from-nix
+    if ! diff from-nix from-build-rs; then
+      echo "webui input drift: nix/webui.nix (<) and build.rs (>) list different files" >&2
+      exit 1
+    fi
+    touch $out
+  '';
 
   # The OTA image-size limit is hard-coded in several languages that
   # cannot share a definition: slotMaxBytes/esp32s3SlotBytes here,

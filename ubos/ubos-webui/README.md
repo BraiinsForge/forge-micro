@@ -38,16 +38,16 @@ npm ci                    # first time only
 Run them from the crate directory. Invoking rsbuild from the repo root
 ignores the local install and serves 404s for every route.
 
-The `arm` shell carries `nodejs` for the same commands, which is what
-`build.rs` relies on. Wrap any command below when you want that Node
-instead of the system one:
+The `arm` shell carries `nodejs` for the same commands. Wrap any
+command below when you want that Node instead of the system one:
 
 ```sh
 nix develop .#arm -c bash -c 'cd ubos/ubos-webui && <command>'
 ```
 
-Only `cargo build` genuinely needs the shell, and only for the Rust
-toolchain and target — `build.rs` itself just shells out to `npm`.
+`cargo build` does not use this Node: every dev shell sets
+`UBOS_WEBUI_DIST`, for the reason the header of `nix/shells.nix`
+gives. See "Production build" below.
 
 ## Types
 
@@ -172,8 +172,10 @@ JS and CSS into each page, and the SWC minifier shrinks the bundle.
 
 `build.rs` does this automatically: if `UBOS_WEBUI_DIST` is set
 it reads the two pages from that directory, otherwise it runs `npm ci`
-(when `node_modules` is missing) and `npm run build` itself. So a plain
-`cargo build` inside the `arm` shell is enough.
+(when `node_modules` is missing) and `npm run build` itself. The doc
+comment of `build.rs` says which build takes which path. Nix reads the
+tracked tree, so a new frontend file reaches a shell build only after
+`git add` and a new `nix develop`.
 
 The footer's revision and time are not in the bundle. `source.define`
 puts two fixed tokens there, and `build.rs` replaces them with
@@ -192,8 +194,7 @@ change builds nothing and keeps the stamp of the last build.
 `nix/webui.nix` is the hermetic `buildNpmPackage` that lets the Rust
 checks build without Node: `flake.nix` builds it and threads the
 output through `nix/lib.nix` as `webuiDistEnv`, which
-`clippy-ubos-webui` and `test-ubos-webui` (`nix/checks.nix`) set as
-`UBOS_WEBUI_DIST` so `build.rs` never shells out to `npm` in the
-sandbox. The derivation's `preBuild` runs `npm run typecheck`, so the
+`clippy-ubos-webui` and `test-ubos-webui` (`nix/checks.nix`) and the
+dev shells (`nix/shells.nix`) set as `UBOS_WEBUI_DIST`. The derivation's `preBuild` runs `npm run typecheck`, so the
 type check gates the build. The file's header documents the one-time
 `prefetch-npm-deps` call for when `package-lock.json` moves.
