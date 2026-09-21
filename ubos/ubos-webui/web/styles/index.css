@@ -626,13 +626,6 @@ main > * {
   .side .card {
     height: auto;
   }
-
-  /* The nav row loses its slack at the same width, so the "micro" tag
-     beside the wordmark gives way. The Braiins wordmark is the mark
-     worth keeping, so it stays down to the narrowest screen. */
-  .logo .mu {
-    display: none;
-  }
 }
 
 @media (max-width: 480px) {
@@ -1353,7 +1346,9 @@ main > * {
   align-items: center;
   min-height: 48px;
   background: var(--accent);
-  color: #fff;
+  /* Text on an accent background takes the brand's own value; see the
+     rule in login.css and brand/README.md. */
+  color: var(--accent-text);
   border: 0;
   padding: 8px 16px;
   letter-spacing: 0.16px;
@@ -1470,7 +1465,7 @@ main > * {
 
 .seg button.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   border-color: var(--accent);
 }
 

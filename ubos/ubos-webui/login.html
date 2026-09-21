@@ -23,7 +23,12 @@ shall be considered distinct from the grant above.
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>microBOS — Login</title>
+  <title><%= brandName %> — Login</title>
+  <!-- Inlined; index.html carries the reason. -->
+  <link rel="icon" type="image/png" href="<%= brandIcon %>">
+  <!-- The brand's three colours; index.html carries the same block and
+       states why it is here rather than in common.css. -->
+  <style>:root{--accent:<%= brandAccent %>;--accent-hi:<%= brandAccentHi %>;--accent-text:<%= brandAccentText %>}</style>
   <!-- Apply the saved theme preference before first paint so the page
        never flashes the wrong palette. -->
   <script>
@@ -45,8 +50,7 @@ shall be considered distinct from the grant above.
        of the Preact runtime the dashboard needs. -->
   <div class="card">
     <div class="logo">
-      <img src="/logo.svg" alt="Braiins">
-      <span class="mu">micro</span>
+      <img src="/logo.svg" alt="<%= brandName %>">
     </div>
     <div class="err" id="err">Invalid username or password.</div>
     <form method="post" action="/login">

@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs';
 import type { ClientRequest } from 'node:http';
+import { join } from 'node:path';
 import { defineConfig } from '@rsbuild/core';
 import { pluginPreact } from '@rsbuild/plugin-preact';
 import { mockApi } from './dev/mock';
@@ -19,6 +21,45 @@ const provenance = (env: string) =>
   env === 'production'
     ? { rev: '@UBOS_WEBUI_BUILD_REV@', time: '@UBOS_WEBUI_BUILD_TIME@' }
     : { rev: 'dev', time: '0' };
+
+// The brand takes the same shape as the provenance above, and for the
+// same reason: a production bundle carries tokens that build.rs replaces
+// per tree, so one built dist serves every brand. Unlike the provenance,
+// the brand is known at this step, so a dev build emits the real values
+// rather than a stand-in.
+//
+// UBOS_BRAND names the directory that holds the whole brand. Cargo
+// declares it for every build it drives; the dev server is `npm run
+// dev`, which cargo never runs, so package.json exports it there. Both
+// read the same file, which is what keeps the brand a single knob.
+const BRAND_TOKENS = {
+  brandName: '@UBOS_BRAND_NAME@',
+  brandAccent: '@UBOS_BRAND_ACCENT@',
+  brandAccentHi: '@UBOS_BRAND_ACCENT_HI@',
+  brandAccentText: '@UBOS_BRAND_ACCENT_TEXT@',
+  brandIcon: '@UBOS_BRAND_ICON@',
+};
+
+const brandDir = () => {
+  const dir = process.env.UBOS_BRAND;
+  if (!dir) {
+    throw new Error('UBOS_BRAND is unset; the `dev` script in package.json must export it');
+  }
+  return dir;
+};
+
+const brandOf = (env: string) => {
+  if (env === 'production') return BRAND_TOKENS;
+  const file = join(brandDir(), 'brand.json');
+  const brand = JSON.parse(readFileSync(file, 'utf8'));
+  return {
+    brandName: brand.name,
+    brandAccent: brand.accent,
+    brandAccentHi: brand.accentHi,
+    brandAccentText: brand.accentText,
+    brandIcon: `data:image/png;base64,${readFileSync(join(brandDir(), 'icon.png')).toString('base64')}`,
+  };
+};
 
 // When VITE_API_BASE (e.g. http://192.168.1.50) is set, the dev server
 // proxies to a live board; otherwise the mock middleware answers from
@@ -82,18 +123,35 @@ export default defineConfig(({ env }) => ({
     define: {
       __BUILD_REV__: JSON.stringify(provenance(env).rev),
       __BUILD_TIME__: JSON.stringify(provenance(env).time),
+      // The wordmark `alt` text lives in TopNav.tsx, inside the bundle,
+      // so it reaches the page through `define` and not through the
+      // HTML template below.
+      __BRAND_NAME__: JSON.stringify(brandOf(env).brandName),
     },
   },
   html: {
     // Each entry keeps its own template (the pre-paint theme script and
     // page shell); Rsbuild injects the entry's inlined script into it.
     template: ({ entryName }) => (entryName === 'login' ? './login.html' : './index.html'),
+    // The page title and the accent `<style>` block are in the template
+    // rather than the bundle, and `define` never substitutes into HTML.
+    // Both templates are plain `.html`, so html-rspack-plugin renders
+    // them with its lodash-template loader and `<%= key %>` interpolates.
+    templateParameters: (params) => ({ ...params, ...brandOf(env) }),
     // Inject into <body>, after the app div. Browsers ignore `defer` on
     // inline scripts, so a head-injected inlined bundle runs before the
     // mount point exists and the render crashes.
     inject: 'body',
   },
   output: {
+    // Serve the declared brand's wordmark at /logo.svg for the dev
+    // server, so it shows the same file the firmware serves. A
+    // production build copies nothing: there the wordmark never passes
+    // through the bundler, build.rs gzips it straight from the brand
+    // directory, and the dist stays the same for every brand. The tab
+    // icon needs no copy in either mode, because it is inlined into
+    // the page rather than served from a path.
+    ...(env === 'production' ? {} : { copy: [{ from: join(brandDir(), 'logo.svg'), to: 'logo.svg' }] }),
     // Inline everything so each page is a single self-contained file.
     inlineScripts: true,
     inlineStyles: true,

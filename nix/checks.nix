@@ -60,6 +60,12 @@
   slotMaxBytes,
   esp32s3SlotBytes,
   boardParity,
+  # Which brand each board ships, from nix/brands.nix. Every build that
+  # compiles ubos-webui takes UBOS_BRAND from it.
+  brands,
+  # The brand gate shared with the internal repository; see
+  # nix/brand-gates.nix.
+  brandGates,
   # Workspace package names present in the tree, from crate-graph. Every
   # firmware gate below filters itself out when its crate is not a
   # member, so a tree carrying a subset of the boards evaluates with
@@ -80,6 +86,20 @@ let
 
   # Line budget for CLAUDE.md; see claude-md-limit below.
   claudeMdMaxLines = 200;
+
+  # The webui build environment for one board: the hermetic dist, plus
+  # the brand that board ships. Every site that compiles ubos-webui goes
+  # through this or through webuiHostEnv below, so a new site cannot
+  # forget the brand.
+  webuiEnv = name: webuiDistEnv // brands.envFor name;
+
+  # The same for a build that compiles ubos-webui without being a board.
+  # It ships no pages, so the brand is arbitrary: the page tests assert
+  # that no brand token survives, not that one brand's words are on the
+  # page. Spelling it this way rather than passing a crate name to
+  # webuiEnv keeps that function meaning "the brand this board ships",
+  # so a name no board table matches cannot pass for one of these.
+  webuiHostEnv = webuiDistEnv // brands.defaultEnv;
 
   # A firmware crate is gated only when it is a workspace member. In this
   # repo every board is a member, so this is always true; it is what lets
@@ -107,7 +127,7 @@ let
         }-- -D warnings";
         doInstallCargoArtifacts = false;
       }
-      // lib.optionalAttrs (spec.webuiDist or false) webuiDistEnv
+      // lib.optionalAttrs (spec.webuiDist or false) webuiHostEnv
     );
 
   # Host-side unit tests, dev profile so debug_assert! and
@@ -122,7 +142,7 @@ let
         cargoExtraArgs = "-p ${spec.crate}${spec.args or ""}";
         doInstallCargoArtifacts = false;
       }
-      // lib.optionalAttrs (spec.webuiDist or false) webuiDistEnv
+      // lib.optionalAttrs (spec.webuiDist or false) webuiHostEnv
     );
 
   hostClippyChecks = builtins.mapAttrs (_: mkHostClippy) {
@@ -314,7 +334,13 @@ let
   # selects the postBuild image guard: "slot" objcopies the ELF and
   # enforces the OTA slot budget, "elf" greps the ELF for the pool
   # worker only; boards that are not OTA targets have no slot budget.
-  boards = lib.filterAttrs (name: _: hasCrate name) {
+  #
+  # `boardTable` is this table before `hasCrate` filters it, and
+  # `board-coverage` below reads that unfiltered form. The filter is
+  # what makes a row whose crate is absent disappear rather than fail,
+  # so a gate reading the filtered `boards` could never see the row it
+  # is looking for.
+  boardTable = {
     forge-axe = {
       artifacts = deps.thumbv8mArtifacts;
       target = "thumbv8m.main-none-eabihf";
@@ -351,6 +377,19 @@ let
       guard = "elf";
     };
   };
+
+  boards = lib.filterAttrs (name: _: hasCrate name) boardTable;
+
+  # The firmware crates gated outside `boardTable`, each by a
+  # hand-written check above. `board-coverage` needs them because it
+  # asks whether a firmware directory is gated at all, not whether it
+  # goes through the table.
+  handGatedBoards = [
+    "esp32s3"
+    "esp32s3-bootloader"
+    "rp2040-bootloader"
+    "rp2350-bootloader"
+  ];
 
   # Slot-size guard plus pool-worker guard for OTA boards. See
   # docs/OTA.md for the flash layout and slot budget; the guard text
@@ -405,7 +444,7 @@ let
         ];
       }
       // armCc board.target
-      // webuiDistEnv
+      // webuiEnv name
     );
 
   # Release build of each firmware binary. cargo check and cargo
@@ -429,7 +468,7 @@ let
         ];
       }
       // armCc board.target
-      // webuiDistEnv
+      // webuiEnv name
       // lib.optionalAttrs (board.guard == "slot") {
         postBuild = slotGuard name board.target;
       }
@@ -508,7 +547,7 @@ let
         cargoExtraArgs = "-p esp32s3@0.1.0 --target xtensa-esp32s3-none-elf -Z build-std=core";
         cargoClippyExtraArgs = "-- -D warnings";
       }
-      // webuiDistEnv
+      // (webuiEnv "esp32s3")
     );
 
     # No codegen bag to reuse; see the esp bag rationale in nix/deps.nix.
@@ -542,7 +581,7 @@ let
         '';
       }
       // espRustflags
-      // webuiDistEnv
+      // (webuiEnv "esp32s3")
     );
 
     # Gate the OTA bootloader so a broken sdkconfig fails CI. This
@@ -565,7 +604,7 @@ let
           + "esp-storage/critical-section,esp-bootloader-esp-idf/esp32s3";
         cargoClippyExtraArgs = "-- -D warnings";
       }
-      // webuiDistEnv
+      // webuiHostEnv
     );
 
     clippy-esp32s3-tsens = espCraneLib.cargoClippy {
@@ -707,7 +746,7 @@ hostClippyChecks
       # uses so the C objects share the target ABI.
       CC_arm_unknown_linux_musleabi = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
     }
-    // webuiDistEnv
+    // webuiHostEnv
   );
 
   fmt = craneLib.cargoFmt {
@@ -1029,6 +1068,16 @@ hostClippyChecks
     touch $out
   '';
 
+  # Every firmware crate is named by a gate, and every gate names a
+  # firmware crate. The rule, and why it is one shared with the internal
+  # repository, are in nix/brand-gates.nix; this tree supplies the two
+  # things that module cannot know, which gates it has and which crates
+  # it builds.
+  board-coverage = brandGates.boardCoverage {
+    boards = builtins.attrNames boardTable ++ handGatedBoards;
+    isMember = hasCrate;
+  };
+
   # nix/toolchains.nix names the Rust version once and every toolchain
   # there reads that name. Two files cannot reach it and must state it
   # again: micro-sv2 is a flake of its own, and a flake reads no path
@@ -1055,6 +1104,16 @@ hostClippyChecks
     check ${root + "/ubos/stratum-v1/rust-toolchain.toml"} 'channel = "${rustVersion}"'
     touch $out
   '';
+
+  # The brand a board ships is stated twice, and it has to be; the
+  # reason, and the gate itself, are in nix/brand-gates.nix, which both
+  # trees of the pair call. The list below is the one question that
+  # module cannot answer for itself: which boards declare a brand. The
+  # `boards` table covers the ARM and STM ones; esp32s3 is hand-written
+  # above and joins here.
+  brand-declaration = brandGates.brandDeclaration {
+    boards = builtins.attrNames boards ++ lib.optional (hasCrate "esp32s3") "esp32s3";
+  };
 
   # Nix formatting gate. In the monorepo this was owned by a
   # repo-root treefmt; as a standalone repo the flake must

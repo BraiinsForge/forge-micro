@@ -78,12 +78,19 @@ let
   # Crane's default filter keeps Cargo.toml, Cargo.lock, and .rs files.
   # We also need .cargo/config.toml, which holds per-crate target
   # settings, `.x` linker scripts, the two single-file HTML pages that
-  # ubos-webui's build.rs reads and gzips into OUT_DIR, the
-  # Braiins wordmark served at /logo.svg via include_bytes!, the
-  # build.rs sibling at the ubos-webui crate root, the stratum-v2
-  # golden transcript fixtures that the replay tests pull in via
-  # include_bytes!, and the ubos-snapshot JSON fixture its report tests
-  # pull in via include_str!.
+  # ubos-webui's build.rs reads and gzips into OUT_DIR, the icon set the
+  # frontend imports, the build.rs sibling at the ubos-webui crate root,
+  # the stratum-v2 golden transcript fixtures that the replay tests pull
+  # in via include_bytes!, and the ubos-snapshot JSON fixture its report
+  # tests pull in via include_str!.
+  #
+  # The brand directories are deliberately absent. Nothing in a nix build
+  # reads a brand out of this source: `brands.envFor` in nix/brands.nix
+  # interpolates the brand directory as a store path of its own and
+  # passes it as UBOS_BRAND, so a build depends on the one brand it ships
+  # and the wordmark never enters a crate's source. Admitting the
+  # directory here would put every brand in every scoped source below,
+  # and an edit to one wordmark would then rebuild every crate.
   customFilter =
     path: _type:
     (builtins.match ".*\\.cargo/config\\.toml$" path != null)
@@ -160,6 +167,14 @@ let
   # too so the scoped source carries the real ones verbatim; `extraRoots`
   # extends the list for a consumer whose own workspace root sits at a
   # path this repo does not know.
+  #
+  # `brand` does not belong here, however much it looks like it should.
+  # It sits at the tree root and belongs to no crate, but ubos-webui's
+  # build.rs reads it through UBOS_BRAND, which nix/brands.nix sets to a
+  # store path of the one brand that board ships. Adding it would put
+  # every brand in every crate's scoped source and make a wordmark edit
+  # rebuild the whole workspace, which is the opposite of what this list
+  # is for.
   sharedRoots = [
     "Cargo.toml"
     "Cargo.lock"

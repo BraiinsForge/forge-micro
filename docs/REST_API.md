@@ -35,7 +35,7 @@ change.
 | `ubos-http`    | TCP accept loop, per-connection state machine, `Service` trait, `PrefixRouter`, the port 80 listener constants; generic response helpers (`read_body`, `write_json_response`, `MAX_RESPONSE_HEADERS`) |
 | `ubos-auth`    | shared HTTP middleware: allow-list, auth, sessions, CSRF, CSPRNG          |
 | `ubos-api`     | REST handlers, `REST_API_SERVICE` mDNS entry, schema types                |
-| `ubos-webui`   | Zopfli-gzipped `index.html` / `login.html` and `logo.svg`; dashboard handler; `WEBUI_SERVICE` mDNS entry |
+| `ubos-webui`   | Zopfli-gzipped `index.html` / `login.html` and `logo.svg`, with `icon.png` inlined into each page; dashboard handler; `WEBUI_SERVICE` mDNS entry |
 | `ubos-mdns`    | DNS-SD responder; per-service registration via `declare_service!`         |
 | `ubos-metrics` | Prometheus exporter task and metric storage                               |
 
@@ -111,7 +111,7 @@ from the same page.
 | GET    | `/login`       | none        | Login form; gzipped                                          |
 | POST   | `/login`       | none        | Form `username=&password=`; sets `session=` cookie on success     |
 | POST   | `/logout`      | session     | Invalidates session, clears cookie                                |
-| GET    | `/logo.svg`    | none        | Braiins wordmark; `Cache-Control: public, max-age=86400`          |
+| GET    | `/logo.svg`    | none        | The brand wordmark; `Cache-Control: public, max-age=86400`        |
 
 Anonymous `GET /` is rewritten to `302 Found → /login`.
 
@@ -344,10 +344,15 @@ the `MDNS_HOSTNAME_BASE` const and the last MAC byte.
 |------------------|------------------------------|----------|-----------------------------|
 | Dashboard SPA    | `ubos-webui/index.html`      | gzip     | `Cache-Control: no-store`   |
 | Login form       | `ubos-webui/login.html`      | gzip     | `Cache-Control: no-store`   |
-| Logo wordmark    | `ubos-webui/src/logo.svg`    | gzip     | `public, max-age=86400`     |
+| Logo wordmark    | `$UBOS_BRAND/logo.svg`       | gzip     | `public, max-age=86400`     |
+| Tab icon         | `$UBOS_BRAND/icon.png`       | inlined  | rides inside each page      |
 
 Assets are Zopfli-gzipped at build time by `ubos-webui/build.rs` and
-embedded via `include_bytes!`; no runtime compression cost.
+embedded via `include_bytes!`; no runtime compression cost. The tab icon
+is the exception. It has no path of its own: `build.rs` encodes it into
+a `data:` URI that each page links, so a page load asks for the page and
+the wordmark and nothing more. A board answers as few as two requests at
+once, and a third request costs the page its wordmark.
 
 ## Limits and timeouts
 

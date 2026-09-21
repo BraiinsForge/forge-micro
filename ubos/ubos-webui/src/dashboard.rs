@@ -33,9 +33,12 @@
 //!   requests without re-downloading the compressed HTML asset.
 //! - `GET /login`, `POST /login`, `POST /logout` drive the session
 //!   cookie used by the SPA when it calls the API surface.
-//! - `GET /logo.svg` serves the Braiins wordmark referenced by the
+//! - `GET /logo.svg` serves the brand wordmark referenced by the
 //!   dashboard's nav bar. Kept as a separate cacheable asset rather
-//!   than inlined so the index response stays inside its buffer.
+//!   than inlined so the index response stays inside its buffer. The
+//!   tab icon goes the other way and is inlined into each page as a
+//!   `data:` URI, because a board serves as few as two requests at
+//!   once and a page load must not need a third.
 //!
 //! Any other path returns a 404 with a plain-text body. Wrong-method
 //! requests on known paths return 405. The transport loop and request

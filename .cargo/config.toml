@@ -3,6 +3,13 @@
 # step 5e; pool credentials are now operator-supplied via
 # POST /api/config and persisted in flash.
 #
+# UBOS_BRAND is deliberately absent here, and there is no workspace-wide
+# value for it. The brand is a board fact: three boards of the pair ship
+# Forge Firmware and every other board ships uBOS, so each board's own
+# `.cargo/config.toml` declares it beside that board's chip and log
+# level. `brand/README.md` holds the assignment and the file format, and
+# `nix/brands.nix` is the copy every nix build reads.
+#
 # DEFMT_LOG stays per-firmware on purpose: `defmt-macros` reads it
 # at proc-macro expansion and, when set, emits `defmt::export::...`
 # tokens. Crates that consume `ubos_logging` macros transitively

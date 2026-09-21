@@ -23,7 +23,16 @@ shall be considered distinct from the grant above.
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>microBOS</title>
+  <title><%= brandName %></title>
+  <!-- The icon is inlined rather than linked by path. build.rs states
+       why: a linked icon costs a third request per page load, and so
+       does offering none, because the browser then asks for
+       /favicon.ico by itself. -->
+  <link rel="icon" type="image/png" href="<%= brandIcon %>">
+  <!-- The brand's three colours. This block is the only rule that gives
+       them, so a later rule can still redefine either accent for one
+       theme; common.css therefore carries no accent pair of its own. -->
+  <style>:root{--accent:<%= brandAccent %>;--accent-hi:<%= brandAccentHi %>;--accent-text:<%= brandAccentText %>}</style>
   <!-- Apply the saved theme preference before first paint so the page
        never flashes the wrong palette. data-theme-pref keeps the
        operator's choice (auto, light, dark) and drives the cycler icon;

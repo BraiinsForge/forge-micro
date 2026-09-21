@@ -11,8 +11,7 @@ export default function TopNav({ view, boardNotice }: TopNavProps) {
   return (
     <nav class="bar">
       <span class="logo">
-        <img src="/logo.svg" alt="Braiins" />
-        <span class="mu">micro</span>
+        <img src="/logo.svg" alt={__BRAND_NAME__} />
       </span>
       <a href="#dash" class={view === 'dash' ? 'on' : ''}>
         Dashboard

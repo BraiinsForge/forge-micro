@@ -8,6 +8,33 @@ Gzip rather than Brotli: browsers only advertise `br` over HTTPS and on
 `README.md` covers the dev loops in depth; this file is the working
 contract — read it before touching `web/`.
 
+## The pages carry no brand of their own
+
+Three boards ship Forge Firmware and every other board ships uBOS, from
+one build of this crate. So nothing here names a brand. `UBOS_BRAND`
+names a directory holding the name, three colours, the wordmark and the
+tab icon;
+`build.rs` reads it and replaces a token per value, and each board
+declares which directory it ships. **`../../brand/README.md` is the
+authority** — read it before touching a page title, an accent, or the
+wordmark.
+
+What this costs an edit here:
+
+- A new value a page needs is a key in `brand.json`, a token in
+  `build.rs`, a row in its `PAGES` list, and a parameter in
+  `rsbuild.config.ts`. Both halves of that last file are needed:
+  `source.define` substitutes into the bundle and never into an HTML
+  template, and `html.templateParameters` the other way round.
+- `--accent`, `--accent-hi` and `--accent-text` are not in
+  `common.css`. Each page's `<head>` carries the `<style>` block that
+  defines them.
+- Text on an accent background takes `var(--accent-text)`, never
+  `#fff`. White fails WCAG AA on the Forge orange.
+- The built `dist/` stays the same for every brand, which is what keeps
+  one nix build of it serving every board. Keep it that way: a brand
+  value belongs in a token, never in the bundle.
+
 ## Size is the first constraint
 
 **Every byte of the built bundle ships in firmware flash.** The pages
@@ -16,12 +43,13 @@ are Zopfli-gzipped and baked into the image via `include_bytes!`
 (OTA image cap is ~950 KiB). The number that matters is the **Zopfli
 gzip size of `dist/*.html`**, not the raw or minified size.
 
-Current baseline (`npm run build`, then `zopfli --i1000`):
+Current baseline, measured on the pages the `rp2040` image embeds, so
+the numbers are the stamped pages and not the tokenized `dist/`:
 
 | Page | raw | gzip (embedded) |
 |------|-----|-----------------|
-| `dist/index.html` | ~75 KB | **~23.8 KB** |
-| `dist/login.html` | ~4.4 KB | **~2.1 KB** |
+| `index.html` | 79 310 B | **25 606 B** |
+| `login.html` | 5 264 B | **2 741 B** |
 
 Before/after any change that could move the needle, measure the delta
 (the `zopfli` CLI is in the `arm` dev shell; `--i1000` matches the

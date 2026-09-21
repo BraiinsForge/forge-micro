@@ -9,6 +9,8 @@ runner = [
 # point, cooling profile, and chip baud all come from the board descriptor
 # and config defaults now, not build-time env.
 [env]
+# The brand this board ships; brand/README.md holds the table and the format.
+UBOS_BRAND = { value = "../../brand/forge", relative = true }
 DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
 
 [build]

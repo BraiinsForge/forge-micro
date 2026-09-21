@@ -7,6 +7,8 @@ runner = [
 
 # POOL_* defaults live in the workspace .cargo/config.toml.
 [env]
+# The brand this board ships; brand/README.md holds the table and the format.
+UBOS_BRAND = { value = "../../brand/ubos", relative = true }
 DEFMT_LOG = "debug,embassy_net=info,smoltcp=info"
 
 [build]

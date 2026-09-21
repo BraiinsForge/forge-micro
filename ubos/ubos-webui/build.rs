@@ -47,6 +47,17 @@
 //! replaces them in each page before compressing it. So the built dist
 //! is the same for every commit and is cached across them, while the
 //! pages a firmware embeds still carry the revision that built them.
+//!
+//! The brand rides that same path and keeps the same property. Each
+//! board declares one brand directory as `UBOS_BRAND` in its own
+//! `.cargo/config.toml`, and a nix build passes the same value from
+//! `nix/brands.nix`; this script reads `brand.json` from it, replaces
+//! the brand tokens the bundle carries, gzips the directory's
+//! `logo.svg` for the handler to serve at `/logo.svg`, and encodes its
+//! `icon.png` into the `data:` URI each page links. So one built dist
+//! serves every brand, and a firmware embeds the brand of the board it
+//! was built for. `brand/README.md` documents the file and the rules a
+//! new brand must obey.
 
 use std::env;
 use std::fs;
@@ -78,18 +89,105 @@ fn gzip_to(bytes: &[u8], dest: &Path) {
 const REV_TOKEN: &str = "@UBOS_WEBUI_BUILD_REV@";
 const TIME_TOKEN: &str = "@UBOS_WEBUI_BUILD_TIME@";
 
-/// The built pages, each beside the provenance tokens it must carry.
-/// Only the dashboard shows them, in its footer, so the login page
-/// names none. A page that is missing a token it names was built from a
-/// config that no longer matches this script, so that is a bug rather
-/// than a page to ship unstamped.
-const PAGES: [(&str, &[&str]); 2] = [("index", &[REV_TOKEN, TIME_TOKEN]), ("login", &[])];
+/// The tokens `rsbuild.config.ts` emits for the brand facts, replaced by
+/// [`stamp`] in each built page. The page title and the wordmark `alt`
+/// text take the name, and a `<style>` block in the head takes the
+/// three colours.
+const NAME_TOKEN: &str = "@UBOS_BRAND_NAME@";
+const ACCENT_TOKEN: &str = "@UBOS_BRAND_ACCENT@";
+const ACCENT_HI_TOKEN: &str = "@UBOS_BRAND_ACCENT_HI@";
+const ACCENT_TEXT_TOKEN: &str = "@UBOS_BRAND_ACCENT_TEXT@";
+const ICON_TOKEN: &str = "@UBOS_BRAND_ICON@";
 
-/// Replace the provenance tokens in a built page. A page that carries
-/// neither token comes back unchanged.
-fn stamp(html: &str, build_rev: &str, build_time: &str) -> String {
+/// The built pages, each beside the tokens it must carry. Both pages
+/// carry the whole brand; only the dashboard shows the provenance, in
+/// its footer, so the login page names neither provenance token. A page
+/// that is missing a token it names was built from a config that no
+/// longer matches this script, so that is a bug rather than a page to
+/// ship unstamped.
+const PAGES: [(&str, &[&str]); 2] = [
+    (
+        "index",
+        &[
+            REV_TOKEN,
+            TIME_TOKEN,
+            NAME_TOKEN,
+            ACCENT_TOKEN,
+            ACCENT_HI_TOKEN,
+            ACCENT_TEXT_TOKEN,
+            ICON_TOKEN,
+        ],
+    ),
+    (
+        "login",
+        &[
+            NAME_TOKEN,
+            ACCENT_TOKEN,
+            ACCENT_HI_TOKEN,
+            ACCENT_TEXT_TOKEN,
+            ICON_TOKEN,
+        ],
+    ),
+];
+
+/// The brand facts a page carries, read from `$UBOS_BRAND/brand.json`.
+struct Brand {
+    name: String,
+    accent: String,
+    accent_hi: String,
+    accent_text: String,
+}
+
+/// Read the declared brand. Every key is required: a default here would
+/// be a second copy of every value, and the first edit would move one
+/// copy only.
+fn read_brand(dir: &Path) -> Brand {
+    let path = dir.join("brand.json");
+    let text = fs::read_to_string(&path)
+        .unwrap_or_else(|_| panic!("BUG: read brand file {}", path.display()));
+    let json: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|error| panic!("BUG: {} is not JSON: {error}", path.display()));
+    let string = |key: &str| {
+        json.get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("BUG: {} has no string key `{key}`", path.display()))
+            .to_string()
+    };
+    Brand {
+        name: string("name"),
+        accent: string("accent"),
+        accent_hi: string("accentHi"),
+        accent_text: string("accentText"),
+    }
+}
+
+/// Replace the provenance and brand tokens in a built page. A page that
+/// carries none of them comes back unchanged.
+fn stamp(html: &str, build_rev: &str, build_time: &str, brand: &Brand, icon: &str) -> String {
     html.replace(REV_TOKEN, build_rev)
         .replace(TIME_TOKEN, build_time)
+        .replace(NAME_TOKEN, &brand.name)
+        .replace(ACCENT_TOKEN, &brand.accent)
+        .replace(ACCENT_HI_TOKEN, &brand.accent_hi)
+        .replace(ACCENT_TEXT_TOKEN, &brand.accent_text)
+        .replace(ICON_TOKEN, icon)
+}
+
+/// The brand's tab icon as a `data:` URI.
+///
+/// The icon rides inside the page rather than being served from a path
+/// of its own. A board answers as many requests at once as its HTTP
+/// pool is deep, the smallest pool is two, and a page that links an
+/// icon by path costs a third request on every load. A browser that is
+/// offered no icon asks for `/favicon.ico` by itself, so leaving the
+/// link out costs that request too. Only a `data:` URI costs none.
+fn icon_data_uri(dir: &Path) -> String {
+    use base64::Engine as _;
+
+    let path = dir.join("icon.png");
+    let bytes = fs::read(&path).unwrap_or_else(|_| panic!("BUG: read {}", path.display()));
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    format!("data:image/png;base64,{encoded}")
 }
 
 /// Run `npm run build` in the crate directory. Installs dependencies
@@ -128,6 +226,15 @@ fn main() {
     let build_rev = resolve_build_rev(&manifest_dir);
     let build_time = resolve_build_time();
 
+    // `relative = true` on the declaration resolves the value against
+    // the board's crate directory, so this is an absolute path whichever
+    // directory cargo ran in.
+    let brand_dir = PathBuf::from(env::var_os("UBOS_BRAND").expect(
+        "BUG: UBOS_BRAND is not set. Declare the brand directory in the board's .cargo/config.toml",
+    ));
+    let brand = read_brand(&brand_dir);
+    let icon = icon_data_uri(&brand_dir);
+
     // Locate the built pages: a prebuilt hermetic dist wins; otherwise
     // build it here with Rsbuild.
     let dist_dir = if let Some(dir) = env::var_os("UBOS_WEBUI_DIST") {
@@ -147,22 +254,27 @@ fn main() {
                 "BUG: built page {name}.html carries no {token}; rsbuild.config.ts and build.rs disagree"
             );
         }
-        let html = stamp(&html, &build_rev, &build_time);
+        let html = stamp(&html, &build_rev, &build_time, &brand, &icon);
         gzip_to(html.as_bytes(), &out_dir.join(format!("{name}.html.gz")));
     }
 
-    // The logo is a standalone `/logo.svg` asset (referenced by an
+    // The wordmark is a standalone `/logo.svg` asset (referenced by an
     // `<img>`, not inlined in the bundle), so it does not pass through
     // the bundler. Gzip it here too, so the handler can serve it with
     // `Content-Encoding: gzip` instead of the raw SVG.
-    let logo = fs::read(manifest_dir.join("src/logo.svg")).expect("BUG: read src/logo.svg");
+    // The resolved brand name, for the page tests. They assert that each
+    // page carries it, which is what proves the tokens were replaced with
+    // the brand rather than merely removed.
+    fs::write(out_dir.join("brand-name"), &brand.name).expect("BUG: write brand name");
+
+    let logo_path = brand_dir.join("logo.svg");
+    let logo = fs::read(&logo_path).unwrap_or_else(|_| panic!("BUG: read {}", logo_path.display()));
     gzip_to(&logo, &out_dir.join("logo.svg.gz"));
 
     // Rebuild when any frontend source or the build environment changes.
     for path in [
         "web",
         "dev",
-        "src/logo.svg",
         "index.html",
         "login.html",
         "rsbuild.config.ts",
@@ -176,6 +288,21 @@ fn main() {
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_DIST");
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_REV");
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_TIME");
+
+    // The brand is three files outside the crate, so each one needs its
+    // own trigger. A trigger naming a file that does not exist makes
+    // cargo run this script on every build, and each run costs a Zopfli
+    // pass, so these paths are the ones read above and nothing else.
+    println!("cargo:rerun-if-env-changed=UBOS_BRAND");
+    println!(
+        "cargo:rerun-if-changed={}",
+        brand_dir.join("brand.json").display()
+    );
+    println!("cargo:rerun-if-changed={}", logo_path.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        brand_dir.join("icon.png").display()
+    );
 }
 
 /// Resolve the short commit hash for the build-info footer. The image

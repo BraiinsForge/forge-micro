@@ -10,6 +10,8 @@ runner = [
 # it. Operating point, cooling profile, and chip baud all come from the
 # board descriptor and config defaults, not build-time env.
 [env]
+# The brand this board ships; brand/README.md holds the table and the format.
+UBOS_BRAND = { value = "../../brand/forge", relative = true }
 DEFMT_LOG = "info,embassy_net=info,smoltcp=info"
 # A dev-flash worker for the test pool, and the one name the board's
 # rename did not move: it is an operator-facing identity on a pool

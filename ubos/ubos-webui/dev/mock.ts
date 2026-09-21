@@ -29,7 +29,10 @@ function info() {
   const temperature = 62 + Math.round(Math.sin(tick / 9) * 3);
   const powerIn = 3200 + Math.round(Math.sin(tick / 7) * 120);
   return {
-    name: 'microBOS',
+    // The board name the API reports, not the brand: the brand reaches
+    // the page from the declared brand directory, and a fixture that
+    // named one would disagree with it.
+    name: 'Mock Board',
     hashrate,
     uptime,
     temperature,

@@ -35,9 +35,9 @@ pub const INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index
 /// Zopfli gzip).
 pub const LOGIN_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login.html.gz"));
 
-/// Gzipped Braiins wordmark SVG served at `/logo.svg`. Compressed by
-/// the crate's `build.rs` from `src/logo.svg` and served with
-/// `Content-Encoding: gzip`.
+/// Gzipped wordmark SVG served at `/logo.svg`. Compressed by the
+/// crate's `build.rs` from `logo.svg` in the brand directory the tree
+/// declares as `UBOS_BRAND`, and served with `Content-Encoding: gzip`.
 pub const LOGO_SVG_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/logo.svg.gz"));
 
 ubos_mdns::declare_service!(

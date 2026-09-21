@@ -35,6 +35,19 @@ extern crate std;
 use std::io::Read;
 use std::string::String;
 
+/// The brand tokens `build.rs` stamps, which no shipped page may still
+/// carry. Both pages carry all four, so one list serves both tests.
+const BRAND_TOKENS: [&str; 4] = [
+    "@UBOS_BRAND_NAME@",
+    "@UBOS_BRAND_ACCENT@",
+    "@UBOS_BRAND_ACCENT_HI@",
+    "@UBOS_BRAND_ACCENT_TEXT@",
+];
+
+/// The brand name the build resolved, written to `OUT_DIR` by build.rs
+/// from the same `brand.json` it stamped the pages with.
+const BRAND_NAME: &str = include_str!(concat!(env!("OUT_DIR"), "/brand-name"));
+
 /// Decompress a gzipped asset into a UTF-8 string.
 fn decompress(gz: &[u8]) -> String {
     let mut html = String::new();
@@ -61,16 +74,17 @@ fn index_payload_is_well_formed_html() {
     );
 }
 
-/// Build-provenance markers must be gone from the embedded page: the
-/// bundler's `define` step replaces the source identifiers with the
-/// stamp tokens, and build.rs replaces the tokens with the revision and
-/// the time. A leftover of either kind means one of the two steps did
-/// not run.
+/// Build-provenance and brand markers must be gone from the embedded
+/// page: the bundler's `define` step and the HTML template replace the
+/// source identifiers with the stamp tokens, and build.rs replaces the
+/// tokens with the revision, the time and the brand. A leftover of
+/// either kind means one of the two steps did not run.
 #[test]
 fn index_payload_has_no_unsubstituted_build_markers() {
     let html = decompress(crate::INDEX_HTML_GZ);
     assert!(!html.contains("__BUILD_REV__"), "build rev not injected");
     assert!(!html.contains("__BUILD_TIME__"), "build time not injected");
+    assert!(!html.contains("__BRAND_NAME__"), "brand name not injected");
     assert!(
         !html.contains("@UBOS_WEBUI_BUILD_REV@"),
         "build rev not stamped"
@@ -78,6 +92,13 @@ fn index_payload_has_no_unsubstituted_build_markers() {
     assert!(
         !html.contains("@UBOS_WEBUI_BUILD_TIME@"),
         "build time not stamped"
+    );
+    for token in BRAND_TOKENS {
+        assert!(!html.contains(token), "{token} not stamped");
+    }
+    assert!(
+        html.contains(BRAND_NAME),
+        "page does not carry the brand name {BRAND_NAME}"
     );
     assert!(
         !html.contains("{{BUILD_REV}}"),
@@ -159,6 +180,13 @@ fn login_payload_is_well_formed_and_within_budget() {
     assert!(html.trim_end().ends_with("</html>"));
     assert!(!html.contains("__BUILD_REV__"));
     assert!(!html.contains("@UBOS_WEBUI_BUILD_REV@"));
+    for token in BRAND_TOKENS {
+        assert!(!html.contains(token), "{token} not stamped");
+    }
+    assert!(
+        html.contains(BRAND_NAME),
+        "page does not carry the brand name {BRAND_NAME}"
+    );
     assert!(html.contains(r#"action="/login""#), "missing login form");
     assert!(
         crate::LOGIN_HTML_GZ.len() <= MAX_GZ_BYTES,

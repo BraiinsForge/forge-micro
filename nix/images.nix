@@ -44,6 +44,10 @@
   fwVersion,
   slotMaxBytes,
   esp32s3SlotBytes,
+  # Which brand each board ships, from nix/brands.nix. A shipped image
+  # is the artifact that carries the brand to an operator, so it takes
+  # UBOS_BRAND from the same table the checks read.
+  brands,
   # Workspace package names present in the tree; see nix/checks.nix. A
   # board whose crate is absent gates its image and UF2 outputs out. A
   # combined UF2 additionally needs its bootloader crate, so a board
@@ -69,6 +73,11 @@ let
   # test POOL_USER for dev flashing on some boards, is not read here:
   # crane runs cargo from the flake root, so the default empty worker
   # is used and the guard proves it stayed out.
+  #
+  # That same fact is why the brand arrives in the environment. A board
+  # declares its brand in the file this build does not read, so nothing
+  # but `brands.envFor` puts it here, and `brand-declaration` in
+  # nix/checks.nix gates the two against each other.
   mkArmImage =
     {
       name,
@@ -102,6 +111,7 @@ let
       }
       // armCc target
       // webuiEnvAttrs
+      // brands.envFor name
       // webuiDistEnv
     );
 
@@ -251,6 +261,7 @@ let
       };
     }
     // webuiEnvAttrs
+    // brands.envFor "esp32s3"
     // webuiDistEnv
   );
 

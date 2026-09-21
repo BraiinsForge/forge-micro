@@ -2,15 +2,20 @@
 
 Preact + Rsbuild frontend for the miner's port-80 web UI. `build.rs` runs
 the Rsbuild build, gzips the two resulting single-file pages
-(`index.html`, `login.html`) plus `src/logo.svg` with Zopfli, and
-`src/lib.rs` embeds them with `include_bytes!` for the firmware to serve.
-Gzip rather than Brotli because browsers only advertise `br` over HTTPS
-and the board serves plain HTTP.
+(`index.html`, `login.html`) plus the declared brand's `logo.svg` with
+Zopfli, encodes that brand's `icon.png` into a `data:` URI inside each
+page, and `src/lib.rs` embeds the results with `include_bytes!` for the
+firmware to serve. Gzip rather than Brotli because browsers only
+advertise `br` over HTTPS and the board serves plain HTTP.
+
+The pages carry no brand of their own. `UBOS_BRAND` names a directory
+that holds the name, the three colours, the wordmark and the tab icon,
+and each board declares which one it ships. `../../brand/README.md` is the authority;
+the section below covers what that means for the dev server.
 
 ```
 index.html  login.html   HTML entries (Rsbuild roots)
 web/                     app sources: app.tsx, components/, lib/, styles/
-public/logo.svg          symlink to src/logo.svg, served at /logo.svg in dev
 dev/mock.ts              dev-only fixture API (no board needed)
 dev/board-proxy.ts       dev-only `HEAD /` CSRF forwarder for a live board
 rsbuild.config.ts        build config: entries, single-file inlining, dev mock/proxy
@@ -58,6 +63,25 @@ npm run typecheck        # tsc --noEmit
 build` does not type check, so run the check yourself before a commit.
 The nix build runs the same check before the bundle build, so a type
 error there fails the build.
+
+## Which brand the dev server shows
+
+A production build emits a token for each brand value, and `build.rs`
+replaces it with the brand the board ships. A dev build runs no
+`build.rs`, so the dev server reads `brand.json` itself and shows the
+real values.
+
+The `dev` script sets `UBOS_BRAND` to `../../brand/ubos`, because
+cargo declares it for every build it drives and the dev server is not
+one of them. Export the variable to see the other brand:
+
+```sh
+UBOS_BRAND=../../brand/forge npm run dev
+```
+
+The dev server serves that directory's `logo.svg` at `/logo.svg`, which
+is the same file the firmware serves, and inlines its `icon.png` the
+same way `build.rs` does.
 
 ## Dev loop against a live board
 

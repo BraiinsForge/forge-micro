@@ -70,7 +70,10 @@ button {
   width: 100%;
   background: var(--accent);
   border: none;
-  color: #fff;
+  /* Text on an accent background takes the brand's own value. White
+     does not clear WCAG AA on every brand colour; brand/README.md
+     states the rule and the measurement. */
+  color: var(--accent-text);
   padding: 9px;
   font-size: var(--fs-val);
   cursor: pointer;

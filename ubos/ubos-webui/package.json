@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "rsbuild dev",
+    "dev": "UBOS_BRAND=${UBOS_BRAND:-../../brand/ubos} rsbuild dev",
     "build": "rsbuild build",
     "typecheck": "tsc --noEmit"
   },

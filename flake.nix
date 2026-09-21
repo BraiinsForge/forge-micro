@@ -154,6 +154,24 @@
         # nix/guards.nix.
         guards = import ./nix/guards.nix { };
 
+        # Which brand each board ships; see nix/brands.nix. Both trees
+        # of the pair read this table, and the internal repository
+        # passes the submodule prefix so no brand directory is
+        # duplicated.
+        brands = import ./nix/brands.nix {
+          inherit (pkgs) lib;
+          root = ./.;
+        };
+
+        # The gate that holds a board's cargo brand declaration and the
+        # table above together. Shared with the internal repository, the
+        # same way board-parity is. See nix/brand-gates.nix.
+        brandGates = import ./nix/brand-gates.nix {
+          inherit (pkgs) lib;
+          inherit pkgs brands;
+          root = ./.;
+        };
+
         # The board-skeleton parity gate, emitted per tree. Both repos of
         # the pair import this module, so the shared task names have one
         # copy. See nix/board-parity.nix.
@@ -245,6 +263,7 @@
             helpers
             fwVersion
             slotMaxBytes
+            brands
             esp32s3SlotBytes
             members
             ;
@@ -276,6 +295,8 @@
               rustVersion
               slotMaxKiB
               slotMaxBytes
+              brandGates
+              brands
               esp32s3SlotBytes
               members
               ;
@@ -350,12 +371,17 @@
       # every module already takes its inputs as explicit arguments, so
       # nothing here is a wrapper.
       #
-      # `source` and `crate-graph` take a `root`, so a consumer points
-      # them at its own tree. `patched-crates` deliberately does not:
+      # `source`, `crate-graph` and `brands` take a `root`, so a consumer
+      # points them at its own tree; `brands` takes a path prefix as well,
+      # because the brand directories stay in this tree and a consumer
+      # reaches them through the submodule.
+      # `patched-crates` deliberately does not:
       # the patch files live here, and its whole job is to materialize
       # the pins this repo's `[patch]` table resolves against.
       lib.modules = {
         board-parity = ./nix/board-parity.nix;
+        brand-gates = ./nix/brand-gates.nix;
+        brands = ./nix/brands.nix;
         ci = ./nix/ci.nix;
         crate-graph = ./nix/crate-graph.nix;
         deps = ./nix/deps.nix;

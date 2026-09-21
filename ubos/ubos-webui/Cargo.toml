@@ -25,6 +25,13 @@ ccmram-bss = ["ubos-core/ccmram-bss"]
 # over HTTPS, so gzip is the best encoding plain HTTP can ship. The
 # `zlib` default is not needed and stays off.
 zopfli = { version = "0.8", default-features = false, features = ["std", "gzip"] }
+# Used by `build.rs` to read the declared brand's `brand.json`. It runs
+# on the host and never reaches the firmware image, so it does not move
+# the page budget.
+serde_json = "1"
+# Used by `build.rs` to encode the brand's `icon.png` into the `data:`
+# URI each page carries. Host-side like the two above.
+base64 = "0.22"
 
 [dependencies]
 edge-http         = { workspace = true, features = ["io"] }
