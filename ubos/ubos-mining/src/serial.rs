@@ -585,7 +585,7 @@ impl Serial {
     /// Take the caller mutex, push a command stamped with a fresh
     /// sequence number, and await the reply tagged with that same number.
     /// The mutex guarantees the reply slot belongs to this caller; the
-    /// tag guards against cancellation. The miner races tuner init
+    /// tag guards against cancellation. The miner races serial commands
     /// against STOP and halt, so a caller can be dropped between `send`
     /// and its reply, leaving its command in flight; the server still
     /// answers it exactly once, and the next caller must discard that
@@ -1226,6 +1226,9 @@ impl Serial {
                     let mut io = SerialIo { serial };
                     driver.configure(&mut io, board).await
                 };
+                let result = result
+                    .inspect(|frequency| stats.set_frequency(*frequency))
+                    .map(|_frequency| ());
                 stats.add_desync_bytes(driver.take_desync());
                 self.reply.signal((seq, Reply::Freq(result)));
             }

@@ -278,7 +278,7 @@ impl ChainDriver for Bm13xxDriver {
         &mut self,
         io: &mut impl Transport,
         board: &HashboardDescriptor,
-    ) -> Result<(), ChipError> {
+    ) -> Result<Frequency, ChipError> {
         // `initialize_domains`, `initialize_cores`, and `split_nonce_space`
         // each walk `0..board.num_chips`, and enumeration only assigns
         // addresses below `MAX_CHAIN_CHIPS`. A descriptor claiming more
@@ -330,7 +330,7 @@ impl ChainDriver for Bm13xxDriver {
             };
             chip.set_hcn(&mut bus, safe_boot).await?;
         }
-        Ok(())
+        Ok(safe_boot)
     }
 
     async fn set_frequency(

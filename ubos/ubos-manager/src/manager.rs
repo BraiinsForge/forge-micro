@@ -124,12 +124,7 @@ pub async fn run_manager(mining: MiningHandle) -> ! {
             mining.halt().await;
         } else if !was_empty && is_empty {
             crate::events::mining_resumed();
-            // Only on the transition out of the last pause reason, which
-            // is what keeps the miner's two answers to a `Resume` edge
-            // apart. `ubos_mining::miner`'s `mine_phase` absorbs one and
-            // its bring-up phases cut the rail on one; a `Resume` sent
-            // from any other state makes both live at once, so widening
-            // this guard means settling which answer is right.
+            // Restart only when the last pause reason has cleared.
             mining.resume().await;
         }
     }

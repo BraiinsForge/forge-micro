@@ -31,7 +31,7 @@ driver is exercised without a hashboard on the bench.
 | Task | Owner | Role |
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
-| `miner_task` | `mining.rs` | Drives `Miner::new(psu, BOARD, chains, resets).run()` against the tuner selected by `MinerConfig::algorithm` (`FixedTuner` by default; see `TuningAlgorithm`). Bring-up / teardown state machine: PSU up, reset sequence, per-chain enumeration, per-chain safe-boot configuration, tuner init, mine, tuner deinit, PSU off. |
+| `miner_task` | `mining.rs` | Drives `Miner::new(psu, BOARD, chains, resets).run()` against the tuner selected by `MinerConfig::algorithm` (`FixedTuner` by default; see `TuningAlgorithm`). Bring-up / teardown state machine: reset assert, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
 | `power_stats_task` | `psu.rs` | Drives `ubos_psu::run_power_stats`. Polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes them. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
@@ -40,12 +40,13 @@ a PMBus register, so there is no separate PSU-watchdog task; only
 halts.
 
 `serial_task` and `miner_task` never return under normal operation.
-`Miner::run` waits on either `STOP_MINING` (orderly shutdown path; runs
-`tuner.deinit` before powering down) or a `Message::Halt` edge from the
-manager (thermal trip, fan fault, or operator pause; cuts the rail
-immediately without deinit). After a halt, the loop blocks in
-`wait_halt_clear_or_stop()` until either a `Message::Resume` arrives and
-bring-up is retried, or `STOP_MINING` fires and the task tears down. On
+`Miner::run` responds to `STOP_MINING` with a rail cut.
+HALT, STOP, and algorithm changes interrupt plans.
+The miner allows up to 100 ms for an interrupted plan to complete.
+The miner keeps the first interruption and skips the remaining plan delay.
+All three interruptions then cut the rail without a shutdown ramp or voltage write.
+After HALT, the loop waits for `Message::Resume` or `STOP_MINING`.
+Resume restarts bring-up, while STOP ends the loop. On
 bare metal there is no `STOP_MINING`, so if either loop ever returns the
 task idles for 60 s between log lines, keeping the rest of the firmware
 (network, metrics, watchdog) alive so logs can be pulled.
@@ -84,50 +85,76 @@ Manager translates and serialises the halt/resume sequence so mining
 sees one logical halted-state regardless of how many pause reasons are
 active concurrently.
 
-`ubos_mining::miner::next_halt_change()` reads `Message::Halt` /
-`Message::Resume` off the mining command channel; those are the only two
-variants. Frequency, voltage, and algorithm edits do not travel the
-command channel: `Miner::run` subscribes to `ubos_config::handle()`
-directly and reads the live snapshot at the top of each bring-up. An
-algorithm change tears down the active tuner (`tuner.deinit` + rail cut)
-and rebuilds it; other tuning edits apply on the next bring-up.
+The mining command channel carries `Message::Halt` and `Message::Resume`.
+The active miner ignores redundant Resume messages.
+After Halt, the miner waits for Resume or `STOP_MINING`.
+A Resume queued after Halt remains available to that wait.
+
+Frequency, voltage, and algorithm edits do not travel the command channel.
+`Miner::run` subscribes to `ubos_config::handle()` directly.
+The miner reads the latest frequency and voltage target before each policy step.
+These edits do not restart mining or interrupt initialization.
+An algorithm change restarts mining with a new policy after initialization completes.
+Other configuration changes do not restart mining.
 
 ## Mining state machine
 
 One `Miner` owns the PSU rail and every chain of the machine.
 
-`Miner::run` first disables the rail once, before the first reset. This
-puts every board in a known-off state before its first bring-up, no matter
-what the last boot cycle left behind.
+`Miner::run` first attempts to disable the rail before the first reset.
+If the PSU-disable command fails, it logs the error and continues with bring-up.
 
 Then `Miner::run` repeats:
 
-1. Read the live `ubos-config` snapshot and select the tuner by
-   `miner.algorithm`.
-2. Bring the rail up via `BoardPsu` (raises `SIC_EN` once the SIC45x
-   answers a status read).
-3. Sequence every chain's reset pin together (low to assert, high to
-   release).
-4. Reset, enumerate and configure every chain at once: a chain that
-   answers the expected chip count is brought to its safe-boot
-   operating point on the fast UART and every chip's temperature is
-   read once, so the thermal loop has a value before the ramp. A short
-   count, a refused configuration, or a temperature read no chip
-   answered spends one attempt of the same budget. See "Chain presence"
-   below.
-5. Run `tuner.init` against every chain the enumeration step found
-   present (cancellable by `STOP_MINING` or `Message::Halt`).
-6. Mine until `STOP_MINING` fires, a `Message::Halt` edge arrives, or the
-   configured algorithm changes.
-7. On `Message::Halt`: cut the rail immediately, then block on
-   `wait_halt_clear_or_stop` until `Message::Resume`.
-8. On an algorithm change: run `tuner.deinit`, cut the rail, and rebuild
-   the tuner on the next iteration.
-9. On `STOP_MINING`: run `tuner.deinit` and drop the rail.
+1. Read the configuration and select the tuner by `miner.algorithm`.
+2. Assert reset on every chain, enable the PSU, and release reset with the existing settle delays.
+3. Reset, enumerate, and configure all chains concurrently.
+   Retry failed attempts, then park absent or faulted chains in reset.
+   Read chip temperatures before a chain becomes present.
+4. Set the open-core voltage and start work on every present chain.
+5. Read the latest target, feed readings to the tuner, bound its plan, and apply it.
+   Wait for the plan delay before the next step.
+6. On HALT, STOP, or an algorithm change, allow up to 100 ms for the current plan.
+   Skip the remaining plan delay and cut the rail without a shutdown ramp.
+7. After HALT, wait for `Message::Resume` or `STOP_MINING`.
+   After an algorithm change, restart initialization with the new policy.
+   After STOP, return from the mining loop.
 
-A fatal init failure -- chip silent at the new line rate, register
-mismatch, etc. -- cuts the rail, sleeps, and restarts. The chip is never
-left powered without supervision.
+STOP or HALT during initialization cuts the rail immediately.
+The miner retains an accepted interruption until cleanup completes.
+Configuration publications cannot cancel that cleanup.
+If requests arrive together, STOP takes priority over HALT, then an algorithm change.
+The grace period bounds the wait for the plan, not the complete shutdown.
+PSU and reset commands can still wait for hardware access.
+
+The executor clamps rail commands to the board ceiling and frequencies to the chip range.
+A failed plan emits a tuner fault, cuts the rail, and retries initialization.
+STOP and HALT can interrupt the retry delay without another rail cut.
+
+A persistent chip-count mismatch parks the affected chain.
+The other present chains continue.
+If no chain becomes present, the miner cuts the rail and retries the machine.
+
+### Policy and hardware boundary
+
+`ubos-tuner` defines the shared `Tuner`, `Readings`, and `Plan` types.
+The fixed policy stays in `ubos-mining::tuner::fixed`.
+It returns commands and a delay without hardware access or asynchronous waits.
+An empty plan leaves the operating point unchanged and schedules another step.
+It does not signal completion to the mining loop.
+
+Each serial actor records its chain's frequency after a successful command.
+The PSU driver records the shared voltage after a successful command.
+The plan executor first lowers frequencies, then changes the rail, then raises frequencies.
+
+The loop drives all connectors through `Tuner<CHAINS>`.
+Each present chain supplies its frequency, chip count, hottest temperature, and smoothed hashrate.
+Absent and faulted connectors have `None` entries in `Readings::chains`.
+The miner also supplies the PSU snapshot and the last confirmed voltage command.
+`Readings::voltage` comes directly from the PSU record.
+Telemetry can lag or show voltage droop.
+
+The runner supplies experiment results through `PlatformReadings`, which is empty in the fixed policy.
 
 ## Chain presence
 
@@ -139,7 +166,7 @@ records one of four states in that chain's `ChainStats`:
 | State | Meaning | What the miner does |
 |-------|---------|----------------------|
 | `Unknown` | No enumeration attempt has completed yet. | Not a resting state; only seen mid-attempt. |
-| `Present` | The chain answered with the board's expected chip count. | The tuner ramps this chain. |
+| `Present` | The chain answered with the board's expected chip count. | The miner tunes this chain. |
 | `Absent` | The connector answered with zero chips: no hashboard is attached. | Parked in reset; left out of the ramp. |
 | `Faulted` | The chain answered a chip count other than expected, refused its safe-boot configuration, or answered no temperature read, on every attempt up to the retry budget. | Parked in reset; left out of the ramp. |
 
@@ -172,22 +199,18 @@ therefore take the whole machine down:
   the thermal loop faults the board. The other chains are hashing and
   are stopped with it. The sensor cannot do otherwise today: it reads
   presence and does not write it, and an unread die is the greater risk.
-- **A present chain that refuses a ramp step.** The tuner steps every
-  present chain in lockstep and reports the first error, so the miner
-  cuts the rail and retries the whole bring-up. A chain that enumerates
-  clean and then refuses `set_frequency` on every attempt keeps the
-  machine in that loop, and the other chains never mine.
+- **A present chain that refuses a ramp step.** The plan executor
+  reports the first error, so the miner cuts the rail and retries the
+  whole bring-up. A persistent frequency-command failure therefore
+  stops the other chains too.
 
 Giving the miner a way to demote a chain after bring-up is the work
 this needs, and it is not done.
 
-Voltage and frequency are one value for the whole machine today: the
-PSU rail is shared, and the tuner steps every present chain's frequency
-in lockstep, one chain after another within each step, so no chain
-reaches the target before the next starts. The tuner reaches a chain
-only through the `ChainControl` handle `MinerControl::present_chains`
-yields, never through an index, so it can never address a chain the
-miner did not find present.
+The PSU rail is shared, but each chain has its own frequency record and plan entry.
+The fixed policy moves all present chains toward one target.
+The fastest chain limits the shared voltage along the `V^2 * f` curve.
+The executor ignores plan entries for absent and faulted connectors.
 
 ## I2C bus sharing
 

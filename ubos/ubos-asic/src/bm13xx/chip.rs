@@ -80,7 +80,7 @@ const MISC_SETTINGS_REPEATS: usize = 2;
 /// byte-level `Transport`, and by the mock bus in tests. Register writes
 /// and control commands are fire-and-forget; only reads can fail.
 // The async-fn-in-trait pattern matches the project-wide convention
-// established by `ubos_psu::Psu` and `ubos_mining`'s `MinerControl`.
+// established by `ubos_psu::Psu`.
 // Send bounds are not required on this single-task embedded target.
 #[allow(async_fn_in_trait)]
 pub trait ChipBus {

@@ -17,266 +17,217 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! `FixedTuner` — a constant-power-curve ramp.
+//! Constant-power-curve policy for a fixed frequency and voltage target.
 //!
-//! Starts work dispatch on every chain [`MinerControl::present_chains`]
-//! yields, then walks a coupled voltage / frequency ramp from the
-//! chip's open-core voltage at the safe-boot frequency to the
-//! configured `(voltage, frequency)` target. Voltage is one value for
-//! the whole machine, programmed once per step through
-//! [`MinerControl::set_voltage`]; frequency is programmed on every
-//! present chain in turn before each step's settle, so every chain
-//! climbs within the same step rather than one chain reaching the
-//! target before the next starts. The ramp preserves
-//! `V^2 * f` along the walk so the chain never exceeds the target
-//! power at any intermediate step. Bring-up is the miner's business:
-//! every chain this tuner sees is present, configured to safe-boot on
-//! the fast UART, and has one temperature reading behind it. Host-side
-//! policy — PSU voltage and the ramp — stays here; the vendor register
-//! sequence and the UART baud switch live in the `ubos_asic::ChainDriver`
-//! impl the miner drives before handing over.
+//! The miner supplies the applied voltage separately from PSU telemetry.
+//! Each step returns commands only; the miner owns hardware access and delays.
 
-use embassy_time::{Duration, Timer};
+use embassy_time::Duration;
 use libm::sqrtf;
 use ubos_asic::HashboardDescriptor;
 use ubos_core::units::{Frequency, Voltage};
-use ubos_logging::debug;
+use ubos_logging::{Debug2Format, debug};
+use ubos_tuner::{Plan, Readings, Tuner};
 
-use crate::chain::control::ChainControl;
-use crate::control::publish_tuner_step;
-use crate::miner::{MinerControl, MinerError};
+use super::{ConfiguredTuner, TuningConfig};
 
-use super::{Tuner, TuningConfig};
-
-/// Upper bound on the number of ramp steps any single transition
-/// produces. The chain's safe operating range spans 50..=1000 MHz; at
-/// the 6.25 MHz step that is ~152 steps full-span, plus headroom for
-/// the constant-power curve's smaller late-stage voltage increments.
-/// Used only by the cfg(test) helpers; the production `while` loops
-/// carry no buffer.
-#[cfg(test)]
-const RAMP_STEP_CAP: usize = 256;
-
-/// Tuner that walks a `V^2 * f = P_target` curve from the chip's
-/// open-core voltage at the safe-boot frequency to the configured
-/// operating point. Holds `&'static HashboardDescriptor` so the
-/// open-core voltage and ramp constraints come from one chip-aware
-/// source instead of duplicated module constants.
+/// Fixed-target policy. Hardware state remains in the serial actors and PSU.
 pub struct FixedTuner {
     board: &'static HashboardDescriptor,
+    /// None before the first tuning step with a present chain.
+    progress: Option<Progress>,
+}
+
+/// Target and next phase retained between tuning steps.
+struct Progress {
     target: TuningConfig,
+    phase: Phase,
+}
+
+#[derive(Clone, Copy)]
+enum Phase {
+    /// Phase A: Move frequency to the stored cap while keeping voltage unchanged.
+    Frequency(Frequency),
+    /// Phase B: Adjust frequency and voltage along the constant-power curve to the target.
+    Curve,
+    Complete,
+}
+
+impl Phase {
+    fn log_plan<const CHAINS: usize>(
+        self,
+        target: TuningConfig,
+        readings: &Readings<CHAINS>,
+        plan: &Plan<CHAINS>,
+    ) {
+        if plan.rail.is_none() && plan.frequencies.iter().all(Option::is_none) {
+            return;
+        }
+        let phase_name = match self {
+            Phase::Frequency(..) => "A",
+            Phase::Curve => "B",
+            // A complete ramp only ever produces an empty plan, which the
+            // guard above has already returned on.
+            Phase::Complete => return,
+        };
+        debug!(
+            "fixed-tuner phase {} plan: frequencies {:?} kHz, commands {:?} kHz, rail {} -> {} mV; target {} kHz / {} mV",
+            phase_name,
+            Debug2Format(
+                &readings
+                    .chains
+                    .map(|chain| chain.map(|chain| chain.frequency.khz()))
+            ),
+            Debug2Format(
+                &plan
+                    .frequencies
+                    .map(|frequency| frequency.map(Frequency::khz))
+            ),
+            readings.voltage.mv(),
+            plan.rail.unwrap_or(readings.voltage).mv(),
+            target.frequency.khz(),
+            target.voltage.mv(),
+        );
+    }
 }
 
 impl FixedTuner {
-    /// Build a tuner for `board`, anchored at the chip's minimum operating
-    /// clock and the board's max rail voltage; the bring-up loop ramps from
-    /// there to the configured operating point.
+    /// Build a policy for `board`, whose chip descriptor supplies the
+    /// frequency grid and range and whose rail ceiling bounds the curve.
+    /// The first step reads the operating point from the readings.
     #[must_use]
     pub fn new(board: &'static HashboardDescriptor) -> Self {
         Self {
             board,
-            target: TuningConfig {
-                frequency: board.chip.frequency_range.min(),
-                voltage: board.max_rail_voltage(),
-            },
+            progress: None,
         }
     }
 
-    /// Settling delay held after each frequency programming write during
-    /// the operating ramp-up, where the chain must stabilise at each new
-    /// higher clock before the next step.
+    /// Settling time between changes to the operating point.
     const RAMP_SETTLE: Duration = Duration::from_secs(1);
+}
 
-    /// Settling delay for the deinit ramp-down. Stepping voltage and clock
-    /// *down* toward the safe-boot anchor needs no per-step stabilisation,
-    /// so the graceful walk keeps its gradual steps but runs faster than
-    /// the operating ramp-up.
-    const DEINIT_SETTLE: Duration = Duration::from_millis(200);
+impl<const CHAINS: usize> ConfiguredTuner<CHAINS> for FixedTuner {
+    const ALGORITHM: ubos_config::TuningAlgorithm = ubos_config::TuningAlgorithm::Fixed;
 
-    /// Period between consecutive work-frame sends.
-    const WORK_PERIOD: Duration = Duration::from_secs(1);
-
-    /// Post-reset anchor frequency: the chip's minimum operating clock,
-    /// taken from its descriptor. `init` anchors the chain here before
-    /// ramping up and the ramp never floors below it; `deinit` ramps
-    /// back down to it.
-    fn safe_boot(&self) -> Frequency {
-        self.board.chip.frequency_range.min()
+    fn target(config: &ubos_config::Config) -> TuningConfig {
+        (&config.tuning).into()
     }
+}
 
-    /// Walk the chain from `(self.target.voltage, self.target.frequency)`
-    /// to `target` along the constant-power curve `V^2 * f = P_target`.
-    ///
-    /// `target.frequency` is first floored onto the chip's PLL step grid
-    /// via [`snap_down`], so every programmed hop lands on an exactly
-    /// representable hash clock and telemetry reports the realized
-    /// frequency. Phase A holds the current voltage and steps frequency in
-    /// `frequency_step` hops toward the snapped target until `V_now^2 * f`
-    /// reaches `P_target = V_target^2 * f_target`. Phase B then lowers
-    /// voltage to `sqrt(P_target / f_next)` before each frequency hop so
-    /// the chain never exceeds the target power at an intermediate step.
-    async fn walk_to_target<M: MinerControl>(
-        &mut self,
-        miner: &M,
-        target: TuningConfig,
-        settle: Duration,
-    ) -> Result<(), MinerError> {
+impl<const CHAINS: usize> Tuner<CHAINS> for FixedTuner {
+    type Target = TuningConfig;
+    type PlatformReadings = ();
+
+    fn step(&mut self, target: TuningConfig, readings: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
+        let unchanged = Plan {
+            rail: None,
+            frequencies: [None; CHAINS],
+            delay: Self::RAMP_SETTLE,
+        };
+        let present = || readings.chains.iter().flatten();
+        if present().next().is_none() {
+            return unchanged;
+        }
+        let all_at = |frequency| present().all(|chain| chain.frequency == frequency);
+        let steps_toward = |frequency| {
+            readings.chains.map(|chain| {
+                let current = chain?.frequency;
+                (current != frequency)
+                    .then(|| current.step_toward(frequency, self.board.chip.frequency_step))
+            })
+        };
         let step = self.board.chip.frequency_step;
-        // Floor the configured frequency onto the chip's PLL grid so
-        // every programmed step is exactly representable and telemetry
-        // reports the realized hash clock rather than the request.
         let target = TuningConfig {
-            frequency: snap_down(target.frequency, step),
-            voltage: target.voltage,
+            frequency: target.frequency.snap_down(step).clamp(
+                self.board.chip.frequency_range.min(),
+                self.board.chip.frequency_range.max(),
+            ),
+            voltage: target.voltage.min(self.board.max_rail_voltage()),
         };
-        let target_volts = target.voltage.as_volts();
-        // P_target lives in V^2 * MHz. With V <= 1.5 V and f <= 1000 MHz
-        // the value is well inside f32 mantissa precision.
-        let power_target = target_volts * target_volts * target.frequency.as_mhz();
-
-        let mut voltage_now = self.target.voltage;
-        let mut frequency_now = self.target.frequency;
-
-        crate::events::frequency_ramp_started(target.frequency.khz());
-
-        // Phase A: hold V_now, step f toward f_target until V_now^2 * f
-        // crosses P_target. If V_now <= V_target, V_now^2 * f_target is
-        // already <= P_target, so this loop walks straight to
-        // f_target and Phase B never runs.
-        let voltage_now_squared = voltage_now.as_volts() * voltage_now.as_volts();
-        let phase_a_cap = phase_a_target(
-            power_target,
-            voltage_now_squared,
-            target.frequency,
-            step,
-            self.safe_boot(),
-        );
-        while frequency_now != phase_a_cap {
-            let next = step_frequency(frequency_now, phase_a_cap, step);
-            debug!(
-                "fixed-tuner phase A: frequency {} kHz -> {} kHz at {} mV",
-                frequency_now.khz(),
-                next.khz(),
-                voltage_now.mv()
-            );
-            for chain in miner.present_chains() {
-                chain.set_frequency(next).await?;
+        let voltage = readings.voltage;
+        let power_target =
+            (target.voltage.as_volts() * target.voltage.as_volts()) * target.frequency.as_mhz();
+        let phase = match &self.progress {
+            Some(progress) if progress.target == target => progress.phase,
+            _ => {
+                crate::events::frequency_ramp_started(target.frequency.khz());
+                let cap = frequency_at_target_power(
+                    power_target,
+                    voltage.as_volts() * voltage.as_volts(),
+                    target.frequency,
+                    step,
+                    self.board.chip.frequency_range.min(),
+                );
+                if all_at(cap) {
+                    Phase::Curve
+                } else {
+                    Phase::Frequency(cap)
+                }
             }
-            publish_tuner_step(next, voltage_now);
-            frequency_now = next;
-            Timer::after(settle).await;
-        }
-
-        // Phase B: voltage steps down to `sqrt(power_target / next_frequency)`
-        // before each frequency hop, then frequency steps up. Loop
-        // continues until V matches V_target and f matches f_target.
-        while voltage_now != target.voltage || frequency_now != target.frequency {
-            let next_frequency = step_frequency(frequency_now, target.frequency, step);
-            // The curve math lands within a millivolt of the target,
-            // but the f32 round-trip can leave a 1 mV residual that
-            // integer equality never closes, spinning this loop
-            // forever. Snap the final hop to the exact target so
-            // convergence rides on the integer frequency comparison,
-            // which `step_frequency` always drives home.
-            let next_voltage = if next_frequency == target.frequency {
-                target.voltage
-            } else {
-                curve_voltage(power_target, next_frequency, target.voltage)
-            };
-            debug!(
-                "fixed-tuner phase B: voltage {} mV -> {} mV, frequency {} kHz -> {} kHz",
-                voltage_now.mv(),
-                next_voltage.mv(),
-                frequency_now.khz(),
-                next_frequency.khz()
-            );
-            miner.set_voltage(next_voltage).await?;
-            for chain in miner.present_chains() {
-                chain.set_frequency(next_frequency).await?;
+        };
+        let (next_phase, plan) = match phase {
+            Phase::Frequency(cap) => {
+                let frequencies = steps_toward(cap);
+                let next_phase = if frequencies
+                    .iter()
+                    .flatten()
+                    .all(|frequency| *frequency == cap)
+                {
+                    Phase::Curve
+                } else {
+                    phase
+                };
+                (
+                    next_phase,
+                    Plan {
+                        frequencies,
+                        ..unchanged
+                    },
+                )
             }
-            publish_tuner_step(next_frequency, next_voltage);
-            voltage_now = next_voltage;
-            frequency_now = next_frequency;
-            Timer::after(settle).await;
-        }
-
-        self.target = target;
-        crate::events::frequency_ramp_complete(target.frequency.khz());
-        Ok(())
-    }
-}
-
-impl<M: MinerControl> Tuner<M> for FixedTuner {
-    async fn init(&mut self, miner: &M, target: TuningConfig) -> Result<(), MinerError> {
-        // Open-core voltage anchors the curve at the chip's safe
-        // headroom; cores get clocked at the safe-boot baseline and the
-        // walk then trades voltage for frequency along V^2 * f.
-        let safe_boot = self.safe_boot();
-        let open_core = self.board.max_rail_voltage();
-        debug!(
-            "fixed-tuner init: anchoring at open-core {} mV / safe-boot {} kHz",
-            open_core.mv(),
-            safe_boot.khz()
-        );
-        miner.set_voltage(open_core).await?;
-        publish_tuner_step(safe_boot, open_core);
-        self.target = TuningConfig {
-            frequency: safe_boot,
-            voltage: open_core,
+            Phase::Curve => {
+                if all_at(target.frequency) && voltage == target.voltage {
+                    crate::events::frequency_ramp_complete(target.frequency.khz());
+                    (Phase::Complete, unchanged)
+                } else {
+                    let frequencies = steps_toward(target.frequency);
+                    // The fastest chain limits the voltage on the shared rail.
+                    let frequency = present()
+                        .map(|chain| chain.frequency.step_toward(target.frequency, step))
+                        .max()
+                        .expect("BUG: present chain checked above");
+                    // Snap the last voltage command exactly, avoiding a residual from float rounding.
+                    let next_voltage = if frequency == target.frequency {
+                        target.voltage
+                    } else {
+                        curve_voltage(power_target, frequency, target.voltage)
+                    };
+                    (
+                        Phase::Curve,
+                        Plan {
+                            frequencies,
+                            rail: (next_voltage != voltage).then_some(next_voltage),
+                            ..unchanged
+                        },
+                    )
+                }
+            }
+            Phase::Complete => (Phase::Complete, unchanged),
         };
-
-        // Every present chain arrives already at the safe-boot operating
-        // point on the fast UART, so the only step before the ramp is to
-        // start its work dispatch. Work flows before the first frequency
-        // step so no step runs on an idle chain.
-        for chain in miner.present_chains() {
-            chain.start_sending_work(Self::WORK_PERIOD).await?;
-        }
-
-        self.walk_to_target(miner, target, Self::RAMP_SETTLE).await
-    }
-
-    async fn deinit(&mut self, miner: &M) -> Result<(), MinerError> {
-        let safe = TuningConfig {
-            frequency: self.safe_boot(),
-            voltage: self.board.max_rail_voltage(),
-        };
-        self.walk_to_target(miner, safe, Self::DEINIT_SETTLE).await
+        phase.log_plan(target, readings, &plan);
+        self.progress = Some(Progress {
+            target,
+            phase: next_phase,
+        });
+        plan
     }
 }
 
-/// Round `frequency` down to the chip's PLL step grid. The walk programs
-/// only multiples of `step`; the chip's PLL calculator resolves each to
-/// the nearest reachable clock, so the realized hash clock tracks the
-/// published frequency without drifting between hops.
-fn snap_down(frequency: Frequency, step: Frequency) -> Frequency {
-    let step_khz = step.khz();
-    Frequency::from_khz(frequency.khz() / step_khz * step_khz)
-}
-
-/// Step `current` toward `target` by one `step` hop, clamping to
-/// land exactly on `target` if the remaining gap is smaller than the
-/// step. Comparison runs in integer kHz space so the loop converges
-/// even when `target` came from float rounding inside the V^2 * f
-/// math; in-band float comparison would tail-loop on the last fraction
-/// of a step.
-fn step_frequency(current: Frequency, target: Frequency, step: Frequency) -> Frequency {
-    use core::cmp::Ordering;
-    let step_khz = step.khz();
-    let next_khz = match current.cmp(&target) {
-        Ordering::Less => (current.khz() + step_khz).min(target.khz()),
-        Ordering::Greater => current.khz().saturating_sub(step_khz).max(target.khz()),
-        Ordering::Equal => return current,
-    };
-    Frequency::from_khz(next_khz)
-}
-
-/// Phase A's frequency cap: the `Frequency` at which `voltage_now_squared * f`
-/// just reaches `power_target`. Clamped to `target` so phase A doesn't
-/// overshoot when `V_now <= V_target` (in that case the cap is at or
-/// past target frequency and the walk reduces to a plain frequency
-/// ramp at constant voltage).
-fn phase_a_target(
+/// Frequency where `voltage_now_squared * f` reaches the target power estimate.
+/// Uses the currently applied voltage, then snaps to the PLL grid and clamps
+/// between the minimum and target frequencies.
+fn frequency_at_target_power(
     power_target: f32,
     voltage_now_squared: f32,
     target: Frequency,
@@ -289,7 +240,7 @@ fn phase_a_target(
     // Snap the curve crossing onto the PLL grid before clamping. With a
     // grid-aligned target and floor, the resulting cap stays on the grid
     // so phase A's final step lands on an exact hash clock.
-    let curve_snapped = snap_down(Frequency::from_khz(curve_kilohertz), step);
+    let curve_snapped = Frequency::from_khz(curve_kilohertz).snap_down(step);
     curve_snapped.min(target).max(floor)
 }
 
@@ -306,61 +257,6 @@ fn curve_voltage(power_target: f32, frequency: Frequency, target_voltage: Voltag
     };
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     Voltage::from_mv((clamped_volts * 1000.0) as u32)
-}
-
-/// Pure mirror of `walk_to_target` for offline equivalence testing.
-/// Returns the `(frequency_khz, voltage_mv)` pairs the tuner would
-/// issue when walking from `(from_voltage, from_frequency)` to
-/// `(target_voltage, target_frequency)`.
-#[cfg(test)]
-pub(super) fn walk_steps(
-    from: TuningConfig,
-    target: TuningConfig,
-    step: Frequency,
-    floor: Frequency,
-) -> heapless::Vec<(u32, u32), RAMP_STEP_CAP> {
-    let mut steps = heapless::Vec::new();
-    let target = TuningConfig {
-        frequency: snap_down(target.frequency, step),
-        voltage: target.voltage,
-    };
-    let target_volts = target.voltage.as_volts();
-    let power_target = target_volts * target_volts * target.frequency.as_mhz();
-
-    let mut voltage_now = from.voltage;
-    let mut frequency_now = from.frequency;
-
-    let voltage_now_squared = voltage_now.as_volts() * voltage_now.as_volts();
-    let phase_a_cap = phase_a_target(
-        power_target,
-        voltage_now_squared,
-        target.frequency,
-        step,
-        floor,
-    );
-    while frequency_now != phase_a_cap {
-        let next = step_frequency(frequency_now, phase_a_cap, step);
-        steps
-            .push((next.khz(), voltage_now.mv()))
-            .expect("BUG: phase A exceeds RAMP_STEP_CAP");
-        frequency_now = next;
-    }
-
-    while voltage_now != target.voltage || frequency_now != target.frequency {
-        let next_frequency = step_frequency(frequency_now, target.frequency, step);
-        let next_voltage = if next_frequency == target.frequency {
-            target.voltage
-        } else {
-            curve_voltage(power_target, next_frequency, target.voltage)
-        };
-        steps
-            .push((next_frequency.khz(), next_voltage.mv()))
-            .expect("BUG: phase B exceeds RAMP_STEP_CAP");
-        voltage_now = next_voltage;
-        frequency_now = next_frequency;
-    }
-
-    steps
 }
 
 #[cfg(test)]

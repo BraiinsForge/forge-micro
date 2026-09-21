@@ -79,10 +79,17 @@ Code: `ubos/ubos-psu/src/lib.rs`,
 `board_psu_output_voltage_set_mv` is the commanded hashboard rail.
 `board_psu_output_voltage_measured_mv` is a physical reading of that rail;
 a zero value on a board without a voltage sensor means unavailable.
-`board_miner_voltage_mv` is the active tuner target and normally equals
-the PSU set value. `hashboard_chain_voltage_microvolts` is different:
+`hashboard_chain_voltage_microvolts` is different:
 it sums the on-die core voltages reported by the chips. It remains a
 separate metric because it is not a PSU rail measurement.
+There is no unlabelled miner voltage series: the confirmed setpoint is
+`board_psu_output_voltage_set_mv` and it has no duplicate.
+
+## Miner lifecycle
+
+`board_miner_running` becomes 1 after present chains start receiving work.
+It is 0 during bring-up and after shutdown.
+OTA waits for the miner's `Stopped` state, independent of this metric.
 
 ## Board temperature
 
@@ -155,7 +162,7 @@ There are no unlabelled duplicates of these series; board totals are
 
 Code: `ubos/ubos-mining/src/publishers.rs`.
 
-Four gauges are labelled `chain="i"`. Each is pushed once per chain the
+Five state series are labelled `chain="i"`. Each is pushed once per chain the
 machine wired up, which `ChainStatsHandle::chain_count` reports. The
 unused slots of the `MAX_CHAINS`-sized table are never published, and
 no per-chain series is emitted before the miner has started:
@@ -166,6 +173,11 @@ no per-chain series is emitted before the miner has started:
   `ChainStats::presence()`. No gauge and no endpoint reports that count.
 - `board_chain_present` — 1 when `ChainStats::presence()` is `Present`,
   0 otherwise (absent, faulted, or not yet enumerated).
+- `board_chain_frequency_khz` — the last frequency the chain's serial
+  actor confirmed. This is the only frequency series; there is no
+  unlabelled machine-wide one, because each chain carries its own clock.
+  Read it with `board_chain_present`: a chain held in reset keeps its
+  last frequency until the actor resets it during bring-up.
 - `board_hashrate_hps` — the smoothed hashrate of the chain's own
   estimator.
 - `board_shares_total` — the chain's lifetime count of diff-1 chip

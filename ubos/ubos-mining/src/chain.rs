@@ -22,9 +22,9 @@
 //!
 //! [`ChainHandle`] is the miner's own view of a chain: the serial
 //! actor, the accounting slot, the reset pin and the last enumeration
-//! outcome, walked together through bring-up and teardown. A tuner
-//! sees the same handle only through [`ChainControl`], which the
-//! submodule [`control`] defines. [`presence`] is the pure decision
+//! outcome, walked together through bring-up and teardown. The miner
+//! applies tuner plans through [`ChainControl`], which the submodule
+//! [`control`] defines. [`presence`] is the pure decision
 //! table the enumeration loop drives. The per-chain accounting the API,
 //! the display and the metrics publisher read is `ubos_metrics::chain`.
 
@@ -40,7 +40,7 @@ use ubos_metrics::chain::{ChainPresence, ChainStats};
 pub mod control;
 pub mod presence;
 
-pub use control::ChainControl;
+pub(crate) use control::ChainControl;
 
 use presence::Action;
 
@@ -51,7 +51,7 @@ use presence::Action;
 const RETRY_RESET_HOLD: Duration = Duration::from_millis(100);
 
 /// One chain's serial actor, accounting, and reset pin, bundled behind
-/// the [`ChainControl`] surface a tuner drives.
+/// the [`ChainControl`] surface the miner drives.
 ///
 /// The reset pin is folded in here, rather than left in a parallel
 /// array on `Miner`, because the miner always has to walk a chain's
@@ -197,7 +197,7 @@ fn truncate_chain(chain: usize) -> u8 {
 }
 
 /// The serial actor answers in the transport's own error types; this
-/// impl is where they become the one [`MinerError`] a tuner handles.
+/// impl is where they become the one [`MinerError`] the miner handles.
 impl<R: ResetPin> ChainControl for ChainHandle<R> {
     fn chain(&self) -> usize {
         self.serial.chain()
@@ -215,13 +215,6 @@ impl<R: ResetPin> ChainControl for ChainHandle<R> {
     async fn start_sending_work(&self, period: Duration) -> Result<(), MinerError> {
         self.serial
             .start_sending_work(period)
-            .await
-            .map_err(MinerError::from)
-    }
-
-    async fn stop_sending_work(&self) -> Result<(), MinerError> {
-        self.serial
-            .stop_sending_work()
             .await
             .map_err(MinerError::from)
     }

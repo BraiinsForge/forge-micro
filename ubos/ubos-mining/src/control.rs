@@ -17,25 +17,18 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Public control surface for the mining subsystem.
+//! Lifecycle status and commands for the mining subsystem.
 //!
-//! The module owns its primitives as private statics with const
-//! constructors. Firmware obtains a [`Handle`] via [`handle`];
-//! [`crate::Miner::run`] is the sole writer of `STATE_WATCH` and the
-//! sole consumer of `COMMAND_CHANNEL`.
+//! Chain frequencies belong to `ubos_metrics::chain`; the shared rail
+//! setpoint belongs to `ubos_psu`. Only the miner writes lifecycle status.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::{Receiver, Watch};
-use ubos_core::units::{Frequency, Voltage};
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// Subscriber capacity for the mining state watch. The sole subscriber
-/// today is the transient receiver `Handle::stop_mining_and_wait` takes
-/// while it waits for mining to confirm it has stopped and dropped the
-/// PSU rail before erasing flash. The extra slots are headroom for
-/// future consumers and cost only unused `Watch` storage.
+/// Capacity for lifecycle subscriptions, including the OTA wait.
 const WATCH_CAPACITY: usize = 5;
 
 /// Command queue depth. Fire-and-forget callers may overlap; the
@@ -46,7 +39,7 @@ const CMD_CHANNEL_DEPTH: usize = 4;
 /// Module-internal state watch. Single writer is [`crate::Miner::run`];
 /// readers are obtained via [`Handle::subscribe`].
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-pub(crate) static STATE_WATCH: Watch<CSMutex, MiningState, WATCH_CAPACITY> = Watch::new();
+static STATE_WATCH: Watch<CSMutex, MiningState, WATCH_CAPACITY> = Watch::new();
 
 /// Module-internal command channel. Single consumer is
 /// [`crate::Miner::run`]; producers send via the [`Handle`]
@@ -54,50 +47,23 @@ pub(crate) static STATE_WATCH: Watch<CSMutex, MiningState, WATCH_CAPACITY> = Wat
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, CMD_CHANNEL_DEPTH> = Channel::new();
 
-/// Snapshot of slow-changing operational state. Share counters, the
-/// hashrate and the per-chain chip counts live in
-/// `ubos_metrics::chain`; placing them here would wake every
-/// subscriber on every share.
+/// Mining lifecycle status, separate from hardware readings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MiningState {
-    /// Bring-up completed and the chip is accepting work.
-    pub running: bool,
-    /// PLL frequency the tuner most recently programmed. Updated
-    /// on every `FixedTuner` ramp step so the publisher surfaces the
-    /// live operating point, not just the configured target.
-    pub frequency: Frequency,
-    /// Core voltage the tuner most recently programmed. Updated
-    /// on every `FixedTuner` voltage step.
-    pub voltage: Voltage,
+pub enum MiningState {
+    /// Bring-up is in progress; chips can already be powered.
+    Starting,
+    /// Every present chain has started receiving work.
+    Running,
+    /// Chips are held in reset, or no mining hardware is configured.
+    Stopped,
 }
 
-impl MiningState {
-    /// Idle baseline used before the first bring-up publishes a
-    /// real state. Zero frequency / voltage rather than `None`
-    /// because the publisher gauges expose `u32` and `0` is a
-    /// visibly-distinct "not-yet-mining" value on a dashboard.
-    pub const IDLE: Self = Self {
-        running: false,
-        frequency: Frequency::from_khz(0),
-        voltage: Voltage::from_mv(0),
-    };
-}
-
-/// Update the published frequency / voltage without touching the
-/// `running` flag. Called by the tuner after every ramp step so the
-/// metrics gauges and any UI subscribers track the live operating
-/// point.
-pub(crate) fn publish_tuner_step(frequency: Frequency, voltage: Voltage) {
-    let mut state = STATE_WATCH.try_get().unwrap_or(MiningState::IDLE);
-    state.frequency = frequency;
-    state.voltage = voltage;
+pub(crate) fn publish_state(state: MiningState) {
     STATE_WATCH.sender().send(state);
 }
 
-/// Internal command enum carried by the command channel. `pub` so
-/// match arms in `crate::miner` can pattern-match every variant;
-/// outside crates construct commands via [`Handle`] inherent
-/// methods, never by spelling variants directly.
+/// Commands sent through the mining Handle. Outside crates construct
+/// them through [`Handle`], never by spelling a variant.
 #[derive(Clone)]
 pub enum Message {
     Halt,

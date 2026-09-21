@@ -503,6 +503,7 @@ struct StubDriver {
     desync: u32,
     enumerate_count: u8,
     configure_err: Option<ChipError>,
+    configured_frequency: Frequency,
     set_frequency_err: Option<ChipError>,
     /// The last job `send_work` was handed, for the dispatch tests that
     /// read the job a chain built rather than the frame it wrote.
@@ -517,6 +518,7 @@ impl StubDriver {
             desync,
             enumerate_count: 0,
             configure_err: None,
+            configured_frequency: BMM101_HASHBOARD.chip.frequency_range.min(),
             set_frequency_err: None,
             last_job: None,
         }
@@ -566,10 +568,10 @@ impl ChainDriver for StubDriver {
         &mut self,
         _io: &mut impl Transport,
         _board: &HashboardDescriptor,
-    ) -> Result<(), ChipError> {
+    ) -> Result<Frequency, ChipError> {
         match self.configure_err {
             Some(err) => Err(err),
-            None => Ok(()),
+            None => Ok(self.configured_frequency),
         }
     }
 
@@ -797,11 +799,15 @@ fn reset_enumerate_replies_with_the_drivers_chip_count_and_drains_desync() {
 }
 
 #[test]
-fn configure_replies_with_a_unit_result_on_success() {
+fn configure_records_the_frequency_returned_by_the_driver() {
     let actor = Serial::new(0, 1);
     let chain_stats = ChainStats::new();
+    chain_stats.set_frequency(Frequency::from_mhz(550));
     let mut state = CommandState::new();
     let mut driver = StubDriver::new(POLL, 0);
+    let configured = Frequency::from_mhz(250);
+    driver.configured_frequency = configured;
+    assert_ne!(configured, BMM101_HASHBOARD.chip.frequency_range.min());
 
     let reply = run_command(
         &actor,
@@ -812,12 +818,15 @@ fn configure_replies_with_a_unit_result_on_success() {
     );
 
     assert!(matches!(reply, Reply::Freq(Ok(()))));
+    assert_eq!(chain_stats.frequency(), configured);
 }
 
 #[test]
 fn configure_propagates_the_drivers_baud_switch_error_and_still_drains_desync() {
     let actor = Serial::new(0, 1);
     let chain_stats = ChainStats::new();
+    let previous = Frequency::from_mhz(550);
+    chain_stats.set_frequency(previous);
     let mut state = CommandState::new();
     let mut driver = StubDriver::new(POLL, 7).with_configure_err(ChipError::BaudSwitch(3_000_000));
 
@@ -836,6 +845,7 @@ fn configure_propagates_the_drivers_baud_switch_error_and_still_drains_desync() 
     // The tally still reaches the chain's stats on a failed bring-up: the
     // chip has already moved baud and needs a reset either way.
     assert_eq!(chain_stats.desync_bytes(), 7);
+    assert_eq!(chain_stats.frequency(), previous);
 }
 
 #[test]
@@ -1156,9 +1166,9 @@ impl ChainDriver for ResultDriver {
     async fn configure(
         &mut self,
         _io: &mut impl Transport,
-        _board: &HashboardDescriptor,
-    ) -> Result<(), ChipError> {
-        Ok(())
+        board: &HashboardDescriptor,
+    ) -> Result<Frequency, ChipError> {
+        Ok(board.chip.frequency_range.min())
     }
 
     async fn set_frequency(

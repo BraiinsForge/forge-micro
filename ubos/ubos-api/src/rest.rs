@@ -452,7 +452,10 @@ impl Service for RestApiService {
                 let net_confirm_seconds = ubos_config::pending_seconds_remaining();
                 let pause_reasons = self.manager.pause_reasons();
                 let paused = !pause_reasons.is_empty();
-                let running = ubos_mining::handle().state().is_some_and(|s| s.running);
+                let running = matches!(
+                    ubos_mining::handle().state(),
+                    Some(ubos_mining::MiningState::Running),
+                );
 
                 let mut body_buf = [0u8; API_INFO_BODY_BUFFER_SIZE];
                 let mut writer = ubos_http::BufferWriter::new(&mut body_buf);

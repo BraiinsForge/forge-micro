@@ -17,31 +17,13 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Two-phase chip-tuning contract driven by [`crate::Miner`].
+//! Tuning policies driven by the miner through [`ubos_tuner::Tuner`].
 //!
-//! [`Tuner`] is the trait every tuner implementation satisfies.
-//! [`TuningConfig`] is the tuner-facing snapshot of the configured
-//! target; the miner converts the storage-side
-//! `ubos_config::TuningConfig` from raw `u32` kHz / mV into this
-//! type's `Frequency` / `Voltage` units before each call.
-//! `ubos-mining` depends on `ubos-config` directly; the edge does
-//! not cycle because `ubos-config` no longer depends on
-//! `ubos-mining` or `ubos-manager`.
-//!
-//! Tuner implementations live in submodules: `fixed::FixedTuner` is
-//! the typed open-loop ramp that steps toward arbitrary targets via
-//! `ChainControl::set_frequency` on every chain `MinerControl::present_chains`
-//! yields, behind which the vendor-neutral chain driver owns the PLL
-//! programming. The active tuner is runtime-selectable via
-//! `MinerConfig::algorithm`.
-//!
-//! Enumeration, chain presence, and the enumeration retry policy are
-//! the miner's business, not the tuner's: a tuner only ever sees the
-//! chains the miner already found present.
+//! Policies calculate plans. The miner owns initialization, telemetry collection,
+//! command ordering, cancellation, and teardown. Serial actors and the PSU own
+//! their confirmed settings.
 
 use ubos_core::units::{Frequency, Voltage};
-
-use crate::miner::{MinerControl, MinerError};
 
 /// Tuner-facing snapshot of the active frequency and voltage target.
 ///
@@ -54,33 +36,21 @@ pub struct TuningConfig {
     pub voltage: Voltage,
 }
 
-/// Two-phase contract: `init` brings the chip from the safe-boot
-/// state the miner leaves it in to the configured target; `deinit`
-/// returns the chip to a state where the PSU can be dropped cleanly.
-///
-/// Each method takes `&impl MinerControl`. The tuner never sees the
-/// serial actor, never subscribes to `Config`, never selects on
-/// signals; the miner drives both methods imperatively. Live tuning
-/// updates on a running chip are not part of the contract; tuning
-/// changes apply on the next bring-up.
-///
-/// Both methods report [`MinerError`] and there is no tuner-specific
-/// error type. `Miner` folds every serial-bus and PSU failure into that
-/// one enum before a tuner can see one, and enumeration, which was the
-/// only failure a tuner used to own, is the miner's now.
-// The async-fn-in-trait pattern matches the project-wide convention
-// established by `ubos_psu::Psu` and `crate::miner::MinerControl`.
-// Send bounds are not required on this embedded target; the trait is
-// only called from a single-task context.
-#[allow(async_fn_in_trait)]
-pub trait Tuner<M: MinerControl> {
-    /// Bring the chip from the safe-boot baseline to `target`. Every
-    /// chain `miner.present_chains()` yields is configured, on the fast
-    /// UART, and has one temperature reading behind it when this runs.
-    async fn init(&mut self, miner: &M, target: TuningConfig) -> Result<(), MinerError>;
+impl From<&ubos_config::TuningConfig> for TuningConfig {
+    fn from(config: &ubos_config::TuningConfig) -> Self {
+        Self {
+            frequency: Frequency::from_mhz(config.frequency_mhz),
+            voltage: Voltage::from_mv(config.voltage_mv),
+        }
+    }
+}
 
-    /// Return the chip to a state where the PSU can be dropped.
-    async fn deinit(&mut self, miner: &M) -> Result<(), MinerError>;
+/// Configuration belongs to the runner, outside the shared policy contract.
+/// Each policy declares its algorithm and target conversion together.
+pub(crate) trait ConfiguredTuner<const CHAINS: usize>: ubos_tuner::Tuner<CHAINS> {
+    const ALGORITHM: ubos_config::TuningAlgorithm;
+
+    fn target(config: &ubos_config::Config) -> Self::Target;
 }
 
 pub mod fixed;

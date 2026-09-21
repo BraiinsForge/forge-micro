@@ -20,25 +20,51 @@
 //! Equivalence and invariant tests for `FixedTuner`'s constant-power
 //! curve walk. Gates the (frequency, voltage) sequence the tuner
 //! would emit against the BM1362 PLL factory table grid and the
-//! V^2 * f preservation rule, plus per-chain dispatch tests against a
-//! mock `MinerControl`/`ChainControl` pair covering multi-chain
-//! lockstep ramping and absent-chain exclusion.
+//! V^2 * f preservation rule.
 
-use core::cell::RefCell;
-
-use embassy_time::Duration;
 use ubos_asic::BMM101_HASHBOARD;
 use ubos_asic::bm13xx::registers::PllParameterReg;
 use ubos_core::units::{Frequency, Voltage};
 use ubos_psu::BmmPsuDescriptor;
 
-use crate::chain::control::ChainControl;
-use crate::miner::{MinerControl, MinerError};
-
-use super::super::Tuner;
 use super::FixedTuner;
 use super::TuningConfig;
-use super::walk_steps;
+use embassy_time::Instant;
+use ubos_tuner::{ChainReadings, Readings, Tuner};
+
+/// Drive the production policy with the state produced by each plan.
+fn walk_steps(from: TuningConfig, target: TuningConfig) -> heapless::Vec<(u32, u32), 256> {
+    let mut tuner = FixedTuner::new(&BMM101_HASHBOARD);
+    let mut readings = Readings {
+        now: Instant::from_millis(0),
+        voltage: from.voltage,
+        psu: None,
+        chains: [Some(ChainReadings {
+            chips: u16::from(BMM101_HASHBOARD.num_chips),
+            frequency: from.frequency,
+            hottest: None,
+            hashrate: 0,
+        })],
+    };
+    let mut steps = heapless::Vec::new();
+    loop {
+        let plan = tuner.step(target, &readings, &());
+        if plan.rail.is_none() && plan.frequencies[0].is_none() {
+            return steps;
+        }
+        if let Some(next) = plan.rail {
+            readings.voltage = next;
+        }
+        let chain = readings.chains[0].as_mut().expect("present chain");
+        if let Some(next) = plan.frequencies[0] {
+            chain.frequency = next;
+        }
+        steps
+            .push((chain.frequency.khz(), readings.voltage.mv()))
+            .expect("ramp must converge");
+        readings.now += plan.delay;
+    }
+}
 
 #[test]
 fn open_core_voltage_fits_default_psu_range() {
@@ -63,15 +89,7 @@ fn walk_to_same_state_is_empty() {
         frequency: BMM101_HASHBOARD.chip.frequency_range.min(),
         voltage: BMM101_HASHBOARD.max_rail_voltage(),
     };
-    assert!(
-        walk_steps(
-            from,
-            from,
-            BMM101_HASHBOARD.chip.frequency_step,
-            BMM101_HASHBOARD.chip.frequency_range.min()
-        )
-        .is_empty()
-    );
+    assert!(walk_steps(from, from).is_empty());
 }
 
 #[test]
@@ -86,8 +104,6 @@ fn walk_emits_target_as_final_step() {
             voltage: BMM101_HASHBOARD.max_rail_voltage(),
         },
         target,
-        BMM101_HASHBOARD.chip.frequency_step,
-        BMM101_HASHBOARD.chip.frequency_range.min(),
     );
     let (last_f, last_v) = *steps.last().expect("BUG: walk must emit at least one step");
     assert_eq!(last_f, target.frequency.khz());
@@ -110,8 +126,6 @@ fn walk_converges_for_float_lossy_voltage() {
             voltage: BMM101_HASHBOARD.max_rail_voltage(),
         },
         target,
-        BMM101_HASHBOARD.chip.frequency_step,
-        BMM101_HASHBOARD.chip.frequency_range.min(),
     );
     let (last_f, last_v) = *steps.last().expect("BUG: walk must emit at least one step");
     assert_eq!(last_f, target.frequency.khz());
@@ -136,8 +150,6 @@ fn walk_preserves_power_ceiling_after_phase_a() {
             voltage: BMM101_HASHBOARD.max_rail_voltage(),
         },
         target,
-        BMM101_HASHBOARD.chip.frequency_step,
-        BMM101_HASHBOARD.chip.frequency_range.min(),
     );
     let mut in_phase_b = false;
     for (f_khz, v_mv) in steps.iter().copied() {
@@ -168,8 +180,6 @@ fn walk_visits_every_25mhz_grid_point_with_pll_table_match() {
             voltage: BMM101_HASHBOARD.max_rail_voltage(),
         },
         target,
-        BMM101_HASHBOARD.chip.frequency_step,
-        BMM101_HASHBOARD.chip.frequency_range.min(),
     );
     let range = BMM101_HASHBOARD.chip.frequency_range;
     for (f_khz, _) in steps.iter().copied() {
@@ -194,8 +204,6 @@ fn walk_floors_off_grid_target_onto_step_grid() {
             voltage: BMM101_HASHBOARD.max_rail_voltage(),
         },
         target,
-        BMM101_HASHBOARD.chip.frequency_step,
-        BMM101_HASHBOARD.chip.frequency_range.min(),
     );
     let (last_frequency, _) = *steps.last().expect("BUG: walk must emit at least one step");
     assert_eq!(
@@ -204,186 +212,183 @@ fn walk_floors_off_grid_target_onto_step_grid() {
     );
 }
 
-/// A recorded call into a [`MockChain`]: which chain, and which
-/// `ChainControl` method.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Call {
-    SetFrequency(u32),
-    StartSendingWork,
-}
-
-/// Call log a [`MockMiner`]'s chains share, recording `(chain, call)`
-/// pairs in dispatch order so a test can check both which chains were
-/// addressed and the order calls interleaved in.
-type CallLog = RefCell<heapless::Vec<(usize, Call), 512>>;
-
-/// A `ChainControl` mock that records every call it receives instead
-/// of touching real hardware.
-struct MockChain<'a> {
-    chain: usize,
-    log: &'a CallLog,
-}
-
-impl ChainControl for MockChain<'_> {
-    fn chain(&self) -> usize {
-        self.chain
-    }
-
-    async fn set_frequency(&self, freq: Frequency) -> Result<(), MinerError> {
-        self.log
-            .borrow_mut()
-            .push((self.chain, Call::SetFrequency(freq.khz())))
-            .expect("BUG: call log capacity exceeded");
-        Ok(())
-    }
-
-    async fn start_sending_work(&self, _period: Duration) -> Result<(), MinerError> {
-        self.log
-            .borrow_mut()
-            .push((self.chain, Call::StartSendingWork))
-            .expect("BUG: call log capacity exceeded");
-        Ok(())
-    }
-
-    async fn stop_sending_work(&self) -> Result<(), MinerError> {
-        Ok(())
-    }
-}
-
-/// A `MinerControl` mock exposing only the chains it was given as
-/// present; a test constructs it with fewer chains than the board's
-/// full chain count to model an absent connector.
-struct MockMiner<'a> {
-    chains: heapless::Vec<MockChain<'a>, 4>,
-}
-
-impl<'a> MinerControl for MockMiner<'a> {
-    type Chain = MockChain<'a>;
-
-    async fn set_voltage(&self, _voltage: Voltage) -> Result<(), MinerError> {
-        Ok(())
-    }
-
-    fn present_chains(&self) -> impl Iterator<Item = &Self::Chain> {
-        self.chains.iter()
-    }
+#[test]
+fn absent_chain_produces_no_commands() {
+    let mut tuner = FixedTuner::new(&BMM101_HASHBOARD);
+    let target = TuningConfig {
+        frequency: Frequency::from_mhz(550),
+        voltage: Voltage::from_mv(1100),
+    };
+    let readings = Readings {
+        now: Instant::from_millis(0),
+        voltage: BMM101_HASHBOARD.max_rail_voltage(),
+        psu: None,
+        chains: [None],
+    };
+    let plan = tuner.step(target, &readings, &());
+    assert_eq!(plan.frequencies, [None]);
+    assert_eq!(plan.rail, None);
 }
 
 #[test]
-fn init_starts_work_on_every_present_chain() {
-    let log = CallLog::default();
-    let miner = MockMiner {
-        chains: heapless::Vec::from_array([
-            MockChain {
-                chain: 0,
-                log: &log,
-            },
-            MockChain {
-                chain: 1,
-                log: &log,
-            },
-        ]),
-    };
-    let mut tuner = FixedTuner::new(&BMM101_HASHBOARD);
+fn a_new_target_restarts_a_completed_policy() {
+    let board = &BMM101_HASHBOARD;
+    let mut tuner = FixedTuner::new(board);
+    let voltage = board.max_rail_voltage();
+    let safe = board.chip.frequency_range.min();
     let target = TuningConfig {
-        frequency: BMM101_HASHBOARD.chip.frequency_range.min(),
-        voltage: BMM101_HASHBOARD.max_rail_voltage(),
+        frequency: safe,
+        voltage,
     };
-
-    embassy_futures::block_on(tuner.init(&miner, target)).expect("BUG: init against the mock");
-
-    // The target is the safe-boot state itself, so the walk is empty
-    // and the log holds only what init does before the ramp. The chain
-    // arrives from the miner configured and swept; the tuner's one
-    // bring-up step is to start work, once per present chain.
-    let calls = log.borrow();
-    for chain in 0..2 {
-        let started = calls
-            .iter()
-            .filter(|(c, call)| *c == chain && *call == Call::StartSendingWork)
-            .count();
-        assert_eq!(started, 1, "chain {chain} started work {started} times");
-    }
-    assert_eq!(calls.len(), 2, "init did more than start work: {calls:?}");
+    let readings = Readings {
+        now: Instant::from_millis(0),
+        voltage,
+        psu: None,
+        chains: [Some(ChainReadings {
+            chips: u16::from(board.num_chips),
+            frequency: safe,
+            hottest: None,
+            hashrate: 0,
+        })],
+    };
+    let plan = tuner.step(target, &readings, &());
+    assert_eq!(plan.frequencies, [None]);
+    assert_eq!(plan.rail, None);
+    let target = TuningConfig {
+        frequency: Frequency::from_khz(safe.khz() + board.chip.frequency_step.khz()),
+        voltage,
+    };
+    let plan = tuner.step(target, &readings, &());
+    assert_eq!(plan.frequencies, [Some(target.frequency)]);
+    assert_eq!(plan.rail, None);
+    assert!(matches!(
+        tuner.progress.as_ref().expect("progress after step").phase,
+        super::Phase::Curve
+    ));
 }
 
 #[test]
-fn frequency_steps_interleave_across_present_chains() {
-    let log = CallLog::default();
-    let miner = MockMiner {
-        chains: heapless::Vec::from_array([
-            MockChain {
-                chain: 0,
-                log: &log,
-            },
-            MockChain {
-                chain: 1,
-                log: &log,
-            },
-        ]),
-    };
-    let mut tuner = FixedTuner::new(&BMM101_HASHBOARD);
+fn applied_voltage_takes_precedence_over_psu_samples() {
+    let board = &BMM101_HASHBOARD;
     let target = TuningConfig {
-        frequency: Frequency::from_mhz(75),
-        voltage: BMM101_HASHBOARD.max_rail_voltage(),
+        frequency: board.chip.frequency_range.min(),
+        voltage: board.max_rail_voltage(),
     };
+    let readings = Readings {
+        now: Instant::from_millis(1000),
+        voltage: target.voltage,
+        psu: Some(ubos_psu::PsuReading {
+            input_power: ubos_core::units::Power::from_mw(0),
+            output_power: ubos_core::units::Power::from_mw(0),
+            output_voltage_set: Voltage::from_mv(1200),
+            output_voltage_measured: Voltage::from_mv(1000),
+            timestamp_ms: 0,
+            sensor_fault: false,
+        }),
+        chains: [Some(ChainReadings {
+            chips: u16::from(board.num_chips),
+            frequency: target.frequency,
+            hottest: None,
+            hashrate: 0,
+        })],
+    };
+    let mut tuner = FixedTuner::new(board);
+    let plan = tuner.step(target, &readings, &());
+    assert_eq!(plan.frequencies, [None]);
+    assert_eq!(plan.rail, None);
+}
 
-    embassy_futures::block_on(tuner.walk_to_target(&miner, target, Duration::from_millis(0)))
-        .expect("BUG: walk must not fail against the mock");
+#[test]
+fn a_new_target_replaces_an_unfinished_transition() {
+    let board = &BMM101_HASHBOARD;
+    let mut tuner = FixedTuner::new(board);
+    let original = TuningConfig {
+        frequency: board.chip.frequency_range.min(),
+        voltage: board.max_rail_voltage(),
+    };
+    let mut readings = Readings {
+        now: Instant::from_millis(0),
+        voltage: original.voltage,
+        psu: None,
+        chains: [Some(ChainReadings {
+            chips: u16::from(board.num_chips),
+            frequency: original.frequency,
+            hottest: None,
+            hashrate: 0,
+        })],
+    };
+    let target = TuningConfig {
+        frequency: Frequency::from_mhz(550),
+        ..original
+    };
+    let first = tuner.step(target, &readings, &());
+    readings.chains[0]
+        .as_mut()
+        .expect("present chain")
+        .frequency = first.frequencies[0].expect("first frequency step");
+    readings.now += first.delay;
+    let plan = tuner.step(original, &readings, &());
+    assert_eq!(plan.frequencies, [Some(original.frequency)]);
+    assert_eq!(plan.rail, None);
+}
 
-    let calls = log.borrow();
-    let frequency_calls: heapless::Vec<(usize, u32), 512> = calls
-        .iter()
-        .filter_map(|(chain, call)| match call {
-            Call::SetFrequency(khz) => Some((*chain, *khz)),
-            Call::StartSendingWork => None,
+#[test]
+fn unequal_chains_converge_without_exceeding_the_shared_rail_power_ceiling() {
+    const STEPS: usize = 256;
+    let board = &BMM101_HASHBOARD;
+    let target = TuningConfig {
+        frequency: Frequency::from_mhz(550),
+        voltage: Voltage::from_mv(1100),
+    };
+    let chain = |frequency| {
+        Some(ChainReadings {
+            chips: u16::from(board.num_chips),
+            frequency,
+            hottest: None,
+            hashrate: 0,
         })
-        .collect();
-    assert!(
-        frequency_calls.len() >= 4,
-        "walk from safe-boot to 75 MHz should emit at least two steps per chain"
-    );
-
-    // Every step programs chain 0 then chain 1 at the same frequency
-    // before the walk moves to the next step, rather than chain 0
-    // ramping fully before chain 1 starts.
-    let mut index = 0;
-    while index + 1 < frequency_calls.len() {
-        let (chain_a, freq_a) = frequency_calls[index];
-        let (chain_b, freq_b) = frequency_calls[index + 1];
-        assert_eq!(chain_a, 0, "step {index} did not start with chain 0");
-        assert_eq!(chain_b, 1, "step {index} did not follow with chain 1");
-        assert_eq!(
-            freq_a, freq_b,
-            "chain 0 and chain 1 must see the same frequency at step {index}"
-        );
-        index += 2;
+    };
+    let mut readings = Readings {
+        now: Instant::from_millis(0),
+        voltage: board.max_rail_voltage(),
+        psu: None,
+        chains: [
+            chain(Frequency::from_mhz(50)),
+            None,
+            chain(Frequency::from_mhz(100)),
+        ],
+    };
+    let mut tuner = FixedTuner::new(board);
+    let target_power = target.voltage.as_volts().powi(2) * target.frequency.as_mhz();
+    for _ in 0..STEPS {
+        let plan = tuner.step(target, &readings, &());
+        assert_eq!(plan.frequencies[1], None);
+        if let Some(voltage) = plan.rail {
+            readings.voltage = voltage;
+        }
+        for (chain, next) in readings.chains.iter_mut().zip(plan.frequencies) {
+            if let (Some(chain), Some(frequency)) = (chain, next) {
+                chain.frequency = frequency;
+            }
+        }
+        if readings.voltage < board.max_rail_voltage() {
+            for chain in readings.chains.iter().flatten() {
+                let power = readings.voltage.as_volts().powi(2) * chain.frequency.as_mhz();
+                assert!(power <= target_power * 1.01);
+            }
+        }
+        if plan.rail.is_none() && plan.frequencies.iter().all(Option::is_none) {
+            assert_eq!(readings.voltage, target.voltage);
+            assert!(
+                readings
+                    .chains
+                    .iter()
+                    .flatten()
+                    .all(|chain| chain.frequency == target.frequency)
+            );
+            return;
+        }
+        readings.now += plan.delay;
     }
-}
-
-#[test]
-fn absent_chain_is_never_addressed() {
-    let log = CallLog::default();
-    // Only chain 0 is present; a real miner would have found chain 1
-    // absent during enumeration and left it out of `present_chains`.
-    let miner = MockMiner {
-        chains: heapless::Vec::from_array([MockChain {
-            chain: 0,
-            log: &log,
-        }]),
-    };
-    let mut tuner = FixedTuner::new(&BMM101_HASHBOARD);
-    let target = TuningConfig {
-        frequency: Frequency::from_mhz(75),
-        voltage: BMM101_HASHBOARD.max_rail_voltage(),
-    };
-
-    embassy_futures::block_on(tuner.walk_to_target(&miner, target, Duration::from_millis(0)))
-        .expect("BUG: walk must not fail against the mock");
-
-    let calls = log.borrow();
-    assert!(
-        calls.iter().all(|(chain, _)| *chain == 0),
-        "chain 1 was never enumerated present and must not be addressed"
-    );
+    panic!("ramp did not converge");
 }

@@ -16,13 +16,15 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
   const [msg, setMsg] = useState('');
   const wrapRef = useRef<HTMLDivElement>(null); // menu wrapper, for outside-click detection
 
-  // Start/Stop disabled states, mirroring updateActionState in the
-  // vanilla UI. paused wins over running; an OTA pause locks both.
+  // Start/Stop disabled states. Both buttons stay live until the info
+  // endpoint answers; an OTA pause locks both.
   const paused = dash.info?.paused;
   const running = dash.info?.running;
   const reason = dash.info?.pause_reason;
   const startDisabled = paused == null ? false : paused ? reason === 'otaUpdate' : running;
-  const stopDisabled = paused == null ? false : paused || !running;
+  // Stop does not consult running: it asserts the operator pause, which
+  // also interrupts bring-up and the automatic retries before mining starts.
+  const stopDisabled = paused ?? false;
 
   function close() {
     setOpen(false);

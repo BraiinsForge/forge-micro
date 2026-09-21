@@ -17,57 +17,45 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! ASIC mining main loop over the firmware-injected chain driver.
+//! Multi-chain mining lifecycle and execution of synchronous tuner plans.
 //!
-//! One [`Miner`] owns the PSU rail and every chain of the machine.
-//! Each bring-up iteration powers the rail up, resets every chain, then
-//! enumerates and configures every chain at once, each to its safe-boot
-//! point, and runs `tuner.init` over the chains that answered present.
-//! A connector with no board behind it, or one whose chip count never
-//! settles on the board's expected value or that refuses its
-//! configuration on every attempt, is parked in reset and left out of
-//! the ramp instead of stopping the whole machine; only a bring-up where
-//! no chain is present cuts the rail and retries. An error in the ramp
-//! itself still cuts the rail and retries the whole bring-up, because
-//! the tuner addresses every present chain in lockstep and has no chain
-//! to park.
-//!
-//! `Message::Halt` is the thermal-emergency path: when delivered the
-//! loop drops the rail at once, with no `tuner.deinit` ramp and no
-//! serial-actor reset in front of it, then waits for `Message::Resume`
-//! before attempting bring-up again. The board is already over
-//! `dangerous_temp_c`; a ramp holds the rail up for the length of the
-//! walk, and an actor reset waits behind whatever turn the actor is in.
-//! `STOP_MINING` remains the orderly-shutdown path that runs
-//! `tuner.deinit`.
+//! Bring-up configures every chain concurrently and parks absent or faulted connectors.
+//! The miner applies bounded policy plans in decrease, rail, increase order.
+//! Live targets take effect at the next step. Interruptions allow the current plan
+//! a bounded wait, then cut the rail without a shutdown ramp.
 
 #[cfg(test)]
 #[path = "tests/miner.rs"]
 mod tests;
 
+use core::cmp::Ordering;
+
 use embassy_futures::join::join_array;
 use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use embedded_io::ErrorKind;
 use ubos_asic::HashboardDescriptor;
 use ubos_config::{ConfigSubscription, TuningAlgorithm};
-use ubos_core::units::{Frequency, Voltage};
+use ubos_core::units::{Frequency, Temperature, Voltage};
 use ubos_logging::{Debug2Format, error, info, warn};
 use ubos_metrics::chain::ChainPresence;
 use ubos_psu::{Error as PsuError, Psu};
 
 use crate::chain::{ChainControl, ChainHandle};
-use crate::control::{COMMAND_CHANNEL, Message, MiningState, STATE_WATCH};
+use crate::control::{COMMAND_CHANNEL, Message, MiningState, publish_state};
 use crate::reset::ResetPin;
 use crate::serial::Serial;
+use crate::tuner::ConfiguredTuner;
 use crate::tuner::fixed::FixedTuner;
-use crate::tuner::{Tuner, TuningConfig};
+use ubos_tuner::{ChainReadings, Plan, Readings};
 
-/// Raise once to stop the miner. The run loop awaits this between init
-/// and deinit; signalling it triggers the teardown sequence and the
-/// outer loop returns.
+/// Maximum time an interrupted hardware plan can finish before the rail cut.
+const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(100);
+
+/// Request shutdown during initialization, plan execution or settling.
+/// Teardown cuts the rail before the outer loop returns.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
 pub static STOP_MINING: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
@@ -149,35 +137,6 @@ impl defmt::Format for MinerError {
             }
         }
     }
-}
-
-/// Machine-wide control surface used by `Tuner` implementations.
-/// Implemented by [`Miner`]; defined as a trait so tuner
-/// implementations do not need to be generic over the `(P, R, CHAINS)`
-/// parameters of `Miner`.
-///
-/// Voltage is one value for the whole machine, set through the shared
-/// PSU rail. Frequency and every other per-chain operation reach a
-/// chain only through [`Self::Chain`], returned by
-/// [`Self::present_chains`]; a tuner never addresses a chain by index.
-// The async-fn-in-trait pattern matches the project-wide convention
-// established by `ubos_psu::Psu`. Send bounds are not required on
-// this embedded target; the trait is only called from a single-task
-// context.
-#[allow(async_fn_in_trait)]
-pub trait MinerControl {
-    /// The chain-facing handle this miner hands out. A tuner reaches a
-    /// chain only through this type's `ChainControl` methods.
-    type Chain: ChainControl;
-
-    /// Set the core voltage through the PSU driver.
-    async fn set_voltage(&self, voltage: Voltage) -> Result<(), MinerError>;
-
-    /// Chains the most recent enumeration found present, in board
-    /// order. A tuner ramps every item this iterator yields; a chain
-    /// left out has no hashboard behind it or never settled on the
-    /// board's expected chip count.
-    fn present_chains(&self) -> impl Iterator<Item = &Self::Chain>;
 }
 
 /// The ASIC mining state machine driving the injected chain driver.
@@ -287,16 +246,9 @@ where
     ///
     /// # Algorithm-change invariant
     ///
-    /// Switching tuner algorithms requires a full chip teardown:
-    /// `tuner.deinit()` + PSU rail cut + reset, then the outer loop
-    /// reconstructs the new tuner and runs `tuner.init()` from the
-    /// post-reset baseline. No in-place tuner swap; the chip must be
-    /// at a clean baseline before the new tuner's init walk begins.
+    /// Switching algorithms cuts the rail and resets every chain.
+    /// The next cycle constructs a fresh policy from the post-reset baseline.
     pub async fn run(&mut self) {
-        // Publish the initial state so a fan task that started before us
-        // sees `false` instead of waiting forever for the first edge.
-        publish_running(false);
-
         let config_handle = ubos_config::handle();
         let mut config_subscription = config_handle.subscribe();
 
@@ -305,9 +257,8 @@ where
         // the read below with no intervening await, so `current()` would
         // otherwise fall back to `Config::default()` — the BMM101/BM1362
         // board's operating point, wrong for this chip. Returns
-        // immediately once a config has been published. Consuming the
-        // first change here also keeps `mine_phase`'s entry `changed()`
-        // from firing a spurious restart against the just-read target.
+        // immediately once a config has been published. The loop reads
+        // the latest target again before every policy step.
         config_subscription.changed().await;
 
         // Park the rail off before the first reset, so every board
@@ -324,21 +275,12 @@ where
 
         loop {
             let snapshot = config_handle.current();
-            let target = TuningConfig {
-                frequency: Frequency::from_mhz(snapshot.tuning.frequency_mhz),
-                voltage: Voltage::from_mv(snapshot.tuning.voltage_mv),
-            };
 
             let outcome = match snapshot.miner.algorithm {
                 TuningAlgorithm::Fixed => {
                     let mut tuner = FixedTuner::new(self.board);
-                    self.bring_up_cycle(
-                        target,
-                        snapshot.miner.algorithm,
-                        &mut tuner,
-                        &mut config_subscription,
-                    )
-                    .await
+                    self.bring_up_cycle(&mut tuner, &mut config_subscription)
+                        .await
                 }
             };
             if outcome.is_stop() {
@@ -348,7 +290,7 @@ where
     }
 
     /// Reset, enumerate and configure every chain, all at once,
-    /// cancellable by STOP and HALT the same way `tuner_init_phase` is.
+    /// cancellable by STOP and HALT the same way `start_work_phase` is.
     /// This is the last bring-up step before the tuner sees a chain.
     ///
     /// A chain that answers zero chips is marked absent; one whose
@@ -361,26 +303,26 @@ where
     async fn bring_up_chains_phase(&mut self) -> InitPhase {
         let expected = self.board.num_chips;
         match select3(
-            bring_up_all(&mut self.chains, expected),
             STOP_MINING.wait(),
-            next_halt_change(),
+            wait_for_halt(),
+            bring_up_all(&mut self.chains, expected),
         )
         .await
         {
-            Either3::First(BringUpOutcome::Done) => InitPhase::Done,
-            Either3::First(BringUpOutcome::NonePresent) => {
+            Either3::Third(BringUpOutcome::Done) => InitPhase::Done,
+            Either3::Third(BringUpOutcome::NonePresent) => {
                 error!("mining: no chain present; cutting rail and retrying");
                 self.cut_rail_and_settle().await
             }
-            Either3::Second(()) => {
+            Either3::First(()) => {
                 info!("mining: stop signalled during chain bring-up; cutting rail");
                 cut_rail(self.psu, &mut self.chains).await;
                 InitPhase::Stop
             }
-            Either3::Third(value) => {
+            Either3::Second(()) => {
                 warn!("mining: halt asserted during chain bring-up; cutting rail");
                 cut_rail(self.psu, &mut self.chains).await;
-                InitPhase::Halt(value)
+                InitPhase::Halted
             }
         }
     }
@@ -391,65 +333,47 @@ where
     async fn cut_rail_and_settle(&mut self) -> InitPhase {
         cut_rail(self.psu, &mut self.chains).await;
         match select3(
-            Timer::after(Self::RETRY_DELAY),
             STOP_MINING.wait(),
-            next_halt_change(),
+            wait_for_halt(),
+            Timer::after(Self::RETRY_DELAY),
         )
         .await
         {
-            Either3::First(()) => InitPhase::Retry,
-            Either3::Second(()) => {
+            Either3::Third(()) => InitPhase::Retry,
+            Either3::First(()) => {
                 info!("mining: stop signalled during recovery");
                 InitPhase::Stop
             }
-            Either3::Third(value) => InitPhase::Halt(value),
+            Either3::Second(()) => InitPhase::Halted,
         }
     }
 
-    /// Drive `tuner.init` with STOP and HALT cancellation.
-    ///
-    /// Any `tuner.init` error cuts the rail and applies a
-    /// `Self::RETRY_DELAY` settle (cancellable) before reporting
-    /// `Retry`. The live config subscription means an off-grid
-    /// frequency or transient PSU fault can recover once the operator edits
-    /// the target rather than permanently disabling mining. STOP and HALT
-    /// also cut the rail before returning so the caller only dispatches on
-    /// the variant.
-    async fn tuner_init_phase<T>(&mut self, tuner: &mut T, target: TuningConfig) -> InitPhase
-    where
-        T: Tuner<Self>,
-    {
-        info!("mining: running tuner init");
-        // The `&*self` shared borrow is held only for the duration of the
-        // select; all match arms that follow can take mutable field refs.
-        let init_result = select3(
-            tuner.init(&*self, target),
-            STOP_MINING.wait(),
-            next_halt_change(),
-        )
-        .await;
+    /// Anchor the shared rail and start every present chain before tuning.
+    async fn start_work_phase(&mut self) -> InitPhase {
+        info!("mining: running work initialization");
+        let init_result = select3(STOP_MINING.wait(), wait_for_halt(), self.start_work()).await;
         match init_result {
-            Either3::First(Ok(())) => {
-                crate::events::tuner_initialised();
+            Either3::Third(Ok(())) => {
+                crate::events::work_initialized();
                 InitPhase::Done
             }
-            Either3::First(Err(error)) => {
+            Either3::Third(Err(error)) => {
                 error!(
-                    "mining: tuner init error ({:?}); cutting rail and retrying",
+                    "mining: work initialization error ({:?}); cutting rail and retrying",
                     Debug2Format(&error)
                 );
-                crate::events::tuner_fault();
+                crate::events::work_initialization_failed();
                 self.cut_rail_and_settle().await
             }
-            Either3::Second(()) => {
-                info!("mining: stop signalled during tuner init; cutting rail");
+            Either3::First(()) => {
+                info!("mining: stop signalled during work initialization; cutting rail");
                 cut_rail(self.psu, &mut self.chains).await;
                 InitPhase::Stop
             }
-            Either3::Third(value) => {
-                warn!("mining: halt asserted during tuner init; cutting rail");
+            Either3::Second(()) => {
+                warn!("mining: halt asserted during work initialization; cutting rail");
                 cut_rail(self.psu, &mut self.chains).await;
-                InitPhase::Halt(value)
+                InitPhase::Halted
             }
         }
     }
@@ -459,13 +383,10 @@ where
     /// Runs the PSU-reset-settle-enumerate-configure-init sequence over every
     /// chain, then delegates to `mine_phase` for the steady-state
     /// select loop. Returns `CycleOutcome::Stop` when `STOP_MINING`
-    /// fires; returns `CycleOutcome::Continue` on halt, halt-clear, a
-    /// mining-target change (algorithm or frequency/voltage), or a
-    /// transient init failure that has already cut the rail.
-    async fn bring_up_cycle<T: Tuner<Self>>(
+    /// fires; returns `CycleOutcome::Continue` on halt, halt-clear, an
+    /// algorithm change, or a transient init failure that has already cut the rail.
+    async fn bring_up_cycle<T: ConfiguredTuner<CHAINS, PlatformReadings = ()>>(
         &mut self,
-        target: TuningConfig,
-        current_algorithm: TuningAlgorithm,
         tuner: &mut T,
         config_subscription: &mut ConfigSubscription,
     ) -> CycleOutcome {
@@ -480,12 +401,7 @@ where
             }
         }
 
-        // -- bring-up --
-        // Voltage programming lives in the Tuner trait so a tuner
-        // that ramps voltage can anchor at the chip's open-core
-        // voltage and walk down to `target.voltage` as the PLL
-        // climbs.
-
+        publish_state(MiningState::Starting);
         info!("mining: entering reset");
         crate::events::miner_reset();
         for chain in &mut self.chains {
@@ -501,10 +417,6 @@ where
         if let Err(error) = self.psu.enable().await {
             warn!("psu enable failed: {:?}", Debug2Format(&error));
         }
-        // Fans follow the rail, not the tuner init completion: the
-        // chip is dissipating power as soon as the PSU is on, and
-        // init can take long enough for thermals to climb.
-        publish_running(true);
         let settled = settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.chains).await;
         if let Some(outcome) = self.leave_cycle(settled) {
             return outcome;
@@ -519,12 +431,13 @@ where
             return outcome;
         }
 
+        // Cleanup owns an accepted STOP or HALT until leave_cycle records it.
+        // A configuration publication must not cancel that cleanup.
         let brought_up = self.bring_up_chains_phase().await;
         if let Some(outcome) = self.leave_cycle(brought_up) {
             return outcome;
         }
-
-        let initialised = self.tuner_init_phase(tuner, target).await;
+        let initialised = self.start_work_phase().await;
         if let Some(outcome) = self.leave_cycle(initialised) {
             return outcome;
         }
@@ -538,87 +451,71 @@ where
             }
         }
 
-        self.mine_phase(current_algorithm, target, tuner, config_subscription)
-            .await
+        publish_state(MiningState::Running);
+        self.mine_phase(tuner, config_subscription).await
     }
 
-    /// Steady-state mining select loop entered after a successful tuner init.
-    ///
-    /// Runs until `STOP_MINING`, a halt edge, or an algorithm change.
-    /// Algorithm changes trigger a full tuner deinit + rail cut before
-    /// returning `Continue` so the outer loop can reconstruct under the
-    /// new algorithm. Other config edits (tuning fields) are persisted
-    /// in `Config` but only take effect at the next bring-up; there is
-    /// no in-place ramp.
-    async fn mine_phase<T: Tuner<Self>>(
+    /// Read the live target at each step and retain the first accepted interruption.
+    async fn mine_phase<T: ConfiguredTuner<CHAINS, PlatformReadings = ()>>(
         &mut self,
-        current_algorithm: TuningAlgorithm,
-        target: TuningConfig,
         tuner: &mut T,
-        config_subscription: &mut ConfigSubscription,
+        subscription: &mut ConfigSubscription,
     ) -> CycleOutcome {
-        info!("mining: mining; awaiting STOP_MINING, Message, or config change");
-        loop {
-            match select3(
-                STOP_MINING.wait(),
-                next_halt_change(),
-                config_subscription.changed(),
+        let mut plan_delay = Duration::from_millis(0);
+        let interrupt = loop {
+            if let Either::First(exit) = select(
+                interrupted(T::ALGORITHM, subscription),
+                Timer::after(plan_delay),
             )
             .await
             {
-                Either3::First(()) => {
-                    // Orderly teardown.
-                    info!("mining: running tuner deinit");
-                    let _ = tuner.deinit(&*self).await;
-                    self.stop_present_chains().await;
-                    cut_rail(self.psu, &mut self.chains).await;
-                    info!("mining: stopped");
-                    return CycleOutcome::Stop;
-                }
-                Either3::Second(true) => {
-                    // No actor reset first: each one waits behind the
-                    // actor's current turn, and the rail must not. The
-                    // next bring-up resets every actor before it speaks
-                    // to a chain.
-                    warn!("mining: halt asserted while mining; cutting rail");
-                    cut_rail(self.psu, &mut self.chains).await;
-                    self.halted = true;
-                    return CycleOutcome::Continue;
-                }
-                Either3::Second(false) => {
-                    // Halt cleared while already mining; stale edge.
-                    // Absorb it rather than tear down a healthy chip.
-                    //
-                    // The bring-up phases answer the same edge the other
-                    // way, through `settle_or_abort` and `leave_cycle`:
-                    // there it cuts the rail and restarts the cycle.
-                    // Neither arm can fire today, because `ubos-manager`
-                    // sends `Resume` only on the transition out of its
-                    // last pause reason, which the miner has already
-                    // consumed in `wait_halt_clear_or_stop`. A change to
-                    // that guard makes both arms live and has to settle
-                    // which answer is the right one.
-                }
-                Either3::Third(new_config) => {
-                    // Reprogram the ASIC when the operating target moved: an
-                    // algorithm change, or a frequency/voltage edit. Ramp the
-                    // chain gracefully down to the safe-boot anchor (deinit,
-                    // fast — see DEINIT_SETTLE), then reset so the outer loop
-                    // re-reads the new target and brings up from a clean
-                    // baseline. Config edits that do not touch mining
-                    // (cooling, pools, network) are left to their own tasks
-                    // and do not restart the chip.
-                    let tuning_changed = new_config.tuning.frequency_mhz != target.frequency.mhz()
-                        || new_config.tuning.voltage_mv != target.voltage.mv();
-                    if new_config.miner.algorithm != current_algorithm || tuning_changed {
-                        info!("mining: mining target changed; ramping down to restart");
-                        let _ = tuner.deinit(&*self).await;
-                        self.stop_present_chains().await;
-                        cut_rail(self.psu, &mut self.chains).await;
-                        return CycleOutcome::Continue;
-                    }
-                }
+                break exit;
             }
+            let snapshot = subscription.get().await;
+            if snapshot.miner.algorithm != T::ALGORITHM {
+                break Interrupt::Restart;
+            }
+            let target = T::target(&snapshot);
+            let plan = tuner.step(target, &self.readings(), &());
+            plan_delay = plan.delay;
+            let mut interruption = None;
+            match select(
+                async {
+                    interruption = Some(interrupted(T::ALGORITHM, subscription).await);
+                    Timer::after(INTERRUPT_TIMEOUT).await;
+                },
+                self.apply_plan(&plan),
+            )
+            .await
+            {
+                Either::First(()) => warn!("mining: tuner cancellation timed out"),
+                Either::Second(Err(error)) if interruption.is_none() => {
+                    warn!("mining: plan failed: {:?}", Debug2Format(&error));
+                    // TODO: Define a retry policy for transient plan failures.
+                    crate::events::tuner_fault();
+                    let phase = self.cut_rail_and_settle().await;
+                    // `cut_rail_and_settle` never returns `Done`, so the
+                    // fallback stands only to keep the expression total.
+                    return self.leave_cycle(phase).unwrap_or(CycleOutcome::Continue);
+                }
+                Either::Second(Err(error)) => warn!(
+                    "mining: interrupted plan failed: {:?}",
+                    Debug2Format(&error)
+                ),
+                Either::Second(Ok(())) => {}
+            }
+            if let Some(exit) = interruption {
+                break exit;
+            }
+        };
+        cut_rail(self.psu, &mut self.chains).await;
+        match interrupt {
+            Interrupt::Stop => CycleOutcome::Stop,
+            Interrupt::Halt => {
+                self.halted = true;
+                CycleOutcome::Continue
+            }
+            Interrupt::Restart => CycleOutcome::Continue,
         }
     }
 
@@ -630,48 +527,137 @@ where
         match phase {
             InitPhase::Done => None,
             InitPhase::Stop => Some(CycleOutcome::Stop),
-            InitPhase::Halt(value) => {
-                self.halted = value;
+            InitPhase::Halted => {
+                self.halted = true;
                 Some(CycleOutcome::Continue)
             }
             InitPhase::Retry => Some(CycleOutcome::Continue),
         }
     }
 
-    /// Reset the serial actor of every chain the most recent enumeration
-    /// found present, which stops its work dispatch and re-arms its line
-    /// at the boot baud. Called at the two orderly teardown sites in
-    /// `mine_phase`, after the tuner's ramp down, where every actor is
-    /// idle and answers at once, before `cut_rail` puts every chain,
-    /// present or not, back into hardware reset. The halt arm and the
-    /// bring-up phases skip this: an actor mid-turn answers only when
-    /// the turn finishes, and a rail cut must not wait for that.
-    async fn stop_present_chains(&mut self) {
-        for chain in &self.chains {
-            if chain.is_present() {
-                let _ = chain.serial.reset().await;
-            }
+    /// Set the open-core rail and start work only on configured chains.
+    async fn start_work(&self) -> Result<(), MinerError> {
+        const WORK_PERIOD: Duration = Duration::from_secs(1);
+        self.psu
+            .set_voltage(self.board.max_rail_voltage())
+            .await
+            .map_err(|error| MinerError::Psu(error.into()))?;
+        for chain in self.chains.iter().filter(|chain| chain.is_present()) {
+            chain.start_sending_work(WORK_PERIOD).await?;
+        }
+        Ok(())
+    }
+
+    /// Collect each present chain's accounting and the PSU's confirmed setpoint.
+    ///
+    /// The setpoint is present by construction. `start_work` commands the
+    /// open-core rail and `bring_up_cycle` reaches `mine_phase` only after
+    /// that command succeeded, and `Psu::set_voltage` records a successful
+    /// write before it returns.
+    fn readings(&self) -> Readings<CHAINS> {
+        Readings {
+            now: Instant::now(),
+            voltage: ubos_psu::handle()
+                .commanded_voltage()
+                .expect("BUG: tuning starts only after a successful PSU voltage command"),
+            psu: ubos_psu::handle().current(),
+            chains: self.chains.each_ref().map(|chain| {
+                chain.is_present().then(|| ChainReadings {
+                    chips: chain.stats.chips(),
+                    frequency: chain.stats.frequency(),
+                    hottest: chain.stats.hottest_mc().map(Temperature::from_millicelsius),
+                    hashrate: chain.stats.hashrate(),
+                })
+            }),
         }
     }
-}
 
-impl<P, R, const CHAINS: usize> MinerControl for Miner<'_, P, R, CHAINS>
-where
-    P: Psu,
-    R: ResetPin,
-{
-    type Chain = ChainHandle<R>;
+    /// Decreasing clocks precede the shared voltage change; increasing clocks follow it.
+    async fn apply_plan(&self, plan: &Plan<CHAINS>) -> Result<(), MinerError> {
+        let mut decreases = [None; CHAINS];
+        let mut increases = [None; CHAINS];
+        for (index, chain) in self.chains.iter().enumerate() {
+            if !chain.is_present() {
+                continue;
+            }
+            let Some(next) = plan.frequencies[index] else {
+                continue;
+            };
+            let range = self.board.chip.frequency_range;
+            let next = next.clamp(range.min(), range.max());
+            match next.cmp(&chain.stats.frequency()) {
+                Ordering::Less => decreases[index] = Some(next),
+                Ordering::Greater => increases[index] = Some(next),
+                Ordering::Equal => {}
+            }
+        }
 
-    async fn set_voltage(&self, voltage: Voltage) -> Result<(), MinerError> {
+        self.set_frequencies(decreases).await?;
+        // Only the ceiling is clamped here. It is board policy that can sit
+        // above the PSU's own range, so nothing below would refuse it. The
+        // floor is the PSU's, and a rail under its range returns
+        // `Error::OutOfRange` rather than reaching the hardware.
+        self.set_voltage_if_different(
+            plan.rail
+                .map(|rail| rail.min(self.board.max_rail_voltage())),
+        )
+        .await?;
+        self.set_frequencies(increases).await?;
+        Ok(())
+    }
+
+    async fn set_frequencies(
+        &self,
+        frequencies: [Option<Frequency>; CHAINS],
+    ) -> Result<(), MinerError> {
+        for (chain, next) in self.chains.iter().zip(frequencies) {
+            if let Some(next) = next {
+                chain.set_frequency(next).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn set_voltage_if_different(&self, voltage: Option<Voltage>) -> Result<(), MinerError> {
+        let Some(voltage) =
+            voltage.filter(|next| Some(*next) != ubos_psu::handle().commanded_voltage())
+        else {
+            return Ok(());
+        };
         self.psu
             .set_voltage(voltage)
             .await
-            .map_err(|error| MinerError::Psu(error.into()))
+            .map_err(|error| MinerError::Psu(error.into()))?;
+        Ok(())
     }
+}
 
-    fn present_chains(&self) -> impl Iterator<Item = &Self::Chain> {
-        self.chains.iter().filter(|chain| chain.is_present())
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Interrupt {
+    Stop,
+    Halt,
+    Restart,
+}
+
+/// STOP wins simultaneous requests, then HALT, then an algorithm change.
+/// An accepted request is retained through cleanup, independent of later events.
+async fn interrupted(
+    algorithm: TuningAlgorithm,
+    subscription: &mut ConfigSubscription,
+) -> Interrupt {
+    let tuning_changed =
+        async { while subscription.changed().await.miner.algorithm == algorithm {} };
+    match select3(STOP_MINING.wait(), wait_for_halt(), tuning_changed).await {
+        Either3::First(()) => Interrupt::Stop,
+        Either3::Second(()) => Interrupt::Halt,
+        Either3::Third(()) => Interrupt::Restart,
     }
+}
+
+/// Wait for a halt while the miner is not halted. Ignore redundant resume messages.
+/// Return on the first halt so a queued resume reaches [`wait_halt_clear_or_stop`].
+async fn wait_for_halt() {
+    while !next_halt_change().await {}
 }
 
 /// Reset, enumerate and configure every chain, concurrently. Free
@@ -703,36 +689,15 @@ enum BringUpOutcome {
 }
 
 /// Idle counterpart to [`Miner::run`] for deployments without a real chip.
-///
-/// Publishes the initial `MiningState` so subscribers see a defined value,
-/// then drains the command channel forever. Used by host-runner when no PSU
-/// is configured: thermal still publishes temperatures and the API still
-/// renders state, while `halt`/`resume` edges from thermal are absorbed
-/// instead of back-pressuring the sender once the channel fills.
+/// Publish the stopped state and drain commands without hardware access.
 pub async fn run_idle() -> ! {
-    publish_running(false);
-    info!("mining: idle loop active (no chip); commands will be dropped");
+    publish_state(MiningState::Stopped);
+    info!("mining: idle loop active (no chip)");
     loop {
-        let _ = COMMAND_CHANNEL.receive().await;
+        next_halt_change().await;
     }
 }
 
-/// Publish a `MiningState` reflecting the rail flag. Frequency and
-/// voltage carry forward from the prior publish so the tuner ramp
-/// telemetry isn't clobbered by a halt edge.
-fn publish_running(running: bool) {
-    let prior = STATE_WATCH
-        .try_get()
-        .unwrap_or(crate::control::MiningState::IDLE);
-    STATE_WATCH.sender().send(MiningState {
-        running,
-        frequency: prior.frequency,
-        voltage: prior.voltage,
-    });
-}
-
-/// Block until a `Message::Halt`/`Resume` arrives. Returns the
-/// resulting halt state.
 async fn next_halt_change() -> bool {
     match COMMAND_CHANNEL.receive().await {
         Message::Halt => true,
@@ -744,10 +709,7 @@ async fn next_halt_change() -> bool {
 ///
 /// The order matters. Reset is asserted before the rail goes, so the
 /// chips are held rather than losing power mid-transaction. A failure to
-/// disable the PSU is logged and not returned: the reset is already
-/// asserted, and a board that cannot drop its rail is in no better state
-/// for the caller dispatching on the error here. The log line is what a
-/// rail that stayed up leaves behind.
+/// disable the PSU is logged; the chips remain in reset.
 ///
 /// A chain that was present is published as `Unknown` here, whichever
 /// phase the cut comes from: its enumeration is void once the reset is
@@ -756,6 +718,8 @@ async fn next_halt_change() -> bool {
 /// as parked while the machine is down. The store is a direct write
 /// rather than an actor command, so a cut never waits behind a
 /// bring-up command the actor is still running.
+/// Actor scheduling and driver state are reset by `ChainHandle::bring_up`
+/// before enumeration, regardless of how the previous cycle ended.
 ///
 /// The PSU and the chain handles are two generic parameters of equal
 /// standing, and neither is the receiver. No inherent `impl` in this
@@ -775,7 +739,7 @@ where
     if let Err(error) = psu.disable().await {
         warn!("psu disable failed: {:?}", Debug2Format(&error));
     }
-    publish_running(false);
+    publish_state(MiningState::Stopped);
 }
 
 /// Outcome returned by `bring_up_cycle` to the outer `run` loop.
@@ -802,16 +766,16 @@ enum Resumed {
 /// edge is observed; returns `Stopped` if `STOP_MINING` fires first.
 async fn wait_halt_clear_or_stop() -> Resumed {
     loop {
-        match select(next_halt_change(), STOP_MINING.wait()).await {
-            Either::First(false) => return Resumed::Cleared,
-            Either::First(true) => {}
-            Either::Second(()) => return Resumed::Stopped,
+        match select(STOP_MINING.wait(), next_halt_change()).await {
+            Either::Second(false) => return Resumed::Cleared,
+            Either::Second(true) => {}
+            Either::First(()) => return Resumed::Stopped,
         }
     }
 }
 
 /// Outcome of one bring-up step: a settling sleep, the enumeration,
-/// the configuration or the tuner init phase. `Miner::leave_cycle`
+/// the configuration or work initialization. `Miner::leave_cycle`
 /// turns it into the run loop's next move.
 #[derive(Clone, Copy)]
 enum InitPhase {
@@ -821,9 +785,8 @@ enum InitPhase {
     /// the run loop must return.
     Stop,
     /// A `Message::Halt` edge fired during the step; the rail has been
-    /// cut and the carried value is the new `halted` state for the run
-    /// loop to resume from.
-    Halt(bool),
+    /// cut. The next cycle waits for Resume.
+    Halted,
     /// A transient failure that has already cut the rail; the cycle
     /// restarts from a fresh config snapshot.
     Retry,
@@ -847,21 +810,15 @@ where
     P: Psu,
     R: ResetPin,
 {
-    match select3(
-        Timer::after(duration),
-        STOP_MINING.wait(),
-        next_halt_change(),
-    )
-    .await
-    {
-        Either3::First(()) => InitPhase::Done,
-        Either3::Second(()) => {
+    match select3(STOP_MINING.wait(), wait_for_halt(), Timer::after(duration)).await {
+        Either3::Third(()) => InitPhase::Done,
+        Either3::First(()) => {
             cut_rail(psu, chains).await;
             InitPhase::Stop
         }
-        Either3::Third(value) => {
+        Either3::Second(()) => {
             cut_rail(psu, chains).await;
-            InitPhase::Halt(value)
+            InitPhase::Halted
         }
     }
 }

@@ -22,9 +22,8 @@
 //! Owns the chip-side serial protocol and the work-dispatch loop.
 //! [`Handle`] is the public surface every other crate uses to
 //! observe state and issue commands. [`Miner`] is the typed state
-//! machine that firmware constructs and drives; [`MinerControl`]
-//! is the trait the tuner consumes. [`tuner`] hosts the `Tuner`
-//! trait and its implementations.
+//! machine that firmware constructs and drives. [`tuner`] hosts policies
+//! implementing [`ubos_tuner::Tuner`]; the miner applies their plans.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -42,9 +41,9 @@ pub mod scheduler;
 pub mod serial;
 pub mod tuner;
 
-pub use chain::{ChainControl, ChainHandle};
+pub use chain::ChainHandle;
 pub use control::{Handle, Message, MiningState, MiningSubscription, handle};
-pub use miner::{Miner, MinerControl, MinerError, PsuErrorKind};
+pub use miner::{Miner, MinerError, PsuErrorKind};
 pub use serial::{
     core1_is_parked, core1_serial_running, release_core1_park, request_core1_park,
     signal_core1_park,
@@ -53,7 +52,8 @@ pub use serial::{
 ubos_events::events! {
     miner_reset()                                 info  = "Miner reset",
     psu_enabled()                                 info  = "PSU enabled",
-    tuner_initialised()                           info  = "Tuner initialised",
+    work_initialized()                            info  = "Work initialized",
+    work_initialization_failed()                  error = "Work initialization failed",
     tuner_fault()                                 error = "Tuner fault",
     chain_enumerated_chips(chain: u8, found: u8, expected: u8)
                                                    info  = "Chain {} enumerated {} of {} chips",

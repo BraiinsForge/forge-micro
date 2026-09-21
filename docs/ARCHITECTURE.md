@@ -73,10 +73,14 @@ contract: a module that a handle does not connect does not talk.
   atomics or statics.
 - **The metrics push channel is the one sanctioned `pub static`.**
   Any layer can push and there is exactly one consumer.
-- **`PauseReasons` is intent; `MiningState.running` is ground truth.**
-  They can disagree transiently, because the manager publishes the new
-  mask the moment it issues `halt` and does not wait. The asymmetry is
-  load-bearing: thermal cannot afford to wait.
+- **`PauseReasons` records intent; `MiningState` records lifecycle status.**
+  The manager publishes the pause mask before the miner completes a halt.
+  The manager observes the mining state and waits for `Stopped`; OTA
+  reaches that wait through `Handle::stop_mining_and_wait`.
+  The OTA engine separately parks all serial workers before flash writes.
+- **Hardware settings stay with their owners.** Chain statistics expose
+  each serial actor's confirmed frequency. The PSU exposes the shared
+  rail setpoint. The miner does not copy these into lifecycle status.
 
 ## Reload and restart
 

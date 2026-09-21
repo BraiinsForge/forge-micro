@@ -566,13 +566,13 @@ pub trait ChainDriver {
     /// safe-boot operating point: per-domain/core setup, the boot-
     /// frequency PLL, the difficulty-1 share filter, and the switch to
     /// the fast UART — including switching `io` itself to the fast rate.
-    /// On return the chain is hashing at the descriptor's minimum
-    /// frequency and the line is at the fast rate.
+    /// On success, return the programmed hash-clock frequency.
+    /// The chain is configured and the line is at the fast rate.
     async fn configure(
         &mut self,
         io: &mut impl Transport,
         board: &HashboardDescriptor,
-    ) -> Result<(), ChipError>;
+    ) -> Result<Frequency, ChipError>;
 
     /// Program the hash-clock frequency. Called repeatedly by the tuner
     /// ramp; the driver owns the vendor-specific PLL programming.

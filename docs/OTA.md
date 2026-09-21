@@ -160,15 +160,15 @@ Each chunk therefore costs one request rather than two.
 
 ### Session lifecycle
 
-1. First chunk (`X-OTA-Offset: 0`): the handler stops mining via
-   `manager.stop_mining_and_wait()` and calls `ota.begin()`. Mining is stopped
-   before any flash access because the mining serial worker runs on core 1 and
-   may be blocked in a `BufferedUart::read` when a flash write arrives. Without
-   stopping mining, `embassy-rp`'s `pause_core1()` handshake inside
-   `write_firmware` must wait for the worker to reach a `wfe`; when the UART ISR
-   keeps feeding the ring buffer, that wait never terminates within the 2 s
-   watchdog window. Stopping mining via the manager also cuts the hashboard power
-   rail, since the mining loop's teardown calls `cut_rail()`.
+1. First chunk (`X-OTA-Offset: 0`): the handler calls `manager.stop_mining_and_wait()`.
+   The manager asserts the OTA pause and waits for the miner's `Stopped` state.
+   A miner that never started is already stopped.
+   The miner asserts chip reset and attempts to disable the PSU. It logs any PSU-disable error.
+   If the wait exceeds five seconds, the handler refuses the update.
+
+   The handler then calls `ota.begin()`.
+   The stopped state does not prove that serial workers are safe for flash writes.
+   The OTA engine checks this separately through the park mechanism below.
 
 2. `begin()` verifies the running image is in the confirmed booted state, then
    calls `park_core1_and_wait()`. This spin-polls `ubos_mining::core1_is_parked`

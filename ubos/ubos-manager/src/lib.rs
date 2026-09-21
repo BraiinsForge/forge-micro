@@ -57,6 +57,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{Duration, Timer};
+use ubos_mining::MiningState;
 
 /// Upper bound on how long [`Handle::stop_mining_and_wait`] waits for the
 /// mining loop to confirm it has stopped before giving up. The manager
@@ -140,33 +141,22 @@ impl Handle {
         subscription.changed().await
     }
 
-    /// Stop mining and wait until it confirms it has fully stopped.
-    ///
-    /// Asserts the OTA-update pause (`PauseReason::OtaUpdate`, which the
-    /// manager turns into `mining.halt()`), then waits for the mining loop
-    /// to publish `running == false`. Mining publishes that only after
-    /// `cut_rail` has driven the chip into reset and disabled the PSU, so a
-    /// `true` return means the hashboard is de-energised and core 1 is back
-    /// at an await point — the preconditions for the OTA handler to safely
-    /// pause core 1 and erase flash.
-    ///
-    /// This is the single entry point the API uses for the OTA pre-flight,
-    /// so the API never depends on `ubos-mining` directly: the command
-    /// chain is API → manager → mining → PSU.
-    ///
-    /// Returns `false` if mining does not confirm stopped within
-    /// [`MINING_STOP_TIMEOUT`], so the caller can refuse the update rather
-    /// than flash a live board.
+    /// Assert the OTA pause and wait for the miner's stopped state.
+    /// Returns `false` if the wait exceeds [`MINING_STOP_TIMEOUT`].
+    /// NOTE: The OTA flash driver separately parks the serial workers.
     pub async fn stop_mining_and_wait(&self) -> bool {
         self.send(Message::OtaBegin).await;
         let mining = ubos_mining::handle();
         // Fast path: a `None` state means mining never started, which is
         // already stopped, so there is nothing to await.
-        if mining.state().is_none_or(|state| !state.running) {
+        if mining
+            .state()
+            .is_none_or(|state| state == MiningState::Stopped)
+        {
             return true;
         }
         let mut subscription = mining.subscribe();
-        let stopped = async { while subscription.changed().await.running {} };
+        let stopped = async { while subscription.changed().await != MiningState::Stopped {} };
         matches!(
             select(stopped, Timer::after(MINING_STOP_TIMEOUT)).await,
             Either::First(()),

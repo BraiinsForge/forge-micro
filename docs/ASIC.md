@@ -23,8 +23,8 @@ the bring-up sequence, and the per-chip differences.
   `Bm13xxDriver`. Other vendor drivers implement the same `ChainDriver`
   from their own crates; the consumer injects one concrete driver.
 - **`ubos-mining`** — owns the per-chain serial actor (`Serial`) that
-  drives the UART halves and implements `Transport` over them, the tuner that
-  applies bring-up and the V²·f ramp, and the work dispatch / share
+  drives the UART halves and implements `Transport` over them, the miner that
+  applies bring-up and synchronous tuner plans, and the work dispatch / share
   verification path.
 
 The dependency arrow is `ubos-mining → ubos-asic`. `ubos-asic` declares
@@ -41,6 +41,7 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
 
 - `reset_and_enumerate` / `configure` — bring the chain up to a safe-boot
   operating point on the fast UART; `configure` owns the baud switch.
+  It returns the programmed frequency, which the serial actor records.
 - `set_frequency` — one ramp step, vendor-specific PLL programming.
 - `send_work` — dispatch a neutral `WorkJob`; its consumer-assigned
   `work_id` is the bounded local registry index mapped onto the chip's echo
@@ -59,7 +60,7 @@ over a `Transport` (`write_all` / `flush` / `read` / `set_baud` /
 - `status_turn` / `pvt_sweep` — one status reading, or one pass over
   every chip, recorded into a `ChainPvt` the board owns. The
   driver picks the chip and the quantity; the actor sets the cadence,
-  one turn per 480 ms of polling, and the tuner asks for the sweep right after
+  one turn per 480 ms of polling, and the miner asks for the sweep right after
   `configure` so the thermal loop has a reading before the ramp. Both
   default to no-ops for a family whose chips carry no sensors.
   On a board whose chips are its only thermometer,
@@ -193,8 +194,7 @@ ubos-mining
                                    the concrete driver the consumer injects
   Miner                      ← owns one ChainHandle per chain; enumerates
                                every chain and retries a bad chip count
-  tuner (policy)             ← drives ChainControl ops per chain; PSU +
-                               V²·f ramp
+  tuner (policy)             ← returns plans without hardware access
 ```
 
 ### Chip selection
@@ -241,8 +241,10 @@ sweep following a slow one cannot read a chip too early.
 
 ### Policy stays in the consumer
 
-The recipe does no policy. PSU voltage, starting the work loop, and the
-V²·f frequency ramp all live in the tuner. The host-side UART baud
+The recipe does no policy.
+The miner applies PSU voltage, starts work, and executes tuner plans.
+The tuner calculates the V²·f ramp without hardware access.
+The host-side UART baud
 switch lives in the driver: `configure` issues it through `Transport`
 right after the chip-side `enable_fast_uart`.
 
@@ -419,13 +421,16 @@ tuning-policy envelope, not a chip limit.
 
 ## Tuners
 
-- **`FixedTuner`** — the default. The `Miner` holds one `ChainHandle` per
-  chain and owns enumeration: it resets and enumerates every chain,
-  retrying a chain whose chip count does not match the board's expected
-  count up to the retry budget before parking it. Once a chain is
-  present, the tuner ramps it through `ChainControl` — `configure`,
-  anchoring the open-core voltage, and walking the V²·f curve to the
-  configured target on the chip's frequency-step grid.
+- **`FixedTuner`** is the default policy.
+  It implements `ubos_tuner::Tuner<CHAINS>` for the machine's connector count.
+  It calculates one step along the V²·f curve toward the configured target.
+  The target frequency is rounded down to the chip's frequency grid.
+  Each present chain has its own frequency step.
+  The fastest chain limits the voltage on the shared rail.
+
+The miner owns hardware initialization and applies each plan.
+It parks absent or faulted chains and supplies readings only for present chains.
+Tests exercise the same policy and plan executor as the mining loop.
 
 ## Verification
 
