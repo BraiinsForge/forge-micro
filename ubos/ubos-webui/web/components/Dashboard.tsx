@@ -47,7 +47,7 @@ function visibleChains(info: Info | null): ChainInfo[] {
 function chainStatus(state: ChainInfo['state']): Status {
   switch (state) {
     case 'present':
-      return { cls: 'live', text: 'Live' };
+      return { cls: 'live', text: 'Alive' };
     case 'absent':
       return { cls: 'empty', text: 'Absent' };
     case 'faulted':
@@ -205,7 +205,7 @@ export default function Dashboard() {
         </div>
         <div class={'card lkc' + (dash.link ? ' live' : ' dead')}>
           <div class="k">Link</div>
-          <StatusDot text={dash.link ? 'Live' : 'Dead'} />
+          <StatusDot text={dash.link ? 'Alive' : 'Dead'} />
         </div>
         <StatCard label="Time UTC" value={info?.time ? info.time.replace(/ UTC$/, '') : '–'} />
         <StatCard label="Ambient Temperature" value={info?.ambient != null ? info.ambient + ' °C' : '–'} />
