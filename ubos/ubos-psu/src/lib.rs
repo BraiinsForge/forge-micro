@@ -23,8 +23,8 @@
 //! Linux (via `embedded-i2c-unix`) and on rp2040/rp2350 (via
 //! `embassy-rp::i2c`).
 //!
-//! The telemetry surface below is free functions over private statics,
-//! not methods on a type. There is one telemetry store per firmware
+//! The metrics surface below is free functions over private statics,
+//! not methods on a type. There is one metrics store per firmware
 //! image, so a handle owning it would promise an instance no caller can
 //! choose. [`handle`] returns a `Handle` that is `Copy` and carries no
 //! state, which makes it a token rather than an owner. Six other crates
@@ -112,7 +112,7 @@ use ubos_metrics::metrics::{Metric, Value, push};
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// A single PSU telemetry sample.
+/// A single PSU metrics sample.
 ///
 /// Published by [`run_power_stats`] on every tick. Successful ticks
 /// carry fresh values with `sensor_fault = false`; failed ticks carry
@@ -157,7 +157,7 @@ static SET_VOLTAGE_MV: AtomicU32 = AtomicU32::new(0);
 /// places below.
 const SET_VOLTAGE_METRIC: &str = "board_psu_output_voltage_set_mv";
 
-/// Record a successful `set_voltage` write so the telemetry publisher
+/// Record a successful `set_voltage` write so the metrics publisher
 /// can include the commanded value in the next [`PsuReading`].
 ///
 /// Part of the PSU-driver support interface in [`state`]: a driver's
@@ -207,7 +207,7 @@ pub fn publish_model(model: ModelString) {
     MODEL_WATCH.sender().send(model);
 }
 
-/// Obtain a handle to the PSU telemetry module. `Copy`; callers freely
+/// Obtain a handle to the PSU metrics module. `Copy`; callers freely
 /// pass it to multiple tasks.
 #[must_use]
 pub fn handle() -> Handle {
@@ -217,7 +217,7 @@ pub fn handle() -> Handle {
     }
 }
 
-/// Consumer-side handle for the PSU telemetry.
+/// Consumer-side handle for the PSU metrics.
 ///
 /// `Copy` because it holds only `&'static` references. Every consumer
 /// task takes its own value.
@@ -228,6 +228,16 @@ pub struct Handle {
 }
 
 impl Handle {
+    /// Last successful voltage command, available before the next metrics poll.
+    /// NOTE: This setpoint does not indicate whether the rail is enabled.
+    #[must_use]
+    pub fn commanded_voltage(&self) -> Option<Voltage> {
+        match SET_VOLTAGE_MV.load(AtomicOrdering::Relaxed) {
+            0 => None,
+            mv => Some(Voltage::from_mv(mv)),
+        }
+    }
+
     /// Most recent published reading, or `None` if the PSU task has not
     /// completed a first successful poll yet.
     #[must_use]
@@ -478,8 +488,13 @@ where
 pub trait Psu {
     type BusError: embedded_hal_async::i2c::Error;
 
+    /// Enable the output rail, initializing the hardware if needed.
+    /// An implementation may wait for startup, but success does not guarantee
+    /// that the measured voltage has settled.
     async fn enable(&self) -> Result<(), Error<Self::BusError>>;
     async fn disable(&self) -> Result<(), Error<Self::BusError>>;
+    /// Program the rail and call [`record_set_voltage`] before returning success.
+    /// Consumers use that record immediately, independently of metrics polling.
     async fn set_voltage(&self, voltage: Voltage) -> Result<(), Error<Self::BusError>>;
     async fn read_input_power(&self) -> Result<Power, Error<Self::BusError>>;
     async fn read_output_power(&self) -> Result<Power, Error<Self::BusError>>;
