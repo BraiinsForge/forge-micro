@@ -60,6 +60,9 @@ nix build .#checks.<system>.<name>     # one check in isolation
 nix flake check                        # everything
 ```
 
+A gate that cannot run, for a full store or a host fault, is reported
+as blocked; a build off the store or outside the shell is no gate.
+
 The `claude-md-limit` gate holds this file at or under 200 lines: it
 loads on every session and adherence drops as it grows, so detail belongs
 in `docs/` or in a path-scoped `.claude/rules/` file instead.
