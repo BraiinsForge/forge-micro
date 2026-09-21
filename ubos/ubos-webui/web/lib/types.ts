@@ -104,8 +104,14 @@ export interface ThermalConfig {
   dangerous_chip_temp_c: number;
 }
 
+// The fan runs the PID against the target under `auto` and holds the
+// fixed duty under `fixed`, the two wire names of the config enum.
+export type FanMode = 'auto' | 'fixed';
+
 export interface CoolingConfig {
+  mode: FanMode;
   target_temp_c: number;
+  fixed_fan_pwm: number;
   min_fan_pwm: number;
 }
 
@@ -161,6 +167,8 @@ export interface ThermalBounds {
 
 export interface CoolingBounds {
   targetTempC: Range;
+  minFanPwm: Range;
+  fixedFanPwm: Range;
 }
 
 export type EventSeverity = 'info' | 'warn' | 'error';

@@ -2,7 +2,8 @@ import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { saveConfig } from '../lib/api';
 import { fmtRange } from '../lib/format';
-import type { CoolingBounds, CoolingConfig, Range, ThermalBounds, ThermalConfig } from '../lib/types';
+import { toast } from '../lib/toast';
+import type { CoolingBounds, CoolingConfig, FanMode, Range, ThermalBounds, ThermalConfig } from '../lib/types';
 import Field from './Field';
 import Section from './Section';
 
@@ -18,31 +19,53 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
   const [dangerC, setDangerC] = useState<string | number>(() => (thermal ? thermal.dangerous_temp_c : ''));
   const [chipC, setChipC] = useState<string | number>(() => (thermal ? thermal.dangerous_chip_temp_c : ''));
   const [cooldownC, setCooldownC] = useState<string | number>(() => (thermal ? thermal.cooldown_temp_c : ''));
+  const [mode, setMode] = useState<FanMode>(() => (cooling && cooling.mode != null ? cooling.mode : 'auto'));
   const [targetC, setTargetC] = useState<string | number>(() =>
     cooling && cooling.target_temp_c != null ? cooling.target_temp_c : '',
   );
   const [minFanPwm, setMinFanPwm] = useState<string | number>(() =>
     cooling && cooling.min_fan_pwm != null ? cooling.min_fan_pwm : '',
   );
+  const [fixedFanPwm, setFixedFanPwm] = useState<string | number>(() =>
+    cooling && cooling.fixed_fan_pwm != null ? cooling.fixed_fan_pwm : '',
+  );
 
   const danger: Partial<Range> = thermalBounds.dangerousTempC || {};
   const chip: Partial<Range> = thermalBounds.dangerousChipTempC || {};
   const cooldown: Partial<Range> = thermalBounds.cooldownTempC || {};
   const target: Partial<Range> = coolingBounds.targetTempC || {};
+  const floor: Partial<Range> = coolingBounds.minFanPwm || {};
+  const fixed: Partial<Range> = coolingBounds.fixedFanPwm || {};
+  const isFixed = mode === 'fixed';
 
-  const save = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) =>
-    saveConfig(
-      {
-        thermal: {
-          sample_interval_ms: sampleMs,
-          dangerous_temp_c: +dangerC,
-          cooldown_temp_c: +cooldownC,
-          dangerous_chip_temp_c: +chipC,
-        },
-        cooling: { target_temp_c: +targetC, min_fan_pwm: +minFanPwm },
+  // The floor bounds PID output and the target is its setpoint, so both
+  // are dead under fixed, and the fixed duty is dead under auto. All
+  // three stay visible, enabled, and keep their value across a toggle:
+  // the mode control says what governs the fan, the layout never
+  // moves, and every field stays under the browser's range check, which
+  // a disabled control is barred from. The save carries all six, so an
+  // empty duty is refused here by name: an emptied number input coerces
+  // to 0, which is in range for a duty, so the board cannot refuse it
+  // the way it refuses the fields whose range starts above zero.
+  const save = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) => {
+    event.preventDefault();
+    if (minFanPwm === '') return toast.err('Min fan speed must be set.');
+    if (fixedFanPwm === '') return toast.err('Fixed fan speed must be set.');
+    return saveConfig({
+      thermal: {
+        sample_interval_ms: sampleMs,
+        dangerous_temp_c: +dangerC,
+        cooldown_temp_c: +cooldownC,
+        dangerous_chip_temp_c: +chipC,
       },
-      event
-    );
+      cooling: {
+        mode,
+        target_temp_c: +targetC,
+        fixed_fan_pwm: +fixedFanPwm,
+        min_fan_pwm: +minFanPwm,
+      },
+    });
+  };
 
   return (
     <>
@@ -84,6 +107,21 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
           />
       </div>
       <Section title="Cooling" sep>
+          <div class="fld">
+            <span class="fldText">
+              <span class="fldLabel">Fan mode</span>
+            </span>
+            <span class="fldCtl">
+              <div class="seg">
+                <button type="button" class={!isFixed ? 'active' : ''} onClick={() => setMode('auto')}>
+                  Auto
+                </button>
+                <button type="button" class={isFixed ? 'active' : ''} onClick={() => setMode('fixed')}>
+                  Fixed
+                </button>
+              </div>
+            </span>
+          </div>
           <Field
             label="Target temperature"
             desc={fmtRange(target.start, target.end)}
@@ -96,15 +134,26 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
             max={target.end}
           />
           <Field
-            label="Min fan"
-            desc={fmtRange(0, 100)}
+            label="Min fan speed"
+            desc={fmtRange(floor.start, floor.end)}
             unit="%"
             value={minFanPwm}
             onInput={(e) => setMinFanPwm(e.currentTarget.value)}
             type="number"
             step="1"
-            min="0"
-            max="100"
+            min={floor.start}
+            max={floor.end}
+          />
+          <Field
+            label="Fixed fan speed"
+            desc={fmtRange(fixed.start, fixed.end)}
+            unit="%"
+            value={fixedFanPwm}
+            onInput={(e) => setFixedFanPwm(e.currentTarget.value)}
+            type="number"
+            step="1"
+            min={fixed.start}
+            max={fixed.end}
           />
       </Section>
       <button type="submit">Save</button>
