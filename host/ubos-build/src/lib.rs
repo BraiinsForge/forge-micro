@@ -31,7 +31,7 @@
 //! cannot move out of the board.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The linker layout every board keeps beside its manifest.
@@ -89,15 +89,38 @@ pub fn copy_memory_x() {
 /// internal repository that consumes these crates, and their banners read
 /// `BUILD_ID` through `env!`.
 ///
-/// The id is `git describe` plus a wall-clock suffix, so two builds from
-/// the same commit stay distinguishable. Watching only the board's own
-/// sources lets the stamp go stale: an edit to a shared crate relinks the
-/// binary without re-running this script, and the banner then misreports
-/// what is flashed in exactly the shared-crate case it exists to identify.
-/// Pointing `rerun-if-changed` at a path that does not exist forces a
-/// re-run on every build instead.
-pub fn build_id() {
-    println!("cargo:rerun-if-changed=__always_rerun__");
+/// The id is `git describe` plus the wall clock at the moment this script
+/// last ran, so two builds from the same commit stay distinguishable and
+/// the suffix reads as the time of the last build. Cargo re-runs a build
+/// script only for the inputs it names, and an edit to a shared crate
+/// relinks the board without touching the board's own sources, so the
+/// caller names every directory whose sources reach the image. Cargo
+/// scans a named directory for any change, so the stamp moves when a
+/// source moves and stays when nothing did; a script that re-ran on every
+/// build recompiled the board on every run with nothing changed. The
+/// commit part has one input more, the history itself, which a commit
+/// moves without touching a source file, so the log of `HEAD` is named
+/// too. A tag is the one move that log does not record: a tag set on an
+/// already-built commit changes what `git describe` reports without
+/// moving `HEAD`, so the stamp keeps the old name until the next source
+/// change re-runs the script. The tag refs are not named because they
+/// are packed on most clones, and a named path that is absent makes
+/// cargo re-run on every build, which is the fault this design removes.
+pub fn build_id<P: AsRef<Path>>(sources: &[P]) {
+    for dir in sources {
+        println!("cargo:rerun-if-changed={}", dir.as_ref().display());
+    }
+    if let Some(head_log) = run(
+        "git",
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "logs/HEAD",
+        ],
+    ) {
+        println!("cargo:rerun-if-changed={head_log}");
+    }
     let describe = run("git", &["describe", "--tags", "--always", "--dirty"])
         .unwrap_or_else(|| "nogit".into());
     let stamp = run("date", &["+%y%m%d%H%M%S"]).unwrap_or_else(|| "000000000000".into());
