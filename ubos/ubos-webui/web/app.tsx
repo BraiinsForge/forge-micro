@@ -83,6 +83,16 @@ export default function App() {
     return () => removeEventListener('hashchange', onHash);
   }, []);
 
+  // Name the tab after the board it shows, so a row of open tabs tells
+  // one board from the next. The address comes from the poll and not
+  // from the address bar, which holds an mDNS name or a proxy address on
+  // some networks. Until the first answer the tab keeps the static title
+  // of index.html.
+  const ip = dash.info?.ip;
+  useEffect(() => {
+    if (ip) document.title = __BRAND_NAME__ + ' ' + ip;
+  }, [ip]);
+
   return (
     <>
       {/* Shared SVG symbol library reached by <use href="#..."> everywhere. */}
