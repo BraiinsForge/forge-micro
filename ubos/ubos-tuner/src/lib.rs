@@ -49,6 +49,9 @@ pub struct ChainReadings {
 pub struct Readings<const CHAINS: usize> {
     /// When the readings were taken.
     pub now: Instant,
+    /// Rail voltage last applied by a successful command, independent of PSU samples.
+    /// A sample can predate the last successful rail write, so its setpoint can be stale.
+    pub voltage: Voltage,
     /// The last PSU sample, `None` before the first one.
     pub psu: Option<PsuReading>,
     /// One entry per chain connector, `None` where no chain was found.
@@ -78,7 +81,7 @@ pub struct Plan<const CHAINS: usize> {
 ///
 /// ```
 /// use embassy_time::{Duration, Instant};
-/// use ubos_core::units::Frequency;
+/// use ubos_core::units::{Frequency, Voltage};
 /// use ubos_tuner::{ChainReadings, Plan, Readings, Tuner};
 ///
 /// struct Raise {
@@ -115,6 +118,7 @@ pub struct Plan<const CHAINS: usize> {
 /// };
 /// let mut readings = Readings {
 ///     now: Instant::from_millis(0),
+///     voltage: Voltage::from_mv(1200),
 ///     psu: None,
 ///     chains: [Some(chain), None],
 /// };
