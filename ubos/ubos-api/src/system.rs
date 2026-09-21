@@ -292,6 +292,9 @@ where
         .as_ref()
         .and_then(|r| r.ambient)
         .map(|t| t.celsius_f32() as i32);
+    let chip_reading_stale = thermal_reading
+        .as_ref()
+        .is_none_or(ubos_thermal::ThermalReading::chip_reading_stale);
     let fan = ubos_cooling::handle().current();
     let fan_speed_rpm = fan.map_or(0, |f| f.rpm.rpm());
     let fan_pwm_percent = fan.map_or(0, |f| f.pwm.percent());
@@ -335,6 +338,7 @@ where
         uptime_seconds,
         temperature_celsius,
         ambient_celsius,
+        chip_reading_stale,
         fan_speed_rpm,
         fan_pwm_percent,
         pools_bitmap,

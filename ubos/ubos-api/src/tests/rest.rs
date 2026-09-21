@@ -57,6 +57,13 @@ fn validate_board_name_rejects_backslash() {
 
 // --- N6: API_INFO_BODY_BUFFER_SIZE covers the worst-case body ---
 
+/// Measured length of the worst-case `/api/info` body.
+///
+/// Pinned exactly, as [`WORST_CASE_BODY_LEN`] is and for the same reason:
+/// a field addition that still fits the buffer fails here, and updating
+/// this constant is the prompt to check the buffer's comment.
+const WORST_CASE_INFO_BODY_LEN: usize = 1275;
+
 /// The `/api/info` body assembler in `rest.rs` writes into a fixed
 /// `[u8; API_INFO_BODY_BUFFER_SIZE]` buffer via `BufferWriter`, which
 /// silently discards bytes past the end. This test constructs the
@@ -116,6 +123,7 @@ fn api_info_body_fits_in_buffer() {
     let running = true;
     let paused = true;
     let pause_reason = "temperatureUnreadable";
+    let chip_reading_stale = false;
 
     let mut body = std::format!(
         "{{\"name\":\"{board_name}\",\
@@ -123,6 +131,7 @@ fn api_info_body_fits_in_buffer() {
          \"uptime\":{uptime_secs},\
          \"temperature\":{temperature},\
          \"ambient\":{ambient},\
+         \"chip_reading_stale\":{chip_reading_stale},\
          \"fan_rpm\":{fan_rpm},\
          \"fan_pwm\":{fan_pwm},\
          \"power_in_mw\":{power_in_mw},\
@@ -205,6 +214,11 @@ fn api_info_body_fits_in_buffer() {
 
     body.push('}');
 
+    assert_eq!(
+        body.len(),
+        WORST_CASE_INFO_BODY_LEN,
+        "worst-case /api/info body moved; update WORST_CASE_INFO_BODY_LEN"
+    );
     assert!(
         body.len() < API_INFO_BODY_BUFFER_SIZE,
         "worst-case /api/info body is {} bytes, which overflows API_INFO_BODY_BUFFER_SIZE ({})",

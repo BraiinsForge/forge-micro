@@ -709,6 +709,7 @@ fn serialize_system_info(
         uptime_seconds: 0,
         temperature_celsius: 0,
         ambient_celsius: None,
+        chip_reading_stale: false,
         fan_speed_rpm: 0,
         fan_pwm_percent: 0,
         pools_bitmap: 0,

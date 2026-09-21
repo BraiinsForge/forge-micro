@@ -122,6 +122,13 @@ pub struct SystemInfo<'response> {
     /// it. What the reading is for is `AmbientSensor`'s doc in
     /// `ubos-thermal` to say.
     pub ambient_celsius: Option<i32>,
+    /// `true` when `temperature_celsius` is not a fresh measurement:
+    /// either no chip has answered a temperature read yet, or the chips
+    /// went silent and the reading held is from before that. See "Two
+    /// ways out of an overheat halt" in `docs/MINING.md` for why a board
+    /// whose chips are its thermometer can hold a stale value for a
+    /// while.
+    pub chip_reading_stale: bool,
     /// Fan rotational speed in RPM; zero if no fan is present.
     pub fan_speed_rpm: u32,
     /// Fan PWM duty cycle in percent; zero if no fan is present.

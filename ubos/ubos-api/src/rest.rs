@@ -50,17 +50,17 @@ mod tests;
 /// 17-byte MAC string + 16-byte time string + OTA static fields +
 /// OTA diagnostic fields including the `resetWritePhase` string +
 /// `running` bool + `paused` bool + `pause_reason` string up to
-/// `"dangerousTemperature"` + a `chains` array with one entry per
-/// chain the board actually owns, up to `ubos_metrics::chain::MAX_CHAINS` +
-/// JSON framing). The `api_info_body_fits_in_buffer` test builds the
-/// absolute worst case — every numeric field at its maximum decimal
-/// width and a `chains` array at `ubos_metrics::chain::MAX_CHAINS` entries,
-/// the most any board can report — and measures 1248 bytes. 512 bytes
-/// overflowed once the OTA diagnostic fields were added, silently
-/// truncating the tail; 1280 bytes covers the synthetic worst case,
-/// which grew past the earlier 896-byte figure once the per-chain
-/// `chains` array was added, and leaves room for future fields while
-/// staying on the stack.
+/// `"temperatureUnreadable"` + `chip_reading_stale` bool + a `chains`
+/// array with one entry per chain the board actually owns, up to
+/// `ubos_metrics::chain::MAX_CHAINS` + JSON framing). The
+/// `api_info_body_fits_in_buffer` test builds the absolute worst case
+/// — every numeric field at its maximum decimal width and a `chains`
+/// array at `ubos_metrics::chain::MAX_CHAINS` entries, the most any
+/// board can report — and pins its length at that test's
+/// `WORST_CASE_INFO_BODY_LEN`. 512 bytes overflowed
+/// once the OTA diagnostic fields were added, silently truncating the
+/// tail; 1280 bytes covers the synthetic worst case and leaves room
+/// for future fields while staying on the stack.
 const API_INFO_BODY_BUFFER_SIZE: usize = 1280;
 
 /// Body buffer for the POST /api/config acknowledgement.
@@ -439,6 +439,9 @@ impl Service for RestApiService {
                     .as_ref()
                     .and_then(|r| r.ambient)
                     .map(|t| t.celsius_f32() as i32);
+                let chip_reading_stale = thermal_reading
+                    .as_ref()
+                    .is_none_or(ubos_thermal::ThermalReading::chip_reading_stale);
                 #[allow(clippy::cast_possible_truncation)]
                 let temperature = thermal_reading
                     .and_then(|r| r.chip_max)
@@ -490,7 +493,8 @@ impl Service for RestApiService {
                 }
                 let _ = core::write!(
                     writer,
-                    ",\"fan_rpm\":{fan_rpm},\
+                    ",\"chip_reading_stale\":{chip_reading_stale},\
+                     \"fan_rpm\":{fan_rpm},\
                      \"fan_pwm\":{fan_pwm},\
                      \"power_in_mw\":{power_in_mw},\
                      \"power_out_mw\":{power_out_mw},\
