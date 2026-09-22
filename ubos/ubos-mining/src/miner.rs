@@ -54,6 +54,12 @@ use ubos_tuner::{ChainReadings, Plan, Readings};
 /// Maximum time an interrupted hardware plan can finish before the rail cut.
 const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(100);
 
+/// Plans in a row that may fail before the miner treats the tuner as
+/// faulted and re-runs bring-up. A plan that writes to the hardware
+/// clears the count; one that writes nothing, a wait or a value already
+/// held, leaves it.
+const PLAN_FAILURE_BUDGET: u8 = 3;
+
 /// Request shutdown during initialization, plan execution or settling.
 /// Teardown cuts the rail before the outer loop returns.
 #[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
@@ -530,6 +536,7 @@ where
         selected: Discriminant<Tuning>,
     ) -> CycleOutcome {
         let mut plan_delay = Duration::from_millis(0);
+        let mut consecutive_plan_failures: u8 = 0;
         let interrupt = loop {
             if let Either::First(exit) = select(
                 interrupted(selected, subscription),
@@ -561,19 +568,30 @@ where
             {
                 Either::First(()) => warn!("mining: tuner cancellation timed out"),
                 Either::Second(Err(error)) if interruption.is_none() => {
-                    warn!("mining: plan failed: {:?}", Debug2Format(&error));
-                    // TODO: Define a retry policy for transient plan consecutive_plan_failures.
-                    crate::events::tuner_fault();
-                    let phase = self.cut_rail_and_settle().await;
-                    // `cut_rail_and_settle` never returns `Done`, so the
-                    // fallback stands only to keep the expression total.
-                    return self.leave_cycle(phase).unwrap_or(CycleOutcome::Continue);
+                    consecutive_plan_failures += 1;
+                    warn!(
+                        "mining: plan failed ({} of {}): {:?}",
+                        consecutive_plan_failures,
+                        PLAN_FAILURE_BUDGET,
+                        Debug2Format(&error)
+                    );
+                    if consecutive_plan_failures >= PLAN_FAILURE_BUDGET {
+                        crate::events::tuner_fault();
+                        let phase = self.cut_rail_and_settle().await;
+                        // `cut_rail_and_settle` never returns `Done`, so the
+                        // fallback stands only to keep the expression total.
+                        return self.leave_cycle(phase).unwrap_or(CycleOutcome::Continue);
+                    }
                 }
                 Either::Second(Err(error)) => warn!(
                     "mining: interrupted plan failed: {:?}",
                     Debug2Format(&error)
                 ),
-                Either::Second(Ok(())) => {}
+                Either::Second(Ok(written)) => {
+                    if written {
+                        consecutive_plan_failures = 0;
+                    }
+                }
             }
             if let Some(exit) = interruption {
                 break exit;
@@ -644,7 +662,11 @@ where
     }
 
     /// Decreasing clocks precede the shared voltage change; increasing clocks follow it.
-    async fn apply_plan(&self, plan: &Plan<CHAINS>) -> Result<(), MinerError> {
+    ///
+    /// Reports whether any command reached the hardware. A frequency for a
+    /// connector with no chain, or a value the chain or the PSU already
+    /// holds, is not a write.
+    async fn apply_plan(&self, plan: &Plan<CHAINS>) -> Result<bool, MinerError> {
         let mut decreases = [None; CHAINS];
         let mut increases = [None; CHAINS];
         for (index, chain) in self.chains.iter().enumerate() {
@@ -663,43 +685,48 @@ where
             }
         }
 
-        self.set_frequencies(decreases).await?;
+        let slowed = self.set_frequencies(decreases).await?;
         // Only the ceiling is clamped here. It is board policy that can sit
         // above the PSU's own range, so nothing below would refuse it. The
         // floor is the PSU's, and a rail under its range returns
         // `Error::OutOfRange` rather than reaching the hardware.
-        self.set_voltage_if_different(
-            plan.rail
-                .map(|rail| rail.min(self.board.max_rail_voltage())),
-        )
-        .await?;
-        self.set_frequencies(increases).await?;
-        Ok(())
+        let rail = self
+            .set_voltage_if_different(
+                plan.rail
+                    .map(|rail| rail.min(self.board.max_rail_voltage())),
+            )
+            .await?;
+        let quickened = self.set_frequencies(increases).await?;
+        Ok(slowed || rail || quickened)
     }
 
+    /// Reports whether any chain was written.
     async fn set_frequencies(
         &self,
         frequencies: [Option<Frequency>; CHAINS],
-    ) -> Result<(), MinerError> {
+    ) -> Result<bool, MinerError> {
+        let mut written = false;
         for (chain, next) in self.chains.iter().zip(frequencies) {
             if let Some(next) = next {
                 chain.set_frequency(next).await?;
+                written = true;
             }
         }
-        Ok(())
+        Ok(written)
     }
 
-    async fn set_voltage_if_different(&self, voltage: Option<Voltage>) -> Result<(), MinerError> {
+    /// Reports whether the rail was written.
+    async fn set_voltage_if_different(&self, voltage: Option<Voltage>) -> Result<bool, MinerError> {
         let Some(voltage) =
             voltage.filter(|next| Some(*next) != ubos_psu::handle().commanded_voltage())
         else {
-            return Ok(());
+            return Ok(false);
         };
         self.psu
             .set_voltage(voltage)
             .await
             .map_err(|error| MinerError::Psu(error.into()))?;
-        Ok(())
+        Ok(true)
     }
 }
 

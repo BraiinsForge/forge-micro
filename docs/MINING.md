@@ -151,7 +151,12 @@ The grace period bounds the wait for the plan, not the complete shutdown.
 PSU and reset commands can still wait for hardware access.
 
 The executor clamps rail commands to the board ceiling and frequencies to the chip range.
-A failed plan emits a tuner fault, cuts the rail, and retries initialization.
+A failed plan is retried at the next step, planned from the confirmed hardware state.
+`PLAN_FAILURE_BUDGET` failures in a row emit a tuner fault, cut the rail, and retry
+initialization.
+A plan that writes to the hardware clears the count.
+A plan that writes nothing, such as one naming a value the chain or the PSU already
+holds, leaves it.
 STOP and HALT can interrupt the retry delay without another rail cut.
 
 A persistent chip-count mismatch parks the affected chain.

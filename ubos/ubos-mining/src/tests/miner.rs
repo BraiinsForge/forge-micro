@@ -635,6 +635,9 @@ type HardwareLog = Mutex<CriticalSectionRawMutex, RefCell<heapless::Vec<Write, 3
 enum VoltageWrite {
     Succeed,
     Fail,
+    /// Each write takes the head of the script: `true` succeeds, `false`
+    /// fails. Writes past the end succeed.
+    Script(&'static [bool]),
     Interrupt,
     StopThenSucceed,
     YieldThenSucceed,
@@ -672,6 +675,13 @@ impl Psu for TestPsu {
         match self.behavior.get() {
             VoltageWrite::Succeed => {}
             VoltageWrite::Fail => return Err(PsuError::OutOfRange),
+            VoltageWrite::Script(script) => {
+                let (outcome, rest) = script.split_first().unwrap_or((&true, &[]));
+                self.behavior.set(VoltageWrite::Script(rest));
+                if !outcome {
+                    return Err(PsuError::OutOfRange);
+                }
+            }
             VoltageWrite::Interrupt => {
                 self.behavior.set(VoltageWrite::Succeed);
                 STOP_MINING.signal(());
@@ -1082,6 +1092,168 @@ impl<const CHAINS: usize> MachineTuner<CHAINS> for WaitingTuner {
     }
 }
 
+/// Plans one rail step per call, a different voltage each time, so no
+/// write is skipped as one the PSU already holds.
+struct RailStepTuner {
+    calls: u32,
+}
+
+impl<const CHAINS: usize> MachineTuner<CHAINS> for RailStepTuner {
+    type PlatformReadings = ();
+
+    fn select(_: &ubos_config::Tuning, _: &'static HashboardDescriptor) -> Option<Self> {
+        Some(Self { calls: 0 })
+    }
+
+    fn step(&mut self, _: &ubos_config::Tuning, _: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
+        self.calls += 1;
+        Plan {
+            rail: Some(Voltage::from_mv(1200_u32.saturating_sub(self.calls * 10))),
+            frequencies: [None; CHAINS],
+            delay: Duration::from_millis(1),
+        }
+    }
+}
+
+/// Plans a rail step on every other call and nothing in between, so a
+/// run of refused commands is broken up by plans that ask for nothing.
+struct HoldingRailTuner {
+    calls: u32,
+}
+
+impl<const CHAINS: usize> MachineTuner<CHAINS> for HoldingRailTuner {
+    type PlatformReadings = ();
+
+    fn select(_: &ubos_config::Tuning, _: &'static HashboardDescriptor) -> Option<Self> {
+        Some(Self { calls: 0 })
+    }
+
+    fn step(&mut self, _: &ubos_config::Tuning, _: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
+        self.calls += 1;
+        Plan {
+            rail: (self.calls % 2 == 1)
+                .then(|| Voltage::from_mv(1200_u32.saturating_sub(self.calls * 10))),
+            frequencies: [None; CHAINS],
+            delay: Duration::from_millis(1),
+        }
+    }
+}
+
+#[test]
+fn waiting_between_refused_commands_does_not_refresh_the_budget() {
+    critical_section::with(|_| {
+        static ACTOR: Serial = Serial::new(0, 1);
+        static STATS: ChainStats = ChainStats::new();
+        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        let psu = TestPsu {
+            log: &LOG,
+            disable_fails: false,
+            behavior: Cell::new(VoltageWrite::Fail),
+        };
+        STATS.set_presence(ChainPresence::Present {
+            chips: BMM101_HASHBOARD.num_chips,
+        });
+        STATS.set_frequency(BMM101_HASHBOARD.chip.frequency_range.min());
+        ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
+        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let mut tuner = HoldingRailTuner { calls: 0 };
+        let mut subscription = test_config().0;
+        let stop_after_the_cut = async {
+            core::future::poll_fn(|_| {
+                if LOG.lock(|log| log.borrow().contains(&Write::Disable)) {
+                    core::task::Poll::Ready(())
+                } else {
+                    core::task::Poll::Pending
+                }
+            })
+            .await;
+            STOP_MINING.signal(());
+        };
+        let Either::First((outcome, ())) = block_on(select(
+            join(
+                miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()),
+                stop_after_the_cut,
+            ),
+            Timer::after(Duration::from_millis(500)),
+        )) else {
+            panic!("waits between refused commands kept the miner off the fault path")
+        };
+        assert!(outcome.is_stop());
+        // The budget's worth of commands reached the PSU; the empty plans
+        // between them did not clear the count.
+        LOG.lock(|log| {
+            let writes = log.borrow();
+            let commands = writes
+                .iter()
+                .filter(|write| matches!(write, Write::Voltage(_)))
+                .count();
+            assert_eq!(commands, usize::from(super::PLAN_FAILURE_BUDGET));
+        });
+    });
+}
+
+#[test]
+fn a_plan_that_applies_clears_the_failure_budget() {
+    critical_section::with(|_| {
+        static ACTOR: Serial = Serial::new(0, 1);
+        static STATS: ChainStats = ChainStats::new();
+        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        // One failure, one plan that applies, then two more failures.
+        // Without the reset the last of those would spend the budget and
+        // cut the rail.
+        const SCRIPT: &[bool] = &[false, true, false, false];
+        let psu = TestPsu {
+            log: &LOG,
+            disable_fails: false,
+            behavior: Cell::new(VoltageWrite::Script(SCRIPT)),
+        };
+        STATS.set_presence(ChainPresence::Present {
+            chips: BMM101_HASHBOARD.num_chips,
+        });
+        STATS.set_frequency(BMM101_HASHBOARD.chip.frequency_range.min());
+        ubos_psu::record_set_voltage(BMM101_HASHBOARD.max_rail_voltage());
+        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let mut tuner = RailStepTuner { calls: 0 };
+        let mut subscription = test_config().0;
+        let stop_once_the_script_is_spent = async {
+            core::future::poll_fn(|_| {
+                if LOG.lock(|log| log.borrow().len()) > SCRIPT.len() {
+                    core::task::Poll::Ready(())
+                } else {
+                    core::task::Poll::Pending
+                }
+            })
+            .await;
+            STOP_MINING.signal(());
+        };
+        let Either::First((outcome, ())) = block_on(select(
+            join(
+                miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()),
+                stop_once_the_script_is_spent,
+            ),
+            Timer::after(Duration::from_millis(500)),
+        )) else {
+            panic!("the mining loop never reached the end of the script")
+        };
+        assert!(outcome.is_stop());
+        LOG.lock(|log| {
+            let writes = log.borrow();
+            let cut = writes
+                .iter()
+                .position(|write| *write == Write::Disable)
+                .expect("the stop cuts the rail");
+            // Every scripted write, and then one more, must reach the
+            // PSU before the rail goes: a cut at or before the script's
+            // last entry is the failure budget counting across the plan
+            // that applied.
+            assert!(
+                cut > SCRIPT.len(),
+                "the rail was cut while the budget still had room"
+            );
+        });
+    });
+}
+
 #[test]
 fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
     critical_section::with(|_| {
@@ -1189,7 +1361,9 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
             stop_after_failure,
         ));
         assert!(outcome.is_stop());
-        assert_eq!(tuner.calls, 3);
+        // Two empty plans, then a rail write on every call until the
+        // budget of failures runs out.
+        assert_eq!(tuner.calls, 2 + super::PLAN_FAILURE_BUDGET);
         LOG.lock(|log| {
             assert_eq!(
                 log.borrow()
