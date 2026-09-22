@@ -40,4 +40,4 @@ pub use system_statistics::SystemStatistics;
 ///
 /// Machine clients dispatch on this value to confirm they are speaking
 /// to a ubos device rather than a real reference-device.
-pub const API_VARIANT: &str = "ubos-0.1";
+pub const API_VARIANT: &str = "ubos-0.2";

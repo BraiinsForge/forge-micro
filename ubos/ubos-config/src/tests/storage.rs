@@ -116,15 +116,15 @@ fn corrupted_payload_returns_corrupt() {
 /// factory defaults; setting any override shifts the encoded payload.
 // Schema hash for ubos_config::Config as of this commit.
 // Update this when Config's shape changes.
-const EXPECTED_HASH: [u8; 8] = [25, 250, 91, 16, 64, 116, 85, 94];
+const EXPECTED_HASH: [u8; 8] = [167, 72, 148, 236, 20, 190, 162, 131];
 
 // Postcard encoding of Config::default() with the schema-hash prefix.
 // 121 bytes total: 8-byte hash + 111-byte pre-network payload + 2-byte
 // network section.
 // Update this when Config's default values or shape changes.
 const EXPECTED_BLOB: &[u8] = &[
-    25, 250, 91, 16, 64, 116, 85, 94, // schema hash
-    1,  // pool: heapless::Vec<PoolEntry, 3> (length=1)
+    167, 72, 148, 236, 20, 190, 162, 131, // schema hash
+    1,   // pool: heapless::Vec<PoolEntry, 3> (length=1)
     19, 115, 116, 114, 97, 116, 117, 109, 46, 98, 114, 97, 105, 105, 110, 115, 46, 99, 111,
     109, // pool[0].host = "stratum.braiins.com" (len 19)
     133, 26, // pool[0].port = 3333 (varint)
@@ -147,9 +147,9 @@ const EXPECTED_BLOB: &[u8] = &[
     154, 153, 25, 190, // cooling.pid.i_gain = -0.15f32
     0, 0, 200, 194, // cooling.pid.d_gain = -100.0f32
     0, 0, 32, 65, // cooling.pid.smoother_half_decay_secs = 10.0f32
-    0,  // miner.algorithm = Fixed (variant 0)
-    141, 4, // tuning.frequency_mhz = 525 (varint)
-    248, 10, // tuning.voltage_mv = 1400 (varint)
+    0,  // miner.tuning = Fixed (variant 0)
+    141, 4, // miner.tuning.Fixed.frequency_mhz = 525 (varint)
+    248, 10, // miner.tuning.Fixed.voltage_mv = 1400 (varint)
     4, 114, 111, 111, 116, // api.username = "root"
     4, 114, 111, 111, 116, // api.password = "root"
     0,   // network.mode tag = 0 (Dhcp)

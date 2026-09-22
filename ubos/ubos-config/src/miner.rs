@@ -19,39 +19,71 @@
 
 //! Miner orchestration configuration.
 //!
-//! Defines [`TuningAlgorithm`] and [`MinerConfig`], which name the
-//! bring-up strategy the mining task constructs at each chip bring-up
-//! cycle.
+//! Defines [`Tuning`] and [`MinerConfig`], which select a tuner and
+//! provide its target for each chip bring-up cycle.
 
-/// Tuner algorithm the miner constructs at bring-up.
+use crate::mining::{FrequencyVoltageTarget, MiningBounds, PowerTarget};
+
+/// Tuner selection and target parameters used at bring-up.
 ///
-/// `ubos-mining` reads this to decide which `Tuner` implementation
-/// to construct at bring-up. A live change tears down the chip and
-/// restarts under the new tuner — switching algorithms requires a
-/// full PSU + reset cycle, not an in-place swap.
+/// A variant names a kind of tuning and carries that kind's target.
+/// Which tuner a machine runs for a kind is the firmware's answer, not
+/// this crate's, and a machine need not answer every kind. Changing the
+/// variant tears down the chip and restarts under the tuner the
+/// firmware selects for it; changing only the target does not, because
+/// the running tuner reads it at its next step.
 #[derive(
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-    postcard_schema::Schema,
+    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum TuningAlgorithm {
-    /// Open-loop frequency ramp built on the BM1362 PLL calculator
-    /// and the `HashCountingNumber` formula. Reaches arbitrary targets
-    /// and is the default tuner.
-    #[default]
-    Fixed,
+pub enum Tuning {
+    /// Hold one frequency and one rail voltage, reached by a ramp.
+    /// The default.
+    Fixed(FrequencyVoltageTarget),
+    /// Hold a power draw, leaving the frequency and the rail to the
+    /// tuner.
+    Power(PowerTarget),
 }
 
-/// Miner-level orchestration. Separate from `TuningConfig` because
-/// it does not describe what the tuner aims for — it describes which
-/// tuner instance the miner constructs.
+impl Default for Tuning {
+    /// Factory defaults for the BMM101 board. Firmware builds its real
+    /// per-board defaults via [`crate::Config::for_board`].
+    fn default() -> Self {
+        Self::Fixed(FrequencyVoltageTarget {
+            frequency_mhz: ubos_asic::BMM101_HASHBOARD.default_frequency.mhz(),
+            voltage_mv: ubos_asic::BMM101_HASHBOARD.default_voltage.mv(),
+        })
+    }
+}
+
+impl Tuning {
+    /// Validate the selected tuner's parameters against `bounds`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when a parameter falls outside its accepted range.
+    pub fn validate(&self, bounds: &MiningBounds) -> Result<(), &'static str> {
+        match self {
+            Self::Fixed(target) => {
+                if !bounds.frequency_mhz.contains(&target.frequency_mhz) {
+                    return Err("miner.tuning.Fixed.frequency_mhz outside the accepted range");
+                }
+                if !bounds.voltage_mv.contains(&target.voltage_mv) {
+                    return Err("miner.tuning.Fixed.voltage_mv outside the accepted range");
+                }
+            }
+            // A power target has no bound to check here. The range a
+            // machine accepts follows from the supply and the boards it
+            // carries, which `MiningBounds` does not describe, and the
+            // tuner that reads the target is the only thing that knows
+            // it.
+            Self::Power(..) => {}
+        }
+        Ok(())
+    }
+}
+
+/// Miner-level tuning configuration.
 #[derive(
     Clone,
     Debug,
@@ -64,22 +96,17 @@ pub enum TuningAlgorithm {
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct MinerConfig {
-    /// Tuner algorithm selected for the next bring-up.
-    pub algorithm: TuningAlgorithm,
+    /// Tuner variant and target selected for the next bring-up.
+    pub tuning: Tuning,
 }
 
 impl MinerConfig {
     /// Validate the miner config.
     ///
-    /// The algorithm field is an enum with no out-of-range values;
-    /// this method exists for symmetry with the other per-domain
-    /// validators so `Config::validate` and `ConfigUpdate::validate`
-    /// can call it without special-casing.
-    ///
     /// # Errors
     ///
-    /// Always returns `Ok(())` for now.
-    pub fn validate(&self) -> Result<(), &'static str> {
-        Ok(())
+    /// Returns `Err` when the selected tuner's parameters are invalid.
+    pub fn validate(&self, bounds: &MiningBounds) -> Result<(), &'static str> {
+        self.tuning.validate(bounds)
     }
 }

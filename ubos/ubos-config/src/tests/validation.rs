@@ -20,9 +20,9 @@
 //! Tests for [`crate::ConfigUpdate::validate`].
 
 use crate::{
-    ApiConfig, Config, ConfigUpdate, CoolingConfig, CoolingUpdate, FanMode, MAX_POOL_WEIGHT,
-    MINING_BOUNDS, MinerConfig, NetworkConfig, NetworkMode, PoolEntry, ProtocolKind, ThermalConfig,
-    TuningConfig,
+    ApiConfig, Config, ConfigUpdate, CoolingConfig, CoolingUpdate, FanMode, FrequencyVoltageTarget,
+    MAX_POOL_WEIGHT, MINING_BOUNDS, MinerConfig, NetworkConfig, NetworkMode, PoolEntry,
+    PowerTarget, ProtocolKind, ThermalConfig, Tuning,
 };
 
 /// Builds a minimal valid [`ConfigUpdate`] with no fields set.
@@ -32,7 +32,6 @@ fn empty_update() -> ConfigUpdate {
         thermal: None,
         cooling: None,
         miner: None,
-        tuning: None,
         api: None,
         network: None,
     }
@@ -65,15 +64,30 @@ fn valid_thermal() -> ThermalConfig {
     }
 }
 
-/// Builds a valid [`TuningConfig`] using values inside the accepted range.
+/// Builds a valid [`Tuning`] using values inside the accepted range.
 ///
 /// Frequency and voltage are derived from [`MINING_BOUNDS`] so the helper
 /// remains valid regardless of which board is active at compile time.
-fn valid_tuning() -> TuningConfig {
-    TuningConfig {
+fn valid_tuning() -> Tuning {
+    Tuning::Fixed(FrequencyVoltageTarget {
         frequency_mhz: 525,
         voltage_mv: *MINING_BOUNDS.voltage_mv.start(),
+    })
+}
+
+/// Builds a valid [`MinerConfig`] with fixed tuning parameters.
+fn valid_miner() -> MinerConfig {
+    MinerConfig {
+        tuning: valid_tuning(),
     }
+}
+
+/// Access the fixed target so validation tests can change one field.
+fn fixed_target(tuning: &mut Tuning) -> &mut FrequencyVoltageTarget {
+    let Tuning::Fixed(target) = tuning else {
+        panic!("BUG: test expected fixed tuning");
+    };
+    target
 }
 
 /// Builds a valid [`ApiConfig`].
@@ -480,6 +494,32 @@ fn miner_roundtrip_via_from_config() {
     assert_eq!(update.miner, Some(config.miner));
 }
 
+/// The mining form's JSON shape selects the fixed tuner and its target.
+#[test]
+fn miner_fixed_json_shape_deserializes() {
+    let json = r#"{"miner":{"tuning":{"Fixed":{"frequency_mhz":525,"voltage_mv":0}}}}"#;
+    let (update, _) =
+        serde_json_core::de::from_str::<ConfigUpdate>(json).expect("deserialize succeeds");
+    assert_eq!(update.miner, Some(valid_miner()));
+}
+
+/// The mining form's JSON shape selects the power tuner and its target.
+#[test]
+fn miner_power_json_shape_deserializes() {
+    let json = r#"{"miner":{"tuning":{"Power":{"input_power_mw":44000}}}}"#;
+    let (update, _) =
+        serde_json_core::de::from_str::<ConfigUpdate>(json).expect("deserialize succeeds");
+    assert_eq!(
+        update.miner,
+        Some(MinerConfig {
+            tuning: Tuning::Power(PowerTarget {
+                input_power_mw: 44_000,
+            }),
+        })
+    );
+    assert!(update.validate(&Config::default(), &MINING_BOUNDS).is_ok());
+}
+
 /// Applying a `miner` update overwrites `Config::miner`.
 #[test]
 fn miner_apply_updates_field() {
@@ -499,7 +539,7 @@ fn miner_apply_updates_field() {
 #[test]
 fn tuning_valid_passes() {
     let mut update = empty_update();
-    update.tuning = Some(valid_tuning());
+    update.miner = Some(valid_miner());
     assert!(
         update
             .validate(&Config::default(), &crate::mining::BOUNDS)
@@ -513,12 +553,13 @@ fn tuning_valid_passes() {
 #[test]
 fn tuning_frequency_out_of_range() {
     let mut update = empty_update();
-    let mut tuning = valid_tuning();
-    tuning.frequency_mhz = 1001;
-    update.tuning = Some(tuning);
+    let mut miner = valid_miner();
+    let target = fixed_target(&mut miner.tuning);
+    target.frequency_mhz = 1001;
+    update.miner = Some(miner);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
-        Err("tuning.frequency_mhz must be between 50 and 1000")
+        Err("miner.tuning.Fixed.frequency_mhz outside the accepted range")
     );
 }
 
@@ -530,12 +571,13 @@ fn tuning_frequency_out_of_range() {
 #[test]
 fn tuning_voltage_out_of_range() {
     let mut update = empty_update();
-    let mut tuning = valid_tuning();
-    tuning.voltage_mv = MINING_BOUNDS.voltage_mv.end() + 1;
-    update.tuning = Some(tuning);
+    let mut miner = valid_miner();
+    let target = fixed_target(&mut miner.tuning);
+    target.voltage_mv = MINING_BOUNDS.voltage_mv.end() + 1;
+    update.miner = Some(miner);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
-        Err("tuning.voltage_mv outside the accepted range")
+        Err("miner.tuning.Fixed.voltage_mv outside the accepted range")
     );
 }
 
@@ -566,9 +608,10 @@ fn thermal_only_update_rejected_when_current_target_above_new_dangerous() {
 #[test]
 fn tuning_frequency_in_range_non_discrete_passes() {
     let mut update = empty_update();
-    let mut tuning = valid_tuning();
-    tuning.frequency_mhz = 100;
-    update.tuning = Some(tuning);
+    let mut miner = valid_miner();
+    let target = fixed_target(&mut miner.tuning);
+    target.frequency_mhz = 100;
+    update.miner = Some(miner);
     assert!(
         update
             .validate(&Config::default(), &crate::mining::BOUNDS)
@@ -583,9 +626,10 @@ fn tuning_frequency_in_range_non_discrete_passes() {
 #[test]
 fn tuning_voltage_in_range_non_discrete_passes() {
     let mut update = empty_update();
-    let mut tuning = valid_tuning();
-    tuning.voltage_mv = MINING_BOUNDS.voltage_mv.start() + 11;
-    update.tuning = Some(tuning);
+    let mut miner = valid_miner();
+    let target = fixed_target(&mut miner.tuning);
+    target.voltage_mv = MINING_BOUNDS.voltage_mv.start() + 11;
+    update.miner = Some(miner);
     assert!(
         update
             .validate(&Config::default(), &crate::mining::BOUNDS)

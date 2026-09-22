@@ -34,7 +34,7 @@ const WATCH_CAPACITY: usize = 5;
 /// Command queue depth. Fire-and-forget callers may overlap; the
 /// channel buffers ahead of the work loop and back-pressures
 /// `send()` once full.
-const CMD_CHANNEL_DEPTH: usize = 4;
+pub(crate) const CMD_CHANNEL_DEPTH: usize = 4;
 
 /// Module-internal state watch. Single writer is [`crate::Miner::run`];
 /// readers are obtained via [`Handle::subscribe`].

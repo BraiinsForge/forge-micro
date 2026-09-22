@@ -105,7 +105,7 @@ pub struct HwInfo {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemInfo<'response> {
-    /// Schema-version discriminator; always `"ubos-0.1"`.
+    /// Schema-version discriminator from [`super::API_VARIANT`].
     pub api_variant: &'static str,
     /// The control board's product name, reported verbatim from
     /// `ControlBoardDescriptor::name`, e.g. `"W6100-EVB-Pico2"`.

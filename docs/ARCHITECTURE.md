@@ -84,8 +84,11 @@ contract: a module that a handle does not connect does not talk.
 
 ## Reload and restart
 
-Every task except stratum reloads in-band: it holds a `ConfigHandle`
-and re-reads on `Watch::changed()`. There is no teardown. Stratum is
-the exception because its outer state is a TCP connection pinned to a
-pool. Its outer loop selects on a restart signal from `ubos-config`,
-drops the inner future, and re-enters with the fresh snapshot.
+Tasks observe configuration changes through `ConfigHandle` subscriptions.
+Most tasks apply changes without a teardown.
+The miner applies target edits within `miner.tuning` at the next policy step.
+A change between `Fixed` and `Power` restarts mining after initialization completes.
+
+Stratum owns a TCP connection to a specific pool.
+Its outer loop selects on a restart signal from `ubos-config`, drops the inner future,
+and restarts with the new configuration snapshot.

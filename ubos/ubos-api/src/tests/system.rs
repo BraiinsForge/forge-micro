@@ -711,7 +711,7 @@ fn serialize_system_info_with_ota(
     ota: Option<crate::schema::system_info::OtaInfo>,
 ) -> std::string::String {
     let info = crate::schema::SystemInfo {
-        api_variant: "ubos-0.1",
+        api_variant: crate::schema::API_VARIANT,
         board_name: "test",
         hostname: "test",
         hashrate: 0,

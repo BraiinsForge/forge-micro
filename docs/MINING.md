@@ -31,7 +31,7 @@ driver is exercised without a hashboard on the bench.
 | Task | Owner | Role |
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
-| `miner_task` | `mining.rs` | Drives `Miner::new(psu, BOARD, chains, resets).run()` against the tuner selected by `MinerConfig::algorithm` (`FixedTuner` by default; see `TuningAlgorithm`). Bring-up / teardown state machine: reset assert, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
+| `miner_task` | `mining.rs` | Drives `Miner::new(psu, BOARD, chains).run()` against the tuner `MinerConfig::tuning` selects. Bring-up / teardown state machine: reset assert, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
 | `power_stats_task` | `psu.rs` | Drives `ubos_psu::run_power_stats`. Polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes them. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
@@ -128,7 +128,7 @@ If the PSU-disable command fails, it logs the error and continues with bring-up.
 
 Then `Miner::run` repeats:
 
-1. Read the configuration and select the tuner by `miner.algorithm`.
+1. Read the configuration and select the tuner from `miner.tuning`.
 2. Assert reset on every chain, enable the PSU, and release reset with the existing settle delays.
 3. Reset, enumerate, and configure all chains concurrently.
    Retry failed attempts, then park absent or faulted chains in reset.

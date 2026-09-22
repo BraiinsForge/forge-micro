@@ -19,17 +19,18 @@
 
 //! Constant-power-curve policy for a fixed frequency and voltage target.
 //!
-//! The miner supplies the applied voltage separately from PSU telemetry.
+//! The miner supplies the applied voltage separately from the PSU sample.
 //! Each step returns commands only; the miner owns hardware access and delays.
 
 use embassy_time::Duration;
 use libm::sqrtf;
 use ubos_asic::HashboardDescriptor;
+use ubos_config::Tuning;
 use ubos_core::units::{Frequency, Voltage};
-use ubos_logging::{Debug2Format, debug};
+use ubos_logging::{Debug2Format, debug, warn};
 use ubos_tuner::{Plan, Readings, Tuner};
 
-use super::{ConfiguredTuner, TuningConfig};
+use super::{FixedTarget, MachineTuner};
 
 /// Fixed-target policy. Hardware state remains in the serial actors and PSU.
 pub struct FixedTuner {
@@ -40,7 +41,7 @@ pub struct FixedTuner {
 
 /// Target and next phase retained between tuning steps.
 struct Progress {
-    target: TuningConfig,
+    target: FixedTarget,
     phase: Phase,
 }
 
@@ -56,7 +57,7 @@ enum Phase {
 impl Phase {
     fn log_plan<const CHAINS: usize>(
         self,
-        target: TuningConfig,
+        target: FixedTarget,
         readings: &Readings<CHAINS>,
         plan: &Plan<CHAINS>,
     ) {
@@ -105,26 +106,49 @@ impl FixedTuner {
 
     /// Settling time between changes to the operating point.
     const RAMP_SETTLE: Duration = Duration::from_secs(1);
+
+    /// A plan that commands nothing and asks for the next step after the
+    /// settle time.
+    fn unchanged<const CHAINS: usize>() -> Plan<CHAINS> {
+        Plan {
+            rail: None,
+            frequencies: [None; CHAINS],
+            delay: Self::RAMP_SETTLE,
+        }
+    }
 }
 
-impl<const CHAINS: usize> ConfiguredTuner<CHAINS> for FixedTuner {
-    const ALGORITHM: ubos_config::TuningAlgorithm = ubos_config::TuningAlgorithm::Fixed;
+impl<const CHAINS: usize> MachineTuner<CHAINS> for FixedTuner {
+    fn select(tuning: &Tuning, board: &'static HashboardDescriptor) -> Option<Self> {
+        match tuning {
+            Tuning::Fixed(_) => Some(Self::new(board)),
+            Tuning::Power(_) => None,
+        }
+    }
 
-    fn target(config: &ubos_config::Config) -> TuningConfig {
-        (&config.tuning).into()
+    fn step(&mut self, tuning: &Tuning, readings: &Readings<CHAINS>) -> Plan<CHAINS> {
+        match tuning {
+            Tuning::Fixed(target) => Tuner::step(self, (*target).into(), readings, &()),
+            // This policy has a target only under `Fixed`, and `select`
+            // answers `None` for anything else, so the miner never
+            // arrives here. The arm exists because the trait is public
+            // and this method must answer for any configuration. It is
+            // matched rather than caught by an else, so a new `Tuning`
+            // variant is a compile error here too.
+            Tuning::Power(_) => {
+                warn!("fixed tuner: asked to plan for a target it does not serve");
+                Self::unchanged()
+            }
+        }
     }
 }
 
 impl<const CHAINS: usize> Tuner<CHAINS> for FixedTuner {
-    type Target = TuningConfig;
+    type Target = FixedTarget;
     type PlatformReadings = ();
 
-    fn step(&mut self, target: TuningConfig, readings: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
-        let unchanged = Plan {
-            rail: None,
-            frequencies: [None; CHAINS],
-            delay: Self::RAMP_SETTLE,
-        };
+    fn step(&mut self, target: FixedTarget, readings: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
+        let unchanged = Self::unchanged();
         let present = || readings.chains.iter().flatten();
         if present().next().is_none() {
             return unchanged;
@@ -138,7 +162,7 @@ impl<const CHAINS: usize> Tuner<CHAINS> for FixedTuner {
             })
         };
         let step = self.board.chip.frequency_step;
-        let target = TuningConfig {
+        let target = FixedTarget {
             frequency: target.frequency.snap_down(step).clamp(
                 self.board.chip.frequency_range.min(),
                 self.board.chip.frequency_range.max(),

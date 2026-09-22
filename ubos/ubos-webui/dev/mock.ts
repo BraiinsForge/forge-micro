@@ -103,7 +103,7 @@ const CONFIG = {
     dangerous_chip_temp_c: 105,
   },
   cooling: { mode: 'auto', target_temp_c: 65, fixed_fan_pwm: 60, min_fan_pwm: 20 },
-  tuning: { frequency_mhz: 500, voltage_mv: 1200 },
+  miner: { tuning: { Fixed: { frequency_mhz: 500, voltage_mv: 1200 } } },
   api: { username: 'admin', password: '' },
   network: { mode: 'Dhcp', hostname: '', address: [192, 168, 1, 50], prefix_len: 24, gateway: [192, 168, 1, 1], dns: [] },
 };

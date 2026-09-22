@@ -30,7 +30,7 @@
 //! sequence a chain's hardware reset produces.
 
 use super::{Either, Miner, PsuError, STOP_MINING, select};
-use crate::tuner::{ConfiguredTuner, TuningConfig};
+use crate::tuner::MachineTuner;
 use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
 use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
@@ -39,7 +39,7 @@ use embassy_time::{Duration, Timer};
 use portable_atomic::AtomicU8;
 use ubos_core::units::{Power, Voltage};
 use ubos_psu::{Psu, StatusFlags};
-use ubos_tuner::{Plan, Readings, Tuner};
+use ubos_tuner::{Plan, Readings};
 
 use embassy_futures::block_on;
 use embassy_futures::join::{join, join3};
@@ -817,9 +817,9 @@ fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
 }
 
 /// Drive a real actor so cancelled writes can complete after the rail cut.
-fn run_mining_with_driver<T: ConfiguredTuner<1, Target = (), PlatformReadings = ()>>(
+fn run_mining_with_driver<M: MachineTuner<1>>(
     miner: &mut Miner<'_, TestPsu, LoggingResetPin, 1>,
-    tuner: &mut T,
+    tuner: &mut M,
     subscription: &mut ubos_config::ConfigSubscription,
     driver: BringUpDriver,
 ) -> super::CycleOutcome {
@@ -827,7 +827,9 @@ fn run_mining_with_driver<T: ConfiguredTuner<1, Target = (), PlatformReadings = 
     let actor = miner.chains[0].serial;
     let stats = miner.chains[0].stats;
     let exercise = async {
-        let outcome = miner.mine_phase(tuner, subscription).await;
+        let outcome = miner
+            .mine_phase(tuner, subscription, fixed_selection())
+            .await;
         actor.terminate().await.expect("actor terminates");
         outcome
     };
@@ -853,10 +855,16 @@ fn run_mining_with_driver<T: ConfiguredTuner<1, Target = (), PlatformReadings = 
 
 struct OnePlanTuner(Plan<1>);
 
-impl Tuner<1> for OnePlanTuner {
-    type Target = ();
-    type PlatformReadings = ();
-    fn step(&mut self, (): (), _readings: &Readings<1>, (): &()) -> Plan<1> {
+impl MachineTuner<1> for OnePlanTuner {
+    fn select(_: &ubos_config::Tuning, _: &'static HashboardDescriptor) -> Option<Self> {
+        Some(Self(Plan {
+            rail: None,
+            frequencies: [None; 1],
+            delay: Duration::from_secs(1),
+        }))
+    }
+
+    fn step(&mut self, _: &ubos_config::Tuning, _readings: &Readings<1>) -> Plan<1> {
         self.0
     }
 }
@@ -1037,10 +1045,12 @@ struct WaitingTuner {
     last_step: Option<Instant>,
 }
 
-impl<const CHAINS: usize> Tuner<CHAINS> for WaitingTuner {
-    type Target = ();
-    type PlatformReadings = ();
-    fn step(&mut self, (): (), readings: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
+impl<const CHAINS: usize> MachineTuner<CHAINS> for WaitingTuner {
+    fn select(_: &ubos_config::Tuning, _: &'static HashboardDescriptor) -> Option<Self> {
+        Some(Self::default())
+    }
+
+    fn step(&mut self, _: &ubos_config::Tuning, readings: &Readings<CHAINS>) -> Plan<CHAINS> {
         if let Some(last) = self.last_step {
             assert!(readings.now.as_millis() > last.as_millis());
         }
@@ -1057,6 +1067,77 @@ impl<const CHAINS: usize> Tuner<CHAINS> for WaitingTuner {
             delay: Duration::from_millis(1),
         }
     }
+}
+
+#[test]
+fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
+    critical_section::with(|_| {
+        static ACTOR: Serial = Serial::new(0, 1);
+        static STATS: ChainStats = ChainStats::new();
+        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        let psu = TestPsu {
+            log: &LOG,
+            disable_fails: false,
+            behavior: Cell::new(VoltageWrite::Succeed),
+        };
+        STATS.set_presence(ChainPresence::Present {
+            chips: BMM101_HASHBOARD.num_chips,
+        });
+        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let power = ubos_config::Tuning::Power(ubos_config::PowerTarget {
+            input_power_mw: 3_000_000,
+        });
+        // The fixed tuner does not serve a power target, which is what
+        // puts the loop in the hold.
+        assert!(
+            <crate::tuner::fixed::FixedTuner as MachineTuner<1>>::select(&power, &BMM101_HASHBOARD)
+                .is_none()
+        );
+        let (mut subscription, publish) = test_config();
+        // Take the subscription up to date first, so the hold waits for a
+        // publication rather than returning on the one already queued.
+        block_on(subscription.get());
+        let hold = miner.await_another_tuner(&mut subscription, core::mem::discriminant(&power));
+        // More halt and resume edges than the command channel can hold.
+        // A hold that never reads them blocks the manager task that
+        // sends them, which is the whole of the pause aggregation.
+        let pause_the_machine = async {
+            for _ in 0..=crate::control::CMD_CHANNEL_DEPTH {
+                crate::handle().halt().await;
+                crate::handle().resume().await;
+            }
+            // The last edge before the hold ends is a halt, and the
+            // machine has to come out of the hold still halted. Let the
+            // hold read it before the tuning changes: a message still
+            // queued is one the next bring-up reads instead, which is a
+            // different path from the one under test.
+            crate::handle().halt().await;
+            core::future::poll_fn(|_| {
+                if crate::control::COMMAND_CHANNEL.is_empty() {
+                    core::task::Poll::Ready(())
+                } else {
+                    core::task::Poll::Pending
+                }
+            })
+            .await;
+            publish(fixed_config(500, 1200));
+        };
+        let Either::First((outcome, ())) = block_on(select(
+            join(hold, pause_the_machine),
+            Timer::after(Duration::from_millis(500)),
+        )) else {
+            panic!("the hold stopped reading the command channel")
+        };
+        assert!(!outcome.is_stop(), "a new tuning resumes the outer loop");
+        assert!(
+            miner.halted,
+            "a halt raised during the hold was read and thrown away"
+        );
+        // The hold cuts the rail rather than trusting that an earlier
+        // step left it down.
+        LOG.lock(|log| assert!(log.borrow().contains(&Write::Disable)));
+        while crate::control::COMMAND_CHANNEL.try_receive().is_ok() {}
+    });
 }
 
 #[test]
@@ -1090,7 +1171,7 @@ fn empty_plans_wait_before_retrying_and_stop_during_a_write_cuts_the_rail() {
             STOP_MINING.signal(());
         };
         let (outcome, ()) = block_on(join(
-            miner.mine_phase(&mut tuner, &mut subscription),
+            miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()),
             stop_after_failure,
         ));
         assert!(outcome.is_stop());
@@ -1219,7 +1300,8 @@ fn stop_during_plan_delay_does_not_wait_or_issue_another_plan() {
             delay: Duration::from_millis(500),
         });
         let mut subscription = test_config().0;
-        let mut run = core::pin::pin!(miner.mine_phase(&mut tuner, &mut subscription));
+        let mut run =
+            core::pin::pin!(miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()));
         let mut context = Context::from_waker(Waker::noop());
         // The initial zero-duration timer yields before the first plan.
         assert!(run.as_mut().poll(&mut context).is_pending());
@@ -1261,7 +1343,8 @@ fn halt_finishes_the_pending_voltage_write_before_cutting_the_rail() {
         });
         let mut subscription = test_config().0;
         {
-            let mut phase = core::pin::pin!(miner.mine_phase(&mut tuner, &mut subscription));
+            let mut phase =
+                core::pin::pin!(miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()));
             let mut context = Context::from_waker(Waker::noop());
             // The initial zero-duration timer yields before the first plan.
             assert!(phase.as_mut().poll(&mut context).is_pending());
@@ -1311,7 +1394,8 @@ fn halt_during_stop_grace_period_keeps_stop_and_queued_resume() {
         let mut subscription = test_config().0;
         let mut context = Context::from_waker(Waker::noop());
         {
-            let mut phase = core::pin::pin!(miner.mine_phase(&mut tuner, &mut subscription));
+            let mut phase =
+                core::pin::pin!(miner.mine_phase(&mut tuner, &mut subscription, fixed_selection()));
             // The initial zero-duration timer yields before the first plan.
             assert!(phase.as_mut().poll(&mut context).is_pending());
             assert!(phase.as_mut().poll(&mut context).is_pending());
@@ -1391,32 +1475,37 @@ fn test_config() -> (
     )
 }
 
-impl ConfiguredTuner<1> for OnePlanTuner {
-    const ALGORITHM: ubos_config::TuningAlgorithm = ubos_config::TuningAlgorithm::Fixed;
-    fn target(_config: &ubos_config::Config) {}
-}
-
-impl<const CHAINS: usize> ConfiguredTuner<CHAINS> for WaitingTuner {
-    const ALGORITHM: ubos_config::TuningAlgorithm = ubos_config::TuningAlgorithm::Fixed;
-    fn target(_config: &ubos_config::Config) {}
-}
-
 /// Exercise the production policy with a shorter delay between steps.
 struct LiveTuner(crate::tuner::fixed::FixedTuner);
-impl Tuner<1> for LiveTuner {
-    type Target = TuningConfig;
-    type PlatformReadings = ();
-    fn step(&mut self, target: TuningConfig, readings: &Readings<1>, platform: &()) -> Plan<1> {
+impl MachineTuner<1> for LiveTuner {
+    fn select(tuning: &ubos_config::Tuning, board: &'static HashboardDescriptor) -> Option<Self> {
+        <crate::tuner::fixed::FixedTuner as MachineTuner<1>>::select(tuning, board).map(Self)
+    }
+
+    fn step(&mut self, tuning: &ubos_config::Tuning, readings: &Readings<1>) -> Plan<1> {
         Plan {
             delay: Duration::from_millis(1),
-            ..self.0.step(target, readings, platform)
+            ..MachineTuner::step(&mut self.0, tuning, readings)
         }
     }
 }
-impl ConfiguredTuner<1> for LiveTuner {
-    const ALGORITHM: ubos_config::TuningAlgorithm = ubos_config::TuningAlgorithm::Fixed;
-    fn target(config: &ubos_config::Config) -> TuningConfig {
-        (&config.tuning).into()
+
+/// The tuner the default configuration selects, as the mining loop
+/// records it. Every tuner in this file serves that variant.
+fn fixed_selection() -> core::mem::Discriminant<ubos_config::Tuning> {
+    core::mem::discriminant(&ubos_config::Config::default().miner.tuning)
+}
+
+/// A configuration whose fixed target is `frequency_mhz` at `voltage_mv`.
+fn fixed_config(frequency_mhz: u32, voltage_mv: u32) -> ubos_config::Config {
+    ubos_config::Config {
+        miner: ubos_config::MinerConfig {
+            tuning: ubos_config::Tuning::Fixed(ubos_config::FrequencyVoltageTarget {
+                frequency_mhz,
+                voltage_mv,
+            }),
+        },
+        ..ubos_config::Config::default()
     }
 }
 
@@ -1442,14 +1531,13 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
         let mut tuner = LiveTuner(crate::tuner::fixed::FixedTuner::new(board));
         let (mut subscription, publish) = test_config();
-        let mut config = ubos_config::Config::default();
-        config.tuning.frequency_mhz = safe.mhz();
-        config.tuning.voltage_mv = board.max_rail_voltage().mv();
-        publish(config.clone());
+        let mut frequency_mhz = safe.mhz();
+        let mut voltage_mv = board.max_rail_voltage().mv();
+        publish(fixed_config(frequency_mhz, voltage_mv));
         let exercise = async {
             assert!(
                 miner
-                    .mine_phase(&mut tuner, &mut subscription)
+                    .mine_phase(&mut tuner, &mut subscription, fixed_selection())
                     .await
                     .is_stop()
             );
@@ -1457,8 +1545,8 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
         };
         let edit = async {
             Timer::after(Duration::from_millis(1)).await;
-            config.tuning.frequency_mhz = 75;
-            publish(config.clone());
+            frequency_mhz = 75;
+            publish(fixed_config(frequency_mhz, voltage_mv));
             core::future::poll_fn(|_| {
                 if STATS.frequency() == Frequency::from_mhz(75) {
                     core::task::Poll::Ready(())
@@ -1468,12 +1556,10 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
             })
             .await;
             LOG.lock(|log| assert!(!log.borrow().contains(&Write::Disable)));
-            config.tuning.voltage_mv -= 100;
-            publish(config.clone());
+            voltage_mv -= 100;
+            publish(fixed_config(frequency_mhz, voltage_mv));
             core::future::poll_fn(|_| {
-                if ubos_psu::handle().commanded_voltage()
-                    == Some(Voltage::from_mv(config.tuning.voltage_mv))
-                {
+                if ubos_psu::handle().commanded_voltage() == Some(Voltage::from_mv(voltage_mv)) {
                     core::task::Poll::Ready(())
                 } else {
                     core::task::Poll::Pending

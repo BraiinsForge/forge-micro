@@ -29,6 +29,7 @@
 mod tests;
 
 use core::cmp::Ordering;
+use core::mem::{Discriminant, discriminant};
 
 use embassy_futures::join::join_array;
 use embassy_futures::select::{Either, Either3, select, select3};
@@ -37,7 +38,7 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io::ErrorKind;
 use ubos_asic::HashboardDescriptor;
-use ubos_config::{ConfigSubscription, TuningAlgorithm};
+use ubos_config::{ConfigSubscription, Tuning};
 use ubos_core::units::{Frequency, Temperature, Voltage};
 use ubos_logging::{Debug2Format, error, info, warn};
 use ubos_metrics::chain::ChainPresence;
@@ -47,7 +48,7 @@ use crate::chain::{ChainControl, ChainHandle};
 use crate::control::{COMMAND_CHANNEL, Message, MiningState, publish_state};
 use crate::reset::ResetPin;
 use crate::serial::Serial;
-use crate::tuner::ConfiguredTuner;
+use crate::tuner::MachineTuner;
 use crate::tuner::fixed::FixedTuner;
 use ubos_tuner::{ChainReadings, Plan, Readings};
 
@@ -239,15 +240,20 @@ where
     ///
     /// Reads the initial config from `ubos_config::handle()` and holds a
     /// subscription across the outer bring-up loop. On each iteration the
-    /// outer loop reads the current config, constructs the tuner selected
-    /// by `MinerConfig::algorithm`, and calls `bring_up_cycle`. Returns
+    /// outer loop reads the current config, selects the tuner
+    /// `MinerConfig::tuning` names, and calls `bring_up_cycle`. Returns
     /// when `STOP_MINING` fires; on bare metal that never happens, so the
     /// loop runs forever.
     ///
-    /// # Algorithm-change invariant
+    /// A configuration that selects a tuner this machine does not have
+    /// leaves the rail off until the next configuration.
     ///
-    /// Switching algorithms cuts the rail and resets every chain.
+    /// # Tuner-change invariant
+    ///
+    /// Switching tuners cuts the rail and resets every chain.
     /// The next cycle constructs a fresh policy from the post-reset baseline.
+    /// A new target for the running tuner does not: it reaches the tuner
+    /// at its next step.
     pub async fn run(&mut self) {
         let config_handle = ubos_config::handle();
         let mut config_subscription = config_handle.subscribe();
@@ -274,18 +280,67 @@ where
         }
 
         loop {
-            let snapshot = config_handle.current();
-
-            let outcome = match snapshot.miner.algorithm {
-                TuningAlgorithm::Fixed => {
-                    let mut tuner = FixedTuner::new(self.board);
-                    self.bring_up_cycle(&mut tuner, &mut config_subscription)
-                        .await
-                }
+            let tuning = config_handle.current().miner.tuning;
+            let chosen = <FixedTuner as MachineTuner<CHAINS>>::select(&tuning, self.board);
+            let outcome = if let Some(mut tuner) = chosen {
+                self.bring_up_cycle(&mut tuner, &mut config_subscription, discriminant(&tuning))
+                    .await
+            } else {
+                error!("mining: this machine has no tuner for the configured tuning");
+                self.await_another_tuner(&mut config_subscription, discriminant(&tuning))
+                    .await
             };
             if outcome.is_stop() {
                 return;
             }
+        }
+    }
+
+    /// Hold until the configuration names a tuner this machine has, or
+    /// `STOP_MINING` fires.
+    ///
+    /// The rail is cut first rather than assumed off. The hold can be
+    /// entered on the first pass through `run`, where the only thing
+    /// that has touched the supply is a disable whose failure is logged
+    /// and ignored, so a board that boots under an unusable tuning would
+    /// otherwise hold with a rail nobody confirmed down.
+    ///
+    /// Halt and resume messages are read as they arrive and the last
+    /// edge is kept. Reading them is not optional: the hold ends only on
+    /// a configuration or a stop, so it can last indefinitely, and
+    /// `COMMAND_CHANNEL` is bounded, so a state that never drains it
+    /// blocks every later sender — which is the manager task the halt
+    /// came from. Keeping the edge is not optional either: an operator
+    /// who halts the machine during the hold must still find it halted
+    /// when a usable tuning arrives.
+    async fn await_another_tuner(
+        &mut self,
+        subscription: &mut ConfigSubscription,
+        selected: Discriminant<Tuning>,
+    ) -> CycleOutcome {
+        cut_rail(self.psu, &mut self.chains).await;
+        let mut halted = self.halted;
+        let stopped = {
+            let track_halt = async {
+                loop {
+                    halted = next_halt_change().await;
+                }
+            };
+            matches!(
+                select3(
+                    STOP_MINING.wait(),
+                    tuner_changed(selected, subscription),
+                    track_halt,
+                )
+                .await,
+                Either3::First(())
+            )
+        };
+        self.halted = halted;
+        if stopped {
+            CycleOutcome::Stop
+        } else {
+            CycleOutcome::Continue
         }
     }
 
@@ -383,12 +438,16 @@ where
     /// Runs the PSU-reset-settle-enumerate-configure-init sequence over every
     /// chain, then delegates to `mine_phase` for the steady-state
     /// select loop. Returns `CycleOutcome::Stop` when `STOP_MINING`
-    /// fires; returns `CycleOutcome::Continue` on halt, halt-clear, an
-    /// algorithm change, or a transient init failure that has already cut the rail.
-    async fn bring_up_cycle<T: ConfiguredTuner<CHAINS, PlatformReadings = ()>>(
+    /// fires; returns `CycleOutcome::Continue` on halt, halt-clear, a
+    /// tuner change, or a transient init failure that has already cut the rail.
+    ///
+    /// `selected` is the tuning variant `tuner` was built from, which the
+    /// mining loop compares the live configuration against.
+    async fn bring_up_cycle<M: MachineTuner<CHAINS>>(
         &mut self,
-        tuner: &mut T,
+        tuner: &mut M,
         config_subscription: &mut ConfigSubscription,
+        selected: Discriminant<Tuning>,
     ) -> CycleOutcome {
         if self.halted {
             info!("mining: halt active; awaiting clear");
@@ -452,19 +511,20 @@ where
         }
 
         publish_state(MiningState::Running);
-        self.mine_phase(tuner, config_subscription).await
+        self.mine_phase(tuner, config_subscription, selected).await
     }
 
     /// Read the live target at each step and retain the first accepted interruption.
-    async fn mine_phase<T: ConfiguredTuner<CHAINS, PlatformReadings = ()>>(
+    async fn mine_phase<M: MachineTuner<CHAINS>>(
         &mut self,
-        tuner: &mut T,
+        tuner: &mut M,
         subscription: &mut ConfigSubscription,
+        selected: Discriminant<Tuning>,
     ) -> CycleOutcome {
         let mut plan_delay = Duration::from_millis(0);
         let interrupt = loop {
             if let Either::First(exit) = select(
-                interrupted(T::ALGORITHM, subscription),
+                interrupted(selected, subscription),
                 Timer::after(plan_delay),
             )
             .await
@@ -472,16 +532,15 @@ where
                 break exit;
             }
             let snapshot = subscription.get().await;
-            if snapshot.miner.algorithm != T::ALGORITHM {
+            if discriminant(&snapshot.miner.tuning) != selected {
                 break Interrupt::Restart;
             }
-            let target = T::target(&snapshot);
-            let plan = tuner.step(target, &self.readings(), &());
+            let plan = tuner.step(&snapshot.miner.tuning, &self.readings());
             plan_delay = plan.delay;
             let mut interruption = None;
             match select(
                 async {
-                    interruption = Some(interrupted(T::ALGORITHM, subscription).await);
+                    interruption = Some(interrupted(selected, subscription).await);
                     Timer::after(INTERRUPT_TIMEOUT).await;
                 },
                 self.apply_plan(&plan),
@@ -639,19 +698,33 @@ enum Interrupt {
     Restart,
 }
 
-/// STOP wins simultaneous requests, then HALT, then an algorithm change.
+/// STOP wins simultaneous requests, then HALT, then a tuner change.
 /// An accepted request is retained through cleanup, independent of later events.
 async fn interrupted(
-    algorithm: TuningAlgorithm,
+    selected: Discriminant<Tuning>,
     subscription: &mut ConfigSubscription,
 ) -> Interrupt {
-    let tuning_changed =
-        async { while subscription.changed().await.miner.algorithm == algorithm {} };
-    match select3(STOP_MINING.wait(), wait_for_halt(), tuning_changed).await {
+    match select3(
+        STOP_MINING.wait(),
+        wait_for_halt(),
+        tuner_changed(selected, subscription),
+    )
+    .await
+    {
         Either3::First(()) => Interrupt::Stop,
         Either3::Second(()) => Interrupt::Halt,
         Either3::Third(()) => Interrupt::Restart,
     }
+}
+
+/// Wait for a configuration that selects a tuner other than the one
+/// `selected` names.
+///
+/// The variant alone decides, so a new target for the running tuner is
+/// not a change: the mining loop hands it to the tuner at the next step
+/// instead of tearing the machine down.
+async fn tuner_changed(selected: Discriminant<Tuning>, subscription: &mut ConfigSubscription) {
+    while discriminant(&subscription.changed().await.miner.tuning) == selected {}
 }
 
 /// Wait for a halt while the miner is not halted. Ignore redundant resume messages.
@@ -747,7 +820,7 @@ enum CycleOutcome {
     /// The outer loop must return: `STOP_MINING` was signalled.
     Stop,
     /// The outer loop should restart with a fresh config snapshot:
-    /// a halt/resume cycle or an algorithm change triggered teardown.
+    /// a halt/resume cycle or a tuner change triggered teardown.
     Continue,
 }
 

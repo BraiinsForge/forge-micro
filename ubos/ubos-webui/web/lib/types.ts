@@ -117,9 +117,23 @@ export interface CoolingConfig {
   min_fan_pwm: number;
 }
 
-export interface TuningConfig {
+export interface FixedTarget {
   frequency_mhz: number;
   voltage_mv: number;
+}
+
+export interface PowerTarget {
+  input_power_mw: number;
+}
+
+// Externally tagged: exactly one key is present.
+export interface Tuning {
+  Fixed?: FixedTarget;
+  Power?: PowerTarget;
+}
+
+export interface MinerConfig {
+  tuning: Tuning;
 }
 
 export interface ApiCredentials {
@@ -141,7 +155,7 @@ export interface Config {
   pool: (PoolConfig | null)[];
   thermal: ThermalConfig;
   cooling: CoolingConfig;
-  tuning: TuningConfig;
+  miner: MinerConfig;
   api: ApiCredentials;
   network: NetworkConfig;
 }

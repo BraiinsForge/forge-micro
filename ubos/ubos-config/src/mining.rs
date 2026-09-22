@@ -19,7 +19,8 @@
 
 //! Mining tuning configuration, bounds, and static chip metadata.
 //!
-//! Defines [`TuningConfig`] for ASIC frequency and voltage overrides,
+//! Defines [`FrequencyVoltageTarget`] for ASIC frequency and voltage overrides,
+//! [`PowerTarget`] for a PSU input-power target,
 //! [`MiningBounds`] with the accepted ranges, [`MiningInfo`] for the
 //! static chip facts that live alongside the config, and the
 //! [`BOUNDS`] constant.
@@ -29,50 +30,32 @@ use ubos_asic::HashboardDescriptor;
 
 /// ASIC frequency and voltage overrides.
 #[derive(
-    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
+    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct TuningConfig {
+pub struct FrequencyVoltageTarget {
     /// Target ASIC core frequency in MHz.
     pub frequency_mhz: u32,
     /// Core supply voltage in millivolts.
     pub voltage_mv: u32,
 }
 
-impl Default for TuningConfig {
-    /// Factory defaults for the BMM101 board. The firmware builds its real
-    /// per-board defaults via [`crate::Config::for_board`]; this exists so
-    /// the test suite has a stable baseline.
-    fn default() -> Self {
-        Self {
-            frequency_mhz: ubos_asic::BMM101_HASHBOARD.default_frequency.mhz(),
-            voltage_mv: ubos_asic::BMM101_HASHBOARD.default_voltage.mv(),
-        }
-    }
+/// The power a power tuner holds the machine at.
+///
+/// PSU input power, so it is the figure a site meters and bills, not
+/// the hashboard draw. What range a machine accepts follows from its
+/// supply and its boards, and the tuner that reads this is the only
+/// thing that knows it.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
+)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct PowerTarget {
+    /// Target PSU input power in mW.
+    pub input_power_mw: u32,
 }
 
-impl TuningConfig {
-    /// Validate frequency and voltage against `bounds`.
-    ///
-    /// The caller passes the active board's bounds (the firmware sources
-    /// them from its `HashboardDescriptor` via [`bounds`]) so a board only
-    /// accepts an operating point inside its own rail/clock range.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err` when either field falls outside its accepted range.
-    pub fn validate(&self, bounds: &MiningBounds) -> Result<(), &'static str> {
-        if !bounds.frequency_mhz.contains(&self.frequency_mhz) {
-            return Err("tuning.frequency_mhz must be between 50 and 1000");
-        }
-        if !bounds.voltage_mv.contains(&self.voltage_mv) {
-            return Err("tuning.voltage_mv outside the accepted range");
-        }
-        Ok(())
-    }
-}
-
-/// Accepted ranges for each [`TuningConfig`] field.
+/// Accepted ranges for each [`FrequencyVoltageTarget`] field.
 ///
 /// Serializable so API endpoints can return the bounds alongside the
 /// current config without a separate hard-coded schema.
@@ -86,7 +69,7 @@ pub struct MiningBounds {
     pub voltage_mv: RangeInclusive<u32>,
 }
 
-/// Accepted value ranges for [`TuningConfig`] on `board`.
+/// Accepted value ranges for [`FrequencyVoltageTarget`] on `board`.
 ///
 /// The voltage ceiling is the board's open-core rail voltage
 /// (`HashboardDescriptor::max_rail_voltage`: max chip voltage times the

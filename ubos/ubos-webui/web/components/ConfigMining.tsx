@@ -2,24 +2,25 @@ import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { saveConfig } from '../lib/api';
 import { fmtRange } from '../lib/format';
-import type { AsicBounds, Range, TuningConfig } from '../lib/types';
+import type { AsicBounds, MinerConfig, Range } from '../lib/types';
 import Field from './Field';
 
 
 export interface ConfigMiningProps {
-  tuning?: TuningConfig;
+  miner?: MinerConfig;
   bounds: Partial<AsicBounds>;
 }
 
-export default function ConfigMining({ tuning, bounds }: ConfigMiningProps) {
-  const [freqMhz, setFreqMhz] = useState<string | number>(() => (tuning ? tuning.frequency_mhz : ''));
-  const [voltMv, setVoltMv] = useState<string | number>(() => (tuning ? tuning.voltage_mv : ''));
+export default function ConfigMining({ miner, bounds }: ConfigMiningProps) {
+  const fixed = miner?.tuning.Fixed;
+  const [freqMhz, setFreqMhz] = useState<string | number>(() => (fixed ? fixed.frequency_mhz : ''));
+  const [voltMv, setVoltMv] = useState<string | number>(() => (fixed ? fixed.voltage_mv : ''));
 
   const freq: Partial<Range> = bounds.frequencyMhz || {};
   const volt: Partial<Range> = bounds.voltageMv || {};
 
   const save = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) =>
-    saveConfig({ tuning: { frequency_mhz: +freqMhz, voltage_mv: +voltMv } }, event);
+    saveConfig({ miner: { tuning: { Fixed: { frequency_mhz: +freqMhz, voltage_mv: +voltMv } } } }, event);
 
   return (
     <>

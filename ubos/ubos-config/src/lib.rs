@@ -62,9 +62,10 @@ pub use cooling::{
     BOUNDS as COOLING_BOUNDS, CoolingBounds, CoolingConfig, CoolingInfo, FanMode,
     INFO as COOLING_INFO, PidConfig,
 };
-pub use miner::{MinerConfig, TuningAlgorithm};
+pub use miner::{MinerConfig, Tuning};
 pub use mining::{
-    BOUNDS as MINING_BOUNDS, MiningBounds, MiningInfo, TuningConfig, bounds, mining_info,
+    BOUNDS as MINING_BOUNDS, FrequencyVoltageTarget, MiningBounds, MiningInfo, PowerTarget, bounds,
+    mining_info,
 };
 pub use network::{NetworkConfig, NetworkMode};
 pub use pool::{
@@ -101,6 +102,7 @@ use ubos_logging::{info, warn};
 
 ubos_events::events! {
     config_changed(freq_mhz: u32, voltage_mv: u32)  info = "Configuration changed: {} MHz, {} mV",
+    config_changed_power(power_mw: u32)              info = "Configuration changed: power = {} mW",
     factory_reset()                                  warn = "Factory reset to defaults",
     network_applied()                                info = "Network config applied",
     network_reverted()                               warn = "Network config reverted",
@@ -405,9 +407,6 @@ pub struct ConfigUpdate {
     /// Replacement value for [`Config::miner`]; `None` means leave unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub miner: Option<MinerConfig>,
-    /// Replacement value for [`Config::tuning`]; `None` means leave unchanged.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tuning: Option<TuningConfig>,
     /// Replacement value for [`Config::api`]; `None` means leave unchanged.
     ///
     /// On `GET`, `password` is set to an empty string so the stored secret
@@ -449,9 +448,6 @@ impl ConfigUpdate {
         if let Some(miner) = self.miner {
             target.miner = miner;
         }
-        if let Some(tuning) = self.tuning {
-            target.tuning = tuning;
-        }
         if let Some(api) = self.api {
             target.api = api;
         }
@@ -478,7 +474,6 @@ impl ConfigUpdate {
                 min_fan_pwm: Some(config.cooling.pid.min_fan_pwm),
             }),
             miner: Some(config.miner.clone()),
-            tuning: Some(config.tuning.clone()),
             api: Some(api),
             network: Some(config.network.clone()),
         }
@@ -521,10 +516,7 @@ impl ConfigUpdate {
             thermal.validate()?;
         }
         if let Some(miner) = &self.miner {
-            miner.validate()?;
-        }
-        if let Some(tuning) = &self.tuning {
-            tuning.validate(bounds)?;
+            miner.validate(bounds)?;
         }
         if let Some(api) = &self.api {
             api.validate()?;
@@ -584,10 +576,8 @@ pub struct Config {
     pub thermal: ThermalConfig,
     /// Cooling loop parameters.
     pub cooling: CoolingConfig,
-    /// Miner orchestration (tuner algorithm selection).
+    /// Miner orchestration: the tuner kind and its target.
     pub miner: MinerConfig,
-    /// ASIC tuning parameters.
-    pub tuning: TuningConfig,
     /// HTTP API credentials.
     pub api: ApiConfig,
     /// Network interface configuration (IP assignment mode and hostname).
@@ -662,14 +652,12 @@ impl Config {
                 },
             },
             miner: MinerConfig {
-                // Fixed is the only available algorithm.
-                algorithm: TuningAlgorithm::Fixed,
-            },
-            tuning: TuningConfig {
-                // The board's boot operating point comes from its descriptor,
-                // so a board comes up at its correct rail/clock with no env.
-                frequency_mhz: board.default_frequency.mhz(),
-                voltage_mv: board.default_voltage.mv(),
+                tuning: Tuning::Fixed(FrequencyVoltageTarget {
+                    // The board's boot operating point comes from its descriptor,
+                    // so a board comes up at its correct rail/clock with no env.
+                    frequency_mhz: board.default_frequency.mhz(),
+                    voltage_mv: board.default_voltage.mv(),
+                }),
             },
             api: ApiConfig::default(),
             network: NetworkConfig::default(),
@@ -691,7 +679,7 @@ impl Config {
 
     /// Validate operator-tunable fields against their per-domain bounds.
     ///
-    /// Runs the pool, thermal, miner, tuning, api, and network
+    /// Runs the pool, thermal, miner, api, and network
     /// sub-validators, bounds both cooling duties, and enforces the
     /// cross-field rule `cooling.target_temp_c < thermal.dangerous_temp_c`.
     /// Stored blobs pass through serde and can carry out-of-range or
@@ -713,8 +701,7 @@ impl Config {
             entry.validate(slot)?;
         }
         self.thermal.validate()?;
-        self.miner.validate()?;
-        self.tuning.validate(bounds)?;
+        self.miner.validate(bounds)?;
         self.api.validate()?;
         self.network.validate()?;
         CoolingConfig::validate_target_temp(
@@ -925,7 +912,14 @@ async fn apply_update<S: Storage>(new: &Config, storage: &mut S) {
     let generation = GENERATION_WATCH.try_get().map_or(1, |g| g.wrapping_add(1));
     GENERATION_WATCH.sender().send(generation);
     info!("config: applied update, generation {}", generation);
-    crate::events::config_changed(new.tuning.frequency_mhz, new.tuning.voltage_mv);
+    match &new.miner.tuning {
+        Tuning::Fixed(target) => {
+            crate::events::config_changed(target.frequency_mhz, target.voltage_mv);
+        }
+        Tuning::Power(target) => {
+            crate::events::config_changed_power(target.input_power_mw);
+        }
+    }
 }
 
 /// Persist a network-only change and publish it without halting mining.

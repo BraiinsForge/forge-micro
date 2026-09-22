@@ -22,8 +22,9 @@
 //! Owns the chip-side serial protocol and the work-dispatch loop.
 //! [`Handle`] is the public surface every other crate uses to
 //! observe state and issue commands. [`Miner`] is the typed state
-//! machine that firmware constructs and drives. [`tuner`] hosts policies
-//! implementing [`ubos_tuner::Tuner`]; the miner applies their plans.
+//! machine that firmware constructs and drives. [`tuner`] holds the
+//! seam the miner selects a tuner through, and the fixed policy; the
+//! miner applies their plans.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]

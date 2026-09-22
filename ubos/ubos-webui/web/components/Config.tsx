@@ -40,7 +40,7 @@ const TABS: Tab[] = [
   {
     key: 'mining',
     label: 'Mining',
-    render: (p) => <ConfigMining tuning={p.config?.tuning} bounds={p.asicBounds} />,
+    render: (p) => <ConfigMining miner={p.config?.miner} bounds={p.asicBounds} />,
   },
   {
     key: 'system',
