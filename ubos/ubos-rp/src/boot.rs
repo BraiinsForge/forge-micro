@@ -32,6 +32,7 @@ use embassy_time::{Duration, Timer};
 use embedded_hal::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
+use ubos_core::entropy::Seeds;
 
 /// How long the board waits before it resets after a failed `WIZnet` init,
 /// so the log line reaches the probe first.
@@ -69,16 +70,6 @@ where
         return [0u8; 8];
     }
     uid
-}
-
-/// The three seeds a board draws at boot.
-pub struct Seeds {
-    /// The embassy-net stack seed.
-    pub net: u64,
-    /// The session CSPRNG seed.
-    pub csprng: [u8; 32],
-    /// The SV2 noise handshake seed.
-    pub sv2: [u8; 32],
 }
 
 /// Every seed from the ring oscillator. The RP2040 has no hardware TRNG,

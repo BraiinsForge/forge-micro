@@ -18,7 +18,8 @@
 // shall be considered distinct from the grant above.
 
 //! Subsystem-scoped constants, the hardware-watchdog feed loop, the
-//! hold-to-trigger button monitor, and the I2C bus clear. The
+//! hold-to-trigger button monitor, the I2C bus clear, and the shape of
+//! the seeds a board draws at boot. The
 //! "core" of the firmware framework: every other ubos-* crate depends on
 //! this one for shared values and the watchdog and button task wrappers.
 #![no_std]
@@ -27,6 +28,7 @@ pub mod button;
 #[cfg(feature = "ccmram-bss")]
 pub mod ccmram;
 pub mod consts;
+pub mod entropy;
 pub mod i2c;
 pub mod reboot;
 pub mod units;
