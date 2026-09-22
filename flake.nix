@@ -329,11 +329,14 @@
             # GC-root anchor for the armv5tel-musl gcc for the BMM
             # miniminer, which cache.nixos.org does not carry.
             # `nix build .#cross-toolchains` pins the whole closure so
-            # nix-collect-garbage keeps it. The rust toolchains
-            # substitute from the rust-overlay cache and the Xtensa
-            # compiler is espup-managed, so neither needs an anchor here.
+            # nix-collect-garbage keeps it. The Xtensa pair is anchored
+            # with it: both are release tarballs no binary cache carries.
+            # The rust toolchains substitute from the rust-overlay cache
+            # and need no anchor.
             cross-toolchains = pkgs.linkFarm "ubos-cross-toolchains" {
               bmm-cc = bmmCc;
+              esp-rust = espToolchain;
+              esp-cc = xtensaEspToolchain;
             };
 
             # The esp32s3 second-stage bootloader; see nix/esp.nix.

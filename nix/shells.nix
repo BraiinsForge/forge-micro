@@ -53,10 +53,9 @@ let
     rustToolchain
     hostRustToolchain
     bmmRustToolchain
-    espRustToolchain
     bmmCc
     ;
-  inherit (esp) espToolchainVersion patchEspBinaries;
+  inherit (esp) espToolchain xtensaEspToolchain;
 
   # Cargo runner shared by the probe-rs boards (bmm-pico, rp2040,
   # rp2350), packaged as a writeShellApplication so it self-lints and
@@ -139,97 +138,48 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
     // helpers.armCc "thumbv8m.main-none-eabihf"
   );
 
-  # ESP32-S3, Xtensa. The espup-managed toolchain is installed into the
-  # working tree on first entry rather than pinned in nixpkgs, which
-  # carries no Xtensa rustc; see nix/esp.nix for the matching pin used
-  # by the flake checks.
-  esp = pkgs.mkShell {
-    buildInputs = [
-      pkgs.probe-rs-tools
-      pkgs.probe-rs-runner
-    ]
-    ++ (with pkgs; [
-      espRustToolchain
-      cargo-binutils
-      cargo-bloat
-      espup
-      espflash
-      patchelf
-      patchEspBinaries
-      pkg-config
-      libudev-zero
-      perl
-      stdenv.cc.cc.lib
-      glibc
-      zlib
-      libxml2
-      openssl
-      libffi
-      # Automatic fixup commits for the documented fixup workflow.
-      git-absorb
-    ]);
+  # ESP32-S3, Xtensa. The shell builds with the same pinned esp-rs
+  # rustc and espressif cross-gcc the flake checks use, from nix/esp.nix,
+  # so a shell build and a check build agree on every byte and a fresh
+  # checkout downloads nothing on entry. The Xtensa rustc must shadow
+  # every other rustc on PATH, so no second toolchain is listed here.
+  esp = pkgs.mkShell (
+    {
+      buildInputs = [
+        pkgs.probe-rs-tools
+        pkgs.probe-rs-runner
+      ]
+      ++ (with pkgs; [
+        espToolchain
+        xtensaEspToolchain
+        cargo-binutils
+        cargo-bloat
+        espflash
+        pkg-config
+        libudev-zero
+        # Automatic fixup commits for the documented fixup workflow.
+        git-absorb
+      ]);
 
-    NIX_LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-      pkgs.stdenv.cc.cc.lib
-      pkgs.glibc
-      pkgs.zlib
-      pkgs.libxml2
-      pkgs.openssl
-      pkgs.libffi
-    ];
-    NIX_LD = "${pkgs.glibc}/lib/ld-linux-x86-64.so.2";
+      # The esp-rs release ships no rust-analyzer; the host toolchain's
+      # is the same rust version and reads its sysroot from the Xtensa
+      # rustc on PATH.
+      RUST_ANALYZER_SERVER_PATH = "${hostRustToolchain}/bin/rust-analyzer";
+      LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
-    RUST_ANALYZER_SERVER_PATH = "${espRustToolchain}/bin/rust-analyzer";
-    LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-
-    shellHook = ''
-      ${linkPatchedCrates}
-      export RUSTUP_HOME="$PWD/.rustup"
-      export CARGO_HOME="$PWD/.cargo"
-      mkdir -p "$RUSTUP_HOME" "$CARGO_HOME"
-
-      if [ ! -d "$RUSTUP_HOME/toolchains/esp/bin" ]; then
-        # Remove partial state from a previous failed install.
-        # espup aborts with "File exists" on pre-created LLVM
-        # symlinks when the toolchain dir is present but incomplete.
-        rm -rf "$RUSTUP_HOME/toolchains/esp"
-        # espup also writes a global $HOME/.espup/esp-clang symlink
-        # pointing at the last-installed toolchain. A stale link
-        # left by another worktree makes espup abort with EEXIST
-        # even though no local state remains.
-        rm -f "$HOME/.espup/esp-clang"
-        echo "Installing ESP32-S3 Xtensa toolchain..."
-        # Version pinned for reproducibility. The same pin feeds
-        # the Xtensa flake-check derivation in nix/esp.nix.
-        espup install --targets esp32s3 --toolchain-version ${espToolchainVersion} || true
-        patch-esp-binaries
-      fi
-
-      # Find GCC and clang paths dynamically to avoid hardcoding version strings.
-      XTENSA_GCC_PATH="$(echo "$RUSTUP_HOME"/toolchains/esp/xtensa-esp-elf/esp-*/xtensa-esp-elf/bin | head -1)"
-      LIBCLANG_TOOLCHAIN_PATH="$(echo "$RUSTUP_HOME"/toolchains/esp/xtensa-esp32-elf-clang/esp-*/esp-clang/lib | head -1)"
-
-      export PATH="$XTENSA_GCC_PATH:$RUSTUP_HOME/toolchains/esp/bin:$CARGO_HOME/bin:$PATH"
-
-      # `cc-rs`, via secp256k1-sys, an unconditional ii-sv2 dep, needs
-      # an explicit cross-compiler. `-mlongcalls` keeps memset /
-      # memcpy reachable past the xtensa `call8` range.
-      export CC_xtensa_esp32s3_none_elf="$XTENSA_GCC_PATH/xtensa-esp32s3-elf-gcc"
-      export CFLAGS_xtensa_esp32s3_none_elf="-mlongcalls"
-
-      if [ -d "$LIBCLANG_TOOLCHAIN_PATH" ]; then
-        export LIBCLANG_PATH="$LIBCLANG_TOOLCHAIN_PATH"
-      fi
-
-      echo "firmware workspace dev environment ready (ESP32-S3)"
-      echo ""
-      echo "  cd firmware/esp32s3 && cargo build --release  # Waveshare ESP32-S3-LCD-Driver-Board W5100S"
-      echo ""
-      echo "Inspect binary size: cargo size --release -- -A"
-      echo ""
-      echo "For ARM boards: nix develop .#arm"
-    '';
-  };
+      shellHook = ''
+        ${linkPatchedCrates}
+        echo "firmware workspace dev environment ready (ESP32-S3)"
+        echo ""
+        echo "  cd firmware/esp32s3 && cargo build --release  # Waveshare ESP32-S3-LCD-Driver-Board W5100S"
+        echo ""
+        echo "Inspect binary size: cargo size --release -- -A"
+        echo ""
+        echo "For ARM boards: nix develop .#arm"
+      '';
+    }
+    // helpers.espCrossEnv
+  );
 
   host = pkgs.mkShell {
     buildInputs = [

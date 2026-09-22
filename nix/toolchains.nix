@@ -18,11 +18,8 @@
 # shall be considered distinct from the grant above.
 
 # Rust toolchains and the crane instances built on them, one per
-# compilation universe: the ARM boards, the ESP32-S3 shell's host rust,
-# the native host, and the BMM miniminer musl cross target. The Xtensa
-# build toolchain itself lives in nix/esp.nix; the espRustToolchain here
-# only equips the esp devshell with a host rustc and rust-analyzer while
-# espup manages the Xtensa compiler.
+# compilation universe: the ARM boards, the native host, and the BMM
+# miniminer musl cross target. The Xtensa toolchain lives in nix/esp.nix.
 {
   pkgs,
   nixpkgs,
@@ -66,13 +63,6 @@ rec {
       "thumbv6m-none-eabi"
       "thumbv7em-none-eabihf"
       "thumbv8m.main-none-eabihf"
-    ];
-  };
-
-  espRustToolchain = pkgs.rust-bin.stable.${rustVersion}.default.override {
-    extensions = [
-      "rust-src"
-      "rust-analyzer"
     ];
   };
 

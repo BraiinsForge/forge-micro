@@ -19,9 +19,9 @@
 
 # ESP32-S3 build universe: the pinned esp-rs Xtensa rust toolchain,
 # the crosstool-NG xtensa GCC for C deps, the crane instance and
-# vendored dependency set built on them, the rollback-enabled ESP-IDF
-# second-stage bootloader, and the espup binary patcher for the esp
-# devshell.
+# vendored dependency set built on them, and the rollback-enabled
+# ESP-IDF second-stage bootloader. The esp devshell builds with the
+# same toolchain.
 {
   pkgs,
   crane,
@@ -97,9 +97,8 @@ rec {
   # Xtensa GCC toolchain for `secp256k1-sys` and any other C
   # dependency in the esp32s3 build. `secp256k1-sys` arrives via
   # the unconditional `ii-sv2` dep. Nixpkgs doesn't ship
-  # `xtensa-esp-elf-gcc`, and the rustup-managed copy from `espup`
-  # is invisible inside the flake check sandbox. Hashes paired with
-  # the URL; bump both when upgrading to a newer
+  # `xtensa-esp-elf-gcc`, so it is fetched as a release tarball.
+  # Hashes paired with the URL; bump both when upgrading to a newer
   # espressif/crosstool-NG release.
   xtensaEspToolchain = pkgs.stdenv.mkDerivation {
     pname = "xtensa-esp-elf";
@@ -170,30 +169,4 @@ rec {
       runHook postInstall
     '';
   };
-
-  patchEspBinaries = pkgs.writeShellScriptBin "patch-esp-binaries" ''
-    if [ -f /etc/NIXOS ] || [ ! -f /lib64/ld-linux-x86-64.so.2 ]; then
-      echo "Patching ESP toolchain binaries for NixOS..."
-      find "$RUSTUP_HOME/toolchains/esp" -type f | while read -r file; do
-        if file "$file" 2>/dev/null | grep -q 'ELF'; then
-          ${pkgs.patchelf}/bin/patchelf \
-            --set-interpreter "$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)" \
-            "$file" 2>/dev/null || true
-          ${pkgs.patchelf}/bin/patchelf \
-            --set-rpath "${
-              pkgs.lib.makeLibraryPath [
-                pkgs.stdenv.cc.cc.lib
-                pkgs.glibc
-                pkgs.zlib
-                pkgs.libxml2
-                pkgs.openssl
-                pkgs.libffi
-              ]
-            }:$RUSTUP_HOME/toolchains/esp/lib:$(dirname "$file")" \
-            "$file" 2>/dev/null || true
-        fi
-      done
-      echo "Patching complete."
-    fi
-  '';
 }
