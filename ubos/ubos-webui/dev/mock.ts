@@ -62,7 +62,7 @@ function info() {
     ip: '192.168.1.50',
     mac: 'de:ad:be:ef:00:01',
     time: new Date().toISOString().slice(0, 19).replace('T', ' '),
-    ota: { runningSlot: 'A', runningVersion: 42, maxImageBytes: 952 * 1024 },
+    ota: { runningSlot: 'A', runningVersion: 42, runningBuild: 'v0.3-12-gabc1234-260922120000', maxImageBytes: 952 * 1024 },
     chains: CHAINS,
   };
 }

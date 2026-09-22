@@ -42,6 +42,10 @@ pub struct OtaInfo {
     pub running_slot: &'static str,
     /// Version number embedded in the currently-running firmware image.
     pub running_version: u32,
+    /// The build id stamped into the running image, or `null` where the
+    /// board stamps none. Cut to [`crate::ota::MAX_BUILD_ID_LEN`]
+    /// bytes, which the body buffers are sized for.
+    pub running_build: Option<&'static str>,
     /// `true` when a previous image is present in the inactive slot.
     pub has_previous_image: bool,
     /// Version number of the image in the inactive slot, or `null`

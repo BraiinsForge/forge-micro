@@ -59,9 +59,10 @@ mod tests;
 /// board can report — and pins its length at that test's
 /// `WORST_CASE_INFO_BODY_LEN`. 512 bytes overflowed
 /// once the OTA diagnostic fields were added, silently truncating the
-/// tail; 1280 bytes covers the synthetic worst case and leaves room
-/// for future fields while staying on the stack.
-const API_INFO_BODY_BUFFER_SIZE: usize = 1280;
+/// tail, and 1280 stopped covering the worst case once the OTA block
+/// carried a build id; 1408 bytes covers the synthetic worst case and
+/// leaves room for future fields while staying on the stack.
+const API_INFO_BODY_BUFFER_SIZE: usize = 1408;
 
 /// Body buffer for the POST /api/config acknowledgement.
 const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
@@ -168,6 +169,25 @@ impl RestApiService {
             stack,
         }
     }
+}
+
+/// Write `text` as a JSON string. Every other string in the info body
+/// is a literal this crate spells, but the build id carries a git tag
+/// name, and a tag may hold a quote, which would end the body.
+/// `git check-ref-format` refuses a backslash and every control
+/// character in a ref name, so those two escapes hold only for a build
+/// id that did not come from a tag.
+fn write_json_str(writer: &mut ubos_http::BufferWriter<'_>, text: &str) -> core::fmt::Result {
+    writer.write_str("\"")?;
+    for c in text.chars() {
+        match c {
+            '"' => writer.write_str("\\\"")?,
+            '\\' => writer.write_str("\\\\")?,
+            c if c.is_control() => core::write!(writer, "\\u{:04x}", u32::from(c))?,
+            c => writer.write_char(c)?,
+        }
+    }
+    writer.write_str("\"")
 }
 
 /// Write the `/api/info` `chains` array: one entry per chain the
@@ -563,10 +583,22 @@ impl Service for RestApiService {
                         writer,
                         ",\"ota\":{{\"runningSlot\":\"{}\",\
                          \"runningVersion\":{},\
-                         \"hasPreviousImage\":{},\
-                         \"previousVersion\":",
+                         \"runningBuild\":",
                         ota.running_slot,
                         ota.running_version,
+                    );
+                    match ota.running_build {
+                        Some(build) => {
+                            let _ = write_json_str(&mut writer, build);
+                        }
+                        None => {
+                            let _ = writer.write_str("null");
+                        }
+                    }
+                    let _ = core::write!(
+                        writer,
+                        ",\"hasPreviousImage\":{},\
+                         \"previousVersion\":",
                         ota.has_previous_image,
                     );
                     match ota.previous_version {

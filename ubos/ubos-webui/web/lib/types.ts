@@ -8,6 +8,8 @@
 export interface Ota {
   runningSlot: string;
   runningVersion: number;
+  /** The build id stamped into the running image; `null` where the board stamps none. */
+  runningBuild?: string | null;
   maxImageBytes: number;
 }
 

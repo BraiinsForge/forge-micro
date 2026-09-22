@@ -701,6 +701,15 @@ fn serialize_system_info(
     pause_reason: Option<&'static str>,
     hw_info: crate::schema::system_info::HwInfo,
 ) -> std::string::String {
+    serialize_system_info_with_ota(paused, pause_reason, hw_info, None)
+}
+
+fn serialize_system_info_with_ota(
+    paused: bool,
+    pause_reason: Option<&'static str>,
+    hw_info: crate::schema::system_info::HwInfo,
+    ota: Option<crate::schema::system_info::OtaInfo>,
+) -> std::string::String {
     let info = crate::schema::SystemInfo {
         api_variant: "ubos-0.1",
         board_name: "test",
@@ -724,12 +733,12 @@ fn serialize_system_info(
         shares_total: 0,
         best_nonce_diff: 0,
         best_session_nonce_diff: 0,
-        ota: None,
+        ota,
         paused,
         pause_reason,
         hw_info,
     };
-    let mut buf = [0u8; 1024];
+    let mut buf = [0u8; super::SCRATCH_SIZE];
     let len = serde_json_core::to_slice(&info, &mut buf).expect("BUG: SystemInfo serialize failed");
     std::string::String::from_utf8(buf[..len].to_vec())
         .expect("BUG: SystemInfo output is not UTF-8")
@@ -800,6 +809,72 @@ fn system_info_hw_info_serializes_published_versions() {
              \"hashboardIds\":[\"SERIAL0\",null,\"SERIAL2\"],\"chainsPresent\":2}"
         ),
         "expected populated hwInfo object in {json}"
+    );
+}
+
+/// Measured length of the worst-case `SystemInfo` body.
+///
+/// Pinned exactly, as `WORST_CASE_INFO_BODY_LEN` in `tests/rest.rs` is
+/// and for the same reason: a field addition that still fits the buffer
+/// fails here, and updating this constant is the prompt to check the
+/// comment on `SCRATCH_SIZE`. The `const` block holds the claim that
+/// comment makes, so the pinned length cannot be moved past the buffer.
+const WORST_CASE_SYSTEM_INFO_LEN: usize = 1085;
+const _: () = assert!(WORST_CASE_SYSTEM_INFO_LEN <= super::SCRATCH_SIZE);
+
+/// The scratch buffer `system.rs` serializes into must hold the largest
+/// `SystemInfo` the board can produce, and the helper above would panic
+/// before this test's assertion if it did not; what this test adds is
+/// the exact length.
+///
+/// Every string field stands at its maximum, and the build id is
+/// `MAX_BUILD_ID_LEN` double quotes, the widest character a build id
+/// can carry, for the reason `rest::write_json_str` gives.
+///
+/// Without this, nothing measures the body and the comment on
+/// `SCRATCH_SIZE` is the only thing holding its size.
+#[test]
+fn worst_case_system_info_fits_the_scratch_buffer() {
+    use crate::hw_info::HW_STRING_LEN;
+    use crate::ota::MAX_BUILD_ID_LEN;
+
+    /// A `&'static str` of `len` copies of `byte`. The schema takes
+    /// `&'static str`, and a leak in a test costs nothing.
+    fn leaked(byte: u8, len: usize) -> &'static str {
+        let text = std::string::String::from_utf8(std::vec![byte; len])
+            .expect("BUG: ASCII fill is not UTF-8");
+        std::boxed::Box::leak(text.into_boxed_str())
+    }
+
+    let max_string: crate::hw_info::HwString = leaked(b'x', HW_STRING_LEN)
+        .parse()
+        .expect("BUG: fills HwString exactly");
+    let mut hashboard_ids = crate::hw_info::HashboardIds::new();
+    while hashboard_ids.push(Some(max_string.clone())).is_ok() {}
+
+    let hw_info = crate::schema::system_info::HwInfo {
+        bootloader_version: Some(max_string.clone()),
+        fan_controller_version: Some(max_string.clone()),
+        psu_model: Some(max_string),
+        hashboard_ids: Some(hashboard_ids),
+        chains_present: u8::MAX,
+    };
+
+    let ota = crate::schema::system_info::OtaInfo {
+        running_slot: "INACTIVE",
+        running_version: u32::MAX,
+        running_build: Some(leaked(b'"', MAX_BUILD_ID_LEN)),
+        has_previous_image: true,
+        previous_version: Some(u32::MAX),
+        max_image_bytes: u64::MAX,
+    };
+
+    let json =
+        serialize_system_info_with_ota(true, Some("temperatureUnreadable"), hw_info, Some(ota));
+    assert_eq!(
+        json.len(),
+        WORST_CASE_SYSTEM_INFO_LEN,
+        "the worst-case SystemInfo moved; check the comment on SCRATCH_SIZE"
     );
 }
 

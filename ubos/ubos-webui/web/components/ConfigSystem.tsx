@@ -233,6 +233,12 @@ export default function ConfigSystem({ api, boardNotice }: ConfigSystemProps) {
               <span class="fldText"><span class="fldLabel">Version</span></span>
               <span class="fldCtl"><span class="fwVal">{ota.runningVersion != null ? ota.runningVersion : '?'}</span></span>
             </label>
+            {ota.runningBuild && (
+              <label class="fld">
+                <span class="fldText"><span class="fldLabel">Build</span></span>
+                <span class="fldCtl"><span class="fwVal">{ota.runningBuild}</span></span>
+              </label>
+            )}
             <label class="fld wide">
               <span class="fldText"><span class="fldLabel">Firmware image</span></span>
               <span class="fldCtl">

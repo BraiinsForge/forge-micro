@@ -96,9 +96,16 @@ mod tests;
 /// 950 bytes with all string fields at their maximums: a ~600-byte base
 /// plus roughly 350 bytes for `hwInfo`, whose string fields (bootloader
 /// and fan-controller versions, PSU model, three hashboard serials) each
-/// hold up to `HW_STRING_LEN` characters. 2048 bytes covers that worst
-/// case and leaves headroom for fields added in later phases without
-/// revisiting this constant.
+/// hold up to `HW_STRING_LEN` characters, and the OTA block's build id.
+/// The build id is written through a JSON string escaper, so its worst
+/// case is twice `crate::ota::MAX_BUILD_ID_LEN` rather than that bound
+/// itself, for the reason `rest::write_json_str` gives. 2048
+/// bytes covers all of it and leaves headroom for fields added in later
+/// phases without revisiting this constant.
+///
+/// `worst_case_system_info_fits_the_scratch_buffer` in `tests/system.rs`
+/// holds that claim, so a field added to this body fails a test rather
+/// than silently eating the headroom.
 ///
 /// Per-connection stack cost is `SCRATCH_SIZE` bytes; this multiplies by
 /// `ControlBoardDescriptor::http_pool` for concurrent connections. If you
