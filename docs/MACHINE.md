@@ -137,7 +137,8 @@ fails a board that does not name `ubos_firmware::net::bring_up`,
 that writes its own boot sequence writes plain functions, which carry no
 task attribute, so the name list alone cannot see it. A board with tasks
 of its own names them at the call site in `nix/checks.nix`. Keep this
-list and that call site level with each other.
+list and that call site level with each other. A comment line never
+counts as naming a call.
 
 ## Layering
 

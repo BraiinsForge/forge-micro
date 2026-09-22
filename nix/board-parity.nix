@@ -66,6 +66,11 @@ let
     "ubos_firmware::serve_all!"
   ];
 
+  # A Rust line comment, for both halves of the gate: the task scan below
+  # skips such a line, and the call search ignores one. One binding, so
+  # the two halves cannot come to disagree on what a comment is.
+  commentLine = "^[[:space:]]*//";
+
   # An awk program over one board's sources. It prints `file:line name`
   # for every task the crate declares itself.
   #
@@ -79,7 +84,7 @@ let
   # an attribute that names no task cannot attach itself to a function
   # further down the file.
   scanProgram = ''
-    /^[[:space:]]*\/\// { next }
+    $0 ~ "${commentLine}" { next }
     /#\[embassy_executor::task/ { pending = 1; next }
     !pending { next }
     /async fn / {
@@ -129,6 +134,17 @@ in
 
         status=0
 
+        # True when a line that is not a comment names the literal in the
+        # board's sources. A board that writes its own boot sequence and
+        # names the shared call in a comment beside it would otherwise
+        # pass on that comment, which is the evidence this half of the
+        # gate rests on. The second grep is not -q, because under
+        # pipefail a reader that stops early fails the pipeline it was
+        # satisfied by.
+        names() {
+          [ -n "$(grep -rhF -- "$1" "$2/src" | grep -v ${lib.escapeShellArg commentLine})" ]
+        }
+
         check_board() {
           board="$1"
           allowed="$2"
@@ -159,7 +175,7 @@ in
           done < "$TMPDIR/tasks"
 
           for call in ${lib.concatMapStringsSep " " lib.escapeShellArg requiredCalls}; do
-            if ! grep -rqF -- "$call" "$board/src"; then
+            if ! names "$call" "$board"; then
               echo "ERROR: $board does not name $call." >&2
               echo "       A board must take the boot sequence from ubos-firmware. A" >&2
               echo "       board that writes its own copy passes every other check." >&2
