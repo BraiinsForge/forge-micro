@@ -160,8 +160,8 @@ If no chain becomes present, the miner cuts the rail and retries the machine.
 ### Policy and hardware boundary
 
 `ubos-tuner` defines the shared `Tuner`, `Readings`, and `Plan` types.
-The fixed policy stays in `ubos-mining::tuner::fixed`.
-It returns commands and a delay without hardware access or asynchronous waits.
+The fixed and power policies stay in `ubos-mining::tuner::fixed` and `ubos-mining::tuner::power`.
+Each returns commands and a delay without hardware access or asynchronous waits.
 An empty plan leaves the operating point unchanged and schedules another step.
 It does not signal completion to the mining loop.
 
@@ -176,7 +176,7 @@ The miner also supplies the PSU snapshot and the last confirmed voltage command.
 `Readings::voltage` comes directly from the PSU record.
 Telemetry can lag or show voltage droop.
 
-The runner supplies experiment results through `PlatformReadings`, which is empty in the fixed policy.
+The runner supplies experiment results through `PlatformReadings`, which is empty in both policies.
 
 ## Chain presence
 
@@ -249,7 +249,7 @@ Giving the miner a way to demote a chain after bring-up is the work
 this needs, and it is not done.
 
 The PSU rail is shared, but each chain has its own frequency record and plan entry.
-The fixed policy moves all present chains toward one target.
+Both policies move all present chains toward one frequency.
 The fastest chain limits the shared voltage along the `V^2 * f` curve.
 The executor ignores plan entries for absent and faulted connectors.
 

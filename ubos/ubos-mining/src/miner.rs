@@ -49,7 +49,7 @@ use crate::control::{COMMAND_CHANNEL, Message, MiningState, publish_state};
 use crate::reset::ResetPin;
 use crate::serial::Serial;
 use crate::tuner::MachineTuner;
-use crate::tuner::fixed::FixedTuner;
+use crate::tuner::Tuners;
 use ubos_tuner::{ChainReadings, Plan, Readings};
 
 /// Maximum time an interrupted hardware plan can finish before the rail cut.
@@ -281,7 +281,11 @@ where
 
         loop {
             let tuning = config_handle.current().miner.tuning;
-            let chosen = <FixedTuner as MachineTuner<CHAINS>>::select(&tuning, self.board);
+            // TODO: Let the firmware name its tuner set, so a machine that
+            // serves only fixed tuning names `FixedTuner` and holds below
+            // on a power target. Every machine runs `Tuners` today, which
+            // serves both kinds, so the hold is not reached yet.
+            let chosen = <Tuners as MachineTuner<CHAINS>>::select(&tuning, self.board);
             let outcome = if let Some(mut tuner) = chosen {
                 self.bring_up_cycle(&mut tuner, &mut config_subscription, discriminant(&tuning))
                     .await

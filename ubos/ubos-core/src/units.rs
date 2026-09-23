@@ -155,8 +155,8 @@ impl Voltage {
     }
 }
 
-/// Electrical power in milliwatts. Reported by the INA230 sensor on
-/// the PSU side; never used as a setpoint by current control loops.
+/// Electrical power in milliwatts. PSU-side sensors report this value,
+/// and measured-power control loops use it as a target and feedback.
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Power(u32);

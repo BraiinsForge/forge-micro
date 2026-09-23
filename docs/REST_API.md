@@ -196,6 +196,8 @@ The configuration schema hash changes, so firmware loads defaults instead of old
 is `{"Fixed":{"frequency_mhz":525,"voltage_mv":1400}}`; a power target
 is `{"Power":{"input_power_mw":44000}}`.
 
+A zero input-power target keeps the tuner at its safe boot point.
+
 Each `pool` entry carries an optional `weight` (unsigned integer,
 `0..=100000`) that sets its share of dispatched work in the ratio
 scheduler. An absent key defaults to 0, which marks the slot

@@ -427,6 +427,11 @@ tuning-policy envelope, not a chip limit.
   The target frequency is rounded down to the chip's frequency grid.
   Each present chain has its own frequency step.
   The fastest chain limits the voltage on the shared rail.
+- **`PowerTuner`** uses measured PSU input power as its target.
+  It starts at safe boot and adjusts frequency and voltage until a termination condition occurs.
+  Tuning stops at the chip's maximum frequency.
+  It does not regulate power after the ramp ends.
+  Its module rustdoc describes the telemetry contract and fallback behavior.
 
 The miner owns hardware initialization and applies each plan.
 It parks absent or faulted chains and supplies readings only for present chains.
