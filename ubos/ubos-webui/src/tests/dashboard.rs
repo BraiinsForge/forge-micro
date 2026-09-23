@@ -114,6 +114,18 @@ fn index_payload_contains_api_surface() {
     let html = decompress(crate::INDEX_HTML_GZ);
     assert!(html.contains("/api/info"), "missing /api/info literal");
     assert!(html.contains("/api/config"), "missing /api/config literal");
+    // The minifier renames the other props, so the check reads only the
+    // power field's own props, up to the brace that closes them.
+    let (_, power) = html
+        .split_once(r#"label:"Input power""#)
+        .expect("the power field is in the bundle");
+    let (field, _) = power
+        .split_once('}')
+        .expect("the power field's props close");
+    assert!(
+        field.contains(r#"min:"0""#),
+        "power target must accept the zero safe-boot value"
+    );
     assert!(
         html.contains("/api/system/events"),
         "missing /api/system/events path"

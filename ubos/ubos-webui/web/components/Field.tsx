@@ -9,6 +9,7 @@ export interface FieldProps {
   type?: string;
   placeholder?: string;
   disabled?: boolean;
+  required?: boolean;
   min?: number | string;
   max?: number | string;
   step?: number | string;
@@ -25,6 +26,7 @@ export default function Field({
   type = 'text',
   placeholder,
   disabled,
+  required,
   min,
   max,
   step,
@@ -48,6 +50,7 @@ export default function Field({
           onInput={onInput}
           placeholder={placeholder}
           disabled={disabled}
+          required={required}
           min={min}
           max={max}
           step={step}
