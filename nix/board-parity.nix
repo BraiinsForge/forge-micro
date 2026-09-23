@@ -197,4 +197,33 @@ in
         touch $out
       ''
     );
+
+  # Every firmware crate reads its target, its runner and its defmt
+  # filter from its own .cargo/config.toml, and a crate that loses the
+  # file builds for the host and reaches no probe. No build check
+  # notices: crane runs cargo from the workspace root and supplies the
+  # target itself. The tree's .gitignore ignores every .cargo/ directory
+  # and then names the firmware pair back in, so the file is tracked
+  # without a force-add, and the flake source carries tracked files only:
+  # a new board's untracked copy fails here as a missing one. `exclude`
+  # names the crates that build through a shell's own configuration
+  # rather than a runner of their own.
+  firmwareCargoConfig =
+    {
+      root,
+      exclude ? [ ],
+    }:
+    pkgs.runCommand "firmware-cargo-config" { } ''
+      for crate in ${root + "/firmware"}/*/; do
+        case "$(basename "$crate")" in
+          ${lib.concatMapStrings (name: "${name}) continue ;;\n          ") exclude}*) ;;
+        esac
+        if [ ! -f "$crate.cargo/config.toml" ]; then
+          echo "ERROR: firmware/$(basename "$crate") has no tracked .cargo/config.toml." >&2
+          echo "The crate then builds for the host and reaches no probe." >&2
+          exit 1
+        fi
+      done
+      touch $out
+    '';
 }

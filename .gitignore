@@ -28,6 +28,16 @@ result-*
 # .cargo/config.toml is allowed for centralized target-dir setting.
 .cargo/
 !/.cargo/config.toml
+# Almost every firmware crate carries one too, and it pins the crate's
+# target. The rule above would hide it, so the directory is named back
+# in, emptied again, and the one tracked file named last. That keeps a
+# credentials file or a cache a dev shell drops beside it ignored, and
+# costs no force-add when a board arrives. Which crates must carry a
+# config, and why no build notices a missing one, is
+# `firmware-cargo-config` in nix/checks.nix.
+!/firmware/*/.cargo/
+/firmware/*/.cargo/*
+!/firmware/*/.cargo/config.toml
 .rustup/
 
 # Python

@@ -1026,6 +1026,14 @@ hostClippyChecks
     };
   };
 
+  # The ESP bootloader is the one crate with no cargo config, because it
+  # builds through the esp shell's own configuration rather than a
+  # runner of its own.
+  firmware-cargo-config = boardParity.firmwareCargoConfig {
+    inherit root;
+    exclude = [ "esp32s3-bootloader" ];
+  };
+
   # The hook that holds `nix run .#gate` to its approved invocations. It
   # runs in the session's own shell, so it is loose text rather than a
   # package, and a lost executable bit would retire it without a word.
