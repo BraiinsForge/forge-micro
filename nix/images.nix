@@ -265,10 +265,10 @@ let
     // webuiDistEnv
   );
 
-  # Bootloader for the rp2350, bmm-pico, and hashnode boards, all
+  # Bootloader for the rp2350, bmm-pico, hashnode and forge-axe boards, all
   # built from the rp2350-bootloader crate. It is built with the
   # rp235xa feature but touches no GPIO, so the binary also runs on
-  # the hashnode's RP2350B.
+  # the RP2350B of the hashnode and the forge-axe.
   rp2350Bootloader = mkBootloaderElf {
     name = "rp2350-bootloader";
     artifacts = deps.thumbv8mBootloaderArtifacts;

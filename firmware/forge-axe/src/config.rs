@@ -89,15 +89,18 @@ pub struct Board {
     /// TPS53647 `VR_RDY` power-good (GPIO30, input). Logged after enable;
     /// no gating logic until hardware behavior is known.
     pub vr_rdy: Peri<'static, PIN_30>,
+    // TODO: The final board sets fan PWM over I2C, not GPIO. GPIO10
+    // becomes SLG_MCU_IN and GPIO11 becomes eFUSE_FAULT.
     /// Fan PWM outputs (25 kHz). `PWM_SLICE5` channel A = GPIO10,
     /// channel B = GPIO11. Both run at the same duty so the two fans
     /// track together.
     pub fan_pwm_slice: Peri<'static, PWM_SLICE5>,
     pub fan_pwm_pin: Peri<'static, PIN_10>,
     pub fan_pwm_pin_b: Peri<'static, PIN_11>,
-    /// Fan tachometer inputs: GPIO21 (fan 1), GPIO25 (fan 2). Neither
-    /// maps to a `PWM` `ChannelB`, so each is measured by a `PIO0`
-    /// state machine.
+    // TODO: The final board reads fan tach over I2C, not GPIO. GPIO21
+    // becomes LCD_PWM or the LED matrix FAULT, GPIO25 becomes eFUSE_EN.
+    /// Fan tachometer inputs: GPIO21 (fan 1), GPIO25 (fan 2). Each is
+    /// measured by a `PIO0` state machine.
     pub fan_tach_pin_a: Peri<'static, PIN_21>,
     pub fan_tach_pin_b: Peri<'static, PIN_25>,
     /// PIO block driving the two tachometer period counters.
@@ -113,6 +116,8 @@ pub struct Board {
     /// FLASH peripheral for the on-board QSPI; ubos-config persists the
     /// runtime config record in the last two sectors of this device.
     pub flash: Peri<'static, FLASH>,
+    // TODO: The final board switches the display supplies. GPIO46 is
+    // 3V3_OUT_EN and GPIO47 is 3V3_OUT_OCS.
     #[cfg(feature = "display")]
     pub display_spi: Peri<'static, SPI1>,
     /// Display SPI1: SCK=GPIO26, MOSI=GPIO27.
@@ -120,6 +125,8 @@ pub struct Board {
     pub display_sck: Peri<'static, PIN_26>,
     #[cfg(feature = "display")]
     pub display_mosi: Peri<'static, PIN_27>,
+    // TODO: The final board moves display D/C to GPIO35.
+    // GPIO28 becomes DISP_MISO.
     /// Display data/command select (GPIO28).
     #[cfg(feature = "display")]
     pub display_dc: Peri<'static, PIN_28>,

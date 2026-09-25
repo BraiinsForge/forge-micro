@@ -25,10 +25,8 @@
 //! `ubos_cooling::FanOutput` trait so the cooling task can drive duty
 //! cycle from a PID loop.
 //!
-//! The two fan connectors each expose a tachometer: GPIO21
-//! (`RP_TACHO1`) and GPIO25 (`RP_TACHO2`). Neither maps to a
-//! `PWM_SLICE` channel B, so the PWM slice edge counter is
-//! unusable; instead each tach drives one PIO state machine on `PIO0`
+//! The two fan connectors each expose a tachometer: GPIO21 (`RP_TACHO1`)
+//! and GPIO25 (`RP_TACHO2`). Each tach drives one PIO state machine on `PIO0`
 //! that measures the pulse-to-pulse period in hardware and pushes it to
 //! its RX FIFO. `BoardTach` drains the latest period per fan each control
 //! tick behind `ubos_cooling::TachReader`, which publishes one labeled

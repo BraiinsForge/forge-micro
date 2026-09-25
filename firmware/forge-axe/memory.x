@@ -1,7 +1,6 @@
-/* The Forge Axe carries a Raspberry Pi Pico 2 module with 4 MB of
-   QSPI flash. It reuses the rp2350-bootloader, so the partition layout
-   below follows the shared 2 MB scheme; the remaining flash is left
-   unused. */
+/* The Forge Axe carries an RP2350B with external QSPI flash. It
+   reuses the rp2350-bootloader, so the partition layout below follows
+   the shared 2 MB scheme; any flash beyond it is left unused. */
 MEMORY {
     /* Zero-length anchor so the embassy-boot linker symbols below can
        compute offsets relative to the physical flash base (0x10000000)

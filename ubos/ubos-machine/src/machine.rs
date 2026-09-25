@@ -264,7 +264,7 @@ const FORGE_AXE_TPS: Tps53647Config = Tps53647Config {
 const FORGE_AXE_PSU: ForgeAxePsuDescriptor = ForgeAxePsuDescriptor { tps: FORGE_AXE_TPS };
 
 /// The Forge Axe: four BM1370 in one parallel voltage domain on an
-/// integrated Pico 2 control board, with a TPS53647 multiphase VRM.
+/// integrated RP2350B control board, with a TPS53647 multiphase VRM.
 pub const FORGE_AXE: MachineDescriptor<ForgeAxePsuDescriptor> = MachineDescriptor {
     model: "Forge Axe",
     control_board: CONTROL_BOARD_FORGE_AXE,
