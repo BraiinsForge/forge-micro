@@ -138,6 +138,26 @@ fn index_payload_contains_api_surface() {
     );
 }
 
+/// The Sv2 authority key is edited inside the pool URL, not in a field
+/// of its own, so the URL placeholder is what tells the operator the
+/// key belongs there. Both literals survive minification.
+///
+/// The second anchor is the old rejection message, not the word
+/// `base64` on its own: Basic auth encodes its credentials that way,
+/// so the bare word lives in the bundle for reasons of its own.
+#[test]
+fn index_payload_advertises_the_pubkey_in_the_pool_url() {
+    let html = decompress(crate::INDEX_HTML_GZ);
+    assert!(
+        html.contains("stratum2+tcp://host:port/pubkey"),
+        "pool URL placeholder does not advertise the pubkey path"
+    );
+    assert!(
+        !html.contains("32 bytes of base64"),
+        "stale base64 pubkey rejection message still present"
+    );
+}
+
 /// Logout must ship as a navigation form, not a JS-driven anchor, so
 /// the browser follows the `302` to `/login` in one browser-paced
 /// request. Preact compiles the markup to `jsx('form', { action:

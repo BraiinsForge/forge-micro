@@ -7,18 +7,12 @@ import type { PoolConfig, PoolProtocol } from '../lib/types';
 const ADDR_RE = /^([^:/]+)(?::(\d+))?$/;
 const URL_RE = /^(?:(stratum2?\+tcp):\/\/)?([^/]*)(?:\/(.*))?$/;
 const DEFAULT_PORT = 3333;
-const PUBKEY_LEN = 32;
 
-const bytesToB64 = (bytes: number[]): string => btoa(String.fromCharCode(...bytes));
-
-function b64ToBytes(b64: string): number[] | null {
-  try {
-    const bytes = Array.from(atob(b64), (c) => c.charCodeAt(0));
-    return bytes.length === PUBKEY_LEN ? bytes : null;
-  } catch {
-    return null;
-  }
-}
+// The authority key travels as base58check, so the alphabet excludes
+// the four ambiguous glyphs 0, O, I and l. A 32-byte payload plus its
+// version and checksum bytes lands in this length range. The board owns
+// checksum validation; this only rejects input that cannot be a key.
+const PUBKEY_RE = /^[1-9A-HJ-NP-Za-km-z]{40,60}$/;
 
 interface Slot {
   url: string;
@@ -47,7 +41,7 @@ function initSlot(pool: PoolConfig | null | undefined): Slot {
   const sv2 = pool.protocol && 'Sv2' in pool.protocol ? pool.protocol.Sv2 : undefined;
   const sv1 = pool.protocol && 'Sv1' in pool.protocol ? pool.protocol.Sv1 : undefined;
   const proto = sv2 ? 'stratum2+tcp' : 'stratum+tcp';
-  const key = sv2?.pool_pubkey ? '/' + bytesToB64(sv2.pool_pubkey) : '';
+  const key = sv2?.pool_pubkey ? '/' + sv2.pool_pubkey : '';
   const addr = pool.host + (pool.port ? ':' + pool.port : '');
   return {
     url: proto + '://' + addr + key,
@@ -94,13 +88,13 @@ export default function ConfigPools({ pools }: ConfigPoolsProps) {
       const weight = slot.on ? 1 : 0;
       let protocol: PoolProtocol;
       if (parsed.sv2) {
-        let pool_pubkey: number[] | null = null;
+        let pool_pubkey: string | null = null;
         if (parsed.key) {
-          pool_pubkey = b64ToBytes(parsed.key);
-          if (!pool_pubkey) {
-            toast.err(`Pool ${i + 1}: authority key must be 32 bytes of base64`);
+          if (!PUBKEY_RE.test(parsed.key)) {
+            toast.err(`Pool ${i + 1}: the pubkey in the URL is not valid base58`);
             return;
           }
+          pool_pubkey = parsed.key;
         }
         protocol = { Sv2: { pool_pubkey } };
       } else {
@@ -138,7 +132,7 @@ export default function ConfigPools({ pools }: ConfigPoolsProps) {
                   class="poolInp"
                   value={slot.url}
                   onInput={(e) => patch(i, 'url', e.currentTarget.value)}
-                  placeholder="stratum+tcp://host:port"
+                  placeholder="stratum2+tcp://host:port/pubkey"
                   disabled={!slot.on}
                 />
                 <input

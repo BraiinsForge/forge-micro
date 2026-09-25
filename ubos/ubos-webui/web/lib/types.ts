@@ -91,11 +91,12 @@ export const PAUSE_LABEL: Record<PauseReason, string> = {
 };
 
 // A pool's stratum protocol, a single-key tagged union in the JSON. The
-// board carries the Sv2 pubkey as raw bytes and accepts a null Sv1
-// password, so both inner fields are nullable.
+// board carries the Sv2 pubkey as a base58check string over JSON and
+// accepts a null Sv1 password, so both inner fields are nullable. A null
+// pubkey means the operator chose to skip the authority check.
 export type PoolProtocol =
   | { Sv1: { password: string | null } }
-  | { Sv2: { pool_pubkey: number[] | null } };
+  | { Sv2: { pool_pubkey: string | null } };
 
 export interface PoolConfig {
   host: string;
