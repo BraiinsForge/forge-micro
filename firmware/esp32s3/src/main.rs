@@ -376,7 +376,7 @@ async fn boot(spawner: Spawner) {
         SyncFlash(ubos_ota::EspSharedFlash::new(shared_flash)),
         config::Flash::CONFIG_RANGE,
     );
-    spawner.spawn(unwrap!(config_task(config_storage)));
+    spawner.spawn(unwrap!(config_task(config_storage, None)));
 
     static OTA_TARGET: StaticCell<ubos_ota::EspOtaTarget> = StaticCell::new();
     let ota_target = OTA_TARGET.init(ubos_ota::OtaEngine::new(

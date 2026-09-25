@@ -31,8 +31,8 @@ const HOSTNAME_CAP: usize = 32;
 /// the mDNS hostname from it.
 ///
 /// The wait is on the board's `config_task`, with no timeout: that task
-/// publishes the persisted config or the compiled defaults
-/// unconditionally, so it always resolves. Only the two small results
+/// publishes the persisted config, the board's seed or the compiled
+/// defaults unconditionally, so it always resolves. Only the two small results
 /// leave this function, so the caller's future does not hold the whole
 /// `Config`, nor the decode buffer behind it, for the rest of boot.
 ///

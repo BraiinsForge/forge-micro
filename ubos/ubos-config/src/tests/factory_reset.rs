@@ -186,6 +186,7 @@ fn boot_with_stored(name: &str, tuning: Tuning, info: &'static MiningInfo) -> (C
         &mut storage,
         &ubos_asic::BMM101_HASHBOARD,
         info,
+        None,
     ));
     let _ = fs::remove_dir_all(&dir);
     (stored, loaded)

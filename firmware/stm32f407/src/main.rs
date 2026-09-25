@@ -284,7 +284,7 @@ async fn boot(spawner: Spawner) {
         SyncFlash(Flash::new_blocking(hw.flash)),
         config::Flash::CONFIG_RANGE,
     );
-    spawner.spawn(unwrap!(config_task(config_storage)));
+    spawner.spawn(unwrap!(config_task(config_storage, None)));
 
     let (net_config, mdns_hostname) = ubos_firmware::net::bring_up::<
         { config::Board::MDNS_HOSTNAME_BASE.len() },

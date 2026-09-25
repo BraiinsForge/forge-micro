@@ -421,7 +421,7 @@ async fn boot(spawner: Spawner) {
         SyncFlash(ubos_ota::SharedBlockingFlash::new(shared_flash)),
         config::Flash::CONFIG_RANGE,
     );
-    spawner.spawn(unwrap!(config_task(config_storage)));
+    spawner.spawn(unwrap!(config_task(config_storage, None)));
 
     // --- 8. Board health tasks — always (no net/psu deps) ---------------------
     spawner.spawn(unwrap!(cpu_load_task()));

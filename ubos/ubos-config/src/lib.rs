@@ -23,8 +23,10 @@
 //! parameters and the [`Handle`] consumers use to read the current
 //! config and wait for changes.
 //!
-//! Firmware spawns [`run`], which publishes [`Config::default`] once
-//! at boot and then drains [`COMMAND_CHANNEL`] forever. On each
+//! Firmware spawns [`run`], which publishes one config at boot: the
+//! stored one, or on a first boot the seed the board hands in, and
+//! [`Config::default`] when neither is usable. It then drains
+//! [`COMMAND_CHANNEL`] forever. On each
 //! [`Message::Update`] it persists and publishes the new value on
 //! [`STATE_WATCH`].
 
@@ -46,6 +48,10 @@ mod tests_validation;
 #[cfg(all(test, feature = "std"))]
 #[path = "tests/factory_reset.rs"]
 mod tests_factory_reset;
+
+#[cfg(all(test, feature = "std"))]
+#[path = "tests/seed.rs"]
+mod tests_seed;
 
 pub mod api;
 pub mod cooling;
@@ -714,8 +720,13 @@ impl Config {
 /// (partial write before power loss), an I/O error, or a failed
 /// validation, falls back to [`Config::for_board`] with
 /// `info.default_tuning` and logs the reason. `Ok(None)` means the key
-/// was never written and is treated as a clean first-boot — defaults,
-/// no warning.
+/// was never written and is treated as a clean first-boot: the `seed`
+/// when the board supplies one, persisted at once so every later boot
+/// loads the store and drops the seed, otherwise defaults, with no
+/// warning either way. A seed that fails validation is dropped for
+/// defaults with a warning. A stored blob always wins over a seed, so a
+/// board can hand in settings it recovered from elsewhere without ever
+/// overriding what the operator has since changed.
 ///
 /// Each [`Message::Update`] persists the new value before publishing
 /// it and bumps [`GENERATION_WATCH`] so every stratum session tears
@@ -735,8 +746,9 @@ pub async fn run<S: Storage>(
     mut storage: S,
     board: &'static HashboardDescriptor,
     info: &'static MiningInfo,
+    seed: Option<Config>,
 ) -> ! {
-    let mut committed = load_initial(&mut storage, board, info).await;
+    let mut committed = load_initial(&mut storage, board, info, seed).await;
     STATE_WATCH.sender().send(committed.clone());
     let mut preview: Option<(NetworkConfig, Instant)> = None;
     info!("config: started");
@@ -821,13 +833,15 @@ pub async fn run<S: Storage>(
 /// Takes the board's storage backend, which bottoms out in its own flash
 /// driver, the hashboard descriptor, and the firmware's [`MiningInfo`],
 /// whose bounds the store validates against and whose default tuning a
-/// new config starts on.
+/// new config starts on. The task's `seed` argument is the config a
+/// first boot starts from when the board has one to offer; a board with
+/// none spawns it with `None`.
 #[macro_export]
 macro_rules! config_task {
     ($storage:ty, $board:expr, $info:expr) => {
         #[embassy_executor::task]
-        async fn config_task(storage: $storage) -> ! {
-            ubos_config::run(storage, $board, $info).await
+        async fn config_task(storage: $storage, seed: Option<ubos_config::Config>) -> ! {
+            ubos_config::run(storage, $board, $info, seed).await
         }
     };
 }
@@ -851,23 +865,37 @@ fn clear_pending_status() {
     PENDING_IS_STATIC.store(false, Ordering::Relaxed);
 }
 
-/// Load the persisted [`Config`] or fall back to [`Config::for_board`].
+/// Load the persisted [`Config`], or the `seed` on a first boot, or
+/// fall back to [`Config::for_board`].
 ///
 /// The buffer is sized to match [`encode_blob`]'s budget so any blob
 /// that could have been stored fits without reallocation. All failure
 /// paths converge on defaults so the firmware always boots with a
-/// valid config.
+/// valid config. The seed is used only when the store has never been
+/// written, and it is persisted before it is returned so the next
+/// boot loads the store and drops the seed. The board still builds the
+/// seed on every boot, because it is built before the store is read.
 async fn load_initial<S: Storage>(
     storage: &mut S,
     board: &'static HashboardDescriptor,
     info: &'static MiningInfo,
+    seed: Option<Config>,
 ) -> Config {
     let mut buffer = [0u8; LOAD_BUFFER_SIZE];
     let blob = match storage.load(CONFIG_KEY, &mut buffer).await {
         Ok(Some(blob)) => blob,
         Ok(None) => {
-            info!("config: no stored config, using defaults");
-            return Config::for_board(board, info.default_tuning);
+            let Some(seed) = seed else {
+                info!("config: no stored config, using defaults");
+                return Config::for_board(board, info.default_tuning);
+            };
+            if seed.validate(info.bounds).is_err() {
+                warn!("config: seed failed validation, using defaults");
+                return Config::for_board(board, info.default_tuning);
+            }
+            info!("config: no stored config, seeded by the board");
+            persist(&seed, storage).await;
+            return seed;
         }
         Err(_) => {
             warn!("config: load failed, using defaults");

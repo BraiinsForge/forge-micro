@@ -366,7 +366,7 @@ async fn boot(spawner: Spawner) {
         SyncFlash(ubos_ota::SharedBlockingFlash::new(shared_flash)),
         config::Flash::CONFIG_RANGE,
     );
-    spawner.spawn(unwrap!(config_task(config_storage)));
+    spawner.spawn(unwrap!(config_task(config_storage, None)));
 
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = config::Spi::FREQUENCY;
