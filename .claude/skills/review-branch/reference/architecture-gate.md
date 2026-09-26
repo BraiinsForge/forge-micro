@@ -1,7 +1,7 @@
 # The Architecture Gate
 
 How to judge a branch against the architecture documented in `docs/`.
-Read this before running the architecture phase. The docs are the
+Read this before running the architecture check. The docs are the
 authority; this file only routes to them, separates what is normative
 from what is historical, and names the violation classes worth hunting.
 It never restates an invariant, so when the docs move, this file does
@@ -13,27 +13,27 @@ below reads through that prefix.
 
 ## Contents
 
-- When the phase applies
+- When the check applies
 - What to read, routed by the diff
 - Normative and historical
 - What to hunt
 - Doc drift is the other half
 - Reporting
 
-## When the phase applies
+## When the check applies
 
-The phase judges code against the architecture, so it applies when the
+The check judges code against the architecture, so it applies when the
 diff touches a crate: anything under `ubos/`, `firmware/`, or the
 consumer repo's own crates. A diff of only docs, harness config, or CI
 wiring gives it nothing to judge; record
-`architecture gate: SKIPPED (no crate changed)` and move on. A docs-only
+`architecture: SKIPPED (no crate changed)` and move on. A docs-only
 diff that changes `docs/` itself is still checked — but by the drift
 direction below, code against doc, not the reverse.
 
 ## What to read, routed by the diff
 
 Read only what the touched paths route to. The point of routing is that
-the phase costs one or two documents, not the directory.
+the check costs one or two documents, not the directory.
 
 Always, when any `ubos-*` crate or firmware crate changed:
 
