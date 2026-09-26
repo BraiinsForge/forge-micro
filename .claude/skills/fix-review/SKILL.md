@@ -1,162 +1,119 @@
 ---
 name: fix-review
-description: Applies /review-branch findings as conflict-safe fixup commits or rebase edits. Use after a branch review to address the reported findings.
-allowed-tools: Bash, Read, Edit, Write, Grep, Glob
+description: Applies the findings of a review as fixup commits against the branch commits they belong to. Use after /review-branch.
+allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill
 ---
 
-Apply fixes from `/review-branch` findings passed in `$ARGUMENTS`.
+Apply the findings in `$ARGUMENTS`, and attribute each fix to the
+branch commit it corrects.
+
+The judgement is the built-in review's and is not repeated here. This
+skill owns one thing the review does not: a fix to a line an earlier
+branch commit introduced lands as a `fixup!` of that commit, so that
+`/branch-cleanup` folds it and the branch stays one logical change per
+commit.
 
 ## Process
 
-0. Resolve the base these fixes are attributed against, the same way
-   `/review-branch` and `/branch-cleanup` do. It is not the local
-   `master`, which is often stale, and the branch may be stacked:
+1. Resolve the base, the same way `/review-branch` does:
 
    ```bash
-   BASE=$(git config "branch.$(git branch --show-current).reviewBase" || echo origin/master)
+   git rev-parse "$(git config "branch.$(git branch --show-current).reviewBase" || echo origin/master)"
    ```
 
-   Everywhere below, `$BASE` is both the attribution range and what
-   `git absorb` searches. A caller that already resolved it supplies it.
+   Spell the hash it prints out where step 4 names `<base>`. Each tool
+   call runs a shell of its own, so a variable set here is gone by
+   then, and absorb would be handed an empty base and fail to resolve
+   it.
 
-1. Parse findings from arguments (categorized items with file:line references)
-2. Classify each finding: code fix, structural fix, documentation-hardening,
-   or documented-no-change (with rationale). Every finding must be
-   addressed — nothing is skipped. A finding that turns out to be a false
-   positive or a reviewer misunderstanding is NOT dismissed: the code's own
-   comments or docs were unclear enough to mislead the review, so harden
-   that documentation instead, so the next review round does not re-raise
-   it. "The reviewer was wrong" is itself a finding against the docs.
-3. Present the full list to user with proposed action for each item
-4. Wait for user approval
-5. Apply all approved fixes
+   Refuse to start on a dirty tree: a fix has to be told apart from
+   whatever else is in it, and absorb cannot.
 
-### Fix classification
+2. Sort each finding in `$ARGUMENTS` by severity first, and let the
+   severity decide what happens to it:
 
-**Code fixes** (apply via fixup commit): the finding requires changing file
-content but the commit structure is correct. Examples: remove duplicate line,
-fix typo, add missing check, change a value.
+   | Severity | What it is | What this pass does |
+   |----------|------------|---------------------|
+   | important | would break behaviour, leak data, or fail the pipeline | fix it |
+   | nit | true, small, and not in the way | fix only where the file is already being edited for an important finding; otherwise count it in the report |
+   | pre-existing | real, and not introduced by this branch | drop it, named in the report |
 
-**Structural fixes** (apply via rebase edit): the finding requires changing
-commit boundaries. Examples: split a commit, move files between commits,
-remove a file from the wrong commit. Use the patterns from `/branch-cleanup`.
+   The branch is done when no important finding is left, not when a
+   round reports nothing. A review always has something to say about
+   code it is reading for the second time, so a pass that treats every
+   finding as blocking never ends; that is what the severities are for.
+   A pre-existing bug is its own branch, and a nit that survives the
+   branch is a nit the next reader can raise.
 
-**Documentation-hardening** (apply via fixup commit): the finding is a
-false positive or a reviewer misunderstanding, but the misread was
-possible because a comment, doc, or rationale was missing, incomplete, or
-contradicted by nearby text. Do not just record "false positive" — add or
-correct the documentation that would have prevented the misread (for
-example: note that a script's imports come from the dev shell, or state
-why a divisor deliberately diverges from the sibling driver). The goal is
-that the same finding does not resurface next review round.
+   Apply what the table keeps to the working tree, by hand. A finding
+   that is wrong is answered in the report below, not with a doc change
+   written to forestall it.
 
-**Documented-no-change**: the finding is acknowledged but no code, doc, or
-commit-boundary change is warranted — for example, the deviation is
-already justified in the existing commit body and the existing comments
-already make it clear. Reserve this for cases where nothing in the tree
-could be improved to forestall the finding; if the review could have been
-avoided by clearer docs, prefer documentation-hardening. Record the
-rationale in the final summary; do not silently drop the item.
+   A finding against a markdown file is rejected unless it names a
+   command that fails, a path that does not exist, or a contradiction
+   inside the one file. An `ARCH` doc-drift finding is the other
+   exception: it names a contradiction between the code and the doc
+   that describes it, the review withholds `Merge-ready.` while it
+   stands, and the fix brings the stale doc to the behaviour the
+   branch changed, as
+   `../review-branch/reference/architecture-gate.md` prescribes.
+   Wording, a sentence that another file states
+   differently, or a rule the finder would have written another way,
+   is `rejected: prose` in the report and stays as it is. A prose fix
+   is what the next round reads, so accepting one is what keeps the
+   loop going.
 
-### For each code fix:
+3. Verify: `cargo check` in every affected crate.
 
-#### Step 1: Identify the target commit
+4. Attribute. The tree holds nothing but the fix, so stage it whole
+   and let absorb find the owning commits:
 
-Find the commit that introduced the issue:
-```bash
-git log --oneline "$BASE"..HEAD -- <file>
-```
-
-#### Step 2: Conflict prevention check
-
-Before creating a fixup, verify the fix will not conflict during autosquash:
-
-1. Read the target commit's diff for the file: `git show <hash> -- <file>`
-2. Verify the issue exists in lines modified by the target commit
-3. Check if later commits also modified the same lines:
    ```bash
-   git log --oneline <hash>..HEAD -- <file>
+   git add -A
+   nix develop .#arm -c git absorb --base <base> --dry-run
+   nix develop .#arm -c git absorb --base <base>
    ```
-   If later commits touched the same lines, fixup the **latest** commit
-   that modified those lines instead of the original
-4. If no commit cleanly owns the lines, create a standalone commit instead
 
-#### Step 3: Apply minimal fix
+   `git absorb` is a dev-shell tool and is absent from a plain session
+   shell, so it runs under a dev shell that carries it.
 
-- Read the file and understand the problem
-- Apply the minimal fix for this specific finding
-- Do NOT introduce new changes unrelated to the finding
-- Stage only the fixed file
+   Absorb creates one `fixup!` per owning commit and leaves in the
+   index what no branch commit owns: a new file, or a line the branch
+   never touched. It reads the index and commits only what it can
+   attribute, so the rest stays staged rather than becoming unstaged.
+   What it leaves is committed on its own with `/commit`; it is a
+   change to the base, not a fix of the branch.
 
-#### Step 4: Verify staged changes
+   For a single fix whose owner is known, `git commit --fixup=<hash>`
+   is the same result without absorb.
 
-1. Run `git diff --cached` and confirm the staged changes only touch
-   sections relevant to the finding
-2. Run `cargo check` for the affected crate
+5. A finding that needs a commit boundary moved is a structural fix.
+   Do it with the recipes in
+   `../branch-cleanup/reference/rebase-ops.md`, which bind unchanged,
+   `GIT_SEQUENCE_EDITOR` included. So do the rules of
+   `../branch-cleanup/SKILL.md` around them: a backup branch before
+   the rebase, and `git rebase --abort` on a conflict rather than a
+   guess.
 
-#### Step 5: Create fixup commit
+## Report
 
-**Multiple code fixes**: if several fixes are ready and each touches lines
-clearly owned by a single prior commit, apply all fixes, stage them, and use
-`git absorb --base "$BASE"` to create all fixup commits at once. Use
-`--dry-run` first to verify attribution. This replaces steps 1-4 per fix.
-
-**Single fix or ambiguous attribution**: create the fixup manually:
-```bash
-git commit --fixup=<target-hash>
-```
-
-If conflict was unavoidable in step 2, create a standalone commit instead:
-```bash
-git commit -m "module: Fix description"
-```
-
-### For each structural fix:
-
-#### Step 1: Create backup
-
-```bash
-git branch backup-$(git branch --show-current)-$(date +%s)
-```
-
-#### Step 2: Apply the rebase operation
-
-The recipes are `/branch-cleanup`'s, written once in
-[../branch-cleanup/reference/rebase-ops.md](../branch-cleanup/reference/rebase-ops.md).
-Read that file and follow the operation it names — edit in place, split,
-reword, move, reorder, or drop. Its rules bind here unchanged, including
-driving every rebase through `GIT_SEQUENCE_EDITOR` and never using the
-`reword` action, which opens an editor and hangs.
-
-#### Step 3: Verify
-
-1. Run `cargo check` for affected crates
-2. If a backup exists from before the structural fix, verify
-   `git diff backup-<branch>-<ts>..HEAD` shows only the intended changes
-
-### After all fixes are applied
-
-Show a summary of what was done:
 ```
 ## Fixes Applied
 
-fixup! <target-msg> -- fixed <description>
-fixup! <target-msg> -- docs-harden: <what was clarified> (was false positive)
-rebase-edit <target-msg> -- <description>
-standalone: <msg> -- <description> (conflict avoidance)
-documented: <description> -- <rationale, no change made>
+fixup! <target title> -- <what was fixed>
+standalone: <title> -- <why no branch commit owns it>
+rejected: <finding> -- <why it is wrong>
+dropped: <finding> -- pre-existing, not this branch
+nits: <N> not fixed -- <one line naming what they were about>
 ```
 
 ## Rules
 
-- Every finding must be addressed — never silently skip. Fix it, harden
-  the documentation that allowed the misread (for false positives), or
-  explicitly document why the existing state is acceptable and could not
-  be made clearer.
-- One logical fix per fixup commit
-- Never batch unrelated fixes into a single commit
-- Never introduce changes beyond what the finding requires
-- Follow commit rules from `CLAUDE.md`
-- NEVER push to remote
-- NEVER skip `cargo check` when Rust code changed
-- If a rebase conflicts, abort with `git rebase --abort` and inform the user
+- Every finding is accounted for in the report: fixed, rejected,
+  dropped as pre-existing, or counted among the nits.
+- Severity decides the action, per step 2. Only an important finding
+  has to be fixed before the branch merges.
+- A prose finding is rejected by default, per step 2.
+- One finding per fixup commit.
+- A fixup carries nothing beyond its finding.
+- Never push.
