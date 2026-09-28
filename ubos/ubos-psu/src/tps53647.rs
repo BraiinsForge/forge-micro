@@ -54,6 +54,7 @@ pub(crate) const STATUS_BYTE: u8 = 0x78;
 pub(crate) const READ_VOUT: u8 = 0x8B;
 pub(crate) const READ_POUT: u8 = 0x96;
 pub(crate) const READ_PIN: u8 = 0x97;
+pub(crate) const MFR_SPECIFIC_20: u8 = 0xE4;
 
 /// OPERATION register on-bit: sets the output enabled state.
 const OPERATION_ON: u8 = 1 << 7;
@@ -87,6 +88,31 @@ pub(crate) const fn decode_vid_mv(vid: u8) -> u32 {
     VID_FLOOR_MILLIVOLTS + (vid as u32 - 1) * VID_STEP_MILLIVOLTS
 }
 
+/// Maximum operational phase count, the `PHASE_NUM` field of
+/// `MFR_SPECIFIC_20` (datasheet Table 69). The part runs one to four
+/// phases, so the register's five- and six-phase codes are not modelled.
+/// The CSP pinstraps bound it: a count above what the board populates is
+/// ignored by the device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phases {
+    One,
+    Two,
+    Three,
+    Four,
+}
+
+impl Phases {
+    /// The `PHASE_NUM` code; the reserved bits 7:3 stay zero.
+    pub(crate) const fn phase_num(self) -> u8 {
+        match self {
+            Self::One => 0b000,
+            Self::Two => 0b001,
+            Self::Three => 0b010,
+            Self::Four => 0b011,
+        }
+    }
+}
+
 /// Configuration for the TPS53647 VRM controller.
 ///
 /// No overcurrent fields: the F-IMAX pinstrap fixes IMAX in hardware
@@ -110,6 +136,9 @@ pub struct Tps53647Config {
     /// Maximum voltage accepted by [`set_voltage`]; also programmed
     /// into `VOUT_MAX` so the device enforces it.
     pub voltage_max_millivolts: u32,
+    /// Phase count to program during init; `None` keeps the count the
+    /// CSP pinstraps latched at power-up.
+    pub phases: Option<Phases>,
 }
 
 impl Tps53647Config {
@@ -123,21 +152,26 @@ impl Tps53647Config {
         ot_warn_celsius: 95,
         voltage_min_millivolts: VID_FLOOR_MILLIVOLTS,
         voltage_max_millivolts: VID_CEILING_MILLIVOLTS,
+        phases: None,
     };
 }
 
-/// Verify the VID mode and program limits and the initial voltage.
+/// Verify the VID mode and program the phase count, limits and the
+/// initial voltage.
 ///
-/// Pinstraps and NVM already configured phases, IMAX, and fault
-/// responses at power-up; only the host-adjustable limits and the
-/// parked initial voltage are written here. Does not touch
-/// `OPERATION`: the output stays off until [`enable`].
+/// Pinstraps latch the maximum phase count, and pinstraps and NVM set
+/// IMAX and the fault responses at power-up; only the phase count, the
+/// host-adjustable limits and the parked initial voltage are written
+/// here. Does not touch `OPERATION`: the output stays off until
+/// [`enable`].
 ///
 /// # Errors
 ///
 /// [`Error::Bus`] on any I2C failure; [`Error::OutOfRange`] when
 /// `VOUT_MODE` reports a VID table other than VR12.0, which means the
-/// `SLEW_MODE` strap and this driver disagree on voltage encoding.
+/// `SLEW_MODE` strap and this driver disagree on voltage encoding, or
+/// when the phase count does not read back, which means the pinstraps
+/// populate fewer phases than configured.
 pub async fn init<I, E>(i2c: &mut I, config: &Tps53647Config) -> Result<(), Error<E>>
 where
     I: I2c<Error = E>,
@@ -154,6 +188,26 @@ where
             buffer[0]
         );
         return Err(Error::OutOfRange);
+    }
+
+    if let Some(phases) = config.phases {
+        let phase_num = phases.phase_num();
+        i2c.write(address, &[MFR_SPECIFIC_20, phase_num])
+            .await
+            .map_err(Error::Bus)?;
+        // The device keeps its previous count, rather than failing the
+        // write, when the pinstraps populate fewer phases than requested.
+        i2c.write_read(address, &[MFR_SPECIFIC_20], &mut buffer)
+            .await
+            .map_err(Error::Bus)?;
+        if buffer[0] != phase_num {
+            ubos_logging::error!(
+                "TPS53647 PHASE_NUM {:#04x} did not read back as {:#04x}; refusing to program",
+                buffer[0],
+                phase_num
+            );
+            return Err(Error::OutOfRange);
+        }
     }
 
     write_word(

@@ -63,8 +63,19 @@ fn init_transactions(config: &Tps53647Config) -> Vec<Transaction> {
     let ot_warn = (config.ot_warn_celsius as u16).to_le_bytes();
     let vin_ov = (((config.vin_ov_fault_millivolts + 500) / 1000) as u16).to_le_bytes();
     let vout_cmd = u16::from(encode_vid(config.initial_millivolts)).to_le_bytes();
-    vec![
-        Transaction::write_read(config.address, vec![VOUT_MODE], vec![VOUT_MODE_VID_VR120]),
+    let mut transactions = vec![Transaction::write_read(
+        config.address,
+        vec![VOUT_MODE],
+        vec![VOUT_MODE_VID_VR120],
+    )];
+    if let Some(phases) = config.phases {
+        transactions.extend(phases_transactions(
+            config.address,
+            phases,
+            phases.phase_num(),
+        ));
+    }
+    transactions.extend([
         Transaction::write(config.address, vec![VOUT_MAX, vout_max[0], vout_max[1]]),
         Transaction::write(
             config.address,
@@ -77,6 +88,15 @@ fn init_transactions(config: &Tps53647Config) -> Vec<Transaction> {
         ),
         Transaction::write(config.address, vec![VOUT_COMMAND, vout_cmd[0], vout_cmd[1]]),
         Transaction::write(config.address, vec![CLEAR_FAULTS]),
+    ]);
+    transactions
+}
+
+/// The phase-count write and its readback, answered with `readback`.
+fn phases_transactions(address: u8, phases: Phases, readback: u8) -> [Transaction; 2] {
+    [
+        Transaction::write(address, vec![MFR_SPECIFIC_20, phases.phase_num()]),
+        Transaction::write_read(address, vec![MFR_SPECIFIC_20], vec![readback]),
     ]
 }
 
@@ -85,6 +105,36 @@ fn init_programs_limits_and_initial_voltage() {
     let config = Tps53647Config::DEFAULT;
     let mut bus = Mock::new(&init_transactions(&config));
     run(init(&mut bus, &config)).expect("init should succeed");
+    bus.done();
+}
+
+#[test]
+fn init_programs_the_phase_count() {
+    let config = Tps53647Config {
+        phases: Some(Phases::Three),
+        ..Tps53647Config::DEFAULT
+    };
+    let mut bus = Mock::new(&init_transactions(&config));
+    run(init(&mut bus, &config)).expect("init should succeed");
+    bus.done();
+}
+
+#[test]
+fn init_rejects_a_phase_count_the_pinstraps_do_not_populate() {
+    let config = Tps53647Config {
+        phases: Some(Phases::Three),
+        ..Tps53647Config::DEFAULT
+    };
+    // 0x01 = two phases: the device kept its pinstrapped count.
+    let mut transactions = vec![Transaction::write_read(
+        config.address,
+        vec![VOUT_MODE],
+        vec![VOUT_MODE_VID_VR120],
+    )];
+    transactions.extend(phases_transactions(config.address, Phases::Three, 0x01));
+    let mut bus = Mock::new(&transactions);
+    let result = run(init(&mut bus, &config));
+    assert!(matches!(result, Err(Error::OutOfRange)));
     bus.done();
 }
 

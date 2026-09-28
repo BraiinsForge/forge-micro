@@ -21,7 +21,7 @@
 
 use ubos_asic::HashboardDescriptor;
 use ubos_psu::sic45x::{LoopScale, Sic45xConfig};
-use ubos_psu::tps53647::Tps53647Config;
+use ubos_psu::tps53647::{Phases, Tps53647Config};
 use ubos_psu::{BfmPsuDescriptor, BmmPsuDescriptor, ForgeAxePsuDescriptor};
 use ubos_temperature::lm75a::Lm75a;
 use ubos_temperature::tmp102::Tmp102;
@@ -247,6 +247,8 @@ const FORGE_AXE_TPS: Tps53647Config = Tps53647Config {
     // Single-sourced from the board descriptor so the regulator
     // ceiling and the tuner's `max_rail_voltage()` can never disagree.
     voltage_max_millivolts: ubos_asic::FORGE_AXE_HASHBOARD.max_psu_voltage.mv(),
+    // The board populates three power stages.
+    phases: Some(Phases::Three),
     ..Tps53647Config::DEFAULT
 };
 
