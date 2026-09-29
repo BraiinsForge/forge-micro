@@ -134,6 +134,7 @@ type CSMutex = CriticalSectionRawMutex;
 /// flash.
 pub type ConfigWatch = Watch<CSMutex, Config, WATCH_CAPACITY>;
 
+/// The committed config that the board's one config task publishes.
 pub(crate) static STATE_WATCH: ConfigWatch = Watch::new();
 
 /// Subscriber capacity for the effective-network watch. `ubos-net` is
@@ -150,12 +151,14 @@ const NETWORK_WATCH_CAPACITY: usize = 2;
 /// firmware reading [`Config`] before the stack exists.
 pub type NetworkWatch = Watch<CSMutex, NetworkConfig, NETWORK_WATCH_CAPACITY>;
 
+/// The effective network that the board's one config task publishes.
 pub(crate) static NETWORK_WATCH: NetworkWatch = Watch::new();
 
 /// Module-internal command channel. Single consumer is [`run`];
 /// producers send via [`Handle::send`].
 pub type ConfigCommandChannel = Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH>;
 
+/// The commands that the board's one config task drains.
 pub(crate) static COMMAND_CHANNEL: ConfigCommandChannel = Channel::new();
 
 /// Receiver capacity for the update-generation watch: one per pool
@@ -172,6 +175,7 @@ const GENERATION_WATCH_CAPACITY: usize = pool::MAX_POOLS + 2;
 /// session task per pool slot, all of them must observe every update.
 pub type GenerationWatch = Watch<CSMutex, u32, GENERATION_WATCH_CAPACITY>;
 
+/// The update generation that the board's one config task bumps.
 pub(crate) static GENERATION_WATCH: GenerationWatch = Watch::new();
 
 /// How long an unconfirmed network preview stays applied before it
@@ -345,14 +349,6 @@ impl Handle {
             "BUG: GENERATION_WATCH receiver slots exhausted; raise GENERATION_WATCH_CAPACITY",
         )
     }
-}
-
-/// Publish `config` directly onto the config watch, bypassing [`run`] and
-/// persistence. Lets a host test in a consuming crate drive a config without
-/// standing up the config task and a storage backend.
-#[cfg(feature = "test-util")]
-pub fn publish_for_test(config: Config) {
-    STATE_WATCH.sender().send(config);
 }
 
 /// Partial-update cooling section of [`ConfigUpdate`].

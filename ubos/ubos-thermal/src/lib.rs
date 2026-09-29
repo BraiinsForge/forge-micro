@@ -360,14 +360,6 @@ impl Handle {
     }
 }
 
-/// Publish `reading` directly onto the thermal watch, bypassing
-/// `run_thermal`. Lets a host test in a consuming crate drive a reading
-/// without standing up a real sensor task.
-#[cfg(feature = "test-util")]
-pub fn publish_reading_for_test(reading: ThermalReading) {
-    STATE_WATCH.sender().send(reading);
-}
-
 /// Consecutive [`Reading::Unreadable`] answers tolerated before
 /// declaring the bus dead. At a 1 Hz sample interval this is 5 seconds,
 /// long enough to ride out a transient I2C glitch but short enough to

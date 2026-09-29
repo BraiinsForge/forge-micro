@@ -38,12 +38,8 @@ critical-section = { version = "1.2", features = ["std"] }
 # forward with no real delay; `mock-driver` supplies that clock and
 # `generic-queue-8` gives it the timer queue the ticker awaits on.
 embassy-time     = { workspace = true, features = ["mock-driver", "generic-queue-8"] }
-# `test-util` exposes `publish_reading_for_test`, the hook the tests use to
-# inject thermal readings without a real sensor task.
-ubos-thermal     = { workspace = true, features = ["test-util"] }
-# `test-util` exposes `publish_for_test`, the hook the fixed-mode test uses to
-# drive a config without the config task and a storage backend.
-ubos-config      = { workspace = true, default-features = false, features = ["test-util"] }
+ubos-thermal     = { workspace = true }
+ubos-config      = { workspace = true, default-features = false }
 
 [package.metadata.cargo-machete]
 ignored = ["defmt"]
