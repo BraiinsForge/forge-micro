@@ -29,6 +29,8 @@ export interface Info {
   temperature?: number;
   /** Ambient temperature near the board. `null` on a board without a sensor for it. */
   ambient?: number | null;
+  /** `true` when `temperature` is a held-over value, not a fresh read. */
+  chip_reading_stale?: boolean;
   fan_rpm?: number;
   fan_pwm?: number;
   power_in_mw?: number;

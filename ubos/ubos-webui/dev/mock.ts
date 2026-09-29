@@ -45,6 +45,7 @@ function info() {
     uptime,
     temperature,
     ambient,
+    chip_reading_stale: pauseReason !== null,
     fan_rpm: 4200,
     fan_pwm: 65,
     power_in_mw: powerIn * 1000,

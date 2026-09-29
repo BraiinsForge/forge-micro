@@ -177,7 +177,15 @@ export default function Dashboard() {
 
       <aside class="side">
         <StatCard label="Real Hashrate" value={fmtHr(info?.hashrate)} />
-        <StatCard label="Chip Temperature" value={info?.temperature ? info.temperature + ' °C' : '–'} cls={tempCls()} />
+        <StatCard
+          label="Chip Temperature"
+          value={
+            info?.temperature != null
+              ? info.temperature + ' °C' + (info.chip_reading_stale ? ' (held)' : '')
+              : '–'
+          }
+          cls={tempCls()}
+        />
         <StatCard
           label="Power in / out"
           value={<><span>{fmtPower(info?.power_in_mw)}</span> / <span>{fmtPower(info?.power_out_mw)}</span></>}
