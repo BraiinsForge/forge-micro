@@ -454,18 +454,15 @@ impl Service for RestApiService {
                     .as_ref()
                     .and_then(|reading| reading.chain_voltage_mv)
                     .unwrap_or(0);
-                #[allow(clippy::cast_possible_truncation)]
                 let ambient = thermal_reading
                     .as_ref()
-                    .and_then(|r| r.ambient)
-                    .map(|t| t.celsius_f32() as i32);
+                    .and_then(ubos_thermal::ThermalReading::ambient_celsius);
                 let chip_reading_stale = thermal_reading
                     .as_ref()
                     .is_none_or(ubos_thermal::ThermalReading::chip_reading_stale);
-                #[allow(clippy::cast_possible_truncation)]
                 let temperature = thermal_reading
-                    .and_then(|r| r.chip_max)
-                    .map_or(0i32, |t| t.celsius_f32() as i32);
+                    .as_ref()
+                    .map_or(0i32, ubos_thermal::ThermalReading::chip_max_celsius);
                 let fan = ubos_cooling::handle().current();
                 let fan_rpm = fan.map_or(0, |f| f.rpm.rpm());
                 let fan_pwm = fan.map_or(0, |f| f.pwm.percent());

@@ -289,16 +289,12 @@ where
     let chain_stats = ubos_metrics::chain::handle();
     let hashrate_hps = chain_stats.machine_hashrate();
     let thermal_reading = thermal.current();
-    #[allow(clippy::cast_possible_truncation)]
     let temperature_celsius = thermal_reading
         .as_ref()
-        .and_then(|r| r.chip_max)
-        .map_or(0i32, |t| t.celsius_f32() as i32);
-    #[allow(clippy::cast_possible_truncation)]
+        .map_or(0i32, ubos_thermal::ThermalReading::chip_max_celsius);
     let ambient_celsius = thermal_reading
         .as_ref()
-        .and_then(|r| r.ambient)
-        .map(|t| t.celsius_f32() as i32);
+        .and_then(ubos_thermal::ThermalReading::ambient_celsius);
     let chip_reading_stale = thermal_reading
         .as_ref()
         .is_none_or(ubos_thermal::ThermalReading::chip_reading_stale);

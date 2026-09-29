@@ -278,6 +278,24 @@ impl ThermalReading {
     pub const fn chip_reading_stale(&self) -> bool {
         self.pid_temp.is_none()
     }
+
+    /// Maximum chip temperature in whole degrees Celsius, or zero before
+    /// the first measurement. Both info handlers in `ubos-api` serialize
+    /// this field, so the derivation lives here rather than twice there.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn chip_max_celsius(&self) -> i32 {
+        self.chip_max.map_or(0i32, |t| t.celsius_f32() as i32)
+    }
+
+    /// Ambient temperature in whole degrees Celsius, or `None` where the
+    /// board measures none or the read failed. Derived here for the same
+    /// reason as [`chip_max_celsius`](Self::chip_max_celsius).
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn ambient_celsius(&self) -> Option<i32> {
+        self.ambient.map(|t| t.celsius_f32() as i32)
+    }
 }
 
 /// Subscriber capacity for the thermal watch. Four receivers covers
