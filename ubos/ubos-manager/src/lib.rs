@@ -83,14 +83,19 @@ const COMMAND_CHANNEL_DEPTH: usize = 8;
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// Module-internal state watch carrying the live `PauseReasons` mask.
-/// Single writer is [`manager::run_manager`].
-pub(crate) static STATE_WATCH: Watch<CSMutex, PauseReasons, WATCH_CAPACITY> = Watch::new();
+/// State watch carrying the live `PauseReasons` mask. Single writer is
+/// [`manager::run_manager`].
+pub type PauseWatch = Watch<CSMutex, PauseReasons, WATCH_CAPACITY>;
 
-/// Module-internal manager command channel. Single consumer is
+/// Manager command channel. Single consumer is
 /// [`manager::run_manager`]; producers send via [`Handle::send`].
-pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH> =
-    Channel::new();
+pub type CommandChannel = Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH>;
+
+/// The pause mask the firmware's one manager publishes.
+pub(crate) static STATE_WATCH: PauseWatch = Watch::new();
+
+/// The commands the firmware's one manager drains.
+pub(crate) static COMMAND_CHANNEL: CommandChannel = Channel::new();
 
 /// Per-task subscription to the pause mask, from [`Handle::subscribe`].
 pub type PauseSubscription = Receiver<'static, CSMutex, PauseReasons, WATCH_CAPACITY>;
@@ -99,10 +104,7 @@ pub type PauseSubscription = Receiver<'static, CSMutex, PauseReasons, WATCH_CAPA
 /// multiple tasks.
 #[must_use]
 pub fn handle() -> Handle {
-    Handle {
-        state: &STATE_WATCH,
-        commands: &COMMAND_CHANNEL,
-    }
+    Handle::new(&STATE_WATCH, &COMMAND_CHANNEL)
 }
 
 /// Consumer-side handle for the manager subsystem.
@@ -111,11 +113,21 @@ pub fn handle() -> Handle {
 /// task takes its own value.
 #[derive(Clone, Copy)]
 pub struct Handle {
-    state: &'static Watch<CSMutex, PauseReasons, WATCH_CAPACITY>,
-    commands: &'static Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH>,
+    state: &'static PauseWatch,
+    commands: &'static CommandChannel,
 }
 
 impl Handle {
+    /// A handle over `state` and `commands`. Firmware calls [`handle`]
+    /// instead, which answers for the pair the board runs on. A host
+    /// test that drives a manager consumer builds a handle over a pair
+    /// it declared itself, and then no other test can observe what it
+    /// publishes or what the consumer sends.
+    #[must_use]
+    pub const fn new(state: &'static PauseWatch, commands: &'static CommandChannel) -> Self {
+        Self { state, commands }
+    }
+
     /// Send a `Message` to the manager task. The manager
     /// interprets the message into a `PauseReason` bit transition.
     ///
