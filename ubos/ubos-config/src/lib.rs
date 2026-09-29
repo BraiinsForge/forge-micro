@@ -132,7 +132,9 @@ type CSMutex = CriticalSectionRawMutex;
 /// writer is [`run`]. `current()` reads this, so an `/api/config`
 /// update built from `current()` never carries a pending preview into
 /// flash.
-pub(crate) static STATE_WATCH: Watch<CSMutex, Config, WATCH_CAPACITY> = Watch::new();
+pub type ConfigWatch = Watch<CSMutex, Config, WATCH_CAPACITY>;
+
+pub(crate) static STATE_WATCH: ConfigWatch = Watch::new();
 
 /// Subscriber capacity for the effective-network watch. `ubos-net` is
 /// the sole subscriber; one spare slot covers a future consumer.
@@ -146,13 +148,15 @@ const NETWORK_WATCH_CAPACITY: usize = 2;
 /// the stack without poisoning the persisted config. Published only on a
 /// network transition, never at boot — the boot stack config comes from
 /// firmware reading [`Config`] before the stack exists.
-pub(crate) static NETWORK_WATCH: Watch<CSMutex, NetworkConfig, NETWORK_WATCH_CAPACITY> =
-    Watch::new();
+pub type NetworkWatch = Watch<CSMutex, NetworkConfig, NETWORK_WATCH_CAPACITY>;
+
+pub(crate) static NETWORK_WATCH: NetworkWatch = Watch::new();
 
 /// Module-internal command channel. Single consumer is [`run`];
 /// producers send via [`Handle::send`].
-pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH> =
-    Channel::new();
+pub type ConfigCommandChannel = Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH>;
+
+pub(crate) static COMMAND_CHANNEL: ConfigCommandChannel = Channel::new();
 
 /// Receiver capacity for the update-generation watch: one per pool
 /// session task ([`pool::MAX_POOLS`]), one for the pool-weights
@@ -166,7 +170,9 @@ const GENERATION_WATCH_CAPACITY: usize = pool::MAX_POOLS + 2;
 /// waiting for the next session error. A `Watch` rather than a
 /// `Signal` because a `Signal` registers a single waker: with one
 /// session task per pool slot, all of them must observe every update.
-pub(crate) static GENERATION_WATCH: Watch<CSMutex, u32, GENERATION_WATCH_CAPACITY> = Watch::new();
+pub type GenerationWatch = Watch<CSMutex, u32, GENERATION_WATCH_CAPACITY>;
+
+pub(crate) static GENERATION_WATCH: GenerationWatch = Watch::new();
 
 /// How long an unconfirmed network preview stays applied before it
 /// reverts to the committed config. A wrong static address strands the
@@ -222,21 +228,50 @@ pub type GenerationSubscription = Receiver<'static, CSMutex, u32, GENERATION_WAT
 /// it to multiple tasks.
 #[must_use]
 pub fn handle() -> Handle {
-    Handle {
-        state: &STATE_WATCH,
-    }
+    Handle::new(
+        &STATE_WATCH,
+        &NETWORK_WATCH,
+        &COMMAND_CHANNEL,
+        &GENERATION_WATCH,
+    )
 }
 
 /// Consumer-side handle for the config subsystem.
 ///
-/// `Copy` because it holds only a `'static` reference. Every consumer
+/// `Copy` because it holds only `'static` references. Every consumer
 /// task takes its own value.
+///
+/// Every method reads one of these fields, so a handle answers for the
+/// channels it was built over and for nothing else.
 #[derive(Clone, Copy)]
 pub struct Handle {
-    state: &'static Watch<CSMutex, Config, WATCH_CAPACITY>,
+    state: &'static ConfigWatch,
+    network: &'static NetworkWatch,
+    commands: &'static ConfigCommandChannel,
+    generation: &'static GenerationWatch,
 }
 
 impl Handle {
+    /// A handle over these channels. Firmware calls [`handle`] instead,
+    /// which answers for the set the board runs on. A host test that
+    /// drives a config consumer builds a handle over channels it
+    /// declared itself, and then no other test can observe what it
+    /// publishes.
+    #[must_use]
+    pub const fn new(
+        state: &'static ConfigWatch,
+        network: &'static NetworkWatch,
+        commands: &'static ConfigCommandChannel,
+        generation: &'static GenerationWatch,
+    ) -> Self {
+        Self {
+            state,
+            network,
+            commands,
+            generation,
+        }
+    }
+
     /// Returns the most recently published config, falling back to
     /// [`Config::default`] if nothing has been published yet.
     #[must_use]
@@ -275,7 +310,7 @@ impl Handle {
     /// Panics if the underlying `Watch` has no free receiver slots.
     #[must_use]
     pub fn subscribe_network(&self) -> NetworkSubscription {
-        NETWORK_WATCH
+        self.network
             .receiver()
             .expect("BUG: NETWORK_WATCH receiver slots exhausted; raise NETWORK_WATCH_CAPACITY")
     }
@@ -283,7 +318,7 @@ impl Handle {
     /// Submit a config update. The task running in [`run`] persists the
     /// new value then publishes it on `STATE_WATCH`.
     pub async fn send(&self, message: Message) {
-        COMMAND_CHANNEL.send(message).await;
+        self.commands.send(message).await;
     }
 
     /// Submit a command without awaiting queue space. Returns `false`
@@ -291,7 +326,7 @@ impl Handle {
     /// handler, can surface a busy response instead of blocking.
     #[must_use]
     pub fn try_send(&self, message: Message) -> bool {
-        COMMAND_CHANNEL.try_send(message).is_ok()
+        self.commands.try_send(message).is_ok()
     }
 
     /// Per-task subscription to the update-generation watch. The
@@ -306,7 +341,7 @@ impl Handle {
     /// Panics if the underlying `Watch` has no free receiver slots.
     #[must_use]
     pub fn subscribe_generation(&self) -> GenerationSubscription {
-        GENERATION_WATCH.receiver().expect(
+        self.generation.receiver().expect(
             "BUG: GENERATION_WATCH receiver slots exhausted; raise GENERATION_WATCH_CAPACITY",
         )
     }
