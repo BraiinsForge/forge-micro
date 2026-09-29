@@ -78,7 +78,8 @@ fn staleness_failsafe_forces_and_releases_full_fan() {
     let mut cooling = pin!(run_cooling(
         RecordingFan(&boot_command),
         FakeTach,
-        ubos_thermal::handle()
+        ubos_thermal::handle(),
+        ubos_config::handle()
     ));
     let mut ingest = pin!(ubos_metrics::metrics::run_ingest());
 

@@ -64,6 +64,7 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, Ticker};
+use ubos_config::Handle as ConfigHandle;
 use ubos_config::{CoolingConfig, FanMode};
 use ubos_core::units::{FanPwm, FanRpm};
 use ubos_logging::{error, info};
@@ -346,16 +347,21 @@ async fn publish_state<const N: usize>(
 /// at `thermal.dangerous_temp_c` is unaffected, so a low fixed duty costs
 /// hashrate rather than the board.
 ///
-/// Cooling tuning is read from [`ubos_config::Handle`] and refreshed
-/// between samples: a target-only change adjusts the setpoint in place, a
-/// PID-gains or mode change rebuilds the controller. This task is the sole
-/// writer of the fan watch.
-pub async fn run_cooling<F, T, const N: usize>(mut fan: F, mut tach: T, thermal: ThermalHandle) -> !
+/// Cooling tuning is read from `config` and refreshed between samples: a
+/// target-only change adjusts the setpoint in place, a PID-gains or mode
+/// change rebuilds the controller. Board firmware passes
+/// [`ubos_config::handle`], which [`cooling_task`] supplies for it. This
+/// task is the sole writer of the fan watch.
+pub async fn run_cooling<F, T, const N: usize>(
+    mut fan: F,
+    mut tach: T,
+    thermal_handle: ThermalHandle,
+    config_handle: ConfigHandle,
+) -> !
 where
     F: FanOutput,
     T: TachReader<N>,
 {
-    let config_handle = ubos_config::handle();
     let mut config_subscription = config_handle.subscribe();
     let initial_config = config_handle.current();
     let mut config: CoolingConfig = initial_config.cooling;
@@ -382,7 +388,7 @@ where
     publish_state(last_pwm, &last_rpms, &tach_labels).await;
     log_cooling("cooling: started", &config);
 
-    let mut subscription = thermal.subscribe();
+    let mut subscription = thermal_handle.subscribe();
     let mut ticker = Ticker::every(CONTROL_INTERVAL);
     let mut last_reading = Instant::now();
     // Set while the staleness failsafe holds the fan at full, so the forcing
@@ -500,8 +506,8 @@ where
 macro_rules! cooling_task {
     ($fan:ty, $tach:ty) => {
         #[embassy_executor::task]
-        async fn cooling_task(fan: $fan, tach: $tach, thermal: ubos_thermal::Handle) -> ! {
-            ubos_cooling::run_cooling(fan, tach, thermal).await
+        async fn cooling_task(fan: $fan, tach: $tach, thermal_handle: ubos_thermal::Handle) -> ! {
+            ubos_cooling::run_cooling(fan, tach, thermal_handle, ubos_config::handle()).await
         }
     };
 }

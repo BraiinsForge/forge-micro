@@ -230,7 +230,7 @@ async fn network_control_task(stack: Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn thermal_task(sensor: temperature::HashboardTemperature, manager: ManagerHandle) -> ! {
-    ubos_thermal::run_thermal(sensor, manager).await
+    ubos_thermal::run_thermal(sensor, manager, ubos_config::handle()).await
 }
 
 #[embassy_executor::task]

@@ -51,6 +51,7 @@ use crate::threshold::{Action, evaluate};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
 use embassy_time::{Duration, Instant, Ticker};
+use ubos_config::Handle as ConfigHandle;
 use ubos_config::ThermalConfig;
 use ubos_core::units::Temperature;
 use ubos_logging::{error, info, warn};
@@ -273,11 +274,15 @@ async fn publish_chip_temperatures(sample: &Sample) -> Temperature {
 /// `ManagerMessage::DangerousTemperature` and
 /// `ManagerMessage::TemperatureNormal` on threshold and recovery edges.
 /// The manager is the sole caller of `MiningHandle::halt`/`resume`.
-/// Thermal tuning is read from [`ubos_config::Handle`] and refreshed
-/// whenever the live config publishes a new value.
-pub async fn run_thermal<S: TemperatureSensor>(mut sensor: S, manager: ManagerHandle) -> ! {
+/// Thermal tuning is read from `config` and refreshed whenever that
+/// config publishes a new value. Board firmware passes
+/// [`ubos_config::handle`], which [`thermal_task`] supplies for it.
+pub async fn run_thermal<S: TemperatureSensor>(
+    mut sensor: S,
+    manager: ManagerHandle,
+    config_handle: ConfigHandle,
+) -> ! {
     let publisher = STATE_WATCH.sender();
-    let config_handle = ubos_config::handle();
     let mut config_subscription = config_handle.subscribe();
     let mut config: ThermalConfig = config_handle.current().thermal;
 
@@ -396,7 +401,7 @@ macro_rules! thermal_task {
     ($sensor:ty) => {
         #[embassy_executor::task]
         async fn thermal_task(sensor: $sensor, manager: ubos_manager::Handle) -> ! {
-            ubos_thermal::run_thermal(sensor, manager).await
+            ubos_thermal::run_thermal(sensor, manager, ubos_config::handle()).await
         }
     };
 }

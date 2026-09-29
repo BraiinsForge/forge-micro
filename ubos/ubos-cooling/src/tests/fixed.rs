@@ -104,7 +104,8 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
     let mut cooling = pin!(run_cooling(
         RecordingFan(&first_command),
         FakeTach,
-        ubos_thermal::handle()
+        ubos_thermal::handle(),
+        ubos_config::handle()
     ));
     let mut ingest = pin!(ubos_metrics::metrics::run_ingest());
 
