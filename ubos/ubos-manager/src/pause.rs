@@ -110,7 +110,11 @@ impl PauseReasons {
     /// Every arm asserts or clears exactly one [`PauseReason`], so the
     /// mask is the whole of the manager's state and the message set is
     /// the whole of what can move it.
-    pub(crate) fn apply(self, message: Message) -> Self {
+    ///
+    /// Public so that a host test in a consuming crate can stand in for
+    /// the manager without a second copy of this table.
+    #[must_use]
+    pub fn apply(self, message: Message) -> Self {
         let (reason, asserted) = effect(message);
         if asserted {
             self.assert(reason)
