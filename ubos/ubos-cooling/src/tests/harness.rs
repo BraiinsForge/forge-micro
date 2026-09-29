@@ -33,36 +33,86 @@ extern crate std;
 use core::cell::Cell;
 use core::future::Future;
 use core::pin::Pin;
-use core::task::Context;
+use core::task::{Context, Waker};
 
+use ubos_config::{
+    ConfigCommandChannel, ConfigWatch, GenerationWatch, Handle as ConfigHandle, NetworkWatch,
+};
 use ubos_core::units::{FanPwm, FanRpm, Temperature};
-use ubos_thermal::ThermalReading;
+use ubos_thermal::{Handle as ThermalHandle, ThermalReading, ThermalWatch};
 
 use crate::{FanOutput, TachReader};
 
+/// The upstream channels one test drives, standing in for the thermal
+/// sensor task and the config task.
+///
+/// Each test file declares its own, so nothing one publishes reaches
+/// another. A single set shared between test files is what used to make
+/// one test depend on another having reset the config it left behind.
+pub(crate) struct Upstream {
+    thermal: ThermalWatch,
+    config: ConfigWatch,
+    network: NetworkWatch,
+    commands: ConfigCommandChannel,
+    generation: GenerationWatch,
+}
+
+impl Upstream {
+    pub(crate) const fn new() -> Self {
+        Self {
+            thermal: ThermalWatch::new(),
+            config: ConfigWatch::new(),
+            network: NetworkWatch::new(),
+            commands: ConfigCommandChannel::new(),
+            generation: GenerationWatch::new(),
+        }
+    }
+
+    /// The thermal handle `run_cooling` takes.
+    pub(crate) fn thermal(&'static self) -> ThermalHandle {
+        ThermalHandle::new(&self.thermal)
+    }
+
+    /// The config handle `run_cooling` takes.
+    pub(crate) fn config(&'static self) -> ConfigHandle {
+        ConfigHandle::new(
+            &self.config,
+            &self.network,
+            &self.commands,
+            &self.generation,
+        )
+    }
+
+    /// Publish a reading, as the sensor task would.
+    pub(crate) fn publish_reading(&self, reading: ThermalReading) {
+        self.thermal.sender().send(reading);
+    }
+
+    /// Publish a config, as the config task would after it persisted.
+    pub(crate) fn publish_config(&self, config: ubos_config::Config) {
+        self.config.sender().send(config);
+    }
+}
+
 /// Serialises the tests that drive `run_cooling`.
 ///
-/// They share every static the task touches — the mock clock, the config,
-/// thermal and fan watches, and the metrics channel — so two of them running
-/// concurrently would see each other's clock resets and published values.
-/// Holding this mutex for the whole test body keeps them sequential without
-/// needing `--test-threads=1`. A test that publishes a non-default config
-/// must restore the defaults before releasing it, through a `Drop` guard
-/// declared after the lock so it runs on both the normal path and an
-/// unwind. A caller recovers a poisoned lock with `into_inner` rather than
-/// `expect`, because by the time it does, that guard has already restored
-/// the statics the panicking test left dirty; propagating the poison would
-/// only replace the failing test's own assertion with a message about the
-/// lock instead.
+/// Each test owns its thermal and config channels through [`Upstream`],
+/// so those no longer need guarding. Three statics remain shared and
+/// cannot be owned per test: `embassy_time::MockDriver`, which is one
+/// instance per process with no second one to construct, this crate's
+/// fan watch, and the `ubos-metrics` channel that `run_ingest` drains.
+/// Two tests running concurrently would see each other's clock resets
+/// and published duties. Holding this mutex for the whole test body
+/// keeps them sequential without needing `--test-threads=1`. A caller
+/// recovers a poisoned lock with `into_inner` rather than `expect`,
+/// because a poison only means an earlier test panicked, and
+/// propagating it would replace this test's own assertion with a
+/// message about the lock.
 pub(crate) static LOOP_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Number of times each phase polls `run_cooling` and the metrics ingest
-/// task, enough for the awaits a phase triggers to settle — the metric pushes
-/// and any catch-up control ticks — while staying a fixed bound rather than an
-/// open-ended poll loop. The bound assumes the default config's thermal sample
-/// interval: a phase advances the clock by one `stale_timeout`, so raising
-/// that interval enough that the window spans more than `POLL_BUDGET` control
-/// ticks would under-poll and need a larger bound.
+/// Polls per phase. Wider than `run_thermal`'s, because a phase here
+/// advances the clock by one `stale_timeout` and the loop then works off
+/// every catch-up control tick in that window before it parks.
 const POLL_BUDGET: usize = 64;
 
 /// Fan that latches the first duty commanded to it.
@@ -109,20 +159,21 @@ pub(crate) fn moderate_reading(no_reading: bool) -> ThermalReading {
     }
 }
 
-/// Polls `cooling` and `ingest` up to [`POLL_BUDGET`] times so the awaits
-/// triggered by the last clock advance or published reading settle. Both
-/// futures never complete — `run_cooling` is `-> !`, `run_ingest` is `-> !`
-/// and the channel never empties on its own — so the return value carries
-/// no information; only the side effects on `crate::STATE_WATCH` matter.
+/// Polls `cooling` and `ingest` up to [`POLL_BUDGET`] times, enough for
+/// the awaits triggered by the last clock advance or published reading
+/// to settle. Both futures never complete — `run_cooling` is `-> !`,
+/// `run_ingest` is `-> !` and the channel never empties on its own — so
+/// the return value carries no information; only the side effects on
+/// `crate::STATE_WATCH` matter.
 /// Takes the pinned futures by reborrow so the caller's `pin!` bindings
 /// stay usable across the repeated calls one per test phase.
 pub(crate) fn drive<Cooling: Future, Ingest: Future>(
     mut cooling: Pin<&mut Cooling>,
     mut ingest: Pin<&mut Ingest>,
-    cx: &mut Context<'_>,
 ) {
+    let mut cx = Context::from_waker(Waker::noop());
     for _ in 0..POLL_BUDGET {
-        let _ = cooling.as_mut().poll(cx);
-        let _ = ingest.as_mut().poll(cx);
+        let _ = cooling.as_mut().poll(&mut cx);
+        let _ = ingest.as_mut().poll(&mut cx);
     }
 }

@@ -24,9 +24,9 @@
 //! shared harness in `tests/harness.rs`.
 //!
 //! All phases share one `run_cooling` instance and the process-global
-//! statics it reads and writes — the mock clock, config, and metrics
-//! channel — so the test runs as a single function with sequential phases
-//! rather than as independent `#[test]` cases.
+//! statics it reads and writes — the mock clock, the fan watch, and the
+//! metrics channel — so the test runs as a single function with sequential
+//! phases rather than as independent `#[test]` cases.
 //!
 //! The "log once" behavior on the forced-full and recovery transitions is
 //! guaranteed by the `forced_full` latch in `run_cooling` and is not asserted
@@ -39,31 +39,28 @@ extern crate std;
 
 use core::cell::Cell;
 use core::pin::pin;
-use core::task::{Context, Waker};
 
 use embassy_time::MockDriver;
 use ubos_core::units::FanPwm;
 
-use super::tests_harness::{FakeTach, LOOP_MUTEX, RecordingFan, drive, moderate_reading};
+use super::tests_harness::{FakeTach, LOOP_MUTEX, RecordingFan, Upstream, drive, moderate_reading};
 use super::{CONTROL_INTERVAL, handle, run_cooling, stale_timeout};
 
 #[test]
 fn staleness_failsafe_forces_and_releases_full_fan() {
-    // A poisoned lock only means a previous test panicked while holding it.
-    // This test never leaves the config watch on a non-default value — see
-    // `fixed.rs`'s `RestoreDefaultConfig` for the one static that would
-    // otherwise need restoring — and everything it does read (the mock
-    // clock, the thermal reading) is reseeded below before use, so the
-    // poison carries no stale state for this test to inherit; `into_inner`
+    static UPSTREAM: Upstream = Upstream::new();
+    // A poisoned lock only means an earlier test panicked while holding
+    // it. This test's config channel is its own and nothing publishes on
+    // it, so the defaults it reads are the defaults `current` falls back
+    // to rather than a value another test left behind. The mock clock and
+    // the thermal reading are reseeded below before use, so the poison
+    // carries no stale state for this test to inherit and `into_inner`
     // just keeps testing.
     let _guard = LOOP_MUTEX
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let driver = MockDriver::get();
     driver.reset();
-
-    let waker: &Waker = Waker::noop();
-    let mut cx = Context::from_waker(waker);
 
     let default_config = ubos_config::Config::default();
     let stale = stale_timeout(default_config.thermal.sample_interval_ms);
@@ -72,18 +69,18 @@ fn staleness_failsafe_forces_and_releases_full_fan() {
     // The thermal watch retains whatever reading ran last in this process and
     // a fresh subscriber sees it as changed, so seed a known clean one rather
     // than assert against whichever reading another test left behind.
-    ubos_thermal::publish_reading_for_test(moderate_reading(false));
+    UPSTREAM.publish_reading(moderate_reading(false));
 
     let boot_command = Cell::new(None);
     let mut cooling = pin!(run_cooling(
         RecordingFan(&boot_command),
         FakeTach,
-        ubos_thermal::handle(),
-        ubos_config::handle()
+        UPSTREAM.thermal(),
+        UPSTREAM.config()
     ));
     let mut ingest = pin!(ubos_metrics::metrics::run_ingest());
 
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    drive(cooling.as_mut(), ingest.as_mut());
     // Behavior 0: the fan comes up on the PID floor before any reading is
     // acted on, so a board in auto mode never runs the fan below the floor
     // while the PID has nothing to act on. Asserted on the first command
@@ -107,7 +104,7 @@ fn staleness_failsafe_forces_and_releases_full_fan() {
     // Behavior 1: thermal silence past `stale_timeout`, with only control
     // ticks arriving, forces the fan to full.
     driver.advance(stale);
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    drive(cooling.as_mut(), ingest.as_mut());
     let stalled_state = handle().current().expect("published");
     assert_eq!(
         stalled_state.pwm,
@@ -117,8 +114,8 @@ fn staleness_failsafe_forces_and_releases_full_fan() {
 
     // Behavior 2: a fresh non-fault reading clears the forced_full latch
     // and hands the PWM back to the PID.
-    ubos_thermal::publish_reading_for_test(moderate_reading(false));
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    UPSTREAM.publish_reading(moderate_reading(false));
+    drive(cooling.as_mut(), ingest.as_mut());
     let recovered_state = handle().current().expect("published");
     assert_eq!(
         recovered_state.pwm, floor_pwm,
@@ -131,7 +128,7 @@ fn staleness_failsafe_forces_and_releases_full_fan() {
     // the failsafe cannot fire one tick early.
     let short_silence = stale - CONTROL_INTERVAL;
     driver.advance(short_silence);
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    drive(cooling.as_mut(), ingest.as_mut());
     let short_silence_state = handle().current().expect("published");
     assert_eq!(
         short_silence_state.pwm, floor_pwm,
@@ -142,8 +139,8 @@ fn staleness_failsafe_forces_and_releases_full_fan() {
     // Behavior 4: a reading with no measurement forces the fan to full on its
     // own, independent of the staleness latch, which is already clear at
     // this point.
-    ubos_thermal::publish_reading_for_test(moderate_reading(true));
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    UPSTREAM.publish_reading(moderate_reading(true));
+    drive(cooling.as_mut(), ingest.as_mut());
     let fault_state = handle().current().expect("published");
     assert_eq!(
         fault_state.pwm,

@@ -20,11 +20,11 @@
 //! Integration test for `FanMode::Fixed` in [`super::run_cooling`], on the
 //! shared harness in `tests/harness.rs`.
 //!
-//! All phases share one `run_cooling` instance and the process-global statics
-//! it reads and writes, so the test runs as a single function with sequential
-//! phases rather than as independent `#[test]` cases. The config watch is
-//! process-global too, so a [`RestoreDefaultConfig`] guard returns it to the
-//! defaults the other tests expect however this test ends.
+//! All phases share one `run_cooling` instance and the statics it reads
+//! and writes, so the test runs as a single function with sequential
+//! phases rather than as independent `#[test]` cases. The thermal and
+//! config channels it publishes on are its own, through [`Upstream`],
+//! so no other test observes what this one sets.
 
 // The crate is `#![no_std]`; explicitly opt back into std for the poisoned
 // `LOOP_MUTEX` recovery below.
@@ -32,13 +32,12 @@ extern crate std;
 
 use core::cell::Cell;
 use core::pin::pin;
-use core::task::{Context, Waker};
 
 use embassy_time::MockDriver;
 use ubos_config::{Config, FanMode};
 use ubos_core::units::FanPwm;
 
-use super::tests_harness::{FakeTach, LOOP_MUTEX, RecordingFan, drive, moderate_reading};
+use super::tests_harness::{FakeTach, LOOP_MUTEX, RecordingFan, Upstream, drive, moderate_reading};
 use super::{CONTROL_INTERVAL, handle, run_cooling, stale_timeout};
 
 /// Duty the operator picks first. Below the default 20% PID floor, which is
@@ -56,37 +55,17 @@ fn fixed_config(duty: u8) -> Config {
     config
 }
 
-/// Returns the process-global config watch to the defaults on drop.
-///
-/// The other tests in this crate run in the same process and read the watch
-/// without seeding it. A panic partway through this test would otherwise
-/// leave them on the fixed mode published here, so one failure would report
-/// as several.
-struct RestoreDefaultConfig;
-
-impl Drop for RestoreDefaultConfig {
-    fn drop(&mut self) {
-        ubos_config::publish_for_test(Config::default());
-    }
-}
-
 #[test]
 fn fixed_mode_holds_the_duty_under_the_failsafes() {
-    // A poisoned lock only means a previous test panicked while holding it,
-    // and `RestoreDefaultConfig` below already put the config watch back
-    // before that panic finished unwinding, so the poison carries no stale
-    // state for this test to inherit; `into_inner` just keeps testing.
+    static UPSTREAM: Upstream = Upstream::new();
+    // A poisoned lock only means an earlier test panicked while holding
+    // it. This test publishes onto channels it owns, so it inherits no
+    // stale state either way and `into_inner` just keeps testing.
     let _guard = LOOP_MUTEX
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    // Declared after the lock, so it restores the defaults before the mutex
-    // is released on both the normal path and an unwind.
-    let _restore = RestoreDefaultConfig;
     let driver = MockDriver::get();
     driver.reset();
-
-    let waker: &Waker = Waker::noop();
-    let mut cx = Context::from_waker(waker);
 
     let default_config = Config::default();
     let stale = stale_timeout(default_config.thermal.sample_interval_ms);
@@ -97,15 +76,15 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
     // than inherit the previous test's fault reading. Both are published
     // before the task starts, so it comes up on the fixed mode as its initial
     // config rather than picking it up as a later change.
-    ubos_thermal::publish_reading_for_test(moderate_reading(false));
-    ubos_config::publish_for_test(fixed_config(FIRST_DUTY));
+    UPSTREAM.publish_reading(moderate_reading(false));
+    UPSTREAM.publish_config(fixed_config(FIRST_DUTY));
 
     let first_command = Cell::new(None);
     let mut cooling = pin!(run_cooling(
         RecordingFan(&first_command),
         FakeTach,
-        ubos_thermal::handle(),
-        ubos_config::handle()
+        UPSTREAM.thermal(),
+        UPSTREAM.config()
     ));
     let mut ingest = pin!(ubos_metrics::metrics::run_ingest());
 
@@ -113,7 +92,7 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
     // is acted on, so a board that boots in fixed mode never runs the fan at
     // the auto floor first. The duty is below that floor, so the boot branch
     // taking the auto arm would show here as 20% rather than 15%.
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    drive(cooling.as_mut(), ingest.as_mut());
     assert_eq!(
         first_command.get(),
         Some(FanPwm::from_percent(FIRST_DUTY)),
@@ -134,9 +113,9 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
     // Behavior 3: a new duty reaches the fan on the next control tick, with
     // no thermal reading in between. Zero is commanded as zero: the PID floor
     // does not apply to a duty the operator chose.
-    ubos_config::publish_for_test(fixed_config(SECOND_DUTY));
+    UPSTREAM.publish_config(fixed_config(SECOND_DUTY));
     driver.advance(CONTROL_INTERVAL);
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    drive(cooling.as_mut(), ingest.as_mut());
     assert_eq!(
         handle().current().expect("published").pwm,
         FanPwm::from_percent(SECOND_DUTY),
@@ -145,8 +124,8 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
 
     // Behavior 4: a reading with no measurement still forces full. Fixed mode picks
     // the steady-state duty, it does not opt out of the failsafes.
-    ubos_thermal::publish_reading_for_test(moderate_reading(true));
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    UPSTREAM.publish_reading(moderate_reading(true));
+    drive(cooling.as_mut(), ingest.as_mut());
     assert_eq!(
         handle().current().expect("published").pwm,
         FanPwm::FULL,
@@ -157,7 +136,7 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
     // duty while the fault stands. Ticks interleave with the fault readings,
     // so a tick that reapplied the duty would cycle the fan.
     driver.advance(CONTROL_INTERVAL);
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    drive(cooling.as_mut(), ingest.as_mut());
     assert_eq!(
         handle().current().expect("published").pwm,
         FanPwm::FULL,
@@ -165,8 +144,8 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
     );
 
     // Behavior 6: a clean reading hands the fan back to the fixed duty.
-    ubos_thermal::publish_reading_for_test(moderate_reading(false));
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    UPSTREAM.publish_reading(moderate_reading(false));
+    drive(cooling.as_mut(), ingest.as_mut());
     assert_eq!(
         handle().current().expect("published").pwm,
         FanPwm::from_percent(SECOND_DUTY),
@@ -177,7 +156,7 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
     // fixed mode too, so a wedged thermal task cannot leave a board that was
     // configured to a low duty uncooled.
     driver.advance(stale);
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    drive(cooling.as_mut(), ingest.as_mut());
     assert_eq!(
         handle().current().expect("published").pwm,
         FanPwm::FULL,
@@ -188,9 +167,9 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
     // that clears the staleness latch is well below target, so the PID lands
     // on the floor, which also shows the rebuilt controller is in charge
     // rather than the fixed duty.
-    ubos_config::publish_for_test(default_config.clone());
-    ubos_thermal::publish_reading_for_test(moderate_reading(false));
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    UPSTREAM.publish_config(default_config.clone());
+    UPSTREAM.publish_reading(moderate_reading(false));
+    drive(cooling.as_mut(), ingest.as_mut());
     assert_eq!(
         handle().current().expect("published").pwm,
         floor_pwm,
@@ -203,9 +182,9 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
     // tick taking the fan off the PID. The task is on the floor from behavior
     // 8 and the duty is below it, so the reading the PID would act on cannot
     // produce this value.
-    ubos_config::publish_for_test(fixed_config(FIRST_DUTY));
+    UPSTREAM.publish_config(fixed_config(FIRST_DUTY));
     driver.advance(CONTROL_INTERVAL);
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    drive(cooling.as_mut(), ingest.as_mut());
     assert_eq!(
         handle().current().expect("published").pwm,
         FanPwm::from_percent(FIRST_DUTY),
@@ -219,11 +198,11 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
     // wait would be the difference between a stopped fan and a running one for
     // a whole thermal sample interval.
     //
-    // The publish here is this phase's own input rather than the cleanup. The
-    // guard is what returns the watch to the defaults for the other tests.
-    ubos_config::publish_for_test(default_config);
+    // The publish here is this phase's own input, not a cleanup: the config
+    // watch is this test's own, so no other test reads what it leaves.
+    UPSTREAM.publish_config(default_config);
     driver.advance(CONTROL_INTERVAL);
-    drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
+    drive(cooling.as_mut(), ingest.as_mut());
     assert_eq!(
         handle().current().expect("published").pwm,
         floor_pwm,
