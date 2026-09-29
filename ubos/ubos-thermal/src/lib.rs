@@ -174,9 +174,12 @@ pub struct ThermalReading {
 /// further for today's consumers.
 const WATCH_CAPACITY: usize = 4;
 
-/// Module-internal state watch. Single writer is [`run_thermal`];
-/// readers obtained via [`Handle::subscribe`].
-pub(crate) static STATE_WATCH: Watch<CSMutex, ThermalReading, WATCH_CAPACITY> = Watch::new();
+/// State watch carrying the published [`ThermalReading`]. Single writer
+/// is [`run_thermal`]; readers obtained via [`Handle::subscribe`].
+pub type ThermalWatch = Watch<CSMutex, ThermalReading, WATCH_CAPACITY>;
+
+/// The readings the firmware's one sensor task publishes.
+pub(crate) static STATE_WATCH: ThermalWatch = Watch::new();
 
 /// Per-task subscription returned by [`Handle::subscribe`].
 pub type ThermalSubscription = Receiver<'static, CSMutex, ThermalReading, WATCH_CAPACITY>;
@@ -185,9 +188,7 @@ pub type ThermalSubscription = Receiver<'static, CSMutex, ThermalReading, WATCH_
 /// it to multiple tasks.
 #[must_use]
 pub fn handle() -> Handle {
-    Handle {
-        state: &STATE_WATCH,
-    }
+    Handle::new(&STATE_WATCH)
 }
 
 /// Consumer-side handle for the thermal subsystem.
@@ -196,10 +197,19 @@ pub fn handle() -> Handle {
 /// task takes its own value.
 #[derive(Clone, Copy)]
 pub struct Handle {
-    state: &'static Watch<CSMutex, ThermalReading, WATCH_CAPACITY>,
+    state: &'static ThermalWatch,
 }
 
 impl Handle {
+    /// A handle over `state`. Firmware calls [`handle`] instead, which
+    /// answers for the watch the board runs on. A host test that drives
+    /// a thermal consumer builds a handle over a watch it declared
+    /// itself, and then no other test can observe what it publishes.
+    #[must_use]
+    pub const fn new(state: &'static ThermalWatch) -> Self {
+        Self { state }
+    }
+
     /// Most recent published reading, or `None` if the sensor task has
     /// not yet completed its first poll.
     #[must_use]
