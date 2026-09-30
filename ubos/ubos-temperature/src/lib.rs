@@ -18,8 +18,8 @@
 // shall be considered distinct from the grant above.
 
 //! Board-temperature hardware drivers and the descriptor types a board
-//! uses to declare its sensor topology. The LM75A, TMP102 and TMP461
-//! drivers live in sibling modules, and [`Sensor::read_temperatures`]
+//! uses to declare its sensor topology. The LM75A, TMP102, TMP461 and
+//! TMP464 drivers live in sibling modules, and [`Sensor::read_temperatures`]
 //! takes the [`Readings`] of whichever of them a descriptor names.
 //! `ubos-thermal` folds those readings, owns the sensor trait and the
 //! sample loop, and writes every metric; nothing here decides or
@@ -32,6 +32,7 @@
 pub mod lm75a;
 pub mod tmp102;
 pub mod tmp461;
+pub mod tmp464;
 
 use embedded_hal_async::i2c::{I2c, SevenBitAddress};
 use heapless::Vec;
@@ -40,6 +41,7 @@ use ubos_core::units::Temperature;
 use crate::lm75a::Lm75a;
 use crate::tmp102::Tmp102;
 use crate::tmp461::Tmp461;
+use crate::tmp464::Tmp464;
 
 /// One sensor of the board's topology, supplied by the board as const
 /// data: the part's driver, which carries its I2C address and what each of
@@ -49,6 +51,7 @@ pub enum SensorDescriptor {
     Lm75a(Lm75a),
     Tmp102(Tmp102),
     Tmp461(Tmp461),
+    Tmp464(Tmp464),
 }
 
 impl SensorDescriptor {
@@ -59,6 +62,7 @@ impl SensorDescriptor {
             Self::Lm75a(sensor) => sensor.address,
             Self::Tmp102(sensor) => sensor.address,
             Self::Tmp461(sensor) => sensor.address,
+            Self::Tmp464(sensor) => sensor.address,
         }
     }
 }
@@ -93,6 +97,7 @@ impl<Bus: I2c> Sensor<Bus> {
             SensorDescriptor::Lm75a(driver) => driver.read_temperatures(&mut self.bus).await,
             SensorDescriptor::Tmp102(driver) => driver.read_temperatures(&mut self.bus).await,
             SensorDescriptor::Tmp461(driver) => driver.read_temperatures(&mut self.bus).await,
+            SensorDescriptor::Tmp464(driver) => driver.read_temperatures(&mut self.bus).await,
         }
     }
 }
@@ -179,6 +184,17 @@ impl<E> From<tmp461::Error<E>> for SensorFault<E> {
     }
 }
 
+impl<E> From<tmp464::Error<E>> for SensorFault<E> {
+    fn from(e: tmp464::Error<E>) -> Self {
+        match e {
+            tmp464::Error::I2c(e) => Self::I2c(e),
+            tmp464::Error::OutOfRange(mc) => Self::OutOfRange(mc),
+            tmp464::Error::OpenCircuit => Self::OpenCircuit,
+            tmp464::Error::ShortCircuit => Self::ShortCircuit,
+        }
+    }
+}
+
 /// A channel that gave no reading: what the channel measures, and why.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ReadingError<E> {
@@ -186,9 +202,9 @@ pub struct ReadingError<E> {
     pub fault: SensorFault<E>,
 }
 
-/// The most readings one sensor yields: a TMP461's local and remote
-/// channel.
-pub const MAX_READINGS: usize = 2;
+/// The most readings one sensor yields: a TMP464's local channel and
+/// its remote channels.
+pub const MAX_READINGS: usize = 5;
 
 /// The outcome of every channel of one sensor: its reading, or the fault
 /// that kept it from one. The caller decides what a fault means.
