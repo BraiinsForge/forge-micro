@@ -284,7 +284,8 @@ where
     #[allow(clippy::cast_possible_truncation)]
     let temperature_celsius = thermal
         .current()
-        .map_or(0i32, |r| r.chip_max.celsius_f32() as i32);
+        .and_then(|r| r.chip_max)
+        .map_or(0i32, |t| t.celsius_f32() as i32);
     let fan = ubos_cooling::handle().current();
     let fan_speed_rpm = fan.map_or(0, |f| f.rpm.rpm());
     let fan_pwm_percent = fan.map_or(0, |f| f.pwm.percent());

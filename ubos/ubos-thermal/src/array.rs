@@ -34,7 +34,7 @@ use ubos_core::units::Temperature;
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 use ubos_temperature::{SensorDescriptor, SensorKind, read_sensor};
 
-use crate::{Sample, Source, TemperatureSensor};
+use crate::{Reading, Sample, Source, TemperatureSensor};
 
 #[cfg(test)]
 #[path = "tests/array.rs"]
@@ -54,18 +54,25 @@ const fn sensor_metric_name(kind: SensorKind) -> Option<&'static str> {
 /// PCB-plus-offset estimate, `has_die_capable` = the table contains at
 /// least one die-wired sensor. Picks the safety value (real die if any,
 /// else the estimate), tags its source, and exposes the estimate as the
-/// PID input only when it is a distinct second series. `None` when
-/// nothing was readable.
-fn fuse(die: Option<i32>, est: Option<i32>, has_die_capable: bool) -> Option<Sample> {
+/// PID input only when it is a distinct second series.
+///
+/// [`Reading::Unreadable`] when nothing answered. Never
+/// [`Reading::Idle`]: these sensors sit on the board's own I2C bus and
+/// answer whether or not the hashboard rail is up, so silence here is
+/// always a fault and never an idle board.
+fn fuse(die: Option<i32>, est: Option<i32>, has_die_capable: bool) -> Reading {
     if let Some(mc) = die {
-        return Some(Sample {
+        return Reading::Measured(Sample {
             safety: Temperature::from_millicelsius(mc),
             safety_source: Source::Chip,
             pid: est.map(Temperature::from_millicelsius),
         });
     }
-    Some(Sample {
-        safety: Temperature::from_millicelsius(est?),
+    let Some(est) = est else {
+        return Reading::Unreadable;
+    };
+    Reading::Measured(Sample {
+        safety: Temperature::from_millicelsius(est),
         // Approximated only when there is a real die sensor to contrast
         // against. A board with no die sensor reports the one estimate it
         // has, and its gauge carries no label.
@@ -112,7 +119,7 @@ impl<Bus> TemperatureSensor for SensorArray<Bus>
 where
     Bus: I2c,
 {
-    async fn sample(&mut self) -> Option<Sample> {
+    async fn sample(&mut self) -> Reading {
         let mut die: Option<i32> = None;
         let mut est: Option<i32> = None;
         let mut has_die_capable = false;

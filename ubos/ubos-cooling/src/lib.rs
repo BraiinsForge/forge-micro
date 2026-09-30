@@ -248,9 +248,11 @@ const CONTROL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Multiplier on the thermal sample interval before the thermal subsystem
 /// is judged stalled. A live thermal task goes silent while it tolerates
-/// consecutive sensor misses: `ubos-thermal` publishes nothing until its
-/// `SENSOR_FAULT_TICKS` misses have elapsed, and only then starts
-/// publishing `sensor_fault` readings every interval. The window must
+/// consecutive sensor misses on a board it still owes a reading to:
+/// `ubos-thermal` withholds a reading until its miss count reaches
+/// `SENSOR_FAULT_TICKS`, then publishes a reading with no PID
+/// temperature on that tick and every one after; an idle board is a
+/// separate case and publishes one on its first idle tick. The window must
 /// therefore exceed `SENSOR_FAULT_TICKS` intervals, or ordinary sensor
 /// hiccups that thermal itself is designed to ride out would trip this
 /// failsafe first; the assertion below pins a minimum margin above
@@ -331,7 +333,8 @@ async fn publish_state<const N: usize>(
 /// thermal subsystem as an input that may go stale rather than the clock
 /// that drives it: each iteration `select`s between the next thermal
 /// reading and the control tick. A fresh reading advances the PID, or
-/// forces full fan on `sensor_fault`, and resets the staleness clock; a
+/// forces full fan when it carries no PID temperature, and resets the
+/// staleness clock; a
 /// control tick that finds no reading for [`stale_timeout`] forces the fan
 /// to 100%, so a thermal task wedged in a hung I2C read can never
 /// leave the board uncooled. Either wake republishes telemetry, and in
@@ -342,8 +345,9 @@ async fn publish_state<const N: usize>(
 /// Under [`FanMode::Fixed`] the thermal reading no longer sets the duty:
 /// the fan holds [`CoolingConfig::fixed_fan_pwm`], refreshed on each control
 /// tick so a duty change lands within one [`CONTROL_INTERVAL`] whatever the
-/// thermal cadence. Both failsafes still apply — a `sensor_fault` reading and
-/// a lapsed staleness window force full in either mode — and the mining halt
+/// thermal cadence. Both failsafes still apply — a reading with no PID
+/// temperature and a lapsed staleness window force full in either mode —
+/// and the mining halt
 /// at `thermal.dangerous_temp_c` is unaffected, so a low fixed duty costs
 /// hashrate rather than the board.
 ///
@@ -395,10 +399,11 @@ where
     // warning fires once on entry and a matching recovery line fires once when
     // a thermal reading returns.
     let mut forced_full = false;
-    // Sensor-fault state of the last thermal reading. The reading arm parks
-    // the fan at full on a fault; the control tick reads this so it does not
-    // hand a fixed duty back to the fan between two fault readings.
-    let mut sensor_fault = false;
+    // Whether the last thermal reading carried a measurement. The reading
+    // arm parks the fan at full when it did not; the control tick reads this
+    // so it does not hand a fixed duty back to the fan in between two such
+    // readings.
+    let mut no_reading = false;
     loop {
         let event = select(subscription.changed(), ticker.next()).await;
 
@@ -413,35 +418,46 @@ where
             Either::First(reading) => {
                 last_reading = Instant::now();
                 if forced_full {
-                    // Fires on the thermal task regaining liveness, regardless
-                    // of this reading's sensor_fault: a fault reading still
-                    // clears the stall because the task is alive, but the
-                    // fault branch below keeps the fan at full, so recovery
-                    // here does not imply the fan left 100%.
+                    // Fires on the thermal task regaining liveness, whether or
+                    // not this reading carries a measurement: one without a
+                    // measurement still clears the stall, because the task is
+                    // alive to have sent it. The branch below keeps the fan at
+                    // full for it, so recovery here does not imply the fan
+                    // left 100%.
                     info!("cooling: thermal task recovered after stall");
                     forced_full = false;
                 }
-                // A run of sensor_fault readings skips control.update() each
-                // time, so the smoother and ring buffer keep the last good
-                // sample across that run. The derivative term on the first
-                // non-fault reading is then computed against a pre-run value;
-                // acceptable because the fault branch below parks the fan at
-                // 100% on every reading of the run, so that stale derivative
-                // never drives the fan. This covers the sensor_fault run only;
+                // A run of readings with no measurement skips control.update()
+                // each time, so the smoother and ring buffer keep the last
+                // good sample across that run. The derivative term on the
+                // first reading that carries one is then computed against a
+                // pre-run value; acceptable because the branch below parks the
+                // fan at 100% on every reading of the run, so that stale
+                // derivative never drives the fan. This covers that run only;
                 // a thermal silence shorter than the staleness window triggers
                 // no graduated response here: the control tick merely resamples
                 // the tach and republishes telemetry until the window elapses.
-                sensor_fault = reading.sensor_fault;
-                last_pwm = if reading.sensor_fault {
-                    FanPwm::FULL
-                } else {
-                    match config.mode {
-                        // Fixed ignores the reading and never advances the
-                        // PID; the mode transition back to auto rebuilds the
-                        // controller, so no state is carried across.
-                        FanMode::Fixed => fixed_pwm(&config),
-                        FanMode::Auto => {
-                            FanPwm::from_percent(control.update(reading.pid_temp.celsius_f32()))
+                // A fresh reading always carries a PID temperature and a
+                // stale one never does, see `ThermalReading::pid_temp`, so
+                // the one field answers both whether this tick measured
+                // and what it measured, and the fan parks at full rather
+                // than on a value never measured.
+                last_pwm = match reading.pid_temp {
+                    None => {
+                        no_reading = true;
+                        FanPwm::FULL
+                    }
+                    Some(pid_temp) => {
+                        no_reading = false;
+                        match config.mode {
+                            // Fixed ignores the reading and never advances
+                            // the PID; the mode transition back to auto
+                            // rebuilds the controller, so no state is
+                            // carried across.
+                            FanMode::Fixed => fixed_pwm(&config),
+                            FanMode::Auto => {
+                                FanPwm::from_percent(control.update(pid_temp.celsius_f32()))
+                            }
                         }
                     }
                 };
@@ -466,7 +482,7 @@ where
                         forced_full = true;
                     }
                     last_pwm = FanPwm::FULL;
-                } else if !sensor_fault {
+                } else if !no_reading {
                     // Fixed mode has no other cadence: thermal readings do not
                     // change the duty, so this tick is what carries a new
                     // fixed duty to the fan, within one CONTROL_INTERVAL of

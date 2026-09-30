@@ -18,11 +18,12 @@
 // shall be considered distinct from the grant above.
 
 use super::*;
+use crate::measured;
 
 #[test]
 fn die_and_est_present() {
     // hashnode-ok: both die and PCB estimate available.
-    let sample = fuse(Some(90_000), Some(80_000), true).expect("sample present");
+    let sample = measured(fuse(Some(90_000), Some(80_000), true));
     assert_eq!(sample.safety.millicelsius(), 90_000);
     assert_eq!(sample.safety_source, Source::Chip);
     assert_eq!(sample.pid.expect("pid present").millicelsius(), 80_000);
@@ -31,7 +32,7 @@ fn die_and_est_present() {
 #[test]
 fn die_absent_est_present_has_die_capable() {
     // hashnode remote-fault: remote diode failed, PCB estimate only.
-    let sample = fuse(None, Some(80_000), true).expect("sample present");
+    let sample = measured(fuse(None, Some(80_000), true));
     assert_eq!(sample.safety.millicelsius(), 80_000);
     assert_eq!(sample.safety_source, Source::Approximated);
     assert!(sample.pid.is_none());
@@ -40,7 +41,7 @@ fn die_absent_est_present_has_die_capable() {
 #[test]
 fn die_absent_est_present_no_die_capable() {
     // BMM board: no die sensor at all, PCB estimate is the only source.
-    let sample = fuse(None, Some(50_000), false).expect("sample present");
+    let sample = measured(fuse(None, Some(50_000), false));
     assert_eq!(sample.safety.millicelsius(), 50_000);
     assert_eq!(sample.safety_source, Source::Sole);
     assert!(sample.pid.is_none());
@@ -49,7 +50,7 @@ fn die_absent_est_present_no_die_capable() {
 #[test]
 fn die_present_est_absent() {
     // Die ok, all PCB sensors failed.
-    let sample = fuse(Some(95_000), None, true).expect("sample present");
+    let sample = measured(fuse(Some(95_000), None, true));
     assert_eq!(sample.safety.millicelsius(), 95_000);
     assert_eq!(sample.safety_source, Source::Chip);
     assert!(sample.pid.is_none());
@@ -57,10 +58,10 @@ fn die_present_est_absent() {
 
 #[test]
 fn nothing_readable_with_die_capable() {
-    assert!(fuse(None, None, true).is_none());
+    assert!(matches!(fuse(None, None, true), Reading::Unreadable));
 }
 
 #[test]
 fn nothing_readable_without_die_capable() {
-    assert!(fuse(None, None, false).is_none());
+    assert!(matches!(fuse(None, None, false), Reading::Unreadable));
 }

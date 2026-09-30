@@ -18,6 +18,7 @@
 // shall be considered distinct from the grant above.
 
 use super::*;
+use crate::{clock, measured};
 use portable_atomic::AtomicU8;
 use ubos_metrics::chain::ChainPresence;
 use ubos_metrics::chain::ChainStats;
@@ -42,20 +43,27 @@ fn stats() -> ChainStatsHandle {
 
 /// A board whose chains are both present, which is what the miner
 /// records once every connector has enumerated its expected count.
+///
+/// Holds the mock clock still for the test, because every sensor here
+/// measures silence against `Instant::now` and the loop tests reset
+/// that clock. The guard rides along so a test cannot take the board
+/// without the clock.
 fn present_board() -> (
+    std::sync::MutexGuard<'static, ()>,
     &'static [ChainPvt<TEST_CHIPS>; TEST_CHAINS],
     ChainStatsHandle,
 ) {
+    let clock = clock();
     let stats = stats();
     for chain in stats.chains() {
         chain.set_presence(ChainPresence::Present { chips: 4 });
     }
-    (stores(), stats)
+    (clock, stores(), stats)
 }
 
 #[test]
 fn a_chain_that_has_answered_nothing_falls_silent_on_the_clock() {
-    let (pvt, stats) = present_board();
+    let (_clock, pvt, stats) = present_board();
     let sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
     // A chain still enumerating has answered nothing and is not yet
     // silent; the window runs from where the sensor started.
@@ -65,7 +73,7 @@ fn a_chain_that_has_answered_nothing_falls_silent_on_the_clock() {
 
 #[test]
 fn one_chip_answering_keeps_the_whole_chain_fresh() {
-    let (pvt, stats) = present_board();
+    let (_clock, pvt, stats) = present_board();
     pvt[1].record(2, Some(55.5), None);
     let sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
     let now = Instant::now();
@@ -77,7 +85,7 @@ fn one_chip_answering_keeps_the_whole_chain_fresh() {
 
 #[test]
 fn a_failed_read_does_not_hold_the_chain_open() {
-    let (pvt, stats) = present_board();
+    let (_clock, pvt, stats) = present_board();
     let sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
     // The answer lands after the sensor starts, so silence is measured
     // from the answer and not from the start.
@@ -91,12 +99,12 @@ fn a_failed_read_does_not_hold_the_chain_open() {
 
 #[test]
 fn the_sample_is_the_hottest_die_of_every_present_chain() {
-    let (pvt, stats) = present_board();
+    let (_clock, pvt, stats) = present_board();
     pvt[0].record(0, Some(60.0), None);
     pvt[1].record(3, Some(72.0), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
 
-    let sample = embassy_futures::block_on(sensor.sample()).expect("both chains reported");
+    let sample = measured(embassy_futures::block_on(sensor.sample()));
     assert_eq!(sample.safety.millicelsius(), 72_000);
     // Each chain's own hottest die feeds its dashboard column.
     assert_eq!(stats.chain(0).hottest_mc(), Some(60_000));
@@ -105,14 +113,14 @@ fn the_sample_is_the_hottest_die_of_every_present_chain() {
 
 #[test]
 fn a_present_chain_with_no_reading_does_not_hold_back_a_hot_sample() {
-    let (pvt, stats) = present_board();
+    let (_clock, pvt, stats) = present_board();
     // Chain 0 has answered hot; chain 1 has never answered at all. The
     // sample must not wait on chain 1 while chain 0 already holds a
     // reading that may need the trip.
     pvt[0].record(0, Some(60.0), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
 
-    let sample = embassy_futures::block_on(sensor.sample()).expect("chain 0 reported");
+    let sample = measured(embassy_futures::block_on(sensor.sample()));
     assert_eq!(sample.safety.millicelsius(), 60_000);
     // Chain 1's silence still reaches the dashboard through its own
     // accounting, even though it did not block the sample.
@@ -120,51 +128,76 @@ fn a_present_chain_with_no_reading_does_not_hold_back_a_hot_sample() {
 }
 
 #[test]
-fn no_present_chain_with_any_reading_yields_no_sample() {
-    let (pvt, stats) = present_board();
+fn present_chains_that_answered_nothing_read_as_unreadable() {
+    let (_clock, pvt, stats) = present_board();
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
 
-    // Neither chain has ever answered, so there is no hot reading to
-    // report and nothing to trip a halt on yet.
-    assert!(embassy_futures::block_on(sensor.sample()).is_none());
-    assert!(!sensor.halts_on_fault());
+    // Both chains are present and neither has answered. The miner marks
+    // a chain present only after its PVT sweep succeeded, so this state
+    // does not arise on a real board, and where it does the chips are
+    // powered and owe a reading.
+    assert!(matches!(
+        embassy_futures::block_on(sensor.sample()),
+        Reading::Unreadable
+    ));
 }
 
 #[test]
 fn an_absent_chain_is_skipped_rather_than_read_as_silent() {
-    let (pvt, stats) = present_board();
+    let (_clock, pvt, stats) = present_board();
     stats.chain(1).set_presence(ChainPresence::Absent);
     stats.chain(1).set_hottest(Some(70_000));
     pvt[0].record(0, Some(60.0), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
 
-    let sample = embassy_futures::block_on(sensor.sample()).expect("chain 0 carries the board");
+    let sample = measured(embassy_futures::block_on(sensor.sample()));
     assert_eq!(sample.safety.millicelsius(), 60_000);
     // The connector holds no board, so its column clears rather than
     // standing at whatever it last read.
     assert_eq!(stats.chain(1).hottest_mc(), None);
-    // The interlock arms on the first reading, and this was one.
-    assert!(sensor.halts_on_fault());
 }
 
 #[test]
-fn a_board_with_no_present_chain_never_halts() {
-    let (pvt, stats) = present_board();
+fn a_board_with_no_present_chain_is_idle() {
+    let (_clock, pvt, stats) = present_board();
     for chain in stats.chains() {
         chain.set_presence(ChainPresence::Unknown);
     }
     pvt[0].record(0, Some(60.0), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
 
-    // Nothing has enumerated yet, so there is no chain to read and no
-    // fault to report.
-    assert!(embassy_futures::block_on(sensor.sample()).is_none());
-    assert!(!sensor.halts_on_fault());
+    // This is what a rail cut leaves behind, and what a board looks like
+    // before its first bring-up. A stale reading sits in the store, and
+    // it must not be reported and must not count as a fault.
+    assert!(matches!(
+        embassy_futures::block_on(sensor.sample()),
+        Reading::Idle
+    ));
+}
+
+#[test]
+fn a_halt_that_cuts_the_rail_does_not_report_a_fault() {
+    let (_clock, pvt, stats) = present_board();
+    pvt[0].record(0, Some(60.0), None);
+    let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
+    let sample = measured(embassy_futures::block_on(sensor.sample()));
+    assert_eq!(sample.safety.millicelsius(), 60_000);
+
+    // `cut_rail` marks every present chain unknown. The sensor must read
+    // the silence that follows as an idle board and not as a fault, or
+    // the halt holds itself down for ever.
+    for chain in stats.chains() {
+        chain.set_presence(ChainPresence::Unknown);
+    }
+    assert!(matches!(
+        embassy_futures::block_on(sensor.sample()),
+        Reading::Idle
+    ));
 }
 
 #[test]
 fn a_chain_present_again_after_a_halt_is_not_silent_on_the_pre_halt_answer() {
-    let (pvt, stats) = present_board();
+    let (_clock, pvt, stats) = present_board();
     pvt[0].record(0, Some(60.0), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
     let pre_halt_answer = pvt[0].last_answer().expect("chip 0 answered");
@@ -184,7 +217,7 @@ fn a_chain_present_again_after_a_halt_is_not_silent_on_the_pre_halt_answer() {
 
 #[test]
 fn chain_voltage_requires_every_chip_and_converts_microvolts_to_millivolts() {
-    let (pvt, stats) = present_board();
+    let (_clock, pvt, stats) = present_board();
     let sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
     assert_eq!(sensor.chain_voltage_mv(), None);
     for chip in 0..3 {
@@ -199,7 +232,7 @@ fn chain_voltage_requires_every_chip_and_converts_microvolts_to_millivolts() {
 
 #[test]
 fn chain_voltage_takes_the_lowest_chain_that_reported_every_chip() {
-    let (pvt, stats) = present_board();
+    let (_clock, pvt, stats) = present_board();
     let sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
     for chip in 0..u8::try_from(TEST_CHIPS).expect("the test chain is small") {
         pvt[0].record(chip, Some(50.0), Some(300.0));
@@ -212,7 +245,7 @@ fn chain_voltage_takes_the_lowest_chain_that_reported_every_chip() {
 
 #[test]
 fn a_chain_silent_for_a_second_sample_stops_the_sensor_answering() {
-    let (pvt, stats) = present_board();
+    let (_clock, pvt, stats) = present_board();
     pvt[0].record(0, Some(60.0), None);
     let mut sensor = ChainTemperature::<TEST_CHIPS, TEST_CHAINS>::new(pvt, stats);
 

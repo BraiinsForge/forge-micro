@@ -117,8 +117,7 @@ type CSMutex = CriticalSectionRawMutex;
 /// Published by [`run_power_stats`] on every tick. Successful ticks
 /// carry fresh values with `sensor_fault = false`; failed ticks carry
 /// the most recent known-good values plus `sensor_fault = true` so
-/// consumers see a stable last-good reading alongside a fault flag,
-/// mirroring [`ubos_thermal::ThermalReading`].
+/// consumers see a stable last-good reading alongside a fault flag.
 #[derive(Clone, Copy)]
 pub struct PsuReading {
     /// Input-side power (DC-DC primary).

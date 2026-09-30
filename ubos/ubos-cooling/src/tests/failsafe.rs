@@ -139,7 +139,7 @@ fn staleness_failsafe_forces_and_releases_full_fan() {
          PID control still holds the PWM at the min_fan_pwm floor"
     );
 
-    // Behavior 4: a sensor_fault reading forces the fan to full on its
+    // Behavior 4: a reading with no measurement forces the fan to full on its
     // own, independent of the staleness latch, which is already clear at
     // this point.
     ubos_thermal::publish_reading_for_test(moderate_reading(true));
@@ -148,6 +148,6 @@ fn staleness_failsafe_forces_and_releases_full_fan() {
     assert_eq!(
         fault_state.pwm,
         FanPwm::FULL,
-        "a sensor_fault reading must force the fan to full"
+        "a reading with no measurement must force the fan to full"
     );
 }

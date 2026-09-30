@@ -94,18 +94,18 @@ impl TachReader<1> for FakeTach {
     }
 }
 
-pub(crate) fn moderate_reading(sensor_fault: bool) -> ThermalReading {
+pub(crate) fn moderate_reading(no_reading: bool) -> ThermalReading {
     // Well below the default 67°C target: the PID drives the PWM toward
-    // its floor rather than toward FULL, so a non-fault reading at this
-    // temperature unambiguously demonstrates the fan leaving FULL.
+    // its floor rather than toward FULL, so a reading that carries a
+    // measurement at this temperature unambiguously demonstrates the fan
+    // leaving FULL.
     let temp = Temperature::from_millicelsius(50_000);
     ThermalReading {
         chain_voltage_mv: None,
-        chip_max: temp,
-        pid_temp: temp,
+        chip_max: Some(temp),
+        pid_temp: (!no_reading).then_some(temp),
         ambient: None,
         timestamp_ms: 0,
-        sensor_fault,
     }
 }
 

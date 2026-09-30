@@ -30,7 +30,9 @@
 //! connectors than boards plugged into them, so the sensor reads only
 //! the chains the miner found present. An absent or faulted chain has no
 //! chip to run a PVT block at all, and counting it as a silent chain
-//! would halt the board for hardware that is not there. A present chain
+//! would halt the board for hardware that is not there. Where no chain
+//! is present at all the sensor answers `Idle`; see "Chain presence" in
+//! `docs/MINING.md`. A present chain
 //! that falls silent does not hold the sample back on the tick it goes
 //! quiet, because a sibling chain may already hold the reading that
 //! needs the trip; its own hottest die is cleared to `None` in its
@@ -49,7 +51,7 @@
 
 use core::fmt::Write as _;
 
-use crate::{Sample, Source, TemperatureSensor};
+use crate::{Reading, Sample, Source, TemperatureSensor};
 use embassy_futures::poll_once;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_asic::ChainPvt;
@@ -110,7 +112,6 @@ pub struct ChainTemperature<const CHIPS: usize, const CHAINS: usize> {
     /// chain that takes its time enumerating does not arrive already
     /// expired.
     started: Instant,
-    seen_reading: bool,
     report_ticker: Ticker,
     /// Each chain's last answer as the previous report saw it, so a
     /// report with nothing new to say is recognised without a second
@@ -144,7 +145,6 @@ impl<const CHIPS: usize, const CHAINS: usize> ChainTemperature<CHIPS, CHAINS> {
             pvt,
             stats,
             started: Instant::now(),
-            seen_reading: false,
             report_ticker: Ticker::every(REPORT_INTERVAL),
             reported_answer: [None; CHAINS],
             became_present: [None; CHAINS],
@@ -320,10 +320,11 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
         lowest
     }
 
-    async fn sample(&mut self) -> Option<Sample> {
+    async fn sample(&mut self) -> Reading {
         self.report().await;
         let now = Instant::now();
         let mut hottest: Option<i32> = None;
+        let mut any_present = false;
         for chain in 0..CHAINS {
             let present = self.stats.chain(chain).presence().is_present();
             self.track_presence(chain, now, present);
@@ -334,6 +335,7 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
                 self.silent_ticks[chain] = 0;
                 continue;
             }
+            any_present = true;
             let silent = self.chain_is_silent(chain, now);
             self.silent_ticks[chain] = if silent {
                 self.silent_ticks[chain].saturating_add(1)
@@ -348,32 +350,30 @@ impl<const CHIPS: usize, const CHAINS: usize> TemperatureSensor
                 hottest = Some(hottest.map_or(value, |held| held.max(value)));
             }
         }
+        // No chain is present, so no chip is powered: nothing here can
+        // overheat and nothing owes a reading. Why that is an idle board
+        // and not a fault: "Chain presence" in `docs/MINING.md`.
+        if !any_present {
+            return Reading::Idle;
+        }
         // A present chain that has just fallen silent does not hold this
         // sample back: another chain may already hold the reading that
         // needs the trip. Once the quiet chain stays silent, its unread
         // dies are the greater risk, and the sensor stops answering so
         // the loop faults the way it does for one chain.
         if self.stalled() {
-            return None;
+            return Reading::Unreadable;
         }
-        let reading = Temperature::from_millicelsius(hottest?);
-        self.seen_reading = true;
+        let Some(hottest) = hottest else {
+            return Reading::Unreadable;
+        };
         // The chips are the board's thermometer, so the same reading
         // gates the halt and drives the fans; it comes from the die
         // itself, so it is gated against the chip limit.
-        Some(Sample {
-            safety: reading,
+        Reading::Measured(Sample {
+            safety: Temperature::from_millicelsius(hottest),
             safety_source: Source::Chip,
             pid: None,
         })
-    }
-
-    /// The thermometer sits inside the chips the board is bringing up,
-    /// so a missing reading is the normal state until a chain answers.
-    /// Arming the halt from boot would stop mining before a temperature
-    /// could exist, so the interlock arms on the first reading; a miss
-    /// after that is a present chain that reported and then fell silent.
-    fn halts_on_fault(&self) -> bool {
-        self.seen_reading
     }
 }

@@ -102,8 +102,10 @@ single writer. A fifth is the per-chain chip temperature, under
 "Per-chain PVT series" below.
 
 - `board_chip_temperature_millicelsius` is the hashboard chip
-  temperature. `ubos_thermal::run_thermal` writes it once per configured
-  sample interval, and the same value gates the thermal shutdown.
+  temperature. `ubos_thermal::run_thermal` writes it on every tick that
+  measures a chip temperature, and the same value gates the thermal
+  shutdown. A tick that measures nothing leaves the last written value
+  in place.
 - `board_ambient_temperature_millicelsius` is the ambient temperature around
   the board. `ubos_thermal::run_thermal` reads the ambient sensor on
   every tick, on a board that measures its air, including one that
@@ -125,9 +127,16 @@ The four gauges measure different hardware. Under load a control board
 is tens of degrees cooler than a hashboard, and the air is cooler again.
 
 What the ambient reading is and is not for is stated once, on
-`ubos_thermal::AmbientSensor`. The ambient gauge can run ahead of the
-watch: a tick that publishes no reading still writes the gauge, so the
-two carry different ambient values until the next tick that publishes.
+`ubos_thermal::AmbientSensor`. With the hashboard rail down it is
+still measured, where the chip gauge is only held; see "Two ways out of
+an overheat halt" in `docs/MINING.md`.
+
+No gauge marks a held value. A gauge keeps what was last written to it,
+so a consumer that must tell a held value from a fresh one reads
+`chip_reading_stale` from `/api/info` instead. The ambient gauge can
+also run ahead of the watch: a tick that publishes no reading still
+writes the gauge, so the two carry different ambient values until the
+next tick that publishes.
 
 ### The `source` label
 

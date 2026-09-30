@@ -143,14 +143,14 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
         "a fixed duty change must reach the fan within one control tick"
     );
 
-    // Behavior 4: a sensor_fault reading still forces full. Fixed mode picks
+    // Behavior 4: a reading with no measurement still forces full. Fixed mode picks
     // the steady-state duty, it does not opt out of the failsafes.
     ubos_thermal::publish_reading_for_test(moderate_reading(true));
     drive(cooling.as_mut(), ingest.as_mut(), &mut cx);
     assert_eq!(
         handle().current().expect("published").pwm,
         FanPwm::FULL,
-        "a sensor_fault reading must force the fan to full in fixed mode"
+        "a reading with no measurement must force the fan to full in fixed mode"
     );
 
     // Behavior 5: the control tick does not hand the fan back to the fixed

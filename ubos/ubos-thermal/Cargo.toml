@@ -42,12 +42,14 @@ ubos-temperature   = { workspace = true, default-features = false }
 ubos-logging       = { workspace = true }
 
 [dev-dependencies]
-# The chain sensor keeps its silence clocks on `Instant`, so the host tests
-# need the standard time driver, and the PVT store's atomics need a
-# critical-section backend on the host. The sensor's report awaits a real
-# `Ticker`, which needs a queue implementation, so `generic-queue-8` joins
-# `std` here the same way `ubos-mining` and `ubos-cooling` already carry it.
-embassy-time     = { workspace = true, features = ["std", "generic-queue-8"] }
+# The chain sensor's silence clocks and the PVT store's atomics need a
+# critical-section backend on the host, and `generic-queue-8` gives the
+# `Ticker` these tests await a timer queue to register on. `mock-driver`
+# gives the `run_thermal` test a virtual clock, the same way
+# `ubos-cooling`'s `run_cooling` tests step past `STALE_INTERVAL_MULTIPLIER`
+# ticks with no real delay; it replaces the `std` driver rather than
+# joining it; a build cannot link two time drivers.
+embassy-time     = { workspace = true, features = ["generic-queue-8", "mock-driver"] }
 critical-section = { version = "1.2", features = ["std"] }
 # The accounting handle the tests build takes its wired-chain count as an
 # atomic of the same crate `ubos-metrics` uses.

@@ -74,11 +74,24 @@ on `STATE_WATCH` and flips edges on the empty/non-empty boundary:
 | Producer         | `Message` sent to the manager | `PauseReason` bit asserted |
 |------------------|-------------------------------|----------------------------|
 | `ubos-thermal`   | `DangerousTemperature`        | `DangerousTemperature`     |
+| `ubos-thermal`   | `TemperatureUnreadable`       | `TemperatureUnreadable`    |
 | `ubos-cooling`   | `BrokenFan`                   | `BrokenFan`                |
 | stratum client   | `PoolUnreachable`             | `PoolUnreachable`          |
 | tuner            | `TunerFault`                  | `TunerFault`               |
 | OTA (`ubos-api`) | `OtaBegin`                    | `OtaUpdate`                |
 | operator         | `Stop`                        | `UserRequest`              |
+
+### Two ways out of an overheat halt
+
+Where a reading survives the rail cut, the thermal loop sees the
+cooldown itself and sends `TemperatureNormal`. Where the chips
+themselves are the thermometer, the trip cuts the rail those chips
+answer on: the board cools where nothing can see it, no reading can
+report the cooldown, and only the operator's `TemperatureAcknowledged`
+message clears the halt.
+
+The unreadable halt is different from both: the loop retracts it
+itself, once a reading returns or the board goes idle.
 
 Domain producers raise typed messages; they never name a `PauseReason`.
 Manager translates and serialises the halt/resume sequence so mining
@@ -186,6 +199,19 @@ have the loop hold the reading from before the last rail cut for the
 whole ramp. Failing the bring-up step instead keeps the rule that a chain
 the tuner sees has one reading of its own behind it.
 
+That rule is load-bearing twice over. It also lets `ChainTemperature`
+read "no chain present" as an idle board rather than as a fault, because
+a present chain always has a reading behind it, so silence from a board
+with no present chain is a board with nothing powered.
+
+That reading is what a stop depends on. A rail cut marks every chain
+unknown, so a board whose chips are its thermometer falls silent the
+moment it stops, and a loop that read that silence as a dead sensor
+would hold the board down for the silence its own stop caused. Reading
+it as idle instead is what lets the thermal loop release its own
+unreadable halt: a halt that waited for a reading could never lift,
+because the halt is what ends the readings.
+
 ### Tolerance ends at bring-up
 
 That tolerance is a property of enumeration and of nothing after it. A
@@ -194,11 +220,17 @@ bring-up loop and by the rail cut, so once the machine is mining there
 is no path that moves a chain out of the ramp. Two runtime faults
 therefore take the whole machine down:
 
-- **A present chain that goes silent.** `ChainTemperature::sample` stops
-  answering when any present chain has been silent for its budget, and
-  the thermal loop faults the board. The other chains are hashing and
-  are stopped with it. The sensor cannot do otherwise today: it reads
-  presence and does not write it, and an unread die is the greater risk.
+- **A present chain that goes silent.** `ChainTemperature::sample`
+  answers `Unreadable` when any present chain has been silent for its
+  budget, and the thermal loop halts the board on
+  `TemperatureUnreadable`. The other chains are hashing and are stopped
+  with it. The sensor cannot do otherwise today: it reads presence and
+  does not write it, and an unread die is the greater risk.
+
+  That halt releases itself; see "Two ways out of an overheat halt"
+  above. A chain that enumerates clean and goes silent again therefore cycles
+  through bring-up about once per silence budget. That is the price of
+  the release, and why the release exists is under "Chain presence".
 - **A present chain that refuses a ramp step.** The plan executor
   reports the first error, so the miner cuts the rail and retries the
   whole bring-up. A persistent frequency-command failure therefore
