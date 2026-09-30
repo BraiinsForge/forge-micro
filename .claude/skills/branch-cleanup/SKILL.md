@@ -203,12 +203,20 @@ count is irrelevant.
      review value. Example: commit A adds a parser, commit B renames a
      variable in that parser. B should fold into A.
 
-3. Identify commits that should be **split** (one commit bundling multiple
-   unrelated logical changes):
+3. Identify commits that should be **split**. The test is the number
+   of logical changes in the diff, never the line count: a commit that
+   holds two is a split candidate unless there is a strong reason it
+   cannot stand as two, and that reason goes into the plan. Past the
+   size `/commit` calls a big one, read the commit hunk by hunk from
+   the same output, note the purpose each hunk serves, and group the
+   hunks by purpose; two groups is two changes, and the plan lists the
+   hunk and purpose counts so the reader sees the inspection happened.
+   The seams a big commit splits along are `/commit`'s and are not
+   restated here. Below that size the same test runs from the stat and
+   the message: a body that lists two purposes, or a hunk the body does
+   not cover, is a split.
    - A commit that adds a feature AND refactors an unrelated module.
    - A commit that fixes two independent bugs.
-   - A commit where the diff has clearly separable hunks serving different
-     purposes.
 
 4. Identify commits that should be **reordered** (logical dependencies
    are out of sequence or related commits are separated by unrelated ones).
@@ -254,6 +262,7 @@ For each logical change identified on the branch, list:
 - Description of the logical change (one sentence)
 - Commit(s) that belong to it
 - Status: clean, needs squash, needs split, needs reorder
+- For a commit past `/commit`'s big size: hunks read, purposes found
 
 ## Commit Message Issues
 (for each: hash, problem, suggested fix)
