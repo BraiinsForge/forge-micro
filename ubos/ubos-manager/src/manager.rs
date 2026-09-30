@@ -29,7 +29,7 @@ use ubos_logging::{info, warn};
 use ubos_mining::Handle as MiningHandle;
 
 use crate::message::Message;
-use crate::pause::{PauseReason, PauseReasons};
+use crate::pause::{PauseReason, PauseReasons, effect};
 use crate::{COMMAND_CHANNEL, STATE_WATCH};
 
 /// Log a `DangerousTemperature` bit transition.
@@ -51,12 +51,11 @@ fn log_transition(was_halted: bool, now_halted: bool) {
     }
 }
 
-/// Map an asserting `Message` to the `PauseReason` it sets, or `None`
-/// for clearing messages.
-///
-/// Used to capture the triggering reason before `PauseReasons::apply`
-/// consumes the message, so the halt event can carry the discriminant of
-/// the newly-active reason.
+/// The `PauseReason` an asserting `Message` sets, or `None` for a
+/// clearing one, so the halt event can carry the discriminant of the
+/// newly-active reason. Read off [`effect`], which is the one table
+/// that interprets a message, so a new message cannot be interpreted
+/// here and there differently.
 ///
 /// Free rather than a method on `Message`, though the receiver is clear
 /// and local. `message.rs` states the layering this would break: a
@@ -65,19 +64,9 @@ fn log_transition(was_halted: bool, now_halted: bool) {
 /// the private half on the public type and hand every sender the
 /// mapping.
 fn halt_reason(message: Message) -> Option<PauseReason> {
-    match message {
-        Message::DangerousTemperature => Some(PauseReason::DangerousTemperature),
-        Message::BrokenFan => Some(PauseReason::BrokenFan),
-        Message::PoolUnreachable => Some(PauseReason::PoolUnreachable),
-        Message::TunerFault => Some(PauseReason::TunerFault),
-        Message::OtaBegin => Some(PauseReason::OtaUpdate),
-        Message::Stop => Some(PauseReason::UserRequest),
-        Message::TemperatureNormal
-        | Message::FanRestored
-        | Message::PoolReachable
-        | Message::TunerRecovered
-        | Message::OtaEnd
-        | Message::Start => None,
+    match effect(message) {
+        (reason, true) => Some(reason),
+        (_, false) => None,
     }
 }
 
@@ -119,6 +108,9 @@ pub async fn run_manager(mining: MiningHandle) -> ! {
                     PauseReason::PoolUnreachable => crate::events::mining_halted_pool_unreachable(),
                     PauseReason::OtaUpdate => crate::events::mining_halted_ota_update(),
                     PauseReason::TunerFault => crate::events::mining_halted_tuner_fault(),
+                    PauseReason::TemperatureUnreadable => {
+                        crate::events::mining_halted_temperature_unreadable();
+                    }
                 }
             }
             mining.halt().await;

@@ -32,14 +32,24 @@
 /// Condition events from other modules carry explicit edge direction
 /// so the manager does not have to track who-asserted-what. Operator
 /// intent from the API uses `Start`/`Stop`.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Message {
     /// Thermal: chip-max crossed the dangerous threshold.
     DangerousTemperature,
-    /// Thermal: chip-max returned below the cooldown threshold (or the
-    /// sensor recovered after a fault).
+    /// Thermal: chip-max returned below the cooldown threshold.
     TemperatureNormal,
+    /// API: the operator has seen the dangerous-temperature halt and
+    /// accepts the restart.
+    ///
+    /// See "Two ways out of an overheat halt" in `docs/MINING.md`.
+    TemperatureAcknowledged,
+    /// Thermal: a sensor that owes a reading has not given one for the
+    /// tolerated number of ticks.
+    TemperatureUnreadable,
+    /// Thermal: the sensor answered again, or the board now has nothing
+    /// to watch, so no reading is owed.
+    TemperatureReadable,
     /// Cooling: fan tach signal lost or out-of-range.
     BrokenFan,
     /// Cooling: fan tach signal recovered.

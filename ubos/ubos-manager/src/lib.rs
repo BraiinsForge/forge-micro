@@ -35,13 +35,14 @@ pub(crate) mod message;
 pub mod pause;
 
 ubos_events::events! {
-    mining_halted_dangerous_temperature() warn = "Mining halted: dangerous temperature",
-    mining_halted_broken_fan()            warn = "Mining halted: broken fan",
-    mining_halted_user_request()          warn = "Mining halted: user request",
-    mining_halted_pool_unreachable()      warn = "Mining halted: pool unreachable",
-    mining_halted_ota_update()            warn = "Mining halted: OTA update",
-    mining_halted_tuner_fault()           warn = "Mining halted: tuner fault",
-    mining_resumed()                      info = "Mining resumed",
+    mining_halted_dangerous_temperature()  warn = "Mining halted: dangerous temperature",
+    mining_halted_broken_fan()             warn = "Mining halted: broken fan",
+    mining_halted_user_request()           warn = "Mining halted: user request",
+    mining_halted_pool_unreachable()       warn = "Mining halted: pool unreachable",
+    mining_halted_ota_update()             warn = "Mining halted: OTA update",
+    mining_halted_tuner_fault()            warn = "Mining halted: tuner fault",
+    mining_halted_temperature_unreadable() warn = "Mining halted: no temperature reading",
+    mining_resumed()                       info = "Mining resumed",
 }
 
 #[cfg(test)]
@@ -66,9 +67,13 @@ use ubos_mining::MiningState;
 /// OTA request indefinitely.
 const MINING_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Subscriber capacity for the pause-reasons watch. Four receivers
-/// covers API, display, and two future consumers without widening
-/// the watch further.
+/// Subscriber capacity for the pause-reasons watch. No task holds a
+/// receiver for long today: the API and the thermal loop read the mask
+/// through `pause_reasons`, and a producer that only sends takes no
+/// slot. The slots are for a caller of [`Handle::changed`], which holds
+/// one for the length of the call, and for the next consumer that
+/// follows the mask in its loop. [`Handle::subscribe`] panics past the
+/// last one.
 const WATCH_CAPACITY: usize = 4;
 
 /// Command queue depth for the manager command channel. A small buffer
@@ -86,6 +91,9 @@ pub(crate) static STATE_WATCH: Watch<CSMutex, PauseReasons, WATCH_CAPACITY> = Wa
 /// [`manager::run_manager`]; producers send via [`Handle::send`].
 pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH> =
     Channel::new();
+
+/// Per-task subscription to the pause mask, from [`Handle::subscribe`].
+pub type PauseSubscription = Receiver<'static, CSMutex, PauseReasons, WATCH_CAPACITY>;
 
 /// Obtain a handle to the manager. `Copy`; callers freely pass it to
 /// multiple tasks.
@@ -110,6 +118,13 @@ pub struct Handle {
 impl Handle {
     /// Send a `Message` to the manager task. The manager
     /// interprets the message into a `PauseReason` bit transition.
+    ///
+    /// The send returns when the message is queued, not when the manager
+    /// has applied it, so a mask read straight after may still show the
+    /// old value. The gap is one manager turn against sample intervals a
+    /// thousand times longer, and every transition is idempotent on the
+    /// mask, so a sender that misses the gap and asks again changes
+    /// nothing.
     pub async fn send(&self, message: Message) {
         self.commands.send(message).await;
     }
@@ -122,6 +137,12 @@ impl Handle {
         self.state.try_get().unwrap_or_default()
     }
 
+    /// True while the mask holds `reason`.
+    #[must_use]
+    pub fn holds(&self, reason: PauseReason) -> bool {
+        self.pause_reasons().contains(reason)
+    }
+
     /// Per-task subscription. Call once per consumer task before
     /// entering its loop.
     ///
@@ -129,7 +150,7 @@ impl Handle {
     ///
     /// Panics if the underlying `Watch` has no free receiver slots.
     #[must_use]
-    pub fn subscribe(&self) -> Receiver<'static, CSMutex, PauseReasons, WATCH_CAPACITY> {
+    pub fn subscribe(&self) -> PauseSubscription {
         self.state
             .receiver()
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")

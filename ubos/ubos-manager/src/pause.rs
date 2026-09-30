@@ -51,6 +51,13 @@ pub enum PauseReason {
     OtaUpdate = 4,
     /// The tuner reported a fault it cannot recover from.
     TunerFault = 5,
+    /// A temperature sensor that owes a reading is not giving one, so
+    /// the board would run unwatched.
+    ///
+    /// Separate from [`Self::DangerousTemperature`] because the two
+    /// recover differently. See "Two ways out of an overheat halt" in
+    /// `docs/MINING.md`.
+    TemperatureUnreadable = 6,
 }
 
 impl PauseReason {
@@ -68,6 +75,22 @@ impl PauseReason {
             Self::PoolUnreachable => "poolUnreachable",
             Self::OtaUpdate => "otaUpdate",
             Self::TunerFault => "tunerFault",
+            Self::TemperatureUnreadable => "temperatureUnreadable",
+        }
+    }
+
+    /// Rank among the reasons, most severe first, and the order
+    /// [`PRIORITY`] lists them in. A match, so that a new variant does
+    /// not compile until it is ranked.
+    const fn severity(self) -> usize {
+        match self {
+            Self::DangerousTemperature => 0,
+            Self::TemperatureUnreadable => 1,
+            Self::BrokenFan => 2,
+            Self::TunerFault => 3,
+            Self::PoolUnreachable => 4,
+            Self::OtaUpdate => 5,
+            Self::UserRequest => 6,
         }
     }
 }
@@ -88,19 +111,11 @@ impl PauseReasons {
     /// mask is the whole of the manager's state and the message set is
     /// the whole of what can move it.
     pub(crate) fn apply(self, message: Message) -> Self {
-        match message {
-            Message::DangerousTemperature => self.assert(PauseReason::DangerousTemperature),
-            Message::TemperatureNormal => self.clear(PauseReason::DangerousTemperature),
-            Message::BrokenFan => self.assert(PauseReason::BrokenFan),
-            Message::FanRestored => self.clear(PauseReason::BrokenFan),
-            Message::PoolUnreachable => self.assert(PauseReason::PoolUnreachable),
-            Message::PoolReachable => self.clear(PauseReason::PoolUnreachable),
-            Message::TunerFault => self.assert(PauseReason::TunerFault),
-            Message::TunerRecovered => self.clear(PauseReason::TunerFault),
-            Message::OtaBegin => self.assert(PauseReason::OtaUpdate),
-            Message::OtaEnd => self.clear(PauseReason::OtaUpdate),
-            Message::Stop => self.assert(PauseReason::UserRequest),
-            Message::Start => self.clear(PauseReason::UserRequest),
+        let (reason, asserted) = effect(message);
+        if asserted {
+            self.assert(reason)
+        } else {
+            self.clear(reason)
         }
     }
 
@@ -130,18 +145,88 @@ impl PauseReasons {
 
     /// The highest-priority active reason, or `None` when the mask is empty.
     ///
-    /// Priority order (safety first): `DangerousTemperature`, `BrokenFan`,
-    /// `TunerFault`, `PoolUnreachable`, `OtaUpdate`, `UserRequest`.
+    /// Priority order, safety first: `DangerousTemperature`,
+    /// `TemperatureUnreadable`, `BrokenFan`, `TunerFault`,
+    /// `PoolUnreachable`, `OtaUpdate`, `UserRequest`. The two
+    /// temperature reasons lead because a board that is too hot and a
+    /// board nobody is watching are the two that damage hardware.
     #[must_use]
     pub fn dominant(self) -> Option<PauseReason> {
-        const PRIORITY: [PauseReason; 6] = [
-            PauseReason::DangerousTemperature,
-            PauseReason::BrokenFan,
-            PauseReason::TunerFault,
-            PauseReason::PoolUnreachable,
-            PauseReason::OtaUpdate,
-            PauseReason::UserRequest,
-        ];
         PRIORITY.into_iter().find(|&r| self.contains(r))
     }
 }
+
+/// The one bit a message moves, and whether it asserts or clears it.
+/// This is the whole of the manager's interpretation.
+pub(crate) const fn effect(message: Message) -> (PauseReason, bool) {
+    match message {
+        Message::DangerousTemperature => (PauseReason::DangerousTemperature, true),
+        // See "Two ways out of an overheat halt" in docs/MINING.md.
+        Message::TemperatureNormal | Message::TemperatureAcknowledged => {
+            (PauseReason::DangerousTemperature, false)
+        }
+        Message::BrokenFan => (PauseReason::BrokenFan, true),
+        Message::FanRestored => (PauseReason::BrokenFan, false),
+        Message::PoolUnreachable => (PauseReason::PoolUnreachable, true),
+        Message::PoolReachable => (PauseReason::PoolUnreachable, false),
+        Message::TunerFault => (PauseReason::TunerFault, true),
+        Message::TunerRecovered => (PauseReason::TunerFault, false),
+        Message::OtaBegin => (PauseReason::OtaUpdate, true),
+        Message::OtaEnd => (PauseReason::OtaUpdate, false),
+        Message::TemperatureUnreadable => (PauseReason::TemperatureUnreadable, true),
+        Message::TemperatureReadable => (PauseReason::TemperatureUnreadable, false),
+        Message::Stop => (PauseReason::UserRequest, true),
+        Message::Start => (PauseReason::UserRequest, false),
+    }
+}
+
+/// Every [`PauseReason`] in [`PauseReason::severity`] order, which is
+/// what [`PauseReasons::dominant`] walks.
+const PRIORITY: [PauseReason; REASON_COUNT] = [
+    PauseReason::DangerousTemperature,
+    PauseReason::TemperatureUnreadable,
+    PauseReason::BrokenFan,
+    PauseReason::TunerFault,
+    PauseReason::PoolUnreachable,
+    PauseReason::OtaUpdate,
+    PauseReason::UserRequest,
+];
+
+/// How many reasons exist. The match is exhaustive, so a new variant
+/// does not compile until it is added here and the count moves with
+/// it; a count read off one named discriminant would stay put.
+///
+/// This is also what forces [`PRIORITY`] to grow. Its declared type is
+/// `[PauseReason; REASON_COUNT]`, so raising the count here fails the
+/// array literal until the new reason is ranked. A hand-written count
+/// would leave that literal valid, and the new reason would go
+/// unranked with nothing to catch it.
+const REASON_COUNT: usize = match PauseReason::UserRequest {
+    PauseReason::DangerousTemperature
+    | PauseReason::TemperatureUnreadable
+    | PauseReason::BrokenFan
+    | PauseReason::TunerFault
+    | PauseReason::PoolUnreachable
+    | PauseReason::OtaUpdate
+    | PauseReason::UserRequest => 7,
+};
+
+// A reason that `PRIORITY` does not list can win the mask and never
+// surface as the dominant one, which shows the operator the wrong cause.
+// Two things rule that out, and neither is this block. `severity` is
+// exhaustive, so a new reason cannot compile unranked, and `PRIORITY`'s
+// declared length is `REASON_COUNT`, which moves with the enum, so an
+// entry left out fails the array literal.
+//
+// What is left for this block is the order: every entry standing at its
+// own rank rules out a duplicate and a swap.
+const _: () = {
+    let mut i = 0;
+    while i < PRIORITY.len() {
+        assert!(
+            PRIORITY[i].severity() == i,
+            "PRIORITY is not in severity order"
+        );
+        i += 1;
+    }
+};
