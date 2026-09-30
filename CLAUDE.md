@@ -130,6 +130,8 @@ finished change is committed in the turn that finishes it.
 - Present findings and the proposed approach, then wait. Answer a
   question completely, then wait; it is not an instruction.
 - One logical change per iteration, in plan mode when non-trivial.
+- One logical change per commit, granular enough to review fast; a
+  commit holding two is split before it merges, never excused by size.
 - **NEVER push to remote.** The user pushes when ready.
 
 The four skills under `.claude/skills/` own the rest: `/commit`,
