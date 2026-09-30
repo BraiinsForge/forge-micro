@@ -35,6 +35,10 @@ module: High-level what in imperative style
   (rule UC1); lowercase start; max 72 chars/line
 - Wrap long lines with `par w72p2h1` (greedy fill, 2-char hanging indent)
 - Answer WHY: motivation, problem solved, approach rationale
+- Concise: one bullet per reason, and each reason stated once. A
+  bullet that restates an earlier one in other words, or that explains
+  a hunk the reader can see, is cut; a body that grows past a handful
+  of bullets is a sign the commit holds more than one change
 - NO restating the diff, NO signatures, NO `Co-Authored-By`, NO emojis
   (rule UC2)
 - NO reference to a plan document, a step, or a stage of one (rule UC5):
