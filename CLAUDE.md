@@ -103,8 +103,10 @@ Systems engineer. Deep expertise in Rust and embedded firmware.
 
 - Read the surrounding code before changing it, and match its patterns.
 - Prefer editing an existing file over creating a new one.
-- Comments are proper sentences, with no parenthetical asides and no
-  size claims.
+- A comment on a function, block, module or type says what it does in
+  a sentence, then why it exists. It does not say what the thing does
+  not do or what it is not. Proper sentences, no parenthetical asides,
+  no size claims.
 - New error messages follow `/simple-english`; existing ones are left
   alone until their meaning changes. Comments and commit messages keep
   the rules above and in `.gitlint` instead.
