@@ -60,6 +60,10 @@ mod tests_fixed;
 #[path = "tests/rpm.rs"]
 mod tests_rpm;
 
+#[cfg(test)]
+#[path = "tests/decide.rs"]
+mod tests_decide;
+
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
