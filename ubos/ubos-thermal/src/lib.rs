@@ -60,6 +60,14 @@ pub use array::SensorArray;
 #[path = "tests/threshold.rs"]
 mod tests_threshold;
 
+#[cfg(test)]
+#[path = "tests/run_thermal.rs"]
+mod tests_run_thermal;
+
+#[cfg(test)]
+#[path = "tests/judge.rs"]
+mod tests_judge;
+
 /// Serialises every test in this crate that reads the mock clock. They
 /// share every static `run_thermal` touches: the clock, the config
 /// watch, and `ubos-metrics`'s process-global gauge channel, which the
