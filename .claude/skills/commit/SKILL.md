@@ -97,6 +97,11 @@ Interactive patch mode (`git add -p`) commands:
   Nothing finished is left in the working tree for a later turn.
 - One logical change per commit, reviewable in isolation
 - Separate unrelated changes into different commits
+- A commit past 200 changed lines is a big one and is split unless
+  it cannot be: the tests apart from the code they test, a rename
+  apart from the change that follows it, a new module apart from its
+  first caller. The size is a signal, not a limit; the question it
+  raises is whether the diff holds one change or two
 - The affected crate builds via its `nix develop` shell (skip if no Rust
   changed)
 
