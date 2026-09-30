@@ -154,7 +154,10 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 // `ubos_machine::FORGE_AXE` sensor table. There is no die-attached
 // remote diode on this board, so the safety gate runs on the PCB
 // readings plus their PCB-to-die offset.
-ubos_thermal::thermal_task!(ubos_thermal::SensorArray<psu::Device>);
+ubos_thermal::thermal_task!(
+    ubos_thermal::SensorArray<psu::Device>,
+    ubos_thermal::NoAmbient
+);
 
 ubos_manager::manager_task!();
 
@@ -381,7 +384,11 @@ async fn boot(spawner: Spawner) {
     } = Pio::new(hw.pio, Irqs);
     let board_tach =
         fan::BoardTach::new(&mut common, sm0, sm1, hw.fan_tach_pin_a, hw.fan_tach_pin_b);
-    spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
+    spawner.spawn(unwrap!(thermal_task(
+        hashboard_temp,
+        ubos_thermal::NoAmbient,
+        manager_handle
+    )));
     spawner.spawn(unwrap!(manager_task(mining_handle)));
     spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
 

@@ -97,18 +97,37 @@ Code: `ubos/ubos-thermal/src/metrics.rs`,
 `ubos/ubos-thermal/src/array.rs`,
 `ubos/ubos-metrics/src/mcu_temperature.rs`.
 
-Two gauges carry a temperature, and each one has a single writer:
+Four gauges in this section carry a temperature, and each one has a
+single writer. A fifth is the per-chain chip temperature, under
+"Per-chain PVT series" below.
 
 - `board_chip_temperature_millicelsius` is the hashboard chip
   temperature. `ubos_thermal::run_thermal` writes it once per configured
   sample interval, and the same value gates the thermal shutdown.
+- `board_ambient_temperature_millicelsius` is the ambient temperature around
+  the board. `ubos_thermal::run_thermal` reads the ambient sensor on
+  every tick, on a board that measures its air, including one that
+  measured no chip temperature and one that published no reading at
+  all. The gauge is written on every tick whose read returns a value;
+  a tick whose sensor answers nothing leaves the last written value in
+  place. It carries no label, because a board reports one ambient
+  reading or none.
+- `board_lm75a_temperature_millicelsius` is a per-sensor reading from
+  each LM75A on the board, labelled by I2C address.
+  `ubos_thermal::array::SensorArray` writes it beside the aggregate the
+  chip gauge carries.
 - `board_mcu_temperature_millicelsius` is the temperature of the MCU die
   on the control board. `ubos_metrics::mcu_temperature` writes it once
   per second, on the boards whose MCU carries an internal thermometer:
   esp32s3, stm32f407 and stm32f439.
 
-The two gauges measure different hardware. Under load a control board is
-tens of degrees cooler than a hashboard.
+The four gauges measure different hardware. Under load a control board
+is tens of degrees cooler than a hashboard, and the air is cooler again.
+
+What the ambient reading is and is not for is stated once, on
+`ubos_thermal::AmbientSensor`. The ambient gauge can run ahead of the
+watch: a tick that publishes no reading still writes the gauge, so the
+two carry different ambient values until the next tick that publishes.
 
 ### The `source` label
 

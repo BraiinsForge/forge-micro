@@ -103,6 +103,7 @@ pub(crate) fn moderate_reading(sensor_fault: bool) -> ThermalReading {
         chain_voltage_mv: None,
         chip_max: temp,
         pid_temp: temp,
+        ambient: None,
         timestamp_ms: 0,
         sensor_fault,
     }

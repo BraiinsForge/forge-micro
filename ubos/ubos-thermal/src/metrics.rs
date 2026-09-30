@@ -17,8 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The chip temperature gauge. [`run_thermal`](crate::run_thermal) is
-//! its only writer, so the name and the push live beside that loop.
+//! The chip temperature gauge and the ambient gauge.
+//! [`run_thermal`](crate::run_thermal) is the only writer of both, so
+//! the names and the pushes live beside that loop.
 //!
 //! Metrics: `../../../docs/METRICS.md`.
 
@@ -34,6 +35,11 @@ use crate::Source;
 /// Integer millicelsius preserves sub-degree resolution without
 /// soft-float, and the name reflects the unit carried on the wire.
 const METRIC_NAME: &str = "board_chip_temperature_millicelsius";
+
+/// The ambient temperature around the board, where the board measures it.
+/// Carries no label: a board reports one ambient reading or none. Integer
+/// millicelsius for the reason [`METRIC_NAME`] gives.
+const AMBIENT_METRIC_NAME: &str = "board_ambient_temperature_millicelsius";
 
 /// The `source` label for a reading. The two label strings live here and
 /// nowhere else, so no comparison outside this module can turn on one.
@@ -60,4 +66,14 @@ pub(crate) async fn publish_chip_temperature(temp: Temperature, source: Source) 
         value: LabelValue::Static(source),
     });
     push(Metric::with_labels(METRIC_NAME, labels, value)).await;
+}
+
+/// Push the ambient temperature around the board. What the reading is
+/// and is not for: [`crate::AmbientSensor`].
+pub(crate) async fn publish_ambient_temperature(temp: Temperature) {
+    push(Metric::with_no_labels(
+        AMBIENT_METRIC_NAME,
+        Value::Int(i64::from(temp.millicelsius())),
+    ))
+    .await;
 }

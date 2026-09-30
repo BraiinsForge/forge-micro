@@ -22,9 +22,10 @@
 //! `ManagerMessage::DangerousTemperature` and `TemperatureNormal` on
 //! threshold and recovery edges; the manager is the sole caller of
 //! `MiningHandle::halt`/`resume`. This task is also the sole writer of
-//! the chip temperature gauge, in `metrics`. `array` aggregates a
-//! board's I2C sensor table into the reading the task polls, over the
-//! drivers and the descriptor types in `ubos-temperature`.
+//! the chip temperature gauge and the ambient gauge, in `metrics`.
+//! `array` aggregates a board's I2C sensor table into the reading the
+//! task polls, over the drivers and the descriptor types in
+//! `ubos-temperature`.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -46,7 +47,7 @@ pub use array::SensorArray;
 #[path = "tests/threshold.rs"]
 mod tests_threshold;
 
-use crate::metrics::publish_chip_temperature;
+use crate::metrics::{publish_ambient_temperature, publish_chip_temperature};
 use crate::threshold::{Action, evaluate};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Receiver, Watch};
@@ -149,6 +150,38 @@ pub trait TemperatureSensor {
     }
 }
 
+/// A sensor for the ambient temperature around the board, apart from
+/// the chip sensor. Every board hands [`run_thermal`] one and
+/// [`thermal_task!`] takes no default, so every board states whether it
+/// reads an ambient temperature and cannot compile without saying so; a
+/// board without a sensor states it by handing [`NoAmbient`].
+///
+/// The reading is for the operator and for the metrics. Nothing in this
+/// crate decides on it: it gates no halt and drives no fan. The loop
+/// reads it on every tick, after every decision the tick makes, for the
+/// reason [`read_ambient`] gives. This paragraph is the one statement
+/// of what the reading is for; every other mention points here.
+#[allow(async_fn_in_trait)]
+pub trait AmbientSensor {
+    /// The ambient temperature, or `None` when the read failed.
+    ///
+    /// The wait is the implementor's to bound. The loop awaits this call
+    /// unbounded, and a sensor that never answers ends the ticks, and
+    /// with them every judgement the chip sensor feeds. A sensor read
+    /// over a link to another controller answers `None` after a
+    /// timeout of its own rather than waiting on the link.
+    async fn ambient(&mut self) -> Option<Temperature>;
+}
+
+/// The ambient temperature sensor of a board that has none: the reading stays `None`.
+pub struct NoAmbient;
+
+impl AmbientSensor for NoAmbient {
+    async fn ambient(&mut self) -> Option<Temperature> {
+        None
+    }
+}
+
 /// A single thermal sample from the board sensor.
 ///
 /// Published by `run_thermal` at every successful sensor read and on every
@@ -161,6 +194,9 @@ pub struct ThermalReading {
     /// Temperature that drives the cooling PID. PCB-plus-
     /// offset estimate rather than the real die reading.
     pub pid_temp: Temperature,
+    /// The ambient temperature around the board, where the board measures
+    /// it. What it is and is not read for: [`AmbientSensor`].
+    pub ambient: Option<Temperature>,
     /// Chip-derived voltage sum, separate from a measured PSU output rail.
     pub chain_voltage_mv: Option<u32>,
     /// Monotonic timestamp of this reading in milliseconds since boot.
@@ -267,18 +303,35 @@ async fn publish_chip_temperatures(sample: &Sample) -> Temperature {
     }
 }
 
+/// Read the ambient temperature and publish its gauge. It gates
+/// nothing, so it is read after every decision a tick makes and never
+/// before one: a sensor that takes its time answering must not hold up
+/// the sample the halt turns on, nor the halt itself. Every tick reads
+/// it, including one that publishes no reading, because the chip
+/// sensor's silence says nothing about this sensor; the watch carries
+/// the value of the last tick that published.
+async fn read_ambient<A: AmbientSensor>(ambient: &mut A) -> Option<Temperature> {
+    let reading = ambient.ambient().await;
+    if let Some(reading) = reading {
+        publish_ambient_temperature(reading).await;
+    }
+    reading
+}
+
 /// Run the thermal monitoring loop forever.
 ///
 /// Spawned once per board firmware. `sensor` is the board-specific
-/// temperature sensor driver. `manager` is the handle used to send
+/// temperature sensor driver and `ambient` its ambient temperature
+/// sensor, [`NoAmbient`] where it has none. `manager` is the handle used to send
 /// `ManagerMessage::DangerousTemperature` and
 /// `ManagerMessage::TemperatureNormal` on threshold and recovery edges.
 /// The manager is the sole caller of `MiningHandle::halt`/`resume`.
 /// Thermal tuning is read from `config` and refreshed whenever that
 /// config publishes a new value. Board firmware passes
 /// [`ubos_config::handle`], which [`thermal_task`] supplies for it.
-pub async fn run_thermal<S: TemperatureSensor>(
+pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor>(
     mut sensor: S,
+    mut ambient: A,
     manager: ManagerHandle,
     config_handle: ConfigHandle,
 ) -> ! {
@@ -342,10 +395,14 @@ pub async fn run_thermal<S: TemperatureSensor>(
                     );
                 }
             }
+            // Read after the decision, so the gauge and the watch carry
+            // the same ambient temperature on a tick that publishes.
+            let ambient_temp = read_ambient(&mut ambient).await;
             if sensor_misses >= SENSOR_FAULT_TICKS {
                 publisher.send(ThermalReading {
                     chip_max: last_chip_max.unwrap_or(Temperature::from_millicelsius(0)),
                     pid_temp: last_pid_temp.unwrap_or(Temperature::from_millicelsius(0)),
+                    ambient: ambient_temp,
                     timestamp_ms: now.as_millis(),
                     sensor_fault: true,
                     chain_voltage_mv: None,
@@ -382,9 +439,13 @@ pub async fn run_thermal<S: TemperatureSensor>(
         );
         apply_action(action, &mut halted, sample.safety, &manager).await;
 
+        // Read after the decision, so the gauge and the watch carry the
+        // same ambient temperature on a tick that publishes.
+        let ambient_temp = read_ambient(&mut ambient).await;
         publisher.send(ThermalReading {
             chip_max: sample.safety,
             pid_temp,
+            ambient: ambient_temp,
             timestamp_ms: now.as_millis(),
             sensor_fault: false,
             chain_voltage_mv: sensor.chain_voltage_mv(),
@@ -394,14 +455,19 @@ pub async fn run_thermal<S: TemperatureSensor>(
 
 /// Task shell around [`run_thermal`], which polls the temperature
 /// sensors and publishes the thermal reading. Takes the board's sensor
-/// type: an I2C sensor array on most boards, a single ambient sensor
-/// where that is all there is.
+/// type, an I2C sensor array on most boards, and its ambient temperature sensor type,
+/// [`NoAmbient`] on a board without one. The ambient type has no default, for
+/// the reason [`AmbientSensor`] gives.
 #[macro_export]
 macro_rules! thermal_task {
-    ($sensor:ty) => {
+    ($sensor:ty, $ambient:ty) => {
         #[embassy_executor::task]
-        async fn thermal_task(sensor: $sensor, manager: ubos_manager::Handle) -> ! {
-            ubos_thermal::run_thermal(sensor, manager, ubos_config::handle()).await
+        async fn thermal_task(
+            sensor: $sensor,
+            ambient: $ambient,
+            manager_handle: ubos_manager::Handle,
+        ) -> ! {
+            ubos_thermal::run_thermal(sensor, ambient, manager_handle, ubos_config::handle()).await
         }
     };
 }

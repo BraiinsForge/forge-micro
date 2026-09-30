@@ -129,7 +129,10 @@ ubos_mining::pool_weights_task!(&mining::CHAINS);
 
 ubos_mining::miner_metrics_task!(POOL_SLOTS);
 
-ubos_thermal::thermal_task!(ubos_thermal::SensorArray<psu::Device>);
+ubos_thermal::thermal_task!(
+    ubos_thermal::SensorArray<psu::Device>,
+    ubos_thermal::NoAmbient
+);
 
 ubos_manager::manager_task!();
 
@@ -388,7 +391,11 @@ async fn boot(spawner: Spawner) {
         // Takes the fan by reference as proof that CH4 is configured and its
         // capture interrupt is armed.
         let tach = ubos_stm32::fan::BoardTach::new(&board_fan);
-        spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
+        spawner.spawn(unwrap!(thermal_task(
+            hashboard_temp,
+            ubos_thermal::NoAmbient,
+            manager_handle
+        )));
         spawner.spawn(unwrap!(manager_task(mining_handle)));
         spawner.spawn(unwrap!(cooling_task(board_fan, tach, thermal)));
     }

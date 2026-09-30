@@ -148,7 +148,10 @@ impl ubos_metrics::mcu_temperature::McuTemperatureSensor for McuTempSensor {
 
 ubos_metrics::mcu_temperature_task!(McuTempSensor);
 
-ubos_thermal::thermal_task!(ubos_thermal::SensorArray<psu::Device>);
+ubos_thermal::thermal_task!(
+    ubos_thermal::SensorArray<psu::Device>,
+    ubos_thermal::NoAmbient
+);
 
 ubos_manager::manager_task!();
 
@@ -509,7 +512,11 @@ async fn boot(spawner: Spawner) {
         let board_fan = ubos_esp32::fan::BoardFan::new(hw.ledc, hw.fan_pwm_pin);
         let board_tach =
             ubos_esp32::fan::BoardTach::new(hw.pcnt, hw.fan_tach_pin, TACH_PULSES_PER_REV);
-        spawner.spawn(unwrap!(thermal_task(hashboard_temp, manager_handle)));
+        spawner.spawn(unwrap!(thermal_task(
+            hashboard_temp,
+            ubos_thermal::NoAmbient,
+            manager_handle
+        )));
         spawner.spawn(unwrap!(manager_task(mining_handle)));
         spawner.spawn(unwrap!(cooling_task(board_fan, board_tach, thermal)));
     }
