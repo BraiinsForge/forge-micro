@@ -55,9 +55,20 @@ rec {
   # commit or a local unpacked copy being hacked on, and both should
   # win over the store tree. The shells are entered from the
   # repository root by convention; elsewhere there is nothing to link.
+  #
+  # A link that already names this store path is left as it is, which
+  # the last condition is for. `ln -sfnT` replaces a symlink whether or
+  # not the target moved, and replacing an entry moves the mtime of the
+  # directory holding it. Cargo reads that mtime for every
+  # `rerun-if-changed` naming the directory, so an unconditional relink
+  # re-runs those build scripts on each shell entry. A script that
+  # stamps a build id from the wall clock then hands the crate a new
+  # value with nothing edited, and the crate rebuilds every time.
   linkPatchedCrates = pkgs.lib.concatStrings (
     pkgs.lib.mapAttrsToList (name: drv: ''
-      if [ -d "${patchesDir}" ] && { [ ! -e "${patchesDir}/${name}" ] || [ -L "${patchesDir}/${name}" ]; }; then
+      if [ -d "${patchesDir}" ] \
+        && { [ ! -e "${patchesDir}/${name}" ] || [ -L "${patchesDir}/${name}" ]; } \
+        && [ "$(readlink "${patchesDir}/${name}" 2>/dev/null)" != "${drv}" ]; then
         ln -sfnT ${drv} "${patchesDir}/${name}"
       fi
     '') patchedCrates
