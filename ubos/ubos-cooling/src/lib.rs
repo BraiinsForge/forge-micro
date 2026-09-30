@@ -26,8 +26,8 @@
 //!
 //! The duty comes from the PID under `FanMode::Auto` and from the
 //! configured constant under `FanMode::Fixed`. The failsafes below are
-//! not part of that choice: a sensor fault and a stalled thermal task
-//! force the fan to full in either mode.
+//! not part of that choice: a reading with no measurement and a stalled
+//! thermal task force the fan to full in either mode.
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -65,8 +65,8 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, Ticker};
 use ubos_config::Handle as ConfigHandle;
-use ubos_config::{CoolingConfig, FanMode};
-use ubos_core::units::{FanPwm, FanRpm};
+use ubos_config::{Config, CoolingConfig, FanMode};
+use ubos_core::units::{FanPwm, FanRpm, Temperature};
 use ubos_logging::{error, info};
 use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 use ubos_thermal::Handle as ThermalHandle;
@@ -288,6 +288,174 @@ fn stale_timeout(thermal_sample_interval_ms: u32) -> Duration {
     scaled.max(MIN_STALE_TIMEOUT)
 }
 
+/// Why the fan is held at full, when it is. A hold overrides the PID
+/// and the fixed duty alike, so a low fixed duty costs hashrate rather
+/// than the board.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Hold {
+    /// The duty follows the PID, or the fixed setting.
+    None,
+    /// The last thermal reading carried no measurement. Full until one
+    /// does: the fan parks rather than following a value never
+    /// measured, and the control tick does not hand a fixed duty or the
+    /// floor back to the fan in between two such readings, which would
+    /// cycle it.
+    NoMeasurement,
+    /// No thermal reading inside the stale window. The thermal task is
+    /// wedged and the PID can no longer be trusted, so full until a
+    /// reading arrives.
+    Stalled,
+}
+
+/// What one step of the decision reports: the duty to command, and the
+/// transition to log if this step made one.
+#[derive(Debug, PartialEq, Eq)]
+struct Step {
+    pwm: FanPwm,
+    note: Option<Note>,
+}
+
+/// A transition of [`Hold::Stalled`], which the loop logs once on entry
+/// and once on exit.
+#[derive(Debug, PartialEq, Eq)]
+enum Note {
+    /// The stale window elapsed with no thermal reading; carries the
+    /// silence measured.
+    Stalled(Duration),
+    /// A thermal reading arrived after a stall, whether or not it
+    /// carried a measurement: one without still clears the stall,
+    /// because the task is alive to have sent it. The fan need not have
+    /// left full.
+    Recovered,
+}
+
+/// The fan decision, apart from the hardware and the clock. The loop
+/// selects an event, hands it to the method the event names with the
+/// time it happened, and acts on the [`Step`] that comes back. Nothing
+/// here awaits, so every transition is a plain call a test can drive.
+struct Cooling {
+    config: CoolingConfig,
+    control: TempControl,
+    stale: Duration,
+    hold: Hold,
+    /// The duty last commanded. A control tick in auto raises it to the
+    /// floor and otherwise leaves it, so it must survive between steps.
+    pwm: FanPwm,
+    last_reading: Instant,
+}
+
+impl Cooling {
+    /// Start from `config` at `now`: the fan at the configured floor, or
+    /// at the fixed duty when the operator has taken the fan off the PID.
+    /// Either percent flows straight through `from_percent` with no
+    /// special case, so a configured 0 yields a stopped fan by
+    /// construction, held until the first reading.
+    fn new(config: &Config, now: Instant) -> Self {
+        let cooling = config.cooling.clone();
+        let pwm = match cooling.mode {
+            FanMode::Auto => FanPwm::from_percent(cooling.pid.min_fan_pwm),
+            FanMode::Fixed => fixed_pwm(&cooling),
+        };
+        Self {
+            control: TempControl::from_config(&cooling),
+            config: cooling,
+            stale: stale_timeout(config.thermal.sample_interval_ms),
+            hold: Hold::None,
+            pwm,
+            last_reading: now,
+        }
+    }
+
+    /// Fold a published config in: the cooling section into the
+    /// controller, the thermal sample interval into the stale window.
+    fn reconfigure(&mut self, updated: &Config) {
+        refresh_control(&mut self.control, &self.config, &updated.cooling);
+        self.config = updated.cooling.clone();
+        self.stale = stale_timeout(updated.thermal.sample_interval_ms);
+    }
+
+    /// A thermal reading arrived at `now`, carrying `pid_temp` when it
+    /// measured something. A fresh reading always carries a PID
+    /// temperature and a held one never does, see
+    /// `ThermalReading::pid_temp`, so the one field answers both whether
+    /// this tick measured and what it measured.
+    ///
+    /// A run of readings with no measurement skips `control.update()`
+    /// each time, so the smoother and ring buffer keep the last good
+    /// sample across that run. The derivative term on the first reading
+    /// that carries one is then computed against a pre-run value;
+    /// acceptable because the fan parks at full on every reading of the
+    /// run, so that stale derivative never drives the fan. This covers
+    /// that run only; a thermal silence shorter than the stale window
+    /// triggers no graduated response: the control tick merely resamples
+    /// the tach and republishes telemetry until the window elapses.
+    fn on_reading(&mut self, pid_temp: Option<Temperature>, now: Instant) -> Step {
+        self.last_reading = now;
+        let note = (self.hold == Hold::Stalled).then_some(Note::Recovered);
+        self.pwm = match pid_temp {
+            None => {
+                self.hold = Hold::NoMeasurement;
+                FanPwm::FULL
+            }
+            Some(pid_temp) => {
+                self.hold = Hold::None;
+                match self.config.mode {
+                    // Fixed ignores the reading and never advances the
+                    // PID; the mode transition back to auto rebuilds the
+                    // controller, so no state is carried across.
+                    FanMode::Fixed => fixed_pwm(&self.config),
+                    FanMode::Auto => {
+                        FanPwm::from_percent(self.control.update(pid_temp.celsius_f32()))
+                    }
+                }
+            }
+        };
+        Step {
+            pwm: self.pwm,
+            note,
+        }
+    }
+
+    /// The control tick fired at `now`, independent of the thermal task.
+    /// If that task has gone silent past the stale window it is wedged
+    /// and the PID can no longer be trusted, so fail safe to full.
+    ///
+    /// Otherwise fixed mode has no other cadence: thermal readings do
+    /// not change the duty, so this tick is what carries a new fixed
+    /// duty to the fan, within one `CONTROL_INTERVAL` of the config
+    /// update. Auto raises the fan to the floor instead, which is what
+    /// the transition out of fixed needs: the PID commands nothing until
+    /// the next thermal reading, so a fixed duty below the floor, 0
+    /// included, would otherwise hold the fan for a whole sample
+    /// interval after the operator left fixed mode. The PID clamps its
+    /// own output to that same floor, so this only bites inside that
+    /// window, and it raises the duty rather than lowering it.
+    fn on_tick(&mut self, now: Instant) -> Step {
+        let silence = now.duration_since(self.last_reading);
+        if silence >= self.stale {
+            let note = (self.hold != Hold::Stalled).then_some(Note::Stalled(silence));
+            self.hold = Hold::Stalled;
+            self.pwm = FanPwm::FULL;
+            return Step {
+                pwm: self.pwm,
+                note,
+            };
+        }
+        if self.hold == Hold::None {
+            self.pwm = match self.config.mode {
+                FanMode::Fixed => fixed_pwm(&self.config),
+                FanMode::Auto => self
+                    .pwm
+                    .max(FanPwm::from_percent(self.config.pid.min_fan_pwm)),
+            };
+        }
+        Step {
+            pwm: self.pwm,
+            note: None,
+        }
+    }
+}
+
 /// Publish the [`FanState`] plus per-fan metrics for the given tachometer
 /// readings. The caller commands the fan itself and samples the tachometer on
 /// the control tick, then passes the most recent readings here, so a
@@ -367,152 +535,54 @@ where
     T: TachReader<N>,
 {
     let mut config_subscription = config_handle.subscribe();
-    let initial_config = config_handle.current();
-    let mut config: CoolingConfig = initial_config.cooling;
-    let mut stale = stale_timeout(initial_config.thermal.sample_interval_ms);
-
-    let mut control = TempControl::from_config(&config);
+    let mut cooling = Cooling::new(&config_handle.current(), Instant::now());
 
     let tach_labels = T::LABELS;
 
-    // Start the fan at the configured floor, or at the fixed duty when the
-    // operator has taken the fan off the PID, and publish immediately so the
-    // display shows fan state from boot. Either percent flows straight through
-    // from_percent with no special case, so a configured 0 yields a stopped
-    // fan by construction, held until the first reading.
-    let mut last_pwm = match config.mode {
-        FanMode::Auto => FanPwm::from_percent(config.pid.min_fan_pwm),
-        FanMode::Fixed => fixed_pwm(&config),
-    };
-    fan.set_pwm(last_pwm);
+    // Command the starting duty and publish immediately so the display
+    // shows fan state from boot.
+    fan.set_pwm(cooling.pwm);
 
     // Sample the tach once up front so boot telemetry is not a blank line; the
     // control tick refreshes it every CONTROL_INTERVAL thereafter.
     let mut last_rpms = tach.read_rpms().await;
-    publish_state(last_pwm, &last_rpms, &tach_labels).await;
-    log_cooling("cooling: started", &config);
+    publish_state(cooling.pwm, &last_rpms, &tach_labels).await;
+    log_cooling("cooling: started", &cooling.config);
 
     let mut subscription = thermal_handle.subscribe();
     let mut ticker = Ticker::every(CONTROL_INTERVAL);
-    let mut last_reading = Instant::now();
-    // Set while the staleness failsafe holds the fan at full, so the forcing
-    // warning fires once on entry and a matching recovery line fires once when
-    // a thermal reading returns.
-    let mut forced_full = false;
-    // Whether the last thermal reading carried a measurement. The reading
-    // arm parks the fan at full when it did not; the control tick reads this
-    // so it does not hand a fixed duty back to the fan in between two such
-    // readings.
-    let mut no_reading = false;
     loop {
         let event = select(subscription.changed(), ticker.next()).await;
 
         if let Some(updated) = config_subscription.try_changed() {
-            let new_cooling = updated.cooling;
-            refresh_control(&mut control, &config, &new_cooling);
-            config = new_cooling;
-            stale = stale_timeout(updated.thermal.sample_interval_ms);
+            cooling.reconfigure(&updated);
         }
 
-        match event {
-            Either::First(reading) => {
-                last_reading = Instant::now();
-                if forced_full {
-                    // Fires on the thermal task regaining liveness, whether or
-                    // not this reading carries a measurement: one without a
-                    // measurement still clears the stall, because the task is
-                    // alive to have sent it. The branch below keeps the fan at
-                    // full for it, so recovery here does not imply the fan
-                    // left 100%.
-                    info!("cooling: thermal task recovered after stall");
-                    forced_full = false;
-                }
-                // A run of readings with no measurement skips control.update()
-                // each time, so the smoother and ring buffer keep the last
-                // good sample across that run. The derivative term on the
-                // first reading that carries one is then computed against a
-                // pre-run value; acceptable because the branch below parks the
-                // fan at 100% on every reading of the run, so that stale
-                // derivative never drives the fan. This covers that run only;
-                // a thermal silence shorter than the staleness window triggers
-                // no graduated response here: the control tick merely resamples
-                // the tach and republishes telemetry until the window elapses.
-                // A fresh reading always carries a PID temperature and a
-                // stale one never does, see `ThermalReading::pid_temp`, so
-                // the one field answers both whether this tick measured
-                // and what it measured, and the fan parks at full rather
-                // than on a value never measured.
-                last_pwm = match reading.pid_temp {
-                    None => {
-                        no_reading = true;
-                        FanPwm::FULL
-                    }
-                    Some(pid_temp) => {
-                        no_reading = false;
-                        match config.mode {
-                            // Fixed ignores the reading and never advances
-                            // the PID; the mode transition back to auto
-                            // rebuilds the controller, so no state is
-                            // carried across.
-                            FanMode::Fixed => fixed_pwm(&config),
-                            FanMode::Auto => {
-                                FanPwm::from_percent(control.update(pid_temp.celsius_f32()))
-                            }
-                        }
-                    }
-                };
-                fan.set_pwm(last_pwm);
-                // Reuse the last sampled RPM; the tach is read on the control
-                // tick, not here, so its window stays nominally fixed: delayed,
-                // not skipped, if thermal readings monopolize the select.
-                publish_state(last_pwm, &last_rpms, &tach_labels).await;
-            }
-            Either::Second(()) => {
-                // Independent control tick. If the thermal task has gone
-                // silent past the staleness window it is wedged and the PID
-                // can no longer be trusted, so fail safe to full cooling.
-                // Republish either way to keep telemetry fresh.
-                let silence = last_reading.elapsed();
-                if silence >= stale {
-                    if !forced_full {
-                        error!(
-                            "cooling: no thermal reading for {} ms; forcing fan to 100%",
-                            silence.as_millis()
-                        );
-                        forced_full = true;
-                    }
-                    last_pwm = FanPwm::FULL;
-                } else if !no_reading {
-                    // Fixed mode has no other cadence: thermal readings do not
-                    // change the duty, so this tick is what carries a new
-                    // fixed duty to the fan, within one CONTROL_INTERVAL of
-                    // the config update. Auto raises the fan to the floor
-                    // instead, which is what the transition out of fixed
-                    // needs: the PID commands nothing until the next thermal
-                    // reading, so a fixed duty below the floor, 0 included,
-                    // would otherwise hold the fan for a whole sample
-                    // interval after the operator left fixed mode. The PID
-                    // clamps its own output to that same floor, so this only
-                    // bites inside that window, and it raises the duty rather
-                    // than lowering it. Skipped while the last reading was a
-                    // fault, which parks the fan at full until one clears:
-                    // ticks interleave with the fault readings, and taking
-                    // this branch between two of them would cycle the fan.
-                    last_pwm = match config.mode {
-                        FanMode::Fixed => fixed_pwm(&config),
-                        FanMode::Auto => last_pwm.max(FanPwm::from_percent(config.pid.min_fan_pwm)),
-                    };
-                }
-                // Command the fan before the tach read: read_rpms can await a bus
-                // transfer that never completes, and this tick's duty, the
-                // staleness failsafe included, must not wait on it.
-                fan.set_pwm(last_pwm);
-                // Sample the tach once per tick: a nominally fixed CONTROL_INTERVAL
-                // window for the edge count, independent of the thermal-reading cadence.
-                last_rpms = tach.read_rpms().await;
-                publish_state(last_pwm, &last_rpms, &tach_labels).await;
-            }
+        let step = match &event {
+            Either::First(reading) => cooling.on_reading(reading.pid_temp, Instant::now()),
+            Either::Second(()) => cooling.on_tick(Instant::now()),
+        };
+        match step.note {
+            Some(Note::Stalled(silence)) => error!(
+                "cooling: no thermal reading for {} ms; forcing fan to 100%",
+                silence.as_millis()
+            ),
+            Some(Note::Recovered) => info!("cooling: thermal task recovered after stall"),
+            None => {}
         }
+        // Command the fan before the tach read: read_rpms can await a bus
+        // transfer that never completes, and this tick's duty, the
+        // staleness failsafe included, must not wait on it.
+        fan.set_pwm(step.pwm);
+        // Sample the tach once per control tick, so the edge count has a
+        // nominally fixed CONTROL_INTERVAL window independent of the
+        // thermal-reading cadence: delayed, not skipped, if thermal
+        // readings monopolize the select. A thermal wake republishes the
+        // fresh duty with the last sampled RPM.
+        if let Either::Second(()) = event {
+            last_rpms = tach.read_rpms().await;
+        }
+        publish_state(step.pwm, &last_rpms, &tach_labels).await;
     }
 }
 

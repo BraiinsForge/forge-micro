@@ -28,10 +28,10 @@
 //! metrics channel — so the test runs as a single function with sequential
 //! phases rather than as independent `#[test]` cases.
 //!
-//! The "log once" behavior on the forced-full and recovery transitions is
-//! guaranteed by the `forced_full` latch in `run_cooling` and is not asserted
-//! here: this test runs under `--no-default-features`, with defmt off and no
-//! log sink to count emissions against.
+//! The "log once" behavior on the stall and recovery transitions is the
+//! `Note` that `Cooling` attaches to a `Hold::Stalled` transition, and
+//! is not asserted here: this test runs under `--no-default-features`,
+//! with defmt off and no log sink to count emissions against.
 
 // The crate is `#![no_std]`; explicitly opt back into std for the poisoned
 // `LOOP_MUTEX` recovery below.
@@ -112,7 +112,7 @@ fn staleness_failsafe_forces_and_releases_full_fan() {
         "thermal silence past stale_timeout must force the fan to full"
     );
 
-    // Behavior 2: a fresh non-fault reading clears the forced_full latch
+    // Behavior 2: a fresh reading ends the stall hold
     // and hands the PWM back to the PID.
     UPSTREAM.publish_reading(moderate_reading(false));
     drive(cooling.as_mut(), ingest.as_mut());
