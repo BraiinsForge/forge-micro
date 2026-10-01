@@ -42,9 +42,7 @@ pub struct BmmPsuDescriptor {
 }
 
 impl BmmPsuDescriptor {
-    /// Defaults that match the BOS `BMM100_PSU_DESCRIPTOR` miniminer
-    /// constants. Despite the name, that PSU config is shared verbatim
-    /// between the BMM100 and BMM101 boards in BOS.
+    /// Defaults shared verbatim between the BMM100 and BMM101 boards.
     pub const DEFAULT: Self = Self {
         dcdc_address: 0x40,
         dcdc_initial: Voltage::from_mv(750),

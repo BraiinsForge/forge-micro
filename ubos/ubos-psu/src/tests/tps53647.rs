@@ -27,8 +27,7 @@ fn run<F: core::future::Future>(future: F) -> F::Output {
 
 #[test]
 fn vid_codec_round_trips_the_vr120_table() {
-    // Table anchors from the datasheet: 01h = 250 mV, floor + 5 mV
-    // per step, FFh = 1520 mV.
+    // VID table anchors: 01h = 250 mV, floor + 5 mV per step, FFh = 1520 mV.
     assert_eq!(encode_vid(Voltage::from_mv(250)), 0x01);
     assert_eq!(encode_vid(Voltage::from_mv(1200)), 0xBF);
     assert_eq!(encode_vid(Voltage::from_mv(1520)), 0xFF);

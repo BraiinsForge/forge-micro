@@ -39,12 +39,8 @@ mod tests;
 pub struct BfmPsuDescriptor {
     /// `SIC45x` `PMBus` converter configuration.
     pub sic: crate::sic45x::Sic45xConfig,
-    /// INA230 7-bit I2C address, strapped to 0x43 on the HASHNODE x4
-    /// hardware page. An earlier config defaulted to 0x53 from a
-    /// schematic reading, but the flashed firmware always overrode it to
-    /// 0x43, so 0x43 is the address the hardware actually answers on.
-    /// Kept as the default and documented so the 0x53/0x43 split stays
-    /// traceable and is not re-raised on every review.
+    /// INA230 7-bit I2C address. The hardware answers on 0x43 regardless
+    /// of the schematic's nominal 0x53.
     pub ina_address: u8,
     /// Maximum expected load current for INA230 calibration.
     pub ina_max_current: Current,
@@ -78,11 +74,10 @@ impl<I: I2c> Device for BfmDevice<I> {
         i2c: &mut I,
         config: &mut BfmPsuDescriptor,
     ) -> Result<Option<ModelString>, Error<I::Error>> {
-        // Why: the INA230's VS pin is powered by the SIC output rail.
-        // The rail is off during init, so the INA is below its operating
-        // voltage (~2.7 V). We attempt init optimistically and continue on
-        // failure: a failure here does not indicate a hardware fault on this
-        // stage.
+        // The INA230's VS pin is powered from the SIC output rail, so
+        // during init it sits below its ~2.7 V operating voltage and
+        // this probe is expected to fail. A failure here does not block
+        // init: the stage is not faulty, just not yet powered.
         if ina230::init(
             i2c,
             config.ina_address,
@@ -96,11 +91,10 @@ impl<I: I2c> Device for BfmDevice<I> {
         }
 
         sic45x::init(i2c, &config.sic).await?;
-        // Identity probe: reads the IC_DEVICE_ID word for the model
-        // string. The register's NVM default is 0x0000 and catalog parts
-        // may ship unprogrammed, so only a real value is reported; a blank
-        // or unreadable ID leaves the API model null. Does not affect the
-        // init outcome.
+        // IC_DEVICE_ID's NVM default is 0x0000 and catalog parts may
+        // ship unprogrammed, so only a real value is reported; a read
+        // failure leaves the model null without affecting the init
+        // outcome.
         let mut model = ModelString::new();
         let identified = sic45x::read_device_id(i2c, config.sic.address)
             .await
@@ -150,10 +144,10 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
     }
 
     async fn read_input_power(&self) -> Result<Power, Error<I::Error>> {
-        // The Hashnode/Femto stage has no input-side power monitor: the
-        // only sensor (INA230) sits on the output rail and is reported by
-        // read_output_power. Report zero so consumers leave "input" blank
-        // rather than echoing the output reading under a wrong label.
+        // This stage has no input-side power monitor: the only sensor,
+        // INA230, sits on the output rail and is reported by
+        // read_output_power. Report zero so callers leave input blank
+        // instead of echoing the output reading under the wrong label.
         if self.shared.is_terminated() {
             return Err(Error::Terminated);
         }
@@ -172,19 +166,18 @@ impl<I: I2c + 'static> Psu for BfmPsu<I> {
     }
 
     async fn read_output_voltage(&self) -> Result<Voltage, Error<I::Error>> {
-        // Read from the SIC's own READ_VOUT, not the INA230: the INA is
-        // powered off the output rail and is asleep until that rail
-        // comes up, whereas the SIC reports VOUT as soon as VIN exists.
+        // See `sic45x::read_vout` for why this reads the SIC rather
+        // than the INA230.
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();
         sic45x::read_vout(i2c, &config.sic).await
     }
 
     async fn read_secondary_voltage(&self) -> Option<Result<Voltage, Error<I::Error>>> {
-        // Cross-check the SIC's READ_VOUT against the INA230's own bus-voltage
-        // measurement of the same output rail. The INA is powered off that
-        // rail, so this errors until the rail is up, and the caller drops the
-        // series for that tick.
+        // Cross-checks the SIC's READ_VOUT against the INA230's bus
+        // voltage on the same rail. The INA is powered from that rail, so
+        // this errors until it comes up and the caller drops the series
+        // for that tick.
         let mut psu = match self.shared.acquire().await {
             Ok(psu) => psu,
             Err(error) => return Some(Err(error)),

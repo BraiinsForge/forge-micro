@@ -117,9 +117,8 @@ impl<I, C> State<I, C> {
         self.init = match result {
             Ok(()) => InitStatus::Initialized,
             Err(Error::Bus(bus)) => InitStatus::Failed(bus.kind()),
-            // Init only constructs Bus or OutOfRange (the latter
-            // when initial_mv is misconfigured); collapse the
-            // misconfig case into Other.
+            // Init only returns Bus or OutOfRange, the latter for a
+            // misconfigured initial_mv; collapse it into Other.
             Err(_) => InitStatus::Failed(ErrorKind::Other),
         };
     }

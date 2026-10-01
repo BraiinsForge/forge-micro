@@ -121,7 +121,7 @@ impl Psu for FakePsu {
 const HEARTBEAT_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_millis(5);
 
 /// A supply over a fresh fake driver, leaked so it is `'static` the way a
-/// board's is, with the handle and the runner that the process takes.
+/// board's is.
 fn fake_supply() -> (
     &'static FakePsu,
     &'static PowerSupply<FakePsu>,

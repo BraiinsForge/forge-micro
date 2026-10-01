@@ -25,9 +25,8 @@
 //!
 //! A board builds one [`PowerSupply`] over its driver and spawns
 //! [`PowerSupply::run`] with the [`Runner`] that [`Handle::take`]
-//! returns. That task is the only caller of the driver's rail commands
-//! and the only writer of what it records about them; every other task
-//! reaches the PSU through a copy of the [`Handle`].
+//! returns; every other task reaches the PSU through a copy of the
+//! [`Handle`].
 
 #![cfg_attr(not(test), no_std)]
 // Embassy executors do not require `Send`; adding the bound to

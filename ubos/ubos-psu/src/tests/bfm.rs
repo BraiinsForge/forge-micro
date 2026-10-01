@@ -39,7 +39,7 @@ fn make_handle(bus: Mock, config: BfmPsuDescriptor) -> (BfmPsu<Mock>, Mock) {
 /// Mode=continuous shunt+bus).
 const INA_CONFIG: u16 = 0b0100_0001_0010_0111;
 
-/// Build the 2-transaction `INA230` init sequence for the given parameters.
+/// Build the `INA230` init sequence for the given parameters.
 fn ina_init_transactions(
     address: u8,
     max_current: Current,
@@ -60,7 +60,7 @@ fn ina_init_transactions(
     ]
 }
 
-/// Build the full 21-transaction `SIC45x` init sequence from `Sic45xConfig::DEFAULT`.
+/// Build the `SIC45x` init sequence for `Sic45xConfig::DEFAULT`.
 fn sic_init_transactions() -> Vec<Transaction> {
     use crate::sic45x::{
         CLEAR_FAULTS, IIN_OC_WARN_LIMIT, IOUT_OC_FAULT_LIMIT, IOUT_OC_FAULT_RESPONSE,
@@ -137,10 +137,10 @@ fn sic_init_transactions() -> Vec<Transaction> {
     ]
 }
 
-/// Build the 1-transaction identity probe sequence that
-/// `sic45x::read_device_id` issues after every successful `SIC45x` init:
-/// a single `IC_DEVICE_ID` word read. The response bytes are arbitrary
-/// but non-zero and non-`0xFFFF`, so the model string publishes.
+/// Build the identity-probe transaction that `sic45x::read_device_id`
+/// issues after a successful `SIC45x` init. The response bytes are
+/// arbitrary but non-zero and non-`0xFFFF`, so the model string
+/// publishes.
 fn identity_probe_transactions(address: u8) -> [Transaction; 1] {
     use crate::sic45x::IC_DEVICE_ID;
     [Transaction::write_read(
@@ -150,8 +150,8 @@ fn identity_probe_transactions(address: u8) -> [Transaction; 1] {
     )]
 }
 
-/// Build the full init sequence: INA230 (2 transactions), `SIC45x` (21),
-/// then the post-init identity probe (1).
+/// Build the full init sequence: INA230, then `SIC45x`, then the
+/// post-init identity probe.
 fn init_transactions(config: &BfmPsuDescriptor) -> Vec<Transaction> {
     let [ina_config, ina_cal] = ina_init_transactions(
         config.ina_address,
@@ -164,8 +164,8 @@ fn init_transactions(config: &BfmPsuDescriptor) -> Vec<Transaction> {
     transactions
 }
 
-/// Build the 3-transaction `SIC45x` enable sequence (read `OPERATION`, write
-/// `OPERATION` with on-bit set, write `CLEAR_FAULTS`).
+/// Build the `SIC45x` enable sequence: read `OPERATION`, write it with
+/// the on-bit set, then write `CLEAR_FAULTS`.
 fn sic_enable_transactions() -> [Transaction; 3] {
     use crate::sic45x::{CLEAR_FAULTS, OPERATION};
     let address = BfmPsuDescriptor::DEFAULT.sic.address;
@@ -266,8 +266,7 @@ fn terminate_flips_flag_and_subsequent_calls_return_terminated() {
 
 #[test]
 fn read_input_power_reports_zero() {
-    // The Femto/Hashnode stage has no input-side monitor; read_input_power
-    // returns zero without touching the bus so the UI leaves "input" blank.
+    // See `BfmPsu::read_input_power` for why this reports zero.
     let config = BfmPsuDescriptor::DEFAULT;
     let bus = Mock::new(&[]);
     let (psu, mut bus) = make_handle(bus, config);

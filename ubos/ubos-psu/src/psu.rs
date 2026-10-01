@@ -67,11 +67,9 @@ pub trait Psu {
     async fn set_voltage(&self, voltage: Voltage) -> Result<Voltage, Error<Self::BusError>>;
     async fn read_input_power(&self) -> Result<Power, Error<Self::BusError>>;
     async fn read_output_power(&self) -> Result<Power, Error<Self::BusError>>;
-    /// Read the actual output rail voltage. Used to compare the commanded
-    /// `set_voltage` against the voltage the hashboard actually sees so
-    /// droop or sense-line loss is visible to operators. The source
-    /// register is implementation-defined (e.g. `SIC READ_VOUT` for
-    /// `BfmPsu`).
+    /// Read the actual output rail voltage; see
+    /// [`crate::PsuReading::output_voltage_measured`] for why. The source
+    /// register is implementation-defined.
     async fn read_output_voltage(&self) -> Result<Voltage, Error<Self::BusError>>;
     /// Optional separate monitor on the same output rail, for
     /// cross-checking [`read_output_voltage`]. `None`, the default, means the
@@ -95,9 +93,9 @@ pub trait Psu {
     async fn heartbeat_interval(&self) -> Option<embassy_time::Duration> {
         None
     }
-    /// Send the supply its heartbeat. [`crate::PowerSupply::run`] is the only
-    /// caller, every [`Psu::heartbeat_interval`], so the PSU task stays
-    /// the one task that reaches the driver.
+    /// Send the supply its heartbeat. [`crate::PowerSupply::run`] calls it
+    /// every [`Psu::heartbeat_interval`], so the PSU task stays the one
+    /// task that reaches the driver.
     async fn heartbeat(&self) -> Result<(), Error<Self::BusError>> {
         Ok(())
     }

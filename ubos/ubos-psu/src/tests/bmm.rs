@@ -74,11 +74,10 @@ fn dropped_set_voltage_future_does_not_corrupt_bus() {
     // First call runs init then writes 700 mV.
     run(psu.set_voltage(Voltage::from_mv(700))).expect("BUG: first call");
 
-    // Build a second future and let it fall out of scope
-    // without polling. With the Mock's synchronous I2C, a
-    // single poll would run the whole transaction; instead
-    // we drop pre-poll to verify that the no-poll path leaves
-    // the lock + state untouched for the next caller.
+    // Build a second future and drop it before polling: with the
+    // Mock's synchronous I2C, a single poll would run the whole
+    // transaction. Dropping pre-poll instead proves the no-poll path
+    // leaves the lock and state untouched for the next caller.
     {
         let _future = psu.set_voltage(Voltage::from_mv(800));
     }

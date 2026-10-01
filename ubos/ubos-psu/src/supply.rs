@@ -45,12 +45,9 @@ mod tests;
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// A single PSU metrics sample.
-///
-/// Published by [`PowerSupply::run`] on every poll. Successful polls
-/// carry fresh values with `sensor_fault = false`; failed polls carry
-/// the most recent known-good values plus `sensor_fault = true` so
-/// consumers see a stable last-good reading alongside a fault flag.
+/// One PSU sample, published on every poll. A failed poll republishes the
+/// last good values with `sensor_fault` set, so consumers see a stable
+/// reading beside the fault.
 #[derive(Clone, Copy)]
 pub struct PsuReading {
     /// Input-side power (DC-DC primary).
@@ -63,16 +60,15 @@ pub struct PsuReading {
     /// Voltage observed on the output rail. Comparing against
     /// `output_voltage_set` exposes droop or sense-line loss.
     pub output_voltage_measured: Voltage,
-    /// Monotonic timestamp of this reading in milliseconds since boot.
+    /// Milliseconds since boot.
     pub timestamp_ms: u64,
     /// True when one or more reads on this poll failed and the values
     /// above are the last successful sample carried forward.
     pub sensor_fault: bool,
 }
 
-/// Subscriber capacity for the reading watch. No consumer subscribes
-/// today; the REST API and the miner peek via [`Handle::current`], which
-/// does not consume a slot.
+/// Subscriber capacity for the reading watch. [`Handle::current`] peeks
+/// without taking a slot.
 const WATCH_CAPACITY: usize = 4;
 
 /// Per-task subscription returned by [`Handle::subscribe`].
@@ -272,12 +268,8 @@ impl Handle {
 }
 
 /// A board's PSU: the driver that the PSU task calls for the commands of
-/// the [`Handle`].
-///
-/// [`PowerSupply::run`] is the only caller of the driver's rail commands
-/// and the only writer of what the handle reads, so the set voltage and
-/// the model are recorded where the driver answers rather than by each
-/// caller.
+/// the [`Handle`]. The set voltage and the model are recorded where the
+/// driver answers rather than by each caller.
 pub struct PowerSupply<P: 'static> {
     driver: &'static P,
 }
@@ -307,24 +299,16 @@ impl<P: Psu> PowerSupply<P> {
         Self { driver }
     }
 
-    /// Run the PSU forever: carry out each command from the [`Handle`]
-    /// and record its outcome, every [`POWER_STATS_INTERVAL`] read the
-    /// power, the voltage and the status and publish them, and send the
-    /// supply its heartbeat every [`Psu::heartbeat_interval`]. Boards spawn
-    /// it through [`crate::psu_task`].
+    /// Run the PSU forever: carry out each command from the [`Handle`],
+    /// poll every [`POWER_STATS_INTERVAL`], and send the heartbeat every
+    /// [`Psu::heartbeat_interval`].
     ///
-    /// A driver call the task started runs on while no command waits
-    /// behind it. A poll stops between its calls for a queued command,
-    /// and runs again once that command is answered and a heartbeat that
-    /// came due is sent. A call still
-    /// running [`COMMAND_GRACE`] after a command queued behind it is
-    /// dropped, whether it is stuck on the bus or inside a long step such
-    /// as a device init, so a rail cut waits that long at most before it
-    /// starts. A driver built on [`crate::state::Shared`] runs a dropped init
-    /// again on its next call. A heartbeat is the exception: it has
-    /// [`HEARTBEAT_TIMEOUT`] to end whatever queues behind it, because a
-    /// pulse cut short is a missed one, so a rail cut waits that long at
-    /// most behind a pulse stuck on the bus.
+    /// A poll stops between its calls for a queued command and runs again
+    /// once that command is answered. A call still running
+    /// [`COMMAND_GRACE`] after a command queued behind it is dropped, so a
+    /// rail cut waits that long at most. A heartbeat has
+    /// [`HEARTBEAT_TIMEOUT`] instead, because a pulse cut short is a missed
+    /// one.
     pub async fn run(&self, _runner: &mut Runner) -> ! {
         let mut ticker = embassy_time::Ticker::every(POWER_STATS_INTERVAL);
         let mut heartbeat = self
@@ -586,9 +570,9 @@ impl<P: Psu> PowerSupply<P> {
                     || flags.thermal_shutdown
                     || flags.overvoltage
                     || flags.undervoltage;
-                // Emit the fault event and log it once on the rising edge: the
-                // SIC latches the rail off in hardware, so a tripped rail must
-                // not be silent, but logging every tick would spam.
+                // Once, on the rising edge: a supply can latch its rail off
+                // in hardware, so a trip must not be silent, but every poll
+                // would spam.
                 if fault_now && !poll.fault_active {
                     crate::events::psu_fault();
                     ubos_logging::warn!(
@@ -619,20 +603,17 @@ impl<P: Psu> PowerSupply<P> {
     }
 }
 
-/// Cadence at which [`PowerSupply::run`] reads PSU input/output power.
-/// Matches the host-runner cadence so the prometheus series rates are
-/// comparable across firmware targets.
+/// Poll cadence. Matches the host runner, so the Prometheus series rates
+/// are comparable across targets.
 pub const POWER_STATS_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(2);
 
 /// How long a driver call may still run once a command has queued behind
-/// it. One bus transfer ends well inside it. A call that holds longer,
-/// such as a device init or a write with retries, is dropped with a
-/// stuck one, so the command behind it starts on time.
+/// it. One bus transfer ends well inside it, so only a stuck call or a
+/// long step such as a device init is dropped.
 pub const COMMAND_GRACE: embassy_time::Duration = embassy_time::Duration::from_millis(100);
 
-/// How long one heartbeat may run. A healthy pulse is three bus
-/// writes and a short hold, and ends well inside it, so only a pulse
-/// stuck on the bus is dropped, and the commands behind it go on.
+/// How long one heartbeat may run. A healthy pulse ends well inside it,
+/// so only a pulse stuck on the bus is dropped.
 pub const HEARTBEAT_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(1);
 
 /// Push a measured voltage of the output rail under the `type` of its

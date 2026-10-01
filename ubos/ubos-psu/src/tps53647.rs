@@ -25,16 +25,8 @@
 //! supplied by the caller — this module is address-parameterized.
 //!
 //! Every operation here takes the bus as `&mut I` and the device config
-//! by reference, rather than hanging off a driver handle. Two things fix
-//! that. `I` is a generic parameter, so no inherent `impl` in this crate
-//! can name it. And the caller is a PSU handle that has already locked
-//! its `State` for the whole operation, so a method that locked again
-//! would deadlock.
-//!
-//! The receiver these would otherwise want already exists one layer up:
-//! `State<I, C>` in `state.rs` holds both the bus and the config, and
-//! the handle types wrap it. A newtype over the bus alone would not be
-//! it, because the config still travels by hand.
+//! by reference rather than a method on a handle, for the same reason
+//! as [`crate::sic45x`]: see its module doc.
 
 use embedded_hal_async::i2c::I2c;
 use ubos_core::units::{Power, Temperature, Voltage};
@@ -108,7 +100,7 @@ pub(crate) const fn encode_vin_ov(voltage: Voltage) -> u16 {
 }
 
 /// Maximum operational phase count, the `PHASE_NUM` field of
-/// `MFR_SPECIFIC_20` (datasheet Table 69). The part runs one to four
+/// `MFR_SPECIFIC_20`. The part runs one to four
 /// phases, so the register's five- and six-phase codes are not modelled.
 /// The CSP pinstraps bound it: a count above what the board populates is
 /// ignored by the device.
@@ -134,8 +126,8 @@ impl Phases {
 
 /// Configuration for the TPS53647 VRM controller.
 ///
-/// No overcurrent fields: the F-IMAX pinstrap fixes IMAX in hardware
-/// (the OC fault defaults to 125% of it) and the fault-response
+/// No overcurrent fields: the F-IMAX pinstrap fixes IMAX in hardware,
+/// defaulting the OC fault to 125% of it, and the fault-response
 /// registers are read-only on this part.
 #[derive(Clone, Copy, Debug)]
 pub struct Tps53647Config {
@@ -342,9 +334,9 @@ where
 
 /// Read the measured output voltage.
 ///
-/// `READ_VOUT` returns a VID code, not linear11; the linear-format
-/// alternative (`MFR_SPECIFIC_04`) is not used so all voltage paths
-/// share one codec.
+/// `READ_VOUT` returns a VID code, not linear11, unlike the unused
+/// `MFR_SPECIFIC_04` alternative; every voltage path here shares this
+/// one codec.
 ///
 /// # Errors
 ///

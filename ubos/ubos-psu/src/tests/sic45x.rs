@@ -136,9 +136,9 @@ mod math_tests {
 
     #[test]
     fn decode_ulin11_milli_unsigned_mantissa() {
-        // 0xD7EC: exp field 0x1A = -6, unsigned mantissa 0x7EC = 2028.
-        // 2028 * 2^-6 = 31.6875 W. Signed-mantissa decoding would have
-        // wrongly yielded a small negative value (the original bug).
+        // 0xD7EC: exp field 0x1A = -6, unsigned mantissa 0x7EC = 2028,
+        // decoding to 2028 * 2^-6 = 31.6875 W. A signed-mantissa read
+        // would treat this as negative.
         assert_eq!(decode_ulin11_milli(0xD7EC), 31_687);
     }
 
@@ -211,7 +211,7 @@ mod bus_tests {
         embassy_futures::block_on(future)
     }
 
-    /// Build the full 21-transaction init sequence for the default config.
+    /// Build the full init sequence for the default config.
     fn default_init_expectations() -> Vec<Transaction> {
         let config = &Sic45xConfig::DEFAULT;
         let address = config.address;

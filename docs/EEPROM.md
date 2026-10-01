@@ -25,11 +25,8 @@ Fixing this first kept the EEPROM work from naming the wrong board:
   definition, every call site, and prose comments that describe "the
   board this firmware runs on" now read `BMM101`. One exception:
   `ubos-psu/src/config.rs`'s `BmmPsuDescriptor::DEFAULT` doc comment
-  cites BOS's actual `BMM100_PSU_DESCRIPTOR` symbol by name (that PSU
-  config is shared verbatim between the BMM100 and BMM101 boards in BOS,
-  so the symbol really is called that) — that citation stays as
-  `BMM100` for traceability, with a note that it's shared across both
-  revisions.
+  names both revisions, because that PSU configuration is shared
+  verbatim between them.
 - **`ubos_asic::HASHNODE` (hashboard descriptor) → `BFMX4_HASHBOARD`**;
   **`ubos_machine::HASHNODE_SENSORS` → `BFMX4_SENSORS`.** "Hashnode" is
   the product codename for the whole integrated PCB (control board +

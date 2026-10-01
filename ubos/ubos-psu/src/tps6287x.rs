@@ -20,12 +20,8 @@
 //! `TPS6287x` DC/DC converter register layout and bus operations.
 //!
 //! Every operation here takes the bus as `&mut I` and the board's
-//! descriptor as `&BmmPsuDescriptor`, rather than hanging off a driver
-//! handle. `I` is a generic parameter, so no inherent `impl` in this
-//! crate can name it, and the caller in `bmm.rs` has already locked its
-//! `State` and drives this converter alongside an `INA230` and a
-//! heartbeat part over the same bus. A method that locked again would
-//! deadlock. `state.rs` holds the receiver these would otherwise want.
+//! descriptor as `&BmmPsuDescriptor`, for the same reason as
+//! [`crate::sic45x`]: see its module doc.
 
 use ubos_core::units::Voltage;
 
@@ -311,9 +307,6 @@ where
     .await
     .map_err(Error::Bus)?;
     Timer::after(config.dcdc_soft_start.duration()).await;
-    // Read STATUS to clear bits latched during the soft-start
-    // ramp (undervoltage is transient until the rail settles).
-    // Real faults surface on the next user call; matches BOS.
     let _ = read_status(i2c, config).await;
     Ok(())
 }

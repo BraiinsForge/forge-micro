@@ -19,13 +19,9 @@
 
 //! `INA230` high-side current/power monitor.
 //!
-//! Every function here takes the bus as `&mut I` rather than hanging off
-//! a driver handle. Two things fix that shape. `I` is a generic
-//! parameter, so no inherent `impl` in this crate can name it, and the
-//! caller is a PSU handle that has already locked its `State` and drives
-//! this part alongside a converter and a heartbeat part on the same bus. A
-//! method that locked again would deadlock. `state.rs` holds the
-//! receiver these operations would otherwise want.
+//! Every function here takes the bus as `&mut I` rather than a method on
+//! a handle, for the same reason as [`crate::sic45x`]: see its module
+//! doc.
 //!
 //! Calibration math operates in integer microamps and microohms:
 //! `current_lsb_microamps = max_current_ma * 1_000 / 32_768`
@@ -44,12 +40,12 @@ const REG_BUS_VOLTAGE: u8 = 0x02;
 const REG_POWER: u8 = 0x03;
 const REG_CALIBRATION: u8 = 0x05;
 
-/// Bus-voltage LSB in microvolts. INA230 reports the rail voltage in
-/// 1.25 mV steps (datasheet §7.6.2.2).
+/// Bus-voltage LSB in microvolts: INA230 reports the rail voltage in
+/// 1.25 mV steps.
 const BUS_VOLTAGE_LSB_MICROVOLTS: u32 = 1_250;
 
 /// CONFIG: averaging=Avg1, `VBus` CT=1.1ms, Shunt CT=1.1ms, Mode=continuous
-/// shunt+bus. Bits laid out per datasheet Table 6-2.
+/// shunt+bus.
 const CONFIG_VALUE: u16 = 0b0100_0001_0010_0111;
 
 /// Current LSB in microamps for a full-scale current of `max_current`.
@@ -63,9 +59,9 @@ pub(crate) const fn current_lsb_microamps(max_current: Current) -> u32 {
 
 /// CALIBRATION register value for a current LSB and a shunt resistance.
 ///
-/// Both inputs are in micro-units, and the constant folds the datasheet
-/// 5.12e-3 term and the two 1e-6 scalings into one integer numerator so
-/// the whole calculation stays in `u64` with no floating point.
+/// Both inputs are in micro-units, and the constant folds the 5.12e-3
+/// calibration term and the two 1e-6 scalings into one integer numerator
+/// so the whole calculation stays in `u64` with no floating point.
 ///
 /// Saturates at `u16::MAX` rather than wrapping. A shunt small enough to
 /// overflow this would be a descriptor error, and a saturated
@@ -98,7 +94,7 @@ pub(crate) struct RawPower {
 /// at the currents this part measures.
 impl From<RawPower> for Power {
     fn from(raw: RawPower) -> Self {
-        // power_lsb_microwatts = 25 * current_lsb_microamps (datasheet)
+        // power_lsb_microwatts = 25 * current_lsb_microamps
         // power_milliwatts = power_register * power_lsb_microwatts / 1_000
         let microwatts =
             u64::from(raw.register) * 25 * u64::from(current_lsb_microamps(raw.max_current));

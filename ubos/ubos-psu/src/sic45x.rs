@@ -23,16 +23,11 @@
 //! supplied by the caller — this module is address-parameterized.
 //!
 //! Every operation here takes the bus as `&mut I` and the device config
-//! by reference, rather than hanging off a driver handle. Two things fix
-//! that. `I` is a generic parameter, so no inherent `impl` in this crate
-//! can name it. And the caller is a PSU handle that has already locked
-//! its `State` for the whole operation, so a method that locked again
-//! would deadlock.
-//!
-//! The receiver these would otherwise want already exists one layer up:
-//! `State<I, C>` in `state.rs` holds both the bus and the config, and
-//! the handle types wrap it. A newtype over the bus alone would not be
-//! it, because the config still travels by hand.
+//! by reference rather than a method on a handle: `I` is generic, so no
+//! inherent `impl` here could name it, and the caller is a PSU handle
+//! that already holds `State`'s lock for the whole operation, so a
+//! method that locked again would deadlock. `State<I, C>` in `state.rs`
+//! already is that receiver.
 
 use embedded_hal_async::i2c::I2c;
 use ubos_core::units::{Current, Power, Temperature, Voltage};
@@ -74,16 +69,16 @@ pub(crate) const IC_DEVICE_ID: u8 = 0xAD;
 /// OPERATION register on-bit: sets the output enabled state.
 const OPERATION_ON: u8 = 1 << 7;
 
-// Fault-response defaults from datasheet / BOS reference design.
+// Fault-response register defaults, per the converter's own documented
+// encoding.
 const VOUT_OV_FAULT_RESPONSE_DEFAULT: u8 = 0xF8;
 const VOUT_UV_FAULT_RESPONSE_DEFAULT: u8 = 0xB9;
 const IOUT_OC_FAULT_RESPONSE_DEFAULT: u8 = 0xA1;
 const OT_FAULT_RESPONSE_DEFAULT: u8 = 0xF9;
 const VIN_OV_FAULT_RESPONSE_DEFAULT: u8 = 0xB8;
 
-/// `VOUT_SCALE_LOOP` setting. Controls the converter's output voltage
-/// feedback divider scale factor. Select to match your hardware
-/// resistor divider ratio.
+/// `VOUT_SCALE_LOOP` setting: the feedback divider scale factor,
+/// selected to match the board's resistor divider ratio.
 ///
 /// Each variant's name is the LINEAR11-decoded value of its register:
 /// exponent field `0b11101` = −3, so the scale = mantissa × 2^−3.
@@ -240,8 +235,7 @@ pub struct Sic45xConfig {
 }
 
 impl Sic45xConfig {
-    /// Default `SIC45x` configuration. The operating-point values are
-    /// taken from the Femto miner.
+    /// Default `SIC45x` configuration for the Hashnode power stage.
     pub const DEFAULT: Self = Self {
         address: 0x10,
         initial_voltage: Voltage::from_mv(600),
@@ -282,16 +276,16 @@ where
 {
     let address = config.address;
 
-    // Restore user defaults so OTP values baseline all registers
-    // before we write our limits — matches BOS bring-up sequence.
+    // Restore user defaults first so OTP values baseline every register
+    // before the limits below overwrite them.
     i2c.write(address, &[RESTORE_USER_ALL])
         .await
         .map_err(Error::Bus)?;
 
-    // No OPERATION write here. The output must stay off while registers are
-    // being programmed: RESTORE_USER_ALL clears the on-bit and the SIC_EN
-    // GPIO is held low by the caller. OPERATION is asserted later by enable(),
-    // once all protection limits are in place.
+    // No OPERATION write here: the output must stay off while registers
+    // are programmed, which RESTORE_USER_ALL's cleared on-bit and the
+    // caller's low SIC_EN both ensure. OPERATION is asserted later by
+    // `enable`, once every protection limit is in place.
     i2c.write(address, &[CLEAR_FAULTS])
         .await
         .map_err(Error::Bus)?;
@@ -404,10 +398,8 @@ where
         .map_err(Error::Bus)
 }
 
-/// Enable the converter output by setting the OPERATION on-bit.
-///
-/// Reads the current OPERATION register value, ORs in bit 7, and
-/// writes it back — matching the BOS read-modify-write sequence.
+/// Enable the converter output by setting the OPERATION on-bit: read
+/// the current value, OR in bit 7, and write it back.
 ///
 /// # Errors
 ///
@@ -564,9 +556,9 @@ where
 /// Read the `IC_DEVICE_ID` word used to build the published model
 /// string. Returns `None` on a bus error.
 ///
-/// `IC_DEVICE_ID` is the only identity register the datasheet
-/// documents, framed as a plain `PMBus` word read, matching every other
-/// multi-byte register in this driver.
+/// `IC_DEVICE_ID` is the only documented identity register, framed as a
+/// plain `PMBus` word read, matching every other multi-byte register in
+/// this driver.
 pub(crate) async fn read_device_id<I, E>(i2c: &mut I, address: u8) -> Option<u16>
 where
     I: I2c<Error = E>,

@@ -19,17 +19,14 @@
 
 //! Shared `PMBus` primitives.
 //!
-//! The register access and the status decoding that every `PMBus` part
-//! on a board answers the same way. `sic45x` and `tps53647` held one
-//! identical copy each until this module.
+//! The register access and status decoding every `PMBus` part on a
+//! board answers the same way.
 //!
 //! `tps6287x` is not a `PMBus` part and decodes its own status layout,
 //! so it does not use [`decode_status`] and must not be made to.
 //!
-//! These are free functions taking the bus as `&mut I` for the reason
-//! the driver modules give: `I` is a generic parameter no inherent
-//! `impl` here can name, and the caller has already locked the `State`
-//! it drives several devices through.
+//! These are free functions taking the bus as `&mut I` for the same
+//! reason as [`crate::sic45x`]: see its module doc.
 
 use embedded_hal_async::i2c::I2c;
 

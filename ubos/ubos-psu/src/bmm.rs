@@ -102,7 +102,6 @@ pub struct BmmPsu<I: I2c + 'static> {
 }
 
 impl<I: I2c + 'static> BmmPsu<I> {
-    /// Construct a handle.
     pub fn new(shared: &'static BmmShared<I>) -> Self {
         Self {
             shared,
@@ -126,13 +125,10 @@ impl<I: I2c + 'static> Psu for BmmPsu<I> {
     /// Stop the converter, after reading the fault flags it latched while
     /// it was switching.
     ///
-    /// A stopped converter reports undervoltage, and the status read
-    /// clears that flag while the rail is off. A sag that latched just
-    /// before a rail cut is therefore read here, where it can still be
-    /// told from the stop, and the next status read reports it. A read
-    /// that fails is dropped, so the cut goes ahead. The flags are read
-    /// only behind an enable that ran to its end, so the undervoltage of
-    /// a ramp that a dropped enable left latched is never taken for a sag.
+    /// The status read clears a stopped converter's undervoltage, so a sag
+    /// that latched just before a rail cut is read here and reported by
+    /// the next status read. A read that fails is dropped, so the cut goes
+    /// ahead.
     async fn disable(&self) -> Result<(), Error<I::Error>> {
         let mut psu = self.shared.acquire().await?;
         let (i2c, config) = psu.split();

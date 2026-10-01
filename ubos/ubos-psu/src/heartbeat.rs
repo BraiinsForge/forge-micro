@@ -24,9 +24,8 @@
 //! interval resets the board.
 //!
 //! [`pulse`] takes the bus as `&mut I` rather than hanging off a
-//! handle, for the reason `ina230.rs` gives: `I` is a generic parameter
-//! that no inherent `impl` here can name, and the caller has already
-//! locked the `State` it drives this part and the converter through.
+//! handle, for the same reason as [`crate::sic45x`]: see its module
+//! doc.
 
 use embassy_time::{Duration, Timer};
 use embedded_hal_async::i2c::I2c;
@@ -40,15 +39,10 @@ const HEARTBEAT_HIGH_DURATION: Duration = Duration::from_millis(100);
 
 /// Drive the part's virtual input low, pulse it high, then return it low.
 ///
-/// This is what keeps the board out of reset. The opening low write makes
-/// the high write a rising edge whatever the input was left at, by a warm
-/// reset or by a pulse that was cut short. The high level is held for [`HEARTBEAT_HIGH_DURATION`] so
-/// the part registers an edge, and the function awaits that hold, so a
-/// caller must budget for it inside its own interval.
-///
-/// The PSU task is the only caller that meets the interval, through
-/// `BmmPsu`'s `Psu::heartbeat`. Any other caller that borrows this
-/// pattern owns the same obligation.
+/// The opening low write makes the high write a rising edge whatever a
+/// warm reset or a cut pulse left the input at. The high level is held for
+/// [`HEARTBEAT_HIGH_DURATION`] inside the call, so a caller budgets for it
+/// within its interval.
 ///
 /// # Errors
 ///
