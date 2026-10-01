@@ -186,7 +186,18 @@ The primary test is **touched once**. From the read, build a picture of
 which commits modify which lines. Any line, hunk, or behavior that one
 branch commit introduces and a *later* branch commit changes is a squash
 candidate — the two are the same logical change split across development
-time.
+time. Confirm each suspected pair before it enters the plan: blame the
+lines the later commit changes at that commit's parent, and a line an
+earlier branch commit owns is the same change touched twice.
+
+```bash
+git blame <later>^ -- <file>
+```
+
+A duplicate that stays — a deliberate two-step migration, a
+prerequisite that must build on its own — needs its reason recorded in
+the plan, and the reason must be strong: that the two commits would
+both exist in a clean-authored branch.
 
 **What is a logical change?** A single reviewable idea: adding a feature,
 fixing a bug, refactoring an API, updating documentation for a specific
@@ -312,10 +323,11 @@ multiple commits with `-e` flags in one `GIT_SEQUENCE_EDITOR` sed command.
      commits and a single line of descent
    - No archaeology: `git log --oneline "$BASE"..HEAD` shows no `fixup!`,
      `squash!`, `wip`, or `tmp` subjects surviving
-   - Touched once: no file is modified across multiple commits without a
-     distinct logical reason for each (spot-check with
-     `git log --oneline "$BASE"..HEAD -- <file>` on files that appear in
-     more than one commit)
+   - Touched once: list every file more than one branch commit names
+     (`git log --format= --name-only "$BASE"..HEAD | sort | uniq -d`),
+     and blame each one as Phase 2 describes; a line a later branch
+     commit changes and an earlier one owns goes back to Phase 2 for
+     folding, unless the plan records the strong reason it stays
 4. Show before/after commit list to user
 5. If the diff is not empty, something went wrong. Inform the user and
    do NOT delete the backup.
