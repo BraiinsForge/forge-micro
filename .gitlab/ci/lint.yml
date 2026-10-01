@@ -8,7 +8,7 @@ commits:
     GIT_DEPTH: 0
   script:
     - test -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" || { echo "CI_MERGE_REQUEST_DIFF_BASE_SHA is empty"; exit 1; }
-    - nix shell nixpkgs#gitlint --command gitlint --commits "$CI_MERGE_REQUEST_DIFF_BASE_SHA..HEAD"
+    - nix shell --inputs-from . nixpkgs#gitlint --command gitlint --commits "$CI_MERGE_REQUEST_DIFF_BASE_SHA..HEAD"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
