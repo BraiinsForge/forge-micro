@@ -34,6 +34,13 @@
   height: 0;
 }
 
+/* The bar height is a token because the toast stack is placed below
+   the bar, and the two are siblings, so nothing but a shared ancestor
+   can carry the value both read. */
+:root {
+  --bar-h: 48px;
+}
+
 /* Sticky top header and bottom footer. The navigation links sit in
    the .bar at the top and the .bar.ft variant at the bottom carries
    build provenance. Both bars are pinned via position: sticky so
@@ -44,7 +51,7 @@
   gap: 4px;
   background: var(--panel);
   padding: 0 14px;
-  height: 48px;
+  height: var(--bar-h);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -1370,9 +1377,11 @@ main > * {
   background: var(--accent-hi);
 }
 
+/* Notification stack. It sits below the sticky .bar so a toast never
+   covers the buttons at the right end of the bar. */
 .toasts {
   position: fixed;
-  top: 16px;
+  top: calc(var(--bar-h) + 16px);
   right: 16px;
   z-index: 300;
   display: flex;

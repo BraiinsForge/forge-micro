@@ -1,8 +1,9 @@
 import { useToasts, dismiss } from '../lib/toast';
 
-// Top-right notification stack. Reads the shared toast store and renders
-// one card per toast: a colored left border, the success/error icon, a
-// header, optional detail, and a close button.
+// Notification stack under the right end of the top bar. Reads the
+// shared toast store and renders one card per toast: a colored left
+// border, the success/error icon, a header, optional detail, and a
+// close button.
 export default function Toasts() {
   const { list } = useToasts();
   if (!list.length) return null;

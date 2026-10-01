@@ -1,5 +1,6 @@
-// Global toast notifications: a single top-right stack driven by a
-// module-level signal, so any form can raise one without prop drilling.
+// Global toast notifications: a single stack under the right end of
+// the top bar, driven by a module-level signal, so any form can raise
+// one without prop drilling.
 // Mirrors lib/store.ts — mutate the shared state, then notify().
 
 import { createSignal } from './signal';
