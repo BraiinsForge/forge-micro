@@ -20,10 +20,22 @@ interface PoolMeta {
 interface Status {
   text: string;
   cls: string;
+  // False while the state is not known yet: the text is then the same
+  // placeholder the other empty cells show, and a dot would colour it.
+  // Build that case through `unknownStatus` rather than by hand.
+  dot?: boolean;
+}
+
+// A status the board has not reported yet. Both callers route through
+// here, so the placeholder text and the suppressed dot cannot drift
+// apart. `cls` stays a parameter because the two cases style the
+// placeholder differently.
+function unknownStatus(text: string, cls = ''): Status {
+  return { text, cls, dot: false };
 }
 
 function statusOf(info: Info | null): Status {
-  if (!info || info.paused == null) return { text: '–', cls: '' };
+  if (!info || info.paused == null) return unknownStatus('–');
   if (info.paused) {
     return {
       // The union covers the reasons this page knows. The string comes
@@ -53,7 +65,7 @@ function chainStatus(state: ChainInfo['state']): Status {
     case 'faulted':
       return { cls: 'fault', text: 'Faulted' };
     default:
-      return { cls: 'unknown', text: '—' };
+      return unknownStatus('—', 'unknown');
   }
 }
 
@@ -73,10 +85,10 @@ function StatCard({ label, value, cls, wide }: StatCardProps) {
   );
 }
 
-function StatusDot({ text }: { text: string }) {
+function StatusDot({ text, dot = true }: { text: string; dot?: boolean }) {
   return (
     <span class="ps">
-      <span class="pd" />
+      {dot && <span class="pd" />}
       {text}
     </span>
   );
@@ -199,7 +211,7 @@ export default function Dashboard() {
         <StatCard label="Uptime" value={fmtUp(info?.uptime)} />
         <div class={'card lkc' + (status.cls === 'running' ? ' live' : status.cls ? ' dead' : '')}>
           <div class="k">Status</div>
-          <StatusDot text={status.text} />
+          <StatusDot text={status.text} dot={status.dot} />
         </div>
         <div class={'card lkc' + (dash.link ? ' live' : ' dead')}>
           <div class="k">Link</div>
@@ -232,7 +244,7 @@ export default function Dashboard() {
                 <span>{present ? chain.frequency_mhz + ' MHz' : '—'}</span>
                 <span>{present ? fmtHr(chain.hashrate) : '—'}</span>
                 <span>{chain.hottest_c == null ? '—' : chain.hottest_c + ' °C'}</span>
-                <StatusDot text={st.text} />
+                <StatusDot text={st.text} dot={st.dot} />
               </div>
             );
           })}

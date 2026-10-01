@@ -519,8 +519,7 @@ main > * {
 }
 
 .pool.empty .pd,
-.hb.empty .pd,
-.hb.unknown .pd {
+.hb.empty .pd {
   background: var(--mute);
 }
 
