@@ -118,10 +118,12 @@ export default function Dashboard() {
     })();
   }, []);
 
+  const temperature = dash.temperature;
+
   function tempCls(): string {
-    if (!info?.temperature || !tempThresh) return '';
-    if (info.temperature >= tempThresh[1]) return 'temp-red';
-    if (info.temperature >= tempThresh[0]) return 'temp-warn';
+    if (temperature == null || !tempThresh) return '';
+    if (temperature >= tempThresh[1]) return 'temp-red';
+    if (temperature >= tempThresh[0]) return 'temp-warn';
     return 'temp-ok';
   }
 
@@ -179,11 +181,7 @@ export default function Dashboard() {
         <StatCard label="Real Hashrate" value={fmtHr(info?.hashrate)} />
         <StatCard
           label="Chip Temperature"
-          value={
-            info?.temperature != null
-              ? info.temperature + ' °C' + (info.chip_reading_stale ? ' (held)' : '')
-              : '–'
-          }
+          value={temperature != null ? temperature + ' °C' : '–'}
           cls={tempCls()}
         />
         <StatCard

@@ -28,10 +28,16 @@ export interface Info {
   name: string;
   hashrate?: number;
   uptime?: number;
+  /**
+   * Chip temperature in °C. Read `chip_reading_stale` before showing
+   * it: this field holds its last value when the board stops measuring.
+   * `lib/store.ts` filters it into `dash.temperature`, and the card,
+   * its colour and the chart all read that field instead of this one.
+   */
   temperature?: number;
   /** Ambient temperature near the board. `null` on a board without a sensor for it. */
   ambient?: number | null;
-  /** `true` when `temperature` is a held-over value, not a fresh read. */
+  /** `true` when `temperature` is a held or zero value the board did not measure, not a fresh read. */
   chip_reading_stale?: boolean;
   fan_rpm?: number;
   fan_pwm?: number;

@@ -19,6 +19,10 @@ const emptyBuf = (): Sample[] => new Array<Sample>(SAMPLES).fill(null);
 export interface Dash {
   info: Info | null;
   link: boolean;
+  // The chip temperature the page may show. A stale reading is a held or
+  // zero value the board did not measure, so it is absent here, and the
+  // card, its colour and the chart all read this one field.
+  temperature: number | null;
   hr: Sample[];
   tp: Sample[];
   pin: Sample[];
@@ -28,6 +32,7 @@ export interface Dash {
 export const dash: Dash = {
   info: null,
   link: false,
+  temperature: null,
   hr: emptyBuf(),
   tp: emptyBuf(),
   pin: emptyBuf(),
@@ -52,7 +57,8 @@ async function tick(): Promise<void> {
     dash.link = true;
     dash.info = data;
     push(dash.hr, data.hashrate ?? null);
-    push(dash.tp, data.temperature ?? null);
+    dash.temperature = data.chip_reading_stale || data.temperature == null ? null : data.temperature;
+    push(dash.tp, dash.temperature);
     push(dash.pin, data.power_in_mw == null ? null : data.power_in_mw / 1000);
     push(dash.pout, data.power_out_mw == null ? null : data.power_out_mw / 1000);
   } catch (error) {
