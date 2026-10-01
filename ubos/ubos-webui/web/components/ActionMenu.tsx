@@ -22,6 +22,10 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
   const paused = dash.info?.paused;
   const running = dash.info?.running;
   const reason = dash.info?.pause_reason;
+  // While the miner waits for a pool, nothing is paused and nothing
+  // runs, so Start would resume a manager that is not halted. The
+  // miner leaves that state by itself once a pool holds a job.
+  const waitingForPool = dash.info?.mining_state === 'waitingForPool';
   // See "Two ways out of an overheat halt" in docs/MINING.md. An
   // overheat stop does not answer to a bare resume, so Start opens
   // the confirm step below and the confirm clears the halt and starts.
@@ -32,13 +36,13 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
   // Whether Start is inert, which depends on why mining is stopped.
   // Start answers alone only where `userRequest` is the dominant
   // reason. `dangerousTemperature` is the exception: it is the highest
-  // reason, so it can stand in front of a fan or a pool fault, and
+  // reason, so it can stand in front of a fan fault, and
   // Start stays live to open the confirm step. Every other reason
   // leaves it disabled. The severity order both tests rest on is in
   // the MINING.md section named above.
   function startIsDisabled(): boolean | undefined {
     if (paused == null) return false;
-    if (!paused) return running;
+    if (!paused) return running || waitingForPool;
     return reason !== 'userRequest' && !overheated;
   }
   const startDisabled = startIsDisabled();
