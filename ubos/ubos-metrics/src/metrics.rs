@@ -52,7 +52,6 @@ pub use crate::store::{METRIC_LINE_BYTES, MetricsStatics, run_ingest};
 /// for every label of every queued metric.
 const LABEL_VALUE_CAPACITY: usize = 24;
 
-/// A name-value label pair attached to a metric.
 pub(crate) struct Label {
     pub(crate) name: &'static str,
     pub(crate) value: heapless::String<LABEL_VALUE_CAPACITY>,
@@ -149,31 +148,24 @@ impl Metric {
         self
     }
 
-    /// Push the metric into the exposition channel, waiting while the
-    /// channel is full.
+    /// Awaits while the channel is full.
     pub async fn push(self) {
         METRICS.send(self).await;
     }
 
-    /// Push the metric into the exposition channel, or drop it when the
-    /// channel is full.
-    ///
-    /// The path for a caller that must stay able to make progress while
-    /// the channel stands still. [`run_ingest`] is the only reader, so a
-    /// caller on a core that cannot run it has no way to tell how long a
-    /// [`Metric::push`] would wait. Every series pushed this way is pushed
-    /// on a ticker, so a dropped sample is replaced by the next one.
+    /// Drops the metric when the channel is full, for a caller that must
+    /// keep making progress while [`run_ingest`] cannot run. Every series
+    /// pushed this way is pushed on a ticker, so the next sample replaces
+    /// a dropped one.
     pub fn try_push(self) {
         let _ = METRICS.try_send(self);
     }
 
-    /// The metric's identifier as emitted in the Prometheus body.
     #[must_use]
     pub fn name(&self) -> &'static str {
         self.name
     }
 
-    /// The metric's current value.
     #[must_use]
     pub fn value(&self) -> Value {
         self.value
@@ -185,7 +177,6 @@ impl Metric {
         self.expiry
     }
 
-    /// Labels attached to this metric.
     #[must_use]
     pub(crate) fn labels(&self) -> &[Label] {
         &self.labels
@@ -193,10 +184,6 @@ impl Metric {
 }
 
 /// Prometheus `/metrics` exposition handler.
-///
-/// One [`Service`] shared across all exposition workers. It reads the
-/// map [`run_ingest`] keeps current and renders into the render buffer
-/// beside it, both owned by the board's [`MetricsStatics`].
 pub struct PrometheusMetricsService<const MAX: usize, const BODY: usize> {
     statics: &'static MetricsStatics<MAX, BODY>,
     net: ubos_net::net::Handle,
@@ -224,11 +211,7 @@ impl<const MAX: usize, const BODY: usize> Service for PrometheusMetricsService<M
     where
         TcpSocket: Read + Write + TcpSplit,
     {
-        // The worker already extracted `parts`, so no second copy of the
-        // method and path is needed here. A path over the 128-byte cap
-        // arrives empty, which falls through the match below exactly as
-        // the oversize path used to once it was replaced with `/`: neither
-        // ever equals `/metrics`.
+        // A path over the cap arrives empty and falls through the match.
         let is_get = parts.method.as_str() == "GET";
 
         match (is_get, parts.path.as_str()) {
@@ -239,7 +222,6 @@ impl<const MAX: usize, const BODY: usize> Service for PrometheusMetricsService<M
     }
 }
 
-/// Build the Prometheus body and send it with an accurate `Content-Length`.
 async fn serve_metrics<T, const N: usize, const MAX: usize, const BODY: usize>(
     statics: &'static MetricsStatics<MAX, BODY>,
     net: ubos_net::net::Handle,
@@ -249,8 +231,8 @@ where
     T: Read + Write + TcpSplit,
 {
     let mut body_buffer = statics.body.lock().await;
-    // Render under the map lock, then release it before the socket write
-    // so a slow scrape blocks only other scrapes, never ingestion.
+    // The map lock is released before the socket write, so a slow scrape
+    // never blocks ingestion.
     let body_len = {
         let map = statics.map.lock().await;
         build_prometheus_body(&mut body_buffer, &map, net)
@@ -279,11 +261,8 @@ where
     Ok(())
 }
 
-/// Write the 404 response.
-///
-/// Error responses carry the same wildcard CORS header as the metrics
-/// response so a cross-origin caller sees the real HTTP status instead
-/// of an opaque CORS failure.
+/// Error responses carry the wildcard CORS header too, so a cross-origin
+/// caller sees the real status instead of an opaque CORS failure.
 async fn serve_not_found<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
 ) -> Result<(), HttpError<T::Error>>
@@ -294,9 +273,6 @@ where
         connection,
         Status::NOT_FOUND,
         "text/plain",
-        // `write_status_only` no longer closes on the caller's behalf, so
-        // this listener writes the header itself, as its success path
-        // already does.
         &[
             ("Connection", "close"),
             ("Access-Control-Allow-Origin", "*"),
@@ -306,7 +282,7 @@ where
     .await
 }
 
-/// Write the 405 response. Includes `Allow: GET` per RFC 7231 §6.5.5.
+/// Includes the `Allow` header RFC 7231 requires on a 405.
 async fn serve_method_not_allowed<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
 ) -> Result<(), HttpError<T::Error>>
@@ -327,14 +303,9 @@ where
     .await
 }
 
-/// Build the Prometheus text exposition body into `buffer`. Returns byte count.
-///
-/// Emits a single `defmt::warn!` if the response did not fit in the
-/// buffer: a silent truncation would ship a malformed exposition that
-/// the scraper rejects with no diagnostic on this side. The metric
-/// budget is sized for the current series count plus headroom; if this
-/// warning ever fires, raise the board's `METRICS_RESPONSE_BYTES` or
-/// trim the metric set.
+/// Build the exposition body into `buffer` and return its length. A body
+/// that does not fit warns, since a silent truncation ships a malformed
+/// exposition the scraper rejects without a diagnostic here.
 fn build_prometheus_body<const MAX: usize, const BODY: usize>(
     buffer: &mut [u8; BODY],
     map: &heapless::index_map::FnvIndexMap<MetricKey, StoredValue, MAX>,
@@ -342,12 +313,10 @@ fn build_prometheus_body<const MAX: usize, const BODY: usize>(
 ) -> usize {
     let mut writer = BufferWriter::new(buffer);
 
-    // HELP/TYPE lines are omitted throughout — they are optional in the
-    // Prometheus text format and the buffer is tight.
+    // HELP and TYPE lines are optional, and the buffer is tight.
     let ntp_offset = net.ntp_epoch_offset();
     render_stored(&mut writer, map, ntp_offset, Instant::now().as_millis());
 
-    // Render hardcoded derived metrics.
     let uptime_secs = Instant::now().as_secs();
     let ts_ms = if ntp_offset == 0 {
         None
@@ -393,11 +362,8 @@ fn render_stored<const MAX: usize>(
     }
 }
 
-/// Render one stored metric line. The key string includes name and labels.
-/// `ntp_offset` is the seconds from the monotonic clock to Unix time, or 0
-/// before the first sync.
+/// `ntp_offset` is what [`ubos_net::net::Handle::ntp_epoch_offset`] returns.
 fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue, ntp_offset: u64) {
-    // The key encodes labels as `name{label=value,...}` or just `name`.
     let _ = write!(writer, "{key} {}", stored.value);
     // Stored timestamps are monotonic ms since boot. Add the NTP epoch
     // offset to produce an absolute Unix-epoch timestamp. If NTP has
@@ -410,7 +376,6 @@ fn render_metric(writer: &mut BufferWriter<'_>, key: &str, stored: &StoredValue,
     let _ = writeln!(writer);
 }
 
-/// Render a scalar (integer-like) derived metric line.
 fn render_scalar<T: core::fmt::Display>(
     writer: &mut BufferWriter<'_>,
     name: &str,

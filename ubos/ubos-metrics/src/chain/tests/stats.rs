@@ -17,11 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for [`ChainStats`]: share and pool-slot accounting, the
-//! temperature sentinel round trip, `clear`'s lifetime-counter
-//! exemption, presence storage, and [`ChainStatsHandle`]: the wired
-//! prefix it walks, the clamp on the published chain count, and the
-//! sums it takes across chains.
+//! Tests for [`ChainStats`] and [`ChainStatsHandle`].
 
 use super::*;
 extern crate std;
@@ -57,9 +53,8 @@ fn record_share_bumps_share_count_and_pool_slot() {
     assert_eq!(stats.pool_shares(0), 0);
 }
 
-/// A solution found against a harder filter counts as that many
-/// shares in both counters, so a counter times 2^32 stays the hash
-/// count.
+// A solution found against a harder filter counts as that many shares in
+// both counters, so a counter times 2^32 stays the hash count.
 #[test]
 fn record_share_weighs_a_solution_by_its_difficulty() {
     let stats = ChainStats::new();
@@ -165,8 +160,7 @@ fn presence_round_trips_and_updates_chips() {
     assert_eq!(stats.chips(), 0);
 }
 
-/// A three-slot table of the caller's own, with `active` leading slots
-/// wired, built the way a board's `handle()` would see it.
+/// A three-slot table with `active` leading slots wired.
 fn table(active: u8) -> ChainStatsHandle {
     let stats: &'static [ChainStats; 3] = Box::leak(Box::new([const { ChainStats::new() }; 3]));
     let active: &'static AtomicU8 = Box::leak(Box::new(AtomicU8::new(active)));
@@ -262,9 +256,6 @@ fn the_lowest_voltage_is_the_lowest_sum_of_a_chain_that_has_one() {
     assert_eq!(handle.lowest_voltage(), Some(Voltage::from_mv(1200)));
 }
 
-/// The desync counter takes bytes at the line rate, so it is the one
-/// that can reach its ceiling. It holds there instead of wrapping,
-/// which would read as the line recovering.
 #[test]
 fn desync_bytes_saturate_instead_of_wrapping() {
     let stats = ChainStats::new();

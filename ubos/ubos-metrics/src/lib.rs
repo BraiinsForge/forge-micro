@@ -17,18 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Observability for the firmware framework.
-//!
-//! `metrics` builds the Prometheus text-format body and serves it via
-//! an edge-http `Handler` driven by a dedicated accept loop on the
-//! Prometheus port. `hashrate` owns the EWMA accumulator that the
-//! `ubos-mining` firmware path and the host-runner CPU mock push work
-//! into. `cpu_load` samples per-core idle ticks and exposes a
-//! busy-ratio gauge.
-//!
-//! `PROMETHEUS_SERVICE` is the mDNS advertisement for the Prometheus
-//! endpoint; firmware that advertises this crate includes it in the
-//! service list it passes to [`ubos_mdns::run_mdns`].
+//! Observability: the Prometheus exposition, the hashrate estimator, the
+//! per-chain table, and the CPU-load gauge.
+//! `PROMETHEUS_SERVICE` is the endpoint's mDNS advertisement.
 #![no_std]
 
 ubos_mdns::declare_service!(

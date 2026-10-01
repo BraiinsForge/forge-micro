@@ -27,17 +27,13 @@ use portable_atomic::{AtomicU64, Ordering};
 use crate::metric;
 use crate::value::Ratio;
 
-/// Maximum number of cores tracked by [`record_idle`]. Each board
-/// declares how many of these slots it populates by passing `N_CPUS`
-/// to [`run_cpu_load`].
+/// Most cores tracked; a board passes its own count to [`run_cpu_load`].
 pub const MAX_CPUS: usize = 2;
 
-/// Total `embassy_time` ticks spent halted in each core's idle wait.
-/// Boards add to slot `N` from the idle hook running on core `N`.
+/// Ticks spent halted in each core's idle wait.
 static IDLE_TICKS: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
 
-/// Adds `ticks` spent halted on core `cpu` to that core's idle total. An
-/// idle hook calls this once per wake with the ticks it measured.
+/// Called by core `cpu`'s idle hook once per wake.
 pub fn record_idle(cpu: usize, ticks: u64) {
     IDLE_TICKS[cpu].fetch_add(ticks, Ordering::Relaxed);
 }
@@ -45,11 +41,7 @@ pub fn record_idle(cpu: usize, ticks: u64) {
 /// Window length over which the published ratio is averaged.
 const WINDOW: Duration = Duration::from_secs(5);
 
-/// Publish `cpu_busy_ratio` once per [`WINDOW`] for each of the
-/// `N_CPUS` active cores.
-///
-/// Call this from a firmware `#[embassy_executor::task]`. `N_CPUS`
-/// must be at most [`MAX_CPUS`].
+/// Publish `cpu_busy_ratio` once per `WINDOW` for each core.
 pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
     const { assert!(N_CPUS <= MAX_CPUS, "N_CPUS exceeds MAX_CPUS") };
 
@@ -60,10 +52,8 @@ pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
 
     loop {
         ticker.next().await;
-        // Sample every core's idle counter up front so all per-cpu
-        // ratios share the same elapsed window. Publishing awaits
-        // between cores, so a per-iteration sample would skew later
-        // cores against an already-stale `now_instant`.
+        // Sampled up front, so every core shares one elapsed window
+        // despite the awaits between publishes.
         let now_idle: [u64; N_CPUS] =
             core::array::from_fn(|index| IDLE_TICKS[index].load(Ordering::Relaxed));
         let now_instant = Instant::now();
@@ -88,9 +78,7 @@ pub async fn run_cpu_load<const N_CPUS: usize>() -> ! {
 #[cfg(target_arch = "arm")]
 pub use cortex_m_executor::run_cortex_m_executor;
 
-/// Cortex-M-specific seam between `cortex_m_rt::entry` and the
-/// `raw::Executor` poll/wfe loop that feeds [`record_idle`]. Gated
-/// to ARM so the shared library still compiles for ESP32-S3.
+/// The Cortex-M executor loop that feeds [`record_idle`].
 #[cfg(target_arch = "arm")]
 mod cortex_m_executor {
     use embassy_executor::Spawner;
@@ -99,25 +87,18 @@ mod cortex_m_executor {
 
     use super::{MAX_CPUS, record_idle};
 
-    /// Sentinel value the `embassy-executor` cortex-m pender treats as
-    /// thread mode. The pender issues `sev` for this branch, which
-    /// breaks the `wfe` below when a task is woken.
+    /// The pender context `embassy-executor` treats as thread mode, for
+    /// which it issues `sev` and so breaks the `wfe` below.
     const THREAD_PENDER: usize = usize::MAX;
 
-    /// Drive an embassy `raw::Executor` on Cortex-M, accumulating the
-    /// time spent halted in `wfe` through `record_idle` for `CPU_INDEX`.
-    ///
-    /// `spawn` is invoked once with the executor's [`Spawner`] so the
-    /// firmware can spawn its boot task. The function never returns.
-    ///
-    /// Call this from inside `#[cortex_m_rt::entry] fn main`.
+    /// Drive a `raw::Executor` on Cortex-M, recording the time halted in
+    /// `wfe` for `CPU_INDEX`. `spawn` runs once with the [`Spawner`].
     pub fn run_cortex_m_executor<const CPU_INDEX: usize, F>(spawn: F) -> !
     where
         F: FnOnce(Spawner),
     {
-        // Function-local statics are not duplicated per generic
-        // instantiation, so we keep a per-`CPU_INDEX` slot in an array
-        // and pick the right one at runtime.
+        // A function-local static is shared across generic instantiations,
+        // so each `CPU_INDEX` takes its own array slot.
         static EXECUTORS: [StaticCell<embassy_executor::raw::Executor>; MAX_CPUS] =
             [const { StaticCell::new() }; MAX_CPUS];
         const { assert!(CPU_INDEX < MAX_CPUS, "CPU_INDEX exceeds MAX_CPUS") };
@@ -127,8 +108,7 @@ mod cortex_m_executor {
         let spawner = executor.spawner();
         spawn(spawner);
         loop {
-            // SAFETY: `raw::Executor::poll` is not reentrant. This loop
-            // is the sole caller, and no interrupt handler invokes
+            // SAFETY: this loop is the sole caller of the non-reentrant
             // `poll`.
             unsafe { executor.poll() };
             let before = Instant::now();

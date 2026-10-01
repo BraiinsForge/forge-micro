@@ -17,11 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for the pure helpers behind
-//! [`super::HashrateEstimator::record_share`]. `record_share` itself
-//! is coupled to [`embassy_time::Instant`] and the instance's own
-//! fields, so the tests exercise the extracted `hashes_per_solution` and
-//! `next_ewma` functions instead.
+//! Tests for the pure helpers behind `record_share`, which itself is
+//! coupled to [`embassy_time::Instant`].
 
 use super::{
     BUCKET_MS, EWMA_ALPHA_SHIFT, MAX_DECAY_STEPS, decay_silent, hashes_per_solution, next_ewma,
@@ -37,15 +34,12 @@ fn target_with_leading_zero_bytes(zero_bytes: usize) -> [u8; 32] {
 
 #[test]
 fn hashes_per_solution_target_one_byte() {
-    // Target with the most significant byte set to 0x01 leaves
-    // 7 leading zero bits in that byte → 256 hashes per share.
     let target = target_with_leading_zero_bytes(0);
     assert_eq!(hashes_per_solution(&target), 1u64 << 7);
 }
 
 #[test]
 fn hashes_per_solution_scales_with_target() {
-    // Each leading zero byte multiplies hashes-per-share by 256.
     assert_eq!(
         hashes_per_solution(&target_with_leading_zero_bytes(1)),
         1u64 << 15
@@ -58,23 +52,17 @@ fn hashes_per_solution_scales_with_target() {
 
 #[test]
 fn hashes_per_solution_saturates_when_shift_overflows() {
-    // Eight leading zero bytes leaves 0x01 at index 23: 7 + 8*8 = 71
-    // bits to shift by, which overflows a u64; the checked_shl path
-    // saturates to u64::MAX.
     let target = target_with_leading_zero_bytes(8);
     assert_eq!(hashes_per_solution(&target), u64::MAX);
 }
 
 #[test]
 fn hashes_per_solution_all_zero_target_saturates() {
-    // An all-zero target counts 256 leading zero bits and saturates.
     assert_eq!(hashes_per_solution(&[0u8; 32]), u64::MAX);
 }
 
 #[test]
 fn next_ewma_from_zero_takes_one_alpha_step() {
-    // First finalized bucket: previous = 0, so the new value is just
-    // bucket_rate >> EWMA_ALPHA_SHIFT.
     let bucket_total: u64 = 8_000;
     let elapsed_ms: u64 = 1_000;
     let bucket_rate: u64 = 8_000;
@@ -86,29 +74,21 @@ fn next_ewma_from_zero_takes_one_alpha_step() {
 
 #[test]
 fn next_ewma_steady_state_holds() {
-    // Bucket rate equal to the previous EWMA leaves the value
-    // unchanged: delta is zero.
     assert_eq!(next_ewma(10_000, 1_000, 10_000), 10_000);
 }
 
 #[test]
 fn next_ewma_decays_toward_lower_rate() {
-    // previous = 8000, bucket rate = 0 → delta = -8000, shift right
-    // by 3 → -1000 → next = 7000.
     assert_eq!(next_ewma(0, 1_000, 8_000), 7_000);
 }
 
 #[test]
 fn next_ewma_saturates_on_huge_bucket() {
-    // Bucket total large enough that bucket_total * 1000 overflows
-    // u64; saturating_mul caps the rate at u64::MAX and the alpha
-    // shift folds it into the EWMA without further overflow.
     assert_eq!(next_ewma(u64::MAX, 1, 0), u64::MAX >> EWMA_ALPHA_SHIFT);
 }
 
 #[test]
 fn decay_reaches_zero() {
-    // 64 consecutive zero-rate EWMA steps from 8000 must reach 0.
     let mut value: u64 = 8_000;
     for _ in 0..MAX_DECAY_STEPS {
         value = next_ewma(0, BUCKET_MS, value);
@@ -118,8 +98,6 @@ fn decay_reaches_zero() {
 
 #[test]
 fn decay_partial_steps() {
-    // Three missed zero-rate buckets from 8000 reduce the EWMA in a
-    // predictable cascade: 8000 → 7000 → 6125 → 5359.
     let start: u64 = 8_000;
     let once = next_ewma(0, BUCKET_MS, start);
     let twice = next_ewma(0, BUCKET_MS, once);
@@ -131,16 +109,13 @@ fn decay_partial_steps() {
 
 #[test]
 fn record_share_resume_does_not_exceed_displayed_value() {
-    // Steady-state EWMA, then 30 s of silence, then a low-rate share.
     let steady: u64 = 8_000;
     let elapsed_ms: u64 = 30 * BUCKET_MS;
     let bucket_total: u64 = 32; // ~Diff-1 share, very low
 
-    // Pre-resume: what hashrate() returns the moment before the share.
     let read_missed = (elapsed_ms - BUCKET_MS) / BUCKET_MS;
     let displayed_before = decay_silent(steady, read_missed);
 
-    // Post-resume: what record_share now writes on the finalising share.
     let silent_buckets = (elapsed_ms - BUCKET_MS) / BUCKET_MS;
     let decayed = decay_silent(steady, silent_buckets);
     let stored_after = next_ewma(bucket_total, BUCKET_MS, decayed);
@@ -153,8 +128,6 @@ fn record_share_resume_does_not_exceed_displayed_value() {
     );
 }
 
-/// A gap shorter than two buckets has nothing silent behind it and
-/// folds over the whole gap.
 #[test]
 fn resume_split_below_two_buckets_folds_the_whole_gap() {
     for elapsed in [1, BUCKET_MS, 2 * BUCKET_MS - 1] {
@@ -162,10 +135,6 @@ fn resume_split_below_two_buckets_folds_the_whole_gap() {
     }
 }
 
-/// The fold window is what is left of the gap once the silent buckets
-/// are taken out, not a whole bucket. A gap that is not an exact
-/// multiple used to fold over `BUCKET_MS` and report the resumed rate
-/// high by the ratio between the two.
 #[test]
 fn resume_split_folds_over_the_true_remainder() {
     let half = BUCKET_MS / 2;
@@ -173,8 +142,6 @@ fn resume_split_folds_over_the_true_remainder() {
     assert_eq!(resume_split(5 * BUCKET_MS + half), (4, BUCKET_MS + half));
 }
 
-/// An exact multiple has no remainder to carry, so the window is one
-/// whole bucket. This is the case the old code was right for.
 #[test]
 fn resume_split_on_an_exact_multiple_folds_one_bucket() {
     for buckets in 2..8u64 {
@@ -186,8 +153,6 @@ fn resume_split_on_an_exact_multiple_folds_one_bucket() {
     }
 }
 
-/// The window never reaches zero for a gap that finalises a bucket, so
-/// the rate division below it cannot divide by zero.
 #[test]
 fn resume_split_never_returns_a_zero_window() {
     for elapsed in (1..40u64).map(|n| n * BUCKET_MS / 3) {

@@ -45,9 +45,9 @@ use crate::value::Count;
 /// value.
 const ANY_TEMPERATURE: Temperature = Temperature::from_celsius(60);
 
-/// The length the capacity is asserted against must be the length of the
-/// key `from_metric` actually builds, or the compile-time check guards
-/// nothing.
+// The length the capacity is asserted against must be the length of the
+// key `from_metric` actually builds, or the compile-time check guards
+// nothing.
 #[test]
 fn the_longest_key_constants_match_what_from_metric_renders() {
     let metric = metric!(LONGEST_KEY_NAME, ANY_TEMPERATURE)
@@ -61,8 +61,8 @@ fn the_longest_key_constants_match_what_from_metric_renders() {
     assert_eq!(key.0.len(), LONGEST_RENDERED_KEY_BYTES);
 }
 
-/// A push site adds its labels one call at a time, in any order, and the
-/// key holds them sorted by name with the text each value displays.
+// A push site adds its labels one call at a time, in any order, and the
+// key holds them sorted by name with the text each value displays.
 #[test]
 fn labels_added_one_by_one_render_sorted_in_the_key() {
     let metric = metric!("chip_temperature_celsius", ANY_TEMPERATURE)
@@ -75,8 +75,8 @@ fn labels_added_one_by_one_render_sorted_in_the_key() {
     );
 }
 
-/// A key one byte past the cap is dropped rather than truncated: a
-/// truncated key would collide with another metric's.
+// A key one byte past the cap is dropped rather than truncated: a
+// truncated key would collide with another metric's.
 #[test]
 fn a_key_past_the_budget_is_refused() {
     let name = Name::<Count>::new(
@@ -96,8 +96,8 @@ fn holds(map: &Map, name: &str) -> bool {
     map.keys().any(|key| key.0.as_str() == name)
 }
 
-/// A full map drops its expired series, so a stopped publisher does not
-/// keep a slot that a live series needs.
+// A full map drops its expired series, so a stopped publisher does not
+// keep a slot that a live series needs.
 #[test]
 fn a_full_map_gives_the_slot_of_an_expired_series_to_a_new_one() {
     let mut map = Map::new();
@@ -108,7 +108,7 @@ fn a_full_map_gives_the_slot_of_an_expired_series_to_a_new_one() {
     assert!(holds(&map, "new") && holds(&map, "live") && !holds(&map, "stopped"));
 }
 
-/// A full map of live series keeps them and drops the new one.
+// A full map of live series keeps them and drops the new one.
 #[test]
 fn a_full_map_of_live_series_refuses_a_new_one() {
     let mut map = Map::new();

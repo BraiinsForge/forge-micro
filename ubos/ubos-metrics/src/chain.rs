@@ -17,8 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Per-chain accounting, one instance per chain slot, and the ceiling
-//! on how many chains a machine drives.
+//! Per-chain accounting, one instance per chain slot, and [`MAX_CHAINS`],
+//! the ceiling it is sized to. This crate sits below every consumer of
+//! the table, which is why both live here.
 //!
 //! [`MAX_CHAINS`] lives here because this table is what it sizes, and
 //! this crate sits below every consumer of the table: `ubos-mining`
@@ -58,23 +59,16 @@ pub use presence::ChainPresence;
 #[path = "chain/tests/stats.rs"]
 mod tests;
 
-/// The most chains one machine drives. The per-chain tables the library
-/// crates own cannot see a board's descriptor, so they are sized to this
-/// ceiling: [`CHAIN_STATS`] here, the hashboard serial vector in
-/// `ubos-api`, and the work receiver budget `ubos-firmware` sizes into
-/// the stratum session. Every machine descriptor in `ubos-machine`
-/// asserts its chain count fits under it at compile time. A machine with
-/// more chains raises it here and nowhere else.
+/// The most chains one machine drives. The library crates cannot see a
+/// board's descriptor, so their per-chain tables are sized to this, and
+/// every machine descriptor asserts its chain count fits under it.
 pub const MAX_CHAINS: usize = 3;
 
-/// Number of pool slots a chain's work split and share accounting
-/// track: the fixed width of the `pool_shares` array in [`ChainStats`]
-/// and of the weights `ubos-mining` hands its scheduler.
+/// Pool slots a chain's share accounting and the scheduler weights span.
 pub const MAX_POOL_SLOTS: usize = 8;
 
-/// Sentinel stored in `hottest_mc` when no temperature reading has
-/// landed yet. `i32::MIN` is outside any temperature a real sensor
-/// reports, so it cannot collide with a genuine reading.
+/// Sentinel in `hottest_mc` before any reading lands; no sensor reports
+/// it.
 const NO_TEMPERATURE: i32 = i32::MIN;
 
 /// Sentinel stored in `voltage_mv` when the chain has no complete
@@ -85,9 +79,7 @@ const NO_VOLTAGE: u32 = u32::MAX;
 /// work. It lies past [`MAX_POOL_SLOTS`], so no real slot can collide.
 const NO_POOL: u8 = u8::MAX;
 
-/// Accounting for a single chain: the lifetime hashrate estimate and
-/// share counters, plus the chain's last-known chip count, frequency,
-/// hottest die temperature, and the pool slot it is mining.
+/// Accounting for a single chain.
 pub struct ChainStats {
     hashrate: HashrateEstimator,
     desync_bytes: AtomicU32,
@@ -103,8 +95,6 @@ pub struct ChainStats {
 }
 
 impl ChainStats {
-    /// Construct a `ChainStats` with every counter at zero and no
-    /// temperature reading yet.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -119,18 +109,13 @@ impl ChainStats {
         }
     }
 
-    /// Record a chip solution found on this chain against `target`,
-    /// crediting the hashrate estimator and, when `pool_slot` is in
-    /// range, that pool slot's share counter. Both count the solution
-    /// as its difficulty in shares of [`HASHES_PER_SHARE`](crate::hashrate::HASHES_PER_SHARE) hashes, so
-    /// a chip filtering above difficulty one still reports the work
-    /// it did.
-    ///
-    /// The share counter wraps rather than saturating, unlike
-    /// [`Self::add_desync_bytes`]. It adds the solution's difficulty
-    /// into a `u64`, which no chain fills in its lifetime, and a
-    /// compare-and-swap loop on this path would cost every solution
-    /// for a case that cannot arrive.
+    /// Record a chip solution found against `target`, crediting the
+    /// estimator and, when `pool_slot` is in range, that slot's counter,
+    /// both as the solution's difficulty in shares of
+    /// [`HASHES_PER_SHARE`](crate::hashrate::HASHES_PER_SHARE) hashes.
+    /// The counter wraps, unlike [`Self::add_desync_bytes`]: a `u64` of
+    /// shares cannot wrap in practice, and a compare-and-swap would cost
+    /// every solution.
     pub fn record_share(&self, target: &[u8; 32], pool_slot: usize) {
         let shares = self.hashrate.record_share(target);
         if let Some(counter) = self.pool_shares.get(pool_slot) {
@@ -138,14 +123,8 @@ impl ChainStats {
         }
     }
 
-    /// Add `n` bytes to the chain's lifetime desync byte count,
-    /// saturating at `u32::MAX`.
-    ///
-    /// Saturating rather than wrapping, because this one is reachable:
-    /// the counter takes bytes rather than events, and a chain whose
-    /// line is mis-clocked counts them at the baud rate. A wrap would
-    /// show as the count falling, which reads as the line recovering at
-    /// the moment it is worst.
+    /// Saturating, because a mis-clocked line counts bytes at the baud
+    /// rate and a wrap would read as the line recovering when it is worst.
     pub fn add_desync_bytes(&self, n: u32) {
         let _ = self
             .desync_bytes
@@ -154,22 +133,18 @@ impl ChainStats {
             });
     }
 
-    /// Smoothed hashrate in hashes per second. See
-    /// [`HashrateEstimator::hashrate`].
+    /// See [`HashrateEstimator::hashrate`].
     #[must_use]
     pub fn hashrate(&self) -> u64 {
         self.hashrate.hashrate()
     }
 
-    /// Total shares, in units of [`HASHES_PER_SHARE`](crate::hashrate::HASHES_PER_SHARE), this chain has
-    /// found since it was created.
     #[must_use]
     pub fn share_count(&self) -> u64 {
         self.hashrate.share_count()
     }
 
-    /// Shares, in units of [`HASHES_PER_SHARE`](crate::hashrate::HASHES_PER_SHARE), this chain has found
-    /// for the given pool slot, or 0 if `slot` is out of range.
+    /// Zero when `slot` is out of range.
     #[must_use]
     pub fn pool_shares(&self, slot: usize) -> u64 {
         self.pool_shares
@@ -177,38 +152,28 @@ impl ChainStats {
             .map_or(0, |counter| counter.load(Ordering::Relaxed))
     }
 
-    /// Lifetime count of desync bytes seen on this chain's serial
-    /// line.
     #[must_use]
     pub fn desync_bytes(&self) -> u32 {
         self.desync_bytes.load(Ordering::Relaxed)
     }
 
-    /// Chip count found on this chain's most recent bring-up: the
-    /// payload of a `Present` presence, zero for any other state.
-    ///
-    /// Read out of the presence word rather than kept in a field of its
-    /// own, so the count and the presence cannot disagree. Widened from
-    /// the `u8` the chain enumerates in because every reader counts
-    /// chips across chains or formats the total.
+    /// Chip count of a `Present` chain, zero for any other state. Read
+    /// out of the presence word, so the two cannot disagree.
     #[must_use]
     pub fn chips(&self) -> u16 {
         u16::from(self.presence().chips())
     }
 
-    /// Record the chain's current operating frequency.
     pub fn set_frequency(&self, freq: Frequency) {
         self.frequency_khz.store(freq.khz(), Ordering::Relaxed);
     }
 
-    /// The chain's current operating frequency.
     #[must_use]
     pub fn frequency(&self) -> Frequency {
         Frequency::from_khz(self.frequency_khz.load(Ordering::Relaxed))
     }
 
-    /// Record the hottest die temperature this chain reported, or clear
-    /// the reading with `None`.
+    /// `None` clears the reading.
     pub fn set_hottest(&self, value: Option<Temperature>) {
         self.hottest_mc.store(
             value.map_or(NO_TEMPERATURE, Temperature::millicelsius),
@@ -216,8 +181,7 @@ impl ChainStats {
         );
     }
 
-    /// The hottest die temperature this chain has reported, or `None` if no
-    /// reading has landed yet.
+    /// `None` until a reading lands.
     #[must_use]
     pub fn hottest(&self) -> Option<Temperature> {
         let stored = self.hottest_mc.load(Ordering::Relaxed);
@@ -256,13 +220,11 @@ impl ChainStats {
         (stored != NO_POOL).then_some(usize::from(stored))
     }
 
-    /// Record the chain's enumeration outcome.
     pub fn set_presence(&self, presence: ChainPresence) {
         self.presence
             .store(presence_word(presence), Ordering::Relaxed);
     }
 
-    /// The chain's most recently recorded enumeration outcome.
     #[must_use]
     pub fn presence(&self) -> ChainPresence {
         let word = self.presence.load(Ordering::Relaxed);
@@ -270,12 +232,8 @@ impl ChainStats {
         ChainPresence::from_code((word >> 8) as u8, word as u8)
     }
 
-    /// Reset the per-bring-up fields: frequency, hottest temperature,
-    /// active pool, and presence, which carries the chip count. Lifetime counters,
-    /// meaning hashrate, share count, pool shares, and desync bytes, are
-    /// not touched, because `clear` runs on a chain reset and those
-    /// counters track the chain's whole life rather than its current
-    /// bring-up.
+    /// Reset the per-bring-up fields. The lifetime counters stay, since
+    /// this runs on every chain reset.
     pub fn clear(&self) {
         self.frequency_khz.store(0, Ordering::Relaxed);
         self.hottest_mc.store(NO_TEMPERATURE, Ordering::Relaxed);
@@ -285,7 +243,6 @@ impl ChainStats {
     }
 }
 
-/// Pack a presence into the word `ChainStats::presence` stores.
 fn presence_word(presence: ChainPresence) -> u16 {
     u16::from(presence.as_code()) << 8 | u16::from(presence.payload())
 }
@@ -296,97 +253,64 @@ impl Default for ChainStats {
     }
 }
 
-/// One `ChainStats` per chain slot a board can own.
 static CHAIN_STATS: [ChainStats; MAX_CHAINS] = [const { ChainStats::new() }; MAX_CHAINS];
 
-/// How many of [`CHAIN_STATS`]'s slots the machine actually wired up.
-///
-/// Zero until `ubos_mining::Miner::new` stores the board's chain count, so
-/// a reader that walks this many slots reports nothing before the miner
-/// starts rather than reporting the unused slots of the table.
+/// How many slots the machine wired up. Zero until the miner stores its
+/// chain count, so a reader walks nothing before then.
 static ACTIVE_CHAINS: AtomicU8 = AtomicU8::new(0);
 
-/// Record how many chains the machine wired up. Called once by
-/// `ubos_mining::Miner::new`, which is the only place that knows the
-/// board's chain count.
+/// Called once by `ubos_mining::Miner::new`, the one place that knows the
+/// chain count.
 pub fn set_chain_count(chains: usize) {
     ACTIVE_CHAINS.store(u8::try_from(chains).unwrap_or(u8::MAX), Ordering::Relaxed);
 }
 
-/// A board's per-chain accounting, as every consumer outside this crate
-/// sees it.
-///
-/// A `Copy` value over the table, so the API, the display, the metrics
-/// publisher and the thermal loop hold a handle rather than reach for
-/// this module's static.
-///
-/// The per-chain accessors hand back the [`ChainStats`] itself rather
-/// than a snapshot of it. Each reader wants a different subset of the
-/// fields and each field is one relaxed load, so a snapshot type would
-/// copy more than any caller reads and would still be stale by the time
-/// it was formatted.
+/// A board's per-chain accounting as consumers see it. The accessors
+/// hand back the [`ChainStats`] itself, not a snapshot: each reader wants
+/// a different subset, and each field is one relaxed load.
 #[derive(Clone, Copy)]
 pub struct ChainStatsHandle {
     stats: &'static [ChainStats],
-    /// How many leading slots carry a wired chain. The board's table reads
-    /// [`ACTIVE_CHAINS`]; a caller-owned table reads the counter the
-    /// caller gave it.
+    /// How many leading slots carry a wired chain.
     active: &'static AtomicU8,
 }
 
 impl ChainStatsHandle {
-    /// Build a handle over a table the caller owns, with `active` as
-    /// the count of its leading slots that carry a chain.
-    ///
-    /// [`handle`] is what a board uses. This is for a test that needs a
-    /// table of its own, so one test's counters cannot be read by the
-    /// next.
+    /// A handle over a caller-owned table; for tests that need a table
+    /// of their own. A board uses [`handle`].
     #[must_use]
     pub const fn new(stats: &'static [ChainStats], active: &'static AtomicU8) -> Self {
         Self { stats, active }
     }
 
-    /// How many chain slots the table holds, wired up or not.
+    /// Slots in the table, wired up or not.
     #[must_use]
     pub const fn slots(&self) -> usize {
         self.stats.len()
     }
 
-    /// How many chains the machine wired up, and so how many leading
-    /// slots of the table carry a real chain.
-    ///
-    /// For the board's table, zero until the miner starts: the chain
-    /// count reaches this module when `ubos_mining::Miner::new` runs, so a
-    /// reader that walks this many slots walks none before that. Never
-    /// larger than [`Self::slots`].
+    /// Wired chains; zero until the miner starts. Never larger than
+    /// [`Self::slots`].
     #[must_use]
     pub fn chain_count(&self) -> usize {
         usize::from(self.active.load(Ordering::Relaxed)).min(self.slots())
     }
 
-    /// One chain's accounting.
-    ///
-    /// Indexes the whole table, not the wired prefix: a serial task
-    /// looks its own slot up before `ubos_mining::Miner::new` has published
-    /// the chain count, so the bound here is [`Self::slots`].
+    /// One chain's accounting. Bounded by [`Self::slots`], not the wired
+    /// prefix, because a serial task looks its slot up before the miner
+    /// publishes the chain count.
     ///
     /// # Panics
     ///
-    /// Panics if `chain` is at or beyond [`Self::slots`]. Every caller
-    /// today passes an index a board constant bounds, which
-    /// `MachineDescriptor`'s own `chains <= MAX_CHAINS` assertion holds
-    /// under the table's length at compile time. An index that comes
-    /// from a request path or a config field has no such bound and must
-    /// be checked against [`Self::chain_count`] before it reaches here,
-    /// since a panic on this target restarts the board.
+    /// If `chain` is at or beyond [`Self::slots`]. An index from a
+    /// request or a config field must be checked against
+    /// [`Self::chain_count`] first; a panic here restarts the board.
     #[must_use]
     pub fn chain(&self, chain: HashboardIndex) -> &'static ChainStats {
         &self.stats[chain.slot()]
     }
 
-    /// Every wired chain's accounting, in chain order: the first
-    /// [`Self::chain_count`] slots of the table, so no reader ever
-    /// walks a slot the board did not wire up.
+    /// Every wired chain's accounting, in chain order.
     pub fn chains(&self) -> impl Iterator<Item = &'static ChainStats> {
         self.stats.iter().take(self.chain_count())
     }
@@ -400,15 +324,14 @@ impl ChainStatsHandle {
         self.chains().filter_map(ChainStats::voltage).min()
     }
 
-    /// Sum of every chain's smoothed hashrate, saturating at `u64::MAX`.
+    /// Saturating sum over the wired chains.
     #[must_use]
     pub fn machine_hashrate(&self) -> u64 {
         self.chains()
             .fold(0u64, |total, chain| total.saturating_add(chain.hashrate()))
     }
 
-    /// Sum of every chain's lifetime share count, saturating at
-    /// `u64::MAX`.
+    /// Saturating sum over the wired chains.
     #[must_use]
     pub fn machine_share_count(&self) -> u64 {
         self.chains().fold(0u64, |total, chain| {
@@ -416,8 +339,6 @@ impl ChainStatsHandle {
         })
     }
 
-    /// Count of chains whose most recently recorded presence is
-    /// `Present`.
     #[must_use]
     pub fn present_chain_count(&self) -> u8 {
         let count = self
@@ -428,10 +349,8 @@ impl ChainStatsHandle {
     }
 }
 
-/// The board's per-chain accounting.
-///
-/// A free function because [`CHAIN_STATS`] is a private static with one
-/// instance for the whole board, so there is no receiver to hang it on.
+/// The board's per-chain accounting. Free because `CHAIN_STATS` is a
+/// private static with one instance.
 #[must_use]
 pub fn handle() -> ChainStatsHandle {
     ChainStatsHandle {
