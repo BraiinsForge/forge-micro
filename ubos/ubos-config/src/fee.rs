@@ -37,8 +37,6 @@ use crate::pubkey;
 use core::fmt::Debug;
 use embassy_sync::once_lock::OnceLock;
 
-/// Denominator of [`FeePool::permille`]: a share is counted in
-/// thousandths.
 pub const FEE_DEN: i64 = 1000;
 
 /// The fewest session slots a board needs to run the fee: one operator
@@ -46,34 +44,24 @@ pub const FEE_DEN: i64 = 1000;
 pub const MIN_FEE_SLOTS: usize = 2;
 
 /// Operator shares between two fee shares while the fee scheduler
-/// repays a debt. The pace of a repayment: 0 hands the fee every pick
-/// until the debt is paid, 1 alternates, and a larger value spreads
-/// the repayment over more of the operator's work. Below the steady
-/// spacing of `(FEE_DEN - permille) / permille`, or the debt never
-/// shrinks, which is what bounds [`MAX_FEE_PERMILLE`].
+/// repays a debt. It must stay below the steady spacing of
+/// `(FEE_DEN - permille) / permille`, or the debt never shrinks, which
+/// is what bounds [`MAX_FEE_PERMILLE`].
 pub const REPAY_SPACING: i64 = 1;
 
-/// The largest share a pool can state: one a repayment at
-/// [`REPAY_SPACING`] still outpaces, so the scheduler accepts every
-/// share the build accepts.
+/// The largest share a repayment at [`REPAY_SPACING`] still outpaces,
+/// so the scheduler accepts every share the build accepts.
 pub const MAX_FEE_PERMILLE: i64 = (FEE_DEN - 1) / (REPAY_SPACING + 1);
 // The bound is the scheduler's own test, so the two cannot drift apart.
 const _: () = assert!(MAX_FEE_PERMILLE * (REPAY_SPACING + 1) < FEE_DEN);
 const _: () = assert!((MAX_FEE_PERMILLE + 1) * (REPAY_SPACING + 1) >= FEE_DEN);
 
-/// Build error for a board that places the fee with no operator slot.
 const SLOTS_BAD: &str = "a fee slot needs an operator slot beside it";
-
-/// Build error for a `DEVFEE_POOL_PORT` outside the TCP port range.
 const PORT_BAD: &str = "DEVFEE_POOL_PORT must be a number from 1 to 65535";
 
 /// Build error for a `DEVFEE_PERMILLE` past [`MAX_FEE_PERMILLE`].
 const PERMILLE_BAD: &str = "DEVFEE_PERMILLE must be a number from 0 to 499";
-
-/// Build error for a `DEVFEE_POOL_HOST` the entry cannot hold.
 const HOST_BAD: &str = "DEVFEE_POOL_HOST must be at most 128 bytes";
-
-/// Build error for a `DEVFEE_POOL_USER` the entry cannot hold.
 const USER_BAD: &str = "DEVFEE_POOL_USER must be at most 128 bytes";
 
 /// Build error for a fixed worker name the entry cannot hold.
@@ -81,13 +69,10 @@ const WORKER_BAD: &str = "a fee worker name must be at most 128 bytes";
 
 /// Build error for a key override without the host it belongs to.
 const KEY_BAD: &str = "DEVFEE_POOL_PUBKEY needs DEVFEE_POOL_HOST";
-
-/// Build error for a key override without the shape of an SV2 key.
 const KEY_SHAPE_BAD: &str = "DEVFEE_POOL_PUBKEY must be 51 base58 characters";
 
-/// Characters in the base58check form of an SV2 authority key: the
-/// 38 payload bytes behind a leading byte of 1 always encode to this
-/// many.
+/// The 38 payload bytes of an SV2 authority key behind a leading byte of
+/// 1 always encode to this many base58check characters.
 const KEY_LEN: usize = 51;
 
 /// The worker name a fee session authorises with.
@@ -148,12 +133,11 @@ static USER_OVERRIDE: Option<Fixed> = match option_env!("DEVFEE_POOL_USER") {
 /// with [`Self::with_overrides`].
 #[derive(Debug, Clone, Copy)]
 pub struct FeePool {
-    /// The fee server.
     pub host: &'static str,
-    /// Its SV2 port.
+    /// The SV2 port.
     pub port: u16,
-    /// Its authority key as base58check. `None` trusts the server, as
-    /// an operator entry with no key does.
+    /// The authority key as base58check. `None` trusts the server, as an
+    /// operator entry with no key does.
     pub pubkey: Option<&'static str>,
     /// What builds the worker name.
     pub worker: &'static dyn FeeWorker,
@@ -289,31 +273,22 @@ impl FeePool {
     }
 }
 
-/// The fee pool a board runs and the session slot it runs it at: the
-/// board's last slot, after its operator slots.
-///
-/// A board builds it with [`Self::last_of`] from its pool and its slot
-/// count and hands it to [`crate::run`], which keeps it for the
-/// handle. The slot is the board's own count minus one, so a board
-/// with three sessions runs two operator slots and the fee, and one
-/// with four runs the operator's three and the fee.
+/// The fee pool a board runs, at its last session slot after its
+/// operator slots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FeeSlot {
-    /// The pool the slot mines for.
     pub pool: FeePool,
-    /// The session slot that runs it.
     pub slot: usize,
 }
 
 impl FeeSlot {
-    /// `pool` at the last of `slots` session slots, or `None` on a
-    /// build with [`DEVFEE`] off, so a board states this in both
-    /// states and the switch decides.
+    /// `None` on a build with [`DEVFEE`] off, so a board states this in
+    /// both states and the switch decides.
     ///
     /// # Panics
     ///
-    /// Panics on fewer than [`MIN_FEE_SLOTS`] slots. In a const
-    /// initializer that is a build error.
+    /// On fewer than [`MIN_FEE_SLOTS`] slots. In a const initializer that
+    /// is a build error.
     #[must_use]
     pub const fn last_of(pool: FeePool, slots: usize) -> Option<Self> {
         if !DEVFEE {
@@ -326,8 +301,8 @@ impl FeeSlot {
         })
     }
 
-    /// The slot of `fee`, for a reader that labels slots and holds
-    /// the board's `Option` as a const.
+    /// For a reader that labels slots and holds the board's `Option` as
+    /// a const.
     #[must_use]
     pub const fn index(fee: &Option<Self>) -> Option<usize> {
         match fee {
@@ -342,8 +317,8 @@ impl FeeSlot {
 ///
 /// # Panics
 ///
-/// Panics with `bad` on text that is not a number from 0 to `max`. In a
-/// const initializer that is a build error.
+/// With `bad` on text that is not a number from 0 to `max`. In a const
+/// initializer that is a build error.
 const fn parse_decimal(text: &str, max: i64, bad: &str) -> i64 {
     let digits = text.as_bytes();
     assert!(!digits.is_empty(), "{}", bad);
@@ -358,9 +333,9 @@ const fn parse_decimal(text: &str, max: i64, bad: &str) -> i64 {
     value
 }
 
-/// Whether `key` has the length and the alphabet of an SV2 authority
-/// key in base58check, which a const initializer can check. The
-/// checksum needs [`crate::pubkey::decode`], which runs at boot.
+/// The length and alphabet of a base58check key, which a const
+/// initializer can check. The checksum needs [`crate::pubkey::decode`],
+/// which runs at boot.
 const fn is_key_shaped(key: &str) -> bool {
     let bytes = key.as_bytes();
     if bytes.len() != KEY_LEN {
@@ -381,20 +356,14 @@ const fn is_key_shaped(key: &str) -> bool {
     true
 }
 
-/// The fee slot the board handed to [`crate::run`].
-///
 /// Read with `try_get`, from core 0 only: the sessions and the API run
 /// there, and `run` sets it before the first config publish that each
-/// of them waits for. The board's one cell is private to the crate and
-/// reached through [`crate::Handle::take`].
+/// of them waits for.
 pub(crate) static FEE_SLOT: OnceLock<FeeSlot> = OnceLock::new();
 
-/// Records the fee slot [`crate::run`] was handed.
-///
 /// # Panics
 ///
-/// Panics on a second call. One slot is a boot-time fact, and a second
-/// `run` is a wiring bug.
+/// On a second call, which is a wiring bug.
 pub(crate) fn install(fee: FeeSlot) {
     assert!(FEE_SLOT.init(fee).is_ok(), "BUG: fee slot installed twice");
 }

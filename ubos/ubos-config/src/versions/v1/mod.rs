@@ -41,23 +41,17 @@ pub use thermal::{Source, TemperatureDescriptor, ThermalConfig};
 
 use super::{Versioned, schema_hash};
 
-/// All runtime-tunable firmware parameters.
 #[derive(
     Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
-    /// Ordered list of pool endpoints; the client tries them in order.
+    /// Tried in order.
     pub pool: heapless::Vec<PoolEntry, MAX_POOLS>,
-    /// Thermal monitoring parameters.
     pub thermal: ThermalConfig,
-    /// Cooling loop parameters.
     pub cooling: CoolingConfig,
-    /// Miner orchestration: the tuner kind and its target.
     pub miner: MinerConfig,
-    /// HTTP API credentials.
     pub api: ApiConfig,
-    /// Network interface configuration (IP assignment mode and hostname).
     pub network: NetworkConfig,
 }
 

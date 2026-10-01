@@ -282,15 +282,11 @@ pub(crate) fn downgrade_version(staged: StagedConfig, versions: &[Version]) -> O
     }
 }
 
-/// The schema hash of this build, under a symbol name that a packer
-/// reads from the ELF.
-///
-/// A packer copies the hash into the update header, so the firmware
-/// that installs the update knows which record the new image reads.
-/// `pkgs/elf-symbol` reads the symbol. The linker refuses a
-/// second definition of the name, so an image holds one hash. `used`
-/// keeps the static through the link, because nothing in the firmware
-/// reads it.
+/// The schema hash of this build, under the symbol name a packer reads
+/// from the ELF into the update header, so the installing firmware knows
+/// which record the new image reads. The linker refuses a second
+/// definition of the name, so an image holds one hash, and `used` keeps
+/// the static, which nothing in the firmware reads.
 #[used]
 #[unsafe(export_name = "UBOS_CONFIG_SCHEMA_HASH")]
 static SCHEMA_HASH_SYMBOL: [u8; 8] = Config::SCHEMA_HASH;

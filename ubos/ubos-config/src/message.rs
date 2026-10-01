@@ -17,45 +17,27 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Wire-level command type for the config module.
-//!
-//! `Message` is the only thing senders construct. The API submits an
-//! `Update(Config)` after validating the POST body; `run` persists
-//! and publishes the new value.
+//! Commands to the config task.
 
 use crate::{Config, NetworkConfig, StagedConfig};
 
-/// Wire-level command sent to the config module via `Handle::send`.
-///
-/// `Update` carries a full `Config` and dwarfs the other variants;
-/// the enum is already `Config`-sized regardless, and this crate is
-/// `no_std` without `alloc`, so boxing a variant is not an option.
+/// A command to the config task. `Update` carries a whole `Config` and
+/// sizes the enum; there is no `alloc` to box it.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Message {
-    /// Replace the live config with a new value. Persists the new
-    /// value, publishes it on the state watch, and signals stratum to
-    /// reconnect.
     Update(Config),
-    /// Apply a network change. With `confirm`, publish the change as a
-    /// preview and arm the confirm-or-revert window without persisting;
-    /// otherwise persist immediately. The live stack is switched by
-    /// `ubos-net` watching the published config, so this message manages
-    /// intent only and never touches the stack.
+    /// Apply a network change; `ubos-net` switches the stack from the
+    /// publish.
     ApplyNetwork {
-        /// New network section to apply.
         network: NetworkConfig,
-        /// When `true`, arm the confirm-or-revert window and persist only
-        /// on confirm. When `false`, persist immediately with no window.
+        /// Arm the confirm-or-revert window instead of persisting at once.
         confirm: bool,
     },
-    /// Confirm a pending network preview, promoting it to the persisted
-    /// config. A no-op when nothing is pending, so a DHCP lease arriving
-    /// with no preview armed is harmless.
+    /// Persist the pending preview; a no-op when none is pending.
     ConfirmNetwork,
-    /// Revert a pending network preview at once, republishing the
-    /// committed config. A no-op when nothing is pending.
+    /// Drop the pending preview; a no-op when none is pending.
     RevertNetwork,
     /// Wipe the persisted config back to [`Config::for_board`] and publish
     /// the defaults on the state watch. The API layer requests a reboot

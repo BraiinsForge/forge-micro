@@ -117,31 +117,26 @@ fn older(hash: [u8; 8], versions: &[Version]) -> Option<u16> {
     older_version(hash, versions).map(|version| version.number)
 }
 
-/// The build's own version is no older version.
 #[test]
 fn own_version_is_no_older_version() {
     assert_eq!(older(V2::HASH, CHAIN), None);
 }
 
-/// A build upgrades the record of an older version.
 #[test]
 fn build_upgrades_an_older_version() {
     assert_eq!(older(V1::HASH, CHAIN), Some(1));
 }
 
-/// A build cannot read the record of a version newer than its own.
 #[test]
 fn newer_version_is_lost() {
     assert_eq!(older(V2::HASH, &CHAIN[..1]), None);
 }
 
-/// A record whose hash no version has is lost.
 #[test]
 fn unknown_hash_is_lost() {
     assert_eq!(older(UNKNOWN, CHAIN), None);
 }
 
-/// An empty list reads no older version.
 #[test]
 fn empty_list_reads_no_older_version() {
     assert_eq!(older(V1::HASH, &[]), None);
@@ -157,24 +152,20 @@ fn downgrade(staged: StagedConfig, versions: &[Version]) -> Option<u16> {
     downgrade_version(staged, versions).map(|version| version.number)
 }
 
-/// A build stores the record of an older version that the staged image
-/// declares.
 #[test]
 fn downgrade_to_an_older_version_stores_its_record() {
     assert_eq!(downgrade(whole(V1::HASH), CHAIN), Some(1));
 }
 
-/// A staged image of the build's own schema, or of one the build does
-/// not know, reads the stored record as it is.
 #[test]
 fn downgrade_to_the_own_or_an_unknown_schema_stores_nothing() {
     assert_eq!(downgrade(whole(V2::HASH), CHAIN), None);
     assert_eq!(downgrade(whole(UNKNOWN), CHAIN), None);
 }
 
-/// An unrecognized image takes the record of the oldest version, so a
-/// ubos image installed after it upgrades from that record, and nothing
-/// when the oldest version is the build's own.
+// An unrecognized image takes the record of the oldest version, so a
+// ubos image installed after it upgrades from that record, and nothing
+// when the oldest version is the build's own.
 #[test]
 fn downgrade_to_an_unrecognized_image_stores_the_oldest_version() {
     assert_eq!(downgrade(StagedConfig::Unrecognized, CHAIN), Some(1));
@@ -189,9 +180,9 @@ fn prefix<const N: usize>(hash: [u8; 8]) -> StagedConfig {
     ))
 }
 
-/// A prefix of any length the header format chooses takes the older
-/// version whose hash starts with it, and nothing for the build's own
-/// schema or for one the build does not know.
+// A prefix of any length the header format chooses takes the older
+// version whose hash starts with it, and nothing for the build's own
+// schema or for one the build does not know.
 #[test]
 fn downgrade_to_a_prefix_stores_the_version_it_starts() {
     assert_eq!(
@@ -203,9 +194,9 @@ fn downgrade_to_a_prefix_stores_the_version_it_starts() {
     assert_eq!(downgrade(prefix::<5>(UNKNOWN), CHAIN), None);
 }
 
-/// No two versions in the real list share their first
-/// [`MIN_SCHEMA_PREFIX_LEN`] bytes, so a prefix of any allowed length
-/// names one version.
+// No two versions in the real list share their first
+// [`MIN_SCHEMA_PREFIX_LEN`] bytes, so a prefix of any allowed length
+// names one version.
 #[test]
 fn versions_have_distinct_prefixes() {
     for (index, version) in VERSIONS.iter().enumerate() {
@@ -220,8 +211,8 @@ fn versions_have_distinct_prefixes() {
     }
 }
 
-/// A record of version 1 goes up both steps to the live config, and the
-/// fields version 1 lacks take their defaults.
+// A record of version 1 goes up both steps to the live config, and the
+// fields version 1 lacks take their defaults.
 #[test]
 fn oldest_record_upgrades_to_the_live_config() {
     let login = edited().api;
@@ -235,14 +226,13 @@ fn oldest_record_upgrades_to_the_live_config() {
     assert_eq!((CHAIN[0].upgrade)(payload), Some(expected));
 }
 
-/// A payload that does not decode as its version gives no config.
 #[test]
 fn damaged_payload_does_not_upgrade() {
     assert_eq!((CHAIN[1].upgrade)(&[0xFF]), None);
 }
 
-/// The live config goes down both steps to a record of version 1, framed
-/// by the hash of version 1.
+// The live config goes down both steps to a record of version 1, framed
+// by the hash of version 1.
 #[test]
 fn live_config_downgrades_to_the_oldest_record() {
     let config = edited();
@@ -258,8 +248,6 @@ fn live_config_downgrades_to_the_oldest_record() {
     );
 }
 
-/// Down to a version and up again gives the original config, with the
-/// fields that version lacks at their defaults.
 #[test]
 fn down_then_up_keeps_what_the_version_holds() {
     let config = edited();
@@ -319,8 +307,8 @@ const VERSION_1_RECORD: &[u8] = &[
     0,   // network.hostname = ""
 ];
 
-/// The record of version 1 loads as the live config, so an edit to the
-/// schema or the hash of version 1 fails here.
+// The record of version 1 loads as the live config, so an edit to the
+// schema or the hash of version 1 fails here.
 #[test]
 fn version_1_record_loads_as_the_live_config() {
     assert!(

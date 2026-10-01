@@ -17,13 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Flash-backed [`Storage`] implementation using `sequential-storage`.
-//!
-//! [`FlashStorage`] wraps a `sequential-storage` [`MapStorage`] with a
-//! `u8` key and `NorFlash` backend. Each call to [`Storage::load`] or
-//! [`Storage::store`] serialises the blob into a stack-allocated scratch
-//! buffer and delegates to the map. The [`NoCache`] variant is used so
-//! no heap allocation is required.
+//! Flash-backed [`Storage`] over a `sequential-storage` map.
 
 use embedded_storage_async::nor_flash::NorFlash;
 use sequential_storage::{
@@ -38,36 +32,21 @@ use crate::storage::Storage;
 /// to the widest word a board can have.
 const MAX_WORD_SIZE: usize = 32;
 
-/// Stack buffer size for one map item: the `u8` key and the widest
-/// record, rounded up to the flash word.
-///
-/// Derived from [`crate::LOAD_BUFFER_SIZE`] so the encode budget in
-/// `lib.rs` and the flash scratch budget here cannot drift.
-/// `store_item` returns `Error::ItemTooBig` before corrupting flash if
-/// the encoded size exceeds the page size.
+/// One map item: the `u8` key and the widest record, rounded up to the
+/// flash word. Derived from [`crate::LOAD_BUFFER_SIZE`] so the encode
+/// budget and the flash scratch cannot drift.
 pub(crate) const SCRATCH_SIZE: usize =
     (size_of::<u8>() + crate::LOAD_BUFFER_SIZE).next_multiple_of(MAX_WORD_SIZE);
 
-/// Flash-backed config storage using `sequential-storage` map mode.
-///
-/// Generic over any [`NorFlash`] implementation. The `range` parameter
-/// restricts the flash region this storage may read, write, or erase;
-/// addresses outside the range are never touched.
-///
-/// Per-board constants for the flash range live in the firmware crates
-/// so this type stays board-agnostic.
+/// Flash-backed config storage confined to `range`; the board names the
+/// range.
 pub struct FlashStorage<F: NorFlash> {
     map: MapStorage<u8, F, NoCache>,
 }
 
 impl<F: NorFlash> FlashStorage<F> {
-    /// Create a new [`FlashStorage`] over the given flash and address range.
-    ///
-    /// The `range` must be aligned to the flash erase size, span at
-    /// least two erase pages, and be valid for the underlying `NorFlash`
-    /// implementation. `MapConfig::new` is `const fn` and rejects a
-    /// structurally invalid range at compile time, so board-local
-    /// constants are validated without runtime overhead.
+    /// `range` must be erase-aligned and span at least two erase pages;
+    /// `MapConfig::new` rejects an invalid one at compile time.
     pub fn new(flash: F, range: core::ops::Range<u32>) -> Self {
         Self {
             map: MapStorage::new(flash, MapConfig::new(range), NoCache::new()),

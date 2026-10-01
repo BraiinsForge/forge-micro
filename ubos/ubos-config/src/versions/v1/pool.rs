@@ -70,14 +70,8 @@ pub struct PoolEntry {
     pub weight: u32,
 }
 
-/// Bytes a [`PoolEntry`] host or worker name can hold.
 pub const NAME_CAPACITY: usize = 128;
 
-/// Maximum number of pool slots the firmware persists and validates.
-///
-/// Drives both the `heapless::Vec<PoolEntry, MAX_POOLS>` capacity in
-/// [`crate::Config`] / [`crate::ConfigUpdate`] and the length of the
-/// per-slot error-message tables of [`crate::pool`], so growing the
-/// slot count is a single-const change that fails to compile until
-/// every table is extended in step.
+/// Pool slots. Sizes the error-message tables of [`crate::pool`] too, so
+/// a change fails to compile until they follow.
 pub const MAX_POOLS: usize = 3;

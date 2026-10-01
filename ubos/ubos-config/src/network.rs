@@ -17,33 +17,18 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Network interface configuration and validation.
-//!
-//! Re-exports [`NetworkMode`] (DHCP vs. static assignment) and
-//! [`NetworkConfig`] from the live version of the config schema, and
-//! defines the validation of the network config. It is stored alongside
-//! the rest of [`crate::Config`] and loaded at boot before the network
-//! stack is created.
+//! Network interface configuration, from the live schema version, read at
+//! boot before the stack exists.
 
 pub use crate::versions::live::{DNS_SERVERS, HOSTNAME_MAX, NetworkConfig, NetworkMode};
 
 impl NetworkConfig {
-    /// Validate the network configuration.
-    ///
-    /// An empty hostname is accepted as a sentinel for "use the
-    /// build-time mDNS base name". A non-empty hostname must satisfy
-    /// RFC-1123 label rules: each character must be an ASCII
-    /// alphanumeric or a hyphen, and the first and last characters
-    /// must not be hyphens.
-    ///
-    /// For [`NetworkMode::Static`], the address and gateway must be
-    /// non-zero (`0.0.0.0` is not a valid host address), and
-    /// `prefix_len` must be in the range 1–32.
+    /// A non-empty hostname must be an RFC 1123 label. A static address
+    /// and gateway must be non-zero, with a prefix of 1 to 32.
     ///
     /// # Errors
     ///
-    /// Returns `Err` with a static operator-readable message on the
-    /// first field that fails its rule.
+    /// The first failing rule, as an operator-readable string.
     pub fn validate(&self) -> Result<(), &'static str> {
         if !self.hostname.is_empty() {
             if !self

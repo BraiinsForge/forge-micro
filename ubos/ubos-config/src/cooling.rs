@@ -17,12 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Cooling loop configuration and validation.
-//!
-//! Re-exports [`CoolingConfig`], [`FanMode`], [`PidConfig`], [`PidTarget`]
-//! and [`Statistic`] from the live version of the config schema, and
-//! defines their defaults and validation, [`CoolingBounds`], and the
-//! static [`BOUNDS`] constant.
+//! Cooling loop configuration, from the live schema version.
 
 use core::ops::RangeInclusive;
 
@@ -43,8 +38,7 @@ impl Statistic {
 }
 
 impl FanMode {
-    /// Wire name of the variant, for log lines that must read the same
-    /// under both logging backends.
+    /// Wire name, for log lines.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -69,15 +63,14 @@ impl Default for PidConfig {
 }
 
 impl CoolingConfig {
-    /// Validate the proposed `target` against [`BOUNDS`] and `dangerous`, the
-    /// halt thresholds the caller resolves from the same update or from the
-    /// current live config.
+    /// `dangerous` holds the halt thresholds the caller resolved: the
+    /// incoming ones or the live ones.
     ///
     /// # Errors
     ///
-    /// Returns `Err` when the temperature is outside `BOUNDS.target_temp`,
-    /// when the machine does not read the target's kind, or when the
-    /// temperature is not strictly less than that kind's threshold.
+    /// When the temperature is outside the bounds, the machine does not
+    /// read the target's kind, or the temperature is not below that kind's
+    /// threshold.
     pub fn validate_target(
         target: PidTarget,
         dangerous: TemperatureDescriptor,
@@ -98,16 +91,12 @@ impl CoolingConfig {
         Ok(())
     }
 
-    /// Validate the proposed fixed duty.
-    ///
-    /// The whole 0-100 range is accepted, including 0: a stopped fan is a
-    /// legitimate request, and the board stays protected by the mining halt
-    /// at the thermal config's dangerous thresholds.
+    /// Zero is accepted: a stopped fan is a legitimate request, and the
+    /// mining halt still protects the board.
     ///
     /// # Errors
     ///
-    /// Returns `Err` when `pwm` falls outside `BOUNDS.fixed_fan_pwm` and so
-    /// is not a duty cycle.
+    /// When `pwm` is above 100.
     pub fn validate_fixed_fan_pwm(pwm: u8) -> Result<(), &'static str> {
         if !BOUNDS.fixed_fan_pwm.contains(&pwm) {
             return Err("cooling.fixed_fan_pwm must be between 0 and 100");
@@ -115,17 +104,11 @@ impl CoolingConfig {
         Ok(())
     }
 
-    /// Validate the proposed PID output floor.
-    ///
     /// # Errors
     ///
-    /// Returns `Err` when `pwm` is outside `BOUNDS.min_fan_pwm`. PID output
-    /// clamps to `[min_fan_pwm, 100]`, so a floor above 100 would invert the
-    /// clamp range; see `ubos-cooling::pid::set_limits`. `TempControl::new`
-    /// clamps the floor to 100 before it reaches the controller, so an
-    /// unvalidated value cannot invert the range at runtime; rejecting it
-    /// here is what keeps a value the operator can see from being silently
-    /// altered.
+    /// When `pwm` is above 100, which would invert the PID clamp range.
+    /// The controller clamps it anyway; rejecting it here keeps a value
+    /// the operator sees from being silently altered.
     pub fn validate_min_fan_pwm(pwm: u8) -> Result<(), &'static str> {
         if !BOUNDS.min_fan_pwm.contains(&pwm) {
             return Err("cooling.min_fan_pwm must be between 0 and 100");
@@ -134,9 +117,8 @@ impl CoolingConfig {
     }
 }
 
-/// Duty a board starts with in [`FanMode::Fixed`] before the operator picks
-/// one. Never commanded while the default [`FanMode::Auto`] holds; it exists
-/// so the UI has a value to show when the mode is first switched.
+/// The fixed duty before the operator picks one, so the UI has a value
+/// to show when the mode is first switched.
 pub(crate) const DEFAULT_FIXED_FAN_PWM: u8 = 50;
 
 /// Accepted ranges for every numeric cooling field.
@@ -159,7 +141,6 @@ pub struct CoolingBounds {
     pub fixed_fan_pwm: RangeInclusive<u8>,
 }
 
-/// Accepted value ranges for [`CoolingConfig`] fields.
 pub const BOUNDS: CoolingBounds = CoolingBounds {
     target_temp: Temperature::from_celsius(30)..=Temperature::from_celsius(85),
     min_fan_pwm: 0..=100,
@@ -179,5 +160,4 @@ pub struct CoolingInfo {
     pub bounds: &'static CoolingBounds,
 }
 
-/// Bounds metadata served at `GET /api/system/cooling`.
 pub const INFO: CoolingInfo = CoolingInfo { bounds: &BOUNDS };

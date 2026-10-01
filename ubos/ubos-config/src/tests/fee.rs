@@ -78,8 +78,8 @@ fn a_plain_build_overrides_nothing() {
     assert_eq!(POOL.with_overrides(), POOL);
 }
 
-/// Live only in a build that overrides the host and not the key, which
-/// is the one input the rule changes an answer for.
+// Live only in a build that overrides the host and not the key, the one
+// input the rule changes an answer for.
 #[test]
 fn a_host_override_drops_the_key() {
     let Some(host) = option_env!("DEVFEE_POOL_HOST") else {
@@ -100,8 +100,6 @@ fn permille_parses_its_range() {
     assert_eq!(parse_decimal("499", MAX_FEE_PERMILLE, PERMILLE_BAD), 499);
 }
 
-/// The build refuses every share the scheduler would refuse at boot:
-/// one that a repayment at the spacing cannot outpace.
 #[test]
 #[should_panic(expected = "DEVFEE_PERMILLE must be a number from 0 to 499")]
 fn permille_refuses_a_share_the_scheduler_cannot_repay() {
@@ -114,8 +112,6 @@ fn permille_refuses_text() {
     let _ = parse_decimal("2%", MAX_FEE_PERMILLE, PERMILLE_BAD);
 }
 
-/// The shape check passes the key the open boards ship and refuses a
-/// wrong length, a character outside the alphabet, and an empty key.
 #[test]
 fn a_key_override_needs_the_shape_of_a_key() {
     let key = BRAIINS_KEY;
@@ -140,8 +136,8 @@ fn the_entry_is_weightless_and_keyed() {
     );
 }
 
-/// Live only in a build that names a user, which is the one input the
-/// override changes an answer for.
+// Live only in a build that names a user, which is the one input the
+// override changes an answer for.
 #[test]
 fn a_user_override_replaces_the_worker() {
     let Some(user) = option_env!("DEVFEE_POOL_USER") else {

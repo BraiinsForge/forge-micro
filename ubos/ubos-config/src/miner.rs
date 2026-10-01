@@ -29,12 +29,10 @@ use crate::mining::{FrequencyVoltageTarget, MiningBounds, PowerTarget};
 pub use crate::versions::live::{MinerConfig, Tuning};
 
 impl Tuning {
-    /// Validate the selected tuner and its parameters against `bounds`.
-    ///
     /// # Errors
     ///
-    /// Returns `Err` when no tuner in `bounds` reads this variant, or a
-    /// parameter falls outside its accepted range.
+    /// When no tuner in `bounds` reads this variant, or a parameter falls
+    /// outside it.
     pub fn validate(&self, bounds: &MiningBounds) -> Result<(), &'static str> {
         if !bounds.tuners.iter().any(|tuner| tuner.reads(self)) {
             return Err("miner.tuning selects a tuner this machine does not offer");
@@ -87,11 +85,9 @@ impl Tuning {
 }
 
 impl MinerConfig {
-    /// Validate the miner config.
-    ///
     /// # Errors
     ///
-    /// Returns `Err` when the selected tuner's parameters are invalid.
+    /// When the selected tuner's parameters are invalid.
     pub fn validate(&self, bounds: &MiningBounds) -> Result<(), &'static str> {
         self.tuning.validate(bounds)
     }

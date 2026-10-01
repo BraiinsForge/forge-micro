@@ -32,7 +32,6 @@ use crate::{
     ThermalConfig, Tuning, decode_blob, encode_blob,
 };
 
-/// Round-trip: encode the default config and decode it back.
 #[test]
 fn round_trip_default() {
     let config = default_config();
@@ -42,10 +41,6 @@ fn round_trip_default() {
     assert_eq!(decoded, config);
 }
 
-/// Round-trip a static network config so the encoding of the
-/// `NetworkMode::Static` variant and its address/prefix/gateway/dns
-/// fields plus a non-empty hostname is exercised, not just the DHCP
-/// default the other tests cover.
 #[test]
 fn round_trip_static_network() {
     let mut dns = heapless::Vec::new();
@@ -69,10 +64,8 @@ fn round_trip_static_network() {
     assert_eq!(decoded, config);
 }
 
-/// A blob with a wrong 8-byte prefix returns `SchemaMismatch`.
 #[test]
 fn schema_mismatch_returns_error() {
-    // All zeroes: wrong prefix, rest unused.
     let blob = [0u8; 32];
     let result = decode_blob::<()>(&blob);
     match result {
@@ -84,13 +77,11 @@ fn schema_mismatch_returns_error() {
     }
 }
 
-/// A valid schema-hash prefix but a corrupted postcard payload returns Corrupt.
 #[test]
 fn corrupted_payload_returns_corrupt() {
     let config = default_config();
     let mut buffer = [0u8; 512];
     let length = encode_blob(&config, &mut buffer).expect("encode must succeed");
-    // Flip a byte in the postcard payload (offset 8 and beyond).
     if length > 8 {
         buffer[8] ^= 0xFF;
     }
@@ -129,7 +120,6 @@ const EXPECTED_BLOB: &[u8] = &[
     0,  // pool[0].user = "" (len 0)
     1,  // pool[0].protocol tag = 1 (Sv2)
     1,  // pool[0].protocol.pool_pubkey = Some
-    // pool[0].protocol.pool_pubkey = DEFAULT_POOL_SV2_PUBKEY (32 bytes)
     41, 149, 76, 151, 69, 107, 89, 156, 131, 111, 112, 245, 8, 214, 25, 211, 40, 82, 123, 184, 114,
     41, 215, 215, 210, 230, 126, 109, 205, 24, 235, 207, //
     0,   // pool[0].weight = 0 (varint)
@@ -185,14 +175,10 @@ fn filled<const N: usize>() -> heapless::String<N> {
     string
 }
 
-/// The widest record a store can hold has exactly the length of the
-/// record buffer, so a config the operator can save always reaches
-/// flash, and the buffer holds no stack it never uses.
-///
-/// Every field takes its widest encoding: each string and list at
-/// capacity, each varint at the value that needs the most bytes, and
-/// each enum at its widest variant. SV1 with a full password is wider
-/// than SV2 with a key, and static addressing is wider than DHCP.
+// The widest record has exactly the length of the record buffer, so a
+// config the operator can save always reaches flash and the buffer holds
+// no stack it never uses. SV1 with a full password is wider than SV2 with
+// a key, and static addressing is wider than DHCP.
 #[test]
 fn widest_record_fills_the_buffer() {
     let entry = PoolEntry {
@@ -262,8 +248,6 @@ fn widest_record_fills_the_buffer() {
     assert_eq!(length, LOAD_BUFFER_SIZE);
 }
 
-/// The widest seed record, with a fingerprint at its widest varint for
-/// every seed field, has exactly the length of its buffer.
 #[test]
 fn widest_seed_record_fills_its_buffer() {
     let widest = Seed {
@@ -288,9 +272,9 @@ fn widest_seed_record_fills_its_buffer() {
     assert_eq!(record.len(), TAKEN_BUFFER_SIZE);
 }
 
-/// The two tunings keep the bytes the integers they replaced stored: a
-/// variant tag, then each field as a varint, with no wrapper around a
-/// unit.
+// The two tunings keep the bytes the integers they replaced stored: a
+// variant tag, then each field as a varint, with no wrapper around a
+// unit.
 #[test]
 fn tuning_encoding_is_unchanged() {
     let mut buffer = [0u8; 16];

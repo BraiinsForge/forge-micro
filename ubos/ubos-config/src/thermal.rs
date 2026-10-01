@@ -17,13 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Thermal monitoring configuration and validation.
-//!
-//! Re-exports [`Source`], the kinds of reading a machine takes,
-//! [`TemperatureDescriptor`], a temperature for each of them, and
-//! [`ThermalConfig`] for the thermal monitor loop from the live version of
-//! the config schema, and defines their validation, [`ThermalBounds`] for
-//! the accepted ranges, and the static [`BOUNDS`] constant.
+//! Thermal monitor configuration, from the live schema version.
 
 use core::ops::RangeInclusive;
 
@@ -76,15 +70,10 @@ pub(crate) const DEFAULT_SAMPLE_INTERVAL_MS: u32 = 1000;
 pub(crate) const DEFAULT_COOLDOWN_TEMP: Temperature = Temperature::from_celsius(45);
 
 impl ThermalConfig {
-    /// Validate all fields against [`BOUNDS`].
-    ///
-    /// Returns the first error found as a static operator-readable string.
-    ///
     /// # Errors
     ///
-    /// Returns `Err` when any field is out of range or any ordering invariant
-    /// is violated: `cooldown_temp` below the highest dangerous temperature, and
-    /// the hashboard threshold at or below the chip one.
+    /// A field outside [`BOUNDS`], a cooldown not below the highest
+    /// dangerous temperature, or a hashboard threshold above the chip one.
     pub fn validate(&self) -> Result<(), &'static str> {
         if !BOUNDS.sample_interval_ms.contains(&self.sample_interval_ms) {
             return Err("thermal.sample_interval_ms must be between 100 and 60000");
@@ -140,7 +129,6 @@ pub struct ThermalBounds {
     pub cooldown_temp: RangeInclusive<Temperature>,
 }
 
-/// Accepted value ranges for [`ThermalConfig`] fields.
 pub const BOUNDS: ThermalBounds = ThermalBounds {
     sample_interval_ms: 100..=60_000,
     dangerous_hashboard_temp: Temperature::from_celsius(50)..=Temperature::from_celsius(110),
@@ -161,5 +149,4 @@ pub struct ThermalInfo {
     pub bounds: &'static ThermalBounds,
 }
 
-/// Bounds metadata served at `GET /api/system/thermal`.
 pub const INFO: ThermalInfo = ThermalInfo { bounds: &BOUNDS };

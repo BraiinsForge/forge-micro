@@ -177,8 +177,8 @@ impl Storage for Probe {
     }
 }
 
-/// An empty store takes the defaults with the seed written over them,
-/// and the result is persisted so the next load finds it in the store.
+// An empty store takes the defaults with the seed written over them,
+// and the result is persisted so the next load finds it in the store.
 #[test]
 fn empty_store_takes_and_persists_the_seed() {
     let dir = fresh_dir("empty");
@@ -199,8 +199,8 @@ fn empty_store_takes_and_persists_the_seed() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A seed whose source has not changed since the store took it leaves
-/// the operator's changes in place, a factory reset among them.
+// A seed whose source has not changed since the store took it leaves
+// the operator's changes in place, a factory reset among them.
 #[test]
 fn seed_already_taken_keeps_the_operator_changes() {
     let dir = fresh_dir("taken");
@@ -227,9 +227,9 @@ fn seed_already_taken_keeps_the_operator_changes() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A field whose source changed is written again, and every other
-/// setting keeps the value the operator gave it, the other seed field
-/// among them.
+// A field whose source changed is written again, and every other
+// setting keeps the value the operator gave it, the other seed field
+// among them.
 #[test]
 fn changed_field_is_taken_again_alone() {
     let dir = fresh_dir("changed");
@@ -260,8 +260,8 @@ fn changed_field_is_taken_again_alone() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A stored config with no seed record, from a firmware without one,
-/// takes every seed field once and keeps its other settings.
+// A stored config with no seed record, from a firmware without one,
+// takes every seed field once and keeps its other settings.
 #[test]
 fn stored_config_without_a_record_takes_the_seed() {
     let dir = fresh_dir("upgrade");
@@ -286,8 +286,8 @@ fn stored_config_without_a_record_takes_the_seed() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A config write that fails leaves the fingerprints unsaved, so the
-/// next boot takes the seed again rather than losing it.
+// A config write that fails leaves the fingerprints unsaved, so the
+// next boot takes the seed again rather than losing it.
 #[test]
 fn failed_config_write_takes_the_seed_again() {
     let dir = fresh_dir("failed-write");
@@ -305,9 +305,9 @@ fn failed_config_write_takes_the_seed_again() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A seed that matches the defaults saves its fingerprints once, and a
-/// later boot with the same seed writes nothing, though the store still
-/// holds no config.
+// A seed that matches the defaults saves its fingerprints once, and a
+// later boot with the same seed writes nothing, though the store still
+// holds no config.
 #[test]
 fn seed_matching_the_defaults_is_recorded_once() {
     let dir = fresh_dir("recorded-once");
@@ -338,9 +338,9 @@ fn seed_matching_the_defaults_is_recorded_once() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A field the board leaves out keeps the stored value and the taken
-/// fingerprint, so an unreadable source never makes the next boot take
-/// an unchanged field again.
+// A field the board leaves out keeps the stored value and the taken
+// fingerprint, so an unreadable source never makes the next boot take
+// an unchanged field again.
 #[test]
 fn field_left_out_keeps_its_value_and_fingerprint() {
     let dir = fresh_dir("left-out");
@@ -368,8 +368,8 @@ fn field_left_out_keeps_its_value_and_fingerprint() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// An empty store with no seed boots on the board defaults and writes
-/// nothing, as before.
+// An empty store with no seed boots on the board defaults and writes
+// nothing, as before.
 #[test]
 fn empty_store_without_a_seed_stays_empty() {
     let dir = fresh_dir("none");
@@ -382,8 +382,8 @@ fn empty_store_without_a_seed_stays_empty() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A seed whose fields equal the defaults leaves the store empty, so
-/// the defaults stay unstored as on a board with no seed.
+// A seed whose fields equal the defaults leaves the store empty, so
+// the defaults stay unstored as on a board with no seed.
 #[test]
 fn seed_that_changes_nothing_stays_unstored() {
     let dir = fresh_dir("unchanged");
@@ -408,8 +408,8 @@ fn seed_that_changes_nothing_stays_unstored() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A seed whose result fails validation is dropped for the config the
-/// boot started from, and nothing is persisted.
+// A seed whose result fails validation is dropped for the config the
+// boot started from, and nothing is persisted.
 #[test]
 fn invalid_seed_keeps_the_config() {
     let dir = fresh_dir("invalid");
@@ -440,8 +440,6 @@ fn invalid_seed_keeps_the_config() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A stored config whose dangerous temperatures name other reading kinds
-/// than the machine takes the machine's own and keeps everything else.
 #[test]
 fn stored_thresholds_of_other_kinds_take_the_machine_ones() {
     let dir = fresh_dir("kinds");
@@ -463,9 +461,9 @@ fn stored_thresholds_of_other_kinds_take_the_machine_ones() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A stored config this build cannot read takes every seed field over
-/// the defaults, though the store took each of them before, and the
-/// result replaces the record.
+// A stored config this build cannot read takes every seed field over
+// the defaults, though the store took each of them before, and the
+// result replaces the record.
 #[test]
 fn unreadable_config_takes_every_seed_field() {
     let dir = fresh_dir("unreadable");
@@ -489,8 +487,8 @@ fn unreadable_config_takes_every_seed_field() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A stored config this build cannot read gives the defaults on a board
-/// with no seed, and the boot writes nothing.
+// A stored config this build cannot read gives the defaults on a board
+// with no seed, and the boot writes nothing.
 #[test]
 fn unreadable_config_without_a_seed_gives_the_defaults() {
     let dir = fresh_dir("unreadable-no-seed");
@@ -504,8 +502,8 @@ fn unreadable_config_without_a_seed_gives_the_defaults() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// A config read that fails gives the defaults without the seed, and the
-/// boot writes nothing, so a flash fault never replaces the config.
+// A config read that fails gives the defaults without the seed, and the
+// boot writes nothing, so a flash fault never replaces the config.
 #[test]
 fn failed_config_read_takes_no_seed() {
     let dir = fresh_dir("failed-read");

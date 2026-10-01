@@ -25,11 +25,9 @@ use core::fmt::Write as _;
 use embassy_futures::block_on;
 use rusty_fork::rusty_fork_test;
 
-/// The worker a fee board states: here a fixed one, so the entry
-/// reads nothing from the operator's pools.
+/// Fixed, so the fee entry reads nothing from the operator's pools.
 static WORKER: Fixed = Fixed::new("fee.worker");
 
-/// The pool a fee board states.
 const FEE: FeePool = FeePool {
     host: "fee.example.com",
     port: 4444,
@@ -38,7 +36,6 @@ const FEE: FeePool = FeePool {
     permille: 20,
 };
 
-/// A board with the operator's three slots and the fee.
 const FOUR_SESSIONS: usize = MAX_POOLS + 1;
 
 rusty_fork_test! {
@@ -85,8 +82,6 @@ rusty_fork_test! {
         assert_eq!(block_on(handle.pool_slot(MAX_POOLS - 1)), None);
         assert_eq!(block_on(handle.pool_slot(FOUR_SESSIONS - 1)), Some(FEE.entry(&[])));
         assert_eq!(block_on(handle.pool_slot(FOUR_SESSIONS)), None);
-        // The GET view serves the fee entry as its own field, beside
-        // the operator list, and a POST that echoes it back validates.
         let view = block_on(handle.view());
         assert_eq!(view.pool.as_ref(), Some(&config.pool));
         assert_eq!(view.fee, Some(FEE.entry(&[])));
@@ -109,9 +104,9 @@ impl FeeWorker for Counting {
 }
 
 rusty_fork_test! {
-    /// The fee worker is handed the slots below the fee's, which are
-    /// the ones the board runs: on a three-session board the fee
-    /// shadows the third configured pool.
+    // The fee worker is handed the slots below the fee's, which are
+    // the ones the board runs: on a three-session board the fee
+    // shadows the third configured pool.
     #[test]
     fn the_fee_worker_sees_the_operator_slots_the_board_runs() {
         if !DEVFEE {

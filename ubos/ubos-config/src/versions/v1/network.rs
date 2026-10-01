@@ -19,7 +19,6 @@
 
 //! The network config of version 1.
 
-/// Maximum length in bytes of a network hostname.
 pub const HOSTNAME_MAX: usize = 32;
 
 /// Most DNS resolver addresses a static configuration holds.

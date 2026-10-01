@@ -18,20 +18,16 @@
 // shall be considered distinct from the grant above.
 
 //! The settings a board recovered from the firmware it replaced, which
-//! the config task writes over the config it boots on.
-//!
-//! A board flashed over another firmware can read the operator's pools,
-//! login and network setup from where that firmware kept them. It hands
+//! the config task writes over the config it boots on. A board hands
 //! them to [`crate::run`] as a [`Seed`], one field per setting, so a
 //! setting it could not recover leaves the config's own value in place.
 //!
-//! The board reads them again on every boot, and the operator can go
-//! back to the other firmware and change them there. Each field carries
-//! a fingerprint of the source it came from, and the store keeps a
-//! record of the fingerprints it last took. A field is written
-//! again only when its fingerprint changes, so a setting changed under
-//! the other firmware reaches the config once, and one the operator
-//! changed here since stays as they left it.
+//! The board reads them again on every boot, so each field carries a
+//! fingerprint of its source and the store keeps a record of the
+//! fingerprints it last took. A field is written again only when its
+//! fingerprint changes, so a setting changed under the other firmware
+//! reaches the config once and one the operator has changed here since
+//! stays as they left it.
 
 use serde::{Deserialize, Serialize};
 use ubos_logging::info;
@@ -49,18 +45,14 @@ pub struct SeedField<T> {
     pub fingerprint: u32,
 }
 
-/// The settings a board recovered from the firmware it replaced.
-///
-/// Each field the board fills replaces the same setting in the config
-/// when its fingerprint is new, and each field it leaves `None` keeps
-/// the config's own value.
+/// The settings a board recovered from the firmware it replaced. A field
+/// the board fills replaces that setting when its fingerprint is new, and
+/// one it leaves `None` keeps the config's own value.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Seed {
     /// The pool list, in failover order.
     pub pool: Option<SeedField<heapless::Vec<PoolEntry, { pool::MAX_POOLS }>>>,
-    /// The HTTP API login.
     pub api: Option<SeedField<ApiConfig>>,
-    /// The IP assignment mode.
     pub network_mode: Option<SeedField<NetworkMode>>,
 }
 

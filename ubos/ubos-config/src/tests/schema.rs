@@ -24,8 +24,8 @@ use std::vec::Vec;
 
 use crate::{ConfigUpdate, NAME_CAPACITY, PoolEntry};
 
-/// The pool entry schema states the host and worker name capacity, so
-/// a client rejects an over-long name before the device does.
+// The pool entry schema states the host and worker name capacity, so
+// a client rejects an over-long name before the device does.
 #[test]
 fn pool_entry_schema_states_the_capacity() {
     let schema = schemars::schema_for!(PoolEntry);
@@ -35,9 +35,9 @@ fn pool_entry_schema_states_the_capacity() {
     assert_eq!(properties["user"]["maxLength"], NAME_CAPACITY);
 }
 
-/// The config schema names every section and keeps the tagged
-/// tuning shape, so a client generator reads the same keys the
-/// device accepts.
+// The config schema names every section and keeps the tagged
+// tuning shape, so a client generator reads the same keys the
+// device accepts.
 #[test]
 fn config_update_schema_names_every_section() {
     let schema = schemars::schema_for!(ConfigUpdate);

@@ -158,10 +158,7 @@ ubos_events::events! {
     config_downgrade_failed(from: u16, to: u16)           warn = "Cannot convert the configuration from version {} to version {} for the update",
 }
 
-/// Subscriber capacity for the config watch.
-///
-/// Covers thermal, cooling, mining/tuner, manager, API, and stratum
-/// client, with two slots spare for future consumers.
+/// Subscriber capacity for the config watch, with spare.
 const WATCH_SUBSCRIBERS: usize = 8;
 
 /// Receiver slots that tasks hold while they wait in [`Handle::current`]
@@ -173,17 +170,11 @@ const FIRST_PUBLISH_WAITERS: usize = 32;
 /// Receiver slots of the config watch: the subscribers and the waiters.
 const WATCH_CAPACITY: usize = WATCH_SUBSCRIBERS + FIRST_PUBLISH_WAITERS;
 
-/// Depth of the config command channel.
 const COMMAND_CHANNEL_DEPTH: usize = 4;
 
-/// Stack buffer size for encode and decode of stored config blobs.
-///
-/// Holds the widest record: the 8-byte schema-hash prefix plus the
-/// postcard-encoded [`Config`] with every field at its widest. The test
-/// `widest_record_fills_the_buffer` measures that record and pins this
-/// value to it, so a schema change that widens the record fails the test
-/// rather than a save. [`flash_storage::SCRATCH_SIZE`] is derived from
-/// this value, so the flash scratch budget follows it.
+/// Buffer for the widest record: the schema-hash prefix plus the encoded
+/// [`Config`] with every field at its widest, pinned by
+/// `widest_record_fills_the_buffer`. The flash scratch aliases it.
 pub(crate) const LOAD_BUFFER_SIZE: usize = 1408;
 
 /// Stack buffer size for encode and decode of the seed record, which
@@ -197,55 +188,36 @@ pub(crate) const TAKEN_BUFFER_SIZE: usize = 18;
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// Module-internal state watch carrying the committed [`Config`] —
-/// the persisted truth, never the unconfirmed network preview. Single
-/// writer is [`run`]. `current()` reads this, so an `/api/config`
-/// update built from `current()` never carries a pending preview into
-/// flash.
+/// Watch carrying the committed [`Config`], never the unconfirmed
+/// network preview, so an update built from `current()` cannot carry a
+/// preview into flash.
 type ConfigWatch = Watch<CSMutex, Config, WATCH_CAPACITY>;
 
-/// The committed config that the board's one config task publishes.
 static STATE_WATCH: ConfigWatch = Watch::new();
 
-/// Subscriber capacity for the effective-network watch. `ubos-net` is
-/// the sole subscriber; one spare slot covers a future consumer.
+/// `ubos-net` is the one subscriber, plus a spare.
 const NETWORK_WATCH_CAPACITY: usize = 2;
 
-/// Module-internal watch carrying the effective network configuration —
-/// the value the live stack should hold, which is the unconfirmed
-/// preview while a confirm window is armed and the committed network
-/// otherwise. `ubos-net` subscribes and applies each change to the
-/// stack. Distinct from the config watch precisely so the preview reaches
-/// the stack without poisoning the persisted config. Published only on a
-/// network transition, never at boot — the boot stack config comes from
-/// firmware reading [`Config`] before the stack exists.
+/// Watch carrying the network the live stack should hold: the preview
+/// while a confirm window is armed, the committed network otherwise.
+/// Separate from `STATE_WATCH` so the preview reaches the stack without
+/// reaching flash. Published on transitions only, never at boot.
 type NetworkWatch = Watch<CSMutex, NetworkConfig, NETWORK_WATCH_CAPACITY>;
 
-/// The effective network that the board's one config task publishes.
 static NETWORK_WATCH: NetworkWatch = Watch::new();
 
-/// Module-internal command channel. Single consumer is [`run`];
-/// producers send via [`Handle::send`].
 type ConfigCommandChannel = Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH>;
 
-/// The commands that the board's one config task drains.
 static COMMAND_CHANNEL: ConfigCommandChannel = Channel::new();
 
-/// Receiver capacity for the update-generation watch: one per session
-/// slot ([`pool::POOL_SLOTS`]), one for the pool-weights watcher, plus
-/// one spare.
+/// One per session slot, one for the weights watcher, one spare.
 const GENERATION_WATCH_CAPACITY: usize = pool::POOL_SLOTS + 2;
 
-/// Update-generation watch. The counter is bumped and published once
-/// each time a successful [`Message::Update`] has been persisted and
-/// published. Every stratum session task awaits it in its reconnect
-/// loop so a pool change triggers an immediate teardown instead of
-/// waiting for the next session error. A `Watch` rather than a
-/// `Signal` because a `Signal` registers a single waker: with one
-/// session task per pool slot, all of them must observe every update.
+/// Bumped after each persisted [`Message::Update`], so every stratum
+/// session tears down at once instead of on its next error. A `Watch`,
+/// not a `Signal`, because every session task must see every bump.
 type GenerationWatch = Watch<CSMutex, u32, GENERATION_WATCH_CAPACITY>;
 
-/// The update generation that the board's one config task bumps.
 static GENERATION_WATCH: GenerationWatch = Watch::new();
 
 /// How long [`Handle::downgrade`] waits for the config task to store the
@@ -259,26 +231,21 @@ const DOWNGRADE_TIMEOUT: Duration = Duration::from_secs(5);
 /// upload at a time.
 static DOWNGRADE_DONE: Signal<CSMutex, ()> = Signal::new();
 
-/// How long an unconfirmed network preview stays applied before it
-/// reverts to the committed config. A wrong static address strands the
-/// board, so the change holds only until the operator proves
-/// reachability by confirming from the new address.
+/// How long a network preview holds before it reverts. A wrong static
+/// address strands the board, so the operator must confirm from the new
+/// address.
 const CONFIRM_WINDOW: Duration = Duration::from_secs(120);
 
-/// The status of the pending network preview. Written by [`run`] and read
-/// synchronously through a [`Handle`] by the API HTTP handlers, which cannot
-/// await the config task.
+/// The pending network preview. Atomics, because the API handlers read
+/// it without awaiting the config task.
 struct PendingStatus {
-    /// Uptime-seconds deadline of the preview, or 0 when none is pending.
+    /// Uptime-seconds deadline of the preview, or 0.
     deadline_secs: AtomicU64,
-    /// Whether the preview selects static addressing. Only meaningful while
-    /// a preview is armed; lets the network status report the previewed mode
-    /// so it agrees with the live address during the window.
+    /// The preview is static; meaningful only while one is armed.
     is_static: AtomicBool,
 }
 
 impl PendingStatus {
-    /// A status with nothing pending.
     const fn new() -> Self {
         Self {
             deadline_secs: AtomicU64::new(0),
@@ -287,30 +254,19 @@ impl PendingStatus {
     }
 }
 
-/// The pending status that the board's one config task writes.
 static PENDING_STATUS: PendingStatus = PendingStatus::new();
 
-/// Per-task subscription returned by [`Handle::subscribe`].
 pub type ConfigSubscription = Receiver<'static, CSMutex, Config, WATCH_CAPACITY>;
 
-/// Per-task subscription to the effective-network watch, returned by
-/// [`Handle::subscribe_network`].
 pub type NetworkSubscription = Receiver<'static, CSMutex, NetworkConfig, NETWORK_WATCH_CAPACITY>;
 
-/// Per-task subscription to the update-generation watch, returned by
-/// [`Handle::subscribe_generation`].
 pub type GenerationSubscription = Receiver<'static, CSMutex, u32, GENERATION_WATCH_CAPACITY>;
 
-/// Records that the firmware took the config handle.
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("config");
 
-/// Consumer-side handle for the config subsystem.
-///
-/// The handle holds no data: it is the proof that the firmware took it, and
-/// its methods are the only way to the private statics of this module. A
-/// firmware takes it once with [`Handle::take`] and passes a copy to each
-/// task that reads the configuration, so that the arguments of a task show
-/// what it talks to.
+/// Consumer-side handle. It holds no data: it proves the firmware took
+/// it, and a copy goes to each task that reads the configuration, so a
+/// task's arguments show what it talks to.
 #[derive(Clone, Copy)]
 pub struct Handle(());
 
@@ -322,12 +278,10 @@ pub struct Runner(());
 
 #[allow(clippy::unused_self)]
 impl Runner {
-    /// Publish the committed configuration, which only the config task writes.
     pub(crate) fn publish(&self, config: Config) {
         STATE_WATCH.sender().send(config);
     }
 
-    /// The next command, which only the config task drains.
     pub(crate) async fn next_message(&self) -> Message {
         COMMAND_CHANNEL.receive().await
     }
@@ -365,12 +319,9 @@ impl Handle {
             .await
     }
 
-    /// The entry a session slot runs: the operator's entry below the
-    /// fee slot, the fee pool's entry at it, and `None` for a slot the
-    /// list does not fill and past the board's slots. Owned, because
-    /// the fee entry is built on each read over the current config:
-    /// its worker name follows the operator pools the board runs,
-    /// which are the slots below the fee's.
+    /// The entry a session slot runs: the fee pool's at the fee slot, the
+    /// operator's elsewhere. Owned, because the fee entry is built on each
+    /// read, and its worker name follows the operator pools the board runs.
     pub async fn pool_slot(&self, slot: usize) -> Option<PoolEntry> {
         let current = self.current().await;
         if let Some(fee) = fee::FEE_SLOT.try_get()
@@ -382,8 +333,8 @@ impl Handle {
         current.pool.get(slot).cloned()
     }
 
-    /// The config as `GET /api/config` serves it: the current config
-    /// with the fee entry and its share beside the operator's list.
+    /// The `GET /api/config` body: the current config with the fee entry
+    /// and its share beside the operator's list.
     pub async fn view(&self) -> ConfigUpdate {
         let current = self.current().await;
         let mut view = ConfigUpdate::from_config(&current);
@@ -395,12 +346,11 @@ impl Handle {
         view
     }
 
-    /// Per-task subscription. Call once per consumer task before
-    /// entering its loop.
+    /// One per consumer task.
     ///
     /// # Panics
     ///
-    /// Panics if the underlying `Watch` has no free receiver slots.
+    /// When the `Watch` has no free receiver slot.
     #[must_use]
     pub fn subscribe(&self) -> ConfigSubscription {
         STATE_WATCH
@@ -408,20 +358,17 @@ impl Handle {
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
 
-    /// Waits until the config changes and returns the new value.
     pub async fn changed(&self) -> Config {
         let mut subscription = self.subscribe();
         subscription.changed().await
     }
 
-    /// Subscription to the effective-network watch. `ubos-net` calls this
-    /// once and applies each published [`NetworkConfig`] to the live
-    /// stack. The watch publishes only on a network transition, so the
-    /// first `changed()` blocks until the first apply/confirm/revert.
+    /// Subscription to the effective-network watch, which publishes on
+    /// transitions only, so the first `changed()` blocks until one.
     ///
     /// # Panics
     ///
-    /// Panics if the underlying `Watch` has no free receiver slots.
+    /// When the `Watch` has no free receiver slot.
     #[must_use]
     pub fn subscribe_network(&self) -> NetworkSubscription {
         NETWORK_WATCH
@@ -429,15 +376,12 @@ impl Handle {
             .expect("BUG: NETWORK_WATCH receiver slots exhausted; raise NETWORK_WATCH_CAPACITY")
     }
 
-    /// Submit a config update. The task running in [`run`] persists the
-    /// new value then publishes it on the state watch of its handle.
     pub async fn send(&self, message: Message) {
         COMMAND_CHANNEL.send(message).await;
     }
 
-    /// Submit a command without awaiting queue space. Returns `false`
-    /// when the channel is full so a non-async caller, such as an HTTP
-    /// handler, can surface a busy response instead of blocking.
+    /// `false` when the channel is full, so an HTTP handler can answer
+    /// busy instead of blocking.
     #[must_use]
     pub fn try_send(&self, message: Message) -> bool {
         COMMAND_CHANNEL.try_send(message).is_ok()
@@ -462,8 +406,7 @@ impl Handle {
             .is_ok()
     }
 
-    /// Seconds left in the network confirm window, or 0 when nothing is
-    /// pending.
+    /// Seconds left in the network confirm window, or 0.
     #[must_use]
     pub fn pending_seconds_remaining(&self) -> u64 {
         let deadline = PENDING_STATUS.deadline_secs.load(Ordering::Relaxed);
@@ -473,9 +416,8 @@ impl Handle {
         deadline.saturating_sub(Instant::now().as_secs())
     }
 
-    /// Mode of the pending network preview, or `None` when nothing is
-    /// pending. `Some(true)` while a static preview awaits confirmation,
-    /// `Some(false)` for a DHCP preview.
+    /// `Some(true)` for a pending static preview, `Some(false)` for DHCP,
+    /// `None` when nothing is pending.
     #[must_use]
     pub fn pending_mode_is_static(&self) -> Option<bool> {
         if self.pending_seconds_remaining() == 0 {
@@ -484,16 +426,11 @@ impl Handle {
         Some(PENDING_STATUS.is_static.load(Ordering::Relaxed))
     }
 
-    /// Per-task subscription to the update-generation watch. The
-    /// generation is bumped after each successful config update has
-    /// been persisted and published. Consumers that need to react
-    /// before the next [`Handle::changed`] tick (a stratum session
-    /// tearing down, for example) await `changed()` on this receiver.
-    /// Call once per consumer task before entering its loop.
+    /// Subscription to the update generation; see [`GenerationWatch`].
     ///
     /// # Panics
     ///
-    /// Panics if the underlying `Watch` has no free receiver slots.
+    /// When the `Watch` has no free receiver slot.
     #[must_use]
     pub fn subscribe_generation(&self) -> GenerationSubscription {
         GENERATION_WATCH.receiver().expect(
@@ -582,11 +519,7 @@ pub struct ConfigUpdate {
 }
 
 impl ConfigUpdate {
-    /// Merge the update into `target`, overwriting only the fields that are
-    /// `Some`.
-    ///
-    /// Consumes `self`; each `Some` field is moved into `target` rather than
-    /// cloned, so callers cannot reuse the update afterwards.
+    /// Merge the `Some` fields into `target`.
     pub fn apply(self, target: &mut Config) {
         if let Some(pool) = self.pool {
             target.pool = pool;
@@ -619,13 +552,8 @@ impl ConfigUpdate {
         }
     }
 
-    /// Produce a fully-populated `ConfigUpdate` from a live [`Config`].
-    ///
-    /// The base of the `GET /api/config` body. The `api.password` field is
-    /// set to an empty string so the stored credential is never transmitted
-    /// to the client. `fee` and `fee_permille` are `None`, because a
-    /// `Config` holds no fee slot; [`Handle::view`] fills them from the
-    /// slot the board installed.
+    /// The base of the `GET /api/config` body, with the password blanked.
+    /// A `Config` holds no fee slot, so [`Handle::view`] fills `fee`.
     #[must_use]
     pub fn from_config(config: &Config) -> Self {
         let mut api = config.api.clone();
@@ -647,36 +575,16 @@ impl ConfigUpdate {
         }
     }
 
-    /// Validate all present fields against the bounds and against `current`.
-    ///
-    /// `current` is the live [`Config`] snapshot the update will be merged
-    /// into; the caller is responsible for reading it once and passing it
-    /// in so the function is pure and the read order is explicit.
-    ///
-    /// An incoming `thermal` must name the same reading kinds as `current`,
-    /// because the kinds belong to the machine.
-    ///
-    /// For `cooling.target`, the dangerous temperature is the threshold of
-    /// its kind in the incoming `thermal` field when present, otherwise in
-    /// `current.thermal`.
-    ///
-    /// The cross-field rule covers both directions:
-    /// - When `cooling.target` is in the update, the incoming target must
-    ///   name a kind the machine reads and stay strictly below its threshold.
-    /// - When only `thermal` is in the update, the current `cooling.target`
-    ///   must still be strictly below the incoming threshold of its kind.
-    ///
-    /// Returns `Ok(())` when every present field is within its allowed range.
-    /// Returns `Err(msg)` with a static, operator-readable message on the
-    /// first violation found.
-    ///
-    /// The `cooling.pid` gains are deliberately not part of [`ConfigUpdate`]
-    /// and therefore never flow through this validator; see the parallel
-    /// note on [`Config::validate`].
+    /// Validate the present fields against `bounds` and against `current`,
+    /// the config they merge into. An incoming `thermal` must name the
+    /// reading kinds of `current`, because they belong to the machine. The
+    /// cooling target must name a kind the machine reads and stay below its
+    /// dangerous temperature, checked whichever side the update carries,
+    /// against the incoming value where present.
     ///
     /// # Errors
     ///
-    /// Returns `Err` on the first field that fails its validation rule.
+    /// The first failing rule, as an operator-readable string.
     pub fn validate(&self, current: &Config, bounds: &MiningBounds) -> Result<(), &'static str> {
         if let Some(pool) = &self.pool {
             for (slot, entry) in pool.iter().enumerate() {
@@ -776,8 +684,7 @@ impl Config {
                 cooldown_temp: thermal::DEFAULT_COOLDOWN_TEMP,
             },
             cooling: CoolingConfig {
-                // Every board boots under PID control; a fixed duty is an
-                // explicit operator choice, never a factory default.
+                // A fixed duty is an operator choice, never a default.
                 mode: FanMode::Auto,
                 // The board states its own setpoint. It is editable at
                 // run time through the UI afterwards.
@@ -799,14 +706,10 @@ impl Config {
 }
 
 impl Config {
-    /// Compile-time schema fingerprint for the [`Config`] type.
-    ///
-    /// Computed via FNV1a-64 over the postcard schema and the type path
-    /// string. Any field addition, removal, rename, reorder, or type
-    /// change shifts this hash. The boot compares the 8-byte prefix of
-    /// the stored record against this constant, and against the hashes
-    /// of the older versions it can upgrade from, and falls back to
-    /// defaults on a record in no schema it reads.
+    /// Schema fingerprint, FNV1a-64 over the postcard schema. Any field
+    /// change shifts it, and the boot reads a record only under this hash
+    /// or the hash of a version it upgrades from, so a firmware update
+    /// falls back to defaults instead of misreading flash.
     pub const SCHEMA_HASH: [u8; 8] = versions::schema_hash::<Config>();
 
     /// Validate operator-tunable fields against their per-domain bounds.
@@ -828,7 +731,7 @@ impl Config {
     ///
     /// # Errors
     ///
-    /// Returns the first failing field's static error string.
+    /// The first failing rule, as an operator-readable string.
     pub fn validate(&self, bounds: &MiningBounds) -> Result<(), &'static str> {
         for (slot, entry) in self.pool.iter().enumerate() {
             entry.validate(slot)?;
@@ -844,60 +747,18 @@ impl Config {
     }
 }
 
-/// Reconfigure task for the config subsystem.
-///
-/// On boot, loads the stored [`Config`] via `storage` and validates it
-/// against `info.bounds`. A record that an older version stored is
-/// upgraded to the live schema and stored again in it. On
-/// [`LoadError::SchemaMismatch`] (a record in no schema this build
-/// reads), [`LoadError::Corrupt`]
-/// (partial write before power loss), an I/O error, or a failed
-/// validation, falls back to [`Config::for_board`] with
-/// `info.default_tuning` and logs the reason. An upgrade and each
-/// fallback record an event, so the operator reads what an update did
-/// to the config. `Ok(None)` means the key was never written and is
-/// treated as a clean first-boot: defaults, with no warning.
-///
-/// A board can hand in a `seed` of settings it recovered from the
-/// firmware it replaced. Each seed field is written over the config
-/// when its fingerprint differs from the one the store last took, and
-/// every field is new to a store that has taken none. The result is
-/// persisted at once with the new fingerprints. So a setting changed
-/// under the other firmware reaches the config once, and a setting the
-/// operator has since changed here stays as they left it. A factory
-/// reset keeps the fingerprints, so the seed stays out until its
-/// source changes. A fallback for any reason but an I/O error takes
-/// every seed field, whatever the fingerprints say. A seed whose result
-/// fails validation is dropped with a warning. The seed is borrowed from
-/// the task, because an async fn that takes it by value holds it twice,
-/// as the argument and as the local the body binds it to.
-///
-/// A board hands in the `fee` slot it runs, from [`FeeSlot::last_of`],
-/// and the handle answers for it from then on: [`Handle::pool_slot`]
-/// builds its entry, [`Handle::view`] serves it beside the operator's
-/// list. `None` on a board with no fee slot and on an off build.
-///
-/// Each [`Message::Update`] persists the new value before publishing
-/// it and bumps [`GENERATION_WATCH`] so every stratum session tears
-/// down and reconnects.
-///
-/// Network changes flow through [`Message::ApplyNetwork`]. With
-/// `confirm`, the new network is published on [`NETWORK_WATCH`] as a
-/// preview and a [`CONFIRM_WINDOW`] timer is armed, but nothing is
-/// persisted: `ubos-net` switches the live stack, and the change holds
-/// only until [`Message::ConfirmNetwork`] arrives or the window expires
-/// and the committed network is republished. Because the preview never
-/// touches flash, a reboot mid-window comes up on the committed config.
-/// `committed.network` is the revert target and is left untouched while
-/// a preview is pending, so a superseding apply still reverts all the
-/// way back.
-///
-/// A [`Message::Downgrade`] stores the record that the image an OTA
-/// staged reads, answers [`Handle::downgrade`], and drops every command
-/// after it until the handler reboots the board into that image.
-///
-/// The task reaches the committed configuration and the commands only
-/// through `runner`.
+/// The config task. A record an older version stored is upgraded and
+/// stored again in the live schema. A `seed` field is written over the
+/// config when its fingerprint differs from the one the store last took,
+/// so a setting the operator has since changed here stays as they left
+/// it. The seed is borrowed, because an async fn that takes it by value
+/// holds it twice. `fee` is the slot from [`FeeSlot::last_of`] the handle
+/// answers for. A network preview is published on the network watch and
+/// never persisted, so a reboot mid-window comes up on the committed
+/// config, and `committed.network` stays the revert target while a
+/// preview is pending. After a [`Message::Downgrade`] the task drops
+/// every command until the reboot, so no write replaces the record the
+/// staged image reads.
 pub async fn run<S: Storage>(
     runner: &mut Runner,
     mut storage: S,
@@ -917,8 +778,6 @@ pub async fn run<S: Storage>(
     info!("config: started");
 
     loop {
-        // While a preview is armed, race the next command against the
-        // revert deadline; otherwise just await the next command.
         let message = if let Some(&(_, deadline)) = preview.as_ref() {
             match select(runner.next_message(), Timer::at(deadline)).await {
                 Either::First(message) => message,
@@ -937,8 +796,6 @@ pub async fn run<S: Storage>(
 
         match message {
             Message::Update(new) => {
-                // `new` was built from `current()`, which is the committed
-                // config, so it never carries the pending preview into flash.
                 apply_update(runner, &new, &mut storage).await;
                 committed = new;
             }
@@ -962,8 +819,7 @@ pub async fn run<S: Storage>(
                 if let Some((network, _)) = preview.take() {
                     clear_pending_status();
                     committed.network = network;
-                    // The stack already holds the preview; net dedups, so no
-                    // network publish is needed, only the persisted record.
+                    // The stack already holds the preview.
                     set_network(runner, &committed, &mut storage).await;
                     info!("config: network change confirmed");
                     crate::events::network_applied();
@@ -1064,42 +920,30 @@ macro_rules! config_task {
     };
 }
 
-/// Arm the pending-window status counters read by the API handlers.
 fn arm_pending_status(network: &NetworkConfig, deadline: Instant) {
-    // Publish the mode before the deadline. A reader that observes a nonzero
-    // deadline then always sees the matching mode, never the prior preview's.
+    // The mode goes first, so a reader that sees the deadline sees the
+    // matching mode.
     PENDING_STATUS.is_static.store(
         matches!(network.mode, NetworkMode::Static { .. }),
         Ordering::Relaxed,
     );
-    // Round the deadline up so the reported seconds stay positive until
-    // the full-precision timer actually fires.
+    // Rounded up, so the reported seconds stay positive until the timer
+    // fires.
     PENDING_STATUS
         .deadline_secs
         .store(deadline.as_millis().div_ceil(1000), Ordering::Relaxed);
 }
 
-/// Clear the pending-window status counters once no preview is armed.
 fn clear_pending_status() {
     PENDING_STATUS.deadline_secs.store(0, Ordering::Relaxed);
     PENDING_STATUS.is_static.store(false, Ordering::Relaxed);
 }
 
-/// Load the persisted [`Config`], or on a first boot the defaults, with
-/// the new fields of the `seed` written over it, or fall back to
-/// [`Config::for_board`].
-///
-/// The buffer is sized to match [`encode_blob`]'s budget so any blob
-/// that could have been stored fits without reallocation. All failure
-/// paths converge on defaults so the firmware always boots with a
-/// valid config. A seed field is new when its fingerprint differs from
-/// the taken one, so a first boot with no taken record takes them all.
-///
-/// A stored config that this build cannot read takes every seed field
-/// over the defaults, whatever the store took before, and is stored at
-/// once. The operator's config is gone then, and the settings the board
-/// recovered are the best values it knows. A load that fails with an
-/// I/O error takes no seed, so a flash fault never writes.
+/// The persisted [`Config`], or the defaults on any failure, with each
+/// seed field whose fingerprint differs from the taken one written over
+/// it. A key never written is a clean first boot and logs nothing. A
+/// stored config this build cannot read takes every seed field and is
+/// stored at once; an I/O error takes none, so a flash fault never writes.
 async fn load_initial<S: Storage>(
     storage: &mut S,
     defaults: &HashboardDefaults,
@@ -1345,14 +1189,9 @@ async fn persist_taken<S: Storage>(taken: &Taken, storage: &mut S) {
     }
 }
 
-/// Log the variant-specific reason a stored blob could not be decoded,
-/// and record its event.
-///
-/// Each arm produces a different diagnostic so operators can tell a
-/// firmware-upgrade schema bump apart from a flash corruption event.
-/// The event names only the schema bump, because an update caused it,
-/// and a damaged or an unreadable record is the same loss to the
-/// operator.
+/// Log why a stored blob could not be decoded, and record an event for a
+/// schema bump alone: an update caused it, and a damaged or an unreadable
+/// record is the same loss to the operator.
 #[allow(clippy::match_same_arms)]
 fn log_decode_error<E>(error: &LoadError<E>) {
     match error {
@@ -1373,17 +1212,10 @@ fn log_decode_error<E>(error: &LoadError<E>) {
     }
 }
 
-/// Apply a config update with persistence and stratum restart.
-///
-/// Persists the new value, publishes it on [`STATE_WATCH`], and bumps
-/// the update generation so stratum sessions reconnect. A store
-/// failure is logged but does not abort the publish: an in-memory
-/// update with no flash record is preferable to a stale config.
+/// Persist, publish and bump the generation.
 async fn apply_update<S: Storage>(runner: &Runner, new: &Config, storage: &mut S) {
     persist(new, storage).await;
     runner.publish(new.clone());
-    // Single writer: only the `run` task calls this, so read-then-send
-    // cannot race another bump.
     let generation = GENERATION_WATCH.try_get().map_or(1, |g| g.wrapping_add(1));
     GENERATION_WATCH.sender().send(generation);
     info!("config: applied update, generation {}", generation);
@@ -1397,28 +1229,16 @@ async fn apply_update<S: Storage>(runner: &Runner, new: &Config, storage: &mut S
     }
 }
 
-/// Persist a network-only change and publish it without halting mining.
-///
-/// Network settings (IP mode, hostname) are not on the hashing path, so
-/// unlike [`apply_update`] this skips the stratum restart. The live
-/// network apply flow has already switched the
-/// stack to the new address by the time this runs; the stratum client
-/// reconnects on its own when its socket drops, so all this needs to do
-/// is persist the confirmed record and refresh [`STATE_WATCH`] so
-/// `GET /api/config` reflects it.
+/// Persist and publish a network change without the generation bump: the
+/// stratum client reconnects on its own when the socket drops.
 async fn set_network<S: Storage>(runner: &Runner, config: &Config, storage: &mut S) {
     persist(config, storage).await;
     runner.publish(config.clone());
     info!("config: applied network update");
 }
 
-/// Reset the stored config to [`Config::for_board`] with
-/// `default_tuning` and publish it.
-///
-/// Persists the defaults, refreshes [`STATE_WATCH`], and returns the
-/// new value. Returning the config keeps the persisted, published, and
-/// in-memory values provably identical and lets tests drive the real
-/// reset path.
+/// Persist and publish the defaults, and return them so a test drives
+/// the real path.
 async fn factory_reset<S: Storage>(
     runner: &Runner,
     storage: &mut S,
@@ -1433,9 +1253,8 @@ async fn factory_reset<S: Storage>(
     config
 }
 
-/// Persist `config` to `storage`, and say whether it reached the store.
-/// A failure is logged and otherwise swallowed: an in-memory-only update
-/// is preferable to leaving mining paused.
+/// Persist `config` and say whether it reached the store. A failure is
+/// logged and swallowed: an in-memory update beats leaving mining paused.
 async fn persist<S: Storage>(config: &Config, storage: &mut S) -> bool {
     let mut buffer = [0u8; LOAD_BUFFER_SIZE];
     let Ok(length) = encode_blob(config, &mut buffer) else {

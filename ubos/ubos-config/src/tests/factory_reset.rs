@@ -51,9 +51,6 @@ use crate::{
 };
 
 rusty_fork_test! {
-    /// Drive `factory_reset` against empty storage, then reload and decode.
-    /// Asserts both the returned config and the reloaded blob equal
-    /// the fixture config, confirming the reset writes the correct defaults.
     #[test]
     fn factory_reset_persists_and_reloads_default() {
         let dir = std::env::temp_dir().join(format!(
@@ -83,7 +80,6 @@ rusty_fork_test! {
             "factory_reset must publish through the handle it is given"
         );
 
-        // Reload the persisted blob and verify it decodes back to the defaults.
         let mut load_buffer = [0u8; LOAD_BUFFER_SIZE];
         let blob = block_on(storage.load(crate::storage::CONFIG_KEY, &mut load_buffer))
             .expect("BUG: FileStorage::load returned Err in test")
@@ -103,10 +99,6 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// Verify that `factory_reset` overwrites a previously stored non-default
-    /// config. Stores a modified config first, then runs the reset, then
-    /// reloads and asserts the result is the factory default — not the
-    /// earlier value.
     #[test]
     fn factory_reset_overwrites_existing_config() {
         let dir = std::env::temp_dir().join(format!(
@@ -118,8 +110,6 @@ rusty_fork_test! {
 
         let mut storage = FileStorage::new(&dir);
 
-        // Store a modified config (non-default dangerous temperature) to simulate
-        // pre-existing state. 85.0 differs from the default of 83.0.
         let mut modified = default_config();
         modified.thermal.dangerous = TemperatureDescriptor {
             chip: None,
@@ -131,7 +121,6 @@ rusty_fork_test! {
         block_on(storage.store(crate::storage::CONFIG_KEY, &modified_buf[..modified_len]))
             .expect("BUG: FileStorage::store failed in test");
 
-        // Apply factory reset over the stored non-default config.
         let (runner, handle) = Handle::take();
         let reset = block_on(factory_reset(
             &runner,
@@ -150,7 +139,6 @@ rusty_fork_test! {
             "factory_reset must publish through the handle it is given"
         );
 
-        // Reload and assert the stored value is now the default.
         let mut load_buffer = [0u8; LOAD_BUFFER_SIZE];
         let blob = block_on(storage.load(crate::storage::CONFIG_KEY, &mut load_buffer))
             .expect("BUG: FileStorage::load returned Err in test")
@@ -202,8 +190,8 @@ fn boot_with_stored(name: &str, tuning: Tuning, info: &'static MiningInfo) -> (C
     (stored, loaded)
 }
 
-/// A stored tuning outside a range is clamped into it at boot, and the
-/// rest of the stored config survives.
+// A stored tuning outside a range is clamped into it at boot, and the
+// rest of the stored config survives.
 #[test]
 fn load_clamps_stored_tuning_and_keeps_the_rest() {
     let frequency = BOUNDS.frequency.clone();
@@ -228,8 +216,8 @@ fn load_clamps_stored_tuning_and_keeps_the_rest() {
     );
 }
 
-/// A stored tuning no listed tuner reads is replaced by the default
-/// tuning at boot, and the rest of the stored config survives.
+// A stored tuning no listed tuner reads is replaced by the default
+// tuning at boot, and the rest of the stored config survives.
 #[test]
 fn load_replaces_unoffered_tuning_and_keeps_the_rest() {
     let (stored, loaded) = boot_with_stored(

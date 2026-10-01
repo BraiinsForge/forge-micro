@@ -145,9 +145,8 @@ impl MiningBounds {
 ///
 /// # Panics
 ///
-/// When `input_power` is given and no tuner reads a power target, or
-/// a tuner reads one and it is not given, which fails the build of the
-/// `BOUNDS` const.
+/// When `input_power` is given and no tuner reads a power target, or a
+/// tuner reads one and it is not given.
 #[must_use]
 pub const fn bounds(
     frequency: RangeInclusive<Frequency>,
@@ -214,9 +213,8 @@ pub struct MiningInfo {
 ///
 /// # Panics
 ///
-/// When no tuner in `bounds` reads `default_tuning`, or its input power
-/// is outside the accepted range, which fails the build of the
-/// `MINING_INFO` const.
+/// When no tuner in `bounds` reads `default_tuning`, or its input power is
+/// outside the accepted range.
 #[must_use]
 pub const fn mining_info(
     asic_model: &'static str,

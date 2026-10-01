@@ -17,16 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Adapter that presents a synchronous [`embedded_storage`] `NorFlash`
-//! implementation as the async variant `sequential-storage` requires.
-//!
-//! Every flash driver in this workspace, `embassy-rp`'s `Blocking`
-//! flash and `esp-storage`'s `FlashStorage`, implements
-//! `embedded_storage::nor_flash::NorFlash` directly, while the async
-//! variants either need extra wiring (DMA channels, IRQ
-//! bindings) or do not exist at all. Erase and write are blocking on
-//! every platform regardless of the trait surface, so the adapter
-//! costs nothing at runtime.
+//! A synchronous `NorFlash` presented as the async one
+//! `sequential-storage` requires. Erase and write block on every
+//! platform whatever the trait says, so the adapter costs nothing.
 
 use embedded_storage::nor_flash::{
     ErrorType as SyncErrorType, NorFlash as SyncNorFlash, ReadNorFlash as SyncReadNorFlash,
@@ -36,13 +29,8 @@ use embedded_storage_async::nor_flash::{
     ReadNorFlash as AsyncReadNorFlash,
 };
 
-/// Wraps a synchronous [`SyncNorFlash`] as an async [`AsyncNorFlash`].
-///
-/// The async methods on the wrapper await no futures; each one delegates
-/// straight to the inner sync method. The blocking erase/write briefly
-/// stalls the issuing executor, including mining on single-core boards,
-/// which is no longer halted for the write. Config writes are infrequent
-/// and each op is short, so the stall is acceptable.
+/// A blocking erase or write stalls the issuing executor, mining
+/// included on a single-core board; config writes are rare and short.
 pub struct SyncFlash<F>(pub F);
 
 impl<F: SyncErrorType> SyncErrorType for SyncFlash<F> {
