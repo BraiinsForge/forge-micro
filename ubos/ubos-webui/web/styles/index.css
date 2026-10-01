@@ -960,6 +960,21 @@ main > * {
   cursor: not-allowed;
 }
 
+/* A field the current mode does not read, such as the fixed fan duty
+   under auto. It stays editable and under the browser's range check,
+   so it is dimmed rather than disabled. Opacity alone reads as a dim
+   value with a live label, because the panel row hardly changes
+   against the page: the label and the value drop to the muted colour
+   too, so the whole row recedes. */
+.fld.off {
+  opacity: 0.5;
+}
+
+.fld.off .fldLabel,
+.fld.off input {
+  color: var(--mute);
+}
+
 /* Text and control wrappers default to the stacked layout: plain block
    flow, one on top of the other, exactly like the bare .fldLabel + input
    this replaces. .fldRows below overrides both to lay a field out as a

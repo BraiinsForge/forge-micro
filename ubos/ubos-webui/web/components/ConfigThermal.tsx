@@ -40,7 +40,8 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
 
   // The floor bounds PID output and the target is its setpoint, so both
   // are dead under fixed, and the fixed duty is dead under auto. All
-  // three stay visible, enabled, and keep their value across a toggle:
+  // three stay visible, enabled, and keep their value across a toggle,
+  // and the dead ones are dimmed so the eye lands on the live ones:
   // the mode control says what governs the fan, the layout never
   // moves, and every field stays under the browser's range check, which
   // a disabled control is barred from. The save carries all six, so an
@@ -124,6 +125,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
           </div>
           <Field
             label="Target temperature"
+            class={isFixed ? 'off' : ''}
             desc={fmtRange(target.start, target.end)}
             unit="°C"
             value={targetC}
@@ -135,6 +137,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
           />
           <Field
             label="Min fan speed"
+            class={isFixed ? 'off' : ''}
             desc={fmtRange(floor.start, floor.end)}
             unit="%"
             value={minFanPwm}
@@ -146,6 +149,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
           />
           <Field
             label="Fixed fan speed"
+            class={isFixed ? '' : 'off'}
             desc={fmtRange(fixed.start, fixed.end)}
             unit="%"
             value={fixedFanPwm}
