@@ -37,10 +37,8 @@ use ubos_config::{DEVFEE, FEE_DEN, MIN_FEE_SLOTS, REPAY_SPACING};
 /// pool returning from an outage gets repaid before parity resumes.
 const CLAMP_SHARES: i32 = 1000;
 
-/// Fee shares the debt of a [`FeeScheduler`] can lag or lead by.
-/// Bounds how long a fee pool returning from an outage is repaid
-/// before the share resumes, the same trade [`CLAMP_SHARES`] makes
-/// for an operator pool.
+/// Fee shares the debt of a [`FeeScheduler`] can lag or lead by: the
+/// same trade [`CLAMP_SHARES`] makes for an operator pool.
 const CAP_FEE_SHARES: i64 = 1000;
 
 /// Policy that decides which configured pool slot receives the next
@@ -145,14 +143,12 @@ impl<const N: usize> Scheduler<N> for RatioScheduler<N> {
 
     fn set_weights(&mut self, weights: &[u32]) {
         // Largest weight a slot may hold without letting
-        // `weight_sum * (CLAMP_SHARES + 1)` overflow `i32`. Applied to
-        // every stored weight, not only their sum: `accumulate_share`
-        // converts each slot's own weight to `i32` on every share, so
-        // the per-slot bound is what keeps that conversion total.
-        // Config validation already bounds weights to 100 000, so this
-        // saturation is defense in depth against direct misuse of the
-        // method rather than a path with defined precision
-        // requirements.
+        // `weight_sum * (CLAMP_SHARES + 1)` overflow `i32`; applied to
+        // every stored weight, not only their sum, because
+        // `accumulate_share` converts each slot's own weight to `i32`
+        // on every share. Config validation already bounds weights to
+        // 100 000, so this saturation is defense in depth against
+        // direct misuse of the method.
         let max_weight = i64::from(i32::MAX) / i64::from(CLAMP_SHARES + 1);
 
         let mut new_weights = [0u32; N];
@@ -184,61 +180,44 @@ impl<const N: usize> Scheduler<N> for RatioScheduler<N> {
 /// at a fixed share of the delivered shares.
 ///
 /// Each operator share adds the fee's numerator to a debt and each fee
-/// share subtracts the rest of the denominator, so the update is
-/// zero-sum at the configured share and the split is exact in the long
-/// run: one fee share for every `due / permille` operator shares. The
-/// debt is clamped at [`CAP_FEE_SHARES`] fee shares either way, so a
-/// fee pool back from an outage is repaid that much and no more, and
-/// at [`REPAY_SPACING`] operator shares between two fee shares, so a
-/// repayment never takes the whole of the work. The
-/// inner scheduler splits the operator shares between the operator
-/// slots as it does on any board, and the fee slot stays outside its
-/// view, so a chain with no operator pool available idles.
+/// share subtracts the rest of the denominator, so the split is exact in
+/// the long run. The fee slot stays outside the inner scheduler's view,
+/// so a chain with no operator pool available idles.
 ///
-/// A separate counter rather than a weight, because the inner
-/// scheduler's weights cannot hold a small fixed fraction: its clamp
-/// bends the ratio when the operator weights are large, and the
-/// integer division that would derive a fee weight rounds to zero when
-/// they are small, and zero means backup only. The operator weights
-/// stay as the operator wrote them.
+/// A counter rather than a weight, because the inner scheduler's clamp
+/// bends a small fixed fraction when the operator weights are large, and
+/// a derived fee weight rounds to zero, which means backup only, when
+/// they are small.
 ///
-/// The fee pass runs only on a build with [`DEVFEE`] on and at least
-/// [`MIN_FEE_SLOTS`] slots, so an operator slot stands beside the fee.
-/// An off build runs the operator split alone, so a fee board names
-/// this scheduler in both states and the switch decides.
+/// An off build, or one with fewer than [`MIN_FEE_SLOTS`] slots, runs the
+/// operator split alone, so a fee board names this scheduler in both
+/// states and the switch decides.
 pub struct FeeScheduler<const N: usize> {
     inner: RatioScheduler<N>,
-    /// Thousandths of a share the fee slot is owed, within the cap.
-    /// Grows while the fee pool is down, so a returning fee pool is
-    /// repaid for the outage, up to the cap.
+    /// Thousandths of a share the fee slot is owed. Grows while the fee
+    /// pool is down, so a returning fee pool is repaid up to the cap.
     debt: i64,
-    /// Thousandths each operator share adds to the debt.
     permille: i64,
-    /// Operator shares since the last fee share, which paces a
-    /// repayment: a fee share is picked only after [`REPAY_SPACING`]
-    /// of them.
+    /// Paces a repayment: a fee share is picked only after
+    /// [`REPAY_SPACING`] operator shares.
     since_fee: i64,
 }
 
 impl<const N: usize> FeeScheduler<N> {
-    /// Whether this scheduler runs the fee pass at all.
     const FEE_SLOT_RUNS: bool = DEVFEE && N >= MIN_FEE_SLOTS;
 
-    /// The slot the fee runs in: the board's last, after its operator
-    /// slots, the same rule `ubos_config::FeeSlot::last_of` states.
+    /// The rule `ubos_config::FeeSlot::last_of` states.
     const FEE_SLOT: usize = N - 1;
 
-    /// Builds the scheduler with the inner one at its default, no debt
-    /// and the fee slot at `permille` thousandths of the delivered
-    /// work, so the first fee share follows the operator's first run.
+    /// Starts with no debt, so the first fee share follows the
+    /// operator's first run.
     ///
     /// # Panics
     ///
-    /// Panics on a share outside 0 to [`FEE_DEN`] exclusive, and on
-    /// one past [`ubos_config::MAX_FEE_PERMILLE`], where a repayment
-    /// at [`REPAY_SPACING`] would not outpace the steady state. The
-    /// share is a build-time fact `ubos_config::FeePool` already
-    /// bounds by the same constants, so either is a wiring bug.
+    /// On a share outside 0 to [`FEE_DEN`] exclusive or past
+    /// [`ubos_config::MAX_FEE_PERMILLE`]. `ubos_config::FeePool` bounds
+    /// the share by the same constants at build time, so either is a
+    /// wiring bug.
     #[must_use]
     pub fn new(permille: i64) -> Self {
         assert!(
@@ -259,14 +238,11 @@ impl<const N: usize> FeeScheduler<N> {
         }
     }
 
-    /// Debt at which one fee share is due: the share of a whole share
-    /// the fee slot is owed once the operator slots have had their
-    /// part.
+    /// Debt at which one fee share is due.
     fn due(&self) -> i64 {
         FEE_DEN - self.permille
     }
 
-    /// The debt's bound in thousandths of a share, both ways.
     fn cap(&self) -> i64 {
         self.due() * CAP_FEE_SHARES
     }

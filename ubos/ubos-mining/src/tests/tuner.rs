@@ -115,8 +115,7 @@ fn walk_emits_target_as_final_step() {
 fn walk_converges_for_float_lossy_voltage() {
     // 1012 mV is one of the millivolt targets whose f32 round-trip
     // truncates to 1011, leaving a residual the curve math never
-    // closes. Before the final-step snap this spun the phase B loop
-    // forever; the walk must land exactly on the target and terminate.
+    // closes; the walk must land exactly on the target and terminate.
     let target = FixedTarget {
         frequency: Frequency::from_mhz(550),
         voltage: Voltage::from_mv(1012),
@@ -135,11 +134,11 @@ fn walk_converges_for_float_lossy_voltage() {
 
 #[test]
 fn walk_preserves_power_ceiling_after_phase_a() {
-    // P_target = V_target^2 * f_target. Phase B steps must stay below
-    // or equal to P_target, exactly, since the curve voltage is a
-    // floored integer square root. Phase A walks at constant V_open which
-    // may briefly exceed P_target on its final hop; the gating invariant
-    // kicks in after the curve is entered.
+    // P_target = V_target^2 * f_target; phase B steps must stay at or
+    // below it exactly, since the curve voltage is a floored integer
+    // square root. Phase A walks at constant V_open, which may briefly
+    // exceed P_target on its final hop, so the gating invariant begins
+    // only once the curve is entered.
     let target = FixedTarget {
         frequency: Frequency::from_mhz(550),
         voltage: Voltage::from_mv(1100),

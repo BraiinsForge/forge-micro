@@ -19,10 +19,12 @@
 
 //! Multi-chain mining lifecycle and execution of synchronous tuner plans.
 //!
-//! Bring-up holds the chains in reset with the rail off until the scheduler would dispatch work,
-//! then configures every chain concurrently and parks absent or faulted connectors.
-//! A run in which the scheduler would dispatch nothing for `POOL_LOSS_GRACE` cuts the rail and
-//! waits for a pool again.
+//! Bring-up holds the chains in reset with the rail off until the
+//! scheduler would dispatch work, then configures every chain concurrently
+//! and parks absent or faulted connectors. A run in which the scheduler
+//! would dispatch nothing for `POOL_LOSS_GRACE` cuts the rail and waits for
+//! a pool again.
+//!
 //! The miner applies bounded policy plans in decrease, rail, increase order.
 //! Live targets take effect at the next step. A stop or a halt allows the current
 //! plan a bounded wait, then cuts the rail without a shutdown ramp.
@@ -30,8 +32,6 @@
 //! [`Miner::run`] is a state machine on the `transitions` crate: each state
 //! is a type whose `run` does its work and returns the next state, and
 //! `Miner::advance` runs one state at a time under the machine's only select.
-//! `machine` holds the sum type and that select, `states` holds the states,
-//! and `pool` holds the miner's watch on the pool.
 
 mod error;
 mod machine;
@@ -61,14 +61,11 @@ use crate::tuner::MachineTuner;
 pub use error::{MinerError, PsuErrorKind};
 
 /// Bring-up cycles the machine spends while no chain comes up
-/// present, before it parks instead of cutting the rail again.
-///
-/// Each cycle already gives every chain `ENUMERATE_ATTEMPTS` tries
-/// of its own, so this is the second and outer budget: it buys the
-/// rail cut that a chain-level retry cannot perform, and bounds it,
-/// because a machine with nothing behind its connectors otherwise
-/// cycles the rail for as long as it is powered, once per
-/// `RESET_HOLD` sequence, chain retry budget and `RETRY_DELAY`.
+/// present, before it parks instead of cutting the rail again. It is the
+/// outer budget over each cycle's own `ENUMERATE_ATTEMPTS`: it buys the
+/// rail cut a chain-level retry cannot perform, and bounds it, because a
+/// machine with nothing behind its connectors would otherwise cycle the
+/// rail for as long as it is powered.
 const BRING_UP_CYCLES: u8 = 3;
 
 /// Run the mining module of a deployment that has no chip: publish
@@ -84,11 +81,8 @@ pub async fn run_idle(runner: Runner) -> ! {
     }
 }
 
-/// The ASIC mining state machine driving the injected chain driver.
-///
-/// Holds the PSU handle and owns every chain of the machine. Firmware
-/// constructs this with [`Miner::new`] and calls [`Miner::run`] to
-/// run the state machine. `T` is the machine's tuner set.
+/// The ASIC mining state machine driving the injected chain driver. `T`
+/// is the machine's tuner set.
 pub struct Miner<R, T, const CHAINS: usize>
 where
     R: ResetPin,
@@ -117,15 +111,7 @@ where
     /// Construct a `Miner` from the PSU handle, the board descriptor
     /// whose chip facts drive the tuner, one serial actor with its reset
     /// pin per chain of the machine, in chain order, and the function that
-    /// reads what the platform reports beyond the common readings. The miner
-    /// publishes its lifecycle status and takes halt and resume through
-    /// `mining`.
-    ///
-    /// A `Serial` declares its own index and its own view of the
-    /// machine's chain count, and both are checked against its position
-    /// in `chains`. The reset pin travels in the same pair as its actor,
-    /// so a board names the two together and there is no second array
-    /// whose order could drift from the first.
+    /// reads what the platform reports beyond the common readings.
     ///
     /// # Panics
     ///
@@ -286,10 +272,10 @@ where
         }
 
         let slowed = self.set_frequencies(decreases).await?;
-        // Only the ceiling is clamped here. It is board policy that can sit
-        // above the PSU's own range, so nothing below would refuse it. The
-        // floor is the PSU's, and a rail under its range returns
-        // `Error::OutOfRange` rather than reaching the hardware.
+        // Only the ceiling is clamped here: it is board policy that can sit
+        // above the PSU's own range, so nothing below needs to refuse it.
+        // The floor is the PSU's, which returns `Error::OutOfRange` for a
+        // rail under its range rather than reaching the hardware.
         let rail = self
             .set_voltage_if_different(
                 plan.rail
@@ -329,10 +315,8 @@ where
         Ok(true)
     }
 }
-/// Task shell that runs the [`Miner`]. Takes the board's reset-pin type,
-/// the descriptor whose chip facts drive the tuner, the machine's chain
-/// count, its tuner set and, when that set reads platform readings, the
-/// function that reads them.
+/// Task shell that runs the [`Miner`], over the board's types, because a
+/// task cannot be generic.
 ///
 /// [`Miner::run`] returns only when [`Handle::stop`] fires, which on bare
 /// metal never happens. The shell parks afterwards for the same reason

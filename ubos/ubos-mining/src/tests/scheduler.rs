@@ -27,10 +27,9 @@
 //! will drive: `evaluate` picks a slot, `accumulate_share` credits
 //! the slot that was picked.
 //!
-//! The [`FeeScheduler`] tests follow. The ones that measure the fee
-//! share are live only with the fee switch on, the state
-//! `test-ubos-mining` in `nix/checks.nix` runs in; the one that pins
-//! the operator split alone reads no switch.
+//! The [`FeeScheduler`] tests that measure the fee share are live only
+//! with the fee switch on, the state `test-ubos-mining` in
+//! `nix/checks.nix` runs in.
 
 use super::*;
 
@@ -257,14 +256,10 @@ fn pool_weights_empty_list_is_all_zero() {
 
 /// Slots a fee board runs: the operator's and the fee slot.
 const FEE_SLOTS: usize = ubos_config::pool::MAX_POOLS + 1;
-/// The fee slot of such a board: its last.
 const FEE_SLOT: usize = FEE_SLOTS - 1;
 
-/// Every slot of a fee board available: a full operator list and the
-/// fee pool up.
 const ALL: [bool; FEE_SLOTS] = [true; FEE_SLOTS];
 
-/// The share the fee tests run at.
 const PERMILLE: i64 = 20;
 
 #[test]
@@ -451,8 +446,8 @@ fn a_whole_share_is_refused() {
     let _ = FeeScheduler::<FEE_SLOTS>::new(FEE_DEN);
 }
 
-/// A one-slot board runs the operator split alone, whatever the
-/// switch: the fee needs an operator slot beside it.
+// The fee needs an operator slot beside it, so this holds whatever the
+// switch.
 #[test]
 fn a_one_slot_board_runs_the_operator_split_alone() {
     let mut fee = FeeScheduler::<1>::new(PERMILLE);

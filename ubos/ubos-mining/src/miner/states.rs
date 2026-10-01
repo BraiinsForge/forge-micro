@@ -63,9 +63,6 @@ where
 {
     type Next = ChooseNext;
 
-    /// Check the tuner before any chain is powered. A configuration that
-    /// selects a tuner this machine does not have leads to [`NoTuner`],
-    /// with the rail left off.
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> ChooseNext {
         let tuning = context.config.get().await.miner.tuning;
         if T::select(&tuning, context.miner.board).is_none() {
@@ -109,8 +106,6 @@ where
 {
     type Next = WaitForPoolNext;
 
-    /// Hold the chains in reset with the rail off until the scheduler would
-    /// dispatch work, asking every [`POOL_POLL_PERIOD`].
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> WaitForPoolNext {
         info!("mining: waiting for a pool to hold a job");
         while !context.miner.pool_serial().work_available().await {
@@ -133,10 +128,8 @@ where
 {
     type Next = EnableNext;
 
-    /// Hold the chains in reset for [`RESET_HOLD`], then enable the
-    /// rail and let it settle for [`RESET_HOLD`]. A failure is
-    /// logged and bring-up goes on, because enumeration finds a rail that
-    /// did not come up.
+    /// A failed enable is logged and bring-up goes on, because enumeration
+    /// finds a rail that did not come up.
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> EnableNext {
         Timer::after(RESET_HOLD).await;
         info!("mining: enabling PSU");
@@ -161,8 +154,6 @@ where
 {
     type Next = ExitResetNext;
 
-    /// Release every chain from reset and let it settle for
-    /// [`RESET_HOLD`].
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> ExitResetNext {
         info!("mining: exiting reset");
         for chain in &mut context.miner.chains {
@@ -185,25 +176,11 @@ where
 {
     type Next = BringUpNext;
 
-    /// Reset, enumerate and configure every chain, all at once. This is
-    /// the last bring-up step before the tuner sees a chain.
-    ///
-    /// A bring-up that finds no chain counts against `BRING_UP_CYCLES`. The
-    /// rail cut is what a chain-level retry cannot do, and both failures
-    /// that this budget exists for cleared on the cycle after one. A
-    /// machine whose connectors are empty parks in [`Halted`] instead of
-    /// cutting its rail for as long as it is powered. A parked machine
-    /// waits for the same resume a halt waits for. The manager sends one
-    /// for a Start that finds nothing paused, so an operator sends Start,
-    /// or reboots the board.
-    ///
-    /// What one chain does is [`ChainHandle::bring_up`]. A chain whose
-    /// count never settles on the board's chip count within the retry
-    /// budget is marked absent when its last answer was no chips at all,
-    /// and faulted when it was a count, a sweep no chip answered, or a
-    /// refused safe-boot configuration. Either way the chain is parked in
-    /// reset and left out of the ramp, and the other chains carry on:
-    /// only a bring-up where no chain comes up present cuts the rail.
+    /// Only a bring-up where no chain comes up present cuts the rail; one
+    /// chain's verdict is [`ChainHandle::bring_up`]'s. Such a bring-up
+    /// counts against `BRING_UP_CYCLES`, and a spent budget parks the
+    /// machine in [`Halted`], which waits for the resume the manager sends
+    /// for a Start that finds nothing paused.
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> BringUpNext {
         let miner = &mut *context.miner;
         let expected = miner.board.num_chips;
@@ -249,14 +226,9 @@ where
 {
     type Next = StartWorkNext<T>;
 
-    /// Build the tuner the configuration selects now, anchor the shared
-    /// rail and start every present chain.
-    ///
-    /// Building the tuner at the end of bring-up means that a tuning that
-    /// changed to another tuner this machine has during bring-up is the
-    /// one that runs, without another power cycle. A tuning that changed
-    /// to one this machine does not have leads to [`NoTuner`], which cuts
-    /// the rail.
+    /// The tuner is built at the end of bring-up, so a tuning that changed
+    /// during bring-up to another tuner this machine has is the one that
+    /// runs, without another power cycle.
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> StartWorkNext<T> {
         let tuning = context.config.get().await.miner.tuning;
         let miner = &mut *context.miner;
@@ -308,12 +280,6 @@ where
 {
     type Next = StepNext<T>;
 
-    /// Run one tuner step against the live target and apply its plan.
-    ///
-    /// A configuration that selects another tuner leads to [`Choose`]
-    /// before the step. A plan that writes to the hardware clears
-    /// `failures`; a plan that fails adds one, and the
-    /// [`PLAN_FAILURE_BUDGET`]th failure in a row leads to [`Recover`].
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> StepNext<T> {
         let mut run = self.run;
         let snapshot = context.config.get().await;
@@ -353,7 +319,6 @@ where
 /// Wait for the delay the last plan asked for.
 pub(super) struct Pause<T> {
     pub(super) run: Run<T>,
-    /// When the delay ends.
     pub(super) until: Instant,
 }
 
@@ -368,13 +333,8 @@ where
 {
     type Next = PauseNext<T>;
 
-    /// Wait until `until`.
-    ///
-    /// A configuration that selects another tuner ends the wait and leads
-    /// to [`Choose`]; a new target for the running tuner does not, and
-    /// reaches the tuner at the next step. A scheduler with nothing to dispatch for
-    /// [`POOL_LOSS_GRACE`] also leads to [`Choose`], which waits for a
-    /// pool again with the rail off.
+    /// A new target for the running tuner does not end the wait; it
+    /// reaches the tuner at the next step.
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> PauseNext<T> {
         let Self { mut run, until } = self;
         match select3(
@@ -407,8 +367,6 @@ where
 {
     type Next = RecoverNext;
 
-    /// Hold the rail off for [`RETRY_DELAY`] after a failed
-    /// bring-up or a faulted tuner, then start over.
     async fn run(self, _context: &mut Context<'_, R, T, CHAINS>) -> RecoverNext {
         Timer::after(RETRY_DELAY).await;
         RecoverNext::Retry(Choose)
@@ -423,8 +381,6 @@ pub(super) struct NoTuner {
 }
 
 impl NoTuner {
-    /// The state for a configuration that selects `tuning`, which this
-    /// machine has no tuner for.
     fn missing(tuning: &Tuning) -> Self {
         error!("mining: this machine has no tuner for the configured tuning");
         Self {
@@ -442,8 +398,6 @@ where
 {
     type Next = NoTunerNext;
 
-    /// Hold the rail off until a configuration selects another tuning
-    /// variant, which [`Choose`] checks again.
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> NoTunerNext {
         self.selected.superseded(context.config).await;
         NoTunerNext::Configured(Choose)
@@ -462,8 +416,6 @@ where
 {
     type Next = HaltedNext;
 
-    /// Wait for a resume, dropping every halt before it, and start over.
-    ///
     /// A resumed machine has been asked for the whole budget of empty
     /// bring-up cycles again, so the count starts from zero.
     async fn run(self, context: &mut Context<'_, R, T, CHAINS>) -> HaltedNext {
@@ -481,9 +433,7 @@ pub(super) struct Run<T> {
     pub(super) tuner: T,
     /// The tuning variant `tuner` was built from.
     pub(super) selected: Selected,
-    /// The plans in a row that failed.
     pub(super) failures: u8,
-    /// How long the scheduler has had nothing to dispatch.
     pub(super) pool: PoolWatch,
 }
 
@@ -498,12 +448,10 @@ impl Selected {
         Self(discriminant(tuning))
     }
 
-    /// Whether `tuning` is of this variant.
     fn serves(self, tuning: &Tuning) -> bool {
         self == Self::of(tuning)
     }
 
-    /// Wait for a configuration that selects another variant.
     async fn superseded(self, subscription: &mut ConfigSubscription) {
         while self.serves(&subscription.changed().await.miner.tuning) {}
     }

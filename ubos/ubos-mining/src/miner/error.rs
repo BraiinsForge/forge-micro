@@ -23,12 +23,9 @@ use embedded_io::ErrorKind;
 use ubos_core::units::Frequency;
 use ubos_psu::Error as PsuError;
 
-/// Error type for chip-control operations.
-///
-/// Each variant represents a distinct failure mode the caller can
-/// observe and dispatch on. `Serial` wraps the `embedded_io` error
-/// kind so the miner can surface a consistent error surface without
-/// coupling callers to the specific serial actor types.
+/// Error type for chip-control operations. `Serial` wraps the
+/// `embedded_io` error kind, so a caller is not coupled to the serial
+/// actor's types.
 #[derive(Debug)]
 pub enum MinerError {
     /// The serial actor returned an error on a control operation.

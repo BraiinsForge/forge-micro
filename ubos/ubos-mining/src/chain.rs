@@ -51,25 +51,21 @@ use presence::Action;
 const RETRY_RESET_HOLD: Duration = Duration::from_millis(100);
 
 /// How long a chain is left alone after the reset release before the
-/// next enumerate. A chip that answered nothing on the attempt before
-/// was observed answering the attempt that followed a settle of this
-/// order, so the retry is given the time the first try did not have.
-/// The same value as `miner::RETRY_DELAY`, which settles the machine
-/// after a failed bring-up.
+/// next enumerate, so a chip that was mute on the attempt before has the
+/// time to boot that the first try did not give it. The same value as
+/// `miner::RETRY_DELAY`, which settles the machine after a failed
+/// bring-up.
 const RETRY_SETTLE: Duration = Duration::from_secs(5);
 
 /// One chain's serial actor, accounting, and reset pin, bundled behind
 /// the [`ChainControl`] surface the miner drives.
 ///
-/// The reset pin is folded in here, rather than left in a parallel
-/// array on `Miner`, because the miner always has to walk a chain's
-/// reset pin and its serial actor together during bring-up and
-/// teardown.
-///
-/// The chain's presence lives in its [`ChainStats`] and nowhere else:
-/// the miner decides it and every reader, the miner included, reads it
-/// back from there, so what the tuner ramps and what the API and the
-/// thermal loop see can never be two different answers.
+/// The reset pin is folded in here because bring-up and teardown always
+/// walk it together with the serial actor. The chain's presence lives in
+/// its [`ChainStats`] and nowhere else: the miner decides it and every
+/// reader, the miner included, reads it back from there, so what the
+/// tuner ramps and what the API and the thermal loop see can never be
+/// two different answers.
 pub struct ChainHandle<R: ResetPin> {
     pub(crate) serial: &'static Serial,
     pub(crate) stats: &'static ChainStats,
@@ -86,18 +82,14 @@ impl<R: ResetPin> ChainHandle<R> {
     /// Reset, enumerate and configure this chain, retrying to the
     /// budget, and publish the presence the attempts settled on.
     ///
-    /// Each attempt re-arms the line at the boot baud, resets and
-    /// enumerates the chain, and, when the count matches, configures it
-    /// to its safe-boot operating point on the fast UART and reads every
-    /// chip's temperature and core voltage once, so the thermal loop is
-    /// not blind through the ramp that follows. A short count, a refused
-    /// configuration, or a sweep no chip answered spends one attempt of
-    /// the same budget. Between two attempts the chain's hardware reset
-    /// is pulsed and the line is re-armed at the boot baud, so the next
-    /// attempt starts from the chip's own boot state: a refused
-    /// configuration can leave the chip on the fast UART, where a
-    /// boot-baud enumerate reads no chips and the decision table would
-    /// file a real board as absent.
+    /// A configured chain has every chip's temperature and core voltage
+    /// read once, so the thermal loop is not blind through the ramp that
+    /// follows; a short count, a refused configuration, or a sweep no
+    /// chip answered spends one attempt of the budget instead. Each
+    /// retry pulses the chain's hardware reset before the next attempt,
+    /// because a refused configuration can leave the chip on the fast
+    /// UART, where a boot-baud enumerate reads no chips and the decision
+    /// table would file a real board as absent.
     pub(crate) async fn bring_up(&mut self, expected: u8) {
         let index = self.chain().0;
         let mut attempt = 1u8;
@@ -136,13 +128,11 @@ impl<R: ResetPin> ChainHandle<R> {
                             attempt
                         );
                     }
-                    // The re-arm at the top of the next attempt moves
-                    // only the host side of the line. The chip keeps
-                    // whatever the failed attempt left it in, so it is
-                    // pulsed through reset here and given `RETRY_SETTLE`
-                    // to come back before it is spoken to again. The
-                    // driver's own retries absorb a chip that boots
-                    // slower than that settle.
+                    // The re-arm at the top of the next attempt moves only
+                    // the host side of the line, so the chip keeps
+                    // whatever state the failed attempt left it in; the
+                    // pulse and hold here gives it a clean boot, and the
+                    // driver's own retries absorb one that boots slower.
                     self.reset.enter_reset().await;
                     Timer::after(RETRY_RESET_HOLD).await;
                     self.reset.exit_reset().await;

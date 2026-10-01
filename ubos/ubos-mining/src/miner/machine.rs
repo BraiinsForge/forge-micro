@@ -49,17 +49,11 @@ where
     R: ResetPin,
     T: MachineTuner<CHAINS>,
 {
-    /// Drive the mining state machine.
-    ///
-    /// Waits for the configuration task's first publication, cuts the
-    /// rail, publishes the first state's lifecycle status, and then runs
-    /// one state of [`MinerState`] after another through [`Self::advance`] from
-    /// [`Choose`]. Returns when [`Handle::stop`](crate::Handle::stop) fires; on bare metal
-    /// that never happens, so the machine runs forever.
-    ///
-    /// The cut before the first state parks the rail and every chain, so
-    /// each board begins bring-up from a known-off supply, whatever the
-    /// previous boot cycle left it in.
+    /// Drive the mining state machine from [`Choose`] until
+    /// [`Handle::stop`](crate::Handle::stop) fires, which on bare metal is
+    /// never. The cut before the first state means each board begins
+    /// bring-up from a known-off supply, whatever the previous boot left
+    /// it in.
     pub async fn run(&mut self, config: ubos_config::Handle) {
         let mut subscription = config.subscribe();
         // This task is spawned before the configuration task, and the
@@ -74,13 +68,10 @@ where
         }
     }
 
-    /// Run `state` to its transition, cut the rail when the transition
-    /// asks for it, and return the next state, or `None` when
-    /// [`Handle::stop`](crate::Handle::stop) ends the machine.
-    ///
-    /// The race runs first, and the cut and the status publication follow
-    /// it, so nothing cancels the cut halfway. The status is published
-    /// after the cut whenever the transition changes it.
+    /// Run `state` to its transition and return the next state, or `None`
+    /// when [`Handle::stop`](crate::Handle::stop) ends the machine. The
+    /// race runs first and the cut and the status publication follow it,
+    /// so nothing cancels the cut halfway.
     pub(super) async fn advance(
         &mut self,
         state: MinerState<T>,
@@ -228,7 +219,6 @@ pub(super) enum Rail {
     /// the rail still off, so a halt or a stop during the pool wait cuts
     /// it again.
     Live,
-    /// The state holds the rail off.
     Off,
     /// The state holds the rail off for as long as it takes, and entering
     /// it cuts the rail whatever state came before.
@@ -242,7 +232,6 @@ pub(super) enum Rail {
 }
 
 impl<T> MinerState<T> {
-    /// What this state does with the rail.
     pub(super) fn rail(&self) -> Rail {
         match self {
             Self::Reset(_)

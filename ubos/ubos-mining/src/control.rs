@@ -39,28 +39,16 @@ const WATCH_CAPACITY: usize = 5;
 /// `send()` once full.
 pub(crate) const CMD_CHANNEL_DEPTH: usize = 4;
 
-/// The watch that carries the lifecycle status. Its single writer is the
-/// miner, through [`Runner::publish`]; readers are obtained via
-/// [`Handle::subscribe`].
 type StateWatch = Watch<CSMutex, MiningState, WATCH_CAPACITY>;
 
-/// The channel that carries halt and resume to the miner.
 type CommandChannel = Channel<CSMutex, Message, CMD_CHANNEL_DEPTH>;
 
-/// The signal that carries a stop request to the miner.
 type StopSignal = Signal<CSMutex, ()>;
 
-/// The lifecycle status the firmware's one miner publishes.
 static STATE_WATCH: StateWatch = Watch::new();
 
-/// Module-internal command channel. Its single consumer is the miner,
-/// through [`Runner::next_message`]; producers send via the [`Handle`]
-/// inherent methods.
 pub(crate) static COMMAND_CHANNEL: CommandChannel = Channel::new();
 
-/// Module-internal stop request. Its single consumer is the miner,
-/// through [`Runner::stopped`]; producers signal it through
-/// [`Handle::stop`].
 static STOP: StopSignal = Signal::new();
 
 /// Mining lifecycle status, separate from hardware readings.
@@ -111,20 +99,14 @@ pub enum Message {
 /// Per-task subscription returned by [`Handle::subscribe`].
 pub type MiningSubscription = Receiver<'static, CSMutex, MiningState, WATCH_CAPACITY>;
 
-/// Records that the firmware took the mining handle.
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("mining");
 
-/// Consumer-side handle for the mining subsystem.
-///
-/// The handle holds no data: its methods are the only way to the private
-/// statics of this module. A firmware takes it once and passes a copy to
-/// each task that uses it.
+/// Consumer-side handle. It holds no data: a firmware takes it once and
+/// passes a copy to each task that uses it.
 #[derive(Clone, Copy)]
 pub struct Handle(());
 
-/// The right to run the miner, and the way to what the miner alone does:
-/// it publishes the lifecycle status and drains the commands and the stop
-/// request.
+/// The right to run the miner.
 ///
 /// It is not `Copy`, so a firmware that gives it to one miner cannot give
 /// it to a second.
@@ -207,27 +189,24 @@ impl Runner {
         STATE_WATCH.sender().send(state);
     }
 
-    /// Wait for a stop request. The miner is the only consumer. The future
-    /// holds nothing of the runner, so the miner can wait on it while it
-    /// borrows itself.
+    /// Wait for a stop request. The future holds nothing of the runner, so
+    /// the miner can wait on it while it borrows itself.
     pub(crate) fn stopped(&self) -> impl Future<Output = ()> + use<> {
         STOP.wait()
     }
 
     /// Wait for a halt and drop every resume before it, because a miner
-    /// that is not halted has nothing to resume. The miner is the only
-    /// consumer.
+    /// that is not halted has nothing to resume.
     pub(crate) fn halted(&self) -> impl Future<Output = ()> + use<> {
         async { while !matches!(COMMAND_CHANNEL.receive().await, Message::Halt) {} }
     }
 
-    /// Wait for a resume and drop every halt before it. The miner is the
-    /// only consumer.
+    /// Wait for a resume and drop every halt before it.
     pub(crate) fn resumed(&self) -> impl Future<Output = ()> + use<> {
         async { while !matches!(COMMAND_CHANNEL.receive().await, Message::Resume) {} }
     }
 
-    /// Take the next halt or resume. The miner is the only consumer.
+    /// Take the next halt or resume.
     pub(crate) async fn next_message(&self) -> Message {
         COMMAND_CHANNEL.receive().await
     }

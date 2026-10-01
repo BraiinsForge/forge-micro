@@ -596,10 +596,10 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// The outer budget: every cycle that brings no chain up cuts the rail
-    /// and tries again, until `BRING_UP_CYCLES` is spent and the machine
-    /// parks instead. A cycle that does bring a chain up starts the count
-    /// again, so an occasional empty cycle never reaches the park.
+    // The outer budget: every cycle that brings no chain up cuts the rail
+    // and tries again, until `BRING_UP_CYCLES` is spent and the machine
+    // parks instead. A cycle that does bring a chain up starts the count
+    // again, so an occasional empty cycle never reaches the park.
     #[test]
     fn empty_cycles_spend_the_outer_budget_and_a_good_cycle_starts_it_again() {
         static ACTOR: Serial = Serial::new(HashboardIndex(0), 1);
@@ -741,14 +741,13 @@ enum VoltageWrite {
 }
 
 /// The mining handle a board takes in `main`, with the runner that the miner
-/// of the test takes from it. The handle is reached through `Deref`.
+/// of the test takes from it.
 struct TestMining {
     handle: crate::Handle,
     runner: Cell<Option<crate::Runner>>,
 }
 
 impl TestMining {
-    /// A handle with the runner that goes with it.
     fn of(handle: crate::Handle, runner: crate::Runner) -> Self {
         Self {
             handle,
@@ -756,7 +755,6 @@ impl TestMining {
         }
     }
 
-    /// The runner, for the one miner that runs on this handle at a time.
     fn runner(&self) -> crate::Runner {
         self.runner
             .take()
@@ -861,8 +859,7 @@ impl Psu for TestPsu {
     }
 }
 
-/// A supply over a test driver with the handle and the runner that the
-/// process took, which is what a board holds for its PSU.
+/// The supply, handle and runner a board holds for its PSU.
 struct TestSupply {
     supply: PowerSupply<TestPsu>,
     handle: ubos_psu::Handle,
@@ -885,9 +882,8 @@ fn test_psu(driver: TestPsu) -> (&'static TestPsu, &'static TestSupply) {
 /// `future` with the PSU task polled beside it, the way a board runs
 /// the miner beside it.
 ///
-/// The borrow of the runner lasts as long as the PSU task runs. A second
-/// task at the same time would panic on it, as a second task on one
-/// runner is not possible on a board.
+/// The runner stays borrowed while the PSU task runs, so a second task at
+/// the same time panics, as it cannot exist on a board either.
 #[allow(clippy::await_holding_refcell_ref)]
 async fn beside_psu<F: core::future::Future>(psu: &'static TestSupply, future: F) -> F::Output {
     match select(future, psu.supply.run(&mut psu.runner.borrow_mut())).await {

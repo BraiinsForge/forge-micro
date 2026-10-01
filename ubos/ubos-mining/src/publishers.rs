@@ -75,9 +75,8 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
             }
         }
         let state = mining.state();
-        // One series per state, 1 on the current one, so a panel can
-        // show which phase the miner is in rather than only whether it
-        // hashes. Every series is 0 before the first publish.
+        // One series per state, 1 on the current one, so a panel can map
+        // the sum to the phase. Every series is 0 before the first publish.
         for candidate in MiningState::ALL {
             metric!("miner_state", Flag(state == Some(candidate)))
                 .label("state", candidate.as_api_str())

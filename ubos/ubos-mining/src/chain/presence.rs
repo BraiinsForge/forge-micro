@@ -52,22 +52,17 @@ pub enum Action {
 /// 1-based `attempt` number this call represents.
 ///
 /// A chain passes only on the count its descriptor claims. Every other
-/// answer is retried up to [`ENUMERATE_ATTEMPTS`], an answer of zero
-/// chips included: a receive error latched in the enumerate window
-/// leaves a populated chain mute for that attempt, and the empty answer
-/// it produces is the same one an empty connector gives. The budget
-/// bounds what the mistake costs either way, and a connector with
-/// nothing behind it pays it once per bring-up.
+/// answer is retried up to [`ENUMERATE_ATTEMPTS`], zero chips included,
+/// because a receive error in the enumerate window leaves a populated
+/// chain as mute as an empty connector and only the budget bounds the
+/// mistake either way.
 ///
-/// The verdict a parked chain carries is decided by its last answer:
-/// `Absent` when it answered nothing at all, and `Faulted` when it
-/// answered a count that is not the expected one.
+/// A parked chain is `Absent` when its last answer was nothing at all
+/// and `Faulted` when it was a count that is not the expected one.
 ///
-/// A zero `expected` is a descriptor that claims no chips, and no count
-/// can match it: the empty answer is read as the absent connector it is
-/// rather than as a chain that met its target, so a board wired to such
-/// a descriptor parks rather than ramping nothing, and parks at once
-/// because no retry can change the answer.
+/// A zero `expected` is a descriptor that claims no chips, so the empty
+/// answer reads as the absent connector it is and parks at once, no
+/// retry being able to change it.
 #[must_use]
 pub fn transition(found: u8, expected: u8, attempt: u8) -> (ChainPresence, Action) {
     if expected == 0 {

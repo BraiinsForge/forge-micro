@@ -20,14 +20,13 @@
 //! Hardware reset for the BM1362 chip chain.
 //!
 //! Active-low on the BMM101: backends drive the pin LOW to assert
-//! reset and HIGH to release it. Methods are infallible — a failed
-//! toggle is unrecoverable from the caller's perspective, so the
-//! convention is "log internally and proceed"; the next chip
-//! operation will surface the underlying issue.
+//! reset and HIGH to release it. Methods are infallible: a failed
+//! toggle is unrecoverable from the caller, so it is logged internally
+//! and left for the next chip operation to surface.
 //!
 //! The methods are `async` because some backends drive the line
-//! through an I2C I/O expander (the esp32s3 carrier's TCA9554 on
-//! EXIO5), which needs an async bus transaction. GPIO-backed boards
+//! through an I2C I/O expander — the esp32s3 carrier's TCA9554 on
+//! EXIO5 — which needs an async bus transaction. GPIO-backed boards
 //! implement them as plain non-awaiting bodies.
 
 use embedded_hal::digital::OutputPin;
@@ -46,15 +45,14 @@ pub trait ResetPin {
     /// Called once the chain is enumerated, configured and clocked, and
     /// immediately before the first work is dispatched.
     ///
-    /// Most families need nothing here, so the default does nothing. It
-    /// exists for a chain addressed one way while it is being configured
-    /// and another while it hashes, where a mode line is held in one state
-    /// across enumeration and configuration and moved to the other to
-    /// hash. Enumerating such a chain in the hashing state is unreliable:
-    /// it answers only after several attempts, if at all.
+    /// The default does nothing; a chain whose mode line is held in one
+    /// state across enumeration and configuration and must move to
+    /// another to hash overrides it, since enumerating that chain
+    /// already in the hashing state answers only after several
+    /// attempts, if at all.
     ///
-    /// [`Self::exit_reset`] is the other half of that pair. A board with a
-    /// mode line leaves it in the configuring state there and moves it
+    /// [`Self::exit_reset`] is the other half of that pair: a board with
+    /// a mode line leaves it in the configuring state there and moves it
     /// here.
     async fn enter_work_mode(&mut self) {}
 }

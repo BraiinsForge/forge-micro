@@ -24,10 +24,7 @@
 //! work ID for as long as a pool job lasts. So a work ID names an assignment,
 //! not a work tick: a tick that repeats the whole assignment the last
 //! work ID went out under reuses that ID, and work IDs advance with the
-//! work. Taking a work ID per tick retired the slot a whole chain was still
-//! reporting under once the counter came round, and every solution from
-//! then until the chips took the next job verified against another
-//! job's header.
+//! work.
 
 #[cfg(test)]
 #[path = "tests/registry.rs"]

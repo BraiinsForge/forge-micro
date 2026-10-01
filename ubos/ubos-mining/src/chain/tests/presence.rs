@@ -94,9 +94,6 @@ fn configure_failure_at_the_attempt_budget_is_faulted_with_the_full_count() {
     assert_eq!(action, Action::Park);
 }
 
-/// A descriptor claiming no chips cannot be met by any answer, so the
-/// empty connector is read as absent rather than as a chain that
-/// reached its target.
 #[test]
 fn a_zero_chip_descriptor_reads_an_empty_connector_as_absent() {
     let (presence, action) = transition(0, 0, 1);

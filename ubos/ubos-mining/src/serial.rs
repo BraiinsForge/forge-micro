@@ -319,20 +319,15 @@ where
     }
 
     async fn read(&mut self, buf: &mut [u8], timeout_ms: u32) -> usize {
-        // A read error is consumed and the read continues. Serial
-        // drivers queue line errors in order with the data, so a break
-        // or framing error from an earlier line event surfaces on
-        // whichever later read pops it, with the bytes the caller wants
-        // behind it. Ending the read on the popped error made a chain
-        // look mute while it was answering: the error ate the attempt
-        // and the next drain ate the answer.
+        // A read error is consumed and the read continues: serial drivers
+        // queue line errors in order with the data, so a break or framing
+        // error from an earlier event surfaces on whichever later read
+        // pops it, with the bytes the caller wants behind it.
         //
-        // The consume-and-continue cannot spin on a stuck fault on this
-        // transport: `BufferedUart` reports one sticky RX error per read
-        // that returns it and masks further RX interrupts until that read
-        // drains it, so at most one extra iteration runs per real line
-        // event. A backend without that interlock — a future DMA or
-        // hardware-FIFO RX path — would need its own backoff added here.
+        // `BufferedUart` reports one sticky RX error per read and masks
+        // further RX interrupts until that read drains it, so this loops
+        // at most once extra per real line event; a backend without that
+        // interlock needs its own backoff here.
         let deadline = Instant::now() + Duration::from_millis(u64::from(timeout_ms));
         loop {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
@@ -559,11 +554,9 @@ impl Serial {
     /// tick would find. The session is shared by every chain, so one
     /// actor answers for the machine.
     ///
-    /// The answer is a read of the work receivers, which the actor loop
-    /// owns because their count is the session's slot-count generic.
-    /// `Serial` is a non-generic `static`, so a direct read here would
-    /// push that generic into every handle, and the round trip through
-    /// the actor is the price of keeping it out.
+    /// The round trip through the actor keeps the session's slot-count
+    /// generic out of this non-generic `static`, which a direct read of
+    /// the work receivers would push into every handle.
     pub async fn work_available(&self) -> bool {
         match self.cmd_reply(SerialMessage::WorkAvailable).await {
             Reply::Flag(available) => available,
@@ -592,38 +585,23 @@ impl Serial {
     /// If a park was requested, park this actor until it is released and
     /// return `true`.
     ///
-    /// Called at the top of the actor loop, before the select. `select4`
-    /// is biased by arm order, so when the UART RX buffer is continuously
-    /// ready the read arm starves the park arm and the worker never parks
-    /// within the requesting core's timeout. A chip that floods or browns
-    /// out right after a rail cut drives exactly that continuously-ready
-    /// condition. Checking here first guarantees the park is taken after
-    /// at most one read is processed. The poll path keeps the same
-    /// boundary: a bounded poll chunk finishes before parking. Cancelling
-    /// a chunk could discard collected finds or interrupt a snapshot
-    /// write. A park whose timeout is shorter than a chunk fails closed.
-    /// Commands are the exception: a bring-up command holds the actor in
-    /// `handle_command` for its full duration, and `ResetEnumerate` and
-    /// `Configure` run for seconds across reset gaps, reply windows, and
-    /// baud drains, so a park requested meanwhile is honoured only when
-    /// the command finishes — an OTA colliding with a bring-up times out
-    /// and fails closed rather than parking promptly. That fail-closed is
-    /// deliberate, not a budget oversight: the OTA park-wait in
-    /// `ubos-ota`'s `PARK_POLL_MAX_ATTEMPTS` is a synchronous core-0
-    /// busy-wait, so — unlike a board reset task's budget, which awaits a
-    /// timer and can be widened to sit through a bring-up — the OTA
-    /// budget is left short on purpose: sizing it to a multi-second
-    /// bring-up would stall embassy-net on core 0 for that whole window.
-    /// The park loop yields to the embassy executor on every iteration
-    /// via `embassy_futures::yield_now`, so every other task pending on
-    /// the same core's executor gets a chance to run and reach its own
-    /// park point in turn; a board with more than one chain on the same
-    /// core relies on that to park all of them, and on the wake of the park
-    /// holding a waker per actor so the request wakes each of them out
-    /// of its select rather than only the one that registered last.
-    /// Because the loop yields
-    /// rather than busy-spinning, a test can also drive it by polling the
-    /// returned future manually instead of needing on-hardware bring-up.
+    /// Called at the top of the actor loop, before the select: `select4`
+    /// is biased by arm order, so a continuously-ready UART read would
+    /// starve the park arm forever if it were just another arm. Checking
+    /// here first bounds the wait to at most one read. The poll path
+    /// parks only between chunks, since cancelling mid-chunk could
+    /// discard collected finds or interrupt a snapshot write, so a park
+    /// whose timeout is shorter than a chunk fails closed.
+    ///
+    /// A bring-up command (`ResetEnumerate`, `Configure`) runs in
+    /// `handle_command` to completion before a concurrent park is
+    /// honoured, which can take seconds; `ubos-ota`'s
+    /// `PARK_POLL_MAX_ATTEMPTS` budget is kept short for this reason,
+    /// since sizing it to a multi-second bring-up would stall
+    /// `embassy-net` on core 0 instead. The loop yields each iteration via
+    /// `embassy_futures::yield_now`, so sibling chains on the same core
+    /// reach their own park point and a test can drive it by polling the
+    /// future manually.
     async fn park_if_requested(&self, park: &Park, serial: &mut impl BaudRate) -> bool {
         if !park.is_requested() {
             return false;
@@ -645,27 +623,18 @@ impl Serial {
         true
     }
 
-    /// Server entry point. Owns the byte stream and the work registry;
-    /// holds a work receiver for every pool slot and asks `scheduler`
-    /// which one to dispatch from on each work tick, then submits found
-    /// shares back to the slot whose dispatch produced them through
-    /// `session.submit_solution`. Reports every diff-1 chip share into
-    /// `stats`, the chain's own [`ChainStats`], feeds the same shares to
-    /// `scheduler.accumulate_share` so the delivered split tracks its
-    /// configured policy, and records the chip count and desync bytes
-    /// into `stats` too, so the split and the line health are observable
-    /// through metrics per chain.
+    /// Server entry point; see the module doc for the dispatch and
+    /// accounting policy.
     ///
     /// Returns `Ok(())` when a [`SerialMessage::Terminate`] command was
-    /// honoured, and `Err(BrokenPipe)` only on serial EOF. Line-level read
+    /// honoured, and `Err(BrokenPipe)` only on serial EOF; other read
     /// errors are absorbed inside the `SerialIo` transport and the read
-    /// arm so a transient FIFO overrun does not kill mining for the rest
+    /// arm, so a transient FIFO overrun does not kill mining for the rest
     /// of the run.
     ///
-    /// `board` and `driver` must describe the same chip: `board.chip` and
-    /// `driver.descriptor()` are asserted identical below, so a caller
-    /// wiring a board descriptor against the wrong driver panics here
-    /// instead of tuning the wrong chip's frequency envelope.
+    /// `board` and `driver` must describe the same chip: a caller wiring
+    /// a board descriptor against the wrong driver panics on the assert
+    /// below instead of tuning the wrong chip's frequency envelope.
     #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     pub async fn run<S, C, const N: usize, const CHAINS: usize, Sch: Scheduler<N>>(
         &self,

@@ -391,9 +391,6 @@ fn process_solution_credits_the_scheduler_on_a_diff_1_share() {
     assert_eq!(harness.scheduler.accumulated.as_slice(), &[0]);
 }
 
-/// A diff-1 chip share also bumps the originating slot's `ChainStats`
-/// pool-share counter, leaving an unrelated slot untouched. `stats` is
-/// a fresh, test-local `ChainStats` so the counts start at zero.
 #[test]
 fn process_solution_bumps_the_originating_slots_pool_work_share_counter() {
     let session: AsicSession<2> = AsicSession::new();
@@ -436,14 +433,6 @@ const HARDER_THAN_DIFF_1_FLOOR: [u8; 32] = {
     bytes
 };
 
-/// A solution between the pool target and a difficulty harder than
-/// difficulty-1 is rejected outright: the difficulty check runs ahead of
-/// the credit block, so a solution failing it is dropped regardless of
-/// how loose the pool target is, and it never reaches the pool queue
-/// either. Crediting tracks whatever difficulty the driver reports rather
-/// than a hardcoded threshold: the identical solution against
-/// `ShareTarget::DIFF_1`, which the pool target below already
-/// equals, is credited and does reach the queue.
 #[test]
 fn process_solution_rejects_a_solution_between_the_pool_target_and_a_harder_floor() {
     let session: AsicSession<1> = AsicSession::new();
@@ -1152,9 +1141,6 @@ impl BaudRate for ScriptedSerial {
 /// [`ResultDriver::with_poll_rendezvous`].
 type PollGate = Signal<CriticalSectionRawMutex, ()>;
 
-/// Chain-driver stub for the result-arm tests. `line_errors` and
-/// `ingest_calls` are `&'static` counters rather than owned fields so a
-/// test can still read them after `run` consumes and drops the driver.
 /// What `ResultDriver::send_work` records, in `'static` cells a test
 /// reads after `run` drops the driver.
 #[derive(Clone, Copy)]
@@ -1168,6 +1154,9 @@ struct SendWorkTracking {
     calls: &'static AtomicU32,
 }
 
+/// Chain-driver stub for the result-arm tests. `line_errors` and
+/// `ingest_calls` are `&'static` counters rather than owned fields so a
+/// test can still read them after `run` consumes and drops the driver.
 struct ResultDriver {
     mode: ResultMode,
     line_errors: &'static AtomicU32,
@@ -1498,15 +1487,6 @@ fn a_poll_collects_a_solution_through_process_solutions_without_calling_ingest()
     });
 }
 
-/// A driver that reports more work slots than the registry holds must
-/// still dispatch safely: `run` clamps to `WORK_REGISTRY_SLOTS` up
-/// front, so the work ID wraps back to 0 there instead of walking past
-/// the registry's last index. The registry hands a fresh work ID only
-/// to a new assignment and keeps the ID for a repeat, so the test
-/// publishes the next assignment after each send it observes and runs
-/// past one full lap of the registry. Assignment `n` carries `n` in
-/// `ntime`, the one assignment field that reaches the job, so the
-/// driver stub can say which assignment the last job came from.
 #[test]
 fn run_clamps_a_driver_reporting_more_work_slots_than_the_registry_holds() {
     // See the comment on
@@ -1614,11 +1594,6 @@ impl<const N: usize> Scheduler<N> for WeightsRecorder {
     }
 }
 
-/// Pool weights are published to the actor's own watch rather than sent
-/// as a command, so the publisher never waits on the caller mutex. This
-/// test drives that path: the weights reach `scheduler.set_weights` on
-/// the actor's next pass through its loop, and the actor still answers a
-/// later command normally.
 #[test]
 fn published_pool_weights_reach_the_scheduler() {
     // See the comment on
@@ -1669,7 +1644,6 @@ fn published_pool_weights_reach_the_scheduler() {
     });
 }
 
-/// A command waits for a selected chunk, including its solution delivery.
 #[test]
 fn a_command_waits_for_an_in_flight_poll_and_the_solution_survives() {
     // See the comment on
@@ -1745,9 +1719,7 @@ fn a_command_waits_for_an_in_flight_poll_and_the_solution_survives() {
 }
 
 /// Serial mock for driving [`SerialIo::read`] directly: the first read
-/// pops a queued line error, the second delivers bytes. That is the
-/// order a serial driver presents a break or framing error from an
-/// earlier line event — queued in line with the data behind it.
+/// pops a queued line error, the second delivers bytes.
 struct FlakySerial {
     reads: u8,
 }
@@ -1785,9 +1757,6 @@ impl BaudRate for FlakySerial {
 
 #[test]
 fn transport_read_consumes_a_line_error_and_returns_the_bytes_behind_it() {
-    // A queued line error must not end the read. The transport consumes
-    // it and retries within the deadline, so the bytes behind the error
-    // reach the caller instead of a spurious empty read.
     let mut serial = FlakySerial { reads: 0 };
     let mut io = SerialIo {
         serial: &mut serial,
@@ -1804,15 +1773,13 @@ fn transport_read_consumes_a_line_error_and_returns_the_bytes_behind_it() {
     );
 }
 
-/// Drives the park handshake end to end by polling
-/// `park_if_requested`'s future manually with a no-op waker, rather than
-/// through a real embassy executor. The park is this test's own, so the
-/// counts it asserts are exact. It takes the critical section that every
-/// test driving `Serial::run` takes, for the one global logger.
 #[test]
 fn park_if_requested_parks_and_unparks_across_release() {
     use core::future::Future;
 
+    // The park is this test's own, so its counts are exact. The critical
+    // section is for the global logger; see
+    // `read_of_zero_bytes_ends_the_run_and_the_same_actor_serves_a_later_command`.
     critical_section::with(|_| {
         let actor = Serial::new(HashboardIndex(0), 1);
         let mut serial = MockSerial::new();
@@ -1863,15 +1830,11 @@ fn park_if_requested_parks_and_unparks_across_release() {
     });
 }
 
-/// One park request reaches every running actor, not just the one that
-/// registered its waker last. The receivers stand for the two actors a
-/// two-chain board runs; taking them here is what `Serial::run` does on
-/// entry. Serializes with the other park and `run` tests for the reason
-/// given on `park_if_requested_parks_and_unparks_across_release`.
 #[test]
 fn one_park_request_wakes_every_running_actor() {
     use core::future::Future;
 
+    // See the comment on `park_if_requested_parks_and_unparks_across_release`.
     critical_section::with(|_| {
         let first = Serial::new(HashboardIndex(0), 2);
         let second = Serial::new(HashboardIndex(1), 2);
@@ -1993,12 +1956,6 @@ fn dispatch_and_submit(
     (job, submitted)
 }
 
-/// Two chains of the same machine, given one assignment, hash different
-/// headers and each reconstructs its own solution. Chain 1 holds the
-/// mask's top bit fixed and rolls what is left; chain 0 holds nothing
-/// fixed and rolls the same bits. The version each submits is the header
-/// it actually hashed, masked back down to the pool's whole grant, so
-/// the pool sees the bits it granted rather than one chain's slice.
 #[test]
 fn two_chains_hash_different_versions_and_each_rebuilds_its_own_solution() {
     // The chip echo: a rolled index inside both chains' rolled mask.
@@ -2043,9 +2000,6 @@ fn two_chains_hash_different_versions_and_each_rebuilds_its_own_solution() {
     );
 }
 
-/// A pool that grants no version mask leaves every chain but the first
-/// with nothing of its own to roll. Such a chain dispatches no work, so
-/// it cannot repeat chain 0's headers and submit its shares again.
 #[test]
 fn a_chain_with_nothing_to_roll_dispatches_no_work() {
     let session: AsicSession<1> = AsicSession::new();
@@ -2096,9 +2050,6 @@ fn dispatch_job(session: &AsicSession<1>, chain: HashboardIndex, chains: usize) 
     driver.last_job.take()
 }
 
-/// `Serial::table` gives every element its own position as its chain
-/// index and the table's length as its chain count, which is what
-/// `Miner::new` checks each actor against.
 #[test]
 fn table_numbers_each_actor_by_its_position() {
     static TABLE: [Serial; 3] = Serial::table();

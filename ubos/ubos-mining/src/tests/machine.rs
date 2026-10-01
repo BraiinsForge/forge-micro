@@ -938,9 +938,9 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A halt queued before the first [`Choose`] cuts the rail again, because
-    /// the boot cut only logs a failed disable and [`Halted`] holds until a
-    /// resume.
+    // A halt queued before the first [`Choose`] cuts the rail again, because
+    // the boot cut only logs a failed disable and [`Halted`] holds until a
+    // resume.
     #[test]
     fn a_halt_read_in_the_first_choose_cuts_the_rail_again() {
         critical_section::with(|_| {
@@ -1342,9 +1342,9 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// The declared edges are sound: every state is reachable from [`Choose`]
-    /// and has a path of its own edges back to it, so no state is one that
-    /// only a halt can leave.
+    // The declared edges are sound: every state is reachable from [`Choose`]
+    // and has a path of its own edges back to it, so no state is one that
+    // only a halt can leave.
     #[test]
     fn every_state_is_reachable_and_leads_back_to_choose() {
         type TestContext = Context<'static, LoggingResetPin, OnePlanTuner, 1>;
