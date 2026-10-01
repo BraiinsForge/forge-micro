@@ -19,19 +19,18 @@
 
 //! Unit tests for [`super::Thermal::judge`], the decision one tick makes
 //! from the sensor's answer, driven directly and without the loop, the
-//! clock or a sensor.
+//! clock, a sensor or a manager.
 //!
-//! Each test stands in for the manager with channels of its own, as the
-//! `run_thermal` tests do, and applies what `judge` sent to the mask it
-//! publishes, so the read-back `judge` does on the next call sees it.
+//! `judge` reads the halts from the mask it is handed and sends nothing,
+//! so each test holds a mask of its own and applies to it the message
+//! each note the step carries stands for, as the manager would.
 
 extern crate std;
 
 use ubos_core::units::Temperature;
 use ubos_manager::{Message, PauseReasons};
 
-use super::tests_run_thermal::{ManagerChannels, drain_messages};
-use super::{Reading, SENSOR_FAULT_TICKS, Sample, Thermal, Tick};
+use super::{Note, Reading, SENSOR_FAULT_TICKS, Sample, Step, Thermal, Tick};
 
 /// A measurement well below every threshold, so the only thing a tick
 /// on it decides is what to publish.
@@ -39,140 +38,171 @@ fn cool_reading() -> Reading {
     Reading::Measured(Sample::sole(Temperature::from_millicelsius(50_000)))
 }
 
-/// Judge one reading and answer what the tick decided.
-fn judge(thermal: &mut Thermal, reading: Reading, manager: &'static ManagerChannels) -> Tick {
+/// The cool measurement as the gauges receive it.
+fn cool_sample() -> Sample {
+    Sample::sole(Temperature::from_millicelsius(50_000))
+}
+
+/// Judge one reading against `held`, and answer what the tick decided.
+fn judge(thermal: &mut Thermal, reading: Reading, held: PauseReasons) -> Step {
     let config = ubos_config::Config::default().thermal;
-    embassy_futures::block_on(thermal.judge(reading, &config, &manager.handle()))
+    thermal.judge(reading, &config, held)
+}
+
+/// The step of a tick that measured nothing and crossed no edge.
+fn held(chip_max: Option<Temperature>) -> Step {
+    Step {
+        tick: Tick::Publish {
+            chip_max,
+            pid_temp: None,
+        },
+        gauge: None,
+        unreadable: None,
+        dangerous: None,
+    }
+}
+
+/// The step of a cool measurement that crossed no edge.
+fn published_cool() -> Step {
+    Step {
+        tick: Tick::Publish {
+            chip_max: Some(Temperature::from_millicelsius(50_000)),
+            pid_temp: Some(Temperature::from_millicelsius(50_000)),
+        },
+        gauge: Some(cool_sample()),
+        unreadable: None,
+        dangerous: None,
+    }
+}
+
+/// Run the budget out, as the manager would see it: the mask holds the
+/// unreadable halt afterwards.
+fn spend_budget(thermal: &mut Thermal) -> PauseReasons {
+    let mut held = PauseReasons::default();
+    for _ in 0..SENSOR_FAULT_TICKS {
+        let step = judge(thermal, Reading::Unreadable, held);
+        if step.unreadable.is_some() {
+            held = held.apply(Message::TemperatureUnreadable);
+        }
+    }
+    assert!(held.contains(ubos_manager::PauseReason::TemperatureUnreadable));
+    held
 }
 
 #[test]
 fn a_measurement_publishes_this_ticks_pid_temperature() {
-    static MANAGER: ManagerChannels = ManagerChannels::new();
-    let mut mask = PauseReasons::default();
-    drain_messages(&MANAGER, &mut mask);
     let mut thermal = Thermal::default();
 
-    let tick = judge(&mut thermal, cool_reading(), &MANAGER);
+    let step = judge(&mut thermal, cool_reading(), PauseReasons::default());
 
-    assert_eq!(
-        tick,
-        Tick::Publish {
-            chip_max: Some(Temperature::from_millicelsius(50_000)),
-            pid_temp: Some(Temperature::from_millicelsius(50_000)),
-        }
-    );
+    assert_eq!(step, published_cool());
     assert_eq!(
         thermal.last_chip_max,
         Some(Temperature::from_millicelsius(50_000))
     );
-    assert!(drain_messages(&MANAGER, &mut mask).is_empty());
 }
 
 #[test]
 fn silence_is_withheld_inside_the_budget_and_published_held_past_it() {
-    static MANAGER: ManagerChannels = ManagerChannels::new();
-    let mut mask = PauseReasons::default();
-    drain_messages(&MANAGER, &mut mask);
     let mut thermal = Thermal::default();
-    judge(&mut thermal, cool_reading(), &MANAGER);
-    drain_messages(&MANAGER, &mut mask);
+    judge(&mut thermal, cool_reading(), PauseReasons::default());
 
     for _ in 1..SENSOR_FAULT_TICKS {
-        assert_eq!(
-            judge(&mut thermal, Reading::Unreadable, &MANAGER),
-            Tick::Withhold
-        );
-        assert!(drain_messages(&MANAGER, &mut mask).is_empty());
+        let step = judge(&mut thermal, Reading::Unreadable, PauseReasons::default());
+        assert_eq!(step.tick, Tick::Withhold);
+        assert_eq!(step.unreadable, None);
     }
 
-    // The tick that spends the budget halts, and publishes the held
-    // chip temperature with no PID temperature beside it.
+    // The tick that spends the budget asks for the halt, and publishes
+    // the held chip temperature with no PID temperature beside it.
+    let step = judge(&mut thermal, Reading::Unreadable, PauseReasons::default());
     assert_eq!(
-        judge(&mut thermal, Reading::Unreadable, &MANAGER),
-        Tick::Publish {
-            chip_max: Some(Temperature::from_millicelsius(50_000)),
-            pid_temp: None,
+        step,
+        Step {
+            unreadable: Some(Note::Unreadable(SENSOR_FAULT_TICKS)),
+            ..held(Some(Temperature::from_millicelsius(50_000)))
         }
-    );
-    assert_eq!(
-        drain_messages(&MANAGER, &mut mask),
-        std::vec![Message::TemperatureUnreadable]
     );
 
     // Past the budget every tick publishes and none asks again, because
     // the mask already holds the halt.
+    let held_mask = PauseReasons::default().apply(Message::TemperatureUnreadable);
     assert_eq!(
-        judge(&mut thermal, Reading::Unreadable, &MANAGER),
-        Tick::Publish {
-            chip_max: Some(Temperature::from_millicelsius(50_000)),
-            pid_temp: None,
-        }
+        judge(&mut thermal, Reading::Unreadable, held_mask),
+        held(Some(Temperature::from_millicelsius(50_000)))
     );
-    assert!(drain_messages(&MANAGER, &mut mask).is_empty());
 }
 
 #[test]
 fn an_idle_board_publishes_held_and_releases_the_halt_it_asked_for() {
-    static MANAGER: ManagerChannels = ManagerChannels::new();
-    let mut mask = PauseReasons::default();
-    drain_messages(&MANAGER, &mut mask);
     let mut thermal = Thermal::default();
-    for _ in 0..SENSOR_FAULT_TICKS {
-        judge(&mut thermal, Reading::Unreadable, &MANAGER);
-    }
-    drain_messages(&MANAGER, &mut mask);
+    let held_mask = spend_budget(&mut thermal);
 
     assert_eq!(
-        judge(&mut thermal, Reading::Idle, &MANAGER),
-        Tick::Publish {
-            chip_max: None,
-            pid_temp: None,
+        judge(&mut thermal, Reading::Idle, held_mask),
+        Step {
+            unreadable: Some(Note::Idle),
+            ..held(None)
         }
-    );
-    assert_eq!(
-        drain_messages(&MANAGER, &mut mask),
-        std::vec![Message::TemperatureReadable]
     );
 
     // An idle tick with no halt to release still publishes, and asks
     // for nothing.
-    assert_eq!(
-        judge(&mut thermal, Reading::Idle, &MANAGER),
-        Tick::Publish {
-            chip_max: None,
-            pid_temp: None,
-        }
-    );
-    assert!(drain_messages(&MANAGER, &mut mask).is_empty());
+    let released = held_mask.apply(Message::TemperatureReadable);
+    assert_eq!(judge(&mut thermal, Reading::Idle, released), held(None));
 }
 
 #[test]
 fn a_measurement_releases_the_halt_and_the_budget_starts_over() {
-    static MANAGER: ManagerChannels = ManagerChannels::new();
-    let mut mask = PauseReasons::default();
-    drain_messages(&MANAGER, &mut mask);
     let mut thermal = Thermal::default();
-    for _ in 0..SENSOR_FAULT_TICKS {
-        judge(&mut thermal, Reading::Unreadable, &MANAGER);
-    }
-    drain_messages(&MANAGER, &mut mask);
+    let held_mask = spend_budget(&mut thermal);
 
     assert_eq!(
-        judge(&mut thermal, cool_reading(), &MANAGER),
-        Tick::Publish {
-            chip_max: Some(Temperature::from_millicelsius(50_000)),
-            pid_temp: Some(Temperature::from_millicelsius(50_000)),
+        judge(&mut thermal, cool_reading(), held_mask),
+        Step {
+            unreadable: Some(Note::Recovered(SENSOR_FAULT_TICKS)),
+            ..published_cool()
         }
-    );
-    assert_eq!(
-        drain_messages(&MANAGER, &mut mask),
-        std::vec![Message::TemperatureReadable]
     );
 
     // The next silence is withheld again: the release reset the count.
+    let released = held_mask.apply(Message::TemperatureReadable);
     assert_eq!(
-        judge(&mut thermal, Reading::Unreadable, &MANAGER),
+        judge(&mut thermal, Reading::Unreadable, released).tick,
         Tick::Withhold
     );
-    assert!(drain_messages(&MANAGER, &mut mask).is_empty());
+}
+
+#[test]
+fn a_dangerous_measurement_halts_once_and_a_cool_one_under_the_halt_resumes() {
+    let config = ubos_config::Config::default().thermal;
+    // One degree above the sole-source threshold the default config sets.
+    #[allow(clippy::cast_possible_truncation)]
+    let hot = Temperature::from_millicelsius((config.dangerous_temp_c * 1000.0) as i32 + 1000);
+    let mut thermal = Thermal::default();
+
+    let step = judge(
+        &mut thermal,
+        Reading::Measured(Sample::sole(hot)),
+        PauseReasons::default(),
+    );
+    assert_eq!(step.dangerous, Some(Note::Dangerous(hot)));
+
+    // Under the halt the same reading crosses nothing.
+    let halted = PauseReasons::default().apply(Message::DangerousTemperature);
+    let step = judge(&mut thermal, Reading::Measured(Sample::sole(hot)), halted);
+    assert_eq!(step.dangerous, None);
+
+    // The cool reading sits above the cooldown threshold, so the halt
+    // stands on it; one degree below that threshold releases it.
+    let step = judge(&mut thermal, cool_reading(), halted);
+    assert_eq!(step.dangerous, None);
+    #[allow(clippy::cast_possible_truncation)]
+    let cooled = Temperature::from_millicelsius((config.cooldown_temp_c * 1000.0) as i32 - 1000);
+    let step = judge(
+        &mut thermal,
+        Reading::Measured(Sample::sole(cooled)),
+        halted,
+    );
+    assert_eq!(step.dangerous, Some(Note::Cooled(cooled)));
 }

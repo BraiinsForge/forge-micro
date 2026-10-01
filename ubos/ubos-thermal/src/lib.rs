@@ -107,7 +107,7 @@ use ubos_config::Handle as ConfigHandle;
 use ubos_config::ThermalConfig;
 use ubos_core::units::Temperature;
 use ubos_logging::{error, info, warn};
-use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReason};
+use ubos_manager::{Handle as ManagerHandle, Message as ManagerMessage, PauseReason, PauseReasons};
 
 ubos_events::events! {
     critical_temperature(temp_c: i16)   error = "Critical temperature {} °C, mining halted",
@@ -143,6 +143,7 @@ pub enum Source {
 }
 
 /// One sample from a board temperature sensor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Sample {
     /// The reading that gates thermal shutdown.
     pub safety: Temperature,
@@ -170,6 +171,7 @@ impl Sample {
 ///
 /// The three answers differ in what they oblige the loop to do, which is
 /// why silence is two variants and not one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reading {
     /// A usable measurement.
     Measured(Sample),
@@ -376,17 +378,11 @@ impl Handle {
 pub const SENSOR_FAULT_TICKS: u32 = 5;
 
 /// Publish the safety reading, and the cooling-PID estimate too when the
-/// board reports a distinct one, each tagged with its source. Returns the
-/// value the cooling PID should track: the estimate when present, else
-/// the safety reading.
-async fn publish_chip_temperatures(sample: &Sample) -> Temperature {
+/// board reports a distinct one, each tagged with its source.
+async fn publish_chip_temperatures(sample: &Sample) {
     publish_chip_temperature(sample.safety, sample.safety_source).await;
-    match sample.pid {
-        Some(approximated) => {
-            publish_chip_temperature(approximated, Source::Approximated).await;
-            approximated
-        }
-        None => sample.safety,
+    if let Some(approximated) = sample.pid {
+        publish_chip_temperature(approximated, Source::Approximated).await;
     }
 }
 
@@ -398,65 +394,117 @@ async fn publish_chip_temperatures(sample: &Sample) -> Temperature {
 /// halt is, so no copy of it lives here to fall out of step. The message
 /// pair is asymmetric — only the sender of
 /// [`ManagerMessage::TemperatureUnreadable`] may retract it, and it
-/// must — so both directions live here rather than one of them being
-/// spelled at a call site.
+/// must — so both edges are found here, by [`miss`](Self::miss) and
+/// [`clear`](Self::clear), rather than one of them at a call site.
 #[derive(Default)]
 struct UnreadableHalt {
     ticks: u32,
 }
 
 impl UnreadableHalt {
-    /// Count one unreadable answer, and ask the manager to halt once
-    /// the budget is spent and the halt is not yet held. What the loop
-    /// does with a spent budget is [`Self::budget_spent`]'s caller to
-    /// decide.
-    async fn miss(&mut self, manager_handle: &ManagerHandle) {
+    /// Count one unreadable answer. Answers the count once the budget
+    /// is spent, and `None` inside it, so the one call says both how
+    /// far the silence has run and whether the loop still rides it out.
+    fn miss(&mut self) -> Option<u32> {
         self.ticks = self.ticks.saturating_add(1);
-        if !self.budget_spent() {
-            return;
-        }
-        if manager_handle.holds(PauseReason::TemperatureUnreadable) {
-            return;
-        }
-        crate::events::sensor_fault(self.ticks);
-        error!(
-            "thermal: sensor unreadable for {} ticks; halting + forcing fan to 100%",
-            self.ticks
-        );
-        manager_handle
-            .send(ManagerMessage::TemperatureUnreadable)
-            .await;
+        (self.ticks >= SENSOR_FAULT_TICKS).then_some(self.ticks)
     }
 
-    /// Whether the tolerance budget is spent, so that the loop and the
-    /// halt read the same threshold from one place.
-    fn budget_spent(&self) -> bool {
-        self.ticks >= SENSOR_FAULT_TICKS
-    }
-
-    /// Reset the count, and release a halt asked for earlier. Answers
-    /// the misses the released halt had counted, and `None` when there
-    /// was no halt to release, so the caller reads the mask once, here.
+    /// Reset the count, and answer the misses a halt held in `held` had
+    /// counted, which is the caller's cue to release it. `None` when
+    /// there was no halt to release.
     ///
     /// Called both when a reading returns and when the board goes idle,
     /// because either one ends the condition that halted mining. The idle
     /// case is the one that matters, for the reason `docs/MINING.md`
     /// gives under "Chain presence": a halt that waited for a reading to
     /// release it would never release at all.
-    async fn clear(&mut self, manager_handle: &ManagerHandle) -> Option<u32> {
+    fn clear(&mut self, held: PauseReasons) -> Option<u32> {
         let misses = core::mem::take(&mut self.ticks);
-        if !manager_handle.holds(PauseReason::TemperatureUnreadable) {
-            return None;
-        }
-        manager_handle
-            .send(ManagerMessage::TemperatureReadable)
-            .await;
-        Some(misses)
+        held.contains(PauseReason::TemperatureUnreadable)
+            .then_some(misses)
     }
 }
 
-/// What a tick decided from the sensor's answer: whether a reading goes
-/// out, and the two temperatures it carries.
+/// An edge one tick crossed, which the manager has to hear about. Each
+/// variant is one message, and the loop sends it and logs the edge, so
+/// the decision that found it stays a plain function.
+#[derive(Debug, PartialEq, Eq)]
+enum Note {
+    /// The miss budget is spent and no halt is held yet. Carries the
+    /// misses counted.
+    Unreadable(u32),
+    /// A reading returned under the unreadable halt. Carries the misses
+    /// the halt had counted.
+    Recovered(u32),
+    /// The board went idle under the unreadable halt.
+    Idle,
+    /// The safety reading crossed the dangerous threshold.
+    Dangerous(Temperature),
+    /// The safety reading cooled below the cooldown threshold while the
+    /// overheat halt was held.
+    Cooled(Temperature),
+}
+
+impl Note {
+    /// Tell the manager, and log the edge.
+    async fn report(self, manager_handle: &ManagerHandle) {
+        let message = match self {
+            Self::Unreadable(ticks) => {
+                crate::events::sensor_fault(ticks);
+                error!(
+                    "thermal: sensor unreadable for {} ticks; halting + forcing fan to 100%",
+                    ticks
+                );
+                ManagerMessage::TemperatureUnreadable
+            }
+            Self::Recovered(misses) => {
+                crate::events::sensor_recovered(misses);
+                info!("thermal: sensor recovered after {} misses", misses);
+                ManagerMessage::TemperatureReadable
+            }
+            Self::Idle => {
+                info!("thermal: sensor owes no reading, releasing the halt");
+                ManagerMessage::TemperatureReadable
+            }
+            Self::Dangerous(temp) => {
+                error!(
+                    "thermal: dangerous temperature {}°C, halting mining",
+                    temp.celsius_f32()
+                );
+                crate::events::critical_temperature(temp_celsius_i16(temp));
+                ManagerMessage::DangerousTemperature
+            }
+            Self::Cooled(temp) => {
+                warn!(
+                    "thermal: cooled to {}°C, resuming mining",
+                    temp.celsius_f32()
+                );
+                crate::events::temperature_recovered(temp_celsius_i16(temp));
+                ManagerMessage::TemperatureNormal
+            }
+        };
+        manager_handle.send(message).await;
+    }
+}
+
+/// What a tick decided from the sensor's answer, for the loop to act on.
+#[derive(Debug, PartialEq, Eq)]
+struct Step {
+    /// Whether a reading goes out, and what it carries.
+    tick: Tick,
+    /// The sample measured, which the loop pushes to the chip gauges.
+    /// `None` on a tick that measured nothing.
+    gauge: Option<Sample>,
+    /// The edge of the unreadable pair this tick crossed, if any.
+    unreadable: Option<Note>,
+    /// The edge of the overheat pair this tick crossed, if any. Only a
+    /// measurement can cross one, and it can cross both pairs' at once.
+    dangerous: Option<Note>,
+}
+
+/// Whether a reading goes out this tick, and the two temperatures it
+/// carries.
 #[derive(Debug, PartialEq, Eq)]
 enum Tick {
     /// Publish a reading. The chip temperature is this tick's, or the
@@ -486,60 +534,64 @@ struct Thermal {
 
 impl Thermal {
     /// Decide one tick from the sensor's answer: count or clear the
-    /// miss budget, ask the manager for the halts and releases the
-    /// answer calls for, and say what to publish. The manager sends and
-    /// the chip gauge push are the decision's effects, which is why it
-    /// awaits; the sensor poll and the reading that goes out are the
-    /// loop's.
-    async fn judge(
-        &mut self,
-        reading: Reading,
-        config: &ThermalConfig,
-        manager_handle: &ManagerHandle,
-    ) -> Tick {
+    /// miss budget, find the halts and releases the answer calls for
+    /// against the halts `held` says the manager holds, and say what to
+    /// publish. It performs nothing: the loop reads the mask, polls the
+    /// sensor, and acts on the step, so this is a plain function of its
+    /// arguments and the previous tick.
+    fn judge(&mut self, reading: Reading, config: &ThermalConfig, held: PauseReasons) -> Step {
         match reading {
             Reading::Measured(sample) => {
-                if let Some(misses) = self.unreadable_halt.clear(manager_handle).await {
-                    crate::events::sensor_recovered(misses);
-                    info!("thermal: sensor recovered after {} misses", misses);
-                }
                 self.last_chip_max = Some(sample.safety);
-                let pid_temp = publish_chip_temperatures(&sample).await;
-                judge_dangerous(&sample, config, manager_handle).await;
-                Tick::Publish {
-                    chip_max: self.last_chip_max,
-                    pid_temp: Some(pid_temp),
+                Step {
+                    tick: Tick::Publish {
+                        chip_max: self.last_chip_max,
+                        pid_temp: Some(sample.pid.unwrap_or(sample.safety)),
+                    },
+                    gauge: Some(sample),
+                    unreadable: self.unreadable_halt.clear(held).map(Note::Recovered),
+                    dangerous: judge_dangerous(&sample, config, held),
                 }
             }
             Reading::Unreadable => {
                 // Past the budget the board runs unwatched and every
                 // consumer hears so on every tick.
-                self.unreadable_halt.miss(manager_handle).await;
-                if self.unreadable_halt.budget_spent() {
-                    self.held()
-                } else {
-                    Tick::Withhold
-                }
+                let Some(ticks) = self.unreadable_halt.miss() else {
+                    return Step {
+                        tick: Tick::Withhold,
+                        gauge: None,
+                        unreadable: None,
+                        dangerous: None,
+                    };
+                };
+                let note = (!held.contains(PauseReason::TemperatureUnreadable))
+                    .then_some(Note::Unreadable(ticks));
+                self.held(note)
             }
             Reading::Idle => {
                 // Why an idle board releases the halt: "Chain presence" in
                 // `docs/MINING.md`. It has nothing to measure, so every
                 // consumer hears on the first idle tick that the reading
                 // is held.
-                if self.unreadable_halt.clear(manager_handle).await.is_some() {
-                    info!("thermal: sensor owes no reading, releasing the halt");
-                }
-                self.held()
+                let note = self.unreadable_halt.clear(held).map(|_| Note::Idle);
+                self.held(note)
             }
         }
     }
 
-    /// The reading a tick that measured nothing publishes: the last chip
-    /// temperature, and no PID temperature beside it.
-    fn held(&self) -> Tick {
-        Tick::Publish {
-            chip_max: self.last_chip_max,
-            pid_temp: None,
+    /// The step of a tick that measured nothing: the last chip
+    /// temperature goes out with no PID temperature beside it, nothing
+    /// reaches the gauges, and `unreadable` is the one edge such a tick
+    /// can cross.
+    fn held(&self, unreadable: Option<Note>) -> Step {
+        Step {
+            tick: Tick::Publish {
+                chip_max: self.last_chip_max,
+                pid_temp: None,
+            },
+            gauge: None,
+            unreadable,
+            dangerous: None,
         }
     }
 }
@@ -618,11 +670,16 @@ pub async fn run_thermal<S: TemperatureSensor, A: AmbientSensor>(
         }
         prev_tick = now;
 
-        let tick = thermal
-            .judge(sensor.sample().await, &config, &manager_handle)
-            .await;
+        let reading = sensor.sample().await;
+        let step = thermal.judge(reading, &config, manager_handle.pause_reasons());
+        if let Some(sample) = step.gauge {
+            publish_chip_temperatures(&sample).await;
+        }
+        for note in [step.unreadable, step.dangerous].into_iter().flatten() {
+            note.report(&manager_handle).await;
+        }
         let ambient_temp = read_ambient(&mut ambient).await;
-        let Tick::Publish { chip_max, pid_temp } = tick else {
+        let Tick::Publish { chip_max, pid_temp } = step.tick else {
             continue;
         };
         // The chain voltage is not held over the way the chip
@@ -657,22 +714,22 @@ macro_rules! thermal_task {
     };
 }
 
-/// Judge one measurement against the thresholds, and ask the manager
-/// for the halt or the release the crossing calls for.
+/// Judge one measurement against the thresholds, and answer the edge of
+/// the overheat pair it crossed, if any.
 ///
-/// The counterpart of [`UnreadableHalt`], owning both directions of its
+/// The counterpart of [`UnreadableHalt`], finding both edges of its
 /// message pair for the same reason. It is a function and not a struct
 /// because this halt has no state of its own: the threshold decision is
-/// [`evaluate`]'s, and whether the halt stands is the manager's mask to
-/// say. Reading the mask back each tick is what makes an operator's
-/// release real: a local flag would leave this loop halted for ever
-/// after, with `evaluate` answering `Ok` at any temperature.
-async fn judge_dangerous(sample: &Sample, config: &ThermalConfig, manager_handle: &ManagerHandle) {
+/// [`evaluate`]'s, and whether the halt stands is what `held` says the
+/// manager's mask holds. Reading the mask back each tick is what makes
+/// an operator's release real: a local flag would leave this loop halted
+/// for ever after, with `evaluate` answering `Ok` at any temperature.
+fn judge_dangerous(sample: &Sample, config: &ThermalConfig, held: PauseReasons) -> Option<Note> {
     let dangerous = match sample.safety_source {
         Source::Chip => config.dangerous_chip_temp_c,
         Source::Sole | Source::Approximated => config.dangerous_temp_c,
     };
-    let halted = manager_handle.holds(PauseReason::DangerousTemperature);
+    let halted = held.contains(PauseReason::DangerousTemperature);
     let temp = sample.safety;
     match evaluate(
         temp.celsius_f32(),
@@ -680,24 +737,8 @@ async fn judge_dangerous(sample: &Sample, config: &ThermalConfig, manager_handle
         dangerous,
         config.cooldown_temp_c,
     ) {
-        Action::Ok => {}
-        Action::EnterHalt => {
-            manager_handle
-                .send(ManagerMessage::DangerousTemperature)
-                .await;
-            error!(
-                "thermal: dangerous temperature {}°C, halting mining",
-                temp.celsius_f32()
-            );
-            crate::events::critical_temperature(temp_celsius_i16(temp));
-        }
-        Action::Resume => {
-            manager_handle.send(ManagerMessage::TemperatureNormal).await;
-            warn!(
-                "thermal: cooled to {}°C, resuming mining",
-                temp.celsius_f32()
-            );
-            crate::events::temperature_recovered(temp_celsius_i16(temp));
-        }
+        Action::Ok => None,
+        Action::EnterHalt => Some(Note::Dangerous(temp)),
+        Action::Resume => Some(Note::Cooled(temp)),
     }
 }
