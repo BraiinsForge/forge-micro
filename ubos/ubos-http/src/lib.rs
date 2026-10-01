@@ -17,19 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Edge-http accept-loop wrapper, HTTP response helpers, and the
-//! `BufferWriter` slice-into-`Write` adapter.
-//!
-//! Handler crates implement `Service`. Board firmware calls `bind_tcp`
-//! once to get a `'static` `TcpAccept`, then spawns one `serve_worker`
-//! task per pool slot using the `http_worker_task!` macro. Per-worker
-//! state lives in each task's own `TaskStorage` so a pool that cannot
-//! fit fails the link step rather than crashing the board at runtime.
-//!
-//! `BufferWriter` is a `core::fmt::Write` adapter over a `&mut [u8]`
-//! slice that tracks the write position and records overflow. All
-//! response-building helpers use it to assemble headers and bodies
-//! without heap allocation.
+//! The HTTP transport: the edge-http accept loop, the two-handler
+//! router, response helpers and the `BufferWriter` adapter. See `serve`.
 
 #![no_std]
 
@@ -43,11 +32,8 @@ pub mod status;
 
 pub use buffer::BufferWriter;
 pub use core::net::IpAddr;
-// Re-exported so the `serve_http_pool!` and `http_worker_task!` macros can
-// name these through `$crate::`. This keeps `edge-nal-embassy`,
-// `static_cell`, and `embassy-time` internal to this crate instead of
-// forcing every board that invokes the macros to declare them as direct
-// dependencies.
+// Named through `$crate::` by the pool macros, so a board that expands
+// them declares none of these dependencies itself.
 pub use edge_nal_embassy::{Tcp, TcpAccept, TcpBuffers};
 pub use embassy_time::Duration;
 pub use request::{RequestParts, extract_request_parts};

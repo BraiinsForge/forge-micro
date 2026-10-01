@@ -17,13 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Request header extraction helper.
-//!
-//! `Connection::headers()` returns a borrow that pins the connection,
-//! so handlers cannot read the body or write a response without first
-//! copying the fields they need into owned stack locals. Every listener
-//! crate needs the same copy-out for method, path, and a fixed set of
-//! header values, so the routine lives here.
+//! Request header extraction. `Connection::headers()` borrows the
+//! connection, so a handler copies out what it needs before it reads
+//! the body or writes.
 
 use core::fmt::Write as _;
 
@@ -34,16 +30,9 @@ use embedded_io_async::{Read, Write};
 use heapless::String;
 use ubos_logging::warn;
 
-/// Owned method, path, and selected header values for one request.
-///
-/// Oversize `Authorization`, `Cookie`, and `X-CSRF-Token` values are
-/// reported as `None` so the route falls through to its anonymous or
-/// unauthenticated branch.
-///
-/// `ota_offset` and `ota_final` carry the `X-OTA-Offset` and
-/// `X-OTA-Final` headers. They are populated whenever those headers are
-/// present and `None` otherwise; only `POST /api/system/OTA/chunk`
-/// reads them.
+/// Owned method, path and tracked header values for one request. An
+/// oversize credential header reads as `None`, so the route falls
+/// through to its unauthenticated branch.
 pub struct RequestParts {
     pub method: String<16>,
     pub path: String<128>,
@@ -51,23 +40,18 @@ pub struct RequestParts {
     pub cookie: Option<String<256>>,
     pub csrf: Option<String<64>>,
     pub content_length: Option<u64>,
-    /// Decimal byte offset from `X-OTA-Offset`, or `None` when absent.
+    /// `X-OTA-Offset`, read only by the OTA chunk upload.
     pub ota_offset: Option<String<20>>,
-    /// Raw value of `X-OTA-Final`, or `None` when absent.
+    /// `X-OTA-Final`, read only by the OTA chunk upload.
     pub ota_final: Option<String<4>>,
 }
 
-/// Copy the method, path, and tracked headers out of `connection`
-/// into a `RequestParts` value that no longer borrows from it.
-///
-/// Path values longer than 128 bytes are left empty so the route
-/// table falls through to a 404; oversize `Authorization` and `Cookie`
-/// values are dropped with a `warn!` log.
+/// Copy the parts out of `connection`. An oversize path is left empty so
+/// the route table answers 404.
 ///
 /// # Errors
 ///
-/// Returns an `HttpError` when the connection state machine is not in
-/// a state where headers can be read.
+/// When the connection is not in the headers state.
 pub fn extract_request_parts<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
 ) -> Result<RequestParts, HttpError<T::Error>>
@@ -78,8 +62,7 @@ where
         .headers()
         .map_err(|_| edge_http::io::Error::InvalidState)?;
 
-    // `edge_http::Method::as_str` is private upstream, so the canonical
-    // method string is reached through the `Display` impl instead. See
+    // `Method::as_str` is private upstream; see
     // `docs/upstream-prs/edge-http-method-as-str-public.md`.
     let mut method = String::<16>::new();
     let _ = core::write!(method, "{}", headers.method);

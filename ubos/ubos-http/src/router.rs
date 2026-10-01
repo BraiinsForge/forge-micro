@@ -17,11 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Path-prefix routing across two [`Service`] handlers.
-//!
-//! Composing two handlers at the transport level is what lets one
-//! listener serve two crates, so the router lives beside `Service`
-//! itself and depends on neither handler crate.
+//! Path-prefix routing across two [`Service`] handlers, so one listener
+//! serves two crates.
 
 use core::net::IpAddr;
 
@@ -37,18 +34,11 @@ use crate::serve::Service;
 #[path = "tests/router.rs"]
 mod tests;
 
-/// A [`Service`] that hands each request to one of two others, chosen by
-/// the start of the request path.
-///
-/// The two route tables must not overlap: whichever service owns
-/// `prefix` never sees a path outside it, and `fallback` never sees a
-/// path inside it.
+/// A [`Service`] that hands each request to one of two others by path
+/// prefix. Neither sees a path on the other's side.
 pub struct PrefixRouter<M, F> {
-    /// The path prefix that selects `matched`.
     pub prefix: &'static str,
-    /// Handles every request whose path starts with `prefix`.
     pub matched: M,
-    /// Handles every other request.
     pub fallback: F,
 }
 
@@ -66,8 +56,6 @@ where
     where
         TcpSocket: Read + Write + TcpSplit,
     {
-        // The worker already extracted `parts` once, so routing reads
-        // the path from it rather than borrowing `connection` again.
         if parts.path.starts_with(self.prefix) {
             self.matched.handle(peer_ip, parts, connection).await
         } else {

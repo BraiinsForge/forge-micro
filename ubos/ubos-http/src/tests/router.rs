@@ -17,13 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for `PrefixRouter` — the split that puts two crates on one port.
-//!
-//! Routing is the only part of the merged listener that runs on the host,
-//! and a prefix that selects the wrong service sends every REST call to
-//! the dashboard's 404 or every page to the API's. The mock socket below
-//! replays one request out of a byte slice so a real edge-http
-//! `Connection` can be built over it.
+//! Tests for `PrefixRouter`. The mock socket replays one request out of
+//! a byte slice so a real edge-http `Connection` can be built over it.
 
 extern crate std;
 
@@ -52,8 +47,7 @@ const API_PREFIX: &str = "/api/";
 /// Peer address reported to the handler. No route under test reads it.
 const PEER_IP: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
-/// Failure of the mock socket. It never fails, so the type is empty and
-/// the impls below exist only to satisfy the `ErrorType` bound.
+/// The mock socket never fails; the impls satisfy the `ErrorType` bound.
 #[derive(Debug)]
 struct MockError;
 

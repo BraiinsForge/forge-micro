@@ -17,15 +17,11 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Edge-http accept loop wrapper for firmware HTTP servers.
-//!
-//! `Service` is the application-level seam for the edge-http migration
-//! path. Implement `Service` in a handler crate, pass it to `bind_tcp`
-//! to get a `'static` acceptor, then spawn one `serve_worker` task per
-//! pool slot using the `http_worker_task!` macro. Per-worker state lives
-//! in each task's own `TaskStorage` (linker-checked), so a pool that
-//! cannot fit in flash or RAM fails the *build* rather than crashing the
-//! board at runtime.
+//! Edge-http accept loop for the firmware HTTP listeners. A handler
+//! crate implements [`Service`]; the board binds a port with [`bind_tcp`]
+//! and spawns one [`serve_worker`] per pool slot through
+//! `http_worker_task!`. Per-worker state lives in each task's own
+//! storage, so a pool that does not fit fails the link, not the board.
 
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -41,49 +37,23 @@ use edge_nal::TcpSplit;
 
 use crate::request::RequestParts;
 
-/// Maximum number of HTTP headers parsed per request.
-///
-/// Sixteen was not enough: a browser request already carries around
-/// sixteen headers, and the `Authorization` header added after a
-/// credentials prompt pushed it over, so logging in failed. Thirty-two
-/// covers browsers and Prometheus scrapers with headroom, at 512 more
-/// bytes in each worker's stack frame.
+/// Headers parsed per request: headroom over a browser's sixteen or so
+/// plus `Authorization`.
 pub(crate) const MAX_HEADERS: usize = 32;
 
-/// Response written when a request carries more headers than
-/// [`MAX_HEADERS`]. Written to the socket raw, because the parse failed
-/// and no `Connection` exists to respond through.
+/// Written raw when a request carries more than [`MAX_HEADERS`], since
+/// the parse failed and no `Connection` exists to respond through.
 const HEADER_OVERFLOW_RESPONSE: &[u8] =
     b"HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
 
-/// Body of the 500 response written when a handler returns an error.
 const INTERNAL_ERROR_BODY: &str = "INTERNAL ERROR";
 
-/// Application-level handler for a single edge-http connection.
-///
-/// The trait is the migration-target seam between the transport crate
-/// and handler crates such as `ubos-api`. Implement `Service` and hand
-/// the value to `serve_worker` (typically via the `http_worker_task!`
-/// macro); the accept loop calls `handle` once per accepted TCP
-/// connection after the HTTP request headers have been parsed by
-/// edge-http and copied into a `RequestParts`.
-///
-/// `peer_ip` carries the remote address extracted from the accepted
-/// socket so that handlers can enforce IP allow-lists without depending
-/// on embassy-net types directly. `parts` is the method, path, and
-/// tracked header values, extracted once by the worker via
-/// `extract_request_parts` before `handle` is called.
+/// Handler for one request, called by the worker after edge-http parsed
+/// the headers into a [`RequestParts`].
 #[allow(async_fn_in_trait)]
 pub trait Service {
-    /// Handle one edge-http connection.
-    ///
-    /// `peer_ip` is the remote IP address of the accepted TCP
-    /// connection. `parts` carries the request's method, path, and
-    /// tracked headers, already extracted by the worker. `connection`
-    /// is the edge-http state machine for the request-response cycle;
-    /// the handler reads the request body, if any, through it and
-    /// writes the response via `connection.initiate_response` followed
-    /// by writes to the connection writer.
+    /// The handler reads any body and writes the response through
+    /// `connection`. `peer_ip` is for allow-lists.
     async fn handle<TcpSocket, const N: usize>(
         &self,
         peer_ip: IpAddr,
@@ -94,22 +64,13 @@ pub trait Service {
         TcpSocket: Read + Write + TcpSplit;
 }
 
-/// Bind a `'static` TCP acceptor on `port`.
-///
-/// Calls `TcpBind::bind` on the provided `'static` [`Tcp`] and returns the
-/// resulting `TcpAccept<'static>`. The acceptor is `Copy`, so callers can
-/// hand one copy to each worker task spawned with `http_worker_task!`.
-///
-/// The caller must store the `Tcp` in a `StaticCell` and pass the
-/// `&'static Tcp<'static>` here; only a `'static` borrow produces a
-/// `TcpAccept<'static>`.
+/// Bind a `'static` TCP acceptor on `port`. The acceptor is `Copy`, one
+/// per worker.
 ///
 /// # Panics
 ///
-/// Panics if `TcpBind::bind` returns an error. The current
-/// `edge-nal-embassy` implementation of `bind` is infallible and
-/// only stores the address; a panic here would indicate a library
-/// contract violation.
+/// If `TcpBind::bind` fails, which `edge-nal-embassy` documents it
+/// cannot.
 pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'static> {
     let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
 
@@ -117,40 +78,19 @@ pub async fn bind_tcp(tcp: &'static Tcp<'static>, port: u16) -> TcpAccept<'stati
         clippy::expect_used,
         reason = "TcpBind::bind on edge-nal-embassy is infallible"
     )]
-    // edge-nal-embassy TcpBind::bind() is documented infallible;
-    // a failure here is a library contract violation.
     tcp.bind(bind_addr).await.expect("BUG: TCP bind failed")
 }
 
-/// One accept-loop worker, suitable for use as an embassy task body.
+/// One accept-loop worker. A connection stays alive across requests
+/// until a response sends `Connection: close`, the peer idles past
+/// `idle_timeout`, or the request fails to parse.
 ///
-/// Loops forever: accepts one TCP connection, then serves requests on it
-/// until the handler asks to close, the peer goes idle past the idle
-/// timeout, or a protocol error occurs, then loops back to accept. A
-/// response that sends `Connection: close` ends the connection after one
-/// request; a response that omits it keeps the connection alive for the
-/// next request. Only the metrics handler closes, so a browser reuses one
-/// connection across the page assets and the polls that follow them.
-///
-/// The `acceptor` is `Copy` so each spawned task holds its own copy and
-/// all workers compete on the same bound port. `parse_buffer` is the
-/// worker's private edge-http header parse area; `service` is the
-/// `'static` handler shared across all workers.
-///
-/// Use `http_worker_task!` to generate a concrete pool of
-/// `#[embassy_executor::task]` wrappers that call this function.
-///
-/// The exchange is driven here rather than via edge-http's
-/// `handle_connection` so the worker can bound each of its two waits
-/// separately. `socket_timeout` is installed via `set_timeout` and bounds
-/// progress: it reclaims a connection that stalls mid-exchange while
-/// still allowing an actively-streaming upload to run as long as bytes
-/// keep arriving. `idle_timeout` bounds the wait for the request headers,
-/// so a connection that opens and sends nothing, and a kept-alive
-/// connection the peer leaves idle, both free their worker on the shorter
-/// value. One timeout cannot do both jobs: the value that frees an
-/// abandoned browser socket quickly is shorter than the value an upload
-/// needs to survive a flash-write freeze.
+/// The exchange is driven here instead of by edge-http's
+/// `handle_connection` so the two waits carry separate bounds:
+/// `socket_timeout` bounds progress, so an upload survives a flash-write
+/// freeze as long as bytes keep arriving, and `idle_timeout` bounds the
+/// wait for headers, so an abandoned browser socket frees its worker
+/// fast. One value cannot do both.
 pub async fn serve_worker<S>(
     acceptor: TcpAccept<'static>,
     parse_buffer: &'static mut [u8],
@@ -170,16 +110,8 @@ where
             }
         };
 
-        // Install the per-listener progress timeout so smoltcp reaps a
-        // stalled peer while letting an OTA upload stream as long as it
-        // keeps making progress.
         socket.set_timeout(Some(socket_timeout));
 
-        // Serve requests on this connection until one asks to close. The
-        // metrics handler always sends `Connection: close`, so
-        // `needs_close` is true after its first response; the merged web
-        // UI and REST listener omits it, so its connection is reused for
-        // the next request.
         loop {
             match serve_one(
                 &mut *parse_buffer,
@@ -190,20 +122,15 @@ where
             )
             .await
             {
-                // Keep-alive: the response did not ask to close, so loop and
-                // serve the next request on the same socket.
                 Ok(false) => {}
-                // The handler asked to close. A graceful FIN lets the client
-                // read the final response cleanly; bound it so a vanished
-                // peer cannot block the worker.
+                // A graceful FIN lets the client read the final response;
+                // bounded so a vanished peer cannot hold the worker.
                 Ok(true) => {
                     let _ = with_timeout(socket_timeout, socket.close(Close::Both)).await;
                     break;
                 }
-                // The request overflowed the header arena. The client is a
-                // live browser owed an answer rather than a reset, so write
-                // the 431 raw and close gracefully; the progress timeout
-                // installed above bounds the write.
+                // A live client owed an answer rather than a reset; the
+                // progress timeout bounds the write.
                 Err(Ended::TooManyHeaders) => {
                     if socket.write_all(HEADER_OVERFLOW_RESPONSE).await.is_ok() {
                         let _ = socket.flush().await;
@@ -211,9 +138,8 @@ where
                     let _ = with_timeout(socket_timeout, socket.close(Close::Both)).await;
                     break;
                 }
-                // A protocol error, or a connection the peer left idle past
-                // the idle timeout, is reset: a graceful close would itself
-                // block draining toward an unresponsive peer.
+                // Reset, since a graceful close would block draining toward
+                // an unresponsive peer.
                 Err(Ended::Reset) => {
                     let _ = socket.abort().await;
                     break;
@@ -223,34 +149,22 @@ where
     }
 }
 
-/// The connection is over, and how the worker must end it.
-///
-/// Most failures need no detail: the idle bound expired, the request did
-/// not parse, or the response could not be written, and the worker resets
-/// the socket for all of them. The header overflow is the one exception,
-/// because the peer is a live client mid-request that deserves an answer
-/// rather than a reset.
+/// How the worker must end a finished connection. The header overflow
+/// is the one failure whose peer is a live client owed an answer.
 enum Ended {
-    /// Reset the socket without a response.
     Reset,
-    /// The request carried more headers than [`MAX_HEADERS`]; answer
-    /// with a 431 before closing.
+    /// Answer with a 431 before closing.
     TooManyHeaders,
 }
 
-/// Serve one request on `socket` and report whether the response asked to
-/// close the connection.
-///
-/// This is `edge_http::io::server::handle_request` unrolled, so that the
-/// wait for the request headers can carry `idle_timeout` on its own while
-/// the exchange that follows keeps only the socket timeout the caller
-/// installed. `handle_request` runs both steps in one call and therefore
-/// cannot bound the first alone.
+/// Serve one request and report whether the response asked to close.
+/// This is edge-http's `handle_request` unrolled, so the wait for the
+/// headers can carry `idle_timeout` on its own.
 ///
 /// # Errors
 ///
-/// Returns `Ended` when the idle bound expires, when the request does not
-/// parse, or when the response cannot be written to the socket.
+/// `Ended` when the idle bound expires, the request does not parse, or
+/// the response cannot be written.
 async fn serve_one<S, T>(
     parse_buffer: &mut [u8],
     socket: T,
@@ -269,20 +183,12 @@ where
     .await
     {
         Ok(Ok(connection)) => connection,
-        // The request carried more headers than the parse arena holds.
-        // The caller still owns the socket and owes the client the 431.
         Ok(Err(HttpError::TooManyHeaders)) => return Err(Ended::TooManyHeaders),
-        // The idle bound expired, or the request did not parse. The
-        // connection is over either way and the caller resets the socket.
         _ => return Err(Ended::Reset),
     };
 
-    // Copy the method, path, and tracked headers out once here so every
-    // `Service` implementor shares the same extraction instead of each
-    // repeating it. The extraction fails only when the connection is not
-    // in the headers state, which cannot happen straight after `new`, but
-    // the client is still owed a response, so it gets the 500 rather than
-    // a silent reset.
+    // The extraction cannot fail straight after `new`, but the client is
+    // owed a response either way, so it gets the 500.
     let Ok(parts) = crate::request::extract_request_parts(&mut connection) else {
         connection
             .complete_err(INTERNAL_ERROR_BODY)
@@ -291,8 +197,6 @@ where
         return Ok(connection.needs_close());
     };
 
-    // A handler error still owes the client a response, so write the 500
-    // rather than dropping the socket with nothing on it.
     match service.handle(peer_ip, &parts, &mut connection).await {
         Ok(()) => connection.complete().await,
         Err(_) => connection.complete_err(INTERNAL_ERROR_BODY).await,
@@ -302,35 +206,23 @@ where
     Ok(connection.needs_close())
 }
 
-/// Split a `'static mut` byte slice into `N` equal `'static mut` chunks.
-///
-/// Each returned chunk covers a non-overlapping `chunk_size`-byte region
-/// of the original buffer, so the chunks can be safely handed to `N`
-/// independent worker tasks.
+/// Split a `'static mut` byte slice into `N` disjoint `'static mut`
+/// chunks, one per worker.
 ///
 /// # Panics
 ///
-/// Panics if `buffer.len() != chunk_size * N`.
-///
-/// # Safety
-///
-/// Safe: the original `buffer` is `'static mut`, so the base pointer
-/// is valid for the entire program. Each chunk covers a disjoint range
-/// with no aliases — the caller passes each chunk to exactly one task.
+/// If `buffer.len() != chunk_size * N`.
 pub fn split_work_buffer<const N: usize>(
     buffer: &'static mut [u8],
     chunk_size: usize,
 ) -> [&'static mut [u8]; N] {
-    // Buffer must be exactly chunk_size * N bytes so each worker gets
-    // an equal-sized, non-overlapping parse area.
     assert!(
         buffer.len() == chunk_size * N,
         "BUG: buffer.len() must equal chunk_size * N"
     );
 
     let base = buffer.as_mut_ptr();
-    // Each chunk covers a distinct, non-overlapping address range within
-    // the 'static buffer. No two indices produce the same pointer.
+    // SAFETY: the ranges are disjoint and the buffer is `'static`.
     core::array::from_fn(|index| unsafe {
         core::slice::from_raw_parts_mut(base.add(index * chunk_size), chunk_size)
     })
@@ -392,50 +284,13 @@ macro_rules! http_worker_task {
     };
 }
 
-/// Bind one HTTP listener and spawn its pool of `serve_worker` tasks.
-///
-/// # Syntax
-///
-/// ```text
-/// serve_http_pool!(spawner, stack, worker_task, service, POOL_CONST, consts_path)
-/// ```
-///
-/// Expands to a block that allocates the pool's `TcpBuffers`, `Tcp`, and
-/// split work buffer in block-scoped statics, binds `consts_path::PORT`,
-/// and spawns `POOL_CONST` instances of `worker_task` (declared with
-/// [`http_worker_task!`]). `service` is a `&'static` reference to the
-/// listener's [`Service`] handler; `consts_path` is a type path exposing
-/// the `TX_BUFFER_SIZE`, `RX_BUFFER_SIZE`, `REQUEST_BUFFER_SIZE`,
-/// `SOCKET_TIMEOUT`, `IDLE_TIMEOUT`, and `PORT` associated constants,
-/// such as `ubos_metrics::consts::Metrics`.
-///
-/// Each invocation expands to its own block, so the fixed static names do
-/// not collide when several listeners are set up in one function. The
-/// pool footprint is sized by `POOL_CONST` const expressions, so an
-/// oversized pool fails the link rather than overflowing at boot.
-///
-/// # Example
-///
-/// ```ignore
-/// ubos_http::http_worker_task!(
-///     metrics_worker_task,
-///     ubos_metrics::metrics::PrometheusMetricsService<64, 4096>,
-///     METRICS_POOL
-/// );
-///
-/// // In async main:
-/// ubos_http::serve_http_pool!(
-///     spawner, stack, metrics_worker_task, &METRICS_SERVICE,
-///     METRICS_POOL, ubos_metrics::consts::Metrics
-/// );
-/// ```
-///
-/// Boards on embassy-executor 0.9.x (esp-rtos) must prefix the arguments
-/// with `must_spawn;`. On 0.9.x the task constructor returns a
-/// `SpawnToken` directly and `Spawner::spawn` returns a `Result`, so the
-/// pool is spawned with `must_spawn`, matching how those boards spawn
-/// every other task. The default form is for 0.10.x, where the
-/// constructor returns `Result<SpawnToken, _>` and `spawn` is infallible.
+/// `serve_http_pool!(spawner, stack, worker_task, service, POOL_CONST,
+/// consts_path)` allocates a listener's buffers in block-scoped statics,
+/// binds `consts_path::PORT` and spawns `POOL_CONST` workers.
+/// `consts_path` is a type with the buffer sizes, the two timeouts and
+/// `PORT`, such as `ubos_metrics::consts::Metrics`. A board on
+/// embassy-executor 0.9.x prefixes the arguments with `must_spawn;`,
+/// because its task constructor returns the token directly.
 #[macro_export]
 macro_rules! serve_http_pool {
     ($spawner:expr, $stack:expr, $worker:ident, $service:expr, $pool:expr, $consts:path $(,)?) => {

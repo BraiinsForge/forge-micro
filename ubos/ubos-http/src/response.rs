@@ -40,25 +40,14 @@ use crate::status::{Status, StatusMessage};
 #[path = "tests/response.rs"]
 mod tests;
 
-/// Maximum number of ASCII decimal digits needed for any `usize` value.
-///
-/// A 64-bit `usize` has at most 20 decimal digits. All targets in this
-/// workspace are 32-bit, but the constant is sized for the widest
-/// possible `usize` so the function is safe on any target without
-/// revision.
+/// Decimal digits of a 64-bit `usize`, so the host builds too.
 pub const CONTENT_LENGTH_DECIMAL_DIGITS: usize = 20;
 
-/// Maximum number of extra headers a caller may attach to a status
-/// response on top of the two the helper writes itself
-/// (`Content-Type`, `Content-Length`).
+/// Extra headers a caller may attach to a status response.
 pub const MAX_EXTRA_STATUS_HEADERS: usize = 4;
 
-/// Maximum number of response headers built per request.
-///
-/// Most responses use 3 headers (Content-Type, Cache-Control,
-/// Content-Length). Session responses need an additional Set-Cookie or
-/// X-CSRF-Token header. Eight slots cover the worst-case header count
-/// (3 fixed + 1 encoding + 1 extra = 5) with three slots to spare.
+/// Response headers built per request: three fixed, an encoding, a
+/// session header, and spare.
 pub const MAX_RESPONSE_HEADERS: usize = 8;
 
 /// Start a response on `connection` with the status line of `status` and
@@ -97,16 +86,12 @@ where
 ///
 /// # Errors
 ///
-/// Returns an `HttpError` if the connection state machine rejects the
-/// response (for example, if `initiate_response` is called while the
-/// connection is not in request state) or if the underlying socket
-/// write fails.
+/// When the connection is not in request state or the socket write
+/// fails.
 ///
 /// # Panics
 ///
-/// Panics if `extra_headers.len()` exceeds
-/// `MAX_EXTRA_STATUS_HEADERS`. The bound exists so the helper can
-/// assemble headers on the stack without allocation.
+/// If `extra_headers` exceeds [`MAX_EXTRA_STATUS_HEADERS`].
 pub async fn write_status_only<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     status: Status,
@@ -143,11 +128,7 @@ where
     Ok(())
 }
 
-/// Format `value` as an ASCII-decimal `Content-Length` string.
-///
-/// A 64-bit `usize` formats to at most `CONTENT_LENGTH_DECIMAL_DIGITS`
-/// digits, so the result always fits the returned `String` and the
-/// formatting write never fails.
+/// `value` as a decimal `Content-Length` string; it always fits.
 #[must_use]
 pub fn format_content_length(value: usize) -> String<CONTENT_LENGTH_DECIMAL_DIGITS> {
     let mut text = String::new();
@@ -164,8 +145,8 @@ pub fn format_content_length(value: usize) -> String<CONTENT_LENGTH_DECIMAL_DIGI
 ///
 /// # Errors
 ///
-/// Returns an `HttpError` if the connection state machine rejects the
-/// response or if the underlying socket write fails.
+/// When the connection is not in request state or the socket write
+/// fails.
 pub async fn write_json_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     status: Status,
@@ -260,20 +241,11 @@ fn json_escape(byte: u8) -> Option<&'static [u8]> {
     }
 }
 
-/// Read up to `buffer.len()` bytes of request body via the
-/// `Connection::Read` impl.
-///
-/// Reads up to `content_length` bytes when provided, or until the
-/// connection signals EOF otherwise. Returns the filled prefix of
-/// `buffer` on success. Returns `None` when the declared
-/// `content_length` exceeds the buffer or the read fails; the caller
-/// should send a 413.
-///
-/// When `content_length` is absent (chunked or close-delimited
-/// transfer), the read fills the buffer at most, then attempts a
-/// one-byte overflow probe. If the probe reads a byte, the body
-/// exceeded the buffer and the function returns `None` so the caller
-/// can send a 413 rather than silently truncating the body.
+/// Read the request body into `buffer`. `None` when the body does not
+/// fit or the read fails, and the caller sends a 413. Without a
+/// `content_length` the read fills the buffer and then probes for one
+/// more byte, so an oversize chunked body is refused rather than
+/// truncated.
 pub async fn read_body<'buf, T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     buffer: &'buf mut [u8],
@@ -284,10 +256,8 @@ where
 {
     let length_declared = match content_length {
         Some(declared) => {
-            // On 32-bit targets a u64 Content-Length above usize::MAX
-            // saturates to usize::MAX; that value still exceeds any
-            // realistic buffer, so the body-too-large branch fires
-            // unchanged and the response becomes a 413.
+            // A length above `usize::MAX` saturates and still exceeds the
+            // buffer.
             let declared = usize::try_from(declared).unwrap_or(usize::MAX);
             if declared > buffer.len() {
                 return None;
@@ -307,10 +277,6 @@ where
         }
     }
 
-    // When no Content-Length was declared, probe for one more byte. Any
-    // returned byte means the body was larger than the buffer, so return
-    // None to trigger a 413 at the call site. This prevents silent
-    // truncation of chunked or close-delimited bodies.
     if length_declared.is_none() && total == buffer.len() {
         let mut overflow_probe = [0u8; 1];
         if let Ok(1) = embedded_io_async::Read::read(connection, &mut overflow_probe).await {
