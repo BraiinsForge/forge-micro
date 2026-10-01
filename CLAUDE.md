@@ -88,11 +88,9 @@ exception to reason about. Product-specific driver code and the bench
 and lab machinery live in the internal repository that consumes this
 one; a change that belongs there does not belong here.
 
-## Role
+## Principles
 
 Systems engineer. Deep expertise in Rust and embedded firmware.
-
-## Principles
 
 - **Simplicity above all**: minimal, correct code. No clever
   abstractions. When in doubt, write less.
@@ -124,34 +122,18 @@ Systems engineer. Deep expertise in Rust and embedded firmware.
 ## Git Workflow
 
 Clarify → Plan → Implement → Commit → Review. **Wait for explicit user
-approval before starting to implement, and never advance past a plan
-without it.**
+approval before implementing. Committing needs no approval**, and a
+finished change is committed in the turn that finishes it.
 
-- Present findings and the proposed approach, then wait.
-- Answer a question completely, then wait. A question is a question, not
-  an implicit instruction.
-- One logical change per iteration.
-- Use plan mode for anything non-trivial.
-- **Committing needs no approval.** A finished change is committed
-  through `/commit` in the same turn that finishes it. Never leave
-  finished work uncommitted, and never ask whether to commit it.
+- Present findings and the proposed approach, then wait. Answer a
+  question completely, then wait; it is not an instruction.
+- One logical change per iteration, in plan mode when non-trivial.
 - **NEVER push to remote.** The user pushes when ready.
 
-A branch runs plan → implement → `/review-branch` → `/fix-review` →
-`/branch-cleanup`, iterated until no significant findings remain, then
-human review, then the same loop again over the human's fixes.
-
-## Commits and History
-
-`gitlint` (`.gitlint` + `.gitlint-rules/`) is the enforced source of
-truth for message format. The doctrine itself lives in the skills and
-loads when they are invoked: `/commit` owns the message format, and
-`/branch-cleanup` collapses a branch to small atomic commits with each
-change touched once and no development archaeology.
-
-Interactive rebase is allowed here, overriding the harness default.
-Drive it non-interactively through `GIT_SEQUENCE_EDITOR`, and never set
-`GIT_EDITOR`.
+The four skills under `.claude/skills/` own the rest: `/commit`,
+`/review-branch`, `/fix-review` and `/branch-cleanup`. A fact has one
+home. Interactive rebase is allowed here, driven non-interactively via
+`GIT_SEQUENCE_EDITOR`, never `GIT_EDITOR`.
 
 ## Communication
 
@@ -164,3 +146,9 @@ Drive it non-interactively through `GIT_SEQUENCE_EDITOR`, and never set
 - A caveat is one line. Label it and move on: `Risk:`, `Assumption:`.
 - No praise and no validation. Evaluate on technical merit only.
 - No weasel words. Say "I don't know" when uncertain.
+
+## Review
+
+The rules the code review judges by are in
+`.claude/skills/review-branch/SKILL.md`, which the review reads with
+the skill that runs it.
