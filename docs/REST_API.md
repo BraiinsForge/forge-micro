@@ -150,7 +150,7 @@ chain value only when the PSU reading is unavailable.
 | POST   | `/api/system/OTAWWW`              | any       | 501    | `{"message":"unsupported on this platform"}`                             |
 | POST   | `/api/system/pause`               | any +CSRF | 200    | Stub: logs + sends `Manager::Stop`; returns `{"message":"ack"}`          |
 | POST   | `/api/system/resume`              | any +CSRF | 200/409 | Logs + sends `Manager::Start`; returns `{"message":"ack"}`. 409 while a `dangerousTemperature` halt stands, with a `message` that states the halt |
-| POST   | `/api/system/thermal/clear`       | any +CSRF | 200    | Clears a `dangerousTemperature` halt on the operator's word; returns `{"message":"ack"}` |
+| POST   | `/api/system/thermal/clear`       | any +CSRF | 200    | Clears a `dangerousTemperature` halt on the operator's word, then sends `Manager::Start`; returns `{"message":"ack"}` |
 | POST   | `/api/system/restart`             | any +CSRF | 200    | Writes the ack, then calls `request_reboot` to reset the MCU once the socket drains |
 | POST   | `/api/system/factory_reset`       | any +CSRF | 200    | Sends `FactoryReset` to the config task; writes the ack, then the config task wipes persisted config to defaults and requests the reboot once persisted |
 | POST   | `/api/system/identify`            | any +CSRF | 200    | Stub: logs only; returns `{"message":"ack"}`                             |

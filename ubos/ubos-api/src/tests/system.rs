@@ -957,3 +957,77 @@ fn resume_without_overheat_halt_starts() {
     assert_eq!(status, 200);
     assert_eq!(COMMANDS.try_receive(), Ok(ubos_manager::Message::Start));
 }
+
+// ---------------------------------------------------------------------------
+// Thermal-clear tests
+// ---------------------------------------------------------------------------
+
+/// Drive `handle_thermal_clear` over a mock socket against `manager` and
+/// return the HTTP status code from the response.
+///
+/// Built the same way as `run_resume_handler`, and for the same reason:
+/// the mask the handler reads is the one the test published, and the
+/// commands it sends are the ones the test can receive.
+fn run_thermal_clear_handler(manager: ubos_manager::Handle) -> u16 {
+    let io = MockIo::new(
+        b"POST /api/system/thermal/clear HTTP/1.1\r\nContent-Length: 0\r\n\r\n".to_vec(),
+    );
+
+    embassy_futures::block_on(async {
+        let mut header_buf = [0u8; 512];
+        let mut connection = edge_http::io::server::Connection::<_, 16>::new(&mut header_buf, io)
+            .await
+            .expect("BUG: Connection::new failed on mock HTTP request");
+
+        let mut scratch = [0u8; 256];
+        crate::system::handle_thermal_clear(&mut connection, &mut scratch, manager)
+            .await
+            .expect("BUG: handle_thermal_clear returned Err on mock socket — Infallible violated");
+
+        connection
+            .unbind()
+            .expect("BUG: Connection::unbind after response")
+            .response_status()
+    })
+}
+
+#[test]
+fn thermal_clear_acknowledges_then_starts() {
+    static WATCH: ubos_manager::PauseWatch = embassy_sync::watch::Watch::new();
+    static COMMANDS: ubos_manager::CommandChannel = embassy_sync::channel::Channel::new();
+    WATCH.sender().send(
+        ubos_manager::PauseReasons::default()
+            .assert(ubos_manager::PauseReason::DangerousTemperature),
+    );
+
+    let status = run_thermal_clear_handler(ubos_manager::Handle::new(&WATCH, &COMMANDS));
+
+    assert_eq!(status, 200);
+    assert_eq!(
+        COMMANDS.try_receive(),
+        Ok(ubos_manager::Message::TemperatureAcknowledged)
+    );
+    assert_eq!(COMMANDS.try_receive(), Ok(ubos_manager::Message::Start));
+}
+
+#[test]
+fn thermal_clear_starts_whether_or_not_the_operator_paused() {
+    static WATCH: ubos_manager::PauseWatch = embassy_sync::watch::Watch::new();
+    static COMMANDS: ubos_manager::CommandChannel = embassy_sync::channel::Channel::new();
+    // The operator's own pause on top of the halt. Clearing is the same
+    // two sends either way, which is what keeps one confirm enough.
+    WATCH.sender().send(
+        ubos_manager::PauseReasons::default()
+            .assert(ubos_manager::PauseReason::DangerousTemperature)
+            .assert(ubos_manager::PauseReason::UserRequest),
+    );
+
+    let status = run_thermal_clear_handler(ubos_manager::Handle::new(&WATCH, &COMMANDS));
+
+    assert_eq!(status, 200);
+    assert_eq!(
+        COMMANDS.try_receive(),
+        Ok(ubos_manager::Message::TemperatureAcknowledged)
+    );
+    assert_eq!(COMMANDS.try_receive(), Ok(ubos_manager::Message::Start));
+}

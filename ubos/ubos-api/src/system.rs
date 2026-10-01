@@ -769,14 +769,20 @@ where
         )
         .await;
     }
-    crate::events::user_resumed();
+    crate::events::user_requested_start();
     manager.send(ManagerMessage::Start).await;
     handle_action(connection, scratch, "resume").await
 }
 
 /// Handle `POST /api/system/thermal/clear`.
 ///
-/// See "Two ways out of an overheat halt" in docs/MINING.md.
+/// See "Two ways out of an overheat halt" in docs/MINING.md. This
+/// route clears the halt and starts mining; both are its job, and no
+/// route does the first without the second. So it logs the start the
+/// same way `handle_resume` does, and the one line means the same
+/// thing on either route: the operator asked for mining to start. The
+/// manager logs separately whether mining then resumed, which it does
+/// only when the mask empties.
 pub(crate) async fn handle_thermal_clear<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -786,7 +792,9 @@ where
     T: Read + Write + TcpSplit,
 {
     crate::events::user_cleared_thermal_halt();
+    crate::events::user_requested_start();
     manager.send(ManagerMessage::TemperatureAcknowledged).await;
+    manager.send(ManagerMessage::Start).await;
     handle_action(connection, scratch, "thermal/clear").await
 }
 
