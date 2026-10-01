@@ -174,6 +174,7 @@ const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
     max_psu_voltage: ubos_core::units::Voltage::from_mv(5000),
     default_voltage: ubos_core::units::Voltage::from_mv(0),
     default_frequency: ubos_core::units::Frequency::from_mhz(0),
+    default_efficiency: ubos_core::units::Efficiency::from_mj_per_th(core::num::NonZeroU32::MIN),
     swarm_color: "blue",
     cooling: crate::board::BoardCooling {
         target_temp_c: 0.0,
@@ -194,6 +195,7 @@ const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
     max_psu_voltage: ubos_core::units::Voltage::from_mv(5000),
     default_voltage: ubos_core::units::Voltage::from_mv(0),
     default_frequency: ubos_core::units::Frequency::from_mhz(0),
+    default_efficiency: ubos_core::units::Efficiency::from_mj_per_th(core::num::NonZeroU32::MIN),
     swarm_color: "blue",
     cooling: crate::board::BoardCooling {
         target_temp_c: 0.0,

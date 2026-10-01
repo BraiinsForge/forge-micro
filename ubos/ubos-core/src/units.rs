@@ -17,14 +17,16 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Typed units for the six quantities that cross module boundaries
-//! in the miner: frequency, voltage, power, temperature, fan PWM, and
-//! fan RPM. Each newtype wraps the canonical scalar already used in
-//! the codebase (kHz, mV, mW, millicelsius, percent, RPM) so the
-//! refactor is mechanical: bare integers at signatures become typed
-//! values, conversions stay inside the driver that owns the wire
-//! encoding. The newtypes are `#[repr(transparent)]` over their inner
-//! scalar, so atomic storage and FFI layouts are unaffected.
+//! Typed units for the seven quantities that cross module boundaries in
+//! the miner: frequency, voltage, power, efficiency, temperature, fan
+//! PWM, and fan RPM. Each newtype wraps the canonical scalar already
+//! used in the codebase (kHz, mV, mW, mJ/TH, millicelsius, percent,
+//! RPM) so the refactor is mechanical: bare integers at signatures
+//! become typed values, conversions stay inside the driver that owns
+//! the wire encoding. The newtypes are `#[repr(transparent)]` over
+//! their inner scalar, so atomic storage and FFI layouts are unaffected.
+
+use core::num::NonZeroU32;
 
 /// Clock frequency in kilohertz. The internal scalar is kHz so a
 /// 6.25 MHz PLL step survives the type without truncation; consumers
@@ -35,6 +37,9 @@
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Frequency(u32);
 
+/// The clock in kHz at which one core, one hash per cycle, hashes 1 TH/s.
+const CORE_KHZ_PER_TERAHASH: u64 = 1_000_000_000;
+
 impl Frequency {
     #[must_use]
     pub const fn from_mhz(mhz: u32) -> Self {
@@ -44,6 +49,21 @@ impl Frequency {
     #[must_use]
     pub const fn from_khz(khz: u32) -> Self {
         Self(khz)
+    }
+
+    /// The clock at which `cores` cores, one hash per core per cycle, draw
+    /// `power` at `efficiency`. `None` when `cores` is zero, or when the
+    /// clock does not fit a `u32` in kHz.
+    #[must_use]
+    pub fn try_from_power_and_efficiency(
+        power: Power,
+        efficiency: Efficiency,
+        cores: u64,
+    ) -> Option<Self> {
+        // `mW / (mJ/TH)` is the hashrate in TH/s, shared by every core.
+        let khz = (u64::from(power.mw()) * CORE_KHZ_PER_TERAHASH)
+            .checked_div(u64::from(efficiency.mj_per_th()).saturating_mul(cores))?;
+        u32::try_from(khz).ok().map(Self::from_khz)
     }
 
     #[must_use]
@@ -170,6 +190,24 @@ impl Power {
     #[must_use]
     pub const fn mw(self) -> u32 {
         self.0
+    }
+}
+
+/// Energy per hash in millijoules per terahash, against the theoretical
+/// hashrate of one hash per core per clock cycle.
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Efficiency(NonZeroU32);
+
+impl Efficiency {
+    #[must_use]
+    pub const fn from_mj_per_th(mj_per_th: NonZeroU32) -> Self {
+        Self(mj_per_th)
+    }
+
+    #[must_use]
+    pub const fn mj_per_th(self) -> u32 {
+        self.0.get()
     }
 }
 

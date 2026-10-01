@@ -30,6 +30,24 @@ fn frequency_from_mhz_saturates_above_u32_max_khz() {
     assert_eq!(Frequency::from_mhz(u32::MAX).khz(), u32::MAX);
 }
 
+/// Four chips of 514 cores draw 40 W at 40 J/TH at 486.38 MHz. A zero
+/// core count, or a value past its scalar, gives none.
+#[test]
+fn frequency_try_from_power_and_efficiency_spreads_the_hashrate_over_the_cores() {
+    for (mw, mj_per_th, cores, expected) in [
+        (40_000, 40_000, 4 * 514, Some(486_381)),
+        (40_000, 40_000, 0, None),
+        (u32::MAX, 1, 1, None),
+    ] {
+        let frequency = Frequency::try_from_power_and_efficiency(
+            Power::from_mw(mw),
+            Efficiency::from_mj_per_th(core::num::NonZeroU32::new(mj_per_th).expect("nonzero")),
+            cores,
+        );
+        assert_eq!(frequency.map(Frequency::khz), expected);
+    }
+}
+
 #[test]
 fn frequency_range_reports_its_inclusive_bounds() {
     // The descriptors type their operating envelope with this range and

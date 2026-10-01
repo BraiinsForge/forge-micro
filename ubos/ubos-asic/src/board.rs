@@ -27,7 +27,9 @@
 //! supports; the consumer picks the matching [`crate::ChainDriver`]
 //! implementation separately.
 
-use ubos_core::units::{Frequency, Voltage};
+use core::num::NonZeroU32;
+
+use ubos_core::units::{Efficiency, Frequency, Voltage};
 
 use crate::ChipDescriptor;
 // The built-in hashboard statics below are populated with the built-in
@@ -87,6 +89,9 @@ pub struct HashboardDescriptor {
     /// clock from its descriptor alone, with no `.cargo/config.toml` env.
     pub default_voltage: Voltage,
     pub default_frequency: Frequency,
+    /// Efficiency a power target starts from, so an operator who picks
+    /// one has a value that suits the board.
+    pub default_efficiency: Efficiency,
     /// Swarm color assigned to this device type for UI grouping.
     pub swarm_color: &'static str,
     /// Per-board cooling profile (PID setpoint and fan floor).
@@ -141,6 +146,10 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     max_psu_voltage: Voltage::from_mv(1675),
     default_voltage: Voltage::from_mv(1400),
     default_frequency: Frequency::from_mhz(525),
+    // Measured on the bmm-pico.
+    default_efficiency: Efficiency::from_mj_per_th(
+        NonZeroU32::new(40_000).expect("BUG: efficiency is zero"),
+    ),
     swarm_color: "blue",
     cooling: BoardCooling {
         target_temp_c: 67.0,
@@ -166,6 +175,8 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     max_psu_voltage: Voltage::from_mv(4800),
     default_voltage: Voltage::from_mv(4550),
     default_frequency: Frequency::from_mhz(600),
+    // TODO: Replace this placeholder with a value measured on the board.
+    default_efficiency: BMM101_HASHBOARD.default_efficiency,
     swarm_color: "blue",
     cooling: BoardCooling {
         target_temp_c: 62.0,
@@ -190,6 +201,8 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     max_psu_voltage: Voltage::from_mv(1200),
     default_voltage: Voltage::from_mv(1150),
     default_frequency: Frequency::from_mhz(600),
+    // TODO: Replace this placeholder with a value measured on the board.
+    default_efficiency: BMM101_HASHBOARD.default_efficiency,
     swarm_color: "blue",
     // Same cooling profile as the hashnode until tuned on hardware.
     cooling: BoardCooling {
