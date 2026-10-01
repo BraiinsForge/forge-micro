@@ -68,9 +68,8 @@ fn offsets(step: u32, n: usize) -> heapless::Vec<u32, 16> {
 rusty_fork_test! {
     #[test]
     fn rolls_one_second_per_publish() {
-        // The ticker branch always passes step=1 regardless of the
-        // configured period: the period spaces publishes, it does not
-        // scale the roll, so ntime never outruns wall clock.
+        // The ticker branch always passes step=1; see `run_stratum_client`
+        // for why.
         assert_eq!(offsets(1, 4).as_slice(), &[1, 2, 3, 4]);
     }
 }
@@ -78,9 +77,6 @@ rusty_fork_test! {
 rusty_fork_test! {
     #[test]
     fn advances_by_the_given_step() {
-        // publish_work's math is generic over the step even though the
-        // run loop only ever passes 0 (job-acceptance publish) or 1
-        // (ticker publish).
         assert_eq!(offsets(3, 3).as_slice(), &[3, 6, 9]);
     }
 }
@@ -106,8 +102,8 @@ rusty_fork_test! {
 rusty_fork_test! {
     #[test]
     fn zero_step_leaves_offset_unchanged() {
-        // The job-acceptance publish (no ticker running) passes step=0:
-        // ntime stays pinned to the job's base.
+        // The job-acceptance publish, with no ticker running, passes
+        // step=0: ntime stays pinned to the job's base.
         assert_eq!(offsets(0, 5).as_slice(), &[0, 0, 0, 0, 0]);
     }
 }
@@ -141,10 +137,10 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// The granted version-rolling mask rides every published
-    /// `WorkAssignment`: `StratumState::version_mask` is read straight
-    /// into the assignment `publish_work` builds, so a chip driver
-    /// downstream of the `AsicSession` sees which bits it may roll.
+    // The granted version-rolling mask rides every published
+    // `WorkAssignment`: `StratumState::version_mask` is read straight
+    // into the assignment `publish_work` builds, so a chip driver
+    // downstream of the `AsicSession` sees which bits it may roll.
     #[test]
     fn version_mask_reaches_the_published_work_assignment() {
         let mut state = StratumState::new(0);
@@ -163,12 +159,12 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// Mirrors the `last_published != Some(current_job_id)` guard in
-    /// `run_stratum_client_inner`'s `Either3::First` arm: with no ticker,
-    /// that comparison is the only thing deciding whether a given
-    /// `client.accept()` triggers a `publish_work` call. `JobId`'s
-    /// `Copy + PartialEq` derive is what makes the comparison viable
-    /// without borrowing the ring.
+    // Mirrors the `last_published != Some(current_job_id)` guard in
+    // `run_stratum_client_inner`'s `Either3::First` arm: with no ticker,
+    // that comparison is the only thing deciding whether a given
+    // `client.accept()` triggers a `publish_work` call. `JobId`'s
+    // `Copy + PartialEq` derive is what makes the comparison viable
+    // without borrowing the ring.
     #[test]
     fn last_published_dedup_fires_once_per_distinct_job() {
         fn accept(current_job_id: JobId, last_published: &mut Option<JobId>, publishes: &mut u32) {
@@ -181,8 +177,8 @@ rusty_fork_test! {
         let mut last_published: Option<JobId> = None;
         let mut publishes = 0;
 
-        // Same job accepted repeatedly (e.g. repeated `client.drive()`
-        // wakeups with no new job in between) publishes only the first time.
+        // Same job accepted repeatedly, such as repeated `client.drive()`
+        // wakeups with no new job in between, publishes only the first time.
         accept(JobId(1), &mut last_published, &mut publishes);
         accept(JobId(1), &mut last_published, &mut publishes);
         accept(JobId(1), &mut last_published, &mut publishes);
@@ -242,8 +238,8 @@ impl Write for NullTransport {
 }
 
 rusty_fork_test! {
-    /// A session that ends empties its slot's work cell, so the dispatcher
-    /// stops handing the chip a dead pool's job.
+    // A session that ends empties its slot's work cell, so the dispatcher
+    // stops handing the chip a dead pool's job.
     #[test]
     fn ended_session_clears_its_work() {
         let mut state = StratumState::new(0);
@@ -295,8 +291,8 @@ impl SessionExtension for Recording {
 }
 
 rusty_fork_test! {
-    /// The loop's visitor hands mining events to the state and foreign
-    /// frames to the extension, so neither sees the other's traffic.
+    // The loop's visitor hands mining events to the state and foreign
+    // frames to the extension, so neither sees the other's traffic.
     #[test]
     fn the_session_visitor_routes_extension_frames_and_mining_events_apart() {
         let mut state = StratumState::new(0);
@@ -320,8 +316,8 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A session that carries no extension never wakes for one and never
-    /// has a frame to send, whatever reaches it.
+    // A session that carries no extension never wakes for one and never
+    // has a frame to send, whatever reaches it.
     #[test]
     fn no_extension_has_no_deadline_and_nothing_to_send() {
         let mut none = NoExtension;

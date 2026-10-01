@@ -171,7 +171,7 @@ impl MiningClientVisitor for StratumState {
             self.slot, job.id.0, job.clean_jobs, job.ntime, job.nbits, job.extranonce_2_size,
         );
         // Adapters reject oversized extranonce upstream, but the trait
-        // surface still admits a u8 (0..=255). The ring refuses a job
+        // surface still admits any u8 value. The ring refuses a job
         // it cannot snapshot; drop it here so a misbehaving adapter
         // cannot corrupt the work loop.
         if let Err(e) = self.job_ring.push(&job) {
@@ -224,13 +224,11 @@ impl MiningClientVisitor for StratumState {
             SessionUpdate::SetExtranonce { prefix, en2_size } => {
                 // No state mutation: each `MiningJob` already carries its
                 // own `extranonce_2_size` and its `merkle_root` is built
-                // from the en1 that was in force at the time the job
-                // arrived, so the visitor doesn't need a session-wide
-                // copy. This arm is operator visibility on the wire
-                // event only.
+                // from the en1 that was in force when the job arrived, so
+                // the visitor doesn't need a session-wide copy.
                 //
-                // Hex buffer sized for SV2's `Bytes0_32` max; V1 en1
-                // (adapter-capped at 8 bytes) fits trivially.
+                // Hex buffer sized for SV2's `Bytes0_32` max; V1 en1,
+                // adapter-capped at 8 bytes, fits trivially.
                 const MAX_PREFIX_LOG_BYTES: usize = 32;
                 let mut prefix_hex = [0u8; MAX_PREFIX_LOG_BYTES * 2];
                 let copy_len = prefix.len().min(MAX_PREFIX_LOG_BYTES);
@@ -267,9 +265,8 @@ impl MiningClientVisitor for StratumState {
                     "stratum-client: pool {} reconnect request host={} port={} wait={}",
                     self.slot, host, port, wait_seconds,
                 );
-                // Surfacing a reconnect to the firmware loop comes
-                // with the migration in phase 8; for now the TCP
-                // layer's normal close-and-retry cycle covers it.
+                // Only logged, so a redirect to a different endpoint has
+                // no effect: the retry cycle stays on the configured host.
             }
         }
     }

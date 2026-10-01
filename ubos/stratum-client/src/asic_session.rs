@@ -48,11 +48,8 @@ use ubos_metrics::value::Count;
 #[path = "tests/asic_session.rs"]
 mod tests;
 
-/// Channel depth for solutions, per slot. ASIC mocks send when found;
-/// the host drains in its `select!` between `client.drive()` and
-/// `PoolHandle::take_solution`. Eight slots is far more headroom
-/// than a CPU mock will produce between polls; an ASIC driver may
-/// want to tune.
+/// Channel depth for solutions, per slot. Far more headroom than a
+/// CPU mock produces between the host's `select!` polls.
 pub const SOLUTION_QUEUE_DEPTH: usize = 8;
 
 /// Polled host↔ASIC handoff with one channel pair per pool slot.
@@ -60,13 +57,12 @@ pub const SOLUTION_QUEUE_DEPTH: usize = 8;
 /// `N` is the pool-slot capacity. `CHAINS` is the receiver budget of
 /// each slot's work cell: every chain's serial actor takes one receiver
 /// from every slot, so it is the number of chains the session feeds.
-/// Both default to 1 so single-pool, single-chain consumers (host
-/// tooling, tests) can keep writing plain `AsicSession`; firmware
-/// instantiates the alias from `ubos-firmware`, which fixes `CHAINS` at
-/// the machine ceiling. `static` lifetime is the intended use: the firmware
-/// allocates one in a `static` and passes `&'static AsicSession<N,
-/// CHAINS>` to both the host-side stratum tasks (as [`PoolHandle`]s)
-/// and the ASIC-side worker.
+/// Both default to 1 so single-pool, single-chain consumers, such as
+/// host tooling and tests, can keep writing plain `AsicSession`;
+/// firmware instantiates the alias from `ubos-firmware`, which fixes
+/// `CHAINS` at the machine ceiling. Firmware allocates one in a
+/// `static` and passes `&'static AsicSession<N, CHAINS>` to both the
+/// host-side stratum tasks and the ASIC-side worker.
 pub struct AsicSession<const N: usize = 1, const CHAINS: usize = 1> {
     work: [Watch<CriticalSectionRawMutex, WorkAssignment, CHAINS>; N],
     solutions: [Channel<CriticalSectionRawMutex, Solution, SOLUTION_QUEUE_DEPTH>; N],
@@ -116,11 +112,9 @@ impl<const N: usize, const CHAINS: usize> AsicSession<N, CHAINS> {
 
     /// Push a found solution into `slot`'s channel — the slot that
     /// dispatched the originating work, not necessarily the slot the
-    /// scheduler currently reads. Returns `false` on full — matches
-    /// the "tiny FIFO on the chip" model where the host is expected
-    /// to drain promptly. Callers may log or retry; we don't surface
-    /// a richer error type because the only failure mode is the
-    /// queue being full.
+    /// scheduler currently reads. Returns `false` on full, since the
+    /// chip's own FIFO is tiny and the host is expected to drain
+    /// promptly.
     ///
     /// # Panics
     ///
@@ -153,21 +147,15 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
         self.slot
     }
 
-    /// The slot's counters as they stand now, or `None` for a slot past
-    /// the counter table.
+    /// `None` for a slot past the counter table.
     pub(crate) fn counters(&self) -> Option<PoolMetricsSnapshot> {
         crate::metrics::for_slot(self.slot).map(crate::metrics::PoolMetrics::snapshot)
     }
 
-    /// Push the slot's three counters to the metrics exposition, each
-    /// labelled `pool="<slot>"`, and return the snapshot that was pushed.
-    ///
-    /// The session loop of the slot calls this on each change, because
-    /// that loop is where the counters move, and
-    /// [`Self::push_counters_periodically`] calls it on a ticker, so a
-    /// counter that holds still has a current sample and a dropped one is
-    /// replaced. Every push drops its sample on a full channel rather than
-    /// waiting, so the session future holds no metric across an await.
+    /// Push the slot's three counters, labelled `pool="<slot>"`, and
+    /// return the snapshot pushed. A full channel drops the sample rather
+    /// than waiting, so the session future holds no metric across an
+    /// await; [`Self::push_counters_periodically`] replaces a dropped one.
     pub(crate) fn push_counters(&self) -> Option<PoolMetricsSnapshot> {
         let snapshot = self.counters()?;
         // Both series count submits, told apart by the answer of the pool.
@@ -187,12 +175,9 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
     }
 
     /// Push the slot's counters every
-    /// [`PUSH_PERIOD`](crate::metrics::PUSH_PERIOD), forever.
-    ///
-    /// The pool session task selects this beside each session, its
-    /// connect and its backoff included, because a pool that never
-    /// answers never reaches the session loop, and its reconnect count is
-    /// the series that matters then.
+    /// [`PUSH_PERIOD`](crate::metrics::PUSH_PERIOD), forever. It runs
+    /// beside the whole session, connect and backoff included, because a
+    /// pool that never answers never reaches the session loop.
     pub async fn push_counters_periodically(&self) -> ! {
         let mut ticker = Ticker::every(crate::metrics::PUSH_PERIOD);
         loop {
@@ -226,8 +211,7 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
         self.session.solutions[self.slot].try_receive().ok()
     }
 
-    /// Set or clear this slot's reachability flag, which the dashboard
-    /// renders as the slot's `Alive` or `Dead` state.
+    /// The dashboard renders the flag as the slot's `Alive` or `Dead`.
     pub fn set_alive(&self, alive: bool) {
         if let Some(metrics) = crate::metrics::for_slot(self.slot) {
             metrics.set_alive(alive);
@@ -235,13 +219,9 @@ impl<const N: usize, const CHAINS: usize> PoolHandle<'_, N, CHAINS> {
     }
 
     /// Increment this slot's reconnect counter on every call past the
-    /// first, then push the counters of the slot. The pool session task
-    /// calls this at the top of its outer reconnect loop; see
-    /// [`crate::metrics::PoolMetrics::record_reconnect_attempt`].
-    ///
-    /// The push sits with the reconnect, because a connect that fails
-    /// never reaches the session loop, and the reconnect count matters
-    /// most for a pool that does not answer.
+    /// first, then push the counters: a connect that fails never reaches
+    /// the session loop, and the reconnect count matters most for a pool
+    /// that does not answer.
     pub fn record_reconnect_attempt(&self) {
         if let Some(metrics) = crate::metrics::for_slot(self.slot) {
             metrics.record_reconnect_attempt();

@@ -41,11 +41,8 @@ use crate::lazy_merkle::LazyMerkle;
 pub struct MiningJob<'a> {
     /// Adapter-assigned correlation id; opaque to consumers.
     pub id: JobId,
-    /// Previous block hash, block-header byte order.
     pub prev_hash: &'a [u8; 32],
-    /// Pool-supplied target, 256-bit little-endian.
     pub target: &'a [u8; 32],
-    /// Block version field.
     pub version: u32,
     /// Compact difficulty target.
     pub nbits: u32,

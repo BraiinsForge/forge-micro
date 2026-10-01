@@ -155,7 +155,6 @@ pub trait MiningClient {
 /// the `accept` call frame on the `MiningClient` side, so the
 /// visitor can borrow but cannot escape data outside the call.
 pub trait MiningClientVisitor {
-    /// New mining job available.
     fn visit_new_job(&mut self, job: MiningJob<'_>);
 
     /// Pool reported the outcome of a previously submitted share.

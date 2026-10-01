@@ -19,10 +19,10 @@
 
 //! `WorkRing<N>` — outstanding ASIC work.
 //!
-//! Each slot pairs an `assignment_id` (stamped into the `WorkAssignment`
-//! published to the mining actor) with the per-share context the host needs
-//! to encode a wire submit (`extranonce_2`, `ntime`,
-//! `version_bits`, plus the originating `JobId`).
+//! Each slot pairs an `assignment_id`, stamped into the `WorkAssignment`
+//! published to the mining actor, with the per-share context the host
+//! needs to encode a wire submit: `extranonce_2`, `ntime`,
+//! `version_bits`, and the originating `JobId`.
 //!
 //! When a `Solution` returns from the mining actor, the host looks up the
 //! matching `assignment_id`. Eviction is FIFO — older outstanding work
@@ -50,9 +50,9 @@ impl<const N: usize> WorkRing<N> {
         }
     }
 
-    /// Insert a new `OutstandingWork`. Older slot at this index is
-    /// evicted (`Solution`s that come back for it later get dropped
-    /// by the lookup miss).
+    /// Insert a new `OutstandingWork`, evicting the older slot at
+    /// this index; a `Solution` that comes back for it later gets
+    /// dropped by the lookup miss.
     pub fn put(&mut self, work: OutstandingWork) {
         self.slots[self.write_index] = Some(work);
         self.write_index = (self.write_index + 1) % N;

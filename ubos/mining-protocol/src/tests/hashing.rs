@@ -82,7 +82,6 @@ fn build_header_matches_recorded_share_vector() {
 #[test]
 fn reconstructs_bitcoin_block_1() {
     // Bitcoin mainnet block height 1 (first block after genesis).
-    // Known displayed hash: 00000000839a8e6886ab5951d76f4114...
     let version: u32 = 0x0000_0001;
     let prev_hash = hex32("0a8ce26f72b3f1b646a2a6c14ff763ae65831e939c085ae10019d66800000000");
     let merkle_root = hex32("982051fd1e4ba744bbbe680e1fee14677ba1a3c3540bf7b1cdb606e857233e0e");

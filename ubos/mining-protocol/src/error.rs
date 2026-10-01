@@ -19,11 +19,9 @@
 
 //! Error type returned by `MiningClient` operations.
 
-/// Failure modes that can surface from a `MiningClient` impl.
-///
-/// Variants are intentionally coarse — adapters wrap their own
-/// protocol-specific errors behind `Adapter` rather than leaking them
-/// across the trait boundary.
+/// Failure modes that can surface from a `MiningClient` impl. They are
+/// coarse because an adapter wraps its own protocol errors behind
+/// `Adapter` rather than leaking them across the trait boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -51,13 +49,9 @@ pub enum Error {
     Adapter,
 }
 
-/// Wire-level cause of a pool-side session rejection.
-///
-/// Carried inside [`Error::SessionRejected`]. Each variant names the
-/// exact V1 or V2 wire message that ended the session; the adapter
-/// transitions to a terminal rejected state when one of these
-/// arrives, so the next `drive` / `submit` surfaces the cause
-/// through this enum.
+/// Wire-level cause of a pool-side session rejection, carried inside
+/// [`Error::SessionRejected`]. The adapter goes to a terminal rejected
+/// state when one arrives, so the next `drive` or `submit` surfaces it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SessionRejection {
@@ -69,18 +63,12 @@ pub enum SessionRejection {
     SetupConnectionError,
     /// V2 `OpenMiningChannel.Error` received.
     OpenMiningChannelError,
-    /// Pool advertised an `extranonce_2_size` (V1) or
-    /// `extranonce_prefix` length (V2) that exceeds our static
-    /// per-share buffer ([`MAX_EXTRANONCE_2`](crate::MAX_EXTRANONCE_2)).
-    /// Continuing the session would silently truncate `extranonce_2`
-    /// into a too-small buffer and waste every share, so the adapter
-    /// refuses the session instead.
+    /// Pool advertised an extranonce longer than
+    /// [`MAX_EXTRANONCE_2`](crate::MAX_EXTRANONCE_2), which would
+    /// truncate into the per-share buffer and waste every share.
     ExtranonceTooLarge,
-    /// Pool granted no version rolling: V1 `mining.configure` returned
-    /// no mask, or V2 `SetupConnection.Success` requires a fixed
-    /// version. Without it a chain can only search the 32-bit nonce of
-    /// each header, which it exhausts in milliseconds and then hashes
-    /// again, so the adapter refuses the session and leaves the work
-    /// to a backup pool.
+    /// Pool granted no version rolling. Without it a chain searches only
+    /// the 32-bit nonce of each header, which it exhausts in
+    /// milliseconds and then hashes again.
     VersionRollingRefused,
 }

@@ -50,15 +50,13 @@ ubos_events::events! {
 }
 
 /// Delay between reconnect attempts when the TCP session drops or the
-/// stratum loop returns. Same cadence for every board; adjust this
-/// constant if a board needs a different one.
+/// stratum loop returns. Same cadence for every board.
 pub const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 
 /// Delay between reconnect attempts after the pool actively rejected
 /// the session. A rejection such as an unknown user or failed auth
 /// does not fix itself, and each SV2 attempt burns a full noise
-/// handshake — about a second of CPU on the slowest boards — so it
-/// retries far less often than a dropped transport.
+/// handshake, so it retries far less often than a dropped transport.
 pub const SESSION_REJECTED_DELAY: Duration = Duration::from_secs(30);
 
 /// TCP socket buffer size for the stratum connection. Smaller than

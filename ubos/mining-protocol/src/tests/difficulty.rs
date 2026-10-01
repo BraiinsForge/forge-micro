@@ -43,8 +43,7 @@ fn difficulty_one_target_rounds_to_one() {
 
 #[test]
 fn pool_target_with_seven_leading_msb_zero_bytes() {
-    // target_be[0..4] = 0x00000000, target_be[4..8] = 0x0007fff8 (the
-    // braiins channel-open target we observed on the bench).
+    // target_be[0..4] = 0x00000000, target_be[4..8] = 0x0007fff8.
     let target_le =
         target_le_from_msb_hex("000000000007fff8000000000000000000000000000000000000000000000000");
     // 0xffff_0000 / 0x0007_fff8 = 4294901760 / 524280 = 8192

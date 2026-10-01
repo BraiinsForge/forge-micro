@@ -19,8 +19,8 @@
 
 //! Tests for the per-slot channel pairs.
 //!
-//! The dispatcher-side behavior (the scheduler picking which slot's
-//! cell to read on a work tick) lives in `ubos-mining` and is covered
+//! The dispatcher-side behavior, the scheduler picking which slot's
+//! cell to read on a work tick, lives in `ubos-mining` and is covered
 //! there; what is testable here is the routing contract the
 //! dispatcher relies on: slot isolation in both directions and
 //! teardown clearing.

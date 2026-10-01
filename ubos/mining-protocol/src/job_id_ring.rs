@@ -17,14 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Fixed-depth ring mapping a generic [`JobId`] to a protocol's wire
-//! job id.
-//!
-//! Shared by `stratum-v1`, whose wire id is a hex string, and `stratum-v2`,
-//! whose wire id is a `u32`. `allocate` assigns the next `JobId`, stores
-//! the wire id at the current write index, and advances the index
-//! modulo the ring depth; `lookup` finds the wire id for a `JobId`
-//! that is still in the ring, or reports that it has rotated out.
+//! [`JobId`]-to-wire-id ring, shared by `stratum-v1`, whose wire id is
+//! a hex string, and `stratum-v2`, whose wire id is a `u32`.
 
 use crate::JobId;
 

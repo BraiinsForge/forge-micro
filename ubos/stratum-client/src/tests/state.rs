@@ -122,10 +122,6 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// Accepted shares recorded through a slot-1 `StratumState` must land in
-    /// slot 1's counter of the handle it was given and be visible in the summed
-    /// `PoolCountersHandle::shares_accepted`, while slot 0's counter stays
-    /// untouched — the routing the per-slot arrays exist for.
     #[test]
     fn accepted_shares_route_to_their_own_slot() {
         let counters = PoolCountersHandle::take();
@@ -156,8 +152,6 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A pool face counts in the table of the handle it was given, which a
-    /// reader of that handle sees.
     #[test]
     fn a_pool_face_counts_in_its_own_table() {
         let counters = PoolCountersHandle::take();
@@ -170,8 +164,8 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A restarted session keeps counting assignment ids where the previous
-    /// one stopped, so a solution queued for the old work finds no match.
+    // A restarted session keeps counting assignment ids where the previous
+    // one stopped, so a solution queued for the old work finds no match.
     #[test]
     fn restart_keeps_assignment_ids_unique() {
         let mut state = StratumState::new(1);
@@ -196,8 +190,6 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A handle reads the table it holds: one bit per alive slot, and each
-    /// share total summed across every slot.
     #[test]
     fn handle_reads_the_table_it_holds() {
         let handle = PoolCountersHandle::take();

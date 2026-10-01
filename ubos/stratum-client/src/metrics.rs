@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Per-pool counters, one [`PoolMetrics`] per slot of a [`PoolTable`].
+//! Per-pool counters, one [`PoolMetrics`] per pool slot.
 //!
 //! Every counter a pool session accumulates over its lifetime lives
 //! here: accepted and rejected shares, reconnect attempts, and
@@ -40,9 +40,8 @@ pub struct PoolMetrics {
     shares_accepted: AtomicU64,
     shares_rejected: AtomicU64,
     reconnects: AtomicU32,
-    /// Cleared by the first call to [`PoolMetrics::record_reconnect_attempt`]
-    /// so the initial connection attempt after boot is not counted as a
-    /// reconnect.
+    /// Cleared by the first call to [`PoolMetrics::record_reconnect_attempt`];
+    /// see its doc for why.
     first_reconnect_attempt: AtomicBool,
     alive: AtomicBool,
 }
@@ -82,7 +81,6 @@ impl PoolMetrics {
         }
     }
 
-    /// Set the slot's reachability flag.
     pub(crate) fn set_alive(&self, alive: bool) {
         self.alive.store(alive, Ordering::Relaxed);
     }
@@ -117,11 +115,10 @@ pub struct PoolMetricsSnapshot {
     pub alive: bool,
 }
 
-/// Every pool slot's counters, indexed by pool index. A `u8` pool
-/// index fits this space by construction.
+/// Every pool slot's counters, indexed by pool index; see
+/// [`crate::run::POOL_INDEX_SPACE`] for the size bound.
 type PoolTable = [PoolMetrics; POOL_INDEX_SPACE];
 
-/// The counters of the firmware's pool sessions.
 pub(crate) static POOL_METRICS: PoolTable = [const { PoolMetrics::new() }; POOL_INDEX_SPACE];
 
 /// The counters for `pool_index`, or `None` past [`POOL_INDEX_SPACE`]. The
@@ -130,22 +127,16 @@ pub(crate) fn for_slot(pool_index: usize) -> Option<&'static PoolMetrics> {
     POOL_METRICS.get(pool_index)
 }
 
-/// Records that the firmware took the pool counter handle.
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("stratum");
 
-/// The pool counters, which every session slot counts in and the operator
-/// reports read.
-///
-/// The handle holds no data: its methods are the way for a reader outside
-/// this crate to the private statics of this module. The session tasks of
-/// this crate count in the statics directly. A firmware takes the handle
-/// once and passes a copy to each reader.
+/// Reader-side handle to the pool counters. It holds no data, because the
+/// session tasks of this crate count in the private statics directly, and a
+/// firmware takes it once and passes a copy to each reader.
 #[derive(Clone, Copy)]
 pub struct PoolCountersHandle(());
 
 impl PoolCountersHandle {
-    /// The firmware's one pool counter handle, over the private table of this
-    /// crate. A second call panics.
+    /// The firmware's one pool counter handle. A second call panics.
     #[must_use]
     #[track_caller]
     pub fn take() -> Self {
@@ -153,11 +144,10 @@ impl PoolCountersHandle {
         Self(())
     }
 
-    /// Current per-pool reachability bitmap, one bit per pool index. Set
-    /// bits render as `Alive` on the dashboard; cleared bits as `Dead`.
-    /// Pool reachability is a stratum concern, so it is owned here rather
-    /// than in `ubos-net`. Bits of unconfigured slots stay zero and
-    /// render `Dead`.
+    /// Per-pool reachability bitmap, one bit per pool index: a set bit renders
+    /// as `Alive` on the dashboard, a clear bit as `Dead`, including an
+    /// unconfigured slot. Owned here rather than in `ubos-net` because
+    /// reachability is a stratum concern.
     #[must_use]
     pub fn pool_alive_bitmap(&self) -> u8 {
         let mut bitmap = 0u8;

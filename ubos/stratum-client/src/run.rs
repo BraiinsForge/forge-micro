@@ -26,12 +26,12 @@
 //! nothing else.
 //!
 //! One async function that owns the protocol-side `MiningClient`
-//! adapter, the `StratumState` (visitor + rings), and a work generator
-//! that publishes fresh `WorkAssignment`s into the `AsicSession` —
-//! either on a configurable ticker, or once per accepted job when the
-//! ticker is disabled. Solutions coming back from the ASIC are looked
-//! up in the `WorkRing`, validated against the `JobRing`, and
-//! submitted via the same `MiningClient`.
+//! adapter, the `StratumState` visitor with its two rings, and a work
+//! generator that publishes fresh `WorkAssignment`s into the
+//! `AsicSession`, either on a configurable ticker or once per accepted
+//! job when the ticker is disabled. Solutions coming back from the
+//! ASIC are looked up in the `WorkRing`, validated against the
+//! `JobRing`, and submitted via the same `MiningClient`.
 //!
 //! Single-task design: drive / accept / submit / work-generation and
 //! the session extension's wake all multiplex through
@@ -47,10 +47,9 @@ use mining_protocol::{
 };
 use ubos_logging::{info, warn};
 
-/// Pool-index space shared by every per-pool counter keyed by pool
-/// index: [`crate::metrics::PoolTable`]. A `u8` pool index fits
-/// this space by construction, since the reachability bitmap built
-/// from it holds one bit per index.
+/// Pool-index space of [`crate::metrics::PoolTable`]. A `u8` pool index
+/// fits it by construction, since the reachability bitmap holds one bit
+/// per index.
 pub(crate) const POOL_INDEX_SPACE: usize = 8;
 
 use crate::asic_session::PoolHandle;
@@ -62,22 +61,19 @@ use crate::work::Solution;
 #[path = "tests/run.rs"]
 mod tests;
 
-/// Maximum `ntime` roll, in seconds, past the pool's published
-/// base. Bitcoin's consensus rule allows ~2 hours; pools enforce a
-/// similar cap. Bounding the offset here keeps a wedged stratum
-/// task from drifting `ntime` into rejection territory.
+/// Maximum `ntime` roll, in seconds, past the pool's published base:
+/// Bitcoin's consensus rule allows up to 2 hours, and pools enforce a
+/// similar cap. Bounding the offset here keeps a wedged stratum task
+/// from drifting `ntime` into rejection territory.
 pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 
-/// Run the integration loop forever (until the transport errors).
+/// Run the integration loop until the transport errors.
 ///
 /// Sets the reachability bit of the handle's slot once the pool has
-/// handed the session a job, and clears it on return. A handshake the
-/// pool completes and then rejects therefore never shows the slot as
-/// alive, because a session that has no job cannot mine. Callers
-/// should invoke [`PoolHandle::record_reconnect_attempt`] at the top
-/// of their outer reconnect loop so the counter reflects
-/// re-establishment attempts rather than the very first boot
-/// connection.
+/// handed the session a job, and clears it on return: a session with no
+/// job cannot mine, so a handshake the pool then rejects never shows as
+/// alive. Callers invoke [`PoolHandle::record_reconnect_attempt`] at the
+/// top of their reconnect loop.
 ///
 /// Empties the slot's work cell on return as well, so the dispatcher
 /// stops feeding the chip a dead session's job at once rather than
@@ -87,24 +83,24 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 /// firmware's outer reconnect loop drops `client` and `transport`,
 /// builds fresh ones, and calls `run_stratum_client` again.
 ///
-/// `ntime_roll_period_secs` doubles as the work-generator cadence:
-/// `Some(period)` ticks a [`Ticker`] every `period` seconds (`period
-/// == 0` is clamped to 1, since a caller passing `Some(0)` most likely
-/// means "publish as fast as possible", not "don't roll") and advances
-/// the `ntime` offset by exactly one second per tick — the period
-/// spaces the publishes, it does not scale the step, so a period
+/// `ntime_roll_period_secs` doubles as the work-generator cadence.
+/// `Some(period)` ticks a [`Ticker`] every `period` seconds, clamped
+/// to a minimum of 1 since a caller passing `Some(0)` most likely
+/// means publish as fast as possible rather than don't roll.
+///
+/// Each tick advances the `ntime` offset by exactly one second: the
+/// period spaces the publishes without scaling the step, so a period
 /// above one second rolls `ntime` slower than wall clock, never
-/// faster (and never toward future-timestamp rejection). `Some(1)`
-/// reproduces the historical one-second cadence and drift.
+/// faster.
 ///
 /// `None` runs no ticker at all: the work generator instead publishes
 /// exactly once per job, right after the job is accepted, with no
-/// roll. Repeatedly re-publishing the same job — even to hand the chip
-/// an updated `ntime` — restarts whatever nonce/version sweep the ASIC
-/// was mid-way through, so a chip that never completes a full sweep
-/// pass can never search past one period's coverage. `None` trades the
-/// rolling `ntime` for an uninterrupted sweep. See
-/// [`crate::state::StratumState::publish_work`] for the offset math.
+/// roll. Re-publishing restarts whatever sweep the ASIC was mid-way
+/// through, so a chip that never finishes a sweep never searches past
+/// one period's coverage.
+///
+/// See [`crate::state::StratumState::publish_work`] for the offset
+/// math.
 ///
 /// `extension` is the protocol riding the session beside the mining
 /// traffic, [`crate::NoExtension`] when there is none. It is told when
@@ -152,10 +148,10 @@ where
 /// cell. Returning from here by any route leaves that bookkeeping to the
 /// wrapper, so a new `return` added inside cannot forget it.
 ///
-/// The six parameters are peers. The client is the protocol adapter,
+/// The six parameters are peers: the client is the protocol adapter,
 /// the transport is the socket, the ASIC handle is where work goes, the
 /// state is the visitor, and the extension is the protocol riding the
-/// session, if any. `main` owns all of them separately.
+/// session, if any. The caller owns each separately.
 async fn run_stratum_client_inner<C, T, const N: usize, const CHAINS: usize>(
     client: &mut C,
     transport: &mut T,
@@ -174,16 +170,10 @@ where
     client.connect(transport).await?;
     extension.connected(client.user());
 
-    // A caller passing `Some(0)` most likely means "publish as fast as
-    // possible", not "don't roll" — that's what `None` is for.
     let period_secs = ntime_roll_period_secs.map(|period| period.max(1));
     let mut work_ticker =
         period_secs.map(|period| Ticker::every(Duration::from_secs(u64::from(period))));
 
-    // Most recently published job, so the `None` (no ticker) path can
-    // detect a fresh job and publish exactly once for it, without a
-    // ticker driving repeat publishes that would restart the ASIC's
-    // sweep.
     let mut last_published: Option<JobId> = None;
     let mut pending_solution = None;
 
@@ -242,12 +232,6 @@ where
                     && let Some(current_job_id) = state.job_ring.current().map(|slot| slot.job_id)
                     && last_published != Some(current_job_id)
                 {
-                    // No ticker exists to drive periodic publishes, so a
-                    // freshly accepted job would otherwise never reach
-                    // the ASIC. One publish per job is exactly what an
-                    // uninterrupted sweep needs: the assignment carries
-                    // the job's base ntime and the chip sweeps it
-                    // without ever being re-published.
                     state.publish_work(asic, 0);
                     last_published = Some(current_job_id);
                 }
@@ -256,10 +240,6 @@ where
                 pending_solution = Some(solution);
             }
             Either4::Third(()) => {
-                // Each publish is one ntime step regardless of how far
-                // apart the ticker spaces them; a period above one
-                // second therefore rolls ntime slower than wall clock,
-                // never faster.
                 state.publish_work(asic, 1);
             }
             Either4::Fourth(()) => {

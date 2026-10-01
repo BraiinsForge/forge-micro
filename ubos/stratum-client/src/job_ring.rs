@@ -40,8 +40,7 @@ pub enum JobSlotError {
 
 /// Default ring depth. Two slots covers the "current job + the
 /// one that just rotated" window most pools accept stale shares
-/// against. Promote to a `const` parameter when an ASIC driver
-/// shows we need deeper history.
+/// against.
 pub const JOB_RING_DEPTH: usize = 2;
 
 /// One pool-side job snapshot, owned.
@@ -86,11 +85,8 @@ impl JobSlot {
     /// Snapshot a borrowed job into an owned, valid slot with
     /// `ntime_offset` reset to 0.
     ///
-    /// Build the merkle root once with `extranonce_2 = zeros`. The
-    /// CPU mock and current ASIC drivers don't roll en2; when they
-    /// do, the per-share recompute happens in the work generator with
-    /// the materials still in scope (a future refinement extends
-    /// `OwnedJob` to keep them).
+    /// Builds the merkle root once with `extranonce_2 = zeros`, since
+    /// the CPU mock and current ASIC drivers don't roll en2.
     ///
     /// # Errors
     ///
@@ -134,10 +130,9 @@ impl<const N: usize> JobRing<N> {
         }
     }
 
-    /// Snapshot `job` into the next slot and rotate the ring,
-    /// dropping the oldest slot at that index. When `job.clean_jobs`
-    /// is set, older slots are invalidated so stale shares get
-    /// filtered before submit hits the wire.
+    /// Snapshot `job` into the next slot and rotate the ring, dropping
+    /// the oldest slot at that index; a `clean_jobs` job also
+    /// invalidates every other slot.
     ///
     /// The ring is left untouched on error, so a rejected job causes
     /// no partial rotation.

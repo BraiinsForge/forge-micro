@@ -19,10 +19,8 @@
 
 //! Bitcoin header construction, double-SHA256, and target comparison.
 //!
-//! Pure helpers used by the share-verification paths in ubos-mining (chip-driver)
-//! and any future on-MCU verifier. Lifted out of the retired `cpu-miner`
-//! crate so callers do not pay for the CPU-mining loop just to validate
-//! shares.
+//! Pure helpers used by the share-verification path in ubos-mining
+//! (chip-driver).
 
 use sha2::{Digest, Sha256};
 
@@ -41,17 +39,13 @@ mod tests;
 ///
 /// # No production caller
 ///
-/// Nothing outside this crate's tests calls this, and that is
-/// deliberate. It is an independent reference implementation.
-/// `ubos_asic::chain::block_header` is the one the firmware uses, and it
-/// takes `prev_hash` already word-swapped, in canonical internal order.
-/// This one takes it in stratum wire order and swaps inside.
-///
-/// `ubos-asic/src/tests/chain.rs` asserts the two reach the same digest
-/// from those two byte orders. Two implementations written apart is what
-/// makes that check able to catch a byte-order error in either. Do not
-/// delete this for having no caller, and do not make either call the
-/// other.
+/// Only [`header_hash`] and this crate's tests call this, and it reaches
+/// no firmware through either. It is the independent reference half of
+/// the cross-check in `ubos-asic/src/tests/chain.rs`, which locks
+/// `ubos_asic::chain::solution_hash` to [`header_hash`]: this side takes
+/// `prev_hash` in stratum wire order and swaps it inside, the other
+/// takes it already word-swapped. Keep the two written apart, or the
+/// check stops catching a byte-order error in either.
 #[must_use]
 pub fn build_header(
     version: u32,
@@ -86,11 +80,9 @@ pub fn build_header(
 ///
 /// # No production caller
 ///
-/// Like [`build_header`], this exists as the reference half of the
-/// cross-check in `ubos-asic/src/tests/chain.rs`, which compares it
-/// against `ubos_asic::chain::solution_hash`. It takes `prev_hash` in
-/// stratum wire order, and that test is the reason both spellings are
-/// kept.
+/// Same reason as [`build_header`]: its cross-check partner in
+/// `ubos-asic/src/tests/chain.rs`, compared against
+/// `ubos_asic::chain::solution_hash`.
 #[must_use]
 pub fn header_hash(
     version: u32,

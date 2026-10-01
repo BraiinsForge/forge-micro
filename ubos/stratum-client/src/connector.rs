@@ -22,8 +22,8 @@
 //!
 //! `run_stratum_client` already treats the transport as an opaque
 //! `Read + Write` object; this trait exists one layer up so that
-//! *obtaining* that transport (a TCP socket, an in-process pipe, …)
-//! is pluggable independent of the protocol dispatch and
+//! *obtaining* that transport, whether a TCP socket or an in-process
+//! pipe, is pluggable independent of the protocol dispatch and
 //! work-generation loop. Reconnect policy and pool-config dispatch
 //! stay with the callers — see [`run_stratum_session`].
 
@@ -40,14 +40,15 @@ use crate::state::StratumState;
 mod tests;
 
 /// Yields one connected transport per call. Implementations own the
-/// address/buffer plumbing (TCP via embassy-net, in-process pipes, …).
+/// address/buffer plumbing, whether TCP via embassy-net or an
+/// in-process pipe.
 ///
 /// `Conn` is a generic associated type borrowing from the connector —
 /// the shape `embedded_nal_async::TcpConnect` established. A TCP
 /// implementation hands its socket buffers to `TcpSocket<'a>`, so the
 /// connection must be allowed to borrow from `&mut self`; a
-/// self-contained implementation (an in-process pipe owning its
-/// storage) simply ignores the lifetime.
+/// self-contained implementation, such as an in-process pipe owning
+/// its storage, simply ignores the lifetime.
 //
 // async_fn_in_trait: implementations run on a cooperative
 // single-executor; Send bounds on returned futures are neither
@@ -76,9 +77,8 @@ impl<E> SessionError<E> {
     /// True when the session ended in a permanent refusal — the pool
     /// rejected the session, or the authenticator declined the pool's
     /// certificate — rather than the transport or protocol failing.
-    /// Refusals do not fix themselves, so callers should retry them on
-    /// [`crate::SESSION_REJECTED_DELAY`] instead of the transport
-    /// cadence.
+    /// Callers retry these on [`crate::SESSION_REJECTED_DELAY`]
+    /// instead of the transport cadence.
     pub fn is_rejection(&self) -> bool {
         matches!(
             self,
@@ -91,13 +91,9 @@ impl<E> SessionError<E> {
 /// [`run_stratum_client`] over it.
 ///
 /// This function does not own the outer reconnect loop: it makes
-/// exactly one connect attempt and runs exactly one session. Callers
-/// keep looping, watching config-restart signals, and rebuilding
-/// protocol clients and connectors per iteration — unchanged from
-/// today. The seam this adds is *how* a transport is obtained, so a
-/// later firmware can hand in a `PoolConnector` backed by an
-/// in-process pipe instead of a TCP socket without touching this
-/// function or `run_stratum_client`.
+/// exactly one connect attempt and runs exactly one session. The
+/// caller keeps looping, watching config-restart signals, and
+/// rebuilding protocol clients and connectors per iteration.
 ///
 /// # Errors
 ///

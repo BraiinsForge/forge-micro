@@ -25,12 +25,11 @@
 //! initial session setup (the visitor sees a sequence of
 //! `SessionUpdate` events before the first `visit_new_job`).
 
-/// BIP320 version-rolling mask: the 16 bits between bit 13 and bit 28
-/// (inclusive) that a miner may flip without invalidating consensus
-/// rules. This is the standard mask V1 requests in `mining.configure`
-/// and V2 grants when the upstream advertises version rolling. It is a
-/// protocol constant, distinct from any bitmask a specific ASIC backend
-/// happens to roll in hardware.
+/// BIP320 version-rolling mask: the 16 bits between bit 13 and bit 28,
+/// inclusive, that a miner may flip without invalidating consensus
+/// rules. V1 requests it in `mining.configure` and V2 grants it when
+/// the upstream advertises version rolling; it is distinct from any
+/// bitmask a specific ASIC backend rolls in hardware.
 pub const BIP320_VERSION_MASK: u32 = 0x1FFF_E000;
 
 /// Pool-driven session reconfiguration.
@@ -64,12 +63,10 @@ pub enum SessionUpdate<'a> {
 /// The two protocols report acceptance differently: V1 answers each
 /// submit individually with a boolean result, while V2's
 /// `SubmitSharesSuccess` covers a range of sequence numbers and
-/// reports both a count and a pool-credited share-weight sum. This
-/// enum carries that asymmetry directly — `count` is `1` per V1
-/// response and whatever the V2 pool acknowledged. `work` is in
-/// diff-1-share units (SV2 `new_shares_sum`); V1 fills it with the
-/// pool difficulty at the time of the share, snapshotted from
-/// `session.target` when the submit was queued.
+/// reports both a count and a pool-credited share-weight sum.
+/// `count` is `1` per V1 response and whatever the V2 pool
+/// acknowledged; `work` is in diff-1-share units — the pool difficulty
+/// at submit time for V1, SV2's `new_shares_sum` for V2.
 #[derive(Debug, Clone, Copy)]
 pub enum SubmitResult<'a> {
     Accepted {
