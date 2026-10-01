@@ -156,7 +156,6 @@ pub struct ApiInfoChain {
 }
 
 impl ApiInfoChain {
-    /// The entry for chain `chain`, read from its accounting.
     #[must_use]
     pub fn new(chain: usize, stats: &ChainStats) -> Self {
         Self {
@@ -206,9 +205,8 @@ pub struct ApiInfoOta {
 }
 
 impl ApiInfoOta {
-    /// The block for a board with an OTA target. A board that has not
-    /// published its reset diagnostics reports an unknown reset with no
-    /// upload active, which is what a fresh boot records.
+    /// A board that published no reset diagnostics reports an unknown
+    /// reset with no upload active, which is what a fresh boot records.
     pub(crate) fn new(
         info: OtaInfo,
         session: OtaSessionSnapshot,

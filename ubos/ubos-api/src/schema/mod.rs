@@ -17,12 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Schema types for the `/api/info` and `/api/system/*` REST surface.
-//!
-//! Each sub-module defines exactly one response struct. All structs
-//! derive `serde::Serialize` and are serialized with
-//! `serde-json-core` so they compile in `no_std` environments without
-//! heap allocation.
+//! Response types for the `/api/info` and `/api/system/*` surface,
+//! serialized with `serde-json-core`.
 
 pub mod ack;
 pub mod events;
@@ -44,8 +40,6 @@ pub use system_scoreboard::SystemScoreboardEntry;
 pub use system_statistics::SystemStatistics;
 pub use system_temperature::SystemTemperature;
 
-/// Schema version discriminator published on every versioned response.
-///
-/// Machine clients dispatch on this value to confirm they are speaking
-/// to a ubos device rather than a real reference-device.
+/// Schema discriminator on every versioned response, so a machine client
+/// knows it is talking to a ubos device.
 pub const API_VARIANT: &str = "ubos-0.3";

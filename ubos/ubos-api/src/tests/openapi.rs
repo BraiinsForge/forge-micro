@@ -44,7 +44,6 @@ use crate::schema::{
 };
 use crate::system::{DispatchOutcome, NetworkPostRequest, Route, route};
 
-/// The committed document this test keeps current.
 const COMMITTED: &str = include_str!("../../openapi.json");
 
 /// Builds the schema of one body against the shared generator.
@@ -90,21 +89,18 @@ struct Param {
     description: &'static str,
 }
 
-/// One response: status, description, optional JSON body.
 struct Response {
     status: u16,
     description: &'static str,
     body: Option<BodyFn>,
 }
 
-/// The request body an operation reads.
 struct RequestBody {
     media_type: &'static str,
     body: BodyFn,
     required: bool,
 }
 
-/// One operation of the table.
 struct Operation {
     method: &'static str,
     path: &'static str,
@@ -587,8 +583,6 @@ fn descriptions(value: &Value, path: &str, out: &mut Vec<(String, String)>) {
     }
 }
 
-/// The committed document matches the types. Set `UBOS_OPENAPI_WRITE=1`
-/// to rewrite it, then run again.
 #[test]
 fn committed_document_is_current() {
     let mut rendered = serde_json::to_string_pretty(&document()).expect("document is JSON");
@@ -606,7 +600,7 @@ fn committed_document_is_current() {
     );
 }
 
-/// Two renders are byte-equal, so the committed file never churns.
+// Two renders are byte-equal, so the committed file never churns.
 #[test]
 fn document_is_deterministic() {
     let first = serde_json::to_string(&document()).expect("document is JSON");
@@ -614,7 +608,6 @@ fn document_is_deterministic() {
     assert_eq!(first, second);
 }
 
-/// Every `/api/system` entry in the table reaches the router.
 #[test]
 fn every_table_entry_is_served() {
     for operation in operations() {
@@ -631,8 +624,6 @@ fn every_table_entry_is_served() {
     }
 }
 
-/// Every variant of `Route` has a table entry, so a new route without
-/// one fails here.
 #[test]
 fn every_route_variant_is_in_the_table() {
     let table: Vec<(&str, &str)> = operations()
@@ -650,8 +641,8 @@ fn every_route_variant_is_in_the_table() {
     }
 }
 
-/// No description leaks Rust: no intra-doc link, no `None` or `Some`,
-/// no `Vec`, and no pointer into the repository.
+// No description leaks Rust: no intra-doc link, no `None` or `Some`,
+// no `Vec`, and no pointer into the repository.
 #[test]
 fn descriptions_address_the_client() {
     let mut found = Vec::new();
@@ -668,9 +659,9 @@ fn descriptions_address_the_client() {
     assert!(leaks.is_empty(), "descriptions leak Rust: {leaks:#?}");
 }
 
-/// A response body is described as the device serializes it: a key the
-/// device always writes is required, and a key it writes but never
-/// reads, such as the fee entry of the config, is present.
+// A response body is described as the device serializes it: a key the
+// device always writes is required, and a key it writes but never
+// reads, such as the fee entry of the config, is present.
 #[test]
 fn bodies_follow_the_serialize_contract() {
     let document = document();
@@ -686,8 +677,8 @@ fn bodies_follow_the_serialize_contract() {
     assert!(required.contains(&json!("pause_reason")), "{required:?}");
 }
 
-/// A bounded array states its capacity, so a client learns why a
-/// longer one is rejected.
+// A bounded array states its capacity, so a client learns why a
+// longer one is rejected.
 #[test]
 fn bounded_arrays_state_their_capacity() {
     let document = document();

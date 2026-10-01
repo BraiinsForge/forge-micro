@@ -17,14 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for `system::route` — method enforcement and path dispatch, and
-//! for `handle_ota_chunk` — edge-case rejection paths.
-//!
-//! Route tests exercise the pure `route()` function with concrete method
-//! and path strings; no `Connection`, executor, or TCP socket is involved.
-//! OTA chunk tests drive `handle_ota_chunk` through a minimal in-memory
-//! mock socket so the rejection logic can be verified against real handler
-//! code without embedded hardware.
+//! Tests for `system::route` and for the rejection paths of
+//! `handle_ota_chunk`, driven through an in-memory mock socket.
 
 // The crate is `#![no_std]`; explicitly opt back into std for the
 // test harness so we can allocate buffers and use Vec.
@@ -50,11 +44,7 @@ use crate::system::{DispatchOutcome, Route, route};
 // In-memory mock socket
 // ---------------------------------------------------------------------------
 
-/// In-memory bidirectional byte pipe for driving `handle_ota_chunk` tests.
-///
-/// `read_data` holds the raw HTTP request bytes that the handler will read
-/// from. `write_buffer` accumulates the HTTP response bytes that the handler
-/// writes back. Both are `Vec<u8>` so no fixed size limit applies.
+/// In-memory socket: the request bytes in, the response bytes out.
 struct MockIo {
     read_data: Vec<u8>,
     read_pos: usize,
@@ -62,7 +52,6 @@ struct MockIo {
 }
 
 impl MockIo {
-    /// Create a new `MockIo` that serves `request_bytes` as incoming data.
     fn new(request_bytes: Vec<u8>) -> Self {
         Self {
             read_data: request_bytes,
@@ -71,15 +60,12 @@ impl MockIo {
         }
     }
 
-    /// Return the HTTP status code from the response that was written into
-    /// `write_buffer`. The response always starts with `HTTP/1.1 NNN`.
+    /// The status code of the written response.
     ///
     /// # Panics
     ///
-    /// Panics when the write buffer does not contain a well-formed
-    /// HTTP status line — which is a test-fixture bug, not a handler bug.
+    /// On a malformed status line, which is a fixture bug.
     fn response_status(&self) -> u16 {
-        // Response starts with "HTTP/1.1 NNN …\r\n"
         let status_str = std::str::from_utf8(&self.write_buffer[9..12])
             .expect("BUG: response bytes 9-11 are not UTF-8");
         status_str
@@ -119,9 +105,8 @@ impl Readable for MockIo {
     }
 }
 
-/// Dummy read half returned by `TcpSplit::split`. The OTA chunk handler
-/// never calls `split()` on the socket, so this type need only satisfy the
-/// associated-type bounds; its methods are unreachable in practice.
+/// The handler never calls `split()`, so the halves only satisfy the
+/// associated-type bounds.
 struct NeverRead;
 
 impl ErrorType for NeverRead {
@@ -140,7 +125,6 @@ impl Readable for NeverRead {
     }
 }
 
-/// Dummy write half returned by `TcpSplit::split`.
 struct NeverWrite;
 
 impl ErrorType for NeverWrite {
@@ -176,17 +160,8 @@ impl TcpSplit for MockIo {
 // Mock OtaTarget
 // ---------------------------------------------------------------------------
 
-/// Configurable mock implementation of `OtaTarget`.
-///
-/// Each test instantiates its own mock with the failure mode it needs.
-/// `begin_result` controls whether `begin()` succeeds; `write_result`
-/// controls `write_chunk`; `finish_result` controls `finish`. When all
-/// succeed, `write_chunk` accumulates `bytes_received` so tests can
-/// verify how many bytes the handler fed through.
-///
-/// `initial_bytes_written` pre-seeds the `bytes_written()` return value,
-/// letting tests simulate a session already in progress without needing to
-/// call through the offset-0 path first.
+/// `OtaTarget` mock with a configurable failure per method.
+/// `initial_bytes_written` simulates a session already in progress.
 struct MockOtaTarget {
     begin_result: Result<(), OtaError>,
     write_result: Result<(), OtaError>,
@@ -196,7 +171,6 @@ struct MockOtaTarget {
 }
 
 impl MockOtaTarget {
-    /// Mock that always succeeds and starts with no active session.
     fn succeeds() -> Self {
         Self {
             begin_result: Ok(()),
@@ -207,10 +181,6 @@ impl MockOtaTarget {
         }
     }
 
-    /// Mock that always succeeds and reports a pre-existing write position.
-    ///
-    /// Setting `written` simulates a session that already has `written` bytes
-    /// acknowledged, so the next continuation chunk must carry that offset.
     fn with_bytes_written(written: usize) -> Self {
         Self {
             begin_result: Ok(()),
@@ -283,16 +253,8 @@ impl crate::ota::OtaTarget for MockOtaTarget {
 // Test infrastructure
 // ---------------------------------------------------------------------------
 
-/// Build a minimal HTTP/1.1 POST request byte sequence for
-/// `POST /api/system/OTA/chunk`.
-///
-/// The handler receives these bytes as the "TCP socket"; `Connection::new`
-/// parses headers from them and the body is the remaining bytes after the
-/// blank line.
-///
-/// `extra_headers` is appended verbatim after Content-Length, one per
-/// `\r\n`. Each string must be a complete `Name: Value` header, e.g.
-/// `"X-OTA-Offset: 0"`.
+/// A minimal `POST /api/system/OTA/chunk` request. Each entry of
+/// `extra_headers` is a complete `Name: Value` header.
 fn build_chunk_request(content_length: usize, body: &[u8], extra_headers: &[&str]) -> Vec<u8> {
     let mut request = Vec::new();
     request.extend_from_slice(b"POST /api/system/OTA/chunk HTTP/1.1\r\n");
@@ -307,20 +269,10 @@ fn build_chunk_request(content_length: usize, body: &[u8], extra_headers: &[&str
     request
 }
 
-/// Drive `handle_ota_chunk` synchronously using a `MockIo` socket and
-/// return the HTTP status code from the response.
-///
-/// Constructs the full HTTP request from `content_length_header` (the value
-/// to put in the `Content-Length` header), `body` (the request body bytes),
-/// and `extra_headers` (zero or more additional header strings). Then calls
-/// `handle_ota_chunk` with `chunk_content_length` (the `Option<u64>` passed
-/// as the parsed content-length) and `ota_offset`/`ota_final`.
-///
-/// The two content-length parameters are intentionally separate: the header
-/// in the raw request must be parseable by `Connection::new`, while the
-/// handler's `content_length` argument comes from the REST layer's parsed
-/// header value. Setting them to different values lets tests drive the
-/// "Content-Length absent" path (pass `None`).
+/// Drive `handle_ota_chunk` over a `MockIo` and return the status code.
+/// The two content lengths are separate because the header must parse
+/// for `Connection::new`, while the argument is what the REST layer
+/// passed; `None` drives the absent-header path.
 fn run_chunk_handler(
     content_length_header: usize,
     body: &[u8],
@@ -329,8 +281,7 @@ fn run_chunk_handler(
     ota_offset: u64,
     ota_final: bool,
 ) -> u16 {
-    // The handler talks to the handles that a board takes in `main`. The test
-    // runs in a process of its own, so each is taken once.
+    // The test runs in a process of its own, so each handle is taken once.
     let (_manager_runner, manager) = ubos_manager::Handle::take();
     let (_mining_runner, mining) = ubos_mining::Handle::take();
     let (_config_runner, config) = ubos_config::Handle::take();
@@ -363,16 +314,11 @@ fn run_chunk_handler(
     })
 }
 
-/// Register `mock` as the OTA target and run `body`.
-///
-/// Each test that registers a target runs in a process of its own, so the
-/// static starts empty and needs no reset.
-///
-/// The mock is placed behind a `Box::leak` to satisfy the
-/// `&'static mut dyn OtaTarget` requirement of the mutex type. The
-/// allocation is small and ends with the test process.
+/// Register `mock` as the OTA target and run `body`. Each test that
+/// registers a target runs in a process of its own, so the static starts
+/// empty and needs no reset. The mock is leaked to satisfy the
+/// `&'static mut` the mutex holds.
 fn with_ota_target<F: FnOnce() -> u16>(mock: MockOtaTarget, body: F) -> u16 {
-    // Leak the mock to obtain a `&'static mut`.
     let leaked: &'static mut dyn crate::ota::OtaTarget =
         std::boxed::Box::leak(std::boxed::Box::new(mock));
     embassy_futures::block_on(async {
@@ -386,10 +332,7 @@ fn with_ota_target<F: FnOnce() -> u16>(mock: MockOtaTarget, body: F) -> u16 {
 // Route tests (unchanged)
 // ---------------------------------------------------------------------------
 
-/// Each row: (allowed-method, path, expected-Route-on-match).
-///
-/// Adding a row covers both the accepted-method case and the
-/// other-method rejection. A new path with no row is a coverage gap.
+/// Each row covers the accepted method and the other-method rejection.
 const ROUTES: &[(&str, &str, Route)] = &[
     ("GET", "/api/system/info", Route::SystemInfo),
     ("GET", "/api/system/asic", Route::SystemAsic),
@@ -426,10 +369,8 @@ const ROUTES: &[(&str, &str, Route)] = &[
 
 #[test]
 fn route_table_handles_matching_method_and_rejects_others() {
-    // Probe each row with its own method and with a representative
-    // alternative. The alternative is chosen so that for any allowed
-    // method the probe lands on a different verb, which exercises the
-    // 405 path with `allowed:` matching the row's method.
+    // The alternative verb always differs from the row's, so it exercises
+    // the 405 path.
     for (allowed, path, expected) in ROUTES {
         assert_eq!(
             route(allowed, path),
@@ -451,9 +392,7 @@ fn route_table_handles_matching_method_and_rejects_others() {
 
 #[test]
 fn route_network_dispatches_both_methods() {
-    // The `/api/system/network` path accepts two methods, so it cannot
-    // live in the single-method ROUTES table: there the wrong-method
-    // probe expects a 405, but here both verbs are Handled.
+    // Two accepted methods, so it cannot live in the single-method table.
     assert_eq!(
         route("GET", "/api/system/network"),
         DispatchOutcome::Handled(Route::NetworkGet),
@@ -495,8 +434,6 @@ fn route_api_info_not_found() {
 
 #[test]
 fn route_query_string_stripped_before_matching() {
-    // A query string on a known path must not cause a 404: the router strips
-    // the query before matching, so `?since=5` falls through to the correct arm.
     assert_eq!(
         route("GET", "/api/system/events?since=5"),
         DispatchOutcome::Handled(Route::SystemEvents),
@@ -540,8 +477,6 @@ fn parse_since_non_decimal_is_zero() {
 
 #[test]
 fn parse_since_overflow_is_max() {
-    // u32::MAX + 1 overflows, so the cursor clamps to u32::MAX and the
-    // response returns no records rather than the whole ring.
     assert_eq!(
         crate::system::parse_since("/api/system/events?since=4294967296"),
         u32::MAX,
@@ -553,39 +488,17 @@ fn parse_since_overflow_is_max() {
 // ---------------------------------------------------------------------------
 
 rusty_fork_test! {
-    /// An oversize chunk (Content-Length > `OTA_CHUNK_SIZE` = 4096) is rejected
-    /// before the OTA target mutex is acquired. The handler returns 413.
-    ///
-    /// This check fires purely on the parsed `content_length` argument, so no
-    /// `OtaTarget` is needed.
     #[test]
     fn ota_chunk_oversize_returns_413() {
-        // One byte over the 4096-byte sector limit.
         let oversize: u64 = 4097;
-        let status = run_chunk_handler(
-            // Use a small Content-Length in the raw HTTP so Connection::new
-            // can parse the headers; the handler receives the oversize value
-            // directly as the pre-parsed argument.
-            1,
-            &[0u8],
-            &[],
-            Some(oversize),
-            0,
-            false,
-        );
+        let status = run_chunk_handler(1, &[0u8], &[], Some(oversize), 0, false);
         assert_eq!(status, 413, "oversize chunk must be rejected with 413");
     }
 }
 
 rusty_fork_test! {
-    /// A chunk whose offset plus its length would push the total image past
-    /// `OTA_MAX_IMAGE_BYTES` (952 * 1024) is rejected with 413.
-    ///
-    /// The guard fires on `ota_offset + chunk_bytes > OTA_MAX_IMAGE_BYTES` so
-    /// any partial write that would overflow the slot is caught up front.
     #[test]
     fn ota_chunk_exceeds_image_max_returns_413() {
-        // Offset exactly at the cap, body one byte. offset + 1 > OTA_MAX.
         let offset_at_cap: u64 = 952 * 1024;
         let status = run_chunk_handler(1, &[0u8], &[], Some(1), offset_at_cap, false);
         assert_eq!(
@@ -596,16 +509,15 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A continuation chunk whose `X-OTA-Offset` does not match the number of
-    /// bytes already written returns 409 Conflict, and the session ends with
-    /// that error, so the idle watcher does not abort it a second time.
-    ///
-    /// Simulated by pre-registering a mock whose `bytes_written()` reports
-    /// 4096 (one sector already written), then sending a chunk with
-    /// `ota_offset = 512` (neither 0 nor 4096).
+    // A continuation chunk whose `X-OTA-Offset` does not match the number of
+    // bytes already written returns 409 Conflict, and the session ends with
+    // that error, so the idle watcher does not abort it a second time.
+    //
+    // Simulated by pre-registering a mock whose `bytes_written()` reports
+    // 4096 (one sector already written), then sending a chunk with
+    // `ota_offset = 512` (neither 0 nor 4096).
     #[test]
     fn ota_chunk_offset_mismatch_returns_409() {
-        // bytes_written = 4096; incoming offset = 512 → mismatch → 409.
         let status = with_ota_target(MockOtaTarget::with_bytes_written(4096), || {
             run_chunk_handler(512, &[0u8; 512], &[], Some(512), 512, false)
         });
@@ -620,17 +532,9 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A replayed offset — the same non-zero offset sent a second time after
-    /// the first write advanced `bytes_written` — is also an offset mismatch
-    /// and returns 409.
-    ///
-    /// Simulated by pre-registering a mock with `bytes_written = 1024` and
-    /// sending `ota_offset = 0`. Because `ota_offset == 0` triggers the
-    /// restart path (which is not an error), we use a later offset that
-    /// is strictly less than `bytes_written` to hit the mismatch branch.
     #[test]
     fn ota_chunk_replayed_offset_returns_409() {
-        // bytes_written = 1024; replayed offset = 256 (0 < 256 < 1024) → 409.
+        // Offset 0 would restart the session, so the replay uses a later one.
         let status = with_ota_target(MockOtaTarget::with_bytes_written(1024), || {
             run_chunk_handler(256, &[0u8; 256], &[], Some(256), 256, false)
         });
@@ -642,14 +546,8 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// The final chunk of a session whose total byte count is below
-    /// `OTA_MIN_IMAGE_BYTES` (512) is rejected with 400.
-    ///
-    /// An offset-0 chunk with a 128-byte body and `X-OTA-Final: 1` is the
-    /// shortest possible final chunk: `total = 0 + 128 = 128 < 512`.
     #[test]
     fn ota_chunk_final_image_too_small_returns_400() {
-        // 128-byte body, final flag set → total 128 < OTA_MIN_IMAGE_BYTES (512).
         let status = with_ota_target(MockOtaTarget::succeeds(), || {
             run_chunk_handler(128, &[0u8; 128], &[], Some(128), 0, true)
         });
@@ -661,16 +559,16 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A non-final chunk shorter than one erase sector is rejected with 400,
-    /// and the session ends with that error.
-    ///
-    /// `write_chunk` assumes each non-final chunk covers exactly one sector, so
-    /// a short body would advance the write offset off a sector boundary. The
-    /// guard fires after the offset-continuity check, so the session is armed:
-    /// `bytes_written = 4096` with a matching `ota_offset = 4096` reaches it.
+    // A non-final chunk shorter than one erase sector is rejected with 400,
+    // and the session ends with that error.
+    //
+    // `write_chunk` assumes each non-final chunk covers exactly one sector, so
+    // a short body would advance the write offset off a sector boundary. The
+    // guard fires after the offset-continuity check, so the session is armed:
+    // `bytes_written = 4096` with a matching `ota_offset = 4096` reaches it.
     #[test]
     fn ota_chunk_non_final_short_returns_400() {
-        // bytes_written = 4096, offset = 4096 (matches), 512-byte non-final body.
+        // The offset matches, so the guard after the continuity check fires.
         let status = with_ota_target(MockOtaTarget::with_bytes_written(4096), || {
             run_chunk_handler(512, &[0u8; 512], &[], Some(512), 4096, false)
         });
@@ -685,9 +583,9 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A first chunk that the target refuses as an image for other hardware
-    /// is answered with 400, and the session records that error. A client
-    /// then tells the wrong file apart from a fault of the board.
+    // A first chunk that the target refuses as an image for other hardware
+    // is answered with 400, and the session records that error. A client
+    // then tells the wrong file apart from a fault of the board.
     #[test]
     fn ota_chunk_wrong_hardware_returns_400() {
         let chunk = [0u8; crate::system::OTA_CHUNK_SIZE];
@@ -703,9 +601,9 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A chunk that the target refuses because the image overflows its slot
-    /// is answered with 413, because the client sent a file that the board
-    /// cannot hold.
+    // A chunk that the target refuses because the image overflows its slot
+    // is answered with 413, because the client sent a file that the board
+    // cannot hold.
     #[test]
     fn ota_chunk_slot_overflow_returns_413() {
         let chunk = [0u8; crate::system::OTA_CHUNK_SIZE];
@@ -717,8 +615,8 @@ rusty_fork_test! {
 }
 
 rusty_fork_test! {
-    /// A flash error from `write_chunk` stays a 500, because it is a fault
-    /// of the board and not of the image.
+    // A flash error from `write_chunk` stays a 500, because it is a fault
+    // of the board and not of the image.
     #[test]
     fn ota_chunk_flash_error_returns_500() {
         let chunk = [0u8; crate::system::OTA_CHUNK_SIZE];
@@ -749,9 +647,7 @@ fn default_hw_info() -> crate::schema::system_info::HwInfo {
     }
 }
 
-/// Build a minimal `SystemInfo` with the given `paused`, `pause_reason`,
-/// and `hw_info` values, serialize it with `serde_json_core`, and return
-/// the JSON string.
+/// A minimal `SystemInfo`, serialized.
 fn serialize_system_info(
     paused: bool,
     pause_reason: Option<crate::schema::state::ApiPauseReason>,
@@ -802,7 +698,6 @@ fn serialize_system_info_with_ota(
         .expect("BUG: SystemInfo output is not UTF-8")
 }
 
-/// When no reason is active `paused` is `false` and `pauseReason` is `null`.
 #[test]
 fn system_info_running_serializes_paused_false_and_null_reason() {
     let json = serialize_system_info(false, None, default_hw_info());
@@ -816,8 +711,6 @@ fn system_info_running_serializes_paused_false_and_null_reason() {
     );
 }
 
-/// The fan speed, the fan duty and the boot defaults go out under the
-/// names the clients read, each as a bare integer.
 #[test]
 fn system_info_units_serialize_as_integers_under_their_names() {
     let json = serialize_system_info(false, None, default_hw_info());
@@ -831,8 +724,6 @@ fn system_info_units_serialize_as_integers_under_their_names() {
     }
 }
 
-/// When `UserRequest` is the active reason `paused` is `true` and
-/// `pauseReason` carries the camelCase wire string.
 #[test]
 fn system_info_user_request_serializes_paused_true_and_reason() {
     let json = serialize_system_info(
@@ -854,13 +745,6 @@ fn system_info_user_request_serializes_paused_true_and_reason() {
 // SystemInfo hwInfo serialization
 // ---------------------------------------------------------------------------
 
-/// When the product name, the nominal hashrate, both boot-captured
-/// version strings and the hashboard serials have been published,
-/// `hwInfo` carries every field
-/// with the published values present. The fan version exceeds 8 characters to cover more than the
-/// common `"XX.XX.XX"` prefix. The hashboard array carries a `None`
-/// middle slot alongside two published serials, covering an unreadable
-/// chain sitting between two good ones.
 #[test]
 fn system_info_hw_info_serializes_published_versions() {
     let mut hashboard_ids: crate::hw_info::HashboardIds = heapless::Vec::new();
@@ -894,37 +778,31 @@ fn system_info_hw_info_serializes_published_versions() {
     );
 }
 
-/// Measured length of the worst-case `SystemInfo` body.
-///
-/// Pinned exactly, as `WORST_CASE_INFO_BODY_LEN` in `tests/rest.rs` is
-/// and for the same reason: a field addition that still fits the buffer
-/// fails here, and updating this constant is the prompt to check the
-/// comment on `SCRATCH_SIZE`. The `const` block holds the claim that
-/// comment makes, so the pinned length cannot be moved past the buffer.
+/// Pinned exactly, so a field addition that still fits the buffer is
+/// noticed here; the `const` block keeps it under `SCRATCH_SIZE`.
 const WORST_CASE_SYSTEM_INFO_LEN: usize = 1619;
 const _: () = assert!(WORST_CASE_SYSTEM_INFO_LEN <= super::SCRATCH_SIZE);
 
-/// The scratch buffer `system.rs` serializes into must hold the largest
-/// `SystemInfo` the board can produce, and the helper above would panic
-/// before this test's assertion if it did not; what this test adds is
-/// the exact length.
-///
-/// Every string field stands at its maximum, and the build id is
-/// `MAX_BUILD_ID_LEN` double quotes, the widest character a build id
-/// can carry: the build environment can hand the id whole with a quote
-/// or a backslash in it. The brand and product
-/// names are `HW_STRING_LEN` control characters, which serialize to six
-/// bytes each, and the nominal hashrate is `u64::MAX`.
-///
-/// Without this, nothing measures the body and the comment on
-/// `SCRATCH_SIZE` is the only thing holding its size.
+// The scratch buffer `system.rs` serializes into must hold the largest
+// `SystemInfo` the board can produce, and the helper above would panic
+// before this test's assertion if it did not; what this test adds is
+// the exact length.
+//
+// Every string field stands at its maximum, and the build id is
+// `MAX_BUILD_ID_LEN` double quotes, the widest character a build id
+// can carry: the build environment can hand the id whole with a quote
+// or a backslash in it. The brand and product
+// names are `HW_STRING_LEN` control characters, which serialize to six
+// bytes each, and the nominal hashrate is `u64::MAX`.
+//
+// Without this, nothing measures the body and the comment on
+// `SCRATCH_SIZE` is the only thing holding its size.
 #[test]
 fn worst_case_system_info_fits_the_scratch_buffer() {
     use crate::hw_info::HW_STRING_LEN;
     use crate::ota::MAX_BUILD_ID_LEN;
 
-    /// A `&'static str` of `len` copies of `byte`. The schema takes
-    /// `&'static str`, and a leak in a test costs nothing.
+    /// Leaked, since the schema takes `&'static str`.
     fn leaked(byte: u8, len: usize) -> &'static str {
         let text = std::string::String::from_utf8(std::vec![byte; len])
             .expect("BUG: ASCII fill is not UTF-8");
@@ -978,9 +856,9 @@ fn worst_case_system_info_fits_the_scratch_buffer() {
     );
 }
 
-/// The temperature body names its fields in camelCase, writes a reading
-/// the sample did not take as `null`, and at its widest, every value at
-/// `i32::MIN`, fits the scratch buffer.
+// The temperature body names its fields in camelCase, writes a reading
+// the sample did not take as `null`, and at its widest, every value at
+// `i32::MIN`, fits the scratch buffer.
 #[test]
 fn system_temperature_body_at_its_widest() {
     let body = crate::schema::SystemTemperature {
@@ -1002,12 +880,6 @@ fn system_temperature_body_at_its_widest() {
     );
 }
 
-/// Before the product name, the nominal hashrate, either boot-captured
-/// version string or the hashboard serials are published, `productName`,
-/// `nominalHashrate`, `bootloaderVersion`, `fanControllerVersion`, and
-/// `hashboardIds` are all `null` inside `hwInfo`, and `psuModel` is
-/// `null` on a target without a modeled PSU; this is also the permanent
-/// state on boards that never publish any of them.
 #[test]
 fn system_info_hw_info_serializes_unpublished_versions_as_null() {
     let json = serialize_system_info(false, None, default_hw_info());
@@ -1174,8 +1046,8 @@ rusty_fork_test! {
     }
 }
 
-/// The system info schema carries the camelCase keys the device
-/// serializes, so a client generated from it reads the live body.
+// The system info schema carries the camelCase keys the device
+// serializes, so a client generated from it reads the live body.
 #[cfg(feature = "schema")]
 #[test]
 fn system_info_schema_uses_camel_case() {
@@ -1191,7 +1063,6 @@ fn system_info_schema_uses_camel_case() {
 
 // --- event bodies serialize from structs ---
 
-/// A record serializes to the bytes the hand-written writer produced.
 #[test]
 fn event_record_serializes_the_documented_bytes() {
     let record = ubos_events::EventRecord {
@@ -1211,7 +1082,6 @@ fn event_record_serializes_the_documented_bytes() {
     );
 }
 
-/// A catalog entry escapes its format string and names its arg widths.
 #[test]
 fn event_def_serializes_the_documented_bytes() {
     let def = ubos_events::EventDef {
@@ -1230,8 +1100,8 @@ fn event_def_serializes_the_documented_bytes() {
     );
 }
 
-/// A catalog entry wider than its buffer fails to serialize, which is
-/// the path that skips it and keeps the streamed array valid.
+// A catalog entry wider than its buffer fails to serialize, which is
+// the path that skips it and keeps the streamed array valid.
 #[test]
 fn oversized_event_def_does_not_fit_its_buffer() {
     let fmt: &'static str =
@@ -1252,8 +1122,6 @@ fn oversized_event_def_does_not_fit_its_buffer() {
     );
 }
 
-/// The severity serializes to the three lower-case strings the ring
-/// has always reported.
 #[test]
 fn event_severity_serializes_lowercase() {
     let mut buf = [0u8; 8];
@@ -1271,9 +1139,9 @@ fn event_severity_serializes_lowercase() {
     }
 }
 
-/// The streamed body is the envelope struct's serialization: the
-/// handler writes the opening, the comma and the closing as literals,
-/// and this holds them to the struct the document describes.
+// The streamed body is the envelope struct's serialization: the
+// handler writes the opening, the comma and the closing as literals,
+// and this holds them to the struct the document describes.
 #[test]
 fn streamed_events_body_matches_the_envelope_struct() {
     let record = ubos_events::EventRecord {
@@ -1306,8 +1174,6 @@ fn streamed_events_body_matches_the_envelope_struct() {
 
 // --- Route names its own method and path ---
 
-/// Every route the enum lists round-trips through the router by the
-/// method and path it names, and the list holds each variant once.
 #[test]
 fn every_route_round_trips() {
     for (i, r) in Route::ALL.iter().enumerate() {

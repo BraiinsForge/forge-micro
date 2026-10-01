@@ -32,10 +32,8 @@
 #[cfg(test)]
 extern crate std;
 
-/// The path prefix every route in this crate lives under.
-///
-/// `ubos_firmware::serve_all!` routes it to this handler, and the mDNS
-/// entry below reports it to a machine client that discovers the board.
+/// The path prefix every route in this crate lives under; the router and
+/// the mDNS entry both read it.
 pub const PATH_PREFIX: &str = "/api/";
 
 ubos_mdns::declare_service!(
@@ -79,11 +77,8 @@ mod openapi_tests;
 
 #[cfg(test)]
 mod test_time_stubs {
-    // `rest` and `system` call `embassy_time::Instant::now()` directly,
-    // and `ubos_auth` does so transitively from this crate's tests.
-    // `embassy-time-driver` declares the hook as `extern "Rust"`; no
-    // hardware driver is linked into the host test binary, so satisfy
-    // the linker with stubs that return a fixed tick of zero.
+    // No time driver is linked into the host test binary, so the
+    // `extern "Rust"` hook `embassy-time-driver` declares is stubbed.
     #[allow(clippy::no_mangle_with_rust_abi)]
     #[unsafe(no_mangle)]
     fn _embassy_time_now() -> u64 {
@@ -92,8 +87,5 @@ mod test_time_stubs {
 
     #[allow(clippy::no_mangle_with_rust_abi)]
     #[unsafe(no_mangle)]
-    fn _embassy_time_schedule_wake(_at: u64, _waker: &core::task::Waker) {
-        // No scheduler in the host binary; test paths do not block on
-        // timers so leaving this empty is safe.
-    }
+    fn _embassy_time_schedule_wake(_at: u64, _waker: &core::task::Waker) {}
 }

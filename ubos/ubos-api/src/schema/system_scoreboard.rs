@@ -17,13 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Response shape for `GET /api/system/scoreboard`.
-//!
-//! Top-N best-difficulty shares since boot. The response body is a
-//! JSON array of `SystemScoreboardEntry` values. Until the
-//! stratum-client `visit_submit_result` hook lands, the array is
-//! always empty; the shape is stable so external clients can poll
-//! without schema negotiation.
+//! Response shape for `GET /api/system/scoreboard`: the best shares
+//! since boot. The array is empty until the stratum client feeds it.
 
 use heapless::String;
 use serde::Serialize;

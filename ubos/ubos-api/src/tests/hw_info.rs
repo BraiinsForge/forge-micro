@@ -17,14 +17,10 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for `hw_info` — the boot-time-captured hardware-identity cells.
+//! Tests for the `hw_info` publish cells.
 
 use super::*;
 
-/// Publishing distinct values through all five cells round-trips each
-/// back through its own getter unchanged. The string cells share one
-/// payload type, so a copy-paste that wired a publish function or getter
-/// to the wrong cell would compile cleanly; this test is what catches it.
 #[test]
 fn publish_and_read_round_trip_each_cell() {
     let bootloader: HwString = "deadbeef".parse().expect("BUG: fits in HwString");

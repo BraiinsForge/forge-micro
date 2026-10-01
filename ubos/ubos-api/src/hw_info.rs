@@ -38,14 +38,11 @@ use heapless::{String, Vec};
 #[path = "tests/hw_info.rs"]
 mod tests;
 
-/// Capacity of every string field in the hardware-identity response.
-/// Sized to the largest producer, a 40-byte hashboard EEPROM serial, so
-/// no board's data needs truncating and no field encodes a
-/// producer-specific width.
+/// Capacity of every string field, sized to the largest producer, a
+/// hashboard EEPROM serial.
 pub const HW_STRING_LEN: usize = 40;
 
-/// An owned hardware-identity string; all `hwInfo` string fields and
-/// publish cells share this one type.
+/// An owned hardware-identity string.
 pub type HwString = String<HW_STRING_LEN>;
 
 static BOOTLOADER_VERSION: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
@@ -54,10 +51,7 @@ static PRODUCT_NAME: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static BRAND_NAME: Watch<CriticalSectionRawMutex, HwString, 1> = Watch::new();
 static NOMINAL_HASHRATE: Watch<CriticalSectionRawMutex, u64, 1> = Watch::new();
 
-/// Per-slot hashboard serials; the index is the physical chain number.
-/// One slot for every chain a machine can drive, the same
-/// `ubos_metrics::chain::MAX_CHAINS` ceiling the stratum session sizes its
-/// receiver budget from; neither derives from the other. A board with
+/// Per-slot hashboard serials, indexed by physical chain. A board with
 /// fewer chains leaves the tail empty.
 pub type HashboardIds = Vec<Option<HwString>, { ubos_metrics::chain::MAX_CHAINS }>;
 
@@ -68,8 +62,6 @@ pub fn publish_bootloader_version(version: HwString) {
     BOOTLOADER_VERSION.sender().send(version);
 }
 
-/// Returns the published bootloader version, or `None` before
-/// publication and on boards that never publish one.
 pub(crate) fn bootloader_version() -> Option<HwString> {
     BOOTLOADER_VERSION.try_get()
 }
@@ -79,20 +71,16 @@ pub fn publish_fan_controller_version(version: HwString) {
     FAN_CONTROLLER_VERSION.sender().send(version);
 }
 
-/// Returns the published fan controller version, or `None` before
-/// publication and on boards that never publish one.
 pub(crate) fn fan_controller_version() -> Option<HwString> {
     FAN_CONTROLLER_VERSION.try_get()
 }
 
 /// Publishes the machine's product name, as its maker names the model
-/// on the machine. Call once at boot.
+/// on the machine. Called once at boot.
 pub fn publish_product_name(name: HwString) {
     PRODUCT_NAME.sender().send(name);
 }
 
-/// Returns the published product name, or `None` before publication
-/// and on boards that never publish one.
 pub(crate) fn product_name() -> Option<HwString> {
     PRODUCT_NAME.try_get()
 }
@@ -109,40 +97,33 @@ pub(crate) fn brand_name() -> Option<HwString> {
 }
 
 /// Publishes the hashrate the machine's maker rates it at, in hashes per
-/// second, so that an operator can hold what the machine mines against
-/// its sticker. Call once at boot.
+/// second, so an operator can hold what the machine mines against its
+/// sticker. Called once at boot.
 pub fn publish_nominal_hashrate(hashes_per_second: u64) {
     NOMINAL_HASHRATE.sender().send(hashes_per_second);
 }
 
-/// Returns the published nominal hashrate in hashes per second, or
-/// `None` before publication and on boards that never publish one.
 pub(crate) fn nominal_hashrate() -> Option<u64> {
     NOMINAL_HASHRATE.try_get()
 }
 
-/// Publishes the per-chain hashboard serials. Call once at boot, after
-/// the boot-time EEPROM read(s) complete.
+/// Publishes the per-chain hashboard serials. Called once at boot.
 pub fn publish_hashboard_ids(ids: HashboardIds) {
     HASHBOARD_IDS.sender().send(ids);
 }
 
-/// Publishes the one serial of a single-chain board in slot 0. Every
-/// board with one chain calls this after its EEPROM read; a multi-chain
-/// board fills the array itself and calls [`publish_hashboard_ids`].
+/// Publishes a single-chain board's serial in slot 0; a multi-chain
+/// board calls [`publish_hashboard_ids`].
 pub fn publish_hashboard_id(serial: Option<HwString>) {
     const _: () = assert!(
         ubos_metrics::chain::MAX_CHAINS >= 1,
         "one slot must fit the one serial"
     );
     let mut ids = HashboardIds::new();
-    // The array holds at least one slot, per the assertion above.
     let _ = ids.push(serial);
     publish_hashboard_ids(ids);
 }
 
-/// Returns the published hashboard serials, or `None` before
-/// publication and on boards that never publish any.
 pub(crate) fn hashboard_ids() -> Option<HashboardIds> {
     HASHBOARD_IDS.try_get()
 }

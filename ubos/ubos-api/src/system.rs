@@ -17,57 +17,13 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! REST endpoints under `/api/system/*`.
+//! REST endpoints under `/api/system/*`, dispatched from
+//! `RestApiService::handle`. The routes are the `Route` variants;
+//! the surface is documented in `docs/REST_API.md`.
 //!
-//! Dispatched from `RestApiService::handle`. Each handler builds a
-//! value of the appropriate
-//! schema struct, serializes it with `serde_json_core`, and wraps it
-//! in a JSON response via `write_json_response`.
-//!
-//! Action endpoints (`POST /api/system/{pause,resume,restart,identify,
-//! blockFound/dismiss,factory_reset}` and `PATCH /api/system`) are
-//! handled as follows:
-//!
-//! - `restart` — writes a 200 ack, then calls
-//!   [`ubos_core::reboot::request_reboot`] so the board's reset task
-//!   performs the actual MCU reset after the socket drains.
-//! - `factory_reset` — sends [`ubos_config::Message::FactoryReset`] to
-//!   the config task, which wipes persisted config back to defaults and
-//!   then requests the reboot once the wipe is persisted; the handler
-//!   only writes the 200 ack.
-//! - `identify`, `blockFound/dismiss`, and `PATCH /api/system` — stubs
-//!   that return 200 with `{"message":"ack"}` and change no firmware
-//!   state; full implementations are planned for later phases.
-//!
-//! Network endpoints under `/api/system/network`:
-//!
-//! - `GET /api/system/network` — reports the current network mode,
-//!   pending-change flag, confirm countdown, and live address.
-//! - `POST /api/system/network` — applies a new
-//!   [`ubos_config::NetworkConfig`] live, optionally arming a
-//!   confirm-or-revert window.
-//! - `POST /api/system/network/{confirm,revert}` — commit or roll back
-//!   a pending network change.
-//!
-//! OTA endpoints:
-//!
-//! - `POST /api/system/OTA` — stream a firmware image into the
-//!   inactive slot; reboots into the new slot on success.
-//! - `POST /api/system/OTA/chunk` — upload one sector per request,
-//!   acknowledged individually, using the `X-OTA-Offset` and
-//!   `X-OTA-Final` headers to order and terminate the transfer.
-//!
-//! Both downgrade the config before the reboot, so the new image boots
-//! on a record it reads.
-//!
-//! Both OTA endpoints are intercepted in `rest.rs` ahead of [`dispatch`]
-//! because they stream their body straight from the connection. They
-//! require an [`crate::ota::OtaTarget`] registered via
-//! [`crate::ota::register_ota_target`]; boards that never register one
-//! receive a 501.
-//!
-//! Method enforcement is strict: every known path responds with 405
-//! when the wrong method is used.
+//! The two OTA endpoints are intercepted in `rest.rs` ahead of
+//! [`dispatch`], because they stream their body straight from the
+//! connection. A known path with the wrong method answers 405.
 
 use core::fmt::Write as _;
 
@@ -123,57 +79,36 @@ mod tests;
 /// consumers.
 const SCRATCH_SIZE: usize = 2048;
 
-/// OTA upload chunk size in bytes.
-///
-/// Each `write_chunk` call receives at most this many bytes. Sized to
-/// one RP2350 flash sector (4096 bytes) so the implementation can flush
-/// aligned sectors without buffering. Between chunks the handler pauses
-/// briefly to drain the network and feed the watchdog.
-///
-/// Public so the RP flash target can statically assert it equals the
-/// flash erase size, the invariant its per-chunk updater relies on.
+/// OTA upload chunk size: one RP flash sector, so the target flushes
+/// aligned sectors without buffering. Public so the RP target can assert
+/// it equals the erase size, which its per-chunk updater relies on.
 pub const OTA_CHUNK_SIZE: usize = 4096;
 
-/// Delay between sector writes during an OTA upload, in milliseconds.
-///
-/// The flash write pauses both cores; this pause afterwards gives the
-/// network task time to drain the W6100's 4 KiB RX buffer, send ACKs, and
-/// reopen the TCP window before the next read, so the chip buffer does not
-/// overflow across freezes. Small enough to add negligible total time over
-/// the ~150 sectors of a full image.
+/// Delay between sector writes in a streaming OTA upload. The flash write
+/// pauses both cores, and the chip's RX buffer cannot be drained while
+/// frozen, so one yield is not enough for the network task to empty it
+/// and reopen the TCP window before the next read.
 const OTA_DRAIN_DELAY_MS: u64 = 5;
 
-/// Default maximum firmware image size accepted by the OTA upload handler.
-///
-/// Corresponds to the RP ACTIVE slot capacity the image must swap into:
-/// the bootloader splits the flash into a 952 KiB ACTIVE slot and a
-/// slightly larger DFU slot. An image larger than this is rejected up
-/// front because it could never swap into ACTIVE even though the larger
-/// DFU slot might hold it during upload.
-///
-/// This is the default returned by [`crate::ota::OtaTarget::max_image_bytes`];
-/// a board with a larger inactive slot overrides that method and the
-/// handlers honour the per-target value (see [`max_image_bytes`]). Must
-/// stay in sync with `OTA_MAX_DEFAULT` in
+/// Default largest image the OTA handlers accept: the RP ACTIVE slot the
+/// image must swap into, which is smaller than the DFU slot that holds
+/// it during upload. Must stay in sync with `OTA_MAX_DEFAULT` in
 /// `ubos-webui/web/components/ConfigSystem.tsx` and the `slotMaxBytes`
 /// guard in `flake.nix`.
 pub(crate) const OTA_MAX_IMAGE_BYTES: u64 = 952 * 1024;
 
-/// Minimum firmware image size accepted by the OTA upload handler.
-///
-/// A Cortex-M vector table occupies the first 512 bytes of a valid
-/// firmware image. Any image smaller than this cannot be valid firmware.
+/// Smallest image the OTA handlers accept: a Cortex-M vector table alone
+/// is this long.
 const OTA_MIN_IMAGE_BYTES: u64 = 512;
 
-/// Upper bound on how long an upload waits for the miner to confirm that it
-/// stopped. The manager halts mining within one scheduler round-trip, so
-/// five seconds stops a wedged miner from hanging the request.
+/// How long an upload waits for the miner to confirm that it stopped. The
+/// manager halts mining within one scheduler round-trip, so the bound only
+/// stops a wedged miner from hanging the request.
 const MINING_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Assert the OTA pause and wait for the miner to stop, which an upload does
 /// before it touches flash. Returns `false` if the miner does not stop in
-/// [`MINING_STOP_TIMEOUT`]. The OTA flash driver separately parks the serial
-/// workers.
+/// [`MINING_STOP_TIMEOUT`].
 async fn quiesce_mining(manager: ManagerHandle, mining: ubos_mining::Handle) -> bool {
     manager.send(ManagerMessage::OtaBegin).await;
     mining.wait_stopped(MINING_STOP_TIMEOUT).await
@@ -197,20 +132,13 @@ async fn downgrade_config(ota: &dyn crate::ota::OtaTarget, config: ubos_config::
     }
 }
 
-/// Maximum image size the registered target accepts.
-///
-/// Reads the board-reported cap from the lock-free OTA info snapshot,
-/// falling back to [`OTA_MAX_IMAGE_BYTES`] when no target is registered (a
-/// board without one returns 501 to the upload regardless, so this only
-/// gates the pre-lock size check). Lets a board with a larger inactive slot
-/// accept images above the RP default without a shared constant bump.
+/// Largest image the registered target accepts, or [`OTA_MAX_IMAGE_BYTES`]
+/// when none is registered, which only gates the pre-lock size check.
 fn max_image_bytes() -> u64 {
     crate::ota::ota_info().map_or(OTA_MAX_IMAGE_BYTES, |info| info.max_image_bytes)
 }
 
-/// Build the dotted-quad IPv4 string from the shared net state.
-///
-/// Returns an empty string when DHCP has not yet assigned an address.
+/// The dotted-quad IPv4 string, empty until DHCP assigns an address.
 pub(crate) fn build_ip_string(net: ubos_net::net::Handle) -> String<16> {
     let mut result = String::new();
     if let Some(octets) = net
@@ -230,10 +158,8 @@ pub(crate) fn build_ip_string(net: ubos_net::net::Handle) -> String<16> {
     result
 }
 
-/// Build the colon-separated lowercase hex MAC string from the shared net
-/// state.
-///
-/// Returns an empty string when the board has not yet published its MAC.
+/// The colon-separated lowercase hex MAC string, empty until the board
+/// publishes its MAC.
 pub(crate) fn build_mac_string(net: ubos_net::net::Handle) -> String<17> {
     let mut result = String::new();
     if let Some(mac) = net.current().and_then(|state| state.mac) {
@@ -251,9 +177,7 @@ pub(crate) fn build_mac_string(net: ubos_net::net::Handle) -> String<17> {
     result
 }
 
-/// Build the `HH:MM:SS UTC` time string from the NTP epoch offset.
-///
-/// Returns an empty string when NTP has not yet synchronized.
+/// The `HH:MM:SS UTC` time string, empty until NTP synchronizes.
 pub(crate) fn build_time_string(net: ubos_net::net::Handle) -> String<24> {
     let mut result = String::new();
     if let Some(unix_secs) = net.unix_secs() {
@@ -263,12 +187,7 @@ pub(crate) fn build_time_string(net: ubos_net::net::Handle) -> String<24> {
     result
 }
 
-/// Write a 405 Method Not Allowed response carrying the required
-/// `Allow` header.
-///
-/// RFC 7231 §6.5.5 mandates the `Allow` header on every 405. The
-/// routing table populates `allowed` per route so each response advertises
-/// only the methods that route actually accepts.
+/// Write a 405 with the `Allow` header RFC 7231 requires on it.
 async fn write_method_not_allowed<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     allowed: &'static str,
@@ -298,11 +217,9 @@ where
     Ok(())
 }
 
-/// Serialize `value` to `scratch`, then write a 200 OK JSON response.
-///
-/// Falls back to a 500 plain-text response when `serde_json_core`
-/// returns an error; the schema structs are plain serde derivations
-/// so this path is treated as a firmware bug.
+/// Serialize `value` to `scratch`, then write a 200 JSON response, or a
+/// 500 when serialization fails, which the plain serde derivations make
+/// a firmware bug.
 async fn serialize_and_respond<T, const N: usize, V: serde::Serialize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -314,10 +231,8 @@ where
     if let Ok(length) = serde_json_core::to_slice(value, scratch) {
         write_json_response(connection, Status::OK, &scratch[..length]).await
     } else {
-        // BUG: serialization of a schema struct failed; the schemas are
-        // plain serde derivations so this path should be unreachable.
-        // Keep the body JSON to match the success-path Content-Type so
-        // machine clients can parse the failure case with the same decoder.
+        // The body stays JSON so a machine client parses the failure with
+        // the same decoder.
         write_message(
             connection,
             Status::INTERNAL_SERVER_ERROR.with_message("serialization error"),
@@ -327,10 +242,6 @@ where
 }
 
 /// Handle `GET /api/system/info`.
-///
-/// Populates all fields from the shared atomics.
-/// When `ota` is `Some`, the `ota` field in the response carries the
-/// running-slot label, running version, and previous-image information.
 async fn handle_info<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -355,9 +266,8 @@ where
     let shares_accepted = service.stratum.shares_accepted();
     let shares_rejected = service.stratum.shares_rejected();
     let shares_total = chain_stats.machine_share_count();
-    // Extract the configured hostname before building SystemInfo so the
-    // full Config snapshot is dropped before the serialize_and_respond
-    // await, keeping the response future small.
+    // The `Config` snapshot is dropped before the await, so only the
+    // hostname rides the response future.
     let configured_hostname = service.config.current().await.network.hostname;
     let hostname = if configured_hostname.is_empty() {
         board_name
@@ -365,8 +275,6 @@ where
         configured_hostname.as_str()
     };
 
-    // Lock-free read of the published OTA snapshot. Unlike taking the
-    // upload mutex, this stays readable while an upload is in progress.
     let ota_info = crate::ota::ota_info();
 
     let mining_state = service
@@ -422,8 +330,6 @@ where
 }
 
 /// Handle `GET /api/system/asic`.
-///
-/// Returns static capability metadata for the BM1362 chip.
 async fn handle_asic<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -435,11 +341,8 @@ where
     serialize_and_respond(connection, scratch, mining_info).await
 }
 
-/// Handle `GET /api/system/thermal`.
-///
-/// Returns the accepted ranges for the Temperature config section so the
-/// webui pulls its input `min`/`max` from the same source the firmware
-/// validates against, matching the `/api/system/asic` precedent.
+/// Handle `GET /api/system/thermal`: the accepted ranges, so the webui
+/// pulls its input bounds from the source the firmware validates against.
 async fn handle_thermal<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -480,13 +383,7 @@ where
     serialize_and_respond(connection, scratch, &body).await
 }
 
-/// Handle `GET /api/system/cooling`.
-///
-/// Returns the accepted ranges for the Cooling config section so the
-/// webui pulls its `targetC` input `min`/`max` from the same source
-/// the firmware validates against. Mirrors `handle_thermal` for the
-/// cooling domain, following the `MiningInfo` precedent of keeping
-/// bounds metadata at a dedicated endpoint.
+/// Handle `GET /api/system/cooling`; see [`handle_thermal`].
 async fn handle_cooling<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -497,10 +394,7 @@ where
     serialize_and_respond(connection, scratch, &ubos_config::COOLING_INFO).await
 }
 
-/// Handle `GET /api/system/statistics`.
-///
-/// Returns the fixed label set with an empty rows slice. A ring buffer
-/// will be wired in a later phase without a schema change.
+/// Handle `GET /api/system/statistics`: the fixed label set with no rows.
 async fn handle_statistics<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -522,10 +416,7 @@ where
     serialize_and_respond(connection, scratch, &statistics).await
 }
 
-/// Handle `GET /api/system/scoreboard`.
-///
-/// Serializes an empty `SystemScoreboardEntry` slice as a JSON array.
-/// The scoreboard ring buffer is wired in a later phase.
+/// Handle `GET /api/system/scoreboard`: an empty array.
 async fn handle_scoreboard<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -537,8 +428,6 @@ where
     if let Ok(length) = serde_json_core::to_slice(entries, scratch) {
         write_json_response(connection, Status::OK, &scratch[..length]).await
     } else {
-        // BUG: serializing an empty slice failed; this is a serde_json_core
-        // invariant violation.
         write_message(
             connection,
             Status::INTERNAL_SERVER_ERROR.with_message("serialization error"),
@@ -558,10 +447,7 @@ where
     write_message(connection, Status::NOT_IMPLEMENTED.with_message(message)).await
 }
 
-/// Write a 200 OK response with `{"message":"ack"}` body.
-///
-/// Shared by every stub action handler. The body signals that the
-/// request was received; no firmware state is changed.
+/// Write a 200 with `{"message":"ack"}`.
 async fn write_ack_response<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
 ) -> Result<(), HttpError<T::Error>>
@@ -572,11 +458,6 @@ where
 }
 
 /// Handle `GET /api/system/network`.
-///
-/// Serializes the current network mode, pending-change flag, confirm
-/// countdown, and live address fields as a [`SystemNetwork`] JSON body.
-/// `stack` is the live embassy-net stack; `config_v4()` reads the current
-/// address without any global state or unsafe code.
 async fn handle_network_get<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -587,10 +468,8 @@ where
     T: Read + Write + TcpSplit,
 {
     let seconds_remaining = config.pending_seconds_remaining();
-    // While a change is pending the persisted mode still reflects the old
-    // config, but the live address already reflects the preview. Report the
-    // previewed mode so the two agree until the operator confirms or it
-    // reverts.
+    // While a change is pending the live address already reflects the
+    // preview, so the previewed mode is reported with it.
     let mode = match config.pending_mode_is_static() {
         Some(true) => "static",
         Some(false) => "dhcp",
@@ -606,8 +485,7 @@ where
     let mut dns = heapless::Vec::new();
     if let Some(ref config) = live {
         for server in &config.dns_servers {
-            // dns has the same capacity as dns_servers, so this never
-            // overflows; the discarded result reflects that invariant.
+            // Same capacity as `dns_servers`, so the push cannot fail.
             let _ = dns.push(server.octets());
         }
     }
@@ -640,15 +518,8 @@ pub(crate) struct NetworkPostRequest {
     confirm_after_switch: bool,
 }
 
-/// Handle `POST /api/system/network`.
-///
-/// Deserializes the body as a [`NetworkPostRequest`], validates the
-/// embedded [`ubos_config::NetworkConfig`], and forwards it to
-/// `ubos-config` as a [`ubos_config::Message::ApplyNetwork`]; `ubos-net`
-/// switches the live stack on the resulting config change. When
-/// `confirm_after_switch` is `true`, a 120 s confirm-or-revert window
-/// is armed; when `false`, the change is persisted immediately with no
-/// window. Returns 400 on parse or validation error, 200 on success.
+/// Handle `POST /api/system/network`: validate the body and forward it as
+/// [`ubos_config::Message::ApplyNetwork`].
 async fn handle_network_post<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     body: &[u8],
@@ -667,10 +538,8 @@ where
     if let Err(message) = network.validate() {
         return write_message(connection, Status::BAD_REQUEST.with_message(message)).await;
     }
-    // A wrong or unreachable static address strands the board, and applying
-    // with no confirm window persists it immediately, so a reboot cannot
-    // recover. Require the confirm-or-revert window for static changes; DHCP
-    // self-heals on reboot, so it may still opt out.
+    // A static change without the confirm window persists an address a
+    // reboot cannot recover from. DHCP self-heals, so it can opt out.
     if matches!(network.mode, ubos_config::NetworkMode::Static { .. })
         && !request.confirm_after_switch
     {
@@ -689,11 +558,8 @@ where
     write_json_response(connection, Status::OK, b"{\"ok\":true}").await
 }
 
-/// Write a 503 Service Unavailable when the apply queue is full.
-///
-/// The apply task drains a bounded channel; a burst can momentarily fill
-/// it. Reporting 503 lets the operator retry instead of seeing a success
-/// that never took effect.
+/// Write a 503 when the bounded apply channel is full, so the operator
+/// retries instead of seeing a success that never took effect.
 async fn write_busy<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
 ) -> Result<(), HttpError<T::Error>>
@@ -708,8 +574,6 @@ where
 }
 
 /// Handle `POST /api/system/network/confirm`.
-///
-/// Forwards [`ubos_config::Message::ConfirmNetwork`] and returns 200 ack.
 async fn handle_network_confirm<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     config: ubos_config::Handle,
@@ -724,8 +588,6 @@ where
 }
 
 /// Handle `POST /api/system/network/revert`.
-///
-/// Forwards [`ubos_config::Message::RevertNetwork`] and returns 200 ack.
 async fn handle_network_revert<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     config: ubos_config::Handle,
@@ -739,14 +601,9 @@ where
     write_ack_response(connection).await
 }
 
-/// Handle a POST action endpoint (restart, identify,
-/// blockFound/dismiss).
-///
-/// Logs one `info!` line naming the action and returns 200 with
-/// `{"message":"ack"}`. Pause is handled by `dispatch`, and resume and
-/// the overheat clear by `handle_resume` and `handle_thermal_clear`,
-/// because they carry a `Manager` side-effect; resume can refuse with
-/// a 409 before it reaches this ack.
+/// Handle a POST action endpoint that only logs and acks. Pause, resume
+/// and the overheat clear carry a `Manager` side effect and are
+/// dispatched separately.
 async fn handle_action<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     action: &str,
@@ -758,17 +615,10 @@ where
     write_ack_response(connection).await
 }
 
-/// Handle `POST /api/system/resume`.
-///
-/// See "Two ways out of an overheat halt" in docs/MINING.md. `Start`
-/// lifts only the operator's own pause, so a resume during an overheat
-/// halt would answer 200 and leave mining halted. Refuse it with a 409
-/// instead. The message states the halt and no more; the web UI owns
-/// the operator text, and it reaches the confirm step without reading
-/// this message at all.
-///
-/// `pub(crate)` so the host test drives it over a handle built on a
-/// mask the test publishes itself.
+/// Handle `POST /api/system/resume`. `Start` lifts only the operator's
+/// own pause, so a resume during an overheat halt answers 409 rather than
+/// acking a halt that stands; see "Two ways out of an overheat halt" in
+/// `docs/MINING.md`.
 pub(crate) async fn handle_resume<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     manager: ManagerHandle,
@@ -788,15 +638,9 @@ where
     handle_action(connection, "resume").await
 }
 
-/// Handle `POST /api/system/thermal/clear`.
-///
-/// See "Two ways out of an overheat halt" in docs/MINING.md. This
-/// route clears the halt and starts mining; both are its job, and no
-/// route does the first without the second. So it logs the start the
-/// same way `handle_resume` does, and the one line means the same
-/// thing on either route: the operator asked for mining to start. The
-/// manager logs separately whether mining then resumed, which it does
-/// only when the mask empties.
+/// Handle `POST /api/system/thermal/clear`, which clears the halt and
+/// starts mining. It logs the start as `handle_resume` does, because on
+/// either route the operator asked for mining to start.
 pub(crate) async fn handle_thermal_clear<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     manager: ManagerHandle,
@@ -811,16 +655,10 @@ where
     handle_action(connection, "thermal/clear").await
 }
 
-/// Handle `POST /api/system/factory_reset`.
-///
-/// Clears all sessions, sends [`ubos_config::Message::FactoryReset`] to the
-/// config task, and writes the 200 ack. The config task wipes persisted
-/// config back to defaults and only then requests the reboot, so the flash
-/// erase and write always complete before the reset task's flush delay
-/// elapses and the MCU resets. The ack reaches the wire well ahead of that
-/// reset. Sessions are cleared up front so the operator's cookie cannot
-/// authenticate during the brief window before the reset fires, matching
-/// the live network apply.
+/// Handle `POST /api/system/factory_reset`. The config task wipes the
+/// config and only then requests the reboot, so the erase completes
+/// before the reset. Sessions are cleared up front so the cookie cannot
+/// authenticate in the window before the reset fires.
 async fn handle_factory_reset<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     config: ubos_config::Handle,
@@ -833,13 +671,8 @@ where
     write_ack_response(connection).await
 }
 
-/// Handle `PATCH /api/system`.
-///
-/// Logs the body byte count and returns 200 with `{"message":"ack"}`.
-/// No fields are applied; credential and config persistence is handled
-/// by `POST /api/config`. The body itself is not
-/// logged because legitimate clients may include credentials in the
-/// JSON payload, and the stub has no operational use for the contents.
+/// Handle `PATCH /api/system`: a stub that acks. The body is not logged,
+/// since a client can send credentials in it.
 async fn handle_patch_system<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     body_len: usize,
@@ -851,22 +684,15 @@ where
     write_ack_response(connection).await
 }
 
-/// Outcome of a failed [`read_chunk`] call, carrying the bytes read
-/// before the failure so the caller can log the position.
+/// A failed [`read_chunk`], carrying the bytes read before the failure.
 enum ChunkReadError {
-    /// The connection closed before the expected byte count arrived.
     Eof { read_so_far: usize },
-    /// The underlying read returned an error.
     Io { read_so_far: usize },
 }
 
 /// Fills `buffer[..want]` from `connection`, looping over short reads.
-///
-/// Shared by [`handle_ota`] and [`handle_ota_chunk`], which differ only in
-/// how they log and respond to a failure; this returns the failure
-/// verbatim rather than acting on it, so both callers keep their own
-/// wording. Free rather than a method because `Connection` is `edge-http`'s
-/// type.
+/// Returns the failure instead of acting on it, so each caller keeps its
+/// own wording. Free because `Connection` is `edge-http`'s type.
 async fn read_chunk<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     buffer: &mut [u8],
@@ -941,8 +767,8 @@ pub(crate) async fn handle_ota<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    // Validate input before acquiring the mutex so a request rejected on
-    // bad headers never holds the upload lock.
+    // Rejected on headers before the mutex, so a bad request never holds
+    // the upload lock.
     let Some(image_bytes) = content_length else {
         return write_message(
             connection,
@@ -960,9 +786,8 @@ where
     }
 
     if image_bytes < OTA_MIN_IMAGE_BYTES {
-        // No session has started yet, so this is a client input rejection,
-        // not a device error. Leaving the phase at Idle keeps /api/info from
-        // reporting a stale Error until the next attempt or a reboot.
+        // No session has started, so the phase stays Idle rather than
+        // reporting a client mistake as a device error.
         return write_message(
             connection,
             Status::BAD_REQUEST.with_message("image too small"),
@@ -970,9 +795,8 @@ where
         .await;
     }
 
-    // Acquire the registered target. `try_lock` (not `lock`) so a second
-    // concurrent upload is rejected rather than queued behind a write that
-    // ends in a reboot.
+    // `try_lock`, so a second upload is rejected rather than queued behind
+    // a write that ends in a reboot.
     let Ok(mut guard) = crate::ota::target_mutex().try_lock() else {
         return write_message(
             connection,
@@ -988,17 +812,13 @@ where
         .await;
     };
 
-    // `image_bytes` is now at most the target's max image size, which fits
-    // in usize on all targets (any real slot is well under 4 GiB).
     #[allow(clippy::cast_possible_truncation)]
     let total_bytes = image_bytes as usize;
 
-    // Mining must be quiesced before any flash access: the flash bus is
-    // shared and the mining serial task runs on core 1, so an in-flight
-    // UART DMA transfer can race a flash write if mining is still active.
+    // Mining stops before any flash access: an in-flight UART DMA transfer
+    // on core 1 can race a flash write.
     if !quiesce_mining(manager, mining).await {
         warn!("OTA: mining did not stop within timeout; aborting");
-        // Mining may still stop after the timeout, so clear the pause.
         manager.send(ManagerMessage::OtaEnd).await;
         return write_message(
             connection,
@@ -1012,34 +832,26 @@ where
             ota_session().begin();
         }
         Err(OtaError::NoPartitionTable) => {
-            // Resume mining so the board keeps hashing after a failed update.
             manager.send(ManagerMessage::OtaEnd).await;
             return write_message(connection, OtaError::NoPartitionTable.into()).await;
         }
         Err(error) => {
             warn!("OTA begin failed: {:?}", error);
             ota_session().record_error(error);
-            // Resume mining so the board keeps hashing after a failed update.
             manager.send(ManagerMessage::OtaEnd).await;
             return write_message(connection, error.into()).await;
         }
     }
 
-    // This 4096-byte buffer contributes to the task future size; see the
-    // SCRATCH_SIZE note for guidance on auditing stack costs when adjusting.
     let mut chunk_buffer = [0u8; OTA_CHUNK_SIZE];
     let mut bytes_written = 0usize;
 
     while bytes_written < total_bytes {
         let want = (total_bytes - bytes_written).min(OTA_CHUNK_SIZE);
 
-        // Fill the chunk buffer before calling write_chunk. Chunks are
-        // OTA_CHUNK_SIZE bytes except the final chunk, which carries the
-        // remainder; the target accepts a sub-sector final write.
         match read_chunk(connection, &mut chunk_buffer, want).await {
             Ok(()) => {}
             Err(ChunkReadError::Eof { read_so_far }) => {
-                // Premature EOF: the client closed before sending all bytes.
                 warn!(
                     "OTA: premature EOF at {}/{} bytes",
                     bytes_written + read_so_far,
@@ -1060,13 +872,7 @@ where
         bytes_written += want;
         #[allow(clippy::cast_possible_truncation)]
         ota_session().chunk_written(bytes_written as u32);
-        // Pause briefly between sector writes rather than yielding once. The
-        // flash write pauses both cores, and the W6100 cannot be drained while
-        // frozen, so a single yield is not enough for the network task to empty
-        // the chip's RX buffer, send ACKs, and reopen the TCP window before the
-        // next read. A short delay gives the executor several poll rounds to
-        // drain the W6100 and feed the watchdog, keeping the chip's 4 KiB
-        // buffer from accumulating across freezes.
+        // See `OTA_DRAIN_DELAY_MS` for why this is a delay and not a yield.
         Timer::after(Duration::from_millis(OTA_DRAIN_DELAY_MS)).await;
     }
 
@@ -1081,11 +887,9 @@ where
         total_bytes
     );
     ota_session().rebooting();
-    // The image is staged and finish() marked the swap, so commit it by
-    // rebooting regardless of whether the ack reaches the client. A failed
-    // ack write must not skip the reboot: that would leave mining stopped and
-    // the swap pending. The reboot restarts mining on the new image, so a lost
-    // ack is harmless and matches the client's expected connection drop.
+    // `finish()` marked the swap, so the reboot happens whether or not the
+    // ack reaches the client; skipping it would leave mining stopped and
+    // the swap pending.
     let _ = write_json_response(connection, Status::OK, b"{\"ok\":true}").await;
 
     ota.reboot_into_new()
@@ -1144,8 +948,8 @@ pub(crate) async fn handle_ota_chunk<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    // Validate input before acquiring the mutex so a request rejected on
-    // bad headers never holds the upload lock.
+    // Rejected on headers before the mutex, so a bad request never holds
+    // the upload lock.
     let Some(chunk_bytes) = content_length else {
         return write_message(
             connection,
@@ -1174,8 +978,8 @@ where
         .await;
     }
 
-    // Reject concurrent uploads: a second connection finds the mutex held
-    // and is refused rather than queued behind a write that ends in a reboot.
+    // `try_lock`, so a second upload is rejected rather than queued behind
+    // a write that ends in a reboot.
     let Ok(mut guard) = crate::ota::target_mutex().try_lock() else {
         return write_message(
             connection,
@@ -1191,22 +995,18 @@ where
         .await;
     };
 
-    // `chunk_bytes` is at most OTA_CHUNK_SIZE which fits in usize on all targets.
     #[allow(clippy::cast_possible_truncation)]
     let chunk_size = chunk_bytes as usize;
 
     if ota_offset == 0 {
-        // A fresh offset-0 chunk restarts the session. If a prior session was
-        // still active, abort it first so its core-1 park, breadcrumb, and
-        // write offset are reset before re-arming the slot writer.
+        // A prior session still active is aborted first, so its core park,
+        // breadcrumb and write offset are reset before the slot re-arms.
         if ota.bytes_written().is_some() {
             warn!("OTA chunk: offset 0 with active session; aborting prior session");
             ota.abort();
         }
-        // Start of a new upload session: quiesce mining, then arm the slot writer.
         if !quiesce_mining(manager, mining).await {
             warn!("OTA chunk: mining did not stop within timeout; aborting");
-            // Mining may still stop after the timeout, so clear the pause.
             manager.send(ManagerMessage::OtaEnd).await;
             return write_message(
                 connection,
@@ -1231,11 +1031,8 @@ where
             }
         }
     } else {
-        // Continuation: the incoming offset must equal the bytes already written.
-        // A mismatch means an out-of-order or replayed request.
+        // A mismatch is an out-of-order or replayed request.
         let expected = ota.bytes_written().unwrap_or(0);
-        // `ota_offset` is a u64 header value; the target write position fits in
-        // usize on all supported targets (max image is ~1 MiB << 4 GiB).
         #[allow(clippy::cast_possible_truncation)]
         let ota_offset_usize = ota_offset as usize;
         if ota_offset_usize != expected {
@@ -1260,9 +1057,6 @@ where
         return fail_upload(connection, ota, manager, OtaError::ShortChunk).await;
     }
 
-    // Read the chunk body fully before calling write_chunk. The buffer is
-    // sized to OTA_CHUNK_SIZE so the largest legal chunk fits without
-    // reallocation.
     let mut chunk_buffer = [0u8; OTA_CHUNK_SIZE];
 
     match read_chunk(connection, &mut chunk_buffer, chunk_size).await {
@@ -1285,14 +1079,11 @@ where
         return fail_upload(connection, ota, manager, error).await;
     }
 
-    // `ota_offset` + `chunk_size` is the number of bytes written so far.
-    // Both are bounded by the target's max image size (fits in u32 on all targets).
+    // Both terms are bounded by the target's max image size.
     #[allow(clippy::cast_possible_truncation)]
     ota_session().chunk_written((ota_offset as u32).saturating_add(chunk_size as u32));
 
     if ota_final {
-        // `ota_offset` + `chunk_size` is the total image size delivered.
-        // Both are bounded by the target's max image size (fits in u64 on all targets).
         let total_image_bytes = ota_offset.saturating_add(chunk_size as u64);
         if total_image_bytes < OTA_MIN_IMAGE_BYTES {
             return fail_upload(connection, ota, manager, OtaError::ShortUpload).await;
@@ -1304,7 +1095,6 @@ where
         }
 
         downgrade_config(ota, config).await;
-        // `ota_offset` is bounded by the target's max image size (fits in usize on all targets).
         #[allow(clippy::cast_possible_truncation)]
         let total_bytes = ota_offset as usize + chunk_size;
         info!(
@@ -1312,32 +1102,24 @@ where
             total_bytes,
         );
         ota_session().rebooting();
-        // The image is staged and finish() marked the swap. Commit it by
-        // rebooting regardless of whether the ack reaches the client; a
-        // lost ack matches the expected connection drop on reset, and a
-        // failed ack must not skip the reboot or leave mining stopped.
+        // `finish()` marked the swap, so the reboot happens whether or not
+        // the ack reaches the client; see `handle_ota`.
         let _ = write_json_response(connection, Status::OK, b"{\"ok\":true}").await;
         ota.reboot_into_new()
     } else {
-        // Acknowledge the chunk and tell the client the next expected offset.
-        // `ota_offset` is bounded by the target's max image size (fits in usize on all targets).
         #[allow(clippy::cast_possible_truncation)]
         let next_offset = ota_offset as usize + chunk_size;
         let mut ack_buf = [0u8; 40];
         let mut writer = ubos_http::BufferWriter::new(&mut ack_buf);
-        // Safety: the format args are plain integers, so write! cannot fail.
+        // Plain integer args, so `write!` cannot fail.
         let _ = core::write!(writer, "{{\"ok\":true,\"next\":{next_offset}}}");
         let ack_len = writer.len();
         write_json_response(connection, Status::OK, &ack_buf[..ack_len]).await
     }
 }
 
-/// Begin a streaming JSON response with no `Content-Length` header.
-///
-/// edge-http upgrades a response that declares no `Content-Length` to
-/// chunked transfer encoding on a keep-alive HTTP/1.1 connection. That
-/// framing accepts multiple subsequent writes, each sent as its own chunk.
-/// Callers write the body in pieces after this function returns.
+/// Begin a JSON response with no `Content-Length`, which edge-http sends
+/// as chunked transfer encoding, so the caller writes the body in pieces.
 async fn begin_streamed_json<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
 ) -> Result<(), HttpError<T::Error>>
@@ -1355,12 +1137,9 @@ where
     start_response(connection, Status::OK, &headers).await
 }
 
-/// Parse the `since` query parameter from a path+query string.
-///
-/// Returns the numeric value of `?since=<u32>`. A value that overflows
-/// `u32` clamps to `u32::MAX`, so an oversized cursor returns no records
-/// rather than the whole ring. An absent parameter or any other
-/// unparseable value returns zero.
+/// The `?since=<u32>` query value, or zero when absent or unparseable. An
+/// overflow clamps to `u32::MAX`, so an oversized cursor returns no
+/// records rather than the whole ring.
 fn parse_since(path: &str) -> u32 {
     let Some((_, query)) = path.split_once('?') else {
         return 0;
@@ -1377,21 +1156,12 @@ fn parse_since(path: &str) -> u32 {
     0
 }
 
-/// Handle `GET /api/system/events`.
-///
-/// Streams the event ring as a JSON object `{"events":[...]}` with records
-/// in oldest-first order. An optional `?since=<seq>` query parameter returns
-/// only records whose `seq` is greater than `since`, so callers poll for new
-/// records.
-///
-/// The ring is read in small batches advanced by a `seq` cursor rather than
-/// copied whole, so no buffer scales with the ring capacity. The read is
-/// bounded to the records present when it began by capturing the latest `seq`
-/// up front; records recorded mid-stream are left for a later poll.
-///
-/// If the ring wraps past the caller's `since` between polls the skipped
-/// records are gone: the response resumes at the oldest live record, so the
-/// `seq` numbers jump and the browser detects the gap.
+/// Handle `GET /api/system/events`: the ring as `{"events":[...]}`,
+/// oldest first, after `?since=<seq>`. The ring is read in batches by a
+/// `seq` cursor, so no buffer scales with its capacity, and the read is
+/// bounded to the records present when it began. A ring that wrapped past
+/// `since` resumes at the oldest live record, and the `seq` jump is how
+/// the browser sees the gap.
 async fn handle_events<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     path: &str,
@@ -1436,11 +1206,8 @@ where
     Ok(())
 }
 
-/// Handle `GET /api/system/events/catalog`.
-///
-/// Streams the assembled event catalog as a JSON array. Each element
-/// carries the event `code`, `sev`, `fmt` string, and `args` width list.
-/// Returns `[]` until firmware installs the catalogs via `set_catalogs`.
+/// Handle `GET /api/system/events/catalog`: `[]` until the firmware
+/// installs the catalogs.
 async fn handle_events_catalog<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
 ) -> Result<(), HttpError<T::Error>>
@@ -1480,29 +1247,18 @@ where
 pub(crate) const EVENTS_OPEN: &[u8] = b"{\"events\":[";
 pub(crate) const EVENTS_CLOSE: &[u8] = b"]}";
 
-/// Records copied from the ring per streaming batch. Sized for a small stack
-/// buffer rather than the full ring, so the events endpoint costs no RAM that
-/// scales with `EVENT_LOG_CAPACITY` on any board.
+/// Records copied from the ring per batch, so the events endpoint costs
+/// no RAM that scales with the ring capacity.
 const EVENT_BATCH: usize = 16;
 
-/// Maximum byte length of one serialised event record in the streaming JSON body.
-///
-/// The longest record serialises as
-/// `{"seq":4294967295,"ts":4294967295,"sev":"error","code":4294967295,"args":"<22 hex chars>"}`,
-/// which is 98 bytes. 128 leaves conservative headroom.
+/// Longest serialised event record, with its leading comma, plus headroom.
 const EVENT_JSON_MAX: usize = 128;
 
-/// Maximum byte length of one serialised event definition in the streaming JSON body.
-///
-/// The layout accommodates a code (10 digits), severity string (5 chars), a
-/// format string of up to ~169 bytes after the fixed punctuation, and an args
-/// array of up to six quoted width strings, all within 256 bytes.
+/// Longest serialised event definition: a full-width code, a severity, a
+/// format string of about 169 bytes and six quoted arg widths.
 const DEF_JSON_MAX: usize = 256;
 
 /// A known route on the `/api/system/*` surface.
-///
-/// Returned by `route()` when the method and path both match a handled
-/// endpoint. `dispatch()` switches on this to call the right handler.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub(crate) enum Route {
     /// `GET /api/system/info`
@@ -1623,37 +1379,30 @@ impl Route {
     }
 }
 
-/// Outcome of `route()` for a single method+path pair.
-///
-/// Separates the pure routing decision from the response-writing so
-/// the routing table can be unit-tested without a live `Connection`.
+/// Outcome of `route()`, kept apart from the response so the table is
+/// testable without a `Connection`.
 #[derive(PartialEq, Eq, Debug)]
 pub(crate) enum DispatchOutcome {
-    /// Known method on a known path — proceed to build the response.
     Handled(Route),
-    /// Known path, wrong method — respond with 405 and this `Allow` value.
-    MethodNotAllowed { allowed: &'static str },
-    /// Unknown path — caller falls through to global 404.
+    /// Known path, wrong method; carries the `Allow` value.
+    MethodNotAllowed {
+        allowed: &'static str,
+    },
     NotFound,
 }
 
-/// Classify a method+path pair against the `/api/system/*` surface.
+/// Classify a method and path against the `/api/system/*` surface. Pure,
+/// so host tests call it.
 ///
-/// The function is pure (no I/O, no state reads) so it can be called
-/// from host unit tests. `dispatch()` calls this first and then drives
-/// the `Connection` based on the result.
-///
-/// Every `GET` arm here must stay free of side effects. The session
-/// cookie is `SameSite=Lax`, so a cross-site link into the board carries
-/// it on a top-level `GET`, and a `GET` that acted would act for the
-/// site that linked. Nothing checks this; it holds by convention. The
-/// cookie is issued in `ubos-webui`, which states the reason in full.
+/// Every `GET` arm must stay free of side effects: the session cookie is
+/// `SameSite=Lax`, so a cross-site link carries it on a top-level `GET`,
+/// and a `GET` that acted would act for the site that linked. Nothing
+/// checks this.
 ///
 /// It is one arm per route, so its length grows with the table and not
 /// with any logic.
 #[allow(clippy::too_many_lines)]
 pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
-    // Strip any query string so routes always match on the path only.
     let path = path.split_once('?').map_or(path, |(prefix, _)| prefix);
     match path {
         "/api/system/info" => match method {
@@ -1759,20 +1508,9 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
     }
 }
 
-/// Try to dispatch a `/api/system/*` request.
-///
-/// Returns `true` when the path belongs to the system surface (whether
-/// the method matched or produced 405). Returns `false` only when the
-/// path does not belong to this surface at all, so the caller falls
-/// through to legacy routing.
-///
-/// `body` carries the already-read request body bytes. The length of
-/// the slice is all the body content available; callers must read it
-/// before calling this function.
-///
-/// Crate-private because the auth/CSRF/allow-list gates live in
-/// `RestApiService::handle`; exposing this directly would let an
-/// outside caller bypass those checks.
+/// Dispatch a `/api/system/*` request. `false` means the path is not on
+/// this surface and the caller falls through. Crate-private because the
+/// auth and CSRF gates live in `RestApiService::handle`.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn dispatch<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
@@ -1784,10 +1522,7 @@ pub(crate) async fn dispatch<T, const N: usize>(
 where
     T: Read + Write + TcpSplit,
 {
-    // One serialization scratch per dispatch invocation. The handlers
-    // are mutually exclusive so a single buffer is sufficient; sharing
-    // it keeps peak stack pressure to a single 2 KiB allocation rather
-    // than one per handler.
+    // One scratch per dispatch: the handlers are mutually exclusive.
     let mut scratch = [0u8; SCRATCH_SIZE];
     let scratch = &mut scratch[..];
 
@@ -1827,15 +1562,12 @@ where
             handle_not_implemented(connection, "unsupported on this platform").await?;
         }
         DispatchOutcome::Handled(Route::SystemOta) => {
-            // The streaming upload is intercepted in rest.rs before the body
-            // is pre-read, so this arm is not reached in normal operation;
-            // respond defensively rather than mishandle the unread body.
+            // Intercepted in rest.rs before the body is pre-read; this arm
+            // only answers if that interception is ever missed.
             handle_not_implemented(connection, "OTA upload must use the streaming path").await?;
         }
         DispatchOutcome::Handled(Route::SystemOtaChunk) => {
-            // The chunk upload is intercepted in rest.rs before the body is
-            // pre-read (same as SystemOta), so this arm is not reached in
-            // normal operation; respond defensively.
+            // As for `SystemOta` above.
             handle_not_implemented(connection, "OTA chunk upload must use the streaming path")
                 .await?;
         }

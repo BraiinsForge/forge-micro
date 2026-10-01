@@ -17,19 +17,12 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Response shape for `GET /api/system/statistics`.
-//!
-//! The spec calls for a `{currentTimestamp, labels[], statistics[][]}`
-//! matrix. The structure is published with a fixed label set and an
-//! empty rows slice. A server-side ring buffer can be wired later
-//! without a schema change.
+//! Response shape for `GET /api/system/statistics`: a fixed label set
+//! and, until a ring is wired, no rows.
 
 use serde::Serialize;
 
-/// Column labels for the statistics matrix.
-///
-/// The order here is the column order clients must use when
-/// interpreting rows in `SystemStatistics::statistics`.
+/// Column labels, in the column order of `SystemStatistics::statistics`.
 pub const LABELS: &[&str] = &["hashrate", "temperature", "fan_rpm", "fan_pwm", "power_mw"];
 
 /// Statistics time-series snapshot for `GET /api/system/statistics`.

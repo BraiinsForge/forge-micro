@@ -18,12 +18,6 @@
 // shall be considered distinct from the grant above.
 
 //! Response shape for `GET /api/system/info`.
-//!
-//! Carries the data the legacy `/api/info` endpoint already exposes
-//! plus an `apiVariant` discriminator so machine clients can dispatch
-//! on our schema without pretending to talk to a reference-device. Fields the
-//! reference-miner spec lists but our Ethernet stack cannot supply (`WiFi`
-//! status, ESP-IDF version) are simply absent.
 
 use heapless::String;
 use serde::Serialize;

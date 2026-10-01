@@ -19,28 +19,20 @@
 
 //! Board-agnostic OTA update trait and error type.
 //!
-//! `OtaTarget` abstracts over the flash partition layout and write
-//! mechanics so the REST handler in `rest.rs` can drive a firmware
-//! update without depending on any board-specific crate. The rp2350,
-//! rp2040, and bmm-pico firmware implement this trait; boards that do
-//! not supply an implementation receive a 501 Not Implemented response
-//! from the handler.
-//!
-//! All methods are synchronous. The streaming handler sleeps briefly
-//! (`Timer::after`) between sector writes so the network task can drain
-//! the chip buffer and feed the watchdog; the chunk-ack handler instead
-//! writes one sector per request. Implementors that need to pause a
-//! second core for the duration of a flash write must do so inside
-//! `write_chunk`.
+//! [`OtaTarget`] hides the flash layout and the write mechanics, so the
+//! REST handlers drive an update without a board crate. A board that
+//! registers no target answers 501 from the handler.
 //!
 //! # Registration
 //!
-//! The HTTP `Service` is shared (`&self`), so the target cannot be a
-//! `&mut` field. The firmware registers a `&'static mut` implementation
-//! once at boot via [`register_ota_target`]; the OTA handlers acquire it
-//! through an async [`Mutex`], which also serialises concurrent uploads:
-//! a second upload finds the lock held and is rejected. Boards that
-//! never register a target leave the endpoint reporting "not available".
+//! The HTTP `Service` is shared, so the target cannot be a `&mut` field.
+//! The firmware registers a `&'static mut` target once at boot through
+//! [`register_ota_target`], and the handlers take it through an async
+//! [`Mutex`]: the streaming upload holds the guard across every `await`
+//! in its read loop, which rules out a `RefCell` or a blocking mutex, and
+//! `try_lock` rejects a second upload instead of racing the flash. The
+//! `CriticalSectionRawMutex` flavour is the one that is `Sync`, which a
+//! `static` needs.
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -55,16 +47,8 @@ use crate::schema::system_info::OtaInfo;
 /// target names it without depending on `ubos-config`.
 pub use ubos_config::StagedConfig;
 
-// ---------------------------------------------------------------------------
-// Live upload session state (lock-free atomics)
-// ---------------------------------------------------------------------------
-
-/// Phase of the current or most recent OTA upload session.
-///
-/// Stored as a `u8` in an `AtomicU8`. The `#[repr(u8)]` guarantee means
-/// any valid discriminant can be loaded atomically and cast back without
-/// risk of reading an indeterminate intermediate value. It serializes as
-/// its variant name in camel case, the string `/api/info` reports.
+/// Phase of the current or most recent OTA upload session. Stored as a
+/// `u8` in an `AtomicU8`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(
     feature = "schema",
@@ -87,8 +71,7 @@ pub enum OtaPhase {
 }
 
 impl OtaPhase {
-    /// The phase a stored discriminant names; anything unknown reads as
-    /// idle, which is the default a fresh boot starts in.
+    /// Anything unknown reads as idle, the state a fresh boot starts in.
     const fn from_u8(raw: u8) -> Self {
         match raw {
             raw if raw == Self::Uploading as u8 => Self::Uploading,
@@ -99,42 +82,29 @@ impl OtaPhase {
     }
 }
 
-/// Snapshot of the live upload session state.
-///
-/// Returned by [`OtaSession::snapshot`] for the `/api/info` response.
-/// All fields are derived from atomics and are consistent only
-/// on a per-field basis; no cross-field ordering is guaranteed.
+/// Snapshot of the live upload session state for the `/api/info` writer.
+/// Each field is read from its own atomic, so there is no cross-field
+/// ordering.
 #[derive(Clone, Copy)]
 pub(crate) struct OtaSessionSnapshot {
-    /// Current upload phase.
     pub phase: OtaPhase,
-    /// Bytes written to the inactive slot in the current session.
     pub bytes_written: u32,
-    /// Number of chunks written in the current session.
     pub chunks: u32,
     /// Mapped error code of the last failure, or 0 when none.
     pub last_error: u8,
 }
 
-/// Live state of the current or most recent OTA upload session.
-///
-/// The four fields are independent atomics rather than one lock: the
-/// info endpoint reads them without ever touching the upload mutex, so an
-/// upload in progress never blocks a status read. Each method updates the
-/// fields its caller's transition requires and no others, matching the
-/// state machine described on [`OtaPhase`].
+/// Live state of the current or most recent OTA upload session. Four
+/// independent atomics rather than one lock, so the info endpoint never
+/// touches the upload mutex and an upload never blocks a status read.
 pub(crate) struct OtaSession {
-    /// Phase of the OTA upload, readable without holding the upload mutex.
     phase: AtomicU8,
-    /// Number of bytes written in the current or last upload session.
     bytes_written: AtomicU32,
-    /// Number of chunks written in the current or last upload session.
     chunk_count: AtomicU32,
     /// Error code from the last failed upload session, or 0 when none.
     last_error: AtomicU8,
 }
 
-/// The single upload session state, reached through [`ota_session`].
 static OTA_SESSION: OtaSession = OtaSession {
     phase: AtomicU8::new(OtaPhase::Idle as u8),
     bytes_written: AtomicU32::new(0),
@@ -142,23 +112,15 @@ static OTA_SESSION: OtaSession = OtaSession {
     last_error: AtomicU8::new(0),
 };
 
-/// Returns the live OTA upload session state. A free facade over the
-/// private static, so the session has one home and every caller reaches
-/// it the same way.
+/// The live OTA upload session state; a facade over the private static.
 pub(crate) fn ota_session() -> &'static OtaSession {
     &OTA_SESSION
 }
 
 impl OtaSession {
-    /// Returns a snapshot of the live upload session state.
-    ///
-    /// Lock-free: never touches the upload mutex, so it stays readable
-    /// while an upload holds the target.
+    /// Relaxed loads: the info endpoint needs a plausible picture, not a
+    /// synchronized one.
     pub(crate) fn snapshot(&self) -> OtaSessionSnapshot {
-        // Each field is loaded with Relaxed ordering. This is sufficient
-        // for diagnostic reads: the values are eventually consistent and
-        // the reader, the info endpoint, only needs a plausible current
-        // picture, not a strictly synchronized one.
         let phase = OtaPhase::from_u8(self.phase.load(Ordering::Relaxed));
         OtaSessionSnapshot {
             phase,
@@ -168,11 +130,6 @@ impl OtaSession {
         }
     }
 
-    /// Called by the handler when a new upload session begins (offset == 0,
-    /// `begin()` succeeded).
-    ///
-    /// Resets bytes and chunk count to zero, clears the error code, and
-    /// sets the phase to `Uploading`.
     pub(crate) fn begin(&self) {
         self.bytes_written.store(0, Ordering::Relaxed);
         self.chunk_count.store(0, Ordering::Relaxed);
@@ -181,75 +138,43 @@ impl OtaSession {
             .store(OtaPhase::Uploading as u8, Ordering::Relaxed);
     }
 
-    /// Called by the handler after each successful `write_chunk` call.
-    ///
-    /// Sets the absolute byte count to `total_bytes_written` (not a delta)
-    /// and increments the chunk counter by one.
+    /// `total_bytes_written` is absolute, not a delta.
     pub(crate) fn chunk_written(&self, total_bytes_written: u32) {
         self.bytes_written
             .store(total_bytes_written, Ordering::Relaxed);
         self.chunk_count.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Records an upload error on any error-return path after a session
-    /// has started.
-    ///
-    /// Sets the phase to `Error` and records the mapped error code. Bytes
-    /// and chunk count are left unchanged so diagnostics reflect progress
-    /// at the time of failure.
+    /// Bytes and chunk count are left as they were, so diagnostics show
+    /// the progress at the time of failure.
     pub(crate) fn record_error(&self, error: OtaError) {
         self.last_error.store(error as u8, Ordering::Relaxed);
         self.phase.store(OtaPhase::Error as u8, Ordering::Relaxed);
     }
 
-    /// Records the error and aborts the target's in-progress write.
-    ///
-    /// This is the block every handler runs when a write, a read, or
-    /// `finish()` fails partway through a session: the error is recorded
-    /// first so a client that polls `/api/info` mid-abort sees the cause,
-    /// then the target is told to discard the write it cannot complete.
+    /// Records the error and aborts the target's in-progress write, in
+    /// that order, so a client polling `/api/info` mid-abort sees the
+    /// cause.
     pub(crate) fn fail(&self, ota: &mut dyn OtaTarget, error: OtaError) {
         self.record_error(error);
         ota.abort();
     }
 
-    /// Called by the handler just before `reboot_into_new()`.
-    ///
-    /// Sets the phase to `Rebooting`. The board will reset before any
-    /// further state changes are possible, so this is the terminal state.
     pub(crate) fn rebooting(&self) {
         self.phase
             .store(OtaPhase::Rebooting as u8, Ordering::Relaxed);
     }
 
-    /// Called by the session watcher when an upload made no progress for
-    /// the idle window, after the target has been aborted and mining
-    /// resumed.
-    ///
-    /// Resets the phase to `Idle` so the upload state machine is back to
-    /// normal; bytes and chunk count are left unchanged for post-mortem
-    /// diagnostics via the info endpoint.
+    /// Called by the session watcher once an idle upload has been aborted.
+    /// Bytes and chunk count stay for the post-mortem.
     pub(crate) fn timeout(&self) {
         self.phase.store(OtaPhase::Idle as u8, Ordering::Relaxed);
     }
 }
 
-// ---------------------------------------------------------------------------
-// Reset diagnostics (published once at boot)
-// ---------------------------------------------------------------------------
-
-/// Cause of the most recent reset, as reported by the watchdog hardware.
-///
-/// Published once by the firmware at boot via [`publish_reset_diag`] and
-/// read lock-free by the info endpoints via [`reset_diag`].
-///
-/// A `Clean` reset means the watchdog reason register was clear on boot:
-/// either a power-on reset or a deliberate `SCB::sys_reset()` (which
-/// does not set the watchdog reason bits on RP2350). Only a hardware
-/// watchdog timeout sets the `TimedOut` bit.
-///
-/// It serializes as its variant name in camel case, the string
-/// `/api/info` reports.
+/// Cause of the most recent reset, from the watchdog reason register.
+/// `Clean` covers a power-on reset and a deliberate `sys_reset`, which
+/// does not set the reason bits.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(
     feature = "schema",
@@ -271,16 +196,10 @@ pub enum ResetReason {
     WatchdogForced = 3,
 }
 
-/// Write phase recorded in the watchdog SCRATCH2 register at the time of reset.
-///
-/// Stored as a `u8` discriminant in SCRATCH2 so the next boot can determine
-/// exactly where in the OTA write sequence the board was when it reset.
-/// Distinguishes a slow-flash watchdog timeout (the flash op itself ran long)
-/// from a panic (the panic handler ran before the reset fired).
-///
-/// Discriminant values must match the `WRITE_PHASE_*` constants in
-/// `ubos/ubos-ota/src/rp.rs`. It serializes as its variant name in camel
-/// case, the string `/api/info` reports.
+/// Where in the OTA write sequence the board was when it reset, read
+/// back from the watchdog SCRATCH2 register. It tells a flash write that
+/// ran long from a panic. The discriminants must match the
+/// `WRITE_PHASE_*` constants in `ubos/ubos-ota/src/rp.rs`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(
     feature = "schema",
@@ -305,10 +224,8 @@ pub enum OtaWritePhase {
 }
 
 impl OtaWritePhase {
-    /// Maps a raw register value to the corresponding [`OtaWritePhase`].
-    ///
-    /// Unknown values map to [`OtaWritePhase::None`] so stale or
-    /// uninitialized SCRATCH2 contents are treated conservatively.
+    /// Unknown values map to `None`, so stale SCRATCH2 contents read as
+    /// no write in progress.
     #[must_use]
     pub fn from_u32(value: u32) -> Self {
         match value {
@@ -320,40 +237,22 @@ impl OtaWritePhase {
     }
 }
 
-/// Published reset diagnostics snapshot.
-///
-/// Captured at boot from the watchdog reason register and the OTA
-/// breadcrumb in the watchdog scratch registers. Published once via
-/// [`publish_reset_diag`]; zero-value until published.
+/// Reset diagnostics captured at boot from the watchdog reason register
+/// and the OTA breadcrumb in the scratch registers.
 #[derive(Clone, Copy)]
 pub struct ResetDiag {
-    /// Cause of the most recent reset.
     pub reason: ResetReason,
-    /// Whether an OTA upload session was active when the reset occurred,
-    /// as indicated by the breadcrumb written to the watchdog scratch
-    /// registers during the upload.
+    /// An OTA upload was active when the board reset.
     pub ota_was_active: bool,
-    /// The byte offset reached in the OTA slot at the time of reset, as
-    /// recorded in the breadcrumb. Zero when `ota_was_active` is `false`.
+    /// The byte offset reached in the OTA slot; zero when no upload was
+    /// active.
     pub ota_offset: u32,
-    /// Write phase recorded in SCRATCH2 at the time of reset.
-    ///
-    /// Indicates whether the reset happened inside a flash write, after
-    /// it returned, or was preceded by a panic. `None` means no OTA
-    /// write phase was recorded (SCRATCH2 was zero or unset).
     pub write_phase: OtaWritePhase,
 }
 
-/// Reset diagnostics, published once at boot; zero until published.
 static RESET_DIAG: Watch<CriticalSectionRawMutex, ResetDiag, 1> = Watch::new();
 
-/// Publishes the reset diagnostics captured at boot.
-///
-/// Call once, early in the boot sequence, after reading the watchdog
-/// reason register and the OTA breadcrumb from the scratch registers.
-/// Subsequent calls are no-ops because `Watch::sender().send()` replaces
-/// the stored value, but the fields represent a one-time boot-time
-/// capture and should only be written once.
+/// Publishes the reset diagnostics. Called once, early in boot.
 pub fn publish_reset_diag(
     reason: ResetReason,
     ota_was_active: bool,
@@ -368,38 +267,26 @@ pub fn publish_reset_diag(
     });
 }
 
-/// Returns the published reset diagnostics, or `None` before publication.
-///
-/// Lock-free: reads the `Watch` snapshot without blocking.
+/// The published reset diagnostics, or `None` before publication.
 pub(crate) fn reset_diag() -> Option<ResetDiag> {
     RESET_DIAG.try_get()
 }
 
-/// Latest OTA info snapshot, published once when the board registers its
-/// target and read lock-free by the info endpoints via [`ota_info`].
-///
-/// The fields are board-fixed — a running image's version and slot do
-/// not change while it runs — so a published-once `Watch` is the right
-/// shape: readers take a relaxed snapshot with [`Watch::try_get`] rather
-/// than locking the upload [`Mutex`] just to report constants. `None`
-/// until published, and `None` on boards that never register a target.
+/// OTA info published once at target registration. The fields do not
+/// change while an image runs, so the info endpoints read a `Watch`
+/// instead of locking the upload [`Mutex`] to report constants.
 static OTA_INFO: Watch<CriticalSectionRawMutex, OtaInfo, 1> = Watch::new();
 
-/// The most bytes of a build id the info bodies carry. The build
-/// environment can hand the id whole and bounds nothing, so the bound
-/// stands here where the body buffers are sized. How a longer id
-/// is cut is [`truncate_build_id`]'s to say. A packer outside this tree
-/// holds its own copy of this number, and a check in that repo compares
-/// the two. That check reads this constant through its pinned copy of
-/// this tree, so raising the bound here leaves both repositories green
-/// until that pin moves, and the mismatch surfaces then rather than on
-/// the branch that caused it.
+/// The most bytes of a build id the info bodies carry; the build
+/// environment can hand the id whole and bounds nothing. A packer
+/// outside this tree holds its own copy of this number and gates it
+/// against this one through its pin, so a change here surfaces there
+/// when the pin moves.
 pub const MAX_BUILD_ID_LEN: usize = 48;
 
 /// `build` cut to at most [`MAX_BUILD_ID_LEN`] bytes, at the last
-/// character boundary at or below it. Nothing holds the id to ASCII, and
-/// the bound is what the info bodies are sized for, so the cut lands short
-/// of it rather than past it.
+/// character boundary at or below it, since nothing holds the id to
+/// ASCII.
 pub(crate) fn truncate_build_id(build: &'static str) -> &'static str {
     let mut end = MAX_BUILD_ID_LEN.min(build.len());
     while !build.is_char_boundary(end) {
@@ -408,40 +295,18 @@ pub(crate) fn truncate_build_id(build: &'static str) -> &'static str {
     &build[..end]
 }
 
-/// Latest published OTA info, or `None` on boards without an OTA target.
-///
-/// Lock-free: never touches the upload mutex, so it stays readable even
-/// while an upload holds the target.
+/// The published OTA info, or `None` on boards without an OTA target.
 pub(crate) fn ota_info() -> Option<OtaInfo> {
     OTA_INFO.try_get()
 }
 
 /// The registered OTA target, or `None` until the firmware registers one.
-///
-/// Why an async `Mutex` in a `static`, rather than a plain field or a
-/// `RefCell`:
-/// - `edge_http`'s `Service::handle` takes `&self` (the service is shared
-///   across connections), so the target cannot be reached as a `&mut`
-///   field; it needs interior mutability.
-/// - The streaming upload holds one mutable borrow of the target across
-///   every `await` in the read loop, so the guard must survive `.await`
-///   — that rules out `RefCell`/blocking mutexes and requires an async
-///   [`Mutex`].
-/// - A `static` must be `Sync`; the only async-mutex flavour that is `Sync`
-///   is one backed by a cross-context `RawMutex`, hence
-///   [`CriticalSectionRawMutex`] (a `NoopRawMutex` mutex is not `Sync`).
-/// - `try_lock` then gives upload serialisation for free: a second upload
-///   finds the lock held and is rejected rather than racing the flash.
+/// See the module doc for the mutex choice.
 static OTA_TARGET: Mutex<CriticalSectionRawMutex, Option<&'static mut dyn OtaTarget>> =
     Mutex::new(None);
 
-/// Registers the board's OTA implementation. Call once at boot.
-///
-/// Takes a `&'static mut` because the implementation owns flash work
-/// areas that must outlive every request and be mutated during a write.
+/// Registers the board's OTA implementation. Called once at boot.
 pub async fn register_ota_target(target: &'static mut dyn OtaTarget) {
-    // Publish the board-fixed info snapshot so the info endpoints can read
-    // it lock-free, then store the target for the upload path.
     OTA_INFO.sender().send(OtaInfo {
         running_slot: target.running_slot_label(),
         running_version: target.running_version(),
@@ -452,15 +317,9 @@ pub async fn register_ota_target(target: &'static mut dyn OtaTarget) {
     *OTA_TARGET.lock().await = Some(target);
 }
 
-/// Accessor for the OTA handlers to acquire the registered target.
-///
-/// This hands out the mutex rather than the guarded value, which a typed
-/// accessor would normally hide. The upload holds one borrow across the
-/// whole read loop and rejects a second upload with `try_lock`, so the
-/// caller owns both the span and the refusal and there is no method
-/// boundary to put them behind. Kept `pub(crate)` so the callers stay in
-/// this crate and can be counted: `rest.rs` and `system.rs` are all of
-/// them, and each one uses `try_lock`.
+/// The target's mutex itself, not the guarded value: the upload owns both
+/// the locked span and the `try_lock` refusal, so there is no method
+/// boundary to put them behind. `pub(crate)` keeps the callers countable.
 pub(crate) fn target_mutex()
 -> &'static Mutex<CriticalSectionRawMutex, Option<&'static mut dyn OtaTarget>> {
     &OTA_TARGET
@@ -551,80 +410,49 @@ impl From<OtaError> for StatusMessage {
     }
 }
 
-/// Board-agnostic interface for writing a firmware image to the
-/// inactive OTA slot and rebooting into it.
+/// Writes a firmware image to the inactive OTA slot and reboots into it.
 ///
-/// Implementors manage the dual-partition flash layout and the
-/// core-1 pause/resume cycle required for safe concurrent flash access
-/// on RP2350. The REST handler never calls flash APIs directly; it
-/// drives this trait only.
-///
-/// All methods are synchronous (`fn`, not `async fn`) so the trait is
-/// object-safe and the handler can hold a `dyn OtaTarget` reference
-/// across its `async` await points without an extra `Pin`.
-///
-/// The streaming handler sleeps briefly between `write_chunk` calls so
-/// the network task can drain the chip buffer and feed the watchdog.
-///
-/// `Send` is required because the registered target lives in a `static`
-/// behind a [`Mutex`]; the bound is satisfied by any plain-data
-/// implementation. The RP2350 target holds only flash buffers.
+/// Every method is synchronous so the trait is object-safe and the
+/// handler holds a `dyn OtaTarget` across its await points. A target
+/// that must pause a second core around a flash write does so inside
+/// `write_chunk`. `Send` because the target lives in a `static` behind a
+/// [`Mutex`].
 pub trait OtaTarget: Send {
-    /// Number of bytes written since the last [`begin`] call, or `None`
-    /// when no session is active (before the first `begin` or after
-    /// `finish`/error reset).
-    ///
-    /// The chunk-ack handler uses this to validate that each incoming
-    /// `X-OTA-Offset` matches the actual write position, so out-of-order
-    /// or replayed requests are rejected rather than silently corrupting
-    /// the staged image.
+    /// Bytes written since the last [`begin`], or `None` when no session
+    /// is active. The chunk-ack handler checks each `X-OTA-Offset` against
+    /// it, so a replayed or out-of-order request is rejected.
     ///
     /// [`begin`]: OtaTarget::begin
     fn bytes_written(&self) -> Option<usize>;
-    /// Version number embedded in the currently-running firmware image.
     fn running_version(&self) -> u32;
 
-    /// Human-readable label for the currently-running slot.
-    ///
-    /// Returns a board-defined label such as `"ACTIVE"`.
+    /// Board-defined label such as `"ACTIVE"`.
     fn running_slot_label(&self) -> &'static str;
 
-    /// Returns `true` when a previously-written image exists in the
-    /// inactive slot.
     fn has_previous_image(&self) -> bool;
 
-    /// Version number of the image in the inactive slot, or `None`
-    /// when no previous image is present.
+    /// Version of the image in the inactive slot, or `None` when there is
+    /// none.
     fn previous_version(&self) -> Option<u32>;
 
-    /// Maximum firmware image size, in bytes, the board accepts for an
-    /// upload. The handlers reject a larger image before any write.
-    ///
-    /// Defaults to the RP active-slot budget. A board whose inactive slot
-    /// has a different capacity overrides this.
+    /// Largest image the board accepts; the handlers reject a larger one
+    /// before any write. Defaults to the RP active-slot budget.
     fn max_image_bytes(&self) -> u64 {
         crate::system::OTA_MAX_IMAGE_BYTES
     }
 
-    /// Prepare the inactive slot to receive a new firmware image.
-    ///
-    /// Arms the slot writer and may perform any target-specific preparation.
-    /// Partial-write safety comes from `finish()` not being called, not from
-    /// any action taken here.
+    /// Prepare the inactive slot for a new image. A partial write stays
+    /// unbootable because `finish` is never called, not because of
+    /// anything done here.
     ///
     /// # Errors
     ///
-    /// Returns [`OtaError::NoPartitionTable`] on boards that have no
-    /// dual-partition layout, or [`OtaError::Flash`] on a flash error.
+    /// [`OtaError::NoPartitionTable`] on a board with no dual-partition
+    /// layout, or [`OtaError::Flash`].
     fn begin(&mut self) -> Result<(), OtaError>;
 
-    /// Write the next chunk of firmware bytes into the inactive slot.
-    ///
-    /// The implementation is responsible for pausing core 1 around
-    /// the flash write and resuming it afterwards. The handler feeds
-    /// chunks of 4096 bytes except the final chunk, which
-    /// carries the remainder and may be smaller. The target must accept
-    /// a sub-sector final write.
+    /// Write the next chunk into the inactive slot. Chunks are 4096 bytes
+    /// except the last, which the target must accept short.
     ///
     /// # Errors
     ///
@@ -636,9 +464,6 @@ pub trait OtaTarget: Send {
     fn write_chunk(&mut self, data: &[u8]) -> Result<(), OtaError>;
 
     /// Validate and commit the written image, finalising the slot header.
-    ///
-    /// Called once after the last `write_chunk`. Implementations may flush
-    /// any write buffer and perform integrity checks at this point.
     ///
     /// # Errors
     ///
@@ -658,23 +483,12 @@ pub trait OtaTarget: Send {
     /// [`finish`]: OtaTarget::finish
     fn staged_config(&self) -> Option<StagedConfig>;
 
-    /// Reboot the device into the freshly written inactive slot.
-    ///
-    /// This function never returns. The implementation should include
-    /// a short delay so the HTTP 200 acknowledgement has time to reach
-    /// the wire before the reset fires.
+    /// Reboot into the freshly written slot, after a short delay so the
+    /// HTTP 200 reaches the wire first.
     fn reboot_into_new(&mut self) -> !;
 
-    /// Release any resources acquired by [`begin`] without committing the
-    /// update.
-    ///
-    /// Called by the handler on every error or abandoned-upload path after
-    /// [`begin`] has succeeded, so a failed session leaves no lingering
-    /// state (for example, a parked core or a stale OTA breadcrumb).
-    /// The default implementation is a no-op; boards that need cleanup
-    /// override this method.
-    ///
-    /// Must be idempotent: calling it when no session is active must be safe.
+    /// Release what [`begin`] acquired without committing, on every error
+    /// or abandoned-upload path. Must be idempotent.
     ///
     /// [`begin`]: OtaTarget::begin
     fn abort(&mut self) {}

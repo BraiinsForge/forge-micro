@@ -46,34 +46,13 @@ use crate::schema::state::{ApiMiningState, ApiPauseReason};
 #[path = "tests/rest.rs"]
 mod tests;
 
-/// Body buffer size for JSON responses built by `/api/info`.
-///
-/// The largest `/api/info` JSON body with all fields populated is
-/// roughly 600 bytes in practice (name≤42, the longest current
-/// `ControlBoardDescriptor::name` + numeric fields + 16-byte IPv4 +
-/// 17-byte MAC string + 16-byte time string + OTA static fields +
-/// OTA diagnostic fields including the `resetWritePhase` string +
-/// `product_name` string + `nominal_hashrate` number + `running` bool + `paused` bool +
-/// `pause_reason` string up to
-/// `"temperatureUnreadable"` + a `chains`
-/// array with one entry per chain the board actually owns, up to
-/// `ubos_metrics::chain::MAX_CHAINS` + JSON framing). The
-/// `api_info_body_fits_in_buffer` test builds the absolute worst case
-/// — every numeric field at its maximum decimal width and a `chains`
-/// array at `ubos_metrics::chain::MAX_CHAINS` entries, the most any
-/// board can report — and pins its length at that test's
-/// `WORST_CASE_INFO_BODY_LEN`. 512 bytes overflowed
-/// once the OTA diagnostic fields were added, silently truncating the
-/// tail, 1280 stopped covering the worst case once the OTA block
-/// carried a build id, 1408 once each chain reported its pool, and 1536
-/// once the body carried a product name, whose every control character
-/// escapes to six bytes; 1792 bytes covers the synthetic worst case
-/// while staying on the stack. A body that outgrows the buffer is caught
-/// rather than truncated: `to_slice` returns `Err` and the handler
-/// answers 500.
+/// Body buffer for `/api/info`. `api_info_body_fits_in_buffer` builds the
+/// worst-case body, every numeric field at full width and the `chains`
+/// array at `MAX_CHAINS`, and pins its length under this size, so a new
+/// field that outgrows the buffer fails there instead of truncating the
+/// tail.
 const API_INFO_BODY_BUFFER_SIZE: usize = 1792;
 
-/// Body buffer for the POST /api/config acknowledgement.
 const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
 
 /// Body buffer size for `GET /api/config` responses.
@@ -108,23 +87,11 @@ const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
 /// all ubos-api consumers.
 const CONFIG_RESPONSE_BUFFER_SIZE: usize = 3072;
 
-/// Buffer for reading POST/PATCH request bodies.
-///
-/// Tracks [`CONFIG_RESPONSE_BUFFER_SIZE`] so the widest body this API can
-/// serve is a body it will also accept back: `POST /api/config` is the
-/// natural round-trip of the `GET /api/config` snapshot, and
-/// `Api::REQUEST_BUFFER_SIZE` — sized to the socket RX window, not to any
-/// body — left the widest snapshot 49 bytes over. The window bounds a
-/// single socket read rather than the body, which `read_body` accumulates
-/// across reads, so the two never had to agree. Requests that exceed this
-/// cap receive a 413 response.
+/// Buffer for POST and PATCH bodies. Tracks [`CONFIG_RESPONSE_BUFFER_SIZE`]
+/// so the widest body this API serves is one it accepts back. A larger
+/// request answers 413.
 const BODY_READ_BUFFER_SIZE: usize = CONFIG_RESPONSE_BUFFER_SIZE;
 
-/// REST API handler implementing `ubos_http::Service`.
-///
-/// Serves only `/api/*` paths. Auth profile mirrors `DashboardService`:
-/// Basic or session cookie with CSRF enforcement on
-/// session-authenticated mutating requests.
 pub struct RestApiService {
     /// The control board's product name, e.g. `"W6100-EVB-Pico2"`.
     pub(crate) board_name: &'static str,
@@ -145,13 +112,8 @@ pub struct RestApiService {
 }
 
 impl RestApiService {
-    /// Construct the REST API service value.
-    ///
-    /// Pass the returned value to a `StaticCell::init` so its address
-    /// is fixed for the firmware lifetime, then hand the `&'static`
-    /// reference to each worker task spawned with `http_worker_task!`.
-    // Each argument is a field the service holds. A parameter struct
-    // would carry the same fields under one more name.
+    /// The value goes into a `StaticCell` and every worker task takes the
+    /// `&'static` reference.
     #[must_use]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -221,11 +183,10 @@ impl RestApiService {
             mining_state: mining_state.map(ApiMiningState::from),
             paused: !pause_reasons.is_empty(),
             pause_reason: pause_reasons.dominant().map(ApiPauseReason::from),
-            // One entry per chain the board wired up rather than one per
-            // slot in the table behind `chain_stats`, so a single-chain
-            // board does not report phantom chains 1 and 2. The table is
-            // `MAX_CHAINS` slots long, so `collect` cannot overflow the
-            // vector.
+            // One entry per chain the board wired up, so a single-chain
+            // board reports no phantom chains for the empty slots of the
+            // table behind `chain_stats`. That table is `MAX_CHAINS` slots
+            // long, so `collect` cannot overflow the vector.
             chains: chain_stats
                 .chains()
                 .enumerate()
@@ -243,10 +204,8 @@ impl RestApiService {
 }
 
 impl Service for RestApiService {
-    // The line count comes from the flat match dispatch table and the
-    // duplicated-from-dashboard handler bodies. Splitting each route into
-    // a helper would require threading the generic `Connection` parameter
-    // through every call, adding noise without reducing complexity.
+    // A flat dispatch table; a helper per route would thread the generic
+    // `Connection` through every call.
     #[allow(clippy::too_many_lines)]
     async fn handle<TcpSocket, const N: usize>(
         &self,
@@ -257,10 +216,7 @@ impl Service for RestApiService {
     where
         TcpSocket: Read + Write + TcpSplit,
     {
-        // Count each request that reaches this handler so
-        // `http_requests` reflects dashboard and API traffic.
-        // The metrics port does not increment it, and a connection
-        // dropped before its request is parsed is never counted.
+        // `http_requests`; the metrics port does not count.
         self.net.record_request();
 
         let method = parts.method.as_str();
@@ -269,10 +225,9 @@ impl Service for RestApiService {
         let cookie = parts.cookie.as_deref();
         let content_length = parts.content_length;
 
-        // Every route under this prefix requires auth; there are no
-        // anonymous endpoints on the API surface. The CSRF check runs
-        // separately below, once the request body has been read, so an
-        // oversized body does not burn the session's CSRF token.
+        // No anonymous endpoint exists under this prefix. CSRF is checked
+        // after the body is read, so an oversized body does not burn the
+        // session's token.
         let identity_policy = ubos_auth::Policy {
             allow_anonymous: false,
         };
@@ -303,15 +258,10 @@ impl Service for RestApiService {
 
         let is_mutating = matches!(method, "POST" | "PATCH" | "DELETE");
 
-        // The OTA firmware upload is the one body too large to pre-read into
-        // `body_buffer` (it is ~1 MiB against a 3 KiB buffer). It is streamed
-        // straight to flash by `handle_ota`, which reads the connection itself
-        // in sector-sized chunks, so its body is not pre-read here.
+        // Both OTA bodies exceed `body_buffer`; their handlers read the
+        // connection themselves.
         let is_ota_upload = is_mutating && method == "POST" && path == "/api/system/OTA";
 
-        // The chunk upload body is at most OTA_CHUNK_SIZE (4096 bytes), which
-        // exceeds BODY_READ_BUFFER_SIZE (3072 bytes), so it is also not
-        // pre-read; `handle_ota_chunk` reads the connection directly.
         let is_ota_chunk_upload =
             is_mutating && method == "POST" && path == "/api/system/OTA/chunk";
 
@@ -336,14 +286,10 @@ impl Service for RestApiService {
             &[]
         };
 
-        // OTA continuation chunks (offset > 0) are exempt from CSRF. Only the
-        // session-starting offset-0 chunk consumes a token. A continuation cannot
-        // start an upload — it is bound to the single in-progress session by the
-        // target mutex and the handler's offset-continuity check (409 on mismatch)
-        // — so requiring a single-use CSRF token per 4 KiB sector would force ~128
-        // tokens per image for no security gain. An attacker still cannot START an
-        // OTA without a token, and a forged continuation only corrupts an in-flight
-        // upload (fails validation -> auto-rollback), never installs firmware.
+        // Only the offset-0 chunk, which starts a session, consumes a CSRF
+        // token. A continuation is bound to the in-progress session by the
+        // target mutex and the offset check, so a forged one can at most
+        // corrupt an upload that then fails validation; it cannot start one.
         let is_ota_continuation = is_ota_chunk_upload
             && parts
                 .ota_offset
@@ -351,11 +297,9 @@ impl Service for RestApiService {
                 .and_then(|value| value.parse::<u64>().ok())
                 .is_some_and(|offset| offset > 0);
 
-        // Session-authenticated mutating requests require a valid CSRF
-        // token. Basic-authenticated requests are exempt, since only a
-        // session cookie can be forged cross-site. The check takes the
-        // identity resolved above rather than resolving it again, so the
-        // body read between the two cannot change who is being checked.
+        // Basic-authenticated requests are exempt: only a session cookie can
+        // be forged cross-site. The identity resolved above is reused, so the
+        // body read between the two cannot change who is checked.
         if is_mutating
             && !is_ota_continuation
             && ubos_auth::check_csrf(&auth_ctx, parts.csrf.as_deref()).is_err()
@@ -367,9 +311,6 @@ impl Service for RestApiService {
             .await;
         }
 
-        // The OTA upload streams its body from the connection rather than a
-        // pre-read buffer, so it is dispatched here directly with the parsed
-        // content length. Auth and CSRF have already been enforced above.
         if is_ota_upload {
             return crate::system::handle_ota(
                 connection,
@@ -381,18 +322,7 @@ impl Service for RestApiService {
             .await;
         }
 
-        // The OTA chunk upload also streams its body (one sector at a time).
-        // Parse X-OTA-Offset and X-OTA-Final before dispatching. Auth and CSRF
-        // have already been enforced above; Basic-auth requests are CSRF-exempt
-        // so curl-driven uploads work without a session token. Session-auth
-        // callers supply one CSRF token on the offset-0 chunk (which starts the
-        // session); continuation chunks are CSRF-exempt because the single-session
-        // mutex and the offset-continuity check together prevent any attacker from
-        // injecting data into a live upload. The web UI therefore uploads with one
-        // CSRF token on the first chunk and bare credentials on the rest.
         if is_ota_chunk_upload {
-            // Parse the decimal offset from X-OTA-Offset; missing or
-            // unparseable offset is treated as a bad request.
             let ota_offset: u64 = match parts
                 .ota_offset
                 .as_deref()
@@ -420,7 +350,6 @@ impl Service for RestApiService {
             .await;
         }
 
-        // Route dispatch: only /api/* paths are served here.
         if path == "/api/system" || path.starts_with("/api/system/") {
             let handled = crate::system::dispatch(connection, self, method, path, body).await?;
             if !handled {
@@ -439,13 +368,11 @@ impl Service for RestApiService {
         match (method, path) {
             ("GET", "/api/info") => {
                 let mut body_buf = [0u8; API_INFO_BODY_BUFFER_SIZE];
-                // The snapshot is a temporary, so it is dropped before the
-                // await and does not live on the rest_api future stack
-                // across write_json_response.
+                // The snapshot is a temporary, so it does not live on the
+                // future across the write.
                 let serialize_result = serde_json_core::ser::to_slice(&self.info(), &mut body_buf);
-                // Both outcomes share one await. A buffer held across two
-                // awaits is stored outside the space the handler's suspend
-                // points share, which grows every HTTP worker by its size.
+                // Both outcomes share one await: a buffer held across two
+                // awaits grows every HTTP worker by its size.
                 let (status, body): (Status, &[u8]) = if let Ok(length) = serialize_result {
                     (Status::OK, &body_buf[..length])
                 } else {
@@ -494,12 +421,9 @@ impl Service for RestApiService {
 
                 let current = self.config.current().await;
 
-                // An empty password in the update means the operator did
-                // not re-type the current secret; preserve the stored value
-                // before validating so the printable-ASCII rule sees the
-                // value that will actually be applied. A password loaded
-                // from an older firmware build that bypassed validation
-                // must not slip through an empty-password round-trip.
+                // An empty password means the operator did not re-type the
+                // current secret. It is restored before validation, so the
+                // stored value is the one checked.
                 if let Some(ref mut api) = update.api
                     && api.password.is_empty()
                 {
@@ -543,26 +467,18 @@ impl Service for RestApiService {
     }
 }
 
-/// Keep `CREDENTIALS` in sync with the config watch.
-///
-/// Seed the credential store from the persisted config before the accept loop.
-///
-/// Call once before spawning worker tasks so the first request
-/// authenticates against the operator's configured credentials. Warn
-/// when default credentials are still in place.
+/// Seed the credential store from the persisted config. Called once
+/// before the worker tasks, so the first request sees the operator's
+/// credentials.
 pub async fn seed_api_credentials(config: ubos_config::Handle) {
     let api = config.current().await.api;
     ubos_auth::auth::set_credentials(&api.username, &api.password);
     ubos_auth::auth::warn_if_default_credentials();
 }
 
-/// Subscribe to config changes and update the credential store on each
-/// publish so a `POST /api/config` credential change takes effect at
-/// runtime without a reboot.
-///
-/// Run as a dedicated embassy task alongside the REST API worker tasks.
-/// The future holds only the two credential strings across each
-/// `set_credentials` await, not the full `Config` snapshot.
+/// Update the credential store on each config publish, so a credential
+/// change takes effect without a reboot. The future holds only the two
+/// strings across the await, not the `Config` snapshot.
 pub async fn run_sync_credentials(config: ubos_config::Handle) -> ! {
     let mut subscription = config.subscribe();
     loop {
@@ -585,22 +501,13 @@ macro_rules! sync_credentials_task {
     };
 }
 
-/// Idle window before a chunk-ack upload session is treated as abandoned.
-///
-/// A chunk-ack upload that makes no progress for this long is treated as
-/// abandoned; the watcher aborts it and resumes mining so a client that
-/// vanished mid-stream does not strand the board stopped.
+/// A chunk-ack upload that makes no progress for this long is abandoned:
+/// the watcher aborts it and resumes mining, so a vanished client does
+/// not strand the board stopped.
 const OTA_SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Reclaim abandoned chunk-ack upload sessions.
-///
-/// Spawned as a standalone task by OTA-capable boards alongside the pool
-/// workers. Every [`OTA_SESSION_IDLE_TIMEOUT`] it checks whether a
-/// chunk-ack upload is in progress and whether any new chunks have arrived
-/// since the last tick. If the session is still in `Uploading` phase but
-/// the chunk count has not advanced, the watcher tries to reclaim the
-/// session: it takes the target mutex and — after re-checking under the
-/// lock to avoid a race — aborts the target and resumes mining.
+/// Reclaim abandoned chunk-ack upload sessions; see
+/// `OTA_SESSION_IDLE_TIMEOUT`.
 pub async fn run_ota_session_watchdog(manager: ManagerHandle) -> ! {
     let mut last_seen_chunks: u32 = 0;
     loop {
@@ -608,22 +515,18 @@ pub async fn run_ota_session_watchdog(manager: ManagerHandle) -> ! {
 
         let snapshot = crate::ota::ota_session().snapshot();
 
-        // Session is alive if it is not uploading or if new chunks arrived.
         if snapshot.phase != crate::ota::OtaPhase::Uploading || snapshot.chunks != last_seen_chunks
         {
             last_seen_chunks = snapshot.chunks;
             continue;
         }
 
-        // Phase is Uploading and no progress was made for a full window.
-        // Try to reclaim the session without blocking a live handler.
         let Ok(mut guard) = crate::ota::target_mutex().try_lock() else {
-            // A handler currently owns the session and will clean up on its
-            // own error path; leave it alone.
+            // A handler owns the session and cleans up on its own error path.
             continue;
         };
 
-        // Re-check under the lock to avoid racing a chunk that was just acked.
+        // The authoritative check is under the lock.
         let snapshot = crate::ota::ota_session().snapshot();
         if snapshot.phase == crate::ota::OtaPhase::Uploading && snapshot.chunks == last_seen_chunks
         {
@@ -631,11 +534,9 @@ pub async fn run_ota_session_watchdog(manager: ManagerHandle) -> ! {
                 ota.abort();
             }
             crate::ota::ota_session().timeout();
-            // Resume mining while still holding the target mutex. A fresh
-            // offset-0 chunk arriving between this abort and the resume would
-            // otherwise take the mutex, stop mining, and then be resumed by
-            // this stale `Start`. Holding the guard until after the send
-            // serializes the new session behind the resume.
+            // Sent under the target mutex, so a fresh offset-0 chunk cannot
+            // stop mining between this abort and the resume and then be
+            // resumed by it.
             manager.send(ManagerMessage::OtaEnd).await;
             drop(guard);
             warn!(
@@ -648,8 +549,7 @@ pub async fn run_ota_session_watchdog(manager: ManagerHandle) -> ! {
     }
 }
 
-/// Task shell around [`run_ota_session_watchdog`]. Only boards that
-/// register an OTA target invoke it.
+/// Task shell around [`run_ota_session_watchdog`].
 #[macro_export]
 macro_rules! ota_watchdog_task {
     () => {

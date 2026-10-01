@@ -38,11 +38,8 @@ use ubos_mining::MiningState;
 
 // --- N6: API_INFO_BODY_BUFFER_SIZE covers the worst-case body ---
 
-/// Measured length of the worst-case `/api/info` body.
-///
-/// Pinned exactly, as [`WORST_CASE_BODY_LEN`] is and for the same reason:
-/// a field addition that still fits the buffer fails here, and updating
-/// this constant is the prompt to check the buffer's comment.
+/// Pinned exactly, so a field addition that still fits the buffer is
+/// noticed here.
 const WORST_CASE_INFO_BODY_LEN: usize = 1712;
 
 /// A `&'static str` of `len` copies of `text`. [`ApiInfo`] takes
@@ -51,50 +48,6 @@ fn leaked(text: &str, len: usize) -> &'static str {
     std::boxed::Box::leak(text.repeat(len).into_boxed_str())
 }
 
-/// The `/api/info` body is written into a fixed
-/// `[u8; API_INFO_BODY_BUFFER_SIZE]`. This test serializes the worst-case
-/// [`ApiInfo`], compares it byte for byte with the body the dashboard
-/// reads, pins its length at [`WORST_CASE_INFO_BODY_LEN`] and asserts that
-/// it fits. The byte comparison is what holds the keys, their order and
-/// the `null`s to the contract in `ubos-webui/web/lib/types.ts`.
-///
-/// Worst-case assumptions:
-/// - `name`: 42 ASCII characters, the length of the longest current
-///   `ControlBoardDescriptor::name` (`CONTROL_BOARD_ESP32S3`'s
-///   "Waveshare ESP32-S3-LCD-Driver-Board W5100S").
-/// - All `u64` numeric fields: `u64::MAX` (20 decimal digits).
-/// - All `u32` numeric fields: `u32::MAX` (10 decimal digits).
-/// - `fan_pwm` (`FanPwm`): 100, its ceiling (3 digits).
-/// - `pools` (`u8`): `u8::MAX` = 255 (3 digits).
-/// - `psu_fault`/`hasPreviousImage`/`resetOtaActive`: `true` (4 chars).
-/// - `ip`: `"255.255.255.255"` (15 chars).
-/// - `mac`: `"ff:ff:ff:ff:ff:ff"` (17 chars).
-/// - `time`: `"23:59:59 UTC"` (12 chars, the fixed `format_utc_time` width).
-/// - `runningSlot`: `"INACTIVE"` (8 chars), as in the `SystemInfo` worst case.
-/// - `phase`: `"rebooting"` (9 chars, longest variant).
-/// - `resetReason`: `"watchdogTimeout"` (15 chars, longest variant).
-/// - `resetWritePhase`: `"flashDone"` (9 chars, longest variant).
-/// - `previousVersion`: `Some(u32::MAX)` (10 digits, longer than `null`).
-/// - `build`: `MAX_BUILD_ID_LEN` double quotes, each escaped to two bytes.
-///   The quote is the widest character a build id can carry: the build
-///   environment can hand the id whole with a quote or a backslash in it.
-/// - `product_name`: `crate::HW_STRING_LEN` one-byte control characters,
-///   each escaped to the six bytes of a `\u00XX` sequence, the widest
-///   escape per input byte.
-/// - `nominal_hashrate` (`Option<u64>`): `Some(u64::MAX)` (20 digits),
-///   wider than `null`.
-/// - `running`: `true` (4 chars).
-/// - `mining_state`: `"waitingForPool"` (14 chars, longest variant).
-/// - `paused`: `true` (4 chars).
-/// - `pause_reason`: `"temperatureUnreadable"` (21 chars, longest variant).
-/// - `chains`: `ubos_metrics::chain::MAX_CHAINS` entries — the most any board
-///   can report, since [`ubos_metrics::chain::ChainStatsHandle::chain_count`]
-///   never exceeds the table it wraps — each with `chips` at `u16::MAX`
-///   (5 digits), `frequency_khz` at `u32::MAX` (10 digits), `hashrate`
-///   at `u64::MAX` (20 digits), and `hottest_c` at `i32::MIN / 1000`, the
-///   widest whole-degree value a millidegree reading divides to, the
-///   widest `state` string (`"unknown"`/`"faulted"`, 7 chars), and `pool`
-///   at `null` (4 chars, wider than any one-digit slot).
 #[test]
 #[allow(clippy::too_many_lines)]
 fn api_info_body_fits_in_buffer() {
@@ -158,7 +111,8 @@ fn api_info_body_fits_in_buffer() {
     };
 
     // The body the dashboard reads, spelled out by hand so that a renamed,
-    // reordered or dropped key fails the comparison below.
+    // reordered or dropped key fails the comparison below and the contract
+    // in `ubos-webui/web/lib/types.ts` holds.
     let board_name = "A".repeat(42);
     let build = "\\\"".repeat(MAX_BUILD_ID_LEN);
     let product_name = "\\u0001".repeat(crate::HW_STRING_LEN);
@@ -243,9 +197,6 @@ fn api_info_body_fits_in_buffer() {
     );
 }
 
-/// A board with no OTA target leaves the `ota` key out of the body rather
-/// than writing it as `null`, which is what the dashboard tests to decide
-/// whether to render its firmware card.
 #[test]
 fn api_info_without_ota_leaves_the_key_out() {
     let info = ApiInfo {
@@ -286,11 +237,8 @@ fn api_info_without_ota_leaves_the_key_out() {
 
 // --- CONFIG_RESPONSE_BUFFER_SIZE covers the worst-case body ---
 
-/// Build a `heapless::String` filled to its capacity with ASCII bytes.
-///
-/// The capacity comes from the field the value is assigned to rather than
-/// from a literal here, so widening a string in `ubos-config` widens this
-/// body too instead of leaving the test measuring the old one.
+/// A `heapless::String` filled to the capacity of the field it is
+/// assigned to, so widening a field in `ubos-config` widens this body.
 fn filled<const N: usize>() -> heapless::String<N> {
     let mut string = heapless::String::new();
     for _ in 0..N {
@@ -299,52 +247,15 @@ fn filled<const N: usize>() -> heapless::String<N> {
     string
 }
 
-/// Measured length of the worst-case body.
-///
-/// Pinned exactly rather than merely bounded by `CONFIG_RESPONSE_BUFFER_SIZE`,
-/// so the figure quoted in that constant's comment cannot drift: a field
-/// addition that still fits the buffer fails here, and updating this constant
-/// is the prompt to update that comment. The probe carries the `fee` entry
-/// whatever the build's switch, so the pin is the same in both states.
+/// Pinned exactly, so a field addition that still fits the buffer is
+/// noticed here. The probe carries the `fee` entry whatever the build's
+/// switch, so the pin holds in both states.
 const WORST_CASE_BODY_LEN: usize = 2617;
 
-/// The `GET /api/config` handler serializes a `ConfigUpdate` into a fixed
-/// `[u8; CONFIG_RESPONSE_BUFFER_SIZE]`. `serde_json_core::to_slice` returns
-/// `Err` rather than truncating, so an undersized buffer turns the endpoint
-/// into a 500 for exactly the operators whose config is largest. This test
-/// serializes the worst-case snapshot, pins its length at
-/// [`WORST_CASE_BODY_LEN`] and asserts it fits, so a future field addition
-/// fails here instead of in the field.
-///
-/// Every container is filled to the capacity its own type declares rather
-/// than to a width restated here, so raising a string capacity or a slot
-/// count in `ubos-config` widens this body and trips the length assert
-/// instead of leaving the test measuring the narrower old one.
-///
-/// Worst-case assumptions:
-/// - the `fee_permille` share at the bound the config crate states;
-/// - the pool list full and the `fee` entry present, each entry with host and
-///   user at capacity, `u16::MAX`
-///   port, `u32::MAX` weight and the wider of the two `ProtocolKind` variants,
-///   which is SV2 carrying a key rather than SV1 carrying a password: a
-///   `[u8; 32]` serializes as a JSON number array costing up to four bytes an
-///   element, which outruns the password string;
-/// - every `i32` at `i32::MIN`, every `u32` at `u32::MAX` and every `u8` at
-///   `u8::MAX`;
-/// - `miner.tuning` as `Power`, the wider of the two `Tuning` variants;
-/// - `api.username` and `api.password` at capacity, which is wider than the
-///   live body: `ConfigUpdate::from_config` blanks the password so the stored
-///   credential never reaches the client;
-/// - `network` in static mode, the widest of the two `NetworkMode` variants,
-///   with the DNS list full and the hostname at capacity.
 #[test]
 fn config_response_body_fits_in_buffer() {
-    // Which `ProtocolKind` variant is the wider one is likewise a premise of
-    // the total, so pin it rather than leave it to the comment: the two
-    // maxima are close enough that a capacity change could invert them.
-    // SV2 carries the pubkey as a base58check string over JSON, which is
-    // shorter than the byte array it replaced, so SV1 with a full password
-    // is the wider variant now.
+    // The two variants' maxima are close enough that a capacity change
+    // could invert which is wider.
     let widest_protocol = ubos_config::ProtocolKind::Sv1 {
         password: Some(filled()),
     };
@@ -440,11 +351,6 @@ fn config_response_body_fits_in_buffer() {
     );
 }
 
-// --- ApiInfoChain renders each chain's fields ---
-
-/// Drives [`ApiInfoChain::new`] over live chain accounting and serializes
-/// the result, so a wrong read or state string in the constructor fails
-/// this test instead of only ever landing in the live response.
 #[test]
 fn api_info_chain_renders_each_chain() {
     static CHAINS: [ubos_metrics::chain::ChainStats; 2] = [
@@ -479,8 +385,8 @@ fn api_info_chain_renders_each_chain() {
     );
 }
 
-/// The `/api/info` schema carries the `ota` block and lists the phase
-/// strings, so a client generated from it reads the live body.
+// The `/api/info` schema carries the `ota` block and lists the phase
+// strings, so a client generated from it reads the live body.
 #[cfg(feature = "schema")]
 #[test]
 fn api_info_schema_names_the_ota_block() {
@@ -515,8 +421,8 @@ pub(crate) fn enum_values(schema: &serde_json::Value) -> std::vec::Vec<std::stri
         .collect()
 }
 
-/// The chain state serializes to the strings the dashboard reads,
-/// one per presence, so the enum changes nothing on the wire.
+// The chain state serializes to the strings the dashboard reads,
+// one per presence, so the enum changes nothing on the wire.
 #[test]
 fn chain_state_serializes_as_before() {
     let mut buf = [0u8; 16];
@@ -531,8 +437,8 @@ fn chain_state_serializes_as_before() {
     }
 }
 
-/// The mining state serializes to the string `as_api_str` gives, which
-/// the metrics label still uses, so the wire enum and the label agree.
+// The mining state serializes to the string `as_api_str` gives, which
+// the metrics label still uses, so the wire enum and the label agree.
 #[test]
 fn mining_state_serializes_as_api_str() {
     let mut buf = [0u8; 24];
@@ -552,8 +458,8 @@ fn mining_state_serializes_as_api_str() {
     }
 }
 
-/// The pause reason serializes to the strings the dashboard treats as
-/// an enum, spelled here as literals so the test outlives their source.
+// The pause reason serializes to the strings the dashboard treats as
+// an enum, spelled here as literals so the test outlives their source.
 #[test]
 fn pause_reason_serializes_as_before() {
     let mut buf = [0u8; 32];
@@ -576,8 +482,8 @@ fn pause_reason_serializes_as_before() {
     }
 }
 
-/// The chain and pool indexes in `/api/info` carry a fixed width in
-/// the schema, so a generated client types them as small integers.
+// The chain and pool indexes in `/api/info` carry a fixed width in
+// the schema, so a generated client types them as small integers.
 #[cfg(feature = "schema")]
 #[test]
 fn api_info_chain_schema_uses_uint8() {
@@ -597,7 +503,6 @@ fn ack_matches_the_literal_body() {
     assert_eq!(&buffer[..len], super::CONFIG_ACK_BODY);
 }
 
-/// The chunk ack struct serializes to the bytes the handler writes.
 #[test]
 fn ota_chunk_ack_matches_the_literal_body() {
     let mut buffer = [0u8; 40];
@@ -609,7 +514,6 @@ fn ota_chunk_ack_matches_the_literal_body() {
     assert_eq!(&buffer[..len], b"{\"ok\":true,\"next\":8192}");
 }
 
-/// The final chunk answers without `next`, the same bytes as the config ack.
 #[test]
 fn ota_chunk_ack_without_next_matches_the_final_literal() {
     let mut buffer = [0u8; 40];
@@ -621,8 +525,8 @@ fn ota_chunk_ack_without_next_matches_the_final_literal() {
     assert_eq!(&buffer[..len], super::CONFIG_ACK_BODY);
 }
 
-/// The chunk ack schema leaves `next` optional, since the final chunk
-/// answers without it, and types it as the byte offset's width.
+// The chunk ack schema leaves `next` optional, since the final chunk
+// answers without it, and types it as the byte offset's width.
 #[cfg(feature = "schema")]
 #[test]
 fn ota_chunk_ack_schema_marks_next_optional() {
