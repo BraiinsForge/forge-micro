@@ -39,10 +39,10 @@ use crate::{COMMAND_CHANNEL, STATE_WATCH};
 /// `DangerousTemperature` carries a dedicated log line because
 /// thermal halts originate inside the manager from a sensor
 /// reading; the operator has no other surface to see them. The
-/// other reasons (`BrokenFan`, `PoolUnreachable`, `TunerFault`,
-/// `UserRequest`) are asserted by callers that already log their
-/// own context, and the resulting halt/resume edge is visible in
-/// `mining.halt()` / `resume()` traffic.
+/// other reasons (`BrokenFan`, `TunerFault`, `UserRequest`) are
+/// asserted by callers that already log their own context, and the
+/// resulting halt/resume edge is visible in `mining.halt()` /
+/// `resume()` traffic.
 ///
 /// The clearing edge is an event rather than a trace, because the
 /// operator reads it from the board: it is the counterpart of
@@ -112,7 +112,6 @@ pub async fn run_manager(mining: MiningHandle) -> ! {
                     }
                     PauseReason::BrokenFan => crate::events::mining_halted_broken_fan(),
                     PauseReason::UserRequest => crate::events::mining_halted_user_request(),
-                    PauseReason::PoolUnreachable => crate::events::mining_halted_pool_unreachable(),
                     PauseReason::OtaUpdate => crate::events::mining_halted_ota_update(),
                     PauseReason::TunerFault => crate::events::mining_halted_tuner_fault(),
                     PauseReason::TemperatureUnreadable => {

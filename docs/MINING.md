@@ -76,7 +76,6 @@ on `STATE_WATCH` and flips edges on the empty/non-empty boundary:
 | `ubos-thermal`   | `DangerousTemperature`        | `DangerousTemperature`     |
 | `ubos-thermal`   | `TemperatureUnreadable`       | `TemperatureUnreadable`    |
 | `ubos-cooling`   | `BrokenFan`                   | `BrokenFan`                |
-| stratum client   | `PoolUnreachable`             | `PoolUnreachable`          |
 | tuner            | `TunerFault`                  | `TunerFault`               |
 | OTA (`ubos-api`) | `OtaBegin`                    | `OtaUpdate`                |
 | operator         | `Stop`                        | `UserRequest`              |

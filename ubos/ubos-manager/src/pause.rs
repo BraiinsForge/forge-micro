@@ -34,7 +34,9 @@ use crate::message::Message;
 ///
 /// Discriminants are wire-format bit positions: `OtaUpdate` now occupies
 /// the formerly-`Reconfiguring` bit 4 so the remaining variants keep
-/// their existing positions. Do not renumber to close the gap.
+/// their existing positions, and bit 3 is free since the pool reason
+/// left: the miner waits for a pool itself. Do not renumber to close a
+/// gap.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -45,8 +47,6 @@ pub enum PauseReason {
     BrokenFan = 1,
     /// Operator-requested halt via `POST /api/system/pause`.
     UserRequest = 2,
-    /// All configured pool entries are unreachable.
-    PoolUnreachable = 3,
     /// An over-the-air firmware update is in progress and is erasing flash.
     OtaUpdate = 4,
     /// The tuner reported a fault it cannot recover from.
@@ -72,7 +72,6 @@ impl PauseReason {
             Self::DangerousTemperature => "dangerousTemperature",
             Self::BrokenFan => "brokenFan",
             Self::UserRequest => "userRequest",
-            Self::PoolUnreachable => "poolUnreachable",
             Self::OtaUpdate => "otaUpdate",
             Self::TunerFault => "tunerFault",
             Self::TemperatureUnreadable => "temperatureUnreadable",
@@ -88,9 +87,8 @@ impl PauseReason {
             Self::TemperatureUnreadable => 1,
             Self::BrokenFan => 2,
             Self::TunerFault => 3,
-            Self::PoolUnreachable => 4,
-            Self::OtaUpdate => 5,
-            Self::UserRequest => 6,
+            Self::OtaUpdate => 4,
+            Self::UserRequest => 5,
         }
     }
 }
@@ -150,10 +148,10 @@ impl PauseReasons {
     /// The highest-priority active reason, or `None` when the mask is empty.
     ///
     /// Priority order, safety first: `DangerousTemperature`,
-    /// `TemperatureUnreadable`, `BrokenFan`, `TunerFault`,
-    /// `PoolUnreachable`, `OtaUpdate`, `UserRequest`. The two
-    /// temperature reasons lead because a board that is too hot and a
-    /// board nobody is watching are the two that damage hardware.
+    /// `TemperatureUnreadable`, `BrokenFan`, `TunerFault`, `OtaUpdate`,
+    /// `UserRequest`. The two temperature reasons lead because a board
+    /// that is too hot and a board nobody is watching are the two that
+    /// damage hardware.
     #[must_use]
     pub fn dominant(self) -> Option<PauseReason> {
         PRIORITY.into_iter().find(|&r| self.contains(r))
@@ -171,8 +169,6 @@ pub(crate) const fn effect(message: Message) -> (PauseReason, bool) {
         }
         Message::BrokenFan => (PauseReason::BrokenFan, true),
         Message::FanRestored => (PauseReason::BrokenFan, false),
-        Message::PoolUnreachable => (PauseReason::PoolUnreachable, true),
-        Message::PoolReachable => (PauseReason::PoolUnreachable, false),
         Message::TunerFault => (PauseReason::TunerFault, true),
         Message::TunerRecovered => (PauseReason::TunerFault, false),
         Message::OtaBegin => (PauseReason::OtaUpdate, true),
@@ -191,7 +187,6 @@ const PRIORITY: [PauseReason; REASON_COUNT] = [
     PauseReason::TemperatureUnreadable,
     PauseReason::BrokenFan,
     PauseReason::TunerFault,
-    PauseReason::PoolUnreachable,
     PauseReason::OtaUpdate,
     PauseReason::UserRequest,
 ];
@@ -210,9 +205,8 @@ const REASON_COUNT: usize = match PauseReason::UserRequest {
     | PauseReason::TemperatureUnreadable
     | PauseReason::BrokenFan
     | PauseReason::TunerFault
-    | PauseReason::PoolUnreachable
     | PauseReason::OtaUpdate
-    | PauseReason::UserRequest => 7,
+    | PauseReason::UserRequest => 6,
 };
 
 // A reason that `PRIORITY` does not list can win the mask and never

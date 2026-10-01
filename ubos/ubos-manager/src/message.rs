@@ -54,10 +54,6 @@ pub enum Message {
     BrokenFan,
     /// Cooling: fan tach signal recovered.
     FanRestored,
-    /// Stratum: every configured pool entry is unreachable.
-    PoolUnreachable,
-    /// Stratum: at least one pool entry reconnected.
-    PoolReachable,
     /// Tuner: reported a fault it cannot recover from.
     TunerFault,
     /// Tuner: recovered.

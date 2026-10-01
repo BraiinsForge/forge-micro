@@ -79,7 +79,6 @@ export type PauseReason =
   | 'dangerousTemperature'
   | 'temperatureUnreadable'
   | 'brokenFan'
-  | 'poolUnreachable'
   | 'otaUpdate'
   | 'tunerFault'
   | 'userRequest';
@@ -88,7 +87,6 @@ export const PAUSE_LABEL: Record<PauseReason, string> = {
   dangerousTemperature: 'Stopped - Overheating',
   temperatureUnreadable: 'Stopped - No temperature reading',
   brokenFan: 'Stopped - Fan fault',
-  poolUnreachable: 'Stopped - Pools down',
   otaUpdate: 'Stopped - Updating',
   tunerFault: 'Stopped - Tuner fault',
   userRequest: 'Stopped - User',
