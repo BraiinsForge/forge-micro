@@ -429,7 +429,9 @@ tuning-policy envelope, not a chip limit.
   The fastest chain limits the voltage on the shared rail.
 - **`PowerTuner`** uses measured PSU input power as its target.
   It starts at safe boot and adjusts frequency and voltage until a termination condition occurs.
-  Tuning stops at the chip's maximum frequency.
+  The theoretical hashrate is one hash for each core in each clock cycle.
+  Tuning stops at the frequency where this hashrate gives the target efficiency at the target power.
+  The chip's maximum frequency is the upper limit of that frequency.
   It does not regulate power after the ramp ends.
   Its module rustdoc describes the telemetry contract and fallback behavior.
 

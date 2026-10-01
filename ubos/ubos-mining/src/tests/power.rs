@@ -21,13 +21,25 @@
 
 use embassy_time::Instant;
 use ubos_asic::BMM101_HASHBOARD;
-use ubos_core::units::{Frequency, Power, Voltage};
+use ubos_core::units::{Efficiency, Frequency, Power, Voltage};
 use ubos_psu::PsuReading;
 use ubos_tuner::{ChainReadings, Plan, Readings, Tuner};
 
-use super::PowerTuner;
+use super::{PowerTarget, PowerTuner};
 
-const TARGET: Power = Power::from_mw(40_000);
+/// At 40 W, the four BM1362 chips meet this efficiency at 486.38 MHz.
+const TARGET: PowerTarget = power_target(40_000, 40_000);
+/// The efficiency limit of [`TARGET`], on the chip's frequency grid.
+const EFFICIENCY_LIMIT: Frequency = Frequency::from_khz(481_250);
+
+const fn power_target(input_power_mw: u32, efficiency_mj_per_th: u32) -> PowerTarget {
+    PowerTarget {
+        input_power: Power::from_mw(input_power_mw),
+        efficiency: Efficiency::from_mj_per_th(
+            core::num::NonZeroU32::new(efficiency_mj_per_th).expect("nonzero"),
+        ),
+    }
+}
 
 /// One present chain at safe boot, before the first PSU sample.
 fn safe_boot() -> Readings<1> {
@@ -76,7 +88,10 @@ fn is_empty(plan: &Plan<1>) -> bool {
 fn zero_target_stays_at_safe_boot() {
     let mut tuner = PowerTuner::new(&BMM101_HASHBOARD);
     let mut readings = safe_boot();
-    let zero = Power::from_mw(0);
+    let zero = PowerTarget {
+        input_power: Power::from_mw(0),
+        ..TARGET
+    };
     for _ in 0..4 {
         let plan = tuner.step(zero, &readings, &());
         assert!(is_empty(&plan));
@@ -113,18 +128,20 @@ fn ramp_waits_for_a_sample_taken_after_the_last_command() {
     assert!(is_empty(&tuner.step(TARGET, &readings, &())));
 }
 
-#[test]
-fn ramp_lowers_the_rail_after_reaching_the_target_and_stops_at_the_limit() {
+/// Ramp toward `target` until the tuner stops at `limit`, with power
+/// following the clock until it reaches the target and holding after.
+fn ramp_lowers_the_rail_after_reaching_the_target_and_stops_at(
+    target: PowerTarget,
+    limit: Frequency,
+) {
     let mut tuner = PowerTuner::new(&BMM101_HASHBOARD);
     let mut readings = safe_boot();
     let mut power = 10_000;
-    let limit = BMM101_HASHBOARD.chip.frequency_range.max();
-    let mut plan = tuner.step(TARGET, &readings, &());
+    let mut plan = tuner.step(target, &readings, &());
     for _ in 0..1000 {
         apply(&mut readings, &plan, power);
-        // Power follows the clock until the target is reached, then holds.
-        power = (power + 1_000).min(TARGET.mw());
-        plan = tuner.step(TARGET, &readings, &());
+        power = (power + 1_000).min(target.input_power.mw());
+        plan = tuner.step(target, &readings, &());
         if is_empty(&plan) && frequency(&readings) == limit {
             break;
         }
@@ -132,7 +149,20 @@ fn ramp_lowers_the_rail_after_reaching_the_target_and_stops_at_the_limit() {
     assert_eq!(frequency(&readings), limit);
     assert!(readings.voltage < BMM101_HASHBOARD.max_rail_voltage());
     apply(&mut readings, &plan, power);
-    assert!(is_empty(&tuner.step(TARGET, &readings, &())));
+    assert!(is_empty(&tuner.step(target, &readings, &())));
+}
+
+#[test]
+fn ramp_stops_at_the_efficiency_limit() {
+    ramp_lowers_the_rail_after_reaching_the_target_and_stops_at(TARGET, EFFICIENCY_LIMIT);
+}
+
+#[test]
+fn ramp_stops_at_the_chip_maximum_below_the_efficiency_limit() {
+    ramp_lowers_the_rail_after_reaching_the_target_and_stops_at(
+        power_target(TARGET.input_power.mw(), 1),
+        BMM101_HASHBOARD.chip.frequency_range.max(),
+    );
 }
 
 #[test]
@@ -162,7 +192,7 @@ fn power_drop_after_the_target_restores_the_previous_point() {
     let mut tuner = PowerTuner::new(&BMM101_HASHBOARD);
     let mut readings = safe_boot();
     let plan = tuner.step(TARGET, &readings, &());
-    apply(&mut readings, &plan, TARGET.mw());
+    apply(&mut readings, &plan, TARGET.input_power.mw());
     let plan = tuner.step(TARGET, &readings, &());
     let previous = (frequency(&readings), readings.voltage);
     apply(&mut readings, &plan, 30_000);
@@ -205,7 +235,10 @@ fn a_new_target_restarts_from_safe_boot() {
     let plan = tuner.step(TARGET, &readings, &());
     apply(&mut readings, &plan, 10_000);
     assert_ne!(readings.chains, safe_boot().chains);
-    let lower = Power::from_mw(20_000);
+    let lower = PowerTarget {
+        input_power: Power::from_mw(20_000),
+        ..TARGET
+    };
     let plan = tuner.step(lower, &readings, &());
     assert_eq!(
         plan.frequencies,

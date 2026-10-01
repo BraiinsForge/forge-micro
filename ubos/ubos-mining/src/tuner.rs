@@ -29,7 +29,7 @@
 
 use ubos_asic::HashboardDescriptor;
 use ubos_config::{FrequencyVoltageTarget, Tuning};
-use ubos_core::units::{Frequency, Voltage};
+use ubos_core::units::{Efficiency, Frequency, Power, Voltage};
 use ubos_tuner::{Plan, Readings};
 
 /// Tuner-facing snapshot of the active frequency and voltage target.
@@ -48,6 +48,22 @@ impl From<FrequencyVoltageTarget> for FixedTarget {
         Self {
             frequency: Frequency::from_mhz(target.frequency_mhz),
             voltage: Voltage::from_mv(target.voltage_mv),
+        }
+    }
+}
+
+/// Tuner-facing snapshot of the active [`ubos_config::PowerTarget`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct PowerTarget {
+    pub input_power: Power,
+    pub efficiency: Efficiency,
+}
+
+impl From<ubos_config::PowerTarget> for PowerTarget {
+    fn from(target: ubos_config::PowerTarget) -> Self {
+        Self {
+            input_power: Power::from_mw(target.input_power_mw),
+            efficiency: Efficiency::from_mj_per_th(target.efficiency_mj_per_th),
         }
     }
 }

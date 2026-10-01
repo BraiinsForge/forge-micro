@@ -124,6 +124,7 @@ export interface FixedTarget {
 
 export interface PowerTarget {
   input_power_mw: number;
+  efficiency_mj_per_th: number;
 }
 
 // Externally tagged: exactly one key is present.

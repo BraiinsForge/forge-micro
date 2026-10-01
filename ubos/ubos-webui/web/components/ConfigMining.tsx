@@ -10,9 +10,10 @@ type TunerMode = 'Fixed' | 'Power';
 export interface ConfigMiningProps {
   miner?: MinerConfig;
   bounds: Partial<AsicBounds>;
+  defaultEfficiency?: number;
 }
 
-export default function ConfigMining({ miner, bounds }: ConfigMiningProps) {
+export default function ConfigMining({ miner, bounds, defaultEfficiency }: ConfigMiningProps) {
   const fixed = miner?.tuning.Fixed;
   const power = miner?.tuning.Power;
   const [mode, setMode] = useState<TunerMode>(() => (power ? 'Power' : 'Fixed'));
@@ -21,17 +22,21 @@ export default function ConfigMining({ miner, bounds }: ConfigMiningProps) {
   const [inputPowerMw, setInputPowerMw] = useState<string | number>(() =>
     power ? power.input_power_mw : '',
   );
+  // The board's default is offered until the operator stores their own.
+  const [efficiencyMjPerTh, setEfficiencyMjPerTh] = useState<string | number>(() =>
+    power ? power.efficiency_mj_per_th : (defaultEfficiency ?? ''),
+  );
 
   const freq: Partial<Range> = bounds.frequencyMhz || {};
   const volt: Partial<Range> = bounds.voltageMv || {};
   const isPower = mode === 'Power';
 
-  // Every field is required: a switch of mode shows the other mode's
+  // Every field is required: a switch of mode can show the other mode's
   // fields empty, and an empty number input posts as zero, which is a
   // target nobody entered.
   const save = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) => {
     const tuning: Tuning = isPower
-      ? { Power: { input_power_mw: +inputPowerMw } }
+      ? { Power: { input_power_mw: +inputPowerMw, efficiency_mj_per_th: +efficiencyMjPerTh } }
       : { Fixed: { frequency_mhz: +freqMhz, voltage_mv: +voltMv } };
     return saveConfig({ miner: { tuning } }, event);
   };
@@ -57,6 +62,7 @@ export default function ConfigMining({ miner, bounds }: ConfigMiningProps) {
           </span>
         </div>
         {isPower ? (
+          <>
           <Field
             label="Input power"
             unit="mW"
@@ -67,6 +73,17 @@ export default function ConfigMining({ miner, bounds }: ConfigMiningProps) {
             min="0"
             required
           />
+          <Field
+            label="Efficiency"
+            unit="mJ/TH"
+            value={efficiencyMjPerTh}
+            onInput={(e) => setEfficiencyMjPerTh(e.currentTarget.value)}
+            type="number"
+            step="1"
+            min="1"
+            required
+          />
+          </>
         ) : (
           <>
           <Field

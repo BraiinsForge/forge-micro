@@ -116,14 +116,14 @@ fn corrupted_payload_returns_corrupt() {
 /// factory defaults; setting any override shifts the encoded payload.
 // Schema hash for ubos_config::Config as of this commit.
 // Update this when Config's shape changes.
-const EXPECTED_HASH: [u8; 8] = [167, 72, 148, 236, 20, 190, 162, 131];
+const EXPECTED_HASH: [u8; 8] = [162, 37, 2, 167, 148, 160, 196, 228];
 
 // Postcard encoding of Config::default() with the schema-hash prefix.
 // 121 bytes total: 8-byte hash + 111-byte pre-network payload + 2-byte
 // network section.
 // Update this when Config's default values or shape changes.
 const EXPECTED_BLOB: &[u8] = &[
-    167, 72, 148, 236, 20, 190, 162, 131, // schema hash
+    162, 37, 2, 167, 148, 160, 196, 228, // schema hash
     1,   // pool: heapless::Vec<PoolEntry, 3> (length=1)
     19, 115, 116, 114, 97, 116, 117, 109, 46, 98, 114, 97, 105, 105, 110, 115, 46, 99, 111,
     109, // pool[0].host = "stratum.braiins.com" (len 19)

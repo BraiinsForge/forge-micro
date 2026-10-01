@@ -1086,6 +1086,7 @@ fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
         let power = ubos_config::Tuning::Power(ubos_config::PowerTarget {
             input_power_mw: 3_000_000,
+            efficiency_mj_per_th: core::num::NonZeroU32::MIN,
         });
         // The fixed tuner does not serve a power target, which is what
         // puts the loop in the hold.

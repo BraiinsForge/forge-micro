@@ -25,7 +25,9 @@
 //! `P = alpha * V^2 * f`. Only a healthy PSU sample taken after the last
 //! command advances the ramp.
 //!
-//! The ramp ends at the chip's maximum frequency, even when power stays
+//! The ramp ends at the frequency where the theoretical hashrate of the
+//! present chips meets the target efficiency at the target power, or at
+//! the chip's maximum frequency if that is lower, even when power stays
 //! below the target. Excess power or stale telemetry returns the chains
 //! to safe boot and ends the ramp. A power drop after the target was
 //! reached restores the previous operating point. A zero target stays
@@ -40,7 +42,7 @@ use ubos_core::units::{Frequency, Power, Voltage};
 use ubos_logging::{debug, warn};
 use ubos_tuner::{Plan, Readings, Tuner};
 
-use super::MachineTuner;
+use super::{MachineTuner, PowerTarget};
 
 /// Upper safety margin as a divisor of the target, e.g. `1 / 40 = 2.5%`.
 const TARGET_POWER_UPPER_MARGIN_DIVISOR: u32 = 20; // 1 / 20 = 5%
@@ -58,7 +60,7 @@ pub struct PowerTuner {
 
 /// Target, phase and telemetry bookkeeping retained between steps.
 struct Progress {
-    target: Power,
+    target: PowerTarget,
     phase: Phase,
     /// When the last command took effect. A sample taken earlier does not
     /// describe that command.
@@ -225,9 +227,21 @@ impl PowerTuner {
         }
     }
 
-    /// Bound the requested power and cap frequency on the chip's step grid.
-    fn limits(&self, target: Power) -> Limits {
-        let target_mw = target.mw();
+    /// Bound the requested power and cap frequency on the chip's step grid,
+    /// where the present chips meet the target efficiency.
+    fn limits<const CHAINS: usize>(
+        &self,
+        target: PowerTarget,
+        readings: &Readings<CHAINS>,
+    ) -> Limits {
+        let target_mw = target.input_power.mw();
+        let cores: u64 = readings
+            .chains
+            .iter()
+            .flatten()
+            .map(|chain| u64::from(chain.chips) * u64::from(self.board.chip.core_count))
+            .sum();
+        let chip_freq_max = self.board.chip.frequency_range.max();
         Limits {
             max_power: Power::from_mw(
                 target_mw.saturating_add(target_mw / TARGET_POWER_UPPER_MARGIN_DIVISOR),
@@ -235,19 +249,25 @@ impl PowerTuner {
             min_power_after_target: Power::from_mw(
                 target_mw.saturating_sub(target_mw / TARGET_POWER_LOWER_MARGIN_DIVISOR),
             ),
-            max_frequency: self
-                .board
-                .chip
-                .frequency_range
-                .max()
-                .snap_down(self.board.chip.frequency_step)
-                .max(self.safe_boot().frequency),
+            // Without a clock from the efficiency, the chip's maximum is the only cap.
+            max_frequency: Frequency::try_from_power_and_efficiency(
+                target.input_power,
+                target.efficiency,
+                cores,
+            )
+            .map_or(chip_freq_max, |frequency| frequency.min(chip_freq_max))
+            .max(self.safe_boot().frequency)
+            .snap_down(self.board.chip.frequency_step),
         }
     }
 
     /// Enter phase A from safe boot.
-    fn start_ramp(&self, target: Power) -> Phase {
-        crate::events::frequency_ramp_started(self.limits(target).max_frequency.khz());
+    fn start_ramp<const CHAINS: usize>(
+        &self,
+        target: PowerTarget,
+        readings: &Readings<CHAINS>,
+    ) -> Phase {
+        crate::events::frequency_ramp_started(self.limits(target, readings).max_frequency.khz());
         Phase::Ramp {
             target_reached: false,
             last: self.safe_boot(),
@@ -311,8 +331,8 @@ impl PowerTuner {
             return (waiting, unchanged);
         };
 
-        let target = progress.target;
-        let limits = self.limits(target);
+        let target = progress.target.input_power;
+        let limits = self.limits(progress.target, readings);
         let target_reached = target_reached || psu.input_power >= target;
         let next = match TuningAction::next(
             &limits,
@@ -405,9 +425,7 @@ impl<const CHAINS: usize> MachineTuner<CHAINS> for PowerTuner {
 
     fn step(&mut self, tuning: &Tuning, readings: &Readings<CHAINS>) -> Plan<CHAINS> {
         match tuning {
-            Tuning::Power(target) => {
-                Tuner::step(self, Power::from_mw(target.input_power_mw), readings, &())
-            }
+            Tuning::Power(target) => Tuner::step(self, PowerTarget::from(*target), readings, &()),
             // `select` answers `None` for a fixed target, so the miner
             // never arrives here; the arm answers the public trait.
             Tuning::Fixed(_) => {
@@ -419,10 +437,10 @@ impl<const CHAINS: usize> MachineTuner<CHAINS> for PowerTuner {
 }
 
 impl<const CHAINS: usize> Tuner<CHAINS> for PowerTuner {
-    type Target = Power;
+    type Target = PowerTarget;
     type PlatformReadings = ();
 
-    fn step(&mut self, target: Power, readings: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
+    fn step(&mut self, target: PowerTarget, readings: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
         let unchanged = Self::unchanged();
         let Some(point) = OperatingPoint::of(readings) else {
             return unchanged;
@@ -430,7 +448,7 @@ impl<const CHAINS: usize> Tuner<CHAINS> for PowerTuner {
         let mut progress = match self.progress.take() {
             Some(progress) if progress.target == target => progress,
             _ => {
-                let phase = if target.mw() == 0 {
+                let phase = if target.input_power.mw() == 0 {
                     warn!("power-tuner: zero input-power target; staying at safe boot");
                     Phase::Retreat
                 } else {
@@ -454,7 +472,7 @@ impl<const CHAINS: usize> Tuner<CHAINS> for PowerTuner {
         let (phase, plan) = match progress.phase {
             Phase::Restart => match self.walk_to_safe_boot(readings) {
                 Some(plan) => (Phase::Restart, plan),
-                None => (self.start_ramp(target), unchanged),
+                None => (self.start_ramp(target, readings), unchanged),
             },
             Phase::Retreat => match self.walk_to_safe_boot(readings) {
                 Some(plan) => (Phase::Retreat, plan),

@@ -108,7 +108,7 @@ const CONFIG = {
   network: { mode: 'Dhcp', hostname: '', address: [192, 168, 1, 50], prefix_len: 24, gateway: [192, 168, 1, 1], dns: [] },
 };
 
-const ASIC = { bounds: { frequencyMhz: { start: 200, end: 700 }, voltageMv: { start: 1000, end: 1400 } } };
+const ASIC = { defaultEfficiencyMjPerTh: 40000, bounds: { frequencyMhz: { start: 200, end: 700 }, voltageMv: { start: 1000, end: 1400 } } };
 const THERMAL = { bounds: { dangerousTempC: { start: 70, end: 110 }, cooldownTempC: { start: 50, end: 90 }, dangerousChipTempC: { start: 90, end: 125 } } };
 const COOLING = { bounds: { targetTempC: { start: 40, end: 85 }, minFanPwm: { start: 0, end: 100 }, fixedFanPwm: { start: 0, end: 100 } } };
 const NETWORK = { mode: 'Dhcp', address: [192, 168, 1, 50], prefix_len: 24, gateway: [192, 168, 1, 1], dns: [[8, 8, 8, 8]] };

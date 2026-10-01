@@ -12,6 +12,7 @@ import ConfigNetwork from './ConfigNetwork';
 interface TabRenderProps {
   config: ConfigData | null;
   asicBounds: Partial<AsicBounds>;
+  defaultEfficiency?: number;
   thermalBounds: Partial<ThermalBounds>;
   coolingBounds: Partial<CoolingBounds>;
   boardNotice: BoardNotice;
@@ -40,7 +41,9 @@ const TABS: Tab[] = [
   {
     key: 'mining',
     label: 'Mining',
-    render: (p) => <ConfigMining miner={p.config?.miner} bounds={p.asicBounds} />,
+    render: (p) => (
+      <ConfigMining miner={p.config?.miner} bounds={p.asicBounds} defaultEfficiency={p.defaultEfficiency} />
+    ),
   },
   {
     key: 'system',
@@ -69,6 +72,7 @@ export default function Config({ hash, boardNotice }: ConfigProps) {
 
   const [config, setConfig] = useState<ConfigData | null>(null);
   const [asicBounds, setAsicBounds] = useState<Partial<AsicBounds>>({});
+  const [defaultEfficiency, setDefaultEfficiency] = useState<number>();
   const [thermalBounds, setThermalBounds] = useState<Partial<ThermalBounds>>({});
   const [coolingBounds, setCoolingBounds] = useState<Partial<CoolingBounds>>({});
   const [loadError, setLoadError] = useState('');
@@ -81,12 +85,13 @@ export default function Config({ hash, boardNotice }: ConfigProps) {
         try {
           const [cfg, asic, thermal, cooling] = await Promise.all([
             getConfig(),
-            getJSON<{ bounds: AsicBounds }>('/api/system/asic'),
+            getJSON<{ bounds: AsicBounds; defaultEfficiencyMjPerTh: number }>('/api/system/asic'),
             getJSON<{ bounds: ThermalBounds }>('/api/system/thermal'),
             getJSON<{ bounds: CoolingBounds }>('/api/system/cooling'),
           ]);
           setConfig(cfg);
           setAsicBounds(asic.bounds || {});
+          setDefaultEfficiency(asic.defaultEfficiencyMjPerTh);
           setThermalBounds(thermal.bounds || {});
           setCoolingBounds(cooling.bounds || {});
           setLoadError('');
@@ -99,7 +104,7 @@ export default function Config({ hash, boardNotice }: ConfigProps) {
     })();
   }, []);
 
-  const props: TabRenderProps = { config, asicBounds, thermalBounds, coolingBounds, boardNotice };
+  const props: TabRenderProps = { config, asicBounds, defaultEfficiency, thermalBounds, coolingBounds, boardNotice };
 
   return (
     <section class="cfg">

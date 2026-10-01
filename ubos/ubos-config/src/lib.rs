@@ -101,11 +101,11 @@ use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 use ubos_logging::{info, warn};
 
 ubos_events::events! {
-    config_changed(freq_mhz: u32, voltage_mv: u32)  info = "Configuration changed: {} MHz, {} mV",
-    config_changed_power(power_mw: u32)              info = "Configuration changed: power = {} mW",
-    factory_reset()                                  warn = "Factory reset to defaults",
-    network_applied()                                info = "Network config applied",
-    network_reverted()                               warn = "Network config reverted",
+    config_changed(freq_mhz: u32, voltage_mv: u32)       info = "Configuration changed: {} MHz, {} mV",
+    config_changed_power(power_mw: u32, mj_per_th: u32)  info = "Configuration changed: {} mW, {} mJ/TH",
+    factory_reset()                                      warn = "Factory reset to defaults",
+    network_applied()                                    info = "Network config applied",
+    network_reverted()                                   warn = "Network config reverted",
 }
 
 /// Subscriber capacity for the config watch.
@@ -917,7 +917,10 @@ async fn apply_update<S: Storage>(new: &Config, storage: &mut S) {
             crate::events::config_changed(target.frequency_mhz, target.voltage_mv);
         }
         Tuning::Power(target) => {
-            crate::events::config_changed_power(target.input_power_mw);
+            crate::events::config_changed_power(
+                target.input_power_mw,
+                target.efficiency_mj_per_th.get(),
+            );
         }
     }
 }

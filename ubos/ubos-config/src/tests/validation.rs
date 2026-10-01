@@ -506,7 +506,8 @@ fn miner_fixed_json_shape_deserializes() {
 /// The mining form's JSON shape selects the power tuner and its target.
 #[test]
 fn miner_power_json_shape_deserializes() {
-    let json = r#"{"miner":{"tuning":{"Power":{"input_power_mw":44000}}}}"#;
+    let json =
+        r#"{"miner":{"tuning":{"Power":{"input_power_mw":44000,"efficiency_mj_per_th":40000}}}}"#;
     let (update, _) =
         serde_json_core::de::from_str::<ConfigUpdate>(json).expect("deserialize succeeds");
     assert_eq!(
@@ -514,10 +515,20 @@ fn miner_power_json_shape_deserializes() {
         Some(MinerConfig {
             tuning: Tuning::Power(PowerTarget {
                 input_power_mw: 44_000,
+                efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
             }),
         })
     );
     assert!(update.validate(&Config::default(), &MINING_BOUNDS).is_ok());
+}
+
+/// A zero efficiency would leave the tuner no frequency to aim for, so
+/// the update does not parse.
+#[test]
+fn miner_power_zero_efficiency_is_rejected() {
+    let json =
+        r#"{"miner":{"tuning":{"Power":{"input_power_mw":44000,"efficiency_mj_per_th":0}}}}"#;
+    assert!(serde_json_core::de::from_str::<ConfigUpdate>(json).is_err());
 }
 
 /// Applying a `miner` update overwrites `Config::miner`.

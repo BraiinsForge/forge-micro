@@ -266,7 +266,7 @@ const WIDEST_F32: f32 = -0.000_001_000_000_1;
 /// so the figure quoted in that constant's comment cannot drift: a field
 /// addition that still fits the buffer fails here, and updating this constant
 /// is the prompt to update that comment.
-const WORST_CASE_BODY_LEN: usize = 2087;
+const WORST_CASE_BODY_LEN: usize = 2098;
 
 /// The `GET /api/config` handler serializes a `ConfigUpdate` into a fixed
 /// `[u8; CONFIG_RESPONSE_BUFFER_SIZE]`. `serde_json_core::to_slice` returns
@@ -290,6 +290,7 @@ const WORST_CASE_BODY_LEN: usize = 2087;
 /// - every `f32` at [`WIDEST_F32`], the widest decimal form the serializer
 ///   emits;
 /// - every `u32` at `u32::MAX` and every `u8` at `u8::MAX`;
+/// - `miner.tuning` as `Power`, the wider of the two `Tuning` variants;
 /// - `api.username` and `api.password` at capacity, which is wider than the
 ///   live body: `ConfigUpdate::from_config` blanks the password so the stored
 ///   credential never reaches the client;
@@ -363,9 +364,9 @@ fn config_response_body_fits_in_buffer() {
             min_fan_pwm: Some(u8::MAX),
         }),
         miner: Some(ubos_config::MinerConfig {
-            tuning: ubos_config::Tuning::Fixed(ubos_config::FrequencyVoltageTarget {
-                frequency_mhz: u32::MAX,
-                voltage_mv: u32::MAX,
+            tuning: ubos_config::Tuning::Power(ubos_config::PowerTarget {
+                input_power_mw: u32::MAX,
+                efficiency_mj_per_th: core::num::NonZeroU32::MAX,
             }),
         }),
         api: Some(ubos_config::ApiConfig {

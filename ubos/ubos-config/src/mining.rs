@@ -25,6 +25,7 @@
 //! static chip facts that live alongside the config, and the
 //! [`BOUNDS`] constant.
 
+use core::num::NonZeroU32;
 use core::ops::RangeInclusive;
 use ubos_asic::HashboardDescriptor;
 
@@ -53,6 +54,9 @@ pub struct FrequencyVoltageTarget {
 pub struct PowerTarget {
     /// Target PSU input power in mW.
     pub input_power_mw: u32,
+    /// Target input power per theoretical hashrate in mJ/TH, which caps
+    /// the clock the tuner ramps to.
+    pub efficiency_mj_per_th: NonZeroU32,
 }
 
 /// Accepted ranges for each [`FrequencyVoltageTarget`] field.
@@ -110,6 +114,8 @@ pub struct MiningInfo {
     pub default_frequency_mhz: u32,
     /// Default core voltage in millivolts.
     pub default_voltage_mv: u32,
+    /// Default power-target efficiency in mJ/TH.
+    pub default_efficiency_mj_per_th: u32,
     /// Accepted tuning ranges.
     pub bounds: &'static MiningBounds,
 }
@@ -129,6 +135,7 @@ pub const fn mining_info(
         asic_count: board.num_chips,
         default_frequency_mhz: board.default_frequency.mhz(),
         default_voltage_mv: board.default_voltage.mv(),
+        default_efficiency_mj_per_th: board.default_efficiency.mj_per_th(),
         bounds,
     }
 }
