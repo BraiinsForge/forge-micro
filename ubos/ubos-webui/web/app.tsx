@@ -13,6 +13,7 @@ import NetOverlays from './components/NetOverlays';
 import Toasts from './components/Toasts';
 import { startPoll, useDash } from './lib/store';
 import { API, loginRedirect, sleep } from './lib/api';
+import { tabTitle } from './lib/title';
 
 // Hash-based view switch, no router. `#config[/sub]` -> config,
 // `#events` -> events, anything else -> dashboard.
@@ -86,11 +87,11 @@ export default function App() {
   // Name the tab after the board it shows, so a row of open tabs tells
   // one board from the next. The address comes from the poll and not
   // from the address bar, which holds an mDNS name or a proxy address on
-  // some networks. Until the first answer the tab keeps the static title
-  // of index.html.
+  // some networks. Until the first answer the tab carries the address
+  // bar's host, which is what the login page shows.
   const ip = dash.info?.ip;
   useEffect(() => {
-    if (ip) document.title = __BRAND_NAME__ + ' ' + ip;
+    document.title = tabTitle(ip);
   }, [ip]);
 
   return (

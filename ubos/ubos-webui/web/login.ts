@@ -6,6 +6,7 @@
 // a 401, in which case the banner text is swapped for a session notice.
 import './styles/common.css';
 import './styles/login.css';
+import { tabTitle } from './lib/title';
 
 const params = new URLSearchParams(location.search);
 const err = document.getElementById('err');
@@ -19,3 +20,7 @@ if (err) {
     err.classList.add('show');
   }
 }
+
+// This page cannot poll for the board's address before sign-in, so
+// the host from the address bar stands in.
+document.title = tabTitle();
