@@ -17,11 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Shared HTTP middleware: allow-list, authentication, sessions, CSRF, CSPRNG.
-//!
-//! Consumed by every handler crate, `ubos-webui` and `ubos-api` among
-//! them, so the credential store, session table, and CSRF tokens are
-//! global to the firmware rather than per-handler.
+//! HTTP middleware shared by every handler crate, so the credential
+//! store, the sessions and the CSRF tokens are one per firmware.
 
 #![no_std]
 
@@ -36,10 +33,8 @@ pub use gate::{Policy, Rejection, check_csrf, gate_identity};
 
 #[cfg(test)]
 mod test_time_stubs {
-    // `session` and `csrf` call `embassy_time::Instant::now()`.
-    // `embassy-time-driver` declares the hook as `extern "Rust"`; no
-    // hardware driver is linked into the host test binary, so satisfy
-    // the linker with a stub that returns a fixed tick of zero.
+    // No time driver is linked into the host test binary, so the
+    // `extern "Rust"` hook `embassy-time-driver` declares is stubbed.
     #[allow(clippy::no_mangle_with_rust_abi)]
     #[unsafe(no_mangle)]
     fn _embassy_time_now() -> u64 {
@@ -48,8 +43,5 @@ mod test_time_stubs {
 
     #[allow(clippy::no_mangle_with_rust_abi)]
     #[unsafe(no_mangle)]
-    fn _embassy_time_schedule_wake(_at: u64, _waker: &core::task::Waker) {
-        // No scheduler in the host binary; test paths do not block on
-        // timers so leaving this empty is safe.
-    }
+    fn _embassy_time_schedule_wake(_at: u64, _waker: &core::task::Waker) {}
 }

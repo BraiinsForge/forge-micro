@@ -17,14 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Network-layer access screen.
-//!
-//! Drops requests originating outside the configured CIDR ranges with a
-//! `401 Unauthorized` response carrying the exact `reference-miner` error
-//! string so machine clients can match on it.
-//!
-//! The allow-list check runs before any authentication, so off-LAN
-//! probes never reach the credential check or the session table.
+//! Peer address screen, run before any authentication.
 
 use core::net::{IpAddr, Ipv4Addr};
 
@@ -32,16 +25,13 @@ use core::net::{IpAddr, Ipv4Addr};
 #[path = "tests/allow_list.rs"]
 mod tests;
 
-/// A single IPv4 CIDR range.
 pub struct Cidr {
-    /// The network address (host bits must be zero).
+    /// Host bits must be zero.
     pub base: Ipv4Addr,
-    /// The prefix length in bits (0–32).
     pub prefix: u8,
 }
 
 impl Cidr {
-    /// Return `true` if `addr` falls within this CIDR range.
     #[must_use]
     pub fn contains(&self, addr: Ipv4Addr) -> bool {
         if self.prefix == 0 {
@@ -55,10 +45,7 @@ impl Cidr {
     }
 }
 
-/// Default allow-list: RFC1918 private ranges and link-local.
-///
-/// Requests from addresses outside these ranges are rejected with a
-/// `401` response before authentication is attempted.
+/// RFC 1918 private ranges and link-local.
 pub const DEFAULT_ALLOW_LIST: &[Cidr] = &[
     Cidr {
         base: Ipv4Addr::new(10, 0, 0, 0),
@@ -78,11 +65,8 @@ pub const DEFAULT_ALLOW_LIST: &[Cidr] = &[
     },
 ];
 
-/// Return `true` if `ip` is permitted by `allow_list`.
-///
-/// IPv4-mapped IPv6 addresses (`::ffff:x.x.x.x`) are unwrapped and checked
-/// as IPv4. Native IPv6 addresses are rejected until IPv6 LAN scopes are
-/// modelled; a future revision will add the equivalent v6 prefixes here.
+/// An IPv4-mapped IPv6 address is checked as IPv4; a native IPv6
+/// address is rejected, since no v6 LAN scope is modelled.
 #[must_use]
 pub fn is_allowed(ip: IpAddr, allow_list: &[Cidr]) -> bool {
     let ipv4 = match ip {

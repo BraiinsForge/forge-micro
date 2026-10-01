@@ -17,27 +17,11 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! CSRF token table for session-authenticated state-changing requests.
-//!
-//! CSRF tokens are single-use and bound to the session that issued them:
-//! `issue_csrf_token` mints a fresh token and stores it alongside the
-//! session id, `consume_csrf_token` removes it only when both the token
-//! and the session id match. The token is delivered in the
-//! `X-CSRF-Token` response header on every `GET /` for a session-
-//! authenticated browser so the SPA can attach it to subsequent
-//! mutating requests.
-//!
-//! Basic-authenticated requests bypass the check entirely — the
-//! `Authorization` header already proves identity per request without
-//! any state, so CSRF is not a concern for machine clients.
-//!
-//! The table caps at `MAX_TOKENS` concurrent entries; the oldest is
-//! evicted when the table is full so a page-reload loop cannot exhaust
-//! the store. Under sustained reload churn a legitimate user's pending
-//! token can be evicted before they submit, in which case the next
-//! mutating request fails CSRF validation and the user has to retry —
-//! one extra round-trip, no security loss. A per-session quota would
-//! avoid the retry but adds bookkeeping we have not needed.
+//! CSRF tokens: single-use, bound to the session that issued them, and
+//! delivered in the `X-CSRF-Token` header of every session `GET /`. A
+//! full table evicts its oldest token; a user evicted under reload churn
+//! retries once, with no security loss. Scans visit every slot; see the
+//! `auth` module doc.
 
 use core::cell::RefCell;
 use embassy_sync::blocking_mutex::Mutex;
@@ -52,55 +36,33 @@ use crate::auth::constant_time_eq;
 #[path = "tests/csrf.rs"]
 mod tests;
 
-/// Maximum number of concurrent CSRF tokens.
 const MAX_TOKENS: usize = 16;
 
-/// Lifetime of a CSRF token in seconds.
-pub const CSRF_TTL_SECS: u64 = 3_600; // 1 hour
+pub const CSRF_TTL_SECS: u64 = 3_600;
 
-/// Per-token metadata: the session that issued the token and when.
 struct CsrfMeta {
-    /// Session id the token was minted for. A consume call from a
-    /// different session id is rejected even when the token string
-    /// matches, which blocks cross-session CSRF-token replay.
+    /// A consume from another session is rejected even on a matching
+    /// token, which blocks cross-session replay.
     session_id: String<32>,
-    /// Firmware uptime when the token was issued.
     created_uptime_secs: u64,
 }
 
-/// CSRF token table.
-///
-/// See `auth::CREDENTIALS` for the rationale on the mutex flavour.
-///
-/// A blocking mutex, because nothing awaits while it is held. The token is
-/// drawn from the CSPRNG before the lock is taken, so the longest span is
-/// a scan of at most `MAX_TOKENS` entries.
 static CSRF_TOKENS: Mutex<
     CriticalSectionRawMutex,
     RefCell<FnvIndexMap<String<32>, CsrfMeta, MAX_TOKENS>>,
 > = Mutex::new(RefCell::new(FnvIndexMap::new()));
 
-/// Generate a CSRF token for `session_id`, store it in the table, and
-/// return it.
-///
-/// If the table is full the oldest token (smallest creation uptime) is
-/// evicted first. The returned string is suitable for the `X-CSRF-Token`
-/// response header value.
+/// Mint a token for `session_id`, evicting the oldest when the table is
+/// full.
 ///
 /// # Panics
 ///
-/// Panics with `BUG: …` if `session_id` exceeds the `String<32>` cap.
-/// `session_id` is always a CSPRNG-issued 32-char string in the firmware
-/// call path, so this is unreachable in practice; the assertion is here
-/// to catch a future caller that passes a longer value.
+/// If `session_id` exceeds `String<32>`: a longer id would truncate into
+/// a binding that never matches.
 pub fn issue_csrf_token(session_id: &str) -> String<32> {
     let token = crate::csprng::random_token();
     let uptime = Instant::now().as_secs();
     let mut session_owned: String<32> = String::new();
-    // Session ids are CSPRNG-issued 32-char strings sized to fit
-    // `String<32>` exactly. A longer caller value would silently
-    // truncate and produce a CSRF binding that never matches the
-    // stored session id; surface that as a panic instead.
     session_owned
         .push_str(session_id)
         .expect("BUG: session_id exceeds String<32>");
@@ -125,8 +87,6 @@ pub fn issue_csrf_token(session_id: &str) -> String<32> {
                 created_uptime_secs: uptime,
             },
         )
-        // The eviction above guarantees at least one free slot; if insert
-        // still fails the map capacity invariant has been violated.
         .map_err(|_| ())
         .expect(
             "BUG: insert after eviction must succeed: map capacity guaranteed by eviction above",
@@ -136,33 +96,23 @@ pub fn issue_csrf_token(session_id: &str) -> String<32> {
     token
 }
 
-/// Consume a CSRF token, returning `true` only when the token exists,
-/// was issued for `session_id`, and has not expired.
-///
-/// A matched token is removed from the table whether or not it is still
-/// valid: an expired entry is consumed and `false` is returned, so a
-/// replay attempt cannot keep probing the same token. Unknown tokens
-/// and session-id mismatches leave the table untouched so the issuing
-/// session can still consume its own pending token.
+/// Consume a token: `true` only when it exists, was issued for
+/// `session_id` and is unexpired. A matched expired token is removed too,
+/// so a replay cannot keep probing it; a mismatch leaves the table alone,
+/// so the issuing session can still consume it.
 ///
 /// # Panics
 ///
-/// Panics if a matched index does not resolve to a key on the second
-/// `iter().nth()` pass. This is unreachable: the index is recorded
-/// during the same locked scan, and the map is not mutated between the
-/// scan and the lookup.
+/// If the matched index does not resolve to a key, which cannot happen
+/// under one lock.
 pub fn consume_csrf_token(session_id: &str, token: &str) -> bool {
     let now = Instant::now().as_secs();
     CSRF_TOKENS.lock(|cell| {
         let mut guard = cell.borrow_mut();
         let map = &mut *guard;
 
-        // Iterate every slot so the per-key compare time does not depend on
-        // which slot holds the matching token. `matched_valid` is accumulated
-        // unconditionally with `|=` so no short-circuit leaks position.
-        // `matched_index` records the slot index rather than cloning the key
-        // string, moving the heap-touching `String::clone` out of the loop
-        // and into a single post-scan key lookup.
+        // `|=`, not a break: no short-circuit leaks the slot. The index,
+        // not the key, is kept in the loop.
         let mut matched_index: Option<usize> = None;
         let mut matched_valid = false;
         for (index, (key, meta)) in map.iter().enumerate() {
@@ -178,8 +128,6 @@ pub fn consume_csrf_token(session_id: &str, token: &str) -> bool {
         let Some(index) = matched_index else {
             return false;
         };
-        // Look up the key by index after the full scan completes; the clone
-        // happens once outside the timing-sensitive loop.
         let key = map
             .iter()
             .nth(index)

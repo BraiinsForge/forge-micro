@@ -29,10 +29,7 @@ use crate::auth::{
 
 #[test]
 fn basic_auth_root_root_accepted() {
-    // The credential store is now eagerly populated by `init_credentials`
-    // at the top of each listener task at boot; tests have no boot path,
-    // so each test that depends on the defaults invokes the helper
-    // directly. It is idempotent, so cross-test ordering does not matter.
+    // No boot path seeds the store here; `init_credentials` is idempotent.
     crate::auth::init_credentials();
     // "root:root" in base64 is "cm9vdDpyb290"
     let result = authenticate(Some("Basic cm9vdDpyb290"), None);
@@ -191,9 +188,7 @@ fn constant_time_eq_accepts_equal_strings() {
 
 #[test]
 fn constant_time_eq_rejects_oversize_inputs() {
-    // A 33-byte string exceeds SECRET_MAX_LEN (32). Even when both sides
-    // are identical and would compare equal after truncation, the oversize
-    // guard must return false to prevent prefix-collision attacks.
+    // Identical oversize inputs would compare equal after truncation.
     let oversize = "abcdefghijklmnopqrstuvwxyz0123456";
     assert!(!constant_time_eq(oversize, oversize));
     // One oversize, one within bounds — also false.

@@ -17,15 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Composed request preamble: allow-list, authentication, and CSRF.
-//!
-//! [`gate_identity`] runs the allow-list and the credential check every
-//! listener needs, in the same order, against a per-service [`Policy`].
-//! [`check_csrf`] is the third step, taken separately because a handler
-//! reads a mutating request's body between the two: an oversized body
-//! answers 413 without spending the single-use token. The identity is
-//! resolved once and handed to the CSRF check, so the two steps cannot
-//! disagree about who the request is from.
+//! The request preamble every listener runs. [`check_csrf`] is a
+//! separate step because a handler reads the body between the two: an
+//! oversized body answers 413 without spending the single-use token.
 
 use core::net::IpAddr;
 
@@ -37,42 +31,25 @@ use crate::csrf;
 #[path = "tests/gate.rs"]
 mod tests;
 
-/// Per-request policy passed to [`gate_identity`].
-///
-/// A caller builds one of these from its own routing rules, since the
-/// REST API admits no anonymous request while the dashboard must let an
-/// unauthenticated browser reach `/login`.
+/// Per-request policy: the REST API admits no anonymous request, while
+/// the dashboard must let a browser reach `/login`.
 pub struct Policy {
-    /// Whether a request that carries no credentials is admitted as
-    /// [`AuthCtx::Anonymous`] rather than rejected outright.
     pub allow_anonymous: bool,
 }
 
-/// Why the preamble rejected a request.
 pub enum Rejection {
-    /// The peer address is outside the configured allow-list.
     NotAllowed,
-    /// No credentials were presented and the policy does not admit
-    /// anonymous requests.
     Unauthorized,
-    /// A CSRF token was required and missing, unknown, or issued for a
-    /// different session.
     CsrfInvalid,
 }
 
-/// Run the allow-list and authentication checks for one request.
-///
-/// The allow-list is checked first, so an off-LAN probe never reaches
-/// the credential check. Authentication follows. An `Authorization`
-/// header that fails to parse or fails the credential compare is
-/// treated the same as no header at all: the identity is
-/// [`AuthCtx::Anonymous`], so a policy that admits anonymous requests
-/// admits it. When the identity is anonymous and `policy.allow_anonymous`
-/// is `false`, the request is rejected.
+/// The allow-list first, so an off-LAN probe never reaches the
+/// credential check, then authentication. A header that fails either
+/// way counts as no header, so the policy decides.
 ///
 /// # Errors
 ///
-/// [`Rejection::NotAllowed`] for a peer outside the allow-list,
+/// [`Rejection::NotAllowed`] off the allow-list,
 /// [`Rejection::Unauthorized`] for an anonymous request the policy does
 /// not admit.
 pub fn gate_identity(
@@ -94,19 +71,14 @@ pub fn gate_identity(
     Ok(auth_ctx)
 }
 
-/// Consume and validate the CSRF token of a session-authenticated
-/// request.
-///
-/// Takes the identity [`gate_identity`] resolved rather than resolving
-/// it again, so a session whose lifetime lapses between the two calls
-/// is still checked as the session it was admitted as. `Basic`
-/// authenticated and anonymous identities pass unchecked, since only a
-/// session cookie can be forged cross-site.
+/// Consume the CSRF token of a session request. Takes the identity
+/// [`gate_identity`] resolved, so the two steps cannot disagree. Only a
+/// session cookie can be forged cross-site, so the other identities pass.
 ///
 /// # Errors
 ///
-/// [`Rejection::CsrfInvalid`] when the identity is a session and the
-/// token is missing, unknown, or issued for a different session.
+/// [`Rejection::CsrfInvalid`] when the token is missing, unknown, or
+/// another session's.
 pub fn check_csrf(auth_ctx: &AuthCtx, csrf: Option<&str>) -> Result<(), Rejection> {
     if let AuthCtx::Session(session_id) = auth_ctx {
         let token = csrf.unwrap_or("");

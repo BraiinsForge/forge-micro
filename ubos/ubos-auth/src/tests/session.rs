@@ -17,13 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for `session::{create,validate,invalidate}_session`.
-//!
-//! `SESSIONS` is a process-global table, so each test takes care to use a
-//! locally-distinct token string and tears down at the end. Tests are
-//! kept independent by deriving their tokens from the test function
-//! name, avoiding ordering effects when the test binary runs them
-//! concurrently.
+//! Tests for the session table. It is process-global, so each test
+//! derives its tokens from its own name and tears down at the end.
 
 extern crate std;
 
@@ -72,9 +67,6 @@ fn invalidate_unknown_token_is_a_noop() {
 
 #[test]
 fn validate_distinguishes_close_tokens() {
-    // Two tokens that differ only in the last byte must not be
-    // collapsed; constant_time_eq runs to completion so a final-byte
-    // mismatch is still detected.
     let live = make_token("test-distinguishes-aa");
     let other = make_token("test-distinguishes-ab");
     create_session(live.clone());

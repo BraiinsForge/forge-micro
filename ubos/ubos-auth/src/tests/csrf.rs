@@ -17,12 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for `csrf::{issue,consume}_csrf_token`.
-//!
-//! `CSRF_TOKENS` is process-global, so each test uses a session id
-//! string derived from its own name to stay independent of any prior
-//! state in the table. `seed_csprng` must be called before
-//! `issue_csrf_token`, so each test seeds with a fixed key.
+//! Tests for the CSRF table. It is process-global, so each test derives
+//! its session id from its own name.
 
 extern crate std;
 
@@ -30,8 +26,6 @@ use crate::csprng::seed_csprng;
 use crate::csrf::{consume_csrf_token, issue_csrf_token};
 
 fn ensure_seeded() {
-    // The seed value is irrelevant for these tests; any 32 bytes will
-    // satisfy the `random_token` precondition.
     seed_csprng([0x42u8; 32]);
 }
 
