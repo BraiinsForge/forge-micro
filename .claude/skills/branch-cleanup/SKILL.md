@@ -31,9 +31,11 @@ invariants:
    depend on them.
 
 The governing test for any two commits: *would both exist if the branch
-were authored cleanly from scratch?* If not, fold them. Granularity is
-still a virtue — many small atomic commits beat one large commit — but
-only along logical-change boundaries, never along development-time
+were authored cleanly from scratch?* If not, fold them. If both would,
+keep both: granularity is a virtue — many small atomic commits beat one
+large commit — so a squash needs the evidence Phase 2 demands, and two
+clean commits are never folded for being small, adjacent, or touching
+the same file. Logical-change boundaries decide, never development-time
 boundaries.
 
 ## Resolve the base
@@ -202,6 +204,11 @@ count is irrelevant.
    - Incremental refinements to the same idea that have no standalone
      review value. Example: commit A adds a parser, commit B renames a
      variable in that parser. B should fold into A.
+
+   Keep is the default. Every squash proposal names its evidence: the
+   lines the later commit rewrites, the fixup relation, or why the
+   later commit has no standalone review value. A pair with no such
+   evidence stays two commits, however small or adjacent they are.
 
 3. Identify commits that should be **split**. The test is the number
    of logical changes in the diff, never the line count: a commit that
