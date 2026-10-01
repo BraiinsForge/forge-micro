@@ -88,6 +88,12 @@ let
   # Line budget for CLAUDE.md; see claude-md-limit below.
   claudeMdMaxLines = 200;
 
+  # The fewest instruction files instruction-paths below expects to
+  # reach. It exists to catch a scan that reads nothing, not to fix the
+  # count, so it sits far under what the tree holds and moves only if
+  # the tree ever holds fewer.
+  minInstructionFiles = 5;
+
   # The webui build environment for one board: the hermetic dist, plus
   # the brand that board ships. Every site that compiles ubos-webui goes
   # through this or through webuiHostEnv below, so a new site cannot
@@ -1084,6 +1090,13 @@ hostClippyChecks
     fi
     touch $out
   '';
+
+  # The paths instruction files name; the rule and the reason are in
+  # nix/instruction-paths.nix, which both trees of the pair call.
+  instruction-paths = import ./instruction-paths.nix {
+    inherit pkgs root;
+    minFiles = minInstructionFiles;
+  };
 
   # Every firmware crate is named by a gate, and every gate names a
   # firmware crate. The rule, and why it is one shared with the internal

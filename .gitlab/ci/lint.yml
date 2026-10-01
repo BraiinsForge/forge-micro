@@ -24,3 +24,25 @@ format:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# The two gates that read instruction files: `claude-md-limit` on the
+# line budget and `instruction-paths` on every backticked path they
+# name. Both are `runCommand` text gates that build in seconds, so they
+# run on every MR with no `changes:` filter, the way `format` does.
+#
+# They are in `.#ci-check` as well, and that is deliberate: the union
+# of the three groups stays exactly `nix flake check`, and this job
+# rebuilds two derivations the check stage would otherwise reach only
+# when a Rust or Nix path changed. `instruction-paths` fails on a
+# *referenced* path disappearing rather than on the file that names it
+# changing, so no list of changed paths selects it correctly; running
+# it always is cheaper than maintaining that list and being wrong.
+instructions:
+  stage: lint
+  script:
+    - nix build --no-link --print-build-logs
+      .#checks.x86_64-linux.claude-md-limit
+      .#checks.x86_64-linux.instruction-paths
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
