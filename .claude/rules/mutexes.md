@@ -63,7 +63,7 @@ principle see the flag set before it sees the value. Every use here is safe
 only because the board starts its second core after the install, and a core
 start orders memory between the two. A new `OnceLock` read from more than
 one core must record that reason at the site, as `CATALOGS` in
-`ubos-events/src/lib.rs` does.
+`ubos/ubos-events/src/lib.rs` does.
 
 ## Choosing the raw mutex
 
