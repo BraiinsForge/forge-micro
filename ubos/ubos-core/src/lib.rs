@@ -19,9 +19,9 @@
 
 //! Subsystem-scoped constants, the hardware-watchdog feed loop, the
 //! hold-to-trigger button monitor, the I2C bus clear, and the shape of
-//! the seeds a board draws at boot. The
-//! "core" of the firmware framework: every other ubos-* crate depends on
-//! this one for shared values and the watchdog and button task wrappers.
+//! the seeds a board draws at boot. The "core" of the firmware
+//! framework: the shared values and task shells the board-facing ubos-*
+//! crates build on.
 #![no_std]
 
 pub mod button;

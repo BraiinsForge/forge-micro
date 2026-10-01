@@ -17,19 +17,15 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The seeds a board draws at boot, in one shape for every platform
-//! crate that builds it. The consumers are platform-neutral: the network
-//! stack, the session CSPRNG and the SV2 noise handshake each take one
-//! field, so a platform crate only fills it in, from whatever entropy
-//! source the chip has. The RP family builds it today. The ESP32-S3
-//! still draws the three seeds as separate locals.
+//! The seeds a board draws at boot, in one shape for every platform crate
+//! that builds it. The consumers are platform-neutral, so a platform
+//! crate only fills the fields in from whatever entropy source the chip
+//! has.
 
-/// The three seeds a board draws at boot.
+/// The seeds a board draws at boot: the embassy-net stack, the session
+/// CSPRNG and the SV2 noise handshake take one field each.
 pub struct Seeds {
-    /// The embassy-net stack seed.
     pub net: u64,
-    /// The session CSPRNG seed.
     pub csprng: [u8; 32],
-    /// The SV2 noise handshake seed.
     pub sv2: [u8; 32],
 }

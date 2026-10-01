@@ -34,11 +34,10 @@ pub struct Ntp;
 impl Ntp {
     pub const HOST: &str = "pool.ntp.org";
     pub const PORT: u16 = 123;
-    /// Cadence between successful syncs. The pool asks appliances to query
-    /// no more often than a few times an hour, and one fetch carries a
-    /// fresh DNS query, which it separately caps at once an hour. An hour
-    /// satisfies both and is far more clock than these boards need: the
-    /// wall clock only stamps events and the display.
+    /// Cadence between successful syncs. The pool caps queries at a few
+    /// an hour and DNS resolution at once an hour; an hour satisfies both
+    /// and is far more than the wall clock needs for stamping events and
+    /// the display.
     ///
     /// Measured from boot rather than from a wall-clock time, so a fleet
     /// powered up at different moments does not converge on one instant.
@@ -62,7 +61,6 @@ const SECONDS_PER_DAY: u64 = 86_400;
 const SECONDS_PER_HOUR: u64 = 3_600;
 const SECONDS_PER_MINUTE: u64 = 60;
 
-/// Byte offset of the transmit timestamp seconds field.
 const TRANSMIT_TIMESTAMP_OFFSET: usize = 40;
 
 /// Extract a Unix timestamp from a 48-byte SNTP response.

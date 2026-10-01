@@ -38,9 +38,7 @@ use embedded_hal::digital::InputPin;
 /// Timing and polarity for [`wait_for_hold`].
 #[derive(Clone, Copy)]
 pub struct HoldConfig {
-    /// Interval between button samples.
     pub poll: Duration,
-    /// Unbroken hold required before [`wait_for_hold`] resolves.
     pub hold: Duration,
     /// `true` when a pressed button reads LOW — the usual pulled-up momentary
     /// switch. `false` for an active-high button.
@@ -48,8 +46,8 @@ pub struct HoldConfig {
 }
 
 impl HoldConfig {
-    /// Sample the pin and map its level to pressed/released. A read error
-    /// counts as released so a flaky pin can never trigger the action.
+    /// A read error counts as released so a flaky pin can never trigger the
+    /// action.
     fn is_pressed<P: InputPin>(&self, pin: &mut P) -> bool {
         matches!(pin.is_low(), Ok(low) if low == self.active_low)
     }
@@ -66,20 +64,16 @@ impl HoldConfig {
 pub async fn wait_for_hold<P: InputPin>(pin: &mut P, cfg: HoldConfig) {
     let mut ticker = Ticker::every(cfg.poll);
 
-    // Wait for a released state before arming.
     while cfg.is_pressed(pin) {
         ticker.next().await;
     }
 
     loop {
-        // Arm on a fresh press.
         while !cfg.is_pressed(pin) {
             ticker.next().await;
         }
         let pressed_at = Instant::now();
 
-        // The press must stay unbroken until the threshold elapses; a release
-        // before then abandons it and re-arms.
         loop {
             ticker.next().await;
             if !cfg.is_pressed(pin) {

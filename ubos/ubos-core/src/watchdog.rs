@@ -17,14 +17,12 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Periodic hardware watchdog feeder. A cooperative task-level watchdog
-//! is out of scope for these example boards.
+//! Periodic hardware watchdog feeder.
 
 use embassy_time::Timer;
 
 /// Hardware watchdog abstraction for the shared feed loop.
 pub trait Watchdog {
-    /// Start or enable the watchdog timer.
     fn init(&mut self);
     /// Feed the watchdog to prevent reset.
     fn feed(&mut self);
@@ -42,10 +40,8 @@ pub async fn run_watchdog<W: Watchdog>(mut wdt: W) -> ! {
 /// Task shell around [`run_watchdog`]. Takes the board's [`Watchdog`]
 /// implementation, which wraps its HAL watchdog peripheral.
 ///
-/// The shell cannot be a plain generic function, because
-/// `#[embassy_executor::task]` expands a typed `TaskPool` static and so
-/// rejects a generic task. `ubos-firmware`'s `tasks.rs` explains that
-/// barrier once for every shell that works around it.
+/// See `ubos_firmware::tasks` for why this is a macro rather than a
+/// generic function.
 #[macro_export]
 macro_rules! watchdog_task {
     ($watchdog:ty) => {

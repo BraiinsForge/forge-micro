@@ -57,11 +57,8 @@ const RECOVERY_HALF_PERIOD_US: u32 = 5;
 /// `embassy_rp::gpio::Flex`, implements this with `release` as
 /// `set_as_input` and `drive_low` as `set_low` followed by `set_as_output`.
 pub trait OpenDrainPin {
-    /// Release the line to the bus pull-up.
     fn release(&mut self);
-    /// Drive the line low.
     fn drive_low(&mut self);
-    /// Read the current line level.
     fn is_high(&mut self) -> bool;
 }
 
@@ -72,25 +69,20 @@ pub enum BusClearError {
     /// frees a bus whose clock line itself is stuck, so the caller's own
     /// wiring or the target's power rail needs checking first.
     SclStuckLow,
-    /// SDA was still low after the recovery pulses. A target held the line
-    /// through the whole recovery attempt.
+    /// SDA was still low after the recovery pulses.
     SdaStillLow,
 }
 
 /// Free a hung I2C bus before the controller takes the pads.
 ///
-/// Returns `Err(BusClearError::SclStuckLow)` without clocking if SCL reads
+/// Returns [`BusClearError::SclStuckLow`] without clocking if SCL reads
 /// low at idle, since driving SCL would only contend with whatever holds
-/// it. Otherwise, while SDA reads low, clocks SCL for up to nine pulses,
-/// breaking early once SDA releases. A manual STOP follows in every case,
-/// SDA low while SCL is high and then SDA released, so a target that is
-/// mid-transfer without holding SDA is returned to idle as well.
+/// it. Otherwise it ends with a STOP, so a target that is mid-transfer
+/// without holding SDA low is returned to idle too.
 ///
 /// # Errors
 ///
-/// Returns [`BusClearError::SclStuckLow`] if SCL reads low before any
-/// clocking, or [`BusClearError::SdaStillLow`] if SDA still reads low
-/// after the recovery pulses and the STOP.
+/// See [`BusClearError`].
 pub fn bus_clear<Scl, Sda, D>(
     scl: &mut Scl,
     sda: &mut Sda,
@@ -120,7 +112,6 @@ where
         }
     }
 
-    // Manual STOP: SDA low while SCL idles high, then SDA released.
     sda.drive_low();
     delay.delay_us(RECOVERY_HALF_PERIOD_US);
     sda.release();

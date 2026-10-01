@@ -30,8 +30,8 @@ fn frequency_from_mhz_saturates_above_u32_max_khz() {
     assert_eq!(Frequency::from_mhz(u32::MAX).khz(), u32::MAX);
 }
 
-/// Four chips of 514 cores draw 40 W at 40 J/TH at 486.38 MHz. A zero
-/// core count, or a value past its scalar, gives none.
+// Four chips of 514 cores draw 40 W at 40 J/TH at 486.38 MHz. A zero
+// core count, or a value past its scalar, gives none.
 #[test]
 fn frequency_try_from_power_and_efficiency_spreads_the_hashrate_over_the_cores() {
     for (mw, mj_per_th, cores, expected) in [
@@ -50,15 +50,11 @@ fn frequency_try_from_power_and_efficiency_spreads_the_hashrate_over_the_cores()
 
 #[test]
 fn frequency_range_reports_its_inclusive_bounds() {
-    // The descriptors type their operating envelope with this range and
-    // the register calculators read both bounds back to reject targets
-    // outside it, so min/max must return the values new() was handed.
     let range = FrequencyRange::new(Frequency::from_mhz(50), Frequency::from_mhz(1000));
     assert_eq!(range.min(), Frequency::from_mhz(50));
     assert_eq!(range.max(), Frequency::from_mhz(1000));
 }
 
-/// Clock-grid rounding must preserve aligned values and floor fractional MHz.
 #[test]
 fn frequency_snap_down_floors_to_step_grid() {
     let step = Frequency::from_khz(6_250);
@@ -67,7 +63,6 @@ fn frequency_snap_down_floors_to_step_grid() {
     }
 }
 
-/// Ramps must converge from either direction without crossing the target or wrapping.
 #[test]
 fn frequency_step_toward_moves_without_overshoot() {
     for (current, target, step, expected) in [
@@ -159,8 +154,8 @@ fn a_fractional_frequency_rounds_to_the_nearest_kilohertz() {
     );
 }
 
-/// A unit with no reading is zero, which the API reports where a source
-/// has not published yet.
+// A unit with no reading is zero, which the API reports where a source
+// has not published yet.
 #[test]
 fn default_units_are_zero() {
     assert_eq!(Frequency::default().khz(), 0);
@@ -171,8 +166,8 @@ fn default_units_are_zero() {
     assert_eq!(FanRpm::default().rpm(), 0);
 }
 
-/// A unit shown in thousandths of a larger unit writes three decimals of
-/// it, so a 6.25 MHz step and a millivolt both survive the log line.
+// A unit shown in thousandths of a larger unit writes three decimals of
+// it, so a 6.25 MHz step and a millivolt both survive the log line.
 #[test]
 fn a_scaled_unit_displays_with_three_decimals() {
     extern crate std;

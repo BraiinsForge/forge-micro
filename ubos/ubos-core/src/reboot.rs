@@ -44,10 +44,8 @@ pub fn request_reboot() {
     REBOOT_REQUESTED.signal(());
 }
 
-/// Suspend until a reboot has been requested. Resolves once
-/// [`request_reboot`] has been called, then waits a short flush delay so
-/// the HTTP response that triggered the reboot reaches the wire before
-/// the caller resets the MCU. The caller then performs the MCU reset and
+/// Suspend until [`request_reboot`] has been called, then wait out
+/// [`REBOOT_FLUSH_DELAY`]. The caller then performs the MCU reset and
 /// never returns.
 pub async fn wait_for_reboot_request() {
     REBOOT_REQUESTED.wait().await;

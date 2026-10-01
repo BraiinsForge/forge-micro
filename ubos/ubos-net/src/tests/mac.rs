@@ -55,7 +55,7 @@ fn distinct_uids_change_the_hash_bytes() {
 
 #[test]
 fn empty_uid_hashes_to_the_folded_offset_basis() {
-    // FNV-1a offset basis 0x811c9dc5 xor-folded: 0x811c ^ 0x9dc5 = 0x1cd9.
+    // Offset basis 0x811c_9dc5 xor-folds to 0x1cd9.
     let mac = derive_mac(DUMMY_OUI, 0x01, &[]);
     assert_eq!(mac[4], 0x1c);
     assert_eq!(mac[5], 0xd9);

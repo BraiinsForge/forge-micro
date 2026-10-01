@@ -20,10 +20,9 @@
 //! Build a stable MAC address from a per-board chip-unique identifier.
 //!
 //! The `WIZnet` chips ship with a blank hardware-address register, so the
-//! firmware must supply the six MAC octets. Rather than a compile-time
-//! constant baked per build, [`derive_mac`] folds a chip-unique ID into
-//! the address so every board self-assigns a stable, distinct MAC with no
-//! per-unit build flags.
+//! firmware must supply the six MAC octets. [`derive_mac`] folds a
+//! chip-unique ID into the address so every board self-assigns a stable,
+//! distinct MAC with no per-unit build flags.
 //!
 //! The layout mirrors a real IEEE assignment so the move to a registered
 //! block later is a one-constant swap:
@@ -33,12 +32,9 @@
 //!       [ ---- OUI ---- ][ family ][ hash_hi  hash_lo ]
 //! ```
 //!
-//! The top three bytes are the OUI. [`DUMMY_OUI`] is a placeholder with
-//! the locally-administered bit set so it cannot collide with any
-//! registered vendor; productization replaces it with the purchased OUI,
-//! whose locally-administered bit is clear. Byte 3 identifies the board
-//! family. The last two bytes are a 16-bit hash of the chip-unique ID,
-//! which disambiguates units within a family.
+//! The top three bytes are the OUI; see [`DUMMY_OUI`]. Byte 3 identifies
+//! the board family. The last two bytes are a 16-bit hash of the
+//! chip-unique ID, which disambiguates units within a family.
 
 #[cfg(test)]
 #[path = "tests/mac.rs"]
@@ -47,17 +43,14 @@ mod tests;
 /// Placeholder organisationally-unique identifier for lab builds: the
 /// ASCII bytes `JKR`.
 ///
-/// The first octet `J` (`0x4A`) has the locally-administered bit (`0x02`)
-/// set and the multicast bit clear, so the address is a valid unicast
-/// LAA. Because every registered OUI has the locally-administered bit
-/// clear, this can never collide with a real vendor block. Replace all
-/// three bytes with the IEEE-assigned OUI when the boards ship.
+/// The first octet `J` (`0x4A`) sets the locally-administered bit and
+/// clears the multicast bit, which no registered OUI does, so it is a
+/// valid unicast LAA that cannot collide with a real vendor block.
+/// Replace all three bytes with the IEEE-assigned OUI when the boards
+/// ship.
 pub const DUMMY_OUI: [u8; 3] = *b"JKR";
 
-/// FNV-1a offset basis (32-bit).
 const FNV_OFFSET_BASIS: u32 = 0x811c_9dc5;
-
-/// FNV-1a prime (32-bit).
 const FNV_PRIME: u32 = 0x0100_0193;
 
 /// Hash bytes into two octets with FNV-1a, xor-folded from the 32-bit

@@ -41,7 +41,6 @@ fn parse_empty_response() {
 
 #[test]
 fn parse_ntp_seconds_before_unix_epoch() {
-    // NTP seconds value before Unix epoch should return None.
     let mut packet = [0u8; 48];
     let ntp_secs: u32 = 1_000_000;
     packet[40..44].copy_from_slice(&ntp_secs.to_be_bytes());
@@ -60,7 +59,7 @@ fn format_end_of_day() {
 
 #[test]
 fn format_midday() {
-    // 12:30:45 = 12*3600 + 30*60 + 45 = 45045.
+    // 45_045 seconds is 12:30:45.
     assert_eq!(format_utc_time(45_045).as_str(), "12:30:45 UTC");
 }
 

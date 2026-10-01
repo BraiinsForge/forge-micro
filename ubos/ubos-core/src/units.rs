@@ -35,9 +35,9 @@ mod tests;
 
 /// Clock frequency in kilohertz. The internal scalar is kHz so a
 /// 6.25 MHz PLL step survives the type without truncation; consumers
-/// that operate at MHz granularity (config, dashboard, telemetry)
-/// use [`Self::mhz`], and the chip-programming path uses
-/// [`Self::khz`] to keep the PLL calculator exact.
+/// that operate at MHz granularity use [`Self::mhz`], and the
+/// chip-programming path uses [`Self::khz`] to keep the PLL
+/// calculator exact.
 #[repr(transparent)]
 #[derive(
     Copy,
@@ -138,8 +138,8 @@ impl Frequency {
         }
     }
 
-    /// Convert to megahertz as `f64`, for a caller that needs the
-    /// fraction of a megahertz that the integer `mhz()` drops.
+    /// Converts to megahertz as `f64`, keeping the fraction that
+    /// [`Self::mhz`] drops.
     #[must_use]
     pub fn as_mhz(self) -> f64 {
         f64::from(self.0) / 1000.0
@@ -165,19 +165,16 @@ pub struct FrequencyRange {
 }
 
 impl FrequencyRange {
-    /// Constructs the range from an inclusive lower and upper bound.
     #[must_use]
     pub const fn new(min: Frequency, max: Frequency) -> Self {
         Self { min, max }
     }
 
-    /// Inclusive lower bound of the operating-frequency range.
     #[must_use]
     pub const fn min(self) -> Frequency {
         self.min
     }
 
-    /// Inclusive upper bound of the operating-frequency range.
     #[must_use]
     pub const fn max(self) -> Frequency {
         self.max
@@ -224,8 +221,6 @@ impl Voltage {
         self.0
     }
 
-    /// Convert to volts as `f64`, for a caller that computes in volts
-    /// rather than in integer millivolts.
     #[must_use]
     pub fn as_volts(self) -> f64 {
         f64::from(self.0) / 1000.0
@@ -484,8 +479,6 @@ impl Temperature {
         Self((millicelsius + nudge) as i32)
     }
 
-    /// Construct from whole degrees Celsius, for a value stated in degrees,
-    /// such as a board's setpoint or halt threshold.
     #[must_use]
     pub const fn from_celsius(celsius: i32) -> Self {
         Self(celsius.saturating_mul(1000))
@@ -496,15 +489,12 @@ impl Temperature {
         self.0
     }
 
-    /// Whole degrees Celsius, truncated toward zero, for a caller that
-    /// reports a temperature in whole degrees.
+    /// Truncated toward zero.
     #[must_use]
     pub const fn celsius_i32(self) -> i32 {
         self.0 / 1000
     }
 
-    /// Convert to degrees Celsius as `f64`, for a caller that computes in
-    /// fractional degrees, such as the cooling PID loop.
     #[must_use]
     pub fn celsius_f64(self) -> f64 {
         f64::from(self.0) / 1000.0
@@ -513,9 +503,8 @@ impl Temperature {
 
 /// Fan PWM duty cycle in percent, clamped to `0..=100`. The
 /// constructor saturates rather than failing because every existing
-/// producer (PID output, configuration parser, dashboard slider) is
-/// expected to be in range and the clamp gives a safer fallback than
-/// an `Option` that callers would unwrap.
+/// producer is expected to be in range, and the clamp gives a safer
+/// fallback than an `Option` that callers would unwrap.
 ///
 /// It serializes as its integer percent. It has no `Deserialize`, so a
 /// value read from outside cannot skip the clamp.

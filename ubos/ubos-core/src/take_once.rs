@@ -19,10 +19,9 @@
 
 //! A flag that lets a handle be taken once.
 //!
-//! A module that has a task of its own keeps a [`TakeOnce`] beside its private
-//! statics and calls [`TakeOnce::take`] from `Handle::take`. The firmware takes
-//! each handle in `main` and passes it to its tasks, so a second call means
-//! that two places claim one handle, and the boot stops at the second call.
+//! The firmware takes each handle in `main` and passes it to its tasks, so a
+//! second take means that two places claim one handle, and the boot stops
+//! there.
 
 use portable_atomic::{AtomicBool, Ordering};
 
@@ -35,7 +34,6 @@ pub struct TakeOnce {
 }
 
 impl TakeOnce {
-    /// A flag that has not been taken, for the handle called `name`.
     #[must_use]
     pub const fn new(name: &'static str) -> Self {
         Self {
@@ -44,9 +42,6 @@ impl TakeOnce {
         }
     }
 
-    /// Record the take. The panic names the handle and the call that came
-    /// second.
-    ///
     /// # Panics
     ///
     /// Panics when an earlier call recorded a take.
