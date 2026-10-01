@@ -56,8 +56,8 @@ use crate::state::{MAX_EXTRANONCE_PREFIX, V2SessionState};
 const MAC_BYTES: usize = 16;
 
 /// Wire buffer sized for the largest standard-channel mining message
-/// plus the SV2 noise framing overhead. Tuned alongside the codec
-/// impl in the next commits — 1 KiB is generous for the read path.
+/// plus the SV2 noise framing overhead; 1 KiB is generous for the
+/// read path.
 pub const WIRE_BUFFER_BYTES: usize = 1024;
 
 /// Outbound buffer for one encoded mining or extension message.
@@ -81,10 +81,10 @@ const PERMISSIVE_MAX_TARGET: [u8; 32] = [0xFF; 32];
 const DEVICE_VENDOR: &str = "braiins";
 const DEVICE_HW_REV: &str = "rusty-boards";
 /// Hand-maintained firmware identity, intentionally decoupled from
-/// `CARGO_PKG_VERSION`. The field is advisory, and deriving it from the
-/// crate semver churned the on-wire bytes and the golden transcript
-/// fixtures on every patch bump. Bump it deliberately when advertising a
-/// new firmware identity to pools.
+/// `CARGO_PKG_VERSION`: deriving it from the crate semver would churn
+/// the on-wire bytes and the golden transcript fixtures on every
+/// patch bump. Bump it deliberately when advertising a new firmware
+/// identity to pools.
 const DEVICE_FW_VER: &str = "0.1.0";
 const DEVICE_ID: &str = "";
 
@@ -97,11 +97,10 @@ const OPEN_CHANNEL_REQUEST_ID: u32 = 1;
 /// Adapter state — `PreHandshake` until `connect` finishes the
 /// noise dance, `Connected { codec, session }` afterwards.
 //
-// `Connected` is the dominant variant once the handshake
-// completes; the enum lives in one static slot on
-// `StratumV2Client`, so the size delta from `PreHandshake` is
-// allocated unconditionally either way. No alloc is available on
-// embedded targets, so `Box`ing is not an option.
+// `Connected` is the dominant variant once the handshake completes,
+// so its size is paid unconditionally regardless of which variant
+// is active. No alloc is available on embedded targets, so `Box`ing
+// the payload is not an option.
 #[allow(clippy::large_enum_variant)]
 enum V2State {
     PreHandshake,
@@ -109,13 +108,12 @@ enum V2State {
         codec: EncryptedCodec,
         session: V2SessionState,
     },
-    /// Terminal: the pool sent a fatal error response (either
-    /// `SetupConnectionError` or `OpenMiningChannelError`). All
-    /// further `drive` / `submit` calls return
-    /// `Error::SessionRejected(cause)` so the work loop tears the
-    /// session down and reconnects. Cause is retained verbatim so
-    /// the caller can log / decide based on which wire message
-    /// ended the session.
+    /// Terminal: the pool sent a fatal `SetupConnectionError` or
+    /// `OpenMiningChannelError` response. All further `drive` /
+    /// `submit` calls return `Error::SessionRejected(cause)`, so the
+    /// work loop tears the session down and reconnects; `cause` is
+    /// retained verbatim so the caller can log or decide based on
+    /// which wire message ended the session.
     Rejected(SessionRejection),
 }
 
@@ -156,13 +154,12 @@ enum FrameState {
     Broken,
 }
 
-/// Stratum V2 protocol adapter. Generic over the platform RNG and
-/// the secp256k1 context flavor (`secp256k1::All` on alloc-enabled
-/// hosts; `secp256k1::AllPreallocated<'static>` on `no_std`
-/// embedded targets). `'a` ties the held references to the
-/// caller-owned config and crypto context — `&'static` works
-/// (firmware statics) but is no longer required (tests can use
-/// shorter-lived buffers).
+/// Stratum V2 protocol adapter, generic over the platform RNG and
+/// the secp256k1 context flavor: `secp256k1::All` on alloc-enabled
+/// hosts, `secp256k1::AllPreallocated<'static>` on `no_std` embedded
+/// targets. `'a` ties the held references to the caller-owned config
+/// and crypto context; `&'static` works for firmware statics, but
+/// tests can use shorter-lived buffers instead.
 pub struct StratumV2Client<'a, R: Rng, C: secp256k1::Signing + secp256k1::Verification> {
     config: &'a Sv2Config,
     ctx: &'a CryptoCtx<C>,
@@ -207,8 +204,8 @@ impl<'a, R: Rng, C: secp256k1::Signing + secp256k1::Verification> StratumV2Clien
     }
 
     /// Build the authenticator the noise handshake will run against.
-    /// `pool_pubkey = None` accepts any responder certificate (test
-    /// pools); `Some(key)` validates the certificate's signature
+    /// `pool_pubkey = None` accepts any responder certificate, for
+    /// test pools; `Some(key)` validates the certificate's signature
     /// against `key`. The returned `AuthChoice` borrows from
     /// `self.ctx`; the noise handshake consumes it before the
     /// adapter's first `.await` returns control to the caller, so
@@ -313,9 +310,6 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         Self::encode_and_send(&mut self.encode_buffer, &mut codec, &setup, transport).await?;
         info!("stratum-v2: setup-connection sent (protocol=mining, version=2)");
 
-        // OpenStandardMiningChannel — request_id is fixed for the
-        // single channel this session opens; the pool echoes it
-        // back in the success response so we can correlate.
         let open = OpenStandardMiningChannel {
             request_id: OPEN_CHANNEL_REQUEST_ID,
             user: Str0_255::try_from(self.config.user.as_str()).map_err(|_| Error::Adapter)?,
@@ -363,10 +357,9 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         };
         let sequence_number = session.allocate_sequence_number();
 
-        // `SubmitSharesStandard.version` is the full nVersion the chip
-        // hashed, not just the rolled bits. The chip rolls the BIP320
-        // field; restore the pool's base version in the remaining bits
-        // so the pool recomputes the same header hash.
+        // `job.version` is the pool's base version; see
+        // `JobIdSlot::version` for why the chip's rolled BIP320 bits
+        // are ORed back into it here.
         let full_version =
             (job.version & !BIP320_VERSION_MASK) | (share.version_bits & BIP320_VERSION_MASK);
 
@@ -458,11 +451,11 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
         if let V2State::Rejected(cause) = self.state {
             return Err(Error::SessionRejected(cause));
         }
-        // Flush queued outbound bytes (e.g. a `SubmitSharesStandard`
-        // produced by a recent `submit`) before reading. The bytes
-        // are already AEAD-sealed, so a partial write is safe to
-        // resume across cancellation; any transport error poisons
-        // the state machine to match the read-side semantics.
+        // Flush queued outbound bytes, such as a `SubmitSharesStandard`
+        // from a recent `submit`, before reading. The bytes are
+        // already AEAD-sealed, so a partial write is safe to resume
+        // across cancellation; any transport error poisons the state
+        // machine to match the read-side semantics.
         let flushed = self.outbound_len > 0;
         while self.outbound_offset < self.outbound_len {
             let Ok(written) = transport
@@ -512,7 +505,7 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                         // Whole encrypted header is in `header_buffer`.
                         // Park state in `Broken` before the fallible
                         // decrypt: on `?` the machine stays Broken; on
-                        // success we transition to `ReadingPayload`.
+                        // success it transitions to `ReadingPayload`.
                         self.frame_state = FrameState::Broken;
                         let header = codec
                             .decode_header(&mut self.header_buffer)
@@ -720,10 +713,10 @@ fn handle_submit_success<V: MiningClientVisitor>(success: &SubmitSharesSuccess, 
     });
 }
 
-/// `SubmitSharesError` carries a string code per SV2 spec
-/// (`stale-share`, `invalid-job-id`, etc.). Surface it as
-/// `error_message`; `error_code` stays `None` because the trait
-/// uses a numeric V1 code we don't have a V2 counterpart for.
+/// `SubmitSharesError` carries a string code per the SV2 spec, such
+/// as `stale-share` or `invalid-job-id`. It surfaces as
+/// `error_message`; `error_code` stays `None` because the trait's
+/// numeric code is a V1 concept with no V2 counterpart.
 fn handle_submit_error<V: MiningClientVisitor>(error: &SubmitSharesError<'_>, visitor: &mut V) {
     let code_bytes = error.error_code.as_bytes();
     warn!(
@@ -739,16 +732,16 @@ fn handle_submit_error<V: MiningClientVisitor>(error: &SubmitSharesError<'_>, vi
     });
 }
 
-/// Coarse mapping from the rich `InitializationError` to our trait's
+/// Coarse mapping from the rich `InitializationError` to the trait's
 /// `Error` set. The adapter logs the underlying detail via
 /// `ubos_logging` before this conversion happens; the trait surface
 /// stays narrow.
 ///
-/// `Handshake` covers Noise framing / message-order failures that
-/// happen before any V2 message has been exchanged, so it lands in
-/// `Transport`. `InvalidKey` means our configured pool pubkey itself
-/// failed to parse — a local config error rather than a pool-side
-/// rejection — so it lands in `Adapter`.
+/// `Handshake` covers Noise framing or message-order failures before
+/// any V2 message is exchanged, so it lands in `Transport`.
+/// `InvalidKey` means the configured pool pubkey itself failed to
+/// parse, a local config error rather than a pool-side rejection, so
+/// it lands in `Adapter`.
 fn map_init_error<E>(err: &ii_sv2::security::InitializationError<E>) -> Error {
     match err {
         ii_sv2::security::InitializationError::Authentication(_) => Error::AuthFailed,
@@ -761,8 +754,8 @@ fn map_init_error<E>(err: &ii_sv2::security::InitializationError<E>) -> Error {
 
 /// Log the failing handshake variant before `map_init_error` flattens
 /// it. `InitializationError` does not implement `core::fmt::Debug` or
-/// `defmt::Format` uniformly, so we discriminate the variants and log
-/// a short label only.
+/// `defmt::Format` uniformly, so the variants are discriminated and
+/// logged as a short label only.
 fn log_init_error<E>(err: &ii_sv2::security::InitializationError<E>) {
     let label: &str = match err {
         ii_sv2::security::InitializationError::Authentication(_) => "authentication",

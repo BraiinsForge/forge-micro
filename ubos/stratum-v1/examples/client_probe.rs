@@ -119,8 +119,8 @@ fn hex_lsb(bytes: &[u8]) -> String {
     out
 }
 
-/// Print a 256-bit little-endian integer as MSB-first hex (the way
-/// targets are conventionally written).
+/// Print a 256-bit little-endian integer as MSB-first hex, the
+/// convention for writing targets.
 fn hex_msb(bytes: &[u8; 32]) -> String {
     let mut out = String::new();
     for byte in bytes.iter().rev() {
@@ -152,8 +152,8 @@ async fn main() -> Result<()> {
 
     let mut visitor = PrintVisitor::default();
 
-    // Run for up to 30 seconds. Submit one fake share once we've
-    // seen a job and an extranonce.
+    // Runs for up to 30 seconds; submits one fake share once a job
+    // and an extranonce have been seen.
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     let mut submitted_first_share = false;
 
@@ -165,9 +165,9 @@ async fn main() -> Result<()> {
         let saw_job_before = visitor.saw_first_job;
         client.accept(&mut visitor);
         if !submitted_first_share && !saw_job_before && visitor.saw_first_job {
-            // First job just landed — submit a deliberately bad share to
-            // exercise the submit encode path. Pool will reject it; we
-            // observe the rejection via visit_submit_result.
+            // Submit a deliberately bad share to exercise the submit
+            // encode path; the pool rejects it, observed via
+            // visit_submit_result.
             let zeros = [0u8; 4];
             let share = Share {
                 id: JobId(0),

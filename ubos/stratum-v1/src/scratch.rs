@@ -22,15 +22,13 @@
 //! V1's wire form is hex-ASCII; the visitor wants binary. Each
 //! `accept()` call hex-decodes the borrowed wire fields into this
 //! struct and hands the visitor borrowed slices that point in here.
-//! Reset (logically — the values are simply overwritten) at the
-//! start of every notify dispatch.
+//! Fields are overwritten, not cleared, at the start of every notify
+//! dispatch.
 
-/// Maximum bytes for `coinbase_1` / `coinbase_2` after hex decode.
-/// Real Ocean notifies exceed the old 512-byte cap: a captured
-/// production notify carries a 587-byte `coinb2` (`stratum-comm-sample`,
-/// repo root) and block 953001's `coinb2` needs 667 bytes. 1024 gives
-/// headroom above both; the 4096-byte wire buffer bounds the whole
-/// notify line regardless.
+/// Maximum bytes for `coinbase_1` / `coinbase_2` after hex decode. A
+/// production Ocean notify's `coinb2` has reached 667 bytes; this
+/// bound gives headroom above that, and the 4096-byte wire buffer
+/// still caps the whole notify line.
 pub const MAX_COINBASE_PART: usize = 1024;
 
 /// Maximum merkle path length supported by V1 today.

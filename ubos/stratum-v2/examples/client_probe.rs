@@ -22,9 +22,8 @@
 //! Constructs a `StratumV2Client`, drives `connect` (noise NX
 //! handshake → `SetupConnection` → `OpenStandardMiningChannel`),
 //! and then loops `drive` / `accept` over a tokio `TcpStream` wrapped
-//! via `embedded-io-adapters`, printing every visitor callback.
-//! `submit` is not implemented yet (V2 phase 13), so this probe is
-//! read-only.
+//! via `embedded-io-adapters`, printing every visitor callback and
+//! submitting one deliberately bad share once a job arrives.
 //!
 //! Run with:
 //!
@@ -35,11 +34,10 @@
 //!   cargo run --example client_probe -p stratum-v2
 //! ```
 //!
-//! `POOL_PUBKEY` is the SV2-spec base58check encoding (the same
-//! string the pool publishes). It is optional — if unset, the
-//! probe falls back to `ValidateNothing`, which accepts any
-//! responder certificate (suitable only for test pools you
-//! control).
+//! `POOL_PUBKEY` is the SV2-spec base58check encoding, the same
+//! string the pool publishes. It is optional; if unset, the probe
+//! falls back to `ValidateNothing`, which accepts any responder
+//! certificate and is suitable only for test pools you control.
 
 use std::env;
 use std::str::FromStr;
@@ -141,8 +139,8 @@ impl MiningClientVisitor for PrintVisitor {
     }
 }
 
-/// Compact way to confirm V2 hands us a final root rather than V1's
-/// prepared materials. `LazyMerkle::Final` is the V2 path.
+/// Confirms V2 hands a final root rather than V1's prepared
+/// materials; `LazyMerkle::Final` is the V2 path.
 fn merkle_marker(job: &MiningJob<'_>) -> &'static str {
     match job.merkle {
         mining_protocol::LazyMerkle::Final(_) => "Final",
@@ -157,8 +155,8 @@ fn hex_lsb(bytes: &[u8]) -> String {
     String::from_utf8(out).expect("hex encoder emits ASCII")
 }
 
-/// Print a 256-bit value as MSB-first hex (the way prev hashes and
-/// targets are conventionally displayed).
+/// Print a 256-bit value as MSB-first hex, the convention for
+/// displaying prev hashes and targets.
 fn hex_msb(bytes: &[u8; 32]) -> String {
     let encoded = mining_protocol::hex::encode_block_hash_lower(bytes);
     String::from_utf8(encoded.to_vec()).expect("hex encoder emits ASCII")

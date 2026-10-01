@@ -29,8 +29,9 @@ use core::fmt;
 #[path = "tests/messages.rs"]
 mod tests;
 
-// Upper bound on merkle branch length in mining.notify. 32 covers block
-// heights well beyond current chain tip (2^32 txs per block).
+// Upper bound on merkle branch length in mining.notify. A branch of
+// length N covers up to 2^N transactions, so 32 is far beyond any
+// real block.
 pub const MAX_MERKLE_BRANCH_LEN: usize = 32;
 
 #[derive(PartialEq)]
@@ -177,7 +178,7 @@ pub struct Submit<'a> {
 pub struct SubscribeResult<'a>(
     pub &'a [u8], // subscriptions — raw JSON slice
     pub &'a str,  // extra_nonce_1 (hex)
-    pub u8,       // extra_nonce_2_size
+    pub u8,
 );
 
 impl fmt::Debug for SubscribeResult<'_> {

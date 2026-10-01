@@ -30,7 +30,6 @@ use stratum_v1::{
     encode_authorize, encode_submit, encode_subscribe, parse_incoming, parse_subscribe_result,
 };
 
-// Use braiins pool
 const POOL_ADDR: &str = "stratum.braiins.com:3333";
 const USER: &str = "braiinstest.dumb_worker";
 const PASS: &str = "x";
@@ -186,7 +185,6 @@ fn send_submit(
         ));
     }
     let zeros = [b'0'; MAX_EN2_HEX];
-    // Every byte is the ASCII digit '0'
     let extra_nonce_2 =
         core::str::from_utf8(&zeros[..hex_len]).expect("BUG: ASCII '0' bytes are valid UTF-8");
 

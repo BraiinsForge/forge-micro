@@ -58,12 +58,11 @@ pub enum PendingRequestKind {
     Configure,
     Subscribe,
     Authorize,
-    /// The pool difficulty (in diff-1-share units) at the time the
-    /// share was queued. Snapshotted from `session.target` because the
-    /// pool may issue `mining.set_difficulty` between submit and
-    /// response; the work the share is worth is the difficulty in
-    /// force when it was found, not the current one. Surfaced as the
-    /// `work` value in `SubmitResult::Accepted`.
+    /// The pool difficulty, in diff-1-share units, in force when the
+    /// share was queued. Snapshotted because `mining.set_difficulty`
+    /// may change it before the response arrives, and the share's
+    /// worth is what was in force when it was found; surfaced as
+    /// `SubmitResult::Accepted`'s `work` value.
     Submit {
         pool_difficulty: u64,
     },
@@ -80,12 +79,6 @@ struct PendingRequest {
 /// entry is silently overwritten and its eventual response then
 /// fails the id check in [`take`](Self::take) and is dropped by
 /// the dispatcher.
-///
-/// `register` is O(1) and infallible; the assumption is that
-/// `N` is comfortably larger than the steady-state in-flight count
-/// for any well-behaved pool. If a response for an evicted request
-/// arrives, the dispatcher logs and drops it — we can't reconstruct
-/// the visitor call without the kind/metadata anyway.
 pub struct PendingRequests<const N: usize> {
     slots: [Option<PendingRequest>; N],
     next_id: u32,
@@ -96,10 +89,8 @@ impl<const N: usize> PendingRequests<N> {
     pub const fn new() -> Self {
         Self {
             slots: [const { None }; N],
-            // Start at 1 so id=0 (commonly used for notifications by
-            // some libraries) never collides with a registered
-            // request, and the first allocated id reads as "1" in
-            // logs / wire dumps.
+            // Start at 1 so id 0, used by some libraries for
+            // notifications, never collides with a registered request.
             next_id: 1,
         }
     }
@@ -119,8 +110,7 @@ impl<const N: usize> PendingRequests<N> {
 
     /// Look up the entry at `id % N`, verify it still belongs to
     /// `id`, and remove it. Returns `None` if the slot is empty or
-    /// holds a different (younger) request whose registration
-    /// evicted the original.
+    /// holds a younger request that evicted the original.
     pub fn take(&mut self, id: u32) -> Option<PendingRequestKind> {
         let index = (id as usize) % N;
         let entry = self.slots[index].as_ref()?;
@@ -149,16 +139,14 @@ pub struct SessionState {
     /// `extranonce_2` size assigned by the pool. Stamped into every
     /// `MiningJob::extranonce_2_size`.
     pub extranonce_2_size: u8,
-    /// Latest target advertised by the pool. Initial value is the
-    /// most-permissive target; `mining.set_difficulty` overwrites.
+    /// Latest target advertised by the pool; see [`PERMISSIVE_TARGET`]
+    /// for the initial value.
     pub target: [u8; 32],
-    /// In-flight JSON-RPC requests keyed by wire `id`. Owns id
-    /// allocation as well; replaces the earlier hardwired
-    /// configure/subscribe/authorize/submit id constants.
+    /// In-flight JSON-RPC requests keyed by wire `id`; also owns id
+    /// allocation.
     pub pending: PendingRequests<PENDING_DEPTH>,
-    /// Depth-`JOBID_MAP_DEPTH` ring mapping `JobId` to V1 wire
-    /// `job_id` strings. Rotates in lockstep with
-    /// `stratum-client`'s `JobRing`.
+    /// Ring mapping `JobId` to V1 wire `job_id` strings; see
+    /// [`JOBID_MAP_DEPTH`] for why its depth is fixed.
     job_id_ring: JobIdRing<String<MAX_JOB_ID_CHARS>, JOBID_MAP_DEPTH>,
 }
 
@@ -176,8 +164,8 @@ impl SessionState {
     pub(crate) fn allocate_job_id(&mut self, wire_id: &str) -> JobId {
         let mut wire = String::<MAX_JOB_ID_CHARS>::new();
         let truncated = if wire_id.len() > MAX_JOB_ID_CHARS {
-            // Keep the prefix; longer wire ids indicate a misbehaving
-            // pool but we don't want to fail the job over it.
+            // A longer wire id indicates a misbehaving pool; keep the
+            // prefix instead of failing the job.
             &wire_id[..MAX_JOB_ID_CHARS]
         } else {
             wire_id

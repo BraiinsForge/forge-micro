@@ -32,7 +32,7 @@ use crate::error::ParseError;
 #[path = "tests/parse.rs"]
 mod tests;
 
-// Used to extract just the fields we need in the first pass.
+// Extracts just the fields needed for the first pass.
 #[derive(Deserialize)]
 struct Probe<'a> {
     id: Option<u32>,
@@ -150,7 +150,6 @@ fn parse_notification(line: &[u8]) -> Result<Rpc<'_>, ParseError<'_>> {
 
     let method_str = probe.method.ok_or(ParseError::MissingField("method"))?;
 
-    // Extract the "params" field value from the raw line.
     let params = find_field(line, b"params").ok_or(ParseError::MissingField("params"))?;
 
     match method_str {
@@ -200,8 +199,6 @@ fn parse_notification(line: &[u8]) -> Result<Rpc<'_>, ParseError<'_>> {
                 },
             )))
         }
-        // Anything unknown at the server push level is an UnknownMethod error.
-        // Client-side method names (subscribe, authorize, etc.) fall here too.
         other => Err(ParseError::UnknownMethod(other)),
     }
 }
@@ -221,14 +218,12 @@ fn parse_notification(line: &[u8]) -> Result<Rpc<'_>, ParseError<'_>> {
 /// is absent, and [`ParseError::Json`] when element 1 is not a string
 /// or element 2 is not a `u8`.
 pub fn parse_subscribe_result(body: &[u8]) -> Result<SubscribeResult<'_>, ParseError<'_>> {
-    // Wire: [subscriptions_array, extra_nonce_1, extra_nonce_2_size]
-    // We parse as a 3-tuple where element 0 is the subscriptions raw slice.
-    // serde-json-core cannot skip/raw the first element, so we find it manually.
-    let inner = body; // body is the full result value, e.g. [[...], "abc", 4]
+    // serde-json-core cannot skip or raw-borrow the first element of the
+    // `[subscriptions, extra_nonce_1, extra_nonce_2_size]` wire tuple, so
+    // each element is located by hand.
+    let inner = body;
     let subs = find_array_element(inner, 0).ok_or(ParseError::MissingField("subscriptions"))?;
 
-    // Parse elements 1 and 2 from a truncated view. We build a 2-tuple from
-    // the remaining elements by finding element offsets.
     let extra_nonce_1_raw =
         find_array_element(inner, 1).ok_or(ParseError::MissingField("extra_nonce_1"))?;
     let extra_nonce_2_size_raw =
@@ -257,10 +252,9 @@ pub fn parse_configure_result(body: &[u8]) -> Result<ConfigureResult<'_>, ParseE
 }
 
 /// Extract the negotiated version-rolling mask from a `mining.configure`
-/// result body. Returns `None` when the pool did not advertise one — that
-/// indicates either `version-rolling` was rejected or the pool uses the
-/// older flat-object shape we don't support. Braiins and other public pools
-/// serialise the mask as a hex string under the flat key
+/// result body. Returns `None` when `version-rolling` was rejected or the
+/// pool uses an unsupported flat-object shape; Braiins and other public
+/// pools serialise the mask as a hex string under the flat key
 /// `"version-rolling.mask"`.
 #[must_use]
 pub fn parse_version_rolling_mask(body: &[u8]) -> Option<u32> {
@@ -415,12 +409,6 @@ fn find_array_element(json: &[u8], target_index: usize) -> Option<&[u8]> {
 /// are counted, and a bracket inside a string is not. A primitive ends
 /// at the first delimiter or whitespace byte. Returns `None` when the
 /// value is unterminated.
-///
-/// This and [`skip_string_from`] are the two functions here that take
-/// the scanner's cursor as a `(slice, index)` pair and answer with a new
-/// index. That pair is the receiver they have no type for. A `Cursor`
-/// holding both, with the whitespace skip their callers write out by
-/// hand, is the shape to reach for if this scanner grows.
 fn skip_value(json: &[u8], start: usize) -> Option<usize> {
     let mut index = start;
     if index >= json.len() {

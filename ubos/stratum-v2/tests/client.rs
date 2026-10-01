@@ -466,8 +466,8 @@ impl Session {
 // Group 1 — pure guards (no handshake)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `submit` before `connect` returns `Error::Adapter` because the
-/// session is in `PreHandshake` state with no channel or job state.
+// `submit` before `connect` returns `Error::Adapter` because the
+// session is in `PreHandshake` state with no channel or job state.
 #[tokio::test]
 async fn submit_before_connect_returns_adapter_error() {
     let config = default_config();
@@ -486,8 +486,8 @@ async fn submit_before_connect_returns_adapter_error() {
     );
 }
 
-/// `drive` before `connect` returns `Error::Adapter` because the
-/// session is in `PreHandshake` state.
+// `drive` before `connect` returns `Error::Adapter` because the
+// session is in `PreHandshake` state.
 #[tokio::test]
 async fn drive_before_connect_returns_adapter_error() {
     let config = default_config();
@@ -500,8 +500,8 @@ async fn drive_before_connect_returns_adapter_error() {
     );
 }
 
-/// `accept` with nothing buffered is a no-op: the visitor receives no
-/// callbacks because `FrameState` starts at `ReadingHeader { received: 0 }`.
+// `accept` with nothing buffered is a no-op: the visitor receives no
+// callbacks because `FrameState` starts at `ReadingHeader { received: 0 }`.
 #[tokio::test]
 async fn accept_with_nothing_buffered_is_a_no_op() {
     let config = default_config();
@@ -526,9 +526,9 @@ async fn accept_with_nothing_buffered_is_a_no_op() {
 // Group 2 — handshake + dispatch
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `connect` completes successfully. The pool side reads a
-/// `SetupConnection` (protocol=0, version=2) followed by an
-/// `OpenStandardMiningChannel` (`request_id=1`).
+// `connect` completes successfully. The pool side reads a
+// `SetupConnection` (protocol=0, version=2) followed by an
+// `OpenStandardMiningChannel` (`request_id=1`).
 #[tokio::test]
 async fn connect_sends_setup_connection_then_open_channel() {
     let config = default_config();
@@ -578,10 +578,10 @@ async fn connect_sends_setup_connection_then_open_channel() {
     }
 }
 
-/// `SetupConnectionSuccess` whose flags do not pin the version →
-/// visitor sees `SessionUpdate::SetVersionMask(0x1FFF_E000)`. The
-/// success flags carry the upstream's requirements, so any flags
-/// without `REQUIRES_FIXED_VERSION` leave the version free to roll.
+// `SetupConnectionSuccess` whose flags do not pin the version →
+// visitor sees `SessionUpdate::SetVersionMask(0x1FFF_E000)`. The
+// success flags carry the upstream's requirements, so any flags
+// without `REQUIRES_FIXED_VERSION` leave the version free to roll.
 #[tokio::test]
 async fn setup_connection_success_with_version_rolling_flag_sets_mask() {
     let mut session = Session::new().await;
@@ -611,9 +611,8 @@ async fn setup_connection_success_with_version_rolling_flag_sets_mask() {
     );
 }
 
-/// `SetupConnectionSuccess` requiring a fixed version → no mask reaches
-/// the visitor and a subsequent `drive` returns
-/// `Error::SessionRejected(SessionRejection::VersionRollingRefused)`.
+// `SetupConnectionSuccess` requiring a fixed version -> no mask reaches
+// the visitor and `drive` returns `VersionRollingRefused`.
 #[tokio::test]
 async fn setup_connection_success_requiring_a_fixed_version_rejects_session() {
     let mut session = Session::new().await;
@@ -641,10 +640,10 @@ async fn setup_connection_success_requiring_a_fixed_version_rejects_session() {
     );
 }
 
-/// `OpenStandardMiningChannelSuccess` → visitor sees `SetTarget` then
-/// `SetExtranonce`. Afterwards `submit` succeeds (proving `channel_id` was
-/// recorded). The test also exercises the full job path
-/// (future job → `SetNewPrevHash` → clean job → submit).
+// `OpenStandardMiningChannelSuccess` → visitor sees `SetTarget` then
+// `SetExtranonce`. Afterwards `submit` succeeds (proving `channel_id` was
+// recorded). The test also exercises the full job path
+// (future job → `SetNewPrevHash` → clean job → submit).
 #[tokio::test]
 async fn open_channel_success_fires_set_target_and_set_extranonce_then_submit_works() {
     let mut session = Session::new().await;
@@ -696,8 +695,8 @@ async fn open_channel_success_fires_set_target_and_set_extranonce_then_submit_wo
     );
 }
 
-/// `SetupConnectionError` → a subsequent `drive` returns
-/// `Error::SessionRejected(SessionRejection::SetupConnectionError)`.
+// `SetupConnectionError` → a subsequent `drive` returns
+// `Error::SessionRejected(SessionRejection::SetupConnectionError)`.
 #[tokio::test]
 async fn setup_connection_error_rejects_session() {
     let mut session = Session::new().await;
@@ -710,9 +709,7 @@ async fn setup_connection_error_rejects_session() {
     session.pool_send_msg(&message).await;
     session.drive_and_accept(&mut visitor).await;
 
-    // A subsequent drive: the session is now Rejected, but we need to send
-    // something so drive has bytes to read. With a Rejected state, drive
-    // returns immediately without reading.
+    // drive returns immediately without reading once the session is Rejected.
     let error = session.drive_expect_err().await;
     assert_eq!(
         error,
@@ -721,8 +718,8 @@ async fn setup_connection_error_rejects_session() {
     );
 }
 
-/// `OpenMiningChannelError` → a subsequent `drive` returns
-/// `Error::SessionRejected(SessionRejection::OpenMiningChannelError)`.
+// `OpenMiningChannelError` → a subsequent `drive` returns
+// `Error::SessionRejected(SessionRejection::OpenMiningChannelError)`.
 #[tokio::test]
 async fn open_mining_channel_error_rejects_session() {
     let mut session = Session::new().await;
@@ -744,8 +741,8 @@ async fn open_mining_channel_error_rejects_session() {
     );
 }
 
-/// A future `NewMiningJob` (`min_ntime = None`) followed by a matching
-/// `SetNewPrevHash` → visitor sees `visit_new_job` with `clean_jobs = true`.
+// A future `NewMiningJob` (`min_ntime = None`) followed by a matching
+// `SetNewPrevHash` → visitor sees `visit_new_job` with `clean_jobs = true`.
 #[tokio::test]
 async fn future_job_then_set_new_prev_hash_fires_clean_job() {
     let mut session = Session::new().await;
@@ -791,9 +788,9 @@ async fn future_job_then_set_new_prev_hash_fires_clean_job() {
     );
 }
 
-/// An immediate `NewMiningJob` (`min_ntime = Some`) received AFTER a
-/// `SetNewPrevHash` has established the prev-hash → `visit_new_job`
-/// fires with `clean_jobs = false`.
+// An immediate `NewMiningJob` (`min_ntime = Some`) received AFTER a
+// `SetNewPrevHash` has established the prev-hash → `visit_new_job`
+// fires with `clean_jobs = false`.
 #[tokio::test]
 async fn immediate_job_after_prev_hash_fires_non_clean_job() {
     let mut session = Session::new().await;
@@ -848,8 +845,8 @@ async fn immediate_job_after_prev_hash_fires_non_clean_job() {
     );
 }
 
-/// An immediate `NewMiningJob` (`min_ntime = Some`) received BEFORE any
-/// `SetNewPrevHash` → job is silently dropped (no visitor callback).
+// An immediate `NewMiningJob` (`min_ntime = Some`) received BEFORE any
+// `SetNewPrevHash` → job is silently dropped (no visitor callback).
 #[tokio::test]
 async fn immediate_job_before_prev_hash_is_dropped() {
     let mut session = Session::new().await;
@@ -875,8 +872,8 @@ async fn immediate_job_before_prev_hash_is_dropped() {
     );
 }
 
-/// `SubmitSharesSuccess` → visitor sees `SubmitResult::Accepted` with
-/// the correct `count` and `work` values.
+// `SubmitSharesSuccess` → visitor sees `SubmitResult::Accepted` with
+// the correct `count` and `work` values.
 #[tokio::test]
 async fn submit_shares_success_fires_accepted_result() {
     let mut session = Session::new().await;
@@ -905,8 +902,8 @@ async fn submit_shares_success_fires_accepted_result() {
     }
 }
 
-/// `SubmitSharesError` → visitor sees `SubmitResult::Rejected` with
-/// the correct error message.
+// `SubmitSharesError` → visitor sees `SubmitResult::Rejected` with
+// the correct error message.
 #[tokio::test]
 async fn submit_shares_error_fires_rejected_result() {
     let mut session = Session::new().await;
@@ -938,13 +935,13 @@ async fn submit_shares_error_fires_rejected_result() {
     }
 }
 
-/// `submit` after channel open queues a frame. The next `drive` flushes it.
-/// The pool side decodes a `SubmitSharesStandard` with the expected
-/// `channel_id`, `sequence_number = 0`, and `job_id`.
-///
-/// The `drive` call flushes outbound bytes first, then reads an inbound frame.
-/// We send a `SubmitSharesSuccess` from the pool after queuing the submit so
-/// `drive` has something to read after flushing.
+// `submit` after channel open queues a frame. The next `drive` flushes it.
+// The pool side decodes a `SubmitSharesStandard` with the expected
+// `channel_id`, `sequence_number = 0`, and `job_id`.
+//
+// `drive` flushes outbound bytes first, then reads an inbound frame, so
+// the pool sends a `SubmitSharesSuccess` after the submit is queued to
+// give it something to read after flushing.
 #[tokio::test]
 async fn submit_after_channel_open_flushes_on_drive() {
     let mut session = Session::new().await;
@@ -967,8 +964,6 @@ async fn submit_after_channel_open_flushes_on_drive() {
         .submit(&share)
         .expect("BUG: submit must succeed with valid job_id and open channel");
 
-    // Send a SubmitSharesSuccess so drive has an inbound frame to read
-    // after flushing the queued submit.
     let success = SubmitSharesSuccess {
         channel_id: FAKE_CHANNEL_ID,
         last_sequence_number: 0,
@@ -1006,10 +1001,9 @@ async fn submit_after_channel_open_flushes_on_drive() {
     }
 }
 
-/// A share carrying rolled BIP320 bits must reach the wire as the full
-/// `nVersion`: the job's base version with the rolled bits OR'd into the
-/// BIP320 field. The chip hashes this full version, so the pool can only
-/// reproduce the share's hash when the submit carries it whole.
+// A share with rolled BIP320 bits must reach the wire as the full
+// `nVersion`; see `JobIdSlot::version` for why. The pool can only
+// reproduce the share's hash when the submit carries the whole version.
 #[tokio::test]
 async fn submit_reconstructs_full_version_from_rolled_bits() {
     let mut session = Session::new().await;
@@ -1066,8 +1060,8 @@ async fn submit_reconstructs_full_version_from_rolled_bits() {
 // would make it reachable. The test below confirms that a 32-byte prefix
 // (the wire-type maximum) is accepted, not rejected.
 
-/// A 32-byte extranonce prefix (at the wire-type maximum of `Bytes0_32`)
-/// is accepted by the client without rejecting the session.
+// A 32-byte extranonce prefix, the wire-type maximum of `Bytes0_32`,
+// is accepted by the client without rejecting the session.
 #[tokio::test]
 async fn max_extranonce_prefix_at_wire_type_boundary_is_accepted() {
     let mut session = Session::new().await;
@@ -1102,16 +1096,16 @@ async fn max_extranonce_prefix_at_wire_type_boundary_is_accepted() {
 // Group 3 — transport / error paths
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A read returning `Ok(0)` → `drive` returns `Error::Transport`.
-/// The next `drive` returns `Error::Decode` without reading (frame state
-/// is poisoned to `Broken`).
+// A read returning `Ok(0)` → `drive` returns `Error::Transport`.
+// The next `drive` returns `Error::Decode` without reading (frame state
+// is poisoned to `Broken`).
 #[tokio::test]
 async fn eof_read_returns_transport_then_decode_on_retry() {
     let mut session = Session::new().await;
 
     // The client is connected; use an EofTransport for subsequent drives.
-    // The AEAD chain in the client is not affected — we're just changing
-    // the underlying byte source.
+    // The AEAD chain in the client is unaffected; only the underlying
+    // byte source changes.
     let mut eof = EofTransport::new();
 
     let first_error = session
@@ -1137,8 +1131,8 @@ async fn eof_read_returns_transport_then_decode_on_retry() {
     );
 }
 
-/// A write returning `Ok(0)` while flushing a queued submit →
-/// `Error::Transport`.
+// A write returning `Ok(0)` while flushing a queued submit →
+// `Error::Transport`.
 #[tokio::test]
 async fn zero_write_during_flush_returns_transport_error() {
     let mut session = Session::new().await;
@@ -1174,15 +1168,15 @@ async fn zero_write_during_flush_returns_transport_error() {
     );
 }
 
-/// Partial reads (1 byte at a time) still assemble a full encrypted frame
-/// correctly. The header-accumulation loop and payload-accumulation loop
-/// must both handle short reads without losing bytes.
-///
-/// Strategy: encode a pool→client frame using the pool's `EncryptedCodec`
-/// (whose AEAD chain is synchronised with the client's), then feed those
-/// bytes through a `SlowTransport` to the client's `drive`. If the loops
-/// are correct, the decrypted frame dispatches to the expected visitor
-/// callback.
+// Partial reads (1 byte at a time) still assemble a full encrypted frame
+// correctly. The header-accumulation loop and payload-accumulation loop
+// must both handle short reads without losing bytes.
+//
+// Strategy: encode a pool→client frame using the pool's `EncryptedCodec`
+// (whose AEAD chain is synchronised with the client's), then feed those
+// bytes through a `SlowTransport` to the client's `drive`. If the loops
+// are correct, the decrypted frame dispatches to the expected visitor
+// callback.
 #[tokio::test]
 async fn partial_reads_assemble_full_frame() {
     let mut session = Session::new().await;
@@ -1226,12 +1220,10 @@ async fn partial_reads_assemble_full_frame() {
 /// still accumulating the header.
 const MID_HEADER_SPLIT: usize = 10;
 
-/// A `drive` future cancelled (dropped) mid-frame resumes correctly on the
-/// next `drive`. The receive `FrameState` and the partially filled header
-/// buffer live on the client, not in the future, so dropping a future that
-/// has read only part of the header preserves those bytes; a second `drive`
-/// over the remaining bytes completes the same frame. This exercises the
-/// cancellation-safety invariant the receive state machine documents.
+// Exercises the cancellation-safety invariant `FrameState` documents:
+// dropping a `drive` future that has read only part of the header
+// preserves those bytes, so a second `drive` over the rest completes
+// the same frame.
 #[tokio::test]
 async fn drive_future_cancelled_mid_frame_resumes() {
     let mut session = Session::new().await;
@@ -1294,15 +1286,9 @@ async fn drive_future_cancelled_mid_frame_resumes() {
     );
 }
 
-/// Partial outbound writes (1 byte at a time) flush the queued submit
-/// correctly. After all bytes are written, the submit frame bytes are
-/// present in `SlowTransport::written`.
-///
-/// Note: the oversized-payload branch (`payload_total > WIRE_BUFFER_BYTES`
-/// in `drive`) is NOT reachable with real standard-channel messages because
-/// all such messages encode to well under the 1 KiB wire buffer. The
-/// `Broken`/`Decode` transition from a corrupt payload (tested below)
-/// covers the poisoned-state path instead.
+// Partial outbound writes (1 byte at a time) flush the queued submit
+// correctly. After all bytes are written, the submit frame bytes are
+// present in `SlowTransport::written`.
 #[tokio::test]
 async fn partial_outbound_writes_flush_correctly() {
     let mut session = Session::new().await;
@@ -1356,14 +1342,15 @@ async fn partial_outbound_writes_flush_correctly() {
     );
 }
 
-/// A corrupted byte in the encrypted payload → `drive` returns
-/// `Error::Decode`. The next `drive` also returns `Error::Decode`
-/// without reading from the transport (frame state is poisoned to `Broken`).
-///
-/// Note: the `payload_total > WIRE_BUFFER_BYTES` (1024) branch in `drive`
-/// is NOT reachable with real standard-channel messages because all
-/// standard-channel messages encode to well under 1 KiB. We test the
-/// `Broken`/`Decode` transition via this corrupted-payload path instead.
+// A corrupted byte in the encrypted payload → `drive` returns
+// `Error::Decode`. The next `drive` also returns `Error::Decode`
+// without reading from the transport (frame state is poisoned to `Broken`).
+//
+// Note: the `payload_total > WIRE_BUFFER_BYTES` (1024) branch in `drive`
+// is NOT reachable with real standard-channel messages because all
+// standard-channel messages encode to well under 1 KiB. This
+// corrupted-payload path exercises the `Broken`/`Decode` transition
+// instead.
 #[tokio::test]
 async fn corrupted_payload_returns_decode_then_decode_again() {
     let mut session = Session::new().await;
@@ -1379,8 +1366,7 @@ async fn corrupted_payload_returns_decode_then_decode_again() {
         .expect("BUG: pool encode failed");
     let mut frame_bytes: Vec<u8> = wire_buffer[..wire_len].to_vec();
 
-    // Flip a byte in the encrypted payload. The header occupies the first
-    // `HEADER_WIRE_SIZE` bytes; we corrupt a byte in the payload body.
+    // Flip a byte in the payload body, past the `HEADER_WIRE_SIZE` header.
     let corrupt_offset = EncryptedCodec::HEADER_WIRE_SIZE + 1;
     if frame_bytes.len() > corrupt_offset {
         frame_bytes[corrupt_offset] ^= 0xFF;
@@ -1429,8 +1415,8 @@ fn foreign_frame(payload: &[u8]) -> FrameView<'_> {
         .expect("BUG: test frame is well formed")
 }
 
-/// A frame of another extension is handed to the visitor whole instead
-/// of being dropped as an unknown mining message.
+// A frame of another extension is handed to the visitor whole instead
+// of being dropped as an unknown mining message.
 #[tokio::test]
 async fn a_foreign_extension_frame_reaches_the_visitor() {
     let mut session = Session::new().await;
@@ -1451,8 +1437,8 @@ async fn a_foreign_extension_frame_reaches_the_visitor() {
     assert!(visitor.jobs.is_empty() && visitor.session_updates.is_empty());
 }
 
-/// `send_extension` seals the frame into the outbound slot and the next
-/// `drive` writes it, before it reads the pool's frame.
+// `send_extension` seals the frame into the outbound slot and the next
+// `drive` writes it, before it reads the pool's frame.
 #[tokio::test]
 async fn send_extension_seals_the_frame_for_the_next_drive() {
     let mut session = Session::new().await;
@@ -1480,8 +1466,8 @@ async fn send_extension_seals_the_frame_for_the_next_drive() {
     assert_eq!(payload, FOREIGN_PAYLOAD);
 }
 
-/// The outbound slot holds one sealed frame; a second send before a
-/// drive is refused so the caller can retry after the flush.
+// The outbound slot holds one sealed frame; a second send before a
+// drive is refused so the caller can retry after the flush.
 #[tokio::test]
 async fn send_extension_while_a_frame_waits_is_busy() {
     let mut session = Session::new().await;
@@ -1560,9 +1546,9 @@ async fn send_extension_before_connect_is_an_adapter_error() {
     assert_eq!(client.send_extension(&frame), Err(Error::Adapter));
 }
 
-/// A payload past `MAX_EXTENSION_PAYLOAD_BYTES` can never be sealed into
-/// the outbound slot, so it is refused as a caller fault rather than as
-/// a slot that will free up.
+// A payload past `MAX_EXTENSION_PAYLOAD_BYTES` can never be sealed into
+// the outbound slot, so it is refused as a caller fault rather than as
+// a slot that will free up.
 #[tokio::test]
 async fn an_oversized_extension_payload_is_buffer_too_small() {
     let mut session = Session::new().await;
@@ -1587,7 +1573,6 @@ async fn an_oversized_extension_payload_is_buffer_too_small() {
     assert_eq!(session.client.send_extension(&frame), Ok(()));
 }
 
-/// The descriptor keeps the channel flag through both adapter boundaries.
 #[tokio::test]
 async fn extension_channel_flags_round_trip() {
     let mut session = Session::new().await;
@@ -1622,7 +1607,6 @@ async fn extension_channel_flags_round_trip() {
     }
 }
 
-/// A completed write releases the slot even when the pool sends no reply.
 #[tokio::test]
 async fn an_extension_flush_wakes_the_caller_on_a_quiet_session() {
     let mut session = Session::new().await;
@@ -1648,7 +1632,6 @@ async fn an_extension_flush_wakes_the_caller_on_a_quiet_session() {
     assert_eq!(payload, frame.payload);
 }
 
-/// A ready inbound frame wins over the write-completion notification.
 #[tokio::test]
 async fn outbound_traffic_still_services_ready_inbound_frames() {
     let mut session = Session::new().await;
@@ -1673,7 +1656,6 @@ async fn outbound_traffic_still_services_ready_inbound_frames() {
     }
 }
 
-/// Reporting write progress preserves a partially received encrypted frame.
 #[tokio::test]
 async fn a_flush_notification_preserves_a_partial_inbound_frame() {
     let mut session = Session::new().await;

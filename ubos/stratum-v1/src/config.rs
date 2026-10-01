@@ -18,9 +18,7 @@
 // shall be considered distinct from the grant above.
 
 //! V1-specific session config; the firmware passes a reference into
-//! `StratumV1Client::new`. Strings are owned so the config can be
-//! built fresh from a runtime [`ubos_config::PoolEntry`] each
-//! reconnect, instead of borrowing from a compile-time static.
+//! `StratumV1Client::new`.
 
 use heapless::String;
 

@@ -41,10 +41,8 @@ fn test_config() -> Sv1Config {
 
 #[test]
 fn configure_request_mask_matches_protocol_constant() {
-    // The `mining.configure` request hard-codes the version-rolling
-    // mask as a JSON string rather than formatting it at runtime. It
-    // must stay equal to the protocol-wide BIP320 constant; this test
-    // fails loudly if either side drifts.
+    // CONFIGURE_MAP hard-codes the version-rolling mask as a JSON
+    // string; it must stay equal to the protocol-wide BIP320 constant.
     let expected = std::format!(
         "\"version-rolling.mask\":\"{:08x}\"",
         mining_protocol::BIP320_VERSION_MASK
@@ -56,9 +54,9 @@ fn configure_request_mask_matches_protocol_constant() {
     );
 }
 
-/// The request carries the BIP310 parameter object with flat dotted
-/// keys: one pool rejects the nested form as an illegal parameter and
-/// another answers it with version rolling off.
+// The request carries the BIP310 parameter object with flat dotted
+// keys: one pool rejects the nested form as an illegal parameter and
+// another answers it with version rolling off.
 #[test]
 fn configure_request_uses_bip310_parameters() {
     let mut buf = [0u8; ENCODE_BUFFER_BYTES];
@@ -139,12 +137,10 @@ async fn connect_pipelines_handshake_messages() {
         .await
         .expect("connect must succeed against a writable pipe");
 
-    // Read the bytes the pool side received.
     let mut received = [0u8; 4096];
     let n = b_io.read(&mut received).await.expect("read");
     let bytes = &received[..n];
 
-    // Expect three newline-terminated JSON-RPC requests, in order.
     let request_lines: Vec<&[u8]> = bytes
         .split(|byte: &u8| *byte == b'\n')
         .filter(|chunk: &&[u8]| !chunk.is_empty())
@@ -212,7 +208,7 @@ async fn accept_dispatches_set_difficulty_as_set_target() {
 
     assert_eq!(visitor.session_updates, 1);
     let target = visitor.last_target.expect("target recorded");
-    // diff > 0 ⇒ target is non-trivial (not all-zero, not all-FF).
+    // diff > 0 means the target is neither all-zero nor all-FF.
     assert!(target.iter().any(|byte| *byte != 0));
     assert!(target.iter().any(|byte| *byte != 0xFF));
 }
@@ -252,8 +248,8 @@ async fn configure_grant_sets_the_version_mask() {
     assert_eq!(visitor.last_version_mask, Some(0x1fff_e000));
 }
 
-/// The three ways pools refuse version rolling all end the session:
-/// an error with a `false` result, rolling switched off, and a zero mask.
+// The three ways pools refuse version rolling all end the session:
+// an error with a `false` result, rolling switched off, and a zero mask.
 #[tokio::test]
 async fn configure_refusal_ends_the_session() {
     for reply in [
@@ -388,8 +384,6 @@ async fn accept_dispatches_notify_with_coinbase_2_between_512_and_1024_bytes() {
     );
     let _ = pump_one(&mut client, subscribe_payload.as_bytes()).await;
 
-    // 600 bytes sits between the old 512-byte cap and the new
-    // 1024-byte cap; a real Ocean notify's coinb2 is 587-667 bytes.
     let notify = build_notify_line_with_coinbase_2_len(true, 600);
     let visitor = pump_one(&mut client, notify.as_bytes()).await;
     assert_eq!(visitor.new_jobs, 1);
@@ -411,9 +405,9 @@ async fn accept_drops_notify_with_coinbase_2_over_1024_bytes() {
     assert_eq!(visitor.new_jobs, 0);
 }
 
-/// Like `build_notify_line`, but pads `coinbase_2` out to exactly
-/// `coinbase_2_bytes` bytes (repeating a two-byte hex pattern) so
-/// tests can probe `MAX_COINBASE_PART` boundaries without needing a
+/// Like `build_notify_line`, but pads `coinbase_2` to exactly
+/// `coinbase_2_bytes` bytes by repeating a two-byte hex pattern, so
+/// tests can probe `MAX_COINBASE_PART` boundaries without a
 /// semantically valid coinbase.
 fn build_notify_line_with_coinbase_2_len(
     clean_jobs: bool,

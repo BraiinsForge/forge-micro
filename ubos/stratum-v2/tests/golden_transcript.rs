@@ -242,22 +242,18 @@ async fn drain_client_frame(codec: &mut EncryptedCodec, pool_duplex: &mut tokio:
     pool_duplex
         .read_exact(&mut header_buf)
         .await
-        // BUG: client-frame header read must succeed over the in-memory duplex
         .expect("BUG: drain header read failed");
     let header = codec
         .decode_header(&mut header_buf)
-        // BUG: decode_header must succeed for a valid noise frame
         .expect("BUG: drain decode_header failed");
     let payload_wire = EncryptedCodec::payload_wire_size(header.msg_length as usize);
     let mut payload = vec![0u8; payload_wire];
     pool_duplex
         .read_exact(&mut payload)
         .await
-        // BUG: client-frame payload read must succeed over the in-memory duplex
         .expect("BUG: drain payload read failed");
     codec
         .decode_frame(header, &mut payload)
-        // BUG: decode_frame must succeed for a valid noise frame
         .expect("BUG: drain decode_frame failed");
 }
 
@@ -282,7 +278,6 @@ async fn run_success_exchange() -> (Vec<u8>, Vec<u8>) {
                 let mut wrapped = FromTokio::new(&mut pool_duplex);
                 accept(&mut wrapped, SeededRng::new(POOL_SEED), crypto_ctx(), &cert)
                     .await
-                    // BUG: fake-pool accept must succeed with the seeded cert and RNG
                     .expect("BUG: fake-pool accept failed")
             };
             let (codec, _session_id) = EncryptedCodec::from_handshake(session);
@@ -305,7 +300,6 @@ async fn run_success_exchange() -> (Vec<u8>, Vec<u8>) {
                 channel_id: FAKE_CHANNEL_ID,
                 target: Uint256::from_le_bytes(&FAKE_TARGET),
                 extranonce_prefix: Bytes0_32::try_from(FAKE_EXTRANONCE_PREFIX.as_slice())
-                    // BUG: FAKE_EXTRANONCE_PREFIX fits in Bytes0_32
                     .expect("BUG: FAKE_EXTRANONCE_PREFIX too long"),
                 group_channel_id: 0,
             };
@@ -335,7 +329,6 @@ async fn run_success_exchange() -> (Vec<u8>, Vec<u8>) {
     );
 
     let (connect_ok, client_to_pool, pool_to_client) = connect_result;
-    // BUG: connect must succeed against the seeded pool responder
     connect_ok.expect("BUG: connect failed in success generator");
 
     // Drive the client through the 4 pool→client frames.
@@ -346,7 +339,6 @@ async fn run_success_exchange() -> (Vec<u8>, Vec<u8>) {
         client
             .drive(&mut recording2)
             .await
-            // BUG: drive must succeed for the scripted pool messages
             .expect("BUG: drive failed in success generator");
         client.accept(&mut visitor);
     }
@@ -381,7 +373,6 @@ async fn run_reject_exchange() -> (Vec<u8>, Vec<u8>) {
                 let mut wrapped = FromTokio::new(&mut pool_duplex);
                 accept(&mut wrapped, SeededRng::new(POOL_SEED), crypto_ctx(), &cert)
                     .await
-                    // BUG: fake-pool accept must succeed
                     .expect("BUG: fake-pool accept failed")
             };
             let (codec, _session_id) = EncryptedCodec::from_handshake(session);
@@ -396,7 +387,6 @@ async fn run_reject_exchange() -> (Vec<u8>, Vec<u8>) {
             let error_message = SetupConnectionError {
                 flags: 0,
                 code: Str0_255::try_from("invalid-flags")
-                    // BUG: "invalid-flags" is 13 bytes, within the 255-byte cap
                     .expect("BUG: static string fits in Str0_255"),
             };
             pool_send(&mut codec, &error_message, pool_duplex).await;
@@ -404,7 +394,6 @@ async fn run_reject_exchange() -> (Vec<u8>, Vec<u8>) {
     );
 
     let (connect_ok, client_to_pool, pool_to_client) = connect_result;
-    // BUG: connect must succeed against the seeded pool responder
     connect_ok.expect("BUG: connect failed in reject generator");
 
     // Drive the client through SetupConnectionError.
@@ -414,7 +403,6 @@ async fn run_reject_exchange() -> (Vec<u8>, Vec<u8>) {
     client
         .drive(&mut recording2)
         .await
-        // BUG: first drive must succeed (decodes SetupConnectionError)
         .expect("BUG: first drive failed in reject generator");
     client.accept(&mut visitor);
 
@@ -428,21 +416,18 @@ async fn run_reject_exchange() -> (Vec<u8>, Vec<u8>) {
 
 // ── Fixture generator (ignored, run explicitly to regenerate) ──────────────────
 
-/// Generate the four golden fixture files under `tests/fixtures/`. Run with:
-///
-/// ```text
-/// cargo test -p stratum-v2 --test golden_transcript -- --ignored generate_golden_fixtures
-/// ```
+// Generate the four golden fixture files under `tests/fixtures/`. Run with:
+//
+// ```text
+// cargo test -p stratum-v2 --test golden_transcript -- --ignored generate_golden_fixtures
+// ```
 #[tokio::test]
 #[ignore = "regenerates committed fixtures; run explicitly, not in the default gate"]
 async fn generate_golden_fixtures() {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        // BUG: CARGO_MANIFEST_DIR is always set by cargo test
-        .expect("BUG: CARGO_MANIFEST_DIR not set");
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("BUG: CARGO_MANIFEST_DIR not set");
     let fixtures_dir = std::path::Path::new(&manifest_dir).join("tests/fixtures");
-    std::fs::create_dir_all(&fixtures_dir)
-        // BUG: fixtures directory creation must succeed in the crate tree
-        .expect("BUG: failed to create tests/fixtures directory");
+    std::fs::create_dir_all(&fixtures_dir).expect("BUG: failed to create tests/fixtures directory");
 
     let (success_pool_to_client, success_client_to_pool) = run_success_exchange().await;
     let (reject_pool_to_client, reject_client_to_pool) = run_reject_exchange().await;
@@ -451,25 +436,21 @@ async fn generate_golden_fixtures() {
         fixtures_dir.join("golden_success_pool_to_client.bin"),
         &success_pool_to_client,
     )
-    // BUG: fixture file write must succeed
     .expect("BUG: failed to write golden_success_pool_to_client.bin");
     std::fs::write(
         fixtures_dir.join("golden_success_client_to_pool.bin"),
         &success_client_to_pool,
     )
-    // BUG: fixture file write must succeed
     .expect("BUG: failed to write golden_success_client_to_pool.bin");
     std::fs::write(
         fixtures_dir.join("golden_reject_pool_to_client.bin"),
         &reject_pool_to_client,
     )
-    // BUG: fixture file write must succeed
     .expect("BUG: failed to write golden_reject_pool_to_client.bin");
     std::fs::write(
         fixtures_dir.join("golden_reject_client_to_pool.bin"),
         &reject_client_to_pool,
     )
-    // BUG: fixture file write must succeed
     .expect("BUG: failed to write golden_reject_client_to_pool.bin");
 
     std::println!("Generated fixtures in {}:", fixtures_dir.display());
@@ -493,15 +474,15 @@ async fn generate_golden_fixtures() {
 
 // ── Replay tests ────────────────────────────────────────────────────────────────
 
-/// Replay the committed success transcript.
-///
-/// Feeds `GOLDEN_SUCCESS_POOL_TO_CLIENT` through a `ReplayTransport` and
-/// drives the client with the same seeded RNG used by the generator. Asserts:
-///
-/// - The bytes the client wrote equal `GOLDEN_SUCCESS_CLIENT_TO_POOL` exactly
-///   (wire anchor).
-/// - The visitor recorded `SetTarget` and `SetExtranonce` from the channel-open
-///   and a clean job from the future-job + `SetNewPrevHash` pair.
+// Replay the committed success transcript.
+//
+// Feeds `GOLDEN_SUCCESS_POOL_TO_CLIENT` through a `ReplayTransport` and
+// drives the client with the same seeded RNG used by the generator. Asserts:
+//
+// - The bytes the client wrote equal `GOLDEN_SUCCESS_CLIENT_TO_POOL` exactly
+//   (wire anchor).
+// - The visitor recorded `SetTarget` and `SetExtranonce` from the channel-open
+//   and a clean job from the future-job + `SetNewPrevHash` pair.
 #[tokio::test]
 async fn golden_success_transcript_replays() {
     let config = golden_config();
@@ -516,7 +497,6 @@ async fn golden_success_transcript_replays() {
     client
         .connect(&mut replay)
         .await
-        // BUG: connect must succeed replaying the committed handshake bytes
         .expect("BUG: connect failed replaying success fixture");
 
     let mut visitor = RecordingVisitor::default();
@@ -592,11 +572,11 @@ async fn golden_success_transcript_replays() {
     );
 }
 
-/// Replay the committed reject transcript.
-///
-/// Feeds `GOLDEN_REJECT_POOL_TO_CLIENT` through a `ReplayTransport` and
-/// asserts that after consuming `SetupConnectionError` the next `drive` returns
-/// `Err(Error::SessionRejected(SessionRejection::SetupConnectionError))`.
+// Replay the committed reject transcript.
+//
+// Feeds `GOLDEN_REJECT_POOL_TO_CLIENT` through a `ReplayTransport` and
+// asserts that after consuming `SetupConnectionError` the next `drive` returns
+// `Err(Error::SessionRejected(SessionRejection::SetupConnectionError))`.
 #[tokio::test]
 async fn golden_reject_transcript_replays() {
     let config = golden_config();
@@ -608,7 +588,6 @@ async fn golden_reject_transcript_replays() {
     client
         .connect(&mut replay)
         .await
-        // BUG: connect must succeed replaying the committed reject handshake bytes
         .expect("BUG: connect failed replaying reject fixture");
 
     let mut visitor = RecordingVisitor::default();
@@ -617,7 +596,6 @@ async fn golden_reject_transcript_replays() {
     client
         .drive(&mut replay)
         .await
-        // BUG: first drive must succeed (decodes SetupConnectionError)
         .expect("BUG: first drive failed replaying reject fixture");
     client.accept(&mut visitor);
 
@@ -632,7 +610,6 @@ async fn golden_reject_transcript_replays() {
     let error = client
         .drive(&mut replay)
         .await
-        // BUG: second drive must fail after SetupConnectionError was accepted
         .expect_err("BUG: second drive should fail after setup-connection-error");
     assert_eq!(
         error,

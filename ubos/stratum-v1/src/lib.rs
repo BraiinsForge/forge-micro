@@ -25,8 +25,8 @@
 //!   standalone for protocol-only work; that's what
 //!   `examples/probe.rs` exercises.
 //! - The crate root re-exports the wire types for compatibility. The
-//!   `MiningClient` adapter (phase 5) is added in a sibling `client`
-//!   module that builds on top of `wire`.
+//!   `MiningClient` adapter lives in a sibling `client` module that
+//!   builds on top of `wire`.
 
 #![no_std]
 // Error types are self-documenting via Debug; panic paths don't exist in this

@@ -23,7 +23,7 @@
 //! Usable standalone — `examples/probe.rs` connects to a real pool
 //! using only types from this module. Higher-level integration that
 //! plugs into `mining-protocol::MiningClient` lives in
-//! `crate::client` (added in phase 5).
+//! `crate::client`.
 
 pub mod line_buffer;
 pub mod messages;

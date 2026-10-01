@@ -42,13 +42,13 @@ pub struct UserTooLong;
 /// session. `user` becomes the channel `user_identity` field on
 /// `OpenStandardMiningChannel`. `pool_pubkey`, when present, is
 /// used for the noise handshake's `ValidateSignature` authenticator;
-/// `None` falls back to `ValidateNothing` for unauthenticated pool
-/// connections (test environments only).
+/// `None` falls back to `ValidateNothing`, for unauthenticated
+/// test-pool connections only.
 ///
-/// `user` is owned (`heapless::String<128>`) rather than a `&str`
-/// so the config has no borrow on its source string; callers can
-/// hold the config in a `StaticCell` or pass by reference without
-/// fighting `'static` lifetimes for the worker identity.
+/// `user` is owned as a `heapless::String` rather than borrowed, so
+/// the config carries no borrow on its source string and callers can
+/// hold it in a `StaticCell` or pass it by reference without fighting
+/// `'static` lifetimes for the worker identity.
 pub struct Sv2Config {
     pub user: String<MAX_USER_LEN>,
     pub pool_pubkey: Option<[u8; 32]>,

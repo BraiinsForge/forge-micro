@@ -54,8 +54,6 @@ impl<const N: usize> LineBuffer<N> {
     // the buffer after the borrow is dropped.
     pub fn next_line(&mut self) -> Result<Option<&[u8]>, ParseError<'static>> {
         if let Some(position) = self.buf[..self.used].iter().position(|&byte| byte == b'\n') {
-            // Compaction happens on the next call because we cannot mutate
-            // while borrowing.
             return Ok(Some(&self.buf[..position]));
         }
         if self.used == N {

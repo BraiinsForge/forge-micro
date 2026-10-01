@@ -20,9 +20,9 @@
 //! Static-dispatch authenticator selector.
 //!
 //! `Sv2Config::pool_pubkey` decides which built-in `Authenticator`
-//! the adapter uses. We need a single concrete type to pass to
-//! `ii_sv2::security::initiate`, so the two cases are wrapped in
-//! one enum that itself implements `Authenticator`.
+//! the adapter uses. `ii_sv2::security::initiate` takes a single
+//! concrete type, so the two cases are wrapped in one enum that
+//! itself implements `Authenticator`.
 
 use ii_sv2::security::{
     AuthenticationError, Authenticator, CertificateHeader, Signature, ValidateNothing,

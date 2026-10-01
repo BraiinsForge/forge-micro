@@ -74,19 +74,16 @@ pub const WIRE_BUFFER_BYTES: usize = 4096;
 /// (`mining.submit`) with headroom.
 pub const ENCODE_BUFFER_BYTES: usize = 512;
 
-/// Version-rolling parameters sent in `mining.configure`. `1fffe000`
-/// is the standard mask Bitmain miners use; `min-bit-count: 2`
-/// signals the pool we accept any pool-side reduction down to two
-/// bits. The keys are the flat dotted names BIP310 defines, because
-/// some pools refuse version rolling when they are nested. A reply
-/// without `version-rolling.mask` ends the session as
-/// `SessionRejection::VersionRollingRefused`.
+/// Version-rolling parameters sent in `mining.configure`;
+/// `min-bit-count: 2` accepts any pool-side reduction to two bits. The
+/// keys are the flat dotted names BIP310 defines, because some pools
+/// refuse version rolling when they are nested.
 const CONFIGURE_MAP: &[u8] =
     br#"{"version-rolling.mask":"1fffe000","version-rolling.min-bit-count":2}"#;
 
 /// Bytes reserved for the `result` slice copied out of a handshake
-/// response. Public pools' configure / subscribe results stay well
-/// under this; the largest we have observed is around 80 bytes.
+/// response. Public pools' configure and subscribe results stay well
+/// under this bound.
 const HANDSHAKE_RESULT_BYTES: usize = 256;
 
 /// Stratum V1 protocol adapter.
@@ -399,7 +396,9 @@ impl MiningClient for StratumV1Client<'_> {
                             "stratum-v1: set-difficulty diff={} target={}...",
                             set_diff.0,
                             // mining_protocol::hex::encode_block_hash_lower emits lowercase
-                            // hex (0-9, a-f), which is valid ASCII.
+                            // hex (0-9, a-f), which is valid ASCII. Every other
+                            // hex-encode-then-from_utf8 call in this file relies on
+                            // the same fact.
                             core::str::from_utf8(&target_hex[..32])
                                 .expect("BUG: hex encoder emits ASCII"),
                         );
@@ -434,8 +433,6 @@ impl MiningClient for StratumV1Client<'_> {
                         debug_assert!(prefix_hex_ok);
                         info!(
                             "stratum-v1: set-extranonce prefix={} en2_size={}",
-                            // mining_protocol::hex::encode_lower_to_slice emits lowercase
-                            // hex (0-9, a-f), which is valid ASCII.
                             core::str::from_utf8(&prefix_hex[..prefix_hex_len])
                                 .expect("BUG: hex encoder emits ASCII"),
                             self.session.extranonce_2_size,
@@ -481,21 +478,12 @@ impl MiningClient for StratumV1Client<'_> {
 
 /// Turn a `mining.notify` into a [`MiningJob`] and hand it to `visitor`.
 ///
-/// Decodes the hex fields into `decode_scratch`, applies the V1
-/// `prev_hash` word swap so the trait surface sees canonical
-/// block-header bytes, allocates a [`JobId`] against `session`, then
-/// calls the visitor once.
-///
-/// A malformed field drops the job and returns without telling the
-/// visitor. That is deliberate: a pool that sends bad hex has sent no
-/// work, and a session that stayed up is better than one that failed
-/// over for a single bad line.
-///
-/// The four parameters are peers and none of them is a receiver. The
-/// notify is borrowed from the wire buffer, the scratch and the session
-/// are two disjoint pieces of state the caller holds, and the visitor is
-/// where the result goes. A method on any one of them would take the
-/// other three, so the call site keeps them apart.
+/// Decodes the hex fields into `decode_scratch`, canonicalizes
+/// `prev_hash` via [`swap_prev_hash_words`], allocates a [`JobId`]
+/// against `session`, then calls the visitor once. A malformed field
+/// drops the job without telling the visitor, since a pool that sent
+/// bad hex sent no work and a session kept alive beats one failed over
+/// for a single bad line.
 fn dispatch_notify<V: MiningClientVisitor>(
     notify: &Notify<'_>,
     decode_scratch: &mut DecodeScratch,
@@ -518,8 +506,6 @@ fn dispatch_notify<V: MiningClientVisitor>(
         return;
     };
 
-    // Apply the V1 prev_hash per-u32 byte swap so the trait surface
-    // sees canonical block-header bytes.
     swap_prev_hash_words(&mut decode_scratch.prev_hash);
 
     {
@@ -534,14 +520,11 @@ fn dispatch_notify<V: MiningClientVisitor>(
             nbits,
             ntime,
             notify.clean_jobs,
-            // mining_protocol::hex::encode_block_hash_lower emits lowercase
-            // hex (0-9, a-f), which is valid ASCII.
             core::str::from_utf8(prev_tail).expect("BUG: hex encoder emits ASCII"),
         );
     }
 
-    // Allocate a JobId and record the (generic, wire) mapping. Slot
-    // rotation matches the depth-2 ring on the stratum-client side.
+    // Ring depth here must match the depth-2 job-id ring in stratum-client.
     let job_id = session.allocate_job_id(notify.job_id);
 
     let extranonce_2_size = session.extranonce_2_size;
@@ -663,19 +646,10 @@ fn decode_hex_u32_be(text: &str) -> Option<u32> {
 }
 
 /// Stage the reply to a pool-initiated `mining.ping` in the outbound
-/// slot.
-///
-/// Writes nothing when the slot already holds an unsent message. A
-/// dropped ping reply costs nothing, because the pool sends another one
-/// if it is watching, and overwriting a pending submit would cost a
-/// share.
-///
-/// The three `&mut` parameters are one outbound slot taken apart: the
-/// buffer, the length and the offset. They arrive as three field borrows
-/// rather than as `&mut self`, because the parsed message the caller is
-/// acting on is itself borrowed out of `self.wire_buffer`. A method on
-/// the client would need the whole of `self` and collide with that
-/// borrow, so the caller splits it and this takes the pieces.
+/// slot. Writes nothing when the slot already holds an unsent message,
+/// since overwriting a pending submit would cost a share and a dropped
+/// ping reply costs nothing because the pool sends another if it is
+/// watching.
 fn queue_ping_response(
     encode_buffer: &mut [u8; ENCODE_BUFFER_BYTES],
     outbound_len: &mut usize,
@@ -683,8 +657,6 @@ fn queue_ping_response(
     id: u32,
 ) {
     if *outbound_len > 0 {
-        // Outbound slot already in use; drop the ping. The pool
-        // re-sends if it really cares.
         return;
     }
     let mut response = String::<64>::new();
@@ -699,22 +671,11 @@ fn queue_ping_response(
     *outbound_offset = 0;
 }
 
-/// Match a response to its pending request and apply what it carries.
-///
-/// Takes the pending entry for `response.id`, reads the result or the
-/// error against the request kind that entry records, updates `session`,
-/// and reports to `visitor`. Returns `Some` when the response ends the
-/// session, which is how an authorize or a subscribe failure reaches the
-/// caller as a state change rather than as a log line.
-///
-/// A response with no pending entry is dropped with one warning. Two
-/// things reach that arm: a pool answering something never asked, and a
-/// slot at `id % PENDING_DEPTH` evicted by a younger registration. The
-/// session is healthy in both cases.
-///
-/// Like [`dispatch_notify`], the three parameters are peers. The
-/// response is borrowed from the wire buffer, the session is the state
-/// it updates, and the visitor is where the result goes.
+/// Match a response to its pending request and apply what it carries:
+/// reads the result or error against the request kind, updates
+/// `session`, and reports to `visitor`. Returns `Some` when the response
+/// ends the session, which is how an authorize or a subscribe failure
+/// reaches the caller as a state change rather than as a log line.
 #[allow(clippy::too_many_lines)]
 fn dispatch_response<V: MiningClientVisitor>(
     response: &Response<'_>,
@@ -722,11 +683,10 @@ fn dispatch_response<V: MiningClientVisitor>(
     visitor: &mut V,
 ) -> Option<SessionRejection> {
     let Some(kind) = session.pending.take(response.id) else {
-        // No pending request for this wire id. Either the pool
-        // sent a response we never asked for, or the slot at
-        // `id % N` had been evicted by a younger registration
-        // (in-flight load exceeded `PENDING_DEPTH`). Drop after
-        // a single warn — the session itself is still healthy.
+        // No pending request for this id: either the pool answered
+        // something never asked, or a younger registration evicted
+        // the slot at `id % PENDING_DEPTH`. The session stays healthy
+        // either way.
         warn!(
             "stratum-v1: response for unknown id {}, dropping",
             response.id,
@@ -790,8 +750,6 @@ fn dispatch_response<V: MiningClientVisitor>(
             debug_assert!(prefix_hex_ok);
             info!(
                 "stratum-v1: subscribe-success prefix={} en2_size={}",
-                // mining_protocol::hex::encode_lower_to_slice emits lowercase
-                // hex (0-9, a-f), which is valid ASCII.
                 core::str::from_utf8(&prefix_hex[..prefix_hex_len])
                     .expect("BUG: hex encoder emits ASCII"),
                 session.extranonce_2_size,

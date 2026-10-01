@@ -93,8 +93,6 @@ fn parse_mining_notify_abandon_work_variants() {
     assert!(expect_notify(&rpc).clean_jobs);
 }
 
-// Some pools might send a 10th trailing element after clean_jobs
-// in notify. We reject it.
 #[test]
 fn parse_mining_notify_trailing_element_is_rejected() {
     let mut line = heapless::String::<4096>::new();
@@ -130,7 +128,6 @@ fn parse_mining_notify_field_extraction() {
     ] {
         expected_merkle_branch
             .push(hash)
-            // BUG: fixture has exactly 12 branches, which is within MAX_MERKLE_BRANCH_LEN.
             .expect("BUG: fixture branch count is within MAX_MERKLE_BRANCH_LEN");
     }
 
@@ -332,8 +329,6 @@ fn unknown_server_method_is_error() {
 
 #[test]
 fn version_rolling_mask_extracted_from_configure_result() {
-    // Public pool wire shape: flat object with `version-rolling` + dotted
-    // `version-rolling.mask` keys.
     let body = br#"{"version-rolling":true,"version-rolling.mask":"1fffe000"}"#;
     assert_eq!(parse_version_rolling_mask(body), Some(0x1fff_e000));
 }

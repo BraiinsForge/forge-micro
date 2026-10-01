@@ -94,24 +94,21 @@ pub struct V2SessionState {
     pub(crate) extranonce_prefix_len: usize,
     /// `nbits` from the most-recent `SetNewPrevHash`.
     pub(crate) nbits: u32,
-    /// `min_ntime` from the most-recent `SetNewPrevHash` — the
-    /// pool-supplied ntime base. Stored for the work generator
-    /// after the `JobId`-to-wire-id ring lands with V2 submit.
+    /// Pool-supplied `min_ntime` from the most-recent `SetNewPrevHash`,
+    /// reserved for the work generator once V2 submit reads it.
     #[allow(dead_code)]
     pub(crate) ntime_base: u32,
     /// Per-channel `sequence_number` for outbound
     /// `SubmitSharesStandard`. The pool echoes the highest seen
     /// value back in `SubmitSharesSuccess.last_sequence_number`.
     pub(crate) next_sequence_number: u32,
-    /// Depth-`JOBID_MAP_DEPTH` ring mapping `JobId` to the V2
-    /// wire u32 `job_id` and the base `version` the job was built
-    /// with. Rotates in lockstep with
-    /// `stratum-client`'s `JobRing`. Submit looks up the wire id
-    /// to populate `SubmitSharesStandard.job_id`.
+    /// Ring mapping `JobId` to the V2 wire u32 `job_id` and the base
+    /// `version` the job was built with; see [`JOBID_MAP_DEPTH`] for
+    /// why its depth is fixed. Submit looks up the wire id to populate
+    /// `SubmitSharesStandard.job_id`.
     job_id_ring: JobIdRing<(u32, u32), JOBID_MAP_DEPTH>,
-    /// Pending future `NewMiningJob` (received with
-    /// `min_ntime: None`) waiting for a matching `SetNewPrevHash`
-    /// to activate it.
+    /// Pending future `NewMiningJob`, received with `min_ntime: None`,
+    /// waiting for a matching `SetNewPrevHash` to activate it.
     pub(crate) pending_future_job: Option<PendingFutureJob>,
 }
 
