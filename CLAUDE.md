@@ -121,13 +121,6 @@ Systems engineer. Deep expertise in Rust and embedded firmware.
   provenance question is answered in the review thread, not in the
   codebase.
 
-## Model Routing
-
-Opus orchestrates, sonnet executes. Delegate substantial work to sonnet
-subagents; Opus keeps architecture, plan approval, coordination, and the
-edits too small to be worth spawning for. Set `model: "sonnet"`
-explicitly when spawning parallel agents.
-
 ## Git Workflow
 
 Clarify → Plan → Implement → Commit → Review. **Wait for explicit user
