@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { postJSON } from '../lib/api';
+import type { ApiError } from '../lib/api';
 import { useDash } from '../lib/store';
 import type { BoardNotice } from '../app';
 
@@ -23,18 +24,25 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
   const running = dash.info?.running;
   const reason = dash.info?.pause_reason;
   // See "Two ways out of an overheat halt" in docs/MINING.md. An
-  // overheat stop does not answer to Start; clear it with the item
-  // below.
+  // overheat stop does not answer to a bare resume, so Start opens
+  // the confirm step below and the confirm clears the halt and starts.
   const overheated = reason === 'dangerousTemperature';
-  // Start is equally inert against an unreadable-sensor stop, and the
-  // same section says why this menu offers no control for it.
+  // Start is inert against an unreadable-sensor stop, and the same
+  // section says why this menu offers no control for it.
   const unreadable = reason === 'temperatureUnreadable';
-  // `pause_reason` is the manager's dominant reason, and `userRequest`
-  // is lowest priority: it is reported only when no other reason is
-  // also active. So Start answers only when the halt is the operator's
-  // own pause and nothing else; every other reason (including a fan or
-  // pool fault that an allowlist could miss) leaves it disabled.
-  const startDisabled = paused == null ? false : paused ? reason !== 'userRequest' : running;
+  // Whether Start is inert, which depends on why mining is stopped.
+  // Start answers alone only where `userRequest` is the dominant
+  // reason. `dangerousTemperature` is the exception: it is the highest
+  // reason, so it can stand in front of a fan or a pool fault, and
+  // Start stays live to open the confirm step. Every other reason
+  // leaves it disabled. The severity order both tests rest on is in
+  // the MINING.md section named above.
+  function startIsDisabled(): boolean | undefined {
+    if (paused == null) return false;
+    if (!paused) return running;
+    return reason !== 'userRequest' && !overheated;
+  }
+  const startDisabled = startIsDisabled();
   // Stop does not consult running: it asserts the operator pause, which
   // also interrupts bring-up and the automatic retries before mining starts.
   const stopDisabled = paused ?? false;
@@ -70,14 +78,24 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
     };
   }, [open]);
 
-  async function act(path: string, label: string) {
+  async function act(path: string, label: string, onConflict?: () => void) {
     if (inFlight) return;
     setInFlight(true);
     setMsg('');
     try {
       await postJSON(path, {});
       close();
-    } catch (_) {
+    } catch (error) {
+      // A 409 means the board's state moved between the last poll and
+      // this click. The action needs a step this menu already has, so
+      // open it instead of reporting a failure the operator can do
+      // nothing with. Every other failure gets this menu's own words:
+      // the API message is a fragment and a dropped connection yields
+      // the browser's own wording, and neither reads as operator text.
+      if (onConflict && (error as ApiError).status === 409) {
+        onConflict();
+        return;
+      }
       setMsg(`${label} failed. Try again.`);
     } finally {
       setInFlight(false);
@@ -122,9 +140,16 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
       <div class={'actMenu' + (open ? '' : ' hide')}>
         <button
           type="button"
-          class="actItem"
+          class={'actItem' + (confirming ? ' hide' : '')}
           disabled={startDisabled}
-          onClick={() => act('/api/system/resume', 'Start')}
+          onClick={() => {
+            if (!overheated) {
+              act('/api/system/resume', 'Start', () => setConfirming('thermal'));
+              return;
+            }
+            setConfirming('thermal');
+            setMsg('');
+          }}
         >
           <svg class="navIcon" aria-hidden="true">
             <use href="#iPlay" />
@@ -133,7 +158,7 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
         </button>
         <button
           type="button"
-          class="actItem"
+          class={'actItem' + (confirming ? ' hide' : '')}
           disabled={stopDisabled}
           onClick={() => act('/api/system/pause', 'Stop')}
         >
@@ -142,21 +167,6 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
           </svg>
           <span>Stop</span>
         </button>
-        {overheated && (
-          <button
-            type="button"
-            class={'actItem' + (confirming ? ' hide' : '')}
-            onClick={() => {
-              setConfirming('thermal');
-              setMsg('');
-            }}
-          >
-            <svg class="navIcon" aria-hidden="true">
-              <use href="#iPlay" />
-            </svg>
-            <span>Clear overheat stop…</span>
-          </button>
-        )}
         {unreadable && (
           <p class={'actMsg' + (confirming ? ' hide' : '')} role="status">
             No temperature reading. This stop clears by itself when the sensor answers again or

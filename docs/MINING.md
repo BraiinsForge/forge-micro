@@ -98,6 +98,16 @@ bare `POST /api/system/resume` while the halt stands is refused with
 409, because `Start` alone would clear only the operator's own pause
 and leave mining halted.
 
+The web UI reads only the dominant reason, so its Start button leans on
+both ends of the severity order. That order is `PRIORITY` in
+`ubos/ubos-manager/src/pause.rs`, which `PauseReasons::dominant` walks
+and a const assertion holds in step with `PauseReason::severity`. The
+table above lists the producers, not the order. `UserRequest` is
+reported only when nothing else holds the mask, and
+`DangerousTemperature` is reported in front of anything else. The API
+refuses on the mask bit itself. The two agree while those two reasons
+keep their places.
+
 The unreadable halt is different from both: the loop retracts it
 itself, once a reading returns or the board goes idle, and no operator
 control exists for it because there is nothing to acknowledge. A

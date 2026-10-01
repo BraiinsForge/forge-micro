@@ -51,9 +51,18 @@ export async function csrfToken(): Promise<string> {
   return response.headers.get('X-CSRF-Token') || '';
 }
 
+// A failed call that reached a response carries its HTTP status, so a
+// caller can branch on the status rather than read the message. The
+// action menu needs that for the overheat 409, where the right answer
+// is a confirm step and not an error line.
+export interface ApiError extends Error {
+  status?: number;
+}
+
 // POST JSON to an API path with a CSRF token, retrying against the
 // shallow pool. Surfaces the API's {message} on a 4xx; stops retrying
-// on any 4xx since the board rejects it identically on retry.
+// on any 4xx since the board rejects it identically on retry. The throw
+// is an ApiError whenever a response came back.
 export async function postJSON(path: string, body: unknown): Promise<Response> {
   let lastError: unknown;
   for (const wait of RETRY_DELAYS) {
@@ -76,7 +85,9 @@ export async function postJSON(path: string, body: unknown): Promise<Response> {
       } catch (_) {
         /* body was not JSON */
       }
-      lastError = new Error(detail || 'HTTP ' + response.status);
+      const failure: ApiError = new Error(detail || 'HTTP ' + response.status);
+      failure.status = response.status;
+      lastError = failure;
       if (response.status >= 400 && response.status < 500) break;
     } catch (error) {
       lastError = error;
