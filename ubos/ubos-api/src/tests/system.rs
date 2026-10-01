@@ -894,3 +894,66 @@ fn system_info_hw_info_serializes_unpublished_versions_as_null() {
         "expected null bootloaderVersion, fanControllerVersion, and hashboardIds in {json}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Resume tests
+// ---------------------------------------------------------------------------
+
+/// Drive `handle_resume` over a mock socket against `manager` and return
+/// the HTTP status code from the response.
+///
+/// The caller builds `manager` over a watch and a channel it declared
+/// itself, so the mask the handler reads is the one the test published
+/// and the command it sends is the one the test can receive.
+fn run_resume_handler(manager: ubos_manager::Handle) -> u16 {
+    let io = MockIo::new(b"POST /api/system/resume HTTP/1.1\r\nContent-Length: 0\r\n\r\n".to_vec());
+
+    embassy_futures::block_on(async {
+        let mut header_buf = [0u8; 512];
+        let mut connection = edge_http::io::server::Connection::<_, 16>::new(&mut header_buf, io)
+            .await
+            .expect("BUG: Connection::new failed on mock HTTP request");
+
+        let mut scratch = [0u8; 256];
+        crate::system::handle_resume(&mut connection, &mut scratch, manager)
+            .await
+            .expect("BUG: handle_resume returned Err on mock socket — Infallible violated");
+
+        connection
+            .unbind()
+            .expect("BUG: Connection::unbind after response")
+            .response_status()
+    })
+}
+
+#[test]
+fn resume_during_overheat_halt_is_refused() {
+    static WATCH: ubos_manager::PauseWatch = embassy_sync::watch::Watch::new();
+    static COMMANDS: ubos_manager::CommandChannel = embassy_sync::channel::Channel::new();
+    WATCH.sender().send(
+        ubos_manager::PauseReasons::default()
+            .assert(ubos_manager::PauseReason::DangerousTemperature),
+    );
+
+    let status = run_resume_handler(ubos_manager::Handle::new(&WATCH, &COMMANDS));
+
+    assert_eq!(status, 409);
+    assert!(
+        COMMANDS.try_receive().is_err(),
+        "a refused resume must send nothing to the manager"
+    );
+}
+
+#[test]
+fn resume_without_overheat_halt_starts() {
+    static WATCH: ubos_manager::PauseWatch = embassy_sync::watch::Watch::new();
+    static COMMANDS: ubos_manager::CommandChannel = embassy_sync::channel::Channel::new();
+    WATCH
+        .sender()
+        .send(ubos_manager::PauseReasons::default().assert(ubos_manager::PauseReason::UserRequest));
+
+    let status = run_resume_handler(ubos_manager::Handle::new(&WATCH, &COMMANDS));
+
+    assert_eq!(status, 200);
+    assert_eq!(COMMANDS.try_receive(), Ok(ubos_manager::Message::Start));
+}

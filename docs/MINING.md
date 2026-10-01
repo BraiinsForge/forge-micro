@@ -92,7 +92,9 @@ report the cooldown, and only the operator's acknowledgement
 `TemperatureAcknowledged` to the manager itself, the same as `Start`
 and `Stop`; the thermal loop reads the halt back from the manager's
 mask on every tick, so the release reaches it the same way its own
-would.
+would. A bare `POST /api/system/resume` while the halt stands is
+refused with 409, because `Start` alone would clear only the
+operator's own pause and leave mining halted.
 
 The unreadable halt is different from both: the loop retracts it
 itself, once a reading returns or the board goes idle, and no operator

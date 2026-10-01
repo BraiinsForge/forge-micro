@@ -725,8 +725,10 @@ where
 /// blockFound/dismiss).
 ///
 /// Logs one `info!` line naming the action and returns 200 with
-/// `{"message":"ack"}`. Pause and resume are handled separately
-/// by `dispatch` because they carry a `Manager` side-effect.
+/// `{"message":"ack"}`. Pause is handled by `dispatch`, and resume and
+/// the overheat clear by `handle_resume` and `handle_thermal_clear`,
+/// because they carry a `Manager` side-effect; resume can refuse with
+/// a 409 before it reaches this ack.
 async fn handle_action<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
@@ -737,6 +739,55 @@ where
 {
     info!("api action: {}", action);
     write_ack_response(connection, scratch).await
+}
+
+/// Handle `POST /api/system/resume`.
+///
+/// See "Two ways out of an overheat halt" in docs/MINING.md. `Start`
+/// lifts only the operator's own pause, so a resume during an overheat
+/// halt would answer 200 and leave mining halted. Refuse it with a 409
+/// instead. The message states the halt and no more; the web UI owns
+/// the operator text, and it reaches the confirm step without reading
+/// this message at all.
+///
+/// `pub(crate)` so the host test drives it over a handle built on a
+/// mask the test publishes itself.
+pub(crate) async fn handle_resume<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    scratch: &mut [u8],
+    manager: ManagerHandle,
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    if manager.holds(ubos_manager::PauseReason::DangerousTemperature) {
+        return write_json_response(
+            connection,
+            409,
+            "Conflict",
+            b"{\"message\":\"an overheat halt stands; clear it to start\"}",
+        )
+        .await;
+    }
+    crate::events::user_resumed();
+    manager.send(ManagerMessage::Start).await;
+    handle_action(connection, scratch, "resume").await
+}
+
+/// Handle `POST /api/system/thermal/clear`.
+///
+/// See "Two ways out of an overheat halt" in docs/MINING.md.
+pub(crate) async fn handle_thermal_clear<T, const N: usize>(
+    connection: &mut Connection<'_, T, N>,
+    scratch: &mut [u8],
+    manager: ManagerHandle,
+) -> Result<(), HttpError<T::Error>>
+where
+    T: Read + Write + TcpSplit,
+{
+    crate::events::user_cleared_thermal_halt();
+    manager.send(ManagerMessage::TemperatureAcknowledged).await;
+    handle_action(connection, scratch, "thermal/clear").await
 }
 
 /// Handle `POST /api/system/factory_reset`.
@@ -1901,15 +1952,10 @@ where
             handle_action(connection, scratch, "pause").await?;
         }
         DispatchOutcome::Handled(Route::ResumeAck) => {
-            crate::events::user_resumed();
-            manager.send(ManagerMessage::Start).await;
-            handle_action(connection, scratch, "resume").await?;
+            handle_resume(connection, scratch, manager).await?;
         }
         DispatchOutcome::Handled(Route::ThermalClearAck) => {
-            // See "Two ways out of an overheat halt" in docs/MINING.md.
-            crate::events::user_cleared_thermal_halt();
-            manager.send(ManagerMessage::TemperatureAcknowledged).await;
-            handle_action(connection, scratch, "thermal/clear").await?;
+            handle_thermal_clear(connection, scratch, manager).await?;
         }
         DispatchOutcome::Handled(Route::RestartAck) => {
             crate::events::user_restart();
