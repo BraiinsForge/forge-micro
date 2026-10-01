@@ -1073,6 +1073,17 @@ hostClippyChecks
       touch $out
     '';
 
+  # The commit linter's script, built here for the same reason the
+  # gate's is: naming the program is what runs its shellcheck.
+  gitlint-app =
+    let
+      gitlint = import ./gitlint.nix { inherit pkgs; };
+    in
+    pkgs.runCommand "gitlint-app" { } ''
+      test -x ${gitlint.program}
+      touch $out
+    '';
+
   # CLAUDE.md is loaded into context at the start of every session, and
   # an agent's adherence to it drops as it grows: past a few hundred
   # lines the rules that matter get lost among the ones that do not.

@@ -356,8 +356,13 @@
         # observable run. See nix/gate.nix. It discovers what to gate
         # from the checkout, so the same command serves this repo
         # standalone and a checkout that nests it.
+        #
+        # `nix run .#gitlint` lints the branch commits of every tree
+        # the same way, each against its own review base. See
+        # nix/gitlint.nix.
         apps = images.apps // {
           gate = import ./nix/gate.nix { inherit pkgs system; };
+          gitlint = import ./nix/gitlint.nix { inherit pkgs; };
         };
 
         # `nix fmt` entry point, matching the nixfmt check in
