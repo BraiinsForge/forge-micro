@@ -32,8 +32,8 @@ mod inner {
     }
 }
 
-/// A temperature takes the width of its own kind, so the browser knows to
-/// show it in degrees, and its payload is the millicelsius.
+// A temperature takes the width of its own kind, so the browser knows to
+// show it in degrees, and its payload is the millicelsius.
 #[test]
 fn a_temperature_is_catalogued_as_a_temperature_and_stored_in_millicelsius() {
     struct Temperature(i32);
@@ -52,8 +52,6 @@ fn a_temperature_is_catalogued_as_a_temperature_and_stored_in_millicelsius() {
     );
 }
 
-/// A frequency, a voltage, a power and an efficiency each take the width of
-/// their own kind, and their payload is the integer the unit holds.
 #[test]
 fn a_unit_is_catalogued_as_its_kind_and_stored_as_its_integer() {
     struct Frequency(u32);
@@ -121,11 +119,8 @@ const REGISTRY: &[&[crate::EventDef]] = &[inner::events::CATALOG];
 
 #[test]
 fn registry_codes_are_globally_unique() {
-    // Mirrors the compile-time assertion firmware applies to the assembled
-    // registry: codes must not collide across catalog boundaries.
     assert!(crate::codes_unique(REGISTRY));
 
-    // A catalog repeated across the registry collides with itself.
     let dup: &[&[crate::EventDef]] = &[inner::events::CATALOG, inner::events::CATALOG];
     assert!(!crate::codes_unique(dup));
 }

@@ -60,7 +60,6 @@ fn ring_wrap_keeps_last_cap_records() {
     const CAPACITY: usize = 4;
     let mut ring = make_ring(CAPACITY);
 
-    // Push CAPACITY + 3 = 7 records; only the last 4 should be in the ring.
     for code in 0u32..7 {
         ring.push(code, Severity::Info, &[]);
     }
@@ -69,7 +68,6 @@ fn ring_wrap_keeps_last_cap_records() {
     let count = ring.snapshot_after(&mut out, 0);
     assert_eq!(count, CAPACITY);
 
-    // Oldest surviving record has code 3 (seq 4), newest has code 6 (seq 7).
     for (index, expected_code) in (3u32..7).enumerate() {
         assert_eq!(
             out[index].code, expected_code,
@@ -98,7 +96,6 @@ fn ring_snapshot_oldest_first() {
     let mut out = [EventRecord::EMPTY; CAPACITY];
     let count = ring.snapshot_after(&mut out, 0);
     assert_eq!(count, CAPACITY);
-    // Oldest first: 20, 30, 40.
     assert_eq!(out[0].code, 20);
     assert_eq!(out[1].code, 30);
     assert_eq!(out[2].code, 40);
@@ -110,14 +107,12 @@ fn ring_snapshot_after_filters_by_seq() {
     for code in 1u32..=5 {
         ring.push(code, Severity::Info, &[]);
     }
-    // Records have seq 1..=5. Asking for seq > 2 yields the last three.
     let mut out = [EventRecord::EMPTY; 8];
     let count = ring.snapshot_after(&mut out, 2);
     assert_eq!(count, 3);
     assert_eq!(out[0].seq, 3);
     assert_eq!(out[1].seq, 4);
     assert_eq!(out[2].seq, 5);
-    // A cursor at or past the latest seq yields nothing.
     assert_eq!(ring.snapshot_after(&mut out, 5), 0);
     assert_eq!(ring.latest_seq(), 5);
 }
@@ -157,13 +152,11 @@ fn ring_snapshot_after_on_wrapped_ring() {
     for code in 1u32..=7 {
         ring.push(code, Severity::Info, &[]);
     }
-    // A cursor at seq 5 yields the two newest live records, 6 and 7.
     let mut out = [EventRecord::EMPTY; CAPACITY];
     let count = ring.snapshot_after(&mut out, 5);
     assert_eq!(count, 2);
     assert_eq!(out[0].seq, 6);
     assert_eq!(out[1].seq, 7);
-    // A cursor older than the oldest live seq yields every live record.
     let count = ring.snapshot_after(&mut out, 2);
     assert_eq!(count, CAPACITY);
     assert_eq!(out[0].seq, 4);
@@ -270,7 +263,6 @@ fn retained_ring_resets_garbage() {
 #[test]
 fn ring_zero_capacity_is_safe() {
     let mut ring = make_ring(0);
-    // Push and snapshot must not panic.
     ring.push(1, Severity::Info, &[]);
     let mut out = [EventRecord::EMPTY; 4];
     assert_eq!(ring.snapshot_after(&mut out, 0), 0);
@@ -278,16 +270,16 @@ fn ring_zero_capacity_is_safe() {
 
 #[test]
 fn pre_init_record_does_not_panic() {
-    // The global RING may be uninitialised (None) when this test runs;
-    // record must be safe regardless. We do not assert ring contents
-    // because other tests may have called init on the shared global.
+    // Tests share the global RING with no isolation, so it may already be
+    // initialised by another test; only safety is asserted here, never a
+    // specific ring state.
     record(crate::const_fnv1a("test_event"), Severity::Info, &[]);
 }
 
 #[test]
 fn pre_init_snapshot_returns_zero_or_valid() {
-    // snapshot_after must not panic; if RING is uninitialised it returns 0.
-    // If init was called by another test, it returns a non-panic value.
+    // See `pre_init_record_does_not_panic`: the shared global may already
+    // be initialised.
     let mut out = [EventRecord::EMPTY; 4];
     let _ = snapshot_after(&mut out, 0);
 }

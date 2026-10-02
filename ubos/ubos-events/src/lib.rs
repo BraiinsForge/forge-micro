@@ -31,40 +31,35 @@
 //! `defmt`/`ubos-logging` developer facade: volatile, probe-only,
 //! high-rate tracing. Events are curated user-facing state transitions
 //! with per-event severity declared in the catalog, never chosen at the
-//! call site. High-rate traces (every ramp hop) stay on RTT and never
-//! enter the ring. An `events::` call also emits a paired RTT line, but
-//! a subsystem may keep an additional manual `defmt` line beside it when
-//! the developer view needs richer detail or a different severity; such
-//! pairings are deliberate, so do not collapse them.
+//! call site, and a high-rate trace such as every ramp hop stays on RTT
+//! and never enters the ring. An `events::` call also emits a paired RTT
+//! line, and a subsystem keeping an additional manual `defmt` line beside
+//! it for richer detail or a different severity is deliberate, not
+//! redundant.
 //!
 //! The ring never touches flash. On dual-core boards a blocking flash
 //! write must hand-shake the mining core to a stop, and under load that
 //! handshake has been measured to stall past the hardware watchdog
 //! ceiling, so any flash write on a running miner risks a watchdog
 //! reset. The cost is durability across a true power-off; retained RAM
-//! recovers the resets that matter most (watchdog, software reset,
-//! crash-then-watchdog).
+//! recovers the resets that matter most: watchdog, software reset, and
+//! crash-then-watchdog.
 //!
 //! The HTTP endpoint polls rather than streams. Server-Sent Events and
-//! `WebSockets` each hold a connection open per listener, and connections
-//! are scarce here: the API server runs only two workers, and a past
-//! "unreachable for minutes" bug traced to connection-pool starvation
-//! when TCP connections were not released. One open Events tab on SSE
-//! would pin a worker for its entire lifetime; incremental polling via
+//! `WebSockets` each hold a connection open per listener, and the API
+//! server runs only two workers, so one open Events tab on SSE would pin
+//! a worker for its entire lifetime. Incremental polling via
 //! `?since=<seq>` delivers only new events with no held connection and
 //! no worker pinned.
 //!
 //! Records are encoded, not text, in the same spirit as `defmt`: the
-//! record stores a stable code plus raw little-endian args, and the
-//! browser formats them against the catalog served from device rodata.
-//! The scheme is first-party rather than a defmt capture because reusing
-//! defmt would mean owning a version-pinned browser port of
-//! `defmt-decoder` covering defmt's whole format language; the
-//! first-party format is positional `{}` over six integer widths and five
-//! units, so the browser decoder is tens of lines and stable. The
-//! code is a compile-time FNV-1a hash of the event's slug, stable across
-//! builds and OTA, so a ring written by old firmware still decodes; a
-//! removed event renders as unknown.
+//! record stores [`const_fnv1a`]'s stable code plus raw little-endian
+//! args, and the browser formats them against the catalog served from
+//! device rodata. The scheme is first-party rather than a defmt capture
+//! because reusing defmt would mean owning a version-pinned browser port
+//! of `defmt-decoder` covering defmt's whole format language; the
+//! first-party format is instead positional `{}` over six integer widths
+//! and five units.
 //!
 //! Every record carries one `ts: u32` from the injected wall clock:
 //! seconds since boot before NTP sync, Unix-epoch seconds after. The
@@ -85,17 +80,14 @@
 //! ```
 //!
 //! Firmware owns the backing [`RetainedRing`] and initialises the ring once at
-//! boot. Placing the backing in retained RAM (a `.uninit` section on cortex-m,
-//! RTC fast RAM on esp32s3) lets the ring survive a warm reset:
+//! boot. Retained RAM, a `.uninit` section on cortex-m or RTC fast RAM on
+//! esp32s3, lets the ring survive a warm reset:
 //!
 //! ```rust,ignore
 //! static mut BACKING: ubos_events::RetainedRing<128> = ubos_events::RetainedRing::new();
 //! // Safety: called once at boot before any task is spawned.
 //! ubos_events::init(unsafe { &mut *core::ptr::addr_of_mut!(BACKING) }, ubos_net::wall_clock_secs);
 //! ```
-//!
-//! Before [`init`] is called, [`record`] is a no-op and [`snapshot_after`]
-//! returns zero.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -157,17 +149,11 @@ pub enum Severity {
 /// so the record itself carries no per-arg type tags.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ArgWidth {
-    /// Unsigned 8-bit integer.
     U8,
-    /// Unsigned 16-bit integer.
     U16,
-    /// Unsigned 32-bit integer.
     U32,
-    /// Signed 8-bit integer.
     I8,
-    /// Signed 16-bit integer.
     I16,
-    /// Signed 32-bit integer.
     I32,
     /// A temperature, stored as its signed 32-bit millicelsius. The browser
     /// shows it in degrees.
@@ -188,14 +174,12 @@ pub enum ArgWidth {
 
 /// Maximum byte length of an event format string.
 ///
-/// The `/api/system/events/catalog` route in `ubos-api` serialises each
-/// [`EventDef`] into a fixed `DEF_JSON_MAX`-byte (256) buffer. Roughly 88
-/// bytes of that budget is fixed punctuation plus the code, severity, and
-/// arg-width strings, leaving 168 bytes for the escaped `fmt`. A longer
-/// `fmt` would be silently truncated into invalid JSON, so the [`events!`]
-/// macro asserts every declared `fmt` against this bound at compile time.
-/// The ceiling sits below the raw 168-byte limit so a handful of escaped
-/// `"`/`\` characters cannot push the serialised form over budget.
+/// The `/api/system/events/catalog` route serialises each [`EventDef`]
+/// into a fixed `DEF_JSON_MAX`-byte buffer with roughly 88 bytes of fixed
+/// overhead, leaving 168 bytes for the escaped `fmt`. This 160-byte bound,
+/// enforced by the [`events!`] macro at compile time, sits below that so
+/// a handful of escaped `"`/`\` characters cannot push the serialised
+/// form over budget.
 pub const MAX_FMT_LEN: usize = 160;
 
 /// Static descriptor for one event type, used by the HTTP `/catalog` endpoint.
@@ -206,7 +190,7 @@ pub const MAX_FMT_LEN: usize = 160;
 /// served to the browser.
 #[derive(Clone, Copy, Debug)]
 pub struct EventDef {
-    /// Stable FNV-1a hash of the event's function-name slug.
+    /// Matches the [`EventRecord::code`] recorded for this event.
     pub code: u32,
     /// Declared severity of this event.
     pub severity: Severity,
@@ -218,30 +202,23 @@ pub struct EventDef {
 
 /// A single encoded argument value.
 ///
-/// Passed to [`record`] (and the generated emit functions) to encode
+/// Passed to [`record`] and the generated emit functions to encode
 /// integer arguments into the 11-byte payload of an [`EventRecord`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Arg {
-    /// Unsigned 8-bit value.
     U8(u8),
-    /// Unsigned 16-bit value.
     U16(u16),
-    /// Unsigned 32-bit value.
     U32(u32),
-    /// Signed 8-bit value.
     I8(i8),
-    /// Signed 16-bit value.
     I16(i16),
-    /// Signed 32-bit value.
     I32(i32),
 }
 
 /// A single encoded event record stored in the RAM ring.
 ///
-/// Fixed at 24 bytes (`#[repr(C)]`). The layout is three `u32` fields
-/// (alignment 4), one `u8` severity, and an 11-byte args payload. The
-/// 11-byte payload avoids padding: `4+4+4+1+11 = 24`, which is already
-/// a multiple of 4.
+/// `#[repr(C)]` and fixed at 24 bytes: three 4-byte-aligned `u32` fields,
+/// one `u8` severity, and an 11-byte args payload. The 11-byte payload
+/// avoids padding, since `4+4+4+1+11 = 24` is already a multiple of 4.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(C)]
 pub struct EventRecord {
@@ -271,17 +248,15 @@ impl EventRecord {
 /// Encodes a slice of [`Arg`] values little-endian into an 11-byte payload.
 ///
 /// Values are packed in declaration order. If a value would overflow the
-/// remaining bytes it is silently truncated. Truncation does not occur at
-/// any catalogued call site (the heaviest valid combination is two `u32`
-/// and one `u16`, totalling 10 bytes).
+/// remaining bytes it is silently truncated; the heaviest catalogued
+/// combination is two `u32` and one `u16`, totalling 10 bytes, so no
+/// declared event truncates in practice.
 pub(crate) fn encode_args(args: &[Arg]) -> [u8; 11] {
     let mut payload = [0u8; 11];
     let mut offset = 0usize;
 
-    // Appends the little-endian bytes if they fit in what remains. A value
-    // that would overflow is skipped, leaving offset untouched. Signed
-    // values keep their two's-complement bit pattern, which the decoder reads
-    // back at the declared width, so no information is lost.
+    // Signed values keep their two's-complement bit pattern, which the
+    // decoder reads back at the declared width, so no information is lost.
     let mut put = |bytes: &[u8]| {
         if let Some(slot) = payload.get_mut(offset..offset + bytes.len()) {
             slot.copy_from_slice(bytes);
@@ -303,8 +278,8 @@ pub(crate) fn encode_args(args: &[Arg]) -> [u8; 11] {
     payload
 }
 
-/// Sentinel marking a header written by this firmware. A mismatch means cold
-/// boot (uninitialised retained RAM) or garbage, so the boot path starts fresh.
+/// Sentinel marking a header written by this firmware. A mismatch means an
+/// uninitialised cold boot or garbage, so the boot path starts fresh.
 const MAGIC: u32 = 0x5542_4556;
 
 /// Binary-layout stamp. Bump when [`RetainedHeader`] or [`EventRecord`] changes
@@ -343,9 +318,8 @@ impl RetainedHeader {
     }
 
     fn set_head_len(&mut self, head: usize, len: usize) {
-        // Single store keeps the pair torn-free across a reset. head and len
-        // are bounded by the ring capacity (at most 65535), so the casts to
-        // u32 cannot lose data.
+        // head and len are bounded by the ring capacity, at most 65535, so
+        // the casts to u32 cannot lose data.
         #[allow(clippy::cast_possible_truncation)]
         let packed = ((len as u32) << 16) | (head as u32 & 0xFFFF);
         self.packed = packed;
@@ -361,9 +335,10 @@ impl RetainedHeader {
     }
 }
 
-/// Firmware-owned ring backing: the header plus a fixed entry array. Placed in
-/// retained RAM on boards that support it (see the firmware `EVENT_LOG_BACKING`
-/// statics) so the ring survives warm resets; plain RAM elsewhere.
+/// Firmware-owned ring backing: the header plus a fixed entry array. Placed
+/// in retained RAM on boards that support it, as firmware's
+/// `EVENT_LOG_BACKING` statics do, so the ring survives warm resets; plain
+/// RAM elsewhere.
 #[repr(C)]
 pub struct RetainedRing<const N: usize> {
     header: RetainedHeader,
@@ -371,9 +346,6 @@ pub struct RetainedRing<const N: usize> {
 }
 
 impl<const N: usize> RetainedRing<N> {
-    /// All-zero backing. The zero header has `magic == 0`, so the boot path
-    /// treats it as invalid and resets it; this is also what cold-boot
-    /// retained RAM and a freshly zeroed volatile static look like.
     /// Compile-time bound: head and len each pack into 16 bits of the header
     /// word, so the capacity must be non-zero and fit in 16 bits. Referenced
     /// from `new` so every backing forces the check at monomorphisation.
@@ -382,6 +354,9 @@ impl<const N: usize> RetainedRing<N> {
         "RetainedRing capacity must be 1..=65535"
     );
 
+    /// All-zero backing, matching cold-boot retained RAM and a freshly
+    /// zeroed volatile static. The zero header has `magic == 0`, so the
+    /// boot path treats it as invalid and resets it.
     #[must_use]
     pub const fn new() -> Self {
         let () = Self::CAPACITY_VALID;
@@ -438,12 +413,10 @@ impl Ring {
         }
         let head = self.header.head();
         let len = self.header.len();
-        // Wrapping is intentional. Saturating would instead freeze every later
-        // record at u32::MAX and stall every cursor permanently. The trade-off:
-        // once every ~4 billion events the seq returns to a small value, and a
-        // streaming client whose cursor sat near u32::MAX then receives nothing
-        // until it notices the backward jump and resets its cursor. At device
-        // event rates this wrap is never reached in practice.
+        // Wrapping is intentional: once every ~4 billion events the seq
+        // returns to a small value, and a streaming client whose cursor sat
+        // near u32::MAX sees a backward jump and must reset its cursor. At
+        // device event rates this wrap is never reached in practice.
         self.header.seq = self.header.seq.wrapping_add(1);
         // Unix seconds fit in u32 until 2106; truncating the wall clock is intended.
         #[allow(clippy::cast_possible_truncation)]
@@ -504,24 +477,22 @@ impl Ring {
 
 /// Global ring guarded by a critical-section blocking mutex.
 ///
-/// `RefCell` is required because `blocking_mutex::Mutex` only yields `&T`
-/// inside the closure, so interior mutability is needed to write the ring.
-/// The `RefCell` is only accessed from within a critical section, which
-/// prevents concurrent borrows on single-core and serialises them across
-/// cores via the critical-section implementation.
+/// `RefCell` gives interior mutability because `blocking_mutex::Mutex` only
+/// yields `&T` inside the closure, and accessing it only inside the
+/// critical section is what rules out a concurrent borrow, both within one
+/// core and across cores.
 static RING: Mutex<CriticalSectionRawMutex, RefCell<Option<Ring>>> = Mutex::new(RefCell::new(None));
 
 /// Initialises the event ring from a firmware-owned [`RetainedRing`] and clock.
 ///
-/// Must be called once at boot, before any task is spawned, so that subsequent
-/// calls to [`record`] have a ring to write into. Calling [`record`] or
-/// [`snapshot_after`] before `init` is safe and produces a no-op or zero
-/// respectively.
+/// Must be called once at boot, before any task is spawned, so that
+/// subsequent calls to [`record`] have a ring to write into.
 ///
-/// If `ring` holds a valid header from a prior session on this build (matching
-/// `magic`/`layout`, in-range indices) it is adopted, so events that preceded a
-/// warm reset are kept; otherwise it is reset to empty. On boards whose backing
-/// is plain RAM the header is zeroed every boot, so this always resets.
+/// If `ring` holds a valid header from a prior session on this build, with
+/// matching `magic`/`layout` and in-range indices, it is adopted, so events
+/// that preceded a warm reset are kept; otherwise it is reset to empty. On
+/// boards whose backing is plain RAM the header is zeroed every boot, so
+/// this always resets.
 pub fn init<const N: usize>(ring: &'static mut RetainedRing<N>, clock: fn() -> u64) {
     if !ring.header.is_valid(N) {
         ring.reset();
@@ -545,8 +516,8 @@ pub fn init<const N: usize>(ring: &'static mut RetainedRing<N>, clock: fn() -> u
 
 /// Records an event into the global ring.
 ///
-/// No-op if [`init`] has not been called. Never blocks, never allocates,
-/// and never writes flash. Safe to call from any task or interrupt handler.
+/// No-op if [`init`] has not been called. Never blocks, allocates, or
+/// writes flash, so it is safe to call from any task or interrupt handler.
 pub fn record(code: u32, severity: Severity, args: &[Arg]) {
     RING.lock(|cell| {
         if let Some(ring) = cell.borrow_mut().as_mut() {
@@ -578,9 +549,8 @@ pub fn latest_seq() -> u32 {
 ///
 /// Each subsystem crate's `events!` macro emits a `CATALOG`; firmware
 /// assembles those into one `&[&[EventDef]]` and installs it here so the
-/// `/catalog` HTTP endpoint can serve the decode table. It is an empty slice
-/// until `set_catalogs` is called, so the endpoint returns an empty list
-/// rather than failing before boot wires it up.
+/// `/catalog` HTTP endpoint can serve the decode table. See [`catalogs`]
+/// for its behaviour before `set_catalogs` runs.
 ///
 /// A `OnceLock` rather than a `Mutex`, because the slot is written once and
 /// read many times, and `catalogs()` should not pay a critical section for
@@ -613,10 +583,10 @@ pub fn catalogs() -> &'static [&'static [EventDef]] {
 }
 
 /// Returns `true` if every event `code` across all catalogs in `registry` is
-/// unique. Event codes are 32-bit FNV-1a hashes of function-name slugs drawn
-/// from several crates and assembled at the firmware site; a collision would
-/// silently merge two events in the decode table. Being `const`, this is meant
-/// for a compile-time `assert!` where the assembled registry is visible.
+/// unique. Codes are [`const_fnv1a`] hashes assembled from several crates
+/// at the firmware site, so a collision would silently merge two events in
+/// the decode table; `const` so this can run inside a compile-time
+/// `assert!` over the assembled registry.
 #[must_use]
 pub const fn codes_unique(registry: &[&[EventDef]]) -> bool {
     let mut catalog = 0;
@@ -694,8 +664,6 @@ macro_rules! __arg_width {
 }
 
 /// Wraps a value expression in the corresponding [`Arg`] variant.
-///
-/// This is an internal helper invoked by the [`events!`] macro.
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __arg_value {
@@ -735,8 +703,6 @@ macro_rules! __arg_value {
 }
 
 /// Maps the severity keyword to the [`Severity`] variant.
-///
-/// This is an internal helper invoked by the [`events!`] macro.
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __severity {
@@ -752,8 +718,6 @@ macro_rules! __severity {
 }
 
 /// Maps the severity keyword to the matching `ubos_logging` macro name.
-///
-/// This is an internal helper invoked by the [`events!`] macro.
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __log_sev {
@@ -785,12 +749,6 @@ macro_rules! __log_sev {
 /// - `pub const CATALOG: &[EventDef]` — one entry per declared event.
 /// - One `pub fn fn_name(arg0: ty0, ...)` per entry that calls [`record`]
 ///   and emits a paired `ubos_logging` line at the declared severity.
-///
-/// The paired log line covers the common case, but the event ring and the
-/// `defmt`/RTT log are independent paths for different audiences. A subsystem
-/// may keep an additional manual log beside an `events::` call to carry richer
-/// developer detail (a float value, operational narration) or a different
-/// severity than the event; such pairings are intentional, not redundant.
 #[macro_export]
 macro_rules! events {
     (
@@ -819,8 +777,7 @@ macro_rules! events {
                 )*
             ];
 
-            // The `/catalog` route serialises each `fmt` into a fixed-size
-            // buffer; a string over budget would emit truncated, invalid JSON.
+            // See `MAX_FMT_LEN`.
             $(
                 const _: () = assert!(
                     $fmt.len() <= $crate::MAX_FMT_LEN,
