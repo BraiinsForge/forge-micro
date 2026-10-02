@@ -32,16 +32,30 @@ fn matching_count_is_present_and_continues() {
 }
 
 #[test]
-fn zero_chips_is_absent_and_parks_without_retry() {
-    let (presence, action) = transition(0, EXPECTED, 1);
+fn zero_chips_retries_below_the_attempt_budget() {
+    for attempt in 1..ENUMERATE_ATTEMPTS {
+        let (presence, action) = transition(0, EXPECTED, attempt);
+        assert_eq!(presence, ChainPresence::Unknown, "attempt {attempt}");
+        assert_eq!(action, Action::Retry, "attempt {attempt}");
+    }
+}
+
+#[test]
+fn zero_chips_on_last_attempt_is_absent_not_faulted() {
+    let (presence, action) = transition(0, EXPECTED, ENUMERATE_ATTEMPTS);
     assert_eq!(presence, ChainPresence::Absent);
     assert_eq!(action, Action::Park);
 }
 
 #[test]
-fn zero_chips_on_last_attempt_is_still_absent_not_faulted() {
-    let (presence, action) = transition(0, EXPECTED, ENUMERATE_ATTEMPTS);
-    assert_eq!(presence, ChainPresence::Absent);
+fn a_short_count_parks_as_faulted_and_not_as_absent() {
+    let (presence, action) = transition(EXPECTED - 1, EXPECTED, ENUMERATE_ATTEMPTS);
+    assert_eq!(
+        presence,
+        ChainPresence::Faulted {
+            found: EXPECTED - 1
+        }
+    );
     assert_eq!(action, Action::Park);
 }
 

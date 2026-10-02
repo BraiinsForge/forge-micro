@@ -345,7 +345,7 @@ fn a_chain_answering_the_expected_count_becomes_present_and_stays_out_of_reset()
 }
 
 #[test]
-fn a_chain_answering_zero_chips_is_absent_on_the_first_attempt_with_no_retry_and_left_in_reset() {
+fn a_chain_answering_zero_chips_is_retried_to_the_budget_then_absent_and_left_in_reset() {
     static ACTOR: Serial = Serial::new(0, 1);
     static SESSION: AsicSession<1> = AsicSession::new();
     static STATS: [ChainStats; 1] = [ChainStats::new()];
@@ -364,8 +364,14 @@ fn a_chain_answering_zero_chips_is_absent_on_the_first_attempt_with_no_retry_and
     assert_eq!(fixture.stats.presence(), ChainPresence::Absent);
     assert_eq!(
         chain.reset.log.as_slice(),
-        &[ResetCall::Enter],
-        "an absent chain is parked in reset with no retry pulse first"
+        &[
+            ResetCall::Enter,
+            ResetCall::Exit,
+            ResetCall::Enter,
+            ResetCall::Exit,
+            ResetCall::Enter
+        ],
+        "a silent chain is pulsed through reset between attempts and parked in reset"
     );
 }
 

@@ -51,30 +51,38 @@ pub enum Action {
 /// `found` on this attempt, the board's `expected` chip count, and the
 /// 1-based `attempt` number this call represents.
 ///
-/// A connector that answers zero chips has no hashboard behind it, so
-/// it is parked as `Absent` on the first attempt with no retry:
-/// retrying an empty connector three times on every bring-up would cost
-/// the machine its bring-up time for nothing. A non-zero count that
-/// does not match `expected` is retried up to [`ENUMERATE_ATTEMPTS`]
-/// before it is parked as `Faulted`.
+/// A chain passes only on the count its descriptor claims. Every other
+/// answer is retried up to [`ENUMERATE_ATTEMPTS`], an answer of zero
+/// chips included: a receive error latched in the enumerate window
+/// leaves a populated chain mute for that attempt, and the empty answer
+/// it produces is the same one an empty connector gives. The budget
+/// bounds what the mistake costs either way, and a connector with
+/// nothing behind it pays it once per bring-up.
+///
+/// The verdict a parked chain carries is decided by its last answer:
+/// `Absent` when it answered nothing at all, and `Faulted` when it
+/// answered a count that is not the expected one.
 ///
 /// A zero `expected` is a descriptor that claims no chips, and no count
 /// can match it: the empty answer is read as the absent connector it is
 /// rather than as a chain that met its target, so a board wired to such
-/// a descriptor parks rather than ramping nothing.
+/// a descriptor parks rather than ramping nothing, and parks at once
+/// because no retry can change the answer.
 #[must_use]
 pub fn transition(found: u8, expected: u8, attempt: u8) -> (ChainPresence, Action) {
-    if found == 0 {
+    if expected == 0 {
         return (ChainPresence::Absent, Action::Park);
     }
     if found == expected {
         return (ChainPresence::Present { chips: found }, Action::Continue);
     }
     if attempt < ENUMERATE_ATTEMPTS {
-        (ChainPresence::Unknown, Action::Retry)
-    } else {
-        (ChainPresence::Faulted { found }, Action::Park)
+        return (ChainPresence::Unknown, Action::Retry);
     }
+    if found == 0 {
+        return (ChainPresence::Absent, Action::Park);
+    }
+    (ChainPresence::Faulted { found }, Action::Park)
 }
 
 /// Decide what to do after a chain that enumerated `found` chips, the

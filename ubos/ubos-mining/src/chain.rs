@@ -44,11 +44,18 @@ pub(crate) use control::ChainControl;
 
 use presence::Action;
 
-/// How long a chain is held in reset between two bring-up attempts, and
-/// how long it is left alone after the release before the next
-/// enumerate. Shorter than `Miner::RESET_HOLD`, which settles a whole
-/// machine's rail: here the rail is up and only one chain restarts.
+/// How long a chain is held in reset between two bring-up attempts.
+/// Shorter than `Miner::RESET_HOLD`, which settles a whole machine's
+/// rail: here the rail is up and only one chain restarts.
 const RETRY_RESET_HOLD: Duration = Duration::from_millis(100);
+
+/// How long a chain is left alone after the reset release before the
+/// next enumerate. A chip that answered nothing on the attempt before
+/// was observed answering the attempt that followed a settle of this
+/// order, so the retry is given the time the first try did not have.
+/// The same value as `Miner::RETRY_DELAY`, which settles the machine
+/// after a failed bring-up.
+const RETRY_SETTLE: Duration = Duration::from_secs(5);
 
 /// One chain's serial actor, accounting, and reset pin, bundled behind
 /// the [`ChainControl`] surface the miner drives.
@@ -131,14 +138,14 @@ impl<R: ResetPin> ChainHandle<R> {
                     // The re-arm at the top of the next attempt moves
                     // only the host side of the line. The chip keeps
                     // whatever the failed attempt left it in, so it is
-                    // pulsed through reset here and given the same hold
+                    // pulsed through reset here and given `RETRY_SETTLE`
                     // to come back before it is spoken to again. The
                     // driver's own retries absorb a chip that boots
-                    // slower than that hold.
+                    // slower than that settle.
                     self.reset.enter_reset().await;
                     Timer::after(RETRY_RESET_HOLD).await;
                     self.reset.exit_reset().await;
-                    Timer::after(RETRY_RESET_HOLD).await;
+                    Timer::after(RETRY_SETTLE).await;
                     attempt += 1;
                 }
             }

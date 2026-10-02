@@ -234,16 +234,19 @@ records one of four states in that chain's `ChainStats`:
 |-------|---------|----------------------|
 | `Unknown` | No enumeration attempt has completed yet. | Not a resting state; only seen mid-attempt. |
 | `Present` | The chain answered with the board's expected chip count. | The miner tunes this chain. |
-| `Absent` | The connector answered with zero chips: no hashboard is attached. | Parked in reset; left out of the ramp. |
-| `Faulted` | The chain answered a chip count other than expected, refused its safe-boot configuration, or answered no temperature read, on every attempt up to the retry budget. | Parked in reset; left out of the ramp. |
+| `Absent` | The chain answered zero chips on the last attempt of the retry budget: no hashboard is attached. | Parked in reset; left out of the ramp. |
+| `Faulted` | The chain answered a chip count other than expected, refused its safe-boot configuration, or answered no temperature read, on the last attempt of the retry budget. | Parked in reset; left out of the ramp. |
 
-An empty connector is parked on the first attempt with no retry: retrying
-it on every bring-up would cost the machine its bring-up time for
-nothing. A chip-count mismatch, a refused configuration, or a silent
-temperature read gets `ENUMERATE_ATTEMPTS` attempts in all before it is
-parked, in case the failure was a transient chain glitch. Only a bring-up
-where no chain comes up present cuts the rail and retries the whole
-machine; one absent or faulted chain does not stop the others.
+A chain passes only on the chip count its descriptor claims. Every other
+answer gets `ENUMERATE_ATTEMPTS` attempts in all, an answer of zero chips
+included, in case the failure was a transient chain glitch. A receive
+error latched in the enumerate window leaves a populated chain mute for
+that attempt, and the empty answer it gives is the answer an empty
+connector gives. The budget bounds what the mistake costs either way.
+The chain waits `RETRY_SETTLE` between two attempts, because a chip that
+answered nothing can answer the attempt that follows a settle. Only a
+bring-up where no chain comes up present cuts the rail and starts
+another cycle; one absent or faulted chain does not stop the others.
 
 The temperature read is part of the budget because presence is what the
 thermal loop measures a chain's silence from. `ChainTemperature` restarts
