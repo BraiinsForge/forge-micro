@@ -21,42 +21,29 @@
 # checks and the ARM board checks and images.
 #
 # Cargo plans during evaluation and rustc builds one unit per
-# derivation: a library, a binary, a test executable or a build-script
-# run. An edit rebuilds the units that read the file and the units that
-# depend on them, and every check shares the rest from the store. The
-# features, the profile, the link arguments and the lints are cargo's
-# own, read from the manifests and the workspace configuration, so a
-# check builds what `cargo build` and `cargo test` would.
+# derivation, so an edit rebuilds only the units that read the file and
+# their dependents. The features, profile, link arguments and lints are
+# read from the manifests, so a check builds what `cargo build` and
+# `cargo test` would.
 #
-# Clippy lints the workspace's own packages, the units rostnix compiles
-# without `--cap-lints allow` outside the vendored trees under
-# `patches/`, which keep upstream's code, and outside `micro-sv2/`, a
-# workspace of its own that its own flake lints, with warnings denied as
-# `cargo clippy -- -D warnings` runs it, and rustc compiles every unit;
-# `clippyRustc` below is that rule. Every plan compiles with it, so a
-# build is its own lint: one graph serves the clippy, test and build
-# checks of a crate, and an image.
+# Every unit compiles through `clippyRustc`, so a build is its own lint
+# and one graph serves the clippy, test and build checks of a crate, and
+# an image.
 {
   pkgs,
-  # The nixpkgs source, for the cross package set each board target
-  # builds in.
+  # For the cross package set each board target builds in.
   nixpkgs,
-  # The rostnix source, patched so a selection that installs nothing, a
-  # library crate's units or its tests, plans and builds.
+  # Patched so a selection that installs nothing, a library crate's
+  # units or its tests, plans and builds.
   rostnix,
-  # The cleaned workspace, from nix/source.nix.
   src,
   hostRustToolchain,
   rustToolchain,
-  # The build-script environment of ubos-webui wherever a host check
-  # compiles it, and per board for an image.
+  # See flake.nix.
   webuiHostEnv,
   webuiEnv,
-  # Board targets beyond the ARM ones below, by triple, each as the
-  # ARM entries are written: `base`, the nixpkgs cross system; the
-  # `toolchain` that plans and compiles; the `linker`; and optionally
-  # `crateOverrides` for crates that need a tool or a library, and
-  # `nativeBuildInputs` for the crate under build.
+  # Board targets beyond the ARM ones below, by triple, each written as
+  # the ARM entries are.
   extraTargets ? { },
 }:
 let
@@ -70,13 +57,12 @@ let
     }
   );
 
-  # The rustc that runs clippy on the workspace's own packages. The lint
-  # pass emits metadata alone, into a directory of its own, and rustc
-  # then builds the unit, because clippy-driver compiles with other MIR
-  # settings than rustc and an image has to be what `cargo build` makes.
-  # Clippy reads the workspace's clippy.toml from a directory of its own,
-  # because a unit's source view holds its package alone, and the
-  # directory holds that one file so an edit elsewhere rebuilds nothing.
+  # The rustc that runs clippy on the workspace's own packages, with
+  # warnings denied, then builds the unit itself: clippy-driver compiles
+  # with other MIR settings, and an image has to be what `cargo build`
+  # makes. The vendored trees under `patches/` and `micro-sv2/`, which
+  # its own flake lints, are not linted. clippy.toml sits in a directory
+  # of its own, because a unit's source view holds its package alone.
   clippyConf = pkgs.writeTextDir "clippy.toml" (builtins.readFile "${src}/clippy.toml");
   clippyRustc =
     toolchain:
@@ -110,8 +96,7 @@ let
       '';
     };
 
-  # The build environment for one package set and toolchain. The
-  # toolchain is also cargo, which plans.
+  # The toolchain is also the cargo that plans.
   mkEnv =
     {
       pkgs,
@@ -129,15 +114,12 @@ let
     toolchain = hostRustToolchain;
   };
 
-  # A board target: the cross package set its units build in, whose
-  # platform is the triple so build scripts and proc macros build for
-  # this machine and everything else for the board; the toolchain that
-  # plans and compiles; the linker; and what the crate under build
-  # needs beyond that, as rostnix takes it. The ARM targets link with
-  # rust-lld, as rustc links them on its own, and the C of
-  # secp256k1-sys, which every board reaches through ii-sv2, compiles
-  # with the prebuilt arm-none-eabi-gcc: the cross package set's own
-  # gcc comes wrapped with hardening flags Thumb-1 does not implement.
+  # The cross package set's platform is the triple, so build scripts and
+  # proc macros build for this machine and everything else for the
+  # board. The C of secp256k1-sys, which every board reaches through
+  # ii-sv2, compiles with the prebuilt arm-none-eabi-gcc, because the
+  # cross package set's gcc adds hardening flags Thumb-1 does not
+  # implement.
   rustLld = "${rustToolchain}/lib/rustlib/${pkgs.stdenv.hostPlatform.rust.rustcTarget}/bin/rust-lld";
   ccVar = triple: "CC_${builtins.replaceStrings [ "-" "." ] [ "_" "_" ] triple}";
   armTarget = triple: base: {
@@ -172,14 +154,12 @@ let
     }
   ) targetSpecs;
 
-  # The package of a plan by name, as the plan records it.
   packageOf =
     plan: name:
     lib.findFirst (p: p.name == name) (throw "units: ${name} is not a package of the plan ${plan.name}")
       (lib.attrValues plan.graph.packages);
 
-  # The units of one package in a plan: its library, binaries and test
-  # executables, each keyed by the package, its version and the unit.
+  # A plan keys each unit by its package, the version and the unit.
   unitsOf =
     plan: name:
     let
@@ -188,10 +168,8 @@ let
     in
     lib.attrValues (lib.filterAttrs (key: _: lib.hasPrefix prefix key) plan.graph.units);
 
-  # The fee switch on the one crate that reads it. ubos-config takes
-  # `DEVFEE` through `option_env!`, so the value has to reach that
-  # crate's compile, which an override's environment does. A plan
-  # without the crate leaves the entry unused.
+  # ubos-config reads `DEVFEE` through `option_env!`, so the fee switch
+  # has to reach that crate's compile.
   feeOverride = fee: {
     ubos-config = {
       env = fee;
@@ -199,17 +177,14 @@ let
     };
   };
 
-  # The test runs of one package in a plan.
   testsOf =
     plan: name: lib.attrValues (lib.filterAttrs (_: test: test.packageName == name) plan.tests);
 in
 {
-  # A plan over one host crate, as `cargo build -p` and `cargo test -p`
-  # plan it: its units, and with `tests` its test executables too,
-  # built and run, in the dev profile so debug_assert! and overflow
-  # checks fire. One crate per plan, because cargo unifies the features
-  # of what it plans together, and the host crates disagree on them.
-  # `fee` is the environment of the fee switch, from nix/fee.nix.
+  # A plan over one host crate, as `cargo test -p` plans it, in the dev
+  # profile so debug_assert! and overflow checks fire. One crate per
+  # plan, because cargo unifies the features of what it plans together,
+  # and the host crates disagree on them.
   hostPlan =
     {
       crate,
@@ -238,13 +213,11 @@ in
       };
     };
 
-  # One crate's release build for a board target: an image at
-  # `bin/<name>` of the result when the crate is a board. `env` is the
-  # crate's own build environment; `workspaceEnv` is what cargo's
-  # `[env]` gives every unit, which a board's own `.cargo/config.toml`
-  # states but cargo reads only from the workspace root it plans from,
-  # so the plan's source carries it there. `fee` is the environment of
-  # the fee switch, from nix/fee.nix.
+  # One crate's release build for a board target, with the image at
+  # `bin/<name>` when the crate is a board. `workspaceEnv` is the `[env]`
+  # a board's own `.cargo/config.toml` states, which cargo reads only
+  # from the workspace root it plans from, so the plan's source carries
+  # it there.
   boardPlan =
     {
       name,

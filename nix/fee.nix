@@ -17,26 +17,17 @@
 # to this program, or any part thereof, under any terms, and such a grant
 # shall be considered distinct from the grant above.
 
-# The fee switch a build reads.
-#
-# ubos-config reads `DEVFEE` at build time and ships the fee slot when
-# it is `1`. A board states the switch in the `[env]` of its own
-# `.cargo/config.toml`, which cargo reads from the crate's directory
-# and a nix build never sees, because crane runs cargo from the flake
-# root. So a board's gate and image take the value from that file
-# through `envFor`, and the one line a developer edits is the one the
-# gates and the images follow. Every board in this tree states `0`,
-# so every image here ships none and the pool stack runs the
-# operator's slots alone. Every host gate takes its environment from
-# here, so a check cannot leave the switch to the build host's shell.
+# The fee switch a build reads. A board states `DEVFEE` in the `[env]` of
+# its own `.cargo/config.toml`, which a nix build never sees, because
+# crane runs cargo from the flake root. So a board's gate and image read
+# it from that file through `envFor`, and every host gate takes its
+# environment from here, so no check leaves the switch to the build
+# host's shell.
 let
-  # The environment of a build that ships the fee slot.
   on = {
     DEVFEE = "1";
   };
 
-  # The environment of a build that ships none, stated the way the
-  # boards here state it.
   off = {
     DEVFEE = "0";
   };
@@ -44,12 +35,10 @@ in
 {
   inherit on off;
 
-  # The environment of a crate's build: the `DEVFEE` its cargo config
-  # states, or nothing when the config states none. The value passes
-  # through as written, so ubos-config judges it as it judges one
-  # typed on a command. A table form, which cargo accepts for a path
-  # value, is refused here by name, because a derivation would not
-  # take it and the error would name nothing.
+  # The `DEVFEE` a crate's cargo config states, passed through as written
+  # so ubos-config judges it as one typed on a command. A table form,
+  # which cargo accepts, is refused by name, because a derivation would
+  # not take it and the error would name nothing.
   envFor =
     crateDir:
     let

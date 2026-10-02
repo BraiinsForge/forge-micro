@@ -17,13 +17,10 @@
 # to this program, or any part thereof, under any terms, and such a grant
 # shall be considered distinct from the grant above.
 
-# Shared dependency artifacts for the two checks that cargo builds as a
-# whole: the Xtensa esp32s3 checks and the bmm cross check of host-runner.
-# Every other check builds one derivation per cargo unit through
-# nix/units.nix; these two stay on crane, the first for its `-Z
-# build-std` Xtensa target and the second for its musl cross target.
-# Flake checks are per-crate; without reused artifacts each recompiles
-# the full dependency graph and dominates `nix flake check` wall time.
+# Shared dependency artifacts for the two checks cargo builds as a whole
+# on crane: the esp32s3 checks for their `-Z build-std` Xtensa target,
+# and the bmm cross check of host-runner for its musl target. Without
+# reused artifacts each recompiles the full dependency graph.
 {
   src,
   helpers,

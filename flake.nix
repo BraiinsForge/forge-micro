@@ -41,8 +41,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     crane.url = "github:ipetkov/crane";
-    # One derivation per cargo unit for the host and board checks; see
-    # nix/units.nix.
     rostnix = {
       url = "github:draganm/rostnix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -211,8 +209,6 @@
         webuiEnv = name: helpers.webuiDistEnv // brands.envFor name;
         webuiHostEnv = helpers.webuiDistEnv // brands.defaultEnv;
 
-        # Every cargo unit as one derivation, for the host and ARM checks
-        # and the ARM images. See nix/units.nix.
         units = import ./nix/units.nix {
           inherit (toolchains) hostRustToolchain rustToolchain;
           inherit
@@ -225,8 +221,6 @@
             ;
         };
 
-        # Shared dependency artifacts for the two checks cargo builds as
-        # a whole; see nix/deps.nix.
         deps = import ./nix/deps.nix {
           inherit
             src

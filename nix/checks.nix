@@ -17,38 +17,28 @@
 # to this program, or any part thereof, under any terms, and such a grant
 # shall be considered distinct from the grant above.
 
-# Per-crate gates and static guards. Every crate in the workspace is
-# covered by a clippy and a build or test derivation here; a crate
-# that is not in `checks` is not gated, per the Verification section
-# of CLAUDE.md.
+# Per-crate gates and static guards, under the Verification rule in
+# CLAUDE.md: a crate that is not in `checks` is not gated.
 #
 # The regular shapes are generated from the tables below, so gating a
 # new host crate is one line in `hostClippyChecks`, plus
 # `hostTestChecks` when it has unit tests, and a new board is one entry
-# in `boards`. The `ubos-config`/`ubos-events` std feature variants and
-# the host build of `host-runner` go through those tables too. The
-# irregular checks stay hand-written because forcing them through the
-# tables would need a knob per quirk: esp32s3, the bootloaders, and the
-# bmm cross build of `host-runner`.
+# in `boards`. The irregular checks stay hand-written because
+# forcing them through the tables would need a knob per quirk.
 #
-# The `[patch]` override crates, materialized from upstream pins plus
-# local patch files by nix/patched-crates.nix, are intentionally not
-# gated by their own clippy or build derivations. They are upstream
-# crates carrying local fixes that we do not author; gating them in CI
-# would tie the build to upstream lint cleanliness we do not control.
-# Every firmware build derivation below exercises them transitively,
-# so a real breakage still fails the gate.
+# The `[patch]` override crates from nix/patched-crates.nix carry no
+# clippy or build derivation of their own: they are upstream crates we
+# do not author, and gating them would tie the build to upstream lint
+# cleanliness we do not control. Every firmware build below exercises
+# them transitively, so a real breakage still fails the gate.
 {
   pkgs,
   src,
   srcFor,
   deps,
   craneLib,
-  # Every cargo unit as one derivation; see nix/units.nix. The host
-  # checks, the ARM checks and the images build through it.
   units,
-  # The build-script environment of ubos-webui, per board and for a
-  # host build; see flake.nix.
+  # See flake.nix.
   webuiEnv,
   webuiHostEnv,
   bmmCraneLib,
@@ -60,18 +50,12 @@
   esp32s3Bootloader,
   guards,
   helpers,
-  # The one rust version, from nix/toolchains.nix, for the drift gate
-  # over micro-sv2, which cannot import it.
   rustVersion,
   slotMaxKiB,
   slotMaxBytes,
   esp32s3SlotBytes,
   boardParity,
-  # Which brand each board ships, from nix/brands.nix. Every build that
-  # compiles ubos-webui takes UBOS_BRAND from it.
   brands,
-  # The brand gate shared with the internal repository; see
-  # nix/brand-gates.nix.
   brandGates,
   # Workspace package names present in the tree, from crate-graph. Every
   # firmware gate below filters itself out when its crate is not a
@@ -94,7 +78,6 @@ let
     ;
   root = ../.;
 
-  # Line budget for CLAUDE.md; see claude-md-limit below.
   claudeMdMaxLines = 200;
 
   # The fewest instruction files instruction-paths below expects to
@@ -103,38 +86,27 @@ let
   # the tree ever holds fewer.
   minInstructionFiles = 5;
 
-  # The fee switch, from nix/fee.nix. The host gates run with it on:
-  # that is the wider state, the one the fee-slot tests and the config
-  # body pin in ubos-api measure. A row that states `fee = fee.off`
-  # gates the other state. A board gate takes the state its image
-  # ships, read from the board's own cargo config.
+  # The host gates run with the fee switch on, the wider state the
+  # fee-slot tests and the ubos-api config body pin measure. A row that
+  # states `fee = fee.off` gates the other state, and a board gate takes
+  # the state its own cargo config states.
   fee = import ./fee.nix;
   feeEnv = name: fee.envFor (root + "/firmware/${name}");
 
-  # A firmware crate is gated only when it is a workspace member. In this
-  # repo every board is a member, so this is always true; it is what lets
-  # the module evaluate against a tree that carries fewer. See the
-  # `members` arg.
   hasCrate = name: builtins.elem name members;
 
-  # Host-side clippy: one row per check, one plan per row, as `cargo
-  # clippy -p` planned it. `crate` is the cargo package; `features` and
-  # `noDefaultFeatures` are its command line; `tests` is off for crates
-  # whose tests do not build on the host feature set, which is what
-  # `--all-targets` was left off for, and for crates whose tests link
-  # only under the features their test row names, which `cargo clippy`
-  # never linked. `fee` is the fee switch, on unless the row says
-  # `fee.off`. The check holds the crate's units
-  # of the plan: its library, binaries and, with `tests`, test
-  # executables. No gate takes the build id: it changes with every
+  # Host-side clippy: one row per check, one plan per row. `tests` is off
+  # for crates whose tests do not build on the host feature set, or link
+  # only under the features their test row names. `fee` is on unless the
+  # row says `fee.off`. No gate takes the build id: it changes with every
   # commit, and a gate stamped with it would rebuild on every commit for
   # an id nothing reads. Only the images in nix/images.nix carry it.
   mkHostClippy =
     name: row:
     pkgs.linkFarmFromDrvs name (units.unitsOf (units.hostPlan ({ fee = fee.on; } // row)) row.crate);
 
-  # Host-side unit tests: the crate's test runs of its plan, in the dev
-  # profile so debug_assert! and overflow-checks fire in CI.
+  # Host-side unit tests, dev profile so debug_assert! and
+  # overflow-checks fire in CI.
   mkHostTest =
     name: row:
     pkgs.linkFarmFromDrvs name (units.testsOf (units.hostPlan ({ fee = fee.on; } // row)) row.crate);
@@ -293,12 +265,11 @@ let
     };
   };
 
-  # One row per ARM board. Generates clippy-<name> and build-<name>,
-  # both with the default feature set, and the build runs the image
-  # guard over the linked ELF.
+  # One row per ARM board, generating clippy-<name> and build-<name> with
+  # the default feature set; the build runs the image guard over the
+  # linked ELF.
   #
-  # `boardTable` is this table before `hasCrate` filters it, and
-  # `board-coverage` below reads that unfiltered form. The filter is
+  # `board-coverage` below reads this unfiltered table. The filter is
   # what makes a row whose crate is absent disappear rather than fail,
   # so a gate reading the filtered `boards` could never see the row it
   # is looking for.
@@ -323,9 +294,9 @@ let
   boards = lib.filterAttrs (name: _: hasCrate name) boardTable;
 
   # The firmware crates gated outside `boardTable`, each by a
-  # hand-written check above. `board-coverage` needs them because it
-  # asks whether a firmware directory is gated at all, not whether it
-  # goes through the table.
+  # hand-written check above. `board-coverage` asks whether a firmware
+  # directory is gated at all, not whether it goes through the table, so
+  # it needs them.
   handGatedBoards = [
     "esp32s3"
     "esp32s3-bootloader"
@@ -339,17 +310,14 @@ let
   # The export name of SCHEMA_HASH_SYMBOL in ubos-config's versions module.
   schemaHashSymbol = "UBOS_CONFIG_SCHEMA_HASH";
 
-  # The image guard, a check over the ELF a board plan links. It
-  # objcopies the ELF and enforces the OTA slot budget. cargo check and
-  # cargo clippy stop short of linking the final ELF for binary crates,
-  # so they miss .bss / flash overflows; the linked image is what fails
-  # CI on a RAM or flash budget regression, at the same gate as a
-  # missing trait bound. The Footprint section of docs/STRUCTURE.md
-  # records the per-board RAM snapshot this gate protects; docs/OTA.md
-  # the flash layout and slot budget. The guard text renders from
-  # nix/guards.nix. The guard also reads the config schema hash out of
-  # the ELF, so an image whose link lost the symbol fails its build
-  # check rather than the packing of an update.
+  # cargo check and cargo clippy stop short of linking the final ELF for
+  # a binary crate, so they miss .bss and flash overflows; the guard
+  # objcopies the ELF a board plan links and enforces the OTA slot budget.
+  # It also reads the config schema hash out of the ELF, so an image whose
+  # link lost the symbol fails its build check rather than the packing of
+  # an update. The Footprint section of docs/STRUCTURE.md records the RAM
+  # snapshot it protects, docs/OTA.md the flash layout and slot budget;
+  # the guard text renders from nix/guards.nix.
   imageGuard =
     name: plan:
     pkgs.runCommand "build-${name}" { nativeBuildInputs = [ pkgs.gcc-arm-embedded ]; } (
@@ -370,9 +338,9 @@ let
       ''
     );
 
-  # A board's clippy and build checks in one fee state, under names
-  # that end in `suffix`. The plan is one graph, so the build is its
-  # image guarded, and clippy the same plan.
+  # A board's clippy and build checks in one fee state, under names that
+  # end in `suffix`. Both are the one plan, the build with its image
+  # guarded.
   mkBoardChecks =
     suffix: fee: name: board:
     let
@@ -386,14 +354,11 @@ let
       "build-${name}${suffix}" = imageGuard name plan;
     };
 
-  # Each board in the fee state its image ships.
   boardChecks = lib.concatMapAttrs (name: mkBoardChecks "" (feeEnv name) name) boards;
 
-  # The other state of the fee switch, one board per ARM target that
-  # can carry the fee, so the on path of the board crates cannot rot
-  # unseen in a tree whose images ship it off. The build row is what
-  # measures the RAM a fourth session task costs. The Xtensa rows are
-  # in `espChecks`.
+  # The other fee state, one board per ARM target that can carry the fee,
+  # so the on path cannot rot in a tree whose images ship it off. The
+  # build row measures the RAM a fourth session task costs.
   feeOnBoards = [
     "rp2040"
     "rp2350"
@@ -402,15 +367,14 @@ let
     lib.filterAttrs (name: _: lib.elem name feeOnBoards) boards
   );
 
-  # A library crate's board check: the crate's units of its plan. The
-  # plan's own result holds only what it installs, which for a library
-  # is nothing, so a check that took it would build none of the crate.
+  # The plan's own result holds only what it installs, which for a library
+  # is nothing, so the check takes the crate's units instead.
   mkLibraryCheck =
     name: args: pkgs.linkFarmFromDrvs name (units.unitsOf (units.boardPlan args) args.name);
 
-  # Bootloader crates: the same clippy/build pair as the boards, with
-  # no image guard, since the bootloader carries no pool worker and has
-  # its own flash region.
+  # The same clippy/build pair as the boards, without an image guard,
+  # since a bootloader carries no pool worker and has its own flash
+  # region.
   mkBootloaderChecks =
     name: target:
     let
@@ -421,9 +385,6 @@ let
       "build-${name}" = plan;
     };
 
-  # Common attrs for every xtensa esp32s3 crane invocation: the shared
-  # cross-build env from helpers.espCrossEnv, plus the esp32s3 source,
-  # the vendored build-std deps, and the toolchain build inputs.
   espCommon = espCrossEnv // {
     src = srcFor [ "esp32s3" ];
     cargoVendorDir = espCargoVendorDir;
@@ -436,16 +397,10 @@ let
   rp2350BootloaderChecks = mkBootloaderChecks "rp2350-bootloader" "thumbv8m.main-none-eabihf";
   rp2040BootloaderChecks = mkBootloaderChecks "rp2040-bootloader" "thumbv6m-none-eabi";
 
-  # esp32s3 firmware gates, grouped so they can be dropped as a unit when
-  # the board is not a member. They share the esp toolchain and the
-  # esp32s3 source scaffolding, so the esp backend of ubos-ota and the
-  # esp32s3-tsens lib are gated here too: a tree without the board pulls
-  # in no Xtensa toolchain at all.
-  # No codegen bag to reuse; see the esp bag rationale in nix/deps.nix.
-  # The size guard must live here, not only in packages.esp32s3-image:
-  # `nix flake check` builds checks.* but merely evaluates packages.*,
-  # so a guard in the image package alone would never gate an oversized
-  # image in CI.
+  # No codegen bag to reuse; see the esp bag reason in nix/deps.nix. The
+  # size guard must live here and not only in packages.esp32s3-image:
+  # `nix flake check` builds checks.* but merely evaluates packages.*, so a
+  # guard there would gate nothing.
   espBuildIn =
     env:
     espCraneLib.cargoBuild (
@@ -478,6 +433,10 @@ let
       // env
     );
 
+  # Grouped so they drop as a unit when the board is not a member, which
+  # is what keeps a tree without it from pulling in an Xtensa toolchain
+  # at all. Everything needing that toolchain is gated here for that
+  # reason, the esp backend of ubos-ota and esp32s3-tsens included.
   espChecks = {
     # Our firmware crate name collides with the esp32s3 PAC crate pulled
     # in transitively; disambiguate by pinning to @0.1.0.
@@ -504,21 +463,17 @@ let
       // fee.on
     );
 
-    # The release build in the fee state the image ships.
     build-esp32s3 = espBuildIn (feeEnv "esp32s3");
 
-    # The other fee state on Xtensa, built; see `feeOnChecks`.
     build-esp32s3-on = espBuildIn fee.on;
 
-    # Gate the OTA bootloader so a broken sdkconfig fails CI. This
-    # pulls the esp-idf closure on first build; it is cached until the
-    # nixpkgs-esp-dev input or the stub project changes.
+    # Gated so a broken sdkconfig fails CI. It pulls the esp-idf closure
+    # on first build, cached until the nixpkgs-esp-dev input or the stub
+    # project changes.
     build-esp32s3-bootloader = esp32s3Bootloader;
 
-    # Lint the ubos-ota esp backend. clippy only lints the top crate,
-    # so the esp32s3 firmware build compiles this code but does not
-    # lint it; this check does. The chip features are supplied on the
-    # CLI, matching clippy-ubos-ota for the rp backend.
+    # The esp backend of ubos-ota. Cargo clippy lints the top crate
+    # alone, so the esp32s3 build compiles this code without linting it.
     clippy-ubos-ota-esp = espCraneLib.cargoClippy (
       espCommon
       // {
@@ -573,6 +528,9 @@ hostClippyChecks
     target = "thumbv8m.main-none-eabihf";
   };
 
+  # A crate every board depends on carries no build check of its own:
+  # each board build compiles it, so a breakage still fails the gate.
+  # This is the rp backend; the esp one is clippy-ubos-ota-esp above.
   clippy-ubos-ota = mkLibraryCheck "clippy-ubos-ota" {
     name = "ubos-ota";
     target = "thumbv8m.main-none-eabihf";
@@ -583,6 +541,8 @@ hostClippyChecks
     ];
   };
 
+  # The rp235xa half. The rp2040 board builds lint the rp2040 half,
+  # since every unit compiles through `clippyRustc` in units.nix.
   clippy-ubos-rp = mkLibraryCheck "clippy-ubos-rp" {
     name = "ubos-rp";
     target = "thumbv8m.main-none-eabihf";
@@ -618,15 +578,13 @@ hostClippyChecks
       cargoExtraArgs = "-p host-runner --target arm-unknown-linux-musleabi";
       cargoClippyExtraArgs = "-- -D warnings";
       doInstallCargoArtifacts = false;
-      # ubos-webui's build.rs runs as part of host-runner's dependency
-      # closure, so it needs the hermetic dist too.
       nativeBuildInputs = [
         bmmCc
       ];
       CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABI_LINKER = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
-      # SV2 pulls in `secp256k1-sys`, whose C build script defers to
-      # `cc-rs`. Point it at the same musleabi cross-gcc the linker
-      # uses so the C objects share the target ABI.
+      # `secp256k1-sys` needs a cross compiler, as at `armTarget` in
+      # units.nix, and it is the linker's own musleabi gcc here so the C
+      # objects share the target ABI.
       CC_arm_unknown_linux_musleabi = "${bmmCc}/bin/armv5tel-unknown-linux-musleabi-gcc";
     }
     // webuiHostEnv
@@ -637,11 +595,9 @@ hostClippyChecks
     doInstallCargoArtifacts = false;
   };
 
-  # The doc tests of every crate whose docs hold a runnable example, in
-  # the dev profile. The per-unit plan of nix/units.nix leaves doc tests
-  # out, because rustdoc compiles and runs them, so they build through
-  # crane in one derivation, and a crate that gains a runnable example
-  # joins the list.
+  # The per-unit plan of nix/units.nix leaves doc tests out, because
+  # rustdoc compiles and runs them, so they build through crane in one
+  # derivation. A crate that gains a runnable example joins the list.
   doctest-host =
     let
       args = {
@@ -664,11 +620,9 @@ hostClippyChecks
       }
     );
 
-  # Aggregate over every host-testable crate check, so one build forces
-  # them all; derived from the test table, a new test row joins
-  # automatically. The web/host-runner tests sit in web-host instead:
-  # they additionally need the hermetic webui dist and rebuild whenever
-  # the webui build env changes.
+  # Derived from the test table, so a new test row joins automatically.
+  # The web/host-runner tests sit in web-host instead, because they need
+  # the hermetic webui dist and rebuild whenever that build env changes.
   fast-host =
     let
       fastTests = builtins.removeAttrs hostTestChecks [
@@ -708,13 +662,11 @@ hostClippyChecks
           > "$out/README"
       '';
 
-  # Aggregate over every firmware release build; derived from the board
-  # table plus the hand-written build checks above.
+  # Derived from the board table plus the hand-written build checks
+  # above, so a new board joins automatically.
   firmware-builds =
     pkgs.runCommand "ubos-main-firmware-builds"
       {
-        # Board release builds present in this tree, plus the esp and
-        # bootloader builds when their crates are members.
         nativeBuildInputs =
           builtins.attrValues (lib.filterAttrs (name: _: lib.hasPrefix "build-" name) boardChecks)
           ++ lib.optional (hasCrate "esp32s3") espChecks.build-esp32s3
@@ -732,26 +684,20 @@ hostClippyChecks
           > "$out/README"
       '';
 
-  # Fail the build on an unused dependency so dead deps cannot
-  # accumulate. Runs over the cleaned source in default mode, which
-  # parses every Cargo.toml and greps its source, so it needs no
-  # network and no Cargo.lock resolution. Optional deps wired only
-  # into a feature are exempted per crate via the
-  # [package.metadata.cargo-machete] ignored list.
+  # Default mode parses every Cargo.toml and greps its source, so the
+  # gate needs no network and no Cargo.lock resolution. An optional dep
+  # wired only into a feature reads as unused and is exempted per crate
+  # through the [package.metadata.cargo-machete] ignored list.
   cargo-machete =
     pkgs.runCommand "cargo-machete"
       {
         nativeBuildInputs = [ pkgs.cargo-machete ];
       }
       ''
-        # Scan a copy with patches/ removed: those are pinned-and-patched
-        # upstream trees (nix/patched-crates.nix), not crates this repo
-        # owns, and machete's static import scan misfires on their
-        # generated/macro-only code (e.g. an svd2rust PAC build script, a
-        # bitflags! invocation) in a way we cannot fix without patching
-        # vendored manifests beyond the one change each patch file
-        # already documents. Excluding the directory keeps the gate
-        # scoped to what this repo owns.
+        # Scan a copy with patches/ removed. Machete's static import scan
+        # misfires on the generated and macro-only code in those upstream
+        # trees, and silencing it there would mean editing vendored
+        # manifests beyond the one change each patch file documents.
         cp -a ${src} ./scan-src
         chmod -R u+w ./scan-src
         rm -rf ./scan-src/patches
@@ -762,8 +708,7 @@ hostClippyChecks
   # nix/webui.nix admits only the files it lists into the dashboard
   # build, and build.rs lists the same files as its rebuild triggers.
   # Neither can read the other, and a file added to build.rs alone is
-  # dropped from the hermetic dist without a word, so the two lists are
-  # compared here and any difference fails.
+  # dropped from the hermetic dist without a word.
   webui-inputs = pkgs.runCommand "webui-inputs" { } ''
     sed -n '/for path in \[/,/\]/p' ${root + "/ubos/ubos-webui/build.rs"} \
       | grep -o '"[^"]*"' | tr -d '"' | sort > from-build-rs
@@ -775,13 +720,10 @@ hostClippyChecks
     touch $out
   '';
 
-  # The OTA image-size limit is hard-coded in several languages that
-  # cannot share a definition: slotMaxBytes/esp32s3SlotBytes here,
-  # the OTA_MAX_IMAGE_BYTES default in ubos-api, OTA_MAX_DEFAULT in the
-  # webui, and Ota::MAX_IMAGE_BYTES in each board's config.rs. Grep
-  # each source for the literal it must contain and fail on drift, so
-  # the slot-size build guards, the per-board configs, and the
-  # client-side rejection always agree on one number per board.
+  # The OTA image-size limit is written in several languages that cannot
+  # share a definition, so each source is grepped for the literal it must
+  # contain. That is what keeps the slot-size build guards, the per-board
+  # configs and the client-side rejection on one number per board.
   ota-image-limit = pkgs.runCommand "ota-image-limit" { } (
     ''
       check() {
@@ -790,10 +732,9 @@ hostClippyChecks
           exit 1
         fi
       }
-      # Shared RP ACTIVE-slot budget: the ubos-api default, the web-UI
-      # fallback, and the RP boards all pin slotMaxKiB * 1024. The
-      # ubos-api and web-UI copies are always present; the per-board
-      # config checks are gated on the board being a member.
+      # The shared RP ACTIVE-slot budget. These two copies are always
+      # present; a per-board config is checked only when the board is a
+      # member.
       check ${root + "/ubos/ubos-api/src/system.rs"}     '${toString slotMaxKiB} * 1024'
       check ${
         root + "/ubos/ubos-webui/web/components/ConfigSystem.tsx"
@@ -823,30 +764,10 @@ hostClippyChecks
     ''
   );
 
-  # The converse of the license-headers gate in the private repo that
-  # consumes this one. That gate fails when an open grant reaches a tree
-  # publishing nothing; this one fails when a first-party source here
-  # does not carry the GPL block that .claude/rules/licence-headers.md
-  # requires. The rule was prose alone until this gate, so nothing but
-  # the next reader stopped a file from omitting the block.
-  #
-  # Both halves are required. The grant is the first, and the sentence
-  # reserving the right to grant other terms is the second. The
-  # proprietary crates in the consuming repo link these sources on that
-  # reservation, so the grant alone is a gap rather than a formatting
-  # slip.
-  #
-  # The extension list is the scope, and it holds the exceptions named in
-  # CLAUDE.md out of it without an exemption list to keep level with
-  # them: assets/69-probe-rs.rules and ubos/ubos-webui/web/icons.svg
-  # are under another licence, COPYING and assets/LICENSE-PROBE-RS are
-  # licence texts, and none of the four has a gated extension. Vendored
-  # patches/ trees keep upstream's licence and are dropped by path.
-  #
-  # Unlike its private twin, this check needs no split string literals.
-  # That one fails on a file carrying the phrases, so writing them in its
-  # own source made it fail on itself. This one fails on a file lacking
-  # them, and its own source carries the block, so it passes.
+  # The gate behind .claude/rules/licence-headers.md, which is where the
+  # rule, the two halves of the block, and the reason the extension list
+  # is the whole scope are written. A first-party source missing either
+  # half fails here.
   license-headers =
     let
       extensions = [
@@ -859,11 +780,9 @@ hostClippyChecks
         "rs"
         "sh"
       ];
-      # A first-party source the extension list cannot name. An agent
-      # hook is bash with no suffix, because the tool that runs it names
-      # the file and never the language, so the scope has to reach it by
-      # path instead. Without this the one first-party source in the
-      # tree that carries no extension was ungated.
+      # An agent hook is bash with no suffix, because the tool that runs
+      # it names the file and never the language, so the scope reaches it
+      # by path instead of by extension.
       paths = [ "./.claude/hooks/*" ];
       # The block is 18 lines. The rest of the budget covers a shebang or
       # an attribute above it on a file that grows one.
@@ -875,8 +794,8 @@ hostClippyChecks
         + lib.concatMapStrings (p: " -o -path '${p}'") paths;
     in
     pkgs.runCommand "license-headers" { } ''
-      # The report lands outside the source, which is read-only, and it
-      # carries the loop's findings past the pipeline's subshell.
+      # The source is read-only, and a file is what carries the loop's
+      # findings past the pipeline's subshell.
       report=$TMPDIR/missing-headers
       : > "$report"
       cd ${root}
@@ -913,10 +832,9 @@ hostClippyChecks
 
   # Every board must take its task shells and its boot sequence from
   # ubos-firmware. nix/board-parity.nix holds the names both trees of the
-  # pair share; this call site names only this tree's exceptions, and the
-  # board list comes from firmware/ itself so a new board is gated the
-  # day it lands. The three bootloader crates are excluded: they run no
-  # embassy executor and have no boot sequence to share.
+  # pair share, so this call site names only this tree's exceptions: the
+  # bootloaders, which run no embassy executor and have no boot sequence
+  # to share.
   board-skeleton-parity = boardParity.boardSkeletonParity {
     inherit root;
     exclude = [
@@ -930,8 +848,8 @@ hostClippyChecks
   };
 
   # The ESP bootloader is the one crate with no cargo config, because it
-  # builds through the esp shell's own configuration rather than a
-  # runner of its own.
+  # builds through the esp shell's own configuration rather than a runner
+  # of its own.
   firmware-cargo-config = boardParity.firmwareCargoConfig {
     inherit root;
     exclude = [ "esp32s3-bootloader" ];
@@ -947,11 +865,9 @@ hostClippyChecks
     excludeDirs = [ "ubos-metrics" ];
   };
 
-  # The hook that holds `nix run .#gate` to its approved invocations. It
-  # runs in the session's own shell, so it is loose text rather than a
+  # The hook that holds `nix run .#gate` to its approved invocations runs
+  # in the session's own shell, so it is loose text rather than a
   # package, and a lost executable bit would retire it without a word.
-  # The regex is its whole content, so shellcheck is the only test it
-  # can carry here.
   gate-hook =
     let
       hookPath = ".claude/hooks/gate-invocation";
@@ -971,17 +887,10 @@ hostClippyChecks
         touch $out
       '';
 
-  # The gate's own script, which nothing else here builds. `nix flake
-  # check` reads an app's schema and never builds its program, so the
-  # shellcheck that `writeShellApplication` runs would only ever have
-  # run when somebody used the gate. Naming the program is what builds
-  # it, the same way `test -x` does for the apps of the repo that
-  # consumes this one.
-  #
-  # The image apps are deliberately not covered: each interpolates the
-  # firmware derivation it copies, so naming them would build every
-  # image again under a second name. The checks that build those images
-  # already exist.
+  # `nix flake check` reads an app's schema and never builds its
+  # program, so the shellcheck that `writeShellApplication` runs would
+  # only ever run when somebody used the gate. Naming the program here
+  # is what builds it.
   gate-app =
     let
       gate = import ./gate.nix {
@@ -1005,13 +914,9 @@ hostClippyChecks
       touch $out
     '';
 
-  # CLAUDE.md is loaded into context at the start of every session, and
-  # an agent's adherence to it drops as it grows: past a few hundred
-  # lines the rules that matter get lost among the ones that do not.
-  # claudeMdMaxLines is the documented target, so gate it rather than
-  # trusting the next edit to notice. Detail belongs in docs/ or, when
-  # it is only relevant under one tree, in a path-scoped .claude/rules/
-  # file, which loads on demand instead.
+  # CLAUDE.md loads into context at the start of every session, and an
+  # agent's adherence to it drops as it grows. The budget is CLAUDE.md's
+  # own, gated here rather than trusted to the next edit.
   claude-md-limit = pkgs.runCommand "claude-md-limit" { } ''
     lines=$(wc -l < ${root + "/CLAUDE.md"})
     echo "CLAUDE.md: $lines lines / ${toString claudeMdMaxLines}"
@@ -1034,11 +939,9 @@ hostClippyChecks
     minFiles = minInstructionFiles;
   };
 
-  # Every firmware crate is named by a gate, and every gate names a
-  # firmware crate. The rule, and why it is one shared with the internal
-  # repository, are in nix/brand-gates.nix; this tree supplies the two
-  # things that module cannot know, which gates it has and which crates
-  # it builds.
+  # The rule, and why it is shared with the internal repository, are in
+  # nix/brand-gates.nix. This call supplies the two things that module
+  # cannot know: which gates this tree has and which crates it builds.
   board-coverage = brandGates.boardCoverage {
     boards = builtins.attrNames boardTable ++ handGatedBoards;
     isMember = hasCrate;
@@ -1046,16 +949,10 @@ hostClippyChecks
 
   # nix/toolchains.nix names the Rust version once and every toolchain
   # there reads that name. Two files cannot reach it and must state it
-  # again: micro-sv2 is a flake of its own, and a flake reads no path
-  # outside its root, and stratum-v1's rust-toolchain.toml is rustup's
-  # format rather than nix's. Grep each for the literal and fail on
-  # drift, the same method ota-image-limit uses. The flake above
-  # re-exports the micro-sv2 checks, so a drift there is a second
-  # compiler in one gate set. A drift in stratum-v1 reaches no build
-  # this repo sanctions, because each of those goes through a
-  # `nix develop` shell where cargo is nix's and reads no rustup file.
-  # It reaches rust-analyzer, and anyone who builds that crate through
-  # rustup outside a shell, and it is worth gating for them.
+  # again, so each is grepped for the literal as in ota-image-limit:
+  # micro-sv2 is a flake of its own, and a flake reads no path outside
+  # its root, and stratum-v1's rust-toolchain.toml is rustup's format
+  # rather than nix's.
   rust-version-agreement = pkgs.runCommand "rust-version-agreement" { } ''
     check() {
       if ! grep -qF "$2" "$1"; then
@@ -1071,21 +968,16 @@ hostClippyChecks
     touch $out
   '';
 
-  # The brand a board ships is stated twice, and it has to be; the
-  # reason, and the gate itself, are in nix/brand-gates.nix, which both
-  # trees of the pair call. The list below is the one question that
-  # module cannot answer for itself: which boards declare a brand. The
-  # `boards` table covers the ARM and STM ones; esp32s3 is hand-written
-  # above and joins here.
+  # The reason the brand a board ships is stated twice, and the gate
+  # itself, are in nix/brand-gates.nix, which both trees of the pair
+  # call. The list below is the one question that module cannot answer
+  # for itself: which boards declare a brand.
   brand-declaration = brandGates.brandDeclaration {
     boards = builtins.attrNames boards ++ lib.optional (hasCrate "esp32s3") "esp32s3";
   };
 
-  # Nix formatting gate. In the monorepo this was owned by a
-  # repo-root treefmt; as a standalone repo the flake must
-  # gate its own .nix files so `nix flake check` stays the
-  # single source of truth. Uses nixfmt, the same RFC-style
-  # formatter treefmt drove.
+  # The flake gates its own .nix files, so `nix flake check` stays the
+  # single source of truth for format in a standalone repo.
   nixfmt =
     pkgs.runCommand "nixfmt-check"
       {
@@ -1096,10 +988,10 @@ hostClippyChecks
         touch $out
       '';
 
-  # Script packages: the writeShellApplication/writePython3Bin wrappers
-  # under pkgs/ run shellcheck / pyflakes on their source at build time,
-  # so building each one is its own lint gate — no tree-wide shell sweep
-  # is needed, and a new package is gated the moment it is wired here.
+  # The writeShellApplication and writePython3Bin wrappers under pkgs/
+  # run shellcheck or pyflakes on their source at build time, so naming
+  # each package here is its own lint gate and no tree-wide shell sweep
+  # is needed.
   probe-rs-board-run = pkgs.callPackage ../pkgs/probe-rs-board-runner { };
   rp2040-bootloader-run = pkgs.callPackage ../pkgs/rp2040-bootloader-runner { };
   rp2350-bootloader-run = pkgs.callPackage ../pkgs/rp2350-bootloader-runner { };

@@ -34,8 +34,6 @@
 {
   pkgs,
   srcFor,
-  # The per-unit builds of nix/units.nix, which the ARM images and
-  # bootloaders link from.
   units,
   espCraneLib,
   espCargoVendorDir,
@@ -76,15 +74,11 @@ let
   # running it show the same id.
   stem = name: "${name}-v${fwVersion}-${buildId}";
 
-  # Production ARM firmware image: the board crate's release ELF, built
-  # one unit per derivation, objcopied into $out as the raw binary, with
-  # the slot-size and pool-worker guards run on the artifact that ships.
-  # The guards mirror the build-<name> checks; the difference is that
-  # the bin is kept in $out instead of being deleted, and that this
-  # build carries the version and the build id. The per-crate
-  # .cargo/config.toml, which bakes a test POOL_USER for dev flashing on
-  # some boards, is not read here: cargo plans from the flake root, so
-  # the default empty worker is used and the guard proves it stayed out.
+  # Production ARM firmware image: the board's release ELF objcopied into
+  # $out, with the build-<name> guards run on the artifact that ships.
+  # Cargo plans from the flake root, so the per-crate .cargo/config.toml
+  # and the test POOL_USER it bakes on some boards are not read, and the
+  # guard proves the worker stayed out.
   #
   # That same fact is why the brand arrives in the environment. A board
   # declares its brand in the file this build does not read, so nothing
