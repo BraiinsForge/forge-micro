@@ -36,8 +36,6 @@ const HOSTNAME_CAP: usize = 32;
 /// leave this function, so the caller's future does not hold the whole
 /// `Config`, nor the decode buffer behind it, for the rest of boot.
 ///
-/// `hostname_base` is the per-board DNS label the default hostname is
-/// composed from, and `mac_suffix` the low MAC byte appended to it.
 /// `BASE_LEN` must equal `hostname_base.len()`; it carries
 /// [`ubos_mdns::compose_hostname`]'s capacity assertion, which turns a
 /// future enlargement of the base into a build failure rather than a

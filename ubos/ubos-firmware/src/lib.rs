@@ -21,16 +21,14 @@
 
 //! Top-of-graph firmware assembly layer.
 //!
-//! Holds wiring shared by every board binary that must reference the
-//! functional subsystem crates. Dependency edges in the workspace flow
-//! downward, so anything naming all of `ubos-config`, `ubos-thermal`,
-//! `ubos-mining`, `ubos-psu`, `ubos-manager`, `ubos-api`, `ubos-net`, and
-//! `stratum-client` cannot live in the foundational crates without a cycle;
-//! it lives here.
+//! Workspace dependency edges flow downward, so wiring that names all of
+//! `ubos-config`, `ubos-thermal`, `ubos-mining`, `ubos-psu`,
+//! `ubos-manager`, `ubos-api`, `ubos-net` and `stratum-client` cannot live
+//! in the foundational crates without a cycle; it lives here.
 //!
-//! The crate is integration-level by nature: it depends on hardware-coupled
-//! crates such as `ubos-mining`, so it does not host-build and carries no
-//! unit tests. Anything worth testing stays in the subsystem crates below.
+//! It depends on hardware-coupled crates, so it does not host-build and
+//! carries no unit tests. Anything worth testing stays in the subsystem
+//! crates below.
 
 pub mod events;
 pub mod handles;
@@ -53,7 +51,7 @@ pub type AsicSession<const N: usize> =
 /// Re-exported for the same reason: `serve_all` names the merged
 /// listener's port, buffer sizes and timeouts through this path.
 pub use ubos_http::consts as http_consts;
-/// Re-exported because [`serve_all`](crate::serve_all) expands to uses of
-/// all three. Reaching them through this crate is what lets a board serve
-/// both listeners without naming `ubos-http` in its own manifest.
+/// Re-exported for the same reason: [`serve_all`](crate::serve_all) expands
+/// to uses of all three, so a board serves both listeners without naming
+/// `ubos-http` in its own manifest.
 pub use ubos_http::{PrefixRouter, http_worker_task, serve_http_pool};

@@ -21,8 +21,14 @@
 
 /// Declare the listener bring-up every board runs once its stack is up.
 ///
-/// Invoke once at item position in a board crate, then call what it
-/// declares from the boot path:
+/// Invoke once at item position in a board crate, then call the
+/// `async fn serve_all` it declares from the boot path, once the stack
+/// has an address. The expansion seeds each listener's credentials,
+/// builds its service, binds its port and spawns its worker pool: the web
+/// UI and the REST API together on :80, and the Prometheus metrics on
+/// :8081. The two worker-pool shells live inside that function, so a
+/// board declares no HTTP task of its own and the pool sizes stay where
+/// the rest of the board's shape is, in `$machine.control_board`.
 ///
 /// ```ignore
 /// ubos_firmware::serve_all!(
@@ -56,15 +62,11 @@
 ///
 /// It also spawns the credential-sync task, so a board that invokes this
 /// must invoke [`sync_credentials_task!`](crate::sync_credentials_task)
-/// too. That is the same pairing `ubos_http::serve_http_pool!` has with
-/// `ubos_http::http_worker_task!`, one level up.
+/// too.
 ///
-/// Beside the function it declares the exposition map and render buffer,
-/// sized by `$max_metrics` and `$metrics_response_bytes` from the board's
-/// `config.rs`, and the ingestion task that is their sole writer. Both
-/// are items rather than locals of the function, because a board spawns
-/// ingestion as soon as the executor runs and does not wait for the stack
-/// to come up: a publisher that pushed before then would block on a full
+/// The exposition map, its render buffer and the ingestion task are items
+/// rather than locals, because a board spawns ingestion before the stack
+/// is up and a publisher that pushed earlier would block on a full
 /// channel.
 #[macro_export]
 macro_rules! serve_all {
@@ -85,9 +87,7 @@ macro_rules! serve_all {
         }
 
         /// Bind the HTTP and metrics listeners, and spawn a worker pool
-        /// for each.
-        ///
-        /// Call once, after the stack has an address.
+        /// for each. Call once, after the stack has an address.
         #[allow(clippy::items_after_statements)]
         async fn serve_all(
             spawner: embassy_executor::Spawner,
@@ -96,14 +96,10 @@ macro_rules! serve_all {
             board_name: &'static str,
         ) {
             // Bound to names of their own so what reaches the task
-            // attribute is an identifier. The pool sizes are const
-            // expressions either way, and the pool footprint they size is
-            // still checked at the link.
+            // attribute is an identifier.
             const HTTP_POOL: usize = $http_pool_sizes.http;
             const METRICS_POOL: usize = $http_pool_sizes.metrics;
 
-            /// The web UI and the REST API behind one prefix, which is
-            /// what the one pool below serves.
             type HttpService =
                 $crate::PrefixRouter<ubos_api::RestApiService, ubos_webui::DashboardService>;
 
@@ -116,12 +112,11 @@ macro_rules! serve_all {
             $crate::http_worker_task!(http_worker_task, HttpService, HTTP_POOL);
             $crate::http_worker_task!(metrics_worker_task, MetricsService, METRICS_POOL);
 
-            // The web UI and the REST API on :80. Seed both credential
-            // stores once, then spawn one worker task per pool slot so
-            // each has its own static TaskStorage. A path under the API
-            // prefix reaches the API and every other path reaches the
-            // dashboard; the two route tables do not overlap, because the
-            // dashboard owns `/`, `/login`, `/logout` and `/logo.svg`.
+            // One worker task per pool slot, so each has its own static
+            // `TaskStorage`. A path under the API prefix reaches the API
+            // and every other path reaches the dashboard; the two route
+            // tables do not overlap, because the dashboard owns `/`,
+            // `/login`, `/logout` and `/logo.svg`.
             ubos_api::seed_api_credentials(handles.config).await;
             ubos_webui::seed_webui_credentials(handles.config).await;
             static HTTP_SERVICE: static_cell::StaticCell<HttpService> =
@@ -155,7 +150,6 @@ macro_rules! serve_all {
             );
             spawner.spawn(::defmt::unwrap!(sync_credentials_task(handles.config)));
 
-            // Prometheus metrics on :8081.
             static METRICS_SERVICE: static_cell::StaticCell<MetricsService> =
                 static_cell::StaticCell::new();
             let metrics_service: &'static MetricsService =

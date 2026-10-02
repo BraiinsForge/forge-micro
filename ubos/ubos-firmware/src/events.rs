@@ -22,11 +22,9 @@
 use ubos_events::EventDef;
 
 /// Per-crate event catalogs assembled into the registry the events
-/// `/catalog` endpoint serves, so the browser can decode records into text.
-///
-/// Hoisted out of the board `main.rs` files, where it was duplicated
-/// byte-for-byte: adding a subsystem's events meant editing every list,
-/// and missing one left that board serving an incomplete decode table.
+/// `/catalog` endpoint serves, so the browser can decode records into
+/// text. One list for every board, because a board that missed a catalog
+/// would serve an incomplete decode table.
 const EVENT_REGISTRY: &[&[EventDef]] = &[
     ubos_config::events::CATALOG,
     ubos_thermal::events::CATALOG,
@@ -48,10 +46,9 @@ const _: () = assert!(
 /// Install the event ring over `backing`, and the decode table beside it.
 ///
 /// Call this once at boot, before any task that records an event runs. The
-/// backing store itself stays in the board crate, because its size follows
-/// that board's capacity and its section placement follows what that MCU
-/// retains across a warm reset. What is shared is the registry, the clock
-/// the ring stamps records with, and the order the two installs happen in.
+/// backing store stays in the board crate, because its size follows that
+/// board's capacity and its section placement follows what that MCU retains
+/// across a warm reset.
 ///
 /// The clock is [`ubos_net::wall_clock_secs`], which returns uptime before
 /// NTP sync and Unix time after; the ring stores whichever it gets, without

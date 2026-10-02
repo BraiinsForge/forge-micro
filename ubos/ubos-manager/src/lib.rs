@@ -17,15 +17,11 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Mining-pause manager: aggregates pause reasons, owns the
-//! `Watch<PauseReasons>` write side, and drives
-//! `Handle::halt`/`resume` on the empty/non-empty edge of the
-//! pause mask, and `resume` once more on a `Start` that finds the
-//! mask empty, for a miner that parked itself. Senders push
-//! `Message`s via `Handle::send`;
-//! the manager task interprets each message into a `PauseReason` bit
-//! transition. The manager task is the sole caller of
-//! `Handle::halt`/`resume`.
+//! Mining-pause manager: aggregates pause reasons and drives
+//! `MiningHandle::halt`/`resume` on the empty/non-empty edge of the
+//! pause mask. The manager task is the sole caller of either, and the
+//! sole writer of the mask; senders push a [`Message`] and never spell a
+//! [`PauseReason`].
 
 #![no_std]
 #![allow(clippy::missing_errors_doc)]
@@ -59,47 +55,36 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::{Receiver, Sender, Watch};
 
-/// Subscriber capacity for the pause-reasons watch. No task holds a
-/// receiver for long today: the API and the thermal loop read the mask
-/// through `pause_reasons`, and a producer that only sends takes no
-/// slot. The slots are for a caller of [`Handle::changed`], which holds
-/// one for the length of the call, and for the next consumer that
-/// follows the mask in its loop. [`Handle::subscribe`] panics past the
-/// last one.
+/// Subscriber capacity for the pause-reasons watch. A reader that only
+/// calls `pause_reasons`, and a producer that only sends, take no slot;
+/// the slots are for a caller of [`Handle::changed`], which holds one for
+/// the length of the call. [`Handle::subscribe`] panics past the last.
 const WATCH_CAPACITY: usize = 4;
 
-/// Command queue depth for the manager command channel. A small buffer
-/// prevents callers from blocking when the manager task is briefly
-/// off-CPU.
+/// Command queue depth. The buffer keeps a caller from blocking while the
+/// manager task is briefly off-CPU.
 const COMMAND_CHANNEL_DEPTH: usize = 8;
 
 type CSMutex = CriticalSectionRawMutex;
 
-/// State watch carrying the live `PauseReasons` mask. Single writer is
-/// [`manager::run_manager`].
+/// Single writer is [`manager::run_manager`].
 type PauseWatch = Watch<CSMutex, PauseReasons, WATCH_CAPACITY>;
 
-/// Manager command channel. Single consumer is
-/// [`manager::run_manager`]; producers send via [`Handle::send`].
+/// Single consumer is [`manager::run_manager`]; producers send via
+/// [`Handle::send`].
 type CommandChannel = Channel<CSMutex, Message, COMMAND_CHANNEL_DEPTH>;
 
-/// The pause mask the firmware's one manager publishes.
 static STATE_WATCH: PauseWatch = Watch::new();
 
-/// The commands the firmware's one manager drains.
 static COMMAND_CHANNEL: CommandChannel = Channel::new();
 
 /// Per-task subscription to the pause mask, from [`Handle::subscribe`].
 pub type PauseSubscription = Receiver<'static, CSMutex, PauseReasons, WATCH_CAPACITY>;
 
-/// Records that the firmware took the manager handle.
 static TAKEN: ubos_core::take_once::TakeOnce = ubos_core::take_once::TakeOnce::new("manager");
 
-/// Consumer-side handle for the manager subsystem.
-///
-/// The handle holds no data: its methods are the only way to the private
-/// statics of this module. A firmware takes it once and passes a copy to
-/// each task that uses it.
+/// Consumer-side handle. It holds no data: a firmware takes it once and
+/// passes a copy to each task that uses it.
 #[derive(Clone, Copy)]
 pub struct Handle(());
 
@@ -111,12 +96,10 @@ pub struct Runner(());
 
 #[allow(clippy::unused_self)]
 impl Runner {
-    /// The sender of the pause mask, which only the manager task writes.
     pub(crate) fn publisher(&self) -> Sender<'static, CSMutex, PauseReasons, WATCH_CAPACITY> {
         STATE_WATCH.sender()
     }
 
-    /// The next command, which only the manager task drains.
     pub(crate) async fn next_message(&self) -> Message {
         COMMAND_CHANNEL.receive().await
     }
@@ -132,22 +115,16 @@ impl Handle {
         (Runner(()), Self(()))
     }
 
-    /// Send a `Message` to the manager task. The manager
-    /// interprets the message into a `PauseReason` bit transition.
-    ///
     /// The send returns when the message is queued, not when the manager
     /// has applied it, so a mask read straight after may still show the
-    /// old value. The gap is one manager turn against sample intervals a
-    /// thousand times longer, and every transition is idempotent on the
-    /// mask, so a sender that misses the gap and asks again changes
-    /// nothing.
+    /// old value. Every transition is idempotent on the mask, so a sender
+    /// that misses the gap and asks again changes nothing.
     pub async fn send(&self, message: Message) {
         COMMAND_CHANNEL.send(message).await;
     }
 
-    /// Returns the most recent published mask, or a zero mask if
-    /// nothing has been published yet (window before the first
-    /// thermal tick).
+    /// The most recent published mask, or a zero mask in the window
+    /// before the first thermal tick publishes one.
     #[must_use]
     pub fn pause_reasons(&self) -> PauseReasons {
         STATE_WATCH.try_get().unwrap_or_default()
@@ -159,8 +136,7 @@ impl Handle {
         self.pause_reasons().contains(reason)
     }
 
-    /// Per-task subscription. Call once per consumer task before
-    /// entering its loop.
+    /// Call once per consumer task, before entering its loop.
     ///
     /// # Panics
     ///
@@ -172,7 +148,6 @@ impl Handle {
             .expect("BUG: Handle receiver slots exhausted; raise WATCH_CAPACITY")
     }
 
-    /// Wait for the next mask change and return the new value.
     pub async fn changed(&self) -> PauseReasons {
         let mut subscription = self.subscribe();
         subscription.changed().await

@@ -19,19 +19,15 @@
 
 //! Wire-level command type for the manager.
 //!
-//! `Message` is the only thing senders construct. Each variant
-//! is a fact or intent — the manager interprets the message into a
-//! `PauseReason` bit transition internally. Senders never spell
-//! `PauseReason`; it is manager-private vocabulary.
-//!
-//! See `docs/ARCHITECTURE.md` ("Domain messages, not
-//! bit-manipulation").
+//! A [`Message`] is the only thing senders construct, and each variant is
+//! a fact or an intent. A sender never spells a `PauseReason`, which is
+//! manager-private vocabulary: see `docs/ARCHITECTURE.md` ("Domain
+//! messages, not bit-manipulation").
 
 /// Wire-level command sent to the manager via `Handle::send`.
 ///
-/// Condition events from other modules carry explicit edge direction
-/// so the manager does not have to track who-asserted-what. Operator
-/// intent from the API uses `Start`/`Stop`.
+/// A condition event carries its edge direction, so the manager does not
+/// have to track who asserted what.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Message {

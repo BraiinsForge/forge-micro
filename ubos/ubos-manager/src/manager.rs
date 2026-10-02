@@ -18,13 +18,6 @@
 // shall be considered distinct from the grant above.
 
 //! Critical-path manager task.
-//!
-//! `run_manager` drains `COMMAND_CHANNEL` fed by `Handle::send`,
-//! interprets each [`Message`] into a `PauseReason` bit
-//! transition on the live [`PauseReasons`] mask, publishes the updated
-//! mask on `STATE_WATCH`, and drives `MiningHandle::halt`/`resume` on
-//! the empty/non-empty edge. A `Start` that finds nothing paused is
-//! forwarded as a resume too, for a miner that parked itself.
 
 use ubos_logging::info;
 use ubos_mining::Handle as MiningHandle;
@@ -35,22 +28,14 @@ use crate::pause::{PauseReason, PauseReasons, effect};
 
 /// Log a `DangerousTemperature` bit transition.
 ///
-/// Extracted from the loop body so that each log call site is
-/// unique and does not trigger `clippy::if_same_then_else`. Only
-/// `DangerousTemperature` carries a dedicated log line because
-/// thermal halts originate inside the manager from a sensor
-/// reading; the operator has no other surface to see them. The
-/// other reasons (`BrokenFan`, `TunerFault`, `UserRequest`) are
-/// asserted by callers that already log their own context, and the
-/// resulting halt/resume edge is visible in `mining.halt()` /
-/// `resume()` traffic.
-///
-/// The clearing edge is an event rather than a trace, because the
-/// operator reads it from the board: it is the counterpart of
-/// `mining_halted_dangerous_temperature`, it covers both ways out of
-/// the halt that "Two ways out of an overheat halt" in docs/MINING.md
-/// describes, and it reports the release whether or not another reason
-/// still holds mining, which `mining_resumed` cannot.
+/// Only this reason carries a dedicated log line, because a thermal halt
+/// originates inside the manager from a sensor reading and the operator
+/// has no other surface to see it; every other reason is asserted by a
+/// caller that already logs its own context. The clearing edge is an
+/// event rather than a trace, because it reports the release whether or
+/// not another reason still holds mining, which `mining_resumed` cannot.
+/// Extracted from the loop body so each log call site is unique and
+/// `clippy::if_same_then_else` does not fire.
 fn log_transition(was_halted: bool, now_halted: bool) {
     if !was_halted && now_halted {
         info!("manager: halt (DangerousTemperature)");
@@ -61,16 +46,12 @@ fn log_transition(was_halted: bool, now_halted: bool) {
 
 /// The `PauseReason` an asserting `Message` sets, or `None` for a
 /// clearing one, so the halt event can carry the discriminant of the
-/// newly-active reason. Read off [`effect`], which is the one table
-/// that interprets a message, so a new message cannot be interpreted
-/// here and there differently.
+/// newly-active reason. Read off [`effect`], the one table that
+/// interprets a message, so the two cannot disagree.
 ///
-/// Free rather than a method on `Message`, though the receiver is clear
-/// and local. `message.rs` states the layering this would break: a
-/// sender constructs a `Message` and never spells `PauseReason`, which
-/// is manager-private vocabulary. Hanging this off `Message` would put
-/// the private half on the public type and hand every sender the
-/// mapping.
+/// Free rather than a method on `Message`: hanging it off the public
+/// type would hand every sender the mapping, and `message.rs` states why
+/// a sender must never spell a `PauseReason`.
 fn halt_reason(message: Message) -> Option<PauseReason> {
     match effect(message) {
         (reason, true) => Some(reason),
@@ -80,21 +61,13 @@ fn halt_reason(message: Message) -> Option<PauseReason> {
 
 /// Run the manager loop forever.
 ///
-/// Drains `COMMAND_CHANNEL` fed by `Handle::send`, interprets
-/// each [`Message`] into a `PauseReason` bit transition on the
-/// live [`PauseReasons`] mask, publishes the updated mask on
-/// `STATE_WATCH`, and calls `mining.halt()`/`resume()` on the
-/// empty/non-empty edge. Manager is the sole caller of
-/// `MiningHandle::halt`/`resume`; senders construct domain messages
-/// and never name a `PauseReason`.
-///
-/// One resume is sent without an edge: a `Start` that leaves the mask
-/// empty, which is the operator's answer to a miner that parked itself
-/// after a bring-up found no chain. Nothing was paused, so no reason
-/// clears, and without this the park could only be left through a
-/// pause and a resume. A miner that is not parked ignores the resume.
-///
-/// The manager reaches the mask and the commands only through `runner`.
+/// Drains the command channel fed by `Handle::send`, interprets each
+/// [`Message`] into a `PauseReason` bit transition on the live
+/// [`PauseReasons`] mask, publishes the updated mask, and calls
+/// `mining.halt()`/`resume()` on the empty/non-empty edge. A `Start`
+/// that leaves the mask empty resumes as well, because a miner that
+/// parked itself clears no reason and could otherwise be released only
+/// through a pause and a resume.
 pub async fn run_manager(runner: &mut Runner, mining: MiningHandle) -> ! {
     let publisher = runner.publisher();
     let mut reasons = PauseReasons::default();
@@ -139,8 +112,7 @@ pub async fn run_manager(runner: &mut Runner, mining: MiningHandle) -> ! {
     }
 }
 
-/// Task shell around [`run_manager`], the supervisor command router that
-/// forwards halt and resume to the mining, cooling and thermal handles.
+/// Task shell around [`run_manager`].
 #[macro_export]
 macro_rules! manager_task {
     () => {

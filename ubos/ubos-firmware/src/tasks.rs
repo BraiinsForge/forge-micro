@@ -19,40 +19,19 @@
 
 //! The task shells that belong to no single subsystem crate.
 //!
-//! Every board spawns the same set of background tasks, and for most of
-//! them the shell is one line delegating to a `ubos-*` crate. The shells
-//! cannot be plain generic functions: `#[embassy_executor::task]` expands
-//! a typed `TaskPool` static, so it rejects generic task functions. That
-//! is a known and still-open embassy limitation, and the workaround its
-//! maintainers point at is macro-generated shells.
+//! A shell cannot be a plain generic function: `#[embassy_executor::task]`
+//! expands a typed `TaskPool` static, so it rejects generic task
+//! functions. Each macro expands at the call site, so the attribute
+//! resolves against the board's own `embassy-executor` and the spawned
+//! task type belongs to that board's executor.
 //!
 //! **A shell lives in the crate that owns the loop it calls**, beside
-//! that function, so the two move together. `ubos_core::watchdog_task!`
-//! sits next to `ubos_core::watchdog::run_watchdog`, and a board reaches
-//! each shell through the crate whose work it does. This module holds
-//! only the two that have no such crate.
-//!
-//! Each macro expands at the call site, so `#[embassy_executor::task]`
-//! resolves against the board's own `embassy-executor` and the spawned
-//! task type belongs to the board's executor. A board that pinned a
-//! different executor version, or enables different platform features as
-//! these boards do, still gets a shell built against its own.
+//! that function, so the two move together. This module holds only the
+//! two that have no such crate.
 //!
 //! Expansions name every path in full rather than relying on the board's
 //! imports, so a board needs only the dependency the body reaches into,
 //! not a matching `use`.
-//!
-//! A board invokes only the macros for tasks it actually runs. There is
-//! deliberately no single macro emitting the whole set: the boards run
-//! different subsets, and a board without a mining loop or without an
-//! OTA target must not be handed shells for them.
-//!
-//! Shells whose signature names a HAL type take it as a parameter. The
-//! ones that stay hand-written in the board crate are `boot`, which is
-//! the composition root itself, `cpu_load_task`, whose core count is a
-//! per-board const, `mdns_task`, which names per-board consts, and
-//! `stratum_client_task`, which needs the board's own session type and
-//! pool size.
 
 /// Drives the embassy-net stack. Takes the board's `embassy-net` driver
 /// type; the `Runner` around it is the same on every board.

@@ -46,17 +46,12 @@ pub use ubos_metrics::chain::MAX_CHAINS;
 /// fn, which reads it from the hashboard descriptor so a second chip
 /// model reports its own values.
 ///
-/// Generic over `Psu`: no code handles a `MachineDescriptor` generically
-/// — every board names its own concrete
-/// `MachineDescriptor<BmmPsuDescriptor>`/`MachineDescriptor<BfmPsuDescriptor>`
-/// const, so the PSU family is fixed at compile time per board rather
-/// than needing a sum type unwrapped at each call site.
+/// Generic over `Psu` because every board names its own concrete const,
+/// so the PSU family is fixed at compile time per board rather than
+/// needing a sum type unwrapped at each call site.
 #[derive(Clone, Copy)]
 pub struct MachineDescriptor<Psu: Copy> {
-    /// Machine model name. Not consumed yet; scaffolding for the
-    /// planned identity reporting.
     pub model: &'static str,
-    /// The board the firmware runs on.
     pub control_board: ControlBoardDescriptor,
     /// The hashboard the machine drives. Every chain of the machine
     /// carries this same board, because one firmware image drives one
@@ -67,7 +62,6 @@ pub struct MachineDescriptor<Psu: Copy> {
     /// bring-up, so a connector with no board answers zero chips and is
     /// marked absent.
     pub chains: usize,
-    /// The PSU powering the hashboard rail.
     pub psu: Psu,
     /// The temperature sensors on the PSU. The machine holds them for a
     /// PSU descriptor that has them, because it is generic over the PSU.
@@ -90,8 +84,8 @@ impl<Psu: Copy> MachineDescriptor<Psu> {
 
 impl MachineDescriptor<BmmPsuDescriptor> {
     /// Compose the miniminer machine on a given control board. Every
-    /// miniminer shares the same hashboard, PSU, and temperature-sensor
-    /// topology; only the control board varies.
+    /// miniminer shares the same hashboard, PSU, and sensor topology;
+    /// only the control board varies.
     #[must_use]
     pub const fn miniminer(control_board: ControlBoardDescriptor) -> Self {
         const CHAINS: usize = 1;
@@ -110,19 +104,15 @@ impl MachineDescriptor<BmmPsuDescriptor> {
     }
 }
 
-/// The miniminer on the W6100-EVB-Pico control board.
 pub const MINIMINER_RP2040: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_RP2040);
 
-/// The miniminer on the RP2350 control board.
 pub const MINIMINER_RP2350: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_RP2350);
 
-/// The miniminer on the BMM adapter control board.
 pub const MINIMINER_BMM_ADAPTER: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_BMM_ADAPTER);
 
-/// The miniminer on the ESP32-S3 control board.
 pub const MINIMINER_ESP32S3: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_ESP32S3);
 
@@ -133,28 +123,25 @@ pub const MINIMINER_INPUT_POWER: core::ops::RangeInclusive<Power> =
 
 /// `SIC45x` configuration for the Hashnode 4-domain 4.8 V rail.
 ///
-/// `loop_scale` is `Scale0_25` per the `SIC45x` page VOUT-range table: the
-/// 3.3 V to 5.0 V range selects register `0xE802`, whose LINEAR11 decode
-/// is 0.25.
+/// The 3.3 V to 5.0 V VOUT range selects register `0xE802`, whose
+/// LINEAR11 decode is 0.25, so `loop_scale` is `Scale0_25`.
 const HASHNODE_SIC: Sic45xConfig = Sic45xConfig {
     address: 0x10,
-    // Idle at the 0.6 V pre-open-core floor, matching BOS PARAMS_4X1. The
-    // tuner programs the 4.8 V operating voltage before enumerating the chips.
+    // Idle at the pre-open-core floor. The tuner programs the 4.8 V
+    // operating voltage before enumerating the chips.
     initial_voltage: Voltage::from_mv(600),
     loop_scale: LoopScale::Scale0_25,
-    // OV fault 5.0 V with headroom above the 4.8 V operating ceiling, per
-    // BOS PARAMS_4X1. BOS sets its OV warn at 4.85 V, but this driver has no
-    // warn field.
+    // Headroom above the 4.8 V operating ceiling.
     vout_ov_fault: Voltage::from_mv(5000),
     vout_uv_fault: Voltage::from_mv(700),
     vin_ov_fault: Voltage::from_mv(22_000),
     vin_uv_warn: Voltage::from_mv(9_000),
-    // Actual SIC450 output limit is 40A, we set a lower to protect the chips.
-    // Maximum achieved output current was 25.9A.
+    // Under the regulator's own 40 A limit, to protect the chips. The
+    // highest output current measured on this board was 25.9 A.
     iout_oc_fault: Current::from_ma(28_000),
     iout_oc_warn: Current::from_ma(26_000),
-    // Input-current warning. 16A was the maximum achieved in practice.
-    // Warning only; the device has no IIN fault trip.
+    // Warning only, because the device has no input-current fault trip.
+    // The highest input current measured was 16 A.
     iin_oc_warn: Current::from_ma(16_000),
     ot_fault: Temperature::from_celsius(115),
     ot_warn: Temperature::from_celsius(95),
@@ -166,16 +153,15 @@ const HASHNODE_SIC: Sic45xConfig = Sic45xConfig {
     voltage_max: ubos_asic::BFMX4_HASHBOARD.max_psu_voltage,
 };
 
-/// Hashnode PSU config. The INA230 address (0x43), 2 mΩ shunt, and 30 A
-/// max current all come from `BfmPsuDescriptor::DEFAULT`; only the `SIC45x`
-/// voltage rail is board-specific.
+/// Hashnode PSU config. Only the `SIC45x` voltage rail is board-specific;
+/// the rest comes from `BfmPsuDescriptor::DEFAULT`.
 const HASHNODE_PSU: BfmPsuDescriptor = BfmPsuDescriptor {
     sic: HASHNODE_SIC,
     ..BfmPsuDescriptor::DEFAULT
 };
 
-/// The Hashnode: a BM1370 hashboard on its own integrated control board,
-/// with a `SIC45x`-based PSU rather than the miniminer's `TPS6287x`.
+/// A hashboard on its own integrated control board, with a
+/// `SIC45x`-based PSU rather than the miniminer's `TPS6287x`.
 pub const HASHNODE: MachineDescriptor<BfmPsuDescriptor> = MachineDescriptor {
     model: "Braiins Forge Miner x4",
     control_board: CONTROL_BOARD_HASHNODE,
@@ -190,11 +176,10 @@ const _: () = assert!(
 );
 
 /// TPS53647 configuration for the Forge Axe 1.2 V rail. The `PMBus`
-/// address is the ADDR-TRISE strap candidate (R1 16.5k / R2 24.3k),
-/// pending hardware confirmation.
+/// address is the ADDR-TRISE strap candidate, pending hardware
+/// confirmation.
 const FORGE_AXE_TPS: Tps53647Config = Tps53647Config {
-    // Single-sourced from the board descriptor so the regulator
-    // ceiling and the tuner's `max_rail_voltage()` can never disagree.
+    // Single-sourced for the reason given in `HASHNODE_SIC`.
     voltage_max: ubos_asic::FORGE_AXE_HASHBOARD.max_psu_voltage,
     // The board populates three power stages.
     phases: Some(Phases::Three),

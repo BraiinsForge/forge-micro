@@ -19,18 +19,14 @@
 
 //! Shared stratum client orchestration task.
 //!
-//! Hoisted out of the board `main.rs` files, where this session
-//! loop was duplicated byte-for-byte. One instance of
-//! [`run_stratum_session`] runs per pool slot: each maintains its own
-//! connection to its configured endpoint, publishes work into its slot
-//! of the shared [`BoardAsicSession`], and drains its slot's
-//! solutions. Which slot actually feeds the chip is decided on the
-//! ASIC side, by `ubos-mining`'s dispatcher work scheduler; the
+//! One instance of [`run_stratum_session`] runs per pool slot: each
+//! maintains its own connection, publishes work into its slot of the
+//! shared session, and drains its slot's solutions. Which slot feeds the
+//! chip is decided by `ubos-mining`'s dispatcher work scheduler, so the
 //! sessions here are policy-free.
 //!
-//! Boot-time singletons (the SV2 secp context, the SV2 entropy seed)
-//! are initialised once via [`init_stratum`] and fanned out to the
-//! per-slot tasks as a [`StratumShared`] value.
+//! The boot-time singletons are initialised once by [`init_stratum`] and
+//! fanned out to the per-slot tasks as a [`StratumShared`] value.
 
 use crate::AsicSession;
 use embassy_futures::select::{Either3, select, select3};
@@ -44,23 +40,17 @@ use stratum_client::{
 };
 use ubos_logging::{Debug2Format, info, warn};
 
-/// Config pool-list capacity, re-exported as the default value for
-/// each board's `POOL_SLOTS` const. A board may choose fewer session
-/// slots than the config persists (RAM-constrained boards). A board
-/// that installs a fee pool chooses `ubos_config::POOL_SLOTS`, one
-/// more, and no board chooses beyond that: a session task for a slot
-/// past it parks forever.
+/// The default for each board's `POOL_SLOTS`. A RAM-constrained board
+/// chooses fewer, and a board with a fee pool `ubos_config::POOL_SLOTS`,
+/// one more. None chooses beyond that: a session task for a slot past it
+/// parks forever.
 pub use ubos_config::pool::MAX_POOLS;
 
-// Preallocated buffer for the SV2 `secp256k1::AllPreallocated` context.
 // `CryptoCtx::preallocated` needs a `[AlignedType]` slice at least
-// `secp256k1_context_preallocated_size(All)` slots long. Modern
-// libsecp256k1 (secp256k1-sys 0.11) holds the ecmult and ecmult-gen
-// tables in static `.rodata`, so the runtime context is tiny: that size
-// is 13 `AlignedType` slots (208 B), measured against the compiled C
-// library. 64 slots (1 KiB) keep a ~5x margin, and
-// `CryptoCtx::preallocated` returns `NotEnoughMemory` (caught by the
-// boot `expect`) if ever undersized.
+// `secp256k1_context_preallocated_size(All)` slots long, which is 13
+// slots against the compiled C library, because libsecp256k1 holds the
+// ecmult tables in static `.rodata`. Undersizing this returns
+// `NotEnoughMemory`, which the boot `expect` catches.
 const SECP_CTX_SLOTS: usize = 64;
 
 static SECP_CTX_BUF: ConstStaticCell<[ii_sv2::security::AlignedType; SECP_CTX_SLOTS]> =
@@ -71,9 +61,8 @@ static SECP_CTX: StaticCell<
 > = StaticCell::new();
 
 /// SV2 noise-handshake RNG. Wraps a per-slot `ChaCha20` CSPRNG so each
-/// stratum-v2 client draws ephemeral keys and nonces from its own
-/// entropy stream, independent of the other slots and of the session
-/// CSPRNG.
+/// stratum-v2 client draws ephemeral keys and nonces from its own entropy
+/// stream, independent of the other slots and of the session CSPRNG.
 struct Sv2BoardRng<'a>(&'a mut ChaCha20Rng);
 
 impl ii_sv2::security::Rng for Sv2BoardRng<'_> {
@@ -98,23 +87,18 @@ pub struct StratumShared {
 /// [`StratumShared`] value each board hands to every
 /// [`run_stratum_session`] task.
 ///
-/// `chip_rolls_ntime` is the chip descriptor's `rolls_ntime`: a chip
-/// that searches ntime itself gets each job published once, every
-/// other chip gets the host's ntime roll.
+/// `chip_rolls_ntime` is the chip descriptor's `rolls_ntime`: a chip that
+/// searches ntime itself gets each job published once, every other chip
+/// gets the host's ntime roll.
 ///
 /// `sv2_seed` must come from the board's hardware entropy source. Each
-/// slot's task derives its own `ChaCha20` stream from the one seed
-/// (`set_stream(slot)`), so the per-slot noise-handshake RNGs are
-/// mutually independent, and each stream outlives boot inside its task
-/// rather than being reconstructed per reconnect — continuous across
-/// reconnects, and no board keeps its hardware RNG peripheral live
-/// past seeding.
+/// slot derives its own `ChaCha20` stream from the one seed, so no board
+/// keeps its hardware RNG peripheral live past seeding.
 ///
 /// # Panics
 ///
-/// Panics if called twice (the underlying cells are single-take), or
-/// if `SECP_CTX_SLOTS` undersizes the secp context (BUG-class,
-/// compile-time-sized invariant).
+/// Panics if called twice, because the underlying cells are single-take,
+/// or if `SECP_CTX_SLOTS` undersizes the secp context.
 #[must_use]
 pub fn init_stratum(sv2_seed: [u8; 32], chip_rolls_ntime: bool) -> StratumShared {
     let ntime_roll: NtimeRoll = chip_rolls_ntime.into();
@@ -161,8 +145,6 @@ impl PoolConnector for TcpConnector<'_> {
     }
 }
 
-/// Log a session failure, preserving the distinct connect-failed and
-/// session-error lines the pre-connector code emitted.
 fn log_session_error(slot: usize, error: &SessionError<ubos_net::net::StratumConnectError>) {
     match error {
         SessionError::Connect(error) => {
@@ -185,8 +167,8 @@ fn log_session_error(slot: usize, error: &SessionError<ubos_net::net::StratumCon
 /// Maintains one connection to the pool that `slot` resolves to
 /// through [`ubos_config::Handle::pool_slot`], reconnecting on error
 /// and restarting on pool-config changes. A slot with no entry parks
-/// until the next config update — which is permanent for a slot past
-/// `ubos_config::POOL_SLOTS`, so boards size `N` at or below it.
+/// until the next config update, which never fills a slot past
+/// `ubos_config::POOL_SLOTS`.
 ///
 /// `N` is the board's session-slot count, chosen by a `POOL_SLOTS`
 /// const in each board's `main.rs` and carried here by the generic:
@@ -197,15 +179,12 @@ fn log_session_error(slot: usize, error: &SessionError<ubos_net::net::StratumCon
 /// mining traffic, `NoExtension` on an operator slot. It lives in the
 /// board's task and outlives every reconnect.
 ///
-/// This is a plain `async fn`, not an `#[embassy_executor::task]`:
-/// esp32s3 pins a different `embassy-executor` version than the ARM
-/// boards, so the task shell that owns the pool must stay in each
-/// board binary and compile against that board's executor. Each board
-/// wraps this body in a one-line task spawned once per slot
-/// (`pool_size = POOL_SLOTS`). The shared session loop lives here
-/// only once.
-// The only panics are `.expect()` on compile-time-sized buffer invariants
-// (BUG-class, not caller-facing), so a `# Panics` doc section would mislead.
+/// This is a plain `async fn`, not an `#[embassy_executor::task]`: the
+/// boards do not all pin the same `embassy-executor` version, so the task
+/// shell that owns the pool must stay in each board binary and compile
+/// against that board's executor.
+// The only panics are `.expect()` on compile-time-sized buffer
+// invariants, so a `# Panics` doc section would mislead.
 #[allow(clippy::too_many_lines, clippy::missing_panics_doc)]
 pub async fn run_stratum_session<const N: usize>(
     stack: embassy_net::Stack<'static>,
@@ -215,15 +194,14 @@ pub async fn run_stratum_session<const N: usize>(
     config: ubos_config::Handle,
     extension: &mut dyn SessionExtension,
 ) -> ! {
-    // This session's socket buffers. Locals held across `.await` live
-    // in the task's statically allocated future, so each task instance
-    // owns its pair with no shared-static bookkeeping.
+    // Locals held across `.await` live in the task's statically allocated
+    // future, so each task instance owns its buffer pair with no
+    // shared-static bookkeeping.
     let mut rx_buffer = [0u8; STRATUM_TCP_BUFFER_SIZE];
     let mut tx_buffer = [0u8; STRATUM_TCP_BUFFER_SIZE];
 
-    // This slot's ChaCha20 stream over the shared boot seed: mutually
-    // independent between slots, continuous across reconnects within
-    // the task.
+    // This slot's `ChaCha20` stream over the shared boot seed: mutually
+    // independent between slots, continuous across reconnects.
     let mut sv2_prng = ChaCha20Rng::from_seed(shared.sv2_seed);
     sv2_prng.set_stream(slot as u64);
 
@@ -237,15 +215,13 @@ pub async fn run_stratum_session<const N: usize>(
     let mut had_pool = false;
 
     loop {
-        // Teardown boundary: whether the last iteration ended in a
-        // session error, a config change, or never ran, the slot's
-        // work cell must not offer a previous session's job to the
-        // dispatcher while no session backs it.
+        // Teardown boundary: the slot's work cell must not offer a
+        // previous session's job to the dispatcher while no session backs
+        // it.
         handle.clear_work();
-        // The alive bit must also drop here: a config change cancels
-        // `one_session` mid-await, so `run_stratum_client` never
-        // reaches its own on-return clear, and a slot parked on a
-        // removed entry would otherwise stay "Alive" forever.
+        // A config change cancels `one_session` mid-await, so nothing
+        // downstream reaches its own on-return clear and a slot parked on
+        // a removed entry would stay "Alive" forever.
         handle.set_alive(false);
 
         let Some(entry) = config.pool_slot(slot).await else {

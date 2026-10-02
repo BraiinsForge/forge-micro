@@ -17,9 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Unit tests for the `PauseReasons` bitmap. Plain values, no
-//! embassy executor, so the `assert`/`clear`/`contains`/`is_empty`
-//! semantics are easy to nail down.
+//! Unit tests for the `PauseReasons` bitmap.
 
 use super::message::Message;
 use super::pause::{PauseReason, PauseReasons};
@@ -126,29 +124,24 @@ fn dominant_prefers_dangerous_temperature_over_all() {
 
 #[test]
 fn dominant_priority_order_without_dangerous_temperature() {
-    // BrokenFan beats TunerFault, OtaUpdate, UserRequest.
     let reasons = PauseReasons::default()
         .assert(PauseReason::BrokenFan)
         .assert(PauseReason::TunerFault)
         .assert(PauseReason::UserRequest);
     assert_eq!(reasons.dominant(), Some(PauseReason::BrokenFan));
 
-    // TunerFault beats OtaUpdate, UserRequest.
     let reasons = PauseReasons::default()
         .assert(PauseReason::TunerFault)
         .assert(PauseReason::OtaUpdate)
         .assert(PauseReason::UserRequest);
     assert_eq!(reasons.dominant(), Some(PauseReason::TunerFault));
 
-    // UserRequest is lowest priority.
     let reasons = PauseReasons::default().assert(PauseReason::UserRequest);
     assert_eq!(reasons.dominant(), Some(PauseReason::UserRequest));
 }
 
 #[test]
 fn unreadable_is_a_distinct_bit_from_dangerous() {
-    // The two conditions halt for different reasons and clear by
-    // different routes, so one must never stand in for the other.
     let reasons = PauseReasons::default().assert(PauseReason::TemperatureUnreadable);
     assert!(reasons.contains(PauseReason::TemperatureUnreadable));
     assert!(!reasons.contains(PauseReason::DangerousTemperature));
@@ -168,8 +161,7 @@ fn unreadable_outranks_everything_but_dangerous() {
 
 #[test]
 fn acknowledging_clears_the_overheat_halt_and_nothing_else() {
-    // See "Two ways out of an overheat halt" in docs/MINING.md. It
-    // must not lift a halt held for another cause.
+    // See "Two ways out of an overheat halt" in docs/MINING.md.
     let reasons = PauseReasons::default()
         .assert(PauseReason::DangerousTemperature)
         .assert(PauseReason::BrokenFan)
@@ -180,9 +172,7 @@ fn acknowledging_clears_the_overheat_halt_and_nothing_else() {
 
 #[test]
 fn an_idle_board_releases_its_own_unreadable_halt() {
-    // The halt cuts the rail, the sensor then reports an idle board, and
-    // the thermal loop retracts the message. Why it must: "Chain
-    // presence" in `docs/MINING.md`.
+    // See "Chain presence" in docs/MINING.md.
     let halted = PauseReasons::default().apply(Message::TemperatureUnreadable);
     assert!(!halted.is_empty());
     let released = halted.apply(Message::TemperatureReadable);
@@ -191,8 +181,8 @@ fn an_idle_board_releases_its_own_unreadable_halt() {
 
 #[test]
 fn a_user_resume_does_not_lift_an_overheat_halt() {
-    // `Start` answers for the operator's own pause alone. An overheat
-    // halt needs the acknowledgement, which says the operator looked.
+    // `Start` answers for the operator's own pause alone; an overheat
+    // halt needs the acknowledgement.
     let reasons = PauseReasons::default()
         .apply(Message::Stop)
         .apply(Message::DangerousTemperature)

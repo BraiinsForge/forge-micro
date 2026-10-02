@@ -22,56 +22,37 @@
 
 /// One handle for each subsystem that a board runs.
 ///
-/// A board calls [`Handles::take`] once and gives each handle to the tasks
-/// that read it or send to it, and the listeners get the whole set. The
-/// takes are in one function because each handle can be taken once, so a
-/// second place that takes one stops the boot at the second take.
+/// The takes share one function because each handle can be taken only once,
+/// see `ubos_core::take_once`. A board gives each handle to the tasks that
+/// use it, and the listeners get the whole set.
 #[derive(Clone, Copy)]
 pub struct Handles {
-    /// The temperature readings.
     pub thermal: ubos_thermal::Handle,
-    /// The pause mask and the command channel of the manager.
     pub manager: ubos_manager::Handle,
-    /// The fan telemetry.
     pub cooling: ubos_cooling::Handle,
-    /// The mining lifecycle status and commands.
     pub mining: ubos_mining::Handle,
-    /// The network identity and the request count.
     pub net: ubos_net::net::Handle,
-    /// The persisted configuration.
     pub config: ubos_config::Handle,
-    /// The commands and the readings of the power supply.
     pub psu: ubos_psu::Handle,
-    /// The pool counters of the stratum sessions.
     pub stratum: stratum_client::PoolCountersHandle,
 }
 
 /// The right to run the task of each subsystem that a board runs.
 ///
-/// Each runner except the network publisher is not `Copy`, so a board that
-/// gives one to a task cannot give it to a second, and the compiler
-/// rejects a second task for the same subsystem.
+/// Each runner except the network publisher, which the board and two tasks
+/// share, is not `Copy`, so the compiler rejects a second task for one
+/// subsystem.
 pub struct Runners {
-    /// The sensor loop.
     pub thermal: ubos_thermal::Runner,
-    /// The command router.
     pub manager: ubos_manager::Runner,
-    /// The fan loop.
     pub cooling: ubos_cooling::Runner,
-    /// The miner.
     pub mining: ubos_mining::Runner,
-    /// The publisher of the network identity, which the board and two
-    /// tasks share.
     pub net: ubos_net::net::Publisher,
-    /// The config task.
     pub config: ubos_config::Runner,
-    /// The power supply task.
     pub psu: ubos_psu::Runner,
 }
 
 impl Handles {
-    /// Take every handle and every runner.
-    ///
     /// # Panics
     ///
     /// Panics when any handle was taken before.
