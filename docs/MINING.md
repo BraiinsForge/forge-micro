@@ -69,7 +69,10 @@ both injected at spawn:
 
 `ubos-manager::run_manager` is the sole caller of `MiningHandle::halt`
 and `MiningHandle::resume`. It owns a `PauseReasons` bitmask published
-on `STATE_WATCH` and flips edges on the empty/non-empty boundary:
+on `STATE_WATCH` and flips edges on the empty/non-empty boundary. One
+resume is sent without an edge: a `Start` that finds the mask empty,
+which is how an operator restarts a miner that parked itself after a
+bring-up found no chain.
 
 | Producer         | `Message` sent to the manager | `PauseReason` bit asserted |
 |------------------|-------------------------------|----------------------------|
@@ -187,7 +190,12 @@ STOP and HALT can interrupt the retry delay without another rail cut.
 
 A persistent chip-count mismatch parks the affected chain.
 The other present chains continue.
-If no chain becomes present, the miner cuts the rail and retries the machine.
+If no chain becomes present, the miner cuts the rail and starts another
+cycle. It does this for `BRING_UP_CYCLES` cycles. After the last one it
+parks the machine, with the chains in reset and the rail off, and waits
+for a resume. The manager sends one for a Start that finds nothing
+paused, so an operator sends Start, or reboots the board. A cycle that
+brings a chain up gives the budget back.
 
 ### Policy and hardware boundary
 

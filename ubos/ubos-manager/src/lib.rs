@@ -20,7 +20,9 @@
 //! Mining-pause manager: aggregates pause reasons, owns the
 //! `Watch<PauseReasons>` write side, and drives
 //! `Handle::halt`/`resume` on the empty/non-empty edge of the
-//! pause mask. Senders push `Message`s via `Handle::send`;
+//! pause mask, and `resume` once more on a `Start` that finds the
+//! mask empty, for a miner that parked itself. Senders push
+//! `Message`s via `Handle::send`;
 //! the manager task interprets each message into a `PauseReason` bit
 //! transition. The manager task is the sole caller of
 //! `Handle::halt`/`resume`.

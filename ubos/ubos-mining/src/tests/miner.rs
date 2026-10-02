@@ -565,6 +565,46 @@ fn bring_up_all_returns_none_present_when_no_chain_comes_up() {
     });
 }
 
+/// The outer budget: every cycle that brings no chain up cuts the rail
+/// and tries again, until `BRING_UP_CYCLES` is spent and the machine
+/// parks instead. A cycle that does bring a chain up starts the count
+/// again, so an occasional empty cycle never reaches the park.
+#[test]
+fn empty_cycles_spend_the_outer_budget_and_a_good_cycle_starts_it_again() {
+    type TestMiner<'a> = Miner<'a, TestPsu, LoggingResetPin, crate::tuner::Tuners, 1>;
+
+    static ACTOR: Serial = Serial::new(0, 1);
+    static STATS: [ChainStats; 1] = [ChainStats::new()];
+    static ACTIVE: AtomicU8 = AtomicU8::new(1);
+
+    static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+    let psu = TestPsu {
+        log: &LOG,
+        disable_fails: false,
+        behavior: Cell::new(VoltageWrite::Succeed),
+    };
+    let stats_handle = ChainStatsHandle::new(&STATS, &ACTIVE);
+    let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [stats_handle.chain(0)]);
+
+    for cycle in 1..TestMiner::BRING_UP_CYCLES {
+        assert!(
+            !miner.empty_cycle_spends_the_budget(),
+            "cycle {cycle} of {} must still cut the rail and retry",
+            TestMiner::BRING_UP_CYCLES
+        );
+    }
+    assert!(
+        miner.empty_cycle_spends_the_budget(),
+        "the last cycle of the budget parks the machine"
+    );
+
+    miner.empty_cycles = 0;
+    assert!(
+        !miner.empty_cycle_spends_the_budget(),
+        "a cycle that brought a chain up gives the budget back"
+    );
+}
+
 #[test]
 fn bring_up_all_returns_done_when_at_least_one_chain_comes_up_present() {
     // See the doc comment on `run_bring_up_chain`.
@@ -738,6 +778,7 @@ fn test_miner<'a, T: MachineTuner<CHAINS, PlatformReadings = ()>, const CHAINS: 
         }),
         halted: false,
         read_platform: || (),
+        empty_cycles: 0,
     }
 }
 

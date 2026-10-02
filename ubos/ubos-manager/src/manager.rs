@@ -23,7 +23,8 @@
 //! interprets each [`Message`] into a `PauseReason` bit
 //! transition on the live [`PauseReasons`] mask, publishes the updated
 //! mask on [`STATE_WATCH`], and drives `MiningHandle::halt`/`resume` on
-//! the empty/non-empty edge.
+//! the empty/non-empty edge. A `Start` that finds nothing paused is
+//! forwarded as a resume too, for a miner that parked itself.
 
 use ubos_logging::info;
 use ubos_mining::Handle as MiningHandle;
@@ -86,6 +87,12 @@ fn halt_reason(message: Message) -> Option<PauseReason> {
 /// empty/non-empty edge. Manager is the sole caller of
 /// `MiningHandle::halt`/`resume`; senders construct domain messages
 /// and never name a `PauseReason`.
+///
+/// One resume is sent without an edge: a `Start` that leaves the mask
+/// empty, which is the operator's answer to a miner that parked itself
+/// after a bring-up found no chain. Nothing was paused, so no reason
+/// clears, and without this the park could only be left through a
+/// pause and a resume. A miner that is not parked ignores the resume.
 pub async fn run_manager(mining: MiningHandle) -> ! {
     let publisher = STATE_WATCH.sender();
     let mut reasons = PauseReasons::default();
@@ -123,6 +130,8 @@ pub async fn run_manager(mining: MiningHandle) -> ! {
         } else if !was_empty && is_empty {
             crate::events::mining_resumed();
             // Restart only when the last pause reason has cleared.
+            mining.resume().await;
+        } else if is_empty && message == Message::Start {
             mining.resume().await;
         }
     }

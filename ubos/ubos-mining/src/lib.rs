@@ -63,6 +63,7 @@ ubos_events::events! {
     chain_chip_count_mismatch(chain: u8, found: u8, expected: u8)
                                                    error = "Chain {} has {} chips, expected {}",
     chain_absent(chain: u8)                       info  = "Chain {} has no hashboard",
+    chains_parked(cycles: u8)                     error = "No chain answered in {} cycles. The miner is parked until Start",
     chain_configure_failed(chain: u8, attempt: u8) error = "Chain {} refused its configuration on attempt {}",
     frequency_ramp_started(freq_khz: u32)         info  = "Frequency ramp started to {} kHz",
     frequency_ramp_complete(freq_khz: u32)        info  = "Frequency ramp complete at {} kHz",

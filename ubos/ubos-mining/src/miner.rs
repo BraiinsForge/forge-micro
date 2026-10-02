@@ -175,6 +175,10 @@ where
     /// Readings only this board's platform has. Read once per step and
     /// passed to the tuner.
     read_platform: fn() -> T::PlatformReadings,
+    /// Bring-up cycles that found no chain since the last one that did.
+    /// Counts toward `BRING_UP_CYCLES`, and is cleared by every cycle
+    /// that brings a chain up.
+    empty_cycles: u8,
 }
 
 impl<'a, P, R, T, const CHAINS: usize> Miner<'a, P, R, T, CHAINS>
@@ -191,6 +195,17 @@ where
     /// for the chip's rail to fully discharge and any transient cable /
     /// board glitch to clear.
     const RETRY_DELAY: Duration = Duration::from_secs(5);
+
+    /// Bring-up cycles the machine spends while no chain comes up
+    /// present, before it parks instead of cutting the rail again.
+    ///
+    /// Each cycle already gives every chain `ENUMERATE_ATTEMPTS` tries
+    /// of its own, so this is the second and outer budget: it buys the
+    /// rail cut that a chain-level retry cannot perform, and bounds it,
+    /// because a machine with nothing behind its connectors otherwise
+    /// cycles the rail for as long as it is powered, once per
+    /// `RESET_HOLD` sequence, chain retry budget and `RETRY_DELAY`.
+    const BRING_UP_CYCLES: u8 = 3;
 
     /// Construct a `Miner` from a PSU reference, the board descriptor
     /// whose chip facts drive the tuner, one serial actor with its reset
@@ -257,6 +272,7 @@ where
             chains,
             halted: false,
             read_platform,
+            empty_cycles: 0,
         }
     }
 
@@ -372,13 +388,13 @@ where
     /// cancellable by STOP and HALT the same way `start_work_phase` is.
     /// This is the last bring-up step before the tuner sees a chain.
     ///
-    /// A chain that answers zero chips is marked absent; one whose
-    /// count never settles on `self.board.num_chips`, or that answers
-    /// the count and then refuses its safe-boot configuration, within
-    /// the retry budget is marked faulted. Either way the chain is
-    /// parked in reset and left out of the ramp, and the other chains
-    /// carry on: only a bring-up where no chain comes up present cuts
-    /// the rail.
+    /// A chain whose count never settles on `self.board.num_chips`
+    /// within the retry budget is marked absent when its last answer was
+    /// no chips at all, and faulted when it was a count, a sweep no chip
+    /// answered, or a refused safe-boot configuration. Either way the
+    /// chain is parked in reset and left out of the ramp, and the other
+    /// chains carry on: only a bring-up where no chain comes up present
+    /// cuts the rail.
     async fn bring_up_chains_phase(&mut self) -> InitPhase {
         let expected = self.board.num_chips;
         match select3(
@@ -388,11 +404,11 @@ where
         )
         .await
         {
-            Either3::Third(BringUpOutcome::Done) => InitPhase::Done,
-            Either3::Third(BringUpOutcome::NonePresent) => {
-                error!("mining: no chain present; cutting rail and retrying");
-                self.cut_rail_and_settle().await
+            Either3::Third(BringUpOutcome::Done) => {
+                self.empty_cycles = 0;
+                InitPhase::Done
             }
+            Either3::Third(BringUpOutcome::NonePresent) => self.no_chain_present().await,
             Either3::First(()) => {
                 info!("mining: stop signalled during chain bring-up; cutting rail");
                 cut_rail(self.psu, &mut self.chains).await;
@@ -404,6 +420,46 @@ where
                 InitPhase::Halted
             }
         }
+    }
+
+    /// Count a bring-up cycle that brought no chain up, and decide
+    /// between another cycle and a park.
+    ///
+    /// The rail cut is what a chain-level retry cannot do, and both
+    /// failures that this budget exists for cleared on the cycle after
+    /// one. `Self::BRING_UP_CYCLES` bounds it: a machine whose
+    /// connectors are empty parks instead of cutting its rail for as
+    /// long as it is powered. A parked machine waits for the same
+    /// resume a halt waits for. The manager sends one for a Start
+    /// that finds nothing paused, so an operator sends Start, or
+    /// reboots the board.
+    async fn no_chain_present(&mut self) -> InitPhase {
+        if !self.empty_cycle_spends_the_budget() {
+            error!(
+                "mining: no chain present on cycle {} of {}; cutting rail and retrying",
+                self.empty_cycles,
+                Self::BRING_UP_CYCLES
+            );
+            return self.cut_rail_and_settle().await;
+        }
+        error!(
+            "mining: no chain present in {} cycles; parking until resume",
+            Self::BRING_UP_CYCLES
+        );
+        crate::events::chains_parked(Self::BRING_UP_CYCLES);
+        cut_rail(self.psu, &mut self.chains).await;
+        InitPhase::Parked
+    }
+
+    /// Count one bring-up cycle that brought no chain up, and report
+    /// whether that spends `Self::BRING_UP_CYCLES`.
+    ///
+    /// Separate from [`Self::no_chain_present`], and free of I/O, so
+    /// the budget is testable without the rail cut and the settle that
+    /// surround it.
+    fn empty_cycle_spends_the_budget(&mut self) -> bool {
+        self.empty_cycles = self.empty_cycles.saturating_add(1);
+        self.empty_cycles >= Self::BRING_UP_CYCLES
     }
 
     /// Cut the rail after a transient bring-up failure and hold
@@ -474,11 +530,15 @@ where
         selected: Discriminant<Tuning>,
     ) -> CycleOutcome {
         if self.halted {
-            info!("mining: halt active; awaiting clear");
+            info!("mining: rail down; awaiting resume");
             match wait_halt_clear_or_stop().await {
                 Resumed::Cleared => {
-                    info!("mining: halt cleared; restarting bring-up");
+                    info!("mining: resumed; restarting bring-up");
                     self.halted = false;
+                    // An operator who resumes asks for the whole budget
+                    // again. Without this the first cycle after a park
+                    // parks the machine a second time.
+                    self.empty_cycles = 0;
                 }
                 Resumed::Stopped => return CycleOutcome::Stop,
             }
@@ -652,7 +712,7 @@ where
         match phase {
             InitPhase::Done => None,
             InitPhase::Stop => Some(CycleOutcome::Stop),
-            InitPhase::Halted => {
+            InitPhase::Halted | InitPhase::Parked => {
                 self.halted = true;
                 Some(CycleOutcome::Continue)
             }
@@ -935,6 +995,10 @@ enum InitPhase {
     /// A `Message::Halt` edge fired during the step; the rail has been
     /// cut. The next cycle waits for Resume.
     Halted,
+    /// No chain came up in `Miner::BRING_UP_CYCLES` cycles; the rail has
+    /// been cut. The next cycle waits for Resume, exactly as a halt
+    /// does, so the machine stops cutting its rail on a loop.
+    Parked,
     /// A transient failure that has already cut the rail; the cycle
     /// restarts from a fresh config snapshot.
     Retry,
