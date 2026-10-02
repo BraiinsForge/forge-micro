@@ -101,7 +101,7 @@ const WORST_CASE_INFO_BODY_LEN: usize = 1389;
 /// - `chains`: `ubos_metrics::chain::MAX_CHAINS` entries — the most any board
 ///   can report, since [`ubos_metrics::chain::ChainStatsHandle::chain_count`]
 ///   never exceeds the table it wraps — each with `chips` at `u16::MAX`
-///   (5 digits), `frequency_mhz` at `u32::MAX` (10 digits), `hashrate`
+///   (5 digits), `frequency_khz` at `u32::MAX` (10 digits), `hashrate`
 ///   at `u64::MAX` (20 digits), and `hottest_c` at `i32::MIN / 1000` (7
 ///   digits including the sign), the widest `state` string
 ///   (`"unknown"`/`"faulted"`, 7 chars).
@@ -160,7 +160,7 @@ fn api_info_body_fits_in_buffer() {
     // `ubos_metrics::chain::MAX_CHAINS`, so that bound is the worst case
     // regardless of how many chains any one board actually owns.
     let chain_chips = u16::MAX;
-    let chain_frequency_mhz = u32::MAX;
+    let chain_frequency_khz = u32::MAX;
     let chain_hashrate = u64::MAX;
     let chain_hottest_c = i32::MIN / 1000;
     let mut chains = std::string::String::from(",\"chains\":[");
@@ -173,7 +173,7 @@ fn api_info_body_fits_in_buffer() {
             "{{\"chain\":{chain},\
              \"state\":\"unknown\",\
              \"chips\":{chain_chips},\
-             \"frequency_mhz\":{chain_frequency_mhz},\
+             \"frequency_khz\":{chain_frequency_khz},\
              \"hashrate\":{chain_hashrate},\
              \"hottest_c\":{chain_hottest_c}}}"
         );
@@ -429,7 +429,7 @@ fn write_chains_renders_the_chains_array() {
         "unexpected chains array framing: {json}"
     );
     assert!(
-        json.contains("\"chain\":0,\"state\":\"present\",\"chips\":105,\"frequency_mhz\":650"),
+        json.contains("\"chain\":0,\"state\":\"present\",\"chips\":105,\"frequency_khz\":650000"),
         "chain 0 fields missing or wrong: {json}"
     );
     assert!(

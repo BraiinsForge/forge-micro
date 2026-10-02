@@ -215,11 +215,11 @@ fn write_chains(
             "{{\"chain\":{chain},\
              \"state\":\"{state}\",\
              \"chips\":{},\
-             \"frequency_mhz\":{},\
+             \"frequency_khz\":{},\
              \"hashrate\":{},\
              \"hottest_c\":",
             stats.chips(),
-            stats.frequency().mhz(),
+            stats.frequency().khz(),
             stats.hashrate(),
         );
         match stats.hottest_mc() {

@@ -241,7 +241,7 @@ export default function Dashboard() {
               <div class={'hb ' + st.cls} key={chain.chain}>
                 <span>{chain.chain}</span>
                 <span>{present ? chain.chips : '—'}</span>
-                <span>{present ? chain.frequency_mhz + ' MHz' : '—'}</span>
+                <span>{present ? chain.frequency_khz / 1000 + ' MHz' : '—'}</span>
                 <span>{present ? fmtHr(chain.hashrate) : '—'}</span>
                 <span>{chain.hottest_c == null ? '—' : chain.hottest_c + ' °C'}</span>
                 <StatusDot text={st.text} dot={st.dot} />

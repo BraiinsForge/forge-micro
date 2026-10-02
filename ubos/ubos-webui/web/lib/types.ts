@@ -18,7 +18,7 @@ export interface ChainInfo {
   chain: number;
   state: 'present' | 'absent' | 'faulted' | 'unknown';
   chips: number;
-  frequency_mhz: number;
+  frequency_khz: number;
   hashrate: number;
   hottest_c: number | null;
 }
