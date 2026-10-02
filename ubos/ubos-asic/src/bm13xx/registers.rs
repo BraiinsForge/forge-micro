@@ -326,8 +326,7 @@ pub struct MiscCtrlReg {
     #[bits(1)]
     pub rfs: u8,
     pub unknown_bit_15: bool,
-    /// Opaque bit at position 16. The V2 register layout groups bits
-    /// 19:16 as a raw `B19_16` field.
+    /// The V2 register layout groups bits 19:16 as a raw `B19_16` field.
     pub unknown_bit_16: bool,
     #[bits(5)]
     pub unknown_bits_21_17: u8,
@@ -364,10 +363,9 @@ pub const MISC_CTRL_DEFAULT_BRINGUP: u32 = 0xb000_c100;
 
 /// Fast-UART configuration register (`0x28`).
 ///
-/// Programs the baud-rate divisor (`bt8d`) and clock-source selector
-/// bits for the high-speed UART path:
-/// `baud = uart_clk / ((bt8d + 1) * 8)`. Bits without a known field
-/// name are preserved as raw groups.
+/// Programs the baud-rate divisor (`bt8d`, see [`Self::bt8d`] for the
+/// formula) and clock-source selector bits for the high-speed UART
+/// path. Bits without a known field name are preserved as raw groups.
 /// [`BAUDRATE_FAST_3MBAUD`] captures the current fast-path preset.
 #[bitfield(u32)]
 #[derive(PartialEq, Eq)]
@@ -395,7 +393,6 @@ pub struct BaudRateReg {
     #[bits(1)]
     pub bclk_sel: u8,
     pub raw_bit_27: bool,
-    /// Raw bit B28.
     pub b28: bool,
     pub raw_bit_29: bool,
     pub raw_bit_30: bool,
@@ -447,7 +444,6 @@ pub struct UartRelayReg {
     /// Response-out relay enable. Set on the domain boundary chips to
     /// forward the response-out signal across the boundary.
     pub ro_rel_en: bool,
-    /// Opaque bits at positions 15:2; preserved but not characterized.
     #[bits(14)]
     pub unknown_bits_15_2: u16,
     /// Inter-byte gap count inserted by the relay when forwarding the
@@ -529,16 +525,13 @@ pub struct CoreControlReg {
     /// Target per-core register.
     #[bits(5)]
     pub reg_addr: CoreRegister,
-    /// Reserved bit; preserved byte-exact.
     pub reserved_bit_13: bool,
-    /// Opaque bit at position 14.
     pub unknown_bit_14: bool,
     /// Direction. `true` writes [`Self::reg_wdata`] into the selected
     /// register; `false` triggers a read.
     pub reg_wr: bool,
     /// Origin core ID for ranged or single-core operations.
     pub core_id: u8,
-    /// Opaque bits at positions 30:24.
     #[bits(7)]
     pub unknown_bits_30_24: u8,
     /// High command bit (`DO_CMD`).
@@ -1000,9 +993,7 @@ pub struct MidstateCalReg {
     pub reserved_mid: u16,
     /// Second enable bit (`EN2`) at position 28.
     pub en2: bool,
-    /// Opaque bit at position 29.
     pub unknown_bit_29: bool,
-    /// Opaque bit at position 30.
     pub unknown_bit_30: bool,
     /// Primary enable bit (`EN`) at position 31.
     pub en: bool,
@@ -1074,11 +1065,9 @@ pub struct SoftResetControlReg {
     /// Raw selector nibble `B7_4` at bits 7:4.
     #[bits(4)]
     pub b7_4: u8,
-    /// Raw bit B8. Semantics are family-specific.
+    /// Semantics are family-specific.
     pub b8: bool,
-    /// Unnamed raw bit 9.
     pub b9: bool,
-    /// Raw bit B10.
     pub b10: bool,
     /// Reserved bits 15:11.
     #[bits(5)]

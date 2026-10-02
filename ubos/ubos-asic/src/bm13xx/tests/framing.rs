@@ -73,9 +73,9 @@ fn crc5_register_response() {
     assert_eq!(crc5(&data, 0x03, false), 0x1E);
 }
 
-/// `version_bits` composed with `chain::rolled_version` is exactly the
-/// pipeline a solution takes: the driver reports the masked bits and the
-/// consumer re-merges them into the base version.
+// `version_bits` composed with `chain::rolled_version` is exactly the
+// pipeline a solution takes: the driver reports the masked bits and the
+// consumer re-merges them into the base version.
 #[test]
 fn work_response_rolled_version() {
     let response = HwSolution {

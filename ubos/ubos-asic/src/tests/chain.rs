@@ -39,11 +39,11 @@ fn word_swap_prev_hash(input: &[u8; 32]) -> [u8; 32] {
     output
 }
 
-/// Locks ubos-mining's local share-verification hash to
-/// `mining_protocol::hashing::header_hash`. Both sides reconstruct the
-/// same canonical block header from the same `WorkAssignment` fields,
-/// and the pool will reject any submit whose chip-side hash diverges
-/// from what it recomputes for the same `(prev_hash, ntime, nonce, ...)`.
+// Locks ubos-mining's local share-verification hash to
+// `mining_protocol::hashing::header_hash`. Both sides reconstruct the
+// same canonical block header from the same `WorkAssignment` fields,
+// and the pool will reject any submit whose chip-side hash diverges
+// from what it recomputes for the same `(prev_hash, ntime, nonce, ...)`.
 #[test]
 fn solution_hash_matches_mining_protocol_reference() {
     let mut stratum_prev = [0u8; 32];
@@ -78,8 +78,6 @@ fn solution_hash_matches_mining_protocol_reference() {
     assert_eq!(actual_hash, reference);
 }
 
-/// `rolled_version` replaces only the BIP320 field, keeping every
-/// out-of-field bit of the base version.
 #[test]
 fn rolled_version_replaces_only_the_bip320_field() {
     assert_eq!(
@@ -97,9 +95,9 @@ fn rolled_version_replaces_only_the_bip320_field() {
     );
 }
 
-/// A partial rolled mask merges only its own bits; a fixed bit outside
-/// the rolled mask survives from the base version regardless of what
-/// the echoed value carries there.
+// A partial rolled mask merges only its own bits; a fixed bit outside
+// the rolled mask survives from the base version regardless of what
+// the echoed value carries there.
 #[test]
 fn rolled_version_merges_only_the_rolled_mask() {
     let base = 0x2004_0000;
@@ -108,8 +106,6 @@ fn rolled_version_merges_only_the_rolled_mask() {
     assert_eq!(rolled_version(base, echoed, rolled_mask), 0x2004_E000);
 }
 
-/// A single chain gets the whole granted mask to roll and no fixed
-/// bits.
 #[test]
 fn partition_version_mask_single_chain_keeps_whole_mask() {
     let partition = partition_version_mask(BIP320_VERSION_MASK, HashboardIndex(0), 1);
@@ -117,10 +113,10 @@ fn partition_version_mask_single_chain_keeps_whole_mask() {
     assert_eq!(partition.rolled_mask, BIP320_VERSION_MASK);
 }
 
-/// Three chains share one rolled mask (the granted mask minus its top
-/// two set bits, since `index_bits` for 3 chains is 2) and differ only
-/// in which bits are fixed. The fixed bits are pairwise distinct and
-/// never overlap the shared rolled mask.
+// Three chains share one rolled mask (the granted mask minus its top
+// two set bits, since `index_bits` for 3 chains is 2) and differ only
+// in which bits are fixed. The fixed bits are pairwise distinct and
+// never overlap the shared rolled mask.
 #[test]
 fn partition_version_mask_three_chains_share_rolled_mask_and_differ_in_fixed_bits() {
     let granted = BIP320_VERSION_MASK;
@@ -140,8 +136,6 @@ fn partition_version_mask_three_chains_share_rolled_mask_and_differ_in_fixed_bit
     assert_ne!(partitions[1].fixed_bits, partitions[2].fixed_bits);
 }
 
-/// An empty granted mask stays empty for every chain: nothing to fix
-/// and nothing to roll.
 #[test]
 fn partition_version_mask_empty_mask_stays_empty() {
     for chain in 0..3 {
@@ -151,9 +145,9 @@ fn partition_version_mask_empty_mask_stays_empty() {
     }
 }
 
-/// A one-bit mask cannot supply the two index bits three chains need:
-/// chain 0 keeps the whole (one-bit) mask to roll, and every other
-/// chain gets nothing, pinning its version to the base value.
+// A one-bit mask cannot supply the two index bits three chains need:
+// chain 0 keeps the whole (one-bit) mask to roll, and every other
+// chain gets nothing, pinning its version to the base value.
 #[test]
 fn partition_version_mask_too_few_bits_pins_every_chain_but_the_first() {
     let granted = 0x0000_2000;
@@ -175,9 +169,9 @@ fn partition_version_mask_too_few_bits_pins_every_chain_but_the_first() {
     }
 }
 
-/// One echo style: the chip returns only the bits it rolled, so
-/// `version_bits` carries just the rolled index and the fixed bits must
-/// already sit in the base version the consumer built at dispatch.
+// One echo style: the chip returns only the bits it rolled, so
+// `version_bits` carries just the rolled index and the fixed bits must
+// already sit in the base version the consumer built at dispatch.
 #[test]
 fn rolled_version_reconstructs_a_rolled_bits_only_echo_for_a_partitioned_chain() {
     let granted = BIP320_VERSION_MASK;
@@ -203,10 +197,10 @@ fn rolled_version_reconstructs_a_rolled_bits_only_echo_for_a_partitioned_chain()
     assert_eq!(header_version, expected);
 }
 
-/// Whole-field echo: the chip returns the whole field value, fixed
-/// bits included, but the rolled mask still narrows the merge to the
-/// bits that can legitimately differ, so the result is identical to the
-/// reconstruction the rolled-only echo above produces.
+// Whole-field echo: the chip returns the whole field value, fixed
+// bits included, but the rolled mask still narrows the merge to the
+// bits that can legitimately differ, so the result is identical to the
+// reconstruction the rolled-only echo above produces.
 #[test]
 fn rolled_version_reconstructs_a_whole_field_echo_for_a_partitioned_chain() {
     let granted = BIP320_VERSION_MASK;
@@ -227,9 +221,8 @@ fn rolled_version_reconstructs_a_whole_field_echo_for_a_partitioned_chain() {
     assert_eq!(header_version, expected);
 }
 
-/// `from_pow2_difficulty` reproduces the hand-built byte arrays it
-/// replaced: difficulty one places `0xFFFF` at bit 208, and each
-/// doubling of the difficulty shifts the mantissa right one bit.
+// Difficulty one places `0xFFFF` at bit 208, and each doubling of the
+// difficulty shifts the mantissa right one bit.
 #[test]
 fn from_pow2_difficulty_places_the_mantissa() {
     let mut diff_one = [0u8; 32];

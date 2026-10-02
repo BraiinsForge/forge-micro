@@ -17,18 +17,18 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Byte-level chip serial transport (sans-IO seam).
+//! Byte-level chip serial transport, the crate's sans-IO seam.
 //!
 //! [`Transport`] is the crate's I/O boundary: the raw UART byte stream, a
-//! runtime baud switch, and a settle-delay timer. The consumer
-//! (`ubos-mining`) implements it over the real serial link; every
-//! vendor's wire framing lives above it inside this crate, so `ubos-asic`
-//! stays `#![no_std]`, performs no direct I/O, and is unit-testable
-//! against a mock transport.
+//! runtime baud switch, and a settle-delay timer. `ubos-mining`
+//! implements it over the real serial link, and every vendor's wire
+//! framing lives above it inside this crate, so `ubos-asic` stays
+//! `#![no_std]`, performs no direct I/O, and is unit-testable against a
+//! mock transport.
 //!
-//! This is the lowered replacement for the register-shaped `ChipBus`:
-//! different chip families frame incompatibly, so the shared seam sits
-//! below framing, at the level of bytes and baud.
+//! The seam sits below framing, at the level of bytes and baud, because
+//! different chip families frame incompatibly and share nothing above
+//! it.
 
 /// A failed host-side baud switch. Carries no backend detail: the
 /// transport logs the specifics itself; the driver only needs to know
@@ -42,9 +42,7 @@ pub struct BaudRateError;
 /// moves bytes, switches the line rate, and waits. Reads are cancel-safe:
 /// the implementation buffers incoming bytes so a dropped `read` future
 /// loses no data.
-// The async-fn-in-trait pattern matches the project-wide convention
-// established by `ubos_psu::Psu` and the former `ChipBus`. Send bounds
-// are not required on this single-task embedded target.
+// Send bounds are not required on this single-task embedded target.
 #[allow(async_fn_in_trait)]
 pub trait Transport {
     /// Write every byte of `bytes` to the line.

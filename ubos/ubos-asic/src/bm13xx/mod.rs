@@ -25,8 +25,7 @@
 //! and the register model the crate-private `chip::ChipProtocol` recipe
 //! drives over the register-shaped `chip::ChipBus`. The vendor-neutral
 //! seam these plug into lives in [`crate::chain`]; the `Bm13xxDriver`
-//! adapter that presents this family as a [`crate::chain::ChainDriver`]
-//! lands alongside these modules.
+//! adapter presents this family as a [`crate::chain::ChainDriver`].
 
 pub(crate) mod baud;
 pub(crate) mod chip;

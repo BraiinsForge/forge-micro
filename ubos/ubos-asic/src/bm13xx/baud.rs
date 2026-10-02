@@ -55,14 +55,8 @@ const fn baud_env_to_hz(env: Option<&str>, default_hz: u32) -> u32 {
     baud
 }
 
-/// Requested baud rate for the BM1370 fast-UART phase, in Hz.
-///
-/// Defaults to `520_833` (bt8d=5), the rate validated for the BM1370: its
-/// chip serial pair has marginal signal integrity, so the 3.125 Mbaud the chip
-/// would otherwise run accumulates framing errors and resyncs; the slower
-/// rate increases the per-bit sampling window by roughly 6x. Both the chip
-/// register and the host divider derive from this one value so they cannot
-/// drift apart.
+/// Requested baud rate for the BM1370 fast-UART phase, in Hz; see the
+/// module doc for why `520_833` is the validated default.
 const MINING_BAUDRATE_HZ: u32 = baud_env_to_hz(option_env!("MINING_BAUDRATE"), 520_833);
 
 /// bt8d divider for the BM1370 fast-UART rate, derived at build time.

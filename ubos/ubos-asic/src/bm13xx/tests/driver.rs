@@ -376,9 +376,9 @@ fn expected_midstate_cal_write(bitmask: u16) -> heapless::Vec<u8, 4096> {
     out
 }
 
-/// A job whose `version_mask` narrows the BIP320 field to `0x0000_E000`
-/// broadcasts a `MidstateCalReg` write with bitmask `0x0007` (the field
-/// shifted down by 13) before the work frame.
+// A job whose `version_mask` narrows the BIP320 field to `0x0000_E000`
+// broadcasts a `MidstateCalReg` write with bitmask `0x0007` (the field
+// shifted down by 13) before the work frame.
 #[test]
 fn send_work_programs_the_narrowed_version_rolled_bitmask() {
     let mut driver = Bm13xxDriver::new(Chip::Bm1362);
@@ -401,9 +401,9 @@ fn send_work_programs_the_narrowed_version_rolled_bitmask() {
     assert!(io.writes.starts_with(expected_register_write.as_slice()));
 }
 
-/// A second `send_work` with the same narrowed mask writes no further
-/// `MidstateCalReg` register — the driver remembers what it already
-/// programmed.
+// A second `send_work` with the same narrowed mask writes no further
+// `MidstateCalReg` register — the driver remembers what it already
+// programmed.
 #[test]
 fn send_work_skips_the_register_write_when_the_mask_is_unchanged() {
     let mut driver = Bm13xxDriver::new(Chip::Bm1362);
@@ -440,9 +440,9 @@ fn send_work_skips_the_register_write_when_the_mask_is_unchanged() {
     assert_eq!(&io.writes[after_first..], hw_work.as_slice());
 }
 
-/// A job that grants the full BIP320 field after `reset_and_enumerate`
-/// (which already broadcasts `MidstateCalReg::factory_default`, whose
-/// bitmask is the full `0xFFFF`) causes no register write at all.
+// A job that grants the full BIP320 field after `reset_and_enumerate`
+// (which already broadcasts `MidstateCalReg::factory_default`, whose
+// bitmask is the full `0xFFFF`) causes no register write at all.
 #[test]
 fn send_work_with_the_full_mask_after_reset_writes_no_register() {
     let mut driver = Bm13xxDriver::new(Chip::Bm1362);

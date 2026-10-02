@@ -80,9 +80,7 @@ const MISC_SETTINGS_REPEATS: usize = 2;
 /// driver's `TransportBus`, which frames each call onto the consumer's
 /// byte-level `Transport`, and by the mock bus in tests. Register writes
 /// and control commands are fire-and-forget; only reads can fail.
-// The async-fn-in-trait pattern matches the project-wide convention
-// established by `ubos_psu::Psu`.
-// Send bounds are not required on this single-task embedded target.
+// async_fn_in_trait: see `mining_protocol::client::MiningClient`.
 #[allow(async_fn_in_trait)]
 pub trait ChipBus {
     /// Write a raw `value` to register `reg` on `addr` (a single chip or
@@ -160,11 +158,8 @@ pub trait ChipProtocol {
     /// frames to their 11-byte form — which the parser and every later
     /// read depend on, so it must happen before the first read.
     async fn reset_chain(&self, bus: &mut impl ChipBus) {
-        // Mirror the captured reset order: quiesce, configure misc
-        // control, then enable hardware version rolling. Version rolling
-        // switches responses to their 11-byte form, which the parser and
-        // every later read depend on; sequenced last here it still
-        // precedes the first read in `enumerate_chips`.
+        // Version rolling is enabled last here; it still precedes the
+        // first read in `enumerate_chips`.
         bus.write_register(ChipAddress::All, SoftResetControlReg::quiescent())
             .await;
         bus.delay_ms(RESET_GAP_MS).await;
@@ -406,7 +401,7 @@ pub trait ChipProtocol {
     /// Per-chip core re-arm run immediately after [`Self::set_pll`]. Some
     /// chips latch their core-clock configuration against the running hash
     /// clock, so the core-clock-enable writes only take once the PLL is up;
-    /// doing them earlier (against the boot clock) leaves cores idle and
+    /// doing them earlier, against the boot clock, leaves cores idle and
     /// roughly halves the hashrate. The default is a no-op for chips that
     /// configure their cores entirely before the PLL.
     async fn post_pll_rearm(&self, _bus: &mut impl ChipBus) {}
@@ -707,9 +702,7 @@ impl ChipProtocol for Bm1370 {
     }
 
     async fn enable_fast_uart(&self, bus: &mut impl ChipBus) {
-        // The BM1370 chip serial pair cannot sustain 3 Mbaud; use the
-        // SI-safe rate (520 833 Hz default, bt8d=5) instead. The host
-        // switches to the matching rate via fast_uart_host_rate().
+        // See `baud::BM1370_FAST_UART_BT8D` for why this rate.
         bus.write_register(
             ChipAddress::All,
             BaudRateReg::fast_3mbaud().with_bt8d(super::baud::BM1370_FAST_UART_BT8D),
@@ -722,19 +715,17 @@ impl ChipProtocol for Bm1370 {
     }
 
     async fn post_pll_rearm(&self, bus: &mut impl ChipBus) {
-        // The S21 Pro capture re-arms the cores against the running hash
-        // clock after the PLL is up: a domain soft-reset, MiscCtrl, then the
-        // three CoreControl writes whose last value enables the core clocks —
-        // without this the cores stay idle and the hashrate halves. The tail
-        // re-asserts the MiscSettings bring-up preset, enables the on-die
-        // thermal-diode mux (else the board runs die-temp blind), and sets one
-        // more CoreControl. The capture issues these per chip; broadcast is
-        // tried here since the same registers are broadcast-written pre-PLL.
+        // Re-arms the cores: a domain soft-reset, MiscCtrl, then three
+        // CoreControl writes whose last value enables the core clocks;
+        // see `ChipProtocol::post_pll_rearm` for why. The tail
+        // re-asserts the MiscSettings bring-up preset, enables the
+        // on-die thermal-diode mux — else the board runs die-temp blind
+        // — and sets one more CoreControl. Broadcast works here since
+        // the same registers are broadcast-written pre-PLL.
         //
-        // Each write goes through its typed register. Where the value matches
-        // a named preset it uses that; the remaining opaque payloads, whose
-        // individual fields are not yet decoded, are loaded byte-exact to the
-        // capture via `from_bits`.
+        // Each write goes through its typed register; where the value
+        // matches a named preset it uses that, and the remaining opaque
+        // payloads load byte-exact via `from_bits`.
         bus.write_register(
             ChipAddress::All,
             SoftResetControlReg::new()

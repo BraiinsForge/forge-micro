@@ -305,10 +305,9 @@ fn nonce_offsets_are_computed_per_chip() {
     assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
-/// Regression: a zero-chip board must return from the nonce split
-/// without dividing the offset space by the chip count, and without
-/// writing any nonce-offset register. Pins the empty-chain guard so a
-/// refactor cannot reintroduce the division by zero.
+// A zero-chip board must return from the nonce split without dividing
+// the offset space by the chip count and without writing any
+// nonce-offset register.
 #[test]
 fn nonce_split_on_an_empty_chain_writes_nothing() {
     let mut board = BMM101_HASHBOARD;
@@ -321,9 +320,9 @@ fn nonce_split_on_an_empty_chain_writes_nothing() {
     );
 }
 
-/// Regression: the `BMM101_HASHBOARD` (four chips, four domains, chips-per-domain=1)
-/// must not emit any `UartRelayReg` (0x2c) writes; single-chip-per-domain
-/// chains need no relay programming.
+// A four-chip, four-domain board with one chip per domain needs no
+// relay programming, so BMM101_HASHBOARD must emit no UartRelayReg
+// writes.
 #[test]
 fn bm1362_single_chip_per_domain_emits_no_uart_relay_writes() {
     let (ops, _) = run_bringup(4);

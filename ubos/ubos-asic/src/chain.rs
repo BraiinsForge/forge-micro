@@ -318,8 +318,8 @@ pub enum ResultMode {
 
 /// A vendor-neutral mining job handed to [`ChainDriver::send_work`].
 ///
-/// Header fields are in canonical Bitcoin internal byte order, matching
-/// the former `HwWork`; the stratum adapter word-swaps on arrival.
+/// Header fields are in canonical Bitcoin internal byte order; the
+/// stratum adapter word-swaps on arrival.
 /// `work_id` is the consumer-assigned correlation token: the driver
 /// encodes it into the wire frame in whatever vendor-specific way the
 /// chip echoes back, and returns it in [`ChainSolution::work_id`] so the
@@ -535,8 +535,7 @@ impl core::ops::Deref for ShareTarget {
 /// then steady state — [`Self::send_work`] on a ticker plus solution
 /// collection via [`Self::ingest`] or [`Self::poll_results`] according to
 /// [`Self::result_mode`].
-// The async-fn-in-trait pattern matches the project-wide convention
-// established by `ubos_psu::Psu` and the former `ChipProtocol`.
+// async_fn_in_trait: see `mining_protocol::client::MiningClient`.
 #[allow(async_fn_in_trait)]
 pub trait ChainDriver {
     /// Static capability and identity constants for this chip model.

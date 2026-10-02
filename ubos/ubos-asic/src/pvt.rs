@@ -28,11 +28,9 @@
 //! a cell that has never been written reads as absent rather than as
 //! zero.
 //!
-//! What the store hands out is mostly the chain's aggregate: the thermal
-//! loop needs the hottest and the mean die temperature the chain reported
-//! and whether the chain is still reporting at all. One chip's die
-//! temperature is handed out too, for the metric that publishes every
-//! chip's reading.
+//! The store hands out the chain's aggregate the thermal loop needs, the
+//! hottest and the mean die and whether the chain still reports, and each
+//! chip's die temperature for the per-chip metric.
 
 use core::cell::RefCell;
 use core::num::NonZeroU8;

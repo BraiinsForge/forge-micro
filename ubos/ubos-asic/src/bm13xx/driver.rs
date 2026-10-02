@@ -52,8 +52,7 @@ use super::registers::{MidstateCalReg, Register, TicketMaskReg};
 mod tests;
 
 /// Share difficulty programmed at bring-up: 1 accepts every chip find so
-/// the host sees the full nonce stream. Matches the former
-/// `ubos_mining::consts::DIFFICULTY`.
+/// the host sees the full nonce stream.
 const BRINGUP_DIFFICULTY: u32 = 1;
 
 // A ticket mask exists only for a power-of-two difficulty, so
@@ -66,8 +65,7 @@ const _: () = assert!(BRINGUP_DIFFICULTY.is_power_of_two());
 const BOOT_UART_RATE: u32 = 115_200;
 
 /// Settle window held on either side of the fast-UART baud switch so
-/// in-flight bytes are not garbled. Matches the former
-/// `Serial::BAUD_CHANGE_DRAIN` of one second.
+/// in-flight bytes are not garbled.
 const BAUD_DRAIN_MS: u32 = 1_000;
 
 /// Per-read wait while collecting register replies during enumeration.
@@ -107,16 +105,11 @@ pub struct Bm13xxDriver {
     /// last one.
     ///
     /// The register is one value for the whole chain while the mask is a
-    /// property of each job, and the two disagree whenever a chain is
-    /// fed from two pool slots whose grants differ. The chips keep a job
-    /// resident in its work slot, so a job dispatched under a narrow
-    /// mask keeps rolling after a later job widens the register, and its
-    /// solutions come back with bits the consumer's per-job mask
-    /// excludes. Those shares fail their own difficulty check and are
-    /// dropped rather than mis-submitted, so the cost is lost shares on
-    /// a pool switch and never a bad submission. Draining the in-flight
-    /// work before widening is the fix and is not done: it needs a
-    /// bounded drain the seam has no room for today.
+    /// property of each job: a job dispatched under a narrower mask keeps
+    /// rolling after a later job widens the register, so its solutions
+    /// can carry bits the consumer's per-job mask excludes. Those shares
+    /// fail their own difficulty check and are dropped, never
+    /// mis-submitted.
     programmed_mask: Option<u16>,
 }
 
@@ -168,8 +161,7 @@ impl<T: Transport> ChipBus for TransportBus<'_, T> {
         // reply then times out, a broadcast read drains every responder
         // then times out. The output buffer and the byte budget are the
         // other bounds. There is deliberately no pre-drain of stale line
-        // bytes (the former actor discarded queued replies before each
-        // read): the register filter below rejects a stale reply for any
+        // bytes: the register filter below rejects a stale reply for any
         // other register, and a stale reply for this same register can
         // only come from a chip answering past its quiet window — which a
         // pre-drain could not distinguish from the fresh answer either —
@@ -190,13 +182,11 @@ impl<T: Transport> ChipBus for TransportBus<'_, T> {
             // design: without the pre-drain a stale reply is an expected
             // event, this crate has no logging seam, and folding it into
             // the desync tally would count well-formed frames as line
-            // corruption. The former actor's mismatch trace and counter
-            // (never exported) are deliberately not carried over. The
-            // filter matches on the register address alone; every call
-            // site today broadcasts, so a stale reply from the wrong
-            // chip cannot occur, but a future unicast caller must also
-            // filter on `reg_response.chip` matching the addressed
-            // chip.
+            // corruption. The filter matches on the register address
+            // alone; every call site today broadcasts, so a stale reply
+            // from the wrong chip cannot occur, but a future unicast
+            // caller must also filter on `reg_response.chip`
+            // matching the addressed chip.
             while let Some(response) = parser.pop(Chip::Bm1362) {
                 if let Response::RegisterResponse(reg_response) = response
                     && reg_response.reg == R::REG_NUM
@@ -298,8 +288,6 @@ impl ChainDriver for Bm13xxDriver {
             chip.initialize_domains(&mut bus, board).await;
             chip.initialize_cores(&mut bus, board).await;
             chip.split_nonce_space(&mut bus, board).await;
-            // PLL at the boot baud, then re-arm the cores against the now-
-            // running hash clock. Matches the captured bring-up order.
             chip.set_pll(&mut bus, safe_boot).await?;
             chip.post_pll_rearm(&mut bus).await;
             let ticket = TicketMaskReg::from_difficulty(BRINGUP_DIFFICULTY)
@@ -307,18 +295,13 @@ impl ChainDriver for Bm13xxDriver {
             bus.write_register(ChipAddress::All, ticket).await;
             chip.enable_fast_uart(&mut bus).await;
         }
-        // Baud switch last: drain, move the host line to the chip's fast
-        // rate, settle. Then the counting number on the fast UART, which
-        // the capture never sends at the boot baud. Bytes garbled across
-        // the switch are left for the steady-state parser to resync past
-        // (the former actor cleared its parser here instead). configure()
-        // only writes after the switch, so those bytes surface in the
-        // desync metric once, on the first steady-state ingest().
-        // Drain before the settle rather than trusting the settle to do
-        // it. A buffered transport acknowledges a write when it is
-        // queued, so the delay alone measures nothing about what is still
-        // on the line, and a switch over a non-empty buffer retimes the
-        // queued tail to a rate the chips have not adopted.
+        // Baud switch last: drain (see `Transport::flush`), move the host
+        // line to the chip's fast rate, settle, then program the
+        // counting number on the fast UART. Bytes garbled across the
+        // switch are left for the steady-state parser to resync past:
+        // configure() only writes after the switch, so those bytes
+        // surface in the desync metric once, on the first steady-state
+        // ingest().
         io.flush().await;
         io.delay_ms(BAUD_DRAIN_MS).await;
         let rate = chip.fast_uart_host_rate();

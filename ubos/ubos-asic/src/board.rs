@@ -79,11 +79,6 @@ pub struct HashboardDescriptor {
     /// `Error::OutOfRange` from a descriptor / PSU range mismatch.
     /// Matches the `end()` of the `VoltageRange` the firmware
     /// configures on the board's PSU.
-    // TODO: this field is PSU-specific but stays on the hashboard
-    // descriptor for now; it should move onto BmmPsuDescriptor /
-    // BfmPsuDescriptor once a board needs a rail ceiling that differs
-    // from its hashboard's. ubos-psu already has descriptor types for
-    // the PSU itself, but this field has not moved into them yet.
     pub max_psu_voltage: Voltage,
     /// The values a new config starts with on this hashboard: the boot
     /// operating point, the halt thresholds and the cooling profile. They
@@ -199,10 +194,8 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     },
     swarm_color: "blue",
     model: "miniminer",
-    // Confirmed against BOS's AM2-S17 addressing
-    // (`BASE_I2C_ADDRESS = 0x50`, single-hashboard `hashboard_address = 1`
-    // resolves to `0x50 + 1 - 1`), which shares this same I2C bus with the
-    // 0x40/0x43/0x46/0x08 PSU addresses `BmmPsuDescriptor::DEFAULT` uses.
+    // 0x50 does not collide with the 0x40/0x43/0x46/0x08 PSU addresses
+    // `BmmPsuDescriptor::DEFAULT` uses on the same I2C bus.
     eeprom_i2c_address: Some(0x50),
     // The four LM75A board sensors, IC12D..IC12A at `0x49..=0x4c`.
     temp: &[
@@ -215,8 +208,7 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
 
 /// Hashboard descriptor for the 4-chip BM1370 `BFMX4` (Braiins Forge Miner
 /// x4) hashboard, carried on the Hashnode machine. Four BM1370 voltage
-/// domains stack in series; the femto reference design ran two domains at
-/// 2.4 V total (≈1.2 V per domain), so four need ≈4.8 V.
+/// domains stack in series at ~1.2 V each, ~4.8 V total.
 pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     chip: &BM1370.chip,
     num_voltage_domains: 4,

@@ -20,8 +20,8 @@
 //! Pure chip-protocol library for the supported ASIC families.
 //!
 //! Holds the vendor-neutral chain seam ([`chain::ChainDriver`] over
-//! [`transport::Transport`]) plus the [`bm13xx`] chip family (the
-//! Bitmain register layouts, framing, and bring-up recipes). Additional
+//! [`transport::Transport`]) plus the [`bm13xx`] chip family: the
+//! Bitmain register layouts, framing, and bring-up recipes. Additional
 //! vendor drivers live in their own crates against this same seam. This
 //! crate performs no I/O and holds no global state: drivers frame onto
 //! the byte-level `Transport` the consumer implements, and the serial
