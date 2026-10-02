@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Status LED blink loop. Toggles any `StatefulOutputPin` at 500 ms intervals.
+//! Status LED blink loop.
 
 use embassy_time::{Duration, Ticker};
 use embedded_hal::digital::StatefulOutputPin;

@@ -37,47 +37,45 @@ use serde_json::Value;
 pub const SUPPORTED_VERSION: u32 = 1;
 
 /// Root envelope of a machine-state snapshot file.
+///
+/// Every optional section is absent when its fetch failed, and `errors`
+/// then carries the message for it.
 #[derive(Deserialize)]
 pub struct Snapshot {
     /// Envelope format version. Only [`SUPPORTED_VERSION`] is accepted.
     pub version: u32,
     /// Capture metadata: when and from where the snapshot was taken.
     pub meta: Meta,
-    /// `GET /api/info` response, or absent on fetch failure.
+    /// `GET /api/info` response.
     #[serde(default)]
     pub info: Option<Value>,
-    /// `GET /api/config` response, or absent on fetch failure.
+    /// `GET /api/config` response.
     #[serde(default)]
     pub config: Option<Value>,
-    /// System information section, or absent on fetch failure.
     #[serde(default)]
     pub system_info: Option<Value>,
-    /// ASIC detail section, or absent on fetch failure.
     #[serde(default)]
     pub asic: Option<Value>,
-    /// Thermal detail section, or absent on fetch failure.
     #[serde(default)]
     pub thermal: Option<Value>,
-    /// Cooling detail section, or absent on fetch failure.
     #[serde(default)]
     pub cooling: Option<Value>,
-    /// Mining statistics section, or absent on fetch failure.
+    /// Mining statistics section.
     #[serde(default)]
     pub statistics: Option<Value>,
-    /// Pool scoreboard section, or absent on fetch failure.
+    /// Pool scoreboard section.
     #[serde(default)]
     pub scoreboard: Option<Value>,
-    /// Network configuration section, or absent on fetch failure.
     #[serde(default)]
     pub network: Option<Value>,
-    /// Decoded event-log ring contents, or absent on fetch failure.
+    /// Decoded event-log ring contents.
     #[serde(default)]
     pub events: Option<EventsSection>,
-    /// Event catalog used to decode `events`, or absent on fetch failure.
+    /// Event catalog used to decode `events`.
     #[serde(default)]
     pub events_catalog: Option<Vec<CatalogEntry>>,
     /// Metric entries parsed by the browser from the Prometheus
-    /// exposition text, or absent on fetch failure.
+    /// exposition text.
     #[serde(default)]
     pub metrics: Option<Vec<MetricEntry>>,
     /// Section name to error message, for sections that failed to fetch.
@@ -177,8 +175,7 @@ pub struct MetricEntry {
     /// Metric name, the part before an optional `{...}` label set.
     #[serde(default)]
     pub name: Option<String>,
-    /// Raw label text without the surrounding braces, present only if
-    /// the line had labels.
+    /// Raw label text without the surrounding braces.
     #[serde(default)]
     pub labels: Option<String>,
     /// Metric value, kept as its original text so `NaN`/`Inf` round-trip
@@ -188,8 +185,7 @@ pub struct MetricEntry {
     /// Millisecond unix timestamp trailing the value, if present.
     #[serde(default)]
     pub timestamp_ms: Option<u64>,
-    /// Verbatim line text, present only if the line did not match the
-    /// exposition shape.
+    /// Verbatim line text.
     #[serde(default)]
     pub raw: Option<String>,
 }

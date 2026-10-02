@@ -20,16 +20,12 @@
 //! Logging macro facade that swaps between `defmt` and `log` at compile time.
 //!
 //! Consumer crates call `ubos_logging::{info, warn, error, debug, trace}`
-//! unconditionally. With the `defmt` feature enabled the macros expand to
-//! `defmt::*!` and inherit defmt's format specifiers; without it they expand
-//! to `log::*!` and use `core::fmt`. The firmware builds turn `defmt` on;
-//! the host binary leaves it off and installs an `env_logger`.
+//! unconditionally, and the `defmt` feature decides which backend they
+//! expand to. The firmware builds turn it on; the host binary leaves it off.
 //!
-//! Types that `derive(defmt::Format)` must gate the derive themselves, since
-//! the derive lives on the type definition and cannot be forwarded through a
-//! macro facade. Call sites that use defmt-specific specifiers such as
-//! `{=[u8]:a}` or `defmt::Debug2Format` must also be rewritten to a form that
-//! `core::fmt` understands (typically `{:?}` or pre-formatted `&str`).
+//! A type that derives `defmt::Format` must gate the derive itself, and a
+//! call site using a defmt-specific specifier such as `{=[u8]:a}` must be
+//! rewritten to a form `core::fmt` understands.
 
 #![no_std]
 
@@ -40,9 +36,8 @@ pub use defmt as __backend;
 pub use log as __backend;
 
 /// Adapter that lets a `Debug`-only type appear in a format string under both
-/// backends. Under `defmt` it re-exports the native `defmt::Debug2Format`;
-/// without it, a local newtype forwards `core::fmt::Debug`. Call sites write
-/// `{:?}` and pass `Debug2Format(&error)` uniformly.
+/// backends: a call site writes `{:?}` and passes `Debug2Format(&error)`
+/// whichever backend is selected.
 #[cfg(feature = "defmt")]
 pub use defmt::Debug2Format;
 

@@ -19,20 +19,17 @@
 
 //! ESP32-S3 internal temperature sensor (TSENS) driver.
 //!
-//! esp-hal 1.0.0 does not expose TSENS for the ESP32-S3. This crate
-//! drives the sensor directly through the SENS PAC peripheral using
-//! the register sequence from esp-idf v4.4
-//! `components/driver/esp32s3/rtc_tempsensor.c`
-//! (<https://github.com/espressif/esp-idf/blob/release/v4.4/components/driver/esp32s3/rtc_tempsensor.c>).
-//! The conversion formula and range table come from esp-idf v5.4
-//! `components/hal/esp32s3/include/hal/temperature_sensor_ll.h`
-//! (<https://github.com/espressif/esp-idf/blob/release/v5.4/components/hal/esp32s3/include/hal/temperature_sensor_ll.h>).
+//! esp-hal 1.0.0 does not expose TSENS for the ESP32-S3, so this crate
+//! drives the sensor through the SENS PAC peripheral directly. The
+//! register sequence comes from esp-idf v4.4
+//! `components/driver/esp32s3/rtc_tempsensor.c`, and the conversion
+//! formula and range table from esp-idf v5.4
+//! `components/hal/esp32s3/include/hal/temperature_sensor_ll.h`.
 //!
-//! The SAR I2C analog block (regi2c bus, block 0x69) is shared with
-//! the Wi-Fi and Bluetooth radio subsystems. Calling [`Tsens::new`]
-//! while either radio is actively using regi2c may corrupt the DAC
-//! calibration register. Initialize the temperature sensor before
-//! bringing up any radio, or coordinate access externally.
+//! The SAR I2C analog block, regi2c bus block 0x69, is shared with the
+//! Wi-Fi and Bluetooth radios, and a call to [`Tsens::new`] while a radio
+//! is using regi2c can corrupt the DAC calibration register. Initialize
+//! the temperature sensor before any radio comes up.
 
 #![no_std]
 
@@ -47,11 +44,8 @@ unsafe extern "C" {
 
 /// Temperature range and calibration offset for the TSENS DAC trim.
 ///
-/// Each variant pairs a DAC trim value (written to the SAR I2C analog
-/// block via `reg_value`) with a Celsius offset coefficient (applied in
-/// software during conversion via `offset`). A wider operating range
-/// trades accuracy for coverage; choose the variant that includes the
-/// expected die temperature for best precision.
+/// A wider range trades accuracy for coverage, so the variant that covers
+/// the expected die temperature reads most precisely.
 #[derive(Clone, Copy, Default, defmt::Format)]
 pub enum Range {
     /// -40..20 °C, ±3 °C accuracy.
@@ -93,14 +87,9 @@ impl Range {
 
 /// ESP32-S3 on-die temperature sensor driver.
 ///
-/// Owns the `SENS` peripheral token for the lifetime of the driver.
-/// Call [`Tsens::new`] to run the hardware initialization sequence,
-/// then use [`read_raw`](Tsens::read_raw) or
-/// [`read_temperature`](Tsens::read_temperature) to take readings.
-///
-/// The driver does not implement [`Drop`]: dropping the handle returns
-/// the `SENS` token but leaves the sensor powered. Power it down
-/// explicitly before reusing the peripheral if needed.
+/// There is no [`Drop`]: dropping the handle returns the `SENS` token but
+/// leaves the sensor powered, so a caller that reuses the peripheral powers
+/// it down itself.
 pub struct Tsens<'d> {
     // Owning the SENS token prevents another driver from being constructed
     // from the same peripheral. It does not block direct SENS::regs() access
@@ -109,26 +98,23 @@ pub struct Tsens<'d> {
     range: Range,
 }
 
-/// Polling interval while waiting for `sar_tsens_ready`.
-///
-/// The TSENS conversion takes a few microseconds at a clock divider of
-/// 6. Yielding between polls lets the executor run other tasks instead
-/// of busy-waiting through the conversion.
+/// Polling interval while waiting for `sar_tsens_ready`. The conversion
+/// takes a few microseconds at a clock divider of 6, and yielding between
+/// polls lets the executor run instead of busy-waiting through it.
 const TSENS_READY_POLL_INTERVAL: Duration = Duration::from_micros(5);
 
-/// Maximum number of poll iterations before declaring a timeout.
+/// Poll iterations before a conversion is declared timed out.
 ///
-/// At 5 µs per poll, 20 iterations gives a 95 µs budget — well
-/// beyond the worst-case conversion time at `clk_div=6`. The budget
-/// assumes the embassy-time tick rate is at least 1 MHz; coarser ticks
-/// would round each `Timer::after` up and stretch the budget
-/// proportionally.
+/// At 5 µs per poll, 20 iterations gives a 95 µs budget, well beyond the
+/// worst-case conversion time at `clk_div=6`. The budget assumes an
+/// embassy-time tick rate of at least 1 MHz, since coarser ticks round
+/// each `Timer::after` up and stretch it proportionally.
 const TSENS_READY_MAX_ITER: u32 = 20;
 
 /// SAR I2C block address for the SAR ADC analog calibration registers.
 const REGI2C_SAR_I2C_BLOCK: u8 = 0x69;
 
-/// Host ID for the SAR I2C master. The ESP32-S3 uses host 1 for this block.
+/// Host ID the ESP32-S3 uses to reach this block on the SAR I2C master.
 const REGI2C_SAR_I2C_HOST_ID: u8 = 1;
 
 /// Register address of `I2C_SARADC_TSENS_DAC` within the SAR I2C block.
@@ -150,13 +136,9 @@ const DIVISOR: i32 = 10;
 impl<'d> Tsens<'d> {
     /// Initialize the TSENS hardware and return a ready driver.
     ///
-    /// Runs the init sequence from esp-idf v4.4: writes the range
-    /// calibration value, sets the clock divider, gates the TSENS clock,
-    /// forces power-up via software control, enables the XPD force, waits
-    /// 300 µs for analog stabilization, then clears `dump_out`. The two
-    /// writes that the v4.4 sequence performs against `ANA_CONFIG_REG`
-    /// and `ANA_CONFIG2_REG` to enable the SAR I2C bus are skipped: their
-    /// reset values already match what those writes would apply.
+    /// The esp-idf v4.4 sequence also writes `ANA_CONFIG_REG` and
+    /// `ANA_CONFIG2_REG` to enable the SAR I2C bus. Those two writes are
+    /// skipped because the reset values already match what they apply.
     pub async fn new(sens: SENS<'d>, range: Range) -> Self {
         // Write the DAC calibration range value to I2C_SARADC_TSENS_DAC.
         // Read-modify-write preserves any reserved upper bits already set.
@@ -186,7 +168,6 @@ impl<'d> Tsens<'d> {
             .sar_tsens_ctrl()
             .modify(|_, w| unsafe { w.sar_tsens_clk_div().bits(6) });
 
-        // Enable the TSENS clock gate in the SAR peripheral clock register.
         SENS::regs()
             .sar_peri_clk_gate_conf()
             .modify(|_, w| w.tsens_clk_en().set_bit());
@@ -201,18 +182,16 @@ impl<'d> Tsens<'d> {
                 .set_bit()
         });
 
-        // Enable the XPD analog override so the sensor stays powered up.
-        // The field is 2 bits wide in the PAC; esp-idf assigns a C bool
-        // to it, which stores 0b01. Match that exactly rather than
-        // guessing wider semantics.
+        // The XPD analog override keeps the sensor powered up. Its field is
+        // 2 bits wide in the PAC, and esp-idf assigns a C bool to it, which
+        // stores 0b01.
         // SAFETY: `bits()` bypasses PAC range checking; 0b01 fits in
         // the 2-bit field.
         SENS::regs()
             .sar_tsens_ctrl2()
             .modify(|_, w| unsafe { w.sar_tsens_xpd_force().bits(0b01) });
 
-        // Wait 300 µs for the analog circuitry to stabilize after power-up.
-        // esp-idf v4.4 explicitly delays at this point.
+        // The analog circuitry needs 300 µs to stabilize after power-up.
         Timer::after(Duration::from_micros(300)).await;
 
         // Clear dump_out after the stabilization delay so the first
@@ -228,10 +207,7 @@ impl<'d> Tsens<'d> {
 
     /// Trigger a single TSENS conversion and return the raw 8-bit output.
     ///
-    /// Asserts `dump_out` to start the conversion, polls
-    /// `sar_tsens_ready` with a bounded budget while yielding to the
-    /// executor between polls, then de-asserts `dump_out`. Returns
-    /// `None` if the ready bit does not assert within the budget.
+    /// `None` if `sar_tsens_ready` does not assert within the poll budget.
     pub async fn read_raw(&mut self) -> Option<u8> {
         SENS::regs()
             .sar_tsens_ctrl()
@@ -260,14 +236,12 @@ impl<'d> Tsens<'d> {
         raw
     }
 
-    /// Read the die temperature.
+    /// Reads the die temperature, converting the raw code with the range
+    /// configured in [`Tsens::new`].
     ///
-    /// Applies the esp-idf v5.4 linear formula using the calibration
-    /// offset for the configured [`Range`]. The per-chip eFuse delta
-    /// `s_deltaT` is not applied; on most ESP32-S3 parts the eFuse field
-    /// is zero, so the correction is a no-op and reading it would only add
-    /// boot-time work. Add eFuse access here if sub-degree accuracy is
-    /// ever required.
+    /// The conversion uses the nominal formula alone, because the per-chip
+    /// eFuse delta is zero on most ESP32-S3 parts and reading it would add
+    /// boot-time work for no correction.
     pub async fn read_temperature(&mut self) -> Option<Temperature> {
         let output = self.read_raw().await?;
         Some(

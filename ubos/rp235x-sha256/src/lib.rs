@@ -19,18 +19,15 @@
 
 //! Hardware SHA-256 driver for the RP2350 on-chip accelerator.
 //!
-//! The three register helpers below are free functions because the chip
-//! has exactly one accelerator. There is nothing for a handle type to
-//! own that a second instance could hold differently, and the block's
-//! registers are reached through a fixed address either way.
+//! The register helpers below are free functions because the chip has
+//! exactly one accelerator, so there is nothing a handle type could own
+//! that a second instance would hold differently.
 //!
 //! The peripheral processes 512-bit blocks: write 16 little-endian u32
-//! words to WDATA, then SUM0..SUM7 hold the running digest. Multi-block
-//! messages keep writing without re-asserting START. This crate exposes
-//! a polled, blocking driver tuned for Bitcoin-style SHA-256d over an
-//! 80-byte block header. The polled overhead is roughly 1 microsecond
-//! per double-hash at 150 MHz, which is negligible for share-rate
-//! rehash workloads.
+//! words to WDATA, then SUM0..SUM7 hold the running digest, and a
+//! multi-block message keeps writing without re-asserting START. The
+//! polled overhead is roughly 1 microsecond per double-hash at 150 MHz,
+//! negligible for share-rate rehash workloads.
 
 #![no_std]
 
@@ -40,10 +37,9 @@ use portable_atomic::{AtomicBool, Ordering};
 
 /// Polled, blocking SHA-256d accelerator for the RP2350.
 ///
-/// Wraps the on-chip SHA-256 peripheral. Secure-boot lock
-/// `BOOTROM_LOCK_SHA_256` is skipped here because secure boot is
-/// disabled on these boards; a future secure-boot build must add the
-/// lock before handing the peripheral to application code.
+/// Secure-boot lock `BOOTROM_LOCK_SHA_256` is skipped because secure boot
+/// is disabled on these boards; a secure-boot build must take the lock
+/// before handing the peripheral to application code.
 pub struct HardwareSha256d {
     _private: (),
 }
@@ -70,9 +66,8 @@ impl HardwareSha256d {
     pub fn double_sha256_block_header(&mut self, header: &[u8; 80]) -> [u8; 32] {
         // First pass: 80 input bytes pad to two 64-byte blocks.
         let mut pass1_buffer = [0u32; 32];
-        // Copy 80 bytes as 20 u32 words from the header. Each four-byte
-        // chunk is assembled via from_le_bytes so no alignment requirement
-        // is placed on the header slice.
+        // Assembling each word with from_le_bytes places no alignment
+        // requirement on the header slice.
         for (slot, chunk) in pass1_buffer[..20].iter_mut().zip(header.as_chunks::<4>().0) {
             *slot = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         }
@@ -109,9 +104,6 @@ impl HardwareSha256d {
 }
 
 /// Initialises the SHA-256 peripheral for a new hash computation.
-///
-/// Clears any pending `ERR_WDATA_NOT_RDY` error, then writes a fresh
-/// CSR asserting START, BSWAP, and DMA_SIZE=32-bit.
 fn start_hash() {
     let csr = pac::SHA256.csr().read();
     if csr.err_wdata_not_rdy() {
@@ -129,9 +121,6 @@ fn start_hash() {
 
 /// Feeds a slice of u32 words into the SHA-256 peripheral and waits
 /// for the digest to become valid.
-///
-/// Each word is written only after `WDATA_RDY` is asserted; the final
-/// wait spins on `SUM_VLD` before returning.
 fn feed_words(words: &[u32]) -> [u32; 8] {
     for &word in words {
         while !pac::SHA256.csr().read().wdata_rdy() {}

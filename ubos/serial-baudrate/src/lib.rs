@@ -20,40 +20,33 @@
 //! Trait for runtime adjustment of a serial line's baud rate.
 //!
 //! `embedded-io-async` covers the byte-stream half of a serial port; this
-//! crate adds the orthogonal capability of reading and changing the line
-//! rate. It's split out so a `no_std` consumer (the BM1362 driver) and a
-//! Linux-side implementation can share the trait without either pulling
-//! the other in transitively.
-//!
-//! Errors collapse to `embedded_io::ErrorKind`. Linux backends are
-//! expected to log the underlying `io::Error` and map unknown rates to
-//! `Unsupported`, anything else to `Other`.
+//! crate adds the orthogonal capability of changing the line rate. It is
+//! its own crate so a `no_std` consumer and a Linux-side implementation
+//! can share the trait without either pulling the other in transitively.
 
 #![no_std]
 
 use embedded_io::ErrorKind;
 
-/// Set the line rate of a serial port. Implementations are expected to be
-/// synchronous: changing the baud rate is a tty `tcsetattr`-shaped operation,
-/// not an async I/O call. The mining serial actor owns the port exclusively,
-/// so the method takes `&mut self` and can delegate straight to the HAL.
+/// Set the line rate of a serial port. The methods are synchronous because
+/// changing a baud rate is a tty `tcsetattr`-shaped operation, and take
+/// `&mut self` because the port's owner holds it exclusively.
 pub trait BaudRate {
     /// Apply `baud` to the line. Effective immediately on success.
     ///
     /// # Errors
     ///
     /// `Unsupported` if the rate is not in the backend's table; `Other`
-    /// for backend-specific failures (the backend should log the real
-    /// error before mapping).
+    /// for backend-specific failures, which the backend logs before it
+    /// maps them.
     fn set_baudrate(&mut self, baud: u32) -> Result<(), ErrorKind>;
 
     /// Enable or disable the line's RX interrupt.
     ///
-    /// The mining serial actor disables it while another core runs a flash
-    /// erase/program with XIP suspended: on dual-core RP boards a pending
-    /// chip-UART RX interrupt would wake the paused core out of `wfe` and
-    /// fault it fetching the pause loop from suspended flash. Default is a
-    /// no-op — single-core and host backends are unaffected; only the
-    /// dual-core RP backends override it to mask their chip-UART IRQ.
+    /// A caller masks it while another core runs a flash erase or program
+    /// with XIP suspended: on dual-core RP boards a pending chip-UART RX
+    /// interrupt would wake the paused core out of `wfe` and fault it
+    /// fetching the pause loop from suspended flash. The default is a no-op,
+    /// which single-core and host backends keep.
     fn set_rx_irq_enabled(&mut self, _enabled: bool) {}
 }

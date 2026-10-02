@@ -20,11 +20,9 @@
 //! Shared `embassy-boot-rp` swap sequence for the RP2040 and RP2350
 //! bootloaders.
 //!
-//! `boot` initialises the flash peripheral via `WatchdogFlash`, reads the
-//! partition offsets baked into the linker symbols from the calling
-//! crate's `memory.x`, and chains to the ACTIVE partition. Control never
-//! returns. The calling crate picks the flash size, keeps its own
-//! `memory.x` and chip feature, and wraps `boot` in a `#[entry]` `main`.
+//! The partition offsets come from linker symbols, so the calling crate
+//! keeps its own `memory.x`, picks the flash size and chip feature, and
+//! wraps `boot` in a `#[entry]` `main`.
 
 #![no_std]
 
@@ -37,15 +35,13 @@ use embassy_boot_rp::{BootLoader, BootLoaderConfig, WatchdogFlash};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::Duration;
 
-/// How long the watchdog is allowed to run before it resets the board
-/// during a swap. `WatchdogFlash` feeds it after every block, so this
-/// bounds a stuck swap rather than ordinary boot time.
+/// `WatchdogFlash` feeds the watchdog after every block, so this bounds a
+/// stuck swap rather than ordinary boot time.
 const WATCHDOG_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Runs the swap-bootloader sequence and jumps to the ACTIVE partition.
 ///
-/// `FLASH_SIZE` is the chip's total flash size in bytes, and it sizes the
-/// `WatchdogFlash` peripheral wrapper.
+/// `FLASH_SIZE` is the chip's total flash size in bytes.
 pub fn boot<const FLASH_SIZE: usize>() -> ! {
     let peripherals = embassy_rp::init(embassy_rp::config::Config::default());
 
@@ -60,9 +56,8 @@ pub fn boot<const FLASH_SIZE: usize>() -> ! {
     let active_offset = config.active.offset();
     let bootloader: BootLoader = BootLoader::prepare(config);
 
-    // Jump to the active partition. `FLASH_BASE` is the XIP base address, and
-    // adding the active partition offset to it gives the absolute
-    // entry address the bootrom expects.
+    // `FLASH_BASE` is the XIP base address, so adding the active partition
+    // offset to it gives the absolute entry address the bootrom expects.
     unsafe { bootloader.load(embassy_rp::flash::FLASH_BASE as u32 + active_offset) }
 }
 

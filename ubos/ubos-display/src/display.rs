@@ -34,14 +34,7 @@ use ubos_net::ntp;
 /// hashrate onto the display.
 ///
 /// The caller must call `display.flush()` afterwards to push the
-/// framebuffer to the hardware. All values are read from shared
-/// atomics; the first two render a short placeholder when the
-/// underlying atomic is still at its zero sentinel (`no ip`, `no sync`).
-/// Hashrate has no sentinel — zero is rendered as `0 H/s`.
-///
-/// Lines 1 and 2 read what `net` holds. Line 3 shows the fan PWM and RPM
-/// that `cooling` holds when the board has a fan; boards without a fan
-/// leave line 3 blank.
+/// framebuffer to the hardware.
 ///
 /// The 16-pixel line pitch fits four baselines in the SH1106's
 /// 64-pixel height; any larger pitch clips the last line.
@@ -92,8 +85,7 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(
         }
     }
 
-    // Line 4: current hashrate. Sums every chain's EWMA in
-    // `ubos_metrics::chain`. `HashrateDisplay` switches to GH/s at
+    // Line 4: current hashrate. `HashrateDisplay` switches to GH/s at
     // 1 GH/s, so 24 bytes covers both representations.
     let hashrate = HashrateDisplay(ubos_metrics::chain::handle().machine_hashrate());
     let mut hashrate_buffer = [0u8; 24];

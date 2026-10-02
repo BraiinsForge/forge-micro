@@ -20,17 +20,12 @@
 //! Renders a mining-device machine-state snapshot JSON file as a
 //! human-readable Markdown or HTML report.
 //!
-//! The snapshot is a JSON file downloaded from a device's web
-//! dashboard, capturing `/api/info`, `/api/config`, the event log,
-//! parsed Prometheus metrics, and related sections in one envelope.
-//! This tool parses that envelope and renders a structured report for
-//! offline reading or attaching to a bug report.
+//! The snapshot is a JSON file downloaded from a device's web dashboard,
+//! which puts `/api/info`, `/api/config`, the event log, parsed Prometheus
+//! metrics and related sections into one envelope.
 //!
-//! PDF output is deliberately not implemented: render the HTML report
-//! (`ubos-snapshot snapshot.json report.html`) and print it to PDF from
-//! a browser's print dialog. Browsers already do print-quality PDF
-//! rendering of HTML and CSS; reimplementing that here would just be a
-//! worse PDF renderer.
+//! PDF is not produced here, because a browser's print dialog already
+//! renders print-quality PDF from the HTML report.
 //!
 //! # Usage
 //!

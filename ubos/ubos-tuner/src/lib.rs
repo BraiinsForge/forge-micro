@@ -141,7 +141,6 @@ pub trait Tuner<const CHAINS: usize> {
     /// Readings the platform reports beyond [`Readings`].
     type PlatformReadings;
 
-    /// Decide the next plan from the target and the readings.
     fn step(
         &mut self,
         target: Self::Target,

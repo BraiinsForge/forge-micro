@@ -70,7 +70,6 @@ impl Severity {
 pub struct TableRow {
     /// Cell text, in header order.
     pub cells: Vec<String>,
-    /// Optional severity, used only for HTML row tinting.
     pub severity: Option<Severity>,
 }
 
@@ -92,9 +91,7 @@ pub enum Item {
     KeyValues(Vec<(String, String)>),
     /// A table with a header row.
     Table {
-        /// Column headers.
         headers: Vec<String>,
-        /// Data rows.
         rows: Vec<TableRow>,
     },
     /// A standalone line of prose.
@@ -114,9 +111,7 @@ enum EventRenderOutcome {
 
 /// One titled group of report content.
 pub struct Section {
-    /// Section heading.
     pub title: String,
-    /// Section content, rendered in order.
     pub items: Vec<Item>,
 }
 
@@ -136,9 +131,7 @@ impl Section {
         ("paused", "Paused"),
     ];
 
-    /// Builds a section whose single item flattens `value` to dotted key
-    /// paths and renders them as a two-column table, or a placeholder
-    /// note if `value` is absent or empty.
+    /// Builds a section whose single item is [`Section::flattened_items`].
     #[must_use]
     fn from_flattened(title: &str, value: Option<&Value>) -> Section {
         Section {
@@ -432,10 +425,7 @@ impl Section {
         }
     }
 
-    /// Renders one event's message against the catalog, distinguishing
-    /// why a fallback is needed: the code is absent from the catalog
-    /// entirely, or it is present but its declared widths or the
-    /// event's own argument payload fail to decode.
+    /// Renders one event's message against the catalog.
     #[must_use]
     fn render_event_message(
         code: u32,
@@ -569,16 +559,15 @@ impl Report {
 
 impl Item {
     /// Escapes a Markdown table cell: neutralises the pipe delimiter and
-    /// any line breaks. A raw newline or carriage return in a
-    /// device-controlled value would otherwise split the cell across
-    /// table rows and corrupt the rendered layout.
+    /// any line breaks.
     #[must_use]
     fn escape_markdown_cell(cell: &str) -> String {
         Item::escape_markdown_breaks(&cell.replace('|', "\\|"))
     }
 
-    /// Neutralises line breaks in a device-controlled value so a raw
-    /// newline or carriage return cannot split it across Markdown lines.
+    /// Neutralises line breaks. A value is device-controlled, so a raw
+    /// newline or carriage return would otherwise split it across Markdown
+    /// lines and corrupt the rendered layout.
     #[must_use]
     fn escape_markdown_breaks(text: &str) -> String {
         text.replace("\r\n", "\n")
@@ -668,10 +657,6 @@ impl Item {
 }
 
 /// Extension for flattening a JSON value to dotted key paths.
-///
-/// Implemented on [`Value`] rather than as a free function, so the
-/// flattening logic reads as behaviour owned by the value being
-/// flattened.
 trait FlattenPaths {
     /// Appends `(dotted path, display text)` pairs for every leaf
     /// reachable from `self`, under `prefix`.

@@ -38,17 +38,11 @@ mod tests_events;
 /// by `ubos-api`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Width {
-    /// Unsigned 8-bit integer.
     U8,
-    /// Unsigned 16-bit integer.
     U16,
-    /// Unsigned 32-bit integer.
     U32,
-    /// Signed 8-bit integer.
     I8,
-    /// Signed 16-bit integer.
     I16,
-    /// Signed 32-bit integer.
     I32,
     /// A temperature, as its signed 32-bit millicelsius. It shows in degrees.
     Temperature,
@@ -134,7 +128,7 @@ impl Width {
     }
 }
 
-/// A catalog width string that no [`Width`] variant names.
+/// A catalog width string that [`Width::parse`] does not accept.
 #[derive(Debug)]
 pub struct UnknownWidthError(String);
 
@@ -160,17 +154,13 @@ impl fmt::Display for DecodeArgsError {
 impl Error for DecodeArgsError {}
 
 /// Decodes and formats event-log records.
-///
-/// A zero-sized type rather than free functions, so the ported decoder
-/// reads as a small owned facility instead of loose module functions.
 pub struct EventCodec;
 
 impl EventCodec {
     /// Decodes a 22-char hex payload into `widths.len()` signed values.
     ///
     /// Each width is read little-endian starting where the previous one
-    /// left off; signed widths sign-extend into the returned `i64`. This
-    /// mirrors the browser's `decodeArgs`.
+    /// left off, and a signed width sign-extends into the returned `i64`.
     ///
     /// # Errors
     ///
@@ -201,9 +191,6 @@ impl EventCodec {
     }
 
     /// Sign-extends an accumulated little-endian value per its width.
-    ///
-    /// `accumulated` never exceeds 32 bits (the widest width is `u32`),
-    /// so both branches fit losslessly in an `i64`.
     #[must_use]
     #[allow(
         clippy::cast_possible_wrap,
@@ -244,8 +231,8 @@ impl EventCodec {
     }
 
     /// Substitutes each `{}` placeholder in `fmt` with the corresponding
-    /// value, in order. Placeholders past the end of `values` render as
-    /// empty, matching the browser's `formatMessage`.
+    /// value, in order. A placeholder past the end of `values` renders
+    /// empty.
     #[must_use]
     pub fn format_message(fmt: &str, values: &[impl fmt::Display]) -> String {
         let mut out = String::with_capacity(fmt.len());
@@ -263,12 +250,13 @@ impl EventCodec {
         out
     }
 
-    /// Formats an event timestamp. Values below one billion are seconds
-    /// since boot recorded before the clock synced to NTP; at or above
-    /// that threshold they are unix seconds. The pre-sync branch mirrors
-    /// the browser's `formatTime`; the post-sync branch renders a fixed
-    /// UTC calendar timestamp rather than the browser's viewer-local
-    /// `toLocaleString`, since a CLI cannot know the viewer's timezone.
+    /// Formats an event timestamp. A value below one billion is seconds
+    /// since boot, recorded before the clock synced to NTP; at or above
+    /// that threshold it is unix seconds.
+    ///
+    /// The post-sync branch renders a fixed UTC calendar timestamp where
+    /// the browser renders viewer-local time, because a CLI cannot know
+    /// the viewer's timezone.
     #[must_use]
     pub fn format_time(ts: i64) -> String {
         if ts >= 1_000_000_000 {
@@ -297,10 +285,9 @@ impl EventCodec {
 
     /// Days-since-1970-01-01 to proleptic Gregorian (year, month, day).
     ///
-    /// Howard Hinnant's date algorithm; valid for every value an `i64`
-    /// day count can hold. Locals (`z`, `doe`, `yoe`, `doy`, `mp`) keep
-    /// the names from the published reference so the implementation
-    /// reads against the paper.
+    /// Howard Hinnant's date algorithm, valid for every value an `i64` day
+    /// count can hold. The locals keep the names of the published
+    /// reference so the implementation reads against it.
     #[must_use]
     #[allow(
         clippy::cast_possible_truncation,

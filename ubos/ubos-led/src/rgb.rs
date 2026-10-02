@@ -21,29 +21,22 @@
 //!
 //! The animation shows a fixed breathing color rather than the mining
 //! state, so it reads as alive without depending on the mining actor.
-//! The board owns the LED count, the driver and the color; the platform
-//! crate adapts its driver to [`RgbFrame`]; this module owns the math
-//! and the loop.
 
 use embassy_time::{Duration, Ticker};
 use smart_leds::RGB8;
 
 /// A driver that latches one frame of `N` colors onto the string.
 //
-// async_fn_in_trait: implementations run on a cooperative
-// single-executor; Send bounds on returned futures are neither
-// needed nor possible in no_std. Mirrors `MiningClient`'s rationale.
+// async_fn_in_trait: see `mining_protocol::client::MiningClient`.
 #[allow(async_fn_in_trait)]
 pub trait RgbFrame<const N: usize> {
     /// Write the frame and wait for the string to take it.
     async fn write(&mut self, frame: &[RGB8; N]);
 }
 
-/// Base brightness numerator over 255. Sized for a status indicator on a
-/// string of up to sixteen LEDs fed from a 5 V header: full white on
-/// sixteen would draw about an ampere, and a quarter of that is plenty to
-/// read as alive. A board with a larger or brighter string revisits this
-/// budget here rather than at its own call site.
+/// Base brightness numerator over 255. On a string of up to sixteen LEDs
+/// fed from a 5 V header full white would draw about an ampere, and a
+/// quarter of that is plenty to read as alive.
 const BRIGHTNESS_BASE: u16 = 64;
 
 /// Peak deviation of the breathing pulse from the base, giving a
@@ -54,7 +47,6 @@ const BRIGHTNESS_SWING: u16 = 32;
 /// interval below, one full breath takes about three seconds.
 const PULSE_HALF_STEPS: u16 = 32;
 
-/// Cadence of brightness frames.
 const FRAME_INTERVAL: Duration = Duration::from_millis(47);
 
 /// Triangle-wave brightness for one animation step: rises from
@@ -98,10 +90,8 @@ pub async fn run_rgb<W: RgbFrame<N>, const N: usize>(mut ring: W, color: RGB8) -
 /// Task shell around [`run_rgb`]. Takes the board's `Ring` type alias,
 /// which fixes the driver and the LED count.
 ///
-/// The shell cannot be a plain generic function, because
-/// `#[embassy_executor::task]` expands a typed `TaskPool` static and so
-/// rejects a generic task. `ubos-firmware`'s `tasks.rs` explains that
-/// barrier once for every shell that works around it.
+/// Why the shell cannot be a plain generic function: `ubos-firmware`'s
+/// `tasks.rs`.
 #[macro_export]
 macro_rules! rgb_task {
     ($ring:ty) => {

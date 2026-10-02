@@ -42,21 +42,17 @@ const COLUMN_OFFSET: u8 = 2;
 /// Framebuffer size: one byte per column per page.
 const BUFFER_SIZE: usize = WIDTH_USIZE * PAGES as usize;
 
-/// Display rotation. The SH1106 supports the identity orientation
-/// and a 180° flip via segment-remap and COM-scan-dir bits in the
-/// init sequence. 90° rotations would require software transposition
-/// of the page-mapped framebuffer and are not supported.
+/// Display rotation. The SH1106 flips in hardware through the
+/// segment-remap and COM-scan-dir bits of the init sequence, which is why
+/// the identity orientation and a 180° flip are the only two offered.
 #[derive(Clone, Copy)]
 pub enum Rotation {
-    /// Normal orientation.
     Normal,
-    /// 180° rotation via segment-remap and COM-scan-dir flip.
     Rotate180,
 }
 
 /// Build the SH1106 init sequence with the rotation-dependent bytes
-/// patched in. Two bytes change between orientations: segment remap
-/// (0xA0/0xA1) and COM scan direction (0xC0/0xC8).
+/// patched in.
 fn init_commands(rotation: Rotation) -> [u8; 23] {
     let (seg_remap, com_scan) = match rotation {
         Rotation::Normal => (0xA0, 0xC0),
@@ -84,8 +80,6 @@ fn init_commands(rotation: Rotation) -> [u8; 23] {
 /// SH1106 driver with an internal framebuffer.
 ///
 /// Purpose-built because no maintained embedded-hal 1.0 driver exists.
-/// Takes `SpiDevice` and DC `OutputPin` directly, bypassing the
-/// `display-interface` abstraction layer.
 pub struct Sh1106<SPI, DC> {
     spi: SPI,
     dc: DC,
@@ -105,7 +99,6 @@ impl<SPI, DC: OutputPin> Sh1106<SPI, DC> {
         }
     }
 
-    /// Send command bytes: DC low, then SPI write.
     fn send_commands(&mut self, commands: &[u8]) -> Result<(), SPI::Error>
     where
         SPI: embedded_hal::spi::SpiDevice,
@@ -115,7 +108,6 @@ impl<SPI, DC: OutputPin> Sh1106<SPI, DC> {
         self.spi.write(commands)
     }
 
-    /// Send command bytes asynchronously: DC low, then SPI write.
     async fn send_commands_async(&mut self, commands: &[u8]) -> Result<(), SPI::Error>
     where
         SPI: embedded_hal_async::spi::SpiDevice,
@@ -125,7 +117,6 @@ impl<SPI, DC: OutputPin> Sh1106<SPI, DC> {
     }
 }
 
-// These methods use blocking SPI.
 impl<SPI: embedded_hal::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
     /// Send the SH1106 initialization sequence.
     ///
@@ -162,11 +153,11 @@ impl<SPI: embedded_hal::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
     /// per second.
     ///
     /// For a board whose DMA channels are all claimed, so the display bus
-    /// cannot go async. Initialises the panel once, then renders through
-    /// [`crate::display::render`] and flushes. Each flush stalls the
-    /// executor for one full-frame transfer, about two milliseconds at the
-    /// usual clock, once per second. Every result is dropped because a
-    /// transient SPI fault must not stop the display for good.
+    /// cannot go async. Each flush stalls the executor for one full-frame
+    /// transfer, about two milliseconds at the usual clock.
+    ///
+    /// Every result is dropped because a transient SPI fault must not stop
+    /// the display for good.
     pub async fn run_blocking(
         &mut self,
         cooling: ubos_cooling::Handle,
@@ -181,13 +172,8 @@ impl<SPI: embedded_hal::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
     }
 }
 
-// These methods use async SPI.
 impl<SPI: embedded_hal_async::spi::SpiDevice, DC: OutputPin> Sh1106<SPI, DC> {
     /// Run the display loop forever, rendering once per second.
-    ///
-    /// Renders the screen into this panel's framebuffer through
-    /// [`crate::display::render`], then flushes it over async SPI.
-    /// Never returns, so a board spawns it as its own task.
     pub async fn run(&mut self, cooling: ubos_cooling::Handle, net: ubos_net::net::Handle) -> ! {
         loop {
             let _ = crate::display::render(self, cooling, net);
