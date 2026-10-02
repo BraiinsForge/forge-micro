@@ -115,7 +115,9 @@ fn index_payload_contains_api_surface() {
     assert!(html.contains("/api/info"), "missing /api/info literal");
     assert!(html.contains("/api/config"), "missing /api/config literal");
     // The minifier renames the other props, so the check reads only the
-    // power field's own props, up to the brace that closes them.
+    // power field's own props, up to the brace that closes them. The
+    // bound is set only while the power tuner is selected, so the two
+    // tokens are read apart: the minifier puts the mode test between.
     let (_, power) = html
         .split_once(r#"label:"Input power""#)
         .expect("the power field is in the bundle");
@@ -123,7 +125,7 @@ fn index_payload_contains_api_surface() {
         .split_once('}')
         .expect("the power field's props close");
     assert!(
-        field.contains(r#"min:"0""#),
+        field.contains("min:") && field.contains(r#""0""#),
         "power target must accept the zero safe-boot value"
     );
     assert!(

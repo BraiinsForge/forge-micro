@@ -47,9 +47,12 @@ export default function ConfigMining({ miner, bounds, defaultEfficiency }: Confi
   const volt = scaled(bounds.voltageMv);
   const isPower = mode === 'Power';
 
-  // Every field is required: a switch of mode can show the other mode's
-  // fields empty, and an empty number input posts as zero, which is a
-  // target nobody entered.
+  // The selected tuner's two fields are required and range-checked,
+  // because an empty number input posts as zero, which is a target
+  // nobody entered. The other tuner's two stay on the page dimmed and
+  // disabled, so the layout holds across a mode switch while the
+  // browser keeps a field the save does not carry out of both its
+  // validation and the submit.
   const save = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) => {
     const tuning: Tuning = isPower
       ? {
@@ -82,57 +85,58 @@ export default function ConfigMining({ miner, bounds, defaultEfficiency }: Confi
             </span>
           </span>
         </div>
-        {isPower ? (
-          <>
-          <Field
-            label="Input power"
-            unit="W"
-            value={inputPowerW}
-            onInput={(e) => setInputPowerW(e.currentTarget.value)}
-            type="number"
-            step="0.001"
-            min="0"
-            required
-          />
-          <Field
-            label="Efficiency"
-            unit="J/TH"
-            value={efficiencyJPerTh}
-            onInput={(e) => setEfficiencyJPerTh(e.currentTarget.value)}
-            type="number"
-            step="0.001"
-            min="0.001"
-            required
-          />
-          </>
-        ) : (
-          <>
-          <Field
-            label="Frequency"
-            desc={fmtRange(freq.start, freq.end)}
-            unit="MHz"
-            value={freqMhz}
-            onInput={(e) => setFreqMhz(e.currentTarget.value)}
-            type="number"
-            step="0.001"
-            min={freq.start}
-            max={freq.end}
-            required
-          />
-          <Field
-            label="Voltage"
-            desc={fmtRange(volt.start, volt.end)}
-            unit="V"
-            value={voltV}
-            onInput={(e) => setVoltV(e.currentTarget.value)}
-            type="number"
-            step="0.001"
-            min={volt.start}
-            max={volt.end}
-            required
-          />
-          </>
-        )}
+        <Field
+          label="Frequency"
+          class={isPower ? 'off' : ''}
+          disabled={isPower}
+          desc={fmtRange(freq.start, freq.end)}
+          unit="MHz"
+          value={freqMhz}
+          onInput={(e) => setFreqMhz(e.currentTarget.value)}
+          type="number"
+          step="0.001"
+          min={freq.start}
+          max={freq.end}
+          required
+        />
+        <Field
+          label="Voltage"
+          class={isPower ? 'off' : ''}
+          disabled={isPower}
+          desc={fmtRange(volt.start, volt.end)}
+          unit="V"
+          value={voltV}
+          onInput={(e) => setVoltV(e.currentTarget.value)}
+          type="number"
+          step="0.001"
+          min={volt.start}
+          max={volt.end}
+          required
+        />
+        <Field
+          label="Input power"
+          class={isPower ? '' : 'off'}
+          disabled={!isPower}
+          unit="W"
+          value={inputPowerW}
+          onInput={(e) => setInputPowerW(e.currentTarget.value)}
+          type="number"
+          step="0.001"
+          min="0"
+          required
+        />
+        <Field
+          label="Efficiency"
+          class={isPower ? '' : 'off'}
+          disabled={!isPower}
+          unit="J/TH"
+          value={efficiencyJPerTh}
+          onInput={(e) => setEfficiencyJPerTh(e.currentTarget.value)}
+          type="number"
+          step="0.001"
+          min="0.001"
+          required
+        />
       </div>
       <button type="submit">Save</button>
     </form>
