@@ -54,15 +54,14 @@ use esp_bootloader_esp_idf::partitions::{
 };
 use ubos_api::{OtaError as ApiError, OtaWritePhase};
 
-/// Microseconds spun per core-1 park-ack poll. 500 polls × 100 µs is the
-/// engine's 50 ms park budget.
+/// Microseconds spun per core-1 park-ack poll, matching the per-poll delay
+/// `PARK_POLL_MAX_ATTEMPTS`'s budget assumes.
 const PARK_POLL_DELAY_US: u32 = 100;
 
-/// Type of the `'static` mutex guarding the one `esp-storage` flash driver.
+/// Type of the `'static` mutex guarding the one `esp-storage` flash driver;
+/// see [`crate::shared_flash`] for why one mutex serves both consumers.
 ///
-/// The board has a single flash peripheral but two consumers — the
-/// `ubos-config` record store and the OTA writer — so both go through this
-/// one mutex. Exposed so `main` can declare the backing `static`.
+/// Exposed so `main` can declare the backing `static`.
 pub type EspFlashMutex =
     Mutex<CriticalSectionRawMutex, RefCell<esp_storage::FlashStorage<'static>>>;
 
@@ -221,14 +220,14 @@ impl crate::OtaBackend for EspBackend {
         Ok(())
     }
 
-    /// Writes the chunk into the inactive OTA slot at `offset` (relative to the
-    /// slot start). `esp-storage` erases each touched sector before writing, so
-    /// a misaligned or sub-sector chunk is still correct.
+    /// Writes the chunk into the inactive OTA slot at `offset` (relative to
+    /// the slot start); see the module doc for why an arbitrary chunk size
+    /// is safe.
     ///
     /// Rebuilding the `OtaUpdater` per chunk is safe: `next_partition` only
-    /// reads the partition table and `otadata` to locate the inactive slot. The
-    /// slot is not selected until [`activate`](Self::activate), so every chunk
-    /// targets the same slot.
+    /// reads the partition table and `otadata` to locate the inactive slot,
+    /// and the slot is not selected until [`activate`](Self::activate), so
+    /// every chunk targets the same slot.
     fn write(&mut self, offset: usize, data: &[u8]) -> Result<(), ApiError> {
         let mut flash = self.flash;
         let mut updater = OtaUpdater::new(&mut flash, &mut self.buffer).map_err(map_error)?;
@@ -248,7 +247,7 @@ impl crate::OtaBackend for EspBackend {
     /// is marked `New` by the second. A power failure in that window leaves the
     /// new slot selected with a stale `ota_state`; the bootloader's two-slot
     /// fallback still boots a valid image, but rollback arming for this update
-    /// is lost. Closing the window needs an upstream combined-write API.
+    /// is lost.
     fn activate(&mut self) -> Result<(), ApiError> {
         let mut flash = self.flash;
         let mut updater = OtaUpdater::new(&mut flash, &mut self.buffer).map_err(map_error)?;

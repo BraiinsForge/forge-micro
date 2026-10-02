@@ -80,10 +80,7 @@ use crate::shared_flash::{FlashGuard, SharedFlash};
 /// The RP blocking flash driver over the one QSPI `FLASH` peripheral.
 pub type RpFlash<const FLASH_SIZE: usize> = Flash<'static, FLASH, Blocking, FLASH_SIZE>;
 
-/// Type of the `'static` mutex guarding the one blocking [`Flash`] driver.
-///
-/// Exposed so `main` can declare the backing `static` and so the OTA updater
-/// can build `BlockingPartition`s over the very same mutex.
+/// [`crate::shared_flash::SharedFlashMutex`] over the RP [`Flash`] driver.
 pub type SharedFlashMutex<const FLASH_SIZE: usize> =
     crate::shared_flash::SharedFlashMutex<RpFlash<FLASH_SIZE>>;
 
@@ -97,10 +94,9 @@ pub type SharedBlockingFlash<const FLASH_SIZE: usize> = SharedFlash<RpFlash<FLAS
 /// normal operation whenever a save collides with one.
 const MAX_PARK_SPINS: u32 = 5_000_000;
 
-/// Spin count between park re-signals. A single cross-core wake can be lost
-/// when core 1 is in `wfe` with interrupts briefly disabled, and without a
-/// retry the whole budget would be spent waiting on a wake that never
-/// arrives. A power of two so the check is a mask.
+/// Spin count between park re-signals via [`ubos_mining::Park::resignal`],
+/// whose doc explains why a lost wake needs a retry. A power of two so the
+/// check is a mask.
 const PARK_RESIGNAL_SPINS: u32 = 0xFFFF;
 
 /// [`FlashGuard`] that parks the core-1 serial worker for the span of a
@@ -113,12 +109,10 @@ const PARK_RESIGNAL_SPINS: u32 = 0xFFFF;
 /// makes it mask its RX interrupt (see `BaudRate::set_rx_irq_enabled`), so no
 /// interrupt pends to wake the pause.
 ///
-/// Fails closed. Running the operation unparked is the exact hardfault this
-/// exists to prevent, so a park that does not ack within [`MAX_PARK_SPINS`]
-/// gives up and returns [`flash::Error::Other`]: the caller sees a failed
-/// write instead of the board rebooting under it. A config save colliding
-/// with a chain bring-up is the case that reaches this, since the worker
-/// cannot answer a park until the command in flight finishes.
+/// A park that does not ack within [`MAX_PARK_SPINS`] gives up and returns
+/// [`flash::Error::Other`], so the caller sees a failed write instead of the
+/// board rebooting under it — running the operation unparked is the exact
+/// hardfault this guard exists to prevent.
 ///
 /// When no worker is running the park is skipped rather than waited out. A
 /// worker that exited on serial EOF never acks again, and has already masked
@@ -129,9 +123,8 @@ pub struct RpGuard(&'static ubos_mining::Park);
 
 impl<const FLASH_SIZE: usize> SharedBlockingFlash<FLASH_SIZE> {
     /// Wraps the `'static` flash mutex in a handle that parks through `park`
-    /// around each write and erase. The board also hands `park` to its serial
-    /// actors, so that both sides meet at the same counters. It is the one
-    /// constructor of the guard, so an RP flash handle always parks.
+    /// around each write and erase. It is the one constructor of the guard,
+    /// so an RP flash handle always parks.
     #[must_use]
     pub const fn new(
         mutex: &'static SharedFlashMutex<FLASH_SIZE>,
@@ -164,36 +157,23 @@ impl FlashGuard<flash::Error> for RpGuard {
     }
 }
 
-/// Magic value written to SCRATCH0 when an OTA upload session is active.
+/// Magic value written to SCRATCH0 when an OTA upload session is active; see
+/// the module doc for the breadcrumb protocol.
 ///
-/// The value is nonzero and distinctive enough to survive accidental
-/// coincidence with uninitialized RAM. Cleared to zero on finish so a
-/// successful update does not leave the breadcrumb set after the intended
-/// reboot. A power-on reset also clears the scratch registers, so stale
-/// breadcrumbs from a previous power cycle do not survive a cold boot.
-///
-/// Published so `main.rs` can compare the boot-time SCRATCH0 value without
-/// duplicating the constant.
+/// Nonzero and distinctive enough to avoid an accidental match against
+/// uninitialized RAM. Published so `main.rs` can compare the boot-time
+/// SCRATCH0 value without duplicating the constant.
 pub const OTA_BREADCRUMB_MAGIC: u32 = 0x4F54_5541; // ASCII "OTUA"
 
+// These four codes MUST match the discriminants of `ubos_api::OtaWritePhase`;
+// the asserts below check it at compile time.
 /// Write-phase code: no OTA write in progress.
-///
-/// These constants MUST match the discriminants of `ubos_api::OtaWritePhase`.
 const WRITE_PHASE_NONE: u32 = 0;
-
 /// Write-phase code: reset happened inside the embassy-boot flash write call.
-///
-/// These constants MUST match the discriminants of `ubos_api::OtaWritePhase`.
 const WRITE_PHASE_IN_FLASH: u32 = 1;
-
 /// Write-phase code: reset happened after the flash write returned.
-///
-/// These constants MUST match the discriminants of `ubos_api::OtaWritePhase`.
 const WRITE_PHASE_FLASH_DONE: u32 = 2;
-
 /// Write-phase code: a panic handler ran before the reset.
-///
-/// These constants MUST match the discriminants of `ubos_api::OtaWritePhase`.
 const WRITE_PHASE_PANIC: u32 = 3;
 
 // Enforce the "MUST match" invariant above at compile time: a divergence
@@ -203,13 +183,9 @@ const _: () = assert!(WRITE_PHASE_IN_FLASH == OtaWritePhase::InFlash as u32);
 const _: () = assert!(WRITE_PHASE_FLASH_DONE == OtaWritePhase::FlashDone as u32);
 const _: () = assert!(WRITE_PHASE_PANIC == OtaWritePhase::Panic as u32);
 
-// `write` builds a fresh `BlockingFirmwareUpdater` per call, which erases each
-// DFU sector once before its first write. Correctness requires every chunk to
-// cover exactly one erase sector, so the API's chunk size must equal the flash
-// erase size. A smaller chunk would land the next write mid-sector and a fresh
-// updater would re-erase it, dropping the bytes already written. The runtime
-// `debug_assert_eq!` in `write` catches the resulting misaligned offset in
-// debug builds; this guards the coupling at compile time in every build.
+// `write`'s doc explains why the chunk size must equal the erase size; this
+// duplicates its `debug_assert_eq!` at compile time, checking every build
+// rather than debug builds only.
 const _: () = assert!(ubos_api::system::OTA_CHUNK_SIZE == flash::ERASE_SIZE);
 
 /// Maps an [`OtaWritePhase`] to the raw SCRATCH2 code.
@@ -222,13 +198,12 @@ fn phase_code(phase: OtaWritePhase) -> u32 {
     }
 }
 
-/// Writes the OTA breadcrumb into the watchdog scratch registers.
+/// Writes the OTA breadcrumb into the watchdog scratch registers; see the
+/// module doc for the SCRATCH layout.
 ///
-/// SCRATCH0 receives the magic, SCRATCH1 receives `offset`, and SCRATCH2
-/// receives `phase_code`. Uses the raw PAC singleton
-/// (`embassy_rp::pac::WATCHDOG`) which does not require peripheral
-/// ownership, matching the pattern used by the safe `Watchdog` wrapper
-/// internally.
+/// Uses the raw PAC singleton (`embassy_rp::pac::WATCHDOG`), which does not
+/// require peripheral ownership, matching the safe `Watchdog` wrapper's own
+/// pattern.
 fn write_breadcrumb_phase(offset: u32, phase_code: u32) {
     let watchdog = pac::WATCHDOG;
     watchdog.scratch0().write_value(OTA_BREADCRUMB_MAGIC);
@@ -236,25 +211,23 @@ fn write_breadcrumb_phase(offset: u32, phase_code: u32) {
     watchdog.scratch2().write_value(phase_code);
 }
 
-/// Clears the OTA breadcrumb from SCRATCH0 and SCRATCH2.
-///
-/// Called on finish after the flash operation succeeds, so a successful OTA
-/// reboot does not look like a mid-upload watchdog reset to the next boot.
+/// Clears the OTA breadcrumb from SCRATCH0 and SCRATCH2; see the module doc
+/// for why.
 fn clear_breadcrumb() {
     let watchdog = pac::WATCHDOG;
     watchdog.scratch0().write_value(0u32);
     watchdog.scratch2().write_value(0u32);
 }
 
-/// Records a panic breadcrumb in SCRATCH2 without touching SCRATCH0 or SCRATCH1.
+/// Records a panic breadcrumb in SCRATCH2 without touching SCRATCH0 or
+/// SCRATCH1.
 ///
-/// Called from the custom panic handler. Writes `WRITE_PHASE_PANIC` into
-/// SCRATCH2 so the next boot can report that a panic preceded the reset,
-/// distinguishing it from a slow-flash watchdog timeout. Safe to call at any
-/// time — an active OTA upload has its magic in SCRATCH0 already; calling
-/// this outside an OTA session leaves SCRATCH0 at whatever value it held,
-/// which is harmless. Uses only raw register writes with no allocation,
-/// no locks, and no operations that could themselves panic.
+/// An active upload already holds its magic in SCRATCH0 and its offset in
+/// SCRATCH1, and the boot diagnostics need both to report a mid-upload
+/// panic. Outside an OTA session SCRATCH0 keeps whatever it held, which is
+/// harmless. Uses only
+/// raw register writes, with no allocation, no locks, and no operation that
+/// could itself panic.
 pub fn record_panic_breadcrumb() {
     pac::WATCHDOG.scratch2().write_value(WRITE_PHASE_PANIC);
 }
@@ -295,12 +268,11 @@ fn map_updater_error(error: FirmwareUpdaterError) -> ApiError {
     }
 }
 
-/// Builds the DFU and STATE partitions from the linker symbols.
+/// Builds the DFU and STATE partitions from the linker symbols; the module
+/// doc has their origin in `memory.x`.
 ///
-/// The `__bootloader_*` symbols are flash offsets relative to the XIP
-/// base; `BlockingPartition` operates in those same offset units over
-/// the full-flash driver, so the partition windows land exactly on the
-/// bootloader's DFU and STATE regions.
+/// `BlockingPartition` takes XIP-relative offsets, which is exactly the unit
+/// the `__bootloader_*` symbols are defined in.
 fn partitions<const FLASH_SIZE: usize>(
     flash: &'static SharedFlashMutex<FLASH_SIZE>,
 ) -> (FlashPartition<FLASH_SIZE>, FlashPartition<FLASH_SIZE>) {
@@ -351,8 +323,7 @@ fn build_updater<'a, const FLASH_SIZE: usize>(
 pub struct RpBackend<const FLASH_SIZE: usize, const PARK_POLL_DELAY_CYCLES: u32> {
     /// Shared blocking flash, partitioned per-op into DFU and STATE.
     flash: &'static SharedFlashMutex<FLASH_SIZE>,
-    /// Scratch buffer for the STATE partition magic; length must equal the
-    /// partition `WRITE_SIZE`.
+    /// Scratch buffer for the STATE partition magic; see [`STATE_SCRATCH_LEN`].
     scratch: [u8; STATE_SCRATCH_LEN],
 }
 
@@ -384,16 +355,16 @@ impl<const FLASH_SIZE: usize, const PARK_POLL_DELAY_CYCLES: u32>
 impl<const FLASH_SIZE: usize, const PARK_POLL_DELAY_CYCLES: u32> OtaBackend
     for RpBackend<FLASH_SIZE, PARK_POLL_DELAY_CYCLES>
 {
-    /// Verifies the running image is in the booted state.
+    /// Verifies the running image is in the booted state, matching the guard
+    /// `prepare_update` applies before it does its own bulk erase.
     ///
     /// Deliberately does not call `prepare_update`: that erases the entire
     /// 956 KiB DFU partition in one blocking flash op, which starves the
     /// 2 s watchdog feeder and resets the board mid-update before the swap
     /// is ever marked. `write_firmware` (driven by the engine's `write`)
     /// erases each DFU sector lazily right before programming it, and the
-    /// handler yields between chunks, so the bulk pre-erase is both redundant
-    /// and harmful. Here we only verify the running image is in the booted
-    /// state, matching the guard `prepare_update` applied.
+    /// handler yields between chunks, so the bulk pre-erase is both
+    /// redundant and harmful.
     fn prepare(&mut self) -> Result<(), ApiError> {
         let mut updater = self.updater();
         match updater.get_state().map_err(map_updater_error)? {
@@ -446,8 +417,6 @@ impl<const FLASH_SIZE: usize, const PARK_POLL_DELAY_CYCLES: u32> OtaBackend
         cortex_m::peripheral::SCB::sys_reset()
     }
 
-    /// Returns the running slot label.
-    ///
     /// `embassy-boot` is swap-based with a single ACTIVE partition, so there
     /// is no A/B slot identity to report; always `"ACTIVE"`.
     fn running_slot_label(&self) -> &'static str {
@@ -459,9 +428,9 @@ impl<const FLASH_SIZE: usize, const PARK_POLL_DELAY_CYCLES: u32> OtaBackend
     /// `embassy-boot` keeps the prior image in DFU after a swap but stores
     /// no metadata marking it valid, so this inspects the DFU slot's first
     /// vector-table words: a staged image starts with an initial stack
-    /// pointer in RAM and a thumb reset vector pointing into the ACTIVE
-    /// window. Erased flash or leftover code fails both checks, so the
-    /// revert path stays closed until an OTA has actually staged a swap.
+    /// pointer in RAM and a thumb reset vector into the ACTIVE window, and
+    /// erased flash or leftover code fails both checks. The revert path
+    /// stays closed until an OTA has actually staged a swap.
     fn has_previous_image(&self) -> bool {
         // The ACTIVE window comes from the same linker symbols the bootloader
         // links against, and the stack top from cortex-m-rt's `_stack_start`,

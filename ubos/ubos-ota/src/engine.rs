@@ -36,12 +36,11 @@ use ubos_api::{OtaError, OtaWritePhase, StagedConfig};
 
 /// Maximum number of park-ack polls before giving up and returning an error.
 ///
-/// 500 polls at the backend's per-poll delay (tuned to about 100 µs) is a
-/// 50 ms ceiling. Core 1 is responsive at session start so the ack arrives
-/// well within the first millisecond; the budget is purely a safety net
-/// against a stalled core. It must stay far under the watchdog timeout
-/// because the poll loop is a synchronous busy-spin on core 0 that starves
-/// the watchdog feeder while it runs.
+/// 500 polls at the backend's per-poll delay (about 100 µs) gives a 50 ms
+/// ceiling, a safety net against a stalled core 1 — normally the ack
+/// arrives within the first millisecond. The ceiling must stay far under
+/// the watchdog timeout, because the poll loop is a synchronous busy-spin
+/// on core 0 that starves the watchdog feeder while it runs.
 const PARK_POLL_MAX_ATTEMPTS: u32 = 500;
 
 /// Board-specific primitives the [`OtaEngine`] drives.
@@ -126,10 +125,7 @@ pub struct OtaEngine<B> {
 }
 
 impl<B: OtaBackend> OtaEngine<B> {
-    /// Creates an engine over `backend` that parks through `park`, reporting
-    /// `firmware_version` as the running image version and `max_image_bytes`
-    /// as the largest upload the board accepts. No session is active until
-    /// `begin`.
+    /// No session is active until `begin`.
     #[must_use]
     pub const fn new(
         backend: B,
@@ -150,13 +146,10 @@ impl<B: OtaBackend> OtaEngine<B> {
     /// acknowledges, bounded by [`PARK_POLL_MAX_ATTEMPTS`].
     ///
     /// Returns `true` once core 1 is parked, or `false` on timeout. The park
-    /// is requested once and re-signalled on every poll iteration: a single
-    /// cross-core wake can be missed when core 1's executor is idle in `wfe`
-    /// and the wake lands during a brief interrupts-disabled window, so
-    /// re-signalling each iteration guarantees the worker is woken within the
-    /// budget. Re-requesting instead would leave unbalanced increments on the
-    /// park counter. The caller releases the park; this only acquires and
-    /// waits.
+    /// is requested once and re-signalled on every poll iteration via
+    /// [`ubos_mining::Park::resignal`], whose doc explains why a signal
+    /// rather than a second request. The caller releases the park; this
+    /// only acquires and waits.
     fn park_core1_and_wait(&self) -> bool {
         self.park.request();
         let mut attempts = 0u32;
@@ -231,14 +224,12 @@ impl<B: OtaBackend> ubos_api::OtaTarget for OtaEngine<B> {
         let Some(offset) = self.write_offset else {
             return Err(OtaError::Flash);
         };
-        // Set IN_FLASH before the write so a reset inside it is identifiable.
         #[allow(clippy::cast_possible_truncation)]
         self.backend
             .write_breadcrumb(offset as u32, OtaWritePhase::InFlash);
         self.backend.write(offset, data)?;
         let new_offset = offset + data.len();
         self.write_offset = Some(new_offset);
-        // Set FLASH_DONE after the write returns and record the new offset.
         #[allow(clippy::cast_possible_truncation)]
         self.backend
             .write_breadcrumb(new_offset as u32, OtaWritePhase::FlashDone);
