@@ -19,21 +19,8 @@
 
 //! Fan PWM drive and tachometer readback for the ESP32-S3 control board.
 //!
-//! LEDC drives the 25 kHz PWM signal on GPIO10, the fan PWM pin (`LowSpeed`
-//! Timer0, Channel0). PCNT Unit0 counts rising edges from the tach input
-//! pin.
-//!
-//! `BoardFan` implements `ubos_cooling::FanOutput::set_pwm`. The
-//! LEDC timer uses 10-bit duty resolution (1024 steps), giving a duty
-//! granularity of ~0.1 % at 25 kHz which is well within the Intel 4-wire
-//! fan specification.
-//!
-//! Tach readback: PCNT Unit0 is configured to increment on every rising
-//! edge of the tach signal with no control signal (counter always runs).
-//! The high-limit wrap is set to `i16::MAX` to defer overflow handling.
-//! `BoardTach` snapshots and resets the counter on each `read_rpm` call
-//! and converts pulse count to RPM over the elapsed interval via
-//! `ubos_cooling::pulses_to_rpm`.
+//! LEDC `LowSpeed` Timer0 Channel0 drives the 25 kHz PWM on GPIO10, and PCNT
+//! Unit0 counts rising edges on the tach input.
 
 use defmt::info;
 use embassy_time::Instant;
@@ -52,23 +39,17 @@ use ubos_core::units::{FanPwm, FanRpm};
 /// Target PWM frequency per Intel 4-wire fan specification.
 const FAN_PWM_FREQ: Rate = Rate::from_khz(25);
 
-/// Duty resolution: 10-bit gives 1024 steps at 25 kHz.
+/// Duty resolution: 10 bits give 1024 steps, about 0.1 % of duty at 25 kHz.
 const DUTY_BITS: esp_hal::ledc::timer::config::Duty = esp_hal::ledc::timer::config::Duty::Duty10Bit;
 
 /// Fan PWM output backed by LEDC `LowSpeed` Timer0, Channel0.
-///
-/// The LEDC peripheral and timer are held so duty updates stay valid for
-/// the lifetime of the firmware.
 pub struct BoardFan {
     channel: esp_hal::ledc::channel::Channel<'static, LowSpeed>,
 }
 
 impl BoardFan {
-    /// Construct a `BoardFan` from the LEDC peripheral and the fan PWM pin,
-    /// which is GPIO10 on every carrier this crate serves.
-    ///
-    /// LEDC peripheral ownership is consumed here; it must be obtained from
-    /// `Board::take` so it is not double-claimed.
+    /// The LEDC peripheral is consumed here, so it must come from
+    /// `Board::take` and cannot be claimed twice.
     ///
     /// # Panics
     ///
@@ -80,7 +61,6 @@ impl BoardFan {
         static TIMER_CELL: StaticCell<esp_hal::ledc::timer::Timer<'static, LowSpeed>> =
             StaticCell::new();
 
-        // Configure LEDC: LowSpeed Timer0 at 25 kHz, 10-bit duty.
         // `ledc` is moved into a static cell so Channel0 can hold a 'static
         // reference to the timer.
         let ledc_ref: &'static mut Ledc<'static> = LEDC_CELL.init(Ledc::new(ledc));
@@ -115,8 +95,8 @@ impl BoardFan {
 impl FanOutput for BoardFan {
     async fn set_pwm(&mut self, pwm: FanPwm) {
         let percent = pwm.percent();
-        // LEDC set_duty takes a percentage; it is clamp-safe here.
-        // Valid timer attached; set_duty cannot return Error::Channel.
+        // `set_duty` takes a percentage and cannot fail with a valid timer
+        // attached.
         self.channel
             .set_duty(percent)
             .expect("BUG: LEDC set_duty failed");
@@ -124,28 +104,17 @@ impl FanOutput for BoardFan {
 }
 
 /// Tachometer reader backed by PCNT Unit0 counting rising tach edges.
-///
-/// Holds the PCNT driver so Unit0 stays configured for the firmware
-/// lifetime, and a cloned `Counter` handle for reading edge counts.
-/// `read_rpm` snapshots and resets the counter, then converts it to RPM
-/// over the elapsed time since the previous call.
 pub struct BoardTach {
     /// Owned to keep PCNT Unit0 configured for the lifetime of the reader.
     pcnt: Pcnt<'static>,
-    /// Edge-count handle into Unit0 used for the actual reads.
     counter: esp_hal::pcnt::unit::Counter<'static, 0>,
-    /// Wall time of the previous `read_rpm` call for elapsed-time RPM math.
     last: Instant,
-    /// Rising edges the tach pin emits per fan revolution.
     pulses_per_rev: u64,
 }
 
 impl BoardTach {
-    /// Configure PCNT Unit0 to count rising tach edges on `tach_pin`, which
-    /// is GPIO11 on every carrier this crate serves.
-    ///
-    /// PCNT peripheral ownership is consumed here; it must be obtained from
-    /// `Board::take` so it is not double-claimed.
+    /// The PCNT peripheral is consumed here, so it must come from
+    /// `Board::take` and cannot be claimed twice.
     ///
     /// # Panics
     ///
@@ -153,12 +122,9 @@ impl BoardTach {
     /// which cannot happen for the fixed values used here.
     #[must_use]
     pub fn new(pcnt: PCNT<'static>, tach_pin: GPIO11<'static>, pulses_per_rev: u64) -> Self {
-        // Configure PCNT Unit0 to count rising edges on the tach pin.
-        // No control signal: set ctrl to always-Keep so the counter always
-        // increments on the positive edge.
         let pcnt_driver = Pcnt::new(pcnt);
-        // High-limit wrap at i16::MAX to defer overflow; no low-limit needed.
-        // High limit must be positive; i16::MAX satisfies that.
+        // Wrap at i16::MAX to defer overflow handling; the high limit must be
+        // positive.
         pcnt_driver
             .unit0
             .set_high_limit(Some(i16::MAX))
@@ -168,7 +134,8 @@ impl BoardTach {
             .set_filter(None)
             .expect("BUG: PCNT filter");
 
-        // Configure the tach pin as input with pull-up (open-collector tach).
+        // The tach output is open-collector, so the pull-up idles the line
+        // high between pulses.
         let tach_input = Input::new(tach_pin, InputConfig::default().with_pull(Pull::Up));
         let tach_signal = tach_input.peripheral_input();
 
@@ -176,13 +143,11 @@ impl BoardTach {
         ch0.set_edge_signal(tach_signal);
         // No control signal; keep counter regardless of level.
         ch0.set_ctrl_mode(CtrlMode::Keep, CtrlMode::Keep);
-        // Increment on rising edge, do nothing on falling edge.
         ch0.set_input_mode(EdgeMode::Hold, EdgeMode::Increment);
 
         pcnt_driver.unit0.clear();
         pcnt_driver.unit0.resume();
 
-        // Counter clone for reads; the Unit itself stays here.
         let counter = pcnt_driver.unit0.counter.clone();
 
         info!("fan tach: {} pulses/rev", pulses_per_rev);

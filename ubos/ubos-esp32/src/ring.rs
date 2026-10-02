@@ -20,12 +20,11 @@
 //! Persistent event-ring wrapper carrying esp-hal's `Persistable` marker.
 
 /// Wraps the event-ring backing so it can carry the esp-hal `Persistable`
-/// marker that `#[ram(persistent)]` requires. `RetainedRing` is `repr(C)` over
-/// `u32` and `u8` fields, so every bit pattern is a valid value.
+/// marker that `#[ram(persistent)]` requires.
 #[repr(transparent)]
 pub struct PersistentRing<const N: usize>(pub ubos_events::RetainedRing<N>);
 
-// Safety: every bit pattern of `PersistentRing` is a valid value and it needs
-// no initialisation beyond the validity header `init` checks, so persisting it
-// uninitialised across a reset is sound.
+// Safety: `RetainedRing` is `repr(C)` over `u32` and `u8` fields, so every bit
+// pattern is a valid value, and it needs no initialisation beyond the validity
+// header `init` checks.
 unsafe impl<const N: usize> esp_hal::Persistable for PersistentRing<N> {}

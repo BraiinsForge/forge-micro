@@ -19,13 +19,11 @@
 
 //! `serial_baudrate::BaudRate` wrapper for the ESP32-S3 `UART0`.
 //!
-//! `ubos_mining::serial::Serial::run` drives one full-duplex instance. esp-hal
-//! exposes runtime baud control only on the unsplit `Uart` (the split
+//! esp-hal exposes runtime baud control only on the unsplit `Uart`: the split
 //! `UartRx`/`UartTx::apply_config` reset their FIFOs but never touch the clock
-//! divider), so `MinerUart` holds the unsplit `Uart<'static, Async>` and
-//! retunes via `Uart::apply_config`. That path reprograms `CLKDIV` from the
-//! configured source clock and pulses `reg_update` itself, replacing the
-//! hand-written register sequence this module used to carry.
+//! divider. `MinerUart` therefore holds the unsplit `Uart<'static, Async>` and
+//! retunes through `Uart::apply_config`, which reprograms `CLKDIV` from the
+//! configured source clock and pulses `reg_update` itself.
 //!
 //! `Uart`'s `embedded_io` error type is `esp_hal::uart::IoError`, which already
 //! unifies the RX and TX error halves, so no local error enum is needed.
@@ -34,15 +32,12 @@ use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use esp_hal::uart::{Config as UartConfig, IoError, Uart};
 use serial_baudrate::BaudRate;
 
-/// The BM1362 serial link over `UART0`. `ubos_mining::serial::Serial::run`
-/// drives a single full-duplex instance, so `MinerUart` holds the unsplit
-/// `Uart` and delegates `Read`/`Write`/`set_baudrate` straight to it.
+/// The chip serial link over `UART0`, driven as one full-duplex instance.
 pub struct MinerUart {
     inner: Uart<'static, esp_hal::Async>,
 }
 
 impl MinerUart {
-    /// Wrap the unsplit `UART0` for use as the BM1362 serial link.
     #[must_use]
     pub fn new(uart: Uart<'static, esp_hal::Async>) -> Self {
         Self { inner: uart }

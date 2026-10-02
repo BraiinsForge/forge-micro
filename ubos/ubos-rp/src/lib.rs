@@ -19,18 +19,11 @@
 
 //! Per-platform support for the RP2040 and RP2350 control boards.
 //!
-//! The crate holds the boot, fault, watchdog, fan and miner-serial code that
-//! every RP board carried one copy of. It supplies the `#[panic_handler]` and
-//! the `HardFault` exception as library symbols, the reset diagnostic and the
-//! watchdog wrapper as plain items, the slice-counter fan module, the shared
-//! I2C bus aliases, the `MinerUart` newtype, and the `spawn_miner_core1!`
-//! macro. A board depends on this crate, deletes its own copies, and names
-//! the crate so the linker takes the handlers from here.
+//! The `#[panic_handler]` and the `HardFault` exception are library symbols
+//! here, so a board must name the crate for the linker to take them from it.
 //!
-//! `ubos-ota`'s `rp` feature and this crate name the same family two ways on
-//! purpose. `ubos-ota/rp` owns the OTA flash backend and the breadcrumb API;
-//! this crate owns the platform boot, fault and watchdog code. They are not
-//! merged.
+//! `ubos-ota/rp` owns the OTA flash backend and the breadcrumb API; this
+//! crate owns the platform boot, fault and watchdog code.
 
 #![no_std]
 

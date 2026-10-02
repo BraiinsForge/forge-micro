@@ -22,11 +22,10 @@
 use embassy_time::Instant;
 use esp_rtos::embassy::Callbacks;
 
-/// Brackets `flags.wait()` inside `esp_rtos::embassy::Executor::run_with_callbacks`.
-/// `on_idle` records the entry instant; `before_poll` accumulates the
-/// elapsed ticks on the next iteration through `record_idle` for `CPU_INDEX`.
-/// `run_with_callbacks` only fires `on_idle` when the wait will
-/// actually block, so spurious wakes do not skew the count.
+/// Brackets `flags.wait()` inside
+/// `esp_rtos::embassy::Executor::run_with_callbacks`, which fires `on_idle`
+/// only when the wait will actually block, so spurious wakes do not skew the
+/// idle ticks recorded for `CPU_INDEX`.
 pub struct IdleAccounting<const CPU_INDEX: usize> {
     idle_start: Option<Instant>,
 }

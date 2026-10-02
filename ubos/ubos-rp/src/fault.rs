@@ -23,23 +23,15 @@
 
 /// Custom panic handler: records a breadcrumb in SCRATCH2 and spins.
 ///
-/// The breadcrumb distinguishes a panic-induced watchdog reset from a
-/// slow-flash watchdog timeout: both set the watchdog TIMER reason bit,
-/// but only a panic sets SCRATCH2 to `WRITE_PHASE_PANIC`. The probe is
-/// detached during OTA uploads so defmt output is not observed; the
-/// breadcrumb is the only durable record that survives the warm reset.
-/// Spinning without feeding the watchdog causes the 2 s hardware watchdog
-/// to fire, which resets the board with the TIMER reason bit set, and
-/// SCRATCH2 carries the panic marker to the next boot. This holds only
-/// once `watchdog_task` has armed the watchdog; a panic in early boot
-/// before arming spins forever, the same window the prior `panic_probe`
-/// handler had.
+/// Spinning without feeding the watchdog lets the hardware watchdog reset the
+/// board, and the breadcrumb is what separates that reset from a slow-flash
+/// timeout, which sets the same TIMER reason bit. This holds only once
+/// `watchdog_task` has armed the watchdog: a panic before that spins
+/// forever.
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     ubos_ota::record_panic_breadcrumb();
     defmt::error!("firmware panic");
-    // Spin without feeding the watchdog so the hardware watchdog fires and
-    // resets the board, leaving SCRATCH2 set for the next boot to read.
     loop {
         cortex_m::asm::wfi();
     }
@@ -47,13 +39,10 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 
 /// `HardFault` handler: defmt-logs the stacked exception frame.
 ///
-/// A `HardFault` is distinct from a Rust panic and from a watchdog
-/// timeout. cortex-m-rt's default handler executes `udf`, which probe-rs
-/// reports only as a bare "Exception" with an unreliable unwound
-/// backtrace. Logging the stacked PC and LR gives the true faulting
-/// address. The frame is emitted over defmt-rtt before the board is
-/// left to the hardware watchdog, so `cargo run` captures it even when
-/// the unwinder cannot.
+/// cortex-m-rt's default handler executes `udf`, which probe-rs reports only
+/// as a bare "Exception" with an unreliable unwound backtrace. The stacked PC
+/// and LR give the true faulting address, emitted over defmt-rtt before the
+/// board is left to the hardware watchdog.
 #[cortex_m_rt::exception]
 unsafe fn HardFault(frame: &cortex_m_rt::ExceptionFrame) -> ! {
     defmt::error!(
@@ -67,8 +56,6 @@ unsafe fn HardFault(frame: &cortex_m_rt::ExceptionFrame) -> ! {
         frame.r3(),
         frame.r12(),
     );
-    // Spin without feeding the watchdog so the hardware watchdog resets the
-    // board after the frame has been emitted.
     loop {
         cortex_m::asm::wfi();
     }

@@ -24,11 +24,10 @@ use esp_hal::rtc_cntl::SocResetReason;
 use ubos_api::{OtaWritePhase, ResetReason};
 
 /// Report why the chip last reset and publish it for the OTA reset
-/// diagnostics. A watchdog reason means the previous run stalled the
-/// executor past `config::Watchdog::TIMEOUT`; a power-on or external reset
-/// reads as None. Unlike the RP boards there is no reset-surviving scratch
-/// register, so the OTA breadcrumb fields are absent: the two-slot otadata
-/// scheme is self-healing, so a reset is never an in-progress OTA write.
+/// diagnostics. A watchdog reason means the previous run stalled the executor
+/// past `config::Watchdog::TIMEOUT`. The OTA breadcrumb fields are absent
+/// because no scratch register here survives the reset, and the two-slot
+/// otadata scheme is self-healing, so a reset is never an in-progress write.
 pub fn capture_reset_diag() {
     let reset_reason = match esp_hal::system::reset_reason() {
         Some(

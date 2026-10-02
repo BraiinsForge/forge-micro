@@ -25,10 +25,9 @@
 /// executor body. `BufferedUart` must be constructed on the core that polls
 /// it, which is why the whole thing runs inside `spawn_core1`.
 ///
-/// The `run` arm carries the one difference between boards: which executor
-/// drives core 1. Most boards pass `run_cortex_m_executor::<1, _>` so the
-/// poll loop accumulates idle ticks for the busy-ratio metric; a board with a
-/// hand-managed executor passes that instead.
+/// The `run` arm chooses which executor drives core 1:
+/// `run_cortex_m_executor::<1, _>` accumulates idle ticks for the busy-ratio
+/// metric, and a board with a hand-managed executor passes its own.
 ///
 /// ```ignore
 /// ubos_rp::spawn_miner_core1!(

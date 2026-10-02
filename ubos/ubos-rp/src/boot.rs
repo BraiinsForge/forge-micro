@@ -17,12 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The boot glue every RP board repeats: the chip id the MAC derives from,
-//! the entropy seeds and the `WIZnet` bring-up with its failure policy.
-//!
-//! These are free functions: each reaches a hardware singleton through a
-//! peripheral token or a chip register, or drives the network device and
-//! its runner state as peers, so none has a receiver this crate declares.
+//! The boot glue: the chip id the MAC derives from, the entropy seeds and
+//! the `WIZnet` bring-up.
 
 use defmt::error;
 use embassy_net_wiznet::chip::Chip;
@@ -34,8 +30,8 @@ use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
 use ubos_core::entropy::Seeds;
 
-/// How long the board waits before it resets after a failed `WIZnet` init,
-/// so the log line reaches the probe first.
+/// Delay before the reset that follows a failed `WIZnet` init, so the log
+/// line reaches the probe first.
 const WIZNET_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 /// The RP2350 OTP chip id as big-endian bytes, or zero when the read
@@ -89,16 +85,15 @@ pub fn seeds_from_rosc() -> Seeds {
     }
 }
 
-/// TRNG sample count per draw. Counts of 20 to 25 minimise generation
-/// time but fail the on-die entropy checks often enough to log every
-/// boot; 100 trades a few hundred microseconds for a quiet boot.
+/// TRNG samples per draw. A count near the 20 to 25 that minimises
+/// generation time fails the on-die entropy checks often enough to log every
+/// boot, so this value trades a few hundred microseconds for a quiet one.
 #[cfg(feature = "rp235x")]
 const TRNG_SAMPLE_COUNT: u32 = 100;
 
 /// The session and handshake seeds from the hardware TRNG, the stack seed
-/// from the ring oscillator. The TRNG runs three built-in entropy health
-/// checks per draw; it is used at boot only, so the peripheral is dropped
-/// once the seeds are drawn.
+/// from the ring oscillator. The TRNG is drawn from at boot only, so the
+/// peripheral is dropped once the seeds are taken.
 #[cfg(feature = "rp235x")]
 pub async fn seeds_from_trng<T: embassy_rp::trng::Instance>(
     trng: embassy_rp::Peri<'_, T>,
@@ -124,16 +119,10 @@ pub async fn seeds_from_trng<T: embassy_rp::trng::Instance>(
 /// Bring the `WIZnet` chip up, or reset the board and try again.
 ///
 /// A failed SPI read is almost always transient, a brownout garbling the
-/// bus rather than a wiring fault. A chip-version mismatch is not
-/// transient: it means the wrong driver type or a dead chip, and no reset
-/// clears it. The reset loop is still what runs, because a headless board
-/// has no channel to report on before its network is up, and the driver
-/// logs both version bytes over the probe. `new` consumes the SPI, both
-/// pins and the init-once `State`, so it cannot be retried in place, and a
-/// panic here records a crash marker the OTA path may act on for what is
-/// not a firmware fault. A dead chip loops through this reset, the same
-/// standstill a panic gave, without the false marker and without waiting
-/// out the watchdog.
+/// bus, and `new` consumes the SPI, both pins and the init-once `State`, so
+/// it cannot be retried in place. A panic here would record a crash marker
+/// the OTA path may act on for what is not a firmware fault, so even a dead
+/// chip loops through this reset instead.
 pub async fn wiznet_or_reset<
     const N_RX: usize,
     const N_TX: usize,

@@ -19,11 +19,10 @@
 
 //! Reset pin driven through the carrier's TCA9554 I/O expander.
 //!
-//! One line of the expander holds a hashboard's reset signal. Active-low:
-//! low holds the chain in reset, high releases it. The other seven lines
-//! belong to whatever else the carrier wires to the expander, so every
-//! write here changes this pin's bit alone and leaves the rest as the
-//! device last reported them.
+//! One line of the expander holds a hashboard's reset signal, active-low.
+//! The other seven belong to whatever else the carrier wires to the expander,
+//! so every write here changes this pin's bit alone and leaves the rest as
+//! the device last reported them.
 
 use defmt::warn;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
@@ -34,8 +33,7 @@ use crate::i2c::{Bus, Device};
 /// The direction register's power-on value: every line an input.
 const ALL_INPUTS: u8 = 0xFF;
 
-/// Drives a hashboard reset line through the carrier's TCA9554 I/O
-/// expander on the given pin.
+/// One hashboard reset line on the expander.
 pub struct ExpanderResetPin {
     expander: Tca9554<Device>,
     pin_bit: u8,

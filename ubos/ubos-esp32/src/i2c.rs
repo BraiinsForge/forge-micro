@@ -17,12 +17,8 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Shared I2C0 bus type for the control board.
-//!
-//! The board owns the bus mutex and every consumer, the PSU, the
-//! temperature sensor array and the I/O expander among them, shares it
-//! through the [`Device`] handle named here rather than spelling out the
-//! same type twice.
+//! Shared I2C0 bus type for the control board. The board owns the mutex and
+//! every consumer shares it through the [`Device`] handle named here.
 
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -36,6 +32,5 @@ use esp_hal::i2c::master::I2c;
 /// this to `CriticalSectionRawMutex`, since nothing gates the claim.
 pub type Bus = Mutex<NoopRawMutex, I2c<'static, esp_hal::Async>>;
 
-/// `embedded-hal-async` device handle for one consumer of the shared bus.
-/// Cloning the bus reference is the supported shared-bus pattern.
+/// `embedded-hal-async` handle for one consumer of the shared bus.
 pub type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, esp_hal::Async>>;

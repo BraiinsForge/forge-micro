@@ -21,16 +21,10 @@
 //! wiring.
 //!
 //! Slice 4 channel A on `PIN_8` drives the fan's PWM input at 25 kHz, the rate
-//! specified by the Intel 4-wire fan spec. `BoardFan` exposes the PWM output
-//! behind the `ubos_cooling::FanOutput` trait so the cooling task can drive
-//! duty cycle from a PID loop.
-//!
-//! Slice 7 channel B on `PIN_15` runs in `RisingEdge` divmode and counts tach
-//! pulses. Standard 4-wire fans emit two pulses per revolution, so RPM is
-//! `pulses × 60 / 2` over the elapsed interval. `BoardTach` exposes the count
-//! behind `ubos_cooling::TachReader`; the cooling task samples it once per
-//! control tick. The tach output is open-collector, so the pad's internal
-//! pull-up idles the line high between pulses.
+//! specified by the Intel 4-wire fan spec. Slice 7 channel B on `PIN_15` runs
+//! in `RisingEdge` divmode and counts tach pulses; that output is
+//! open-collector, so the pad's internal pull-up idles the line high between
+//! pulses.
 //!
 //! `BoardFan::new` and `BoardTach::new` take the PWM top and the pulses per
 //! revolution so a board's `config::Fan` values do not have to reach this
@@ -48,8 +42,6 @@ use embassy_time::Instant;
 use ubos_cooling::{FanOutput, TachReader};
 use ubos_core::units::{FanPwm, FanRpm};
 
-/// PWM output driving the fan input. Construct once and pass into the
-/// cooling task; the cooling loop sets duty via `FanOutput::set_pwm`.
 pub struct BoardFan {
     pwm: Pwm<'static>,
     top: u16,
@@ -80,9 +72,7 @@ impl FanOutput for BoardFan {
     }
 }
 
-/// Tachometer reader. Owns the PWM slice running as a rising-edge
-/// counter on the tach pin; `read_rpm` snapshots and resets the count,
-/// then converts it to RPM over the interval since the previous call.
+/// Tachometer reader over a PWM slice run as a rising-edge counter.
 pub struct BoardTach {
     tach: Pwm<'static>,
     last: Instant,

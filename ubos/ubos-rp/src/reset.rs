@@ -21,12 +21,11 @@
 
 use defmt::info;
 
-/// Capture the watchdog reset reason and OTA breadcrumb before anything
-/// else touches the watchdog registers. Call this first in `boot`, before
+/// Capture the watchdog reset reason and OTA breadcrumb before anything else
+/// touches the watchdog registers. Call this first in `boot`, before
 /// `ubos_ota::mark_booted`, because `mark_booted` performs a flash op that
-/// feeds the watchdog, and the reason register is read-once: a debugger warm
-/// reset clears it. Reading here guarantees the values reflect the most recent
-/// reset.
+/// feeds the watchdog and the reason register is read-once: a debugger warm
+/// reset clears it.
 pub fn capture_reset_diag() {
     use embassy_rp::pac;
     use ubos_api::{OtaWritePhase, ResetReason};
@@ -37,10 +36,6 @@ pub fn capture_reset_diag() {
     let scratch1 = watchdog.scratch1().read();
     let scratch2 = watchdog.scratch2().read();
 
-    // Determine the reset reason from the hardware bits. A debugger warm reset
-    // also clears these bits, so the values are reliable in production but may
-    // read as Clean after probe-rs attaches; that is acceptable for diagnostic
-    // purposes.
     let reason = if reason_reg.timer() {
         ResetReason::WatchdogTimeout
     } else if reason_reg.force() {
@@ -49,12 +44,9 @@ pub fn capture_reset_diag() {
         ResetReason::Clean
     };
 
-    // The breadcrumb is active when SCRATCH0 holds the magic value.
     let ota_was_active = scratch0 == ubos_ota::OTA_BREADCRUMB_MAGIC;
     let ota_offset = if ota_was_active { scratch1 } else { 0 };
 
-    // SCRATCH2 holds the write-phase code written by `write_chunk` or the panic
-    // handler. Unknown values map to None.
     let write_phase = OtaWritePhase::from_u32(scratch2);
 
     info!(

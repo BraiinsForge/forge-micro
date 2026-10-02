@@ -17,13 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! The WS2812 PIO driver as a [`ubos_led::rgb::RgbFrame`] writer.
-//!
-//! A PIO state machine clocks the WS2812 stream via the embassy-rp
-//! driver. The breathing animation is `ubos_led::rgb`; this module only
-//! adapts the driver, so a board spawns `ubos_led::rgb_task!` over its
-//! [`Ws2812Ring`] alias. The newtype exists because the trait and the
-//! driver are both foreign to this crate.
+//! The WS2812 PIO driver as a [`ubos_led::rgb::RgbFrame`] writer, so a board
+//! spawns `ubos_led::rgb_task!` over its [`Ws2812Ring`] alias. The newtype
+//! exists because the trait and the driver are both foreign to this crate.
 
 use embassy_rp::pio::Instance;
 use embassy_rp::pio_programs::ws2812::{Grb, PioWs2812};

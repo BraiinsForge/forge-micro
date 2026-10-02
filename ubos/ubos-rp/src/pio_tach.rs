@@ -20,16 +20,9 @@
 //! PIO tachometer shared by every RP board with a fan header.
 //!
 //! One PIO state machine per tach line counts the ticks between two
-//! qualified rising edges and pushes the count. The CPU converts that to
-//! RPM. The program, its setup and the conversion were one copy per
-//! board until this module; the code is identical because the wiring is,
-//! and only the pulses per revolution belongs to the board.
-//!
-//! These are free functions rather than methods on a tach type. The
-//! receiver would be `embassy_rp`'s `StateMachine`, which this crate does
-//! not declare, so no inherent `impl` here can take it. They are generic
-//! over the PIO block, because a board whose tach lines span both GPIO
-//! windows loads the program into both blocks.
+//! qualified rising edges and pushes the count; the CPU converts that to
+//! RPM. The functions are generic over the PIO block, because a board whose
+//! tach lines span both GPIO windows loads the program into both blocks.
 
 use embassy_rp::Peri;
 use embassy_rp::gpio::Pull;
@@ -51,7 +44,6 @@ pub const TACH_PIO_HZ: u32 = 3_000_000;
 /// of the input duty cycle.
 pub const TACH_CYCLES_PER_ITER: u32 = 3;
 
-/// Microseconds in a second, for the period-to-window conversion.
 const MICROS_PER_SECOND: u64 = 1_000_000;
 
 /// Fastest RPM accepted as a real measurement; no fan on this board
@@ -62,15 +54,8 @@ pub const TACH_MAX_PLAUSIBLE_RPM: u64 = 30_000;
 /// pulses per revolution.
 ///
 /// Anything shorter implies more than [`TACH_MAX_PLAUSIBLE_RPM`] and is
-/// discarded as residual noise rather than counted as a real pulse.
-///
-/// The pulses per revolution is the board's, not this crate's: a header
-/// wired to a two-pulse fan and one wired to a four-pulse fan disagree
-/// on what a given tick count means. Passing it keeps a board from
-/// reading half or double its real speed.
-///
-/// A zero `pulses_per_rev` yields `u32::MAX`, so every pulse is discarded
-/// rather than the divisor reaching zero.
+/// discarded as residual noise. A zero `pulses_per_rev` yields `u32::MAX`, so
+/// every pulse is discarded rather than the divisor reaching zero.
 // Fits u32: the divisor is far larger than can push the quotient past 2^32.
 #[allow(clippy::cast_possible_truncation)]
 #[must_use]
@@ -84,17 +69,14 @@ pub const fn min_iters(pulses_per_rev: u64) -> u32 {
 
 /// Build the tach period-counter program.
 ///
-/// The program measures the number of `TACH_CYCLES_PER_ITER`-cycle ticks
-/// between two consecutive qualified rising edges and pushes it. `X` is a
-/// down-counter started at `0xFFFF_FFFF` at the rising edge, snapshotted
-/// into the ISR at the next rising edge, so the CPU recovers the elapsed
+/// `X` is a down-counter started at `0xFFFF_FFFF` at the rising edge and
+/// snapshotted into the ISR at the next one, so the CPU recovers the elapsed
 /// tick count as `0xFFFF_FFFF - value`.
 ///
 /// A rising edge counts only once the line has stayed high for 31
 /// consecutive ticks, which rejects the chatter the slow RC rising edge
-/// produces around the input threshold. The debounce runs inside the
-/// counting loop (`s_deb`) at the same cycles-per-tick as the
-/// `high`/`low` loops, so it does not bias the measured period.
+/// produces around the input threshold. The debounce runs at the same
+/// cycles-per-tick as the counting loops, so it does not bias the period.
 pub fn tach_program<P: Instance>(common: &mut Common<'static, P>) -> LoadedProgram<'static, P> {
     // `set y, N` takes a 5-bit immediate, so the debounce window maxes at
     // 31 ticks (31 µs), comfortably longer than a single chatter pulse and
@@ -188,10 +170,9 @@ pub fn latest_rpm<P: Instance, const SM: usize>(
     let Some(iters) = iters else {
         return FanRpm::from_rpm(0);
     };
-    // One measured period spans one pulse. The period is in ticks of
+    // One measured period spans one pulse, counted in ticks of
     // TACH_CYCLES_PER_ITER PIO cycles, so its length in microseconds is
-    // ticks × cycles / pio_hz × 10^6. pulses_to_rpm finishes the
-    // conversion, the same tail every other tach reader uses.
+    // ticks × cycles / pio_hz × 10^6.
     let elapsed_us = u64::from(iters) * u64::from(TACH_CYCLES_PER_ITER) * MICROS_PER_SECOND
         / u64::from(TACH_PIO_HZ);
     pulses_to_rpm(1, pulses_per_rev, elapsed_us)

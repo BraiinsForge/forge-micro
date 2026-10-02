@@ -19,26 +19,21 @@
 
 //! `serial_baudrate::BaudRate` wrapper for the embassy-rp `BufferedUart`.
 //!
-//! `ubos_mining::serial::Serial::run` drives one full-duplex instance and
-//! takes the unsplit `BufferedUart` directly. `BufferedUart` already
-//! implements `Read` and `Write`, and embassy-rp 0.10 exposes runtime baud
-//! switching through `BufferedUart::set_baudrate`. `MinerUart` is a thin
-//! newtype that exists only to satisfy the orphan rule for `BaudRate`.
+//! `MinerUart` is a newtype that exists only to satisfy the orphan rule for
+//! `BaudRate`. `ubos_mining::serial::Serial::run` drives the unsplit
+//! `BufferedUart` as one full-duplex instance.
 
 use embassy_rp::interrupt::{self, InterruptExt};
 use embassy_rp::uart::{BufferedUart, Error as UartError};
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use serial_baudrate::BaudRate;
 
-/// The chip serial link: the unsplit `BufferedUart`. It is full-duplex and
-/// already implements `Read` and `Write`, so the ubos-mining actor drives it
-/// as one instance rather than split halves.
+/// The chip serial link: the unsplit `BufferedUart`.
 pub struct MinerUart {
     inner: BufferedUart,
 }
 
 impl MinerUart {
-    /// Wrap a `BufferedUart` for use as the chip serial link.
     #[must_use]
     pub fn new(uart: BufferedUart) -> Self {
         Self { inner: uart }

@@ -25,11 +25,9 @@
 /// executor body. `Uart` must be constructed on the core that polls it,
 /// which is why the whole thing runs inside `esp_rtos::start_second_core`.
 ///
-/// The `run` arm carries the executor and idle-accounting choice: it builds
-/// the second core's executor, spawns the miner-serial task onto it, and
-/// runs it through `run_with_callbacks` with
-/// [`IdleAccounting`](crate::IdleAccounting)`::<1>` so core 1's idle ticks
-/// are recorded for the cpu-load metric.
+/// The `run` arm builds the second core's executor and runs it through
+/// `run_with_callbacks` with [`IdleAccounting`](crate::IdleAccounting)`::<1>`,
+/// so core 1's idle ticks reach the cpu-load metric.
 ///
 /// ```ignore
 /// ubos_esp32::spawn_miner_core1!(
@@ -73,7 +71,6 @@ macro_rules! spawn_miner_core1 {
             move || {
                 let $serial = {
                     let uart_config = esp_hal::uart::Config::default()
-                        // Valid baud rate for UART0; cannot fail.
                         .with_baudrate(ubos_mining::consts::INITIAL_BAUDRATE);
                     // Valid UART0 peripheral with default-compatible baud rate; cannot fail.
                     let uart = esp_hal::uart::Uart::new($uart, uart_config)

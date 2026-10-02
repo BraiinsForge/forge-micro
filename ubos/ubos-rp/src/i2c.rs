@@ -19,13 +19,6 @@
 
 //! The shared I2C1 bus types, and an `embassy_rp::gpio::Flex` pad adapter
 //! for `ubos_core::i2c::bus_clear`.
-//!
-//! The board owns the bus mutex and every consumer, the PSU and the
-//! temperature sensor array among them, shares it through the [`Device`]
-//! handle named here rather than spelling out the same type once per board.
-//!
-//! `bus_clear_flex` is free rather than a method because `Flex` is
-//! `embassy-rp`'s type and the adapter newtype below is private.
 
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::gpio::Flex;
@@ -47,11 +40,8 @@ pub type Bus = Mutex<NoopRawMutex, I2c<'static, I2C1, Async>>;
 /// Cloning the bus reference is the supported shared-bus pattern.
 pub type Device = I2cDevice<'static, NoopRawMutex, I2c<'static, I2C1, Async>>;
 
-/// Wraps a `Flex` pad so it implements [`OpenDrainPin`]: `release` sets the
-/// pad back to an input, letting the bus pull-up hold the line high, and
-/// `drive_low` drives it low as a push-pull output. The pad's pull must
-/// already be configured by the caller; this adapter only switches
-/// direction.
+/// Wraps a `Flex` pad as an [`OpenDrainPin`]: `release` sets the pad back to
+/// an input, so the bus pull-up holds the line high.
 struct FlexPad<'a, 'd>(&'a mut Flex<'d>);
 
 impl OpenDrainPin for FlexPad<'_, '_> {

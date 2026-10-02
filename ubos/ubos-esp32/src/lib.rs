@@ -19,19 +19,8 @@
 
 //! Per-platform support for the Xtensa ESP32-S3 control board.
 //!
-//! The crate holds the boot-time reset diagnostic, the idle-accounting
-//! executor callbacks, the persistent event-ring wrapper, the watchdog
-//! wrapper, the `MinerUart` newtype and the core-1 miner-serial spawn macro
-//! that the ESP32-S3 board carried one copy of. A board depends on this crate
-//! and deletes its own copies.
-//!
-//! The crate is for the Xtensa ESP32-S3 alone, so it pins the `esp32s3` chip
-//! feature rather than selecting it per board. A RISC-V ESP32 target is a
-//! decision to take when such a board exists.
-//!
-//! `ubos-ota`'s `esp` feature and this crate name the same family two ways on
-//! purpose. `ubos-ota/esp` owns the OTA flash backend; this crate owns the
-//! platform boot, idle and watchdog code. They are not merged.
+//! `ubos-ota/esp` owns the OTA flash backend; this crate owns the platform
+//! boot, idle and watchdog code.
 
 #![no_std]
 
@@ -52,8 +41,6 @@ pub use ring::PersistentRing;
 pub use watchdog::BoardWatchdog;
 
 /// Fill a 32-byte seed from the hardware RNG, one `u32` call at a time.
-///
-/// Free rather than a method because `Rng` is `esp-hal`'s type.
 #[must_use]
 pub fn seed_from_rng(rng: &mut esp_hal::rng::Rng) -> [u8; 32] {
     let mut seed = [0u8; 32];
