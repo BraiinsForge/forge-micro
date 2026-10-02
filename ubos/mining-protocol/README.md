@@ -1,13 +1,9 @@
 # mining-protocol
 
-Protocol-agnostic contract between Stratum adapters and the integration
-layer. Defines the `MiningClient` trait, the borrowed domain types each
-adapter produces (`MiningJob`, `Share`, `JobId`, `SessionUpdate`,
-`SubmitResult`), and a handful of pure helpers shared by both protocols
-(`hashing`, `hex`, `difficulty`, `lazy_merkle`).
+What this crate defines and where it sits: the crate docs in
+`src/lib.rs`.
 
-`no_std`, no `alloc`. Not consumed directly by firmware; sits between
-`stratum-v1` / `stratum-v2` (impls) and `stratum-client` (driver).
+`no_std`, no `alloc`. Not consumed directly by firmware.
 
 ## Usage
 

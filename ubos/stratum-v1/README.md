@@ -1,9 +1,6 @@
 # stratum-v1
 
-Stratum V1 (JSON-RPC over TCP) wire layer plus a `MiningClient` impl
-for `stratum-client`. Owns line framing, parsing, message encoders,
-target-from-diff conversion, and the per-session subscribe/authorize
-state machine.
+The two layers this crate holds: the crate docs in `src/lib.rs`.
 
 `no_std`, no `alloc`. The crate borrows `&'static str` for the user /
 password fields, so config can live in a `static` next to the firmware's

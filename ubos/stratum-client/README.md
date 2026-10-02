@@ -1,10 +1,6 @@
 # stratum-client
 
-Integration loop and shared session state that drives a pool connection
-to completion regardless of protocol version. Owns the read/submit/
-keepalive arbitration, ntime-rolling work generator, and the
-`AsicSession` (`Watch<WorkAssignment>` + `Channel<Solution>`) that the
-chip-side task talks to.
+What this crate owns: the crate docs in `src/lib.rs`.
 
 `no_std`, no `alloc`. The protocol adapter is plugged in as a
 `MiningClient` impl; the chip-side is anything that drives the

@@ -1,9 +1,7 @@
 # stratum-v2
 
-Stratum V2 (Noise NX handshake + binary framing) wire layer plus a
-`MiningClient` impl for `stratum-client`. Built on top of the `ii-sv2`
-umbrella crate (security, framing, messages, types). Same plug-in
-shape as `stratum-v1`: connect, drive, submit.
+What this crate wraps and exposes: the crate docs in `src/lib.rs`. Same
+plug-in shape as `stratum-v1`: connect, drive, submit.
 
 `no_std`, no `alloc`. The Noise context and RNG are passed in by the
 caller so the firmware controls how much memory `secp256k1` is allowed
