@@ -31,7 +31,7 @@ driver is exercised without a hashboard on the bench.
 | Task | Owner | Role |
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
-| `miner_task` | `mining.rs` | Drives `Miner::new(psu, BOARD, chains).run()` against the tuner `MinerConfig::tuning` selects. Bring-up / teardown state machine: reset assert, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
+| `miner_task` | `mining.rs` | Drives `Miner::<_, _, T, CHAINS>::new(psu, BOARD, chains, platform).run()` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
 | `power_stats_task` | `psu.rs` | Drives `ubos_psu::run_power_stats`. Polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes them. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
@@ -128,7 +128,8 @@ If the PSU-disable command fails, it logs the error and continues with bring-up.
 
 Then `Miner::run` repeats:
 
-1. Read the configuration and select the tuner from `miner.tuning`.
+1. Read the configuration and select the tuner from `miner.tuning` out of the firmware's tuner set.
+   If the set has no tuner for it, cut the rail and hold until the configuration changes.
 2. Assert reset on every chain, enable the PSU, and release reset with the existing settle delays.
 3. Reset, enumerate, and configure all chains concurrently.
    Retry failed attempts, then park absent or faulted chains in reset.
@@ -169,14 +170,19 @@ Each serial actor records its chain's frequency after a successful command.
 The PSU driver records the shared voltage after a successful command.
 The plan executor first lowers frequencies, then changes the rail, then raises frequencies.
 
-The loop drives all connectors through `Tuner<CHAINS>`.
+The firmware names the tuner set as the `T` of `Miner` and the fifth argument of `miner_task!`.
+Every board in this repository names `Tuners`, which serves both the fixed and the power policy.
+The loop drives all connectors through `MachineTuner<CHAINS>`.
 Each present chain supplies its frequency, chip count, hottest temperature, and smoothed hashrate.
 Absent and faulted connectors have `None` entries in `Readings::chains`.
 The miner also supplies the PSU snapshot and the last confirmed voltage command.
 `Readings::voltage` comes directly from the PSU record.
 Telemetry can lag or show voltage droop.
 
-The runner supplies experiment results through `PlatformReadings`, which is empty in both policies.
+What the platform reports beyond `Readings` arrives as the set's `PlatformReadings`.
+The firmware passes the function that reads them as the sixth argument of `miner_task!`.
+The miner calls it once per step and passes the result to the tuner, which reads nothing itself.
+Both shared policies take `()`, and the five-argument form of the macro supplies it.
 
 ## Chain presence
 

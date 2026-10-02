@@ -49,7 +49,6 @@ use crate::control::{COMMAND_CHANNEL, Message, MiningState, publish_state};
 use crate::reset::ResetPin;
 use crate::serial::Serial;
 use crate::tuner::MachineTuner;
-use crate::tuner::Tuners;
 use ubos_tuner::{ChainReadings, Plan, Readings};
 
 /// Maximum time an interrupted hardware plan can finish before the rail cut.
@@ -145,22 +144,28 @@ impl defmt::Format for MinerError {
 /// Owns the PSU reference and every chain of the machine. Firmware
 /// constructs this with [`Miner::new`] and calls [`Miner::run`] to
 /// enter the bring-up loop. The `'a` lifetime covers the PSU reference
-/// which today is always `'static` at the firmware call site.
-pub struct Miner<'a, P, R, const CHAINS: usize>
+/// which today is always `'static` at the firmware call site. `T` is the
+/// machine's tuner set.
+pub struct Miner<'a, P, R, T, const CHAINS: usize>
 where
     P: Psu,
     R: ResetPin,
+    T: MachineTuner<CHAINS>,
 {
     psu: &'a P,
     board: &'static HashboardDescriptor,
     chains: [ChainHandle<R>; CHAINS],
     halted: bool,
+    /// Readings only this board's platform has. Read once per step and
+    /// passed to the tuner.
+    read_platform: fn() -> T::PlatformReadings,
 }
 
-impl<'a, P, R, const CHAINS: usize> Miner<'a, P, R, CHAINS>
+impl<'a, P, R, T, const CHAINS: usize> Miner<'a, P, R, T, CHAINS>
 where
     P: Psu,
     R: ResetPin,
+    T: MachineTuner<CHAINS>,
 {
     /// Settling time held between each reset / PSU transition during
     /// the bring-up sequence.
@@ -172,8 +177,9 @@ where
     const RETRY_DELAY: Duration = Duration::from_secs(5);
 
     /// Construct a `Miner` from a PSU reference, the board descriptor
-    /// whose chip facts drive the tuner, and one serial actor with its
-    /// reset pin per chain of the machine, in chain order.
+    /// whose chip facts drive the tuner, one serial actor with its reset
+    /// pin per chain of the machine, in chain order, and the function that
+    /// reads what the platform reports beyond the common readings.
     ///
     /// A `Serial` declares its own index and its own view of the
     /// machine's chain count, and both are checked against its position
@@ -198,6 +204,7 @@ where
         psu: &'a P,
         board: &'static HashboardDescriptor,
         chains: [(&'static Serial, R); CHAINS],
+        read_platform: fn() -> T::PlatformReadings,
     ) -> Self {
         const {
             assert!(
@@ -233,6 +240,7 @@ where
             board,
             chains,
             halted: false,
+            read_platform,
         }
     }
 
@@ -281,11 +289,7 @@ where
 
         loop {
             let tuning = config_handle.current().miner.tuning;
-            // TODO: Let the firmware name its tuner set, so a machine that
-            // serves only fixed tuning names `FixedTuner` and holds below
-            // on a power target. Every machine runs `Tuners` today, which
-            // serves both kinds, so the hold is not reached yet.
-            let chosen = <Tuners as MachineTuner<CHAINS>>::select(&tuning, self.board);
+            let chosen = T::select(&tuning, self.board);
             let outcome = if let Some(mut tuner) = chosen {
                 self.bring_up_cycle(&mut tuner, &mut config_subscription, discriminant(&tuning))
                     .await
@@ -447,9 +451,9 @@ where
     ///
     /// `selected` is the tuning variant `tuner` was built from, which the
     /// mining loop compares the live configuration against.
-    async fn bring_up_cycle<M: MachineTuner<CHAINS>>(
+    async fn bring_up_cycle(
         &mut self,
-        tuner: &mut M,
+        tuner: &mut T,
         config_subscription: &mut ConfigSubscription,
         selected: Discriminant<Tuning>,
     ) -> CycleOutcome {
@@ -519,9 +523,9 @@ where
     }
 
     /// Read the live target at each step and retain the first accepted interruption.
-    async fn mine_phase<M: MachineTuner<CHAINS>>(
+    async fn mine_phase(
         &mut self,
-        tuner: &mut M,
+        tuner: &mut T,
         subscription: &mut ConfigSubscription,
         selected: Discriminant<Tuning>,
     ) -> CycleOutcome {
@@ -539,7 +543,11 @@ where
             if discriminant(&snapshot.miner.tuning) != selected {
                 break Interrupt::Restart;
             }
-            let plan = tuner.step(&snapshot.miner.tuning, &self.readings());
+            let plan = tuner.step(
+                &snapshot.miner.tuning,
+                &self.readings(),
+                &(self.read_platform)(),
+            );
             plan_delay = plan.delay;
             let mut interruption = None;
             match select(
@@ -554,7 +562,7 @@ where
                 Either::First(()) => warn!("mining: tuner cancellation timed out"),
                 Either::Second(Err(error)) if interruption.is_none() => {
                     warn!("mining: plan failed: {:?}", Debug2Format(&error));
-                    // TODO: Define a retry policy for transient plan failures.
+                    // TODO: Define a retry policy for transient plan consecutive_plan_failures.
                     crate::events::tuner_fault();
                     let phase = self.cut_rail_and_settle().await;
                     // `cut_rail_and_settle` never returns `Done`, so the
@@ -902,14 +910,19 @@ where
 
 /// Task shell that runs the [`Miner`] bring-up and teardown state
 /// machine. Takes the board's PSU and reset-pin types, the descriptor
-/// whose chip facts drive the tuner, and the machine's chain count.
+/// whose chip facts drive the tuner, the machine's chain count, its
+/// tuner set and, when that set reads platform readings, the function
+/// that reads them.
 ///
 /// [`Miner::run`] returns only when `STOP_MINING` fires, which on bare
 /// metal never happens. The shell parks afterwards for the same reason
 /// `ubos_mining::serial_task` does.
 #[macro_export]
 macro_rules! miner_task {
-    ($psu:ty, $reset:ty, $board:expr, $chains:expr) => {
+    ($psu:ty, $reset:ty, $board:expr, $chains:expr, $tuner:ty) => {
+        ubos_mining::miner_task!($psu, $reset, $board, $chains, $tuner, || ());
+    };
+    ($psu:ty, $reset:ty, $board:expr, $chains:expr, $tuner:ty, $platform:expr) => {
         #[embassy_executor::task]
         pub async fn miner_task(
             psu: &'static $psu,
@@ -918,7 +931,9 @@ macro_rules! miner_task {
             /// Park interval after the state machine returns.
             const PARK_INTERVAL: embassy_time::Duration = embassy_time::Duration::from_secs(60);
 
-            let mut miner = ubos_mining::Miner::new(psu, $board, chains);
+            let mut miner = ubos_mining::Miner::<_, _, $tuner, { $chains }>::new(
+                psu, $board, chains, $platform,
+            );
             miner.run().await;
             defmt::info!("ubos-mining miner exited");
             loop {

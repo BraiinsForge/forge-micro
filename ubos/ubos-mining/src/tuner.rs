@@ -23,9 +23,9 @@
 //! command ordering, cancellation, and teardown. Serial actors and the PSU own
 //! their confirmed settings.
 //!
-//! [`MachineTuner`] is the seam between the two: [`crate::Miner::run`]
-//! names the tuner type it builds, and runs whichever tuner that type
-//! selects for the configuration.
+//! [`MachineTuner`] is the seam between the two: the firmware names the
+//! machine's tuner set as the type parameter of [`crate::Miner`], and the
+//! miner runs whichever tuner that set selects for the configuration.
 
 use ubos_asic::HashboardDescriptor;
 use ubos_config::{FrequencyVoltageTarget, Tuning};
@@ -76,10 +76,13 @@ impl From<ubos_config::PowerTarget> for PowerTarget {
 ///
 /// Configuration belongs to the runner, outside the shared
 /// [`Tuner`](ubos_tuner::Tuner) contract: an implementation converts the
-/// configured target into its tuner's own target type, and reads
-/// whatever its platform reports beyond [`Readings`]. The loop names
-/// neither.
+/// configured target into its tuner's own target type. The miner reads
+/// what the platform reports beyond [`Readings`] through a function the
+/// firmware supplies, and passes it as `platform`.
 pub trait MachineTuner<const CHAINS: usize>: Sized {
+    /// What the machine's platform reports beyond [`Readings`].
+    type PlatformReadings;
+
     /// The tuner `tuning` selects on a machine whose hashboards are
     /// `board`, or `None` when the machine has no tuner for it. Called
     /// once per bring-up cycle.
@@ -104,7 +107,12 @@ pub trait MachineTuner<const CHAINS: usize>: Sized {
     /// still answers for any variant, since this trait is public and the
     /// miner is not its only possible caller; commanding nothing is the
     /// answer for a variant it has no target in.
-    fn step(&mut self, tuning: &Tuning, readings: &Readings<CHAINS>) -> Plan<CHAINS>;
+    fn step(
+        &mut self,
+        tuning: &Tuning,
+        readings: &Readings<CHAINS>,
+        platform: &Self::PlatformReadings,
+    ) -> Plan<CHAINS>;
 }
 
 /// The fixed and the power policy, for a machine that serves both kinds.
@@ -118,6 +126,8 @@ pub enum Tuners {
 }
 
 impl<const CHAINS: usize> MachineTuner<CHAINS> for Tuners {
+    type PlatformReadings = ();
+
     fn select(tuning: &Tuning, board: &'static HashboardDescriptor) -> Option<Self> {
         match tuning {
             Tuning::Fixed(_) => MachineTuner::<CHAINS>::select(tuning, board).map(Self::Fixed),
@@ -125,10 +135,10 @@ impl<const CHAINS: usize> MachineTuner<CHAINS> for Tuners {
         }
     }
 
-    fn step(&mut self, tuning: &Tuning, readings: &Readings<CHAINS>) -> Plan<CHAINS> {
+    fn step(&mut self, tuning: &Tuning, readings: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
         match self {
-            Self::Fixed(tuner) => tuner.step(tuning, readings),
-            Self::Power(tuner) => tuner.step(tuning, readings),
+            Self::Fixed(tuner) => tuner.step(tuning, readings, &()),
+            Self::Power(tuner) => tuner.step(tuning, readings, &()),
         }
     }
 }

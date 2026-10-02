@@ -706,11 +706,11 @@ impl Psu for TestPsu {
     }
 }
 
-fn test_miner<'a, const CHAINS: usize>(
+fn test_miner<'a, T: MachineTuner<CHAINS, PlatformReadings = ()>, const CHAINS: usize>(
     psu: &'a TestPsu,
     actors: [&'static Serial; CHAINS],
     stats: [&'static ChainStats; CHAINS],
-) -> Miner<'a, TestPsu, LoggingResetPin, CHAINS> {
+) -> Miner<'a, TestPsu, LoggingResetPin, T, CHAINS> {
     Miner {
         psu,
         board: &BMM101_HASHBOARD,
@@ -720,6 +720,7 @@ fn test_miner<'a, const CHAINS: usize>(
             reset: LoggingResetPin::new(),
         }),
         halted: false,
+        read_platform: || (),
     }
 }
 
@@ -818,7 +819,7 @@ fn plans_order_shared_rail_writes_and_preserve_successful_partial_progress() {
 
 /// Drive a real actor so cancelled writes can complete after the rail cut.
 fn run_mining_with_driver<M: MachineTuner<1>>(
-    miner: &mut Miner<'_, TestPsu, LoggingResetPin, 1>,
+    miner: &mut Miner<'_, TestPsu, LoggingResetPin, M, 1>,
     tuner: &mut M,
     subscription: &mut ubos_config::ConfigSubscription,
     driver: BringUpDriver,
@@ -856,6 +857,8 @@ fn run_mining_with_driver<M: MachineTuner<1>>(
 struct OnePlanTuner(Plan<1>);
 
 impl MachineTuner<1> for OnePlanTuner {
+    type PlatformReadings = ();
+
     fn select(_: &ubos_config::Tuning, _: &'static HashboardDescriptor) -> Option<Self> {
         Some(Self(Plan {
             rail: None,
@@ -864,7 +867,7 @@ impl MachineTuner<1> for OnePlanTuner {
         }))
     }
 
-    fn step(&mut self, _: &ubos_config::Tuning, _readings: &Readings<1>) -> Plan<1> {
+    fn step(&mut self, _: &ubos_config::Tuning, _readings: &Readings<1>, (): &()) -> Plan<1> {
         self.0
     }
 }
@@ -950,7 +953,7 @@ fn cancellation_timeout_cuts_power_without_a_shutdown_frequency_write() {
 }
 
 async fn check_voltage_only_plans(
-    miner: &mut Miner<'_, TestPsu, LoggingResetPin, 3>,
+    miner: &mut Miner<'_, TestPsu, LoggingResetPin, crate::tuner::Tuners, 3>,
     log: &HardwareLog,
     plan: &Plan<3>,
 ) {
@@ -975,7 +978,7 @@ async fn check_voltage_only_plans(
 }
 
 async fn check_partial_plan_failures(
-    miner: &mut Miner<'_, TestPsu, LoggingResetPin, 3>,
+    miner: &mut Miner<'_, TestPsu, LoggingResetPin, crate::tuner::Tuners, 3>,
     log: &HardwareLog,
     refused: Frequency,
     voltage: Voltage,
@@ -1012,7 +1015,10 @@ async fn check_partial_plan_failures(
     });
 }
 
-async fn check_plan_bounds(miner: &mut Miner<'_, TestPsu, LoggingResetPin, 3>, log: &HardwareLog) {
+async fn check_plan_bounds(
+    miner: &mut Miner<'_, TestPsu, LoggingResetPin, crate::tuner::Tuners, 3>,
+    log: &HardwareLog,
+) {
     let range = miner.board.chip.frequency_range;
     log.lock(|log| log.borrow_mut().clear());
     miner
@@ -1046,11 +1052,18 @@ struct WaitingTuner {
 }
 
 impl<const CHAINS: usize> MachineTuner<CHAINS> for WaitingTuner {
+    type PlatformReadings = ();
+
     fn select(_: &ubos_config::Tuning, _: &'static HashboardDescriptor) -> Option<Self> {
         Some(Self::default())
     }
 
-    fn step(&mut self, _: &ubos_config::Tuning, readings: &Readings<CHAINS>) -> Plan<CHAINS> {
+    fn step(
+        &mut self,
+        _: &ubos_config::Tuning,
+        readings: &Readings<CHAINS>,
+        (): &(),
+    ) -> Plan<CHAINS> {
         if let Some(last) = self.last_step {
             assert!(readings.now.as_millis() > last.as_millis());
         }
@@ -1083,7 +1096,7 @@ fn a_configuration_naming_no_available_tuner_holds_with_the_rail_off() {
         STATS.set_presence(ChainPresence::Present {
             chips: BMM101_HASHBOARD.num_chips,
         });
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let mut miner = test_miner::<crate::tuner::fixed::FixedTuner, 1>(&psu, [&ACTOR], [&STATS]);
         let power = ubos_config::Tuning::Power(ubos_config::PowerTarget {
             input_power_mw: 3_000_000,
             efficiency_mj_per_th: core::num::NonZeroU32::MIN,
@@ -1220,7 +1233,7 @@ fn stop_before_work_initialization_prevents_voltage_commands() {
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Succeed),
         };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [&STATS]);
         STOP_MINING.signal(());
         assert!(matches!(
             block_on(miner.start_work_phase()),
@@ -1243,7 +1256,7 @@ fn settling_ignores_resume_and_preserves_a_resume_queued_after_halt() {
             disable_fails: false,
             behavior: Cell::new(VoltageWrite::Succeed),
         };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [&STATS]);
         let mut wait = core::pin::pin!(super::settle_or_abort(
             Duration::from_millis(500),
             &psu,
@@ -1444,7 +1457,7 @@ fn halt_publishes_stopped_after_reset_even_if_psu_disable_fails() {
                 behavior: Cell::new(VoltageWrite::Succeed),
                 disable_fails,
             };
-            let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+            let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [&STATS]);
             super::publish_state(MiningState::Starting);
             block_on(mining.halt());
             assert_eq!(block_on(subscription.changed()), MiningState::Starting);
@@ -1479,14 +1492,16 @@ fn test_config() -> (
 /// Exercise the production policy with a shorter delay between steps.
 struct LiveTuner(crate::tuner::fixed::FixedTuner);
 impl MachineTuner<1> for LiveTuner {
+    type PlatformReadings = ();
+
     fn select(tuning: &ubos_config::Tuning, board: &'static HashboardDescriptor) -> Option<Self> {
         <crate::tuner::fixed::FixedTuner as MachineTuner<1>>::select(tuning, board).map(Self)
     }
 
-    fn step(&mut self, tuning: &ubos_config::Tuning, readings: &Readings<1>) -> Plan<1> {
+    fn step(&mut self, tuning: &ubos_config::Tuning, readings: &Readings<1>, (): &()) -> Plan<1> {
         Plan {
             delay: Duration::from_millis(1),
-            ..MachineTuner::step(&mut self.0, tuning, readings)
+            ..MachineTuner::step(&mut self.0, tuning, readings, &())
         }
     }
 }
@@ -1606,7 +1621,7 @@ fn stop_has_priority_over_halt_during_initialization_and_settling() {
             behavior: Cell::new(VoltageWrite::Succeed),
             disable_fails: false,
         };
-        let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
+        let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [&STATS]);
         for phase in 0..4 {
             STOP_MINING.signal(());
             block_on(crate::handle().halt());

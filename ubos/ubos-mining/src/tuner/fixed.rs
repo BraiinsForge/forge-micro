@@ -119,6 +119,8 @@ impl FixedTuner {
 }
 
 impl<const CHAINS: usize> MachineTuner<CHAINS> for FixedTuner {
+    type PlatformReadings = ();
+
     fn select(tuning: &Tuning, board: &'static HashboardDescriptor) -> Option<Self> {
         match tuning {
             Tuning::Fixed(_) => Some(Self::new(board)),
@@ -126,7 +128,7 @@ impl<const CHAINS: usize> MachineTuner<CHAINS> for FixedTuner {
         }
     }
 
-    fn step(&mut self, tuning: &Tuning, readings: &Readings<CHAINS>) -> Plan<CHAINS> {
+    fn step(&mut self, tuning: &Tuning, readings: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
         match tuning {
             Tuning::Fixed(target) => Tuner::step(self, (*target).into(), readings, &()),
             // This policy has a target only under `Fixed`, and `select`

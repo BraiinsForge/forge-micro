@@ -416,6 +416,8 @@ impl PowerTuner {
 }
 
 impl<const CHAINS: usize> MachineTuner<CHAINS> for PowerTuner {
+    type PlatformReadings = ();
+
     fn select(tuning: &Tuning, board: &'static HashboardDescriptor) -> Option<Self> {
         match tuning {
             Tuning::Power(_) => Some(Self::new(board)),
@@ -423,7 +425,7 @@ impl<const CHAINS: usize> MachineTuner<CHAINS> for PowerTuner {
         }
     }
 
-    fn step(&mut self, tuning: &Tuning, readings: &Readings<CHAINS>) -> Plan<CHAINS> {
+    fn step(&mut self, tuning: &Tuning, readings: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
         match tuning {
             Tuning::Power(target) => Tuner::step(self, PowerTarget::from(*target), readings, &()),
             // `select` answers `None` for a fixed target, so the miner
