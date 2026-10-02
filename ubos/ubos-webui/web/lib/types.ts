@@ -124,7 +124,8 @@ export interface CoolingConfig {
 }
 
 export interface FixedTarget {
-  frequency_mhz: number;
+  /** Target clock in kHz. The PLL grid steps by a fraction of a megahertz. */
+  frequency_khz: number;
   voltage_mv: number;
 }
 
@@ -178,7 +179,7 @@ export interface Range {
 }
 
 export interface AsicBounds {
-  frequencyMhz: Range;
+  frequencyKhz: Range;
   voltageMv: Range;
 }
 

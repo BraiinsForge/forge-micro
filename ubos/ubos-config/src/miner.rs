@@ -50,7 +50,7 @@ impl Default for Tuning {
     /// per-board defaults via [`crate::Config::for_board`].
     fn default() -> Self {
         Self::Fixed(FrequencyVoltageTarget {
-            frequency_mhz: ubos_asic::BMM101_HASHBOARD.default_frequency.mhz(),
+            frequency_khz: ubos_asic::BMM101_HASHBOARD.default_frequency.khz(),
             voltage_mv: ubos_asic::BMM101_HASHBOARD.default_voltage.mv(),
         })
     }
@@ -65,8 +65,8 @@ impl Tuning {
     pub fn validate(&self, bounds: &MiningBounds) -> Result<(), &'static str> {
         match self {
             Self::Fixed(target) => {
-                if !bounds.frequency_mhz.contains(&target.frequency_mhz) {
-                    return Err("miner.tuning.Fixed.frequency_mhz outside the accepted range");
+                if !bounds.frequency_khz.contains(&target.frequency_khz) {
+                    return Err("miner.tuning.Fixed.frequency_khz outside the accepted range");
                 }
                 if !bounds.voltage_mv.contains(&target.voltage_mv) {
                     return Err("miner.tuning.Fixed.voltage_mv outside the accepted range");

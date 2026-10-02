@@ -103,12 +103,12 @@ const CONFIG = {
     dangerous_chip_temp_c: 105,
   },
   cooling: { mode: 'auto', target_temp_c: 65, fixed_fan_pwm: 60, min_fan_pwm: 20 },
-  miner: { tuning: { Fixed: { frequency_mhz: 500, voltage_mv: 1200 } } },
+  miner: { tuning: { Fixed: { frequency_khz: 500000, voltage_mv: 1200 } } },
   api: { username: 'admin', password: '' },
   network: { mode: 'Dhcp', hostname: '', address: [192, 168, 1, 50], prefix_len: 24, gateway: [192, 168, 1, 1], dns: [] },
 };
 
-const ASIC = { defaultEfficiencyMjPerTh: 40000, bounds: { frequencyMhz: { start: 200, end: 700 }, voltageMv: { start: 1000, end: 1400 } } };
+const ASIC = { defaultEfficiencyMjPerTh: 40000, bounds: { frequencyKhz: { start: 200000, end: 700000 }, voltageMv: { start: 1000, end: 1400 } } };
 const THERMAL = { bounds: { dangerousTempC: { start: 70, end: 110 }, cooldownTempC: { start: 50, end: 90 }, dangerousChipTempC: { start: 90, end: 125 } } };
 const COOLING = { bounds: { targetTempC: { start: 40, end: 85 }, minFanPwm: { start: 0, end: 100 }, fixedFanPwm: { start: 0, end: 100 } } };
 const NETWORK = { mode: 'Dhcp', address: [192, 168, 1, 50], prefix_len: 24, gateway: [192, 168, 1, 1], dns: [[8, 8, 8, 8]] };

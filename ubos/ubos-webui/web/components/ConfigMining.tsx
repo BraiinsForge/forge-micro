@@ -7,6 +7,13 @@ import Field from './Field';
 
 type TunerMode = 'Fixed' | 'Power';
 
+// A bounds range the board states in its milli-unit, restated in the
+// whole unit the form shows. It is absent until the bounds endpoint
+// answers, and the field then renders with no range at all rather than
+// a half-filled one.
+const scaled = (range?: Range): Partial<Range> =>
+  range ? { start: range.start / 1000, end: range.end / 1000 } : {};
+
 export interface ConfigMiningProps {
   miner?: MinerConfig;
   bounds: Partial<AsicBounds>;
@@ -17,7 +24,9 @@ export default function ConfigMining({ miner, bounds, defaultEfficiency }: Confi
   const fixed = miner?.tuning.Fixed;
   const power = miner?.tuning.Power;
   const [mode, setMode] = useState<TunerMode>(() => (power ? 'Power' : 'Fixed'));
-  const [freqMhz, setFreqMhz] = useState<string | number>(() => (fixed ? fixed.frequency_mhz : ''));
+  const [freqMhz, setFreqMhz] = useState<string | number>(() =>
+    fixed ? fixed.frequency_khz / 1000 : '',
+  );
   const [voltMv, setVoltMv] = useState<string | number>(() => (fixed ? fixed.voltage_mv : ''));
   const [inputPowerMw, setInputPowerMw] = useState<string | number>(() =>
     power ? power.input_power_mw : '',
@@ -27,17 +36,21 @@ export default function ConfigMining({ miner, bounds, defaultEfficiency }: Confi
     power ? power.efficiency_mj_per_th : (defaultEfficiency ?? ''),
   );
 
-  const freq: Partial<Range> = bounds.frequencyMhz || {};
+  const freq = scaled(bounds.frequencyKhz);
   const volt: Partial<Range> = bounds.voltageMv || {};
   const isPower = mode === 'Power';
 
   // Every field is required: a switch of mode can show the other mode's
   // fields empty, and an empty number input posts as zero, which is a
   // target nobody entered.
+  //
+  // The board holds the clock in kHz and the form shows MHz. The round
+  // is for binary float error and not for the input's step grid:
+  // `1.26 * 1000` is 1260.0000000000002.
   const save = (event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>) => {
     const tuning: Tuning = isPower
       ? { Power: { input_power_mw: +inputPowerMw, efficiency_mj_per_th: +efficiencyMjPerTh } }
-      : { Fixed: { frequency_mhz: +freqMhz, voltage_mv: +voltMv } };
+      : { Fixed: { frequency_khz: Math.round(+freqMhz * 1000), voltage_mv: +voltMv } };
     return saveConfig({ miner: { tuning } }, event);
   };
 
@@ -93,7 +106,7 @@ export default function ConfigMining({ miner, bounds, defaultEfficiency }: Confi
             value={freqMhz}
             onInput={(e) => setFreqMhz(e.currentTarget.value)}
             type="number"
-            step="1"
+            step="0.001"
             min={freq.start}
             max={freq.end}
             required

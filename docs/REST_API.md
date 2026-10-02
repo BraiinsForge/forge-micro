@@ -134,7 +134,7 @@ chain value only when the PSU reading is unavailable.
 | Method | Path                              | Auth      | Status | Description                                                              |
 |--------|-----------------------------------|-----------|--------|--------------------------------------------------------------------------|
 | GET    | `/api/system/info`                | any       | 200    | `SystemInfo`; full telemetry with `apiVariant: "ubos-0.2"`, plus `hwInfo` (`psuModel` detected at runtime, `null` where the supply is not identifiable; `bootloaderVersion`/`fanControllerVersion` populated only on platforms that report them, `null` elsewhere; `hashboardIds` per-chain hashboard EEPROM serials, `null` slot when a chain's board is absent or unreadable; `chainsPresent` count of chains currently enumerated `Present`) |
-| GET    | `/api/system/asic`                | any       | 200    | `MiningInfo`; chip facts (`asicModel`, `deviceModel`, `swarmColor`, `asicCount`), tuning defaults (`defaultFrequencyMhz`, `defaultVoltageMv`, `defaultEfficiencyMjPerTh`), `bounds: { frequencyMhz: { start, end }, voltageMv: { start, end } }` |
+| GET    | `/api/system/asic`                | any       | 200    | `MiningInfo`; chip facts (`asicModel`, `deviceModel`, `swarmColor`, `asicCount`), tuning defaults (`defaultFrequencyKhz`, `defaultVoltageMv`, `defaultEfficiencyMjPerTh`), `bounds: { frequencyKhz: { start, end }, voltageMv: { start, end } }` |
 | GET    | `/api/system/thermal`             | any       | 200    | `ThermalInfo`; accepted ranges as `bounds: { sampleIntervalMs, dangerousTempC, cooldownTempC }` |
 | GET    | `/api/system/cooling`             | any       | 200    | `CoolingInfo`; accepted ranges as `bounds: { targetTempC, minFanPwm, fixedFanPwm }` |
 | GET    | `/api/system/statistics`          | any       | 200    | `SystemStatistics`; label set + (currently empty) ring of samples        |
@@ -193,7 +193,7 @@ The old top-level `tuning` and `miner.algorithm` fields no longer apply.
 The configuration schema hash changes, so firmware loads defaults instead of old stored configurations.
 
 `miner.tuning` uses serde's externally tagged enum shape. A fixed target
-is `{"Fixed":{"frequency_mhz":525,"voltage_mv":1400}}`; a power target
+is `{"Fixed":{"frequency_khz":525000,"voltage_mv":1400}}`; a power target
 is `{"Power":{"input_power_mw":44000,"efficiency_mj_per_th":40000}}`.
 
 A zero input-power target keeps the tuner at its safe boot point.

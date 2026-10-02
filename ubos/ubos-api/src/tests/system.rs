@@ -726,7 +726,7 @@ fn serialize_system_info_with_ota(
         time: heapless::String::new(),
         asic_count: 0,
         asic_model: "BM1362",
-        default_frequency_mhz: 0,
+        default_frequency_khz: 0,
         default_voltage_mv: 0,
         shares_accepted: 0,
         shares_rejected: 0,

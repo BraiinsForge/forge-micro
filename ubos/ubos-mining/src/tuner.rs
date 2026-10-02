@@ -46,7 +46,7 @@ pub struct FixedTarget {
 impl From<FrequencyVoltageTarget> for FixedTarget {
     fn from(target: FrequencyVoltageTarget) -> Self {
         Self {
-            frequency: Frequency::from_mhz(target.frequency_mhz),
+            frequency: Frequency::from_khz(target.frequency_khz),
             voltage: Voltage::from_mv(target.voltage_mv),
         }
     }

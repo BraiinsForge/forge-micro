@@ -349,7 +349,7 @@ where
         time: build_time_string(),
         asic_count: mining_info.asic_count,
         asic_model: mining_info.asic_model,
-        default_frequency_mhz: mining_info.default_frequency_mhz,
+        default_frequency_khz: mining_info.default_frequency_khz,
         default_voltage_mv: mining_info.default_voltage_mv,
         shares_accepted,
         shares_rejected,

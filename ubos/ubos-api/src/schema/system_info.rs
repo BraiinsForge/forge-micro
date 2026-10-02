@@ -150,8 +150,8 @@ pub struct SystemInfo<'response> {
     pub asic_count: u8,
     /// ASIC chip model name.
     pub asic_model: &'static str,
-    /// Default mining frequency in MHz programmed at boot.
-    pub default_frequency_mhz: u32,
+    /// Default mining frequency in kHz programmed at boot.
+    pub default_frequency_khz: u32,
     /// Default ASIC core voltage in millivolts programmed at boot.
     pub default_voltage_mv: u32,
     /// Accepted shares since boot, sourced from the stratum-client

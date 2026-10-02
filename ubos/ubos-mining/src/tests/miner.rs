@@ -1686,12 +1686,12 @@ fn fixed_selection() -> core::mem::Discriminant<ubos_config::Tuning> {
     core::mem::discriminant(&ubos_config::Config::default().miner.tuning)
 }
 
-/// A configuration whose fixed target is `frequency_mhz` at `voltage_mv`.
-fn fixed_config(frequency_mhz: u32, voltage_mv: u32) -> ubos_config::Config {
+/// A configuration whose fixed target is `frequency_khz` at `voltage_mv`.
+fn fixed_config(frequency_khz: u32, voltage_mv: u32) -> ubos_config::Config {
     ubos_config::Config {
         miner: ubos_config::MinerConfig {
             tuning: ubos_config::Tuning::Fixed(ubos_config::FrequencyVoltageTarget {
-                frequency_mhz,
+                frequency_khz,
                 voltage_mv,
             }),
         },
@@ -1721,9 +1721,9 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
         let mut miner = test_miner(&psu, [&ACTOR], [&STATS]);
         let mut tuner = LiveTuner(crate::tuner::fixed::FixedTuner::new(board));
         let (mut subscription, publish) = test_config();
-        let mut frequency_mhz = safe.mhz();
+        let mut frequency_khz = safe.khz();
         let mut voltage_mv = board.max_rail_voltage().mv();
-        publish(fixed_config(frequency_mhz, voltage_mv));
+        publish(fixed_config(frequency_khz, voltage_mv));
         let exercise = async {
             assert!(
                 miner
@@ -1735,8 +1735,8 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
         };
         let edit = async {
             Timer::after(Duration::from_millis(1)).await;
-            frequency_mhz = 75;
-            publish(fixed_config(frequency_mhz, voltage_mv));
+            frequency_khz = 75_000;
+            publish(fixed_config(frequency_khz, voltage_mv));
             core::future::poll_fn(|_| {
                 if STATS.frequency() == Frequency::from_mhz(75) {
                     core::task::Poll::Ready(())
@@ -1747,7 +1747,7 @@ fn live_frequency_and_voltage_edits_do_not_cut_power() {
             .await;
             LOG.lock(|log| assert!(!log.borrow().contains(&Write::Disable)));
             voltage_mv -= 100;
-            publish(fixed_config(frequency_mhz, voltage_mv));
+            publish(fixed_config(frequency_khz, voltage_mv));
             core::future::poll_fn(|_| {
                 if ubos_psu::handle().commanded_voltage() == Some(Voltage::from_mv(voltage_mv)) {
                     core::task::Poll::Ready(())

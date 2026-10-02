@@ -35,8 +35,10 @@ use ubos_asic::HashboardDescriptor;
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FrequencyVoltageTarget {
-    /// Target ASIC core frequency in MHz.
-    pub frequency_mhz: u32,
+    /// Target ASIC core frequency in kHz. The PLL grid steps by a
+    /// fraction of a megahertz, so a megahertz field cannot name every
+    /// point on it.
+    pub frequency_khz: u32,
     /// Core supply voltage in millivolts.
     pub voltage_mv: u32,
 }
@@ -67,8 +69,8 @@ pub struct PowerTarget {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct MiningBounds {
-    /// Accepted range for `frequency_mhz` in MHz.
-    pub frequency_mhz: RangeInclusive<u32>,
+    /// Accepted range for `frequency_khz` in kHz.
+    pub frequency_khz: RangeInclusive<u32>,
     /// Accepted range for `voltage_mv` in millivolts.
     pub voltage_mv: RangeInclusive<u32>,
 }
@@ -84,7 +86,7 @@ pub struct MiningBounds {
 #[must_use]
 pub const fn bounds(board: &'static HashboardDescriptor) -> MiningBounds {
     MiningBounds {
-        frequency_mhz: 50..=1000,
+        frequency_khz: 50_000..=1_000_000,
         voltage_mv: 0..=board.max_rail_voltage().mv(),
     }
 }
@@ -110,8 +112,8 @@ pub struct MiningInfo {
     pub swarm_color: &'static str,
     /// Number of ASIC chips on the hashboard.
     pub asic_count: u8,
-    /// Default mining frequency in MHz.
-    pub default_frequency_mhz: u32,
+    /// Default mining frequency in kHz.
+    pub default_frequency_khz: u32,
     /// Default core voltage in millivolts.
     pub default_voltage_mv: u32,
     /// Default power-target efficiency in mJ/TH.
@@ -133,7 +135,7 @@ pub const fn mining_info(
         device_model: board.model,
         swarm_color: board.swarm_color,
         asic_count: board.num_chips,
-        default_frequency_mhz: board.default_frequency.mhz(),
+        default_frequency_khz: board.default_frequency.khz(),
         default_voltage_mv: board.default_voltage.mv(),
         default_efficiency_mj_per_th: board.default_efficiency.mj_per_th(),
         bounds,

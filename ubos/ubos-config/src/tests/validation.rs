@@ -70,7 +70,7 @@ fn valid_thermal() -> ThermalConfig {
 /// remains valid regardless of which board is active at compile time.
 fn valid_tuning() -> Tuning {
     Tuning::Fixed(FrequencyVoltageTarget {
-        frequency_mhz: 525,
+        frequency_khz: 525_000,
         voltage_mv: *MINING_BOUNDS.voltage_mv.start(),
     })
 }
@@ -497,7 +497,7 @@ fn miner_roundtrip_via_from_config() {
 /// The mining form's JSON shape selects the fixed tuner and its target.
 #[test]
 fn miner_fixed_json_shape_deserializes() {
-    let json = r#"{"miner":{"tuning":{"Fixed":{"frequency_mhz":525,"voltage_mv":0}}}}"#;
+    let json = r#"{"miner":{"tuning":{"Fixed":{"frequency_khz":525000,"voltage_mv":0}}}}"#;
     let (update, _) =
         serde_json_core::de::from_str::<ConfigUpdate>(json).expect("deserialize succeeds");
     assert_eq!(update.miner, Some(valid_miner()));
@@ -560,17 +560,17 @@ fn tuning_valid_passes() {
 
 /// Frequency outside the accepted range is rejected.
 ///
-/// 1001 MHz is above the chip's validated ceiling of 1000 MHz.
+/// One kHz above the chip's validated ceiling of 1000 MHz.
 #[test]
 fn tuning_frequency_out_of_range() {
     let mut update = empty_update();
     let mut miner = valid_miner();
     let target = fixed_target(&mut miner.tuning);
-    target.frequency_mhz = 1001;
+    target.frequency_khz = 1_000_001;
     update.miner = Some(miner);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
-        Err("miner.tuning.Fixed.frequency_mhz outside the accepted range")
+        Err("miner.tuning.Fixed.frequency_khz outside the accepted range")
     );
 }
 
@@ -612,16 +612,16 @@ fn thermal_only_update_rejected_when_current_target_above_new_dangerous() {
     );
 }
 
-/// A value inside the expanded range passes.
+/// A value inside the range that no megahertz field could name passes.
 ///
-/// 100 MHz is within the new `50..=700` window and exercises the
-/// low-frequency end of the chip's validated range.
+/// 487.5 MHz sits on the PLL grid and between two megahertz, which is
+/// the point of holding the target in kHz.
 #[test]
 fn tuning_frequency_in_range_non_discrete_passes() {
     let mut update = empty_update();
     let mut miner = valid_miner();
     let target = fixed_target(&mut miner.tuning);
-    target.frequency_mhz = 100;
+    target.frequency_khz = 487_500;
     update.miner = Some(miner);
     assert!(
         update

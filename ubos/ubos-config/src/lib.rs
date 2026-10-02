@@ -101,7 +101,7 @@ use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 use ubos_logging::{info, warn};
 
 ubos_events::events! {
-    config_changed(freq_mhz: u32, voltage_mv: u32)       info = "Configuration changed: {} MHz, {} mV",
+    config_changed_fixed(freq_khz: u32, voltage_mv: u32) info = "Configuration changed: {} kHz, {} mV",
     config_changed_power(power_mw: u32, mj_per_th: u32)  info = "Configuration changed: {} mW, {} mJ/TH",
     factory_reset()                                      warn = "Factory reset to defaults",
     network_applied()                                    info = "Network config applied",
@@ -655,7 +655,7 @@ impl Config {
                 tuning: Tuning::Fixed(FrequencyVoltageTarget {
                     // The board's boot operating point comes from its descriptor,
                     // so a board comes up at its correct rail/clock with no env.
-                    frequency_mhz: board.default_frequency.mhz(),
+                    frequency_khz: board.default_frequency.khz(),
                     voltage_mv: board.default_voltage.mv(),
                 }),
             },
@@ -914,7 +914,7 @@ async fn apply_update<S: Storage>(new: &Config, storage: &mut S) {
     info!("config: applied update, generation {}", generation);
     match &new.miner.tuning {
         Tuning::Fixed(target) => {
-            crate::events::config_changed(target.frequency_mhz, target.voltage_mv);
+            crate::events::config_changed_fixed(target.frequency_khz, target.voltage_mv);
         }
         Tuning::Power(target) => {
             crate::events::config_changed_power(
