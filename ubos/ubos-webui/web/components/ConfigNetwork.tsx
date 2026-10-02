@@ -150,6 +150,7 @@ export default function ConfigNetwork({ hostname: initialHostname }: ConfigNetwo
               type="text"
               placeholder="192.168.1.50"
               disabled={!isStatic}
+              class={isStatic ? '' : 'off'}
             />
             <Field
               label="Mask"
@@ -158,6 +159,7 @@ export default function ConfigNetwork({ hostname: initialHostname }: ConfigNetwo
               type="text"
               placeholder="255.255.255.0"
               disabled={!isStatic}
+              class={isStatic ? '' : 'off'}
             />
             <Field
               label="Gateway"
@@ -166,6 +168,7 @@ export default function ConfigNetwork({ hostname: initialHostname }: ConfigNetwo
               type="text"
               placeholder="192.168.1.1"
               disabled={!isStatic}
+              class={isStatic ? '' : 'off'}
             />
             <Field
               label="DNS Primary"
@@ -174,6 +177,7 @@ export default function ConfigNetwork({ hostname: initialHostname }: ConfigNetwo
               type="text"
               placeholder="8.8.8.8"
               disabled={!isStatic}
+              class={isStatic ? '' : 'off'}
             />
             <Field
               label="DNS Backup"
@@ -182,6 +186,7 @@ export default function ConfigNetwork({ hostname: initialHostname }: ConfigNetwo
               type="text"
               placeholder="1.1.1.1"
               disabled={!isStatic}
+              class={isStatic ? '' : 'off'}
             />
         </Section>
         <button type="submit">Apply</button>

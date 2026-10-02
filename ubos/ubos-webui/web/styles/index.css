@@ -960,11 +960,13 @@ main > * {
 }
 
 /* A field the current mode does not read, such as the fixed fan duty
-   under auto. It stays editable and under the browser's range check,
-   so it is dimmed rather than disabled. Opacity alone reads as a dim
-   value with a live label, because the panel row hardly changes
-   against the page: the label and the value drop to the muted colour
-   too, so the whole row recedes. */
+   under auto or the static address under DHCP. Whether it is also
+   disabled is the form's own call: the fan fields stay editable because
+   the save carries them in either mode, and the tuner and network
+   fields are disabled because the save carries only the selected
+   mode's. Opacity alone reads as a dim value with a live label,
+   because the panel row hardly changes against the page: the label and
+   the value drop to the muted colour too, so the whole row recedes. */
 .fld.off {
   opacity: 0.5;
 }
