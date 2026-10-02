@@ -19,15 +19,10 @@
 
 //! Borrowed-first Stratum V2 frame structure for `no_std` environments.
 //!
-//! Holds the 6-byte frame [`Header`], the borrowed [`FrameView`] over a
-//! complete frame, and the traits that connect messages to the wire:
-//! [`Message`] carries a struct's static [`MessageDescriptor`],
-//! [`MessageGroup`] dispatches a parsed frame into a typed enum variant
-//! by its descriptor, and [`IntoFrame`] describes anything a codec can
-//! encode. [`FrameCodec`] abstracts the wire transformation;
-//! [`PlaintextCodec`] passes frames through unchanged, and the
-//! encrypted codec in `ii-sv2-security` seals them with noise AEAD
-//! chunks.
+//! [`FrameCodec`] is where the wire transformation lives, so that a
+//! message reaches the wire the same way whether [`PlaintextCodec`]
+//! passes it through or `ii_sv2_security::EncryptedCodec` seals it
+//! with noise AEAD chunks.
 
 #![no_std]
 #![forbid(unsafe_code)]

@@ -50,9 +50,6 @@ pub(crate) fn hkdf(chaining_key: &[u8; 32], input_key_material: &[u8]) -> ([u8; 
 mod tests {
     use super::*;
 
-    /// Reference vector from noise-core: `mix_hash([42; 32], [64; 16])` —
-    /// only the first four bytes are pinned; the rest follow if the prefix
-    /// matches.
     #[test]
     fn mix_hash_first_bytes() {
         let h = [42_u8; 32];
@@ -61,8 +58,6 @@ mod tests {
         assert_eq!(&h[..4], &[0x8e, 0x9c, 0x5b, 0x0e]);
     }
 
-    /// Algebraic check: `hkdf` must equal `(t1, t2)` where
-    /// `prk = HMAC(ck, ikm)`, `t1 = HMAC(prk, [1])`, `t2 = HMAC(prk, t1 || [2])`.
     #[test]
     fn hkdf_matches_literal_definition() {
         let ck = [42_u8; 32];

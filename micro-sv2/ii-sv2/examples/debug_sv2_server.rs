@@ -17,16 +17,15 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Debug Stratum V2 server — minimal pool simulator for development & testing.
+//! Debug Stratum V2 server — minimal pool simulator for development.
 //!
 //! Runs the server side of the elementary mining flow:
 //!
 //!   noise NX handshake → SetupConnection → OpenStandardMiningChannel
 //!     → NewMiningJob + SetNewPrevHash → SubmitSharesStandard loop
 //!
-//! Run with `cargo run --example debug_sv2_server -- --help` to see flags.
-//! The authority public key (clients should hardcode it for cert
-//! validation) is logged on startup.
+//! The authority public key is logged on startup, because a client
+//! hardcodes it to validate the certificate.
 
 use std::net::SocketAddr;
 use std::sync::OnceLock;
@@ -49,10 +48,6 @@ use ii_sv2::types::{Bytes0_32, Str0_255, Uint256};
 use rand::RngCore;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{Instrument, error, info, info_span};
-
-// ---------------------------------------------------------------------------
-// CLI
-// ---------------------------------------------------------------------------
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -80,10 +75,8 @@ struct Args {
     rejection_ratio: f64,
 }
 
-// ---------------------------------------------------------------------------
-// Static identities — debug only, NOT secure key material.
-// ---------------------------------------------------------------------------
-
+// Debug identities, fixed so the authority public key is stable across
+// runs. They are not secure key material.
 const AUTHORITY_PRIVATE_KEY: [u8; 32] = [
     0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe,
     0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe, 0xca, 0xfe,
@@ -93,27 +86,18 @@ const SERVER_STATIC_PRIVATE_KEY: [u8; 32] = [
     0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef,
 ];
 
-// ---------------------------------------------------------------------------
-// Globals
-// ---------------------------------------------------------------------------
-
 static CTX: OnceLock<CryptoCtx<secp256k1::All>> = OnceLock::new();
 fn ctx() -> &'static CryptoCtx<secp256k1::All> {
     CTX.get_or_init(CryptoCtx::new)
 }
 
-/// `Rng` over the OS CSPRNG. Used both per-session for ephemeral keys and
-/// once at startup to mix entropy into the server's elligator encoding.
+/// `Rng` over the OS CSPRNG.
 struct OsRng;
 impl Rng for OsRng {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         rand::rng().fill_bytes(dest);
     }
 }
-
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
@@ -162,10 +146,6 @@ async fn main() -> Result<()> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Cert assembly
-// ---------------------------------------------------------------------------
-
 fn build_cert() -> CertificateWithPrivateKey {
     let auth_secret = SecretSecp256k1Key::try_from(AUTHORITY_PRIVATE_KEY)
         .expect("hardcoded authority private key out of curve range");
@@ -192,10 +172,6 @@ fn build_cert() -> CertificateWithPrivateKey {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Per-session driver
-// ---------------------------------------------------------------------------
-
 async fn handle_session(
     stream: TcpStream,
     cert: CertificateWithPrivateKey,
@@ -213,7 +189,7 @@ async fn handle_session(
     let mut pbuf = [0u8; 4096];
     let mut wire = [0u8; 4096];
 
-    // -- Stage 1: SetupConnection --------------------------------------------
+    // Stage 1: SetupConnection.
     let (header, pn) = recv(&mut io, &mut codec, &mut hbuf, &mut pbuf).await?;
     let frame = codec
         .decode_frame(header, &mut pbuf[..pn])
@@ -236,7 +212,7 @@ async fn handle_session(
     send(&mut io, &mut codec, &success, &mut wire).await?;
     info!("sent SetupConnectionSuccess");
 
-    // -- Stage 2: OpenStandardMiningChannel ----------------------------------
+    // Stage 2: OpenStandardMiningChannel.
     let (header, pn) = recv(&mut io, &mut codec, &mut hbuf, &mut pbuf).await?;
     let frame = codec
         .decode_frame(header, &mut pbuf[..pn])
@@ -269,7 +245,7 @@ async fn handle_session(
     send(&mut io, &mut codec, &success, &mut wire).await?;
     info!(channel_id = 1, "sent OpenStandardMiningChannelSuccess");
 
-    // -- Stage 3: prime the channel with prev-hash + first job ---------------
+    // Stage 3: prime the channel with a prev-hash and a first job.
     let prev_hash_bytes = [0x42u8; 32];
     let merkle_root_bytes = [0u8; 32];
     let job = NewMiningJob {
@@ -284,13 +260,13 @@ async fn handle_session(
         job_id: 1,
         prev_hash: Uint256::from_le_bytes(&prev_hash_bytes),
         min_ntime: 0,
-        nbits: 0x1d00_ffff, // bitcoin difficulty-1 nbits, debug placeholder
+        nbits: 0x1d00_ffff, // difficulty-1 nbits, a debug placeholder
     };
     send(&mut io, &mut codec, &job, &mut wire).await?;
     send(&mut io, &mut codec, &prev, &mut wire).await?;
     info!(job_id = 1, "sent NewMiningJob + SetNewPrevHash");
 
-    // -- Stage 4: share-submission loop --------------------------------------
+    // Stage 4: the share-submission loop.
     let mut accepted = 0u32;
     let mut rejected = 0u32;
     loop {
@@ -341,10 +317,6 @@ async fn handle_session(
     }
 }
 
-// ---------------------------------------------------------------------------
-// IO helpers (encrypted frame in / out)
-// ---------------------------------------------------------------------------
-
 async fn recv(
     io: &mut FromTokio<TcpStream>,
     codec: &mut EncryptedCodec,
@@ -382,13 +354,9 @@ async fn send<F: IntoFrame>(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Misc helpers
-// ---------------------------------------------------------------------------
-
-/// Crude difficulty → 256-bit little-endian target. Halves the max target
-/// for every doubling of `difficulty`. Not bit-exact bitcoin difficulty,
-/// just monotonic and visible in logs.
+/// Difficulty to a 256-bit little-endian target, halving the maximum
+/// target for every doubling of `difficulty`. The result is monotonic
+/// rather than bit-exact, which is all a debug server needs.
 fn compute_target_le(difficulty: f64) -> [u8; 32] {
     let mut be = [0xffu8; 32];
     let shift = difficulty.log2().clamp(0.0, 255.0) as usize;

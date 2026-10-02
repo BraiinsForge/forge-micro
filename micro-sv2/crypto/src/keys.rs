@@ -42,16 +42,12 @@ pub struct Secp256k1KeyPair {
 impl SecretSecp256k1Key {
     /// Sample a fresh secp256k1 private key from `rng`.
     ///
-    /// Named `generate` rather than `new` because this type also builds
-    /// from bytes through its `TryFrom`, and the two differ in where the
-    /// key comes from.
-    ///
     /// # Panics
     ///
-    /// Panics after ten rejected samples. Every draw that fails is a
-    /// value outside the curve order, which a sound `Rng` produces with
+    /// Panics after ten rejected samples. A draw fails only when it
+    /// falls outside the curve order, which a sound `Rng` does with
     /// negligible probability, so ten in a row means the `Rng` is
-    /// broken and a key must not be built from it.
+    /// broken and no key may be built from it.
     pub fn generate<R: crate::Rng>(rng: &mut R) -> Self {
         for _ in 0..10 {
             let bytes = rng.next_256_bits();
@@ -72,7 +68,6 @@ impl PublicSecp256k1Key {
         self.0.serialize()
     }
 
-    /// Derive the x-only public key from a secret key.
     pub fn from_secret_key<C: secp256k1::Signing>(
         secret: &SecretSecp256k1Key,
         ctx: &secp256k1::Secp256k1<C>,
@@ -115,8 +110,8 @@ impl Secp256k1KeyPair {
         }
     }
 
-    /// Reconstruct a keypair from an existing secret key. Mixes in fresh
-    /// entropy from `rng` for the elligator encoding.
+    /// Reconstruct a keypair from an existing secret key, mixing fresh
+    /// entropy from `rng` into the elligator encoding.
     pub fn from_secret_key<R: crate::Rng, C: secp256k1::Signing + secp256k1::Verification>(
         secret: &SecretSecp256k1Key,
         rng: &mut R,

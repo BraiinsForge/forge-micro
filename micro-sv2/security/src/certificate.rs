@@ -28,9 +28,9 @@
 //! | `not_valid_after` | u32  | 6..10 |
 //! | `signature`       | u512 | 10..74 |
 //!
-//! It is bytes-on-the-wire, not an explicit type. Helpers here serialize
-//! and parse it; the static public key the signature commits to is
-//! transmitted separately as part of the noise handshake.
+//! The message is bytes on the wire and not a declared type, and the
+//! static public key its signature commits to travels separately, in
+//! the noise handshake itself.
 
 use ii_sv2_crypto::Secp256k1KeyPair;
 use sha2::{Digest, Sha256};
@@ -40,7 +40,8 @@ use crate::keys::{PublicKey, SecretKey, Signature};
 /// Plaintext bytes of the noise signature message.
 pub const NOISE_SIG_SIZE: usize = 74;
 
-/// Wire bytes of the noise signature message (plaintext + AEAD tag).
+/// Wire bytes of the noise signature message, which is the plaintext
+/// plus the AEAD tag.
 pub const NOISE_SIG_MSG_SIZE: usize = NOISE_SIG_SIZE + ii_sv2_crypto::MAC_SIZE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +64,7 @@ impl CertificateHeader {
     }
 }
 
-/// A certificate as observed by the client: header + authority pubkey + signature.
+/// A certificate as the client observes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Certificate {
     pub header: CertificateHeader,
@@ -72,9 +73,8 @@ pub struct Certificate {
 }
 
 impl Certificate {
-    /// The public part of this certificate in its noise signature message
-    /// form: version, validity window and signature. The static public key
-    /// is conveyed by the noise handshake itself.
+    /// The public part of this certificate as a noise signature
+    /// message: version, validity window and signature.
     pub(crate) fn noise_signature_msg(&self) -> [u8; NOISE_SIG_SIZE] {
         let mut output = [0u8; NOISE_SIG_SIZE];
         output[..2].copy_from_slice(&self.header.version.to_le_bytes());
@@ -84,11 +84,11 @@ impl Certificate {
         output
     }
 
-    /// Parse the noise signature message bytes the responder sent over the
-    /// wire. The remote static public key is supplied separately because it
-    /// arrives via the noise handshake itself, not in the signature payload.
+    /// Parse the noise signature message the responder sent. The
+    /// remote static public key is a separate argument because the
+    /// handshake carries it, not this payload.
     ///
-    /// Panics if `data.len() < NOISE_SIG_SIZE` — callers must check.
+    /// Panics when `data` is shorter than [`NOISE_SIG_SIZE`].
     pub(crate) fn parse_noise_signature_msg(
         remote_static_public_key: [u8; 32],
         data: &[u8],
@@ -111,15 +111,13 @@ impl Certificate {
     }
 }
 
-/// A certificate signing request (CSR) — the header bytes that the
-/// authority will sign over.
+/// The header bytes the authority signs over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CertificateSigningRequest {
     pub header: CertificateHeader,
 }
 
 impl CertificateSigningRequest {
-    /// Sign the CSR with the authority's keypair, producing a Certificate.
     pub fn sign<C: secp256k1::Signing>(
         self,
         authority_private_key: &Secp256k1KeyPair,
@@ -135,8 +133,8 @@ impl CertificateSigningRequest {
     }
 }
 
-/// A certificate plus the responder's static *private* key — what a
-/// stratum server needs to accept secure connections.
+/// A certificate plus the responder's static private key, which is
+/// what a server needs in order to accept secure connections.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CertificateWithPrivateKey {
     pub header: CertificateHeader,

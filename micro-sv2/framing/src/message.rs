@@ -17,8 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Message-side traits (`Message`, `MessageGroup<'de>`, `IntoFrame`)
-//! and the `frame_to_message` helper.
+//! Message-side traits and the `frame_to_message` helper.
 
 use ii_sv2_types::Encode;
 
@@ -26,21 +25,16 @@ use crate::error::FramingError;
 use crate::frame::FrameView;
 use crate::header::{ExtType, MessageDescriptor};
 
-/// A typed Stratum V2 message that knows its descriptor.
-///
-/// Implementors are concrete message structs (e.g.
-/// `SetupConnection<'a>`); each declares its
-/// `(extension_type, msg_type, is_channel_message)` once.
+/// A typed Stratum V2 message that states its own descriptor, so that
+/// the `(extension_type, msg_type, is_channel_message)` triple is
+/// written once per message struct.
 pub trait Message: Encode {
     const DESCRIPTOR: MessageDescriptor;
 }
 
-/// A group of messages that share an SV2 extension namespace.
-///
-/// Implementors are usually enums whose variants cover every message
-/// recognized inside one extension. The implementation maps a
-/// `(msg_type, is_channel_message)` pair to the right variant and
-/// decodes the payload via `ii_sv2_types::Decode<'de>`.
+/// A group of messages that share one SV2 extension namespace, usually
+/// an enum whose variants cover every message that extension
+/// recognizes.
 pub trait MessageGroup<'de>: Sized {
     const EXTENSION_TYPE: ExtType;
 
@@ -52,26 +46,20 @@ pub trait MessageGroup<'de>: Sized {
 
 use crate::header::Header;
 
-/// Anything the codec can encode as a frame: descriptor + body length
-/// + body bytes.
-///
-/// Users rarely implement this directly: every `Message` gets a
-/// blanket impl, and `FrameView<'a>` has a direct impl for forwarders
-/// / relays. Implement it on a custom type only if you have a frame
-/// source that fits neither pattern.
+/// Anything the codec can encode as a frame: descriptor, body length
+/// and body bytes. A `Message` and a [`FrameView`] both qualify, which
+/// is how a relay forwards a frame it did not decode.
 pub trait IntoFrame {
     fn descriptor(&self) -> MessageDescriptor;
     fn body_len(&self) -> usize;
     fn write_body(&self, out: &mut [u8]) -> Result<(), FramingError>;
 
-    /// Convenience: build the wire header from `descriptor` + `body_len`.
+    /// Build the wire header from `descriptor` and `body_len`.
     ///
-    /// Callers MUST ensure `body_len() <= Header::MAX_LEN as usize` before
-    /// invoking this — the conversion is unchecked and would silently
-    /// truncate on a 64-bit `usize` greater than `u32::MAX`. Codec impls
-    /// already pre-check this and return [`FramingError::PayloadTooLarge`]
-    /// before calling `header()`; the `debug_assert!` here catches misuse
-    /// during development.
+    /// The caller checks `body_len() <= Header::MAX_LEN as usize`
+    /// first, because the conversion below is unchecked and a larger
+    /// `usize` would truncate silently. Every codec in this workspace
+    /// rejects an oversized frame before it calls `header()`.
     fn header(&self) -> Header {
         let body_len = self.body_len();
         debug_assert!(
@@ -145,7 +133,6 @@ mod tests {
     use crate::header::Header;
     use ii_sv2_types::{Decode, Encode, Error as TypeError};
 
-    /// Tiny in-test message: u32 body. ext_type=0xff, msg_type=0x10.
     #[derive(Debug, PartialEq)]
     struct TestMsg {
         x: u32,
@@ -230,7 +217,6 @@ mod tests {
 
     #[test]
     fn frame_to_message_happy_path() {
-        // Build a frame with the right descriptor and a u32 body.
         let body = 0xdead_beef_u32.to_le_bytes();
         let header = Header::for_descriptor(TestMsg::DESCRIPTOR, 4);
         let frame = FrameView::try_new(header, &body).unwrap();
@@ -240,7 +226,6 @@ mod tests {
 
     #[test]
     fn frame_to_message_wrong_descriptor() {
-        // ext_type matches but msg_type doesn't.
         let body = 0u32.to_le_bytes();
         let other = MessageDescriptor::new(0xff, 0x11, false);
         let header = Header::for_descriptor(other, 4);
@@ -275,7 +260,6 @@ mod tests {
         assert_eq!(err, FramingError::Eof);
     }
 
-    /// Second test message with msg_type = 0x11 (instead of 0x10).
     #[derive(Debug, PartialEq)]
     struct TestMsgB {
         y: u32,
@@ -299,7 +283,6 @@ mod tests {
         const DESCRIPTOR: MessageDescriptor = MessageDescriptor::new(0xff, 0x11, false);
     }
 
-    /// Two-variant extension over ext_type 0xff.
     #[derive(Debug, PartialEq)]
     enum TestExt {
         A(TestMsg),

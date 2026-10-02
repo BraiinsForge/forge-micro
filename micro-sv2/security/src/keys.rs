@@ -35,10 +35,12 @@ use ii_sv2_crypto::{PublicSecp256k1Key, Secp256k1KeyPair, SecretSecp256k1Key};
 const PRIV_PREFIX: [u8; 4] = 0x109b3700_u32.to_be_bytes();
 const PUB_PREFIX: [u8; 2] = [1, 0];
 
-/// Stack buffer big enough to hold any of our base58-encoded keys.
-/// Worst case: 36 raw bytes + 4 check ≈ 55 base58 chars. 64 is safe.
+/// Stack buffer for any base58-encoded key here. The longest input is
+/// 36 raw bytes plus 4 check bytes, which base58 grows to about 55
+/// characters.
 const ENCODED_MAX: usize = 64;
-/// Stack buffer for a 64-byte signature in plain base58 (~88 chars).
+/// Stack buffer for a 64-byte signature, which plain base58 grows to
+/// about 88 characters.
 const SIG_ENCODED_MAX: usize = 96;
 
 #[derive(Copy, Clone, PartialEq, Ord, PartialOrd, Eq)]
@@ -88,8 +90,6 @@ basic_impl!(SecretKey, 32);
 basic_impl!(PublicKey, 32);
 basic_impl!(Signature, 64);
 basic_impl!(SessionId, 32);
-
-// ---- base58check (Public / Secret) -------------------------------------
 
 impl fmt::Display for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -145,8 +145,6 @@ impl FromStr for SecretKey {
         Ok(Self(key))
     }
 }
-
-// ---- plain base58 (Signature / SessionId) ------------------------------
 
 impl fmt::Display for SessionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -210,10 +208,7 @@ fn encode_with_check(input: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
 ///
 /// Signatures print this way and keys do not. A signature is carried by
 /// the protocol rather than retyped by a human, so it needs no
-/// transcription check, and the reference encoding for it has none.
-///
-/// The receiver here is the formatter, which `core` declares, so no
-/// inherent `impl` in this crate can take it.
+/// transcription check.
 fn encode_plain(input: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let mut out = [0u8; SIG_ENCODED_MAX];
     let n = bs58::encode(input)
@@ -223,15 +218,12 @@ fn encode_plain(input: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.write_str(s)
 }
 
-// ---- Debug on SecretKey hides the bytes --------------------------------
-
+// A secret key must not reach a log through its `Debug`.
 impl fmt::Debug for SecretKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("PrivateKey").field(&"<secret>").finish()
     }
 }
-
-// ---- Conversions to/from the underlying secp256k1 wrappers -------------
 
 impl From<SecretSecp256k1Key> for SecretKey {
     fn from(value: SecretSecp256k1Key) -> Self {
@@ -270,9 +262,8 @@ impl From<secp256k1::schnorr::Signature> for Signature {
 }
 
 impl PublicKey {
-    /// Derive the public key from a secret key. Replaces the
-    /// allocating `TryFrom<SecretKey>` from the reference library —
-    /// callers supply their own secp256k1 context.
+    /// Derive the public key from a secret key. The caller supplies
+    /// the secp256k1 context, so the derivation allocates nothing.
     pub fn from_secret_key<C: secp256k1::Signing>(
         secret: &SecretKey,
         ctx: &secp256k1::Secp256k1<C>,
@@ -291,8 +282,6 @@ mod tests {
 
     #[test]
     fn encoding_prefixes() {
-        // The 4-byte 0x109b3700 prefix was chosen so the bs58check
-        // representation always starts with "priv", regardless of payload.
         assert!(SecretKey([0u8; 32]).to_string().starts_with("priv"));
         assert!(SecretKey([0xFFu8; 32]).to_string().starts_with("priv"));
     }
@@ -334,8 +323,6 @@ mod tests {
         assert_eq!(parsed.0, raw);
     }
 
-    /// A public key encoding must NOT parse as a private key, and vice
-    /// versa. This is the property the prefix bytes are there to enforce.
     #[test]
     fn key_coding_consistency() {
         let raw = rand::random::<[u8; 32]>();
@@ -351,17 +338,13 @@ mod tests {
         );
     }
 
-    /// `PublicKey::from_secret_key(sk, ctx)` must agree with deriving
-    /// the public via the underlying ii-sv2-crypto wrappers.
     #[test]
     fn conversion_consistency() {
         let ctx = secp256k1::Secp256k1::new();
         let sk = SecretKey(rand::random::<[u8; 32]>());
 
-        // Path 1: through the security-crate convenience method.
         let pk_via_method = PublicKey::from_secret_key(&sk, &ctx).expect("derive pubkey");
 
-        // Path 2: drop down to the secp256k1 wrappers directly.
         let secp_secret = SecretSecp256k1Key::try_from(sk.0).expect("valid secret");
         let secp_pub = PublicSecp256k1Key::from_secret_key(&secp_secret, &ctx);
         let pk_direct = PublicKey::from(secp_pub);

@@ -108,9 +108,6 @@ mod tests {
     use super::*;
     use crate::MAC_SIZE;
 
-    /// Reference vector lifted verbatim from noise-core.
-    /// Encrypts `DATA` after 42 dummy zero-length encryptions (so the cipher
-    /// nonce counter reaches 42), expects exactly `CIPHER`.
     const KEY: [u8; 32] = [
         18, 152, 182, 250, 129, 59, 65, 116, 111, 248, 192, 63, 130, 111, 40, 37, 120, 109, 155,
         65, 66, 241, 231, 128, 39, 87, 58, 121, 34, 203, 110, 221,
@@ -136,8 +133,9 @@ mod tests {
     fn symmetric_encryption() {
         let mut cipher = SealingCipherState::initialize(KEY).unwrap();
         let mut buf = [0_u8; 78];
+        // The vector pins the ciphertext at nonce NONCE, so the counter
+        // is walked there with empty encryptions first.
         for _ in 0..NONCE {
-            // Pump 42 dummy encryptions so the cipher nonce reaches 42.
             cipher.encrypt_with_ad(b"", &mut buf, 0).unwrap();
         }
         buf[..62].copy_from_slice(DATA);
@@ -151,7 +149,7 @@ mod tests {
     fn symmetric_decryption() {
         let mut sealing = SealingCipherState::initialize(KEY).unwrap();
         let mut opening = OpeningCipherState::initialize(KEY).unwrap();
-        // Pump 42 dummy roundtrips so the opening nonce reaches 42.
+        // The vector pins the ciphertext at nonce 42.
         let mut tag = [0_u8; MAC_SIZE];
         for _ in 0..NONCE {
             sealing.encrypt_with_ad(b"", &mut tag, 0).unwrap();

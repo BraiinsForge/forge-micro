@@ -19,13 +19,8 @@
 
 //! Stratum V2 — borrowed-first, `no_std` reference implementation.
 //!
-//! This is the umbrella crate. It re-exports the four implementation
-//! crates as modules so callers depend on `ii-sv2` once and write:
-//!
-//! - `use ii_sv2::types::Str0_255;`
-//! - `use ii_sv2::framing::{FrameCodec, Header, PlaintextCodec};`
-//! - `use ii_sv2::messages::{SetupConnection, MiningMessages};`
-//! - `use ii_sv2::security::{EncryptedCodec, EstablishedSession, accept, initiate};`
+//! The umbrella crate re-exports the four implementation crates as
+//! modules, so a caller depends on `ii-sv2` alone.
 //!
 //! ## Example: encode and decode a frame in plaintext
 //!
@@ -60,8 +55,8 @@
 //!
 //! ## Reusable crypto context (std)
 //!
-//! Build the secp256k1 precomputation tables **once** at startup and
-//! reuse the same `CryptoCtx` for every handshake.
+//! The secp256k1 precomputation tables are built once at startup and
+//! the same `CryptoCtx` serves every handshake.
 //!
 //! ```rust,ignore
 //! use std::sync::OnceLock;
@@ -83,14 +78,13 @@
 //!
 //! ## Reusable crypto context (no_std embedded)
 //!
-//! On embedded targets without an allocator, supply a static buffer
-//! sized via [`security::CryptoCtx::preallocated_size`].
+//! A target without an allocator supplies a static buffer sized by
+//! [`security::CryptoCtx::preallocated_size`].
 //!
 //! ```rust,ignore
 //! use ii_sv2::security::{secp256k1, AlignedType, CryptoCtx};
 //!
-//! // Compile-time-known size. AllPreallocated covers signing + verification
-//! // (the same shape as All, but with no heap allocation).
+//! // AllPreallocated covers signing and verification with no heap.
 //! const SIZE: usize = CryptoCtx::<secp256k1::AllPreallocated<'static>>::preallocated_size();
 //! static mut CTX_BUF: [AlignedType; SIZE] = [AlignedType::ZERO; SIZE];
 //!

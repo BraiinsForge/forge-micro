@@ -17,19 +17,17 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Borrowed 256-bit value: a reference to a 32-byte little-endian buffer.
+//! Borrowed 256-bit value.
 
 use crate::codec::{Decode, Encode};
 use crate::error::Error;
 
-/// Reference to a 256-bit value stored as 32 little-endian bytes.
-///
-/// `Uint256` borrows from a payload buffer; it does not own the bytes.
+/// Reference to a 256-bit value stored as 32 little-endian bytes in a
+/// payload buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Uint256<'a>(&'a [u8; 32]);
 
 impl<'a> Uint256<'a> {
-    /// Construct from an existing 32-byte buffer.
     #[inline]
     pub const fn from_le_bytes(bytes: &'a [u8; 32]) -> Self {
         Self(bytes)

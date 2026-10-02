@@ -115,10 +115,10 @@ impl<'de, const MIN: usize, const MAX: usize> Decode<'de> for VarBytes<'de, MIN,
 mod tests {
     use super::*;
 
-    // NOTE: type aliases for VarBytes with `'static` only work on the encode
-    // side (encode_to reads `&self`, doesn't tie output lifetime). For decode
-    // tests, write `VarBytes::<MIN, MAX>::decode(&mut cursor)` directly so
-    // Rust can infer the cursor's lifetime — see VarStr for the precedent.
+    // A `'static` alias serves the encode side only, where `encode_to`
+    // reads `&self` and ties no output lifetime. A decode test spells
+    // `VarBytes::<MIN, MAX>::decode(&mut cursor)` so the cursor's own
+    // lifetime is inferred.
     type B0_32 = VarBytes<'static, 0, 32>;
     type B1_32 = VarBytes<'static, 1, 32>;
 

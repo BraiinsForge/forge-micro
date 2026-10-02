@@ -35,7 +35,6 @@ use crate::{
     transport::TransportState,
 };
 
-/// Noise protocol identifier.
 pub const PROTOCOL_NAME: &str = "Noise_NX_Secp256k1+EllSwift_ChaChaPoly_SHA256";
 
 /// Pre-computed `SHA-256(PROTOCOL_NAME)`.
@@ -50,14 +49,13 @@ pub const PROTOCOL_NAME_HASH_HASH: [u8; 32] = [
     61, 189, 59, 124, 242, 210, 61, 212, 51, 220, 97, 4,
 ];
 
-/// Ellswift-encoded ephemeral key, on the wire.
+/// Ellswift-encoded ephemeral key length.
 pub const EPHEMERAL_KEY_SIZE: usize = 64;
 
-/// Ellswift-encoded static key, plaintext length (encrypted on the wire adds
-/// `MAC_SIZE`).
+/// Ellswift-encoded static key length, before encryption.
 pub const STATIC_KEY_SIZE: usize = 64;
 
-/// Wire size of the ephemeral key field.
+/// Wire size of the ephemeral key field, which travels in the clear.
 pub const EPHEMERAL_KEY_MSG_SIZE: usize = EPHEMERAL_KEY_SIZE;
 
 /// Wire size of the encrypted static key field.

@@ -21,13 +21,10 @@
 
 use crate::error::Error;
 
-/// Width in bytes of the length prefix used for a sequence whose maximum
-/// length is `max`. SV2 uses 1, 2, or 3 byte little-endian prefixes
-/// (corresponding to U8, U16, and U24 in the spec).
-///
-/// Panics in const context if `max > 0xff_ffff`. This is intentional: any
-/// `MAX` outside the supported range will fail at monomorphization time
-/// when the result is consumed in a `const` item or `const { ... }` block.
+/// Width in bytes of the length prefix for a sequence whose maximum
+/// length is `max`. SV2 prefixes are little-endian U8, U16 or U24, so a
+/// `max` above `0xff_ffff` panics in const context and fails the build
+/// where the width is used.
 pub(crate) const fn prefix_len(max: usize) -> usize {
     match max {
         0..=0xff => 1,

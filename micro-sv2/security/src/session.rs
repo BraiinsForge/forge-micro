@@ -19,10 +19,6 @@
 
 //! `EncryptedCodec` — a [`FrameCodec`] over [`ii_sv2_crypto::TransportState`].
 //!
-//! Hides the AEAD chunk wire layout behind the trait, so
-//! callers send and receive Stratum V2 frames without thinking about how
-//! the bytes are protected.
-//!
 //! # Wire layout per frame
 //!
 //! ```text
@@ -35,14 +31,9 @@
 //! An empty payload has no body chunk or body MAC. The authenticated
 //! header carries its zero length, and only the header consumes a nonce.
 //!
-//! # Single-chunk MVP
-//!
-//! `encode` and `decode_frame` seal/open a nonempty payload as a *single* AEAD
-//! chunk, which is correct for `body_len <= 65 519` (every elementary
-//! mining message with margin to spare). Larger payloads return
-//! [`SessionError::ChunkingNotImplemented`] explicitly. The multi-chunk
-//! loop (mirroring `stratum2-noise/src/codec.rs`) is a future
-//! non-breaking enhancement.
+//! A nonempty payload is sealed as one AEAD chunk, so a body above
+//! `MAX_PLAINTEXT_LENGTH` is refused with
+//! [`SessionError::ChunkingNotImplemented`] rather than split.
 
 use ii_sv2_crypto::{AeadError, MAC_SIZE, TransportState};
 use ii_sv2_framing::{FrameCodec, FrameView, FramingError, Header, IntoFrame};
@@ -51,7 +42,7 @@ use ii_sv2_types::{Decode, Encode};
 use crate::handshake::EstablishedSession;
 use crate::keys::SessionId;
 
-/// Largest plaintext that fits in a single SV2 noise frame (65535 - 16).
+/// Largest plaintext that fits in a single SV2 noise frame.
 const MAX_PLAINTEXT_LENGTH: usize = 0xffff - MAC_SIZE;
 
 #[derive(Debug)]
@@ -63,8 +54,7 @@ pub enum SessionError {
     Crypto(AeadError),
     /// Header parse or other framing-level failure.
     Framing(FramingError),
-    /// Body length exceeds what the single-chunk MVP can handle.
-    /// Multi-chunk noise framing is not yet implemented.
+    /// Body longer than one AEAD chunk can carry.
     ChunkingNotImplemented { length: usize },
 }
 
@@ -79,22 +69,22 @@ impl From<FramingError> for SessionError {
     }
 }
 
-/// Stateful frame codec that protects the header and each nonempty body
-/// with separate AEAD chunks.
+/// Stateful frame codec that seals the header and each nonempty body
+/// as separate AEAD chunks.
 pub struct EncryptedCodec {
     transport: TransportState,
 }
 
 impl EncryptedCodec {
-    /// Wrap a [`TransportState`] directly. Most callers should use
-    /// [`from_handshake`](Self::from_handshake) instead.
+    /// Wrap a [`TransportState`] that did not come from
+    /// [`from_handshake`](Self::from_handshake).
     pub fn from_transport(transport: TransportState) -> Self {
         Self { transport }
     }
 
-    /// Build from the [`EstablishedSession`] returned by
-    /// [`crate::handshake::initiate`] / [`crate::handshake::accept`].
-    /// Returns the session id alongside so callers can keep it.
+    /// Build from the [`EstablishedSession`] that
+    /// [`crate::handshake::initiate`] or [`crate::handshake::accept`]
+    /// returned, handing back the session id the caller must keep.
     pub fn from_handshake(session: EstablishedSession) -> (Self, SessionId) {
         (
             Self {
@@ -107,17 +97,13 @@ impl EncryptedCodec {
 
 impl FrameCodec for EncryptedCodec {
     type Error = SessionError;
-    const HEADER_WIRE_SIZE: usize = Header::SIZE + MAC_SIZE; // 22
+    const HEADER_WIRE_SIZE: usize = Header::SIZE + MAC_SIZE;
 
     fn payload_wire_size(body_len: usize) -> usize {
-        // Single-chunk MVP: ciphertext = plaintext + MAC (or 0 for empty).
-        // Only correct for `body_len <= MAX_PLAINTEXT_LENGTH`. The encode
-        // path rejects larger plaintext upfront with
-        // `ChunkingNotImplemented`. On the receive side, a chunking
-        // sender with `header.msg_length > 65519` would cause us to
-        // request the wrong byte count; AEAD-open would then fail with
-        // `SessionError::Crypto(_)` — not silent corruption, but not
-        // graceful interop either. Multi-chunk math is a follow-up.
+        // One chunk, so ciphertext is plaintext plus one MAC and an
+        // empty body stays empty. A sender that chunks above
+        // MAX_PLAINTEXT_LENGTH makes this ask for the wrong byte count,
+        // which AEAD-open then rejects instead of accepting corruption.
         if body_len == 0 {
             0
         } else {
@@ -135,23 +121,21 @@ impl FrameCodec for EncryptedCodec {
             return Err(SessionError::BufferTooSmall);
         }
 
-        // 1. Plaintext header into out[..6].
         let header = frame.header();
         header
             .encode_to(&mut out[..Header::SIZE])
             .map_err(|e| SessionError::Framing(e.into()))?;
 
-        // 2. AEAD-seal out[..22] in place; MAC lands in [6..22].
+        // Seal the header chunk in place, which puts its MAC after it.
         self.transport
             .write_message_inplace(&mut out[..Self::HEADER_WIRE_SIZE], Header::SIZE)?;
 
-        // 3. Body slot via IntoFrame::write_body into out[22..22+body_len].
         let body_start = Self::HEADER_WIRE_SIZE;
         let body_end = body_start + body_len;
         frame.write_body(&mut out[body_start..body_end])?;
 
-        // 4. Seal a nonempty body, appending its MAC. An empty payload
-        // has no body chunk and must not consume another nonce.
+        // Seal a nonempty body in place, its MAC after it. An empty
+        // payload has no body chunk and must not consume another nonce.
         if body_len != 0 {
             self.transport
                 .write_message_inplace(&mut out[body_start..total], body_len)?;
@@ -207,7 +191,6 @@ mod tests {
     use ii_sv2_messages::{DeviceInfo, SetupConnection};
     use ii_sv2_types::Str0_255;
 
-    /// Same `MyRng` shape as in `handshake.rs` — host-OS entropy.
     struct MyRng;
     impl Rng for MyRng {
         fn fill_bytes(&mut self, dest: &mut [u8]) {
@@ -216,8 +199,8 @@ mod tests {
         }
     }
 
-    /// Run a loopback handshake over an in-memory tokio duplex pipe and
-    /// return paired (initiator, responder) `EncryptedCodec`s.
+    /// Pair an initiator and a responder codec through a loopback
+    /// handshake over an in-memory pipe.
     async fn paired_codecs() -> (EncryptedCodec, EncryptedCodec) {
         let (a, b) = tokio::io::duplex(8192);
         let mut a = FromTokio::new(a);
@@ -253,7 +236,6 @@ mod tests {
         (i_codec, r_codec)
     }
 
-    /// Smoke test: the fixture builds two paired codecs without panicking.
     #[tokio::test]
     async fn paired_codecs_fixture_builds() {
         let (_i, _r) = paired_codecs().await;
@@ -278,12 +260,9 @@ mod tests {
             },
         };
 
-        // Initiator side: encode the message into a wire buffer.
         let mut wire = [0u8; 1024];
         let n = i_codec.encode(&outbound, &mut wire).expect("encode");
 
-        // Responder side: receive HEADER_WIRE_SIZE bytes, decode header,
-        // receive payload bytes, decode frame.
         let mut hbuf = [0u8; EncryptedCodec::HEADER_WIRE_SIZE];
         hbuf.copy_from_slice(&wire[..EncryptedCodec::HEADER_WIRE_SIZE]);
         let header = r_codec.decode_header(&mut hbuf).expect("decode_header");
@@ -332,9 +311,6 @@ mod tests {
         }
     }
 
-    /// Synthetic frame whose `body_len()` returns a value larger than
-    /// `MAX_PLAINTEXT_LENGTH`. `write_body` is `unreachable!()` because
-    /// the encode guard must fire first.
     struct OversizedFrame;
     impl IntoFrame for OversizedFrame {
         fn descriptor(&self) -> MessageDescriptor {
@@ -354,11 +330,10 @@ mod tests {
         0x1e, 0x1f,
     ];
 
-    /// Helper: encode `frame` from `tx`, decrypt the header+payload into
-    /// `wire`/`pbuf` via `rx`, and return `(payload_len, header)`.
-    /// The decrypted plaintext payload lives in `pbuf[..payload_len]`.
-    /// Callers call `rx.decode_frame` + `frame_to_message` themselves so
-    /// that borrow-checker lifetimes are controlled by the call site.
+    /// Encode `frame` from `tx` and decrypt it with `rx`, leaving the
+    /// plaintext payload in `pbuf[..payload_len]`. The caller runs
+    /// `decode_frame` and `frame_to_message` itself, so that the
+    /// borrows end at the call site.
     async fn send_recv_raw<F: ii_sv2_framing::IntoFrame>(
         tx: &mut EncryptedCodec,
         rx: &mut EncryptedCodec,
@@ -388,7 +363,6 @@ mod tests {
         let mut wire = [0u8; 1024];
         let mut pbuf = [0u8; 1024];
 
-        // Frame 1: SetupConnectionSuccess (no lifetime, fixed-size).
         let success = SetupConnectionSuccess {
             used_version: 2,
             flags: 0,
@@ -403,7 +377,6 @@ mod tests {
             assert_eq!(received, success);
         }
 
-        // Frame 2: OpenStandardMiningChannel.
         let open = OpenStandardMiningChannel {
             request_id: 1,
             user: Str0_255::try_from("user.worker1").unwrap(),
@@ -422,7 +395,6 @@ mod tests {
             assert_eq!(received, open);
         }
 
-        // Frame 3: NewMiningJob (channel-message bit set).
         let job = NewMiningJob {
             channel_id: 100,
             job_id: 7,
@@ -444,8 +416,8 @@ mod tests {
     #[tokio::test]
     async fn encode_rejects_oversized_payload() {
         let (mut i_codec, _r_codec) = paired_codecs().await;
-        // Buffer is generously sized so we can be sure the rejection comes
-        // from the chunking guard, not the buffer-size check.
+        // `encode` checks the length bound before the output capacity, so
+        // the buffer's size plays no part in the rejection.
         let mut wire = [0u8; 256];
         let err = i_codec.encode(&OversizedFrame, &mut wire).unwrap_err();
         match err {

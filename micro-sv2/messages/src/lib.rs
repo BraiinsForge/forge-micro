@@ -19,14 +19,9 @@
 
 //! Stratum V2 elementary mining messages — borrowed-first, `no_std`.
 //!
-//! One struct per wire message for connection setup
-//! ([`SetupConnection`] and its replies), standard-channel opening
-//! ([`OpenStandardMiningChannel`] and its replies), job distribution
-//! ([`NewMiningJob`], [`SetNewPrevHash`], [`SetTarget`]), and share
-//! submission ([`SubmitSharesStandard`] and its replies). Each
-//! implements `Encode`/`Decode` plus the `Message` trait with its
-//! static descriptor, and [`MiningMessages`] is the `MessageGroup`
-//! enum that dispatches a parsed frame into the right variant.
+//! One struct per wire message, each with its own static descriptor,
+//! and [`MiningMessages`] as the `MessageGroup` that dispatches a
+//! parsed frame into the matching variant.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -44,13 +39,11 @@ use ii_sv2_types::{Decode, Encode, Error as TypeError, Str0_255};
 /// Telemetry the client provides to the server during connection setup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DeviceInfo<'a> {
-    /// E.g. "Bitmain"
     pub vendor: Str0_255<'a>,
-    /// E.g. "S9i 13.5"
     pub hw_rev: Str0_255<'a>,
-    /// E.g. "braiins-os-2018-09-22-1-hash"
     pub fw_ver: Str0_255<'a>,
-    /// Vendor-defined unique device id; clients may set to "" for telemetry-off.
+    /// Vendor-defined unique device id. A client that reports no
+    /// telemetry sends an empty string.
     pub dev_id: Str0_255<'a>,
 }
 
@@ -157,10 +150,10 @@ pub struct SetupConnectionSuccess {
 }
 
 impl SetupConnectionSuccess {
-    /// The upstream accepts no changes to the header's version field.
-    /// Absent, the downstream may roll the BIP320 bits: the success
-    /// flags carry the upstream's own requirements and are not an echo
-    /// of what the downstream asked for.
+    /// The upstream accepts no change to the header's version field,
+    /// and absent this flag the downstream may roll the BIP320 bits.
+    /// These flags state the upstream's own requirements and do not
+    /// echo what the downstream asked for.
     pub const REQUIRES_FIXED_VERSION: u32 = 1;
 }
 
@@ -231,7 +224,7 @@ use ii_sv2_types::Uint256;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OpenStandardMiningChannel<'a> {
     pub request_id: u32,
-    /// Worker / pool identity (e.g. "user.worker1").
+    /// Worker or account identity.
     pub user: Str0_255<'a>,
     /// Expected hashrate in h/s. The protocol puts it on the wire as an
     /// IEEE-754 single, which the codec narrows to and widens from.
@@ -495,9 +488,9 @@ impl<'a> Message for SetTarget<'a> {
     const DESCRIPTOR: MessageDescriptor = MessageDescriptor::new(MINING_EXTENSION_TYPE, 0x21, true);
 }
 
-/// Client submits a found share on a standard channel. Wire form is
-/// 24 fixed bytes (six u32 LE fields) — the smallest mining message
-/// in the protocol.
+/// Client submits a found share on a standard channel. The wire form
+/// is six little-endian u32 fields and no variable part, so a frame
+/// body is always 24 bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SubmitSharesStandard {
     pub channel_id: u32,
@@ -642,11 +635,9 @@ impl<'a> Message for SubmitSharesError<'a> {
 
 use ii_sv2_framing::{FrameView, FramingError, MessageGroup, frame_to_message};
 
-/// Dispatcher enum covering every elementary mining message recognized by
-/// this crate.
-///
-/// Note: no `Eq`/`Hash` because `OpenStandardMiningChannel` carries an
-/// `f64` field.
+/// Dispatcher enum covering every elementary mining message this crate
+/// recognizes. It derives no `Eq` or `Hash` because
+/// `OpenStandardMiningChannel` carries an `f64` field.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MiningMessages<'a> {
     SetupConnection(SetupConnection<'a>),
@@ -916,7 +907,6 @@ mod tests {
 
     #[test]
     fn new_mining_job_roundtrip_future_job() {
-        // min_ntime: None signals a future job activated by SetNewPrevHash.
         let original = NewMiningJob {
             channel_id: 100,
             job_id: 7,

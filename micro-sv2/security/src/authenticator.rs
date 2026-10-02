@@ -20,11 +20,8 @@
 //! Authenticators for SV2 noise certificates.
 //!
 //! An [`Authenticator`] decides whether a certificate observed during
-//! the noise handshake is acceptable. Several stock implementations are
-//! provided; users can also implement the trait directly.
-//!
-//! Time-based validators take a user-supplied [`Clock`] since `no_std`
-//! has no system clock.
+//! the noise handshake is acceptable. A time-based one takes a
+//! caller-supplied [`Clock`], because `no_std` has no system clock.
 
 use crate::certificate::CertificateHeader;
 use crate::error::AuthenticationError;
@@ -94,15 +91,12 @@ impl<'a, K: Clock, C: secp256k1::Verification> Authenticator for ValidateFull<'a
 
 /// Check that the certificate's validity window contains the present.
 ///
-/// Half of what makes a pool certificate trustworthy. The other half is
-/// [`verify_signature`], and both must pass.
+/// Half of what makes a pool certificate trustworthy, beside
+/// [`verify_signature`]; both must pass.
 ///
-/// The window itself is checked first: a certificate whose `valid_from`
-/// is after its `not_valid_after` is rejected as broken rather than
-/// silently failing one of the two bounds. That ordering matters,
-/// because an inverted window can never contain any time and the reason
-/// a caller sees should say the certificate is malformed, not that the
-/// clock is wrong.
+/// The window is checked before the bounds, so that an inverted one is
+/// reported as a malformed certificate rather than as a time that falls
+/// outside it.
 ///
 /// # Errors
 ///
@@ -130,10 +124,9 @@ fn check_time<C: Clock>(clock: &C, hdr: &CertificateHeader) -> Result<(), Authen
 /// [`check_time`]. The signature is Schnorr over the header's own hash,
 /// so a header altered in any field verifies against nothing.
 ///
-/// Every length and parse failure maps to a rejection rather than
-/// propagating. A 64-byte signature that is not 64 bytes and an authority
-/// key that will not parse are both an untrusted certificate, and neither
-/// is a reason to treat the peer as authenticated.
+/// A malformed signature or authority key is rejected rather than
+/// propagated, because neither is a reason to treat the peer as
+/// authenticated.
 ///
 /// # Errors
 ///
@@ -166,8 +159,6 @@ fn verify_signature<C: secp256k1::Verification>(
         .map_err(|_| AuthenticationError::SignatureInvalid)
 }
 
-// ---- Authenticator delegation through references -----------------------
-
 impl<A: Authenticator + ?Sized> Authenticator for &A {
     fn check(
         &self,
@@ -187,7 +178,6 @@ mod tests {
     use crate::keys::SecretKey;
     use ii_sv2_crypto::{CryptoCtx, Rng, Secp256k1KeyPair};
 
-    /// Test fixture: returns a fixed unix timestamp (no real clock needed).
     struct FakeClock(u32);
     impl Clock for FakeClock {
         fn now_unix_secs(&self) -> Result<u32, AuthenticationError> {
@@ -203,7 +193,6 @@ mod tests {
         }
     }
 
-    /// `now` here is "now" as seen by a synthetic clock — no system time.
     fn cert_hdr(now: u32, from_offset: i32, to_offset: i32, rspk: PublicKey) -> CertificateHeader {
         CertificateHeader {
             version: 0,
@@ -222,14 +211,11 @@ mod tests {
             remote_static_public_key: PublicKey::new([7; 32]),
         };
         assert_eq!(hdr.hash(), hdr.hash());
-        // Mutating any field changes the hash.
         let mut other = hdr;
         other.version = 2;
         assert_ne!(hdr.hash(), other.hash());
     }
 
-    /// Mirrors a certificate-validator conformance test, adapted to use
-    /// a synthetic clock.
     #[test]
     fn certificate_validators() {
         const NOW: u32 = 1_700_000_000;
@@ -323,7 +309,7 @@ mod tests {
             header: cert_hdr(NOW, -1000, 1000, rspk),
         }
         .sign(&ca_keypair, ctx.as_secp256k1());
-        cert.header.not_valid_after = 3_155_759_999; // far future
+        cert.header.not_valid_after = 3_155_759_999;
         let err = ValidateSignature {
             authority: ca_pub,
             ctx: ctx.as_secp256k1(),
@@ -331,13 +317,12 @@ mod tests {
         .check(cert.header, cert.signature)
         .unwrap_err();
         assert_eq!(err, AuthenticationError::SignatureInvalid);
-        // Time alone now passes (cert's own "to" is far future, so still in window):
+        // The forged window still contains NOW, so time alone passes.
         ValidateTime {
             clock: FakeClock(NOW),
         }
         .check(cert.header, cert.signature)
         .expect("time alone passes");
-        // Full fails on the signature.
         let err = ValidateFull {
             authority: ca_pub,
             ctx: ctx.as_secp256k1(),

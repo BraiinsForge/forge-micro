@@ -21,9 +21,9 @@
 
 //! User-friendly Stratum V2 security types.
 //!
-//! Wraps [`ii_sv2_crypto`] with the SV2-spec key encodings (base58check
-//! with the `priv` / version-1 prefixes), certificate types, and an
-//! async, runtime-agnostic handshake driver. `no_std`, no-alloc.
+//! Wraps [`ii_sv2_crypto`] with the SV2 key encodings, the certificate
+//! types and an async, runtime-agnostic handshake driver, and
+//! allocates nowhere.
 
 pub mod authenticator;
 pub mod certificate;
@@ -51,7 +51,7 @@ pub use ii_sv2_crypto::{CryptoCtx, Rng, Secp256k1KeyPair, SecretSecp256k1Key};
 // version we compiled against, eliminating any version-skew hazard.
 pub use secp256k1;
 
-// Convenience: `AlignedType` is the buffer cell type for
-// `CryptoCtx::preallocated`. Lives at `secp256k1::ffi::types::AlignedType`
-// upstream (the bare `secp256k1::AlignedType` re-export is alloc-gated).
+// The buffer cell type for `CryptoCtx::preallocated`, re-exported from
+// its upstream path because the bare `secp256k1::AlignedType` is
+// alloc-gated.
 pub use secp256k1::ffi::types::AlignedType;

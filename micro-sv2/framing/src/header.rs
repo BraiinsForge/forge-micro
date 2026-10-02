@@ -46,7 +46,6 @@ impl Header {
     pub const SIZE: usize = 6;
     pub const MAX_LEN: u32 = 0xff_ffff;
 
-    /// Identity of this header without its length.
     pub const fn descriptor(&self) -> MessageDescriptor {
         MessageDescriptor {
             extension_type: self.extension_type,
@@ -55,7 +54,6 @@ impl Header {
         }
     }
 
-    /// Build a header for a message with the given descriptor and body length.
     pub const fn for_descriptor(d: MessageDescriptor, msg_length: u32) -> Self {
         Self {
             is_channel_message: d.is_channel_message,

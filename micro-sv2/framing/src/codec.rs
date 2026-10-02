@@ -30,8 +30,8 @@ pub trait FrameCodec {
     type Error: From<FramingError>;
     const HEADER_WIRE_SIZE: usize;
 
-    /// Bytes for the payload chunk(s) on the wire given a plaintext
-    /// `body_len`. Pure function of `body_len`: no `&self`.
+    /// Bytes the payload occupies on the wire for a plaintext
+    /// `body_len`.
     fn payload_wire_size(body_len: usize) -> usize;
 
     fn encode<F: IntoFrame>(&mut self, frame: &F, out: &mut [u8]) -> Result<usize, Self::Error>;
@@ -103,7 +103,6 @@ mod tests {
     use crate::message::Message;
     use ii_sv2_types::Error as TypeError;
 
-    /// Same fixture as in `message.rs`: u32 body, descriptor (0xff, 0x10, false).
     #[derive(Debug, PartialEq)]
     struct TestMsg {
         x: u32,

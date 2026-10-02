@@ -19,16 +19,9 @@
 
 //! Async, runtime-agnostic Stratum V2 noise handshake driver.
 //!
-//! Generic over [`embedded_io_async::Read`] + [`embedded_io_async::Write`],
-//! so the same code runs under embassy, smol, or — via
-//! `embedded-io-adapters` — tokio. No runtime is a dependency of this
-//! crate; the caller's executor polls our `Future`.
-//!
-//! Both [`initiate`] and [`accept`] take an [`Rng`] for fresh entropy
-//! and a borrowed [`CryptoCtx`] for the long-lived secp256k1
-//! precomputation context. After the handshake completes, the
-//! [`EstablishedSession`] holds the noise [`TransportState`] you'll use
-//! for application traffic.
+//! The driver is generic over [`embedded_io_async::Read`] and
+//! [`embedded_io_async::Write`], so no runtime is a dependency here and
+//! the caller's executor polls the returned future.
 
 use embedded_io_async::{Read, Write};
 use ii_sv2_crypto::{
@@ -41,9 +34,9 @@ use crate::certificate::{Certificate, CertificateWithPrivateKey, NOISE_SIG_MSG_S
 use crate::error::{InitializationError, KeyParseError};
 use crate::keys::{PublicKey, SessionId};
 
-/// What a successful handshake leaves you with: a noise transport, the
-/// peer's authenticated identity (initiator only), and the session
-/// identifier derived from the handshake hash.
+/// What a successful handshake leaves behind: a noise transport, the
+/// peer's authenticated identity and a session identifier derived from
+/// the handshake hash.
 pub struct EstablishedSession {
     pub transport: TransportState,
     /// Static public key the peer authenticated with via the
@@ -55,12 +48,9 @@ pub struct EstablishedSession {
 
 const HANDSHAKE_BUF_LEN: usize = EPHEMERAL_KEY_MSG_SIZE + STATIC_KEY_MSG_SIZE + NOISE_SIG_MSG_SIZE;
 
-/// Drive the initiator side of the SV2 noise handshake over `io`.
-///
-/// 1. Sends `-> e`.
-/// 2. Reads `<- e, ee, s, es, [signed_cert_msg]`.
-/// 3. Parses the responder's certificate from the encrypted payload and
-///    runs `authenticator.check(...)`.
+/// Drive the initiator side of the SV2 noise handshake over `io`,
+/// ending in `authenticator.check` over the certificate the responder
+/// sent in the encrypted payload.
 pub async fn initiate<T, R, A, C>(
     io: &mut T,
     rng: R,
@@ -93,7 +83,6 @@ where
         .remote_static_pubkey()
         .ok_or(InitializationError::Handshake(NXError::InvalidState))?;
 
-    // Authenticate the peer's certificate.
     let (cert_hdr, signature) =
         Certificate::parse_noise_signature_msg(remote_static_key, &sig_msg_buf[..sig_pt_len]);
     let remote_identity = cert_hdr.remote_static_public_key;
@@ -107,13 +96,10 @@ where
     })
 }
 
-/// Drive the responder side of the SV2 noise handshake over `io`.
-///
-/// 1. Reads `-> e`.
-/// 2. Reconstructs the static keypair from `cert.server_static_private_key`,
-///    mixing fresh entropy from `rng` for the elligator encoding.
-/// 3. Sends `<- e, ee, s, es` together with the noise signature message
-///    derived from the (public) certificate.
+/// Drive the responder side of the SV2 noise handshake over `io`. The
+/// static keypair is rebuilt from `cert.server_static_private_key`, and
+/// the reply carries the noise signature message of the public half of
+/// `cert`.
 pub async fn accept<T, R, C>(
     io: &mut T,
     mut rng: R,
@@ -171,17 +157,12 @@ mod tests {
         }
     }
 
-    /// Loopback handshake over an in-memory `tokio::io::duplex` pipe,
-    /// wrapped to satisfy `embedded_io_async`. Confirms initiate +
-    /// accept agree, the initiator recovers the responder's static key,
-    /// and the resulting transport states encrypt and decrypt symmetrically.
     #[tokio::test]
     async fn handshake_loopback() {
         let (a, b) = tokio::io::duplex(8192);
         let mut a = FromTokio::new(a);
         let mut b = FromTokio::new(b);
 
-        // Issue a self-signed certificate for the responder.
         let ctx = CryptoCtx::new();
         let server_kp = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
         let authority_kp = Secp256k1KeyPair::generate(&mut MyRng, &ctx);
@@ -211,7 +192,6 @@ mod tests {
         assert_eq!(i_session.remote_identity, Some(PublicKey::from(&server_kp)));
         assert_eq!(r_session.remote_identity, None);
 
-        // The transport states should encrypt/decrypt symmetrically.
         let plaintext = b"hello over noise";
         let mut buf = [0u8; 64];
         buf[..plaintext.len()].copy_from_slice(plaintext);
