@@ -1831,3 +1831,88 @@ fn stop_has_priority_over_halt_during_initialization_and_settling() {
         }
     });
 }
+
+#[test]
+fn pool_watch_reports_loss_only_after_an_uninterrupted_grace() {
+    use super::PoolWatch;
+    let grace = Duration::from_secs(60);
+    let start = Instant::from_secs(1_000);
+    let mut watch = PoolWatch::default();
+    assert!(!watch.observe(true, start, grace));
+    assert!(!watch.observe(false, start, grace));
+    assert!(!watch.observe(false, start + Duration::from_secs(59), grace));
+    // A job in between restarts the count.
+    assert!(!watch.observe(true, start + Duration::from_secs(59), grace));
+    assert!(!watch.observe(false, start + Duration::from_secs(60), grace));
+    assert!(!watch.observe(false, start + Duration::from_secs(119), grace));
+    assert!(watch.observe(false, start + Duration::from_secs(120), grace));
+}
+
+fn a_job() -> stratum_client::WorkAssignment {
+    stratum_client::WorkAssignment {
+        assignment_id: 1,
+        prev_hash: [0x11; 32],
+        merkle_root: [0x33; 32],
+        target: [0x22; 32],
+        version: 0x2000_0000,
+        version_mask: 0,
+        nbits: 0x1705_c739,
+        ntime: 0x6000_0000,
+    }
+}
+
+#[test]
+fn the_pool_wait_holds_until_a_slot_holds_a_job_and_cuts_the_rail_on_halt() {
+    critical_section::with(|_| {
+        static ACTOR: Serial = Serial::new(0, 1);
+        static STATS: ChainStats = ChainStats::new();
+        static SESSION: AsicSession<1, 1> = AsicSession::new();
+        static LOG: HardwareLog = Mutex::new(RefCell::new(heapless::Vec::new()));
+        let psu = TestPsu {
+            log: &LOG,
+            behavior: Cell::new(VoltageWrite::Succeed),
+            disable_fails: false,
+        };
+        let mut miner = test_miner::<crate::tuner::Tuners, 1>(&psu, [&ACTOR], [&STATS]);
+        let exercise = async {
+            // No job: the wait is still pending after several polls.
+            let pending = select(
+                super::wait_for_pool_or_abort(&psu, &ACTOR, &mut miner.chains),
+                Timer::after(super::POOL_POLL_PERIOD * 3),
+            )
+            .await;
+            assert!(matches!(pending, Either::Second(())));
+            LOG.lock(|log| assert!(log.borrow().is_empty()));
+
+            SESSION.pool_handle(0).publish_work(a_job());
+            let outcome = super::wait_for_pool_or_abort(&psu, &ACTOR, &mut miner.chains).await;
+            assert!(matches!(outcome, super::InitPhase::Done));
+            LOG.lock(|log| assert!(log.borrow().is_empty()));
+
+            SESSION.pool_handle(0).clear_work();
+            block_on(crate::handle().halt());
+            let outcome = super::wait_for_pool_or_abort(&psu, &ACTOR, &mut miner.chains).await;
+            assert!(matches!(outcome, super::InitPhase::Halted));
+            assert_eq!(miner.chains[0].reset.log.as_slice(), &[ResetCall::Enter]);
+            LOG.lock(|log| assert_eq!(log.borrow().as_slice(), &[Write::Disable]));
+
+            ACTOR.terminate().await.expect("actor terminates");
+        };
+        let run = ACTOR.run(
+            QuietSerial,
+            &SESSION,
+            &BMM101_HASHBOARD,
+            BringUpDriver::new(&[4]),
+            NoWork,
+            &STATS,
+        );
+        let outcome = block_on(select(
+            join(exercise, run),
+            Timer::after(Duration::from_secs(10)),
+        ));
+        let Either::First(((), result)) = outcome else {
+            panic!("pool wait timed out")
+        };
+        result.expect("actor succeeds");
+    });
+}

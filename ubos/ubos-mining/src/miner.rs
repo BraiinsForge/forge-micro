@@ -19,7 +19,10 @@
 
 //! Multi-chain mining lifecycle and execution of synchronous tuner plans.
 //!
-//! Bring-up configures every chain concurrently and parks absent or faulted connectors.
+//! Bring-up holds the chains in reset with the rail off until a pool slot holds a job,
+//! then configures every chain concurrently and parks absent or faulted connectors.
+//! A run in which no pool slot holds a job for `POOL_LOSS_GRACE` cuts the rail and
+//! waits for a pool again.
 //! The miner applies bounded policy plans in decrease, rail, increase order.
 //! Live targets take effect at the next step. Interruptions allow the current plan
 //! a bounded wait, then cut the rail without a shutdown ramp.
@@ -59,6 +62,13 @@ const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(100);
 /// clears the count; one that writes nothing, a wait or a value already
 /// held, leaves it.
 const PLAN_FAILURE_BUDGET: u8 = 3;
+/// How often the miner asks the actor whether a pool slot holds a job,
+/// both while waiting for a pool and while watching for its loss.
+const POOL_POLL_PERIOD: Duration = Duration::from_secs(1);
+
+/// How long every pool slot may stay empty while mining before the rail
+/// is cut. Long enough for a pool to reconnect without a power cycle.
+const POOL_LOSS_GRACE: Duration = Duration::from_secs(60);
 
 /// Request shutdown during initialization, plan execution or settling.
 /// Teardown cuts the rail before the outer loop returns.
@@ -474,12 +484,21 @@ where
             }
         }
 
-        publish_state(MiningState::Starting);
+        publish_state(MiningState::WaitingForPool);
         info!("mining: entering reset");
         crate::events::miner_reset();
         for chain in &mut self.chains {
             chain.reset.enter_reset().await;
         }
+        info!("mining: waiting for a pool to hold a job");
+        let serial = self.pool_serial();
+        let pool = wait_for_pool_or_abort(self.psu, serial, &mut self.chains).await;
+        if let Some(outcome) = self.leave_cycle(pool) {
+            return outcome;
+        }
+        crate::events::pool_available();
+
+        publish_state(MiningState::Starting);
         let settled = settle_or_abort(Self::RESET_HOLD, self.psu, &mut self.chains).await;
         if let Some(outcome) = self.leave_cycle(settled) {
             return outcome;
@@ -537,14 +556,24 @@ where
     ) -> CycleOutcome {
         let mut plan_delay = Duration::from_millis(0);
         let mut consecutive_plan_failures: u8 = 0;
+        let mut pool = PoolWatch::default();
+        let serial = self.pool_serial();
         let interrupt = loop {
-            if let Either::First(exit) = select(
+            match select3(
                 interrupted(selected, subscription),
                 Timer::after(plan_delay),
+                pool.lost(serial),
             )
             .await
             {
-                break exit;
+                Either3::First(exit) => break exit,
+                Either3::Second(()) => {}
+                Either3::Third(()) => {
+                    warn!("mining: no pool has held a job for the grace period; cutting rail");
+                    crate::events::pool_lost();
+                    cut_rail(self.psu, &mut self.chains).await;
+                    return CycleOutcome::Continue;
+                }
             }
             let snapshot = subscription.get().await;
             if discriminant(&snapshot.miner.tuning) != selected {
@@ -606,6 +635,13 @@ where
             }
             Interrupt::Restart => CycleOutcome::Continue,
         }
+    }
+
+    /// The actor that answers pool questions for the machine. Every
+    /// chain shares one session, so chain 0 speaks for all of them, and
+    /// the question touches no chip, so its own presence does not matter.
+    fn pool_serial(&self) -> &'static Serial {
+        self.chains[0].serial
     }
 
     /// Decide what `bring_up_cycle` does after one bring-up step:
@@ -902,6 +938,71 @@ enum InitPhase {
     /// A transient failure that has already cut the rail; the cycle
     /// restarts from a fresh config snapshot.
     Retry,
+}
+
+/// Hold the chains in reset until a pool slot holds a job, cancellable
+/// by STOP and HALT the same way `settle_or_abort` is. `serial` is
+/// `Miner::pool_serial`, passed in because `cut_rail` needs the chains
+/// mutably beside it.
+async fn wait_for_pool_or_abort<P, R>(
+    psu: &P,
+    serial: &Serial,
+    chains: &mut [ChainHandle<R>],
+) -> InitPhase
+where
+    P: Psu,
+    R: ResetPin,
+{
+    let pool_holds_a_job = async {
+        while !serial.work_available().await {
+            Timer::after(POOL_POLL_PERIOD).await;
+        }
+    };
+    match select3(STOP_MINING.wait(), wait_for_halt(), pool_holds_a_job).await {
+        Either3::Third(()) => InitPhase::Done,
+        Either3::First(()) => {
+            cut_rail(psu, chains).await;
+            InitPhase::Stop
+        }
+        Either3::Second(()) => {
+            cut_rail(psu, chains).await;
+            InitPhase::Halted
+        }
+    }
+}
+
+/// How long no pool slot has held a job while mining.
+#[derive(Default)]
+struct PoolWatch {
+    /// When the slots were first seen empty; `None` while a job is held.
+    empty_since: Option<Instant>,
+}
+
+impl PoolWatch {
+    /// Record one observation. Returns `true` once the slots have been
+    /// empty for `grace` without a job in between.
+    fn observe(&mut self, available: bool, now: Instant, grace: Duration) -> bool {
+        if available {
+            self.empty_since = None;
+            return false;
+        }
+        let since = *self.empty_since.get_or_insert(now);
+        now.saturating_duration_since(since) >= grace
+    }
+
+    /// Resolve once no pool slot has held a job for `POOL_LOSS_GRACE`.
+    /// The future is dropped and rebuilt at every tuner step; the time
+    /// already spent empty lives in `self`, so a short step cannot
+    /// restart the count.
+    async fn lost(&mut self, serial: &Serial) {
+        loop {
+            let available = serial.work_available().await;
+            if self.observe(available, Instant::now(), POOL_LOSS_GRACE) {
+                return;
+            }
+            Timer::after(POOL_POLL_PERIOD).await;
+        }
+    }
 }
 
 /// Cancellable settling sleep used between bring-up steps. STOP or

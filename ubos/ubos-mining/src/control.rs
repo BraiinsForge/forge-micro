@@ -50,12 +50,29 @@ pub(crate) static COMMAND_CHANNEL: Channel<CSMutex, Message, CMD_CHANNEL_DEPTH> 
 /// Mining lifecycle status, separate from hardware readings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MiningState {
+    /// Chips are held in reset with the rail off until a pool slot
+    /// holds a job. Entered at boot and after every rail cut.
+    WaitingForPool,
     /// Bring-up is in progress; chips can already be powered.
     Starting,
     /// Every present chain has started receiving work.
     Running,
     /// Chips are held in reset, or no mining hardware is configured.
     Stopped,
+}
+
+impl MiningState {
+    /// The camelCase wire string for this state used in the REST API
+    /// and as the `state` label of the `board_miner_state` metric.
+    #[must_use]
+    pub fn as_api_str(self) -> &'static str {
+        match self {
+            Self::WaitingForPool => "waitingForPool",
+            Self::Starting => "starting",
+            Self::Running => "running",
+            Self::Stopped => "stopped",
+        }
+    }
 }
 
 pub(crate) fn publish_state(state: MiningState) {

@@ -31,7 +31,7 @@ driver is exercised without a hashboard on the bench.
 | Task | Owner | Role |
 |------|-------|------|
 | `serial_task` | `mining.rs` | Drives one entry of the board's static `mining::CHAINS` array through `Serial::run(...)`. One actor per hashboard chain: command dispatch, parser, in-flight work registry, baud-rate switch, and that chain's own `ChainStats`. Pinned to Core 1 so embassy-net on Core 0 stays responsive. |
-| `miner_task` | `mining.rs` | Drives `Miner::<_, _, T, CHAINS>::new(psu, BOARD, chains, platform).run()` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
+| `miner_task` | `mining.rs` | Drives `Miner::<_, _, T, CHAINS>::new(psu, BOARD, chains, platform).run()` against the tuner `MinerConfig::tuning` selects from the firmware's tuner set `T`. Bring-up / teardown state machine: reset assert, wait for a pool to hold a job, PSU up, reset release, per-chain enumeration, per-chain safe-boot configuration, start work, apply tuner plans, PSU off. |
 | `power_stats_task` | `psu.rs` | Drives `ubos_psu::run_power_stats`. Polls the SIC45x input/output power every `POWER_STATS_INTERVAL` (two seconds) and publishes them. |
 
 The SIC45x rail is gated by the `SIC_EN` GPIO the `BoardPsu` owns, not by
@@ -79,6 +79,19 @@ on `STATE_WATCH` and flips edges on the empty/non-empty boundary:
 | tuner            | `TunerFault`                  | `TunerFault`               |
 | OTA (`ubos-api`) | `OtaBegin`                    | `OtaUpdate`                |
 | operator         | `Stop`                        | `UserRequest`              |
+
+### The pool gate
+
+Pool reachability is not a pause reason. The miner gates itself: at
+boot and after every rail cut it holds the chains in reset with the
+rail off and publishes `MiningState::WaitingForPool` until a pool
+slot's work cell holds a job. Availability comes from the work cells
+of the `AsicSession`, as in `MULTIPOOL_DESIGN.md`: a torn-down
+session clears its cell. The miner asks the chain 0 serial actor,
+which owns the receivers; the question touches no chip. While mining,
+a run in which no slot holds a job for `POOL_LOSS_GRACE` cuts the rail
+and returns to the wait, so a pool outage shorter than the grace is
+only a dispatch gap.
 
 ### Two ways out of an overheat halt
 
@@ -143,7 +156,7 @@ Then `Miner::run` repeats:
 
 1. Read the configuration and select the tuner from `miner.tuning` out of the firmware's tuner set.
    If the set has no tuner for it, cut the rail and hold until the configuration changes.
-2. Assert reset on every chain, enable the PSU, and release reset with the existing settle delays.
+2. Assert reset on every chain and hold it until a pool slot holds a job, then enable the PSU and release reset with the existing settle delays.
 3. Reset, enumerate, and configure all chains concurrently.
    Retry failed attempts, then park absent or faulted chains in reset.
    Read chip temperatures before a chain becomes present.
