@@ -661,6 +661,8 @@ fn run_command(
         &mut state.work_ticker,
         &mut state.poll_cadence,
         &mut state.registry,
+        // No pool slots: these commands never ask whether work is held.
+        &[],
         chain_stats,
     ));
     assert!(flow.is_continue(), "only Terminate breaks the loop");

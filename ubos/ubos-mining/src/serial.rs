@@ -21,8 +21,9 @@
 //!
 //! One task owns the full-duplex serial line and the in-flight work
 //! registry; outside callers go through [`Serial`]'s typed methods to
-//! reset the line, bring the chain up, retune the frequency, or gate work
-//! dispatch. The actor is generic over the concrete [`ChainDriver`] the
+//! reset the line, bring the chain up, retune the frequency, gate work
+//! dispatch, or ask whether a pool slot holds a job. The actor is
+//! generic over the concrete [`ChainDriver`] the
 //! caller injects and implements [`Transport`] over the UART, so the
 //! vendor-specific framing and bring-up recipe live in `ubos-asic` or in
 //! a vendor's own crate against that same seam. The actor holds a work
@@ -362,6 +363,10 @@ pub enum SerialMessage {
     /// with the work, so results still latched in its nonce FIFO are not
     /// collected until work restarts.
     StopSendingWork,
+    /// Ask whether any pool slot's work cell holds a job. Answered from
+    /// the session's work receivers without touching the chips, so it is
+    /// valid while the chain sits in reset.
+    WorkAvailable,
     /// Tell the server task to exit its loop.
     Terminate,
 }
@@ -376,6 +381,8 @@ enum Reply {
     Count(u8),
     /// Result of a bring-up or frequency-programming command.
     Freq(Result<(), ChipError>),
+    /// Answer to [`SerialMessage::WorkAvailable`].
+    Flag(bool),
 }
 
 /// Depth of the command channel feeding the serial actor. A const
@@ -685,6 +692,21 @@ impl Serial {
         Self::unit(self.cmd_reply(SerialMessage::StopSendingWork).await)
     }
 
+    /// True when any pool slot's work cell holds a job. The session is
+    /// shared by every chain, so one actor answers for the machine.
+    ///
+    /// The answer is a read of the work receivers, which the actor loop
+    /// owns because their count is the session's slot-count generic.
+    /// `Serial` is a non-generic `static`, so a direct read here would
+    /// push that generic into every handle, and the round trip through
+    /// the actor is the price of keeping it out.
+    pub async fn work_available(&self) -> bool {
+        match self.cmd_reply(SerialMessage::WorkAvailable).await {
+            Reply::Flag(available) => available,
+            _ => unreachable!("BUG: serial reply variant mismatch"),
+        }
+    }
+
     /// Retires the worker: masks the chip-UART RX interrupt for good, then
     /// decrements [`LIVE_ACTORS`].
     ///
@@ -951,6 +973,7 @@ impl Serial {
                             &mut work_ticker,
                             &mut poll_cadence,
                             &mut registry,
+                            &work_receivers,
                             stats,
                         )
                         .await
@@ -1176,7 +1199,7 @@ impl Serial {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn handle_command<S>(
+    async fn handle_command<S, const N: usize>(
         &self,
         seq: u32,
         msg: SerialMessage,
@@ -1186,6 +1209,7 @@ impl Serial {
         work_ticker: &mut Option<Ticker>,
         poll_cadence: &mut Option<PollCadence>,
         registry: &mut WorkRegistry,
+        work_receivers: &[DynReceiver<'_, WorkAssignment>; N],
         stats: &ChainStats,
     ) -> ControlFlow<()>
     where
@@ -1280,6 +1304,10 @@ impl Serial {
             SerialMessage::Terminate => {
                 self.reply.signal((seq, Reply::Unit(Ok(()))));
                 return ControlFlow::Break(());
+            }
+            SerialMessage::WorkAvailable => {
+                let available = work_receivers.iter().any(|cell| cell.contains_value());
+                self.reply.signal((seq, Reply::Flag(available)));
             }
         }
         ControlFlow::Continue(())
