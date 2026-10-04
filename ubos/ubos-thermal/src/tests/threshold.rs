@@ -70,7 +70,7 @@ fn boundary_at_cooldown_resumes() {
 
 #[test]
 fn halts_at_the_configured_threshold() {
-    // The evaluator trusts `dangerous_temp_c` straight from the config
+    // The evaluator trusts `dangerous_estimated_temp_c` straight from the config
     // (the config layer bounds it); there is no separate hard ceiling.
     const HIGH: f32 = 105.0;
     assert_eq!(evaluate(HIGH, false, HIGH, COOLDOWN), Action::EnterHalt);

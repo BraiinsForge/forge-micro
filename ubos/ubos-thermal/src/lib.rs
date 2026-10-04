@@ -132,13 +132,14 @@ type CSMutex = CriticalSectionRawMutex;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Source {
     /// The only chip-temperature estimate the board reports. The gauge
-    /// carries no `source` label.
+    /// carries no `source` label, and the reading selects
+    /// `dangerous_estimated_temp_c`.
     Sole,
     /// A remote diode wired to a chip die. Selects
     /// `dangerous_chip_temp_c`.
     Chip,
     /// A PCB reading plus an offset, published beside a real die
-    /// reading. Selects `dangerous_temp_c`.
+    /// reading. Selects `dangerous_estimated_temp_c`.
     Approximated,
 }
 
@@ -727,7 +728,7 @@ macro_rules! thermal_task {
 fn judge_dangerous(sample: &Sample, config: &ThermalConfig, held: PauseReasons) -> Option<Note> {
     let dangerous = match sample.safety_source {
         Source::Chip => config.dangerous_chip_temp_c,
-        Source::Sole | Source::Approximated => config.dangerous_temp_c,
+        Source::Sole | Source::Approximated => config.dangerous_estimated_temp_c,
     };
     let halted = held.contains(PauseReason::DangerousTemperature);
     let temp = sample.safety;

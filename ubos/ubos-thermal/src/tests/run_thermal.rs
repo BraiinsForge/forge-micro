@@ -71,7 +71,7 @@ impl TemperatureSensor for ScriptedSensor {
     }
 }
 
-/// A measured reading at the default `dangerous_temp_c` (90 °C), which
+/// A measured reading at the default `dangerous_estimated_temp_c` (90 °C), which
 /// `evaluate` trips inclusively. Well above the 45 °C default
 /// `cooldown_temp_c`, so a tick taken while the halt stands evaluates to
 /// `Ok` and not to a resume.

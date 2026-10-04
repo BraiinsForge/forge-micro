@@ -37,26 +37,26 @@ pub struct ThermalConfig {
     /// Poll interval in milliseconds.
     pub sample_interval_ms: u32,
     /// Temperature in Celsius above which mining is halted when the safety
-    /// reading is the PCB-derived approximation. More conservative than
-    /// `dangerous_chip_temp_c` because the estimate is less trustworthy than
-    /// the real junction reading.
-    pub dangerous_temp_c: f32,
+    /// reading is a PCB reading plus an offset. It sits below
+    /// `dangerous_chip_temp_c` by the error that offset carries, and
+    /// [`validate`](Self::validate) holds that order.
+    pub dangerous_estimated_temp_c: f32,
     /// Temperature in Celsius above which mining is halted when the safety
-    /// reading is the real die temperature from the TMP461 remote diode.
-    /// Higher than `dangerous_temp_c` because the junction reading is
-    /// trustworthy, where the PCB-derived estimate is not.
+    /// reading is a real die temperature. This is the junction ceiling of
+    /// the chip family, which `Config::for_board` takes from the board
+    /// descriptor.
     pub dangerous_chip_temp_c: f32,
     /// Temperature in Celsius below which a halted miner may resume.
     pub cooldown_temp_c: f32,
 }
 
 impl Default for ThermalConfig {
-    /// Factory defaults: 1-second poll interval, 90 C approximated-reading
+    /// Factory defaults: 1-second poll interval, 90 C estimated-reading
     /// halt threshold, 110 C real-die halt threshold, 45 C resume threshold.
     fn default() -> Self {
         Self {
             sample_interval_ms: 1000,
-            dangerous_temp_c: 90.0,
+            dangerous_estimated_temp_c: 90.0,
             dangerous_chip_temp_c: 110.0,
             cooldown_temp_c: 45.0,
         }
@@ -71,17 +71,20 @@ impl ThermalConfig {
     /// # Errors
     ///
     /// Returns `Err` when any field is out of range or any ordering invariant
-    /// is violated: `cooldown_temp_c < dangerous_temp_c`,
-    /// `dangerous_temp_c <= dangerous_chip_temp_c`.
+    /// is violated: `cooldown_temp_c < dangerous_estimated_temp_c`,
+    /// `dangerous_estimated_temp_c <= dangerous_chip_temp_c`.
     pub fn validate(&self) -> Result<(), &'static str> {
         if !BOUNDS.sample_interval_ms.contains(&self.sample_interval_ms) {
             return Err("thermal.sample_interval_ms must be between 100 and 60000");
         }
-        if !self.dangerous_temp_c.is_finite() {
-            return Err("thermal.dangerous_temp_c must be a finite number");
+        if !self.dangerous_estimated_temp_c.is_finite() {
+            return Err("thermal.dangerous_estimated_temp_c must be a finite number");
         }
-        if !BOUNDS.dangerous_temp_c.contains(&self.dangerous_temp_c) {
-            return Err("thermal.dangerous_temp_c must be between 50 and 110");
+        if !BOUNDS
+            .dangerous_estimated_temp_c
+            .contains(&self.dangerous_estimated_temp_c)
+        {
+            return Err("thermal.dangerous_estimated_temp_c must be between 50 and 110");
         }
         if !self.dangerous_chip_temp_c.is_finite() {
             return Err("thermal.dangerous_chip_temp_c must be a finite number");
@@ -92,8 +95,10 @@ impl ThermalConfig {
         {
             return Err("thermal.dangerous_chip_temp_c must be between 50 and 115");
         }
-        if self.dangerous_temp_c > self.dangerous_chip_temp_c {
-            return Err("thermal.dangerous_temp_c must not exceed thermal.dangerous_chip_temp_c");
+        if self.dangerous_estimated_temp_c > self.dangerous_chip_temp_c {
+            return Err(
+                "thermal.dangerous_estimated_temp_c must not exceed thermal.dangerous_chip_temp_c",
+            );
         }
         if !self.cooldown_temp_c.is_finite() {
             return Err("thermal.cooldown_temp_c must be a finite number");
@@ -101,8 +106,10 @@ impl ThermalConfig {
         if !BOUNDS.cooldown_temp_c.contains(&self.cooldown_temp_c) {
             return Err("thermal.cooldown_temp_c must be between 20 and 90");
         }
-        if self.cooldown_temp_c >= self.dangerous_temp_c {
-            return Err("thermal.cooldown_temp_c must be less than thermal.dangerous_temp_c");
+        if self.cooldown_temp_c >= self.dangerous_estimated_temp_c {
+            return Err(
+                "thermal.cooldown_temp_c must be less than thermal.dangerous_estimated_temp_c",
+            );
         }
         Ok(())
     }
@@ -118,8 +125,8 @@ impl ThermalConfig {
 pub struct ThermalBounds {
     /// Accepted range for `sample_interval_ms` in milliseconds.
     pub sample_interval_ms: RangeInclusive<u32>,
-    /// Accepted range for `dangerous_temp_c` in Celsius.
-    pub dangerous_temp_c: RangeInclusive<f32>,
+    /// Accepted range for `dangerous_estimated_temp_c` in Celsius.
+    pub dangerous_estimated_temp_c: RangeInclusive<f32>,
     /// Accepted range for `dangerous_chip_temp_c` in Celsius.
     pub dangerous_chip_temp_c: RangeInclusive<f32>,
     /// Accepted range for `cooldown_temp_c` in Celsius.
@@ -129,7 +136,7 @@ pub struct ThermalBounds {
 /// Accepted value ranges for [`ThermalConfig`] fields.
 pub const BOUNDS: ThermalBounds = ThermalBounds {
     sample_interval_ms: 100..=60_000,
-    dangerous_temp_c: 50.0..=110.0,
+    dangerous_estimated_temp_c: 50.0..=110.0,
     dangerous_chip_temp_c: 50.0..=115.0,
     cooldown_temp_c: 20.0..=90.0,
 };

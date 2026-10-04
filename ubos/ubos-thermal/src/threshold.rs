@@ -40,9 +40,10 @@ pub enum Action {
 /// Decide what action to take given the current sample and whether the
 /// halt flag is currently set.
 ///
-/// `dangerous_temp_c` is the halt threshold straight from the config; the
-/// config layer bounds it (`ThermalConfig::validate` caps it), so there is
-/// no separate ceiling here.
+/// `dangerous_temp_c` is the halt threshold `judge_dangerous` resolved for
+/// the source of this reading; the config layer bounds both thresholds it
+/// can be (`ThermalConfig::validate` caps them), so there is no separate
+/// ceiling here.
 #[must_use]
 pub fn evaluate(temp_c: f32, halted: bool, dangerous_temp_c: f32, cooldown_temp_c: f32) -> Action {
     if halted {

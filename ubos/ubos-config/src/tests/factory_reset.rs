@@ -100,7 +100,7 @@ fn factory_reset_overwrites_existing_config() {
     // Store a modified config (non-default dangerous temperature) to simulate
     // pre-existing state. 85.0 differs from the default of 90.0.
     let mut modified = Config::default();
-    modified.thermal.dangerous_temp_c = 85.0;
+    modified.thermal.dangerous_estimated_temp_c = 85.0;
     let mut modified_buf = [0u8; LOAD_BUFFER_SIZE];
     let modified_len =
         crate::encode_blob(&modified, &mut modified_buf).expect("BUG: encode_blob failed in test");

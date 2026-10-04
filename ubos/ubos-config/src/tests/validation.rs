@@ -58,7 +58,7 @@ fn valid_pool_entry() -> PoolEntry {
 fn valid_thermal() -> ThermalConfig {
     ThermalConfig {
         sample_interval_ms: 1000,
-        dangerous_temp_c: 90.0,
+        dangerous_estimated_temp_c: 90.0,
         dangerous_chip_temp_c: 110.0,
         cooldown_temp_c: 45.0,
     }
@@ -263,43 +263,43 @@ fn thermal_sample_interval_too_high() {
     );
 }
 
-/// `dangerous_temp_c` below 50 is rejected.
+/// `dangerous_estimated_temp_c` below 50 is rejected.
 #[test]
 fn thermal_dangerous_temp_too_low() {
     let mut update = empty_update();
     let mut thermal = valid_thermal();
-    thermal.dangerous_temp_c = 49.9;
+    thermal.dangerous_estimated_temp_c = 49.9;
     thermal.cooldown_temp_c = 20.0;
     update.thermal = Some(thermal);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
-        Err("thermal.dangerous_temp_c must be between 50 and 110")
+        Err("thermal.dangerous_estimated_temp_c must be between 50 and 110")
     );
 }
 
-/// `dangerous_temp_c` above 110 is rejected.
+/// `dangerous_estimated_temp_c` above 110 is rejected.
 #[test]
 fn thermal_dangerous_temp_too_high() {
     let mut update = empty_update();
     let mut thermal = valid_thermal();
-    thermal.dangerous_temp_c = 110.1;
+    thermal.dangerous_estimated_temp_c = 110.1;
     update.thermal = Some(thermal);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
-        Err("thermal.dangerous_temp_c must be between 50 and 110")
+        Err("thermal.dangerous_estimated_temp_c must be between 50 and 110")
     );
 }
 
-/// NaN for `dangerous_temp_c` is rejected.
+/// NaN for `dangerous_estimated_temp_c` is rejected.
 #[test]
 fn thermal_dangerous_temp_nan_rejected() {
     let mut update = empty_update();
     let mut thermal = valid_thermal();
-    thermal.dangerous_temp_c = f32::NAN;
+    thermal.dangerous_estimated_temp_c = f32::NAN;
     update.thermal = Some(thermal);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
-        Err("thermal.dangerous_temp_c must be a finite number")
+        Err("thermal.dangerous_estimated_temp_c must be a finite number")
     );
 }
 
@@ -342,16 +342,16 @@ fn thermal_cooldown_temp_nan_rejected() {
     );
 }
 
-/// `cooldown_temp_c` equal to `dangerous_temp_c` is rejected.
+/// `cooldown_temp_c` equal to `dangerous_estimated_temp_c` is rejected.
 #[test]
 fn thermal_cooldown_not_less_than_dangerous_rejected() {
     let mut update = empty_update();
     let mut thermal = valid_thermal();
-    thermal.cooldown_temp_c = thermal.dangerous_temp_c;
+    thermal.cooldown_temp_c = thermal.dangerous_estimated_temp_c;
     update.thermal = Some(thermal);
     assert_eq!(
         update.validate(&Config::default(), &crate::mining::BOUNDS),
-        Err("thermal.cooldown_temp_c must be less than thermal.dangerous_temp_c")
+        Err("thermal.cooldown_temp_c must be less than thermal.dangerous_estimated_temp_c")
     );
 }
 
@@ -359,7 +359,7 @@ fn thermal_cooldown_not_less_than_dangerous_rejected() {
 
 /// `cooling.target_temp_c` below the dangerous limit passes.
 ///
-/// Default current config has `dangerous_temp_c = 90.0`; 70.0 is below
+/// Default current config has `dangerous_estimated_temp_c = 90.0`; 70.0 is below
 /// that and within the 30..=85 range.
 #[test]
 fn cooling_target_below_dangerous_passes() {
@@ -377,14 +377,14 @@ fn cooling_target_below_dangerous_passes() {
     );
 }
 
-/// `cooling.target_temp_c` equal to `dangerous_temp_c` is rejected.
+/// `cooling.target_temp_c` equal to `dangerous_estimated_temp_c` is rejected.
 ///
 /// Build a current config with dangerous = 80.0 and set target = 80.0
 /// so the cross-field rule fires.
 #[test]
 fn cooling_target_equal_to_dangerous_rejected() {
     let mut current = Config::default();
-    current.thermal.dangerous_temp_c = 80.0;
+    current.thermal.dangerous_estimated_temp_c = 80.0;
     let mut update = empty_update();
     // 80.0 is within 30..=85 but equals the dangerous limit.
     update.cooling = Some(CoolingUpdate {
@@ -395,19 +395,19 @@ fn cooling_target_equal_to_dangerous_rejected() {
     });
     assert_eq!(
         update.validate(&current, &crate::mining::BOUNDS),
-        Err("cooling.target_temp_c must be less than dangerous_temp_c")
+        Err("cooling.target_temp_c must be less than dangerous_estimated_temp_c")
     );
 }
 
 /// When both thermal and `cooling.target_temp_c` are set, the cross-field
-/// rule uses the incoming `dangerous_temp_c`, not the current config.
+/// rule uses the incoming `dangerous_estimated_temp_c`, not the current config.
 #[test]
 fn cooling_target_cross_field_uses_incoming_dangerous() {
     // Current config has dangerous = 90.0; target of 75 with incoming
     // dangerous of 80 should pass because 75 < 80.
     let mut update = empty_update();
     let mut thermal = valid_thermal();
-    thermal.dangerous_temp_c = 80.0;
+    thermal.dangerous_estimated_temp_c = 80.0;
     update.thermal = Some(thermal);
     update.cooling = Some(CoolingUpdate {
         mode: None,
@@ -595,7 +595,7 @@ fn tuning_voltage_out_of_range() {
 /// Thermal-only update rejected when current cooling target >= new dangerous temp.
 ///
 /// Build a current config with `cooling.target_temp_c = 80.0` then send only
-/// `thermal.dangerous_temp_c = 70.0`. The current target is above the new
+/// `thermal.dangerous_estimated_temp_c = 70.0`. The current target is above the new
 /// dangerous limit, so validation must reject the update.
 #[test]
 fn thermal_only_update_rejected_when_current_target_above_new_dangerous() {
@@ -603,12 +603,14 @@ fn thermal_only_update_rejected_when_current_target_above_new_dangerous() {
     current.cooling.target_temp_c = 80.0;
     let mut update = empty_update();
     let mut thermal = valid_thermal();
-    thermal.dangerous_temp_c = 70.0;
+    thermal.dangerous_estimated_temp_c = 70.0;
     // cooldown must be below dangerous; 45.0 < 70.0 is fine.
     update.thermal = Some(thermal);
     assert_eq!(
         update.validate(&current, &crate::mining::BOUNDS),
-        Err("current cooling.target_temp_c must remain less than thermal.dangerous_temp_c")
+        Err(
+            "current cooling.target_temp_c must remain less than thermal.dangerous_estimated_temp_c"
+        )
     );
 }
 
@@ -688,7 +690,7 @@ fn cooling_min_fan_pwm_101_rejected() {
 
 /// Both ends of the fixed-duty range pass. Zero is accepted deliberately:
 /// a stopped fan is a legitimate request, and the board stays covered by
-/// the mining halt at `thermal.dangerous_temp_c`.
+/// the mining halt at `thermal.dangerous_estimated_temp_c`.
 #[test]
 fn cooling_fixed_fan_pwm_range_ends_pass() {
     for duty in [0, 100] {
@@ -1063,18 +1065,18 @@ fn config_cooling_target_nan_rejected() {
     );
 }
 
-/// A Config with cooling target above `dangerous_temp_c` is rejected.
+/// A Config with cooling target above `dangerous_estimated_temp_c` is rejected.
 ///
 /// Set `dangerous = 60.0` and `target = 80.0` so target stays inside the
 /// 30..=85 range but the cross-field ordering fails.
 #[test]
 fn config_cooling_target_above_dangerous_rejected() {
     let mut config = Config::default();
-    config.thermal.dangerous_temp_c = 60.0;
+    config.thermal.dangerous_estimated_temp_c = 60.0;
     config.cooling.target_temp_c = 80.0;
     assert_eq!(
         config.validate(&crate::mining::BOUNDS),
-        Err("cooling.target_temp_c must be less than dangerous_temp_c")
+        Err("cooling.target_temp_c must be less than dangerous_estimated_temp_c")
     );
 }
 

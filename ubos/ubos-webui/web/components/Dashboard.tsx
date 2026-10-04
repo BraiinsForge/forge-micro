@@ -85,6 +85,16 @@ function StatCard({ label, value, cls, wide }: StatCardProps) {
   );
 }
 
+// The board's two halt thresholds, which the card tiers by severity: the
+// estimated one turns the reading amber and the chip one turns it red.
+// The board judges against whichever matches its live sensor, and the
+// pair is ordered, so the amber step is the point past which some sensor
+// would already halt.
+interface TempThresholds {
+  estimatedC: number;
+  chipC: number;
+}
+
 function StatusDot({ text, dot = true }: { text: string; dot?: boolean }) {
   return (
     <span class="ps">
@@ -101,7 +111,7 @@ export default function Dashboard() {
   const measuredVoltage = info?.psu_voltage_measured_mv || info?.chain_voltage_mv;
 
   const [poolCfg, setPoolCfg] = useState<(PoolMeta | null | undefined)[]>([undefined, undefined, undefined]);
-  const [tempThresh, setTempThresh] = useState<[number, number] | null>(null);
+  const [tempThresh, setTempThresh] = useState<TempThresholds | null>(null);
   const [cursor, setCursor] = useState<number | null>(null);
 
   useEffect(() => {
@@ -122,7 +132,10 @@ export default function Dashboard() {
           })
         );
         if (data.thermal) {
-          setTempThresh([data.thermal.dangerous_temp_c, data.thermal.dangerous_chip_temp_c]);
+          setTempThresh({
+            estimatedC: data.thermal.dangerous_estimated_temp_c,
+            chipC: data.thermal.dangerous_chip_temp_c,
+          });
         }
       } catch (_) {
         /* leave labels blank; the poll still drives alive/dead */
@@ -134,8 +147,8 @@ export default function Dashboard() {
 
   function tempCls(): string {
     if (temperature == null || !tempThresh) return '';
-    if (temperature >= tempThresh[1]) return 'temp-red';
-    if (temperature >= tempThresh[0]) return 'temp-warn';
+    if (temperature >= tempThresh.chipC) return 'temp-red';
+    if (temperature >= tempThresh.estimatedC) return 'temp-warn';
     return 'temp-ok';
   }
 

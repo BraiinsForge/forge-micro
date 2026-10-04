@@ -519,9 +519,8 @@ async fn publish_state<const N: usize>(
 /// tick so a duty change lands within one [`CONTROL_INTERVAL`] whatever the
 /// thermal cadence. Both failsafes still apply — a reading with no PID
 /// temperature and a lapsed staleness window force full in either mode —
-/// and the mining halt
-/// at `thermal.dangerous_temp_c` is unaffected, so a low fixed duty costs
-/// hashrate rather than the board.
+/// and the mining halt on the thermal config's dangerous thresholds is
+/// unaffected, so a low fixed duty costs hashrate rather than the board.
 ///
 /// Cooling tuning is read from `config` and refreshed between samples: a
 /// target-only change adjusts the setpoint in place, a PID-gains or mode

@@ -148,11 +148,10 @@ async fn mdns_task(stack: embassy_net::Stack<'static>, hostname: &'static str) -
 // This board's array is a TMP461 remote-diode sensor on the ASIC die plus
 // two TMP102 PCB sensors, from the `ubos_machine::HASHNODE` sensor table.
 //
-// Note on `dangerous_temp_c`: the 90 °C runtime default in `ThermalConfig`
-// is calibrated for PCB-surface sensors. Because the safety gate reads the
-// real die temperature from the TMP461 remote channel, the Hashnode
-// threshold should be raised toward ~108 °C; override it in the per-board
-// `ThermalConfig`, not in the shared `ubos-config` default.
+// The safety gate therefore reads the real die temperature while the
+// remote channel answers, and halts on `dangerous_chip_temp_c`. It falls
+// back to the PCB sensors when that channel goes quiet, and halts on the
+// lower `dangerous_estimated_temp_c` for as long as it does.
 ubos_thermal::thermal_task!(
     ubos_thermal::SensorArray<psu::Device>,
     ubos_thermal::NoAmbient

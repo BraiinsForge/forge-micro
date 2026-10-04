@@ -16,7 +16,9 @@ export interface ConfigThermalProps {
 
 export default function ConfigThermal({ thermal, cooling, thermalBounds, coolingBounds }: ConfigThermalProps) {
   const [sampleMs] = useState<number | null>(() => (thermal ? thermal.sample_interval_ms : null));
-  const [dangerC, setDangerC] = useState<string | number>(() => (thermal ? thermal.dangerous_temp_c : ''));
+  const [estimatedC, setEstimatedC] = useState<string | number>(() =>
+    thermal ? thermal.dangerous_estimated_temp_c : '',
+  );
   const [chipC, setChipC] = useState<string | number>(() => (thermal ? thermal.dangerous_chip_temp_c : ''));
   const [cooldownC, setCooldownC] = useState<string | number>(() => (thermal ? thermal.cooldown_temp_c : ''));
   const [mode, setMode] = useState<FanMode>(() => (cooling && cooling.mode != null ? cooling.mode : 'auto'));
@@ -30,7 +32,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
     cooling && cooling.fixed_fan_pwm != null ? cooling.fixed_fan_pwm : '',
   );
 
-  const danger: Partial<Range> = thermalBounds.dangerousTempC || {};
+  const estimated: Partial<Range> = thermalBounds.dangerousEstimatedTempC || {};
   const chip: Partial<Range> = thermalBounds.dangerousChipTempC || {};
   const cooldown: Partial<Range> = thermalBounds.cooldownTempC || {};
   const target: Partial<Range> = coolingBounds.targetTempC || {};
@@ -55,7 +57,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
     return saveConfig({
       thermal: {
         sample_interval_ms: sampleMs,
-        dangerous_temp_c: +dangerC,
+        dangerous_estimated_temp_c: +estimatedC,
         cooldown_temp_c: +cooldownC,
         dangerous_chip_temp_c: +chipC,
       },
@@ -74,15 +76,15 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
     <form onSubmit={save}>
       <div class="fldRows">
           <Field
-            label="Danger threshold"
-            desc={fmtRange(danger.start, danger.end)}
+            label="Estimated danger threshold"
+            desc={fmtRange(estimated.start, estimated.end)}
             unit="°C"
-            value={dangerC}
-            onInput={(e) => setDangerC(e.currentTarget.value)}
+            value={estimatedC}
+            onInput={(e) => setEstimatedC(e.currentTarget.value)}
             type="number"
             step="0.5"
-            min={danger.start}
-            max={danger.end}
+            min={estimated.start}
+            max={estimated.end}
           />
           <Field
             label="Chip danger threshold"

@@ -178,7 +178,8 @@ fn a_dangerous_measurement_halts_once_and_a_cool_one_under_the_halt_resumes() {
     let config = ubos_config::Config::default().thermal;
     // One degree above the sole-source threshold the default config sets.
     #[allow(clippy::cast_possible_truncation)]
-    let hot = Temperature::from_millicelsius((config.dangerous_temp_c * 1000.0) as i32 + 1000);
+    let hot =
+        Temperature::from_millicelsius((config.dangerous_estimated_temp_c * 1000.0) as i32 + 1000);
     let mut thermal = Thermal::default();
 
     let step = judge(

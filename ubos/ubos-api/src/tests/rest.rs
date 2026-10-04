@@ -266,7 +266,7 @@ const WIDEST_F32: f32 = -0.000_001_000_000_1;
 /// so the figure quoted in that constant's comment cannot drift: a field
 /// addition that still fits the buffer fails here, and updating this constant
 /// is the prompt to update that comment.
-const WORST_CASE_BODY_LEN: usize = 2098;
+const WORST_CASE_BODY_LEN: usize = 2108;
 
 /// The `GET /api/config` handler serializes a `ConfigUpdate` into a fixed
 /// `[u8; CONFIG_RESPONSE_BUFFER_SIZE]`. `serde_json_core::to_slice` returns
@@ -353,7 +353,7 @@ fn config_response_body_fits_in_buffer() {
         pool: Some(pool),
         thermal: Some(ubos_config::ThermalConfig {
             sample_interval_ms: u32::MAX,
-            dangerous_temp_c: WIDEST_F32,
+            dangerous_estimated_temp_c: WIDEST_F32,
             dangerous_chip_temp_c: WIDEST_F32,
             cooldown_temp_c: WIDEST_F32,
         }),

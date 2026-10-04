@@ -124,25 +124,30 @@ impl Default for CoolingConfig {
 
 impl CoolingConfig {
     /// Validate the proposed `target` temperature against [`BOUNDS`] and
-    /// `dangerous_temp_c`.
+    /// `dangerous_estimated_temp_c`.
     ///
-    /// `dangerous_temp_c` is resolved by the caller to either the value
-    /// being set in the same update or the current live config's value.
+    /// `dangerous_estimated_temp_c` is resolved by the caller to either the
+    /// value being set in the same update or the current live config's
+    /// value. It is the lower of the two halt thresholds, so a target below
+    /// it stays below both.
     ///
     /// # Errors
     ///
     /// Returns `Err` when `target` is non-finite, outside
     /// `BOUNDS.target_temp_c`, or not strictly less than
-    /// `dangerous_temp_c`.
-    pub fn validate_target_temp(target: f32, dangerous_temp_c: f32) -> Result<(), &'static str> {
+    /// `dangerous_estimated_temp_c`.
+    pub fn validate_target_temp(
+        target: f32,
+        dangerous_estimated_temp_c: f32,
+    ) -> Result<(), &'static str> {
         if !target.is_finite() {
             return Err("cooling.target_temp_c must be a finite number");
         }
         if !BOUNDS.target_temp_c.contains(&target) {
             return Err("cooling.target_temp_c must be between 30 and 85");
         }
-        if target >= dangerous_temp_c {
-            return Err("cooling.target_temp_c must be less than dangerous_temp_c");
+        if target >= dangerous_estimated_temp_c {
+            return Err("cooling.target_temp_c must be less than dangerous_estimated_temp_c");
         }
         Ok(())
     }
@@ -151,7 +156,7 @@ impl CoolingConfig {
     ///
     /// The whole 0-100 range is accepted, including 0: a stopped fan is a
     /// legitimate request, and the board stays protected by the mining halt
-    /// at `thermal.dangerous_temp_c`.
+    /// at the thermal config's dangerous thresholds.
     ///
     /// # Errors
     ///
