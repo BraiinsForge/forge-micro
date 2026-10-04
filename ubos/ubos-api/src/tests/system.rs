@@ -737,6 +737,9 @@ fn serialize_system_info_with_ota(
         best_nonce_diff: 0,
         best_session_nonce_diff: 0,
         ota,
+        // The widest state string, so the worst-case measurement below
+        // covers it.
+        mining_state: Some("waitingForPool"),
         paused,
         pause_reason,
         hw_info,
@@ -823,7 +826,7 @@ fn system_info_hw_info_serializes_published_versions() {
 /// fails here, and updating this constant is the prompt to check the
 /// comment on `SCRATCH_SIZE`. The `const` block holds the claim that
 /// comment makes, so the pinned length cannot be moved past the buffer.
-const WORST_CASE_SYSTEM_INFO_LEN: usize = 1335;
+const WORST_CASE_SYSTEM_INFO_LEN: usize = 1366;
 const _: () = assert!(WORST_CASE_SYSTEM_INFO_LEN <= super::SCRATCH_SIZE);
 
 /// The scratch buffer `system.rs` serializes into must hold the largest

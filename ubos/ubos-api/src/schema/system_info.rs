@@ -177,6 +177,10 @@ pub struct SystemInfo<'response> {
     /// OTA partition information. `None` on boards without a
     /// dual-partition layout or when no `OtaTarget` was supplied.
     pub ota: Option<OtaInfo>,
+    /// The miner's lifecycle state as a camelCase string, or `null`
+    /// before its first publish. See `MiningState::as_api_str` for the
+    /// canonical string values.
+    pub mining_state: Option<&'static str>,
     /// `true` when mining is halted because at least one pause reason is
     /// active; `false` when mining is running normally.
     pub paused: bool,

@@ -37,7 +37,7 @@ use crate::schema::info::{ApiInfo, ApiInfoChain, ApiInfoOta};
 /// Pinned exactly, as [`WORST_CASE_BODY_LEN`] is and for the same reason:
 /// a field addition that still fits the buffer fails here, and updating
 /// this constant is the prompt to check the buffer's comment.
-const WORST_CASE_INFO_BODY_LEN: usize = 1715;
+const WORST_CASE_INFO_BODY_LEN: usize = 1747;
 
 /// A `&'static str` of `len` copies of `text`. [`ApiInfo`] takes
 /// `&'static str`, and a leak in a test costs nothing.
@@ -78,6 +78,7 @@ fn leaked(text: &str, len: usize) -> &'static str {
 ///   each escaped to the six bytes of a `\u00XX` sequence, the widest
 ///   escape per input byte.
 /// - `running`: `true` (4 chars).
+/// - `mining_state`: `"waitingForPool"` (14 chars, longest variant).
 /// - `paused`: `true` (4 chars).
 /// - `pause_reason`: `"temperatureUnreadable"` (21 chars, longest variant).
 /// - `chains`: `ubos_metrics::chain::MAX_CHAINS` entries — the most any board
@@ -122,6 +123,7 @@ fn api_info_body_fits_in_buffer() {
         pools: u8::MAX,
         net_confirm_seconds: u64::MAX,
         running: true,
+        mining_state: Some("waitingForPool"),
         paused: true,
         pause_reason: Some("temperatureUnreadable"),
         chains,
@@ -178,6 +180,7 @@ fn api_info_body_fits_in_buffer() {
          \"pools\":{max_u8},\
          \"net_confirm_seconds\":{max_u64},\
          \"running\":true,\
+         \"mining_state\":\"waitingForPool\",\
          \"paused\":true,\
          \"pause_reason\":\"temperatureUnreadable\",\
          \"chains\":["
@@ -262,6 +265,7 @@ fn api_info_without_ota_leaves_the_key_out() {
         pools: 0,
         net_confirm_seconds: 0,
         running: false,
+        mining_state: None,
         paused: false,
         pause_reason: None,
         chains: heapless::Vec::new(),

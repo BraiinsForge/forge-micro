@@ -25,7 +25,7 @@
 //! `#[embassy_executor::task]` wrapper.
 
 use embassy_time::{Duration, Ticker};
-use ubos_metrics::metrics::{Metric, Value, push};
+use ubos_metrics::metrics::{Label, LabelValue, Labels, Metric, Value, push};
 
 use crate::{Handle as MiningHandle, MiningState};
 use ubos_metrics::chain as stats;
@@ -81,12 +81,29 @@ pub async fn run_miner_metrics_publisher(mining: MiningHandle, pool_slots: usize
                 .await;
             }
         }
-        let running = u64::from(matches!(mining.state(), Some(MiningState::Running)));
+        let state = mining.state();
+        let running = u64::from(matches!(state, Some(MiningState::Running)));
         push(Metric::with_no_labels(
             "board_miner_running",
             Value::Uint(running),
         ))
         .await;
+        // One series per state, 1 on the current one, so a panel can
+        // show which phase the miner is in rather than only whether it
+        // hashes. Every series is 0 before the first publish.
+        for candidate in MiningState::ALL {
+            let mut labels = Labels::new();
+            let _ = labels.push(Label {
+                name: "state",
+                value: LabelValue::Static(candidate.as_api_str()),
+            });
+            push(Metric::with_labels(
+                "board_miner_state",
+                labels,
+                Value::Uint(u64::from(state == Some(candidate))),
+            ))
+            .await;
+        }
     }
 }
 

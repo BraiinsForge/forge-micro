@@ -79,6 +79,9 @@ pub struct ApiInfo {
     pub net_confirm_seconds: u64,
     /// `true` while the miner is in its running state.
     pub running: bool,
+    /// The miner's lifecycle state, or `null` before its first publish.
+    /// `MiningState::as_api_str` gives the strings.
+    pub mining_state: Option<&'static str>,
     /// `true` while at least one pause reason is active.
     pub paused: bool,
     /// The highest-priority active pause reason, or `null` when `paused`

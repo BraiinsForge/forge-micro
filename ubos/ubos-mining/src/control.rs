@@ -73,6 +73,15 @@ impl MiningState {
             Self::Stopped => "stopped",
         }
     }
+
+    /// Every state, in lifecycle order. The metrics publisher emits one
+    /// series per entry.
+    pub(crate) const ALL: [Self; 4] = [
+        Self::WaitingForPool,
+        Self::Starting,
+        Self::Running,
+        Self::Stopped,
+    ];
 }
 
 pub(crate) fn publish_state(state: MiningState) {

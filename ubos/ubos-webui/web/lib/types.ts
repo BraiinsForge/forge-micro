@@ -52,6 +52,8 @@ export interface Info {
   pools?: number;
   net_confirm_seconds?: number;
   running?: boolean;
+  /** The miner's lifecycle state; `null` before its first publish. */
+  mining_state?: MiningState | null;
   paused?: boolean;
   /** The manager's dominant reason for the halt; `null` when running. */
   pause_reason?: PauseReason | null;
@@ -90,6 +92,29 @@ export const PAUSE_LABEL: Record<PauseReason, string> = {
   otaUpdate: 'Stopped - Updating',
   tunerFault: 'Stopped - Tuner fault',
   userRequest: 'Stopped - User',
+};
+
+// The miner's lifecycle states, as the API spells them. The board's
+// `MiningState::as_api_str` is their source, so a rename there is a
+// schema change. The fallback for a state this page lacks is a plain
+// stop, the same way `PAUSE_LABEL` falls back.
+export type MiningState = 'waitingForPool' | 'starting' | 'running' | 'stopped';
+
+export const MINING_STATE_LABEL: Record<MiningState, string> = {
+  waitingForPool: 'Waiting for pool',
+  starting: 'Starting',
+  running: 'Running',
+  stopped: 'Stopped',
+};
+
+// The status class each state renders with. Waiting for a pool and
+// bring-up are warnings rather than stops: the board is up and the
+// chips are not hashing yet.
+export const MINING_STATE_CLASS: Record<MiningState, string> = {
+  waitingForPool: 'warn',
+  starting: 'warn',
+  running: 'running',
+  stopped: 'stopped',
 };
 
 // A pool's stratum protocol, a single-key tagged union in the JSON. The

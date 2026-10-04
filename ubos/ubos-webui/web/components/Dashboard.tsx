@@ -4,7 +4,7 @@ import Chart from './Chart';
 import { useDash } from '../lib/store';
 import { getConfig } from '../lib/api';
 import { fmtHr, fmtUp, fmtPower, fmtVolts } from '../lib/format';
-import { PAUSE_LABEL } from '../lib/types';
+import { MINING_STATE_CLASS, MINING_STATE_LABEL, PAUSE_LABEL } from '../lib/types';
 import type { ChainInfo, Info } from '../lib/types';
 
 // A pool slot's display metadata, derived from GET /api/config. `null`
@@ -37,8 +37,14 @@ function statusOf(info: Info | null): Status {
       cls: info.pause_reason === 'userRequest' ? 'stopped' : 'warn',
     };
   }
-  if (!info.running) return { text: 'Stopped', cls: 'stopped' };
-  return { text: 'Running', cls: 'running' };
+  // The pause axis above is the operator's and the safety loops'; the
+  // miner's own lifecycle below says where bring-up stands. A state
+  // this page lacks reads as a plain stop, as `PAUSE_LABEL` does.
+  const state = info.mining_state ?? 'stopped';
+  return {
+    text: MINING_STATE_LABEL[state] ?? MINING_STATE_LABEL.stopped,
+    cls: MINING_STATE_CLASS[state] ?? MINING_STATE_CLASS.stopped,
+  };
 }
 
 // The board reports one entry per chain it actually owns, so the card

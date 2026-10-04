@@ -176,6 +176,7 @@ impl RestApiService {
         let fan = ubos_cooling::handle().current();
         let psu_reading = self.psu.current();
         let pause_reasons = self.manager.pause_reasons();
+        let mining_state = ubos_mining::handle().state();
         let ota = crate::ota::ota_info().map(|info| {
             ApiInfoOta::new(
                 info,
@@ -209,10 +210,8 @@ impl RestApiService {
             psu_fault: psu_reading.is_some_and(|r| r.sensor_fault),
             pools: stratum_client::pool_alive_bitmap(),
             net_confirm_seconds: ubos_config::pending_seconds_remaining(),
-            running: matches!(
-                ubos_mining::handle().state(),
-                Some(ubos_mining::MiningState::Running),
-            ),
+            running: matches!(mining_state, Some(ubos_mining::MiningState::Running)),
+            mining_state: mining_state.map(ubos_mining::MiningState::as_api_str),
             paused: !pause_reasons.is_empty(),
             pause_reason: pause_reasons
                 .dominant()

@@ -347,6 +347,9 @@ where
     // upload mutex, this stays readable while an upload is in progress.
     let ota_info = crate::ota::ota_info();
 
+    let mining_state = ubos_mining::handle()
+        .state()
+        .map(ubos_mining::MiningState::as_api_str);
     let pause_reasons = ubos_manager::handle().pause_reasons();
     let paused = !pause_reasons.is_empty();
     let pause_reason = pause_reasons
@@ -387,6 +390,7 @@ where
         best_nonce_diff: 0,
         best_session_nonce_diff: 0,
         ota: ota_info,
+        mining_state,
         paused,
         pause_reason,
         hw_info,

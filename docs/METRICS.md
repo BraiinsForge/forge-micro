@@ -91,7 +91,10 @@ There is no unlabelled miner voltage series: the confirmed setpoint is
 ## Miner lifecycle
 
 `board_miner_running` becomes 1 after present chains start receiving work.
-It is 0 during bring-up and after shutdown.
+It is 0 while the miner waits for a pool, during bring-up and after shutdown.
+`board_miner_state{state="..."}` carries one series per `MiningState`,
+spelled as `MiningState::as_api_str` does; the current state reads 1
+and the others 0, and every series reads 0 before the first publish.
 OTA waits for the miner's `Stopped` state, independent of this metric.
 
 ## Board temperature
