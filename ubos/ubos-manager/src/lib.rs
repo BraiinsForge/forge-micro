@@ -42,6 +42,7 @@ ubos_events::events! {
     mining_halted_ota_update()             warn = "Mining halted: OTA update",
     mining_halted_tuner_fault()            warn = "Mining halted: tuner fault",
     mining_halted_temperature_unreadable() warn = "Mining halted: no temperature reading",
+    mining_dangerous_temperature_cleared() info = "Mining halt cleared: dangerous temperature",
     mining_resumed()                       info = "Mining resumed",
 }
 

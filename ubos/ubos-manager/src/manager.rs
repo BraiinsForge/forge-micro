@@ -25,7 +25,7 @@
 //! mask on [`STATE_WATCH`], and drives `MiningHandle::halt`/`resume` on
 //! the empty/non-empty edge.
 
-use ubos_logging::{info, warn};
+use ubos_logging::info;
 use ubos_mining::Handle as MiningHandle;
 
 use crate::message::Message;
@@ -43,11 +43,18 @@ use crate::{COMMAND_CHANNEL, STATE_WATCH};
 /// `UserRequest`) are asserted by callers that already log their
 /// own context, and the resulting halt/resume edge is visible in
 /// `mining.halt()` / `resume()` traffic.
+///
+/// The clearing edge is an event rather than a trace, because the
+/// operator reads it from the board: it is the counterpart of
+/// `mining_halted_dangerous_temperature`, it covers both ways out of
+/// the halt that "Two ways out of an overheat halt" in docs/MINING.md
+/// describes, and it reports the release whether or not another reason
+/// still holds mining, which `mining_resumed` cannot.
 fn log_transition(was_halted: bool, now_halted: bool) {
     if !was_halted && now_halted {
         info!("manager: halt (DangerousTemperature)");
     } else if was_halted && !now_halted {
-        warn!("manager: resume (DangerousTemperature cleared)");
+        crate::events::mining_dangerous_temperature_cleared();
     }
 }
 
