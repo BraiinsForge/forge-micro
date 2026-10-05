@@ -47,6 +47,21 @@ pub const DEFAULT_POOL_SV2_PUBKEY: [u8; 32] = [
     0x28, 0x52, 0x7b, 0xb8, 0x72, 0x29, 0xd7, 0xd7, 0xd2, 0xe6, 0x7e, 0x6d, 0xcd, 0x18, 0xeb, 0xcf,
 ];
 
+/// Factory-default protocol for a `POOL_PROTOCOL` env value.
+///
+/// `1`, `sv1` and `stratum` select SV1 with no password. `2`, `sv2`,
+/// `stratum2`, an unset variable, and any other value select SV2 with
+/// [`DEFAULT_POOL_SV2_PUBKEY`], the same fallback `POOL_PORT` takes.
+#[must_use]
+pub(crate) fn default_protocol(raw: Option<&str>) -> ProtocolKind {
+    match raw {
+        Some("1" | "sv1" | "stratum") => ProtocolKind::Sv1 { password: None },
+        _ => ProtocolKind::Sv2 {
+            pool_pubkey: Some(DEFAULT_POOL_SV2_PUBKEY),
+        },
+    }
+}
+
 /// Format-aware serde for the SV2 authority pubkey.
 ///
 /// JSON (REST, `is_human_readable() == true`) carries the SV2
@@ -227,6 +242,27 @@ mod pubkey_serde_tests {
             user: heapless::String::try_from("worker").expect("BUG: user literal fits String<128>"),
             protocol: ProtocolKind::Sv2 { pool_pubkey },
             weight: 1,
+        }
+    }
+
+    #[test]
+    fn pool_protocol_selects_sv1_by_its_names() {
+        for raw in ["1", "sv1", "stratum"] {
+            assert_eq!(
+                default_protocol(Some(raw)),
+                ProtocolKind::Sv1 { password: None },
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn pool_protocol_falls_back_to_sv2_with_the_default_key() {
+        let sv2 = ProtocolKind::Sv2 {
+            pool_pubkey: Some(DEFAULT_POOL_SV2_PUBKEY),
+        };
+        for raw in [None, Some("2"), Some("sv2"), Some("stratum2"), Some("x")] {
+            assert_eq!(default_protocol(raw), sv2, "{raw:?}");
         }
     }
 

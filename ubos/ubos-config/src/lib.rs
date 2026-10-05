@@ -619,9 +619,7 @@ impl Config {
             host,
             port,
             user,
-            protocol: ProtocolKind::Sv2 {
-                pool_pubkey: Some(DEFAULT_POOL_SV2_PUBKEY),
-            },
+            protocol: pool::default_protocol(option_env!("POOL_PROTOCOL")),
             weight: 0,
         };
         let mut pool = heapless::Vec::new();

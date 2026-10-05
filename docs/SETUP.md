@@ -90,6 +90,7 @@ POOL_HOST=stratum.example.com POOL_PORT=3333 cargo run --release
 | `POOL_HOST` | string | `stratum.braiins.com` | IPv4 literal or DNS name |
 | `POOL_PORT` | u16 | `3333` | |
 | `POOL_USER` | string | empty | worker identity, P2TR address + `.workersuffix` |
+| `POOL_PROTOCOL` | string | `sv2` | `1`, `sv1` or `stratum` selects Stratum V1; `2`, `sv2`, `stratum2` or any other value selects Stratum V2 with the Braiins pool key |
 | `POOL_PASSWORD` | string | unset → no password | seeds the Sv1 password slot of the default `PoolEntry` |
 
 Code: `ubos/ubos-config/src/lib.rs` (`DEFAULT_POOL_*` and `Config::default`).
