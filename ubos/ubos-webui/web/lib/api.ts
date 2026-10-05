@@ -55,8 +55,10 @@ export async function csrfToken(): Promise<string> {
 // caller can branch on the status rather than read the message. The
 // action menu needs that for the overheat 409, where the right answer
 // is a confirm step and not an error line.
-export interface ApiError extends Error {
-  status?: number;
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
 }
 
 // POST JSON to an API path with a CSRF token, retrying against the
@@ -85,9 +87,7 @@ export async function postJSON(path: string, body: unknown): Promise<Response> {
       } catch (_) {
         /* body was not JSON */
       }
-      const failure: ApiError = new Error(detail || 'HTTP ' + response.status);
-      failure.status = response.status;
-      lastError = failure;
+      lastError = new ApiError(detail || 'HTTP ' + response.status, response.status);
       if (response.status >= 400 && response.status < 500) break;
     } catch (error) {
       lastError = error;

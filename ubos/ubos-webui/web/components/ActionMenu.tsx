@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { postJSON } from '../lib/api';
-import type { ApiError } from '../lib/api';
+import { ApiError, postJSON } from '../lib/api';
 import { useDash } from '../lib/store';
 import type { BoardNotice } from '../app';
 
@@ -92,7 +91,7 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
       // nothing with. Every other failure gets this menu's own words:
       // the API message is a fragment and a dropped connection yields
       // the browser's own wording, and neither reads as operator text.
-      if (onConflict && (error as ApiError).status === 409) {
+      if (onConflict && error instanceof ApiError && error.status === 409) {
         onConflict();
         return;
       }
