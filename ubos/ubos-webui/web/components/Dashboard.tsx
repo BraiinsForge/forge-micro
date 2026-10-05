@@ -22,20 +22,11 @@ interface Status {
   cls: string;
   // False while the state is not known yet: the text is then the same
   // placeholder the other empty cells show, and a dot would colour it.
-  // Build that case through `unknownStatus` rather than by hand.
   dot?: boolean;
 }
 
-// A status the board has not reported yet. Both callers route through
-// here, so the placeholder text and the suppressed dot cannot drift
-// apart. `cls` stays a parameter because the two cases style the
-// placeholder differently.
-function unknownStatus(text: string, cls = ''): Status {
-  return { text, cls, dot: false };
-}
-
 function statusOf(info: Info | null): Status {
-  if (!info || info.paused == null) return unknownStatus('–');
+  if (!info || info.paused == null) return { text: '–', cls: '', dot: false };
   if (info.paused) {
     return {
       // The union covers the reasons this page knows. The string comes
@@ -65,7 +56,7 @@ function chainStatus(state: ChainInfo['state']): Status {
     case 'faulted':
       return { cls: 'fault', text: 'Faulted' };
     default:
-      return unknownStatus('—', 'unknown');
+      return { cls: 'unknown', text: '—', dot: false };
   }
 }
 
