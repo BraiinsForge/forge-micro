@@ -143,18 +143,18 @@ export default function ActionMenu({ boardNotice }: ActionMenuProps) {
           class={'actItem' + (confirming ? ' hide' : '')}
           disabled={startDisabled}
           onClick={() => {
-            if (!overheated) {
-              act('/api/system/resume', 'Start', () => setConfirming('thermal'));
+            if (overheated) {
+              setConfirming('thermal');
+              setMsg('');
               return;
             }
-            setConfirming('thermal');
-            setMsg('');
+            act('/api/system/resume', 'Start', () => setConfirming('thermal'));
           }}
         >
           <svg class="navIcon" aria-hidden="true">
             <use href="#iPlay" />
           </svg>
-          <span>Start</span>
+          <span>{overheated ? 'Start…' : 'Start'}</span>
         </button>
         <button
           type="button"
