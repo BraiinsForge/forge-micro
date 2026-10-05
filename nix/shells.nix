@@ -126,6 +126,7 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
         echo "firmware workspace dev environment ready (ARM boards)"
         echo ""
         echo "  cd ${crateRoot}firmware/hashnode  && cargo build --release  # Hashnode RP2350B BM1370"
+        echo "  cd ${crateRoot}firmware/forge-axe && cargo build --release  # Forge Axe RP2350B W5500 BM1370"
         echo "  cd ${crateRoot}firmware/bmm-pico  && cargo build --release  # BMM Adapter RP2350 W5500"
         echo "  cd ${crateRoot}firmware/rp2040    && cargo build --release  # RP2040 W6100"
         echo "  cd ${crateRoot}firmware/rp2350    && cargo build --release  # RP2350 W6100"
