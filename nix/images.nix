@@ -145,9 +145,10 @@ let
   # Build a combined BOOTSEL UF2 image from a raw app binary and a
   # bootloader ELF. The bootloader covers offset 0x10000000, the
   # offset-0 region the bootrom validates; the app binary is placed at
-  # 0x10021000, the ACTIVE partition. UF2 blocks carry individual
-  # flash addresses, so concatenating the two single-region UF2 files
-  # yields one drag-drop image spanning both flash regions.
+  # 0x10021000, the ACTIVE partition. picotool combines the two
+  # single-region UF2 files into one transfer that spans both flash
+  # regions, because the bootrom reboots once a transfer is complete
+  # and would never write a second one.
   mkCombinedUf2 =
     {
       name,
@@ -160,7 +161,7 @@ let
       out_uf2="$out/${name}-v${fwVersion}.uf2"
       picotool uf2 convert ${bootElf}/boot.elf boot.uf2
       picotool uf2 convert ${appBin} -t bin app.uf2 -o 0x10021000 --family ${family}
-      cat boot.uf2 app.uf2 > "$out_uf2"
+      picotool uf2 combine boot.uf2 app.uf2 "$out_uf2"
       echo "${name} combined UF2 (bootloader + app v${fwVersion}):"
       picotool info "$out_uf2" || true
     '';
