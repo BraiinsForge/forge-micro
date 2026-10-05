@@ -142,26 +142,21 @@ export default function ConfigPools({ pools }: ConfigPoolsProps) {
                   placeholder="Username"
                   disabled={!slot.on}
                 />
-                {parsed.sv2 ? (
-                  parsed.key ? (
-                    <span class="poolKey" title={parsed.key}>
-                      {parsed.key}
-                    </span>
-                  ) : (
-                    <span class="poolTrust">
-                      Trust pool
-                      <br />
-                      (skip authority check)
-                    </span>
-                  )
+                {parsed.sv2 && !parsed.key ? (
+                  <span class="poolTrust">
+                    Trust pool
+                    <br />
+                    (skip authority check)
+                  </span>
                 ) : (
+                  // Sv2 carries no password, so its box stays empty and offers no hint.
                   <input
                     class="poolInp"
                     type="password"
-                    value={slot.pass}
+                    value={parsed.sv2 ? '' : slot.pass}
                     onInput={(e) => patch(i, 'pass', e.currentTarget.value)}
-                    placeholder="Password"
-                    disabled={!slot.on}
+                    placeholder={parsed.sv2 ? '' : 'Password'}
+                    disabled={!slot.on || parsed.sv2}
                   />
                 )}
               </div>

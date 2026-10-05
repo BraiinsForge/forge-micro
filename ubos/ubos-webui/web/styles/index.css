@@ -1273,22 +1273,12 @@ main > * {
   opacity: 0.5;
 }
 
-/* Password column stand-ins for Sv2 pools, which carry no password. The
-   authority key is edited inside the URL field; this cell only reports
-   it, truncating a set key and otherwise stating that the check is
-   skipped. */
+/* Password column stand-in for an Sv2 pool with no key in its URL. It
+   states that the authority check is skipped. */
 .poolTrust {
   color: var(--mute);
   font-size: var(--fs-body);
   line-height: 1.3;
-}
-
-.poolKey {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg);
-  font: var(--fs-body) var(--ff-mono);
 }
 
 /* On/off slider. The checkbox is hidden and the track carries the
