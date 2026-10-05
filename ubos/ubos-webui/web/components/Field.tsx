@@ -15,6 +15,8 @@ export interface FieldProps {
   step?: number | string;
   maxlength?: number;
   unit?: ComponentChildren;
+  /** Dims the row as one the form's current mode does not read; `.fld.off` says why. */
+  off?: boolean;
   class?: string;
 }
 
@@ -32,13 +34,14 @@ export default function Field({
   step,
   maxlength,
   unit,
+  off,
   class: extra,
 }: FieldProps) {
   const isPassword = type === 'password';
   const [visible, setVisible] = useState(false);
 
   return (
-    <label class={'fld' + (extra ? ' ' + extra : '')}>
+    <label class={'fld' + (off ? ' off' : '') + (extra ? ' ' + extra : '')}>
       <span class="fldText">
         <span class="fldLabel">{label}</span>
         {desc ? <span class="fldDesc">{desc}</span> : null}

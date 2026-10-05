@@ -127,7 +127,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
           </div>
           <Field
             label="Target temperature"
-            class={isFixed ? 'off' : ''}
+            off={isFixed}
             desc={fmtRange(target.start, target.end)}
             unit="°C"
             value={targetC}
@@ -139,7 +139,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
           />
           <Field
             label="Min fan speed"
-            class={isFixed ? 'off' : ''}
+            off={isFixed}
             desc={fmtRange(floor.start, floor.end)}
             unit="%"
             value={minFanPwm}
@@ -151,7 +151,7 @@ export default function ConfigThermal({ thermal, cooling, thermalBounds, cooling
           />
           <Field
             label="Fixed fan speed"
-            class={isFixed ? '' : 'off'}
+            off={!isFixed}
             desc={fmtRange(fixed.start, fixed.end)}
             unit="%"
             value={fixedFanPwm}

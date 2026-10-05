@@ -87,7 +87,7 @@ export default function ConfigMining({ miner, bounds, defaultEfficiency }: Confi
         </div>
         <Field
           label="Frequency"
-          class={isPower ? 'off' : ''}
+          off={isPower}
           disabled={isPower}
           desc={fmtRange(freq.start, freq.end)}
           unit="MHz"
@@ -101,7 +101,7 @@ export default function ConfigMining({ miner, bounds, defaultEfficiency }: Confi
         />
         <Field
           label="Voltage"
-          class={isPower ? 'off' : ''}
+          off={isPower}
           disabled={isPower}
           desc={fmtRange(volt.start, volt.end)}
           unit="V"
@@ -115,7 +115,7 @@ export default function ConfigMining({ miner, bounds, defaultEfficiency }: Confi
         />
         <Field
           label="Input power"
-          class={isPower ? '' : 'off'}
+          off={!isPower}
           disabled={!isPower}
           unit="W"
           value={inputPowerW}
@@ -127,7 +127,7 @@ export default function ConfigMining({ miner, bounds, defaultEfficiency }: Confi
         />
         <Field
           label="Efficiency"
-          class={isPower ? '' : 'off'}
+          off={!isPower}
           disabled={!isPower}
           unit="J/TH"
           value={efficiencyJPerTh}
