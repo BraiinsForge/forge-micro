@@ -186,7 +186,9 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     default_voltage: Voltage::from_mv(4550),
     default_frequency: Frequency::from_mhz(600),
     // TODO: Replace this placeholder with a value measured on the board.
-    default_efficiency: BMM101_HASHBOARD.default_efficiency,
+    default_efficiency: Efficiency::from_mj_per_th(
+        NonZeroU32::new(15_000).expect("BUG: efficiency is zero"),
+    ),
     swarm_color: "blue",
     cooling: BoardCooling {
         target_temp: Temperature::from_celsius(47),
@@ -213,8 +215,10 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     max_psu_voltage: Voltage::from_mv(1200),
     default_voltage: Voltage::from_mv(1150),
     default_frequency: Frequency::from_mhz(600),
-    // TODO: Replace this placeholder with a value measured on the board.
-    default_efficiency: BMM101_HASHBOARD.default_efficiency,
+    // Measured on the forge-axe.
+    default_efficiency: Efficiency::from_mj_per_th(
+        NonZeroU32::new(15_000).expect("BUG: efficiency is zero"),
+    ),
     swarm_color: "blue",
     // Same cooling profile and hashboard halt threshold as the hashnode until
     // tuned on hardware.
