@@ -39,11 +39,15 @@
 # `probe-rs-runner` takes the probe from `--probe`, or from
 # `$PROBE_SERIAL` when several are plugged in, and auto-selects
 # otherwise.
+#
+# `crateRoot` prefixes the greetings' `cd` lines for a shell entered
+# outside this tree.
 {
   pkgs,
   toolchains,
   esp,
   helpers,
+  crateRoot ? "",
 }:
 let
   # The linkPatchedCrates hook materializes the pinned-and-patched
@@ -121,12 +125,12 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
         ${linkPatchedCrates}
         echo "firmware workspace dev environment ready (ARM boards)"
         echo ""
-        echo "  cd firmware/hashnode  && cargo build --release  # Hashnode RP2350B BM1370"
-        echo "  cd firmware/bmm-pico  && cargo build --release  # BMM Adapter RP2350 W5500"
-        echo "  cd firmware/rp2040    && cargo build --release  # RP2040 W6100"
-        echo "  cd firmware/rp2350    && cargo build --release  # RP2350 W6100"
-        echo "  cd firmware/stm32f407 && cargo build --release  # STM32F407 LAN8720"
-        echo "  cd firmware/stm32f439 && cargo build --release  # STM32F439 LAN8742A"
+        echo "  cd ${crateRoot}firmware/hashnode  && cargo build --release  # Hashnode RP2350B BM1370"
+        echo "  cd ${crateRoot}firmware/bmm-pico  && cargo build --release  # BMM Adapter RP2350 W5500"
+        echo "  cd ${crateRoot}firmware/rp2040    && cargo build --release  # RP2040 W6100"
+        echo "  cd ${crateRoot}firmware/rp2350    && cargo build --release  # RP2350 W6100"
+        echo "  cd ${crateRoot}firmware/stm32f407 && cargo build --release  # STM32F407 LAN8720"
+        echo "  cd ${crateRoot}firmware/stm32f439 && cargo build --release  # STM32F439 LAN8742A"
         echo ""
         echo "Inspect binary size: cargo size --release -- -A"
         echo ""
@@ -171,7 +175,7 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
         ${linkPatchedCrates}
         echo "firmware workspace dev environment ready (ESP32-S3)"
         echo ""
-        echo "  cd firmware/esp32s3 && cargo build --release  # Waveshare ESP32-S3-LCD-Driver-Board W5100S"
+        echo "  cd ${crateRoot}firmware/esp32s3 && cargo build --release  # Waveshare ESP32-S3-LCD-Driver-Board W5100S"
         echo ""
         echo "Inspect binary size: cargo size --release -- -A"
         echo ""
@@ -225,8 +229,8 @@ pkgs.lib.mapAttrs (_: helpers.withWebuiDist) {
       ${linkPatchedCrates}
       echo "firmware workspace dev environment ready (host-runner, BMM/miniminer cross)"
       echo ""
-      echo "  cd host/host-runner && cargo build --release"
-      echo "                         cargo run --release -- --hostname <miner-ip>"
+      echo "  cd ${crateRoot}host/host-runner && cargo build --release"
+      echo "                         ${pkgs.lib.strings.replicate (builtins.stringLength crateRoot) " "}cargo run --release -- --hostname <miner-ip>"
       echo ""
       echo "See host-runner-run --help for more flags."
       echo ""
