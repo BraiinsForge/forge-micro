@@ -567,12 +567,13 @@ impl<R: Rng, C: secp256k1::Signing + secp256k1::Verification> MiningClient
                 // The success flags carry the upstream's requirements,
                 // not an echo of the downstream's request: rolling is
                 // permitted unless the upstream pins the version.
-                let mask = if success.flags & SetupConnectionSuccess::REQUIRES_FIXED_VERSION == 0 {
-                    BIP320_VERSION_MASK
+                if success.flags & SetupConnectionSuccess::REQUIRES_FIXED_VERSION == 0 {
+                    visitor
+                        .visit_session_update(SessionUpdate::SetVersionMask(BIP320_VERSION_MASK));
                 } else {
-                    0
-                };
-                visitor.visit_session_update(SessionUpdate::SetVersionMask(mask));
+                    warn!("stratum-v2: the pool requires a fixed version. The session stops.");
+                    self.state = V2State::Rejected(SessionRejection::VersionRollingRefused);
+                }
             }
             MiningMessages::SetupConnectionError(error) => {
                 warn!(

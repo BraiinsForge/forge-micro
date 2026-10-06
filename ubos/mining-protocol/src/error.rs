@@ -72,4 +72,11 @@ pub enum SessionRejection {
     /// into a too-small buffer and waste every share, so the adapter
     /// refuses the session instead.
     ExtranonceTooLarge,
+    /// Pool granted no version rolling: V1 `mining.configure` returned
+    /// no mask, or V2 `SetupConnection.Success` requires a fixed
+    /// version. Without it a chain can only search the 32-bit nonce of
+    /// each header, which it exhausts in milliseconds and then hashes
+    /// again, so the adapter refuses the session and leaves the work
+    /// to a backup pool.
+    VersionRollingRefused,
 }

@@ -30,7 +30,8 @@ use crate::Sv1Config;
 use crate::state::PendingRequestKind;
 use embedded_io_adapters::tokio_1::FromTokio;
 use mining_protocol::{
-    Error, JobId, MiningClient, MiningClientVisitor, MiningJob, SessionUpdate, Share, SubmitResult,
+    Error, JobId, MiningClient, MiningClientVisitor, MiningJob, SessionRejection, SessionUpdate,
+    Share, SubmitResult,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -227,6 +228,56 @@ async fn accept_dispatches_set_version_mask() {
     .await;
     assert_eq!(visitor.session_updates, 1);
     assert_eq!(visitor.last_version_mask, Some(0x1fff_e000));
+}
+
+/// Feed `payload` as the reply to a pending `mining.configure`.
+async fn accept_configure_reply(
+    client: &mut StratumV1Client<'_>,
+    payload: &str,
+) -> RecordingVisitor {
+    let configure_id = client.register_pending(PendingRequestKind::Configure);
+    let line = payload.replace("{id}", &std::format!("{configure_id}"));
+    pump_one(client, line.as_bytes()).await
+}
+
+#[tokio::test]
+async fn configure_grant_sets_the_version_mask() {
+    let config = test_config();
+    let mut client = StratumV1Client::new(&config);
+    let visitor = accept_configure_reply(
+        &mut client,
+        r#"{"id":{id},"result":{"version-rolling":true,"version-rolling.mask":"1fffe000"},"error":null}"#,
+    )
+    .await;
+    assert_eq!(visitor.last_version_mask, Some(0x1fff_e000));
+}
+
+/// The three ways pools refuse version rolling all end the session:
+/// an error with a `false` result, rolling switched off, and a zero mask.
+#[tokio::test]
+async fn configure_refusal_ends_the_session() {
+    for reply in [
+        r#"{"id":{id},"result":false,"error":[27,"Illegal parameter",null]}"#,
+        r#"{"id":{id},"result":{"version-rolling":false},"error":null}"#,
+        r#"{"id":{id},"result":{"version-rolling":true,"version-rolling.mask":"00000000"},"error":null}"#,
+    ] {
+        let config = test_config();
+        let mut client = StratumV1Client::new(&config);
+        let visitor = accept_configure_reply(&mut client, reply).await;
+        assert_eq!(visitor.last_version_mask, None, "{reply}");
+        // A rejected session reports its cause before touching the pipe.
+        let (a, _b) = tokio::io::duplex(64);
+        let result = client.drive(&mut FromTokio::new(a)).await;
+        assert!(
+            matches!(
+                result,
+                Err(Error::SessionRejected(
+                    SessionRejection::VersionRollingRefused
+                ))
+            ),
+            "{reply}: {result:?}"
+        );
+    }
 }
 
 #[tokio::test]

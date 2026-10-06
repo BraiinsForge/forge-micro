@@ -76,9 +76,9 @@ pub const ENCODE_BUFFER_BYTES: usize = 512;
 /// is the standard mask Bitmain miners use; `min-bit-count: 2`
 /// signals the pool we accept any pool-side reduction down to two
 /// bits. The keys are the flat dotted names BIP310 defines, because
-/// some pools refuse version rolling when they are nested. Pools that
-/// don't support the extension omit `version-rolling.mask` from their
-/// reply, leaving the negotiated mask at zero.
+/// some pools refuse version rolling when they are nested. A reply
+/// without `version-rolling.mask` ends the session as
+/// `SessionRejection::VersionRollingRefused`.
 const CONFIGURE_MAP: &[u8] =
     br#"{"version-rolling.mask":"1fffe000","version-rolling.min-bit-count":2}"#;
 
@@ -720,19 +720,23 @@ fn dispatch_response<V: MiningClientVisitor>(
     };
     match kind {
         PendingRequestKind::Configure => {
-            if let Some(mask) = response.stratum_result.and_then(parse_version_rolling_mask) {
+            let mask = response
+                .stratum_result
+                .and_then(parse_version_rolling_mask)
+                .filter(|&mask| mask != 0);
+            if let Some(mask) = mask {
                 visitor.visit_session_update(SessionUpdate::SetVersionMask(mask));
-            } else {
-                let error_code = response
-                    .stratum_error
-                    .as_ref()
-                    .map(|StratumError(code, _message, _detail)| *code);
-                warn!(
-                    "stratum-v1: the pool did not grant version rolling, error code {:?}",
-                    error_code,
-                );
+                return None;
             }
-            None
+            let error_code = response
+                .stratum_error
+                .as_ref()
+                .map(|StratumError(code, _message, _detail)| *code);
+            warn!(
+                "stratum-v1: the pool did not grant version rolling, error code {:?}. The session stops.",
+                error_code,
+            );
+            Some(SessionRejection::VersionRollingRefused)
         }
         PendingRequestKind::Subscribe => {
             let result = match response.stratum_result {

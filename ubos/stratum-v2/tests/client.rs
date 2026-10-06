@@ -580,9 +580,11 @@ async fn setup_connection_success_with_version_rolling_flag_sets_mask() {
     );
 }
 
-/// `SetupConnectionSuccess` without the version-rolling flag → mask is `0`.
+/// `SetupConnectionSuccess` requiring a fixed version → no mask reaches
+/// the visitor and a subsequent `drive` returns
+/// `Error::SessionRejected(SessionRejection::VersionRollingRefused)`.
 #[tokio::test]
-async fn setup_connection_success_requiring_a_fixed_version_sets_zero_mask() {
+async fn setup_connection_success_requiring_a_fixed_version_rejects_session() {
     let mut session = Session::new().await;
     let mut visitor = RecordingVisitor::default();
 
@@ -593,17 +595,18 @@ async fn setup_connection_success_requiring_a_fixed_version_sets_zero_mask() {
     session.pool_send_msg(&message).await;
     session.drive_and_accept(&mut visitor).await;
 
-    let mask = visitor
-        .session_updates
-        .iter()
-        .find_map(|update| match update {
-            RecordedUpdate::VersionMask(mask) => Some(*mask),
-            _ => None,
-        })
-        .expect("BUG: expected SetVersionMask callback after SetupConnectionSuccess");
+    assert!(
+        !visitor
+            .session_updates
+            .iter()
+            .any(|update| matches!(update, RecordedUpdate::VersionMask(_))),
+        "a pinned version must not publish a mask"
+    );
+    let error = session.drive_expect_err().await;
     assert_eq!(
-        mask, 0,
-        "version mask must be 0 when the upstream pins the version"
+        error,
+        Error::SessionRejected(SessionRejection::VersionRollingRefused),
+        "drive after a fixed-version setup must return SessionRejected(VersionRollingRefused)",
     );
 }
 

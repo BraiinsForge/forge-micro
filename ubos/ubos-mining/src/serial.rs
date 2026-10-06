@@ -1038,10 +1038,9 @@ impl Serial {
         // chain instead is what would put these chains back to work, and
         // is owed bench work; see `docs/ASIC.md`.
         //
-        // The client asks for `min-bit-count: 2`, so a pool that
-        // supports version rolling at all grants enough. This is the
-        // pool that declines the extension, which leaves the negotiated
-        // mask at zero. Reported at error level because the machine
+        // The stratum clients end any session whose pool grants no
+        // version rolling, so this catches only a grant too narrow for
+        // the chain count. Reported at error level because the machine
         // loses the hashrate of every chain but the first, and once per
         // grant rather than once per work tick.
         let unsplittable = self.chain != 0 && self.chains > 1 && job_version.rolled_mask == 0;
