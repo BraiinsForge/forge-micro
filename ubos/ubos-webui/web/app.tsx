@@ -102,7 +102,7 @@ export default function App() {
       <TopNav view={view} boardNotice={boardNotice} />
 
       <main id="dash" class={view !== 'dash' ? 'hide' : ''}>
-        <Dashboard />
+        <Dashboard shown={view === 'dash'} />
       </main>
 
       {view === 'config' && <Config hash={hash} boardNotice={boardNotice} />}

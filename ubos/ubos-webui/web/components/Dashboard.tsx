@@ -95,7 +95,11 @@ function StatusDot({ text, dot = true }: { text: string; dot?: boolean }) {
   );
 }
 
-export default function Dashboard() {
+export interface DashboardProps {
+  shown: boolean;
+}
+
+export default function Dashboard({ shown }: DashboardProps) {
   const dash = useDash();
   const info = dash.info;
   const status = statusOf(info);
@@ -105,7 +109,10 @@ export default function Dashboard() {
   const [tempThresh, setTempThresh] = useState<TempThresholds | null>(null);
   const [cursor, setCursor] = useState<number | null>(null);
 
+  // Re-read on every return to the view: the dashboard stays mounted while
+  // hidden, so a config edit would otherwise show only after a reload.
   useEffect(() => {
+    if (!shown) return;
     (async () => {
       try {
         const data = await getConfig();
@@ -132,7 +139,7 @@ export default function Dashboard() {
         /* leave labels blank; the poll still drives alive/dead */
       }
     })();
-  }, []);
+  }, [shown]);
 
   const temperature = dash.temperature;
 
