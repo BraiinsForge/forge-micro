@@ -307,6 +307,12 @@ async fn boot(spawner: Spawner) {
         },
     );
 
+    // The ingest task is the only reader of the metrics channel and it
+    // waits on nothing else, so it runs before every task that pushes.
+    // A pusher that waits for room and starts first blocks once the
+    // channel fills.
+    spawner.spawn(unwrap!(metrics_ingest_task()));
+
     spawner.spawn(unwrap!(watchdog_task(ubos_rp::BoardWatchdog::new(
         Watchdog::new(hw.watchdog),
         config::Watchdog::TIMEOUT,
@@ -441,7 +447,6 @@ async fn boot(spawner: Spawner) {
         ubos_firmware::init_stratum(seeds.sv2, config::CHIP.chip_descriptor().rolls_ntime);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
-    spawner.spawn(unwrap!(metrics_ingest_task()));
 
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 

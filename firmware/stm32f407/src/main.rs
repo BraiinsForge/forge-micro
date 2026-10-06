@@ -226,6 +226,12 @@ async fn boot(spawner: Spawner) {
     // preserves its contents.
     ubos_firmware::events::install(unsafe { &mut *core::ptr::addr_of_mut!(EVENT_LOG_BACKING) });
 
+    // The ingest task is the only reader of the metrics channel and it
+    // waits on nothing else, so it runs before every task that pushes.
+    // A pusher that waits for room and starts first blocks once the
+    // channel fills.
+    spawner.spawn(unwrap!(metrics_ingest_task()));
+
     spawner.spawn(unwrap!(watchdog_task(ubos_stm32::BoardWatchdog::new(
         hw.iwdg,
         config::Watchdog::TIMEOUT_US
@@ -334,7 +340,6 @@ async fn boot(spawner: Spawner) {
     ubos_auth::csprng::seed_csprng(csprng_seed);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
-    spawner.spawn(unwrap!(metrics_ingest_task()));
 
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 

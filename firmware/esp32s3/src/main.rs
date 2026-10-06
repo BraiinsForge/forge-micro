@@ -324,6 +324,12 @@ async fn boot(spawner: Spawner) {
     // keeps the synchronous otadata write off the watchdog's clock.
     ubos_ota::confirm_running(ubos_ota::EspSharedFlash::new(shared_flash));
 
+    // The ingest task is the only reader of the metrics channel and it
+    // waits on nothing else, so it runs before every task that pushes.
+    // A pusher that waits for room and starts first blocks once the
+    // channel fills.
+    spawner.spawn(unwrap!(metrics_ingest_task()));
+
     let timg1 = TimerGroup::new(hw.timg1);
     spawner.spawn(unwrap!(watchdog_task(ubos_esp32::BoardWatchdog::new(
         timg1.wdt,
@@ -433,7 +439,6 @@ async fn boot(spawner: Spawner) {
         ubos_firmware::init_stratum(sv2_seed, config::CHIP.chip_descriptor().rolls_ntime);
 
     spawner.spawn(unwrap!(ntp_sync_task(stack)));
-    spawner.spawn(unwrap!(metrics_ingest_task()));
 
     spawner.spawn(unwrap!(mdns_task(stack, mdns_hostname)));
 
