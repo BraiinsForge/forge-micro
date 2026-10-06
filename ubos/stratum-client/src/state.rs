@@ -173,6 +173,16 @@ impl StratumState {
             version_mask: 0,
         }
     }
+
+    /// Reset the per-connection state for a new session on the same slot.
+    /// The assignment counter carries on, so a solution queued by the
+    /// previous session can never match work the new one hands out.
+    pub fn restart(&mut self) {
+        *self = Self {
+            next_assignment_id: self.next_assignment_id,
+            ..Self::new(self.slot)
+        };
+    }
 }
 
 impl MiningClientVisitor for StratumState {

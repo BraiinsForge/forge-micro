@@ -147,3 +147,27 @@ fn accepted_shares_route_to_their_own_slot() {
         "the summed accessor includes slot 1's shares"
     );
 }
+
+/// A restarted session keeps counting assignment ids where the previous
+/// one stopped, so a solution queued for the old work finds no match.
+#[test]
+fn restart_keeps_assignment_ids_unique() {
+    let mut state = StratumState::new(1);
+    state.visit_new_job(sample_job(1, false));
+    let asic: crate::asic_session::AsicSession<2> = crate::asic_session::AsicSession::new();
+    for _ in 0..3 {
+        state.publish_work(asic.pool_handle(1), 0);
+    }
+
+    state.restart();
+    assert_eq!(state.next_assignment_id, 3);
+    assert!(state.job_ring.current().is_none());
+    for old_id in 0..3 {
+        assert!(state.work_ring.lookup(old_id).is_none());
+    }
+
+    state.visit_new_job(sample_job(2, false));
+    state.publish_work(asic.pool_handle(1), 0);
+    assert!(state.work_ring.lookup(0).is_none());
+    assert!(state.work_ring.lookup(3).is_some());
+}

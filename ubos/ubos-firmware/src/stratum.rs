@@ -221,6 +221,8 @@ pub async fn run_stratum_session<const N: usize>(
     sv2_prng.set_stream(slot as u64);
 
     let handle = session.pool_handle(slot);
+    // Lives across reconnects so assignment ids stay unique per slot.
+    let mut state = StratumState::new(slot);
 
     let config_handle = ubos_config::handle();
     let mut config_generation = config_handle.subscribe_generation();
@@ -258,7 +260,7 @@ pub async fn run_stratum_session<const N: usize>(
                 rx_buffer: &mut rx_buffer[..],
                 tx_buffer: &mut tx_buffer[..],
             };
-            let mut state = StratumState::new(slot);
+            state.restart();
 
             let result = match &entry.protocol {
                 ubos_config::ProtocolKind::Sv1 { password } => {
