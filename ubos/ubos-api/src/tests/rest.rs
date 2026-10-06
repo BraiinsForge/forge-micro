@@ -62,7 +62,7 @@ fn validate_board_name_rejects_backslash() {
 /// Pinned exactly, as [`WORST_CASE_BODY_LEN`] is and for the same reason:
 /// a field addition that still fits the buffer fails here, and updating
 /// this constant is the prompt to check the buffer's comment.
-const WORST_CASE_INFO_BODY_LEN: usize = 1389;
+const WORST_CASE_INFO_BODY_LEN: usize = 1425;
 
 /// The `/api/info` body assembler in `rest.rs` writes into a fixed
 /// `[u8; API_INFO_BODY_BUFFER_SIZE]` buffer via `BufferWriter`, which
@@ -104,7 +104,8 @@ const WORST_CASE_INFO_BODY_LEN: usize = 1389;
 ///   (5 digits), `frequency_khz` at `u32::MAX` (10 digits), `hashrate`
 ///   at `u64::MAX` (20 digits), and `hottest_c` at `i32::MIN / 1000` (7
 ///   digits including the sign), the widest `state` string
-///   (`"unknown"`/`"faulted"`, 7 chars).
+///   (`"unknown"`/`"faulted"`, 7 chars), and `pool` at `null` (4 chars,
+///   wider than any one-digit slot).
 #[test]
 #[allow(clippy::too_many_lines)]
 fn api_info_body_fits_in_buffer() {
@@ -175,7 +176,8 @@ fn api_info_body_fits_in_buffer() {
              \"chips\":{chain_chips},\
              \"frequency_khz\":{chain_frequency_khz},\
              \"hashrate\":{chain_hashrate},\
-             \"hottest_c\":{chain_hottest_c}}}"
+             \"hottest_c\":{chain_hottest_c},\
+             \"pool\":null}}"
         );
     }
     chains.push(']');

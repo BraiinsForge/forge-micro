@@ -59,10 +59,11 @@ mod tests;
 /// board can report — and pins its length at that test's
 /// `WORST_CASE_INFO_BODY_LEN`. 512 bytes overflowed
 /// once the OTA diagnostic fields were added, silently truncating the
-/// tail, and 1280 stopped covering the worst case once the OTA block
-/// carried a build id; 1408 bytes covers the synthetic worst case and
-/// leaves room for future fields while staying on the stack.
-const API_INFO_BODY_BUFFER_SIZE: usize = 1408;
+/// tail, 1280 stopped covering the worst case once the OTA block
+/// carried a build id, and 1408 once each chain reported its pool;
+/// 1536 bytes covers the synthetic worst case and leaves room for
+/// future fields while staying on the stack.
+const API_INFO_BODY_BUFFER_SIZE: usize = 1536;
 
 /// Body buffer for the POST /api/config acknowledgement.
 const CONFIG_ACK_BODY: &[u8] = b"{\"ok\":true}";
@@ -225,6 +226,15 @@ fn write_chains(
         match stats.hottest_mc() {
             Some(hottest_mc) => {
                 let _ = core::write!(writer, "{}", hottest_mc / 1000);
+            }
+            None => {
+                let _ = writer.write_str("null");
+            }
+        }
+        let _ = writer.write_str(",\"pool\":");
+        match stats.active_pool() {
+            Some(slot) => {
+                let _ = core::write!(writer, "{slot}");
             }
             None => {
                 let _ = writer.write_str("null");

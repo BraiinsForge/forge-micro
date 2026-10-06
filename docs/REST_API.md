@@ -119,7 +119,7 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 
 | Method | Path           | Auth        | Description                                                       |
 |--------|----------------|-------------|-------------------------------------------------------------------|
-| GET    | `/api/info`    | any         | Telemetry blob consumed by the SPA poll, including a `chains` array with one entry per hashboard chain (`chain`, `state`, `chips`, `frequency_khz`, `hashrate`, `hottest_c`) |
+| GET    | `/api/info`    | any         | Telemetry blob consumed by the SPA poll, including a `chains` array with one entry per hashboard chain (`chain`, `state`, `chips`, `frequency_khz`, `hashrate`, `hottest_c`, and `pool`, the slot whose work the chain was last given, or `null` when it has none) |
 | GET    | `/api/config`  | any         | `ConfigUpdate` snapshot: `pool`, `thermal`, `cooling` (`mode`, `target_temp_c`, `fixed_fan_pwm`, `min_fan_pwm`), `miner`, `api` (password blanked), `network` |
 | POST   | `/api/config`  | any +CSRF   | Partial `ConfigUpdate` (any subset of those fields); returns `{"ok":true}` |
 
