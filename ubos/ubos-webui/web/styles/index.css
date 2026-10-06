@@ -1221,7 +1221,7 @@ main > * {
    3px grid gap, matching the .fldRows stack. */
 .poolTable {
   display: grid;
-  grid-template-columns: 56px minmax(0, 2fr) minmax(0, 0.85fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 2fr) minmax(0, 0.85fr) minmax(0, 1fr);
   gap: 3px 12px;
   align-items: center;
 }
@@ -1281,60 +1281,8 @@ main > * {
   line-height: 1.3;
 }
 
-/* On/off slider. The checkbox is hidden and the track carries the
-   colour, green when on and muted when off; the knob is a ::before that
-   slides on the checked state. */
-.poolSw {
-  display: inline-flex;
-  align-self: center;
-  justify-self: center;
-  cursor: pointer;
-}
-
-.poolSw input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.poolSwTrack {
-  position: relative;
-  display: inline-block;
-  width: 36px;
-  height: 20px;
-  border-radius: 10px;
-  background: var(--mute);
-  transition: background 0.15s;
-}
-
-.poolSwTrack::before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.15s;
-}
-
-.poolSw input:checked + .poolSwTrack {
-  background: var(--green);
-}
-
-.poolSw input:checked + .poolSwTrack::before {
-  transform: translateX(16px);
-}
-
-.poolSw input:focus-visible + .poolSwTrack {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Below the narrow breakpoint each row stacks into a card, the header
-   row is dropped, and the toggle sits above the fields. */
+/* Below the narrow breakpoint each row stacks into a card and the
+   header row is dropped. */
 @media (max-width: 760px) {
   .poolTable {
     grid-template-columns: 1fr;

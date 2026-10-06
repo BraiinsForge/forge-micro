@@ -18,7 +18,6 @@ interface Slot {
   url: string;
   user: string;
   pass: string;
-  on: boolean;
 }
 
 interface Parsed {
@@ -37,7 +36,7 @@ function parseUrl(url: string): Parsed {
 }
 
 function initSlot(pool: PoolConfig | null | undefined): Slot {
-  if (!pool) return { url: '', user: '', pass: '', on: false };
+  if (!pool) return { url: '', user: '', pass: '' };
   const sv2 = pool.protocol && 'Sv2' in pool.protocol ? pool.protocol.Sv2 : undefined;
   const sv1 = pool.protocol && 'Sv1' in pool.protocol ? pool.protocol.Sv1 : undefined;
   const proto = sv2 ? 'stratum2+tcp' : 'stratum+tcp';
@@ -47,7 +46,6 @@ function initSlot(pool: PoolConfig | null | undefined): Slot {
     url: proto + '://' + addr + key,
     user: pool.user || '',
     pass: sv1?.password || '',
-    on: pool.weight === undefined ? !!pool.host : pool.weight > 0,
   };
 }
 
@@ -60,18 +58,18 @@ interface PoolPatch {
   port: number;
   user: string;
   protocol: PoolProtocol;
-  weight: number;
 }
 
 export default function ConfigPools({ pools }: ConfigPoolsProps) {
   const [slots, setSlots] = useState(() => [0, 1, 2].map((i) => initSlot(pools[i])));
 
-  function patch(i: number, field: keyof Slot, value: string | boolean): void {
+  function patch(i: number, field: keyof Slot, value: string): void {
     setSlots((prev) => prev.map((slot, idx) => (idx === i ? { ...slot, [field]: value } : slot)));
   }
 
   async function save(event: JSX.TargetedEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
     event.preventDefault();
+    // Row order is the priority: the board mines the first pool and fails over down the list.
     const pool: PoolPatch[] = [];
     for (let i = 0; i < 3; i++) {
       const slot = slots[i];
@@ -85,7 +83,6 @@ export default function ConfigPools({ pools }: ConfigPoolsProps) {
       const host = match[1];
       const port = match[2] ? +match[2] : DEFAULT_PORT;
       const user = slot.user || '';
-      const weight = slot.on ? 1 : 0;
       let protocol: PoolProtocol;
       if (parsed.sv2) {
         let pool_pubkey: string | null = null;
@@ -100,7 +97,7 @@ export default function ConfigPools({ pools }: ConfigPoolsProps) {
       } else {
         protocol = { Sv1: { password: slot.pass || null } };
       }
-      pool.push({ host, port, user, protocol, weight });
+      pool.push({ host, port, user, protocol });
     }
     await saveConfig({ pool });
   }
@@ -111,7 +108,6 @@ export default function ConfigPools({ pools }: ConfigPoolsProps) {
       <form onSubmit={save}>
         <div class="poolTable">
           <div class="poolHead">
-            <span></span>
             <span>Pool URL</span>
             <span>Username</span>
             <span>Password</span>
@@ -120,27 +116,17 @@ export default function ConfigPools({ pools }: ConfigPoolsProps) {
             const parsed = parseUrl(slot.url);
             return (
               <div class="poolRow" key={i}>
-                <label class="poolSw">
-                  <input
-                    type="checkbox"
-                    checked={slot.on}
-                    onInput={(e) => patch(i, 'on', e.currentTarget.checked)}
-                  />
-                  <span class="poolSwTrack"></span>
-                </label>
                 <input
                   class="poolInp"
                   value={slot.url}
                   onInput={(e) => patch(i, 'url', e.currentTarget.value)}
                   placeholder="stratum2+tcp://host:port/pubkey"
-                  disabled={!slot.on}
                 />
                 <input
                   class="poolInp"
                   value={slot.user}
                   onInput={(e) => patch(i, 'user', e.currentTarget.value)}
                   placeholder="Username"
-                  disabled={!slot.on}
                 />
                 {parsed.sv2 && !parsed.key ? (
                   <span class="poolTrust">
@@ -156,7 +142,7 @@ export default function ConfigPools({ pools }: ConfigPoolsProps) {
                     value={parsed.sv2 ? '' : slot.pass}
                     onInput={(e) => patch(i, 'pass', e.currentTarget.value)}
                     placeholder={parsed.sv2 ? '' : 'Password'}
-                    disabled={!slot.on || parsed.sv2}
+                    disabled={parsed.sv2}
                   />
                 )}
               </div>

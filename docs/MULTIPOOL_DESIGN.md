@@ -493,11 +493,13 @@ watcher spawn line appears.
 
 ### Webui
 
-Each of the three pool rows in the config form gains a numeric
-weight input, loaded from `GET /api/config` and sent on Save (empty
-input posts 0). Without this, the save handler — which rebuilds
-entries as `{host, port, user, protocol}` — would silently wipe
-weights configured over curl on the next webui save.
+The config form has no weight control. Its row order is the
+priority order: the first pool is the primary and the others are
+backups, tried in order. On Save the form sends each entry as
+`{host, port, user, protocol}` with no `weight`, so every weight is
+0 and the all-zero fallback mines the first slot. A Save therefore
+replaces any ratio configured over the API; a ratio split is set
+through `POST /api/config` only.
 
 ### Rejected alternatives
 
