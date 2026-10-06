@@ -90,6 +90,10 @@ pub const NTIME_ROLL_MAX_SECS: u32 = 7_200;
 /// re-establishment attempts rather than the very first boot
 /// connection.
 ///
+/// Empties the slot's work cell on return as well, so the dispatcher
+/// stops feeding the chip a dead session's job at once rather than
+/// after the caller's reconnect delay.
+///
 /// Returns `Err` when the underlying `MiningClient` does — the
 /// firmware's outer reconnect loop drops `client` and `transport`,
 /// builds fresh ones, and calls `run_stratum_client` again.
@@ -133,15 +137,16 @@ where
     let result =
         run_stratum_client_inner(client, transport, asic, state, ntime_roll_period_secs).await;
     asic.set_alive(false);
+    asic.clear_work();
     result
 }
 
 /// The session loop proper, wrapped by [`run_stratum_client`].
 ///
 /// The split exists so that every exit path, including the error ones,
-/// passes through one place that clears this pool's alive bit. Returning
-/// from here by any route leaves that bookkeeping to the wrapper, so a
-/// new `return` added inside cannot forget it.
+/// passes through one place that clears this pool's alive bit and work
+/// cell. Returning from here by any route leaves that bookkeeping to the
+/// wrapper, so a new `return` added inside cannot forget it.
 ///
 /// The five parameters are peers. The client is the protocol adapter,
 /// the transport is the socket, the ASIC handle is where work goes, and

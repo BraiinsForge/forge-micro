@@ -17,8 +17,9 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Tests for `publish_work`'s ntime-roll math and the job-acceptance
-//! dedup logic that stands in for the ticker when it's disabled.
+//! Tests for `publish_work`'s ntime-roll math, the job-acceptance
+//! dedup logic that stands in for the ticker when it's disabled, and
+//! the work-cell teardown when a session ends.
 //!
 //! `run_stratum_client_inner`'s ticker gating (the `Option<Ticker>` /
 //! `core::future::pending()` select arm) is not covered here: it needs
@@ -187,4 +188,69 @@ fn last_published_dedup_fires_once_per_distinct_job() {
     accept(JobId(2), &mut last_published, &mut publishes);
     accept(JobId(2), &mut last_published, &mut publishes);
     assert_eq!(publishes, 2);
+}
+
+/// Client whose handshake always fails, ending the session at once.
+struct FailingClient;
+
+impl MiningClient for FailingClient {
+    async fn connect<T: Read + Write>(&mut self, _transport: &mut T) -> Result<(), Error> {
+        Err(Error::Transport)
+    }
+
+    fn submit(&mut self, _share: &Share<'_>) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn drive<T: Read + Write>(&mut self, _transport: &mut T) -> Result<(), Error> {
+        Err(Error::Transport)
+    }
+
+    fn accept<V: MiningClientVisitor>(&mut self, _visitor: &mut V) {}
+}
+
+/// Transport the failing client never touches.
+struct NullTransport;
+
+impl embedded_io_async::ErrorType for NullTransport {
+    type Error = core::convert::Infallible;
+}
+
+impl Read for NullTransport {
+    async fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Self::Error> {
+        Ok(0)
+    }
+}
+
+impl Write for NullTransport {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        Ok(buf.len())
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+/// A session that ends empties its slot's work cell, so the dispatcher
+/// stops handing the chip a dead pool's job.
+#[test]
+fn ended_session_clears_its_work() {
+    let mut state = StratumState::new(0);
+    state.visit_new_job(sample_job(1));
+    let asic: AsicSession = AsicSession::new();
+    state.publish_work(asic.pool_handle(0), 0);
+    let receiver = asic.work_receiver(0).expect("slot 0 has a receiver");
+    assert!(receiver.contains_value());
+
+    let result = embassy_futures::block_on(run_stratum_client(
+        &mut FailingClient,
+        &mut NullTransport,
+        asic.pool_handle(0),
+        &mut state,
+        None,
+    ));
+
+    assert_eq!(result, Err(Error::Transport));
+    assert!(!receiver.contains_value());
 }
