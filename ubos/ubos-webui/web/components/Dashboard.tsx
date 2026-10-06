@@ -154,6 +154,9 @@ export default function Dashboard({ shown }: DashboardProps) {
     const mask = (info?.pools ?? 0) | 0;
     const alive = (mask >> slot) & 1;
     const meta = poolCfg[slot];
+    if (alive && info?.running && info.chains?.some((chain) => chain.pool === slot)) {
+      return { cls: 'live', text: 'Mining' };
+    }
     if (alive) return { cls: 'live', text: 'Alive' };
     if (meta === null) return { cls: 'empty', text: 'Empty' };
     return { cls: '', text: 'Dead' };

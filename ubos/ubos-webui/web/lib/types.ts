@@ -21,6 +21,8 @@ export interface ChainInfo {
   frequency_khz: number;
   hashrate: number;
   hottest_c: number | null;
+  /** The pool slot whose work the chain was last given; `null` when it has none. */
+  pool?: number | null;
 }
 
 /** `GET /api/info` — the body the dashboard polls every two seconds. */
