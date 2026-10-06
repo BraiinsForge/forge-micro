@@ -231,7 +231,7 @@ impl<'a, const N: usize> Harness<'a, N> {
         }
     }
 
-    fn dispatch(&mut self) {
+    fn dispatch(&mut self) -> Option<usize> {
         block_on(self.actor.dispatch_work(
             &mut self.serial,
             &mut self.scheduler,
@@ -239,7 +239,7 @@ impl<'a, const N: usize> Harness<'a, N> {
             &mut self.registry,
             &mut self.receivers,
             &mut self.last_version_mask,
-        ));
+        ))
     }
 
     fn process_solution(&mut self, solution: &ChainSolution, difficulty: &[u8; 32]) {
@@ -288,7 +288,7 @@ fn dispatch_reads_the_pinned_slot() {
     session.pool_handle(1).publish_work(assignment(20));
 
     let mut harness = Harness::new(&session, 1);
-    harness.dispatch();
+    assert_eq!(harness.dispatch(), Some(1));
 
     let slot = harness.registry.get(0).expect("work dispatched");
     assert_eq!(slot.assignment.assignment_id, 20);
@@ -302,7 +302,7 @@ fn dispatch_skips_the_tick_when_no_slot_has_work() {
     // Neither slot has published anything: the pinned slot is empty
     // and there is no other slot to fall back to.
     let mut harness = Harness::new(&session, 1);
-    harness.dispatch();
+    assert_eq!(harness.dispatch(), None);
 
     assert!(harness.registry.get(0).is_none());
     assert!(harness.serial.written.is_empty());
@@ -320,7 +320,7 @@ fn dispatch_falls_back_to_an_available_slot_when_the_pinned_slot_is_empty() {
     session.pool_handle(0).publish_work(assignment(10));
 
     let mut harness = Harness::new(&session, 1);
-    harness.dispatch();
+    assert_eq!(harness.dispatch(), Some(0));
 
     let slot = harness.registry.get(0).expect("fallback dispatch");
     assert_eq!(slot.assignment.assignment_id, 10);

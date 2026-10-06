@@ -73,12 +73,29 @@ fn hottest_mc_round_trips_none_and_some() {
 }
 
 #[test]
+fn active_pool_round_trips_and_rejects_out_of_range_slots() {
+    let stats = ChainStats::new();
+    assert_eq!(stats.active_pool(), None);
+
+    stats.set_active_pool(Some(2));
+    assert_eq!(stats.active_pool(), Some(2));
+
+    stats.set_active_pool(Some(MAX_POOL_SLOTS));
+    assert_eq!(stats.active_pool(), None);
+
+    stats.set_active_pool(Some(0));
+    stats.set_active_pool(None);
+    assert_eq!(stats.active_pool(), None);
+}
+
+#[test]
 fn clear_resets_bring_up_fields_but_not_lifetime_counters() {
     let stats = ChainStats::new();
     stats.record_share(&some_target(), 0);
     stats.set_presence(ChainPresence::Present { chips: 120 });
     stats.set_frequency(Frequency::from_khz(500_000));
     stats.set_hottest(Some(85));
+    stats.set_active_pool(Some(1));
 
     stats.clear();
 
@@ -87,6 +104,7 @@ fn clear_resets_bring_up_fields_but_not_lifetime_counters() {
     assert_eq!(stats.chips(), 0);
     assert_eq!(stats.frequency().khz(), 0);
     assert_eq!(stats.hottest_mc(), None);
+    assert_eq!(stats.active_pool(), None);
     assert_eq!(
         stats.presence(),
         ChainPresence::Unknown,

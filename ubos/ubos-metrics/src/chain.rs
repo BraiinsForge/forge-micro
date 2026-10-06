@@ -84,15 +84,20 @@ pub const MAX_POOL_SLOTS: usize = 8;
 /// reports, so it cannot collide with a genuine reading.
 pub const NO_TEMPERATURE: i32 = i32::MIN;
 
+/// Sentinel stored in `active_pool` while the chain is mining no pool's
+/// work. It lies past [`MAX_POOL_SLOTS`], so no real slot can collide.
+const NO_POOL: u8 = u8::MAX;
+
 /// Accounting for a single chain: the lifetime hashrate estimate and
 /// share counters, plus the chain's last-known chip count, frequency,
-/// and hottest die temperature.
+/// hottest die temperature, and the pool slot it is mining.
 pub struct ChainStats {
     hashrate: HashrateEstimator,
     desync_bytes: AtomicU32,
     pool_shares: [AtomicU64; MAX_POOL_SLOTS],
     frequency_khz: AtomicU32,
     hottest_mc: AtomicI32,
+    active_pool: AtomicU8,
     /// [`ChainPresence::as_code`] in the high byte and
     /// [`ChainPresence::payload`] in the low byte, so one store keeps
     /// the two consistent.
@@ -110,6 +115,7 @@ impl ChainStats {
             pool_shares: [const { AtomicU64::new(0) }; MAX_POOL_SLOTS],
             frequency_khz: AtomicU32::new(0),
             hottest_mc: AtomicI32::new(NO_TEMPERATURE),
+            active_pool: AtomicU8::new(NO_POOL),
             presence: AtomicU16::new(0),
         }
     }
@@ -218,6 +224,23 @@ impl ChainStats {
         }
     }
 
+    /// Record the pool slot whose work the chain was last given, or
+    /// `None` when a work tick dispatched nothing.
+    pub fn set_active_pool(&self, slot: Option<usize>) {
+        let stored = slot
+            .and_then(|slot| u8::try_from(slot).ok())
+            .filter(|&slot| usize::from(slot) < MAX_POOL_SLOTS)
+            .unwrap_or(NO_POOL);
+        self.active_pool.store(stored, Ordering::Relaxed);
+    }
+
+    /// The pool slot the chain is mining, or `None` if it has no work.
+    #[must_use]
+    pub fn active_pool(&self) -> Option<usize> {
+        let stored = self.active_pool.load(Ordering::Relaxed);
+        (stored != NO_POOL).then_some(usize::from(stored))
+    }
+
     /// Record the chain's enumeration outcome.
     pub fn set_presence(&self, presence: ChainPresence) {
         self.presence
@@ -233,7 +256,7 @@ impl ChainStats {
     }
 
     /// Reset the per-bring-up fields: frequency, hottest temperature,
-    /// and presence, which carries the chip count. Lifetime counters,
+    /// active pool, and presence, which carries the chip count. Lifetime counters,
     /// meaning hashrate, share count, pool shares, and desync bytes, are
     /// not touched, because `clear` runs on a chain reset and those
     /// counters track the chain's whole life rather than its current
@@ -241,6 +264,7 @@ impl ChainStats {
     pub fn clear(&self) {
         self.frequency_khz.store(0, Ordering::Relaxed);
         self.hottest_mc.store(NO_TEMPERATURE, Ordering::Relaxed);
+        self.active_pool.store(NO_POOL, Ordering::Relaxed);
         self.presence
             .store(presence_word(ChainPresence::Unknown), Ordering::Relaxed);
     }

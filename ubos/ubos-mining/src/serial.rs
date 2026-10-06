@@ -881,15 +881,17 @@ impl Serial {
 
             match select4(cmd_arm, park_arm, tick_arm, result_arm).await {
                 Either4::Third(()) => {
-                    self.dispatch_work(
-                        &mut serial,
-                        &mut scheduler,
-                        &mut driver,
-                        &mut registry,
-                        &mut work_receivers,
-                        &mut last_version_mask,
-                    )
-                    .await;
+                    let dispatched = self
+                        .dispatch_work(
+                            &mut serial,
+                            &mut scheduler,
+                            &mut driver,
+                            &mut registry,
+                            &mut work_receivers,
+                            &mut last_version_mask,
+                        )
+                        .await;
+                    stats.set_active_pool(dispatched);
                 }
                 Either4::Fourth(ResultEvent::Read(Ok(0))) => {
                     error!("Serial port EOF");
@@ -969,7 +971,8 @@ impl Serial {
         }
     }
 
-    /// Dispatch one work tick.
+    /// Dispatch one work tick, returning the pool slot whose job went
+    /// to the chain, or `None` when the tick dispatched nothing.
     ///
     /// `last_version_mask` carries the grant the previous dispatch saw,
     /// so a grant this chain cannot split is reported once per grant
@@ -983,7 +986,8 @@ impl Serial {
         registry: &mut WorkRegistry,
         work_receivers: &mut [DynReceiver<'_, WorkAssignment>; N],
         last_version_mask: &mut Option<u32>,
-    ) where
+    ) -> Option<usize>
+    where
         S: Read + Write + BaudRate,
     {
         // Ask the scheduler which slot to dispatch from this tick:
@@ -998,7 +1002,7 @@ impl Serial {
                 // Nothing dispatchable: every populated slot is either
                 // excluded by the scheduler or empty. Skip the tick; the
                 // select loop keeps servicing UART reads and commands.
-                return;
+                return None;
             };
             if let Some(assignment) = work_receivers[slot].try_get() {
                 break (slot, assignment);
@@ -1051,7 +1055,7 @@ impl Serial {
             }
         }
         if unsplittable {
-            return;
+            return None;
         }
         let work_id = registry.place(assignment, session_slot, job_version);
         let job = WorkJob {
@@ -1070,7 +1074,9 @@ impl Serial {
         // allows a future family to refuse a job, so log and keep mining.
         if let Err(e) = driver.send_work(&mut io, &job).await {
             error!("Failed to send work: {:?}", Debug2Format(&e));
+            return None;
         }
+        Some(session_slot)
     }
 
     /// Verify each solution against the chip's own difficulty target and the
