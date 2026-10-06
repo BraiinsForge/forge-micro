@@ -72,13 +72,15 @@ pub const WIRE_BUFFER_BYTES: usize = 4096;
 /// (`mining.submit`) with headroom.
 pub const ENCODE_BUFFER_BYTES: usize = 512;
 
-/// Version-rolling mask requested in `mining.configure`. `1fffe000`
+/// Version-rolling parameters sent in `mining.configure`. `1fffe000`
 /// is the standard mask Bitmain miners use; `min-bit-count: 2`
 /// signals the pool we accept any pool-side reduction down to two
-/// bits. Pools that don't support the extension simply omit
-/// `version-rolling.mask` from their reply, leaving the negotiated
-/// mask at zero.
-const CONFIGURE_MAP: &[u8] = br#"{"version-rolling":{"mask":"1fffe000","min-bit-count":2}}"#;
+/// bits. The keys are the flat dotted names BIP310 defines, because
+/// some pools refuse version rolling when they are nested. Pools that
+/// don't support the extension omit `version-rolling.mask` from their
+/// reply, leaving the negotiated mask at zero.
+const CONFIGURE_MAP: &[u8] =
+    br#"{"version-rolling.mask":"1fffe000","version-rolling.min-bit-count":2}"#;
 
 /// Bytes reserved for the `result` slice copied out of a handshake
 /// response. Public pools' configure / subscribe results stay well
@@ -718,10 +720,17 @@ fn dispatch_response<V: MiningClientVisitor>(
     };
     match kind {
         PendingRequestKind::Configure => {
-            if let Some(result) = response.stratum_result
-                && let Some(mask) = parse_version_rolling_mask(result)
-            {
+            if let Some(mask) = response.stratum_result.and_then(parse_version_rolling_mask) {
                 visitor.visit_session_update(SessionUpdate::SetVersionMask(mask));
+            } else {
+                let error_code = response
+                    .stratum_error
+                    .as_ref()
+                    .map(|StratumError(code, _message, _detail)| *code);
+                warn!(
+                    "stratum-v1: the pool did not grant version rolling, error code {:?}",
+                    error_code,
+                );
             }
             None
         }

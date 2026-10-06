@@ -44,11 +44,32 @@ fn configure_request_mask_matches_protocol_constant() {
     // mask as a JSON string rather than formatting it at runtime. It
     // must stay equal to the protocol-wide BIP320 constant; this test
     // fails loudly if either side drifts.
-    let expected = std::format!("\"mask\":\"{:08x}\"", mining_protocol::BIP320_VERSION_MASK);
+    let expected = std::format!(
+        "\"version-rolling.mask\":\"{:08x}\"",
+        mining_protocol::BIP320_VERSION_MASK
+    );
     let body = std::str::from_utf8(CONFIGURE_MAP).expect("CONFIGURE_MAP is ASCII JSON");
     assert!(
         body.contains(&expected),
         "CONFIGURE_MAP {body} must embed {expected}"
+    );
+}
+
+/// The request carries the BIP310 parameter object with flat dotted
+/// keys: one pool rejects the nested form as an illegal parameter and
+/// another answers it with version rolling off.
+#[test]
+fn configure_request_uses_bip310_parameters() {
+    let mut buf = [0u8; ENCODE_BUFFER_BYTES];
+    let configure = Configure {
+        features: &["version-rolling"],
+        configure_map: CONFIGURE_MAP,
+    };
+    let len = encode_configure(&mut buf, 1, &configure).expect("configure fits the buffer");
+    assert_eq!(
+        &buf[..len],
+        &br#"{"id":1,"method":"mining.configure","params":[["version-rolling"],{"version-rolling.mask":"1fffe000","version-rolling.min-bit-count":2}]}
+"#[..],
     );
 }
 
