@@ -83,34 +83,47 @@ pub fn copy_memory_x() {
     println!("cargo:rerun-if-changed={MEMORY_X}");
 }
 
-/// Stamp a build id into the `BUILD_ID` variable the boot banner reads.
+/// The variable that hands a build its whole id, for a build with no
+/// `.git` to read. The nix image builds set it from the flake's revision
+/// and its last-modified date.
+const BUILD_ID_ENV: &str = "UBOS_BUILD_ID";
+
+/// Stamp a build id into the `BUILD_ID` variable that the boot banner, the
+/// REST API and the package name read.
 ///
-/// No board in this repository calls this. The callers are boards in the
-/// internal repository that consumes these crates, and their banners read
-/// `BUILD_ID` through `env!`.
+/// The id is the tip of the whole checkout and the UTC time this script
+/// last ran: `<hash>[-dirty]-<yymmddHHMMSS>`. The tip is the superproject
+/// when the tree is a submodule of one, because that commit names every
+/// source the build used, and the dirty marker is read there, where a
+/// changed submodule shows too. The time keeps two builds of one commit
+/// apart. When [`BUILD_ID_ENV`] is set, it is the whole id.
 ///
-/// The id is `git describe` plus the wall clock at the moment this script
-/// last ran, so two builds from the same commit stay distinguishable and
-/// the suffix reads as the time of the last build. Cargo re-runs a build
-/// script only for the inputs it names, and an edit to a shared crate
+/// Cargo re-runs a build script only for the inputs it names, so a build
+/// with nothing changed compiles nothing. An edit to a shared crate
 /// relinks the board without touching the board's own sources, so the
-/// caller names every directory whose sources reach the image. Cargo
-/// scans a named directory for any change, so the stamp moves when a
-/// source moves and stays when nothing did; a script that re-ran on every
-/// build recompiled the board on every run with nothing changed. The
-/// commit part has one input more, the history itself, which a commit
-/// moves without touching a source file, so the log of `HEAD` is named
-/// too. A tag is the one move that log does not record: a tag set on an
-/// already-built commit changes what `git describe` reports without
-/// moving `HEAD`, so the stamp keeps the old name until the next source
-/// change re-runs the script. The tag refs are not named because they
-/// are packed on most clones, and a named path that is absent makes
-/// cargo re-run on every build, which is the fault this design removes.
+/// caller names every directory whose sources reach the image, and the
+/// stamp moves when a source moves. A commit moves the tip without
+/// touching a source, so the log of the tip's `HEAD` is named too.
 pub fn build_id<P: AsRef<Path>>(sources: &[P]) {
+    println!("cargo:rerun-if-env-changed={BUILD_ID_ENV}");
+    if let Ok(id) = std::env::var(BUILD_ID_ENV)
+        && !id.is_empty()
+    {
+        println!("cargo:rustc-env=BUILD_ID={id}");
+        return;
+    }
     for dir in sources {
         println!("cargo:rerun-if-changed={}", dir.as_ref().display());
     }
+    let tip = run(
+        None,
+        "git",
+        &["rev-parse", "--show-superproject-working-tree"],
+    )
+    .or_else(|| run(None, "git", &["rev-parse", "--show-toplevel"]));
+    let tip = tip.as_deref().map(Path::new);
     if let Some(head_log) = run(
+        tip,
         "git",
         &[
             "rev-parse",
@@ -121,15 +134,29 @@ pub fn build_id<P: AsRef<Path>>(sources: &[P]) {
     ) {
         println!("cargo:rerun-if-changed={head_log}");
     }
-    let describe = run("git", &["describe", "--tags", "--always", "--dirty"])
-        .unwrap_or_else(|| "nogit".into());
-    let stamp = run("date", &["+%y%m%d%H%M%S"]).unwrap_or_else(|| "000000000000".into());
-    println!("cargo:rustc-env=BUILD_ID={describe}-{stamp}");
+    let hash =
+        run(tip, "git", &["rev-parse", "--short=12", "HEAD"]).unwrap_or_else(|| "nogit".into());
+    let dirty = run(
+        tip,
+        "git",
+        &["status", "--porcelain", "--untracked-files=no"],
+    )
+    .map_or("", |_| "-dirty");
+    let stamp =
+        run(None, "date", &["-u", "+%y%m%d%H%M%S"]).unwrap_or_else(|| "000000000000".into());
+    println!("cargo:rustc-env=BUILD_ID={hash}{dirty}-{stamp}");
 }
 
-/// Run a command and return its trimmed stdout, or `None` if it fails.
-fn run(cmd: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new(cmd).args(args).output().ok()?;
+/// Run a command in `dir`, or in the build script's own directory when it
+/// is `None`, and return its trimmed stdout. A failure and an empty output
+/// both give `None`.
+fn run(dir: Option<&Path>, cmd: &str, args: &[&str]) -> Option<String> {
+    let mut command = Command::new(cmd);
+    command.args(args);
+    if let Some(dir) = dir {
+        command.current_dir(dir);
+    }
+    let out = command.output().ok()?;
     if !out.status.success() {
         return None;
     }
