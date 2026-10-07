@@ -21,7 +21,7 @@
 //!
 //! Defines [`FrequencyVoltageTarget`] for ASIC frequency and voltage overrides,
 //! [`PowerTarget`] for a PSU input-power target,
-//! [`TunerInfo`] for the tuners a machine offers,
+//! [`TunerInfo`] and [`DefaultTuning`] for the tuners a machine offers,
 //! [`MiningBounds`] with the accepted ranges, [`MiningInfo`] for the
 //! static chip facts that live alongside the config, and the
 //! [`BOUNDS`] constant.
@@ -88,6 +88,36 @@ impl TunerInfo {
             (self, tuning),
             (Self::Fixed { .. }, Tuning::Fixed(_)) | (Self::Power { .. }, Tuning::Power(_))
         )
+    }
+}
+
+/// The tuning a new config starts on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all_fields = "camelCase")]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum DefaultTuning {
+    /// The board's default frequency and voltage.
+    Fixed,
+    /// `input_power_mw` of PSU input power, at the board's default
+    /// efficiency.
+    Power { input_power_mw: u32 },
+}
+
+impl DefaultTuning {
+    /// The tuning this default stands for on `board`.
+    #[must_use]
+    pub const fn tuning(self, board: &HashboardDescriptor) -> Tuning {
+        match self {
+            Self::Fixed => Tuning::Fixed(FrequencyVoltageTarget {
+                frequency_khz: board.default_frequency.khz(),
+                voltage_mv: board.default_voltage.mv(),
+            }),
+            Self::Power { input_power_mw } => Tuning::Power(PowerTarget {
+                input_power_mw,
+                efficiency_mj_per_th: NonZeroU32::new(board.default_efficiency.mj_per_th())
+                    .expect("BUG: efficiency is zero"),
+            }),
+        }
     }
 }
 
@@ -167,6 +197,8 @@ pub struct MiningInfo {
     pub default_voltage_mv: u32,
     /// Default power-target efficiency in mJ/TH.
     pub default_efficiency_mj_per_th: u32,
+    /// The tuning a new config starts on.
+    pub default_tuning: DefaultTuning,
     /// Accepted tuning ranges.
     pub bounds: &'static MiningBounds,
 }
@@ -174,11 +206,26 @@ pub struct MiningInfo {
 /// Static capability metadata for `board`. The chip model comes from the
 /// `ubos-asic` chip descriptor. Each firmware crate builds its
 /// own `MINING_INFO` const from this with its explicit board descriptor.
+///
+/// # Panics
+///
+/// When no tuner in `bounds` reads `default_tuning`, which fails the
+/// build of the `MINING_INFO` const.
 #[must_use]
 pub const fn mining_info(
     board: &'static HashboardDescriptor,
     bounds: &'static MiningBounds,
+    default_tuning: DefaultTuning,
 ) -> MiningInfo {
+    let tuning = default_tuning.tuning(board);
+    let mut index = 0;
+    while index < bounds.tuners.len() && !bounds.tuners[index].reads(&tuning) {
+        index += 1;
+    }
+    assert!(
+        index < bounds.tuners.len(),
+        "BUG: no tuner reads the default tuning"
+    );
     MiningInfo {
         asic_model: board.chip.asic_model,
         device_model: board.model,
@@ -187,6 +234,7 @@ pub const fn mining_info(
         default_frequency_khz: board.default_frequency.khz(),
         default_voltage_mv: board.default_voltage.mv(),
         default_efficiency_mj_per_th: board.default_efficiency.mj_per_th(),
+        default_tuning,
         bounds,
     }
 }

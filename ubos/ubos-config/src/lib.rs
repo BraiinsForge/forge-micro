@@ -65,8 +65,8 @@ pub use cooling::{
 };
 pub use miner::{MinerConfig, Tuning};
 pub use mining::{
-    BOUNDS as MINING_BOUNDS, FrequencyVoltageTarget, MiningBounds, MiningInfo, PowerTarget,
-    TunerInfo, bounds, mining_info,
+    BOUNDS as MINING_BOUNDS, DefaultTuning, FrequencyVoltageTarget, MiningBounds, MiningInfo,
+    PowerTarget, TunerInfo, bounds, mining_info,
 };
 pub use network::{NetworkConfig, NetworkMode};
 pub use pool::{
@@ -592,20 +592,18 @@ impl Default for Config {
     /// board) has a stable baseline; the firmware uses
     /// [`Config::for_board`] with its own descriptor instead.
     fn default() -> Self {
-        Self::for_board(&ubos_asic::BMM101_HASHBOARD)
+        Self::for_board(&ubos_asic::BMM101_HASHBOARD, DefaultTuning::Fixed)
     }
 }
 
 impl Config {
-    /// Factory defaults for `board`. The tuning operating point falls back
-    /// to the board's boot frequency/voltage when the `MINING_*` build env
-    /// is unset, so a board comes up at its correct rail/clock.
+    /// Factory defaults for `board`, with `default_tuning` as the tuning.
     ///
     /// Not a `const fn` because [`ApiConfig`]'s default cannot be `const`
     /// (heapless 0.9 `String::push_str` is not `const fn`). The value is
     /// computed once at boot; it is cheap.
     #[must_use]
-    pub fn for_board(board: &'static HashboardDescriptor) -> Self {
+    pub fn for_board(board: &'static HashboardDescriptor, default_tuning: DefaultTuning) -> Self {
         let mut host = heapless::String::new();
         host.push_str(option_env!("POOL_HOST").unwrap_or(DEFAULT_POOL_HOST))
             .expect("BUG: POOL_HOST exceeds PoolEntry::host capacity");
@@ -651,12 +649,7 @@ impl Config {
                 },
             },
             miner: MinerConfig {
-                tuning: Tuning::Fixed(FrequencyVoltageTarget {
-                    // The board's boot operating point comes from its descriptor,
-                    // so a board comes up at its correct rail/clock with no env.
-                    frequency_khz: board.default_frequency.khz(),
-                    voltage_mv: board.default_voltage.mv(),
-                }),
+                tuning: default_tuning.tuning(board),
             },
             api: ApiConfig::default(),
             network: NetworkConfig::default(),
@@ -719,9 +712,10 @@ impl Config {
 /// against `info.bounds`. On [`LoadError::SchemaMismatch`] (firmware
 /// upgraded across an incompatible schema), [`LoadError::Corrupt`]
 /// (partial write before power loss), an I/O error, or a failed
-/// validation, falls back to [`Config::for_board`] and logs the reason.
-/// `Ok(None)` means the key was never written and is treated as a clean
-/// first-boot — defaults, no warning.
+/// validation, falls back to [`Config::for_board`] with
+/// `info.default_tuning` and logs the reason. `Ok(None)` means the key
+/// was never written and is treated as a clean first-boot — defaults,
+/// no warning.
 ///
 /// Each [`Message::Update`] persists the new value before publishing
 /// it and bumps [`GENERATION_WATCH`] so every stratum session tears
@@ -815,7 +809,7 @@ pub async fn run<S: Storage>(
             Message::FactoryReset => {
                 preview = None;
                 clear_pending_status();
-                committed = factory_reset(&mut storage, board).await;
+                committed = factory_reset(&mut storage, board, info.default_tuning).await;
                 NETWORK_WATCH.sender().send(committed.network.clone());
                 ubos_core::reboot::request_reboot();
             }
@@ -826,7 +820,8 @@ pub async fn run<S: Storage>(
 /// Task shell around [`run`], which drives the persisted config store.
 /// Takes the board's storage backend, which bottoms out in its own flash
 /// driver, the hashboard descriptor, and the firmware's [`MiningInfo`],
-/// whose bounds the store validates against.
+/// whose bounds the store validates against and whose default tuning a
+/// new config starts on.
 #[macro_export]
 macro_rules! config_task {
     ($storage:ty, $board:expr, $info:expr) => {
@@ -872,23 +867,23 @@ async fn load_initial<S: Storage>(
         Ok(Some(blob)) => blob,
         Ok(None) => {
             info!("config: no stored config, using defaults");
-            return Config::for_board(board);
+            return Config::for_board(board, info.default_tuning);
         }
         Err(_) => {
             warn!("config: load failed, using defaults");
-            return Config::for_board(board);
+            return Config::for_board(board, info.default_tuning);
         }
     };
     let config = match decode_blob::<S::Error>(blob) {
         Ok(config) => config,
         Err(error) => {
             log_decode_error(&error);
-            return Config::for_board(board);
+            return Config::for_board(board, info.default_tuning);
         }
     };
     if config.validate(info.bounds).is_err() {
         warn!("config: stored config failed validation, using defaults");
-        return Config::for_board(board);
+        return Config::for_board(board, info.default_tuning);
     }
     info!("config: loaded from storage");
     config
@@ -949,14 +944,19 @@ async fn set_network<S: Storage>(config: &Config, storage: &mut S) {
     info!("config: applied network update");
 }
 
-/// Reset the stored config to [`Config::default`] and publish it.
+/// Reset the stored config to [`Config::for_board`] with
+/// `default_tuning` and publish it.
 ///
 /// Persists the defaults, refreshes [`STATE_WATCH`], and returns the
 /// new value. Returning the config keeps the persisted, published, and
 /// in-memory values provably identical and lets tests drive the real
 /// reset path.
-async fn factory_reset<S: Storage>(storage: &mut S, board: &'static HashboardDescriptor) -> Config {
-    let config = Config::for_board(board);
+async fn factory_reset<S: Storage>(
+    storage: &mut S,
+    board: &'static HashboardDescriptor,
+    default_tuning: DefaultTuning,
+) -> Config {
+    let config = Config::for_board(board, default_tuning);
     persist(&config, storage).await;
     STATE_WATCH.sender().send(config.clone());
     info!("config: factory reset to defaults");

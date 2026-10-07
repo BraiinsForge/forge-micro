@@ -118,7 +118,8 @@ pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(
 );
 
 /// Static mining capability metadata, built from [`BOARD`].
-pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
+pub const MINING_INFO: ubos_config::MiningInfo =
+    ubos_config::mining_info(BOARD, &BOUNDS, ubos_config::DefaultTuning::Fixed);
 
 impl Board {
     /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`

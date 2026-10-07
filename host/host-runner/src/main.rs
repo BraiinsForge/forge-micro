@@ -92,7 +92,8 @@ pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(
     BOARD,
     <TunerSet as ubos_mining::tuner::MachineTuner<1>>::TUNERS,
 );
-pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
+pub const MINING_INFO: ubos_config::MiningInfo =
+    ubos_config::mining_info(BOARD, &BOUNDS, ubos_config::DefaultTuning::Fixed);
 
 /// Concurrent TCP connections the HTTP server (:80) accepts. It serves
 /// the web UI and the REST API behind one router, and matches the depth

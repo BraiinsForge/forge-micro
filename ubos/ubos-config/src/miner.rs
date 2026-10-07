@@ -22,7 +22,7 @@
 //! Defines [`Tuning`] and [`MinerConfig`], which select a tuner and
 //! provide its target for each chip bring-up cycle.
 
-use crate::mining::{FrequencyVoltageTarget, MiningBounds, PowerTarget};
+use crate::mining::{DefaultTuning, FrequencyVoltageTarget, MiningBounds, PowerTarget};
 
 /// Tuner selection and target parameters used at bring-up.
 ///
@@ -39,7 +39,6 @@ use crate::mining::{FrequencyVoltageTarget, MiningBounds, PowerTarget};
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Tuning {
     /// Hold one frequency and one rail voltage, reached by a ramp.
-    /// The default.
     Fixed(FrequencyVoltageTarget),
     /// Hold a power draw, leaving the frequency and the rail to the
     /// tuner.
@@ -50,10 +49,7 @@ impl Default for Tuning {
     /// Factory defaults for the BMM101 board. Firmware builds its real
     /// per-board defaults via [`crate::Config::for_board`].
     fn default() -> Self {
-        Self::Fixed(FrequencyVoltageTarget {
-            frequency_khz: ubos_asic::BMM101_HASHBOARD.default_frequency.khz(),
-            voltage_mv: ubos_asic::BMM101_HASHBOARD.default_voltage.mv(),
-        })
+        DefaultTuning::Fixed.tuning(&ubos_asic::BMM101_HASHBOARD)
     }
 }
 

@@ -205,6 +205,7 @@ Both shared policies take `()`, and the five-argument form of the macro supplies
 
 The set lists the tuners it offers in `MachineTuner::TUNERS`: each one's name, the `Tuning` variant it reads, and whether a power tuner reads the efficiency.
 The firmware passes the list to `ubos_config::bounds`, so the config accepts only a tuning one of these tuners reads, and the mining form shows only these tuners and the fields they read.
+A new config starts on the `DefaultTuning` the firmware passes to `ubos_config::mining_info`.
 
 ## Chain presence
 
