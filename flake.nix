@@ -66,16 +66,18 @@
       micro-sv2,
     }@inputs:
     let
-      webuiBuildEnv = {
-        # 12 chars to match the build.rs git-fallback (`rev-parse
-        # --short=12`); the Nix `shortRev` default of 7 would produce
-        # different footer widths inside vs. outside the sandbox.
-        UBOS_WEBUI_BUILD_REV =
+      # The build id an image carries, handed whole to ubos-build's build
+      # script through UBOS_BUILD_ID, because the sandbox has no .git to
+      # read. It takes the form a dev build stamps: 12 characters of the
+      # revision, a dirty marker, and the last-modified time in UTC.
+      buildIdEnv = {
+        UBOS_BUILD_ID =
           let
             rev = self.rev or self.dirtyRev or null;
+            hash = if rev == null then "nogit" else builtins.substring 0 12 rev;
+            dirty = if self ? dirtyRev then "-dirty" else "";
           in
-          if rev == null then "unknown" else builtins.substring 0 12 rev;
-        UBOS_WEBUI_BUILD_TIME = toString self.lastModified;
+          "${hash}${dirty}-${builtins.substring 2 12 self.lastModifiedDate}";
       };
 
       # probe-rs tooling: the patched build and the overlay exposing
@@ -187,7 +189,7 @@
         helpers = import ./nix/lib.nix {
           inherit
             pkgs
-            webuiBuildEnv
+            buildIdEnv
             webuiDist
             espToolchain
             xtensaEspToolchain

@@ -20,18 +20,16 @@
 # Small helpers shared by more than one flake module: the
 # `CC_<target>` env-var name cc-rs expects, the ARM cross-CC attrset
 # every ARM crane derivation carries, the xtensa cross-build env every
-# esp32s3 crane derivation carries, and the ubos-webui build-env attrs:
-# the dist path every derivation compiling the dashboard sets, and the
-# revision and time stamps the images set so the footer of a flashed
-# image names the commit that built it. The gates and the dev shells
-# leave the stamps unset: a gate stamped with the commit would rebuild
-# on every commit, and a shell stamped from a dirty tree gave a new
-# time on every run, so the build script stamps a dev build itself when
-# it runs. Defined once here so the copies in checks.nix and images.nix
-# cannot drift apart.
+# esp32s3 crane derivation carries, the dashboard dist path every
+# derivation compiling ubos-webui sets, and the build id the images set,
+# because the sandbox has no .git for the build script to read. The
+# gates and the dev shells leave the build id unset: a gate stamped with
+# the commit would rebuild on every commit, and a dev build stamps
+# itself from its checkout. Defined once here so the copies in checks.nix
+# and images.nix cannot drift apart.
 {
   pkgs,
-  webuiBuildEnv,
+  buildIdEnv,
   webuiDist,
   espToolchain,
   xtensaEspToolchain,
@@ -78,9 +76,8 @@ rec {
     "${ccVar target}" = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-gcc";
   };
 
-  webuiEnvAttrs = {
-    inherit (webuiBuildEnv) UBOS_WEBUI_BUILD_REV UBOS_WEBUI_BUILD_TIME;
-  };
+  inherit buildIdEnv;
+  buildId = buildIdEnv.UBOS_BUILD_ID;
 
   # Points ubos-webui's build.rs at the hermetic Rsbuild output so the
   # crate check never runs `npm` in the offline sandbox. build.rs reads

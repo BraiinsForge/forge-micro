@@ -118,10 +118,10 @@ let
   # `artifacts` defaults to the shared host bag; `allTargets` is off for
   # crates whose tests or examples do not build on the host feature set;
   # `args` appends feature flags; `webuiDist` points ubos-webui's
-  # build.rs at the hermetic dist. No gate takes the revision and time
-  # stamps: they change with every commit, and a gate stamped with them
-  # would rebuild on every commit for a footer nothing reads. Only the
-  # images in nix/images.nix carry them.
+  # build.rs at the hermetic dist. No gate takes the build id: it changes
+  # with every commit, and a gate stamped with it would rebuild on every
+  # commit for an id nothing reads. Only the images in nix/images.nix
+  # carry it.
   mkHostClippy =
     spec:
     craneLib.cargoClippy (

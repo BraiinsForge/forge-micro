@@ -59,7 +59,7 @@ let
   hasCrate = name: builtins.elem name members;
   inherit (helpers)
     armCc
-    webuiEnvAttrs
+    buildIdEnv
     webuiDistEnv
     espCrossEnv
     espRustflags
@@ -110,7 +110,7 @@ let
         };
       }
       // armCc target
-      // webuiEnvAttrs
+      // buildIdEnv
       // brands.envFor name
       // webuiDistEnv
     );
@@ -261,7 +261,7 @@ let
         budgetLabel = "OTA app slot";
       };
     }
-    // webuiEnvAttrs
+    // buildIdEnv
     // brands.envFor "esp32s3"
     // webuiDistEnv
   );
