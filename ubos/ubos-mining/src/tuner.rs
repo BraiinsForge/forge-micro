@@ -28,7 +28,7 @@
 //! miner runs whichever tuner that set selects for the configuration.
 
 use ubos_asic::HashboardDescriptor;
-use ubos_config::{FrequencyVoltageTarget, Tuning};
+use ubos_config::{FrequencyVoltageTarget, TunerInfo, Tuning};
 use ubos_core::units::{Efficiency, Frequency, Power, Voltage};
 use ubos_tuner::{Plan, Readings};
 
@@ -83,6 +83,12 @@ pub trait MachineTuner<const CHAINS: usize>: Sized {
     /// What the machine's platform reports beyond [`Readings`].
     type PlatformReadings;
 
+    /// The tuners [`select`](Self::select) builds, in the order the
+    /// mining form shows them. The firmware passes this list to
+    /// `ubos_config::bounds`, and the config accepts only a [`Tuning`]
+    /// that one of these tuners reads.
+    const TUNERS: &'static [TunerInfo];
+
     /// The tuner `tuning` selects on a machine whose hashboards are
     /// `board`, or `None` when the machine has no tuner for it. Called
     /// once per bring-up cycle.
@@ -127,6 +133,8 @@ pub enum Tuners {
 
 impl<const CHAINS: usize> MachineTuner<CHAINS> for Tuners {
     type PlatformReadings = ();
+
+    const TUNERS: &'static [TunerInfo] = &[fixed::FixedTuner::INFO, power::PowerTuner::INFO];
 
     fn select(tuning: &Tuning, board: &'static HashboardDescriptor) -> Option<Self> {
         match tuning {

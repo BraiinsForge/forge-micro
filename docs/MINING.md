@@ -203,6 +203,9 @@ The firmware passes the function that reads them as the sixth argument of `miner
 The miner calls it once per step and passes the result to the tuner, which reads nothing itself.
 Both shared policies take `()`, and the five-argument form of the macro supplies it.
 
+The set lists the tuners it offers in `MachineTuner::TUNERS`: each one's name, the `Tuning` variant it reads, and whether a power tuner reads the efficiency.
+The firmware passes the list to `ubos_config::bounds`, so the config accepts only a tuning one of these tuners reads, and the mining form shows only these tuners and the fields they read.
+
 ## Chain presence
 
 A machine can have more hashboard connectors than boards plugged into

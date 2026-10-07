@@ -21,8 +21,8 @@
 
 use crate::{
     ApiConfig, Config, ConfigUpdate, CoolingConfig, CoolingUpdate, FanMode, FrequencyVoltageTarget,
-    MAX_POOL_WEIGHT, MINING_BOUNDS, MinerConfig, NetworkConfig, NetworkMode, PoolEntry,
-    PowerTarget, ProtocolKind, ThermalConfig, Tuning,
+    MAX_POOL_WEIGHT, MINING_BOUNDS, MinerConfig, MiningBounds, NetworkConfig, NetworkMode,
+    PoolEntry, PowerTarget, ProtocolKind, ThermalConfig, TunerInfo, Tuning,
 };
 
 /// Builds a minimal valid [`ConfigUpdate`] with no fields set.
@@ -555,6 +555,27 @@ fn tuning_valid_passes() {
         update
             .validate(&Config::default(), &crate::mining::BOUNDS)
             .is_ok()
+    );
+}
+
+/// A power target on a machine that offers only a fixed tuner is
+/// rejected.
+#[test]
+fn tuning_not_offered_is_rejected() {
+    const FIXED_ONLY: MiningBounds = crate::bounds(
+        &ubos_asic::BMM101_HASHBOARD,
+        &[TunerInfo::Fixed { name: "Fixed" }],
+    );
+    let mut update = empty_update();
+    update.miner = Some(MinerConfig {
+        tuning: Tuning::Power(PowerTarget {
+            input_power_mw: 44_000,
+            efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
+        }),
+    });
+    assert_eq!(
+        update.validate(&Config::default(), &FIXED_ONLY),
+        Err("miner.tuning selects a tuner this machine does not offer")
     );
 }
 

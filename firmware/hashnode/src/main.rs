@@ -168,7 +168,7 @@ ubos_manager::manager_task!();
 type BoardConfigStorage =
     FlashStorage<SyncFlash<ubos_ota::SharedBlockingFlash<{ config::Flash::SIZE }>>>;
 
-ubos_config::config_task!(BoardConfigStorage, config::BOARD);
+ubos_config::config_task!(BoardConfigStorage, config::BOARD, &config::MINING_INFO);
 
 ubos_cooling::cooling_task!(fan::BoardFan, fan::BoardTach);
 

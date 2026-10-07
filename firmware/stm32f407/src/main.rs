@@ -141,7 +141,7 @@ ubos_manager::manager_task!();
 /// `embassy-stm32 blocking Flash → SyncFlash → FlashStorage`.
 type BoardConfigStorage = FlashStorage<SyncFlash<Flash<'static, FlashBlocking>>>;
 
-ubos_config::config_task!(BoardConfigStorage, config::BOARD);
+ubos_config::config_task!(BoardConfigStorage, config::BOARD, &config::MINING_INFO);
 
 ubos_cooling::cooling_task!(ubos_stm32::fan::BoardFan, ubos_stm32::fan::BoardTach);
 

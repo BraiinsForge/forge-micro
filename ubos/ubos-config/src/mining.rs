@@ -21,6 +21,7 @@
 //!
 //! Defines [`FrequencyVoltageTarget`] for ASIC frequency and voltage overrides,
 //! [`PowerTarget`] for a PSU input-power target,
+//! [`TunerInfo`] for the tuners a machine offers,
 //! [`MiningBounds`] with the accepted ranges, [`MiningInfo`] for the
 //! static chip facts that live alongside the config, and the
 //! [`BOUNDS`] constant.
@@ -28,6 +29,8 @@
 use core::num::NonZeroU32;
 use core::ops::RangeInclusive;
 use ubos_asic::HashboardDescriptor;
+
+use crate::miner::Tuning;
 
 /// ASIC frequency and voltage overrides.
 #[derive(
@@ -61,7 +64,35 @@ pub struct PowerTarget {
     pub efficiency_mj_per_th: NonZeroU32,
 }
 
-/// Accepted ranges for each [`FrequencyVoltageTarget`] field.
+/// One tuner a machine offers: the [`Tuning`] variant it reads, the
+/// name the mining form shows for it, and the target fields it reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all_fields = "camelCase")]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TunerInfo {
+    /// Reads [`Tuning::Fixed`], both its frequency and its voltage.
+    Fixed { name: &'static str },
+    /// Reads [`Tuning::Power`]: its input power, and its efficiency when
+    /// `reads_efficiency` is set.
+    Power {
+        name: &'static str,
+        reads_efficiency: bool,
+    },
+}
+
+impl TunerInfo {
+    /// Whether this tuner reads `tuning`'s variant.
+    #[must_use]
+    pub const fn reads(&self, tuning: &Tuning) -> bool {
+        matches!(
+            (self, tuning),
+            (Self::Fixed { .. }, Tuning::Fixed(_)) | (Self::Power { .. }, Tuning::Power(_))
+        )
+    }
+}
+
+/// Accepted ranges for each [`FrequencyVoltageTarget`] field, and the
+/// tuners a [`Tuning`] may select.
 ///
 /// Serializable so API endpoints can return the bounds alongside the
 /// current config without a separate hard-coded schema.
@@ -73,9 +104,13 @@ pub struct MiningBounds {
     pub frequency_khz: RangeInclusive<u32>,
     /// Accepted range for `voltage_mv` in millivolts.
     pub voltage_mv: RangeInclusive<u32>,
+    /// The tuners the machine offers, in the order the mining form
+    /// shows them.
+    pub tuners: &'static [TunerInfo],
 }
 
-/// Accepted value ranges for [`FrequencyVoltageTarget`] on `board`.
+/// Accepted value ranges for [`FrequencyVoltageTarget`] on `board`, and
+/// the machine's `tuners`.
 ///
 /// The voltage ceiling is the board's open-core rail voltage
 /// (`HashboardDescriptor::max_rail_voltage`: max chip voltage times the
@@ -84,16 +119,30 @@ pub struct MiningBounds {
 /// PLL-calculator span. Each firmware crate builds its own `BOUNDS`
 /// const from this with its explicit board descriptor.
 #[must_use]
-pub const fn bounds(board: &'static HashboardDescriptor) -> MiningBounds {
+pub const fn bounds(
+    board: &'static HashboardDescriptor,
+    tuners: &'static [TunerInfo],
+) -> MiningBounds {
     MiningBounds {
         frequency_khz: 50_000..=1_000_000,
         voltage_mv: 0..=board.max_rail_voltage().mv(),
+        tuners,
     }
 }
 
-/// Bounds for the BMM101 board. The firmware uses [`bounds`] with its
-/// own descriptor; this exists so the test suite has a stable baseline.
-pub const BOUNDS: MiningBounds = bounds(&ubos_asic::BMM101_HASHBOARD);
+/// Bounds for the BMM101 board with a fixed and a power tuner. The
+/// firmware uses [`bounds`] with its own descriptor and tuners; this
+/// exists so the test suite has a stable baseline.
+pub const BOUNDS: MiningBounds = bounds(
+    &ubos_asic::BMM101_HASHBOARD,
+    &[
+        TunerInfo::Fixed { name: "Fixed" },
+        TunerInfo::Power {
+            name: "Power",
+            reads_efficiency: true,
+        },
+    ],
+);
 
 /// Static capability metadata for the ASIC and board.
 ///

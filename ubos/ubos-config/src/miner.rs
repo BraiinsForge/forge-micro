@@ -28,7 +28,8 @@ use crate::mining::{FrequencyVoltageTarget, MiningBounds, PowerTarget};
 ///
 /// A variant names a kind of tuning and carries that kind's target.
 /// Which tuner a machine runs for a kind is the firmware's answer, not
-/// this crate's, and a machine need not answer every kind. Changing the
+/// this crate's, and a machine need not answer every kind: the firmware
+/// lists the tuners it offers in [`MiningBounds::tuners`]. Changing the
 /// variant tears down the chip and restarts under the tuner the
 /// firmware selects for it; changing only the target does not, because
 /// the running tuner reads it at its next step.
@@ -57,12 +58,16 @@ impl Default for Tuning {
 }
 
 impl Tuning {
-    /// Validate the selected tuner's parameters against `bounds`.
+    /// Validate the selected tuner and its parameters against `bounds`.
     ///
     /// # Errors
     ///
-    /// Returns `Err` when a parameter falls outside its accepted range.
+    /// Returns `Err` when no tuner in `bounds` reads this variant, or a
+    /// parameter falls outside its accepted range.
     pub fn validate(&self, bounds: &MiningBounds) -> Result<(), &'static str> {
+        if !bounds.tuners.iter().any(|tuner| tuner.reads(self)) {
+            return Err("miner.tuning selects a tuner this machine does not offer");
+        }
         match self {
             Self::Fixed(target) => {
                 if !bounds.frequency_khz.contains(&target.frequency_khz) {

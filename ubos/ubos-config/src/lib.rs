@@ -65,8 +65,8 @@ pub use cooling::{
 };
 pub use miner::{MinerConfig, Tuning};
 pub use mining::{
-    BOUNDS as MINING_BOUNDS, FrequencyVoltageTarget, MiningBounds, MiningInfo, PowerTarget, bounds,
-    mining_info,
+    BOUNDS as MINING_BOUNDS, FrequencyVoltageTarget, MiningBounds, MiningInfo, PowerTarget,
+    TunerInfo, bounds, mining_info,
 };
 pub use network::{NetworkConfig, NetworkMode};
 pub use pool::{
@@ -715,12 +715,13 @@ impl Config {
 
 /// Reconfigure task for the config subsystem.
 ///
-/// On boot, loads the stored [`Config`] via `storage`. On
-/// [`LoadError::SchemaMismatch`] (firmware upgraded across an
-/// incompatible schema), [`LoadError::Corrupt`] (partial write before
-/// power loss), or an I/O error, falls back to [`Config::default`] and
-/// logs the reason. `Ok(None)` means the key was never written and is
-/// treated as a clean first-boot — defaults, no warning.
+/// On boot, loads the stored [`Config`] via `storage` and validates it
+/// against `info.bounds`. On [`LoadError::SchemaMismatch`] (firmware
+/// upgraded across an incompatible schema), [`LoadError::Corrupt`]
+/// (partial write before power loss), an I/O error, or a failed
+/// validation, falls back to [`Config::for_board`] and logs the reason.
+/// `Ok(None)` means the key was never written and is treated as a clean
+/// first-boot — defaults, no warning.
 ///
 /// Each [`Message::Update`] persists the new value before publishing
 /// it and bumps [`GENERATION_WATCH`] so every stratum session tears
@@ -736,8 +737,12 @@ impl Config {
 /// `committed.network` is the revert target and is left untouched while
 /// a preview is pending, so a superseding apply still reverts all the
 /// way back.
-pub async fn run<S: Storage>(mut storage: S, board: &'static HashboardDescriptor) -> ! {
-    let mut committed = load_initial(&mut storage, board).await;
+pub async fn run<S: Storage>(
+    mut storage: S,
+    board: &'static HashboardDescriptor,
+    info: &'static MiningInfo,
+) -> ! {
+    let mut committed = load_initial(&mut storage, board, info).await;
     STATE_WATCH.sender().send(committed.clone());
     let mut preview: Option<(NetworkConfig, Instant)> = None;
     info!("config: started");
@@ -820,13 +825,14 @@ pub async fn run<S: Storage>(mut storage: S, board: &'static HashboardDescriptor
 
 /// Task shell around [`run`], which drives the persisted config store.
 /// Takes the board's storage backend, which bottoms out in its own flash
-/// driver, and the hashboard descriptor the store validates against.
+/// driver, the hashboard descriptor, and the firmware's [`MiningInfo`],
+/// whose bounds the store validates against.
 #[macro_export]
 macro_rules! config_task {
-    ($storage:ty, $board:expr) => {
+    ($storage:ty, $board:expr, $info:expr) => {
         #[embassy_executor::task]
         async fn config_task(storage: $storage) -> ! {
-            ubos_config::run(storage, $board).await
+            ubos_config::run(storage, $board, $info).await
         }
     };
 }
@@ -850,13 +856,17 @@ fn clear_pending_status() {
     PENDING_IS_STATIC.store(false, Ordering::Relaxed);
 }
 
-/// Load the persisted [`Config`] or fall back to [`Config::default`].
+/// Load the persisted [`Config`] or fall back to [`Config::for_board`].
 ///
 /// The buffer is sized to match [`encode_blob`]'s budget so any blob
 /// that could have been stored fits without reallocation. All failure
 /// paths converge on defaults so the firmware always boots with a
 /// valid config.
-async fn load_initial<S: Storage>(storage: &mut S, board: &'static HashboardDescriptor) -> Config {
+async fn load_initial<S: Storage>(
+    storage: &mut S,
+    board: &'static HashboardDescriptor,
+    info: &'static MiningInfo,
+) -> Config {
     let mut buffer = [0u8; LOAD_BUFFER_SIZE];
     let blob = match storage.load(CONFIG_KEY, &mut buffer).await {
         Ok(Some(blob)) => blob,
@@ -876,7 +886,7 @@ async fn load_initial<S: Storage>(storage: &mut S, board: &'static HashboardDesc
             return Config::for_board(board);
         }
     };
-    if config.validate(&mining::bounds(board)).is_err() {
+    if config.validate(info.bounds).is_err() {
         warn!("config: stored config failed validation, using defaults");
         return Config::for_board(board);
     }

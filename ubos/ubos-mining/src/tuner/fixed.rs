@@ -25,7 +25,7 @@
 use embassy_time::Duration;
 use libm::sqrtf;
 use ubos_asic::HashboardDescriptor;
-use ubos_config::Tuning;
+use ubos_config::{TunerInfo, Tuning};
 use ubos_core::units::{Frequency, Voltage};
 use ubos_logging::{Debug2Format, debug, warn};
 use ubos_tuner::{Plan, Readings, Tuner};
@@ -93,6 +93,9 @@ impl Phase {
 }
 
 impl FixedTuner {
+    /// This policy as the mining form lists it.
+    pub const INFO: TunerInfo = TunerInfo::Fixed { name: "Fixed" };
+
     /// Build a policy for `board`, whose chip descriptor supplies the
     /// frequency grid and range and whose rail ceiling bounds the curve.
     /// The first step reads the operating point from the readings.
@@ -120,6 +123,8 @@ impl FixedTuner {
 
 impl<const CHAINS: usize> MachineTuner<CHAINS> for FixedTuner {
     type PlatformReadings = ();
+
+    const TUNERS: &'static [TunerInfo] = &[Self::INFO];
 
     fn select(tuning: &Tuning, board: &'static HashboardDescriptor) -> Option<Self> {
         match tuning {

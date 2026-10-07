@@ -154,8 +154,16 @@ pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
 /// the mining actor as the concrete chain driver.
 pub const CHIP: ubos_asic::Chip = ubos_asic::Chip::Bm1370;
 
-/// Accepted tuning ranges for [`BOARD`]; the API validates against these.
-pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
+/// The tuners this board runs. The miner builds them, and [`BOUNDS`]
+/// lists them for the config and the mining form.
+pub type TunerSet = ubos_mining::tuner::Tuners;
+
+/// Accepted tuning ranges and tuners for [`BOARD`]; the API validates
+/// against these.
+pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(
+    BOARD,
+    <TunerSet as ubos_mining::tuner::MachineTuner<CHAINS>>::TUNERS,
+);
 
 /// Static mining capability metadata, built from [`BOARD`].
 pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);

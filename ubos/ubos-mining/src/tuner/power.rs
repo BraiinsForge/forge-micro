@@ -37,7 +37,7 @@
 use embassy_time::{Duration, Instant};
 use libm::sqrtf;
 use ubos_asic::HashboardDescriptor;
-use ubos_config::Tuning;
+use ubos_config::{TunerInfo, Tuning};
 use ubos_core::units::{Frequency, Power, Voltage};
 use ubos_logging::{debug, warn};
 use ubos_tuner::{Plan, Readings, Tuner};
@@ -193,6 +193,13 @@ impl TuningAction {
 }
 
 impl PowerTuner {
+    /// This policy as the mining form lists it. The ramp ends at the
+    /// target efficiency, so the policy reads it.
+    pub const INFO: TunerInfo = TunerInfo::Power {
+        name: "Power",
+        reads_efficiency: true,
+    };
+
     /// Build a policy for `board`, whose chip descriptor supplies the
     /// frequency grid and range and whose rail ceiling is the open-core voltage.
     #[must_use]
@@ -417,6 +424,8 @@ impl PowerTuner {
 
 impl<const CHAINS: usize> MachineTuner<CHAINS> for PowerTuner {
     type PlatformReadings = ();
+
+    const TUNERS: &'static [TunerInfo] = &[Self::INFO];
 
     fn select(tuning: &Tuning, board: &'static HashboardDescriptor) -> Option<Self> {
         match tuning {

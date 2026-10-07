@@ -85,7 +85,13 @@ const BOARD_NAME: &str = "host-runner";
 /// The host runner simulates the BMM101 hashboard, so it threads that
 /// board descriptor through the mining, config, and API layers.
 pub const BOARD: &ubos_asic::HashboardDescriptor = &ubos_asic::BMM101_HASHBOARD;
-pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(BOARD);
+/// The tuners the host runner runs. The miner builds them, and
+/// [`BOUNDS`] lists them for the config and the mining form.
+pub type TunerSet = ubos_mining::tuner::Tuners;
+pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(
+    BOARD,
+    <TunerSet as ubos_mining::tuner::MachineTuner<1>>::TUNERS,
+);
 pub const MINING_INFO: ubos_config::MiningInfo = ubos_config::mining_info(BOARD, &BOUNDS);
 
 /// Concurrent TCP connections the HTTP server (:80) accepts. It serves
@@ -249,7 +255,7 @@ async fn manager_task(mining: MiningHandle) -> ! {
 
 #[embassy_executor::task]
 async fn config_task(storage: FileStorage) -> ! {
-    ubos_config::run(storage, BOARD).await
+    ubos_config::run(storage, BOARD, &MINING_INFO).await
 }
 
 /// CPU-side ASIC mock; spawned when no BM1362 hashboard is wired.

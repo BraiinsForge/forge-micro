@@ -37,6 +37,7 @@ use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
 use embassy_time::Instant;
 use embassy_time::{Duration, Timer};
 use portable_atomic::AtomicU8;
+use ubos_config::TunerInfo;
 use ubos_core::units::{Power, Voltage};
 use ubos_psu::{Psu, StatusFlags};
 use ubos_tuner::{Plan, Readings};
@@ -869,6 +870,9 @@ struct OnePlanTuner(Plan<1>);
 impl MachineTuner<1> for OnePlanTuner {
     type PlatformReadings = ();
 
+    // The miner never reads the list.
+    const TUNERS: &'static [TunerInfo] = &[];
+
     fn select(_: &ubos_config::Tuning, _: &'static HashboardDescriptor) -> Option<Self> {
         Some(Self(Plan {
             rail: None,
@@ -1064,6 +1068,9 @@ struct WaitingTuner {
 impl<const CHAINS: usize> MachineTuner<CHAINS> for WaitingTuner {
     type PlatformReadings = ();
 
+    // The miner never reads the list.
+    const TUNERS: &'static [TunerInfo] = &[];
+
     fn select(_: &ubos_config::Tuning, _: &'static HashboardDescriptor) -> Option<Self> {
         Some(Self::default())
     }
@@ -1101,6 +1108,9 @@ struct RailStepTuner {
 impl<const CHAINS: usize> MachineTuner<CHAINS> for RailStepTuner {
     type PlatformReadings = ();
 
+    // The miner never reads the list.
+    const TUNERS: &'static [TunerInfo] = &[];
+
     fn select(_: &ubos_config::Tuning, _: &'static HashboardDescriptor) -> Option<Self> {
         Some(Self { calls: 0 })
     }
@@ -1123,6 +1133,9 @@ struct HoldingRailTuner {
 
 impl<const CHAINS: usize> MachineTuner<CHAINS> for HoldingRailTuner {
     type PlatformReadings = ();
+
+    // The miner never reads the list.
+    const TUNERS: &'static [TunerInfo] = &[];
 
     fn select(_: &ubos_config::Tuning, _: &'static HashboardDescriptor) -> Option<Self> {
         Some(Self { calls: 0 })
@@ -1667,6 +1680,9 @@ fn test_config() -> (
 struct LiveTuner(crate::tuner::fixed::FixedTuner);
 impl MachineTuner<1> for LiveTuner {
     type PlatformReadings = ();
+
+    const TUNERS: &'static [TunerInfo] =
+        <crate::tuner::fixed::FixedTuner as MachineTuner<1>>::TUNERS;
 
     fn select(tuning: &ubos_config::Tuning, board: &'static HashboardDescriptor) -> Option<Self> {
         <crate::tuner::fixed::FixedTuner as MachineTuner<1>>::select(tuning, board).map(Self)

@@ -160,7 +160,7 @@ ubos_manager::manager_task!();
 /// `esp-storage FlashStorage → SyncFlash → ubos-config FlashStorage`.
 type BoardConfigStorage = FlashStorage<SyncFlash<ubos_ota::EspSharedFlash>>;
 
-ubos_config::config_task!(BoardConfigStorage, config::BOARD);
+ubos_config::config_task!(BoardConfigStorage, config::BOARD, &config::MINING_INFO);
 
 ubos_cooling::cooling_task!(ubos_esp32::fan::BoardFan, ubos_esp32::fan::BoardTach);
 

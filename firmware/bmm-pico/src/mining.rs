@@ -43,5 +43,5 @@ ubos_mining::miner_task!(
     BoardResetPin,
     crate::config::BOARD,
     crate::config::CHAINS,
-    ubos_mining::tuner::Tuners
+    crate::config::TunerSet
 );
