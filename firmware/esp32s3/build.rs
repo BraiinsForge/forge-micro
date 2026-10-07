@@ -55,4 +55,6 @@ fn main() {
     // not track that input, so without this an override silently reuses a
     // stale version baked into the image.
     println!("cargo:rerun-if-env-changed=UBOS_FW_VERSION");
+
+    ubos_build::open_board_build_id();
 }

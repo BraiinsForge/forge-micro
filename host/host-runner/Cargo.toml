@@ -63,6 +63,9 @@ embassy-net-afpacket = { path = "../embassy-net-afpacket" }
 [target.'cfg(not(target_arch = "arm"))'.dependencies]
 embassy-net-tuntap   = "0.1"
 
+[build-dependencies]
+ubos-build = { workspace = true }
+
 # critical-section is depended on only for its std impl symbols, linked
 # but never named in source, so machete cannot see the use.
 [package.metadata.cargo-machete]

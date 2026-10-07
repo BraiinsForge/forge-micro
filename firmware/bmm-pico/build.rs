@@ -27,4 +27,5 @@
 /// link-rp.x (which defines `.boot2`) is not needed for RP2350.
 fn main() {
     ubos_build::cortex_m_board();
+    ubos_build::open_board_build_id();
 }

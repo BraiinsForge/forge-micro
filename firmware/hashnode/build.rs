@@ -25,4 +25,5 @@
 /// so link-rp.x (which defines the .boot2 section) is not needed here.
 fn main() {
     ubos_build::cortex_m_board();
+    ubos_build::open_board_build_id();
 }

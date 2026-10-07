@@ -27,4 +27,5 @@
 /// script's section is empty. The bootloader carries boot2.
 fn main() {
     ubos_build::cortex_m_board();
+    ubos_build::open_board_build_id();
 }

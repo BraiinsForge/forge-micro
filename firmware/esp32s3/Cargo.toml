@@ -59,6 +59,9 @@ defmt-rtt              = "1.1.0"
 esp-bootloader-esp-idf = { version = "0.5.0", default-features = false, features = ["esp32s3"] }
 esp-storage            = { version = "0.9.0", default-features = false, features = ["esp32s3", "critical-section"] }
 
+[build-dependencies]
+ubos-build = { workspace = true }
+
 # critical-section is pulled in by esp-storage and esp-hal feature unification;
 # rand_core is required by secp256k1 / ii-sv2 but not directly imported.
 # Both are real transitive requirements that machete flags as unused.

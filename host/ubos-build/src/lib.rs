@@ -39,10 +39,10 @@ const MEMORY_X: &str = "memory.x";
 
 /// Wire up the linker for a cortex-m board.
 ///
-/// This is the whole body of a board's `main`. Call it first and as the
-/// only statement: `linker_be_nice` re-enters the build script binary as
-/// the linker's error-handling script and exits from there, so whatever a
-/// board does before the call also runs on that path.
+/// Call it first in a board's `main`, before the build id is stamped:
+/// `linker_be_nice` re-enters the build script binary as the linker's
+/// error-handling script and exits from there, so whatever a board does
+/// before the call also runs on that path.
 ///
 /// # Panics
 ///
@@ -87,6 +87,31 @@ pub fn copy_memory_x() {
 /// `.git` to read. The nix image builds set it from the flake's revision
 /// and its last-modified date.
 const BUILD_ID_ENV: &str = "UBOS_BUILD_ID";
+
+/// The directories of this tree, relative to its root, whose sources reach
+/// a board image. A change under any of them re-runs the board's build
+/// script and moves the build id. Every entry must name a directory that
+/// exists, because cargo answers a named path that is absent by re-running
+/// the script on every build.
+const OPEN_SOURCE_DIRS: [&str; 6] = ["brand", "firmware", "host", "micro-sv2", "patches", "ubos"];
+
+/// Stamp the build id of a board crate in this tree.
+///
+/// Call it from the board's `build.rs`. Every board crate sits two levels
+/// below the root of this tree, so the source directories resolve from the
+/// crate directory, and a crate at another depth would name absent paths.
+///
+/// # Panics
+///
+/// Panics when `CARGO_MANIFEST_DIR` is unset, which cargo guarantees for a
+/// build script it runs.
+pub fn open_board_build_id() {
+    let dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("BUG: CARGO_MANIFEST_DIR not set by cargo");
+    let root = Path::new(&dir).join("../..");
+    let sources: Vec<PathBuf> = OPEN_SOURCE_DIRS.iter().map(|sub| root.join(sub)).collect();
+    build_id(&sources);
+}
 
 /// Stamp a build id into the `BUILD_ID` variable that the boot banner, the
 /// REST API and the package name read.
