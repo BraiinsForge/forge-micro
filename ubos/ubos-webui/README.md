@@ -177,17 +177,10 @@ comment of `build.rs` says which build takes which path. Nix reads the
 tracked tree, so a new frontend file reaches a shell build only after
 `git add` and a new `nix develop`.
 
-The footer's revision and time are not in the bundle. `source.define`
-puts two fixed tokens there, and `build.rs` replaces them with
-`UBOS_WEBUI_BUILD_REV` and `UBOS_WEBUI_BUILD_TIME` when it embeds the
-pages. So the same dist serves every commit and nix caches it, while
-each firmware still shows the revision that built it. The image builds
-set both variables. The dev shells and the flake checks set neither,
-and there `build.rs` reads `git rev-parse` and the system clock when
-it runs. A dev shell that set them from the flake gave a new time on
-every run of a dirty tree, and that rebuilt this crate and every
-firmware behind it on every run. With nothing set, a tree with no
-change builds nothing and keeps the stamp of the last build.
+The footer shows the `build` field of `/api/info`. That field is the
+build id of the firmware, which the board's build script stamps. The
+pages carry no revision and no time of their own, so the same dist
+serves every commit and nix caches it.
 
 ## Nix status
 

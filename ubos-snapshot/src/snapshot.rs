@@ -119,12 +119,6 @@ pub struct Meta {
     /// Browser user agent that captured the snapshot.
     #[serde(default)]
     pub user_agent: Option<String>,
-    /// Web UI build revision serving the dashboard.
-    #[serde(default)]
-    pub ui_build_rev: Option<String>,
-    /// Web UI build timestamp serving the dashboard.
-    #[serde(default)]
-    pub ui_build_time: Option<String>,
 }
 
 /// Wrapper around the decoded event-log ring contents.

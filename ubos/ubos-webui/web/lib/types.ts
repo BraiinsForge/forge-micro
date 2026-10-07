@@ -8,8 +8,6 @@
 export interface Ota {
   runningSlot: string;
   runningVersion: number;
-  /** The build id stamped into the running image; `null` where the board stamps none. */
-  runningBuild?: string | null;
   maxImageBytes: number;
 }
 
@@ -60,6 +58,8 @@ export interface Info {
   ip?: string;
   mac?: string;
   time?: string;
+  /** The build id the board stamped: the tip it was built from and the build time. */
+  build?: string;
   ota?: Ota;
   chains: ChainInfo[];
 }

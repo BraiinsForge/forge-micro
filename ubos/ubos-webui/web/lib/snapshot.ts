@@ -75,7 +75,6 @@ async function fetchSectionWithRetry<T>(
 }
 
 export async function collectSnapshot(): Promise<Record<string, unknown>> {
-  const buildTime = Number(__BUILD_TIME__);
   const snapshot: Record<string, unknown> = {
     version: 1,
     meta: {
@@ -83,8 +82,6 @@ export async function collectSnapshot(): Promise<Record<string, unknown>> {
       hostname: location.hostname,
       page_url: location.href,
       user_agent: navigator.userAgent,
-      ui_build_rev: __BUILD_REV__,
-      ui_build_time: buildTime ? new Date(buildTime * 1000).toISOString() : '',
     },
   };
   const jobs: [string, () => Promise<unknown>][] = SECTIONS.map(([key, path]) => [

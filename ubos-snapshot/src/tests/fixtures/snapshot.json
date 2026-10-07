@@ -4,9 +4,7 @@
     "generated_at": "2026-07-14T12:34:56.789Z",
     "hostname": "10.0.0.5",
     "page_url": "http://10.0.0.5/",
-    "user_agent": "Mozilla/5.0",
-    "ui_build_rev": "abc123def456",
-    "ui_build_time": "2026-07-10 10:00 UTC"
+    "user_agent": "Mozilla/5.0"
   },
   "info": {
     "name": "miner-01",
@@ -21,6 +19,7 @@
     "paused": false,
     "ip": "10.0.0.5",
     "mac": "aa:bb:cc:dd:ee:ff",
+    "build": "abc123def456-260710100000",
     "ota": { "active": false, "version": "1.2.3" }
   },
   "config": {

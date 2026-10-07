@@ -211,16 +211,16 @@ impl Section {
         }
     }
 
-    /// Builds the build-and-versions section: web UI build stamp, the
+    /// Builds the build-and-versions section: the firmware build id, the
     /// `info.ota` object, and the full `system_info` section.
     #[must_use]
-    fn build_versions(meta: &Meta, info: Option<&Value>, system_info: Option<&Value>) -> Section {
+    fn build_versions(info: Option<&Value>, system_info: Option<&Value>) -> Section {
         let mut pairs = Vec::new();
-        if let Some(rev) = &meta.ui_build_rev {
-            pairs.push(("UI build rev".to_string(), rev.clone()));
-        }
-        if let Some(time) = &meta.ui_build_time {
-            pairs.push(("UI build time".to_string(), time.clone()));
+        if let Some(build) = info
+            .and_then(|info| info.get("build"))
+            .and_then(Value::as_str)
+        {
+            pairs.push(("Build".to_string(), build.to_string()));
         }
         if let Some(info) = info
             && let Some(ota) = info.get("ota")
@@ -486,11 +486,7 @@ impl Report {
         );
         let sections = vec![
             Section::device_summary(&snapshot.meta, snapshot.info.as_ref(), &snapshot.errors),
-            Section::build_versions(
-                &snapshot.meta,
-                snapshot.info.as_ref(),
-                snapshot.system_info.as_ref(),
-            ),
+            Section::build_versions(snapshot.info.as_ref(), snapshot.system_info.as_ref()),
             Section::network(snapshot.network.as_ref(), snapshot.info.as_ref()),
             Section::from_flattened("Configuration", snapshot.config.as_ref()),
             Section::system_detail(

@@ -42,14 +42,8 @@
 //!     the resulting `dist/`. This is the path for a build outside
 //!     every shell that sets the variable, with Node on PATH.
 //!
-//! Build provenance (`UBOS_WEBUI_BUILD_REV`, `UBOS_WEBUI_BUILD_TIME`)
-//! is stamped here, not in the bundle: `rsbuild.config.ts` defines the
-//! footer's revision and time as the two tokens below, and this script
-//! replaces them in each page before compressing it. So the built dist
-//! is the same for every commit and is cached across them, while the
-//! pages a firmware embeds still carry the revision that built them.
-//!
-//! The brand rides that same path and keeps the same property. Each
+//! The brand is stamped here, not in the bundle, so the built dist is
+//! the same for every board and is cached across them. Each
 //! board declares one brand directory as `UBOS_BRAND` in its own
 //! `.cargo/config.toml`, and a nix build passes the same value from
 //! `nix/brands.nix`; this script reads `brand.json` from it, replaces
@@ -64,7 +58,6 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::num::NonZeroU64;
 
@@ -85,11 +78,6 @@ fn gzip_to(bytes: &[u8], dest: &Path) {
     fs::write(dest, compressed).unwrap_or_else(|_| panic!("BUG: write {}", dest.display()));
 }
 
-/// The tokens `rsbuild.config.ts` defines the footer's revision and
-/// time as, replaced by [`stamp`] in each built page.
-const REV_TOKEN: &str = "@UBOS_WEBUI_BUILD_REV@";
-const TIME_TOKEN: &str = "@UBOS_WEBUI_BUILD_TIME@";
-
 /// The tokens `rsbuild.config.ts` emits for the brand facts, replaced by
 /// [`stamp`] in each built page. The page title and the wordmark `alt`
 /// text take the name, and a `<style>` block in the head takes the
@@ -101,8 +89,7 @@ const ACCENT_TEXT_TOKEN: &str = "@UBOS_BRAND_ACCENT_TEXT@";
 const ICON_TOKEN: &str = "@UBOS_BRAND_ICON@";
 
 /// The built pages, each beside the tokens it must carry. Both pages
-/// carry the whole brand; only the dashboard shows the provenance, in
-/// its footer, so the login page names neither provenance token. A page
+/// carry the whole brand. A page
 /// that is missing a token it names was built from a config that no
 /// longer matches this script, so that is a bug rather than a page to
 /// ship unstamped.
@@ -110,8 +97,6 @@ const PAGES: [(&str, &[&str]); 2] = [
     (
         "index",
         &[
-            REV_TOKEN,
-            TIME_TOKEN,
             NAME_TOKEN,
             ACCENT_TOKEN,
             ACCENT_HI_TOKEN,
@@ -162,12 +147,10 @@ fn read_brand(dir: &Path) -> Brand {
     }
 }
 
-/// Replace the provenance and brand tokens in a built page. A page that
-/// carries none of them comes back unchanged.
-fn stamp(html: &str, build_rev: &str, build_time: &str, brand: &Brand, icon: &str) -> String {
-    html.replace(REV_TOKEN, build_rev)
-        .replace(TIME_TOKEN, build_time)
-        .replace(NAME_TOKEN, &brand.name)
+/// Replace the brand tokens in a built page. A page that carries none of
+/// them comes back unchanged.
+fn stamp(html: &str, brand: &Brand, icon: &str) -> String {
+    html.replace(NAME_TOKEN, &brand.name)
         .replace(ACCENT_TOKEN, &brand.accent)
         .replace(ACCENT_HI_TOKEN, &brand.accent_hi)
         .replace(ACCENT_TEXT_TOKEN, &brand.accent_text)
@@ -222,9 +205,6 @@ fn main() {
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("BUG: CARGO_MANIFEST_DIR unset"));
 
-    let build_rev = resolve_build_rev(&manifest_dir);
-    let build_time = resolve_build_time();
-
     // `relative = true` on the declaration resolves the value against
     // the board's crate directory, so this is an absolute path whichever
     // directory cargo ran in.
@@ -253,7 +233,7 @@ fn main() {
                 "BUG: built page {name}.html carries no {token}; rsbuild.config.ts and build.rs disagree"
             );
         }
-        let html = stamp(&html, &build_rev, &build_time, &brand, &icon);
+        let html = stamp(&html, &brand, &icon);
         gzip_to(html.as_bytes(), &out_dir.join(format!("{name}.html.gz")));
     }
 
@@ -285,8 +265,6 @@ fn main() {
         println!("cargo:rerun-if-changed={path}");
     }
     println!("cargo:rerun-if-env-changed=UBOS_WEBUI_DIST");
-    println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_REV");
-    println!("cargo:rerun-if-env-changed=UBOS_WEBUI_BUILD_TIME");
 
     // The brand is three files outside the crate, so each one needs its
     // own trigger. A trigger naming a file that does not exist makes
@@ -302,60 +280,4 @@ fn main() {
         "cargo:rerun-if-changed={}",
         brand_dir.join("icon.png").display()
     );
-}
-
-/// Resolve the short commit hash for the build-info footer. The image
-/// builds pass `UBOS_WEBUI_BUILD_REV` because the nix sandbox has no
-/// `.git` directory. A dev shell sets nothing, so the build reads `git
-/// rev-parse` against the crate's manifest directory when it runs, and
-/// an unchanged tree keeps the stamp it has.
-fn resolve_build_rev(manifest_dir: &Path) -> String {
-    if let Ok(rev) = env::var("UBOS_WEBUI_BUILD_REV") {
-        let trimmed = rev.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
-    }
-    git_short_rev(manifest_dir).unwrap_or_else(|| "unknown".to_string())
-}
-
-fn git_short_rev(manifest_dir: &Path) -> Option<String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--short=12", "HEAD"])
-        .current_dir(manifest_dir)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let rev = String::from_utf8(output.stdout).ok()?;
-    let trimmed = rev.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
-/// Resolve the build timestamp as a unix-epoch string. Prefers
-/// `UBOS_WEBUI_BUILD_TIME`, which the image builds set to
-/// `self.lastModified`; falls back to the system clock. A dev shell
-/// leaves the variable unset on purpose: in a dirty tree the flake's
-/// value is the moment of evaluation, and a value that changed on
-/// every run rebuilt this crate and every firmware behind it on every
-/// run. `SOURCE_DATE_EPOCH` is intentionally ignored: nix-shell pins
-/// it to 1980-01-01, which would freeze every dev-shell page at that
-/// date.
-fn resolve_build_time() -> String {
-    if let Ok(value) = env::var("UBOS_WEBUI_BUILD_TIME") {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
-    }
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("BUG: system clock before unix epoch")
-        .as_secs()
-        .to_string()
 }

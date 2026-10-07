@@ -11,22 +11,10 @@ import { boardCsrf } from './dev/board-proxy';
 // so `rsbuild build` emits dist/index.html and dist/login.html directly
 // — build.rs then gzips those two and embeds them.
 
-// Build provenance is not known here. A production bundle carries
-// these two tokens and build.rs replaces them with the revision and
-// the time when it embeds the pages. A bundle stamped at this step
-// would change with every commit, and every build that embeds it
-// would follow. The dev server embeds nothing and runs no build.rs,
-// so its footer says `dev` rather than showing the tokens.
-const provenance = (env: string) =>
-  env === 'production'
-    ? { rev: '@UBOS_WEBUI_BUILD_REV@', time: '@UBOS_WEBUI_BUILD_TIME@' }
-    : { rev: 'dev', time: '0' };
-
-// The brand takes the same shape as the provenance above, and for the
-// same reason: a production bundle carries tokens that build.rs replaces
-// per tree, so one built dist serves every brand. Unlike the provenance,
-// the brand is known at this step, so a dev build emits the real values
-// rather than a stand-in.
+// The brand is not stamped into the bundle: a production bundle carries
+// tokens that build.rs replaces per tree, so one built dist serves every
+// brand. A dev build knows the brand at this step, so it emits the real
+// values rather than the tokens.
 //
 // UBOS_BRAND names the directory that holds the whole brand. Cargo
 // declares it for every build it drives; the dev server is `npm run
@@ -121,8 +109,6 @@ export default defineConfig(({ env }) => ({
       login: './web/login.ts',
     },
     define: {
-      __BUILD_REV__: JSON.stringify(provenance(env).rev),
-      __BUILD_TIME__: JSON.stringify(provenance(env).time),
       // The wordmark `alt` text lives in TopNav.tsx, inside the bundle,
       // so it reaches the page through `define` and not through the
       // HTML template below.

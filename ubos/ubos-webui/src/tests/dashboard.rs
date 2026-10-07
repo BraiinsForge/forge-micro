@@ -74,35 +74,21 @@ fn index_payload_is_well_formed_html() {
     );
 }
 
-/// Build-provenance and brand markers must be gone from the embedded
-/// page: the bundler's `define` step and the HTML template replace the
-/// source identifiers with the stamp tokens, and build.rs replaces the
-/// tokens with the revision, the time and the brand. A leftover of
-/// either kind means one of the two steps did not run.
+/// Brand markers must be gone from the embedded page: the bundler's
+/// `define` step and the HTML template replace the source identifiers
+/// with the stamp tokens, and build.rs replaces the tokens with the
+/// brand. A leftover of either kind means one of the two steps did not
+/// run.
 #[test]
 fn index_payload_has_no_unsubstituted_build_markers() {
     let html = decompress(crate::INDEX_HTML_GZ);
-    assert!(!html.contains("__BUILD_REV__"), "build rev not injected");
-    assert!(!html.contains("__BUILD_TIME__"), "build time not injected");
     assert!(!html.contains("__BRAND_NAME__"), "brand name not injected");
-    assert!(
-        !html.contains("@UBOS_WEBUI_BUILD_REV@"),
-        "build rev not stamped"
-    );
-    assert!(
-        !html.contains("@UBOS_WEBUI_BUILD_TIME@"),
-        "build time not stamped"
-    );
     for token in BRAND_TOKENS {
         assert!(!html.contains(token), "{token} not stamped");
     }
     assert!(
         html.contains(BRAND_NAME),
         "page does not carry the brand name {BRAND_NAME}"
-    );
-    assert!(
-        !html.contains("{{BUILD_REV}}"),
-        "stale template marker present"
     );
 }
 
@@ -212,8 +198,6 @@ fn login_payload_is_well_formed_and_within_budget() {
     let html = decompress(crate::LOGIN_HTML_GZ);
     assert!(html.starts_with("<!DOCTYPE html>"));
     assert!(html.trim_end().ends_with("</html>"));
-    assert!(!html.contains("__BUILD_REV__"));
-    assert!(!html.contains("@UBOS_WEBUI_BUILD_REV@"));
     for token in BRAND_TOKENS {
         assert!(!html.contains(token), "{token} not stamped");
     }
