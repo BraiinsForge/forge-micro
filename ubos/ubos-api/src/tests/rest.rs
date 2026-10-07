@@ -62,7 +62,7 @@ fn validate_board_name_rejects_backslash() {
 /// Pinned exactly, as [`WORST_CASE_BODY_LEN`] is and for the same reason:
 /// a field addition that still fits the buffer fails here, and updating
 /// this constant is the prompt to check the buffer's comment.
-const WORST_CASE_INFO_BODY_LEN: usize = 1425;
+const WORST_CASE_INFO_BODY_LEN: usize = 1418;
 
 /// The `/api/info` body assembler in `rest.rs` writes into a fixed
 /// `[u8; API_INFO_BODY_BUFFER_SIZE]` buffer via `BufferWriter`, which
@@ -90,8 +90,8 @@ const WORST_CASE_INFO_BODY_LEN: usize = 1425;
 /// - `resetReason`: `"watchdogTimeout"` (15 chars, longest variant).
 /// - `resetWritePhase`: `"flashDone"` (9 chars, longest variant).
 /// - `previousVersion`: `Some(u32::MAX)` (10 digits, longer than `null`).
-/// - `runningBuild`: `Some` of `crate::ota::MAX_BUILD_ID_LEN` double
-///   quotes, the most the registration keeps of a build id with every
+/// - `build`: `crate::ota::MAX_BUILD_ID_LEN` double quotes, the most
+///   the service keeps of a build id with every
 ///   character escaped by `write_json_str` to two bytes. The quote is
 ///   the widest character a build id can carry, for the reason
 ///   `write_json_str` gives.
@@ -130,6 +130,9 @@ fn api_info_body_fits_in_buffer() {
     let paused = true;
     let pause_reason = "temperatureUnreadable";
     let chip_reading_stale = false;
+    // The escaped form the handler's `write_json_str` emits for a build
+    // id of MAX_BUILD_ID_LEN double quotes; see the worst-case list above.
+    let build = "\\\"".repeat(crate::ota::MAX_BUILD_ID_LEN);
 
     let mut body = std::format!(
         "{{\"name\":\"{board_name}\",\
@@ -153,7 +156,8 @@ fn api_info_body_fits_in_buffer() {
          \"pause_reason\":\"{pause_reason}\",\
          \"ip\":\"255.255.255.255\",\
          \"mac\":\"ff:ff:ff:ff:ff:ff\",\
-         \"time\":\"23:59:59 UTC\""
+         \"time\":\"23:59:59 UTC\",\
+         \"build\":\"{build}\""
     );
 
     // Chains array: the handler emits one entry per
@@ -186,9 +190,6 @@ fn api_info_body_fits_in_buffer() {
     // OTA block with all fields populated.
     let running_slot = "ACTIVE";
     let running_version = u32::MAX;
-    // The escaped form the handler's `write_json_str` emits for a build
-    // id of MAX_BUILD_ID_LEN double quotes; see the worst-case list above.
-    let running_build = "\\\"".repeat(crate::ota::MAX_BUILD_ID_LEN);
     let has_previous_image = true;
     let previous_version = u32::MAX;
     let phase_str = "rebooting";
@@ -204,7 +205,6 @@ fn api_info_body_fits_in_buffer() {
         body,
         ",\"ota\":{{\"runningSlot\":\"{running_slot}\",\
          \"runningVersion\":{running_version},\
-         \"runningBuild\":\"{running_build}\",\
          \"hasPreviousImage\":{has_previous_image},\
          \"previousVersion\":{previous_version}"
     );

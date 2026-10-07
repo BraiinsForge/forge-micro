@@ -42,10 +42,6 @@ pub struct OtaInfo {
     pub running_slot: &'static str,
     /// Version number embedded in the currently-running firmware image.
     pub running_version: u32,
-    /// The build id stamped into the running image, or `null` where the
-    /// board stamps none. Cut to [`crate::ota::MAX_BUILD_ID_LEN`]
-    /// bytes, which the body buffers are sized for.
-    pub running_build: Option<&'static str>,
     /// `true` when a previous image is present in the inactive slot.
     pub has_previous_image: bool,
     /// Version number of the image in the inactive slot, or `null`
@@ -110,6 +106,11 @@ pub struct SystemInfo<'response> {
     /// The control board's product name, reported verbatim from
     /// `ControlBoardDescriptor::name`, e.g. `"W6100-EVB-Pico2"`.
     pub board_name: &'response str,
+    /// The build id the board stamped: the tip of the checkout it was built
+    /// from and the build time, the same id the package file is named by.
+    /// Cut to [`crate::ota::MAX_BUILD_ID_LEN`] bytes, which the body
+    /// buffers are sized for.
+    pub build: &'response str,
     /// Network hostname. Set to the operator-configured hostname from
     /// `Config.network.hostname` when one has been saved; falls back
     /// to `board_name` when the stored hostname is empty.

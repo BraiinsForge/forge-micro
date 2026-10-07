@@ -96,7 +96,7 @@ mod tests;
 /// 950 bytes with all string fields at their maximums: a ~600-byte base
 /// plus roughly 350 bytes for `hwInfo`, whose string fields (bootloader
 /// and fan-controller versions, PSU model, three hashboard serials) each
-/// hold up to `HW_STRING_LEN` characters, and the OTA block's build id.
+/// hold up to `HW_STRING_LEN` characters, and the build id.
 /// The build id is written through a JSON string escaper, so its worst
 /// case is twice `crate::ota::MAX_BUILD_ID_LEN` rather than that bound
 /// itself, for the reason `rest::write_json_str` gives. 2048
@@ -278,6 +278,7 @@ async fn handle_info<T, const N: usize>(
     connection: &mut Connection<'_, T, N>,
     scratch: &mut [u8],
     board_name: &'static str,
+    build: &'static str,
     psu: ubos_psu::Handle,
     mining_info: &'static ubos_config::MiningInfo,
     thermal: ThermalHandle,
@@ -336,6 +337,7 @@ where
     let info = SystemInfo {
         api_variant: API_VARIANT,
         board_name,
+        build,
         hostname,
         hashrate: hashrate_hps,
         uptime_seconds,
@@ -1874,7 +1876,7 @@ pub(crate) fn route(method: &str, path: &str) -> DispatchOutcome {
 /// `RestApiService::handle`; exposing this directly would let an
 /// outside caller bypass those checks.
 // The argument count comes from threading `stack`
-// through the existing board_name/psu/thermal/manager set. A context
+// through the existing board_name/build/psu/thermal/manager set. A context
 // struct would reduce the count but add indirection without simplifying
 // the callers.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -1884,6 +1886,7 @@ pub(crate) async fn dispatch<T, const N: usize>(
     path: &str,
     body: &[u8],
     board_name: &'static str,
+    build: &'static str,
     psu: ubos_psu::Handle,
     mining_info: &'static ubos_config::MiningInfo,
     thermal: ThermalHandle,
@@ -1906,7 +1909,16 @@ where
             write_method_not_allowed(connection, allowed).await?;
         }
         DispatchOutcome::Handled(Route::SystemInfo) => {
-            handle_info(connection, scratch, board_name, psu, mining_info, thermal).await?;
+            handle_info(
+                connection,
+                scratch,
+                board_name,
+                build,
+                psu,
+                mining_info,
+                thermal,
+            )
+            .await?;
         }
         DispatchOutcome::Handled(Route::SystemAsic) => {
             handle_asic(connection, scratch, mining_info).await?;

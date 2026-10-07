@@ -136,6 +136,9 @@ const fn validate_board_name(name: &str) -> bool {
 pub struct RestApiService {
     /// The control board's product name, e.g. `"W6100-EVB-Pico2"`.
     pub(crate) board_name: &'static str,
+    /// The build id the board stamped, cut to
+    /// [`crate::ota::MAX_BUILD_ID_LEN`] bytes.
+    pub(crate) build: &'static str,
     pub(crate) mining_info: &'static ubos_config::MiningInfo,
     pub(crate) bounds: &'static ubos_config::MiningBounds,
     pub(crate) thermal: ThermalHandle,
@@ -150,9 +153,13 @@ impl RestApiService {
     /// Pass the returned value to a `StaticCell::init` so its address
     /// is fixed for the firmware lifetime, then hand the `&'static`
     /// reference to each worker task spawned with `http_worker_task!`.
+    // Each argument is a field the service holds. A parameter struct
+    // would carry the same fields under one more name.
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         board_name: &'static str,
+        build: &'static str,
         mining_info: &'static ubos_config::MiningInfo,
         bounds: &'static ubos_config::MiningBounds,
         thermal: ThermalHandle,
@@ -162,6 +169,7 @@ impl RestApiService {
     ) -> Self {
         Self {
             board_name,
+            build: crate::ota::truncate_build_id(build),
             mining_info,
             bounds,
             thermal,
@@ -173,11 +181,8 @@ impl RestApiService {
 }
 
 /// Write `text` as a JSON string. Every other string in the info body
-/// is a literal this crate spells, but the build id carries a git tag
-/// name, and a tag may hold a quote, which would end the body.
-/// `git check-ref-format` refuses a backslash and every control
-/// character in a ref name, so those two escapes hold only for a build
-/// id that did not come from a tag.
+/// is a literal this crate spells, but the build id comes from the build
+/// environment, which can hand it whole with a quote or a backslash in it.
 fn write_json_str(writer: &mut ubos_http::BufferWriter<'_>, text: &str) -> core::fmt::Result {
     writer.write_str("\"")?;
     for c in text.chars() {
@@ -433,6 +438,7 @@ impl Service for RestApiService {
                 path,
                 body,
                 self.board_name,
+                self.build,
                 self.psu,
                 self.mining_info,
                 self.thermal,
@@ -580,7 +586,8 @@ impl Service for RestApiService {
                     let time = ubos_net::ntp::format_utc_time(unix_secs);
                     let _ = writer.write_str(time.as_str());
                 }
-                let _ = writer.write_str("\"");
+                let _ = writer.write_str("\",\"build\":");
+                let _ = write_json_str(&mut writer, self.build);
 
                 // OTA block: the dashboard polls /api/info and only renders
                 // the firmware card when this field is present. Read from
@@ -590,22 +597,10 @@ impl Service for RestApiService {
                         writer,
                         ",\"ota\":{{\"runningSlot\":\"{}\",\
                          \"runningVersion\":{},\
-                         \"runningBuild\":",
+                         \"hasPreviousImage\":{},\
+                         \"previousVersion\":",
                         ota.running_slot,
                         ota.running_version,
-                    );
-                    match ota.running_build {
-                        Some(build) => {
-                            let _ = write_json_str(&mut writer, build);
-                        }
-                        None => {
-                            let _ = writer.write_str("null");
-                        }
-                    }
-                    let _ = core::write!(
-                        writer,
-                        ",\"hasPreviousImage\":{},\
-                         \"previousVersion\":",
                         ota.has_previous_image,
                     );
                     match ota.previous_version {

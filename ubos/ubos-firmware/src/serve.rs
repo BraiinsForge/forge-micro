@@ -130,6 +130,7 @@ macro_rules! serve_all {
                 prefix: ubos_api::PATH_PREFIX,
                 matched: ubos_api::RestApiService::new(
                     $machine.control_board.name,
+                    env!("BUILD_ID"),
                     $mining_info,
                     $bounds,
                     thermal,

@@ -385,8 +385,8 @@ pub(crate) fn reset_diag() -> Option<ResetDiag> {
 static OTA_INFO: Watch<CriticalSectionRawMutex, OtaInfo, 1> = Watch::new();
 
 /// The most bytes of a build id the info bodies carry. The build
-/// script bounds nothing, since a tag name is part of the id, so the
-/// bound stands here where the body buffers are sized. How a longer id
+/// environment can hand the id whole and bounds nothing, so the bound
+/// stands here where the body buffers are sized. How a longer id
 /// is cut is [`truncate_build_id`]'s to say. A packer outside this tree
 /// holds its own copy of this number, and a check in that repo compares
 /// the two. That check reads this constant through its pinned copy of
@@ -396,10 +396,10 @@ static OTA_INFO: Watch<CriticalSectionRawMutex, OtaInfo, 1> = Watch::new();
 pub const MAX_BUILD_ID_LEN: usize = 48;
 
 /// `build` cut to at most [`MAX_BUILD_ID_LEN`] bytes, at the last
-/// character boundary at or below it. A tag name is part of the id and
-/// nothing holds it to ASCII, and the bound is what the info bodies are
-/// sized for, so the cut lands short of it rather than past it.
-fn truncate_build_id(build: &'static str) -> &'static str {
+/// character boundary at or below it. Nothing holds the id to ASCII, and
+/// the bound is what the info bodies are sized for, so the cut lands short
+/// of it rather than past it.
+pub(crate) fn truncate_build_id(build: &'static str) -> &'static str {
     let mut end = MAX_BUILD_ID_LEN.min(build.len());
     while !build.is_char_boundary(end) {
         end -= 1;
@@ -444,7 +444,6 @@ pub async fn register_ota_target(target: &'static mut dyn OtaTarget) {
     OTA_INFO.sender().send(OtaInfo {
         running_slot: target.running_slot_label(),
         running_version: target.running_version(),
-        running_build: target.running_build().map(truncate_build_id),
         has_previous_image: target.has_previous_image(),
         previous_version: target.previous_version(),
         max_image_bytes: target.max_image_bytes(),
@@ -516,15 +515,6 @@ pub trait OtaTarget: Send {
     fn bytes_written(&self) -> Option<usize>;
     /// Version number embedded in the currently-running firmware image.
     fn running_version(&self) -> u32;
-
-    /// The build id stamped into the running image, where the board's
-    /// build script stamps one. It names the sources the image was built
-    /// from, which the version number does not, so an operator can match
-    /// the running image to the file it was flashed from. The response
-    /// carries at most [`MAX_BUILD_ID_LEN`] bytes of it.
-    fn running_build(&self) -> Option<&'static str> {
-        None
-    }
 
     /// Human-readable label for the currently-running slot.
     ///

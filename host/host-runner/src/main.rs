@@ -497,6 +497,7 @@ fn main() {
             prefix: ubos_api::PATH_PREFIX,
             matched: ubos_api::RestApiService::new(
                 BOARD_NAME,
+                env!("BUILD_ID"),
                 &MINING_INFO,
                 &BOUNDS,
                 thermal,

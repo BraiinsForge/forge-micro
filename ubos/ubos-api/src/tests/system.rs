@@ -701,18 +701,20 @@ fn serialize_system_info(
     pause_reason: Option<&'static str>,
     hw_info: crate::schema::system_info::HwInfo,
 ) -> std::string::String {
-    serialize_system_info_with_ota(paused, pause_reason, hw_info, None)
+    serialize_system_info_with_ota(paused, pause_reason, hw_info, "test", None)
 }
 
 fn serialize_system_info_with_ota(
     paused: bool,
     pause_reason: Option<&'static str>,
     hw_info: crate::schema::system_info::HwInfo,
+    build: &'static str,
     ota: Option<crate::schema::system_info::OtaInfo>,
 ) -> std::string::String {
     let info = crate::schema::SystemInfo {
         api_variant: crate::schema::API_VARIANT,
         board_name: "test",
+        build,
         hostname: "test",
         hashrate: 0,
         uptime_seconds: 0,
@@ -819,7 +821,7 @@ fn system_info_hw_info_serializes_published_versions() {
 /// fails here, and updating this constant is the prompt to check the
 /// comment on `SCRATCH_SIZE`. The `const` block holds the claim that
 /// comment makes, so the pinned length cannot be moved past the buffer.
-const WORST_CASE_SYSTEM_INFO_LEN: usize = 1085;
+const WORST_CASE_SYSTEM_INFO_LEN: usize = 1078;
 const _: () = assert!(WORST_CASE_SYSTEM_INFO_LEN <= super::SCRATCH_SIZE);
 
 /// The scratch buffer `system.rs` serializes into must hold the largest
@@ -863,14 +865,18 @@ fn worst_case_system_info_fits_the_scratch_buffer() {
     let ota = crate::schema::system_info::OtaInfo {
         running_slot: "INACTIVE",
         running_version: u32::MAX,
-        running_build: Some(leaked(b'"', MAX_BUILD_ID_LEN)),
         has_previous_image: true,
         previous_version: Some(u32::MAX),
         max_image_bytes: u64::MAX,
     };
 
-    let json =
-        serialize_system_info_with_ota(true, Some("temperatureUnreadable"), hw_info, Some(ota));
+    let json = serialize_system_info_with_ota(
+        true,
+        Some("temperatureUnreadable"),
+        hw_info,
+        leaked(b'"', MAX_BUILD_ID_LEN),
+        Some(ota),
+    );
     assert_eq!(
         json.len(),
         WORST_CASE_SYSTEM_INFO_LEN,
