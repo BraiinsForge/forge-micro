@@ -187,6 +187,18 @@ const _: () = assert!(
     "KEY_CAPACITY is below the longest key a metric renders"
 );
 
+/// Characters of the widest integer a line carries, the digits of
+/// `u64::MAX`. `i64::MIN` is one digit shorter and takes that place with
+/// its sign.
+const MAX_INTEGER_CHARS: usize = u64::MAX.ilog10() as usize + 1;
+
+/// Bytes the longest series line takes in a scrape: the key, a space, an
+/// integer value, a space, the millisecond timestamp, and the newline. A
+/// board sizes its render buffer as this times its series cap, so the
+/// buffer holds a full map.
+pub const METRIC_LINE_BYTES: usize =
+    KEY_CAPACITY + 1 + MAX_INTEGER_CHARS + 1 + MAX_INTEGER_CHARS + 1;
+
 #[derive(PartialEq, Eq, Hash)]
 struct MetricKey(heapless::String<KEY_CAPACITY>);
 

@@ -174,7 +174,7 @@ pub const MAX_METRICS: usize = 64;
 
 /// Bytes of the buffer one scrape is rendered into. It holds every series
 /// in the map at once, so it moves with [`MAX_METRICS`].
-pub const METRICS_RESPONSE_BYTES: usize = 4096;
+pub const METRICS_RESPONSE_BYTES: usize = MAX_METRICS * ubos_metrics::metrics::METRIC_LINE_BYTES;
 
 impl Board<'static> {
     /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`

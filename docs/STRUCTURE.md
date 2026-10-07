@@ -231,11 +231,13 @@ Per-board RAM headroom after the multipool change (one stratum
 session task per pool slot; the per-slot task future is ~15 KiB).
 Numbers reflect a release build at the point this snapshot was
 taken; Main RAM sums the `.data`/`.bss`/`.uninit` sections,
-reproduce with the `cargo size` recipe below.
+reproduce with the `cargo size` recipe below. A row marked "est." is
+not measured. It is the last measurement plus the larger metrics render
+buffer.
 
 | Board     | Flash     | Main RAM   | CCM RAM      | Headroom note                                  |
 |-----------|-----------|------------|--------------|------------------------------------------------|
-| hashnode  | 515 / 2048 KiB | 357 / 512 KiB (70%) | —   | comfortable                                    |
+| hashnode  | 576 / 2048 KiB | ~406 / 512 KiB (79%, est.) | — | comfortable; ~106 KiB free     |
 
 The rows for the evaluation and adapter boards live in
 [BOARDS.md](BOARDS.md).
@@ -257,7 +259,11 @@ statics should still carry:
 Each board states the size of the Prometheus exposition map as
 `MAX_METRICS` and `METRICS_RESPONSE_BYTES` in its own `config.rs`, and
 `ubos_firmware::serve_all!` declares the statics from there. Every board
-in this tree holds 64 series in 4096 bytes.
+in this tree holds 128 series, except `esp32s3`, `stm32f407` and
+`stm32f439`, which hold 64. The RAM of these three boards does not hold
+the larger map. On every board except the two STM32 boards, the buffer
+has `METRIC_LINE_BYTES` for each series, so it holds a full map. The two
+STM32 boards keep 4096 bytes.
 
 Reproduce with:
 

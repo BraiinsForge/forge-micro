@@ -163,16 +163,17 @@ OTA image build.
 
 Rows for the boards in this repository, split out of the footprint
 table in [STRUCTURE.md](STRUCTURE.md); the snapshot caveats and the
-measurement recipe are there.
+measurement recipe are there. A row marked "est." is not measured. It
+is the last measurement plus the larger metrics render buffer.
 
 | Board     | Flash     | Main RAM   | CCM RAM      | Headroom note                                  |
 |-----------|-----------|------------|--------------|------------------------------------------------|
-| bmm-pico  | 537 / 2048 KiB | 356 / 512 KiB (70%) | —   | comfortable                                    |
-| rp2040    | 558 / 2048 KiB | 211 / 256 KiB (83%) | —   | tightening; ~45 KiB free                       |
-| rp2350    | 539 / 2048 KiB | 357 / 512 KiB (70%) | —   | comfortable                                    |
-| stm32f407 | 582 / 1024 KiB | 125 / 128 KiB (98%) | 13 / 64 KiB CCM | at the limit: ~2.7 KiB stack headroom; runs a single pool slot (`POOL_SLOTS = 1`); any new static must go to CCM, and CCM-relocating COMMAND_CHANNEL / METRICS / mDNS UDP_BUFFERS (~15 KiB) is the queued relief |
-| stm32f439 | 582 / 2048 KiB | 156 / 192 KiB (81%) | 13 / 64 KiB CCM | OK; ~36 KiB free                           |
-| esp32s3   | 787 / 8192 KiB | 280 / 320 KiB DRAM (88%) | — | watch; ~40 KiB DRAM free                   |
+| bmm-pico  | 566 / 2048 KiB | ~406 / 512 KiB (79%, est.) | — | comfortable; ~106 KiB free     |
+| rp2040    | 590 / 2048 KiB | 245 / 256 KiB (96%) | —   | tight; ~10.7 KiB free. The board holds the full 128-series map, which costs it about 19 KiB over a 64-series one. Dropping its `MAX_METRICS` to 64 is the first relief if a new static needs the room |
+| rp2350    | 567 / 2048 KiB | ~406 / 512 KiB (79%, est.) | — | comfortable; ~106 KiB free     |
+| stm32f407 | 621 / 1024 KiB | 118 / 128 KiB (92%) | 35 / 64 KiB CCM | tight; ~9.6 KiB free. Runs a single pool slot (`POOL_SLOTS = 1`), and any new static must go to CCM |
+| stm32f439 | 622 / 2048 KiB | 155 / 192 KiB (81%) | 28 / 64 KiB CCM | OK; ~36 KiB free                           |
+| esp32s3   | 826 / 8192 KiB | 284 / 320 KiB DRAM (89%) | — | tight; ~36 KiB DRAM free. Holds 64 series, because the 128-series map and its buffer leave less than the 24 KiB boot stack floor |
 
 Reproduce the esp32s3 numbers with the commands below. The workspace
 puts its build output at the root, so the size tool is pointed there and

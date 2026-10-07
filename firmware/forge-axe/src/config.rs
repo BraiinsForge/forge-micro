@@ -172,11 +172,11 @@ pub const MINING_INFO: ubos_config::MiningInfo =
 /// Distinct series the Prometheus exposition map holds. The map is keyed
 /// by the label-expanded series, and a series that does not fit is
 /// dropped with a warning. Must be a power of two, which the map requires.
-pub const MAX_METRICS: usize = 64;
+pub const MAX_METRICS: usize = 128;
 
 /// Bytes of the buffer one scrape is rendered into. It holds every series
 /// in the map at once, so it moves with [`MAX_METRICS`].
-pub const METRICS_RESPONSE_BYTES: usize = 4096;
+pub const METRICS_RESPONSE_BYTES: usize = MAX_METRICS * ubos_metrics::metrics::METRIC_LINE_BYTES;
 
 impl Board {
     /// DNS-safe base hostname for mDNS. See `ubos_mdns::compose_hostname`

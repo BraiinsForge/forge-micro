@@ -392,8 +392,8 @@ once, and a third request costs the page its wordmark.
 | `CSRF_TTL_SECS`                   | 3 600      | `ubos-auth/src/csrf.rs`               |
 | `http_pool`                       | 1 to 8     | `ubos-machine/src/control_board.rs`   |
 | `metrics_http_pool`               | 1 to 5     | `ubos-machine/src/control_board.rs`   |
-| `MAX_METRICS`                     | 64         | each board's `src/config.rs`          |
-| `METRICS_RESPONSE_BYTES`          | 4096 B     | each board's `src/config.rs`          |
+| `MAX_METRICS`                     | per board  | each board's `src/config.rs`          |
+| `METRICS_RESPONSE_BYTES`          | per board  | each board's `src/config.rs`          |
 
 Each listener is served by a fixed pool of accept-loop workers. Port 80
 keeps a connection alive, so an open dashboard holds one slot for as
@@ -402,7 +402,11 @@ model, the per-board depths, and the RAM bound that caps them.
 
 The last two rows are the exposition map and its render buffer. Each
 board states them in its own `config.rs`. Every board in this tree
-holds 64 series in 4096 bytes. See "Footprint" in `docs/STRUCTURE.md`.
+holds 128 series, except `esp32s3`, `stm32f407` and `stm32f439`, which
+hold 64. The RAM of these three boards does not hold the larger map. On
+every board except the two STM32 boards, the buffer has
+`METRIC_LINE_BYTES` for each series, so it holds a full map.
+See "Footprint" in `docs/STRUCTURE.md`.
 
 ## Out of scope
 

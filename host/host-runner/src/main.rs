@@ -104,9 +104,11 @@ const HTTP_POOL: usize = 8;
 /// fan-in is served concurrently.
 const METRICS_HTTP_POOL: usize = 5;
 
-/// Exposition sizing for the host runner, the shape every board uses.
-const MAX_METRICS: usize = 64;
-const METRICS_RESPONSE_BYTES: usize = 4096;
+/// Exposition sizing for the host runner. A host has the RAM, so it
+/// takes the larger of the two shapes the boards use and never drops a
+/// series the firmware would have kept.
+const MAX_METRICS: usize = 128;
+const METRICS_RESPONSE_BYTES: usize = MAX_METRICS * ubos_metrics::metrics::METRIC_LINE_BYTES;
 
 /// The web UI and the REST API behind one prefix, which is what the one
 /// pool below serves.
