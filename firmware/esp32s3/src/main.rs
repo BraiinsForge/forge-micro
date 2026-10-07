@@ -102,8 +102,6 @@ ubos_firmware::net_task!(Device<'static>);
 
 ubos_net::ntp_sync_task!();
 
-ubos_metrics::metrics_ingest_task!();
-
 const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
     &ubos_webui::WEBUI_SERVICE,
     &ubos_api::REST_API_SERVICE,
@@ -181,7 +179,13 @@ ubos_core::reset_task!(esp_hal::system::software_reset());
 
 ubos_api::sync_credentials_task!();
 
-ubos_firmware::serve_all!(config::MACHINE, &config::MINING_INFO, &config::BOUNDS);
+ubos_firmware::serve_all!(
+    config::MACHINE,
+    &config::MINING_INFO,
+    &config::BOUNDS,
+    config::MAX_METRICS,
+    config::METRICS_RESPONSE_BYTES,
+);
 
 ubos_net::network_control_task!();
 

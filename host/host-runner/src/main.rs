@@ -104,16 +104,22 @@ const HTTP_POOL: usize = 8;
 /// fan-in is served concurrently.
 const METRICS_HTTP_POOL: usize = 5;
 
+/// Exposition sizing for the host runner, the shape every board uses.
+const MAX_METRICS: usize = 64;
+const METRICS_RESPONSE_BYTES: usize = 4096;
+
 /// The web UI and the REST API behind one prefix, which is what the one
 /// pool below serves.
 type HttpService = ubos_http::PrefixRouter<ubos_api::RestApiService, ubos_webui::DashboardService>;
 
+/// The exposition handler, sized to the statics it serves.
+type MetricsService =
+    ubos_metrics::metrics::PrometheusMetricsService<MAX_METRICS, METRICS_RESPONSE_BYTES>;
+
+ubos_metrics::metrics_statics!(METRICS_STATICS, MAX_METRICS, METRICS_RESPONSE_BYTES);
+
 ubos_http::http_worker_task!(http_worker_task, HttpService, HTTP_POOL);
-ubos_http::http_worker_task!(
-    metrics_worker_task,
-    ubos_metrics::metrics::PrometheusMetricsService,
-    METRICS_HTTP_POOL
-);
+ubos_http::http_worker_task!(metrics_worker_task, MetricsService, METRICS_HTTP_POOL);
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 static RESOURCES: StaticCell<StackResources<SOCKET_COUNT>> = StaticCell::new();
@@ -208,7 +214,7 @@ async fn ntp_sync_task(stack: Stack<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn metrics_ingest_task() -> ! {
-    ubos_metrics::metrics::run_ingest().await
+    ubos_metrics::metrics::run_ingest(&METRICS_STATICS).await
 }
 
 const MDNS_SERVICES: &[&ubos_mdns::ServiceEntry] = &[
@@ -532,8 +538,7 @@ fn main() {
         > = ConstStaticCell::new(
             [0; ubos_metrics::consts::Metrics::REQUEST_BUFFER_SIZE * METRICS_HTTP_POOL],
         );
-        static METRICS_SERVICE: ubos_metrics::metrics::PrometheusMetricsService =
-            ubos_metrics::metrics::PrometheusMetricsService;
+        static METRICS_SERVICE: MetricsService = MetricsService::new(&METRICS_STATICS);
         let metrics_tcp: &'static edge_nal_embassy::Tcp<'static> =
             METRICS_TCP_NAL.init(edge_nal_embassy::Tcp::new(stack, METRICS_TCP_BUFFERS.take()));
         let metrics_acceptor = embassy_futures::block_on(ubos_http::bind_tcp(

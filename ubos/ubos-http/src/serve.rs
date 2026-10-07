@@ -355,7 +355,7 @@ pub fn split_work_buffer<const N: usize>(
 /// // In the board crate:
 /// ubos_http::http_worker_task!(
 ///     metrics_worker_task,
-///     ubos_metrics::metrics::PrometheusMetricsService,
+///     ubos_metrics::metrics::PrometheusMetricsService<64, 4096>,
 ///     METRICS_POOL
 /// );
 ///
@@ -450,7 +450,7 @@ macro_rules! http_pool_static {
 /// ```ignore
 /// ubos_http::http_worker_task!(
 ///     metrics_worker_task,
-///     ubos_metrics::metrics::PrometheusMetricsService,
+///     ubos_metrics::metrics::PrometheusMetricsService<64, 4096>,
 ///     METRICS_POOL
 /// );
 ///

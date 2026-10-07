@@ -37,7 +37,9 @@ use embassy_time::MockDriver;
 use ubos_config::{Config, FanMode};
 use ubos_core::units::FanPwm;
 
-use super::tests_harness::{FakeTach, LOOP_MUTEX, RecordingFan, Upstream, drive, moderate_reading};
+use super::tests_harness::{
+    FakeTach, LOOP_MUTEX, METRICS_STATICS, RecordingFan, Upstream, drive, moderate_reading,
+};
 use super::{CONTROL_INTERVAL, handle, run_cooling, stale_timeout};
 
 /// Duty the operator picks first. Below the default 20% PID floor, which is
@@ -86,7 +88,7 @@ fn fixed_mode_holds_the_duty_under_the_failsafes() {
         UPSTREAM.thermal(),
         UPSTREAM.config()
     ));
-    let mut ingest = pin!(ubos_metrics::metrics::run_ingest());
+    let mut ingest = pin!(ubos_metrics::metrics::run_ingest(&METRICS_STATICS));
 
     // Behavior 1: the fan comes up on the configured duty before any reading
     // is acted on, so a board that boots in fixed mode never runs the fan at

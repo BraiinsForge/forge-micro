@@ -43,7 +43,9 @@ use core::pin::pin;
 use embassy_time::MockDriver;
 use ubos_core::units::FanPwm;
 
-use super::tests_harness::{FakeTach, LOOP_MUTEX, RecordingFan, Upstream, drive, moderate_reading};
+use super::tests_harness::{
+    FakeTach, LOOP_MUTEX, METRICS_STATICS, RecordingFan, Upstream, drive, moderate_reading,
+};
 use super::{CONTROL_INTERVAL, handle, run_cooling, stale_timeout};
 
 #[test]
@@ -78,7 +80,7 @@ fn staleness_failsafe_forces_and_releases_full_fan() {
         UPSTREAM.thermal(),
         UPSTREAM.config()
     ));
-    let mut ingest = pin!(ubos_metrics::metrics::run_ingest());
+    let mut ingest = pin!(ubos_metrics::metrics::run_ingest(&METRICS_STATICS));
 
     drive(cooling.as_mut(), ingest.as_mut());
     // Behavior 0: the fan comes up on the PID floor before any reading is

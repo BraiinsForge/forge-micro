@@ -25,7 +25,16 @@
 /// declares from the boot path:
 ///
 /// ```ignore
-/// ubos_firmware::serve_all!(config::MACHINE, &config::MINING_INFO, &config::BOUNDS);
+/// ubos_firmware::serve_all!(
+///     config::MACHINE,
+///     &config::MINING_INFO,
+///     &config::BOUNDS,
+///     config::MAX_METRICS,
+///     config::METRICS_RESPONSE_BYTES,
+/// );
+///
+/// // From the boot path, before the stack is up:
+/// spawner.spawn(unwrap!(metrics_ingest_task()));
 ///
 /// // Once the stack has an address:
 /// serve_all(spawner, stack, thermal, manager_handle).await;
@@ -49,9 +58,32 @@
 /// must invoke [`sync_credentials_task!`](crate::sync_credentials_task)
 /// too. That is the same pairing `ubos_http::serve_http_pool!` has with
 /// `ubos_http::http_worker_task!`, one level up.
+///
+/// Beside the function it declares the exposition map and render buffer,
+/// sized by `$max_metrics` and `$metrics_response_bytes` from the board's
+/// `config.rs`, and the ingestion task that is their sole writer. Both
+/// are items rather than locals of the function, because a board spawns
+/// ingestion as soon as the executor runs and does not wait for the stack
+/// to come up: a publisher that pushed before then would block on a full
+/// channel.
 #[macro_export]
 macro_rules! serve_all {
-    ($machine:expr, $mining_info:expr, $bounds:expr $(,)?) => {
+    (
+        $machine:expr,
+        $mining_info:expr,
+        $bounds:expr,
+        $max_metrics:expr,
+        $metrics_response_bytes:expr $(,)?
+    ) => {
+        ubos_metrics::metrics_statics!(METRICS_STATICS, $max_metrics, $metrics_response_bytes);
+
+        /// Fold pushed metrics into the exposition map. Spawn once, from
+        /// the boot path, before the stack is up.
+        #[embassy_executor::task]
+        async fn metrics_ingest_task() -> ! {
+            ubos_metrics::metrics::run_ingest(&METRICS_STATICS).await
+        }
+
         /// Bind the HTTP and metrics listeners, and spawn a worker pool
         /// for each.
         ///
@@ -75,12 +107,14 @@ macro_rules! serve_all {
             type HttpService =
                 $crate::PrefixRouter<ubos_api::RestApiService, ubos_webui::DashboardService>;
 
+            /// The exposition handler, sized to the statics it serves.
+            type MetricsService = ubos_metrics::metrics::PrometheusMetricsService<
+                { $max_metrics },
+                { $metrics_response_bytes },
+            >;
+
             $crate::http_worker_task!(http_worker_task, HttpService, HTTP_POOL);
-            $crate::http_worker_task!(
-                metrics_worker_task,
-                ubos_metrics::metrics::PrometheusMetricsService,
-                METRICS_POOL
-            );
+            $crate::http_worker_task!(metrics_worker_task, MetricsService, METRICS_POOL);
 
             // The web UI and the REST API on :80. Seed both credential
             // stores once, then spawn one worker task per pool slot so
@@ -116,8 +150,7 @@ macro_rules! serve_all {
             spawner.spawn(::defmt::unwrap!(sync_credentials_task()));
 
             // Prometheus metrics on :8081.
-            static METRICS_SERVICE: ubos_metrics::metrics::PrometheusMetricsService =
-                ubos_metrics::metrics::PrometheusMetricsService;
+            static METRICS_SERVICE: MetricsService = MetricsService::new(&METRICS_STATICS);
             $crate::serve_http_pool!(
                 spawner,
                 stack,

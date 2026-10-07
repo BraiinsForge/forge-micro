@@ -110,6 +110,22 @@ impl Upstream {
 /// message about the lock.
 pub(crate) static LOOP_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Series slots in the map the ingest task fills. The tests read no
+/// exposition, so any power of two serves.
+const MAX_METRICS: usize = 64;
+
+/// Bytes of the exposition buffer, which no test renders into.
+const METRICS_RESPONSE_BYTES: usize = 4096;
+
+/// The metrics map and exposition buffer `run_ingest` writes into.
+///
+/// One store serves every test, because [`LOOP_MUTEX`] already keeps the
+/// tests sequential and the channel feeding it is shared the same way.
+pub(crate) static METRICS_STATICS: ubos_metrics::metrics::MetricsStatics<
+    MAX_METRICS,
+    METRICS_RESPONSE_BYTES,
+> = ubos_metrics::metrics::MetricsStatics::new();
+
 /// Polls per phase. Wider than `run_thermal`'s, because a phase here
 /// advances the clock by one `stale_timeout` and the loop then works off
 /// every catch-up control tick in that window before it parks.

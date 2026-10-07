@@ -169,10 +169,10 @@ struct StoredValue {
 /// was already being emitted, and the two-label per-chain series that
 /// followed overran the cap and was dropped at runtime for a `warn!`.
 ///
-/// Each byte costs [`Metrics::MAX_METRICS`] bytes of static map, so this
-/// is raised deliberately rather than rounded up. A metric longer than
-/// the constant below must move both, and the test beside it is what
-/// catches one that does not.
+/// Each byte costs one byte per map slot, so a board pays it
+/// `MAX_METRICS` times over and this is raised deliberately rather than
+/// rounded up. A metric longer than the constant below must move both,
+/// and the test beside it is what catches one that does not.
 const KEY_CAPACITY: usize = 80;
 
 /// The longest key the tree renders, in the label-expanded form
@@ -247,30 +247,84 @@ fn push_escaped_label_value(key: &mut heapless::String<KEY_CAPACITY>, value: &st
 static METRICS: Channel<CriticalSectionRawMutex, Metric, { Metrics::CHANNEL_DEPTH }> =
     Channel::new();
 
-/// Current metric values, shared between [`run_ingest`] (the sole
-/// writer) and the exposition workers (readers).
+/// The exposition map and its render buffer, sized by the board.
 ///
-/// Hoisted into a `static` so it can be placed in CCM RAM on boards that
-/// enable the `ccmram-bss` feature; embedding the map in a task future
-/// would force it into `.bss`, which is what blew the stm32f4 main SRAM
-/// during the api refactor.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-static METRIC_MAP: Mutex<
-    CriticalSectionRawMutex,
-    heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
-> = Mutex::new(heapless::index_map::FnvIndexMap::new());
+/// `MAX` is the number of distinct metric series the map holds and must
+/// be a power of two, the heapless `FnvIndexMap` invariant. The map is
+/// keyed by the fully label-expanded series, so per-CPU and per-LM75A
+/// label combinations each consume one slot; a board with three chains
+/// and three pools pushes about 90. `BODY` is the exposition body
+/// buffer, which has to hold every rendered series at once.
+///
+/// Both are a board's RAM budget rather than a property of this crate,
+/// so a board states them in its own `config.rs` and
+/// `ubos_firmware::serve_all!` declares the static from there. See the
+/// Footprint section of `docs/STRUCTURE.md` for the per-board snapshot.
+///
+/// The two live in one static so a board places them together: they are
+/// hoisted out of the task futures that would otherwise carry them,
+/// which is what blew the stm32f4 main SRAM during the api refactor.
+pub struct MetricsStatics<const MAX: usize, const BODY: usize> {
+    /// Current metric values, shared between [`run_ingest`] (the sole
+    /// writer) and the exposition workers (readers).
+    map: Mutex<
+        CriticalSectionRawMutex,
+        heapless::index_map::FnvIndexMap<MetricKey, StoredValue, MAX>,
+    >,
+    /// Exposition render buffer.
+    ///
+    /// A single `Mutex` shared across all exposition workers: with a
+    /// pool depth above one, concurrent scrapes serialize on this lock
+    /// while rendering. [`serve_metrics`] drops the map guard before the
+    /// socket write, so a slow scrape blocks only other scrapes, never
+    /// the ingestion task.
+    body: Mutex<CriticalSectionRawMutex, [u8; BODY]>,
+}
 
-/// Hoisted exposition body buffer. Lives next to `METRIC_MAP` so the
-/// 2 KiB scratch does not ride on a worker's async frame.
+impl<const MAX: usize, const BODY: usize> MetricsStatics<MAX, BODY> {
+    /// An empty map and a zeroed render buffer.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            map: Mutex::new(heapless::index_map::FnvIndexMap::new()),
+            body: Mutex::new([0; BODY]),
+        }
+    }
+}
+
+impl<const MAX: usize, const BODY: usize> Default for MetricsStatics<MAX, BODY> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Declare one [`MetricsStatics`] in CCM RAM.
 ///
-/// A single `Mutex` shared across all exposition workers: with a pool
-/// depth above one, concurrent scrapes serialize on this lock while
-/// rendering. `serve_metrics` drops the `METRIC_MAP` guard before the
-/// socket write, so a slow scrape blocks only other scrapes, never the
-/// ingestion task.
-#[cfg_attr(feature = "ccmram-bss", unsafe(link_section = ".ccmram.bss"))]
-static METRICS_BODY_BUFFER: Mutex<CriticalSectionRawMutex, [u8; Metrics::RESPONSE_BUFFER_SIZE]> =
-    Mutex::new([0; Metrics::RESPONSE_BUFFER_SIZE]);
+/// Mirrors `ubos_http::http_pool_static!`, and for the same reason: the
+/// `ccmram-bss` feature has to be read where it is declared. A
+/// `cfg_attr` written inside a macro body resolves against the crate the
+/// macro expands into, which is the board, so the test is made here at
+/// definition and the expansion carries no `cfg` of its own.
+#[cfg(feature = "ccmram-bss")]
+#[macro_export]
+macro_rules! metrics_statics {
+    ($name:ident, $max:expr, $body:expr) => {
+        #[unsafe(link_section = ".ccmram.bss")]
+        static $name: $crate::metrics::MetricsStatics<{ $max }, { $body }> =
+            $crate::metrics::MetricsStatics::new();
+    };
+}
+
+/// Declare one [`MetricsStatics`] in main SRAM. See the `ccmram-bss`
+/// variant.
+#[cfg(not(feature = "ccmram-bss"))]
+#[macro_export]
+macro_rules! metrics_statics {
+    ($name:ident, $max:expr, $body:expr) => {
+        static $name: $crate::metrics::MetricsStatics<{ $max }, { $body }> =
+            $crate::metrics::MetricsStatics::new();
+    };
+}
 
 /// Push a metric into the exposition channel. Awaits if the channel is full.
 pub async fn push(metric: Metric) {
@@ -324,34 +378,24 @@ pub async fn push_slot_metric(name: &'static str, slot: usize, value: Value) {
 
 /// Consume pushed metrics into the shared map.
 ///
-/// The sole writer of [`struct@METRIC_MAP`]. Call this from a firmware
-/// `#[embassy_executor::task]`; the exposition workers spawned via
-/// `serve_http_pool!` with [`PrometheusMetricsService`] read the map this
-/// task keeps current, so the exposition always reflects the latest
-/// pushed values without a drain step on the serve path.
-pub async fn run_ingest() -> ! {
+/// The sole writer of `statics`' map. `ubos_firmware::serve_all!` wraps
+/// this in the board's `#[embassy_executor::task]`; the exposition
+/// workers it spawns beside that task read the map through
+/// [`PrometheusMetricsService`], so the exposition always reflects the
+/// latest pushed values without a drain step on the serve path.
+pub async fn run_ingest<const MAX: usize, const BODY: usize>(
+    statics: &'static MetricsStatics<MAX, BODY>,
+) -> ! {
     loop {
         let metric = METRICS.receive().await;
-        let mut map = METRIC_MAP.lock().await;
+        let mut map = statics.map.lock().await;
         upsert_metric(&mut map, &metric);
     }
 }
 
-/// Task shell around [`run_ingest`]. The body is the same on every
-/// board, so the macro takes nothing.
-#[macro_export]
-macro_rules! metrics_ingest_task {
-    () => {
-        #[embassy_executor::task]
-        async fn metrics_ingest_task() -> ! {
-            ubos_metrics::metrics::run_ingest().await
-        }
-    };
-}
-
 /// Upsert a metric into the map, sorting its labels into a canonical key.
-fn upsert_metric(
-    map: &mut heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
+fn upsert_metric<const MAX: usize>(
+    map: &mut heapless::index_map::FnvIndexMap<MetricKey, StoredValue, MAX>,
     metric: &Metric,
 ) {
     let Some(key) = MetricKey::from_metric(metric) else {
@@ -372,12 +416,22 @@ fn upsert_metric(
 
 /// Prometheus `/metrics` exposition handler.
 ///
-/// A unit [`Service`] shared across all exposition workers. It reads the
-/// shared [`struct@METRIC_MAP`] kept current by [`run_ingest`] and
-/// renders into the shared [`struct@METRICS_BODY_BUFFER`].
-pub struct PrometheusMetricsService;
+/// One [`Service`] shared across all exposition workers. It reads the
+/// map [`run_ingest`] keeps current and renders into the render buffer
+/// beside it, both owned by the board's [`MetricsStatics`].
+pub struct PrometheusMetricsService<const MAX: usize, const BODY: usize> {
+    statics: &'static MetricsStatics<MAX, BODY>,
+}
 
-impl Service for PrometheusMetricsService {
+impl<const MAX: usize, const BODY: usize> PrometheusMetricsService<MAX, BODY> {
+    /// Serve the exposition out of `statics`.
+    #[must_use]
+    pub const fn new(statics: &'static MetricsStatics<MAX, BODY>) -> Self {
+        Self { statics }
+    }
+}
+
+impl<const MAX: usize, const BODY: usize> Service for PrometheusMetricsService<MAX, BODY> {
     async fn handle<TcpSocket, const N: usize>(
         &self,
         _peer_ip: IpAddr,
@@ -395,7 +449,7 @@ impl Service for PrometheusMetricsService {
         let is_get = parts.method.as_str() == "GET";
 
         match (is_get, parts.path.as_str()) {
-            (true, "/metrics") => serve_metrics(connection).await,
+            (true, "/metrics") => serve_metrics(self.statics, connection).await,
             (false, "/metrics") => serve_method_not_allowed(connection).await,
             _ => serve_not_found(connection).await,
         }
@@ -403,17 +457,18 @@ impl Service for PrometheusMetricsService {
 }
 
 /// Build the Prometheus body and send it with an accurate `Content-Length`.
-async fn serve_metrics<T, const N: usize>(
+async fn serve_metrics<T, const N: usize, const MAX: usize, const BODY: usize>(
+    statics: &'static MetricsStatics<MAX, BODY>,
     connection: &mut Connection<'_, T, N>,
 ) -> Result<(), HttpError<T::Error>>
 where
     T: Read + Write + TcpSplit,
 {
-    let mut body_buffer = METRICS_BODY_BUFFER.lock().await;
+    let mut body_buffer = statics.body.lock().await;
     // Render under the map lock, then release it before the socket write
     // so a slow scrape blocks only other scrapes, never ingestion.
     let body_len = {
-        let map = METRIC_MAP.lock().await;
+        let map = statics.map.lock().await;
         build_prometheus_body(&mut body_buffer, &map)
     };
 
@@ -497,11 +552,11 @@ where
 /// buffer: a silent truncation would ship a malformed exposition that
 /// the scraper rejects with no diagnostic on this side. The metric
 /// budget is sized for the current series count plus headroom; if this
-/// warning ever fires, raise `Metrics::RESPONSE_BUFFER_SIZE` or trim
-/// the metric set.
-fn build_prometheus_body(
-    buffer: &mut [u8; Metrics::RESPONSE_BUFFER_SIZE],
-    map: &heapless::index_map::FnvIndexMap<MetricKey, StoredValue, { Metrics::MAX_METRICS }>,
+/// warning ever fires, raise the board's `METRICS_RESPONSE_BYTES` or
+/// trim the metric set.
+fn build_prometheus_body<const MAX: usize, const BODY: usize>(
+    buffer: &mut [u8; BODY],
+    map: &heapless::index_map::FnvIndexMap<MetricKey, StoredValue, MAX>,
 ) -> usize {
     let mut writer = BufferWriter::new(buffer);
 
@@ -536,7 +591,7 @@ fn build_prometheus_body(
     if writer.overflowed() {
         warn!(
             "prometheus response buffer overflow; truncated exposition served \
-             (raise Metrics::RESPONSE_BUFFER_SIZE or reduce series count)"
+             (raise the board's METRICS_RESPONSE_BYTES or reduce series count)"
         );
     }
     writer.len()

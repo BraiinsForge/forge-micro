@@ -254,6 +254,11 @@ statics should still carry:
 #[cfg_attr(feature = "ccmram-bss", link_section = ".ccmram.bss")]
 ```
 
+Each board states the size of the Prometheus exposition map as
+`MAX_METRICS` and `METRICS_RESPONSE_BYTES` in its own `config.rs`, and
+`ubos_firmware::serve_all!` declares the statics from there. Every board
+in this tree holds 64 series in 4096 bytes.
+
 Reproduce with:
 
 ```sh
