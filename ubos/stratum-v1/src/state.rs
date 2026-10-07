@@ -36,9 +36,10 @@ use crate::scratch::MAX_EXTRANONCE_1;
 #[path = "tests/state.rs"]
 mod tests;
 
-/// Maximum ASCII length of a V1 wire `job_id`. Public pools we have
-/// observed stay well under this, at 4–8 characters of hex.
-pub const MAX_JOB_ID_CHARS: usize = 32;
+/// Maximum ASCII length of a V1 wire `job_id`. A pool matches a submit
+/// by the whole id, so a longer one cut to fit is refused every time;
+/// the cap leaves room above the 60-character ids one public pool sends.
+pub const MAX_JOB_ID_CHARS: usize = 128;
 
 /// Depth of the `JobId`-to-wire-id ring. Matches `stratum-client`'s
 /// `JobRing` depth; the two rotate in lockstep.
