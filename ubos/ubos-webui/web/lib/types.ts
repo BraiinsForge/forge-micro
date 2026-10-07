@@ -185,10 +185,23 @@ export interface Range {
   end: number;
 }
 
+// One tuner the machine offers, externally tagged by the tuning it
+// reads: exactly one key is present.
+export interface TunerInfo {
+  Fixed?: { name: string };
+  Power?: { name: string; readsEfficiency: boolean };
+}
+
 export interface AsicBounds {
   frequencyKhz: Range;
   voltageMv: Range;
+  /** The tuners the machine offers, in the order the form shows them. */
+  tuners: TunerInfo[];
 }
+
+// The tuning a new config starts on: the board's fixed operating
+// point, or a power target.
+export type DefaultTuning = 'Fixed' | { Power: { inputPowerMw: number } };
 
 export interface ThermalBounds {
   dangerousEstimatedTempC: Range;

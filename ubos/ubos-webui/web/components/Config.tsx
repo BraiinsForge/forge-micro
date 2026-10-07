@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { getConfig, getJSON, RETRY_DELAYS, sleep } from '../lib/api';
-import type { AsicBounds, CoolingBounds, Config as ConfigData, ThermalBounds } from '../lib/types';
+import type { AsicBounds, CoolingBounds, Config as ConfigData, DefaultTuning, ThermalBounds } from '../lib/types';
 import type { BoardNotice } from '../app';
 import ConfigPools from './ConfigPools';
 import ConfigMining from './ConfigMining';
@@ -13,6 +13,7 @@ interface TabRenderProps {
   config: ConfigData | null;
   asicBounds: Partial<AsicBounds>;
   defaultEfficiency?: number;
+  defaultTuning?: DefaultTuning;
   thermalBounds: Partial<ThermalBounds>;
   coolingBounds: Partial<CoolingBounds>;
   boardNotice: BoardNotice;
@@ -42,7 +43,12 @@ const TABS: Tab[] = [
     key: 'mining',
     label: 'Mining',
     render: (p) => (
-      <ConfigMining miner={p.config?.miner} bounds={p.asicBounds} defaultEfficiency={p.defaultEfficiency} />
+      <ConfigMining
+        miner={p.config?.miner}
+        bounds={p.asicBounds}
+        defaultEfficiency={p.defaultEfficiency}
+        defaultTuning={p.defaultTuning}
+      />
     ),
   },
   {
@@ -73,6 +79,7 @@ export default function Config({ hash, boardNotice }: ConfigProps) {
   const [config, setConfig] = useState<ConfigData | null>(null);
   const [asicBounds, setAsicBounds] = useState<Partial<AsicBounds>>({});
   const [defaultEfficiency, setDefaultEfficiency] = useState<number>();
+  const [defaultTuning, setDefaultTuning] = useState<DefaultTuning>();
   const [thermalBounds, setThermalBounds] = useState<Partial<ThermalBounds>>({});
   const [coolingBounds, setCoolingBounds] = useState<Partial<CoolingBounds>>({});
   const [loadError, setLoadError] = useState('');
@@ -85,13 +92,16 @@ export default function Config({ hash, boardNotice }: ConfigProps) {
         try {
           const [cfg, asic, thermal, cooling] = await Promise.all([
             getConfig(),
-            getJSON<{ bounds: AsicBounds; defaultEfficiencyMjPerTh: number }>('/api/system/asic'),
+            getJSON<{ bounds: AsicBounds; defaultEfficiencyMjPerTh: number; defaultTuning: DefaultTuning }>(
+              '/api/system/asic',
+            ),
             getJSON<{ bounds: ThermalBounds }>('/api/system/thermal'),
             getJSON<{ bounds: CoolingBounds }>('/api/system/cooling'),
           ]);
           setConfig(cfg);
           setAsicBounds(asic.bounds || {});
           setDefaultEfficiency(asic.defaultEfficiencyMjPerTh);
+          setDefaultTuning(asic.defaultTuning);
           setThermalBounds(thermal.bounds || {});
           setCoolingBounds(cooling.bounds || {});
           setLoadError('');
@@ -104,7 +114,15 @@ export default function Config({ hash, boardNotice }: ConfigProps) {
     })();
   }, []);
 
-  const props: TabRenderProps = { config, asicBounds, defaultEfficiency, thermalBounds, coolingBounds, boardNotice };
+  const props: TabRenderProps = {
+    config,
+    asicBounds,
+    defaultEfficiency,
+    defaultTuning,
+    thermalBounds,
+    coolingBounds,
+    boardNotice,
+  };
 
   return (
     <section class="cfg">
