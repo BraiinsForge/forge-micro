@@ -23,10 +23,10 @@
 #
 # Build with a version number:
 #   UBOS_FW_VERSION=42 nix build --impure .#rp2350-image
-# This produces result/rp2350-v42.bin.
+# This produces result/rp2350-v42-<build id>.bin.
 #
 #   UBOS_FW_VERSION=42 nix build --impure .#rp2350-uf2
-# This produces result/rp2350-v42.uf2.
+# This produces result/rp2350-v42-<build id>.uf2.
 #
 # A pure build with no --impure defaults to version 1 because
 # builtins.getEnv returns "" in the Nix sandbox; the sandbox
@@ -60,10 +60,16 @@ let
   inherit (helpers)
     armCc
     buildIdEnv
+    buildId
     webuiDistEnv
     espCrossEnv
     espRustflags
     ;
+
+  # The stem every image and UF2 file is named by: the board, the OTA
+  # version, and the build id the image reports, so a file and the board
+  # running it show the same id.
+  stem = name: "${name}-v${fwVersion}-${buildId}";
 
   # Production ARM firmware image: build the board crate, objcopy the
   # raw binary into $out, and run the slot-size and pool-worker guards
@@ -101,11 +107,11 @@ let
           mkdir -p "$out"
           arm-none-eabi-objcopy -O binary \
             target/${target}/release/${name} \
-            "$out/${name}-v${fwVersion}.bin"
+            "$out/${stem name}.bin"
         ''
         + guards.imageGuard {
           inherit name;
-          bin = ''"$out/${name}-v${fwVersion}.bin"'';
+          bin = ''"$out/${stem name}.bin"'';
           maxBytes = slotMaxBytes;
         };
       }
@@ -158,7 +164,7 @@ let
     }:
     pkgs.runCommand "${name}-uf2" { nativeBuildInputs = [ pkgs.picotool ]; } ''
       mkdir -p "$out"
-      out_uf2="$out/${name}-v${fwVersion}.uf2"
+      out_uf2="$out/${stem name}.uf2"
       picotool uf2 convert ${bootElf}/boot.elf boot.uf2
       picotool uf2 convert ${appBin} -t bin app.uf2 -o 0x10021000 --family ${family}
       picotool uf2 combine boot.uf2 app.uf2 "$out_uf2"
@@ -185,7 +191,7 @@ let
           root="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
           dest="$root/build"
           mkdir -p "$dest"
-          # The package $out holds exactly one ${name}-v<N>.${ext}.
+          # The package $out holds exactly one <name>-v<N>-<build id>.${ext}.
           src_file="$(echo ${drv}/*.${ext})"
           name="$(basename "$src_file")"
           install -m644 "$src_file" "$dest/$name"
@@ -252,11 +258,11 @@ let
         export HOME="$TMPDIR"
         espflash save-image --chip esp32s3 --flash-size 8mb \
           target/xtensa-esp32s3-none-elf/release/esp32s3 \
-          "$out/esp32s3-v${fwVersion}.bin"
+          "$out/${stem "esp32s3"}.bin"
       ''
       + guards.imageGuard {
         name = "esp32s3";
-        bin = ''"$out/esp32s3-v${fwVersion}.bin"'';
+        bin = ''"$out/${stem "esp32s3"}.bin"'';
         maxBytes = esp32s3SlotBytes;
         budgetLabel = "OTA app slot";
       };
@@ -284,35 +290,35 @@ let
 
   rp2350Uf2 = mkCombinedUf2 {
     name = "rp2350";
-    appBin = "${rp2350Image}/rp2350-v${fwVersion}.bin";
+    appBin = "${rp2350Image}/${stem "rp2350"}.bin";
     bootElf = rp2350Bootloader;
     family = "rp2350-arm-s";
   };
 
   bmmPicoUf2 = mkCombinedUf2 {
     name = "bmm-pico";
-    appBin = "${bmmPicoImage}/bmm-pico-v${fwVersion}.bin";
+    appBin = "${bmmPicoImage}/${stem "bmm-pico"}.bin";
     bootElf = rp2350Bootloader;
     family = "rp2350-arm-s";
   };
 
   rp2040Uf2 = mkCombinedUf2 {
     name = "rp2040";
-    appBin = "${rp2040Image}/rp2040-v${fwVersion}.bin";
+    appBin = "${rp2040Image}/${stem "rp2040"}.bin";
     bootElf = rp2040Bootloader;
     family = "rp2040";
   };
 
   hashnodeUf2 = mkCombinedUf2 {
     name = "hashnode";
-    appBin = "${hashnodeImage}/hashnode-v${fwVersion}.bin";
+    appBin = "${hashnodeImage}/${stem "hashnode"}.bin";
     bootElf = rp2350Bootloader;
     family = "rp2350-arm-s";
   };
 
   forgeAxeUf2 = mkCombinedUf2 {
     name = "forge-axe";
-    appBin = "${forgeAxeImage}/forge-axe-v${fwVersion}.bin";
+    appBin = "${forgeAxeImage}/${stem "forge-axe"}.bin";
     bootElf = rp2350Bootloader;
     family = "rp2350-arm-s";
   };

@@ -283,7 +283,7 @@ core-1 park that the engine performs before an upload still applies.
 Build the OTA image (the esp-idf app image the upload endpoint expects):
 
 ```sh
-UBOS_FW_VERSION=42 nix run --impure .#esp32s3-image   # -> build/esp32s3-v42.bin
+UBOS_FW_VERSION=42 nix run --impure .#esp32s3-image   # -> build/esp32s3-v42-<build id>.bin
 ```
 
 `espflash save-image` produces the app-image format; the `esp32s3-image`
@@ -314,7 +314,7 @@ dev loop reflashes only the app:
 nix develop .#esp -c bash -c "cd firmware/esp32s3 && cargo run --release"
 ```
 
-Day-to-day OTA needs no probe at all: upload `esp32s3-vN.bin` through the WebUI
+Day-to-day OTA needs no probe at all: upload `esp32s3-vN-<build id>.bin` through the WebUI
 or `POST /api/system/OTA`.
 
 #### ESP-specific diagnostics
