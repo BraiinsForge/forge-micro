@@ -174,11 +174,15 @@ measurement recipe are there.
 | stm32f439 | 582 / 2048 KiB | 156 / 192 KiB (81%) | 13 / 64 KiB CCM | OK; ~36 KiB free                           |
 | esp32s3   | 787 / 8192 KiB | 280 / 320 KiB DRAM (88%) | — | watch; ~40 KiB DRAM free                   |
 
-Reproduce the esp32s3 numbers with:
+Reproduce the esp32s3 numbers with the commands below. The workspace
+puts its build output at the root, so the size tool is pointed there and
+not at the crate directory. DRAM sums `.data`, `.bss` and `.noinit`, the
+sections that match the `.data`/`.bss`/`.uninit` rule the other rows
+use.
 
 ```sh
 nix develop .#esp -c bash -c 'cd firmware/esp32s3 && cargo build --release'
-nix develop .#esp -c bash -c 'cd firmware/esp32s3 && xtensa-esp-elf-size -A \
+nix develop .#esp -c bash -c 'xtensa-esp-elf-size -A \
   target/xtensa-esp32s3-none-elf/release/esp32s3'
 ```
 
