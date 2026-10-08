@@ -107,7 +107,7 @@ publishing the same address is safe.
 the state machine that decides them. `ip_assigned` belongs to `ubos-net`,
 fired solely from the observer task. The record format and the design
 rationale are in `ubos/ubos-events/src/lib.rs`. The served catalog is
-`GET /api/system/events/catalog`, described in `docs/REST_API.md`.
+`GET /api/system/events/catalog`, described in [`ubos/ubos-api/openapi.json`](../ubos/ubos-api/openapi.json).
 
 ## Dependencies
 

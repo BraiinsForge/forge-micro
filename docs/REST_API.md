@@ -117,51 +117,20 @@ Anonymous `GET /` is rewritten to `302 Found → /login`.
 
 ### REST API
 
-| Method | Path           | Auth        | Description                                                       |
-|--------|----------------|-------------|-------------------------------------------------------------------|
-| GET    | `/api/info`    | any         | Telemetry blob consumed by the SPA poll, including the `build` id the firmware was built with, `product_name`, which is `null` on a board that does not report the name of the machine, `nominal_hashrate`, the hashrate in hashes per second that the maker rates the machine at, which is `null` on a board that does not report it, and a `chains` array with one entry per hashboard chain (`chain`, `state`, `chips`, `frequency_khz`, `hashrate`, `hottest_c`, and `pool`, the slot whose work the chain was last given, or `null` when it has none) |
-| GET    | `/api/config`  | any         | `ConfigUpdate` snapshot: `pool`, `thermal`, `cooling` (`mode`, `target`, `fixed_fan_pwm`, `min_fan_pwm`), `miner`, `api` (password blanked), `network` |
-| POST   | `/api/config`  | any +CSRF   | Partial `ConfigUpdate` (any subset of those fields); returns `{"ok":true}` |
+The `/api/*` surface is described in [`ubos/ubos-api/openapi.json`](../ubos/ubos-api/openapi.json).
+That file is an OpenAPI 3.1 document. The `ubos-api` host tests
+generate it from the request and response types, and the test
+`committed_document_is_current` fails when the file and the types
+disagree. The generator is built only with the `schema` feature, so a
+plain `cargo test` writes nothing. To regenerate the file, run this in
+the `host` shell from `ubos/ubos-api`, then commit the file:
 
-`/api/info` keeps PSU and chip-derived voltage separate.
-`psu_voltage_measured_mv` is the physical PSU output reading;
-`chain_voltage_mv` is the sum of core voltages reported by every
-chip, or zero until the full chain has reported. The dashboard uses the
-chain value only when the PSU reading is unavailable.
+```sh
+UBOS_OPENAPI_WRITE=1 cargo test --no-default-features --features schema
+```
 
-### `/api/system/*`
-
-| Method | Path                              | Auth      | Status | Description                                                              |
-|--------|-----------------------------------|-----------|--------|--------------------------------------------------------------------------|
-| GET    | `/api/system/info`                | any       | 200    | `SystemInfo`; full telemetry with `apiVariant: "ubos-0.3"`, plus `hwInfo` (`productName` the name of the machine, `null` on a board that does not report it; `nominalHashrate` the hashrate in hashes per second that the maker rates the machine at, `null` on a board that does not report it; `psuModel` detected at runtime, `null` where the supply is not identifiable; `bootloaderVersion`/`fanControllerVersion` populated only on platforms that report them, `null` elsewhere; `hashboardIds` per-chain hashboard EEPROM serials, `null` slot when a chain's board is absent or unreadable; `chainsPresent` count of chains currently enumerated `Present`) |
-| GET    | `/api/system/asic`                | any       | 200    | `MiningInfo`; chip facts (`asicModel`, `deviceModel`, `swarmColor`, `asicCount`), tuning defaults (`defaultFrequencyKhz`, `defaultVoltageMv`, `defaultEfficiencyMjPerTh`, and `defaultTuning`, the tuning a new config starts on: `"Fixed"` or `{ Power: { inputPowerMw } }`), `bounds: { frequencyKhz: { start, end }, voltageMv: { start, end }, inputPowerMw, tuners }`, where `inputPowerMw` is `{ start, end }`, or `null` when no tuner reads a power target, and `tuners` lists the tuners the machine offers, each `{ Fixed: { name } }` or `{ Power: { name, readsEfficiency } }` |
-| GET    | `/api/system/thermal`             | any       | 200    | `ThermalInfo`; accepted ranges as `bounds: { sampleIntervalMs, dangerousHashboardTemp, dangerousChipTemp, cooldownTemp }` |
-| GET    | `/api/system/temperature`         | any       | 200    | `SystemTemperature`; the last thermal sample in whole °C as `chipMax`, `chipMean`, `hashboardMax` and `hashboardMean`, each `null` when the sample has no reading of that kind, `ambient`, `null` where the board measures none, and `pidSource`, the kind that the cooling PID follows (`"chip"` or `"hashboard"`, or `null` under a fixed duty or a failsafe) |
-| GET    | `/api/system/cooling`             | any       | 200    | `CoolingInfo`; accepted ranges as `bounds: { targetTemp, minFanPwm, fixedFanPwm }` |
-| GET    | `/api/system/statistics`          | any       | 200    | `SystemStatistics`; label set + (currently empty) ring of samples        |
-| GET    | `/api/system/scoreboard`          | any       | 200    | `SystemScoreboardEntry[]`; currently empty                               |
-| GET    | `/api/system/network`             | any       | 200    | `SystemNetwork`; current mode, pending-change flag, confirm window seconds |
-| POST   | `/api/system/network`             | any +CSRF | 200    | `{"ok":true}`; validates and previews the change live (confirm-or-revert). 400 on parse or validation error |
-| POST   | `/api/system/network/confirm`     | any +CSRF | 200    | Confirms a pending preview so it is no longer reverted; returns `{"message":"ack"}` |
-| POST   | `/api/system/network/revert`      | any +CSRF | 200    | Reverts a pending preview immediately, restoring the prior config; returns `{"message":"ack"}` |
-| GET    | `/api/system/events`              | any       | 200    | `{"events":[...]}`; oldest-first ring snapshot streamed close-delimited. Each record is `{seq, ts, sev, code, args}` where `code` is an FNV-1a slug hash and `args` a raw hex blob. `?since=<seq>` returns only records with `seq` greater than the cursor for incremental polling |
-| GET    | `/api/system/events/catalog`      | any       | 200    | Event catalog as a JSON array of `{code, sev, fmt, args}` so clients decode records locally from `code` + `args` widths, each `u8`, `u16`, `u32`, `i8`, `i16` or `i32`, or a unit that a client shows divided by 1000: `temperature` (millicelsius, shown in degrees), `frequency` (kHz, in MHz), `voltage` (mV, in volts), `power` (mW, in watts) or `efficiency` (mJ/TH, in J/TH); `[]` until firmware installs catalogs |
-| GET    | `/api/system/wifi/scan`           | any       | 501    | `{"message":"unsupported on this platform"}`                             |
-| POST   | `/api/system/OTA`                 | any       | 501    | `{"message":"unsupported on this platform"}`                             |
-| POST   | `/api/system/OTAWWW`              | any       | 501    | `{"message":"unsupported on this platform"}`                             |
-| POST   | `/api/system/pause`               | any +CSRF | 200    | Stub: logs + sends `Manager::Stop`; returns `{"message":"ack"}`          |
-| POST   | `/api/system/resume`              | any +CSRF | 200/409 | Logs + sends `Manager::Start`; returns `{"message":"ack"}`. 409 while a `dangerousTemperature` halt stands, with a `message` that states the halt |
-| POST   | `/api/system/thermal/clear`       | any +CSRF | 200    | Clears a `dangerousTemperature` halt on the operator's word, then sends `Manager::Start`; returns `{"message":"ack"}` |
-| POST   | `/api/system/restart`             | any +CSRF | 200    | Writes the ack, then calls `request_reboot` to reset the MCU once the socket drains |
-| POST   | `/api/system/factory_reset`       | any +CSRF | 200    | Sends `FactoryReset` to the config task; writes the ack, then the config task wipes persisted config to defaults and requests the reboot once persisted |
-| POST   | `/api/system/identify`            | any +CSRF | 200    | Stub: logs only; returns `{"message":"ack"}`                             |
-| POST   | `/api/system/blockFound/dismiss`  | any +CSRF | 200    | Stub: logs only; returns `{"message":"ack"}`                             |
-| PATCH  | `/api/system`                     | any +CSRF | 200    | Stub: logs body length; returns `{"message":"ack"}`. Not persisted.      |
-
-Stubs are wired to the router and return the documented response so
-external clients can integrate against the full surface. Action handlers
-live in `ubos-api/src/system.rs` (`handle_action` and `write_ack_response`);
-PATCH lands in `handle_patch_system` in the same file.
+The OTA upload routes and their headers are in that document. The
+flash layout is in `docs/OTA.md`.
 
 ### Metrics (port 8081)
 
@@ -268,19 +237,7 @@ a stalled thermal task and an idle board force the fan to full under
 either. An idle board does so from its first idle tick, because it
 publishes no temperature to steer by.
 
-| Struct                  | Endpoint(s)                                        |
-|-------------------------|----------------------------------------------------|
-| `SystemInfo`            | `GET /api/system/info`                             |
-| `MiningInfo`            | `GET /api/system/asic`                             |
-| `ThermalInfo`           | `GET /api/system/thermal`                          |
-| `SystemTemperature`     | `GET /api/system/temperature`                      |
-| `CoolingInfo`           | `GET /api/system/cooling`                          |
-| `SystemStatistics`      | `GET /api/system/statistics`                       |
-| `SystemScoreboardEntry` | `GET /api/system/scoreboard`                       |
-| `ConfigUpdate`          | `GET /api/config`, `POST /api/config`              |
-| `GenericResponse`       | action stubs, 501 responses, errors                |
-
-`API_VARIANT = "ubos-0.3"` (`ubos-api/src/schema/mod.rs:47`) ships on
+`API_VARIANT = "ubos-0.3"` (`ubos-api/src/schema/mod.rs:51`) ships on
 every versioned response. Clients dispatch on this string rather than
 treating ubos as a reference-device; the minor bumps on each schema-breaking
 change while pre-1.0.
@@ -445,6 +402,6 @@ See "Footprint" in `docs/STRUCTURE.md`.
 
 ## Out of scope
 
-No TLS on either listener. No OTA, WiFi, or NVS. No log streaming.
+No TLS on either listener. No WiFi or NVS. No log streaming.
 Time-series ring buffer behind `/api/system/statistics` is wired but
 not yet populated.
