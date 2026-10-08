@@ -26,6 +26,7 @@ use ubos_core::units::{Efficiency, Frequency, Power, Voltage};
     Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct FrequencyVoltageTarget {
     /// Target ASIC core frequency. The PLL grid steps by a fraction of
     /// a megahertz, so a megahertz field cannot name every point on it.
@@ -48,6 +49,7 @@ pub struct FrequencyVoltageTarget {
     Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PowerTarget {
     /// Target PSU input power, stored and exchanged as integer mW under
     /// `input_power_mw`.

@@ -59,6 +59,10 @@ mod tests_factory_reset;
 #[path = "tests/seed.rs"]
 mod tests_seed;
 
+#[cfg(all(test, feature = "schema"))]
+#[path = "tests/schema.rs"]
+mod tests_schema;
+
 pub mod api;
 pub mod cooling;
 pub mod fee;
@@ -476,6 +480,7 @@ impl Handle {
 /// variant so the UI can edit the duty without leaving auto control.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CoolingUpdate {
     /// Replacement for [`CoolingConfig::mode`]; `None` leaves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -502,12 +507,14 @@ pub struct CoolingUpdate {
 /// `api.password` blanked to avoid leaking the stored secret.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ConfigUpdate {
     /// Replacement value for [`Config::pool`]; `None` means leave
     /// unchanged. `Some(empty Vec)` is the wire shape for "no pools
     /// configured" and clears all three persisted slots — the webui
     /// produces this when every URL input is blank.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<&[PoolEntry]>"))]
     pub pool: Option<heapless::Vec<PoolEntry, { pool::MAX_POOLS }>>,
     /// The entry the fee slot runs, which the board states and the
     /// operator cannot edit. `GET` carries it beside the operator's

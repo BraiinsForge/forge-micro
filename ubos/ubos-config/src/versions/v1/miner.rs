@@ -35,6 +35,7 @@ use super::mining::{FrequencyVoltageTarget, PowerTarget};
     Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Tuning {
     /// Hold one frequency and one rail voltage, reached by a ramp.
     Fixed(FrequencyVoltageTarget),
@@ -55,6 +56,7 @@ pub enum Tuning {
     postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct MinerConfig {
     /// Tuner variant and target selected for the next bring-up.
     pub tuning: Tuning,

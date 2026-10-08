@@ -189,6 +189,7 @@ pub(crate) const DEFAULT_FIXED_FAN_PWM: u8 = 50;
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CoolingBounds {
     /// Accepted range for `target.temp`.
     pub target_temp: RangeInclusive<Temperature>,
@@ -212,6 +213,7 @@ pub const BOUNDS: CoolingBounds = CoolingBounds {
 /// validates against.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CoolingInfo {
     /// Accepted ranges for [`CoolingConfig`] fields.
     pub bounds: &'static CoolingBounds,

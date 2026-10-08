@@ -141,6 +141,7 @@ impl ThermalConfig {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ThermalBounds {
     /// Accepted range for `sample_interval_ms` in milliseconds.
     pub sample_interval_ms: RangeInclusive<u32>,
@@ -167,6 +168,7 @@ pub const BOUNDS: ThermalBounds = ThermalBounds {
 /// validates against.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ThermalInfo {
     /// Accepted ranges for [`ThermalConfig`] fields.
     pub bounds: &'static ThermalBounds,

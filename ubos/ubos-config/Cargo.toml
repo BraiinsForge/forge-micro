@@ -18,7 +18,7 @@ defmt    = [
 ]
 std    = ["postcard/use-std"]
 # Host-only: JSON Schema derives the OpenAPI document is built from.
-schema = ["dep:schemars"]
+schema = ["dep:schemars", "ubos-core/schema"]
 
 [dependencies]
 embassy-sync           = { workspace = true }

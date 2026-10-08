@@ -29,6 +29,7 @@ use super::thermal::Source;
 )]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Statistic {
     /// The hottest reading.
     Max,
@@ -42,6 +43,7 @@ pub enum Statistic {
     Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PidTarget {
     pub source: Source,
     pub statistic: Statistic,
@@ -59,6 +61,7 @@ pub struct PidTarget {
 )]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum FanMode {
     /// PID control against the thermal setpoint.
     Auto,

@@ -28,6 +28,7 @@ use ubos_core::units::Temperature;
 )]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Source {
     /// A sensor on the hashboard.
     Hashboard,
@@ -55,6 +56,7 @@ pub struct TemperatureDescriptor {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "ThermalConfigJson", into = "ThermalConfigJson")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ThermalConfig {
     /// Poll interval in milliseconds.
     pub sample_interval_ms: u32,
@@ -72,6 +74,7 @@ pub struct ThermalConfig {
 /// absent on a machine that does not read its kind, which keeps the field
 /// names the API has always carried.
 #[derive(Clone, serde::Serialize, serde::Deserialize, postcard_schema::Schema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ThermalConfigJson {
     sample_interval_ms: u32,
     dangerous_hashboard_temp: Option<Temperature>,

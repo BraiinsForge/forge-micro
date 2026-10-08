@@ -25,11 +25,13 @@
     Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ProtocolKind {
     /// Stratum V1 with an optional worker password.
     Sv1 {
         /// `None` means no password sent; most pools authorise by
         /// worker name alone.
+        #[cfg_attr(feature = "schema", schemars(with = "Option<&str>"))]
         password: Option<heapless::String<128>>,
     },
     /// Stratum V2 with an optional authority public key.
@@ -40,6 +42,7 @@ pub enum ProtocolKind {
         /// raw 32 bytes. See [`crate::pubkey`] and
         /// [`crate::pool::sv2_pubkey_serde`].
         #[serde(with = "crate::pool::sv2_pubkey_serde")]
+        #[cfg_attr(feature = "schema", schemars(with = "Option<&str>"))]
         pool_pubkey: Option<[u8; 32]>,
     },
 }
@@ -49,12 +52,15 @@ pub enum ProtocolKind {
     Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PoolEntry {
     /// DNS name or IPv4 literal of the pool host.
+    #[cfg_attr(feature = "schema", schemars(with = "str"))]
     pub host: heapless::String<NAME_CAPACITY>,
     /// TCP port.
     pub port: u16,
     /// Worker name sent in `mining.authorize`.
+    #[cfg_attr(feature = "schema", schemars(with = "str"))]
     pub user: heapless::String<NAME_CAPACITY>,
     /// Protocol selection and its parameters.
     pub protocol: ProtocolKind,

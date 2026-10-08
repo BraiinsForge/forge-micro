@@ -30,9 +30,12 @@
     Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ApiConfig {
     /// Login username; maximum 32 bytes.
+    #[cfg_attr(feature = "schema", schemars(with = "str"))]
     pub username: heapless::String<32>,
     /// Login password; maximum 32 bytes.
+    #[cfg_attr(feature = "schema", schemars(with = "str"))]
     pub password: heapless::String<32>,
 }

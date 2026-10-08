@@ -28,6 +28,7 @@ pub const HOSTNAME_MAX: usize = 32;
     Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum NetworkMode {
     /// Address is assigned by a DHCP server on the local network.
     #[default]
@@ -41,6 +42,7 @@ pub enum NetworkMode {
         /// Default gateway address.
         gateway: [u8; 4],
         /// DNS resolver addresses; up to three entries.
+        #[cfg_attr(feature = "schema", schemars(with = "&[[u8; 4]]"))]
         dns: heapless::Vec<[u8; 4], 3>,
     },
 }
@@ -54,10 +56,12 @@ pub enum NetworkMode {
     Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize, postcard_schema::Schema,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NetworkConfig {
     /// IP assignment mode; defaults to DHCP.
     pub mode: NetworkMode,
     /// mDNS hostname for the device; empty means use the build-time
     /// default.
+    #[cfg_attr(feature = "schema", schemars(with = "str"))]
     pub hostname: heapless::String<HOSTNAME_MAX>,
 }

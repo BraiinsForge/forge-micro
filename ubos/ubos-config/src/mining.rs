@@ -39,6 +39,7 @@ pub use crate::versions::live::{FrequencyVoltageTarget, PowerTarget};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all_fields = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum TunerInfo {
     /// Reads [`Tuning::Fixed`], both its frequency and its voltage.
     Fixed { name: &'static str },
@@ -65,6 +66,7 @@ impl TunerInfo {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all_fields = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum DefaultTuning {
     /// The board's default frequency and voltage.
     Fixed,
@@ -101,6 +103,7 @@ impl DefaultTuning {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct MiningBounds {
     /// Accepted range for the target frequency. The API names it
     /// `frequencyKhz`.
@@ -195,6 +198,7 @@ pub const BOUNDS: MiningBounds = bounds(
 /// state.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct MiningInfo {
     /// ASIC chip model name.
     pub asic_model: &'static str,

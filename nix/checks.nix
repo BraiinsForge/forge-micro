@@ -211,7 +211,10 @@ let
     clippy-ubos-config.crate = "ubos-config";
     clippy-ubos-config-std = {
       crate = "ubos-config";
-      features = [ "std" ];
+      features = [
+        "std"
+        "schema"
+      ];
     };
     clippy-ubos-events = {
       crate = "ubos-events";
@@ -272,7 +275,10 @@ let
     };
     test-ubos-config-std = {
       crate = "ubos-config";
-      features = [ "std" ];
+      features = [
+        "std"
+        "schema"
+      ];
     };
     test-ubos-events = {
       crate = "ubos-events";
