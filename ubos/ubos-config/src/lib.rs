@@ -656,6 +656,7 @@ impl Config {
                 fixed_fan_pwm: cooling::DEFAULT_FIXED_FAN_PWM,
                 pid: PidConfig {
                     min_fan_pwm: board.cooling.min_fan_pwm,
+                    input_smoother_half_decay_secs: board.cooling.input_smoother_half_decay_secs,
                     ..PidConfig::default()
                 },
             },

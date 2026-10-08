@@ -185,14 +185,20 @@ impl PidController {
 
 /// Temperature-driven fan-PWM controller.
 ///
-/// Wraps `PidController` with a target setpoint, a stability detector
-/// (the ring buffer), and integer-percent output clamping. Mirrors the
-/// BOS temperature-target controller in its single-input case.
+/// Wraps `PidController` with a target setpoint, a smoother on the
+/// temperature it reads, a stability detector (the ring buffer), and
+/// integer-percent output clamping. Mirrors the BOS temperature-target
+/// controller in its single-input case.
 pub struct TempControl {
     pid: PidController,
     history: RingBuffer<{ Self::HISTORY_SIZE }>,
     target_temp_c: f32,
     min_fan_pwm: u8,
+    /// Per-tick decay factor of the input smoother, from
+    /// [`half_time_decay`]. Zero passes the reading through.
+    input_decay_lambda: f32,
+    /// The smoothed temperature, absent until the first sample.
+    smoothed_temp_c: Option<f32>,
 }
 
 impl TempControl {
@@ -213,6 +219,7 @@ impl TempControl {
         i_gain: f32,
         d_gain: f32,
         smoother_half_decay_secs: f32,
+        input_smoother_half_decay_secs: f32,
         min_fan_pwm: u8,
     ) -> Self {
         // PWM is reported as a percent, so a min above 100 would invert
@@ -231,6 +238,8 @@ impl TempControl {
             history: RingBuffer::new(),
             target_temp_c: 0.0,
             min_fan_pwm,
+            input_decay_lambda: half_time_decay(input_smoother_half_decay_secs),
+            smoothed_temp_c: None,
         }
     }
 
@@ -243,6 +252,7 @@ impl TempControl {
             config.pid.i_gain,
             config.pid.d_gain,
             config.pid.smoother_half_decay_secs,
+            config.pid.input_smoother_half_decay_secs,
             config.pid.min_fan_pwm,
         );
         control.set_target(config.target_temp_c);
@@ -270,7 +280,7 @@ impl TempControl {
     /// behave as tuned.
     #[must_use]
     pub fn update(&mut self, temp_c: f32) -> u8 {
-        let error = self.target_temp_c - temp_c;
+        let error = self.target_temp_c - self.smooth(temp_c);
         self.history.add(error);
 
         let settled = self.history.min_max().is_some_and(|(min, max)| {
@@ -285,5 +295,16 @@ impl TempControl {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let pwm = libm::roundf(raw) as u8;
         pwm.clamp(self.min_fan_pwm, 100)
+    }
+
+    /// Blend `temp_c` into the smoothed temperature and return it. The
+    /// first sample is taken as it is.
+    fn smooth(&mut self, temp_c: f32) -> f32 {
+        let lambda = self.input_decay_lambda;
+        let smoothed = self
+            .smoothed_temp_c
+            .map_or(temp_c, |prev| prev * lambda + temp_c * (1.0 - lambda));
+        self.smoothed_temp_c = Some(smoothed);
+        smoothed
     }
 }

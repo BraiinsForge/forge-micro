@@ -179,6 +179,7 @@ const BMM_TEST_MULTI_DOMAIN: HashboardDescriptor = HashboardDescriptor {
     cooling: crate::board::BoardCooling {
         target_temp_c: 0.0,
         min_fan_pwm: 0,
+        input_smoother_half_decay_secs: 0.0,
     },
     dangerous_chip_temp_c: 110.0,
     model: "test",
@@ -200,6 +201,7 @@ const BM1370_TEST_BOARD: HashboardDescriptor = HashboardDescriptor {
     cooling: crate::board::BoardCooling {
         target_temp_c: 0.0,
         min_fan_pwm: 0,
+        input_smoother_half_decay_secs: 0.0,
     },
     dangerous_chip_temp_c: 110.0,
     model: "test",

@@ -52,6 +52,10 @@ pub struct BoardCooling {
     pub target_temp_c: f32,
     /// Cooling PID fan-floor (minimum duty).
     pub min_fan_pwm: u8,
+    /// Half-decay time of the smoother on the temperature the cooling PID
+    /// reads, counted in thermal samples, which are seconds at the default
+    /// one-second sample interval. Zero passes the reading through.
+    pub input_smoother_half_decay_secs: f32,
 }
 
 /// Hashboard-level descriptor. Carries the chip's capability descriptor
@@ -154,6 +158,7 @@ pub const BMM101_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     cooling: BoardCooling {
         target_temp_c: 67.0,
         min_fan_pwm: 20,
+        input_smoother_half_decay_secs: 0.0,
     },
     dangerous_chip_temp_c: 110.0,
     model: "miniminer",
@@ -181,6 +186,7 @@ pub const BFMX4_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     cooling: BoardCooling {
         target_temp_c: 62.0,
         min_fan_pwm: 20,
+        input_smoother_half_decay_secs: 0.0,
     },
     dangerous_chip_temp_c: 110.0,
     model: "Braiins Forge Miner x4",
@@ -208,6 +214,7 @@ pub const FORGE_AXE_HASHBOARD: HashboardDescriptor = HashboardDescriptor {
     cooling: BoardCooling {
         target_temp_c: 62.0,
         min_fan_pwm: 20,
+        input_smoother_half_decay_secs: 0.0,
     },
     dangerous_chip_temp_c: 110.0,
     model: "Forge Axe",
