@@ -52,7 +52,7 @@ const TARGET_POWER_LOWER_MARGIN_DIVISOR: u32 = 20; // 1 / 20 = 5%
 const PSU_READING_MAX_DELAY: Duration = Duration::from_secs(60);
 
 /// Measured-power policy. Hardware state remains in the serial actors and PSU.
-pub struct PowerTuner {
+pub struct PowerRampTuner {
     board: &'static HashboardDescriptor,
     /// None before the first tuning step with a present chain.
     progress: Option<Progress>,
@@ -125,7 +125,7 @@ impl OperatingPoint {
         // rail from falling below it.
         let voltage = predicted_voltage(target_power, alpha, frequency).min(self.voltage);
         debug!(
-            "power-tuner phase B: voltage {} mV -> {} mV, frequency {} kHz -> {} kHz; alpha={}",
+            "power-ramp-tuner phase B: voltage {} mV -> {} mV, frequency {} kHz -> {} kHz; alpha={}",
             self.voltage.mv(),
             voltage.mv(),
             self.frequency.khz(),
@@ -146,7 +146,7 @@ struct Limits {
     max_frequency: Frequency,
 }
 
-/// Specifies every tuning or termination action of the power tuner.
+/// Specifies every tuning or termination action of the power-ramp tuner.
 // TODO: Simplify the action set as the tuning policy evolves.
 #[derive(Debug, PartialEq, Eq)]
 enum TuningAction {
@@ -192,11 +192,11 @@ impl TuningAction {
     }
 }
 
-impl PowerTuner {
+impl PowerRampTuner {
     /// This policy as the mining form lists it. The ramp ends at the
     /// target efficiency, so the policy reads it.
     pub const INFO: TunerInfo = TunerInfo::Power {
-        name: "Power",
+        name: "PowerRamp",
         reads_efficiency: true,
     };
 
@@ -329,7 +329,7 @@ impl PowerTuner {
             progress.healthy_at = Instant::from_millis(psu.timestamp_ms);
         }
         if readings.now.saturating_duration_since(progress.healthy_at) > PSU_READING_MAX_DELAY {
-            warn!("power-tuner: PSU reading stale; stepping to safe boot");
+            warn!("power-ramp-tuner: PSU reading stale; stepping to safe boot");
             return (Phase::Retreat, retreat());
         }
         let Some(psu) =
@@ -349,7 +349,7 @@ impl PowerTuner {
         ) {
             TuningAction::PowerTooHigh => {
                 warn!(
-                    "power-tuner: measured {} mW above {} mW; stepping to safe boot",
+                    "power-ramp-tuner: measured {} mW above {} mW; stepping to safe boot",
                     psu.input_power.mw(),
                     limits.max_power.mw()
                 );
@@ -357,7 +357,7 @@ impl PowerTuner {
             }
             TuningAction::MaxFrequencyBelowTarget => {
                 warn!(
-                    "power-tuner: stopped at {} kHz below target {} mW (measured {} mW)",
+                    "power-ramp-tuner: stopped at {} kHz below target {} mW (measured {} mW)",
                     limits.max_frequency.khz(),
                     target.mw(),
                     psu.input_power.mw()
@@ -368,7 +368,7 @@ impl PowerTuner {
             TuningAction::RestoreBetterState => {
                 // TODO: Select a stable fallback when tuning deteriorates. The previous state is not necessarily optimal.
                 warn!(
-                    "power-tuner: measured {} mW below {} mW after reaching target; restoring {} kHz / {} mV",
+                    "power-ramp-tuner: measured {} mW below {} mW after reaching target; restoring {} kHz / {} mV",
                     psu.input_power.mw(),
                     limits.min_power_after_target.mw(),
                     last.frequency.khz(),
@@ -381,7 +381,7 @@ impl PowerTuner {
                     .frequency
                     .step_toward(limits.max_frequency, self.board.chip.frequency_step);
                 debug!(
-                    "power-tuner phase A: frequency {} kHz -> {} kHz at {} mV; power {} / {} mW",
+                    "power-ramp-tuner phase A: frequency {} kHz -> {} kHz at {} mV; power {} / {} mW",
                     point.frequency.khz(),
                     frequency.khz(),
                     point.voltage.mv(),
@@ -422,7 +422,7 @@ impl PowerTuner {
     }
 }
 
-impl<const CHAINS: usize> MachineTuner<CHAINS> for PowerTuner {
+impl<const CHAINS: usize> MachineTuner<CHAINS> for PowerRampTuner {
     type PlatformReadings = ();
 
     const TUNERS: &'static [TunerInfo] = &[Self::INFO];
@@ -440,14 +440,14 @@ impl<const CHAINS: usize> MachineTuner<CHAINS> for PowerTuner {
             // `select` answers `None` for a fixed target, so the miner
             // never arrives here; the arm answers the public trait.
             Tuning::Fixed(_) => {
-                warn!("power-tuner: asked to plan for a target it does not serve");
+                warn!("power-ramp-tuner: asked to plan for a target it does not serve");
                 Self::unchanged()
             }
         }
     }
 }
 
-impl<const CHAINS: usize> Tuner<CHAINS> for PowerTuner {
+impl<const CHAINS: usize> Tuner<CHAINS> for PowerRampTuner {
     type Target = PowerTarget;
     type PlatformReadings = ();
 
@@ -460,7 +460,7 @@ impl<const CHAINS: usize> Tuner<CHAINS> for PowerTuner {
             Some(progress) if progress.target == target => progress,
             _ => {
                 let phase = if target.input_power.mw() == 0 {
-                    warn!("power-tuner: zero input-power target; staying at safe boot");
+                    warn!("power-ramp-tuner: zero input-power target; staying at safe boot");
                     Phase::Retreat
                 } else {
                     Phase::Restart
@@ -527,5 +527,5 @@ fn predicted_voltage(target: Power, alpha: f32, frequency: Frequency) -> Voltage
 }
 
 #[cfg(test)]
-#[path = "../tests/power.rs"]
+#[path = "../tests/power_ramp.rs"]
 mod tests;

@@ -427,7 +427,7 @@ tuning-policy envelope, not a chip limit.
   The target frequency is rounded down to the chip's frequency grid.
   Each present chain has its own frequency step.
   The fastest chain limits the voltage on the shared rail.
-- **`PowerTuner`** uses measured PSU input power as its target.
+- **`PowerRampTuner`** uses measured PSU input power as its target.
   It starts at safe boot and adjusts frequency and voltage until a termination condition occurs.
   The theoretical hashrate is one hash for each core in each clock cycle.
   Tuning stops at the frequency where this hashrate gives the target efficiency at the target power.

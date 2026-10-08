@@ -17,7 +17,7 @@
 // to this program, or any part thereof, under any terms, and such a grant
 // shall be considered distinct from the grant above.
 
-//! Behaviour tests for `PowerTuner` over synthetic readings and PSU samples.
+//! Behaviour tests for `PowerRampTuner` over synthetic readings and PSU samples.
 
 use embassy_time::Instant;
 use ubos_asic::BMM101_HASHBOARD;
@@ -25,7 +25,7 @@ use ubos_core::units::{Efficiency, Frequency, Power, Voltage};
 use ubos_psu::PsuReading;
 use ubos_tuner::{ChainReadings, Plan, Readings, Tuner};
 
-use super::{PowerTarget, PowerTuner};
+use super::{PowerRampTuner, PowerTarget};
 
 /// At 40 W, the four BM1362 chips meet this efficiency at 486.38 MHz.
 const TARGET: PowerTarget = power_target(40_000, 40_000);
@@ -86,7 +86,7 @@ fn is_empty(plan: &Plan<1>) -> bool {
 
 #[test]
 fn zero_target_stays_at_safe_boot() {
-    let mut tuner = PowerTuner::new(&BMM101_HASHBOARD);
+    let mut tuner = PowerRampTuner::new(&BMM101_HASHBOARD);
     let mut readings = safe_boot();
     let zero = PowerTarget {
         input_power: Power::from_mw(0),
@@ -101,7 +101,7 @@ fn zero_target_stays_at_safe_boot() {
 
 #[test]
 fn ramp_waits_for_a_sample_taken_after_the_last_command() {
-    let mut tuner = PowerTuner::new(&BMM101_HASHBOARD);
+    let mut tuner = PowerRampTuner::new(&BMM101_HASHBOARD);
     let mut readings = safe_boot();
     let step = BMM101_HASHBOARD.chip.frequency_step;
     let start = frequency(&readings);
@@ -134,7 +134,7 @@ fn ramp_lowers_the_rail_after_reaching_the_target_and_stops_at(
     target: PowerTarget,
     limit: Frequency,
 ) {
-    let mut tuner = PowerTuner::new(&BMM101_HASHBOARD);
+    let mut tuner = PowerRampTuner::new(&BMM101_HASHBOARD);
     let mut readings = safe_boot();
     let mut power = 10_000;
     let mut plan = tuner.step(target, &readings, &());
@@ -167,7 +167,7 @@ fn ramp_stops_at_the_chip_maximum_below_the_efficiency_limit() {
 
 #[test]
 fn excess_power_returns_to_safe_boot_and_ends_the_ramp() {
-    let mut tuner = PowerTuner::new(&BMM101_HASHBOARD);
+    let mut tuner = PowerRampTuner::new(&BMM101_HASHBOARD);
     let mut readings = safe_boot();
     let plan = tuner.step(TARGET, &readings, &());
     apply(&mut readings, &plan, 10_000);
@@ -189,7 +189,7 @@ fn excess_power_returns_to_safe_boot_and_ends_the_ramp() {
 
 #[test]
 fn power_drop_after_the_target_restores_the_previous_point() {
-    let mut tuner = PowerTuner::new(&BMM101_HASHBOARD);
+    let mut tuner = PowerRampTuner::new(&BMM101_HASHBOARD);
     let mut readings = safe_boot();
     let plan = tuner.step(TARGET, &readings, &());
     apply(&mut readings, &plan, TARGET.input_power.mw());
@@ -204,7 +204,7 @@ fn power_drop_after_the_target_restores_the_previous_point() {
 
 #[test]
 fn stale_telemetry_returns_to_safe_boot() {
-    let mut tuner = PowerTuner::new(&BMM101_HASHBOARD);
+    let mut tuner = PowerRampTuner::new(&BMM101_HASHBOARD);
     let mut readings = safe_boot();
     let plan = tuner.step(TARGET, &readings, &());
     apply(&mut readings, &plan, 10_000);
@@ -228,7 +228,7 @@ fn stale_telemetry_returns_to_safe_boot() {
 
 #[test]
 fn a_new_target_restarts_from_safe_boot() {
-    let mut tuner = PowerTuner::new(&BMM101_HASHBOARD);
+    let mut tuner = PowerRampTuner::new(&BMM101_HASHBOARD);
     let mut readings = safe_boot();
     let plan = tuner.step(TARGET, &readings, &());
     apply(&mut readings, &plan, 10_000);

@@ -180,7 +180,7 @@ If no chain becomes present, the miner cuts the rail and retries the machine.
 ### Policy and hardware boundary
 
 `ubos-tuner` defines the shared `Tuner`, `Readings`, and `Plan` types.
-The fixed and power policies stay in `ubos-mining::tuner::fixed` and `ubos-mining::tuner::power`.
+The fixed and power policies stay in `ubos-mining::tuner::fixed` and `ubos-mining::tuner::power_ramp`.
 Each returns commands and a delay without hardware access or asynchronous waits.
 An empty plan leaves the operating point unchanged and schedules another step.
 It does not signal completion to the mining loop.
@@ -190,7 +190,7 @@ The PSU driver records the shared voltage after a successful command.
 The plan executor first lowers frequencies, then changes the rail, then raises frequencies.
 
 The firmware names the tuner set as the `T` of `Miner` and the fifth argument of `miner_task!`.
-Every board in this repository names `Tuners`, which serves both the fixed and the power policy.
+Every board in this repository names `Tuners`, which serves both the fixed and the power-ramp policy.
 The loop drives all connectors through `MachineTuner<CHAINS>`.
 Each present chain supplies its frequency, chip count, hottest temperature, and smoothed hashrate.
 Absent and faulted connectors have `None` entries in `Readings::chains`.

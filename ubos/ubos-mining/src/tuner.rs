@@ -121,35 +121,36 @@ pub trait MachineTuner<const CHAINS: usize>: Sized {
     ) -> Plan<CHAINS>;
 }
 
-/// The fixed and the power policy, for a machine that serves both kinds.
+/// The fixed and the power-ramp policy, for a machine that serves both kinds.
 ///
 /// Each policy is a tuner set of its own that declines the other kind,
 /// for a machine that serves only its kind. This set delegates to them,
 /// so each policy alone decides which kind it serves.
 pub enum Tuners {
     Fixed(fixed::FixedTuner),
-    Power(power::PowerTuner),
+    PowerRamp(power_ramp::PowerRampTuner),
 }
 
 impl<const CHAINS: usize> MachineTuner<CHAINS> for Tuners {
     type PlatformReadings = ();
 
-    const TUNERS: &'static [TunerInfo] = &[fixed::FixedTuner::INFO, power::PowerTuner::INFO];
+    const TUNERS: &'static [TunerInfo] =
+        &[fixed::FixedTuner::INFO, power_ramp::PowerRampTuner::INFO];
 
     fn select(tuning: &Tuning, board: &'static HashboardDescriptor) -> Option<Self> {
         match tuning {
             Tuning::Fixed(_) => MachineTuner::<CHAINS>::select(tuning, board).map(Self::Fixed),
-            Tuning::Power(_) => MachineTuner::<CHAINS>::select(tuning, board).map(Self::Power),
+            Tuning::Power(_) => MachineTuner::<CHAINS>::select(tuning, board).map(Self::PowerRamp),
         }
     }
 
     fn step(&mut self, tuning: &Tuning, readings: &Readings<CHAINS>, (): &()) -> Plan<CHAINS> {
         match self {
             Self::Fixed(tuner) => tuner.step(tuning, readings, &()),
-            Self::Power(tuner) => tuner.step(tuning, readings, &()),
+            Self::PowerRamp(tuner) => tuner.step(tuning, readings, &()),
         }
     }
 }
 
 pub mod fixed;
-pub mod power;
+pub mod power_ramp;

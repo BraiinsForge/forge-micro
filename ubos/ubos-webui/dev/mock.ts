@@ -115,7 +115,7 @@ const ASIC = {
   bounds: {
     frequencyKhz: { start: 200000, end: 700000 },
     voltageMv: { start: 1000, end: 1400 },
-    tuners: [{ Fixed: { name: 'Fixed' } }, { Power: { name: 'Power', readsEfficiency: true } }],
+    tuners: [{ Fixed: { name: 'Fixed' } }, { Power: { name: 'PowerRamp', readsEfficiency: true } }],
   },
 };
 const THERMAL = { bounds: { dangerousEstimatedTempC: { start: 70, end: 110 }, cooldownTempC: { start: 50, end: 90 }, dangerousChipTempC: { start: 90, end: 125 } } };

@@ -168,7 +168,7 @@ pub const BOUNDS: MiningBounds = bounds(
     &[
         TunerInfo::Fixed { name: "Fixed" },
         TunerInfo::Power {
-            name: "Power",
+            name: "PowerRamp",
             reads_efficiency: true,
         },
     ],
