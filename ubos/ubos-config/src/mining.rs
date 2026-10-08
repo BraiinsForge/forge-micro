@@ -142,19 +142,20 @@ pub struct MiningBounds {
 /// Accepted value ranges for [`FrequencyVoltageTarget`] on `board`, and
 /// the machine's `tuners`.
 ///
-/// The voltage ceiling is the board's open-core rail voltage
+/// The frequency range is the chip's own, which the fixed tuner clamps
+/// to. The voltage ceiling is the board's open-core rail voltage
 /// (`HashboardDescriptor::max_rail_voltage`: max chip voltage times the
 /// number of series domains, capped by the PSU). There is no lower
-/// limit, so the range floor is zero. The frequency range is the shared
-/// PLL-calculator span. Each firmware crate builds its own `BOUNDS`
-/// const from this with its explicit board descriptor.
+/// limit, so the voltage floor is zero. Each firmware crate builds its
+/// own `BOUNDS` const from this with its explicit board descriptor.
 #[must_use]
 pub const fn bounds(
     board: &'static HashboardDescriptor,
     tuners: &'static [TunerInfo],
 ) -> MiningBounds {
     MiningBounds {
-        frequency_khz: 50_000..=1_000_000,
+        frequency_khz: board.chip.frequency_range.min().khz()
+            ..=board.chip.frequency_range.max().khz(),
         voltage_mv: 0..=board.max_rail_voltage().mv(),
         tuners,
     }
