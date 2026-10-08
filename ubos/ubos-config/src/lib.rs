@@ -874,13 +874,28 @@ async fn load_initial<S: Storage>(
             return Config::for_board(board, info.default_tuning);
         }
     };
-    let config = match decode_blob::<S::Error>(blob) {
+    let mut config = match decode_blob::<S::Error>(blob) {
         Ok(config) => config,
         Err(error) => {
             log_decode_error(&error);
             return Config::for_board(board, info.default_tuning);
         }
     };
+    // Firmware updates narrow the tuners and ranges a stored tuning
+    // passed. Only the tuning is replaced then, so the operator keeps
+    // the rest of their config.
+    let stored = config.miner.tuning;
+    if info.bounds.tuners.iter().any(|tuner| tuner.reads(&stored)) {
+        config.miner.tuning = stored.clamped(info.bounds);
+        if config.miner.tuning != stored {
+            warn!("config: stored tuning outside the accepted ranges, clamped into them");
+        }
+    } else {
+        warn!(
+            "config: stored tuning selects a tuner this machine does not offer, using the default tuning"
+        );
+        config.miner.tuning = info.default_tuning.tuning(board);
+    }
     if config.validate(info.bounds).is_err() {
         warn!("config: stored config failed validation, using defaults");
         return Config::for_board(board, info.default_tuning);

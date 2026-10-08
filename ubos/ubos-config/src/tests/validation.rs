@@ -579,6 +579,36 @@ fn tuning_not_offered_is_rejected() {
     );
 }
 
+/// Clamping moves each field to the nearest end of its range and keeps
+/// what is inside.
+#[test]
+fn tuning_clamped_into_bounds() {
+    let frequency = MINING_BOUNDS.frequency_khz.clone();
+    let voltage = MINING_BOUNDS.voltage_mv.clone();
+    let high = Tuning::Fixed(FrequencyVoltageTarget {
+        frequency_khz: frequency.end() + 1,
+        voltage_mv: voltage.end() + 1,
+    });
+    assert_eq!(
+        high.clamped(&MINING_BOUNDS),
+        Tuning::Fixed(FrequencyVoltageTarget {
+            frequency_khz: *frequency.end(),
+            voltage_mv: *voltage.end(),
+        })
+    );
+    let low = Tuning::Fixed(FrequencyVoltageTarget {
+        frequency_khz: frequency.start() - 1,
+        voltage_mv: 1_200,
+    });
+    assert_eq!(
+        low.clamped(&MINING_BOUNDS),
+        Tuning::Fixed(FrequencyVoltageTarget {
+            frequency_khz: *frequency.start(),
+            voltage_mv: 1_200,
+        })
+    );
+}
+
 /// Frequency outside the accepted range is rejected.
 ///
 /// One kHz above the chip's validated ceiling of 1000 MHz.

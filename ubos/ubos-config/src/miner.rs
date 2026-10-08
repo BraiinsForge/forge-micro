@@ -82,6 +82,26 @@ impl Tuning {
         }
         Ok(())
     }
+
+    /// This tuning with every field moved to the nearest end of its
+    /// range in `bounds`.
+    ///
+    /// A stored tuning meets ranges the firmware narrowed after it was
+    /// stored. Clamping keeps the operator's choice of tuner and the rest
+    /// of their config, where failing validation would replace it all.
+    #[must_use]
+    pub fn clamped(self, bounds: &MiningBounds) -> Self {
+        let clamp = |value: u32, range: &core::ops::RangeInclusive<u32>| {
+            value.clamp(*range.start(), *range.end())
+        };
+        match self {
+            Self::Fixed(target) => Self::Fixed(FrequencyVoltageTarget {
+                frequency_khz: clamp(target.frequency_khz, &bounds.frequency_khz),
+                voltage_mv: clamp(target.voltage_mv, &bounds.voltage_mv),
+            }),
+            Self::Power(..) => self,
+        }
+    }
 }
 
 /// Miner-level tuning configuration.

@@ -39,8 +39,9 @@ use std::fs;
 use embassy_futures::block_on;
 
 use crate::{
-    Config, DefaultTuning, LOAD_BUFFER_SIZE, decode_blob, factory_reset, file_storage::FileStorage,
-    storage::Storage,
+    Config, DefaultTuning, FrequencyVoltageTarget, LOAD_BUFFER_SIZE, MinerConfig, MiningBounds,
+    MiningInfo, PowerTarget, TunerInfo, Tuning, decode_blob, factory_reset,
+    file_storage::FileStorage, load_initial, storage::Storage,
 };
 
 /// Drive `factory_reset` against empty storage, then reload and decode.
@@ -143,4 +144,96 @@ fn factory_reset_overwrites_existing_config() {
     );
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+static BMM101_INFO: MiningInfo = crate::mining_info(
+    &ubos_asic::BMM101_HASHBOARD,
+    &crate::MINING_BOUNDS,
+    DefaultTuning::Fixed,
+);
+
+static FIXED_ONLY_BOUNDS: MiningBounds = crate::bounds(
+    &ubos_asic::BMM101_HASHBOARD,
+    &[TunerInfo::Fixed { name: "Fixed" }],
+);
+
+static FIXED_ONLY_INFO: MiningInfo = crate::mining_info(
+    &ubos_asic::BMM101_HASHBOARD,
+    &FIXED_ONLY_BOUNDS,
+    DefaultTuning::Fixed,
+);
+
+/// Store `tuning` in a config whose thermal limit differs from the
+/// default, boot it against `info`, and return what was stored and what
+/// boot loaded.
+fn boot_with_stored(name: &str, tuning: Tuning, info: &'static MiningInfo) -> (Config, Config) {
+    let dir = std::env::temp_dir().join(format!(
+        "ubos_config_{name}_{:x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos()),
+    ));
+    let mut storage = FileStorage::new(&dir);
+    let mut stored = Config::default();
+    stored.thermal.dangerous_estimated_temp_c = 85.0;
+    stored.miner.tuning = tuning;
+    let mut buffer = [0u8; LOAD_BUFFER_SIZE];
+    let len = crate::encode_blob(&stored, &mut buffer).expect("BUG: encode_blob failed in test");
+    block_on(storage.store(crate::storage::CONFIG_KEY, &buffer[..len]))
+        .expect("BUG: FileStorage::store failed in test");
+    let loaded = block_on(load_initial(
+        &mut storage,
+        &ubos_asic::BMM101_HASHBOARD,
+        info,
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    (stored, loaded)
+}
+
+/// A stored tuning outside a range is clamped into it at boot, and the
+/// rest of the stored config survives.
+#[test]
+fn load_clamps_stored_tuning_and_keeps_the_rest() {
+    let frequency = crate::MINING_BOUNDS.frequency_khz.clone();
+    let (stored, loaded) = boot_with_stored(
+        "clamp",
+        Tuning::Fixed(FrequencyVoltageTarget {
+            frequency_khz: frequency.end() + 1,
+            voltage_mv: 1_200,
+        }),
+        &BMM101_INFO,
+    );
+    let clamped = Tuning::Fixed(FrequencyVoltageTarget {
+        frequency_khz: *frequency.end(),
+        voltage_mv: 1_200,
+    });
+    assert_eq!(
+        loaded,
+        Config {
+            miner: MinerConfig { tuning: clamped },
+            ..stored
+        }
+    );
+}
+
+/// A stored tuning no listed tuner reads is replaced by the default
+/// tuning at boot, and the rest of the stored config survives.
+#[test]
+fn load_replaces_unoffered_tuning_and_keeps_the_rest() {
+    let (stored, loaded) = boot_with_stored(
+        "unoffered",
+        Tuning::Power(PowerTarget {
+            input_power_mw: 44_000,
+            efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
+        }),
+        &FIXED_ONLY_INFO,
+    );
+    let default = DefaultTuning::Fixed.tuning(&ubos_asic::BMM101_HASHBOARD);
+    assert_eq!(
+        loaded,
+        Config {
+            miner: MinerConfig { tuning: default },
+            ..stored
+        }
+    );
 }
