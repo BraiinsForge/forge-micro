@@ -121,8 +121,8 @@ impl DefaultTuning {
     }
 }
 
-/// Accepted ranges for each [`FrequencyVoltageTarget`] field, and the
-/// tuners a [`Tuning`] may select.
+/// Accepted ranges for each [`Tuning`] field, and the tuners a
+/// [`Tuning`] may select.
 ///
 /// Serializable so API endpoints can return the bounds alongside the
 /// current config without a separate hard-coded schema.
@@ -134,29 +134,61 @@ pub struct MiningBounds {
     pub frequency_khz: RangeInclusive<u32>,
     /// Accepted range for `voltage_mv` in millivolts.
     pub voltage_mv: RangeInclusive<u32>,
+    /// Accepted range for `input_power_mw` in mW. Present exactly when
+    /// one of `tuners` reads a power target.
+    pub input_power_mw: Option<RangeInclusive<u32>>,
     /// The tuners the machine offers, in the order the mining form
     /// shows them.
     pub tuners: &'static [TunerInfo],
 }
 
-/// Accepted value ranges for [`FrequencyVoltageTarget`] on `board`, and
-/// the machine's `tuners`.
+impl MiningBounds {
+    /// Whether a power target may ask for `input_power_mw`.
+    #[must_use]
+    pub const fn accepts_input_power(&self, input_power_mw: u32) -> bool {
+        match &self.input_power_mw {
+            Some(range) => *range.start() <= input_power_mw && input_power_mw <= *range.end(),
+            None => true,
+        }
+    }
+}
+
+/// Accepted value ranges for a [`Tuning`] on `board`, and the machine's
+/// `tuners`.
 ///
 /// The frequency range is the chip's own, which the fixed tuner clamps
 /// to. The voltage ceiling is the board's open-core rail voltage
 /// (`HashboardDescriptor::max_rail_voltage`: max chip voltage times the
 /// number of series domains, capped by the PSU). There is no lower
-/// limit, so the voltage floor is zero. Each firmware crate builds its
-/// own `BOUNDS` const from this with its explicit board descriptor.
+/// limit, so the voltage floor is zero. No descriptor states what the
+/// machine may draw, so the firmware states `input_power_mw` itself.
+/// Each firmware crate builds its own `BOUNDS` const from this with its
+/// explicit board descriptor.
+///
+/// # Panics
+///
+/// When `input_power_mw` is given and no tuner reads a power target, or
+/// a tuner reads one and it is not given, which fails the build of the
+/// `BOUNDS` const.
 #[must_use]
 pub const fn bounds(
     board: &'static HashboardDescriptor,
     tuners: &'static [TunerInfo],
+    input_power_mw: Option<RangeInclusive<u32>>,
 ) -> MiningBounds {
+    let mut index = 0;
+    while index < tuners.len() && !matches!(tuners[index], TunerInfo::Power { .. }) {
+        index += 1;
+    }
+    assert!(
+        (index < tuners.len()) == input_power_mw.is_some(),
+        "BUG: an input-power range is given exactly when a tuner reads a power target"
+    );
     MiningBounds {
         frequency_khz: board.chip.frequency_range.min().khz()
             ..=board.chip.frequency_range.max().khz(),
         voltage_mv: 0..=board.max_rail_voltage().mv(),
+        input_power_mw,
         tuners,
     }
 }
@@ -173,6 +205,7 @@ pub const BOUNDS: MiningBounds = bounds(
             reads_efficiency: true,
         },
     ],
+    Some(19_000..=67_000),
 );
 
 /// Static capability metadata for the ASIC and board.
@@ -210,8 +243,9 @@ pub struct MiningInfo {
 ///
 /// # Panics
 ///
-/// When no tuner in `bounds` reads `default_tuning`, which fails the
-/// build of the `MINING_INFO` const.
+/// When no tuner in `bounds` reads `default_tuning`, or its input power
+/// is outside the accepted range, which fails the build of the
+/// `MINING_INFO` const.
 #[must_use]
 pub const fn mining_info(
     board: &'static HashboardDescriptor,
@@ -227,6 +261,12 @@ pub const fn mining_info(
         index < bounds.tuners.len(),
         "BUG: no tuner reads the default tuning"
     );
+    if let DefaultTuning::Power { input_power_mw } = default_tuning {
+        assert!(
+            bounds.accepts_input_power(input_power_mw),
+            "BUG: the default input power is outside the accepted range"
+        );
+    }
     MiningInfo {
         asic_model: board.chip.asic_model,
         device_model: board.model,

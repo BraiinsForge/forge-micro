@@ -190,7 +190,8 @@ The PSU driver records the shared voltage after a successful command.
 The plan executor first lowers frequencies, then changes the rail, then raises frequencies.
 
 The firmware names the tuner set as the `T` of `Miner` and the fifth argument of `miner_task!`.
-Every board in this repository names `Tuners`, which serves both the fixed and the power-ramp policy.
+The miniminer boards and the host runner name `Tuners`, which serves both the fixed and the power-ramp policy.
+The hashnode and the Forge Axe name `FixedTuner` alone: nobody has measured what they may draw, so they offer no power target.
 The loop drives all connectors through `MachineTuner<CHAINS>`.
 Each present chain supplies its frequency, chip count, hottest temperature, and smoothed hashrate.
 Absent and faulted connectors have `None` entries in `Readings::chains`.
@@ -205,6 +206,7 @@ Both shared policies take `()`, and the five-argument form of the macro supplies
 
 The set lists the tuners it offers in `MachineTuner::TUNERS`: each one's name, the `Tuning` variant it reads, and whether a power tuner reads the efficiency.
 The firmware passes the list to `ubos_config::bounds`, so the config accepts only a tuning one of these tuners reads, and the mining form shows only these tuners and the fields they read.
+The firmware also passes the input-power range a power target may ask for, which no descriptor states.
 The frequency range is the chip's own, and the voltage range runs from zero to the board's rail ceiling.
 A new config starts on the `DefaultTuning` the firmware passes to `ubos_config::mining_info`.
 At boot, a stored tuning outside the accepted ranges is clamped into them, and one that no listed tuner reads is replaced by the default tuning; the rest of the stored config is kept.

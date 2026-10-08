@@ -144,14 +144,16 @@ pub const BOARD: &ubos_asic::HashboardDescriptor = &MACHINE.hashboard;
 pub const CHIP: ubos_asic::Chip = ubos_asic::Chip::Bm1370;
 
 /// The tuners this board runs. The miner builds them, and [`BOUNDS`]
-/// lists them for the config and the mining form.
-pub type TunerSet = ubos_mining::tuner::Tuners;
+/// lists them for the config and the mining form. No power tuner: nobody
+/// has measured what this board may draw.
+pub type TunerSet = ubos_mining::tuner::fixed::FixedTuner;
 
 /// Accepted tuning ranges and tuners for [`BOARD`]; the API validates
 /// against these.
 pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(
     BOARD,
     <TunerSet as ubos_mining::tuner::MachineTuner<CHAINS>>::TUNERS,
+    None,
 );
 
 /// Static mining capability metadata, built from [`BOARD`].

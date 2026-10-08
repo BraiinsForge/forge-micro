@@ -155,6 +155,7 @@ static BMM101_INFO: MiningInfo = crate::mining_info(
 static FIXED_ONLY_BOUNDS: MiningBounds = crate::bounds(
     &ubos_asic::BMM101_HASHBOARD,
     &[TunerInfo::Fixed { name: "Fixed" }],
+    None,
 );
 
 static FIXED_ONLY_INFO: MiningInfo = crate::mining_info(

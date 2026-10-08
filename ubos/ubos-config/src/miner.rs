@@ -73,12 +73,11 @@ impl Tuning {
                     return Err("miner.tuning.Fixed.voltage_mv outside the accepted range");
                 }
             }
-            // A power target has no bound to check here. The range a
-            // machine accepts follows from the supply and the boards it
-            // carries, which `MiningBounds` does not describe, and the
-            // tuner that reads the target is the only thing that knows
-            // it.
-            Self::Power(..) => {}
+            Self::Power(target) => {
+                if !bounds.accepts_input_power(target.input_power_mw) {
+                    return Err("miner.tuning.Power.input_power_mw outside the accepted range");
+                }
+            }
         }
         Ok(())
     }
@@ -99,7 +98,15 @@ impl Tuning {
                 frequency_khz: clamp(target.frequency_khz, &bounds.frequency_khz),
                 voltage_mv: clamp(target.voltage_mv, &bounds.voltage_mv),
             }),
-            Self::Power(..) => self,
+            Self::Power(target) => Self::Power(PowerTarget {
+                input_power_mw: match &bounds.input_power_mw {
+                    Some(range) if !bounds.accepts_input_power(target.input_power_mw) => {
+                        clamp(target.input_power_mw, range)
+                    }
+                    _ => target.input_power_mw,
+                },
+                ..target
+            }),
         }
     }
 }

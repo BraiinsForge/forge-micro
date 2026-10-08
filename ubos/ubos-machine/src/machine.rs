@@ -149,6 +149,10 @@ pub const MINIMINER_STM32F407: MachineDescriptor<BmmPsuDescriptor> =
 pub const MINIMINER_STM32F439: MachineDescriptor<BmmPsuDescriptor> =
     MachineDescriptor::miniminer(CONTROL_BOARD_STM32F439);
 
+/// PSU input power a miniminer's power target may ask for, in mW. Taken
+/// from bosminer's limits for the BMM101 on the same supply.
+pub const MINIMINER_INPUT_POWER_MW: core::ops::RangeInclusive<u32> = 19_000..=67_000;
+
 /// The Hashnode's TMP461 remote diode on the ASIC die plus two TMP102 PCB
 /// sensors. The TMP461 gates thermal shutdown from the real die reading;
 /// the TMP102 pair drives the cooling estimate with a +15 °C PCB-to-die

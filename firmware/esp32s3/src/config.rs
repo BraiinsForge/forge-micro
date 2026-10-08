@@ -161,6 +161,7 @@ pub type TunerSet = ubos_mining::tuner::Tuners;
 pub const BOUNDS: ubos_config::MiningBounds = ubos_config::bounds(
     BOARD,
     <TunerSet as ubos_mining::tuner::MachineTuner<CHAINS>>::TUNERS,
+    Some(ubos_machine::MINIMINER_INPUT_POWER_MW),
 );
 
 /// Static mining capability metadata, built from [`BOARD`].

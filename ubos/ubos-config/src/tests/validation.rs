@@ -565,6 +565,7 @@ fn tuning_not_offered_is_rejected() {
     const FIXED_ONLY: MiningBounds = crate::bounds(
         &ubos_asic::BMM101_HASHBOARD,
         &[TunerInfo::Fixed { name: "Fixed" }],
+        None,
     );
     let mut update = empty_update();
     update.miner = Some(MinerConfig {
@@ -579,12 +580,46 @@ fn tuning_not_offered_is_rejected() {
     );
 }
 
-/// Clamping moves each field to the nearest end of its range and keeps
-/// what is inside.
+/// A power target with `input_power_mw` milliwatts.
+fn power_tuning(input_power_mw: u32) -> Tuning {
+    Tuning::Power(PowerTarget {
+        input_power_mw,
+        efficiency_mj_per_th: core::num::NonZeroU32::new(40_000).expect("nonzero"),
+    })
+}
+
+/// Input power at both ends of the accepted range passes, and one
+/// milliwatt past either end, or zero, is rejected.
+#[test]
+fn tuning_input_power_range() {
+    let range = MINING_BOUNDS
+        .input_power_mw
+        .clone()
+        .expect("a power tuner is listed");
+    for input_power_mw in [*range.start(), *range.end()] {
+        assert_eq!(
+            power_tuning(input_power_mw).validate(&MINING_BOUNDS),
+            Ok(())
+        );
+    }
+    for input_power_mw in [0, range.start() - 1, range.end() + 1] {
+        assert_eq!(
+            power_tuning(input_power_mw).validate(&MINING_BOUNDS),
+            Err("miner.tuning.Power.input_power_mw outside the accepted range")
+        );
+    }
+}
+
+/// Clamping moves each field to the nearest end of its range, keeps
+/// what is inside, and leaves the efficiency alone.
 #[test]
 fn tuning_clamped_into_bounds() {
     let frequency = MINING_BOUNDS.frequency_khz.clone();
     let voltage = MINING_BOUNDS.voltage_mv.clone();
+    let power = MINING_BOUNDS
+        .input_power_mw
+        .clone()
+        .expect("a power tuner is listed");
     let high = Tuning::Fixed(FrequencyVoltageTarget {
         frequency_khz: frequency.end() + 1,
         voltage_mv: voltage.end() + 1,
@@ -606,6 +641,14 @@ fn tuning_clamped_into_bounds() {
             frequency_khz: *frequency.start(),
             voltage_mv: 1_200,
         })
+    );
+    assert_eq!(
+        power_tuning(power.end() + 1).clamped(&MINING_BOUNDS),
+        power_tuning(*power.end())
+    );
+    assert_eq!(
+        power_tuning(0).clamped(&MINING_BOUNDS),
+        power_tuning(*power.start())
     );
 }
 
