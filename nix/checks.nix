@@ -148,8 +148,11 @@ let
       crate = "ubos-http";
       tests = false;
     };
+    # The schema feature adds the JsonSchema derives the OpenAPI
+    # document is built from, so clippy reads them too.
     clippy-ubos-api = {
       crate = "ubos-api";
+      features = [ "schema" ];
       tests = false;
     };
     clippy-ubos-auth.crate = "ubos-auth";
@@ -254,6 +257,7 @@ let
     test-ubos-api = {
       crate = "ubos-api";
       noDefaultFeatures = true;
+      features = [ "schema" ];
     };
     test-ubos-webui.crate = "ubos-webui";
     test-host-runner.crate = "host-runner";

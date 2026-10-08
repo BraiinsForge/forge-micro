@@ -34,6 +34,7 @@ use serde::Serialize;
 /// DHCP returns the current lease. All fields are `None` / empty when
 /// the stack has not yet acquired an address.
 #[derive(Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SystemNetwork<'a> {
     /// Current network mode: `"dhcp"` or `"static"`.
     pub mode: &'a str,
@@ -48,5 +49,6 @@ pub struct SystemNetwork<'a> {
     /// Default gateway as four octets, or `null` when none is configured.
     pub gateway: Option<[u8; 4]>,
     /// DNS resolver addresses; each entry is four octets. Empty when none are configured.
+    #[cfg_attr(feature = "schema", schemars(with = "&[[u8; 4]]"))]
     pub dns: Vec<[u8; 4], 3>,
 }

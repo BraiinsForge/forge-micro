@@ -39,6 +39,7 @@ pub const LABELS: &[&str] = &["hashrate", "temperature", "fan_rpm", "fan_pwm", "
 /// buffer lands, `statistics` is always empty.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SystemStatistics<'response> {
     /// Unix epoch timestamp in milliseconds at the time of the
     /// response; zero if NTP has not yet synchronized.

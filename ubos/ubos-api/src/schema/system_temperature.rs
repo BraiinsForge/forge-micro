@@ -28,6 +28,7 @@ use ubos_config::Source;
 /// Celsius, and one the last sample did not read is `null`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SystemTemperature {
     /// The hottest chip reading, or `null` when the sample read no chip.
     pub chip_max: Option<i32>,

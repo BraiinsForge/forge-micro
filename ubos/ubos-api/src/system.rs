@@ -674,10 +674,12 @@ where
 /// does not support `#[serde(flatten)]`) and adds `confirm_after_switch`.
 /// The caller always sends this field; it is not optional.
 #[derive(serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 struct NetworkPostRequest {
     /// Network mode to apply (DHCP or static).
     mode: ubos_config::NetworkMode,
     /// Desired hostname for the device on the network.
+    #[cfg_attr(feature = "schema", schemars(with = "str"))]
     hostname: heapless::String<{ ubos_config::network::HOSTNAME_MAX }>,
     /// When `true`, arm the 120 s confirm-or-revert window. When `false`,
     /// apply the change live and persist it immediately with no revert.

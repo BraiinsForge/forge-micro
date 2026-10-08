@@ -34,6 +34,7 @@ use serde::Serialize;
 /// clients can reconstruct and verify the block candidate if needed.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SystemScoreboardEntry {
     /// Position in the ranked list, starting at 1.
     pub rank: u8,
@@ -44,6 +45,7 @@ pub struct SystemScoreboardEntry {
     /// Stratum job identifier for this solution.
     pub job_id: u32,
     /// Extranonce2 value used when the solution was found, hex-encoded.
+    #[cfg_attr(feature = "schema", schemars(with = "str"))]
     pub extranonce2: String<32>,
     /// `nTime` field from the solved block header.
     pub ntime: u32,

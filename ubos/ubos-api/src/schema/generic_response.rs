@@ -28,6 +28,7 @@ use serde::Serialize;
 /// or does not perform the requested operation and needs to explain
 /// why in a machine-readable envelope.
 #[derive(Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GenericResponse<'response> {
     /// Short description of the outcome.
     pub message: &'response str,

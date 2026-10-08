@@ -1101,3 +1101,18 @@ fn thermal_clear_starts_whether_or_not_the_operator_paused() {
     );
     assert_eq!(COMMANDS.try_receive(), Ok(ubos_manager::Message::Start));
 }
+
+/// The system info schema carries the camelCase keys the device
+/// serializes, so a client generated from it reads the live body.
+#[cfg(feature = "schema")]
+#[test]
+fn system_info_schema_uses_camel_case() {
+    let schema = schemars::schema_for!(crate::schema::SystemInfo);
+    let value = serde_json::to_value(&schema).expect("schema is JSON");
+    let properties = value["properties"].as_object().expect("root is an object");
+    for key in ["apiVariant", "hwInfo", "uptimeSeconds", "pauseReason"] {
+        assert!(properties.contains_key(key), "missing key {key}");
+    }
+    let hw = &value["$defs"]["HwInfo"]["properties"]["hashboardIds"];
+    assert_eq!(hw["type"], serde_json::json!(["array", "null"]));
+}
