@@ -195,6 +195,8 @@ export interface TunerInfo {
 export interface AsicBounds {
   frequencyKhz: Range;
   voltageMv: Range;
+  /** Absent when no offered tuner reads a power target. */
+  inputPowerMw: Range | null;
   /** The tuners the machine offers, in the order the form shows them. */
   tuners: TunerInfo[];
 }
@@ -202,6 +204,14 @@ export interface AsicBounds {
 // The tuning a new config starts on: the board's fixed operating
 // point, or a power target.
 export type DefaultTuning = 'Fixed' | { Power: { inputPowerMw: number } };
+
+/** The board's defaults, as `/api/system/asic` reports them. */
+export interface AsicDefaults {
+  defaultFrequencyKhz?: number;
+  defaultVoltageMv?: number;
+  defaultEfficiencyMjPerTh?: number;
+  defaultTuning?: DefaultTuning;
+}
 
 export interface ThermalBounds {
   dangerousEstimatedTempC: Range;

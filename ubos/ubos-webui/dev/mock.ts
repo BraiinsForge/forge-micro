@@ -110,11 +110,14 @@ const CONFIG = {
 };
 
 const ASIC = {
+  defaultFrequencyKhz: 525000,
+  defaultVoltageMv: 1400,
   defaultEfficiencyMjPerTh: 40000,
   defaultTuning: 'Fixed',
   bounds: {
     frequencyKhz: { start: 200000, end: 700000 },
     voltageMv: { start: 1000, end: 1400 },
+    inputPowerMw: { start: 19000, end: 67000 },
     tuners: [{ Fixed: { name: 'Fixed' } }, { Power: { name: 'PowerRamp', readsEfficiency: true } }],
   },
 };

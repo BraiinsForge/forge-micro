@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { saveConfig } from '../lib/api';
 import { fmtRange } from '../lib/format';
-import type { AsicBounds, DefaultTuning, MinerConfig, Range, Tuning } from '../lib/types';
+import type { AsicBounds, AsicDefaults, MinerConfig, Range, Tuning } from '../lib/types';
 import Field from './Field';
 
 type TunerMode = 'Fixed' | 'Power';
@@ -11,8 +11,12 @@ type TunerMode = 'Fixed' | 'Power';
 // whole unit the form shows. It is absent until the bounds endpoint
 // answers, and the field then renders with no range at all rather than
 // a half-filled one.
-const scaled = (range?: Range): Partial<Range> =>
+const scaled = (range?: Range | null): Partial<Range> =>
   range ? { start: range.start / 1000, end: range.end / 1000 } : {};
+
+// A value the board states in its milli-unit, as the field's text in
+// the whole unit, or empty when the board states none.
+const fromMilli = (milliValue?: number): string | number => (milliValue == null ? '' : milliValue / 1000);
 
 // A field's value in the milli-unit the board stores. The round is for
 // binary float error and not for the input's step grid, which is
@@ -22,38 +26,34 @@ const milli = (whole: string | number): number => Math.round(+whole * 1000);
 export interface ConfigMiningProps {
   miner?: MinerConfig;
   bounds: Partial<AsicBounds>;
-  /** The board's default efficiency in mJ/TH, as `/api/system/asic` reports it. */
-  defaultEfficiency?: number;
-  /** The tuning a new config starts on, as `/api/system/asic` reports it. */
-  defaultTuning?: DefaultTuning;
+  defaults: AsicDefaults;
 }
 
-export default function ConfigMining({ miner, bounds, defaultEfficiency, defaultTuning }: ConfigMiningProps) {
+export default function ConfigMining({ miner, bounds, defaults }: ConfigMiningProps) {
   const fixed = miner?.tuning.Fixed;
   const power = miner?.tuning.Power;
   const tuners = bounds.tuners ?? [];
   const fixedTuner = tuners.find((tuner) => tuner.Fixed)?.Fixed;
   const powerTuner = tuners.find((tuner) => tuner.Power)?.Power;
   const [mode, setMode] = useState<TunerMode>(() => (power ? 'Power' : 'Fixed'));
-  const [freqMhz, setFreqMhz] = useState<string | number>(() =>
-    fixed ? fixed.frequency_khz / 1000 : '',
+  // Each field offers the board's default until the operator stores
+  // their own. The board states no default input power unless it
+  // starts on a power target, so that field may start empty.
+  const [freqMhz, setFreqMhz] = useState(() => fromMilli(fixed?.frequency_khz ?? defaults.defaultFrequencyKhz));
+  const [voltV, setVoltV] = useState(() => fromMilli(fixed?.voltage_mv ?? defaults.defaultVoltageMv));
+  const [inputPowerW, setInputPowerW] = useState(() =>
+    fromMilli(
+      power?.input_power_mw ??
+        (typeof defaults.defaultTuning === 'object' ? defaults.defaultTuning.Power.inputPowerMw : undefined),
+    ),
   );
-  const [voltV, setVoltV] = useState<string | number>(() => (fixed ? fixed.voltage_mv / 1000 : ''));
-  // The machine's default power target is offered until the operator
-  // stores their own.
-  const [inputPowerW, setInputPowerW] = useState<string | number>(() => {
-    const defaultMw = typeof defaultTuning === 'object' ? defaultTuning.Power.inputPowerMw : undefined;
-    const mw = power ? power.input_power_mw : defaultMw;
-    return mw == null ? '' : mw / 1000;
-  });
-  // The board's default is offered until the operator stores their own.
-  const [efficiencyJPerTh, setEfficiencyJPerTh] = useState<string | number>(() => {
-    const mjPerTh = power ? power.efficiency_mj_per_th : defaultEfficiency;
-    return mjPerTh == null ? '' : mjPerTh / 1000;
-  });
+  const [efficiencyJPerTh, setEfficiencyJPerTh] = useState(() =>
+    fromMilli(power?.efficiency_mj_per_th ?? defaults.defaultEfficiencyMjPerTh),
+  );
 
   const freq = scaled(bounds.frequencyKhz);
   const volt = scaled(bounds.voltageMv);
+  const inputPower = scaled(bounds.inputPowerMw);
   const isPower = mode === 'Power';
 
   // The selected tuner's fields are required and range-checked,
@@ -140,12 +140,14 @@ export default function ConfigMining({ miner, bounds, defaultEfficiency, default
             label="Input power"
             off={!isPower}
             disabled={!isPower}
+            desc={fmtRange(inputPower.start, inputPower.end)}
             unit="W"
             value={inputPowerW}
             onInput={(e) => setInputPowerW(e.currentTarget.value)}
             type="number"
             step="0.001"
-            min="0"
+            min={inputPower.start}
+            max={inputPower.end}
             required
           />
         ) : null}
